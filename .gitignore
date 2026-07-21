@@ -216,3 +216,21 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+# Node
+node_modules/
+dist/
+.vite/
+# Env & secrets
+.env
+*.env
+!.env.example
+# Data
+*.csv
+*.db
+data/*.csv
+# ML
+mlruns/
+*.pt
+*.pkl
+# OS
+.DS_Store
