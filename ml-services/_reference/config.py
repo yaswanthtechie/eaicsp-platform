@@ -1,0 +1,13 @@
+MODEL_NAME = "iris_classifier"
+
+EXPERIMENT_NAME = "Iris_Reference"
+
+MODEL_VERSION = "2.0.0"
+
+RANDOM_STATE = 42
+
+TEST_SIZE = 0.2
+
+N_ESTIMATORS = 100
+
+MAX_DEPTH = 5
