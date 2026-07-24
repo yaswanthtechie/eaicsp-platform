@@ -164,46 +164,33 @@ function App() {
 
       {/* KPI Cards */}
 
-      <h2>KPI Cards</h2>
+<h2>KPI Cards</h2>
 
-      <div style={{ display: "flex", gap: "20px", flexWrap: "wrap" }}>
-        <KpiCard
-          label="Forecast Accuracy"
-          value="92.4%"
-          delta={2.1}
-        />
+<div
+  style={{
+    display: "flex",
+    gap: "20px",
+    flexWrap: "wrap",
+  }}
+>
+  <KpiCard
+    label="Forecast Accuracy"
+    value="92.4%"
+    delta="▲ 2.1%"
+  />
 
-        <KpiCard
-          label="Revenue"
-          value="₹5.2M"
-          delta={5.4}
-        />
+  <KpiCard
+    label="Revenue"
+    value="₹5.2M"
+    delta="▲ 5.4%"
+  />
 
-        <KpiCard
-          label="Inventory"
-          value="120"
-          delta={-3.5}
-        />
-      </div>
-
-      {/* Card */}
-
-      <h2>Card</h2>
-
-      <Card
-        title="Inventory"
-        actions={
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => alert("Refresh")}
-          >
-            Refresh
-          </Button>
-        }
-      >
-        <Badge status="success">Healthy</Badge>
-      </Card>
+  <KpiCard
+    label="Inventory"
+    value="120"
+    delta="▼ 3.5%"
+  />
+</div>
 
       {/* Modal */}
 
@@ -309,11 +296,12 @@ function App() {
       <h2>Table</h2>
 
       <Table
-        columns={columns}
-        data={inventoryData}
-        loading={false}
-        emptyMessage="Inventory is empty"
-      />
+  columns={columns}
+  data={inventoryData}
+  rowKey={(row) => row.product}
+  loading={false}
+  emptyMessage="Inventory is empty"
+/>
     </div>
   );
 }

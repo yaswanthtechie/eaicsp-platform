@@ -4,7 +4,7 @@ import { colors, space, radius } from "../tokens";
 type KpiCardProps = {
   label: string;
   value: string;
-  delta?: number;
+  delta?: string;
 };
 
 export function KpiCard({
@@ -15,9 +15,9 @@ export function KpiCard({
   const deltaColor =
     delta === undefined
       ? colors.textMuted
-      : delta >= 0
-      ? colors.success
-      : colors.danger;
+      : delta.startsWith("-")
+      ? colors.danger
+      : colors.success;
 
   return (
     <div
@@ -26,14 +26,15 @@ export function KpiCard({
         border: `1px solid ${colors.border}`,
         borderRadius: radius.md,
         padding: space.md,
-        width: "250px",
+        width: "100%",
+        maxWidth: 250,
       }}
     >
       <p
         style={{
           margin: 0,
           color: colors.textMuted,
-          fontSize: "14px",
+          fontSize: 14,
         }}
       >
         {label}
@@ -48,7 +49,7 @@ export function KpiCard({
         {value}
       </h2>
 
-      {delta !== undefined && (
+      {delta && (
         <p
           style={{
             margin: 0,
@@ -56,7 +57,7 @@ export function KpiCard({
             fontWeight: "bold",
           }}
         >
-          {delta >= 0 ? "▲" : "▼"} {Math.abs(delta)}%
+          {delta}
         </p>
       )}
     </div>

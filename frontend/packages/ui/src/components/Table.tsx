@@ -1,5 +1,6 @@
 import React from "react";
 import { colors, space, radius } from "../tokens";
+import { Spinner } from "./Spinner";
 
 export interface Column<T> {
   key: keyof T;
@@ -10,6 +11,7 @@ export interface Column<T> {
 type TableProps<T> = {
   columns: Column<T>[];
   data: T[];
+  rowKey: (row: T) => string | number;
   loading?: boolean;
   emptyMessage?: string;
 };
@@ -17,11 +19,12 @@ type TableProps<T> = {
 export function Table<T>({
   columns,
   data,
+  rowKey,
   loading = false,
   emptyMessage = "No data available",
 }: TableProps<T>) {
   if (loading) {
-    return <p>Loading...</p>;
+    return <Spinner />;
   }
 
   if (data.length === 0) {
@@ -57,8 +60,8 @@ export function Table<T>({
       </thead>
 
       <tbody>
-        {data.map((row, rowIndex) => (
-          <tr key={rowIndex}>
+        {data.map((row) => (
+          <tr key={rowKey(row)}>
             {columns.map((column) => (
               <td
                 key={String(column.key)}
@@ -69,7 +72,7 @@ export function Table<T>({
               >
                 {column.render
                   ? column.render(row)
-                  : String(row[column.key])}
+                  : String(row[column.key] ?? "")}
               </td>
             ))}
           </tr>

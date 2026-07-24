@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { colors, space, radius } from "../tokens";
+import { useEffect, useRef } from "react";
+import { colors, space, radius, statusColors } from "../tokens";
 
 export interface ToastProps {
   open: boolean;
@@ -16,40 +16,44 @@ export function Toast({
   duration = 3000,
   onClose,
 }: ToastProps) {
+  const onCloseRef = useRef(onClose);
+
   useEffect(() => {
-    if (!open) return;
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
 
     const timer = setTimeout(() => {
-      onClose();
+      onCloseRef.current();
     }, duration);
 
     return () => clearTimeout(timer);
-  }, [open, duration, onClose]);
+  }, [open, duration]);
 
   if (!open) {
     return null;
   }
 
   const backgroundColor =
-    type === "success"
-      ? colors.success
-      : type === "warning"
-      ? colors.warning
-      : type === "danger"
-      ? colors.danger
-      : colors.primary;
+    type === "info"
+      ? colors.primary
+      : statusColors[type];
 
   return (
     <div
       style={{
         position: "fixed",
-        top: "20px",
-        right: "20px",
+        top: 20,
+        right: 20,
         backgroundColor,
-        color: "#fff",
+        color: colors.textInverse,
         padding: `${space.md}px ${space.lg}px`,
         borderRadius: radius.md,
-        boxShadow: "0 4px 10px rgba(0,0,0,0.2)",
+        boxShadow: colors.shadow,
         zIndex: 2000,
         fontWeight: "bold",
       }}

@@ -33,7 +33,7 @@ Each component is designed to be reusable and can be imported into other React a
 - No use of `any`
 - Reusable UI components
 - Shared design tokens (`tokens.ts`)
-- Mock data stored in `src/mocks`
+- Mock data stored in App.tsx
 - Showcase page demonstrating all components
 - Loading and empty states where applicable
 

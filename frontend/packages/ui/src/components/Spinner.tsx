@@ -1,4 +1,6 @@
+
 import { colors } from "../tokens";
+import "./Spinner.css";
 
 export interface SpinnerProps {
   size?: "sm" | "md" | "lg";
@@ -16,18 +18,7 @@ export function Spinner({
 
   return (
     <>
-      <style>
-        {`
-          @keyframes spin {
-            from {
-              transform: rotate(0deg);
-            }
-            to {
-              transform: rotate(360deg);
-            }
-          }
-        `}
-      </style>
+ 
 
       <div
         style={{
