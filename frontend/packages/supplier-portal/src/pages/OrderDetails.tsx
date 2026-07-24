@@ -9,6 +9,7 @@ import Loading from "../components/Loading";
 import ErrorState from "../components/ErrorState";
 
 import type { PurchaseOrder } from "../types/po";
+import { toast } from "react-toastify";
 
 const OrderDetails = () => {
   const { poNumber } = useParams();
@@ -16,26 +17,23 @@ const OrderDetails = () => {
 
   const { data, loading, error } = useQuery(GET_PURCHASE_ORDERS);
 
-  const [acknowledgePurchaseOrder] = useMutation(
-    ACKNOWLEDGE_PO,
-    {
-      refetchQueries: [
-        {
-          query: GET_PURCHASE_ORDERS,
-        },
-      ],
-      awaitRefetchQueries: true,
-    }
-  );
+  const [acknowledgePurchaseOrder] = useMutation(ACKNOWLEDGE_PO);
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: "INR",
+    }).format(amount);
+  };
 
   if (loading) return <Loading />;
 
   if (error) return <ErrorState />;
 
-  const orders: PurchaseOrder[] = data.purchaseOrders;
+  const orders: PurchaseOrder[] = data?.purchaseOrders || [];
 
   const order = orders.find(
-    (po: PurchaseOrder) => po.po_number === poNumber
+    (po) => po.po_number === poNumber
   );
 
   if (!order) {
@@ -50,30 +48,62 @@ const OrderDetails = () => {
     );
   }
 
+  const total = order.items.reduce(
+    (sum, item) => sum + item.quantity * item.unit_price,
+    0
+  );
+
   const acknowledgePO = async () => {
     try {
       await acknowledgePurchaseOrder({
         variables: {
           po_number: poNumber,
         },
+
+        optimisticResponse: {
+          acknowledgePurchaseOrder: {
+            __typename: "PurchaseOrder",
+            ...order,
+            status: "acknowledged",
+          },
+        },
+
+        update(cache, { data }) {
+          const existing = cache.readQuery<{
+            purchaseOrders: PurchaseOrder[];
+          }>({
+            query: GET_PURCHASE_ORDERS,
+          });
+
+          if (!existing) return;
+
+          cache.writeQuery({
+            query: GET_PURCHASE_ORDERS,
+            data: {
+              purchaseOrders: existing.purchaseOrders.map((po) =>
+                po.po_number === poNumber
+                  ? data?.acknowledgePurchaseOrder ?? po
+                  : po
+              ),
+            },
+          });
+        },
       });
 
-      alert("Purchase Order Acknowledged Successfully");
+      toast.success("Purchase Order Acknowledged Successfully");
 
       navigate("/orders");
     } catch (err) {
-      alert("Failed to acknowledge Purchase Order");
+      toast.error("Failed to acknowledge Purchase Order");
       console.error(err);
     }
   };
 
   return (
     <div className="details">
-
       <h2>Purchase Order Details</h2>
 
       <div className="detail-card">
-
         <p>
           <strong>PO Number :</strong> {order.po_number}
         </p>
@@ -84,24 +114,21 @@ const OrderDetails = () => {
 
         <p>
           <strong>Expected Delivery :</strong>{" "}
-          {order.expected_delivery}
+          {new Date(order.expected_delivery).toLocaleDateString("en-IN")}
         </p>
 
         <div style={{ margin: "15px 0" }}>
           <StatusBadge status={order.status} />
         </div>
-
       </div>
 
       <h3>Items</h3>
 
       {order.items.map((item) => (
-
         <div
           key={item.sku}
           className="item-card"
         >
-
           <h4>{item.product_name}</h4>
 
           <p>
@@ -113,29 +140,28 @@ const OrderDetails = () => {
           </p>
 
           <p>
-            <strong>Unit Price :</strong> ₹{item.unit_price}
+            <strong>Unit Price :</strong>{" "}
+            {formatCurrency(item.unit_price)}
           </p>
 
           <p>
-            <strong>Subtotal :</strong> ₹
-            {item.quantity * item.unit_price}
+            <strong>Subtotal :</strong>{" "}
+            {formatCurrency(item.quantity * item.unit_price)}
           </p>
-
         </div>
-
       ))}
 
-      <h2>Total : ₹{order.total_amount}</h2>
+      <h2>
+        Total : {formatCurrency(total)}
+      </h2>
 
       {order.status === "sent" && (
-
         <button
           className="acknowledge-btn"
           onClick={acknowledgePO}
         >
           Acknowledge
         </button>
-
       )}
 
       <button
@@ -144,7 +170,6 @@ const OrderDetails = () => {
       >
         Back to Orders
       </button>
-
     </div>
   );
 };

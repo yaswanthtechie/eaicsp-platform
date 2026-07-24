@@ -112,54 +112,75 @@ const purchaseOrders = [
     ],
   },
 
-  {
-    po_number: "PO1006",
-    supplier_id: "SUP005",
-    status: "fulfilled",
-    total_amount: 30000,
-    expected_delivery: "2026-07-20",
-    items: [
-      {
-        sku: "SKU011",
-        product_name: "Desktop PC",
-        quantity: 3,
-        unit_price: 10000,
-      },
-    ],
-  },
+{
+  po_number: "PO1006",
+  supplier_id: "SUP005",
+  status: "fulfilled",
+  total_amount: 30000,
+  expected_delivery: "2026-07-20",
+  items: [
+    {
+      sku: "SKU011",
+      product_name: "Desktop PC",
+      quantity: 3,
+      unit_price: 10000,
+    },
+    {
+      sku: "SKU014",
+      product_name: "Keyboard",
+      quantity: 5,
+      unit_price: 500,
+    },
+  ],
+},
 
-  {
-    po_number: "PO1007",
-    supplier_id: "SUP006",
-    status: "fulfilled",
-    total_amount: 9000,
-    expected_delivery: "2026-07-22",
-    items: [
-      {
-        sku: "SKU012",
-        product_name: "Router",
-        quantity: 3,
-        unit_price: 3000,
-      },
-    ],
-  },
+{
+  po_number: "PO1007",
+  supplier_id: "SUP006",
+  status: "fulfilled",
+  total_amount: 9000,
+  expected_delivery: "2026-07-22",
+  items: [
+    {
+      sku: "SKU012",
+      product_name: "Router",
+      quantity: 3,
+      unit_price: 3000,
+    },
+    {
+      sku: "SKU015",
+      product_name: "Network Cable",
+      quantity: 10,
+      unit_price: 100,
+    },
+  ],
+},
+{
+  po_number: "PO1008",
+  supplier_id: "SUP007",
+  status: "cancelled",
+  total_amount: 12000,
+  expected_delivery: "2026-08-25",
+  items: [
+    {
+      sku: "SKU013",
+      product_name: "Projector",
+      quantity: 1,
+      unit_price: 12000,
+    },
+    {
+      sku: "SKU016",
+      product_name: "Projector Stand",
+      quantity: 2,
+      unit_price: 1000,
+    },
+  ],
+},
 
-  {
-    po_number: "PO1008",
-    supplier_id: "SUP007",
-    status: "cancelled",
-    total_amount: 12000,
-    expected_delivery: "2026-08-25",
-    items: [
-      {
-        sku: "SKU013",
-        product_name: "Projector",
-        quantity: 1,
-        unit_price: 12000,
-      },
-    ],
-  },
+
 ];
+
+const invoices = [];
 
 const typeDefs = `#graphql
 
@@ -174,6 +195,7 @@ quantity:Int!
 unit_price:Int!
 
 }
+
 
 type PurchaseOrder{
 
@@ -190,6 +212,17 @@ expected_delivery:String!
 items:[POItem!]!
 
 }
+type Invoice{
+
+invoiceNumber:String!
+
+poReference:String!
+
+amount:Int!
+
+date:String!
+
+}
 
 type Query{
 
@@ -199,7 +232,16 @@ purchaseOrders:[PurchaseOrder!]!
 
 type Mutation{
 
-acknowledgePurchaseOrder(po_number:String!):PurchaseOrder
+acknowledgePurchaseOrder(
+po_number:String!
+):PurchaseOrder
+
+submitInvoice(
+invoiceNumber:String!
+poReference:String!
+amount:Int!
+date:String!
+):Invoice!
 
 }
 
@@ -217,23 +259,50 @@ return purchaseOrders;
 
 },
 
-Mutation:{
+Mutation: {
 
-acknowledgePurchaseOrder(_, { po_number }){
+  acknowledgePurchaseOrder(_, { po_number }) {
 
-const order = purchaseOrders.find(
-po => po.po_number === po_number
-);
+    const order = purchaseOrders.find(
+      (po) => po.po_number === po_number
+    );
 
-if(order){
+    if (!order) {
+      throw new Error("Purchase Order not found");
+    }
 
-order.status="acknowledged";
+    if (order.status !== "sent") {
+      throw new Error(
+        "Only sent purchase orders can be acknowledged"
+      );
+    }
 
-}
+    order.status = "acknowledged";
 
-return order;
+    return order;
+  },
 
-},
+  submitInvoice(
+    _,
+    {
+      invoiceNumber,
+      poReference,
+      amount,
+      date,
+    }
+  ) {
+
+    const invoice = {
+      invoiceNumber,
+      poReference,
+      amount,
+      date,
+    };
+
+    invoices.push(invoice);
+
+    return invoice;
+  },
 
 },
 
@@ -247,14 +316,12 @@ resolvers,
 
 });
 
-startStandaloneServer(server,{
+const PORT = process.env.PORT || 4000;
 
-listen:{port:4000},
-
-}).then(({url})=>{
-
-console.log(`Server Ready at ${url}`);
-
+startStandaloneServer(server, {
+  listen: { port: PORT },
+}).then(({ url }) => {
+  console.log(`Server Ready at ${url}`);
 });
 
 

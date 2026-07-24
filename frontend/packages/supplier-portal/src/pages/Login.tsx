@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { TOKEN_KEY } from "../constants/storage";
 
 const Login = () => {
   const navigate = useNavigate();
@@ -36,7 +37,7 @@ const Login = () => {
 
     if (!validate()) return;
 
-    localStorage.setItem("token", "dummy-token");
+    localStorage.setItem(TOKEN_KEY, "dummy-token");
 
     navigate("/orders");
   };

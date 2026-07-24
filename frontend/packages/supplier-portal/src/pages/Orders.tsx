@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { useQuery } from "@apollo/client";
+import { useApolloClient, useQuery } from "@apollo/client";
 
 import { GET_PURCHASE_ORDERS } from "../graphql/queries";
 
@@ -9,9 +9,12 @@ import POCard from "../components/POCard";
 import EmptyState from "../components/EmptyState";
 import ErrorState from "../components/ErrorState";
 import Loading from "../components/Loading";
+import { TOKEN_KEY } from "../constants/storage";
+import type { PurchaseOrder } from "../types/po";
 
 const Orders = () => {
   const navigate = useNavigate();
+  const apolloClient = useApolloClient();
 
   const [filter, setFilter] = useState("All");
 
@@ -22,28 +25,29 @@ const Orders = () => {
 
   if (error) return <ErrorState />;
 
-  const orders = data?.purchaseOrders || [];
+  const orders: PurchaseOrder[] = data?.purchaseOrders || [];
 
   const filteredOrders =
     filter === "All"
       ? orders
       : orders.filter(
-          (po: any) =>
+          (po: PurchaseOrder) =>
             po.status.toLowerCase() === filter.toLowerCase()
         );
 
-  const handleLogout = () => {
-    localStorage.removeItem("token");
+  const handleLogout = async () => {
+    localStorage.removeItem(TOKEN_KEY);
+
+    await apolloClient.clearStore();
+
     navigate("/login");
   };
 
   return (
     <div className="orders">
-
       <h1>Purchase Orders</h1>
 
       <div className="top-buttons">
-
         <button
           className="invoice-btn"
           onClick={() => navigate("/invoices/new")}
@@ -57,13 +61,10 @@ const Orders = () => {
         >
           Logout
         </button>
-
       </div>
 
       <div className="tabs">
-
         {["All", "Sent", "Acknowledged", "Fulfilled"].map((tab) => (
-
           <button
             key={tab}
             className={filter === tab ? "active-tab" : ""}
@@ -71,22 +72,19 @@ const Orders = () => {
           >
             {tab}
           </button>
-
         ))}
-
       </div>
 
       {filteredOrders.length === 0 ? (
         <EmptyState />
       ) : (
-        filteredOrders.map((order: any) => (
+        filteredOrders.map((order: PurchaseOrder) => (
           <POCard
             key={order.po_number}
             order={order}
           />
         ))
       )}
-
     </div>
   );
 };

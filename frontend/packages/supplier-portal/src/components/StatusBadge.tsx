@@ -1,28 +1,42 @@
 import type { POStatus } from "../types/po";
+import { colors } from "../tokens";
 
 interface Props {
   status: POStatus;
 }
 
 const StatusBadge = ({ status }: Props) => {
+
   const getColor = () => {
     switch (status) {
       case "sent":
-        return "#F59E0B";
+        return colors.warning;
 
       case "acknowledged":
-        return "#3B82F6";
+        return colors.primary;
 
       case "fulfilled":
-        return "#10B981";
+        return colors.success;
 
       case "cancelled":
-        return "#EF4444";
+        return colors.danger;
 
       default:
-        return "#8B95A8";
+        return colors.textMuted;
     }
   };
+
+
+  const getTextColor = () => {
+    switch (status) {
+      case "sent":
+        return "#000000";
+
+      default:
+        return colors.text;
+    }
+  };
+
 
   return (
     <span
@@ -31,7 +45,8 @@ const StatusBadge = ({ status }: Props) => {
         padding: "4px 10px",
         borderRadius: 8,
         fontSize: 12,
-        color: "#fff",
+        color: getTextColor(),
+        fontWeight: 600,
       }}
     >
       {status.toUpperCase()}

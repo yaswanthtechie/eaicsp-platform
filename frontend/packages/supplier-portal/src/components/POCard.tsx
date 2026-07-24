@@ -7,6 +7,14 @@ interface Props {
 }
 
 const POCard = ({ order }: Props) => {
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: "INR",
+    }).format(amount);
+  };
+
   return (
     <div className="card">
 
@@ -18,9 +26,14 @@ const POCard = ({ order }: Props) => {
 
       </div>
 
-      <p>Total : ₹{order.total_amount}</p>
+      <p>
+        Total : {formatCurrency(order.total_amount)}
+      </p>
 
-      <p>Delivery : {order.expected_delivery}</p>
+      <p>
+        Delivery :{" "}
+        {new Date(order.expected_delivery).toLocaleDateString("en-IN")}
+      </p>
 
       <Link to={`/orders/${order.po_number}`}>
         <button>View Details</button>
