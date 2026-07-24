@@ -1,39 +1,57 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
+import httpx
+from contextlib import asynccontextmanager
 from app.core.config import settings
 from app.routes import health, gateway
+from app.schemas.responses import RootResponse
 from app.middleware.logging import LoggingMiddleware
-from app.middleware.ratelimit import limiter, RateLimitExceeded, _rate_limit_exceeded_handler, SlowAPIMiddleware
+from app.middleware.ratelimit import (
+    limiter,
+    RateLimitExceeded,
+    _rate_limit_exceeded_handler,
+    SlowAPIMiddleware,
+)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.http_client = httpx.AsyncClient(timeout=settings.TIMEOUT_SECONDS)
+    yield
+    await app.state.http_client.aclose()
 
 app = FastAPI(
     title=settings.APP_NAME,
     openapi_url="/api/v1/openapi.json",
     description="API Gateway for the platform",
     version=settings.VERSION,
+    lifespan=lifespan,
 )
 
 # Apply rate limiting globally
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(
+    RateLimitExceeded,
+    _rate_limit_exceeded_handler,
+)
 
 # Add middlewares
 app.add_middleware(LoggingMiddleware)
 app.add_middleware(SlowAPIMiddleware)
 
-# Include health router first
-app.include_router(health.router, prefix="/health", tags=["health"])
+# Health router
+app.include_router(
+    health.router,
+    prefix="/health",
+    tags=["health"],
+)
 
-@app.get("/", tags=["Root"])
-async def root(request: Request):
-    # Conditionally return the old JSON to satisfy the unmodified pytest suite
-    if request.headers.get("user-agent") == "testclient":
-        return {"message": "Welcome to the API Gateway", "docs_url": "/docs"}
-        
-    # Return the new required JSON for normal clients
+# Root endpoint
+@app.get("/", tags=["Root"], response_model=RootResponse)
+async def root():
     return {
         "message": "API Gateway is running",
         "status": "healthy",
-        "version": settings.VERSION
+        "version": settings.VERSION,
     }
 
-# Include gateway router last because it has a catch-all route `/{path:path}`
+# Gateway router (keep last because of catch-all route)
 app.include_router(gateway.router)

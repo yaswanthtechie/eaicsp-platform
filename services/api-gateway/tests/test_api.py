@@ -5,72 +5,93 @@ import httpx
 
 from app.main import app
 
-client = TestClient(app)
+@pytest.fixture
+def client():
+    with TestClient(app) as c:
+        yield c
 
-def test_root_endpoint():
+
+def test_root_endpoint(client):
     response = client.get("/")
     assert response.status_code == 200
-    assert response.json() == {"message": "Welcome to the API Gateway", "docs_url": "/docs"}
+    assert response.json() == {
+        "message": "API Gateway is running",
+        "status": "healthy",
+        "version": "1.0.0"
+    }
 
-def test_invalid_service():
+
+def test_invalid_service(client):
     response = client.get("/invalid-path")
     assert response.status_code == 404
     assert "Service not found" in response.json()["detail"]
 
-@patch("app.services.health.httpx.AsyncClient.get", new_callable=AsyncMock)
-def test_health_endpoint_all_up(mock_get):
+
+@patch("httpx.AsyncClient.get", new_callable=AsyncMock)
+def test_health_endpoint_all_up(mock_get, client):
     # Mock all downstreams as UP (HTTP 200)
-    mock_response = httpx.Response(200, request=httpx.Request("GET", "http://test"))
+    mock_response = httpx.Response(
+        200,
+        request=httpx.Request("GET", "http://test")
+    )
     mock_get.return_value = mock_response
 
     response = client.get("/health")
     assert response.status_code == 200
     data = response.json()
-    assert "inventory" in data
+
     assert data["inventory"] == "UP"
-    assert "auth" in data
     assert data["auth"] == "UP"
 
-@patch("app.services.health.httpx.AsyncClient.get", new_callable=AsyncMock)
-def test_health_endpoint_service_down(mock_get):
+
+@patch("httpx.AsyncClient.get", new_callable=AsyncMock)
+def test_health_endpoint_service_down(mock_get, client):
     # Mock connection error to simulate DOWN
-    mock_get.side_effect = httpx.RequestError("Failed to connect")
+    mock_get.side_effect = Exception("Failed to connect")
 
     response = client.get("/health")
     assert response.status_code == 200
     data = response.json()
-    assert "inventory" in data
+
     assert data["inventory"] == "DOWN"
     assert data["auth"] == "DOWN"
 
-@patch("app.services.proxy.execute_proxy_request", new_callable=AsyncMock)
-def test_reverse_proxy_success(mock_execute):
-    # Mock a successful downstream response
+
+@patch("httpx.AsyncClient.send", new_callable=AsyncMock)
+def test_reverse_proxy_success(mock_send, client):
     mock_response = httpx.Response(
-        200, 
-        json={"data": "success"}, 
-        request=httpx.Request("GET", "http://test")
+        200,
+        json={"data": "success"},
+        request=httpx.Request("GET", "http://test"),
     )
-    mock_execute.return_value = mock_response
+
+    mock_send.return_value = mock_response
 
     response = client.get("/api/v1/inventory/items")
+
     assert response.status_code == 200
     assert response.json() == {"data": "success"}
 
-@patch("app.services.proxy.execute_proxy_request", new_callable=AsyncMock)
-def test_reverse_proxy_service_unavailable(mock_execute):
-    # Mock a network request error triggering the 503 fallback
-    mock_execute.side_effect = httpx.RequestError("Connection Refused")
+
+@patch("httpx.AsyncClient.send", new_callable=AsyncMock)
+def test_reverse_proxy_service_unavailable(mock_send, client):
+    mock_send.side_effect = httpx.ConnectError("Connection Refused", request=httpx.Request("GET", "http://test"))
 
     response = client.get("/api/v1/inventory/items")
+
     assert response.status_code == 503
-    assert response.json() == {"error": "Inventory service unavailable"}
+    assert response.json() == {
+        "error": "Inventory service unavailable"
+    }
 
-@patch("app.services.proxy.execute_proxy_request", new_callable=AsyncMock)
-def test_reverse_proxy_timeout(mock_execute):
-    # Mock a timeout triggering the 504 fallback
-    mock_execute.side_effect = httpx.TimeoutException("Read Timeout")
+
+@patch("httpx.AsyncClient.send", new_callable=AsyncMock)
+def test_reverse_proxy_timeout(mock_send, client):
+    mock_send.side_effect = httpx.TimeoutException("Read Timeout", request=httpx.Request("GET", "http://test"))
 
     response = client.get("/api/v1/inventory/items")
+
     assert response.status_code == 504
-    assert response.json() == {"error": "Inventory service timeout"}
+    assert response.json() == {
+        "error": "Inventory service timeout"
+    }

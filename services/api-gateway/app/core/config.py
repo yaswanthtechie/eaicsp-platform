@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Dict
 
 class Settings(BaseSettings):
@@ -19,9 +19,9 @@ class Settings(BaseSettings):
     TIMEOUT_SECONDS: int = 5
     MAX_RETRIES: int = 3
 
-    class Config:
-        env_file = ".env"
-        # In pydantic v2 we can also use model_config if needed, but Config works depending on version
-        # model_config = {"env_file": ".env"}
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore"
+    )
 
 settings = Settings()
