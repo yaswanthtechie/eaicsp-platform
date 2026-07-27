@@ -11,7 +11,7 @@ for i in range(5):
     current_date = start_date + timedelta(days=i)
     sales_data = []
 
-    for i in range(10):
+    for i in range(400):
         record = {
         "date": current_date.isoformat(),
         "sku_id": f"SKU{random.randint(100, 999)}",

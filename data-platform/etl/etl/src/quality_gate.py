@@ -12,52 +12,31 @@ def quality_gate(extracted_batches):
     for batch in extracted_batches:
 
         file_path = batch["file_path"]
-
         df = batch["data"].copy()
 
         null_rate = df["quantity_sold"].isna().mean()
-
         negative_rate = (df["quantity_sold"] < 0).mean()
-
         row_count = len(df)
 
         if null_rate >= 0.10:
 
-            shutil.move(
-                str(file_path),
-                rejected_folder / file_path.name
-            )
+            shutil.move(str(file_path), rejected_folder / file_path.name)
 
-            print(
-                f"{file_path.name} rejected (too many nulls)"
-            )
-
+            print(f"{file_path.name} rejected (too many nulls)")
             continue
 
         if negative_rate >= 0.05:
 
-            shutil.move(
-                str(file_path),
-                rejected_folder / file_path.name
-            )
+            shutil.move(str(file_path), rejected_folder / file_path.name)
 
-            print(
-                f"{file_path.name} rejected (negative quantity)"
-            )
-
+            print(f"{file_path.name} rejected (negative quantity)")
             continue
 
         if row_count < 100 or row_count > 2000:
 
-            shutil.move(
-                str(file_path),
-                rejected_folder / file_path.name
-            )
+            shutil.move(str(file_path), rejected_folder / file_path.name)
 
-            print(
-                f"{file_path.name} rejected (row count)"
-            )
-
+            print(f"{file_path.name} rejected (row count)")
             continue
 
         df = df.dropna(
@@ -69,9 +48,13 @@ def quality_gate(extracted_batches):
         )
 
         df = df[df["quantity_sold"] > 0]
-
         df = df[df["unit_price"] > 0]
 
-        validated_batches.append(df)
+        validated_batches.append(
+            {
+                "data": df,
+                "file_path": file_path
+            }
+        )
 
     return validated_batches

@@ -1,21 +1,51 @@
-# Data Engineering ETL Pipeline
+# Sales ETL Data Pipeline
 
 ## Project Overview
 
-This project implements an end-to-end ETL (Extract, Transform, Load) pipeline using Python, PostgreSQL, Docker, and Apache Airflow.
+This project implements an end-to-end ETL (Extract, Transform, Load) data pipeline for daily sales data using Python, PostgreSQL, Docker, and Apache Airflow.
 
-The pipeline extracts daily sales batch files, validates and transforms the data, loads it into PostgreSQL using an idempotent upsert strategy, tracks processed batches using a watermark, records pipeline execution history, and can be orchestrated through Apache Airflow.
+The pipeline extracts sales data from CSV files, validates data quality, transforms the data, and loads it into a PostgreSQL database while supporting incremental loading through a watermark mechanism. Airflow is used to schedule and automate the pipeline execution.
 
 ---
 
-## Tech Stack
+## Architecture
+
+```
+                CSV Files
+                    │
+                    ▼
+              Extract Data
+                    │
+                    ▼
+             Quality Gate
+                    │
+                    ▼
+              Transform Data
+                    │
+                    ▼
+             Load (UPSERT)
+                    │
+         ┌──────────┴──────────┐
+         ▼                     ▼
+ Watermark Table         ETL Run Log
+                    │
+                    ▼
+            PostgreSQL Database
+                    │
+                    ▼
+              Apache Airflow
+```
+
+---
+
+## Technologies Used
 
 - Python
-- Pandas
-- SQLAlchemy
 - PostgreSQL
-- Docker
+- SQLAlchemy
 - Apache Airflow
+- Docker & Docker Compose
+- Pandas
 
 ---
 
@@ -25,17 +55,29 @@ The pipeline extracts daily sales batch files, validates and transforms the data
 data_platform/
 │
 ├── dags/
+│   └── sales_etl_pipeline.py
 │
 ├── etl/
-│   ├── data/
-│   │   ├── batches/
-│   │   └── rejected/
-│   │
-│   ├── logs/
-│   │
-│   ├── sql/
-│   │
 │   └── src/
+│       ├── config.py
+│       ├── database.py
+│       ├── extract.py
+│       ├── quality_gate.py
+│       ├── transform.py
+│       ├── load.py
+│       ├── watermark.py
+│       ├── logger.py
+│       ├── logging_config.py
+│       ├── pipeline.py
+│       ├── make_batches.py
+│       └── main.py
+│
+├── sql/
+│   └── schema.sql
+│
+├── data/
+│   ├── batches/
+│   └── rejected/
 │
 ├── docker-compose.yml
 ├── requirements.txt
@@ -44,112 +86,138 @@ data_platform/
 
 ---
 
-## Features
-
-- Extract sales batch CSV files
-- Data transformation using Pandas
-- Data Quality Gate
-- Idempotent Upsert using PostgreSQL
-- Incremental Loading using Watermark
-- Audit Logging
-- Apache Airflow orchestration
-
----
-
 ## Database Tables
+
+The project uses three main tables:
 
 ### sales_fact
 
-Stores cleaned sales records.
+Stores processed sales records.
 
 ### etl_watermark
 
-Stores the latest successfully processed date.
+Tracks the latest processed business date for incremental loading.
 
 ### etl_run_log
 
-Stores execution history including success and failure logs.
+Stores ETL execution details including:
+
+- Pipeline status
+- Start time
+- End time
+- Rows inserted
+- Rows rejected
+- Error messages
 
 ---
 
-## How to Run
+## ETL Workflow
 
-### 1. Start Docker
+1. Extract CSV files from the batches folder.
+2. Apply Quality Gate validations:
+   - Reject batches with fewer than 100 rows or more than 2000 rows.
+   - Reject batches with more than 10% null values.
+   - Reject batches with more than 5% negative quantities.
+3. Transform data:
+   - Remove duplicate records.
+   - Convert columns to the correct data types.
+4. Load data into PostgreSQL using UPSERT.
+5. Update the watermark table.
+6. Log pipeline execution details.
+
+---
+
+## Setup Instructions
+
+### Clone the project
+
+```bash
+git clone <repository-url>
+cd data_platform
+```
+
+### Start Docker services
 
 ```bash
 docker compose up -d
 ```
 
-### 2. Run ETL Pipeline
+### Verify containers
+
+```bash
+docker ps
+```
+
+---
+
+## Initialize Database
+
+Connect to PostgreSQL and execute:
+
+```bash
+psql -U admin -d salesdb
+```
+
+Run:
+
+```sql
+\i sql/schema.sql
+```
+
+---
+
+## Generate Sample Data
+
+```bash
+python etl/src/make_batches.py
+```
+
+---
+
+## Run the ETL Pipeline
 
 ```bash
 python etl/src/main.py
 ```
 
-### 3. Run Airflow
+---
 
-Open:
+## Run Using Apache Airflow
+
+1. Open Airflow UI:
 
 ```
 http://localhost:8080
 ```
 
-Trigger the DAG from the Airflow UI.
+Default credentials:
+
+```
+Username: airflow
+Password: airflow
+```
+
+2. Enable the DAG:
+
+```
+sales_etl_pipeline
+```
+
+3. Click **Trigger DAG** to execute the pipeline.
 
 ---
 
-## Idempotency
+## Features
 
-The pipeline uses PostgreSQL's `ON CONFLICT DO UPDATE` statement.
-
-Running the pipeline multiple times does not create duplicate records because existing records are updated instead of inserted again.
-
----
-
-## Incremental Loading
-
-The pipeline uses a watermark table (`etl_watermark`) to store the latest processed date.
-
-During each execution, only records newer than the watermark are extracted and loaded into the destination table.
-
-This avoids reprocessing previously loaded data and improves performance.
+- Incremental loading using watermark
+- UPSERT to prevent duplicate records
+- Data quality validation
+- Automatic rejection of invalid batches
+- ETL execution logging
+- Airflow scheduling
+- Dockerized deployment
 
 ---
 
-## Quality Gate
 
-The pipeline validates each batch before loading.
-
-Validation rules:
-
-- Null rate in `quantity_sold` must be less than 10%
-- Negative quantity must be less than 5%
-- Batch row count must be between 100 and 2000 rows
-
-Invalid batches are rejected and moved to the `data/rejected` folder.
-
----
-
-## Audit Logging
-
-Every pipeline execution is recorded in the `etl_run_log` table.
-
-The audit log stores:
-
-- Pipeline name
-- Start time
-- End time
-- Status
-- Rows inserted
-- Error message (if any)
-
----
-
-## Airflow
-
-The ETL pipeline can also be executed through Apache Airflow.
-
-The DAG automates the pipeline execution and provides monitoring through the Airflow UI.
-
----
-
+Data Engineering Project

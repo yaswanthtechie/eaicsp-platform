@@ -14,17 +14,21 @@ def extract_data(last_processed_date):
 
         df = pd.read_csv(file)
 
+        if df.empty:
+            continue
+
         df["date"] = pd.to_datetime(df["date"])
 
         df = df[df["date"].dt.date > last_processed_date]
 
-        if not df.empty:
+        if df.empty:
+            continue
 
-            batches.append(
-                {
-                    "file_path": file,
-                    "data": df
-                }
-            )
+        batches.append(
+            {
+                "file_path": file,
+                "data": df
+            }
+        )
 
     return batches

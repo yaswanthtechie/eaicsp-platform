@@ -6,7 +6,6 @@ engine = get_engine()
 
 
 def get_watermark():
-
     query = text("""
         SELECT last_processed_date
         FROM etl_watermark
@@ -14,9 +13,7 @@ def get_watermark():
     """)
 
     with engine.connect() as connection:
-
         result = connection.execute(query)
-
         row = result.fetchone()
 
         if row is None:
@@ -26,15 +23,22 @@ def get_watermark():
 
 
 def update_watermark(last_processed_date):
-
     query = text("""
-        UPDATE etl_watermark
-        SET last_processed_date = :last_processed_date
-        WHERE pipeline_name = 'sales_etl';
+        INSERT INTO etl_watermark (
+            pipeline_name,
+            last_processed_date
+        )
+        VALUES (
+            'sales_etl',
+            :last_processed_date
+        )
+        ON CONFLICT (pipeline_name)
+        DO UPDATE SET
+            last_processed_date = EXCLUDED.last_processed_date,
+            updated_at = NOW();
     """)
 
     with engine.begin() as connection:
-
         connection.execute(
             query,
             {

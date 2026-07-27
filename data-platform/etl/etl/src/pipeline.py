@@ -22,32 +22,66 @@ def run_pipeline():
         extracted_batches = extract_data(last_processed_date)
 
         if not extracted_batches:
+
             logger.warning("No new files found")
+
+            end_time = datetime.now()
+
+            log_success(
+                start_time,
+                end_time,
+                batches_seen=0,
+                rows_inserted=0,
+                rows_updated=0,
+                rows_rejected=0
+            )
+
+            return
+
+        batches_seen = len(extracted_batches)
+
+        validated_batches = quality_gate(extracted_batches)
+
+        rows_rejected = batches_seen - len(validated_batches)
+
+        if not validated_batches:
+
+            logger.warning("No valid data")
+
+            end_time = datetime.now()
+
+            log_success(
+                start_time,
+                end_time,
+                batches_seen=batches_seen,
+                rows_inserted=0,
+                rows_updated=0,
+                rows_rejected=rows_rejected
+            )
+
             return
 
         data_frames = [
             batch["data"]
-            for batch in extracted_batches
+            for batch in validated_batches
         ]
 
         transformed_data = transform_data(data_frames)
 
-        for batch, df in zip(extracted_batches, transformed_data):
+        for batch, df in zip(validated_batches, transformed_data):
+
             batch["data"] = df
 
-        validated_data = quality_gate(extracted_batches)
+        rows_loaded = sum(
+            len(batch["data"])
+            for batch in validated_batches
+        )
 
-        if not validated_data:
-            logger.warning("No valid data")
-            return
-
-        rows_loaded = sum(len(df) for df in validated_data)
-
-        load_data(validated_data)
+        load_data(validated_batches)
 
         latest_date = max(
-            df["date"].max().date()
-            for df in validated_data
+            batch["data"]["date"].max().date()
+            for batch in validated_batches
         )
 
         update_watermark(latest_date)
@@ -57,7 +91,10 @@ def run_pipeline():
         log_success(
             start_time,
             end_time,
-            rows_loaded
+            batches_seen=batches_seen,
+            rows_inserted=rows_loaded,
+            rows_updated=0,
+            rows_rejected=rows_rejected
         )
 
         logger.info("Pipeline Completed Successfully")
@@ -69,7 +106,11 @@ def run_pipeline():
         log_failure(
             start_time,
             end_time,
-            str(e)
+            str(e),
+            batches_seen=0,
+            rows_inserted=0,
+            rows_updated=0,
+            rows_rejected=0
         )
 
         logger.exception("Pipeline Failed")
