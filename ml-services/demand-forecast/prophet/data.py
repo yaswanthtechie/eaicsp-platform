@@ -9,6 +9,7 @@ def load_sales_data() -> pd.DataFrame:
     Load the sales dataset and rename columns.
     Returns columns: date, quantity_sold
     """
+
     df = pd.read_csv(URL)
 
     df = df.rename(
@@ -19,6 +20,9 @@ def load_sales_data() -> pd.DataFrame:
     )
 
     df["date"] = pd.to_datetime(df["date"])
+
+    # Validate dataset
+    validate(df)
 
     return df
 
@@ -40,3 +44,5 @@ def validate(df: pd.DataFrame) -> None:
     # Duplicate dates
     if df["date"].duplicated().any():
         raise ValueError("Duplicate dates found.")
+
+    print("Dataset validation passed.")

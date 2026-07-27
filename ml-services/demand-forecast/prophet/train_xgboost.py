@@ -1,15 +1,6 @@
+import os
 import joblib
 import xgboost as xgb
-def predict_xgboost(model, test_df):
-    """
-    Predict using XGBoost.
-    """
-
-    X_test, _ = prepare_features(test_df)
-
-    predictions = model.predict(X_test)
-
-    return predictions
 
 
 def prepare_features(df):
@@ -22,7 +13,10 @@ def prepare_features(df):
     data["year"] = data["ds"].dt.year
     data["month"] = data["ds"].dt.month
 
-    X = data[["year", "month"]]
+    # Trend feature
+    data["time_index"] = range(len(data))
+
+    X = data[["year", "month", "time_index"]]
     y = data["y"]
 
     return X, y
@@ -44,6 +38,24 @@ def train_xgboost(train_df):
 
     model.fit(X_train, y_train)
 
+    # Create output directory if it doesn't exist
+    os.makedirs("output", exist_ok=True)
+
+    # Save model
     joblib.dump(model, "output/xgb_model.pkl")
 
+    print(" XGBoost model saved: output/xgb_model.pkl")
+
     return model
+
+
+def predict_xgboost(model, test_df):
+    """
+    Predict using XGBoost.
+    """
+
+    X_test, _ = prepare_features(test_df)
+
+    predictions = model.predict(X_test)
+
+    return predictions

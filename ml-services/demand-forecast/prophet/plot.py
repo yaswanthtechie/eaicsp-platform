@@ -1,7 +1,16 @@
+import os
 import matplotlib.pyplot as plt
 
 
 def save_forecast_plot(test, forecast):
+    """
+    Save forecast plot to the output directory.
+    """
+
+    # Create output directory if it doesn't exist
+    os.makedirs("output", exist_ok=True)
+
+    # Filter forecast for test period
     forecast_test = forecast[forecast["ds"] >= "2015-01-01"]
 
     plt.figure(figsize=(12, 6))
@@ -40,4 +49,4 @@ def save_forecast_plot(test, forecast):
     plt.savefig("output/forecast.png")
     plt.close()
 
-    print("Forecast graph saved to output/forecast.png")
+    print(" Forecast graph saved to output/forecast.png")
