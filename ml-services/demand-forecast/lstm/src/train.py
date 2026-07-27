@@ -1,16 +1,16 @@
 import os
 import pickle
 import numpy as np
-import torch
+import torch # Ensure scale_data accepts fit_scaler bool or split arrays
+from features import create_sequences
+from model import DemandLSTM
 import matplotlib.pyplot as plt
 
 from torch.utils.data import TensorDataset, DataLoader
 from torch import nn
 from torch.optim import Adam
 
-from data import generate_data, fit_and_scale_train_data, scale_test_data  # Ensure scale_data accepts fit_scaler bool or split arrays
-from features import create_sequences
-from model import DemandLSTM
+from data import generate_data, fit_and_scale_train_data, scale_test_data
 import mlflow_logger  # Wire up MLflow logger wrapper
 
 
@@ -39,7 +39,6 @@ def train_model():
     # Fit scaler ONLY on training data, then transform both
     # Assuming scale_data can handle raw numpy arrays or fit vs transform logic
     from sklearn.preprocessing import StandardScaler
-    scaler = StandardScaler()
     train_scaled, scaler = fit_and_scale_train_data(train_df["Demand"].values, save_path=os.path.join(output_dir, "scaler.pkl"))
     val_scaled = scale_test_data(val_df["Demand"].values, scaler)
 
