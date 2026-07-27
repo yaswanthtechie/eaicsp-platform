@@ -15,11 +15,11 @@ export function KpiCard({
   const isPositive = delta !== undefined && delta >= 0;
 
   const deltaColor =
-    delta === undefined
-      ? colors.textMuted
-      : isPositive
-      ? colors.success
-      : colors.danger;
+  delta === undefined
+    ? colors.textMuted
+    : delta < 0
+      ? colors.danger
+      : colors.success;
 
   const arrow =
     delta === undefined
@@ -57,18 +57,17 @@ export function KpiCard({
       >
         {value}
       </h2>
-
       {delta !== undefined && (
-        <p
-          style={{
-            margin: 0,
-            color: deltaColor,
-            fontWeight: "bold",
-          }}
-        >
-          {arrow} {Math.abs(delta)}%
-        </p>
-      )}
+  <p
+    style={{
+      margin: 0,
+      color: deltaColor,
+      fontWeight: "bold",
+    }}
+  >
+    {delta >= 0 ? `+${delta}%` : `${delta}%`}
+  </p>
+)}
     </div>
   );
 }
