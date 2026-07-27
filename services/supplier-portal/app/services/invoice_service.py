@@ -38,17 +38,8 @@ def upload_invoice_document(
     invoice_number: str,
     file: UploadFile,
 ):
-    """
-    Upload a PDF document for an invoice.
 
-    Validates:
-    - Invoice exists
-    - PDF content type
-    - Maximum size: 10 MB
-    - PDF signature
-    - Safe invoice number
-    - Prevent path traversal
-    """
+   
 
     if invoice_number not in invoices:
         raise ValueError("Invoice not found.")
@@ -64,7 +55,7 @@ def upload_invoice_document(
         if file.size > MAX_FILE_SIZE:
             raise ValueError("Maximum file size is 10 MB.")
 
-    # Read file
+    # Read file in bytes.
     contents = file.file.read()
 
     # Fallback size validation

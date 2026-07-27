@@ -100,7 +100,6 @@ def acknowledge_purchase_order(po_number: str):
 # valid transitions and history tracking
 
 
-from datetime import datetime
 
 VALID_TRANSITIONS = {
     PurchaseOrderStatus.draft: [

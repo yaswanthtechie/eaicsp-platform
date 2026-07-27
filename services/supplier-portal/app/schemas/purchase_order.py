@@ -42,7 +42,7 @@ class PurchaseOrderResponse(BaseModel):
     status: PurchaseOrderStatus
     created_at: datetime
     expected_delivery: date
-    history: List[PurchaseOrderHistory] = []
+    history: List[PurchaseOrderHistory] = Field(default_factory=list)
 
 #responce when po deleted successfully
 class MessageResponse(BaseModel):
