@@ -1,18 +1,22 @@
 # Inventory Service API
 
-A RESTful Inventory Management API built using **FastAPI**, **SQLAlchemy**, and **SQLite**. It provides inventory CRUD operations, reorder engine, demand spike simulation, bulk CSV import, and automated inventory management features.
+A RESTful Inventory Management API built using **FastAPI**, **SQLAlchemy ORM**, and **SQLite**.
+
+This service provides complete inventory management features including CRUD operations, automatic reorder point calculation, low-stock detection, demand spike simulation, bulk CSV upload, and automated API testing.
 
 ---
 
 # Features
 
 - Inventory CRUD Operations
-- SQLite Database using SQLAlchemy ORM
+- SQLite Database Integration
+- SQLAlchemy ORM Based Data Management
+- Pydantic Schema Validation
 - Automatic Reorder Point Calculation
-- Low Stock Detection
+- Low Stock Inventory Detection
 - Demand Spike Simulation
 - Bulk CSV Import
-- Pytest Test Cases
+- Pytest API Testing
 - Swagger API Documentation
 
 ---
@@ -26,6 +30,8 @@ A RESTful Inventory Management API built using **FastAPI**, **SQLAlchemy**, and 
 - Pydantic
 - Uvicorn
 - Pytest
+- Python Multipart
+- Pydantic_settings
 
 ---
 
@@ -37,6 +43,9 @@ inventory-service/
 ├── app/
 │   ├── main.py
 │   ├── database.py
+│   │
+│   ├── core/
+│   │   └── config.py
 │   │
 │   ├── models/
 │   │   └── inventory.py
@@ -54,6 +63,7 @@ inventory-service/
 │   └── test_inventory.py
 │
 ├── sample_inventory.csv
+├── inventory.db
 ├── requirements.txt
 └── README.md
 ```
@@ -62,25 +72,25 @@ inventory-service/
 
 # Installation
 
-Clone the repository
+## Clone Repository
 
 ```bash
 git clone <repository-url>
 ```
 
-Move into the project directory
+## Navigate Project Directory
 
 ```bash
 cd inventory-service
 ```
 
-Create Virtual Environment
+## Create Virtual Environment
 
 ```bash
 python -m venv venv
 ```
 
-Activate Virtual Environment
+## Activate Virtual Environment
 
 ### Windows
 
@@ -88,13 +98,10 @@ Activate Virtual Environment
 venv\Scripts\activate
 ```
 
-### Linux / macOS
 
-```bash
-source venv/bin/activate
 ```
 
-Install dependencies
+## Install Dependencies
 
 ```bash
 pip install -r requirements.txt
@@ -102,25 +109,27 @@ pip install -r requirements.txt
 
 ---
 
-# Run the Application
+# Run Application
+
+Start FastAPI server:
 
 ```bash
 uvicorn app.main:app --reload
 ```
 
-Application URL
+Application URL:
 
 ```
 http://127.0.0.1:8000
 ```
 
-Swagger UI
+Swagger Documentation:
 
 ```
 http://127.0.0.1:8000/docs
 ```
 
-ReDoc
+ReDoc Documentation:
 
 ```
 http://127.0.0.1:8000/redoc
@@ -130,43 +139,141 @@ http://127.0.0.1:8000/redoc
 
 # API Endpoints
 
-## Create Inventory Item
+## Create Inventory
+
+Creates a new inventory item.
 
 ```
 POST /api/v1/inventory/
 ```
 
+Example Request:
+
+```json
+{
+    "sku_id": "SKU001",
+    "product_name": "Laptop",
+    "warehouse_id": "WH001",
+    "quantity_on_hand": 100,
+    "avg_daily_demand": 10,
+    "lead_time_days": 3,
+    "safety_stock": 20
+}
+```
+
+Example Response:
+
+```json
+{
+    "sku_id": "SKU001",
+    "product_name": "Laptop",
+    "warehouse_id": "WH001",
+    "quantity_on_hand": 100,
+    "reorder_point": 50,
+    "avg_daily_demand": 10,
+    "lead_time_days": 3,
+    "safety_stock": 20
+}
+```
+
+---
+
 ## Get All Inventory
+
+Returns all inventory records.
 
 ```
 GET /api/v1/inventory/
 ```
 
-## Get Inventory by SKU
+---
+
+## Get Inventory By SKU
+
+Returns inventory details using SKU ID.
 
 ```
 GET /api/v1/inventory/{sku_id}
 ```
 
+Example:
+
+```
+GET /api/v1/inventory/SKU001
+```
+
+---
+
 ## Update Inventory
+
+Updates existing inventory details.
 
 ```
 PUT /api/v1/inventory/{sku_id}
 ```
 
+---
+
 ## Delete Inventory
+
+Deletes an inventory record.
 
 ```
 DELETE /api/v1/inventory/{sku_id}
 ```
 
-## Reorder Check
+---
+
+# Reorder Engine
+
+The system automatically calculates reorder points based on inventory demand.
+
+## Formula
+
+```
+Reorder Point =
+(Average Daily Demand × Lead Time Days)
++ Safety Stock
+```
+
+Example:
+
+```
+Average Daily Demand = 10
+
+Lead Time Days = 3
+
+Safety Stock = 20
+
+
+Reorder Point
+
+= (10 × 3) + 20
+
+= 50
+```
+
+When:
+
+```
+Current Quantity <= Reorder Point
+```
+
+the product requires a reorder.
+
+---
+
+# Reorder Check
+
+Checks whether a product needs replenishment.
+
+Endpoint:
 
 ```
 GET /api/v1/inventory/{sku_id}/reorder-check
 ```
 
-Returns
+Example Response:
 
 ```json
 {
@@ -179,25 +286,42 @@ Returns
 
 ---
 
-## Low Stock Items
+# Low Stock Detection
 
-Returns all products below their reorder point.
+Returns products where available quantity is below the reorder point.
+
+Endpoint:
 
 ```
 GET /api/v1/inventory/low-stock
 ```
 
+Example Response:
+
+```json
+[
+    {
+        "sku_id": "SKU001",
+        "product_name": "Laptop",
+        "quantity_on_hand": 20,
+        "reorder_point": 50
+    }
+]
+```
+
 ---
 
-## Demand Spike Simulation
+# Demand Spike Simulation
 
-Simulates a demand spike and predicts whether reorder is required.
+Simulates sudden increase in product demand.
+
+Endpoint:
 
 ```
 POST /api/v1/inventory/{sku_id}/simulate
 ```
 
-Example Request
+Request:
 
 ```json
 {
@@ -205,13 +329,27 @@ Example Request
 }
 ```
 
-Example Response
+Example:
+
+```
+Average Daily Demand = 10
+
+Demand Spike = 30%
+
+New Demand
+
+= 10 + (10 × 30/100)
+
+= 13 units/day
+```
+
+Response:
 
 ```json
 {
     "sku_id": "SKU001",
     "current_quantity": 100,
-    "new_reorder_point": 65,
+    "new_reorder_point": 59,
     "needs_reorder": false,
     "suggested_order_qty": 0
 }
@@ -219,106 +357,104 @@ Example Response
 
 ---
 
-## Bulk CSV Import
+# Bulk CSV Upload
 
-Import inventory records from a CSV file.
+Uploads multiple inventory records using CSV file.
+
+Endpoint:
 
 ```
 POST /api/v1/inventory/bulk-upload
 ```
 
-Upload a CSV file using **multipart/form-data**.
-
----
-
-# Reorder Point Formula
+Content Type:
 
 ```
-Reorder Point =
-(Average Daily Demand × Lead Time Days)
-+ Safety Stock
+multipart/form-data
 ```
 
-Example
+Sample CSV:
 
-```
-Average Daily Demand = 10
-
-Lead Time Days = 3
-
-Safety Stock = 20
-
-Reorder Point
-
-= (10 × 3) + 20
-
-= 50
-```
-
----
-
-# Sample Request
-
-```json
-{
-    "sku_id": "SKU001",
-    "product_name": "Laptop",
-    "warehouse_id": "WH001",
-    "quantity_on_hand": 100,
-    "avg_daily_demand": 10,
-    "lead_time_days": 3,
-    "safety_stock": 20
-}
-```
-
----
-
-# Sample Response
-
-```json
-{
-    "sku_id": "SKU001",
-    "product_name": "Laptop",
-    "warehouse_id": "WH001",
-    "quantity_on_hand": 100,
-    "reorder_point": 50,
-    "avg_daily_demand": 10,
-    "lead_time_days": 3,
-    "safety_stock": 20
-}
+```csv
+sku_id,product_name,warehouse_id,quantity_on_hand,avg_daily_demand,lead_time_days,safety_stock
+SKU001,Laptop,WH001,100,10,3,20
+SKU002,Mouse,WH002,50,5,2,10
 ```
 
 ---
 
 # Database
 
-This project uses **SQLite** with **SQLAlchemy ORM**.
+Database:
 
-Database file:
+```
+SQLite
+```
+
+ORM:
+
+```
+SQLAlchemy
+```
+
+Database File:
 
 ```
 inventory.db
 ```
 
+SQLAlchemy handles:
+
+- Database connection
+- Table creation
+- CRUD operations
+- Query execution
+- Transaction management
+
+---
+
+# Configuration
+
+Application configuration is managed inside:
+
+```
+app/core/config.py
+```
+
+It contains:
+
+- Database settings
+- Application configuration
+- Environment-based variables
+
 ---
 
 # Testing
 
-Run all test cases
+Run test cases:
 
 ```bash
 pytest
 ```
 
-Run with verbose output
+Run with detailed output:
 
 ```bash
 pytest -v
 ```
 
+Test Coverage:
+
+- Create Inventory API
+- Get Inventory API
+- Update Inventory API
+- Delete Inventory API
+- Reorder Calculation
+- Low Stock Detection
+
 ---
 
-# Dependencies
+# Requirements
 
 ```
 fastapi
@@ -329,21 +465,8 @@ pytest
 python-multipart
 ```
 
-Install manually
+Install manually:
 
 ```bash
 pip install fastapi uvicorn sqlalchemy pydantic pytest python-multipart
 ```
-
----
-
-# Future Enhancements
-
-- PostgreSQL Support
-- JWT Authentication
-- Docker Deployment
-- Pagination & Filtering
-- Redis Caching
-- Inventory Analytics Dashboard
-
----

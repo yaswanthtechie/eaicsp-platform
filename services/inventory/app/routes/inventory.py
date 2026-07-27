@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException,File,UploadFile
-import csv
-from io import StringIO
+
 from sqlalchemy.orm import Session
 from app.models.inventory import Inventory
 
@@ -111,7 +110,7 @@ def delete_inventory_route(
     }
 
 
-@router.get("/v1/inventory/{sku_id}/reorder-check")
+@router.get("/{sku_id}/reorder-check")
 def reorder_check_route(
     sku_id: str,
     db: Session = Depends(get_db),
@@ -130,7 +129,7 @@ def reorder_check_route(
     return result
 
 
-@router.post("/v1/inventory/{sku_id}/simulate")
+@router.post("/{sku_id}/simulate")
 def simulate_demand_route(
     sku_id: str,
     request: DemandSpikeRequest,
@@ -150,7 +149,7 @@ def simulate_demand_route(
 
     return result
 
-@router.post("/inventory/bulk-upload")
+@router.post("/bulk-upload")
 def bulk_upload_csv_route(
     file: UploadFile = File(...),
     db: Session = Depends(get_db)

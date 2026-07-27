@@ -10,7 +10,7 @@ class InventoryItem(BaseModel):
     reorder_point: Optional[int] = None
     safety_stock: int
     lead_time_days: int
-    avg_daily_demand: int
+    avg_daily_demand: float
 
     model_config = {
         "from_attributes": True
@@ -24,7 +24,7 @@ class InventoryCreate(BaseModel):
     quantity_on_hand: int
     safety_stock: int
     lead_time_days: int
-    avg_daily_demand: int
+    avg_daily_demand: float
 
 
 class InventoryUpdate(BaseModel):
@@ -33,7 +33,7 @@ class InventoryUpdate(BaseModel):
     quantity_on_hand: Optional[int] = None
     safety_stock: Optional[int] = None
     lead_time_days: Optional[int] = None
-    avg_daily_demand: Optional[int] = None
+    avg_daily_demand: Optional[float] = None
 
 
 class InventoryResponse(BaseModel):
@@ -44,7 +44,7 @@ class InventoryResponse(BaseModel):
     reorder_point: Optional[int] = None
     safety_stock: int
     lead_time_days: int
-    avg_daily_demand: int
+    avg_daily_demand: float
 
     model_config = {
         "from_attributes": True

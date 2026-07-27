@@ -3,4 +3,5 @@ uvicorn
 sqlalchemy
 pytest
 httpx
-multipart
+python-multipart
+pydantic

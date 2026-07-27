@@ -16,7 +16,7 @@ app = FastAPI(
 
 app.include_router(
     inventory_router,
-    prefix="/api",
+    prefix="/api/v1/inventory",
     tags=["Inventory"]
 )
 
