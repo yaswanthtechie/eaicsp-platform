@@ -2,47 +2,45 @@
 
 ## Overview
 
-The Compliance Service is a FastAPI-based microservice that screens individuals or organizations against sanctions lists.
+The Compliance Service is a FastAPI-based microservice that screens entities against sanctions lists.
 
-The service checks whether an entity exists in the OFAC sanctions list by using exact matching and fuzzy matching with RapidFuzz. It exposes REST APIs, records every screening request in an audit log, and returns the screening result in JSON format.
+It supports:
 
----
-
-## Features
-
-- Load OFAC sanctions data from CSV
-- Load UN Consolidated sanctions list
+- OFAC SDN sanctions list
+- United Nations (UN) sanctions list
 - Exact name matching
 - Fuzzy name matching using RapidFuzz
-- Configurable threshold-based screening
-- REST API using FastAPI
-- Automatic Swagger documentation
-- Pydantic request and response validation
-- Audit logging for every screening request
-- Unit testing using Pytest
+- REST API for compliance screening
+- JSON audit logging
+- Automatic API documentation using Swagger
 
 ---
 
-## Project Structure
+# Project Structure
 
-```text
+```
 compliance-service/
 │
 ├── app/
 │   ├── main.py
 │   ├── audit.log
+│   │
+│   ├── core/
+│   │   └── config.py
+│   │
 │   ├── routes/
 │   │   └── compliance.py
+│   │
 │   ├── schemas/
 │   │   └── compliance.py
-│   ├── services/
-│   │   └── sanctions_service.py
-│   ├── core/
-│   └── models/
+│   │
+│   └── services/
+│       └── sanctions_service.py
 │
 ├── data/
 │   ├── ofac.csv
-│   └── un.csv      
+│   └── un.csv
+│
 ├── tests/
 │   └── test_compliance.py
 │
@@ -52,7 +50,21 @@ compliance-service/
 
 ---
 
-## Technologies Used
+# Features
+
+- Load OFAC sanctions from CSV
+- Load UN sanctions from CSV
+- Exact name matching
+- Fuzzy name matching using RapidFuzz (WRatio)
+- Configurable matching threshold
+- JSON audit log
+- FastAPI REST API
+- Pydantic request and response validation
+- Automatic Swagger documentation
+
+---
+
+# Technologies Used
 
 - Python 3.x
 - FastAPI
@@ -63,180 +75,269 @@ compliance-service/
 
 ---
 
-## Installation
+# Installation
 
+## Clone the repository
 
+```bash
+git clone <repository-url>
+```
 
-### Navigate to the project
+---
 
-bash
+## Navigate to the project
+
+```bash
 cd compliance-service
+```
 
+---
 
-### Create a virtual environment
-
-bash
-python -m venv venv
-
-
-### Activate the virtual environment
+## Create Virtual Environment
 
 Windows
 
-bash
+```bash
+python -m venv venv
+```
+
+Activate
+
+```bash
 venv\Scripts\activate
+```
 
+---
 
-### Install dependencies
+## Install Dependencies
 
-bash
+```bash
 pip install -r requirements.txt
+```
 
+---
 
+# Running the Application
 
-## Running the Application
+Start the FastAPI server
 
-Start the server
-
-bash
+```bash
 python -m uvicorn app.main:app --reload
+```
 
+---
 
-Application URL
+## Application URL
 
-
+```
 http://127.0.0.1:8000
+```
 
+---
 
-Swagger UI
+## Swagger Documentation
 
-
+```
 http://127.0.0.1:8000/docs
-
-
-
-
-## API Endpoint
-
-### POST
-
-
-/api/v1/compliance/check
-
+```
 
 ---
 
-## Request
+# API Endpoint
+
+## Screen Entity
+
+**POST**
+
+```
+/api/v1/compliance/screen
+```
+
+---
+
+# Sample Request
 
 ```json
 {
-  "entity_name": "HAMAS",
-  "entity_type": "organization",
-  "country": "Palestine"
+    "entity_name": "HAMAS",
+    "entity_type": "supplier",
+    "country": "Palestine"
 }
 ```
 
 ---
 
-## Response (Flagged)
+# Sample Response (Flagged)
 
 ```json
 {
-  "is_flagged": true,
-  "matched_lists": [
-    "OFAC SDN"
-  ],
-  "match_score": 100,
-  "checked_at": "2026-07-17T12:00:00"
+    "is_flagged": true,
+    "matched_lists": [
+        "OFAC SDN"
+    ],
+    "matched_name": "HAMAS",
+    "match_score": 100,
+    "checked_at": "2026-07-27T08:30:00+00:00"
 }
 ```
 
 ---
 
-## Response (Not Flagged)
+# Sample Response (Not Flagged)
 
 ```json
 {
-  "is_flagged": false,
-  "matched_lists": [],
-  "match_score": 72,
-  "checked_at": "2026-07-17T12:00:00"
+    "is_flagged": false,
+    "matched_lists": [],
+    "matched_name": "",
+    "match_score": 0,
+    "checked_at": "2026-07-27T08:30:00+00:00"
 }
 ```
 
 ---
 
-## How It Works
+# Project Workflow
 
 1. FastAPI starts the application.
-2. The OFAC sanctions CSV file is loaded into memory.
-3. (Optional) The UN sanctions CSV file is also loaded.
+2. The service loads OFAC and UN sanction lists into memory.
+3. Startup fails if no sanctions are loaded.
 4. The client sends a screening request.
-5. The service first checks for an exact match.
-6. If no exact match is found, RapidFuzz performs fuzzy matching.
-7. The highest similarity score is compared with the threshold (85).
-8. The screening result is returned as JSON.
-9. An audit log entry is written for every request.
+5. The service first performs an exact match.
+6. If no exact match exists, RapidFuzz performs fuzzy matching.
+7. The best matching entity is selected.
+8. If the score is greater than or equal to the configured threshold, the entity is flagged.
+9. The screening result is written to a JSON audit log.
+10. The API returns the screening result.
 
 ---
 
-## Audit Log
+# Matching Logic
 
-Every screening request is recorded in:
+### Exact Match
+
+```
+HAMAS
+```
+
+CSV
+
+```
+HAMAS
+```
+
+Result
+
+```
+Score = 100
+Flagged = True
+```
+
+---
+
+### Fuzzy Match
+
+Input
+
+```
+Acme Corp
+```
+
+CSV
+
+```
+ACME Corporation Ltd
+```
+
+RapidFuzz calculates the similarity score using **WRatio**.
+
+If
+
+```
+Score >= 85
+```
+
+Result
+
+```
+Flagged = True
+```
+
+Otherwise
+
+```
+Flagged = False
+```
+
+---
+
+# Audit Logging
+
+Every screening request is stored in
 
 ```
 app/audit.log
 ```
 
-Example:
+Example
 
-```
-2026-07-17 12:30:15
-Input : HAMAS
-Matched : HAMAS
-Score : 100
-Flagged : True
+```json
+{
+  "timestamp":"2026-07-27T08:30:00+00:00",
+  "input_name":"HAMAS",
+  "matched_name":"HAMAS",
+  "match_score":100,
+  "is_flagged":true,
+  "matched_lists":["OFAC SDN"]
+}
 ```
 
 ---
 
-## Testing
+# Running Tests
 
 Run all tests
-
-```bash
-python -m pytest
-```
-
-Verbose mode
 
 ```bash
 python -m pytest -v
 ```
 
-### Test Cases
+Run a single test file
 
-- Exact Match
-- Fuzzy Match
-- Clean Name
-- Empty String
-- Special Characters
-- Long Input Names
+```bash
+python -m pytest tests/test_compliance.py -v
+```
 
 ---
 
-## Future Enhancements
+# Configuration
+
+Application configuration is stored in
+
+```
+app/core/config.py
+```
+
+This includes:
+
+- OFAC CSV path
+- UN CSV path
+- Audit log path
+- Matching threshold
+
+---
+
+# Future Enhancements
 
 - Database integration
-- Multiple sanctions list support
-- Country-based compliance rules
-- Entity type validation
 - Authentication and Authorization
+- Multiple sanctions providers
+- Country-specific screening rules
 - Docker support
 - Kubernetes deployment
+- CI/CD pipeline
+- Bulk entity screening
+- Performance optimization using indexed search
 
 ---
 
-## Author
-
-Developed as part of the Compliance Service backend assignment using FastAPI.

@@ -1,24 +1,31 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
-from app.routes.compliance import router
+from app.routes.compliance import router as compliance_router
 from app.services.sanctions_service import load_csv
 
-app = FastAPI(title="Compliance Service")
 
 
-@app.on_event("startup")
-def startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+
     load_csv()
 
+    yield
+
+
+app = FastAPI(
+    title="Compliance Service",
+    version="1.0.0",
+    lifespan=lifespan,
+)
 
 @app.get("/")
 def home():
-    return {"message": "Compliance Service Running"}
 
+    return {
+        "message": "Compliance Service is running."
+    }
 
-app.include_router(
-    router,
-    prefix="/api/v1/compliance",
-    tags=["Compliance"]
-)
-
+app.include_router(compliance_router)

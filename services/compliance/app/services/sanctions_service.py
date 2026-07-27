@@ -1,89 +1,236 @@
 import csv
-from datetime import datetime
-from rapidfuzz import fuzz
+import json
+from pathlib import Path
+from datetime import datetime, timezone
+
+from rapidfuzz import process, fuzz
+
+from app.core.config import (
+    OFAC_CSV_PATH,
+    UN_CSV_PATH,
+    AUDIT_LOG_PATH,
+    MATCH_THRESHOLD,
+)
 
 
-sanction_names = set()
+
+sanction_data = {}
 
 
 def load_csv():
 
-    sanction_names.clear()
+    sanction_data.clear()
 
     files = [
-        "data/ofac.csv",
-        "data/un.csv"     
+        (OFAC_CSV_PATH, "OFAC SDN"),
+        (UN_CSV_PATH, "UN")
     ]
 
-    for csv_file in files:
+    total = 0
 
-        try:
+    for file_path, source in files:
 
-            with open(csv_file, encoding="utf-8") as file:
+        path = Path(file_path)
 
-                reader = csv.reader(file)
+        if not path.exists():
+            raise RuntimeError(
+                f"Missing sanctions file: {path}"
+            )
 
-                for row in reader:
+        with path.open(
+            mode="r",
+            encoding="utf-8",
+            newline=""
+        ) as file:
 
-                    if len(row) > 1:
+            reader = csv.reader(file)
 
-                        sanction_names.add(row[1].strip())
+            
+            next(reader, None)
 
-        except FileNotFoundError:
-            print(f"{csv_file} not found. Skipping...")
+            for row in reader:
 
-    print(f"Loaded {len(sanction_names)} sanction names")
+                
+                if len(row) < 2:
+                    continue
 
+                name = row[1].strip()
 
-def write_audit(input_name, matched_name, score, flagged):
+                
+                if not name:
+                    continue
 
-    with open("app/audit.log", "a", encoding="utf-8") as log:
+                
+                if name not in sanction_data:
 
-        log.write(
-            f"{datetime.now()} | "
-            f"Input: {input_name} | "
-            f"Matched: {matched_name} | "
-            f"Score: {score} | "
-            f"Flagged: {flagged}\n"
+                    sanction_data[name] = source
+                    total += 1
+
+    if total == 0:
+
+        raise RuntimeError(
+            "No sanctions loaded. Service startup aborted."
         )
+
+    print(f"Loaded {total} sanction names")
+
+
+
+
+def write_audit(
+    input_name,
+    matched_name,
+    score,
+    flagged,
+    matched_lists
+):
+
+    log_path = Path(AUDIT_LOG_PATH)
+
+    log_path.parent.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    record = {
+
+        "timestamp":
+            datetime.now(
+                timezone.utc
+            ).isoformat(),
+
+        "input_name": input_name,
+
+        "matched_name": matched_name,
+
+        "match_score": score,
+
+        "is_flagged": flagged,
+
+        "matched_lists": matched_lists
+
+    }
+
+    try:
+
+        with log_path.open(
+            "a",
+            encoding="utf-8"
+        ) as log:
+
+            log.write(
+                json.dumps(record)
+            )
+
+            log.write("\n")
+
+    except Exception as e:
+
+        print(
+            f"Audit Log Error : {e}"
+        )
+
+
 
 
 def check_name(name):
 
-    best_score = 0
-    matched_name = ""
+    if not name or not name.strip():
 
-    for sanction_name in sanction_names:
+        return {
 
-        
-        if name.lower().strip() == sanction_name.lower().strip():
+            "is_flagged": False,
 
-            matched_name = sanction_name
-            best_score = 100
-            break
+            "matched_lists": [],
 
-        
-        score = fuzz.ratio(
-            name.lower(),
-            sanction_name.lower()
-        )
+            "matched_name": "",
 
-        if score > best_score:
+            "match_score": 0
 
-            best_score = score
-            matched_name = sanction_name
+        }
 
-    flagged = best_score >= 85
+    input_name = name.strip()
+
+ 
+
+    for sanction_name, source in sanction_data.items():
+
+        if sanction_name.lower() == input_name.lower():
+
+            write_audit(
+                input_name,
+                sanction_name,
+                100,
+                True,
+                [source]
+            )
+
+            return {
+
+                "is_flagged": True,
+
+                "matched_lists": [source],
+
+                "matched_name": sanction_name,
+
+                "match_score": 100
+
+            }
+
+
+
+    match = process.extractOne(
+
+        query=input_name,
+
+        choices=sanction_data.keys(),
+
+        scorer=fuzz.WRatio
+
+    )
+
+    if match:
+
+        matched_name = match[0]
+
+        score = int(match[1])
+
+        source = sanction_data[matched_name]
+
+    else:
+
+        matched_name = ""
+
+        score = 0
+
+        source = None
+
+    flagged = score >= MATCH_THRESHOLD
+
+    matched_lists = [source] if flagged else []
 
     write_audit(
-        name,
+
+        input_name,
+
         matched_name,
-        int(best_score),
-        flagged
+
+        score,
+
+        flagged,
+
+        matched_lists
+
     )
 
     return {
+
         "is_flagged": flagged,
-        "matched_lists": ["OFAC SDN"] if flagged else [],
-        "match_score": int(best_score)
+
+        "matched_lists": matched_lists,
+
+        "matched_name": matched_name,
+
+        "match_score": score
+
     }

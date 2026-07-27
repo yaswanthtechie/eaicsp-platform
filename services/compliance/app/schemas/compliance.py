@@ -1,15 +1,41 @@
-from pydantic import BaseModel
-from datetime import datetime
+from typing import Literal
+
+from pydantic import BaseModel, Field
 
 
-class ComplianceScreenRequest(BaseModel):
-    entity_name: str
-    entity_type: str
-    country: str
 
 
-class ComplianceScreenResponse(BaseModel):
+class ComplianceRequest(BaseModel):
+
+    entity_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        description="Entity name to screen"
+    )
+
+    entity_type: Literal[
+        "supplier",
+        "customer"
+    ]
+
+    country: str = Field(
+        ...,
+        min_length=2,
+        max_length=100
+    )
+
+
+
+
+class ComplianceResponse(BaseModel):
+
     is_flagged: bool
+
     matched_lists: list[str]
+
+    matched_name: str
+
     match_score: int
-    checked_at: datetime
+
+    checked_at: str
