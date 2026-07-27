@@ -16,6 +16,4 @@ class InvoiceResponse(BaseModel):
     supplier_id: str
     amount: float
     invoice_date: date
-
-
-document_url: str | None = None
+    document_url: str | None = None

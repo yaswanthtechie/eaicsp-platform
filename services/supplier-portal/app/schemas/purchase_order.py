@@ -23,7 +23,6 @@ class PurchaseOrderCreate(BaseModel):
     supplier_id: str = Field(..., example="SUP001")
     items: List[str]
     total_amount: float
-    status: PurchaseOrderStatus = PurchaseOrderStatus.draft
     created_at: datetime
     expected_delivery: date
 
@@ -32,7 +31,6 @@ class PurchaseOrderUpdate(BaseModel):
     supplier_id: str | None = None
     items: List[str] | None = None
     total_amount: float | None = None
-    status: PurchaseOrderStatus | None = None
     expected_delivery: date | None = None
 
 
@@ -46,6 +44,9 @@ class PurchaseOrderResponse(BaseModel):
     expected_delivery: date
     history: List[PurchaseOrderHistory] = []
 
+#responce when po deleted successfully
+class MessageResponse(BaseModel):
+    message: str
 
 
 class PurchaseOrderTransition(BaseModel):

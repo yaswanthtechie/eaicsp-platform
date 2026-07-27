@@ -4,7 +4,8 @@ from app.schemas.purchase_order import (
     PurchaseOrderCreate,
     PurchaseOrderUpdate,
     PurchaseOrderResponse,
-    PurchaseOrderTransition
+    PurchaseOrderTransition,
+    MessageResponse
 )
 
 from app.services.purchase_order_service import (
@@ -26,9 +27,19 @@ router = APIRouter()
     response_model=PurchaseOrderResponse,
     status_code=201
 )
-def create_po(purchase_order: PurchaseOrderCreate):
-    return create_purchase_order(purchase_order)
+def create_po(
+    purchase_order: PurchaseOrderCreate,
+):
+    try:
+        return create_purchase_order(
+            purchase_order
+        )
 
+    except ValueError as e:
+        raise HTTPException(
+            status_code=409,
+            detail=str(e),
+        )
 
 # Get All Purchase Orders
 @router.get(
@@ -80,7 +91,10 @@ def update_po(
 
 
 # Delete Purchase Order
-@router.delete("/purchase-orders/{po_number}")
+@router.delete(
+    "/purchase-orders/{po_number}",
+    response_model=MessageResponse,
+)
 def delete_po(po_number: str):
     deleted = delete_purchase_order(po_number)
 

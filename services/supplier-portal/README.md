@@ -1,344 +1,230 @@
+
+                  Enterprise AI Cognitive Supply Chain Platform
+
 # Supplier Portal Service
 
-## Overview
+A FastAPI-based microservice for managing Supplier Purchase Orders and Invoices as part of the Enterprise AI Cognitive Supply Chain Platform.
 
-The Supplier Portal Service is a backend API built using **FastAPI** that allows suppliers to interact with Purchase Orders (POs) and Invoices.
+---
 
-This project is developed in stages:
+# Overview
 
-- **Wednesday:** Purchase Order CRUD APIs
-- **Thursday:** Purchase Order Acknowledgment & Invoice Submission
-- **Friday:** Invoice PDF Upload
-
-> **Note**
->
-> - No database is used in this phase.
-> - Data is stored in Python in-memory dictionaries.
-> - Kafka and MinIO are not used yet.
-
-
-
-# Project Goal
-
-This service simulates how suppliers receive Purchase Orders from buyers.
-
-A supplier can:
+The Supplier Portal Service enables suppliers to:
 
 - View Purchase Orders
-- Acknowledge a Purchase Order
-- Submit an Invoice
+- Update Purchase Order details
+- Acknowledge Purchase Orders
+- Perform controlled Purchase Order state transitions
+- Submit Invoices
+- Upload Invoice PDF documents
+- Track Purchase Order transition history
+
+This service currently uses **in-memory storage** and is designed to be extended later with databases, Kafka messaging, and object storage.
+
+---
+
+# Technology Stack
+
+- Python 3.x
+- FastAPI
+- Pydantic
+- Uvicorn
+- Pytest
+
+---
+
+# Response Codes
+
+| Status Code | Description |
+|-------------|-------------|
+| 200 | Request Successful |
+| 201 | Resource Created |
+| 400 | Invalid Request |
+| 404 | Resource Not Found |
+| 409 | Duplicate Resource |
+| 422 |  Unprocessable Content |
+
+# Project Structure
+
+```
+supplier-portal/
+│
+├── app/
+│   ├── core/
+│   │   └── config.py
+│   │
+│   ├── routes/
+│   │   ├── purchase_order.py
+│   │   └── invoice.py
+│   │
+│   ├── schemas/
+│   │   ├── purchase_order.py
+│   │   └── invoice.py
+│   │
+│   ├── services/
+│   │   ├── purchase_order_service.py
+│   │   └── invoice_service.py
+│   │
+│   └── main.py
+│
+├── tests/
+│   ├── test_po.py
+│   └── test_invoice.py
+│
+├── uploads/
+│
+├── requirements.txt
+└── README.md
+```
+
+---
+
+# Features
+
+## Purchase Orders
+
+- Create Purchase Order
+- Get All Purchase Orders
+- Get Purchase Order by ID
+- Update Purchase Order
+- Delete Purchase Order
+- Purchase Order Acknowledgement
+- Purchase Order State Machine
+- Purchase Order Transition History
+
+---
+
+## Invoices
+
+- Submit Invoice
 - Upload Invoice PDF
+- Store uploaded PDF locally
+- Return uploaded document path
 
 ---
 
-# Purchase Order Flow
+# Purchase Order Lifecycle
 
-```
-Buyer
+                Cancelled
+               ▲
+               │
+Draft ──► Sent ──► Acknowledged ──► Fulfilled
+   │          │            │
+   └──────────┴────────────┘
 
-   │
+Cancellation is allowed from:
 
-Create Purchase Order
+- Draft
+- Sent
+- Acknowledged
 
-   │
+No further transitions are allowed after:
 
-Status = draft
-
-   │
-
-Send Purchase Order
-
-   │
-
-Status = sent
-
-   │
-
-Supplier Acknowledges
-
-   │
-
-Status = acknowledged
-
-   │
-
-Supplier Delivers Goods
-
-   │
-
-Status = fulfilled
-```
+- Fulfilled
+- Cancelled
 
 ---
 
-# Invoice Flow
+# State Machine
+
+The Purchase Order status is controlled through a state machine.
+
+Allowed transitions are:
+
+| Current Status | Allowed Next Status |
+|---------------|--------------------|
+| Draft | Sent, Cancelled |
+| Sent | Acknowledged, Cancelled |
+| Acknowledged | Fulfilled, Cancelled |
+| Fulfilled | None |
+| Cancelled | None |
+
+Any invalid transition returns:
 
 ```
-Supplier
-
-    │
-
-Submit Invoice
-
-    │
-
-Invoice Created
-
-    │
-
-Upload PDF
-
-    │
-
-PDF Stored
-
-    │
-
-Invoice Updated
-```
-
----
-PO ---POST
-
-{
-  "po_number": "PO1001",
-  "supplier_id": "SUP001",
-  "items": [
-    "Laptop",
-    "Mouse"
-  ],
-  "total_amount": 50000,
-  "status": "sent",
-  "created_at": "2026-07-19T13:38:05.111Z",
-  "expected_delivery": "2026-07-25"
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# Wednesday Tasks
-
-## 1. Create Purchase Order Schema
-
-Purchase Order contains:
-
-| Field | Description |
-|--------|-------------|
-| po_number | Purchase Order Number |
-| supplier_id | Supplier Identifier |
-| items | List of ordered products |
-| total_amount | Total Purchase Order Amount |
-| status | Current PO Status |
-| created_at | PO Creation Date |
-| expected_delivery | Expected Delivery Date |
-
----
-
-## Purchase Order Status
-
-Allowed values:
-
-```
-draft
-sent
-acknowledged
-fulfilled
-cancelled
-```
-
-These values are implemented using an Enum.
-
----
-
-## Invoice Schema
-
-Invoice contains:
-
-| Field | Description |
-|--------|-------------|
-| invoice_number | Invoice Number |
-| po_number | Purchase Order Number |
-| supplier_id | Supplier Identifier |
-| amount | Invoice Amount |
-| submitted_at | Submission Date |
-| status | Invoice Status |
-| document_url | Uploaded PDF Path |
-
----
-
-## CRUD APIs
-
-### Create Purchase Order
-
-```
-POST /api/v1/purchase-orders
-```
-
-Creates a new Purchase Order.
-
----
-
-### Get All Purchase Orders
-
-```
-GET /api/v1/purchase-orders
-```
-
-Returns all Purchase Orders.
-
----
-
-### Get Purchase Order
-
-```
-GET /api/v1/purchase-orders/{po_number}
-```
-
-Returns a single Purchase Order.
-
----
-
-### Update Purchase Order
-
-```
-PUT /api/v1/purchase-orders/{po_number}
-```
-
-Updates an existing Purchase Order.
-
----
-
-### Delete Purchase Order
-
-```
-DELETE /api/v1/purchase-orders/{po_number}
-```
-
-Deletes a Purchase Order.
-
----
-
-# Thursday Tasks
-
-## Purchase Order Acknowledgment
-
-Endpoint:
-
-```
-POST /api/v1/purchase-orders/{po_number}/acknowledge
-```
-
-Purpose:
-
-The supplier confirms that the Purchase Order has been received.
-
-Current status:
-
-```
-sent
-```
-
-changes to
-
-```
-acknowledged
+400 Bad Request
 ```
 
 Example:
 
-Before:
-
 ```
-PO1001
+Fulfilled
+      │
+      ▼
 
-Status = sent
-```
+Draft
 
-After:
-
-```
-PO1001
-
-Status = acknowledged
+❌ Illegal Transition
 ```
 
 ---
 
-## Submit Invoice
+# Purchase Order History
 
-Endpoint
+Every successful transition is recorded.
 
-```
-POST /api/v1/invoices
-```
-
-Example Request
+Example:
 
 ```json
-{
-    "invoice_number":"INV1001",
-    "po_number":"PO1001",
-    "supplier_id":"SUP001",
-    "amount":50000
-}
+[
+    {
+        "from_status": "draft",
+        "to_status": "sent",
+        "timestamp": "2026-07-25T10:15:22"
+    },
+    {
+        "from_status": "sent",
+        "to_status": "acknowledged",
+        "timestamp": "2026-07-25T10:20:41"
+    }
+]
 ```
-
-This creates an invoice linked to a Purchase Order.
 
 ---
 
-# Friday Tasks
+# Invoice Upload
 
-## Upload Invoice PDF
+Invoices can have an associated PDF document.
 
-Endpoint
-
-```
-POST /api/v1/invoices/{invoice_number}/document
-```
-
-Purpose
-
-Upload the invoice PDF after the invoice is created.
-
-The uploaded file is saved inside
+Uploaded files are stored inside:
 
 ```
 uploads/
 ```
 
-Example
-
-Before
+Example:
 
 ```
-document_url = null
+uploads/INV1001.pdf
 ```
 
-After upload
+The invoice response includes:
 
-```
-document_url = uploads/INV1001.pdf
+```json
+{
+    "document_url": "uploads/INV1001.pdf"
+}
 ```
 
 ---
 
-## Validation Rules
+# Validation
+
+## Purchase Orders
+
+- Duplicate Purchase Orders are rejected.
+- Invalid state transitions are rejected.
+- Purchase Orders cannot bypass the state machine.
+
+---
+
+## Invoice Upload
+
+The service validates:
 
 ### File Type
 
-Only
+Only:
 
 ```
 application/pdf
@@ -346,134 +232,168 @@ application/pdf
 
 is accepted.
 
-Rejected:
+---
 
-```
-jpg
-png
-docx
-xlsx
-```
+### PDF Signature
+
+Uploaded files must contain a valid PDF signature.
+
+Files renamed as ".pdf" but containing other content are rejected.
 
 ---
 
-### File Size
+### Maximum File Size
 
-Maximum file size:
+Maximum allowed:
 
 ```
 10 MB
 ```
 
-If exceeded:
+---
+
+### Path Traversal Protection
+
+Invoice filenames are sanitized before saving to prevent writing outside the uploads directory.
+
+---
+
+# API Endpoints
+
+## Purchase Orders
+
+| Method | Endpoint | Description |
+|---------|----------|-------------|
+| POST | `/api/v1/purchase-orders` | Create Purchase Order |
+| GET | `/api/v1/purchase-orders` | Get All Purchase Orders |
+| GET | `/api/v1/purchase-orders/{po_number}` | Get Purchase Order |
+| PUT | `/api/v1/purchase-orders/{po_number}` | Update Purchase Order |
+| DELETE | `/api/v1/purchase-orders/{po_number}` | Delete Purchase Order |
+| POST | `/api/v1/purchase-orders/{po_number}/acknowledge` | Acknowledge Purchase Order |
+| POST | `/api/v1/purchase-orders/{po_number}/transition` | Change Purchase Order Status |
+
+---
+
+## Invoices
+
+| Method | Endpoint | Description |
+|---------|----------|-------------|
+| POST | `/api/v1/invoices` | Submit Invoice |
+| POST | `/api/v1/invoices/{invoice_number}/document` | Upload Invoice PDF |
+
+---
+
+# Running the Project
+
+Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+Run the application
+
+```bash
+python -m uvicorn app.main:app --reload
+```
+
+Swagger UI
 
 ```
-400 Bad Request
+http://127.0.0.1:8000/docs
+```
+
+
+
+# Running Tests
+
+Run all tests
+
+```bash
+python -m pytest
+```
+
+Run Purchase Order tests
+
+```bash
+python -m pytest tests/test_purchase_order.py
+```
+
+Run Invoice tests
+
+```bash
+python -m pytest tests/test_invoices.py
 ```
 
 ---
 
-# In-Memory Storage
+# Test Coverage
 
-Since no database is used, data is stored in dictionaries.
+Purchase Order
 
-Purchase Orders
+- Create Purchase Order
+- Get All Purchase Orders
+- Get Purchase Order by ID
+- Update Purchase Order
+- Delete Purchase Order
+- Valid Purchase Order Acknowledgement
+- Valid State Transition
+- Illegal State Transition
+- Purchase Order History Verification
+
+Invoice
+
+- Create Invoice
+- Upload Valid PDF
+- Reject Invalid File Type
+- Reject Invalid PDF Signature
+
+# Current Storage
+
+This project currently uses in-memory dictionaries.
 
 ```python
 purchase_orders = {}
 ```
 
-Invoices
-
 ```python
 invoices = {}
 ```
 
-Example
-
-```python
-purchase_orders = {
-    "PO1001": {
-        ...
-    }
-}
-```
+No database is used in the current implementation.
 
 ---
+# Security
 
-# Tests
+The service includes the following validations:
 
-## Test Purchase Order Acknowledgment
+- Purchase Order state changes are only allowed through the state machine.
+- Duplicate Purchase Orders are rejected.
+- Duplicate Invoices are rejected.
+- Only PDF files are accepted.
+- Uploaded files must contain a valid PDF signature.
+- Maximum upload size is 10 MB.
+- Invoice filenames are sanitized before saving.
+- Path traversal attacks are prevented.
 
-Given
 
-```
-Status = sent
-```
-
-When
-
-```
-POST /purchase-orders/PO1001/acknowledge
-```
-
-Then
-
-```
-Status = acknowledged
-```
-
-Expected Response
-
-```
-200 OK
-```
-
----
-
-## Test Invalid File Upload
-
-Upload
-
-```
-invoice.jpg
-```
-
-Expected
-
-```
-400 Bad Request
-```
-
-Message
-
-```
-Only PDF files are allowed
-```
-
----
-
-# API Summary
-
-| Method | Endpoint | Purpose |
-|----------|-----------------------------------------------|---------------------------|
-| POST | /purchase-orders | Create Purchase Order |
-| GET | /purchase-orders | Get All Purchase Orders |
-| GET | /purchase-orders/{po_number} | Get Purchase Order |
-| PUT | /purchase-orders/{po_number} | Update Purchase Order |
-| DELETE | /purchase-orders/{po_number} | Delete Purchase Order |
-| POST | /purchase-orders/{po_number}/acknowledge | Acknowledge Purchase Order |
-| POST | /invoices | Submit Invoice |
-| POST | /invoices/{invoice_number}/document | Upload Invoice PDF |
-
----
 
 # Future Enhancements
 
-- PostgreSQL Database
-- SQLAlchemy Models
+- PostgreSQL Integration
+- SQLAlchemy ORM
+- Repository Layer
 - Kafka Integration
-- MinIO File Storage
-- Authentication & Authorization
-- Supplier Dashboard
-- Audit Logs
+- MinIO Object Storage
+- JWT Authentication
+- Docker Support
+- Kubernetes Deployment
+- CI/CD Pipeline
+- Audit Logging
+- Monitoring
+---
+
+
+
+
+

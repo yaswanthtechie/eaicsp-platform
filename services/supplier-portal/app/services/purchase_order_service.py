@@ -21,9 +21,17 @@ def create_purchase_order(purchase_order: PurchaseOrderCreate):
     if purchase_order.po_number in purchase_orders:
         raise ValueError("Purchase Order already exists.")
 
-    purchase_orders[purchase_order.po_number] = purchase_order.model_dump()
+    purchase_order_data = purchase_order.model_dump()
 
-    return purchase_orders[purchase_order.po_number]
+    # Every new Purchase Order starts in draft state
+    purchase_order_data["status"] = PurchaseOrderStatus.draft
+
+# Initialize history
+    purchase_order_data["history"] = []
+
+    purchase_orders[purchase_order.po_number] = purchase_order_data
+
+    return purchase_order_data
 
 
 def get_all_purchase_orders():
@@ -80,28 +88,14 @@ def delete_purchase_order(po_number: str):
 
 def acknowledge_purchase_order(po_number: str):
     """
-    Acknowledge an existing Purchase Order.
-    Changes the status from 'sent' to 'acknowledged'.
+    Acknowledge an existing Purchase Order
+    using the state machine.
     """
 
-    if po_number not in purchase_orders:
-        return None
-
-    purchase_order = purchase_orders[po_number]
-
-    # Allow acknowledgement only if PO has been sent
-    if purchase_order["status"] != PurchaseOrderStatus.sent:
-        raise ValueError(
-            "Only purchase orders with status 'sent' can be acknowledged."
-        )
-
-    purchase_order["status"] = PurchaseOrderStatus.acknowledged
-
-    purchase_orders[po_number] = purchase_order
-
-    return purchase_order
-
-
+    return transition_purchase_order(
+        po_number,
+        PurchaseOrderStatus.acknowledged,
+    )
 
 # valid transitions and history tracking
 
