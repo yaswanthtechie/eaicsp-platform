@@ -1,10 +1,10 @@
-import React from "react";
+
 import { colors, space, radius } from "../tokens";
 
 type KpiCardProps = {
   label: string;
   value: string;
-  delta?: string;
+  delta?: number;
 };
 
 export function KpiCard({
@@ -12,12 +12,21 @@ export function KpiCard({
   value,
   delta,
 }: KpiCardProps) {
+  const isPositive = delta !== undefined && delta >= 0;
+
   const deltaColor =
     delta === undefined
       ? colors.textMuted
-      : delta.startsWith("-")
-      ? colors.danger
-      : colors.success;
+      : isPositive
+      ? colors.success
+      : colors.danger;
+
+  const arrow =
+    delta === undefined
+      ? ""
+      : isPositive
+      ? "▲"
+      : "▼";
 
   return (
     <div
@@ -49,7 +58,7 @@ export function KpiCard({
         {value}
       </h2>
 
-      {delta && (
+      {delta !== undefined && (
         <p
           style={{
             margin: 0,
@@ -57,7 +66,7 @@ export function KpiCard({
             fontWeight: "bold",
           }}
         >
-          {delta}
+          {arrow} {Math.abs(delta)}%
         </p>
       )}
     </div>

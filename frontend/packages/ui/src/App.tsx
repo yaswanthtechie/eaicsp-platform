@@ -150,6 +150,26 @@ function App() {
           Disabled
         </Button>
       </div>
+      {/* Card */}
+
+<h2>Card</h2>
+
+<Card
+  title="Inventory Summary"
+  actions={
+    <Button
+      variant="primary"
+      size="sm"
+      onClick={() => alert("View Details")}
+    >
+      View
+    </Button>
+  }
+>
+  <p>
+    This card displays reusable content with a title, actions, and body.
+  </p>
+</Card>
 
       {/* Badges */}
 
@@ -162,7 +182,8 @@ function App() {
         <Badge status="neutral">Neutral</Badge>
       </div>
 
-      {/* KPI Cards */}
+      {/* KPI Card
+{/* KPI Cards */}
 
 <h2>KPI Cards</h2>
 
@@ -176,19 +197,19 @@ function App() {
   <KpiCard
     label="Forecast Accuracy"
     value="92.4%"
-    delta="▲ 2.1%"
+    delta={2.1}
   />
 
   <KpiCard
     label="Revenue"
     value="₹5.2M"
-    delta="▲ 5.4%"
+    delta={5.4}
   />
 
   <KpiCard
     label="Inventory"
     value="120"
-    delta="▼ 3.5%"
+    delta={-3.5}
   />
 </div>
 
