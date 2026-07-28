@@ -2,7 +2,7 @@ import os
 import numpy as np
 import torch
 import joblib
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import (
     mean_absolute_error,
     mean_squared_error,
@@ -58,7 +58,7 @@ def evaluate_model():
         actual_target_raw = raw_series[t : t + HORIZON]
 
         # 3. Fit scaler strictly on history available up to step t
-        scaler = StandardScaler()
+        scaler =MinMaxScaler ()
         scaler.fit(train_history.reshape(-1, 1))
 
         # 4. Scale sequence input

@@ -38,7 +38,7 @@ def train_model():
 
     # Fit scaler ONLY on training data, then transform both
     # Assuming scale_data can handle raw numpy arrays or fit vs transform logic
-    from sklearn.preprocessing import StandardScaler
+
     train_scaled, scaler = fit_and_scale_train_data(train_df["Demand"].values, save_path=os.path.join(output_dir, "scaler.pkl"))
     val_scaled = scale_test_data(val_df["Demand"].values, scaler)
 
