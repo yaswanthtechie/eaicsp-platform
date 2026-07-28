@@ -11,3 +11,6 @@ venv/
 
 .env
 .env.*
+
+models/
+output/

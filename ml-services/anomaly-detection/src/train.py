@@ -12,36 +12,74 @@ from src.isolation_forest_model import IsolationForestModel
 from src.lof_model import LOFModel
 from src.one_class_svm_model import OneClassSVMModel
 
-data_path = project_root / "output" / "sensor_readings_with_anomalies.csv"
 models_dir = project_root / "models"
 models_dir.mkdir(parents=True, exist_ok=True)
 
-if not data_path.exists():
-    raise FileNotFoundError(f"Training data not found at {data_path}")
 
+def train_models(df: pd.DataFrame):
+    """
+    Train all anomaly detection models, save them,
+    and save a small SHAP background sample.
 
-df = pd.read_csv(data_path)
-features = df[["temperature", "humidity", "stock_count"]].to_numpy()
+    Args:
+        df: DataFrame containing the sensor data.
 
-# Isolation Forest Model
-model1 = IsolationForestModel()
-model1.train(features)
-joblib.dump(model1.model, models_dir / "isolation_forest_model.joblib")
+    Returns:
+        dict: Dictionary containing the trained model wrappers.
+    """
 
-print("Isolation Forest model is trained")
-print("=" * 50)
+    feature_names = ["temperature", "humidity", "stock_count"]
+    features = df[feature_names].to_numpy()
 
-# One-Class SVM Model
-model2 = OneClassSVMModel()
-model2.train(features)
-joblib.dump(model2.model, models_dir / "one_class_svm_model.joblib")
+    # Save a small background sample for SHAP explainers
+    background_sample = (
+        df[feature_names]
+        .sample(n=min(100, len(df)), random_state=42)
+        .reset_index(drop=True)
+    )
 
-print("One-Class SVM model is trained")
-print("=" * 50)
+    background_sample.to_csv(
+        models_dir / "background_sample.csv",
+        index=False,
+    )
 
-# Local Outlier Factor Model
-model3 = LOFModel()
-model3.train(features)
-joblib.dump(model3.model, models_dir / "lof_model.joblib")
+    models = {}
 
-print("Local Outlier Factor model is trained")
+    # Isolation Forest
+    model1 = IsolationForestModel()
+    model1.train(features)
+    joblib.dump(
+        model1.model,
+        models_dir / "isolation_forest_model.joblib",
+    )
+    models["iforest"] = model1
+
+    print("Isolation Forest model is trained")
+    print("=" * 50)
+
+    # One-Class SVM
+    model2 = OneClassSVMModel()
+    model2.train(features)
+    joblib.dump(
+        model2.model,
+        models_dir / "one_class_svm_model.joblib",
+    )
+    models["ocsvm"] = model2
+
+    print("One-Class SVM model is trained")
+    print("=" * 50)
+
+    # Local Outlier Factor
+    model3 = LOFModel()
+    model3.train(features)
+    joblib.dump(
+        model3.model,
+        models_dir / "lof_model.joblib",
+    )
+    models["lof"] = model3
+
+    print("Local Outlier Factor model is trained")
+    print("=" * 50)
+    print("SHAP background sample saved")
+
+    return models

@@ -6,12 +6,11 @@ import pandas as pd
 import shap
 
 project_root = Path(__file__).resolve().parent.parent
-output_dir = project_root / "output"
+models_dir = project_root / "models"
 
-df = pd.read_csv(output_dir / "sensor_readings_with_anomalies.csv")
+MODEL_VERSION = "1.0.0"
+
 feature_names = ["temperature", "humidity", "stock_count"]
-features = df[feature_names].to_numpy()
-background_features = features[:100]
 
 
 def make_prediction(model):
@@ -35,28 +34,76 @@ def make_prediction(model):
     return predict_with_feature_names
 
 
-def load_model(path):
-    return joblib.load(project_root / path)
-
-
-models = {
-    "iforest": load_model("models/isolation_forest_model.joblib"),
-    "lof": load_model("models/lof_model.joblib"),
-    "ocsvm": load_model("models/one_class_svm_model.joblib"),
-}
-
-masker = shap.maskers.Independent(background_features)
+_models = None
+_background = None
+masker = None
 explainers = {}
 
-for name, model in models.items():
 
-    try:
-        explainers[name] = shap.Explainer(
-            make_prediction(model),
-            masker,
-            feature_names=feature_names,
-        )
+def get_models():
+    global _models
 
-    except Exception:
+    if _models is None:
+        model_paths = {
+            "iforest": models_dir / "isolation_forest_model.joblib",
+            "lof": models_dir / "lof_model.joblib",
+            "ocsvm": models_dir / "one_class_svm_model.joblib",
+        }
 
-        explainers[name] = None
+        missing = [
+            str(path.name)
+            for path in model_paths.values()
+            if not path.exists()
+        ]
+
+        if missing:
+            raise FileNotFoundError(
+                "Model artifacts not found. "
+                "Run 'python main.py' to generate the trained models."
+            )
+
+        _models = {
+            name: joblib.load(path)
+            for name, path in model_paths.items()
+        }
+
+    return _models
+
+
+def get_background():
+    global _background
+
+    if _background is None:
+        background_path = models_dir / "background_sample.csv"
+
+        if not background_path.exists():
+            raise FileNotFoundError(
+                "background_sample.csv not found. "
+                "Run 'python main.py' to generate the required artifacts."
+            )
+
+        _background = pd.read_csv(background_path).to_numpy()
+
+    return _background
+
+
+def get_explainer(model_name):
+    global masker
+
+    if model_name not in explainers:
+
+        if masker is None:
+            masker = shap.maskers.Independent(get_background())
+
+        model = get_models()[model_name]
+
+        try:
+            explainers[model_name] = shap.Explainer(
+                make_prediction(model),
+                masker,
+                feature_names=feature_names,
+            )
+        except Exception:
+            explainers[model_name] = None
+
+    return explainers[model_name]

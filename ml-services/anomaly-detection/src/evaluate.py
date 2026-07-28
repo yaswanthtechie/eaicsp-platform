@@ -12,13 +12,8 @@ if str(project_root) not in sys.path:
 output_dir = project_root / "output"
 models_dir = project_root / "models"
 
-df = pd.read_csv(output_dir / "sensor_readings_with_anomalies.csv")
 
-features = df[["temperature", "humidity", "stock_count"]].to_numpy()
-y_true = df['is_anomaly']
-
-
-def evaluate_model(model_path, model_name):
+def evaluate_model(model_path, model_name, features, y_true):
     model = joblib.load(model_path)
 
     y_pred = (model.predict(features) == -1).astype(int)
@@ -29,30 +24,49 @@ def evaluate_model(model_path, model_name):
         "Recall": recall_score(y_true, y_pred),
         "Caught": ((y_true == 1) & (y_pred == 1)).sum(),
         "False Alarms": ((y_true == 0) & (y_pred == 1)).sum(),
-        "Predicted": y_pred.sum()
+        "Predicted": y_pred.sum(),
     }
 
 
-results = [
-    evaluate_model(
-        models_dir / "isolation_forest_model.joblib",
-        "Isolation Forest"
-    ),
-    evaluate_model(
-        models_dir / "one_class_svm_model.joblib",
-        "One-Class SVM"
-    ),
-    evaluate_model(
-        models_dir / "lof_model.joblib",
-        "Local Outlier Factor"
+def evaluate_models(df: pd.DataFrame):
+    """
+    Evaluate all trained anomaly detection models.
+    """
+
+    features = df[
+        ["temperature", "humidity", "stock_count"]
+    ].to_numpy()
+
+    y_true = df["is_anomaly"]
+
+    results = [
+        evaluate_model(
+            models_dir / "isolation_forest_model.joblib",
+            "Isolation Forest",
+            features,
+            y_true,
+        ),
+        evaluate_model(
+            models_dir / "one_class_svm_model.joblib",
+            "One-Class SVM",
+            features,
+            y_true,
+        ),
+        evaluate_model(
+            models_dir / "lof_model.joblib",
+            "Local Outlier Factor",
+            features,
+            y_true,
+        ),
+    ]
+
+    results_df = pd.DataFrame(results)
+
+    print(results_df)
+
+    results_df.to_csv(
+        output_dir / "precision_recall.csv",
+        index=False,
     )
-]
 
-results_df = pd.DataFrame(results)
-
-print(results_df)
-
-results_df.to_csv(
-    output_dir / "precision_recall.csv",
-    index=False
-)
+    return results_df

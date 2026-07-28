@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 
+from .model_loader import get_models
 from .predict import predict
 
 window_size = 50
@@ -104,6 +105,10 @@ def start_stream():
     if running:
         return False
 
+    # Ensure trained models exist before starting the stream.
+    # Raises FileNotFoundError if models are missing.
+    get_models()
+
     running = True
 
     stream_thread = threading.Thread(
@@ -131,7 +136,7 @@ def reset_stream():
 
     for window in rolling_windows.values():
         window.clear()
-    
+
     for history in prediction_history.values():
         history.clear()
 

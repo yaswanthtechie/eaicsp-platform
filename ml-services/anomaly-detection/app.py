@@ -2,36 +2,67 @@ from fastapi import FastAPI, HTTPException
 
 from schemas import PredictionRequest
 
+from src.model_loader import MODEL_VERSION
 from src.predict import predict_with_explanation
 from src.streaming import (
+    get_history,
+    get_latest,
+    get_window,
+    reset_stream,
     start_stream,
     stop_stream,
-    reset_stream,
-    get_window,
-    get_latest,
-    get_history,
 )
 
 app = FastAPI(title="Anomaly Detection")
 
 
+@app.get("/health")
+async def health():
+    return {
+        "status": "healthy",
+        "service": "anomaly-detection-api",
+        "model_version": MODEL_VERSION,
+    }
+
+
 @app.post("/detect")
 async def detect(request: PredictionRequest):
     try:
-        return predict_with_explanation(
+        result = predict_with_explanation(
             request.reading.model_dump(),
             request.model.value,
         )
+
+        result["model_version"] = MODEL_VERSION
+
+        return result
+
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=str(exc),
+        )
+
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail=str(exc),
+        )
 
 
 @app.post("/stream/start")
 async def stream_start():
-    if start_stream():
-        return {"message": "Streaming started."}
+    try:
+        if start_stream():
+            return {"message": "Streaming started."}
 
-    return {"message": "Streaming is already running."}
+        return {"message": "Streaming is already running."}
+
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=str(exc),
+        )
 
 
 @app.post("/stream/stop")
@@ -58,7 +89,10 @@ async def stream_window(model: str):
         }
 
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        )
 
 
 @app.get("/stream/latest/{model}")
@@ -72,7 +106,10 @@ async def stream_latest(model: str):
         return result
 
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        )
 
 
 @app.get("/stream/history/{model}")
@@ -87,4 +124,7 @@ async def stream_history(model: str):
         }
 
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        )
