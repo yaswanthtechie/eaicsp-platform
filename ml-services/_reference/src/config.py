@@ -2,7 +2,7 @@ MODEL_NAME = "iris_classifier"
 
 EXPERIMENT_NAME = "Iris_Reference"
 
-MODEL_VERSION = "2.0.0"
+
 
 RANDOM_STATE = 42
 

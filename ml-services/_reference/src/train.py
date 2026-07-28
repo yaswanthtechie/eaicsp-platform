@@ -1,22 +1,37 @@
-import mlflow
-import mlflow.sklearn
-
 from sklearn.ensemble import RandomForestClassifier
+
+from src.config import (
+    MODEL_NAME,
+    EXPERIMENT_NAME,
+    RANDOM_STATE,
+    N_ESTIMATORS,
+    MAX_DEPTH,
+)
 
 from src.data import load_data
 from src.evaluate import evaluate
-from src.config import *
 
-# Set MLflow tracking directory
-mlflow.set_tracking_uri("file:./mlruns")
+from src.mlflow_utils import (
+    set_experiment,
+    start_run,
+    log_params,
+    log_metrics,
+    log_model,
+    promote_model,
+)
 
 
 def train():
-    mlflow.set_experiment(EXPERIMENT_NAME)
+    """
+    Train, evaluate, register,
+    and promote the model.
+    """
+
+    set_experiment(EXPERIMENT_NAME)
 
     X_train, X_test, y_train, y_test = load_data()
 
-    with mlflow.start_run():
+    with start_run("RandomForest_Training"):
 
         model = RandomForestClassifier(
             n_estimators=N_ESTIMATORS,
@@ -26,25 +41,47 @@ def train():
 
         model.fit(X_train, y_train)
 
-        accuracy, f1 = evaluate(model, X_test, y_test)
+        accuracy, f1 = evaluate(
+            model,
+            X_test,
+            y_test,
+        )
 
-        mlflow.log_param("n_estimators", N_ESTIMATORS)
-        mlflow.log_param("max_depth", MAX_DEPTH)
+        log_params(
+            {
+                "n_estimators": N_ESTIMATORS,
+                "max_depth": MAX_DEPTH,
+                "random_state": RANDOM_STATE,
+            }
+        )
 
-        mlflow.log_metric("accuracy", accuracy)
-        mlflow.log_metric("f1_score", f1)
+        log_metrics(
+            {
+                "accuracy": accuracy,
+                "f1_score": f1,
+            }
+        )
 
-        model_info = mlflow.sklearn.log_model(
-            sk_model=model,
+        model_info = log_model(
+            model=model,
             artifact_path="model",
             registered_model_name=MODEL_NAME,
         )
 
-        print("=" * 50)
-        print("Model URI :", model_info.model_uri)
-        print("Accuracy  :", accuracy)
-        print("F1 Score  :", f1)
-        print("=" * 50)
+        model_version = promote_model(MODEL_NAME)
+
+        print("=" * 60)
+        print("Training Completed Successfully")
+        print("=" * 60)
+        print(f"Model Name      : {MODEL_NAME}")
+        print(f"Model Version   : {model_version}")
+        print("Alias           : @production")
+        print(f"Accuracy        : {accuracy:.4f}")
+        print(f"F1 Score        : {f1:.4f}")
+        print(f"Model URI       : {model_info.model_uri}")
+        print("=" * 60)
+
+        return model
 
 
 if __name__ == "__main__":
