@@ -1,173 +1,212 @@
-from app.schemas.inventory import InventoryCreate, InventoryUpdate
-from app.models.inventory import Inventory
 from sqlalchemy.orm import Session
-import csv
-from io import StringIO
 from fastapi import UploadFile, HTTPException
+from io import StringIO
+import csv
+
+from app.models.inventory import Inventory
+from app.schemas.inventory import InventoryCreate, InventoryUpdate
+
+
+def calculate_reorder_point(item):
+    return int(
+        (item.avg_daily_demand * item.lead_time_days)
+        + item.safety_stock
+    )
+
+
+def inventory_response(item):
+    return {
+        "sku_id": item.sku_id,
+        "product_name": item.product_name,
+        "warehouse_id": item.warehouse_id,
+        "quantity_on_hand": item.quantity_on_hand,
+        "reorder_point": calculate_reorder_point(item),
+        "safety_stock": item.safety_stock,
+        "lead_time_days": item.lead_time_days,
+        "avg_daily_demand": item.avg_daily_demand,
+    }
+
+
+def get_inventory(db: Session, sku_id: str):
+    return (
+        db.query(Inventory)
+        .filter(Inventory.sku_id == sku_id)
+        .first()
+    )
+
 
 def create_inventory(db: Session, inventory: InventoryCreate):
-    existing_inventory = get_inventory(db, inventory.sku_id)
 
-    if existing_inventory is not None:
+    existing = get_inventory(db, inventory.sku_id)
+
+    if existing:
         return None
 
-    db_inventory = Inventory(
+    item = Inventory(
         sku_id=inventory.sku_id,
         product_name=inventory.product_name,
         warehouse_id=inventory.warehouse_id,
         quantity_on_hand=inventory.quantity_on_hand,
         safety_stock=inventory.safety_stock,
         lead_time_days=inventory.lead_time_days,
-        avg_daily_demand=inventory.avg_daily_demand
+        avg_daily_demand=inventory.avg_daily_demand,
     )
-    db.add(db_inventory)
+
+    db.add(item)
     db.commit()
-    db.refresh(db_inventory)
-    return db_inventory
+    db.refresh(item)
 
-
-def get_inventory(db: Session, sku_id: str):
-    return db.query(Inventory).filter(Inventory.sku_id == sku_id).first()
+    return inventory_response(item)
 
 
 def get_all_inventory(db: Session):
-    return db.query(Inventory).all()
+
+    items = db.query(Inventory).all()
+
+    return [
+        inventory_response(item)
+        for item in items
+    ]
 
 
-def update_inventory(db: Session, sku_id: str, inventory: InventoryUpdate):
-    db_inventory = db.query(Inventory).filter(Inventory.sku_id == sku_id).first()
-    if not db_inventory:
+def update_inventory(
+    db: Session,
+    sku_id: str,
+    inventory: InventoryUpdate,
+):
+
+    item = get_inventory(db, sku_id)
+
+    if item is None:
         return None
 
-    if inventory.product_name is not None:
-        db_inventory.product_name = inventory.product_name
-    if inventory.warehouse_id is not None:
-        db_inventory.warehouse_id = inventory.warehouse_id
-    if inventory.quantity_on_hand is not None:
-        db_inventory.quantity_on_hand = inventory.quantity_on_hand
-    if inventory.avg_daily_demand is not None:
-        db_inventory.avg_daily_demand = inventory.avg_daily_demand
-    if inventory.lead_time_days is not None:
-        db_inventory.lead_time_days = inventory.lead_time_days
-    if inventory.safety_stock is not None:
-        db_inventory.safety_stock = inventory.safety_stock
+    update_data = inventory.model_dump(exclude_unset=True)
+
+    for key, value in update_data.items():
+        setattr(item, key, value)
 
     db.commit()
-    db.refresh(db_inventory)
-    return db_inventory
+    db.refresh(item)
+
+    return inventory_response(item)
 
 
-def delete_inventory(db: Session, sku_id: str):
-    db_inventory = get_inventory(db, sku_id)
-    if db_inventory is None:
+def delete_inventory(
+    db: Session,
+    sku_id: str,
+):
+
+    item = get_inventory(db, sku_id)
+
+    if item is None:
         return False
-    db.delete(db_inventory)
+
+    db.delete(item)
     db.commit()
+
     return True
 
 
-def reorder_check(db: Session, sku_id: str):
-    db_inventory = get_inventory(db, sku_id)
+def reorder_check(
+    db: Session,
+    sku_id: str,
+):
 
-    if db_inventory is None:
+    item = get_inventory(db, sku_id)
+
+    if item is None:
         return None
 
-    reorder_point = (
-        db_inventory.avg_daily_demand
-        * db_inventory.lead_time_days
-    ) + db_inventory.safety_stock
+    reorder_point = calculate_reorder_point(item)
 
     needs_reorder = (
-        db_inventory.quantity_on_hand <= reorder_point
+        item.quantity_on_hand <= reorder_point
     )
 
     suggested_order_qty = max(
         0,
-        int(reorder_point * 2 - db_inventory.quantity_on_hand)
+        reorder_point - item.quantity_on_hand
     )
 
     return {
-        "sku_id": db_inventory.sku_id,
-        "current_qty": db_inventory.quantity_on_hand,
+        "sku_id": item.sku_id,
+        "current_qty": item.quantity_on_hand,
         "reorder_point": reorder_point,
         "needs_reorder": needs_reorder,
         "suggested_order_qty": suggested_order_qty,
     }
-
-
-def calculate_reorder_point(db_inventory):
-    return (db_inventory.avg_daily_demand * db_inventory.lead_time_days) + db_inventory.safety_stock
 
 
 def get_low_stock_items(db: Session):
-    db_inventory = db.query(Inventory).all()
-    if not db_inventory:
-        return []
 
-    low_stock_items = []
-    for item in db_inventory:
+    items = db.query(Inventory).all()
+
+    result = []
+
+    for item in items:
+
         reorder_point = calculate_reorder_point(item)
+
         if item.quantity_on_hand <= reorder_point:
-            low_stock_items.append({
+
+            result.append({
                 "sku_id": item.sku_id,
                 "product_name": item.product_name,
-                "current_qty": item.quantity_on_hand,
+                "quantity_on_hand": item.quantity_on_hand,
                 "reorder_point": reorder_point,
             })
-    return low_stock_items
+
+    return result
 
 
-def simulate_demand_spike(db: Session, sku_id: str, demand_spike_percent: float):
-    db_inventory = (
-        db.query(Inventory)
-        .filter(Inventory.sku_id == sku_id)
-        .first()
-    )
+def simulate_demand_spike(
+    db: Session,
+    sku_id: str,
+    demand_spike_percent: float,
+):
 
-    if db_inventory is None:
+    item = get_inventory(db, sku_id)
+
+    if item is None:
         return None
 
     new_avg_daily_demand = (
-        db_inventory.avg_daily_demand
+        item.avg_daily_demand
         * (1 + demand_spike_percent / 100)
     )
 
-    reorder_point = (
-        new_avg_daily_demand
-        * db_inventory.lead_time_days
-    ) + db_inventory.safety_stock
+    new_reorder_point = int(
+        (new_avg_daily_demand * item.lead_time_days)
+        + item.safety_stock
+    )
 
     needs_reorder = (
-        db_inventory.quantity_on_hand <= reorder_point
+        item.quantity_on_hand <= new_reorder_point
     )
 
     suggested_order_qty = max(
         0,
-        int((reorder_point * 2) - db_inventory.quantity_on_hand)
+        new_reorder_point - item.quantity_on_hand
     )
 
     return {
-        "sku_id": db_inventory.sku_id,
-        "product_name": db_inventory.product_name,
-        "current_qty": db_inventory.quantity_on_hand,
-        "original_avg_daily_demand": db_inventory.avg_daily_demand,
-        "demand_spike_percent": demand_spike_percent,
-        "new_avg_daily_demand": new_avg_daily_demand,
-        "reorder_point": reorder_point,
+        "sku_id": item.sku_id,
+        "current_quantity": item.quantity_on_hand,
+        "new_reorder_point": new_reorder_point,
         "needs_reorder": needs_reorder,
         "suggested_order_qty": suggested_order_qty,
     }
-    
 
 
 def bulk_upload_csv(
     db: Session,
-    file: UploadFile
+    file: UploadFile,
 ):
+
     if not file.filename.lower().endswith(".csv"):
         raise HTTPException(
             status_code=400,
-            detail="Only CSV files are allowed"
+            detail="Only CSV files are allowed",
         )
 
     try:
@@ -175,95 +214,70 @@ def bulk_upload_csv(
     except Exception:
         raise HTTPException(
             status_code=400,
-            detail="Unable to read CSV file."
+            detail="Unable to read CSV file.",
         )
 
-    csv_reader = csv.DictReader(StringIO(contents))
+    reader = csv.DictReader(StringIO(contents))
 
     required_columns = {
         "sku_id",
         "product_name",
         "warehouse_id",
         "quantity_on_hand",
-        
         "safety_stock",
         "lead_time_days",
-        "avg_daily_demand"
+        "avg_daily_demand",
     }
 
-    if csv_reader.fieldnames is None:
+    if reader.fieldnames is None:
         raise HTTPException(
             status_code=400,
-            detail="CSV file is empty."
+            detail="CSV file is empty.",
         )
 
-    missing_columns = required_columns - set(csv_reader.fieldnames)
+    missing = required_columns - set(reader.fieldnames)
 
-    if missing_columns:
+    if missing:
         raise HTTPException(
             status_code=400,
-            detail=f"Missing columns: {', '.join(sorted(missing_columns))}"
+            detail=f"Missing columns: {', '.join(sorted(missing))}",
         )
 
-    inserted = []
+    inserted = 0
 
     try:
-        for row_number, row in enumerate(csv_reader, start=2):
 
-            # Required field validation
-            for column in required_columns:
-                value = row.get(column)
+        for row_number, row in enumerate(reader, start=2):
 
-                if value is None or value.strip() == "":
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Row {row_number}: '{column}' cannot be empty."
-                    )
-
-            # Duplicate SKU validation
-            existing = (
-                db.query(Inventory)
-                .filter(Inventory.sku_id == row["sku_id"])
-                .first()
+            existing = get_inventory(
+                db,
+                row["sku_id"].strip(),
             )
 
             if existing:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Row {row_number}: SKU '{row['sku_id']}' already exists."
-                )
-
-            try:
-                quantity = int(row["quantity_on_hand"])
-                
-                safety_stock = int(row["safety_stock"])
-                lead_time = int(row["lead_time_days"])
-                avg_daily_demand = float(row["avg_daily_demand"])
-            except ValueError:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Row {row_number}: Numeric fields contain invalid values."
+                    detail=f"Row {row_number}: SKU already exists.",
                 )
 
             item = Inventory(
                 sku_id=row["sku_id"].strip(),
                 product_name=row["product_name"].strip(),
                 warehouse_id=row["warehouse_id"].strip(),
-                quantity_on_hand=quantity,
-                safety_stock=safety_stock,
-                lead_time_days=lead_time,
-                avg_daily_demand=avg_daily_demand
+                quantity_on_hand=int(row["quantity_on_hand"]),
+                safety_stock=int(row["safety_stock"]),
+                lead_time_days=int(row["lead_time_days"]),
+                avg_daily_demand=float(row["avg_daily_demand"]),
             )
 
             db.add(item)
-            inserted.append(row["sku_id"])
+            inserted += 1
 
         db.commit()
 
         return {
             "message": "CSV uploaded successfully",
-            "total_records": len(inserted),
-            "items_added": inserted
+            "total_records": inserted,
         }
 
     except HTTPException:
@@ -274,5 +288,5 @@ def bulk_upload_csv(
         db.rollback()
         raise HTTPException(
             status_code=500,
-            detail=f"CSV upload failed: {str(e)}"
+            detail=f"CSV upload failed: {str(e)}",
         )
