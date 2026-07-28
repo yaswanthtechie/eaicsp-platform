@@ -1,30 +1,28 @@
 # Compliance Service
 
-## Overview
+A FastAPI-based Compliance Screening Service that checks supplier and customer names against sanctions lists using exact and fuzzy matching.
 
-The Compliance Service is a FastAPI-based microservice that screens entities against sanctions lists.
+## Features
 
-It supports:
-
-- OFAC SDN sanctions list
-- United Nations (UN) sanctions list
-- Exact name matching
-- Fuzzy name matching using RapidFuzz
-- REST API for compliance screening
+- Load OFAC SDN sanctions list on startup
+- Load UN Consolidated sanctions list
+- Exact match screening
+- Fuzzy matching using RapidFuzz (WRatio)
+- Configurable match threshold
 - JSON audit logging
-- Automatic API documentation using Swagger
+- UTC timestamps
+- REST API using FastAPI
+- Pytest unit tests
+- Deduplicates entities appearing in multiple sanctions lists
 
 ---
 
-# Project Structure
+## Project Structure
 
-```
+
 compliance-service/
 │
 ├── app/
-│   ├── main.py
-│   ├── audit.log
-│   │
 │   ├── core/
 │   │   └── config.py
 │   │
@@ -34,8 +32,14 @@ compliance-service/
 │   ├── schemas/
 │   │   └── compliance.py
 │   │
-│   └── services/
-│       └── sanctions_service.py
+│   ├── services/
+│   │   ├── sanctions_service.py
+│   │   ├── csv_reader.py
+│   │   ├── entity_matching.py
+│   │   └── audit_service.py
+│   │
+│   ├── main.py
+│   └── audit.log
 │
 ├── data/
 │   ├── ofac.csv
@@ -46,96 +50,45 @@ compliance-service/
 │
 ├── requirements.txt
 └── README.md
-```
 
----
 
-# Features
+## Installation
 
-- Load OFAC sanctions from CSV
-- Load UN sanctions from CSV
-- Exact name matching
-- Fuzzy name matching using RapidFuzz (WRatio)
-- Configurable matching threshold
-- JSON audit log
-- FastAPI REST API
-- Pydantic request and response validation
-- Automatic Swagger documentation
+Create a virtual environment.
 
----
 
-# Technologies Used
+python -m venv venv
 
-- Python 3.x
-- FastAPI
-- Uvicorn
-- Pydantic
-- RapidFuzz
-- Pytest
 
----
-
-# Installation
-
-## Clone the repository
-
-```bash
-git clone <repository-url>
-```
-
----
-
-## Navigate to the project
-
-```bash
-cd compliance-service
-```
-
----
-
-## Create Virtual Environment
+Activate it.
 
 Windows
 
-```bash
-python -m venv venv
-```
-
-Activate
-
-```bash
 venv\Scripts\activate
-```
 
----
 
-## Install Dependencies
+Install dependencies.
 
-```bash
+
 pip install -r requirements.txt
-```
+
 
 ---
 
-# Running the Application
+## Running the Service
 
-Start the FastAPI server
+Start the FastAPI server.
 
-```bash
+bash
 python -m uvicorn app.main:app --reload
-```
 
----
 
-## Application URL
+The application starts at
 
-```
 http://127.0.0.1:8000
-```
 
----
 
-## Swagger Documentation
+Swagger documentation
 
 ```
 http://127.0.0.1:8000/docs
@@ -143,201 +96,152 @@ http://127.0.0.1:8000/docs
 
 ---
 
-# API Endpoint
+## API Endpoint
 
-## Screen Entity
+### POST
 
-**POST**
 
-```
 /api/v1/compliance/screen
-```
 
----
 
-# Sample Request
+### Request
 
-```json
+json
 {
-    "entity_name": "HAMAS",
-    "entity_type": "supplier",
-    "country": "Palestine"
+  "entity_name": "HAMAS",
+  "entity_type": "supplier",
+  "country": "India"
 }
-```
 
----
 
-# Sample Response (Flagged)
-
-```json
+### Response
+json
 {
-    "is_flagged": true,
-    "matched_lists": [
-        "OFAC SDN"
-    ],
-    "matched_name": "HAMAS",
-    "match_score": 100,
-    "checked_at": "2026-07-27T08:30:00+00:00"
+  "is_flagged": true,
+  "matched_lists": [
+    "OFAC SDN"
+  ],
+  "matched_name": "HAMAS",
+  "match_score": 100,
+  "checked_at": "2026-07-28T09:30:10.425+00:00"
 }
-```
+
 
 ---
 
-# Sample Response (Not Flagged)
+## Matching Process
 
-```json
-{
-    "is_flagged": false,
-    "matched_lists": [],
-    "matched_name": "",
-    "match_score": 0,
-    "checked_at": "2026-07-27T08:30:00+00:00"
-}
-```
+1. Normalize entity names.
+2. Perform an exact match.
+3. If no exact match is found, perform fuzzy matching using RapidFuzz WRatio.
+4. If the score is greater than or equal to the configured threshold (85), the entity is flagged.
+5. Every screening request is written to the audit log.
 
----
 
-# Project Workflow
+## Audit Logging
 
-1. FastAPI starts the application.
-2. The service loads OFAC and UN sanction lists into memory.
-3. Startup fails if no sanctions are loaded.
-4. The client sends a screening request.
-5. The service first performs an exact match.
-6. If no exact match exists, RapidFuzz performs fuzzy matching.
-7. The best matching entity is selected.
-8. If the score is greater than or equal to the configured threshold, the entity is flagged.
-9. The screening result is written to a JSON audit log.
-10. The API returns the screening result.
+Each screening request is stored as a JSON record in
 
----
 
-# Matching Logic
-
-### Exact Match
-
-```
-HAMAS
-```
-
-CSV
-
-```
-HAMAS
-```
-
-Result
-
-```
-Score = 100
-Flagged = True
-```
-
----
-
-### Fuzzy Match
-
-Input
-
-```
-Acme Corp
-```
-
-CSV
-
-```
-ACME Corporation Ltd
-```
-
-RapidFuzz calculates the similarity score using **WRatio**.
-
-If
-
-```
-Score >= 85
-```
-
-Result
-
-```
-Flagged = True
-```
-
-Otherwise
-
-```
-Flagged = False
-```
-
----
-
-# Audit Logging
-
-Every screening request is stored in
-
-```
 app/audit.log
-```
+
 
 Example
 
-```json
+json
 {
-  "timestamp":"2026-07-27T08:30:00+00:00",
-  "input_name":"HAMAS",
-  "matched_name":"HAMAS",
-  "match_score":100,
-  "is_flagged":true,
-  "matched_lists":["OFAC SDN"]
+  "timestamp": "2026-07-28T09:30:10.425+00:00",
+  "input_name": "HAMAS",
+  "is_flagged": true,
+  "matched_lists": [
+    "OFAC SDN"
+  ],
+  "matched_name": "HAMAS",
+  "match_score": 100
 }
-```
+
 
 ---
 
-# Running Tests
+## Running Tests
 
-Run all tests
+Run all tests.
 
-```bash
-python -m pytest -v
-```
+bash
+pytest -v
 
-Run a single test file
 
-```bash
-python -m pytest tests/test_compliance.py -v
-```
+Current test coverage includes
+
+- Exact match
+- Fuzzy match
+- First OFAC record
+- UN-only entity
+- Duplicate entity across OFAC and UN
+- Clean entity
+- Empty entity
+- Blank spaces
+- Special characters
+- Case-insensitive matching
 
 ---
 
-# Configuration
+## Configuration
 
-Application configuration is stored in
+The following configuration values are defined in
 
-```
 app/core/config.py
-```
 
-This includes:
 
-- OFAC CSV path
-- UN CSV path
-- Audit log path
-- Matching threshold
+- OFAC_CSV_PATH
+- UN_CSV_PATH
+- AUDIT_LOG_PATH
+- MATCH_THRESHOLD
 
 ---
 
-# Future Enhancements
+## Technologies Used
 
-- Database integration
-- Authentication and Authorization
-- Multiple sanctions providers
-- Country-specific screening rules
-- Docker support
-- Kubernetes deployment
-- CI/CD pipeline
-- Bulk entity screening
-- Performance optimization using indexed search
+- Python 3
+- FastAPI
+- RapidFuzz
+- Pydantic
+- Pytest
+- Uvicorn
 
----
 
+## Compliance Workflow
+
+
+Client Request
+      │
+      ▼
+FastAPI Endpoint
+      │
+      ▼
+Normalize Entity Name
+      │
+      ▼
+Exact Match
+      │
+      ▼
+No Match
+      │
+      ▼
+RapidFuzz WRatio Matching
+      │
+      ▼
+Score ≥ 85 ?
+      │
+ ┌────┴────┐
+ │         │
+Yes        No
+ │         │
+ ▼         ▼
+Flag     Clean
+ │
+ ▼
+Write Audit Log
+ │
+ ▼
+Return Response
