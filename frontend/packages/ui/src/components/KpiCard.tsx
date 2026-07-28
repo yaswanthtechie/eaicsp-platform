@@ -21,7 +21,7 @@ export function KpiCard({
       ? colors.danger
       : colors.success;
 
-  const arrow =
+  
     delta === undefined
       ? ""
       : isPositive
