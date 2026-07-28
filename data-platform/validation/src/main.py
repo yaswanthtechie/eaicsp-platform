@@ -1,0 +1,59 @@
+import pandas as pd
+import logging
+from src.make_messy_data import generate_messy_data
+from src.validator import DataValidator
+from src.rules import (
+    check_dates, check_strings, check_missing,
+    check_negatives, check_outliers, check_duplicates
+)
+
+# Configure logging for the entire application
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
+
+
+def main():
+    # 1. Simulate the client
+    logger.info("Generating simulated messy data...")
+    generate_messy_data("../data/messy_sales.csv")
+
+    # 2. Load and validate
+    df = pd.read_csv("../data/messy_sales.csv")
+    logger.info(f"Loaded {len(df)} rows from messy_sales.csv")
+
+    rules = [check_dates, check_strings, check_missing, check_negatives, check_outliers, check_duplicates]
+    dv = DataValidator(rules=rules)
+
+    logger.info("Running initial validation pass...")
+    val_results = dv.validate(df)
+    issues = val_results['issues']
+
+    total_issues = sum(issue['count'] for issue in issues.values())
+    categories = len(issues)
+
+    logger.warning(f"Found {total_issues} issues across {categories} categories.")
+    for key, data in issues.items():
+        logger.info(f"Issue Breakdown -> {key}: {data['count']} instances")
+
+    # 3. Clean
+    logger.info("Executing cleaning sequence...")
+    df_clean = dv.clean(df)
+
+    if 'flagged_for_review' in df_clean.columns:
+        flagged_count = int(df_clean['flagged_for_review'].sum())
+    else:
+        flagged_count = 0
+
+    logger.info(f"Cleaning complete. {len(df_clean)} rows remain. {flagged_count} rows flagged for review.")
+
+    # 4. Save output
+    df_clean.to_csv("../data/clean_sales.csv", index=False)
+    logger.info("Successfully wrote sanitized dataset to data/clean_sales.csv")
+
+
+if __name__ == "__main__":
+    main()
