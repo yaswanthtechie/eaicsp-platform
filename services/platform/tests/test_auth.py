@@ -160,3 +160,39 @@ def test_login_rate_limit():
 
     assert response.status_code == 429
     assert response.json()["detail"] == "Too many login attempts. Try again after 15 minutes."
+
+
+def test_expired_token():
+
+    expired_token = create_access_token(
+        {
+            "sub": "ceo@company.com",
+            "role": "ceo",
+            "user_id": 1
+        },
+        expires_delta=timedelta(minutes=-1)
+    )
+
+    response = client.get(
+        "/api/v1/users/me",
+        headers={
+            "Authorization": f"Bearer {expired_token}"
+        }
+    )
+    assert response.status_code == 401
+
+def test_tampered_token():
+
+    login = login_as_ceo()
+
+    token = login.json()["access_token"]
+
+    tampered = token[:-1] + ("A" if token[-1] != "A" else "B")
+
+    response = client.get(
+        "/api/v1/users/me",
+        headers={
+            "Authorization": f"Bearer {tampered}"
+        }
+    )
+    assert response.status_code == 401
