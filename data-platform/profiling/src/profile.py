@@ -1,8 +1,10 @@
-
 import pandas as pd
+from pathlib import Path
+from src.outliers import find_outliers
 
 
 def profile(df):
+    df = df.copy()
     report = {
         "shape": df.shape,
         "columns": list(df.columns),
@@ -60,42 +62,35 @@ def profile(df):
         }
 
     # Outliers
+    
+    
     for col in numeric_columns:
-        q1 = df[col].quantile(0.25)
-        q3 = df[col].quantile(0.75)
-        iqr = q3 - q1
-
-        lower = q1 - 1.5 * iqr
-        upper = q3 + 1.5 * iqr
-
-        outlier_count = df[(df[col] < lower) | (df[col] > upper)].shape[0]
+        result = find_outliers(df[col])
 
         report["outliers"][col] = {
-            "lower_limit": lower,
-            "upper_limit": upper,
-            "outlier_count": outlier_count
+            "lower_limit": result["lower_limit"],
+            "upper_limit": result["upper_limit"],
+            "outlier_count": result["outlier_count"]
         }
 
     return report
 
+    
+def generate_html():
+    BASE_DIR = Path(__file__).resolve().parent.parent
+    DATA_PATH = BASE_DIR / "data" / "sales_data.csv"
+    REPORT_PATH = BASE_DIR / "reports" / "profile_report.html"
+    REPORT_PATH.parent.mkdir(exist_ok=True)
 
-df = pd.read_csv("data/sales_data.csv")
-print(df.head())
-print(df.shape)
-print(df.columns.tolist())
-report = profile(df)
-import os
+    df = pd.read_csv(DATA_PATH)
+    report = profile(df)
 
-print("Current Working Directory:", os.getcwd())
-print("Writing HTML to:", os.path.abspath("reports/profile_report.html"))
 
-from pathlib import Path
+    
+    
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-REPORT_PATH = BASE_DIR / "reports" / "profile_report.html"
-
-with open(REPORT_PATH, "w", encoding="utf-8") as file:
-    file.write(f"""
+    with open(REPORT_PATH, "w", encoding="utf-8") as file:
+        file.write(f"""
 <!DOCTYPE html>
 <html>
 <head>
@@ -125,7 +120,7 @@ h1 {{
 </head>
 <body>
 
-<h1>SANDEEP TEST REPORT</h1>
+<h1>Data Profiling Report</h1>
 
 <h2>Dataset Summary</h2>
 
@@ -146,9 +141,8 @@ h1 {{
 <th>Role</th>
 </tr>
 """)
-
-    for col in report["column_summary"]:
-        file.write(f"""
+        for col in report["column_summary"]:
+            file.write(f"""
 <tr>
 <td>{col['column']}</td>
 <td>{col['dtype']}</td>
@@ -159,7 +153,7 @@ h1 {{
 </tr>
 """)
 
-    file.write("""
+        file.write("""
 </table>
 
 <h2>Distribution Statistics</h2>
@@ -178,8 +172,8 @@ h1 {{
 </tr>
 """)
 
-    for column, stats in report["statistics"].items():
-        file.write(f"""
+        for column, stats in report["statistics"].items():
+            file.write(f"""
 <tr>
 <td>{column}</td>
 <td>{stats['count']}</td>
@@ -193,7 +187,7 @@ h1 {{
 </tr>
 """)
 
-    file.write("""
+        file.write("""
 </table>
 
 <h2>Outlier Report</h2>
@@ -207,8 +201,8 @@ h1 {{
 </tr>
 """)
 
-    for column, outlier in report["outliers"].items():
-        file.write(f"""
+        for column, outlier in report["outliers"].items():
+            file.write(f"""
 <tr>
 <td>{column}</td>
 <td>{outlier['lower_limit']:.2f}</td>
@@ -217,11 +211,15 @@ h1 {{
 </tr>
 """)
 
-    file.write("""
+        file.write("""
 </table>
 
 </body>
 </html>
 """)
 
-print("HTML report generated successfully!")
+    print("HTML report generated successfully!")
+
+
+if __name__ == "__main__":
+    generate_html()

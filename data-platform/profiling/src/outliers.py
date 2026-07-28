@@ -1,31 +1,24 @@
 import pandas as pd
 
-df=pd.read_csv("data/sales_data.csv")
+def find_outliers(series: pd.Series) -> dict:
+    """
+    Find outliers in a numeric pandas Series using the IQR method.
+    Returns lower limit, upper limit, outlier mask, and outlier count.
+    """
+    
+    q1=series.quantile(0.25)
+    q3=series.quantile(0.75)
 
-print(df.head())
+    iqr=q3-q1
 
-Q1=df["quantity_sold"].quantile(0.25) #Quantile divide parts
-print(Q1)
+    lower_limit=q1 - (1.5 * iqr)
+    upper_limit=q3 + (1.5 * iqr)
 
-Q3=df["quantity_sold"].quantile(0.75)
-print(Q3)
+    outlier_mask = (series < lower_limit) | (series > upper_limit)
 
-IQR=Q3-Q1  # Interquartile Range
-
-print(IQR)
-
-lower_limit=Q1 - (1.5 * IQR)
-
-print(lower_limit)
-
-upper_limit=Q3 + (1.5 * IQR) 
-
-print(upper_limit)
-
-
-outliers = df[df["quantity_sold"]>upper_limit]
-
-print(len(outliers))
-
-
-# uses the data from csv
+    return {
+        "lower_limit":lower_limit,
+        "upper_limit":upper_limit,
+        "outlier_mask":outlier_mask,
+        "outlier_count":int(outlier_mask.sum())
+    }

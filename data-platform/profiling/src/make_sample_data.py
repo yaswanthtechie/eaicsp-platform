@@ -1,5 +1,8 @@
 import numpy as np 
 import pandas as pd 
+from pathlib import Path
+
+
 
 np.random.seed(42)
 
@@ -43,21 +46,19 @@ def make_sample_data():
     outlier_rows=np.random.choice(df.index, size=outlier_count, replace=False)
     df.loc[outlier_rows, "quantity_sold"] = 99999
     
-    df.to_csv("data/sales_data.csv", index=False)
+    BASE_DIR = Path(__file__).resolve().parent.parent
+    DATA_PATH = BASE_DIR / "data" / "sales_data.csv"
+    DATA_PATH.parent.mkdir(exist_ok=True)
+
+    df.to_csv(DATA_PATH, index=False)
     
     return df
 
-df=make_sample_data()
+def main():
+    df = make_sample_data()
 
-a=df.head()
-print(a)
+    print("Sample dataset generated successfully!")
 
-print("Shape",a.shape)
 
-print("Missing Values: ")
-
-print(a.isna().sum()) #Missing the values
-
-print("Maximum Quantity:")
-
-print(a["quantity_sold"].max())
+if __name__ == "__main__":
+    main()

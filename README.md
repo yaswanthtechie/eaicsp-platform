@@ -3,7 +3,7 @@ Enterprise AI-Powered Supply Chain Platform.
 ## Structure
 - ` services/ ` — backend microservices (Pod 1)
 - ` ml-services/ ` — ML models (Pod 2)
-- ` rontend/ ` — dashboard + supplier portal (Pod 3)
+- ` Frontend/ ` — dashboard + supplier portal (Pod 3)
 - ` data-platform/ ` — ETL, pipelines (Pod 0)
 - ` infra/ ` — docker, k8s
 - ` docs/ ` — architecture
