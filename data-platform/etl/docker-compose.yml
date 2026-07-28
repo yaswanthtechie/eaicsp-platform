@@ -71,7 +71,7 @@ x-airflow-common:
     DB_PORT: "5432"
     DB_NAME: salesdb
     DB_USER: admin
-    DB_PASSWORD: admin123
+    DB_PASSWORD: ${DB_PASSWORD}
     # WARNING: Use _PIP_ADDITIONAL_REQUIREMENTS option ONLY for a quick checks
     # for other purpose (development, test and especially production usage) build/extend Airflow image.
     _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-}

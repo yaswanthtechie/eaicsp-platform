@@ -62,7 +62,8 @@ def log_failure(
     batches_seen=0,
     rows_inserted=0,
     rows_updated=0,
-    rows_rejected=0
+    rows_rejected=0,
+    status="FAILED"
 ):
 
     query = text("""
@@ -83,7 +84,7 @@ def log_failure(
             'sales_etl',
             :started_at,
             :finished_at,
-            'FAILED',
+            :status,
             :batches_seen,
             :rows_inserted,
             :rows_updated,
@@ -99,6 +100,7 @@ def log_failure(
             {
                 "started_at": start_time,
                 "finished_at": end_time,
+                "status": status,
                 "batches_seen": batches_seen,
                 "rows_inserted": rows_inserted,
                 "rows_updated": rows_updated,

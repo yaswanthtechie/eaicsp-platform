@@ -42,21 +42,23 @@ def run_pipeline():
 
         validated_batches = quality_gate(extracted_batches)
 
-        rows_rejected = batches_seen - len(validated_batches)
+        rejected_batches = batches_seen - len(validated_batches)
 
         if not validated_batches:
 
-            logger.warning("No valid data")
+            logger.warning("All batches rejected")
 
             end_time = datetime.now()
 
-            log_success(
+            log_failure(
                 start_time,
                 end_time,
+                "All batches rejected",
                 batches_seen=batches_seen,
                 rows_inserted=0,
                 rows_updated=0,
-                rows_rejected=rows_rejected
+                rows_rejected=rejected_batches,
+                status="REJECTED"
             )
 
             return
@@ -69,19 +71,19 @@ def run_pipeline():
         transformed_data = transform_data(data_frames)
 
         for batch, df in zip(validated_batches, transformed_data):
-
             batch["data"] = df
 
-        rows_loaded = sum(
-            len(batch["data"])
+        rows_inserted, rows_updated = load_data(validated_batches)
+
+        rows_rejected = rejected_batches + sum(
+            batch["report"]["rows_dropped"]
             for batch in validated_batches
         )
-
-        load_data(validated_batches)
 
         latest_date = max(
             batch["data"]["date"].max().date()
             for batch in validated_batches
+            if not batch["data"].empty
         )
 
         update_watermark(latest_date)
@@ -92,8 +94,8 @@ def run_pipeline():
             start_time,
             end_time,
             batches_seen=batches_seen,
-            rows_inserted=rows_loaded,
-            rows_updated=0,
+            rows_inserted=rows_inserted,
+            rows_updated=rows_updated,
             rows_rejected=rows_rejected
         )
 

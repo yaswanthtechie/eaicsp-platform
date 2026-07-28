@@ -19,7 +19,7 @@ def extract_data(last_processed_date):
 
         df["date"] = pd.to_datetime(df["date"])
 
-        df = df[df["date"].dt.date > last_processed_date]
+        df = df[df["date"].dt.date >= last_processed_date]
 
         if df.empty:
             continue

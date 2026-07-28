@@ -28,8 +28,12 @@ def load_data(validated_data_frames):
             quantity_sold = EXCLUDED.quantity_sold,
             unit_price = EXCLUDED.unit_price,
             source_batch = EXCLUDED.source_batch,
-            updated_at = NOW();
+            updated_at = NOW()
+        RETURNING (xmax = 0) AS inserted;
     """)
+
+    rows_inserted = 0
+    rows_updated = 0
 
     with engine.begin() as connection:
 
@@ -37,13 +41,24 @@ def load_data(validated_data_frames):
 
             df = batch["data"]
 
-            source_batch = batch["file_path"]
+            source_batch = str(batch["file_path"].name)
 
             records = df.to_dict(orient="records")
 
             for record in records:
                 record["source_batch"] = source_batch
 
-            connection.execute(upsert_query, records)
+            result = connection.execute(upsert_query, records)
 
-    print("Data loaded successfully!")
+            for row in result:
+                if row.inserted:
+                    rows_inserted += 1
+                else:
+                    rows_updated += 1
+
+    print(
+        f"Data loaded successfully! "
+        f"Inserted: {rows_inserted}, Updated: {rows_updated}"
+    )
+
+    return rows_inserted, rows_updated
