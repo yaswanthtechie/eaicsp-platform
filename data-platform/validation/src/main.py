@@ -1,3 +1,4 @@
+import os
 import pandas as pd
 import logging
 from src.make_messy_data import generate_messy_data
@@ -7,16 +8,25 @@ from src.rules import (
     check_negatives, check_outliers, check_duplicates
 )
 
-# Configure logging for the entire application
+# Ensure the logs directory exists before we try to write to it
+os.makedirs("../logs", exist_ok=True)
+
+# Configure logging to write to a file INSTEAD of the console
 logging.basicConfig(
+    filename="../logs/validation.log",  # <--- Routes output to this file
+    filemode="w",  # <--- "w" overwrites the log every run. Change to "a" to append.
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+    datefmt='%Y-%m-%d %H:%M:%S',
+    force=True
 )
 logger = logging.getLogger(__name__)
 
 
 def main():
+    # A quick console print so you know the script is actually running!
+    print("Pipeline started. Check ../logs/validation.log for details...")
+
     # 1. Simulate the client
     logger.info("Generating simulated messy data...")
     generate_messy_data("../data/messy_sales.csv")
@@ -53,6 +63,8 @@ def main():
     # 4. Save output
     df_clean.to_csv("../data/clean_sales.csv", index=False)
     logger.info("Successfully wrote sanitized dataset to data/clean_sales.csv")
+
+    print("Pipeline finished successfully! Clean data saved to data/clean_sales.csv")
 
 
 if __name__ == "__main__":
