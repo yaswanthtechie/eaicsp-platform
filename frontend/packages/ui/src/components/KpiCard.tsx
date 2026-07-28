@@ -12,7 +12,7 @@ export function KpiCard({
   value,
   delta,
 }: KpiCardProps) {
-  const isPositive = delta !== undefined && delta >= 0;
+
 
   const deltaColor =
   delta === undefined
@@ -21,12 +21,9 @@ export function KpiCard({
       ? colors.danger
       : colors.success;
 
+  const arrow = delta === undefined ? "" : delta >= 0 ? "▲" : "▼";
   
-    delta === undefined
-      ? ""
-      : isPositive
-      ? "▲"
-      : "▼";
+  
 
   return (
     <div
@@ -65,7 +62,7 @@ export function KpiCard({
       fontWeight: "bold",
     }}
   >
-    {delta >= 0 ? `+${delta}%` : `${delta}%`}
+     {arrow} {delta >= 0 ? `+${delta}%` : `${delta}%`}
   </p>
 )}
     </div>
