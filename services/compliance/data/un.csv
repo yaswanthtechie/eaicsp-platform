@@ -1,0 +1,21 @@
+ID,NAME,COUNTRY,TYPE
+1,HAMAS,Palestine,Organization
+2,AL-QAIDA,Afghanistan,Organization
+3,ISIL,Iraq,Organization
+4,TALIBAN,Afghanistan,Organization
+5,HEZBOLLAH,Lebanon,Organization
+6,BOCO HARAM,Nigeria,Organization
+7,LASHKAR-E-TAIBA,Pakistan,Organization
+8,JAISH-E-MOHAMMED,Pakistan,Organization
+9,ABU SAYYAF,Philippines,Organization
+10,AL-SHABAAB,Somalia,Organization
+11,JOHN DOE,Iran,Individual
+12,JANE SMITH,Syria,Individual
+13,MOHAMMED ALI,Yemen,Individual
+14,AHMED HASSAN,Libya,Individual
+15,XYZ SHIPPING LTD,North Korea,Entity
+16,ABC TRADING COMPANY,Iran,Entity
+17,GLOBAL EXPORTS LTD,Sudan,Entity
+18,NORTH STAR LOGISTICS,Russia,Entity
+19,ALPHA IMPORTS CO,Syria,Entity
+20,OMEGA ENTERPRISES,Afghanistan,Entity

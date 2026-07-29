@@ -1,0 +1,206 @@
+:root {
+  --bg: #0B0F1A;
+  --surface: #141A2A;
+  --primary: #3B82F6;
+  --success: #10B981;
+  --danger: #EF4444;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--bg);
+  color: white;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+#root {
+  width: 100%;
+  margin: 0 auto;
+  max-width: 480px;
+  min-height: 100vh;
+  background: var(--surface);
+}
+
+.login-page {
+  padding: 24px;
+}
+
+.login-page h1 {
+  text-align: center;
+  margin-top: 50px;
+  margin-bottom: 40px;
+}
+
+label {
+  display: block;
+  margin-top: 20px;
+  margin-bottom: 6px;
+}
+
+input {
+  width: 100%;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid gray;
+  background: var(--bg);
+  color: white;
+}
+
+button {
+  width: 100%;
+  margin-top: 30px;
+  padding: 14px;
+  border: none;
+  border-radius: 8px;
+  background: royalblue;
+  color: white;
+  cursor: pointer;
+}
+
+button:hover {
+  opacity: .9;
+}
+
+.error {
+  color: red;
+  font-size: 14px;
+  margin-top: 5px;
+}
+
+.note {
+  margin-top: 20px;
+  text-align: center;
+  color: gray;
+  font-size: 14px;
+}
+
+
+/* orders page */
+
+.orders {
+  padding: 20px;
+}
+
+.tabs {
+  display: flex;
+  gap: 10px;
+  margin: 20px 0;
+  overflow: auto;
+}
+
+.card {
+  background: #1d2436;
+  padding: 15px;
+  margin-bottom: 15px;
+  border-radius: 10px;
+}
+
+.card-top {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.card p {
+  margin: 8px 0;
+}
+
+
+/* order details page */
+
+.details {
+  padding: 20px;
+}
+
+.detail-card {
+  background: #1d2436;
+  padding: 15px;
+  border-radius: 10px;
+  margin-bottom: 20px;
+}
+
+.item-card {
+  background: #222b40;
+  padding: 15px;
+  margin-bottom: 15px;
+  border-radius: 10px;
+}
+
+.item-card p {
+  margin: 5px 0;
+}
+
+
+/* invoice page */
+
+.invoice-page {
+  padding: 20px;
+}
+
+.invoice-page input,
+.invoice-page select {
+  width: 100%;
+  padding: 12px;
+  margin-top: 8px;
+  margin-bottom: 15px;
+  background: var(--bg);
+  color: white;
+  border: 1px solid gray;
+  border-radius: 8px;
+}
+
+.file-box {
+  background: #222b40;
+  padding: 10px;
+  margin: 15px 0;
+  border-radius: 8px;
+}
+
+
+/* file upload */
+
+.top-buttons {
+  display: flex;
+  gap: 10px;
+  margin: 15px 0;
+}
+
+.invoice-btn {
+  flex: 1;
+  background: var(--success);
+}
+
+.logout-btn {
+  flex: 1;
+  background: var(--danger);
+}
+
+.active-tab {
+  background: var(--primary);
+}
+
+
+.drop-zone {
+  border: 2px dashed var(--primary);
+  border-radius: 10px;
+  padding: 30px;
+  text-align: center;
+  cursor: pointer;
+  margin: 20px 0;
+}
+
+.drop-zone:hover {
+  background: #1d2436;
+}
+
+.file-preview {
+  background: #222b40;
+  padding: 15px;
+  border-radius: 8px;
+  margin-top: 15px;
+}

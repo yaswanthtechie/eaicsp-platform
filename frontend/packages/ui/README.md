@@ -1,24 +1,4 @@
-﻿# EAICSP Platform
-Enterprise AI-Powered Supply Chain Platform.
-## Structure
-- ` services/ ` — backend microservices (Pod 1)
-- ` ml-services/ ` — ML models (Pod 2)
-- ` Frontend/ ` — dashboard + supplier portal (Pod 3)
-- ` frontend/ ` — dashboard + supplier portal (Pod 3)
-- ` data-platform/ ` — ETL, pipelines (Pod 0)
-- ` infra/ ` — docker, k8s
-- ` docs/ ` — architecture
-## Rules
-- Never push to ` main `. Branch → PR → review → merge.
-- Branch naming: ` yourname/what-you-did ` (e.g. ` gopi/anomaly-detection `)
-- No secrets in code. Use ` .env ` (gitignored).
-- Every service follows the ` _reference/ ` pattern.
-## Getting started
-1. Clone
-2. ` git checkout -b yourname/your-service `
-3. Work in your assigned folder only
-4. Push, open PR, wait for review
-﻿# UI Library
+# UI Library
 
 ## Overview
 
@@ -53,7 +33,7 @@ Each component is designed to be reusable and can be imported into other React a
 - No use of `any`
 - Reusable UI components
 - Shared design tokens (`tokens.ts`)
-- Mock data stored in `src/mocks`
+- Mock data stored in App.tsx
 - Showcase page demonstrating all components
 - Loading and empty states where applicable
 
@@ -61,7 +41,7 @@ Each component is designed to be reusable and can be imported into other React a
 
 # Project Structure
 
-```
+````
 src/
 ├── components/
 │   ├── Badge.tsx
@@ -74,14 +54,9 @@ src/
 │   ├── Tabs.tsx
 │   └── Toast.tsx
 │
-├── mocks/
 │
 ├── App.tsx
-├── App.css
-├── index.css
-├── main.tsx
 └── tokens.ts
-```
 
 ---
 
@@ -100,7 +75,7 @@ src/
 
 ```bash
 npm install
-```
+````
 
 ### Start the development server
 
@@ -139,5 +114,3 @@ Some challenges I encountered during development were:
 - Organizing the project structure for a reusable UI library.
 - Understanding how to prepare the project for submission in a shared Git repository and create a pull request.
 - Resolving minor TypeScript and import errors while integrating components.
-
-These issues were resolved by reviewing the project requirements, testing the components, and updating the code accordingly
