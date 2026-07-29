@@ -1,8 +1,10 @@
 import asyncio
+# pyrefly: ignore [missing-import]
 import httpx
 from typing import Dict
 from app.core.config import settings
 from app.services.proxy import get_service_name
+# pyrefly: ignore [missing-import]
 from fastapi import Request
 
 async def _ping_service(client: httpx.AsyncClient, service_name: str, base_url: str) -> tuple[str, str]:

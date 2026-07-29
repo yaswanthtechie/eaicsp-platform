@@ -1,8 +1,12 @@
 import asyncio
+# pyrefly: ignore [missing-import]
 import httpx
+# pyrefly: ignore [missing-import]
 from fastapi import Request, HTTPException
+# pyrefly: ignore [missing-import]
 from fastapi.responses import StreamingResponse, JSONResponse
 from app.core.config import settings
+# pyrefly: ignore [missing-import]
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 
 def get_service_name(prefix: str) -> str:
@@ -30,6 +34,7 @@ class ProxyService:
         
         # Read body once to reuse across retries
         body = await request.body()
+        content = body if (body or request.method not in ("GET", "HEAD", "OPTIONS")) else None
         
         headers = dict(request.headers)
         hop_by_hop = ["host", "connection", "keep-alive", "transfer-encoding", "upgrade", "content-length"]
@@ -71,7 +76,7 @@ class ProxyService:
                         method=request.method,
                         url=target_url,
                         headers=headers,
-                        content=body
+                        content=content
                     )
                     response = await client.send(req, stream=True)
         except httpx.TimeoutException:
