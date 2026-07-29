@@ -2,11 +2,20 @@ import pandas as pd
 import numpy as np
 import random
 from datetime import datetime, timedelta
+from pathlib import Path
 import os
 
+# 1. Anchor the default path dynamically based on this file's location
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_FILEPATH = PROJECT_ROOT / "data" / "messy_sales.csv"
 
-def generate_messy_data(filepath="../data/messy_sales.csv"):
-    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+def generate_messy_data(filepath=DEFAULT_FILEPATH):
+    # Ensure the filepath is a Path object (in case a string was passed from elsewhere)
+    filepath = Path(filepath)
+
+    # Safely create the parent directory (e.g., the data/ folder) if it doesn't exist
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+
     np.random.seed(42)
     random.seed(42)
 
@@ -50,7 +59,9 @@ def generate_messy_data(filepath="../data/messy_sales.csv"):
 
     # Shuffle to distribute duplicates
     df = df.sample(frac=1, random_state=42).reset_index(drop=True)
+    # Save the file
     df.to_csv(filepath, index=False)
+    print(f"Messy data successfully generated at: {filepath}")
 
 
 if __name__ == "__main__":
