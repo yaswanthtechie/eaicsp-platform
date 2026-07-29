@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
 from app.main import app
 from app.routes.auth_routes import login_attempts
+from app.core.security import create_access_token
+from datetime import timedelta
 
 client = TestClient(app)
 
