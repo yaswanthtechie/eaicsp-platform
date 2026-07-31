@@ -1,7 +1,13 @@
 import multiprocessing
 import time
 # pyrefly: ignore [missing-import]
-import uvicorn
+try:
+    import uvicorn
+except ModuleNotFoundError as e:
+    raise ModuleNotFoundError(
+        "Missing dependency 'uvicorn'. Install dependencies with: pip install -r requirements.txt "
+        "(Windows alt: py -m pip install -r requirements.txt)"
+    ) from e
 # pyrefly: ignore [missing-import]
 from fastapi import FastAPI, HTTPException
 
