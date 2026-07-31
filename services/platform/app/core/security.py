@@ -10,7 +10,6 @@ from app.core.config import (
     REFRESH_TOKEN_EXPIRE_DAYS
 )
 
-import re
 
 pwd_context = CryptContext(
     schemes=["bcrypt"],
@@ -83,16 +82,5 @@ def decode_token(token: str):
         algorithms=[ALGORITHM]
     )
 
-def validate_password(password):
 
-    if len(password)<=12:
-        return False
-
-    if not re.search(r"\d",password):
-        return False
-
-    if not re.search(r"[!@#$%^&*]",password):
-        return False
-
-    return True
 
