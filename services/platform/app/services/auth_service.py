@@ -26,8 +26,6 @@ def login_user(
     # every other user sharing that IP (NAT / office network / load balancer).
     key = (username.lower(),client_ip)
 
-    attempts = login_attempts.get(client_ip, [])
-
     attempts = [
         t for t in login_attempts.get(key,[])
         if now - t < WINDOW
