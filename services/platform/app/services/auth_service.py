@@ -22,11 +22,14 @@ def login_user(
 ):
 
     now = datetime.now(timezone.utc)
+    # Key on (email, ip) so a few bad attempts for one account cannot lock out
+    # every other user sharing that IP (NAT / office network / load balancer).
+    key = (username.lower(),client_ip)
 
     attempts = login_attempts.get(client_ip, [])
 
     attempts = [
-        t for t in attempts
+        t for t in login_attempts.get(key,[])
         if now - t < WINDOW
     ]
 
@@ -42,19 +45,24 @@ def login_user(
 
         attempts.append(now)
 
-        login_attempts[client_ip] = attempts
+        login_attempts[key] = attempts
 
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials"
         )
+    if not user["is_active"]:
+        raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="User account is inactive"
+                )
 
-    login_attempts.pop(client_ip, None)
+    login_attempts.pop(key, None)
 
     access_token = create_access_token(
         {
             "sub": user["email"],
-            "role": user["role"],
+            "role": user["role"].value,
             "user_id": user["user_id"]
         }
     )

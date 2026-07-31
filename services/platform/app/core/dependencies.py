@@ -27,10 +27,10 @@ def get_current_user(
 
         user = users.get(email)
 
-        if user is None:
+        if user is None or not user["is_active"]:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid user"
+                detail="Invalid or inactive user"
             )
 
         return user
@@ -48,8 +48,9 @@ def require_role(*allowed_roles):
         user=Depends(get_current_user)
     ):
 
-        user_role = user["role"].value
-
+        role = user["role"]
+        user_role = getattr(role, "value", role)
+        
         if user_role not in allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

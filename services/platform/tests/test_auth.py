@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 from app.main import app
-from app.routes.auth_routes import login_attempts
+from app.services.auth_service import login_attempts
 from app.core.security import create_access_token
 from datetime import timedelta
 
@@ -165,6 +165,7 @@ def test_login_rate_limit():
 
 
 def test_expired_token():
+    clear_attempts()
 
     expired_token = create_access_token(
         {
@@ -184,6 +185,7 @@ def test_expired_token():
     assert response.status_code == 401
 
 def test_tampered_token():
+    clear_attempts()
 
     login = login_as_ceo()
 
@@ -198,3 +200,62 @@ def test_tampered_token():
         }
     )
     assert response.status_code == 401
+
+def test_refresh_success():
+    clear_attempts()
+
+    login = login_as_ceo()
+    refresh = login.json()["refresh_token"]
+    response = client.post(
+       "/api/v1/auth/refresh",
+       json={"refresh_token": refresh}
+    )
+    assert response.status_code == 200
+    assert response.json()["token_type"] == "bearer"
+
+    new_token=response.json()["access_token"]
+
+
+    me=client.get(
+        "/api/v1/users/me",
+        headers={"Authorization": f"Bearer {new_token}"}
+    )
+    assert me.status_code == 200
+    assert me.json()["email"] == "ceo@company.com"
+
+def test_refresh_with_access_token_rejected():
+    clear_attempts()
+    login = login_as_ceo()
+    access = login.json()["access_token"]
+    response = client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": access}
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid refresh token"
+
+def test_refresh_with_garbage_token_returns_401():
+    response = client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": "not.a.real.token"}
+    )
+    assert response.status_code == 401
+
+def test_rate_limit_does_not_lock_out_other_users():
+    clear_attempts()
+    for _ in range(5):
+        client.post(
+           "/api/v1/auth/login",
+            data={
+            "username": "ceo@company.com",
+            "password": "wrongpassword"
+        }
+    )
+response = client.post(
+    "/api/v1/auth/login",
+    data={
+    "username": "analyst@company.com",
+    "password": "an123"
+    }
+)
+assert response.status_code == 200

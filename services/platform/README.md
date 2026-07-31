@@ -28,9 +28,9 @@ Features:
 app/
 ├── main.py
 ├── routes/
-│   ├── auth.py
-│   ├── users.py
-│   └── admin.py
+│   ├── auth_routes.py
+│   ├── user_routes.py
+│   └── admin_routes.py
 ├── schemas/
 │   ├── auth.py
 │   └── user.py
@@ -73,7 +73,9 @@ Returns JWT access token and refresh token.
 ```
 POST /api/v1/auth/refresh
 ```
-Generates a new access token using refresh token.
+Takes a JSON body:
+{"refresh_token": "<your refresh token>"}
+Return a new access token
 
 ---
 
@@ -125,18 +127,21 @@ Create virtual environment:
 ```
 python -m venv .venv
 ```
-
 Activate:
 
 ```
 .venv\Scripts\activate
 ```
-
 Install:
 
 ```
 pip install -r requirements.txt
 ```
+Create your env file:
+
+cp .env.example .env
+Then set `SECRET_KEY` to a random value. Generate one with:
+python -c "import secrets; print(secrets.token_urlsafe(32))"
 
 Run:
 
@@ -151,7 +156,6 @@ http://127.0.0.1:8000/docs
 ```
 
 ---
-
 ## Testing
 
 Implemented tests:
@@ -161,4 +165,6 @@ Implemented tests:
 - JWT validation
 - Expired token
 - Wrong role access
-- Refresh token validation
+- Refresh token validation (success, wrong token type, malformed token)
+- Tampered token rejection
+- Rate limiting (per account + IP)
