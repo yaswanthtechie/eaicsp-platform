@@ -4,22 +4,28 @@ A FastAPI application that analyzes news headlines about suppliers to calculate 
 
 ## Setup
 
-1. Install requirements:
+1. Ensure you are installing into the right virtual environment (PowerShell):
    ```bash
-   pip install -r requirements.txt
+   python -m venv .venv
+   .\.venv\Scripts\Activate.ps1
    ```
 
-2. Run tests:
+2. Install requirements:
+   ```bash
+   python -m pip install -r requirements.txt
+   ```
+
+3. Run tests:
    ```bash
    pytest tests/
    ```
 
-3. Start the API Server:
+4. Start the API Server:
    ```bash
    uvicorn analyze:app --reload --port 8006
    ```
 
-4. View documentation at `http://localhost:8006/docs`.
+5. View documentation at `http://localhost:8006/docs`.
 
 ## Project Structure
 - `data.py`: Loads the raw headlines dataset.
