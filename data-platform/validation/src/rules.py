@@ -74,7 +74,7 @@ def check_duplicates(df):
 
 # outliers detection using robust IQR method)
 @Rule(name="outlier_quantity", severity="warning", priority=50)
-def check_outliers(df):
+def check_outliers(df, iqr_multiplier: float = 1.5):
     # Calculate 25th (Q1) and 75th (Q3) percentiles
     Q1 = df['quantity_sold'].quantile(0.25)
     Q3 = df['quantity_sold'].quantile(0.75)
@@ -83,8 +83,8 @@ def check_outliers(df):
     IQR = Q3 - Q1
 
     # Define bounds
-    lower_bound = Q1 - 1.5 * IQR
-    upper_bound = Q3 + 1.5 * IQR
+    lower_bound = Q1 - (iqr_multiplier * IQR)
+    upper_bound = Q3 + (iqr_multiplier * IQR)
 
     # Flag anything outside the bounds.
     # (Pandas safely evaluates NaNs as False in these comparisons)

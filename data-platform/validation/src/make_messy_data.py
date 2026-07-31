@@ -7,12 +7,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_FILEPATH = PROJECT_ROOT / "data" / "messy_sales.csv"
 
 
-def generate_messy_data(filepath=DEFAULT_FILEPATH, n_base=970):
+def generate_messy_data(filepath=DEFAULT_FILEPATH, n_base=970, seed: int = 42):
     # Ensure safe directory creation
     filepath = Path(filepath)
     filepath.parent.mkdir(parents=True, exist_ok=True)
 
-    np.random.seed(42)
+    np.random.seed(seed)
 
     # --- 1. Generate Base Data (Vectorized) ---
     date_range = pd.date_range(start="2024-01-01", end="2024-04-10", freq="D")
@@ -60,11 +60,11 @@ def generate_messy_data(filepath=DEFAULT_FILEPATH, n_base=970):
 
     # Add exact duplicates (~3% to roughly reach 1000 rows if n_base is 970)
     dup_count = int(len(df) * 0.031)
-    duplicates = df.sample(n=dup_count, replace=True, random_state=42)
+    duplicates = df.sample(n=dup_count, replace=True, random_state=seed)
     df = pd.concat([df, duplicates], ignore_index=True)
 
     # Shuffle to distribute all anomalies randomly throughout the dataset
-    df = df.sample(frac=1, random_state=42).reset_index(drop=True)
+    df = df.sample(frac=1, random_state=seed).reset_index(drop=True)
 
     # Save to disk
     df.to_csv(filepath, index=False)
