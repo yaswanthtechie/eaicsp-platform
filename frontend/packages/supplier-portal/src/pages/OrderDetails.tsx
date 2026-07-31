@@ -15,7 +15,12 @@ const OrderDetails = () => {
   const { poNumber } = useParams();
   const navigate = useNavigate();
 
-  const { data, loading, error } = useQuery(GET_PURCHASE_ORDERS);
+  const { data, loading, error } = useQuery(GET_PURCHASE_ORDERS, {
+  variables: {
+    first: 20,
+    after: null,
+  },
+});
 
   const [acknowledgePurchaseOrder] = useMutation(ACKNOWLEDGE_PO);
 
@@ -30,7 +35,15 @@ const OrderDetails = () => {
 
   if (error) return <ErrorState />;
 
-  const orders: PurchaseOrder[] = data?.purchaseOrders || [];
+  type PurchaseOrderEdge = {
+  cursor: string;
+  node: PurchaseOrder;
+};
+
+const orders: PurchaseOrder[] =
+  data?.purchaseOrders?.edges?.map(
+    (edge: PurchaseOrderEdge) => edge.node
+  ) || [];
 
   const order = orders.find(
     (po) => po.po_number === poNumber
@@ -68,26 +81,45 @@ const OrderDetails = () => {
           },
         },
 
-        update(cache, { data }) {
-          const existing = cache.readQuery<{
-            purchaseOrders: PurchaseOrder[];
-          }>({
-            query: GET_PURCHASE_ORDERS,
-          });
+update(cache, { data }) {
+  const existing = cache.readQuery<{
+    purchaseOrders: {
+      edges: PurchaseOrderEdge[];
+      pageInfo: {
+        hasNextPage: boolean;
+        endCursor: string | null;
+      };
+    };
+  }>({
+    query: GET_PURCHASE_ORDERS,
+    variables: {
+      first: 20,
+      after: null,
+    },
+  });
 
-          if (!existing) return;
+  if (!existing) return;
 
-          cache.writeQuery({
-            query: GET_PURCHASE_ORDERS,
-            data: {
-              purchaseOrders: existing.purchaseOrders.map((po) =>
-                po.po_number === poNumber
-                  ? data?.acknowledgePurchaseOrder ?? po
-                  : po
-              ),
-            },
-          });
-        },
+  cache.writeQuery({
+    query: GET_PURCHASE_ORDERS,
+    variables: {
+      first: 20,
+      after: null,
+    },
+    data: {
+      purchaseOrders: {
+        ...existing.purchaseOrders,
+        edges: existing.purchaseOrders.edges.map((edge) => ({
+          ...edge,
+          node:
+            edge.node.po_number === poNumber
+              ? data?.acknowledgePurchaseOrder ?? edge.node
+              : edge.node,
+        })),
+      },
+    },
+  });
+},
       });
 
       toast.success("Purchase Order Acknowledged Successfully");

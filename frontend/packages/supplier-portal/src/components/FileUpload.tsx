@@ -85,8 +85,14 @@ const FileUpload = ({
           isDragging ? "drag-active" : ""
         }`}
         onDragEnter={() => setIsDragging(true)}
-        onDragLeave={() => setIsDragging(false)}
-        onDragOver={(e) => e.preventDefault()}
+        onDragLeave={(e) => {
+  e.preventDefault();
+  setIsDragging(false);
+}}
+        onDragOver={(e) => {
+  e.preventDefault();
+  setIsDragging(true);
+}}
         onDrop={handleDrop}
         onClick={() => inputRef.current?.click()}
       >

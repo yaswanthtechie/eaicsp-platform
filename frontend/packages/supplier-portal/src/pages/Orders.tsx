@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-
 import { useApolloClient, useQuery } from "@apollo/client";
 
 import { GET_PURCHASE_ORDERS } from "../graphql/queries";
@@ -9,43 +8,117 @@ import POCard from "../components/POCard";
 import EmptyState from "../components/EmptyState";
 import ErrorState from "../components/ErrorState";
 import Loading from "../components/Loading";
-import { TOKEN_KEY } from "../constants/storage";
+import { clearTokens } from "../auth/tokenStorage";
 import type { PurchaseOrder } from "../types/po";
+
+type PurchaseOrderEdge = {
+  cursor: string;
+  node: PurchaseOrder;
+};
 
 const Orders = () => {
   const navigate = useNavigate();
   const apolloClient = useApolloClient();
 
-  const [filter, setFilter] = useState("All");
+const [filter, setFilter] = useState("All");
+const [poNumber, setPoNumber] = useState("");
+const [minAmount, setMinAmount] = useState("");
+const [maxAmount, setMaxAmount] = useState("");
+const [startDate, setStartDate] = useState("");
+const [endDate, setEndDate] = useState("");
 
-  // GraphQL Query
-  const { data, loading, error } = useQuery(GET_PURCHASE_ORDERS);
+const { data, loading, error, fetchMore } = useQuery(
+  GET_PURCHASE_ORDERS,
+  {
+    variables: {
+      first: 3,
+      after: null,
+      status: filter === "All" ? undefined : filter.toLowerCase(),
+      poNumber: poNumber || undefined,
+      minAmount: minAmount ? Number(minAmount) : undefined,
+      maxAmount: maxAmount ? Number(maxAmount) : undefined,
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
+    },
+
+    notifyOnNetworkStatusChange: true,
+
+    pollInterval: 10000, // Refresh every 10 seconds
+  }
+);
 
   if (loading) return <Loading />;
 
   if (error) return <ErrorState />;
 
-  const orders: PurchaseOrder[] = data?.purchaseOrders || [];
+  const orders: PurchaseOrder[] =
+    data?.purchaseOrders?.edges?.map(
+      (edge: PurchaseOrderEdge) => edge.node
+    ) || [];
 
-  const filteredOrders =
-    filter === "All"
-      ? orders
-      : orders.filter(
-          (po: PurchaseOrder) =>
-            po.status.toLowerCase() === filter.toLowerCase()
-        );
+
 
   const handleLogout = async () => {
-    localStorage.removeItem(TOKEN_KEY);
-
+    clearTokens();
     await apolloClient.clearStore();
-
     navigate("/login");
   };
 
-  return (
+const handleLoadMore = () => {
+  fetchMore({
+    variables: {
+      first: 3,
+      after: data.purchaseOrders.pageInfo.endCursor,
+
+      status: filter === "All" ? undefined : filter.toLowerCase(),
+      poNumber: poNumber || undefined,
+      minAmount: minAmount ? Number(minAmount) : undefined,
+      maxAmount: maxAmount ? Number(maxAmount) : undefined,
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
+    },
+  });
+};
+
+  return (  
     <div className="orders">
       <h1>Purchase Orders</h1>
+      <div className="search-filters">
+
+  <input
+    type="text"
+    placeholder="Search PO Number"
+    value={poNumber}
+    onChange={(e) => setPoNumber(e.target.value)}
+  />
+
+  <input
+    type="number"
+    placeholder="Min Amount"
+    value={minAmount}
+    onChange={(e) => setMinAmount(e.target.value)}
+  />
+
+  <input
+    type="number"
+    placeholder="Max Amount"
+    value={maxAmount}
+    onChange={(e) => setMaxAmount(e.target.value)}
+  />
+
+  <input
+    type="date"
+    value={startDate}
+    onChange={(e) => setStartDate(e.target.value)}
+  />
+
+  <input
+    type="date"
+    value={endDate}
+    onChange={(e) => setEndDate(e.target.value)}
+  />
+
+</div>
 
       <div className="top-buttons">
         <button
@@ -75,15 +148,24 @@ const Orders = () => {
         ))}
       </div>
 
-      {filteredOrders.length === 0 ? (
+      {orders.length === 0 ? (
         <EmptyState />
       ) : (
-        filteredOrders.map((order: PurchaseOrder) => (
+        orders.map((order) => (
           <POCard
             key={order.po_number}
             order={order}
           />
         ))
+      )}
+
+      {data?.purchaseOrders?.pageInfo?.hasNextPage && (
+        <button
+          className="load-more-btn"
+          onClick={handleLoadMore}
+        >
+          Load More
+        </button>
       )}
     </div>
   );

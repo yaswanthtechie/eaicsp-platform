@@ -204,3 +204,43 @@ button:hover {
   border-radius: 8px;
   margin-top: 15px;
 }
+
+.search-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 20px 0;
+}
+
+.search-filters input {
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  min-width: 150px;
+}
+
+.drop-zone {
+  border: 2px dashed #bdbdbd;
+  border-radius: 8px;
+  padding: 25px;
+  text-align: center;
+  cursor: pointer;
+  transition: 0.2s ease;
+  background: #fafafa;
+}
+
+.drop-zone.drag-active {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.file-preview {
+  margin-top: 15px;
+  padding: 12px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+}
+
+.file-preview button {
+  margin-top: 10px;
+}

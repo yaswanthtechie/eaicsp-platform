@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { TOKEN_KEY } from "../constants/storage";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { saveTokens } from "../auth/tokenStorage";
 
 const Login = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const [email, setEmail] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);  
   const [password, setPassword] = useState("");
 
   const [emailError, setEmailError] = useState("");
@@ -37,9 +39,14 @@ const Login = () => {
 
     if (!validate()) return;
 
-    localStorage.setItem(TOKEN_KEY, "dummy-token");
+    saveTokens(
+  "dummy-access-token",
+  "dummy-refresh-token",
+  rememberMe
+);
 
-    navigate("/orders");
+const nextPage = searchParams.get("next") || "/orders";
+navigate(nextPage);
   };
 
   return (
@@ -73,6 +80,16 @@ const Login = () => {
         {passwordError && (
           <p className="error">{passwordError}</p>
         )}
+        <div className="remember-me">
+  <label>
+    <input
+      type="checkbox"
+      checked={rememberMe}
+      onChange={(e) => setRememberMe(e.target.checked)}
+    />
+    Remember Me
+  </label>
+</div>
 
         <button type="submit">
           Login

@@ -224,10 +224,35 @@ date:String!
 
 }
 
-type Query{
+type PurchaseOrderEdge {
+  cursor: String!
+  node: PurchaseOrder!
+}
 
-purchaseOrders:[PurchaseOrder!]!
+type PageInfo {
+  hasNextPage: Boolean!
+  endCursor: String
+}
 
+type PurchaseOrderConnection {
+  edges: [PurchaseOrderEdge!]!
+  pageInfo: PageInfo!
+}
+
+type Query {
+  purchaseOrders(
+    first: Int!
+    after: String
+
+    poNumber: String
+    status: String
+    minAmount: Int
+    maxAmount: Int
+
+    startDate: String
+    endDate: String
+
+  ): PurchaseOrderConnection!
 }
 
 type Mutation{
@@ -249,14 +274,97 @@ date:String!
 
 const resolvers = {
 
-Query:{
+Query: {
+  purchaseOrders(
+    _,
+    {
+      first,
+      after,
+      poNumber,
+      status,
+      minAmount,
+      maxAmount,
+      startDate,
+      endDate,
+    }
+  ) {
+    let filteredOrders = [...purchaseOrders];
 
-purchaseOrders(){
+    // Filter by PO Number
+    if (poNumber) {
+      filteredOrders = filteredOrders.filter((po) =>
+        po.po_number.toLowerCase().includes(poNumber.toLowerCase())
+      );
+    }
 
-return purchaseOrders;
+    // Filter by Status
+    if (status) {
+      filteredOrders = filteredOrders.filter(
+        (po) => po.status.toLowerCase() === status.toLowerCase()
+      );
+    }
 
-},
+    // Filter by Amount
+    if (minAmount !== undefined) {
+      filteredOrders = filteredOrders.filter(
+        (po) => po.total_amount >= minAmount
+      );
+    }
 
+    if (maxAmount !== undefined) {
+      filteredOrders = filteredOrders.filter(
+        (po) => po.total_amount <= maxAmount
+      );
+    }
+
+    // Filter by Date
+    if (startDate) {
+      filteredOrders = filteredOrders.filter(
+        (po) => po.expected_delivery >= startDate
+      );
+    }
+
+    if (endDate) {
+      filteredOrders = filteredOrders.filter(
+        (po) => po.expected_delivery <= endDate
+      );
+    }
+
+    let startIndex = 0;
+
+    if (after) {
+      startIndex =
+        filteredOrders.findIndex(
+          (po) => po.po_number === after
+        ) + 1;
+    }
+
+    const items = filteredOrders.slice(
+      startIndex,
+      startIndex + first
+    );
+
+    const edges = items.map((po) => ({
+      cursor: po.po_number,
+      node: po,
+    }));
+
+    const endCursor =
+      edges.length > 0
+        ? edges[edges.length - 1].cursor
+        : null;
+
+    const hasNextPage =
+      startIndex + first < filteredOrders.length;
+
+    return {
+      edges,
+      pageInfo: {
+        hasNextPage,
+        endCursor,
+      },
+    };
+  },
 },
 
 Mutation: {

@@ -590,3 +590,174 @@ Purpose
 Supplier Purchase Order and Invoice Management Portal
 
 
+#### Updated 
+
+
+
+## src/auth/
+
+### tokenStorage.ts
+Purpose:
+- Stores Access Token and Refresh Token.
+- Uses localStorage when "Remember Me" is selected.
+- Uses sessionStorage when "Remember Me" is not selected.
+- Provides helper functions:
+  - saveTokens()
+  - getAccessToken()
+  - getRefreshToken()
+  - clearTokens()
+
+---
+
+## src/graphql/
+
+### apollo.ts
+Purpose:
+- Configures Apollo Client.
+- Connects the React application to the GraphQL server.
+- Configures Apollo Cache.
+- Supports cursor-based pagination.
+
+### authLink.ts
+Purpose:
+- Adds the Access Token to every GraphQL request.
+- Reads the token from tokenStorage.
+- Sends the Authorization header automatically.
+
+### queries.ts
+Purpose:
+- Stores all GraphQL Queries.
+- Includes Purchase Order query with:
+  - Pagination
+  - Search
+  - Filters
+
+### mutations.ts
+Purpose:
+- Stores all GraphQL Mutations.
+- Purchase Order Acknowledge Mutation.
+- Invoice Submission Mutation.
+
+---
+
+## src/routes/
+
+### AppRoutes.tsx
+Purpose:
+- Defines all application routes.
+- Protects private pages.
+- Redirects users to Login when not authenticated.
+
+### ProtectedRoute.tsx
+Purpose:
+- Checks whether the user is logged in.
+- Prevents unauthorized access to protected pages.
+
+---
+
+## src/pages/
+
+### Login.tsx
+Purpose:
+- User Login.
+- Form Validation.
+- Stores tokens.
+- Supports Remember Me.
+
+### Orders.tsx
+Purpose:
+- Displays Purchase Orders.
+- GraphQL Query.
+- Cursor Pagination.
+- Search & Filters.
+- Load More functionality.
+- Logout.
+
+### OrderDetails.tsx
+Purpose:
+- Displays complete Purchase Order details.
+- Purchase Order acknowledgement.
+- Optimistic UI update.
+
+### Invoice.tsx
+Purpose:
+- Invoice creation.
+- Form validation.
+- GraphQL mutation.
+- Upload progress.
+- File upload.
+
+---
+
+## src/components/
+
+### FileUpload.tsx
+Purpose:
+- Drag & Drop upload.
+- PDF validation.
+- File size validation.
+- File preview.
+- Remove uploaded file.
+
+### POCard.tsx
+Purpose:
+- Displays Purchase Order summary.
+
+### StatusBadge.tsx
+Purpose:
+- Displays Purchase Order status with different badge colors.
+
+### Loading.tsx
+Purpose:
+- Shows loading state while data is being fetched.
+
+### EmptyState.tsx
+Purpose:
+- Displays a message when no Purchase Orders are available.
+
+### ErrorState.tsx
+Purpose:
+- Displays an error message when a GraphQL request fails.
+
+---
+
+## src/types/
+
+### po.ts
+Purpose:
+- Defines TypeScript interfaces for Purchase Orders and PO Items.
+- Provides type safety throughout the application.
+
+src/
+│
+├── auth/
+│   └── tokenStorage.ts
+│
+├── components/
+│   ├── EmptyState.tsx
+│   ├── ErrorState.tsx
+│   ├── FileUpload.tsx
+│   ├── Loading.tsx
+│   ├── POCard.tsx
+│   └── StatusBadge.tsx
+│
+├── graphql/
+│   ├── apollo.ts
+│   ├── authLink.ts
+│   ├── mutations.ts
+│   └── queries.ts
+│
+├── pages/
+│   ├── Login.tsx
+│   ├── Orders.tsx
+│   ├── OrderDetails.tsx
+│   └── Invoice.tsx
+│
+├── routes/
+│   ├── AppRoutes.tsx
+│   └── ProtectedRoute.tsx
+│
+├── types/
+│   └── po.ts
+│
+└── App.tsx
