@@ -1,175 +1,124 @@
+"""
+Walk-Forward Training & MLflow Experiment Logging
+------------------------------------------------------------
+Executes 5-Fold Walk-Forward Validation, logs metrics to MLflow,
+and exports the final trained PyTorch model weights.
+"""
+
 import os
-import pickle
 import numpy as np
-import torch # Ensure scale_data accepts fit_scaler bool or split arrays
-from features import create_sequences
-from model import DemandLSTM
-import matplotlib.pyplot as plt
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader, TensorDataset
+import mlflow
 
-from torch.utils.data import TensorDataset, DataLoader
-from torch import nn
-from torch.optim import Adam
+from data import generate_data, get_walk_forward_folds
+from model import MultiStepLSTM
+from evaluate import calculate_metrics, predict_naive_baseline
 
-from data import generate_data, fit_and_scale_train_data, scale_test_data
-import mlflow_logger  # Wire up MLflow logger wrapper
+LOOKBACK = 30
+HORIZON = 7
+EPOCHS = 25
+BATCH_SIZE = 32
+LR = 0.001
 
 
-def train_model():
-    # -----------------------
-    # Setup Output Path
-    # -----------------------
-    output_dir = "output"
-    os.makedirs(output_dir, exist_ok=True)
+def train_and_evaluate():
+    mlflow.set_tracking_uri("sqlite:///mlflow.db")
+    mlflow.set_experiment("Demand-Forecast-LSTM-WalkForward")
 
-    # -----------------------
-    # MLflow Setup
-    # -----------------------
-    mlflow_logger.start_experiment()
+    df = generate_data(days=1000)
+    folds = get_walk_forward_folds(df, n_folds=5, lookback=LOOKBACK, horizon=HORIZON)
 
-    # -----------------------
-    # Load & Split Data (Fixing Leakage)
-    # -----------------------
-    df = generate_data()
+    lstm_fold_metrics = []
+    naive_fold_metrics = []
 
-    # Strict time-based split on RAW data first
-    TRAIN_SPLIT = 800
-    train_df = df.iloc[:TRAIN_SPLIT]
-    val_df = df.iloc[TRAIN_SPLIT:]
+    with mlflow.start_run(run_name="LSTM_5Fold_WalkForward_Validation"):
+        mlflow.log_params({
+            "lookback": LOOKBACK,
+            "horizon": HORIZON,
+            "epochs": EPOCHS,
+            "batch_size": BATCH_SIZE,
+            "learning_rate": LR,
+            "forecast_style": "Direct"
+        })
 
-    # Fit scaler ONLY on training data, then transform both
-    # Assuming scale_data can handle raw numpy arrays or fit vs transform logic
+        print("\n" + "="*70)
+        print("STARTING 5-FOLD TIME-SERIES WALK-FORWARD VALIDATION")
+        print("="*70)
 
-    train_scaled, scaler = fit_and_scale_train_data(train_df["Demand"].values, save_path=os.path.join(output_dir, "scaler.pkl"))
-    val_scaled = scale_test_data(val_df["Demand"].values, scaler)
+        for fold_idx, (X_tr, y_tr, X_te, y_te, scaler) in enumerate(folds, 1):
+            X_train_t = torch.tensor(X_tr, dtype=torch.float32).unsqueeze(-1)
+            y_train_t = torch.tensor(y_tr, dtype=torch.float32)
+            X_test_t = torch.tensor(X_te, dtype=torch.float32).unsqueeze(-1)
 
-    # Persist the fitted scaler for predict.py / evaluate.py
-    scaler_path = os.path.join(output_dir, "scaler.pkl")
-    with open(scaler_path, "wb") as f:
-        pickle.dump(scaler, f)
+            dataset = TensorDataset(X_train_t, y_train_t)
+            loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
 
-    # -----------------------
-    # Create Sequences
-    # -----------------------
-    LOOKBACK = 30
-    HORIZON = 7
-    BATCH_SIZE = 32
-    LR = 0.001
-    EPOCHS = 50
+            model = MultiStepLSTM(horizon=HORIZON)
+            criterion = nn.MSELoss()
+            optimizer = optim.Adam(model.parameters(), lr=LR)
 
-    # Log parameters to MLflow
-    mlflow_logger.log_params({
-        "lookback": LOOKBACK,
-        "horizon": HORIZON,
-        "batch_size": BATCH_SIZE,
-        "learning_rate": LR,
-        "epochs": EPOCHS,
-        "train_split": TRAIN_SPLIT
-    })
+            model.train()
+            for epoch in range(EPOCHS):
+                for batch_x, batch_y in loader:
+                    optimizer.zero_grad()
+                    out = model(batch_x)
+                    loss = criterion(out, batch_y)
+                    loss.backward()
+                    optimizer.step()
 
-    X_train, y_train = create_sequences(train_scaled, lookback=LOOKBACK, horizon=HORIZON)
-    X_val, y_val = create_sequences(val_scaled, lookback=LOOKBACK, horizon=HORIZON)
+            model.eval()
+            with torch.no_grad():
+                lstm_preds_scaled = model(X_test_t).numpy()
 
-    # Convert to Tensors
-    X_train_t = torch.tensor(X_train, dtype=torch.float32)
-    y_train_t = torch.tensor(y_train.squeeze(-1), dtype=torch.float32)
-    X_val_t = torch.tensor(X_val, dtype=torch.float32)
-    y_val_t = torch.tensor(y_val.squeeze(-1), dtype=torch.float32)
+            lstm_preds = scaler.inverse_transform(lstm_preds_scaled.reshape(-1, 1)).reshape(lstm_preds_scaled.shape)
+            y_test_orig = scaler.inverse_transform(y_te.reshape(-1, 1)).reshape(y_te.shape)
 
-    # Data Loaders
-    train_dataset = TensorDataset(X_train_t, y_train_t)
-    val_dataset = TensorDataset(X_val_t, y_val_t)
+            lstm_metrics = calculate_metrics(y_test_orig, lstm_preds)
+            
+            naive_preds_scaled = predict_naive_baseline(X_te, HORIZON)
+            naive_preds = scaler.inverse_transform(naive_preds_scaled.reshape(-1, 1)).reshape(naive_preds_scaled.shape)
+            naive_metrics = calculate_metrics(y_test_orig, naive_preds)
 
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
+            lstm_fold_metrics.append(lstm_metrics)
+            naive_fold_metrics.append(naive_metrics)
 
-    # -----------------------
-    # Model Setup
-    # -----------------------
-    model = DemandLSTM(
-        input_size=1,
-        hidden_size=64,
-        num_layers=2,
-        horizon=HORIZON
-    )
+            print(f"\n--- FOLD {fold_idx} RESULTS ---")
+            print(f"LSTM  -> MAE: {lstm_metrics['MAE']:.2f} | RMSE: {lstm_metrics['RMSE']:.2f}")
+            print(f"NAIVE -> MAE: {naive_metrics['MAE']:.2f} | RMSE: {naive_metrics['RMSE']:.2f}")
 
-    criterion = nn.MSELoss()
-    optimizer = Adam(model.parameters(), lr=LR)
+            mlflow.log_metrics({
+                f"fold_{fold_idx}_lstm_mae": lstm_metrics["MAE"],
+                f"fold_{fold_idx}_lstm_rmse": lstm_metrics["RMSE"],
+                f"fold_{fold_idx}_naive_mae": naive_metrics["MAE"],
+            })
 
-    train_losses = []
-    val_losses = []
-    best_val_loss = float("inf")
-    best_model_path = os.path.join(output_dir, "best_model.pt")
+        avg_lstm_mae = float(np.mean([m["MAE"] for m in lstm_fold_metrics]))
+        avg_lstm_rmse = float(np.mean([m["RMSE"] for m in lstm_fold_metrics]))
+        avg_naive_mae = float(np.mean([m["MAE"] for m in naive_fold_metrics]))
+        avg_naive_rmse = float(np.mean([m["RMSE"] for m in naive_fold_metrics]))
 
-    # -----------------------
-    # Training Loop
-    # -----------------------
-    for epoch in range(EPOCHS):
-        # --- Training Phase ---
-        model.train()
-        train_loss = 0.0
-        for xb, yb in train_loader:
-            optimizer.zero_grad()
-            output = model(xb)
-            loss = criterion(output, yb)
-            loss.backward()
-            optimizer.step()
-            train_loss += loss.item()
+        print("\n" + "="*70)
+        print("AVERAGE METRICS ACROSS ALL 5 FOLDS")
+        print(f"LSTM Model  -> Avg MAE: {avg_lstm_mae:.2f} | Avg RMSE: {avg_lstm_rmse:.2f}")
+        print(f"Naive Model -> Avg MAE: {avg_naive_mae:.2f} | Avg RMSE: {avg_naive_rmse:.2f}")
+        print("="*70 + "\n")
 
-        train_loss /= len(train_loader)
-        train_losses.append(train_loss)
+        mlflow.log_metrics({
+            "avg_lstm_mae": avg_lstm_mae,
+            "avg_lstm_rmse": avg_lstm_rmse,
+            "avg_naive_mae": avg_naive_mae,
+            "avg_naive_rmse": avg_naive_rmse,
+        })
 
-        # --- Validation Phase ---
-        model.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for xb, yb in val_loader:
-                output = model(xb)
-                loss = criterion(output, yb)
-                val_loss += loss.item()
-
-        val_loss /= len(val_loader)
-        val_losses.append(val_loss)
-
-        # Log metrics per epoch
-        mlflow_logger.log_metrics({
-            "train_loss": train_loss,
-            "val_loss": val_loss
-        }, step=epoch)
-
-        print(
-            f"Epoch {epoch + 1:02d}/{EPOCHS} | "
-            f"Train Loss: {train_loss:.5f} | "
-            f"Val Loss: {val_loss:.5f}"
-        )
-
-        # Save model based on lowest VALIDATION loss (prevents saving overfit epoch)
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            torch.save(model.state_dict(), best_model_path)
-
-    # Log best model artifact to MLflow
-    mlflow_logger.log_model(best_model_path, artifact_path="model")
-    mlflow_logger.log_metrics({"best_val_loss": best_val_loss})
-
-    # -----------------------
-    # Plot Loss Curve
-    # -----------------------
-    plt.figure(figsize=(8, 5))
-    plt.plot(train_losses, label="Train Loss")
-    plt.plot(val_losses, label="Validation Loss")
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
-    plt.title("Training and Validation Loss Curve")
-    plt.legend()
-    plt.grid(True)
-    
-    loss_plot_path = os.path.join(output_dir, "loss_curve.png")
-    plt.savefig(loss_plot_path)
-    plt.close()
-
-    print("\nTraining Complete!")
-    print(f"Best Validation Loss: {best_val_loss:.5f}")
+        os.makedirs("output", exist_ok=True)
+        model_path = "output/best_model.pt"
+        torch.save(model.state_dict(), model_path)
+        mlflow.log_artifact(model_path)
+        print(f"Saved PyTorch weights to {model_path}")
 
 
 if __name__ == "__main__":
-    train_model()
+    train_and_evaluate()
