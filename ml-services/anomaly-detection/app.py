@@ -77,13 +77,12 @@ async def stream_reset():
     return {"message": "Streaming reset."}
 
 
-@app.get("/stream/window/{model}")
-async def stream_window(model: str):
+@app.get("/stream/rolling-window")
+async def stream_rolling_window():
     try:
-        window = get_window(model)
+        window = get_window()
 
         return {
-            "model": model,
             "window_size": len(window),
             "window": window,
         }
@@ -112,15 +111,15 @@ async def stream_latest(model: str):
         )
 
 
-@app.get("/stream/history/{model}")
-async def stream_history(model: str):
+@app.get("/stream/detect-window/{model}")
+async def stream_detect_window(model: str):
     try:
         history = get_history(model)
 
         return {
             "model": model,
-            "total_predictions": len(history),
-            "history": history,
+            "window_size": len(history),
+            "predictions": history,
         }
 
     except Exception as exc:

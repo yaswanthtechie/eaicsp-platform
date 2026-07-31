@@ -9,7 +9,6 @@ project_root = Path(__file__).resolve().parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-output_dir = project_root / "output"
 models_dir = project_root / "models"
 
 
@@ -64,9 +63,5 @@ def evaluate_models(df: pd.DataFrame):
 
     print(results_df)
 
-    results_df.to_csv(
-        output_dir / "precision_recall.csv",
-        index=False,
-    )
 
     return results_df

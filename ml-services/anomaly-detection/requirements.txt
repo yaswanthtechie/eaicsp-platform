@@ -6,3 +6,5 @@ shap
 matplotlib
 fastapi
 uvicorn
+pytest
+httpx2

@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 
 from .model_loader import (
+    MODEL_VERSION,
     feature_names,
     get_explainer,
     get_models,
@@ -25,23 +26,29 @@ def predict(reading, model_name="iforest"):
     model = models[model_name]
     explainer = get_explainer(model_name)
 
-    features = pd.DataFrame([reading], columns=feature_names)
+    features = pd.DataFrame([reading])[feature_names]
     model_input = features.to_numpy()
 
     prediction = model.predict(model_input)[0]
-    score = model.decision_function(model_input)[0]
+    score = model.score(model_input)[0]
 
     reasons = []
 
     if explainer is not None:
         values = explainer(model_input, silent=True)
+
         contributions = np.abs(values.values[0])
+
+        total = contributions.sum()
+
+        if total > 0:
+            contributions = contributions / total
 
         reasons = sorted(
             [
                 {
                     "feature": feature,
-                    "contribution": float(contribution),
+                    "contribution": round(float(contribution), 4),
                 }
                 for feature, contribution in zip(
                     feature_names,
@@ -50,7 +57,7 @@ def predict(reading, model_name="iforest"):
             ],
             key=lambda x: x["contribution"],
             reverse=True,
-        )
+        )[:3]
 
     return {
         "model": model_name,
@@ -58,12 +65,13 @@ def predict(reading, model_name="iforest"):
         "is_anomaly": bool(prediction == -1),
         "score": float(-score),
         "reasons": reasons,
+        "model_version": MODEL_VERSION,
     }
 
 
 def predict_with_explanation(reading: dict, model_choice):
     """
-    Compatibility wrapper used by src.app.
+    Compatibility wrapper used by app.
 
     model_choice may be:
     - "1" -> Isolation Forest

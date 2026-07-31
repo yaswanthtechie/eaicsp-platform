@@ -18,11 +18,8 @@ model_mapping = {
     "3": "ocsvm",
 }
 
-rolling_windows = {
-    "iforest": deque(maxlen=window_size),
-    "lof": deque(maxlen=window_size),
-    "ocsvm": deque(maxlen=window_size),
-}
+# One rolling window for the sensor stream
+rolling_window = deque(maxlen=window_size)
 
 latest_results = {
     "iforest": None,
@@ -54,16 +51,39 @@ def generate_reading():
     }
 
     planted = False
+    anomaly_type = None
 
-    # Random temperature anomaly with 5% probability
+    # 5% chance of injecting an anomaly
     if np.random.random() < 0.05:
-        reading["temperature"] += float(np.random.uniform(8, 15))
+
         planted = True
+
+        anomaly_type = np.random.choice(
+            [
+                "temperature_spike",
+                "humidity_anomaly",
+                "stock_anomaly",
+                "combined_anomaly",
+            ]
+        )
+
+        if anomaly_type == "temperature_spike":
+            reading["temperature"] += float(np.random.uniform(8, 15))
+
+        elif anomaly_type == "humidity_anomaly":
+            reading["humidity"] += float(np.random.uniform(20, 35))
+
+        elif anomaly_type == "stock_anomaly":
+            reading["stock_count"] += float(np.random.uniform(150, 300))
+
+        elif anomaly_type == "combined_anomaly":
+            reading["temperature"] += float(np.random.uniform(8, 15))
+            reading["humidity"] += float(np.random.uniform(20, 35))
 
     timestamp = current_time
     current_time += pd.Timedelta(seconds=1)
 
-    return timestamp, reading, planted
+    return timestamp, reading, planted, anomaly_type
 
 
 def stream_loop():
@@ -71,23 +91,25 @@ def stream_loop():
 
     while running:
 
-        timestamp, reading, planted = generate_reading()
+        timestamp, reading, planted, anomaly_type = generate_reading()
 
-        for model in rolling_windows:
+        rolling_window.append(
+            {
+                "timestamp": timestamp.isoformat(),
+                **reading,
+                "planted_anomaly": planted,
+                "anomaly_type": anomaly_type,
+            }
+        )
 
-            rolling_windows[model].append(
-                {
-                    "timestamp": timestamp.isoformat(),
-                    **reading,
-                    "planted_anomaly": planted,
-                }
-            )
+        for model in latest_results:
 
             result = predict(reading, model)
 
             prediction = {
                 "timestamp": timestamp.isoformat(),
                 "planted_anomaly": planted,
+                "anomaly_type": anomaly_type,
                 "reading": reading,
                 **result,
             }
@@ -106,7 +128,6 @@ def start_stream():
         return False
 
     # Ensure trained models exist before starting the stream.
-    # Raises FileNotFoundError if models are missing.
     get_models()
 
     running = True
@@ -134,8 +155,7 @@ def reset_stream():
 
     current_time = pd.Timestamp.now(tz=ZoneInfo("Asia/Kolkata")).floor("s")
 
-    for window in rolling_windows.values():
-        window.clear()
+    rolling_window.clear()
 
     for history in prediction_history.values():
         history.clear()
@@ -144,13 +164,8 @@ def reset_stream():
         latest_results[model] = None
 
 
-def get_window(model):
-    model = model_mapping.get(model, model)
-
-    if model not in rolling_windows:
-        raise ValueError("Invalid model.")
-
-    return list(rolling_windows[model])
+def get_window():
+    return list(rolling_window)
 
 
 def get_latest(model):

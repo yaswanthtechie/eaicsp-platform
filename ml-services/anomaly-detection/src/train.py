@@ -48,10 +48,12 @@ def train_models(df: pd.DataFrame):
     # Isolation Forest
     model1 = IsolationForestModel()
     model1.train(features)
+
     joblib.dump(
-        model1.model,
+        model1,
         models_dir / "isolation_forest_model.joblib",
     )
+
     models["iforest"] = model1
 
     print("Isolation Forest model is trained")
@@ -60,10 +62,12 @@ def train_models(df: pd.DataFrame):
     # One-Class SVM
     model2 = OneClassSVMModel()
     model2.train(features)
+
     joblib.dump(
-        model2.model,
+        model2,
         models_dir / "one_class_svm_model.joblib",
     )
+
     models["ocsvm"] = model2
 
     print("One-Class SVM model is trained")
@@ -72,10 +76,12 @@ def train_models(df: pd.DataFrame):
     # Local Outlier Factor
     model3 = LOFModel()
     model3.train(features)
+
     joblib.dump(
-        model3.model,
+        model3,
         models_dir / "lof_model.joblib",
     )
+
     models["lof"] = model3
 
     print("Local Outlier Factor model is trained")

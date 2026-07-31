@@ -14,14 +14,6 @@ feature_names = ["temperature", "humidity", "stock_count"]
 
 
 def make_prediction(model):
-    if hasattr(model, "decision_function"):
-        predict_fn = model.decision_function
-
-    elif hasattr(model, "predict_proba"):
-        predict_fn = model.predict_proba
-
-    else:
-        predict_fn = model.predict
 
     def predict_with_feature_names(values):
         if isinstance(values, pd.DataFrame):
@@ -29,7 +21,7 @@ def make_prediction(model):
         else:
             model_input = np.asarray(values)
 
-        return predict_fn(model_input)
+        return model.score(model_input)
 
     return predict_with_feature_names
 
