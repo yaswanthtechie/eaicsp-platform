@@ -5,7 +5,10 @@ import pandas as pd
 from src.data import generate_all_datasets
 from src.evaluate import evaluate_models
 from src.plot import generate_plot
-from src.train import train_models
+from src.train import (
+    save_models,
+    train_models,
+)
 
 project_root = Path(__file__).resolve().parent
 output_dir = project_root / "output"
@@ -20,10 +23,15 @@ def main():
     generate_all_datasets()
 
     # Load training data
-    train_df = pd.read_csv(output_dir / "train_normal.csv")
+    train_df = pd.read_csv(
+        output_dir / "train_normal.csv"
+    )
 
-    # Train models
-    train_models(train_df)
+    # Train candidate models
+    models = train_models(train_df)
+
+    # Deploy models
+    save_models(models)
 
     # Test datasets
     test_datasets = {
@@ -36,21 +44,36 @@ def main():
     all_results = []
 
     for dataset_name, filename in test_datasets.items():
+
         print(f"\nEvaluating {dataset_name}...")
 
-        df = pd.read_csv(output_dir / filename)
+        df = pd.read_csv(
+            output_dir / filename
+        )
 
         results = evaluate_models(df)
-        results.insert(0, "Dataset", dataset_name)
+
+        results.insert(
+            0,
+            "Dataset",
+            dataset_name,
+        )
 
         all_results.append(results)
 
-        # Optional: generate plot for each dataset
+        # Optional: generate plot
         # generate_plot(df)
 
-    final_results = pd.concat(all_results, ignore_index=True)
+    final_results = pd.concat(
+        all_results,
+        ignore_index=True,
+    )
 
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
     final_results.to_csv(
         output_dir / "precision_recall.csv",
         index=False,

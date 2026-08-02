@@ -46,20 +46,23 @@ The project includes:
 ml-services/
 └── anomaly-detection/
     │
-    ├── app.py
-    ├── main.py
-    ├── schemas.py
+    ├── app.py                         # FastAPI application
+    ├── main.py                        # Training and evaluation pipeline
+    ├── schemas.py                     # Request/response schemas
     ├── README.md
     ├── requirements.txt
     │
     ├── models/
-    │   ├── background_sample.csv
+    │   ├── background_sample.csv      # SHAP background data
     │   ├── isolation_forest_model.joblib
     │   ├── lof_model.joblib
-    │   └── one_class_svm_model.joblib
+    │   ├── one_class_svm_model.joblib
+    │   └── model_metadata.json        # Model version metadata
     │
     ├── output/
-    │   ├── precision_recall.csv
+    │   ├── precision_recall.csv               # Evaluation results
+    │   ├── retrain_log.csv                    # Deployment decisions
+    │   ├── model_performance_history.csv      # Retraining history
     │   ├── train_normal.csv
     │   ├── test_temperature_spike.csv
     │   ├── test_temperature_drift.csv
@@ -68,15 +71,16 @@ ml-services/
     │
     ├── src/
     │   ├── __init__.py
-    │   ├── data.py
-    │   ├── evaluate.py
-    │   ├── train.py
-    │   ├── tuning.py
-    │   ├── tuning_utils.py
-    │   ├── predict.py
-    │   ├── streaming.py
-    │   ├── plot.py
-    │   ├── model_loader.py
+    │   ├── data.py                    # Dataset generation
+    │   ├── train.py                   # Train and deploy models
+    │   ├── evaluate.py                # Model evaluation
+    │   ├── retrain.py                 # Rolling-window retraining
+    │   ├── tuning.py                  # Hyperparameter tuning
+    │   ├── tuning_utils.py            # Tuning utilities
+    │   ├── predict.py                 # Prediction and SHAP explanations
+    │   ├── streaming.py               # Streaming mode with rolling window
+    │   ├── plot.py                    # Visualization utilities
+    │   ├── model_loader.py            # Load models and explainers
     │   ├── isolation_forest_model.py
     │   ├── lof_model.py
     │   └── one_class_svm_model.py
@@ -503,19 +507,22 @@ If the models have not yet been trained, prediction endpoints return **HTTP 503 
 
 | Module | Responsibility |
 |---------|----------------|
-| `app.py` | FastAPI application and API routes |
-| `main.py` | End-to-end project pipeline |
-| `schemas.py` | Request and response validation |
-| `src/data.py` | Synthetic data generation and anomaly injection |
-| `src/train.py` | Model training using normal data |
-| `src/evaluate.py` | Evaluation on labelled anomaly datasets |
-| `src/tuning.py` | Hyperparameter tuning for all models |
-| `src/tuning_utils.py` | Shared evaluation and ranking utilities |
-| `src/predict.py` | Prediction logic and SHAP explanations |
-| `src/model_loader.py` | Lazy loading of trained models and explainers |
-| `src/streaming.py` | Synthetic streaming simulator |
-| `src/plot.py` | Performance visualization |
-| `src/*_model.py` | Model-specific wrappers around the scikit-learn estimators |
+| `app.py` | FastAPI application exposing health check, prediction, and streaming APIs |
+| `main.py` | Generates datasets, trains models, evaluates them, and exports benchmark results |
+| `schemas.py` | Pydantic request and response validation models |
+| `src/data.py` | Generates synthetic normal sensor data and injects anomaly scenarios for evaluation |
+| `src/train.py` | Trains Isolation Forest, One-Class SVM, and Local Outlier Factor models on normal data and deploys trained models |
+| `src/evaluate.py` | Evaluates deployed or candidate models on labelled benchmark datasets using Precision and Recall |
+| `src/retrain.py` | **Stretch Goal:** Simulates deployment-time drift adaptation using a rolling 30-day retraining window, evaluates candidate models, performs conditional deployment, updates model versions, and records deployment and performance logs |
+| `src/tuning.py` | Performs hyperparameter tuning for all anomaly detection models |
+| `src/tuning_utils.py` | Shared utilities for ranking hyperparameter combinations using Precision, Recall, F1-score, and PR Score |
+| `src/predict.py` | Performs anomaly prediction and generates SHAP-based feature explanations |
+| `src/model_loader.py` | Lazily loads trained models, SHAP explainers, feature metadata, and model version information |
+| `src/streaming.py` | Simulates real-time sensor streaming with a rolling prediction window |
+| `src/plot.py` | Generates visualizations for generated datasets and anomaly behaviour |
+| `src/isolation_forest_model.py` | Wrapper around the Isolation Forest implementation |
+| `src/lof_model.py` | Wrapper around the Local Outlier Factor implementation |
+| `src/one_class_svm_model.py` | Wrapper around the One-Class SVM implementation |
 
 ---
 
@@ -646,3 +653,162 @@ Potential enhancements include:
 - The anomaly score returned by the API is the model's raw scoring output and should not be interpreted as a probability.
 - Hyperparameter tuning results are generated separately and saved as `output/hyperparameter_tuning_results.csv`.
 - Local Outlier Factor was selected as the preferred model because it consistently achieved the best balance between anomaly detection performance and false alarm reduction across all evaluation datasets.
+
+
+# Stretch Goal: Deployment Mode (Drift Adaptation)
+
+## Retraining Guide (Stretch Goal)
+
+The project includes a deployment-oriented retraining pipeline to demonstrate how anomaly detection models can adapt to changing data distributions after deployment.
+
+Unlike the initial training pipeline, retraining operates on a **rolling window of recent normal sensor data**, simulating continuous model maintenance.
+
+## Retraining Workflow
+
+```text
+Generate 35 Days of Normal Data
+                │
+                ▼
+Create 6 Rolling 30-Day Windows
+                │
+                ▼
+For Each Window
+                │
+                ▼
+Evaluate Currently Deployed Models
+                │
+                ▼
+Train Candidate Models
+                │
+                ▼
+Evaluate Candidate Models
+                │
+                ▼
+Compare Average Precision
+                │
+        ┌───────┴────────┐
+        │                │
+ Precision Improved?     No
+        │                │
+       Yes               │
+        │                │
+Deploy Candidate     Keep Existing Models
+Update Version
+Write Logs
+```
+
+---
+
+## Rolling Window
+
+The retraining pipeline generates **35 days** of normal operating data and creates **6 rolling windows** of **30 days** each.
+
+```text
+Window 1 : Day 1  → Day 30
+Window 2 : Day 2  → Day 31
+Window 3 : Day 3  → Day 32
+Window 4 : Day 4  → Day 33
+Window 5 : Day 5  → Day 34
+Window 6 : Day 6  → Day 35
+```
+
+Each window represents a simulated nightly retraining cycle using the latest available normal operating data.
+
+---
+
+## Deployment Strategy
+
+For every rolling window, the pipeline:
+
+1. Evaluates the currently deployed models.
+2. Trains candidate models using the latest normal data.
+3. Evaluates candidate models on all benchmark datasets.
+4. Compares the average Precision across benchmark datasets.
+5. Deploys the candidate models only if they outperform the currently deployed models.
+6. Increments the model version after successful deployment.
+7. Logs every deployment decision and model performance.
+
+---
+
+## Model Versioning
+
+Every successful deployment increments the deployed model version.
+
+Example:
+
+```text
+1.0.0
+   ↓
+1.0.1
+   ↓
+1.0.2
+```
+
+The current deployed version is maintained in:
+
+```text
+models/model_metadata.json
+```
+
+---
+
+## Generated Logs
+
+### `retrain_log.csv`
+
+Stores deployment decisions.
+
+| Column |
+|--------|
+| Timestamp |
+| Window |
+| Window Start |
+| Window End |
+| Model |
+| Old Version |
+| Candidate Version |
+| Old Precision |
+| New Precision |
+| Decision |
+| Reason |
+
+---
+
+### `model_performance_history.csv`
+
+Stores detailed evaluation metrics for every retraining cycle.
+
+| Column |
+|--------|
+| Timestamp |
+| Window |
+| Dataset |
+| Model |
+| Version |
+| Precision |
+| Recall |
+| Caught |
+| False Alarms |
+| Predicted |
+
+This historical log enables comparison of model performance across multiple retraining cycles and helps identify the most suitable model for future deployment.
+
+---
+
+## Running Retraining
+
+
+```bash
+python -m src.retrain
+```
+
+The retraining script will:
+
+- Generate 35 days of normal sensor data.
+- Simulate six rolling 30-day retraining windows.
+- Evaluate deployed and candidate models.
+- Conditionally deploy improved models.
+- Update model version metadata.
+- Generate deployment and performance logs.
+
+---

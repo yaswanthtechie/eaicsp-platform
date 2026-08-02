@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 
 from schemas import PredictionRequest
 
-from src.model_loader import MODEL_VERSION
+from src.model_loader import get_model_version
 from src.predict import predict_with_explanation
 from src.streaming import (
     get_history,
@@ -21,7 +21,7 @@ async def health():
     return {
         "status": "healthy",
         "service": "anomaly-detection-api",
-        "model_version": MODEL_VERSION,
+        "model_version": get_model_version(),
     }
 
 
@@ -33,7 +33,7 @@ async def detect(request: PredictionRequest):
             request.model.value,
         )
 
-        result["model_version"] = MODEL_VERSION
+        result["model_version"] = get_model_version()
 
         return result
 
@@ -100,7 +100,9 @@ async def stream_latest(model: str):
         result = get_latest(model)
 
         if result is None:
-            return {"message": "Streaming has not started yet."}
+            return {
+                "message": "Streaming has not started yet."
+            }
 
         return result
 
