@@ -2,6 +2,10 @@
 Sentiment analysis module using HuggingFace's FinBERT.
 """
 from typing import Any, Dict
+<<<<<<< HEAD
+=======
+from transformers import pipeline
+>>>>>>> 062c2fc (Restore Supplier Risk ML service)
 
 # Global variable to hold the initialized model pipeline
 _nlp_pipeline = None
@@ -12,12 +16,15 @@ def init_model() -> None:
     """
     global _nlp_pipeline
     if _nlp_pipeline is None:
+<<<<<<< HEAD
         try:
             from transformers import pipeline
         except ModuleNotFoundError as e:
             raise ModuleNotFoundError(
                 "Missing dependency 'transformers'. Install it with: python -m pip install -r requirements.txt"
             ) from e
+=======
+>>>>>>> 062c2fc (Restore Supplier Risk ML service)
         _nlp_pipeline = pipeline("text-classification", model="ProsusAI/finbert")
 
 def analyze_sentiment(text: str) -> Dict[str, Any]:

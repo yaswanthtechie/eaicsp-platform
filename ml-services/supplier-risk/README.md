@@ -4,6 +4,7 @@ A FastAPI application that analyzes news headlines about suppliers to calculate 
 
 ## Setup
 
+<<<<<<< HEAD
 1. Ensure you are installing into the right virtual environment (PowerShell):
    ```bash
    python -m venv .venv
@@ -16,16 +17,32 @@ A FastAPI application that analyzes news headlines about suppliers to calculate 
    ```
 
 3. Run tests:
+=======
+1. Install requirements:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. Run tests:
+>>>>>>> 062c2fc (Restore Supplier Risk ML service)
    ```bash
    pytest tests/
    ```
 
+<<<<<<< HEAD
 4. Start the API Server:
+=======
+3. Start the API Server:
+>>>>>>> 062c2fc (Restore Supplier Risk ML service)
    ```bash
    uvicorn analyze:app --reload --port 8006
    ```
 
+<<<<<<< HEAD
 5. View documentation at `http://localhost:8006/docs`.
+=======
+4. View documentation at `http://localhost:8006/docs`.
+>>>>>>> 062c2fc (Restore Supplier Risk ML service)
 
 ## Project Structure
 - `data.py`: Loads the raw headlines dataset.
