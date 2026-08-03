@@ -1,12 +1,15 @@
 import logging
 from contextlib import asynccontextmanager
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Set, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from data import load_headlines
-from sentiment import init_model
+from sentiment import init_model, analyze_sentiment
 from predict import predict
+
+# Define the keywords to detect globally from API-Gateway
+KEYWORDS = ["bankruptcy", "strike", "recall", "fraud", "sanction"]
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -26,14 +29,25 @@ class HeadlineDetail(BaseModel):
     headline: str
     sentiment: str
     score: float
-    signals: List[SignalDetail]
+    signals: Optional[List[SignalDetail]] = []
+    keywords: Optional[List[str]] = []
 
 class SupplierSummary(BaseModel):
+    # From HEAD
     supplier: str
     risk_score: float
     sentiment_breakdown: SentimentBreakdown
     signals: List[SignalDetail]
     top_worst_3: List[HeadlineDetail]
+    
+    # From API-Gateway
+    headlines_analyzed: int
+    positive: int
+    negative: int
+    neutral: int
+    average_confidence: float
+    detected_keywords: List[str]
+    details: List[HeadlineDetail]
 
 class AnalysisResponse(BaseModel):
     supplier_summary: Dict[str, SupplierSummary]
@@ -51,14 +65,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to load model: {e}")
     yield
-    # Clean up on shutdown can be added here if needed
 
 app = FastAPI(title="Supplier Risk Service", lifespan=lifespan)
 
 @app.get("/api/v1/supplier-risk/analyze", response_model=AnalysisResponse)
 def analyze_headlines():
     """
-    Endpoint to analyze hardcoded supplier headlines and return a risk summary.
+    Endpoint to analyze supplier headlines and return a risk summary.
     """
     try:
         # Load grouped headlines
@@ -68,9 +81,54 @@ def analyze_headlines():
         
         # Analyze each supplier
         for supplier, headlines in grouped_headlines.items():
+            # 1. Run HEAD's prediction logic
             summary = predict(supplier, headlines)
-            response_data[supplier] = summary
             
+            # 2. Run API-Gateway's additional logic
+            total_confidence = 0.0
+            details = []
+            detected_keywords = set()
+            
+            for headline in headlines:
+                res = analyze_sentiment(headline)
+                sentiment_label = res["label"]
+                confidence_score = res["confidence"]
+                
+                headline_lower = headline.lower()
+                kw_found = [kw for kw in KEYWORDS if kw in headline_lower]
+                detected_keywords.update(kw_found)
+                
+                total_confidence += confidence_score
+                
+                details.append({
+                    "headline": headline,
+                    "sentiment": sentiment_label,
+                    "score": round(confidence_score, 4),
+                    "keywords": kw_found,
+                    "signals": []
+                })
+            
+            headlines_count = len(headlines)
+            avg_confidence = total_confidence / headlines_count if headlines_count > 0 else 0.0
+            
+            # 3. Merge both results
+            response_data[supplier] = {
+                "supplier": summary["supplier"],
+                "risk_score": summary["risk_score"],
+                "sentiment_breakdown": summary["sentiment_breakdown"],
+                "signals": summary["signals"],
+                "top_worst_3": summary["top_worst_3"],
+                
+                "headlines_analyzed": headlines_count,
+                "positive": summary["sentiment_breakdown"]["positive"],
+                "negative": summary["sentiment_breakdown"]["negative"],
+                "neutral": summary["sentiment_breakdown"]["neutral"],
+                "average_confidence": round(avg_confidence, 4),
+                "detected_keywords": list(detected_keywords),
+                "details": details
+            }
+
+
         return {"supplier_summary": response_data}
     except Exception as e:
         logger.error(f"Error during headline analysis: {e}")
