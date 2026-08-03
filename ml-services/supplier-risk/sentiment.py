@@ -2,7 +2,6 @@
 Sentiment analysis module using HuggingFace's FinBERT.
 """
 from typing import Any, Dict
-from transformers import pipeline
 
 # Global variable to hold the initialized model pipeline
 _nlp_pipeline = None
@@ -13,6 +12,12 @@ def init_model() -> None:
     """
     global _nlp_pipeline
     if _nlp_pipeline is None:
+        try:
+            from transformers import pipeline
+        except ModuleNotFoundError as e:
+            raise ModuleNotFoundError(
+                "Missing dependency 'transformers'. Install it with: python -m pip install -r requirements.txt"
+            ) from e
         _nlp_pipeline = pipeline("text-classification", model="ProsusAI/finbert")
 
 def analyze_sentiment(text: str) -> Dict[str, Any]:
