@@ -1,43 +1,69 @@
+import os
 import matplotlib.pyplot as plt
 
 
-def save_forecast_plot(test, forecast):
-    forecast_test = forecast[forecast["ds"] >= "2015-01-01"]
+def save_forecast_plot(test_df, forecast_df):
+    """
+    Save Prophet forecast plot.
+    """
+
+    # Create output directory
+    os.makedirs("output", exist_ok=True)
 
     plt.figure(figsize=(12, 6))
 
-    # Actual values
+    # -----------------------------------
+    # Actual Sales
+    # -----------------------------------
     plt.plot(
-        test["ds"],
-        test["y"],
+        test_df["ds"],
+        test_df["y"],
         label="Actual Sales",
-        linewidth=2
+        linewidth=2,
+        color="blue"
     )
 
-    # Predicted values
+    # -----------------------------------
+    # Prophet Predictions
+    # -----------------------------------
     plt.plot(
-        forecast_test["ds"],
-        forecast_test["yhat"],
-        label="Predicted Sales",
-        linewidth=2
+        forecast_df["ds"],
+        forecast_df["yhat"],
+        label="Prophet Forecast",
+        linewidth=2,
+        color="red"
     )
 
-    # Confidence interval
+    # -----------------------------------
+    # Confidence Interval
+    # -----------------------------------
     plt.fill_between(
-        forecast_test["ds"],
-        forecast_test["yhat_lower"],
-        forecast_test["yhat_upper"],
-        alpha=0.3,
-        label="Confidence Band"
+        forecast_df["ds"],
+        forecast_df["yhat_lower"],
+        forecast_df["yhat_upper"],
+        alpha=0.25,
+        color="red",
+        label="Prediction Interval"
     )
 
-    plt.title("Sales Forecast using Prophet")
+    # -----------------------------------
+    # Labels
+    # -----------------------------------
+    plt.title("Sales Forecast")
     plt.xlabel("Date")
     plt.ylabel("Sales")
+
     plt.legend()
+
     plt.grid(True)
 
+    plt.tight_layout()
+
+    # -----------------------------------
+    # Save Figure
+    # -----------------------------------
     plt.savefig("output/forecast.png")
+
     plt.close()
 
-    print("Forecast graph saved to output/forecast.png")
+    print(" Forecast plot saved: output/forecast.png")

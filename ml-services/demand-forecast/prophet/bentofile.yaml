@@ -1,0 +1,16 @@
+service: "bentoml_service:forecastservice"
+
+include:
+  - "*.py"
+  - "output/**"
+  - "models/**"
+
+python:
+  packages:
+    - bentoml
+    - prophet
+    - pandas
+    - numpy
+    - xgboost
+    - scikit-learn
+    - pydantic
