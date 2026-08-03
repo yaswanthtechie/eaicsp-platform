@@ -7,12 +7,15 @@ from app.schemas.inventory import (
     InventoryCreate,
     InventoryUpdate,
     InventoryResponse,
-    DemandSpikeRequest,
     ReorderCheckResponse,
     LowStockResponse,
+    DemandSpikeRequest,
     SimulationResponse,
     DeleteResponse,
     BulkUploadResponse,
+    BulkUpdateItem,
+    ReorderPlanEntry,
+    WhatIfRequest,
 )
 
 from app.services.inventory_service import (
@@ -23,13 +26,21 @@ from app.services.inventory_service import (
     delete_inventory,
     reorder_check,
     get_low_stock_items,
+    get_reorder_plan,
     simulate_demand_spike,
     bulk_upload_csv,
-    inventory_response
+    bulk_update_inventory,
+    what_if_simulation,
+    inventory_response,
 )
+
 
 router = APIRouter()
 
+
+# ---------------------------------------
+# CREATE INVENTORY
+# ---------------------------------------
 
 @router.post(
     "",
@@ -40,16 +51,25 @@ def create_inventory_route(
     inventory: InventoryCreate,
     db: Session = Depends(get_db),
 ):
-    result = create_inventory(db, inventory)
+
+    result = create_inventory(
+        db,
+        inventory
+    )
 
     if result is None:
         raise HTTPException(
             status_code=409,
-            detail="SKU already exists",
+            detail="SKU already exists in warehouse",
         )
 
     return result
 
+
+
+# ---------------------------------------
+# GET ALL INVENTORY
+# ---------------------------------------
 
 @router.get(
     "",
@@ -58,49 +78,60 @@ def create_inventory_route(
 def get_all_inventory_route(
     db: Session = Depends(get_db),
 ):
+
     return get_all_inventory(db)
 
 
-@router.get(
-    "/low-stock",
-    response_model=list[LowStockResponse],
-)
-def low_stock_route(
-    db: Session = Depends(get_db),
-):
-    return get_low_stock_items(db)
 
+# ---------------------------------------
+# GET SKU FROM WAREHOUSE
+# ---------------------------------------
 
 @router.get(
-    "/{sku_id}",
+    "/{sku_id}/{warehouse_id}",
     response_model=InventoryResponse,
 )
 def get_inventory_route(
     sku_id: str,
+    warehouse_id: str,
     db: Session = Depends(get_db),
 ):
-    result = get_inventory(db, sku_id)
 
-    if result is None:
+    item = get_inventory(
+        db,
+        sku_id,
+        warehouse_id
+    )
+
+    if item is None:
         raise HTTPException(
             status_code=404,
             detail="Inventory not found",
         )
 
-    return inventory_response(result)
+    return inventory_response(item)
+
+
+
+# ---------------------------------------
+# UPDATE WAREHOUSE INVENTORY
+# ---------------------------------------
 
 @router.put(
-    "/{sku_id}",
+    "/{sku_id}/{warehouse_id}",
     response_model=InventoryResponse,
 )
 def update_inventory_route(
     sku_id: str,
+    warehouse_id: str,
     inventory: InventoryUpdate,
     db: Session = Depends(get_db),
 ):
+
     result = update_inventory(
         db,
         sku_id,
+        warehouse_id,
         inventory,
     )
 
@@ -113,17 +144,25 @@ def update_inventory_route(
     return result
 
 
+
+# ---------------------------------------
+# DELETE WAREHOUSE INVENTORY
+# ---------------------------------------
+
 @router.delete(
-    "/{sku_id}",
+    "/{sku_id}/{warehouse_id}",
     response_model=DeleteResponse,
 )
 def delete_inventory_route(
     sku_id: str,
+    warehouse_id: str,
     db: Session = Depends(get_db),
 ):
+
     deleted = delete_inventory(
         db,
         sku_id,
+        warehouse_id,
     )
 
     if not deleted:
@@ -137,17 +176,25 @@ def delete_inventory_route(
     }
 
 
+
+# ---------------------------------------
+# REORDER CHECK
+# ---------------------------------------
+
 @router.get(
-    "/{sku_id}/reorder-check",
+    "/{sku_id}/{warehouse_id}/reorder-check",
     response_model=ReorderCheckResponse,
 )
 def reorder_check_route(
     sku_id: str,
+    warehouse_id: str,
     db: Session = Depends(get_db),
 ):
+
     result = reorder_check(
         db,
         sku_id,
+        warehouse_id,
     )
 
     if result is None:
@@ -159,18 +206,58 @@ def reorder_check_route(
     return result
 
 
+
+# ---------------------------------------
+# REORDER PLAN ALL WAREHOUSES
+# ---------------------------------------
+
+@router.get(
+    "/reorder-plan",
+    response_model=list[ReorderPlanEntry],
+)
+def reorder_plan_route(
+    db: Session = Depends(get_db),
+):
+
+    return get_reorder_plan(db)
+
+
+
+# ---------------------------------------
+# LOW STOCK
+# ---------------------------------------
+
+@router.get(
+    "/low-stock",
+    response_model=list[LowStockResponse],
+)
+def low_stock_route(
+    db: Session = Depends(get_db),
+):
+
+    return get_low_stock_items(db)
+
+
+
+# ---------------------------------------
+# DEMAND SPIKE SIMULATION
+# ---------------------------------------
+
 @router.post(
-    "/{sku_id}/simulate",
+    "/{sku_id}/{warehouse_id}/simulate",
     response_model=SimulationResponse,
 )
-def simulate_demand_route(
+def simulate_route(
     sku_id: str,
+    warehouse_id: str,
     request: DemandSpikeRequest,
     db: Session = Depends(get_db),
 ):
+
     result = simulate_demand_spike(
         db,
         sku_id,
+        warehouse_id,
         request.demand_spike_percent,
     )
 
@@ -183,15 +270,68 @@ def simulate_demand_route(
     return result
 
 
+
+# ---------------------------------------
+# BULK CSV UPLOAD
+# ---------------------------------------
+
 @router.post(
     "/bulk-upload",
     response_model=BulkUploadResponse,
 )
-def bulk_upload_csv_route(
+def bulk_upload_route(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
+
     return bulk_upload_csv(
         db,
-        file,
+        file
+    )
+
+
+
+# ---------------------------------------
+# BULK UPDATE TRANSACTION
+# ---------------------------------------
+
+@router.post(
+    "/bulk-update",
+    response_model=list[InventoryResponse],
+)
+def bulk_update_route(
+    updates: list[BulkUpdateItem],
+    db: Session = Depends(get_db),
+):
+
+    try:
+        return bulk_update_inventory(
+            db,
+            updates
+        )
+
+    except Exception as exc:
+
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        )
+
+
+
+# ---------------------------------------
+# WHAT IF DEMAND SPIKE
+# ---------------------------------------
+
+@router.post(
+    "/what-if",
+)
+def what_if_route(
+    request: WhatIfRequest,
+    db: Session = Depends(get_db),
+):
+
+    return what_if_simulation(
+        db,
+        request.spike_percent,
     )

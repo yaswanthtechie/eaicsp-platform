@@ -3,6 +3,7 @@
 A RESTful Inventory Management API built using **FastAPI**, **SQLAlchemy ORM**, and **SQLite**.
 
 This service provides complete inventory management features including CRUD operations, automatic reorder point calculation, low-stock detection, demand spike simulation, bulk CSV upload, dedicated response models, and automated API testing.
+The default configuration uses PostgreSQL; adjust `DATABASE_URL` in `.env`.
 
 ---
 
@@ -47,7 +48,7 @@ inventory-service/
 │   ├── database.py
 │   │
 │   ├── core/
-│   │   └── config.py
+* PostgreSQL
 │   │
 │   ├── models/
 │   │   └── inventory.py
@@ -84,7 +85,8 @@ git clone <repository-url>
 
 ```bash
 cd inventory-service
-```
+├── requirements.txt
+├── README.md
 
 ## Create Virtual Environment
 
@@ -135,6 +137,32 @@ http://127.0.0.1:8000/redoc
 ```
 
 ---
+
+## PostgreSQL setup (local development)
+
+Create the Postgres databases used by the service and tests. Adjust user/password/host as needed.
+
+```bash
+# create a test and dev database (example using default postgres user)
+psql -c "CREATE DATABASE inventory;"
+psql -c "CREATE DATABASE inventory_test;"
+```
+
+If you need a dedicated DB user, create one and grant privileges:
+
+```bash
+psql -c "CREATE USER inventory_user WITH PASSWORD 'secretpass';"
+psql -c "GRANT ALL PRIVILEGES ON DATABASE inventory TO inventory_user;"
+psql -c "GRANT ALL PRIVILEGES ON DATABASE inventory_test TO inventory_user;"
+```
+
+Then set your `.env` accordingly (example):
+
+```dotenv
+DATABASE_URL=postgresql+psycopg://inventory_user:secretpass@localhost:5432/inventory
+TEST_DATABASE_URL=postgresql+psycopg://inventory_user:secretpass@localhost:5432/inventory_test
+```
+
 
 # Response Models
 
