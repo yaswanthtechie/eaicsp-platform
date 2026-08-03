@@ -1,4 +1,4 @@
-from app.services.carriers.base import CarrierAdapter
+from app.services.carriers.base import CarrierAdapter, api_retry
 from app.schemas.shipment import (
     Carrier,
     Status,
@@ -9,6 +9,7 @@ from app.schemas.shipment import (
 
 class DHLAdapter(CarrierAdapter):
 
+    @api_retry()
     def get_rate(
         self,
         origin: str,
@@ -22,10 +23,12 @@ class DHLAdapter(CarrierAdapter):
             destination=destination,
             weight_kg=weight_kg,
             price=850,
-            estimated_days=2
+            estimated_days=2,
+            reliability_score=0.87,
         )
 
 
+    @api_retry()
     def get_tracking(
         self,
         tracking_number: str

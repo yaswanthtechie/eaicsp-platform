@@ -1,4 +1,6 @@
-from app.services.carriers.base import CarrierAdapter
+import random
+
+from app.services.carriers.base import CarrierAdapter, api_retry
 from app.schemas.shipment import (
     Carrier,
     Status,
@@ -9,12 +11,15 @@ from app.schemas.shipment import (
 
 class FedExAdapter(CarrierAdapter):
 
+    @api_retry()
     def get_rate(
         self,
         origin: str,
         destination: str,
         weight_kg: float
     ) -> CarrierRate:
+        if random.random() < 0.3:
+            raise RuntimeError("FedEx API timeout")
 
         return CarrierRate(
             carrier=Carrier.fedex,
@@ -22,9 +27,11 @@ class FedExAdapter(CarrierAdapter):
             destination=destination,
             weight_kg=weight_kg,
             price=950,
-            estimated_days=3
+            estimated_days=3,
+            reliability_score=0.92,
         )
 
+    @api_retry()
     def get_tracking(
         self,
         tracking_number: str
