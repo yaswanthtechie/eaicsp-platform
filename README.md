@@ -233,7 +233,7 @@ Run all tests:
 pytest -q
 ```
 
-The suite runs against `TEST_DATABASE_URL` and currently contains 15 tests:
+The suite runs against `TEST_DATABASE_URL` and currently contains 16 tests:
 
 - 11 regression tests for the original API behavior
 - reorder-point edge cases: exactly at, one below, and one above
