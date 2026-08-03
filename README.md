@@ -166,6 +166,17 @@ changes its quantity using `quantity_delta`.
 ]
 ```
 
+### CSV bulk upload
+
+```http
+POST /api/v1/inventory/bulk-upload
+```
+
+Upload the CSV file as multipart/form-data with field name `file`.
+Each row should contain inventory fields such as `sku_id`, `product_name`,
+`warehouse_id`, `quantity_on_hand`, `avg_daily_demand`, `lead_time_days`, and
+`safety_stock`.
+
 All changes run in one database transaction. If one row is missing or a
 decrement would make stock negative, the whole request is rolled back.
 
