@@ -1,5 +1,5 @@
 import pytest
-
+from src.model_loader import get_model_version
 from src.predict import predict
 
 READING = {
@@ -30,7 +30,7 @@ def test_predict_returns_expected_schema(model):
     assert "reasons" in result
     assert isinstance(result["reasons"], list)
 
-    assert result["model_version"] == "1.0.0"
+    assert result["model_version"] == get_model_version()
 
 
 @pytest.mark.parametrize(

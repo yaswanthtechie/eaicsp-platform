@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from matplotlib.pylab import seed
 import numpy as np
 import pandas as pd
 
@@ -39,10 +40,12 @@ def generate_normal_data(
 def inject_temperature_spikes(
     df: pd.DataFrame,
     n_anomalies: int = 20,
+    seed: int = 42
 ) -> pd.DataFrame:
     """
     Injecting sudden temperature spikes.
     """
+    np.random.seed(seed)
 
     df = df.copy()
 
@@ -58,10 +61,12 @@ def inject_temperature_spikes(
 def inject_stock_anomalies(
     df: pd.DataFrame,
     n_anomalies: int = 20,
+    seed: int = 42,
 ) -> pd.DataFrame:
     """
     Injecting abnormal stock counts.
     """
+    np.random.seed(seed)
 
     df = df.copy()
 
@@ -78,6 +83,7 @@ def inject_temperature_drift(
     df: pd.DataFrame,
     hours: int = 24,
     drift_per_hour: float = 0.5,
+    seed: int = 42,
 ) -> pd.DataFrame:
     """
     Injecting slow temperature drift.
@@ -87,7 +93,7 @@ def inject_temperature_drift(
         24 hours
         5 minute sampling
     """
-
+    np.random.seed(seed)
     df = df.copy()
 
     readings = hours * 12          # 288 readings
@@ -109,12 +115,13 @@ def inject_temperature_drift(
 def inject_combined_anomalies(
     df: pd.DataFrame,
     n_anomalies: int = 20,
+    seed: int = 42,
 ) -> pd.DataFrame:
     """
     Injecting anomalies where temperature and humidity
     move together in an unusual way.
     """
-
+    np.random.seed(seed)
     df = df.copy()
 
     idx = np.random.choice(df.index,size=n_anomalies,replace=False,)

@@ -60,9 +60,9 @@ ml-services/
     │   └── model_metadata.json        # Model version metadata
     │
     ├── output/
-    │   ├── precision_recall.csv               # Evaluation results
+    │   ├── precision_recall.csv               # Benchmark evaluation results
     │   ├── retrain_log.csv                    # Deployment decisions
-    │   ├── model_performance_history.csv      # Retraining history
+    │   ├── model_performance_history.csv      # Rolling retraining history
     │   ├── train_normal.csv
     │   ├── test_temperature_spike.csv
     │   ├── test_temperature_drift.csv
@@ -71,24 +71,26 @@ ml-services/
     │
     ├── src/
     │   ├── __init__.py
-    │   ├── data.py                    # Dataset generation
-    │   ├── train.py                   # Train and deploy models
-    │   ├── evaluate.py                # Model evaluation
-    │   ├── retrain.py                 # Rolling-window retraining
+    │   ├── data.py                    # Dataset generation and anomaly injection
+    │   ├── train.py                   # Model training and deployment
+    │   ├── evaluate.py                # Benchmark evaluation
+    │   ├── retrain.py                 # Rolling-window retraining and drift adaptation
     │   ├── tuning.py                  # Hyperparameter tuning
-    │   ├── tuning_utils.py            # Tuning utilities
+    │   ├── tuning_utils.py            # Shared tuning utilities
     │   ├── predict.py                 # Prediction and SHAP explanations
-    │   ├── streaming.py               # Streaming mode with rolling window
-    │   ├── plot.py                    # Visualization utilities
-    │   ├── model_loader.py            # Load models and explainers
-    │   ├── isolation_forest_model.py
-    │   ├── lof_model.py
-    │   └── one_class_svm_model.py
+    │   ├── streaming.py               # Streaming simulator and rolling window support
+    │   ├── plot.py                    # Performance visualization
+    │   ├── model_loader.py            # Lazy loading of deployed models and explainers
+    │   ├── isolation_forest_model.py  # Isolation Forest wrapper
+    │   ├── lof_model.py               # Local Outlier Factor wrapper
+    │   └── one_class_svm_model.py     # One-Class SVM wrapper
     │
     └── tests/
-        ├── test_api.py
-        ├── test_models.py
-        └── test_predict.py
+        ├── test_api.py                # API endpoint tests
+        ├── test_evaluate.py           # Benchmark and recall floor tests
+        ├── test_models.py             # Model wrapper tests
+        ├── test_predict.py            # Prediction and SHAP tests
+        └── test_retrain.py            # Retraining workflow tests
 ```
 
 Generated model artifacts and evaluation outputs are intentionally excluded from version control.
@@ -259,7 +261,7 @@ For every configuration, the following metrics are calculated:
 
 Configurations are ranked using:
 
-1. PR Score
+1. PR Score - average of precision and recall
 2. F1 Score
 3. False Positives (ascending)
 4. False Negatives (ascending)
@@ -318,15 +320,15 @@ output/precision_recall.csv
 
 The three anomaly detection algorithms exhibit different strengths across the evaluation datasets.
 
-### Isolation Forest
+## Isolation Forest
 
 Isolation Forest generally produces fewer false positives than One-Class SVM, but it misses a significant number of anomalies in several datasets, resulting in lower recall. This behaviour is most noticeable on the Temperature Drift and Stock Anomaly datasets.
 
-### One-Class SVM
+## One-Class SVM
 
 One-Class SVM achieves very high recall, detecting nearly every injected anomaly. However, it also generates a large number of false alarms, leading to lower precision. This makes it less suitable when reducing unnecessary alerts is important.
 
-### Local Outlier Factor (LOF)
+## Local Outlier Factor (LOF)
 
 Local Outlier Factor consistently provides the strongest balance between anomaly detection and false alarm reduction.
 
@@ -398,6 +400,7 @@ Example response
 |---------|----------|-------------|
 | GET | `/health` | Service health check |
 | POST | `/detect` | Detect anomaly for a single sensor reading |
+| POST | `/detect-window` | Detect anomaly for N readings |
 | POST | `/stream/start` | Start synthetic streaming |
 | POST | `/stream/stop` | Stop synthetic streaming |
 | POST | `/stream/reset` | Reset streaming state |
@@ -472,7 +475,10 @@ Different algorithms compute anomaly scores using different scoring functions, t
 
 # Streaming Simulation
 
-The project includes a synthetic streaming simulator that continuously generates sensor readings.
+- The project includes a synthetic streaming simulator that continuously generates sensor readings.
+- The streaming simulator maintains an in-memory rolling window using module-level state.
+- It is intended for demonstration purposes and assumes a single FastAPI process.
+- For production deployments this state should be replaced by Redis, Kafka, or another shared streaming store.
 
 During streaming:
 
@@ -497,9 +503,14 @@ GET /stream/rolling-window/{model}
 GET /stream/detect-window/{model}
 ```
 
-Streaming requires trained model artifacts.
+## Limitations
 
-If the models have not yet been trained, prediction endpoints return **HTTP 503 Service Unavailable** until the training pipeline has been executed.
+- Designed for a single-process development environment.
+- Not intended for multi-process or distributed deployments.
+- Concurrent access is not synchronized with thread locks.
+- A production implementation should replace the in-memory state with a shared datastore or message queue.
+- Streaming requires trained model artifacts.
+- If the models have not yet been trained, prediction endpoints return **HTTP 503 Service Unavailable** until the training pipeline has been executed.
 
 ---
 
@@ -528,15 +539,17 @@ If the models have not yet been trained, prediction endpoints return **HTTP 503 
 
 # Testing
 
-Unit tests are provided to verify the core functionality of the project.
+Unit tests are provided to verify the core functionality of the project, including model evaluation, retraining, API endpoints, and prediction logic.
 
 Test files:
 
 ```text
 tests/
 ├── test_api.py
+├── test_evaluate.py
 ├── test_models.py
-└── test_predict.py
+├── test_predict.py
+└── test_retrain.py
 ```
 
 Run all tests using:
@@ -544,17 +557,24 @@ Run all tests using:
 ```bash
 python -m pytest
 ```
+
 Expected output:
 
 ```text
-23 passed
+44 passed
 ```
-The tests cover:
 
-- API endpoint validation
+The test suite covers:
+
+- API endpoint validation (`/detect` and `/detect-window`)
+- Request schema validation and error handling
 - Model loading and prediction
-- Prediction response format
-- Error handling for invalid requests
+- Prediction response format and SHAP explanations
+- Evaluation pipeline and benchmark metrics
+- Recall floor regression tests for benchmark datasets
+- Rolling window generation
+- Model comparison and deployment decision logic
+- Retraining utility functions
 
 ---
 
@@ -636,7 +656,7 @@ Potential enhancements include:
 - Automatic nightly retraining using the latest normal sensor data.
 - Automatic model selection based on evaluation metrics.
 - Additional anomaly scenarios such as humidity drift and combined environmental anomalies.
-- Real-time streaming using Kafka or MQTT instead of a synthetic simulator.
+- Real-time streaming using Redis,Kafka or MQTT instead of a synthetic simulator.
 - Model performance monitoring and drift detection.
 - Docker support for simplified deployment.
 - CI/CD integration using GitHub Actions.

@@ -1,6 +1,11 @@
+import logging
+
 from fastapi import FastAPI, HTTPException
 
-from schemas import PredictionRequest
+from schemas import (
+    DetectWindowRequest,
+    PredictionRequest,
+)
 
 from src.model_loader import get_model_version
 from src.predict import predict_with_explanation
@@ -12,6 +17,8 @@ from src.streaming import (
     start_stream,
     stop_stream,
 )
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Anomaly Detection")
 
@@ -28,14 +35,10 @@ async def health():
 @app.post("/detect")
 async def detect(request: PredictionRequest):
     try:
-        result = predict_with_explanation(
+        return predict_with_explanation(
             request.reading.model_dump(),
             request.model.value,
         )
-
-        result["model_version"] = get_model_version()
-
-        return result
 
     except FileNotFoundError as exc:
         raise HTTPException(
@@ -43,20 +46,86 @@ async def detect(request: PredictionRequest):
             detail=str(exc),
         )
 
-    except Exception as exc:
+    except Exception:
+        logger.exception(
+            "Unexpected error while processing /detect request."
+        )
+
         raise HTTPException(
             status_code=500,
+            detail="Internal server error.",
+        )
+
+
+@app.post("/detect-window")
+async def detect_window(request: DetectWindowRequest):
+    """
+    Detect anomalies over a client-provided rolling window.
+
+    The client sends the latest N sensor readings.
+    The API returns only the anomalous readings
+    within that window.
+    """
+
+    try:
+
+        anomalous_readings = []
+
+        for index, reading in enumerate(request.readings):
+
+            result = predict_with_explanation(
+                reading.model_dump(),
+                request.model.value,
+            )
+
+            if result["is_anomaly"]:
+
+                anomalous_readings.append(
+                    {
+                        "reading_index": index,
+                        "is_anomaly": result["is_anomaly"],
+                        "score": result["score"],
+                        "reasons": result["reasons"],
+                    }
+                )
+
+        return {
+            "model": request.model.value,
+            "model_version": get_model_version(),
+            "window_size": len(request.readings),
+            "total_anomalies": len(anomalous_readings),
+            "anomalous_readings": anomalous_readings,
+        }
+
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=503,
             detail=str(exc),
+        )
+
+    except Exception:
+        logger.exception(
+            "Unexpected error while processing /detect-window request."
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error.",
         )
 
 
 @app.post("/stream/start")
 async def stream_start():
     try:
-        if start_stream():
-            return {"message": "Streaming started."}
 
-        return {"message": "Streaming is already running."}
+        if start_stream():
+            return {
+                "message": "Streaming started."
+            }
+
+        return {
+            "message": "Streaming is already running."
+        }
 
     except FileNotFoundError as exc:
         raise HTTPException(
@@ -68,18 +137,25 @@ async def stream_start():
 @app.post("/stream/stop")
 async def stream_stop():
     stop_stream()
-    return {"message": "Streaming stopped."}
+
+    return {
+        "message": "Streaming stopped."
+    }
 
 
 @app.post("/stream/reset")
 async def stream_reset():
     reset_stream()
-    return {"message": "Streaming reset."}
+
+    return {
+        "message": "Streaming reset."
+    }
 
 
 @app.get("/stream/rolling-window")
 async def stream_rolling_window():
     try:
+
         window = get_window()
 
         return {
@@ -87,16 +163,21 @@ async def stream_rolling_window():
             "window": window,
         }
 
-    except Exception as exc:
+    except Exception:
+        logger.exception(
+            "Unexpected error while retrieving rolling window."
+        )
+
         raise HTTPException(
             status_code=400,
-            detail=str(exc),
+            detail="Unable to retrieve rolling window.",
         )
 
 
 @app.get("/stream/latest/{model}")
 async def stream_latest(model: str):
     try:
+
         result = get_latest(model)
 
         if result is None:
@@ -106,16 +187,21 @@ async def stream_latest(model: str):
 
         return result
 
-    except Exception as exc:
+    except Exception:
+        logger.exception(
+            "Unexpected error while retrieving latest prediction."
+        )
+
         raise HTTPException(
             status_code=400,
-            detail=str(exc),
+            detail="Unable to retrieve latest prediction.",
         )
 
 
-@app.get("/stream/detect-window/{model}")
-async def stream_detect_window(model: str):
+@app.get("/stream/prediction-history/{model}")
+async def stream_prediction_history(model: str):
     try:
+
         history = get_history(model)
 
         return {
@@ -124,8 +210,12 @@ async def stream_detect_window(model: str):
             "predictions": history,
         }
 
-    except Exception as exc:
+    except Exception:
+        logger.exception(
+            "Unexpected error while retrieving prediction history."
+        )
+
         raise HTTPException(
             status_code=400,
-            detail=str(exc),
+            detail="Unable to retrieve prediction history.",
         )
