@@ -1,76 +1,205 @@
-import pandas as pd
+import importlib
+import yaml
 import logging
+import pandas as pd
+from typing import Any, Dict, List, Optional, Literal, Callable, Type, ClassVar
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator, ValidationError
 
-# Configure basic logging
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+# Initialize the logger for this module
 logger = logging.getLogger(__name__)
 
-class Rule:
-    """
-    Decorator to register a function as a validation rule.
-    Requires a validation function that returns a boolean Series (True = bad row).
-    Optionally accepts a cleaning function that returns a modified DataFrame.
-    """
 
-    # ADDED: priority parameter (default is 50)
-    def __init__(self, name: str, severity: str = "warning", cleaner: callable = None, priority: int = 50):
-        self.name = name
-        self.severity = severity
-        self.cleaner = cleaner
-        self.priority = priority
+class ConfigRule(BaseModel):
+    """Represents a single validation rule loaded from a config, validated by Pydantic."""
 
-    def __call__(self, func):
-        func._is_rule = True
-        func.rule_name = self.name
-        func.severity = self.severity
-        func.cleaner = self.cleaner
-        func.priority = self.priority
-        return func
+    model_config = ConfigDict(extra='allow')
+
+    FIELD_BOUND_RULES: ClassVar[set] = {'not_null', 'range', 'regex', 'unique'}
+    # Define standard keys so we know which ones to exclude when extracting **kwargs
+    STANDARD_KEYS: ClassVar[set] = {'name', 'field', 'type', 'severity', 'function', 'min', 'max', 'pattern'}
+
+    name: str
+    field: Optional[str] = None
+    type: Literal['not_null', 'range', 'regex', 'unique', 'custom', 'transform']
+    severity: Literal['ERROR', 'WARNING', 'INFO'] = 'WARNING'
+
+    @field_validator('severity', mode='before')
+    @classmethod
+    def uppercase_severity(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return v.upper()
+        return v
+
+    @model_validator(mode='after')
+    def check_field_requirement(self) -> 'ConfigRule':
+        if self.type in self.FIELD_BOUND_RULES and not self.field:
+            raise ValueError(f"Rule '{self.name}' of type '{self.type}' requires a 'field' to be specified.")
+        return self
+
+    @property
+    def config(self) -> Dict[str, Any]:
+        return self.model_dump()
+
+    def _get_custom_kwargs(self) -> Dict[str, Any]:
+        """Extracts any non-standard keys from the YAML config to pass as kwargs."""
+        return {k: v for k, v in self.config.items() if k not in self.STANDARD_KEYS}
+
+    def _load_function(self) -> Callable[..., Any]:
+        func_path: Optional[str] = self.config.get('function')
+        if not func_path:
+            raise ValueError(f"Rule '{self.name}' of type '{self.type}' is missing a 'function' path in the config.")
+
+        try:
+            mod_name, func_name = func_path.rsplit('.', 1)
+            mod = importlib.import_module(mod_name)
+            func: Callable[..., Any] = getattr(mod, func_name)
+            return func
+        except (ModuleNotFoundError, AttributeError, ValueError) as e:
+            raise RuntimeError(f"Failed to load function '{func_path}' for rule '{self.name}'. Details: {e}")
+
+    def evaluate(self, df: pd.DataFrame) -> pd.Series:
+        if self.field and self.field not in df.columns:
+            return pd.Series(True, index=df.index, dtype=bool)
+
+        s: Optional[pd.Series] = df[self.field] if self.field else None
+
+        if self.type == 'not_null' and s is not None:
+            return s.isna()
+
+        elif self.type == 'range' and s is not None:
+            min_val: float = float(self.config.get('min', float('-inf')))
+            max_val: float = float(self.config.get('max', float('inf')))
+            return (s < min_val) | (s > max_val)
+
+        elif self.type == 'regex' and s is not None:
+            pattern: Optional[str] = self.config.get('pattern')
+            if not pattern:
+                raise ValueError(f"Regex rule '{self.name}' is missing a 'pattern'.")
+
+            non_nulls = s.dropna()
+            bad_strings = ~non_nulls.astype(str).str.match(pattern)
+            return bad_strings.reindex(s.index, fill_value=False).astype(bool)
+
+        elif self.type == 'unique' and s is not None:
+            return s.duplicated(keep=False) & s.notna()
+
+        elif self.type == 'custom':
+            func = self._load_function()
+            kwargs = self._get_custom_kwargs()
+            # Pass extracted kwargs dynamically
+            return pd.Series(func(df, self.field, **kwargs), dtype=bool)
+
+        elif self.type == 'transform':
+            return pd.Series(False, index=df.index, dtype=bool)
+
+        else:
+            raise ValueError(f"Unknown rule type or missing field mapping: {self.type}")
+
+    def apply_transform(self, df: pd.DataFrame) -> pd.DataFrame:
+        if self.type == 'transform':
+            func = self._load_function()
+            kwargs = self._get_custom_kwargs()
+            # Pass extracted kwargs dynamically
+            # Manually inject the 'field' back into kwargs so the transform function receives it!
+            if hasattr(self, 'field') and self.field is not None:
+                kwargs['field'] = self.field
+            return func(df, **kwargs)
+        return df
 
 
 class DataValidator:
-    def __init__(self, rules: list):
-        # Sort rules by priority: Lowest numbers (e.g., 10) run before higher numbers (e.g., 90)
-        self.rules = sorted(rules, key=lambda r: getattr(r, 'priority', 50))
+    def __init__(self, rules: List[ConfigRule]):
+        self.rules: List[ConfigRule] = rules
 
-    def validate(self, df: pd.DataFrame) -> dict:
-        """Runs all rules and returns a structured health report."""
-        report = {
-            "total_rows_evaluated": len(df),
-            "is_clean": True,
-            "issues": {}
+    @classmethod
+    def from_config(cls: Type['DataValidator'], config_path: str) -> 'DataValidator':
+        try:
+            with open(config_path, 'r') as f:
+                data: Dict[str, Any] = yaml.safe_load(f)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Config file not found at: {config_path}")
+        except yaml.YAMLError as e:
+            raise ValueError(f"Failed to parse YAML config file at {config_path}. Details: {e}")
+
+        try:
+            rules: List[ConfigRule] = [ConfigRule(**r) for r in data.get('rules', [])]
+        except ValidationError as e:
+            raise ValueError(f"Configuration validation failed for {config_path}:\n{e}")
+
+        return cls(rules)
+
+    def validate(self, df: pd.DataFrame) -> Dict[str, Any]:
+        report: Dict[str, Any] = {
+            "passed": True,
+            "errors": [],
+            "warnings": [],
+            "info": [],
+            "total_rows_affected": 0,
+            "sample_bad_rows": {}
         }
 
-        for r in self.rules:
-            # The rule function returns a mask where True = bad row
-            bad_mask = r(df)
-            bad_count = int(bad_mask.sum())
+        if df.empty:
+            return report
+
+        global_bad_mask: pd.Series = pd.Series(False, index=df.index, dtype=bool)
+
+        for rule in self.rules:
+            bad_mask: pd.Series = rule.evaluate(df)
+            bad_count: int = int(bad_mask.sum())
 
             if bad_count > 0:
-                if r.severity == "error":
-                    report["is_clean"] = False
+                global_bad_mask |= bad_mask
 
-                # Grab up to 2 sample rows to give context in the report
-                sample_rows = df[bad_mask].head(2).astype(str).to_dict(orient="records")
-
-                report["issues"][r.rule_name] = {
-                    "count": bad_count,
-                    "severity": r.severity,
-                    "sample_bad_rows": sample_rows
+                issue_summary: Dict[str, Any] = {
+                    "rule": rule.name,
+                    "field": rule.field,
+                    "count": bad_count
                 }
 
+                if rule.severity == 'ERROR':
+                    report['passed'] = False
+                    report['errors'].append(issue_summary)
+                elif rule.severity == 'WARNING':
+                    report['warnings'].append(issue_summary)
+                elif rule.severity == 'INFO':
+                    report['info'].append(issue_summary)
+
+                sample_indices = df[bad_mask].head(5).index
+                field_exists: bool = bool(rule.field and rule.field in df.columns)
+
+                report['sample_bad_rows'][rule.name] = [
+                    {
+                        "row_index": idx,
+                        "failed_value": df.at[idx, rule.field] if field_exists else None,
+                        "rule_name": rule.name
+                    }
+                    for idx in sample_indices
+                ]
+
+        report['total_rows_affected'] = int(global_bad_mask.sum())
         return report
 
-    def clean(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Sequentially applies the cleaner function of each rule (if defined)."""
-        df_clean = df.copy()
+    def clean(self, df: pd.DataFrame, strict: bool = True, target_rules: Optional[List[str]] = None) -> pd.DataFrame:
+        drop_mask: pd.Series = pd.Series(False, index=df.index, dtype=bool)
+        target_rules_set: set = set(target_rules or [])
 
-        for r in self.rules:
-            if r.cleaner is not None:
-                initial_len = len(df_clean)
-                df_clean = r.cleaner(df_clean)
-                dropped = initial_len - len(df_clean)
-                if dropped > 0:
-                    logger.info(f"Rule '{r.rule_name}' dropped {dropped} rows.")
+        for rule in self.rules:
+            if rule.type == 'transform':
+                continue
 
-        return df_clean
+            if strict and rule.severity != 'ERROR':
+                continue
+            if not strict and rule.name not in target_rules_set:
+                continue
+
+            bad_mask: pd.Series = rule.evaluate(df)
+            drop_mask |= bad_mask
+
+        clean_df: pd.DataFrame = df[~drop_mask].copy()
+
+        for rule in self.rules:
+            if rule.type == 'transform':
+                logger.info(f"Applying transformation rule: {rule.name}")
+                clean_df = rule.apply_transform(clean_df)
+
+        return clean_df
