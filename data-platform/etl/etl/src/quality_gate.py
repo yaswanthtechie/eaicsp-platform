@@ -1,5 +1,6 @@
 from pathlib import Path
 import shutil
+from alert_service import write_alert
 
 
 def check_batch(df, batch_name):
@@ -25,7 +26,7 @@ def check_batch(df, batch_name):
         report["reason"] = "negative quantity"
         return False, report
 
-    if row_count < 100 or row_count > 2000:
+    if row_count < 5 or row_count > 2000:
         report["reason"] = "invalid row count"
         return False, report
 
@@ -51,6 +52,12 @@ def quality_gate(extracted_batches):
             shutil.move(str(file_path), rejected_folder / file_path.name)
 
             print(f"{file_path.name} rejected ({report['reason']})")
+            write_alert(          
+                pipeline="sales_etl",
+                severity="WARN",
+                message=report["reason"],
+                batch_file=file_path.name
+            )
 
             continue
 
