@@ -6,9 +6,11 @@ from a 30-day historical input array.
 """
 
 import os
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SCALER_PATH = os.path.join(BASE_DIR, "..", "output", "scaler.pkl")
+
 import torch
 import numpy as np
-
 from data import load_scaler
 from model import MultiStepLSTM
 
@@ -30,7 +32,7 @@ def predict_7_days(historical_30_days: np.ndarray) -> np.ndarray:
     assert len(historical_30_days) == lookback, f"Expected {lookback} days, got {len(historical_30_days)}"
 
     # 1. Load Scaler
-    scaler = load_scaler("output/scaler.pkl")
+    scaler = load_scaler(SCALER_PATH)
     scaled_input = scaler.transform(historical_30_days.reshape(-1, 1)).flatten()
 
     # 2. Prepare Tensor
@@ -38,8 +40,8 @@ def predict_7_days(historical_30_days: np.ndarray) -> np.ndarray:
 
     # 3. Load Trained Model Weights (.pt file)
     model = MultiStepLSTM(horizon=horizon)
-    model_path = os.path.join(os.path.dirname(__file__), "..", "output", "best_model.pt")
-    
+    model_path = os.path.join(BASE_DIR, "..", "output", "best_model.pt")
+
     if os.path.exists(model_path):
         model.load_state_dict(torch.load(model_path, map_location=device))
         print(f"Loaded model weights from {model_path}")

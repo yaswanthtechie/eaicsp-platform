@@ -89,3 +89,4 @@ class DemandForecastService:
             std_uncertainty=std_uncertainty.round(2).tolist(),
             latency_ms=round(latency, 2)
         )
+        

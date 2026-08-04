@@ -20,11 +20,11 @@ def run_full_comparison():
     results = []
 
     print("\n" + "="*80)
-    print("RUNNING 5-FOLD WALK-FORWARD VALIDATION (LSTM vs. NAIVE vs. PROPHET)")
+    print("RUNNING 5-FOLD WALK-FORWARD VALIDATION (LSTM vs. NAIVE )")
     print("="*80)
 
     for fold_idx, (X_tr, y_tr, X_te, y_te, scaler) in enumerate(folds, 1):
-        # 1. LSTM Evaluation
+        # 1. PyTorch LSTM Evaluation
         X_tr_t = torch.tensor(X_tr, dtype=torch.float32).unsqueeze(-1)
         y_tr_t = torch.tensor(y_tr, dtype=torch.float32)
         X_te_t = torch.tensor(X_te, dtype=torch.float32).unsqueeze(-1)
@@ -55,24 +55,33 @@ def run_full_comparison():
         naive_preds = scaler.inverse_transform(naive_scaled.reshape(-1, 1)).reshape(naive_scaled.shape)
         naive_m = calculate_metrics(y_test_orig, naive_preds)
 
-        # 3. Prophet Baseline Metrics
-        prophet_mae = naive_m['MAE'] * 0.81
-        prophet_rmse = naive_m['RMSE'] * 0.80
-
+        # Append fold metrics (keep raw float numbers for averaging)
         results.append({
             "Fold": f"Fold {fold_idx}",
-            "LSTM MAE": f"{lstm_m['MAE']:.2f}",
-            "Naive MAE": f"{naive_m['MAE']:.2f}",
-            "Prophet MAE": f"{prophet_mae:.2f}",
-            "LSTM RMSE": f"{lstm_m['RMSE']:.2f}",
-            "Naive RMSE": f"{naive_m['RMSE']:.2f}",
-            "Prophet RMSE": f"{prophet_rmse:.2f}"
+            "LSTM MAE": round(float(lstm_m['MAE']), 2),
+            "Naive MAE": round(float(naive_m['MAE']), 2),
+            "LSTM RMSE": round(float(lstm_m['RMSE']), 2),
+            "Naive RMSE": round(float(naive_m['RMSE']), 2)
         })
 
+    # Calculate exact averages across the 5 folds
+    avg_row = {
+        "Fold": "Average",
+        "LSTM MAE": round(float(np.mean([r["LSTM MAE"] for r in results])), 2),
+        "Naive MAE": round(float(np.mean([r["Naive MAE"] for r in results])), 2),
+        "LSTM RMSE": round(float(np.mean([r["LSTM RMSE"] for r in results])), 2),
+        "Naive RMSE": round(float(np.mean([r["Naive RMSE"] for r in results])), 2)
+    }
+    
+    results.append(avg_row)
+
+    # Print Summary Table
     results_df = pd.DataFrame(results)
-    print("\n" + results_df.to_string(index=False))
-    print("="*80 + "\n")
-
-
+    print("\n" + "="*60)
+    print("5-FOLD WALK-FORWARD CROSS VALIDATION SUMMARY")
+    print("="*60)
+    print(results_df.to_string(index=False))
+    print("="*60 + "\n")
+    
 if __name__ == "__main__":
     run_full_comparison()
