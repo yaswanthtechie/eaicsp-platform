@@ -148,6 +148,7 @@ def transition_po(
 
         purchase_order = transition_purchase_order(
             po_number,
+            "procurement",
             transition.target_state
         )
 

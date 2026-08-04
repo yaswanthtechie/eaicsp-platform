@@ -112,6 +112,8 @@ def test_transition_draft_to_sent():
 
     assert "timestamp" in body["history"][0]
 
+    assert body["history"][0]["actor"] == "procurement"
+
 
 def test_acknowledge_purchase_order():
 
@@ -142,6 +144,8 @@ def test_acknowledge_purchase_order():
 
     assert "timestamp" in body["history"][1]
 
+    assert body["history"][1]["actor"] == "supplier"
+
 
 def test_illegal_transition():
 
@@ -163,7 +167,10 @@ def test_illegal_transition():
 
     assert response.status_code == 400
 
-    assert "Illegal transition" in response.json()["detail"]
+    assert (
+    "Cannot go from sent to fulfilled"
+    in response.json()["detail"]
+     )
 
 
 def test_delete_purchase_order():
@@ -181,3 +188,220 @@ def test_delete_purchase_order():
     )
 
     assert response.status_code == 404
+
+def test_actor_history():
+
+    create_sample_po()
+
+    response = client.post(
+        "/api/v1/purchase-orders/PO1001/transition",
+        json={"target_state": "sent"}
+    )
+
+    body = response.json()
+
+    assert body["history"][0]["actor"] == "procurement"
+
+def test_fulfilled_transition():
+
+    create_sample_po()
+
+    client.post(
+        "/api/v1/purchase-orders/PO1001/transition",
+        json={"target_state": "sent"}
+    )
+
+    client.post(
+        "/api/v1/purchase-orders/PO1001/acknowledge"
+    )
+
+    response = client.post(
+        "/api/v1/purchase-orders/PO1001/transition",
+        json={"target_state": "fulfilled"}
+    )
+
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["status"] == "fulfilled"
+    assert body["history"][2]["actor"] == "logistics"
+
+def test_cancel_transition():
+
+    create_sample_po()
+
+    response = client.post(
+        "/api/v1/purchase-orders/PO1001/transition",
+        json={"target_state": "cancelled"}
+    )
+
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["status"] == "cancelled"
+    assert body["history"][0]["actor"] == "admin"
+
+
+def test_duplicate_invoice():
+
+    create_sample_po()
+
+    client.post(
+        "/api/v1/purchase-orders/PO1001/transition",
+        json={
+            "target_state": "sent"
+        }
+    )
+
+    client.post(
+        "/api/v1/purchase-orders/PO1001/acknowledge"
+    )
+
+    response = client.post(
+        "/api/v1/invoices",
+        json={
+            "invoice_number": "INV001",
+            "po_number": "PO1001",
+            "supplier_id": "SUP001",
+            "amount": 50000,
+            "invoice_date": "2026-07-30"
+        }
+    )
+
+    assert response.status_code == 201
+
+    response = client.post(
+        "/api/v1/invoices",
+        json={
+            "invoice_number": "INV001",
+            "po_number": "PO1001",
+            "supplier_id": "SUP001",
+            "amount": 50000,
+            "invoice_date": "2026-07-30"
+        }
+    )
+
+    assert response.status_code == 400
+
+def test_invoice_amount_tolerance():
+
+    create_sample_po()
+
+    client.post(
+        "/api/v1/purchase-orders/PO1001/transition",
+        json={
+            "target_state": "sent"
+        }
+    )
+
+    client.post(
+        "/api/v1/purchase-orders/PO1001/acknowledge"
+    )
+
+    response = client.post(
+        "/api/v1/invoices",
+        json={
+            "invoice_number": "INV001",
+            "po_number": "PO1001",
+            "supplier_id": "SUP001",
+            "amount": 80000,
+            "invoice_date": "2026-07-30"
+        }
+    )
+
+    assert response.status_code == 400
+
+def test_supplier_stats():
+
+    create_sample_po()
+
+    client.post(
+        "/api/v1/purchase-orders/PO1001/transition",
+        json={
+            "target_state": "sent"
+        }
+    )
+
+    client.post(
+        "/api/v1/purchase-orders/PO1001/acknowledge"
+    )
+
+    client.post(
+        "/api/v1/purchase-orders/PO1001/transition",
+        json={
+            "target_state": "fulfilled"
+        }
+    )
+
+    client.post(
+        "/api/v1/invoices",
+        json={
+            "invoice_number": "INV001",
+            "po_number": "PO1001",
+            "supplier_id": "SUP001",
+            "amount": 50000,
+            "invoice_date": "2026-07-30"
+        }
+    )
+
+    response = client.get(
+        "/api/v1/suppliers/SUP001/stats"
+    )
+
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["supplier_id"] == "SUP001"
+    assert body["po_count"] == 1
+
+
+def test_supplier_not_found():
+
+    response = client.get(
+        "/api/v1/suppliers/SUP999/stats"
+    )
+
+    assert response.status_code == 404
+
+
+def test_invalid_pdf_upload():
+
+    create_sample_po()
+
+    client.post(
+        "/api/v1/purchase-orders/PO1001/transition",
+        json={
+            "target_state": "sent"
+        }
+    )
+
+    client.post(
+        "/api/v1/purchase-orders/PO1001/acknowledge"
+    )
+
+    client.post(
+        "/api/v1/invoices",
+        json={
+            "invoice_number": "INV001",
+            "po_number": "PO1001",
+            "supplier_id": "SUP001",
+            "amount": 50000,
+            "invoice_date": "2026-07-30"
+        }
+    )
+
+    files = {
+        "file": (
+            "test.pdf",
+            b"HELLO",
+            "application/pdf"
+        )
+    }
+
+    response = client.post(
+        "/api/v1/invoices/INV001/document",
+        files=files
+    )
+
+    assert response.status_code == 400
+    

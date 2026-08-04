@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, date
 
 from app.schemas.purchase_order import (
     PurchaseOrderCreate,
@@ -6,10 +6,11 @@ from app.schemas.purchase_order import (
     PurchaseOrderStatus,
 )
 
-# In-memory storage
+# In-memory po storage
 purchase_orders = {}
 
-
+# In-memory event storage
+po_events = []
 
 
 
@@ -28,6 +29,8 @@ def create_purchase_order(purchase_order: PurchaseOrderCreate):
 
 # Initialize history
     purchase_order_data["history"] = []
+
+    purchase_order_data["actual_delivery_date"] = None
 
     purchase_orders[purchase_order.po_number] = purchase_order_data
 
@@ -94,6 +97,7 @@ def acknowledge_purchase_order(po_number: str):
 
     return transition_purchase_order(
         po_number,
+        "supplier",
         PurchaseOrderStatus.acknowledged,
     )
 
@@ -121,14 +125,16 @@ VALID_TRANSITIONS = {
 
 def transition_purchase_order(
     po_number: str,
+    actor: str,
     target_state: PurchaseOrderStatus,
+
 ):
     """
     Change Purchase Order status using the state machine
     and store the transition history with a timestamp.
     """
 
-    # Check if Purchase Order exists
+    # Check whether the Purchase Order exists
     if po_number not in purchase_orders:
         return None
 
@@ -137,24 +143,63 @@ def transition_purchase_order(
     # Current status
     current_state = purchase_order["status"]
 
-    # Check allowed transitions
+    # Allowed transitions
     allowed_states = VALID_TRANSITIONS[current_state]
 
+    # Check whether the transition is legal
     if target_state not in allowed_states:
-        raise ValueError(
-            f"Illegal transition from '{current_state}' to '{target_state}'"
+
+        allowed = ", ".join(
+            state.value for state in allowed_states
         )
 
-    # Create history list if it doesn't exist
+        if not allowed:
+            allowed = "none"
+
+        raise ValueError(
+            f"Cannot go from {current_state.value} "
+            f"to {target_state.value}. "
+            f"Allowed transitions: {allowed}."
+        )
+
+    # Create history if it does not exist
     if "history" not in purchase_order:
         purchase_order["history"] = []
 
-    # Save transition history
-    purchase_order["history"].append(
+
+    if target_state == PurchaseOrderStatus.sent:
+        actor = "procurement"
+
+    elif target_state == PurchaseOrderStatus.acknowledged:
+        actor = "supplier"
+
+    elif target_state == PurchaseOrderStatus.fulfilled:
+        actor = "logistics"
+
+        purchase_order["actual_delivery_date"] = (
+        date.today()
+    )
+
+    elif target_state == PurchaseOrderStatus.cancelled:
+        actor = "admin"
+
+
+    # Create event
+    event = {
+        "actor": actor, 
+        "from_status": current_state,
+        "to_status": target_state,
+        "timestamp": datetime.now(),
+    }
+
+    # Save history
+    purchase_order["history"].append(event)
+
+    # Save event log,
+    po_events.append(
         {
-            "from_status": current_state,
-            "to_status": target_state,
-            "timestamp": datetime.now().isoformat()
+            "po_number": po_number,
+            **event,
         }
     )
 

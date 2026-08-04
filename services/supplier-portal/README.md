@@ -1,260 +1,312 @@
-
-                  Enterprise AI Cognitive Supply Chain Platform
+# Enterprise AI Cognitive Supply Chain Platform
 
 # Supplier Portal Service
 
-A FastAPI-based microservice for managing Supplier Purchase Orders and Invoices as part of the Enterprise AI Cognitive Supply Chain Platform.
+A FastAPI-based microservice for managing supplier purchase orders, invoices, document uploads, state transitions, transition history, and supplier performance metrics.
 
 ---
 
 # Overview
 
-The Supplier Portal Service enables suppliers to:
+The Supplier Portal Service enables suppliers and procurement teams to:
 
-- View Purchase Orders
-- Update Purchase Order details
-- Acknowledge Purchase Orders
-- Perform controlled Purchase Order state transitions
-- Submit Invoices
-- Upload Invoice PDF documents
-- Track Purchase Order transition history
+- Create purchase orders
+- Update purchase orders
+- Delete purchase orders
+- Retrieve purchase orders
+- Acknowledge purchase orders
+- Perform controlled state transitions
+- Submit invoices
+- Upload invoice PDF documents
+- Download invoice documents
+- Track purchase-order history
+- Calculate supplier statistics
 
-This service currently uses **in-memory storage** and is designed to be extended later with databases, Kafka messaging, and object storage.
+This service currently uses in-memory storage and can later be extended with:
+
+- PostgreSQL
+- Kafka
+- MinIO
+- Redis
+- Docker
+- Kubernetes
 
 ---
 
 # Technology Stack
 
-- Python 3.x
+- Python 3.14
 - FastAPI
 - Pydantic
-- Uvicorn
 - Pytest
+- Uvicorn
 
 ---
 
 # Response Codes
 
 | Status Code | Description |
-|-------------|-------------|
-| 200 | Request Successful |
-| 201 | Resource Created |
-| 400 | Invalid Request |
-| 404 | Resource Not Found |
-| 409 | Duplicate Resource |
-| 422 |  Unprocessable Content |
+|------------|-------------|
+| 200 | Request successful |
+| 201 | Resource created |
+| 400 | Invalid request |
+| 404 | Resource not found |
+| 409 | Duplicate resource |
+| 422 | Validation error |
+
+---
 
 # Project Structure
 
-```
+```text
 supplier-portal/
 │
 ├── app/
-│   ├── core/
-│   │   └── config.py
-│   │
+│
 │   ├── routes/
-│   │   ├── purchase_order.py
-│   │   └── invoice.py
+│   │   ├── purchase_order_routes.py
+│   │   ├── invoice_routes.py
+│   │   └── supplier_stats_routes.py
 │   │
 │   ├── schemas/
 │   │   ├── purchase_order.py
-│   │   └── invoice.py
+│   │   ├── invoice.py
+│   │   └── supplier_stats.py
 │   │
 │   ├── services/
 │   │   ├── purchase_order_service.py
-│   │   └── invoice_service.py
+│   │   ├── invoice_service.py
+│   │   └── supplier_stats_service.py
 │   │
 │   └── main.py
 │
 ├── tests/
-│   ├── test_po.py
-│   └── test_invoice.py
+│   ├── test_purchase_order.py
+│   ├── test_invoices.py
+│   └── test_supplier_stats.py
 │
 ├── uploads/
 │
 ├── requirements.txt
+│
 └── README.md
 ```
 
 ---
 
-# Features
+# Purchase Order Features
 
-## Purchase Orders
-
-- Create Purchase Order
-- Get All Purchase Orders
-- Get Purchase Order by ID
-- Update Purchase Order
-- Delete Purchase Order
-- Purchase Order Acknowledgement
-- Purchase Order State Machine
-- Purchase Order Transition History
+- Create purchase orders
+- Retrieve purchase orders
+- Update purchase orders
+- Delete purchase orders
+- Acknowledge purchase orders
+- Perform controlled state transitions
+- Maintain transition history
+- Store actual delivery dates
 
 ---
 
-## Invoices
+# Invoice Features
 
-- Submit Invoice
-- Upload Invoice PDF
-- Store uploaded PDF locally
-- Return uploaded document path
+- Create invoices
+- Upload invoice PDFs
+- Download invoice PDFs
+- Validate invoice amounts
+- Reject duplicate invoices
+- Validate purchase-order status
+
+---
+
+# Supplier Statistics Features
+
+- Purchase-order count
+- On-time delivery percentage
+- Average invoice cycle time
 
 ---
 
 # Purchase Order Lifecycle
 
-                Cancelled
-               ▲
-               │
-Draft ──► Sent ──► Acknowledged ──► Fulfilled
-   │          │            │
-   └──────────┴────────────┘
+```text
+                    Cancelled
+                   ▲
+                   │
 
-Cancellation is allowed from:
-
-- Draft
-- Sent
-- Acknowledged
-
-No further transitions are allowed after:
-
-- Fulfilled
-- Cancelled
+Draft ───► Sent ───► Acknowledged ───► Fulfilled
+```
 
 ---
 
 # State Machine
 
-The Purchase Order status is controlled through a state machine.
-
-Allowed transitions are:
-
-| Current Status | Allowed Next Status |
-|---------------|--------------------|
+| Current Status | Allowed Status |
+|---|---|
 | Draft | Sent, Cancelled |
 | Sent | Acknowledged, Cancelled |
 | Acknowledged | Fulfilled, Cancelled |
 | Fulfilled | None |
 | Cancelled | None |
 
-Any invalid transition returns:
-
-```
-400 Bad Request
-```
-
-Example:
-
-```
-Fulfilled
-      │
-      ▼
-
-Draft
-
-❌ Illegal Transition
-```
-
 ---
 
 # Purchase Order History
 
-Every successful transition is recorded.
+Every transition is stored.
 
 Example:
 
 ```json
 [
     {
+        "actor": "procurement",
         "from_status": "draft",
         "to_status": "sent",
-        "timestamp": "2026-07-25T10:15:22"
+        "timestamp": "2026-08-01T10:00:00"
     },
     {
+        "actor": "supplier",
         "from_status": "sent",
         "to_status": "acknowledged",
-        "timestamp": "2026-07-25T10:20:41"
+        "timestamp": "2026-08-01T11:00:00"
+    },
+    {
+        "actor": "logistics",
+        "from_status": "acknowledged",
+        "to_status": "fulfilled",
+        "timestamp": "2026-08-02T09:00:00"
     }
 ]
 ```
 
 ---
 
-# Invoice Upload
+# Actual Delivery Tracking
 
-Invoices can have an associated PDF document.
+Every fulfilled purchase order stores:
 
-Uploaded files are stored inside:
-
-```
-uploads/
+```python
+expected_delivery
+actual_delivery_date
 ```
 
 Example:
 
-```
-uploads/INV1001.pdf
-```
-
-The invoice response includes:
-
 ```json
 {
-    "document_url": "uploads/INV1001.pdf"
+    "expected_delivery": "2026-08-02",
+    "actual_delivery_date": "2026-08-01"
 }
 ```
 
 ---
 
-# Validation
+# Supplier Statistics
 
-## Purchase Orders
+## Purchase-order count
 
-- Duplicate Purchase Orders are rejected.
-- Invalid state transitions are rejected.
-- Purchase Orders cannot bypass the state machine.
+```text
+po_count = total purchase orders for a supplier
+```
 
 ---
 
-## Invoice Upload
+## On-time delivery percentage
 
-The service validates:
+### Formula
 
-### File Type
-
-Only:
-
+```text
+actual_delivery_date <= expected_delivery
 ```
+
+```text
+on_time_percentage =
+(on_time_orders / total_orders) × 100
+```
+
+### Example
+
+| Purchase Order | Expected Delivery | Actual Delivery | Result |
+|---|---|---|---|
+| PO1001 | 2026-08-02 | 2026-08-01 | On time |
+| PO1002 | 2026-08-03 | 2026-08-04 | Late |
+
+```text
+(1 / 2) × 100 = 50%
+```
+
+---
+
+## Average invoice cycle time
+
+### Formula
+
+```text
+invoice_date - purchase_order_created_date
+```
+
+### Example
+
+| Purchase Order Created | Invoice Created | Cycle Time |
+|---|---|---|
+| July 20 | July 23 | 3 days |
+| July 22 | July 26 | 4 days |
+
+```text
+(3 + 4) / 2 = 3.5 days
+```
+
+---
+
+# Invoice Validation Rules
+
+## Duplicate Invoice Validation
+
+Duplicate invoices are rejected.
+
+---
+
+## Purchase Order Validation
+
+Invoices can only be created for valid purchase orders.
+
+---
+
+## Invoice Amount Validation
+
+Invoice amounts must remain within the permitted tolerance range.
+
+---
+
+## File Validation
+
+Only PDF files are accepted.
+
+```text
 application/pdf
 ```
 
-is accepted.
+---
+
+## PDF Signature Validation
+
+Only valid PDF documents are accepted.
 
 ---
 
-### PDF Signature
+## File Size Validation
 
-Uploaded files must contain a valid PDF signature.
+Maximum file size:
 
-Files renamed as ".pdf" but containing other content are rejected.
-
----
-
-### Maximum File Size
-
-Maximum allowed:
-
-```
+```text
 10 MB
 ```
 
 ---
 
-### Path Traversal Protection
+## Path Traversal Protection
 
-Invoice filenames are sanitized before saving to prevent writing outside the uploads directory.
+Invoice filenames are sanitized before storage.
 
 ---
 
@@ -263,137 +315,149 @@ Invoice filenames are sanitized before saving to prevent writing outside the upl
 ## Purchase Orders
 
 | Method | Endpoint | Description |
-|---------|----------|-------------|
-| POST | `/api/v1/purchase-orders` | Create Purchase Order |
-| GET | `/api/v1/purchase-orders` | Get All Purchase Orders |
-| GET | `/api/v1/purchase-orders/{po_number}` | Get Purchase Order |
-| PUT | `/api/v1/purchase-orders/{po_number}` | Update Purchase Order |
-| DELETE | `/api/v1/purchase-orders/{po_number}` | Delete Purchase Order |
-| POST | `/api/v1/purchase-orders/{po_number}/acknowledge` | Acknowledge Purchase Order |
-| POST | `/api/v1/purchase-orders/{po_number}/transition` | Change Purchase Order Status |
+|---|---|---|
+| POST | `/api/v1/purchase-orders` | Create purchase order |
+| GET | `/api/v1/purchase-orders` | Get all purchase orders |
+| GET | `/api/v1/purchase-orders/{po_number}` | Get purchase order |
+| PUT | `/api/v1/purchase-orders/{po_number}` | Update purchase order |
+| DELETE | `/api/v1/purchase-orders/{po_number}` | Delete purchase order |
+| POST | `/api/v1/purchase-orders/{po_number}/acknowledge` | Acknowledge purchase order |
+| POST | `/api/v1/purchase-orders/{po_number}/transition` | Transition purchase order |
 
 ---
 
 ## Invoices
 
 | Method | Endpoint | Description |
-|---------|----------|-------------|
-| POST | `/api/v1/invoices` | Submit Invoice |
-| POST | `/api/v1/invoices/{invoice_number}/document` | Upload Invoice PDF |
+|---|---|---|
+| POST | `/api/v1/invoices` | Create invoice |
+| POST | `/api/v1/invoices/{invoice_number}/document` | Upload document |
+| GET | `/api/v1/invoices/{invoice_number}/document` | Download document |
 
 ---
 
-# Running the Project
+## Supplier Statistics
 
-Install dependencies
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/v1/suppliers/{supplier_id}/stats` | Get supplier statistics |
+
+---
+
+# Running the Application
+
+Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Run the application
+Run the application:
 
 ```bash
 python -m uvicorn app.main:app --reload
 ```
 
-Swagger UI
+Swagger documentation:
 
-```
+```text
 http://127.0.0.1:8000/docs
 ```
 
-
+---
 
 # Running Tests
 
-Run all tests
+Run all tests:
 
 ```bash
-python -m pytest
+python -m pytest -v
 ```
 
-Run Purchase Order tests
+Run purchase-order tests:
 
 ```bash
-python -m pytest tests/test_purchase_order.py
+python -m pytest tests/test_purchase_order.py -v
 ```
 
-Run Invoice tests
+Run invoice tests:
 
 ```bash
-python -m pytest tests/test_invoices.py
+python -m pytest tests/test_invoices.py -v
+```
+
+Run supplier-statistics tests:
+
+```bash
+python -m pytest tests/test_supplier_stats.py -v
 ```
 
 ---
 
 # Test Coverage
 
-Purchase Order
+## Purchase Orders
 
-- Create Purchase Order
-- Get All Purchase Orders
-- Get Purchase Order by ID
-- Update Purchase Order
-- Delete Purchase Order
-- Valid Purchase Order Acknowledgement
-- Valid State Transition
-- Illegal State Transition
-- Purchase Order History Verification
+- Create purchase order
+- Retrieve purchase orders
+- Update purchase orders
+- Delete purchase orders
+- Acknowledge purchase orders
+- Validate legal transitions
+- Validate illegal transitions
+- Verify transition history
 
-Invoice
+---
 
-- Create Invoice
-- Upload Valid PDF
-- Reject Invalid File Type
-- Reject Invalid PDF Signature
+## Invoices
+
+- Create invoice
+- Upload PDF
+- Download PDF
+- Validate invoice amount
+- Reject invalid files
+- Reject duplicate invoices
+
+---
+
+## Supplier Statistics
+
+- Purchase-order count
+- On-time delivery percentage
+- Average invoice cycle time
+
+---
 
 # Current Storage
 
-This project currently uses in-memory dictionaries.
-
 ```python
 purchase_orders = {}
-```
-
-```python
 invoices = {}
+po_events = []
 ```
-
-No database is used in the current implementation.
 
 ---
+
 # Security
 
-The service includes the following validations:
+- Duplicate purchase-order protection
+- Duplicate invoice protection
+- State-machine validation
+- File-type validation
+- PDF-signature validation
+- Maximum file-size validation
+- Path-traversal protection
 
-- Purchase Order state changes are only allowed through the state machine.
-- Duplicate Purchase Orders are rejected.
-- Duplicate Invoices are rejected.
-- Only PDF files are accepted.
-- Uploaded files must contain a valid PDF signature.
-- Maximum upload size is 10 MB.
-- Invoice filenames are sanitized before saving.
-- Path traversal attacks are prevented.
-
-
+---
 
 # Future Enhancements
 
-- PostgreSQL Integration
+- PostgreSQL integration
 - SQLAlchemy ORM
-- Repository Layer
-- Kafka Integration
-- MinIO Object Storage
-- JWT Authentication
-- Docker Support
-- Kubernetes Deployment
-- CI/CD Pipeline
-- Audit Logging
-- Monitoring
----
-
-
-
-
-
+- Kafka integration
+- Redis integration
+- MinIO integration
+- JWT authentication
+- Docker support
+- Kubernetes deployment
+- Monitoring and logging

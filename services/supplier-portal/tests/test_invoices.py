@@ -1,4 +1,6 @@
 from io import BytesIO
+import os
+import shutil
 
 from fastapi.testclient import TestClient
 
@@ -6,23 +8,22 @@ from app.main import app
 from app.services.purchase_order_service import purchase_orders
 from app.services.invoice_service import invoices
 
-
 client = TestClient(app)
 
 
 def setup_function():
-    """
-    Clear in-memory storage before every test.
-    """
     purchase_orders.clear()
     invoices.clear()
 
+    try:
+        if os.path.exists("uploads"):
+            shutil.rmtree("uploads")
+    except PermissionError:
+        pass
 
 def create_sample_po():
-    """
-    Create a Purchase Order required for invoice tests.
-    """
-    return client.post(
+
+    response = client.post(
         "/api/v1/purchase-orders",
         json={
             "po_number": "PO1001",
@@ -36,6 +37,19 @@ def create_sample_po():
             "expected_delivery": "2026-07-30"
         }
     )
+
+    client.post(
+        "/api/v1/purchase-orders/PO1001/transition",
+        json={
+            "target_state": "sent"
+        }
+    )
+
+    client.post(
+        "/api/v1/purchase-orders/PO1001/acknowledge"
+    )
+
+    return response
 
 
 def create_sample_invoice():
@@ -71,7 +85,7 @@ def test_create_invoice():
 
 def test_duplicate_invoice():
 
-    create_sample_po()
+    create_sample_po() 
 
     create_sample_invoice()
 
@@ -79,7 +93,7 @@ def test_duplicate_invoice():
 
     assert response.status_code == 400
 
-    assert response.json()["detail"] == "Invoice already exists."
+    assert "already exists" in response.json()["detail"]
 
 
 def test_invoice_po_not_found():
@@ -98,6 +112,97 @@ def test_invoice_po_not_found():
     assert response.status_code == 400
 
     assert response.json()["detail"] == "Purchase Order not found."
+
+
+def test_invalid_po_status():
+
+    client.post(
+        "/api/v1/purchase-orders",
+        json={
+            "po_number": "PO1002",
+            "supplier_id": "SUP001",
+            "items": ["Laptop"],
+            "total_amount": 50000,
+            "created_at": "2026-07-23T10:00:00",
+            "expected_delivery": "2026-07-30"
+        }
+    )
+
+    response = client.post(
+        "/api/v1/invoices",
+        json={
+            "invoice_number": "INV2001",
+            "po_number": "PO1002",
+            "supplier_id": "SUP001",
+            "amount": 50000,
+            "invoice_date": "2026-07-23"
+        }
+    )
+
+    assert response.status_code == 400
+
+    assert "status" in response.json()["detail"]
+
+
+def test_invoice_amount_too_high():
+
+    create_sample_po() 
+
+    response = client.post(
+        "/api/v1/invoices",
+        json={
+            "invoice_number": "INV3001",
+            "po_number": "PO1001",
+            "supplier_id": "SUP001",
+            "amount": 70000,
+            "invoice_date": "2026-07-23"
+        }
+    )
+
+    assert response.status_code == 400
+
+    assert "Invoice amount" in response.json()["detail"]
+
+
+def test_invoice_amount_too_low():
+
+    create_sample_po()
+
+    response = client.post(
+        "/api/v1/invoices",
+        json={
+            "invoice_number": "INV3002",
+            "po_number": "PO1001",
+            "supplier_id": "SUP001",
+            "amount": 30000,
+            "invoice_date": "2026-07-23"
+        }
+    )
+
+    assert response.status_code == 400
+
+    assert "Invoice amount" in response.json()["detail"]
+
+def test_duplicate_invoice_per_supplier():
+
+    create_sample_po()
+
+    create_sample_invoice()
+
+    response = client.post(
+        "/api/v1/invoices",
+        json={
+            "invoice_number": "INV1001",
+            "po_number": "PO1001",
+            "supplier_id": "SUP001",
+            "amount": 50000,
+            "invoice_date": "2026-07-23"
+        }
+    )
+
+    assert response.status_code == 400
+
+    assert "already exists" in response.json()["detail"]
 
 
 def test_upload_invoice_pdf():
@@ -127,6 +232,7 @@ def test_upload_invoice_pdf():
 
     assert body["document_url"] is not None
 
+    assert "SUP001" in body["document_url"]
     assert body["document_url"].endswith("INV1001.pdf")
 
 
@@ -179,4 +285,113 @@ def test_invalid_pdf_signature():
 
     assert response.status_code == 400
 
-    assert response.json()["detail"] == "Invalid PDF file."
+    assert response.json()["detail"] == "Invalid PDF signature."
+
+def test_invalid_invoice_number():
+
+    create_sample_po() 
+
+    response = client.post(
+        "/api/v1/invoices",
+        json={
+            "invoice_number": "INV@1001",
+            "po_number": "PO1001",
+            "supplier_id": "SUP001",
+            "amount": 50000,
+            "invoice_date": "2026-07-23"
+        }
+    )
+
+    assert response.status_code == 400
+
+    assert "Invalid invoice number" in response.json()["detail"]
+
+def test_invoice_not_found():
+
+    response = client.get(
+        "/api/v1/invoices/INV9999/document"
+    )
+
+    assert response.status_code == 404
+
+    assert (
+        response.json()["detail"]
+        == "Invoice not found."
+    )
+
+def test_document_not_found():
+
+    create_sample_po() 
+
+    create_sample_invoice()
+
+    response = client.get(
+        "/api/v1/invoices/INV1001/document"
+    )
+
+    assert response.status_code == 404
+
+    assert (
+        response.json()["detail"]
+        == "Document not found."
+    )
+
+def test_large_pdf_rejected():
+
+    create_sample_po()
+
+    create_sample_invoice()
+
+    large_pdf = BytesIO(
+        b"%PDF-" + b"a" * (11 * 1024 * 1024)
+    )
+
+    response = client.post(
+        "/api/v1/invoices/INV1001/document",
+        files={
+            "file": (
+                "large.pdf",
+                large_pdf,
+                "application/pdf"
+            )
+        }
+    )
+
+    assert response.status_code == 400
+
+    assert (
+        response.json()["detail"]
+        == "Maximum file size is 10 MB."
+    )
+
+def test_download_invoice_document():
+
+    create_sample_po()
+
+    create_sample_invoice()
+
+    pdf = BytesIO(
+        b"%PDF-1.4\nSample PDF"
+    )
+
+    client.post(
+        "/api/v1/invoices/INV1001/document",
+        files={
+            "file": (
+                "invoice.pdf",
+                pdf,
+                "application/pdf"
+            )
+        }
+    )
+
+    response = client.get(
+        "/api/v1/invoices/INV1001/document"
+    )
+
+    assert response.status_code == 200
+
+    assert response.headers[
+        "content-type"
+    ].startswith("application/pdf")
+

@@ -13,6 +13,7 @@ class PurchaseOrderStatus(str, Enum):
     cancelled = "cancelled"
 
 class PurchaseOrderHistory(BaseModel):
+    actor: str
     from_status: PurchaseOrderStatus
     to_status: PurchaseOrderStatus
     timestamp: datetime
@@ -42,6 +43,7 @@ class PurchaseOrderResponse(BaseModel):
     status: PurchaseOrderStatus
     created_at: datetime
     expected_delivery: date
+    actual_delivery_date: date | None = None
     history: List[PurchaseOrderHistory] = Field(default_factory=list)
 
 #responce when po deleted successfully

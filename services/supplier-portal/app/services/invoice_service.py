@@ -5,6 +5,7 @@ from fastapi import UploadFile
 
 from app.schemas.invoice import InvoiceCreate
 from app.services.purchase_order_service import purchase_orders
+from app.schemas.purchase_order import PurchaseOrderStatus
 from app.core.config import UPLOAD_DIR
 
 # In-memory storage
@@ -12,21 +13,70 @@ invoices = {}
 
 
 def create_invoice(invoice: InvoiceCreate):
-    """
-    Create a new invoice.
-    """
+     
+    if not re.fullmatch(
+        r"[A-Za-z0-9_-]+",
+        invoice.invoice_number
+    ):
+        raise ValueError(
+            "Invalid invoice number."
+        )
 
-    # Allow only letters, numbers, underscore and hyphen
-    if not re.fullmatch(r"[A-Za-z0-9_-]+", invoice.invoice_number):
-        raise ValueError("Invalid invoice number.")
+    for existing_invoice in invoices.values():
 
-    if invoice.invoice_number in invoices:
-        raise ValueError("Invoice already exists.")
+        if (
+            existing_invoice["invoice_number"]
+            == invoice.invoice_number
+            and
+            existing_invoice["supplier_id"]
+            == invoice.supplier_id
+        ):
+            raise ValueError(
+                f"Invoice '{invoice.invoice_number}' "
+                f"already exists for supplier "
+                f"'{invoice.supplier_id}'."
+            )
 
     if invoice.po_number not in purchase_orders:
-        raise ValueError("Purchase Order not found.")
+        raise ValueError(
+            "Purchase Order not found."
+        )
+
+    purchase_order = purchase_orders[
+        invoice.po_number
+    ]
+
+    status = purchase_order["status"]
+
+    if status not in [
+        PurchaseOrderStatus.acknowledged,
+        PurchaseOrderStatus.fulfilled,
+    ]:
+        raise ValueError(
+            f"Invoice cannot be created because "
+            f"the Purchase Order is in "
+            f"'{status.value}' status."
+        )
+
+    po_amount = purchase_order["total_amount"]
+
+    minimum_amount = po_amount * 0.95
+
+    maximum_amount = po_amount * 1.05
+
+    if not (
+        minimum_amount
+        <= invoice.amount
+        <= maximum_amount
+    ):
+        raise ValueError(
+            f"Invoice amount must be between "
+            f"{minimum_amount:.2f} and "
+            f"{maximum_amount:.2f}."
+        )
 
     invoice_data = invoice.model_dump()
+
     invoice_data["document_url"] = None
 
     invoices[invoice.invoice_number] = invoice_data
@@ -62,9 +112,12 @@ def upload_invoice_document(
     if len(contents) > MAX_FILE_SIZE:
         raise ValueError("Maximum file size is 10 MB.")
 
-    # Validate PDF signature
-    if not contents.startswith(b"%PDF-"):
-        raise ValueError("Invalid PDF file.")
+   # Validate PDF signature to prevent fake PDF uploads.
+    signature = contents[:5]
+
+    if signature != b"%PDF-":
+        raise ValueError("Invalid PDF signature.")
+
 
     # Validate invoice number
     if not re.fullmatch(r"[A-Za-z0-9_-]+", invoice_number):
@@ -74,14 +127,28 @@ def upload_invoice_document(
     os.makedirs(UPLOAD_DIR, exist_ok=True)
 
     # Safe filename
-    safe_invoice_number = os.path.basename(invoice_number)
+    supplier_id = invoices[invoice_number]["supplier_id"]
+
+    supplier_directory = os.path.join(
+    UPLOAD_DIR,
+    supplier_id,
+    )
+
+    os.makedirs(
+    supplier_directory,
+    exist_ok=True,
+    )
+
+    safe_invoice_number = os.path.basename(
+    invoice_number
+   )
 
     filename = f"{safe_invoice_number}.pdf"
 
     filepath = os.path.join(
-        UPLOAD_DIR,
-        filename,
-    )
+    supplier_directory,
+    filename,
+   )
 
     # Ensure the final path stays inside uploads directory
     upload_dir = os.path.abspath(UPLOAD_DIR)
@@ -98,3 +165,30 @@ def upload_invoice_document(
     invoices[invoice_number]["document_url"] = final_path
 
     return invoices[invoice_number]
+
+
+def get_invoice_document(
+    invoice_number: str,
+):
+    if invoice_number not in invoices:
+        raise ValueError(
+            "Invoice not found."
+        )
+
+    filepath = invoices[
+        invoice_number
+    ].get(
+        "document_url"
+    )
+
+    if not filepath:  
+        raise ValueError(
+            "Document not found."
+        )
+
+    if not os.path.exists(filepath):
+        raise ValueError(
+            "File does not exist."
+        )
+
+    return filepath
