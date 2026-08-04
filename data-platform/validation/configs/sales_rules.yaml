@@ -57,3 +57,13 @@ rules:
     type: transform
     function: src.custom_rules.standardize_products
     severity: INFO
+
+  - name: flag_negative_quantities
+    type: transform
+    function: src.custom_rules.flag_negatives
+    severity: INFO
+
+  - name: standardize_order_dates
+    type: transform
+    function: src.custom_rules.standardize_dates
+    severity: INFO
