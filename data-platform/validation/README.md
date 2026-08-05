@@ -2,7 +2,8 @@
 
 ## Objective
 
-This project simulates receiving messy sales data from a client, validates the data quality, cleans what can be safely corrected, and reports issues before the data is used for forecasting.
+This project simulates receiving messy sales data from a client, 
+validates the data quality, cleans what can be safely corrected, and reports issues before the data is used for forecasting.
 
 ## Pipeline
 
