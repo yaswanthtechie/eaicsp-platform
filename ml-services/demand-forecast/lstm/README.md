@@ -1,10 +1,9 @@
 # 📈 LSTM Demand Forecasting Service (LSTM + Ensemble)
 
-A production-shaped multi-step time-series demand forecasting service built with PyTorch, evaluated via **5-Fold Walk-Forward Validation**, tracked using **MLflow**, and served via **BentoML** with **Monte Carlo Dropout (MC-Dropout)** prediction intervals.
+- A production-shaped multi-step time-series demand forecasting service built with PyTorch, evaluated via **5-Fold Walk-Forward Validation**, tracked using **MLflow**, and served via **BentoML** with **Monte Carlo Dropout (MC-Dropout)** prediction intervals.
 
-The goal is to forecast a 7-day demand horizon from a synthetic daily time series while adhering to strict ML engineering practices for time-series forecasting.
+- The goal is to forecast a 7-day demand horizon from a synthetic daily time series while adhering to strict ML engineering practices for time-series forecasting.
 
----
 
 ## 🛠️ Features & System Architecture
 
