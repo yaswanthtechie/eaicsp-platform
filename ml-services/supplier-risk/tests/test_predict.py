@@ -1,10 +1,15 @@
 """
 Unit tests for the Supplier Risk NLP pipeline.
 """
+# pyrefly: ignore [missing-import]
 import pytest
+# pyrefly: ignore [missing-import]
 from preprocess import clean_text
+# pyrefly: ignore [missing-import]
 from signals import detect_signals, SIGNAL_WEIGHTS
+# pyrefly: ignore [missing-import]
 from predict import predict
+# pyrefly: ignore [missing-import]
 from data import load_headlines
 
 def test_preprocess_cleans_text():
@@ -114,8 +119,7 @@ def test_evaluation_dataset():
     import json
     import os
     
-    # Path is relative to the test execution, usually the root of the service
-    dataset_path = os.path.join(os.path.dirname(__file__), "..", "supplier_headlines.json")
+    dataset_path = os.path.join(os.path.dirname(__file__), "..", "src", "supplier_headlines.json")
     
     with open(dataset_path, "r", encoding="utf-8") as f:
         dataset = json.load(f)
