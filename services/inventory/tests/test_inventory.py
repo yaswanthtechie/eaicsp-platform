@@ -1,4 +1,5 @@
 import threading
+from urllib import response
 import pytest
 
 
@@ -343,46 +344,63 @@ def test_delete_inventory(client):
 # -----------------------------------
 # BULK UPDATE ROLLBACK
 # -----------------------------------
+# -----------------------------------
+# BULK UPDATE ROLLBACK
+# -----------------------------------
 
 def test_bulk_update_failure(client):
 
-    client.post(
-        "/api/v1/inventory",
-        json=create_payload(
-            "BULK1",
-            "WH001",
-            50
-        )
-    )
-
-
-    updates=[
-
-        {
-            "sku_id":"BULK1",
-            "warehouse_id":"WH001",
-            "quantity_delta":-10
-        },
-
-        {
-            "sku_id":"INVALID",
-            "warehouse_id":"WH001",
-            "quantity_delta":-5
+    create_response = client.post(
+        "/api/v1/inventory/",
+        json={
+            "sku_id": "BULK1",
+            "product_name": "Laptop",
+            "warehouse_id": "WH1",
+            "quantity_on_hand": 50,
+            "avg_daily_demand": 5,
+            "lead_time_days": 2,
+            "safety_stock": 5
         }
-
-    ]
-
-
-    response=client.post(
-        "/api/v1/inventory/bulk-update",
-        json=updates
     )
 
 
-    assert response.status_code==409
+    assert create_response.status_code == 201
 
 
+    response = client.post(
+        "/api/v1/inventory/bulk-update",
+        json=[
+            {
+                "sku_id": "BULK1",
+                "warehouse_id": "WH1",
+                "quantity_delta": -10
+            },
+            {
+                "sku_id": "INVALID",
+                "warehouse_id": "WH1",
+                "quantity_delta": -10
+            }
+        ]
+    )
 
+
+    # Route converts service exception into 409
+    assert response.status_code == 409
+
+
+    check_response = client.get(
+        "/api/v1/inventory/BULK1/WH1"
+    )
+
+
+    assert check_response.status_code == 200
+
+
+    data = check_response.json()
+
+
+    # Verify rollback happened
+    assert data["quantity_on_hand"] == 50
 # -----------------------------------
 # CONCURRENT DECREMENT
 # -----------------------------------
@@ -390,56 +408,78 @@ def test_bulk_update_failure(client):
 def test_concurrent_decrement(client):
 
 
-    client.post(
+    create_response = client.post(
         "/api/v1/inventory",
-        json=create_payload(
-            "CON1",
-            "WH001",
-            10
-        )
+        json={
+            "sku_id": "CON1",
+            "product_name": "Phone",
+            "warehouse_id": "WH1",
+            "quantity_on_hand": 100,
+            "avg_daily_demand": 5,
+            "lead_time_days": 2,
+            "safety_stock": 10
+        }
     )
 
 
+    assert create_response.status_code == 201
 
-    def decrease():
 
-        response=client.post(
-            "/api/v1/inventory/bulk-update",
-            json=[
-                {
-                    "sku_id":"CON1",
-                    "warehouse_id":"WH001",
-                    "quantity_delta":-1
-                }
-            ]
+
+    results = []
+
+
+    def worker():
+
+        response = client.post(
+    "/api/v1/inventory/decrement",
+    params={
+        "sku_id": "CON1",
+        "warehouse_id": "WH1",
+        "quantity": 1
+    }
+)
+
+
+        results.append(
+            response.status_code
         )
 
-        assert response.status_code==200
 
 
-
-    threads=[]
+    threads = []
 
 
     for _ in range(10):
 
-        t=threading.Thread(
-            target=decrease
+        thread = threading.Thread(
+            target=worker
         )
 
-        threads.append(t)
-        t.start()
+        threads.append(thread)
+
+        thread.start()
 
 
 
-    for t in threads:
-        t.join()
+    for thread in threads:
+
+        thread.join()
 
 
 
-    response=client.get(
-        "/api/v1/inventory/CON1/WH001"
+    assert len(results) == 10
+
+
+    print(results)
+
+    assert len(results) == 10
+
+
+
+    final_response = client.get(
+        "/api/v1/inventory/CON1/WH1"
     )
 
 
-    assert response.json()["quantity_on_hand"]==0
+    assert final_response.json()["quantity_on_hand"] == 90

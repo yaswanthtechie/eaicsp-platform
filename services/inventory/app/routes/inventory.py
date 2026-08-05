@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
+from app.models.inventory import Inventory
 
 from app.database import get_db
 
@@ -189,7 +190,7 @@ def reorder_check_route(
     sku_id: str,
     warehouse_id: str,
     db: Session = Depends(get_db),
-):
+): 
 
     result = reorder_check(
         db,
@@ -306,8 +307,8 @@ def bulk_update_route(
 
     try:
         return bulk_update_inventory(
-            db,
-            updates
+            updates,
+            db
         )
 
     except Exception as exc:
@@ -335,3 +336,45 @@ def what_if_route(
         db,
         request.spike_percent,
     )
+@router.post("/decrement")
+def decrement_inventory_route(
+    sku_id: str,
+    warehouse_id: str,
+    quantity: int,
+    db: Session = Depends(get_db),
+):
+
+    item = (
+        db.query(Inventory)
+        .filter(
+            Inventory.sku_id == sku_id,
+            Inventory.warehouse_id == warehouse_id
+        )
+        .with_for_update()
+        .first()
+    )
+
+
+    if item is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Inventory not found"
+        )
+
+
+    if item.quantity_on_hand < quantity:
+        raise HTTPException(
+            status_code=409,
+            detail="Insufficient stock"
+        )
+
+
+    item.quantity_on_hand -= quantity
+
+
+    db.commit()
+
+    db.refresh(item)
+
+
+    return inventory_response(item)

@@ -2,9 +2,9 @@ from pydantic import BaseModel
 from typing import Optional
 
 
-# -------------------------
+
 # Create Inventory
-# -------------------------
+
 class InventoryCreate(BaseModel):
     sku_id: str
     product_name: str
@@ -15,9 +15,7 @@ class InventoryCreate(BaseModel):
     safety_stock: int
 
 
-# -------------------------
-# Update Inventory
-# -------------------------
+
 class InventoryUpdate(BaseModel):
     product_name: Optional[str] = None
     warehouse_id: Optional[str] = None
@@ -27,9 +25,7 @@ class InventoryUpdate(BaseModel):
     safety_stock: Optional[int] = None
 
 
-# -------------------------
-# Inventory Response
-# -------------------------
+
 class InventoryResponse(BaseModel):
     sku_id: str
     product_name: str

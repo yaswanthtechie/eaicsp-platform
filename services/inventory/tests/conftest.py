@@ -1,43 +1,28 @@
-import os
-
 import pytest
 
-from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from fastapi.testclient import TestClient
+
 from app.main import app
-from app.database import Base, engine
+from app.database import Base, get_db
+from app.core.config import settings
 
 
+TEST_DATABASE_URL = settings.TEST_DATABASE_URL
 
-# -----------------------------------
-# PostgreSQL Test Database
-# -----------------------------------
 
-os.environ["DATABASE_URL"] = (
-    "postgresql+psycopg://postgres:postgres@localhost:5432/inventory_test"
+test_engine = create_engine(
+    TEST_DATABASE_URL
 )
 
-
-
-# -----------------------------------
-# Test Database Session
-# -----------------------------------
 
 TestingSessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
-    bind=engine,
+    bind=test_engine
 )
-
-
-
-# -----------------------------------
-# Override FastAPI DB Dependency
-# -----------------------------------
-
-from app.database import get_db
-
 
 
 def override_get_db():
@@ -51,42 +36,22 @@ def override_get_db():
         db.close()
 
 
-
 app.dependency_overrides[get_db] = override_get_db
 
 
-
-# -----------------------------------
-# Create Test Client
-# -----------------------------------
-
-@pytest.fixture
+@pytest.fixture(scope="session")
 def client():
 
     return TestClient(app)
 
 
-
-# -----------------------------------
-# Reset Database Before Every Test
-# -----------------------------------
-
 @pytest.fixture(autouse=True)
 def reset_database():
 
-    Base.metadata.drop_all(
-        bind=engine
-    )
+    Base.metadata.drop_all(bind=test_engine)
 
-
-    Base.metadata.create_all(
-        bind=engine
-    )
-
+    Base.metadata.create_all(bind=test_engine)
 
     yield
 
-
-    Base.metadata.drop_all(
-        bind=engine
-    )
+    Base.metadata.drop_all(bind=test_engine)

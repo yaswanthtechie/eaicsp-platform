@@ -182,8 +182,8 @@ def delete_inventory(
 
     if item is None:
         return False
-
-
+    
+    
     db.delete(item)
 
     db.commit()
@@ -473,74 +473,78 @@ def what_if_simulation(
 # Transaction + Row Locking
 # ---------------------------------------
 
-def bulk_update_inventory(
-    db: Session,
-    updates: list[BulkUpdateItem],
-):
+from fastapi import HTTPException
 
-    updated_items = []
 
+# ---------------------------------------
+# Bulk Update Inventory
+# Transaction + Row Locking
+# ---------------------------------------
+
+def bulk_update_inventory(items, db):
 
     try:
 
-        # Start transaction
+        # Always lock rows in same order
+        # Prevents PostgreSQL deadlocks
+        items = sorted(
+            items,
+            key=lambda x: (
+                x.sku_id,
+                x.warehouse_id
+            )
+        )
 
-        for update_item in updates:
+
+        updated_items = []
 
 
-            # PostgreSQL row lock
-            item = (
+        for item in items:
+
+
+            inventory = (
                 db.query(Inventory)
                 .filter(
-                    Inventory.sku_id
-                    == update_item.sku_id,
-
-                    Inventory.warehouse_id
-                    == update_item.warehouse_id,
+                    Inventory.sku_id == item.sku_id,
+                    Inventory.warehouse_id == item.warehouse_id
                 )
                 .with_for_update()
                 .first()
             )
 
 
-            if item is None:
+            if inventory is None:
 
-                raise InventoryOperationError(
-                    f"Inventory not found "
-                    f"{update_item.sku_id}/"
-                    f"{update_item.warehouse_id}"
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Inventory not found: {item.sku_id}"
                 )
-
 
 
             new_quantity = (
-                item.quantity_on_hand
+                inventory.quantity_on_hand
                 +
-                update_item.quantity_delta
+                item.quantity_change
             )
 
 
-            # Prevent negative stock
-
             if new_quantity < 0:
 
-                raise InventoryOperationError(
-                    f"Negative quantity not allowed "
-                    f"for {item.sku_id}"
+                raise HTTPException(
+                    status_code=409,
+                    detail="Insufficient inventory quantity"
                 )
 
 
-            item.quantity_on_hand = new_quantity
+            inventory.quantity_on_hand = new_quantity
 
 
-            updated_items.append(item)
+            updated_items.append(
+                inventory
+            )
 
-
-
-        # Commit only after all updates succeed
 
         db.commit()
-
 
 
         return [
@@ -549,16 +553,20 @@ def bulk_update_inventory(
         ]
 
 
-
-    except Exception:
-
-        # Rollback everything
+    except HTTPException:
 
         db.rollback()
-
         raise
 
 
+    except Exception as e:
+
+        db.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
 
 # ---------------------------------------
@@ -650,8 +658,7 @@ def bulk_upload_csv(
 
 
         for row in reader:
-
-
+            
             existing = get_inventory(
                 db,
                 row["sku_id"],
