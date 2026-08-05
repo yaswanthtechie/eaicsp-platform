@@ -1,18 +1,18 @@
 import {
-  ResponsiveContainer,
-  ComposedChart,
   Area,
+  CartesianGrid,
+  ComposedChart,
+  Legend,
   Line,
+  ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
 } from "recharts";
 
+import { useEffect, useState } from "react";
 import { forecast } from "../mocks/forecast";
 import { colors } from "../tokens";
-import { useState,useEffect } from "react";
 
 const chartData = forecast.map((item) => ({
   ...item,

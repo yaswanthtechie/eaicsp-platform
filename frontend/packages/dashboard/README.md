@@ -1,4 +1,34 @@
 # Executive Dashboard
+## Project Structure
+
+frontend/
+└── packages/
+    └── dashboard/
+        ├── public/
+        ├── src/
+        │   ├── assets/
+        │   ├── components/
+        │   │   ├── ForecastChart.tsx
+        │   │   └── InventoryTable.tsx
+        │   ├── mocks/
+        │   │   ├── forecast.ts
+        │   │   └── inventory.ts
+        │   ├── types/
+        │   │   └── forecast.ts
+        │   ├── App.tsx
+        │   ├── index.css
+        │   ├── main.tsx
+        │   └── tokens.ts
+        ├── .gitignore
+        ├── eslint.config.js
+        ├── index.html
+        ├── package.json
+        ├── tsconfig.json
+        ├── vite.config.ts
+        └── README.md
+
+
+
 
 ## 1. I Built
 
