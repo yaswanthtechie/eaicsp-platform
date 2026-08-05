@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { saveTokens } from "../auth/tokenStorage";
+import { login } from "../api/auth";
 
 const Login = () => {
   const navigate = useNavigate();
@@ -34,20 +35,35 @@ const Login = () => {
     return valid;
   };
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
+const handleLogin = async (
+  e: React.FormEvent
+) => {
+  e.preventDefault();
 
-    if (!validate()) return;
+  if (!validate()) return;
+
+  try {
+    const response = await login(
+      email,
+      password
+    );
 
     saveTokens(
-  "dummy-access-token",
-  "dummy-refresh-token",
-  rememberMe
-);
+      response.access_token,
+      response.refresh_token,
+      rememberMe
+    );
 
-const nextPage = searchParams.get("next") || "/orders";
-navigate(nextPage);
-  };
+    const nextPage =
+      searchParams.get("next") || "/orders";
+
+    navigate(nextPage);
+  } catch (error) {
+    setPasswordError(
+      "Invalid email or password"
+    );
+  }
+};
 
   return (
     <div className="login-page">
