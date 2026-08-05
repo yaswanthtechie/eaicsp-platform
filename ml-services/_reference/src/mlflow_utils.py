@@ -11,11 +11,14 @@ Reusable helper functions for:
 """
 
 from contextlib import contextmanager
+from datetime import datetime, UTC
 
 import mlflow
 import mlflow.sklearn
 
 from mlflow.tracking import MlflowClient
+
+from src.config import PROMOTED_BY
 
 
 client = MlflowClient()
@@ -33,7 +36,6 @@ def set_experiment(experiment_name: str) -> None:
     mlflow.set_experiment(experiment_name)
 
 
-
 # ==========================================================
 # Run
 # ==========================================================
@@ -46,7 +48,6 @@ def start_run(run_name: str | None = None):
 
     with mlflow.start_run(run_name=run_name):
         yield
-
 
 
 # ==========================================================
@@ -62,7 +63,6 @@ def log_params(params: dict) -> None:
         mlflow.log_params(params)
 
 
-
 def log_metrics(metrics: dict) -> None:
     """
     Log evaluation metrics.
@@ -70,7 +70,6 @@ def log_metrics(metrics: dict) -> None:
 
     if metrics:
         mlflow.log_metrics(metrics)
-
 
 
 def log_artifact(file_path: str):
@@ -81,7 +80,6 @@ def log_artifact(file_path: str):
     mlflow.log_artifact(file_path)
 
 
-
 def set_tags(tags: dict):
     """
     Add MLflow tags.
@@ -89,7 +87,6 @@ def set_tags(tags: dict):
 
     if tags:
         mlflow.set_tags(tags)
-
 
 
 # ==========================================================
@@ -116,7 +113,6 @@ def log_model(
     )
 
 
-
 # ==========================================================
 # Registry Helpers
 # ==========================================================
@@ -141,7 +137,6 @@ def get_latest_version(model_name: str):
     )
 
 
-
 def get_model_version_by_alias(
     model_name: str,
     alias: str,
@@ -162,7 +157,6 @@ def get_model_version_by_alias(
     except Exception:
 
         return None
-
 
 
 # ==========================================================
@@ -188,13 +182,11 @@ def assign_staging(
         model_name
     )
 
-
     client.set_registered_model_alias(
         name=model_name,
         alias="staging",
         version=latest.version,
     )
-
 
     print("=" * 60)
     print("STAGING ASSIGNED")
@@ -204,9 +196,7 @@ def assign_staging(
     print("Alias      : @staging")
     print("=" * 60)
 
-
     return latest.version
-
 
 
 # ==========================================================
@@ -228,7 +218,6 @@ def promote_model(
         |
         v
     @production
-
     """
 
     version = client.get_model_version_by_alias(
@@ -236,12 +225,10 @@ def promote_model(
         from_alias,
     )
 
-
     old_production = get_model_version_by_alias(
         model_name,
         to_alias,
     )
-
 
     client.set_registered_model_alias(
         name=model_name,
@@ -249,6 +236,29 @@ def promote_model(
         version=version.version,
     )
 
+    # Record promotion metadata
+    client.set_model_version_tag(
+        name=model_name,
+        version=version.version,
+        key="promoted_by",
+        value=PROMOTED_BY,
+    )
+
+    client.set_model_version_tag(
+        name=model_name,
+        version=version.version,
+        key="promotion_time",
+        value=datetime.now(UTC).isoformat(),
+    )
+
+    if old_production:
+
+        client.set_model_version_tag(
+            name=model_name,
+            version=version.version,
+            key="previous_production_version",
+            value=str(old_production),
+        )
 
     print("=" * 60)
     print("MODEL PROMOTED")
@@ -266,9 +276,7 @@ def promote_model(
 
     print("=" * 60)
 
-
     return version.version
-
 
 
 # ==========================================================
@@ -289,20 +297,16 @@ def load_production_model(
         f"models:/{model_name}@production"
     )
 
-
     model = mlflow.sklearn.load_model(
         model_uri
     )
-
 
     version = client.get_model_version_by_alias(
         model_name,
         "production",
     ).version
 
-
     return model, str(version)
-
 
 
 # ==========================================================
@@ -318,7 +322,6 @@ def list_versions(model_name: str):
         f"name='{model_name}'"
     )
 
-
     for version in versions:
 
         print(
@@ -326,9 +329,7 @@ def list_versions(model_name: str):
         )
 
 
-
 def current_production(model_name: str):
-
     """
     Display current production version.
     """
@@ -338,10 +339,8 @@ def current_production(model_name: str):
         "production",
     )
 
-
     print(
         f"Production Version : {version}"
     )
-
 
     return version

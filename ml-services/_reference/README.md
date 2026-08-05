@@ -539,12 +539,77 @@ docker run -p 3000:3000 iris_service:latest
 
 ---
 
-# Future Improvements
+## round 3 
 
-- Automated model validation
-- CI/CD pipeline
-- Docker deployment
-- Kubernetes deployment
-- Monitoring dashboard
-- Data drift detection
-- Model performance alerts
+## BentoML ML Service Improvements
+
+### Completed Tasks
+
+### 1. Health Check Improvements
+- Improved `/health` endpoint.
+- Added real model validation using canary prediction.
+- Added prediction probability check to verify model integrity.
+- Health check now detects model loading issues and class mismatch problems.
+
+---
+
+### 2. Batch Validation Improvements
+- Added batch input validation.
+- Implemented custom field validation to detect invalid/ragged feature lists.
+- Improved error handling for incorrect input formats.
+
+---
+
+### 3. Model Version Promotion Workflow Review
+- Reviewed MLflow model lifecycle workflow.
+- Identified issue where staging models were directly promoted to production.
+- Planned separation between:
+  - Model training
+  - Staging approval
+  - Production promotion
+  -  Models with accuracy >= 0.85 are promoted to production.
+  - The threshold can be changed in config.py.
+  - PROMOTION_ACCURACY_THRESHOLD = 0.85
+
+
+---
+
+### 4. Latency Metrics Fix
+- Fixed batch latency calculation issue.
+- Separated:
+  - Single prediction latency
+  - Batch prediction latency
+- Improved `/metrics` endpoint reporting accuracy.
+
+---
+
+### 5. Performance Benchmarking
+Compared loop inference vs batch inference.
+
+Result:
+taken 150 simples  iris dataset
+| Method | Time |
+|---|---:|
+| Loop Prediction | 4009.16 ms |
+| Batch Prediction | 34.09 ms |
+
+Speedup = Loop Prediction Time / Batch Prediction Time
+
+Speedup = 4009.16 / 34.09
+
+Speedup = 117.61x
+
+Batch inference improvement:
+
+**117.61x speedup**
+
+---
+
+
+
+## Pending Improvements
+
+- Separate staging and production promotion workflow.
+- Add model promotion test coverage.
+- Add automated approval gate before production deployment.
+- Add model promotion audit information.

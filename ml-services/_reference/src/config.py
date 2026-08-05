@@ -1,10 +1,24 @@
+"""
+Configuration settings for the Iris ML project.
+"""
+
 MODEL_NAME = "iris_classifier"
 EXPERIMENT_NAME = "Iris_Reference"
 
+# Model alias used by the inference service
 MODEL_STAGE = "Production"
 
+# Data settings
 RANDOM_STATE = 42
 TEST_SIZE = 0.2
 
+# Random Forest hyperparameters
 N_ESTIMATORS = 100
 MAX_DEPTH = 5
+
+# Promotion gate:
+# Only promote a model from Staging to Production
+# if its accuracy is greater than or equal to this threshold.
+PROMOTION_ACCURACY_THRESHOLD = 0.85
+# Promotion metadata
+PROMOTED_BY = "ml-services"
