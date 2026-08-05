@@ -1,6 +1,6 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from enum import Enum
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
 
@@ -37,10 +37,17 @@ class ShipmentCreate(BaseModel):
         return value
 
 
+class QuotePreference(str, Enum):
+    cheapest = "cheapest"
+    fastest = "fastest"
+    most_reliable = "most_reliable"
+
+
 class QuoteRequest(BaseModel):
     origin: str
     destination: str
     weight_kg: float
+    preference: QuotePreference = QuotePreference.cheapest
 
 
 class CarrierRate(BaseModel):
@@ -50,6 +57,34 @@ class CarrierRate(BaseModel):
     weight_kg: float
     price: float
     estimated_days: int
+    reliability_score: float
+
+
+class QuoteResponse(BaseModel):
+    rates: list[CarrierRate]
+    warnings: list[str] = Field(default_factory=list)
+
+
+class BulkQuoteRequest(BaseModel):
+    shipments: list[QuoteRequest]
+
+    @field_validator("shipments")
+    @classmethod
+    def check_max_shipments(cls, value):
+        if len(value) > 20:
+            raise ValueError("Batch quote supports up to 20 shipments")
+        return value
+
+
+class BulkQuoteResponse(BaseModel):
+    quotes: list[QuoteResponse]
+
+
+class ShipmentEvent(BaseModel):
+    shipment_id: int
+    status: Status
+    timestamp: datetime
+    location: str
 
 
 class TrackingInfo(BaseModel):
