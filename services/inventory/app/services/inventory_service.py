@@ -468,12 +468,7 @@ def what_if_simulation(
         "spike_percent": spike_percent,
         "affected_skus": affected
     }
-# ---------------------------------------
-# Bulk Update Inventory
-# Transaction + Row Locking
-# ---------------------------------------
 
-from fastapi import HTTPException
 
 
 # ---------------------------------------
@@ -524,7 +519,7 @@ def bulk_update_inventory(items, db):
             new_quantity = (
                 inventory.quantity_on_hand
                 +
-                item.quantity_change
+                item.quantity_delta
             )
 
 
