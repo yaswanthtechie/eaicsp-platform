@@ -1,46 +1,65 @@
-# Inventory Service API
+# Inventory Service
 
-A RESTful Inventory Management API built using **FastAPI**, **SQLAlchemy ORM**, and **SQLite**.
+Enterprise AI-Powered Supply Chain Platform - Inventory Management Service.
 
-This service provides complete inventory management features including CRUD operations, automatic reorder point calculation, low-stock detection, demand spike simulation, bulk CSV upload, dedicated response models, and automated API testing.
+A FastAPI-based inventory service that manages stock levels, warehouse inventory, reorder calculations, bulk updates, CSV uploads, and inventory simulations.
 
 ---
 
 # Features
 
-* Inventory CRUD Operations
-* SQLite Database Integration
-* SQLAlchemy ORM
-* Pydantic Request & Response Validation
-* Automatic Reorder Point Calculation
-* Low Stock Inventory Detection
-* Demand Spike Simulation
-* Bulk CSV Import
-* Duplicate SKU Validation
-* Response Models for All Endpoints
-* Pytest API Testing
-* Swagger API Documentation
+## Inventory Management
+- Create inventory items
+- Get inventory by SKU and warehouse
+- Update inventory details
+- Delete inventory items
+- Support multiple warehouses for the same SKU
+
+## Reorder Engine
+- Automatic reorder point calculation:
+
+```
+reorder_point = (avg_daily_demand × lead_time_days) + safety_stock
+```
+
+- Reorder check API
+- Suggested order quantity calculation
+- Low stock identification
+- Warehouse-wise reorder planning
+
+## Inventory Simulation
+- Demand spike simulation
+- What-if inventory analysis
+
+## Bulk Operations
+- Bulk CSV inventory upload
+- Bulk inventory updates
+- Transaction-based rollback on failures
+- Row-level locking for concurrent updates
+
+## Testing Safety
+- Dedicated test database support
+- Production database is never used during testing
+- Database session override for tests
 
 ---
 
 # Tech Stack
 
-* Python 3.x
-* FastAPI
-* SQLAlchemy
-* SQLite
-* Pydantic
-* Uvicorn
-* Pytest
-* Python Multipart
-* Pydantic Settings
+- Python
+- FastAPI
+- SQLAlchemy
+- PostgreSQL
+- Pydantic
+- Pytest
+- Uvicorn
 
 ---
 
 # Project Structure
 
-```text
-inventory-service/
+```
+inventory/
 │
 ├── app/
 │   ├── main.py
@@ -52,21 +71,21 @@ inventory-service/
 │   ├── models/
 │   │   └── inventory.py
 │   │
-│   ├── routes/
+│   ├── schemas/
 │   │   └── inventory.py
 │   │
-│   ├── schemas/
+│   ├── routes/
 │   │   └── inventory.py
 │   │
 │   └── services/
 │       └── inventory_service.py
 │
 ├── tests/
+│   ├── conftest.py
 │   └── test_inventory.py
 │
-├── sample_inventory.csv
-├── inventory.db
 ├── requirements.txt
+├── pytest.ini
 └── README.md
 ```
 
@@ -74,33 +93,33 @@ inventory-service/
 
 # Installation
 
-## Clone Repository
+Clone the repository:
 
 ```bash
 git clone <repository-url>
 ```
 
-## Navigate to Project Directory
+Navigate to inventory service:
 
 ```bash
-cd inventory-service
+cd services/inventory
 ```
 
-## Create Virtual Environment
+Create virtual environment:
 
 ```bash
 python -m venv venv
 ```
 
-## Activate Virtual Environment
+Activate virtual environment:
 
-### Windows
+Windows:
 
 ```bash
 venv\Scripts\activate
 ```
 
-## Install Dependencies
+Install dependencies:
 
 ```bash
 pip install -r requirements.txt
@@ -108,49 +127,48 @@ pip install -r requirements.txt
 
 ---
 
-# Run the Application
+# Environment Configuration
 
-Start the FastAPI server:
+Create a `.env` file:
+
+```env
+DATABASE_URL=postgresql+psycopg://username:password@localhost:5432/inventory
+
+TEST_DATABASE_URL=postgresql+psycopg://username:password@localhost:5432/inventory_test
+```
+
+## Database Configuration
+
+The application uses:
+
+- `DATABASE_URL` → Application database
+- `TEST_DATABASE_URL` → Test database
+
+Tests always run on the test database.
+
+Production database is never used by the test suite.
+
+---
+
+# Running Application
+
+Start FastAPI server:
 
 ```bash
 uvicorn app.main:app --reload
 ```
 
-Application URL
+Server runs at:
 
 ```
 http://127.0.0.1:8000
 ```
 
-Swagger Documentation
+Swagger documentation:
 
 ```
 http://127.0.0.1:8000/docs
 ```
-
-ReDoc Documentation
-
-```
-http://127.0.0.1:8000/redoc
-```
-
----
-
-# Response Models
-
-The API uses dedicated Pydantic response models for all endpoints.
-
-| Endpoint                                       | Response Model          |
-| ---------------------------------------------- | ----------------------- |
-| POST `/api/v1/inventory/`                      | InventoryResponse       |
-| GET `/api/v1/inventory/`                       | list[InventoryResponse] |
-| GET `/api/v1/inventory/{sku_id}`               | InventoryResponse       |
-| PUT `/api/v1/inventory/{sku_id}`               | InventoryResponse       |
-| DELETE `/api/v1/inventory/{sku_id}`            | DeleteResponse          |
-| GET `/api/v1/inventory/low-stock`              | list[LowStockResponse]  |
-| GET `/api/v1/inventory/{sku_id}/reorder-check` | ReorderCheckResponse    |
-| POST `/api/v1/inventory/{sku_id}/simulate`     | SimulationResponse      |
-| POST `/api/v1/inventory/bulk-upload`           | BulkUploadResponse      |
 
 ---
 
@@ -158,445 +176,235 @@ The API uses dedicated Pydantic response models for all endpoints.
 
 ## Create Inventory
 
-Creates a new inventory item.
-
 ```
-POST /api/v1/inventory/
+POST /api/v1/inventory
 ```
 
-### Example Request
+Example:
 
 ```json
 {
-    "sku_id": "SKU001",
-    "product_name": "Laptop",
-    "warehouse_id": "WH001",
-    "quantity_on_hand": 100,
-    "avg_daily_demand": 10,
-    "lead_time_days": 3,
-    "safety_stock": 20
-}
-```
-
-### Example Response
-
-```json
-{
-    "sku_id": "SKU001",
-    "product_name": "Laptop",
-    "warehouse_id": "WH001",
-    "quantity_on_hand": 100,
-    "reorder_point": 50,
-    "avg_daily_demand": 10,
-    "lead_time_days": 3,
-    "safety_stock": 20
-}
-```
-
-### Duplicate SKU
-
-If a SKU already exists, the API returns:
-
-**Status Code:** `409 Conflict`
-
-```json
-{
-    "detail": "SKU already exists"
+  "sku_id": "SKU101",
+  "product_name": "Laptop",
+  "warehouse_id": "WH001",
+  "quantity_on_hand": 100,
+  "avg_daily_demand": 5,
+  "lead_time_days": 4,
+  "safety_stock": 10
 }
 ```
 
 ---
 
-## Get All Inventory
+## Get Inventory
 
 ```
-GET /api/v1/inventory/
+GET /api/v1/inventory/{sku_id}/{warehouse_id}
 ```
-
-Returns all inventory records.
-
----
-
-## Get Inventory By SKU
-
-```
-GET /api/v1/inventory/{sku_id}
-```
-
-Returns inventory details for the specified SKU.
 
 ---
 
 ## Update Inventory
 
 ```
-PUT /api/v1/inventory/{sku_id}
+PUT /api/v1/inventory/{sku_id}/{warehouse_id}
 ```
-
-Updates an existing inventory record.
 
 ---
 
 ## Delete Inventory
 
 ```
-DELETE /api/v1/inventory/{sku_id}
+DELETE /api/v1/inventory/{sku_id}/{warehouse_id}
 ```
 
-Example Response
+---
+
+## Reorder Check
+
+```
+GET /api/v1/inventory/{sku_id}/{warehouse_id}/reorder-check
+```
+
+Response:
 
 ```json
 {
-    "message": "Inventory deleted successfully"
+  "current_qty": 20,
+  "reorder_point": 30,
+  "needs_reorder": true,
+  "suggested_order_qty": 10
 }
 ```
 
 ---
 
-# Reorder Engine
-
-The reorder point is calculated automatically.
-
-## Formula
+## Low Stock Items
 
 ```
-Reorder Point =
-(Average Daily Demand × Lead Time Days)
-+ Safety Stock
-```
-
-### Example
-
-```
-Average Daily Demand = 10
-
-Lead Time Days = 3
-
-Safety Stock = 20
-
-Reorder Point
-
-= (10 × 3) + 20
-
-= 50
-```
-
-When
-
-```
-Current Quantity <= Reorder Point
-```
-
-the inventory item requires replenishment.
-
----
-
-# Suggested Order Quantity
-
-Formula
-
-```
-Suggested Order Quantity =
-Reorder Point - Current Quantity
-```
-
-Example
-
-```
-Current Quantity = 20
-
-Reorder Point = 50
-
-Suggested Order Quantity
-
-= 50 - 20
-
-= 30
-```
-
-If the calculated value is negative, the API returns **0**.
-
----
-
-# Reorder Check
-
-```
-GET /api/v1/inventory/{sku_id}/reorder-check
-```
-
-Example Response
-
-```json
-{
-    "sku_id": "SKU001",
-    "current_qty": 20,
-    "reorder_point": 50,
-    "needs_reorder": true,
-    "suggested_order_qty": 30
-}
-```
----
-
-# Low Stock Detection
-
-Returns all inventory items where the available quantity is less than or equal to the reorder point.
-
-### Endpoint
-
-```text
 GET /api/v1/inventory/low-stock
 ```
 
-### Example Response
+---
 
-```json
-[
-    {
-        "sku_id": "SKU001",
-        "product_name": "Laptop",
-        "quantity_on_hand": 20,
-        "reorder_point": 50
-    }
-]
+## Reorder Plan
+
+```
+GET /api/v1/inventory/reorder-plan
 ```
 
 ---
 
-# Demand Spike Simulation
+## Demand Spike Simulation
 
-Simulates an increase in product demand and calculates a new reorder point.
-
-### Endpoint
-
-```text
-POST /api/v1/inventory/{sku_id}/simulate
 ```
-
-### Example Request
-
-```json
-{
-    "demand_spike_percent": 30
-}
-```
-
-### Example Calculation
-
-```text
-Average Daily Demand = 10
-
-Demand Spike = 30%
-
-New Average Daily Demand
-
-= 10 + (10 × 30 / 100)
-
-= 13 units/day
-
-New Reorder Point
-
-= (13 × 3) + 20
-
-= 59
-```
-
-### Example Response
-
-```json
-{
-    "sku_id": "SKU001",
-    "current_quantity": 100,
-    "new_reorder_point": 59,
-    "needs_reorder": false,
-    "suggested_order_qty": 0
-}
+POST /api/v1/inventory/{sku_id}/{warehouse_id}/simulate
 ```
 
 ---
 
-# Bulk CSV Upload
+## What-If Simulation
 
-Upload multiple inventory records using a CSV file.
+```
+POST /api/v1/inventory/what-if
+```
 
-### Endpoint
+---
 
-```text
+## Bulk CSV Upload
+
+```
 POST /api/v1/inventory/bulk-upload
 ```
 
-### Content Type
+Supported CSV fields:
 
-```text
-multipart/form-data
 ```
-
-### Sample CSV
-
-```csv
-sku_id,product_name,warehouse_id,quantity_on_hand,avg_daily_demand,lead_time_days,safety_stock
-SKU001,Laptop,WH001,100,10,3,20
-SKU002,Mouse,WH002,50,5,2,10
-```
-
-### Success Response
-
-```json
-{
-    "message": "CSV uploaded successfully",
-    "total_records": 2
-}
+sku_id
+product_name
+warehouse_id
+quantity_on_hand
+avg_daily_demand
+lead_time_days
+safety_stock
 ```
 
 ---
 
-# Database
+## Bulk Inventory Update
 
-Database used:
-
-```text
-SQLite
+```
+POST /api/v1/inventory/bulk-update
 ```
 
-ORM:
+Features:
 
-```text
-SQLAlchemy
-```
-
-Database file:
-
-```text
-inventory.db
-```
-
-SQLAlchemy is responsible for:
-
-* Database connection
-* Table creation
-* CRUD operations
-* Query execution
-* Transaction management
+- Transaction support
+- Rollback on failure
+- Row locking
+- Deadlock prevention using sorted locking order
 
 ---
 
-# Configuration
+# Running Tests
 
-Application configuration is located in:
-
-```text
-app/core/config.py
-```
-
-Configuration includes:
-
-* Database URL
-* Environment variables
-* Application settings
-
----
-
-# Error Responses
-
-## Duplicate SKU
-
-**Status Code:** `409 Conflict`
-
-```json
-{
-    "detail": "SKU already exists"
-}
-```
-
----
-
-## Inventory Not Found
-
-**Status Code:** `404 Not Found`
-
-```json
-{
-    "detail": "Inventory not found"
-}
-```
-
----
-
-## Invalid CSV File
-
-**Status Code:** `400 Bad Request`
-
-```json
-{
-    "detail": "Only CSV files are allowed"
-}
-```
-
----
-
-# Testing
-
-Run all test cases:
-
-```bash
-pytest
-```
-
-Run with detailed output:
+Run all tests:
 
 ```bash
 pytest -v
 ```
 
-### Current Test Result
-
-```text
-11 passed
-```
-
-### Test Coverage
-
-* Create Inventory API
-* Get Inventory API
-* Get All Inventory API
-* Update Inventory API
-* Delete Inventory API
-* Low Stock Detection
-* Reorder Calculation
-* Reorder Above Threshold
-* Reorder Below Threshold
-* Reorder At Threshold (`quantity == reorder_point`)
-* Duplicate SKU Handling (409 Conflict)
-* Suggested Order Quantity Validation
-* Demand Spike Simulation
-
----
-
-# Requirements
-
-```text
-fastapi
-uvicorn
-sqlalchemy
-pydantic
-pydantic-settings
-python-multipart
-pytest
-```
-
-Install manually:
+Run with coverage:
 
 ```bash
-pip install fastapi uvicorn sqlalchemy pydantic pydantic-settings python-multipart pytest
+pytest --cov=app --cov-report=term-missing
+```
+
+Generate HTML coverage report:
+
+```bash
+pytest --cov=app --cov-report=html
+```
+
+Open:
+
+```
+htmlcov/index.html
 ```
 
 ---
 
+# Test Results
 
+Current test execution:
 
+```
+13 passed
+```
 
+Coverage:
+
+```
+74%
+```
+
+Test cases include:
+
+- Create inventory
+- Get inventory
+- Reorder calculation
+- Low stock detection
+- Multi warehouse inventory
+- Reorder planning
+- Demand simulation
+- What-if analysis
+- Delete inventory
+- Bulk update rollback
+- Concurrent inventory decrement
 
 ---
 
-# Conclusion
+# Recent Updates
 
-This Inventory Service demonstrates a production-style REST API built with FastAPI and SQLAlchemy. It supports complete inventory management through CRUD operations, automatic reorder calculations, low-stock detection, demand spike simulation, CSV bulk upload, comprehensive response models, and automated testing with Pytest.
+## Database Safety Fix
+
+- Added separate test database engine.
+- Updated `tests/conftest.py`.
+- Tests no longer connect to production database.
+- Added dependency override for database sessions.
+
+## Bulk Update Improvements
+
+- Added transaction rollback verification.
+- Added row-level locking using SQLAlchemy `with_for_update()`.
+- Added SKU and warehouse sorting before locking to avoid deadlocks.
+
+## Concurrency Testing Improvements
+
+- Added multi-thread inventory decrement testing.
+- Verified concurrent requests complete successfully.
+- Verified final inventory quantity after updates.
+
+## Configuration Improvements
+
+- Added `TEST_DATABASE_URL`.
+- Removed test dependency on production database configuration.
+
+---
+
+# Known Warnings
+
+Current warnings:
+
+```
+FastAPI on_event is deprecated
+```
+
+These warnings do not affect application functionality.
+
+Future improvement:
+
+- Replace startup events with FastAPI lifespan handlers.
+
+---
+
