@@ -21,19 +21,30 @@ const client = new ApolloClient({
     typePolicies: {
       Query: {
         fields: {
-          purchaseOrders: {
-            keyArgs: false,
+purchaseOrders: {
+  keyArgs: [
+    "status",
+    "poNumber",
+    "minAmount",
+    "maxAmount",
+    "startDate",
+    "endDate",
+  ],
 
-            merge(existing = {}, incoming) {
-              const existingEdges = existing.edges || [];
-              const incomingEdges = incoming.edges || [];
+  merge(existing, incoming, { args }) {
+    if (!args?.after) {
+      return incoming;
+    }
 
-              return {
-                ...incoming,
-                edges: [...existingEdges, ...incomingEdges],
-              };
-            },
-          },
+    return {
+      ...incoming,
+      edges: [
+        ...(existing?.edges ?? []),
+        ...incoming.edges,
+      ],
+    };
+  },
+},
         },
       },
     },

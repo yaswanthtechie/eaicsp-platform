@@ -1,8 +1,8 @@
 import { useNavigate, useParams } from "react-router-dom";
-import { useMutation, useQuery } from "@apollo/client";
+import { useAcknowledgePO } from "../hooks/useAcknowledgePO";
 
 import { GET_PURCHASE_ORDERS } from "../graphql/queries";
-import { ACKNOWLEDGE_PO } from "../graphql/mutations";
+
 
 import StatusBadge from "../components/StatusBadge";
 import Loading from "../components/Loading";
@@ -11,34 +11,29 @@ import ErrorState from "../components/ErrorState";
 import type { PurchaseOrder } from "../types/po";
 import { toast } from "react-toastify";
 
+import { formatCurrency } from "../utils/formatCurrency";
+import { formatDate } from "../utils/formatDate";
+import type { PurchaseOrderEdge, PurchaseOrdersQuery,AcknowledgePurchaseOrderMutation } from "../types/graphql";
+import { ORDER_DETAILS_PAGE_SIZE } from "../constants/pagination";
+import { useOrderDetails } from "../hooks/useOrderDetails";
+
+
+
 const OrderDetails = () => {
   const { poNumber } = useParams();
   const navigate = useNavigate();
 
-  const { data, loading, error } = useQuery(GET_PURCHASE_ORDERS, {
-  variables: {
-    first: 20,
-    after: null,
-  },
-});
+const { data, loading, error } = useOrderDetails();
 
-  const [acknowledgePurchaseOrder] = useMutation(ACKNOWLEDGE_PO);
+  const { acknowledgePurchaseOrder } = useAcknowledgePO();
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-    }).format(amount);
-  };
+
 
   if (loading) return <Loading />;
 
   if (error) return <ErrorState />;
 
-  type PurchaseOrderEdge = {
-  cursor: string;
-  node: PurchaseOrder;
-};
+
 
 const orders: PurchaseOrder[] =
   data?.purchaseOrders?.edges?.map(
@@ -81,44 +76,44 @@ const orders: PurchaseOrder[] =
           },
         },
 
-update(cache, { data }) {
-  const existing = cache.readQuery<{
-    purchaseOrders: {
-      edges: PurchaseOrderEdge[];
-      pageInfo: {
-        hasNextPage: boolean;
-        endCursor: string | null;
-      };
-    };
-  }>({
-    query: GET_PURCHASE_ORDERS,
-    variables: {
-      first: 20,
-      after: null,
-    },
-  });
+update(
+  cache,
+  {
+    data,
+  }: {
+    data?: AcknowledgePurchaseOrderMutation;
+  }
+) {
+const existing = cache.readQuery<PurchaseOrdersQuery>({
+  query: GET_PURCHASE_ORDERS,
+  variables: {
+    first: ORDER_DETAILS_PAGE_SIZE,
+    after: null,
+  },
+});
+
 
   if (!existing) return;
 
-  cache.writeQuery({
-    query: GET_PURCHASE_ORDERS,
-    variables: {
-      first: 20,
-      after: null,
+cache.writeQuery({
+  query: GET_PURCHASE_ORDERS,
+  variables: {
+    first: ORDER_DETAILS_PAGE_SIZE,
+    after: null,
+  },
+  data: {
+    purchaseOrders: {
+      ...existing.purchaseOrders,
+      edges: existing.purchaseOrders.edges.map((edge) => ({
+        ...edge,
+        node:
+          edge.node.po_number === poNumber
+            ? data?.acknowledgePurchaseOrder ?? edge.node
+            : edge.node,
+      })),
     },
-    data: {
-      purchaseOrders: {
-        ...existing.purchaseOrders,
-        edges: existing.purchaseOrders.edges.map((edge) => ({
-          ...edge,
-          node:
-            edge.node.po_number === poNumber
-              ? data?.acknowledgePurchaseOrder ?? edge.node
-              : edge.node,
-        })),
-      },
-    },
-  });
+  },
+});
 },
       });
 
@@ -146,7 +141,7 @@ update(cache, { data }) {
 
         <p>
           <strong>Expected Delivery :</strong>{" "}
-          {new Date(order.expected_delivery).toLocaleDateString("en-IN")}
+          {formatDate(order.expected_delivery)}
         </p>
 
         <div style={{ margin: "15px 0" }}>

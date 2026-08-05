@@ -305,13 +305,13 @@ Query: {
     }
 
     // Filter by Amount
-    if (minAmount !== undefined) {
+    if (minAmount != null) {
       filteredOrders = filteredOrders.filter(
         (po) => po.total_amount >= minAmount
       );
     }
 
-    if (maxAmount !== undefined) {
+    if (maxAmount !== null) {
       filteredOrders = filteredOrders.filter(
         (po) => po.total_amount <= maxAmount
       );

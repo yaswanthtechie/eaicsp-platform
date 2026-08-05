@@ -1,36 +1,27 @@
 import { useState } from "react";
-import { useMutation, useQuery } from "@apollo/client";
+
+import { useInvoice } from "../hooks/useInvoice";
 import { toast } from "react-toastify";
 
-import { GET_PURCHASE_ORDERS } from "../graphql/queries";
-import { SUBMIT_INVOICE } from "../graphql/mutations";
+
+
 
 import Loading from "../components/Loading";
 import ErrorState from "../components/ErrorState";
 import FileUpload from "../components/FileUpload";
 
-import type { PurchaseOrder } from "../types/po";
 
-type PurchaseOrderEdge = {
-  cursor: string;
-  node: PurchaseOrder;
-};
+import { colors } from "../tokens";
+
+
 
 const Invoice = () => {
-  const { data, loading, error } = useQuery(GET_PURCHASE_ORDERS, {
-    variables: {
-      first: 20,
-      after: null,
-      status: null,
-      poNumber: null,
-      minAmount: null,
-      maxAmount: null,
-      startDate: null,
-      endDate: null,
-    },
-  });
-
-  const [submitInvoice] = useMutation(SUBMIT_INVOICE);
+const {
+  submitInvoice,
+  acknowledgedPOs,
+  loading,
+  error,
+} = useInvoice();
 
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [poReference, setPoReference] = useState("");
@@ -48,14 +39,7 @@ const Invoice = () => {
 
   if (error) return <ErrorState />;
 
-  const orders: PurchaseOrder[] =
-    data?.purchaseOrders?.edges?.map(
-      (edge: PurchaseOrderEdge) => edge.node
-    ) || [];
 
-  const acknowledgedPOs = orders.filter(
-    (po) => po.status === "acknowledged"
-  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,7 +50,7 @@ const Invoice = () => {
       !invoiceNumber ||
       !poReference ||
       !amount ||
-      !date ||
+      !date ||  
       !file
     ) {
       setFormError("Please fill all fields.");
@@ -213,7 +197,7 @@ const Invoice = () => {
         {fileError && (
           <p
             style={{
-              color: "red",
+              color: colors.danger,
               marginTop: "10px",
             }}
           >
@@ -224,7 +208,7 @@ const Invoice = () => {
         {formError && (
           <p
             style={{
-              color: "red",
+              color: colors.danger,
               marginTop: "10px",
             }}
           >

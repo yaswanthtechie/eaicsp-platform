@@ -1,8 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useApolloClient, useQuery } from "@apollo/client";
-
-import { GET_PURCHASE_ORDERS } from "../graphql/queries";
+import { useApolloClient } from "@apollo/client";
 
 import POCard from "../components/POCard";
 import EmptyState from "../components/EmptyState";
@@ -10,11 +8,10 @@ import ErrorState from "../components/ErrorState";
 import Loading from "../components/Loading";
 import { clearTokens } from "../auth/tokenStorage";
 import type { PurchaseOrder } from "../types/po";
+import { usePurchaseOrders } from "../hooks/usePurchaseOrders";
 
-type PurchaseOrderEdge = {
-  cursor: string;
-  node: PurchaseOrder;
-};
+import type { PurchaseOrderEdge } from "../types/graphql";
+import { ORDERS_PER_PAGE } from "../constants/pagination";
 
 const Orders = () => {
   const navigate = useNavigate();
@@ -27,29 +24,21 @@ const [maxAmount, setMaxAmount] = useState("");
 const [startDate, setStartDate] = useState("");
 const [endDate, setEndDate] = useState("");
 
-const { data, loading, error, fetchMore } = useQuery(
-  GET_PURCHASE_ORDERS,
-  {
-    variables: {
-      first: 3,
-      after: null,
-      status: filter === "All" ? undefined : filter.toLowerCase(),
-      poNumber: poNumber || undefined,
-      minAmount: minAmount ? Number(minAmount) : undefined,
-      maxAmount: maxAmount ? Number(maxAmount) : undefined,
-      startDate: startDate || undefined,
-      endDate: endDate || undefined,
-    },
+const { data, loading, error, fetchMore } =
+  usePurchaseOrders({
+    first: ORDERS_PER_PAGE,
+    after: null,
+    status: filter === "All" ? undefined : filter.toLowerCase(),
+    poNumber: poNumber || undefined,
+    minAmount: minAmount ? Number(minAmount) : undefined,
+    maxAmount: maxAmount ? Number(maxAmount) : undefined,
+    startDate: startDate || undefined,
+    endDate: endDate || undefined,
+  });
 
-    notifyOnNetworkStatusChange: true,
+  if (loading && !data) return <Loading />;
 
-    pollInterval: 10000, // Refresh every 10 seconds
-  }
-);
-
-  if (loading) return <Loading />;
-
-  if (error) return <ErrorState />;
+  if (error) return <ErrorState />; 
 
   const orders: PurchaseOrder[] =
     data?.purchaseOrders?.edges?.map(
@@ -67,7 +56,7 @@ const { data, loading, error, fetchMore } = useQuery(
 const handleLoadMore = () => {
   fetchMore({
     variables: {
-      first: 3,
+      first: ORDERS_PER_PAGE,
       after: data.purchaseOrders.pageInfo.endCursor,
 
       status: filter === "All" ? undefined : filter.toLowerCase(),

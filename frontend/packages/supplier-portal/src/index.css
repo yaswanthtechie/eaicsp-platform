@@ -4,6 +4,20 @@
   --primary: #3B82F6;
   --success: #10B981;
   --danger: #EF4444;
+  --text: #E6EAF2;
+  --text-muted: #8B95A8;
+  
+  --text-on-primary: #ffffff;
+  --card-bg: #1d2436;
+  --item-bg: #222b40;
+  --border-light: #ddd;
+  --border-gray: #ccc;
+  --dropzone-border: #bdbdbd;
+  --dropzone-active: #2563eb;
+  --dropzone-active-bg: #eff6ff;
+  --input-border: gray;
+  --dropzone-bg: #fafafa;
+
 }
 
 * {
@@ -14,7 +28,8 @@
 
 body {
   background: var(--bg);
-  color: white;
+  color: var(--text);
+
   font-family: Arial, Helvetica, sans-serif;
 }
 
@@ -46,9 +61,9 @@ input {
   width: 100%;
   padding: 12px;
   border-radius: 8px;
-  border: 1px solid gray;
+  border: 1px solid var(--input-border);
   background: var(--bg);
-  color: white;
+  color: var(--text);
 }
 
 button {
@@ -57,8 +72,8 @@ button {
   padding: 14px;
   border: none;
   border-radius: 8px;
-  background: royalblue;
-  color: white;
+  background: var(--primary);
+  color: var(--text-on-primary);  
   cursor: pointer;
 }
 
@@ -67,7 +82,7 @@ button:hover {
 }
 
 .error {
-  color: red;
+  color: var(--danger);
   font-size: 14px;
   margin-top: 5px;
 }
@@ -75,7 +90,7 @@ button:hover {
 .note {
   margin-top: 20px;
   text-align: center;
-  color: gray;
+  color: var(--text-muted);
   font-size: 14px;
 }
 
@@ -94,7 +109,7 @@ button:hover {
 }
 
 .card {
-  background: #1d2436;
+  background: var(--card-bg);
   padding: 15px;
   margin-bottom: 15px;
   border-radius: 10px;
@@ -118,14 +133,14 @@ button:hover {
 }
 
 .detail-card {
-  background: #1d2436;
+  background: var(--card-bg);
   padding: 15px;
   border-radius: 10px;
   margin-bottom: 20px;
 }
 
 .item-card {
-  background: #222b40;
+  background: var(--item-bg);
   padding: 15px;
   margin-bottom: 15px;
   border-radius: 10px;
@@ -149,13 +164,13 @@ button:hover {
   margin-top: 8px;
   margin-bottom: 15px;
   background: var(--bg);
-  color: white;
-  border: 1px solid gray;
+  color: var(--text);
+  border: 1px solid var(--input-border);
   border-radius: 8px;
 }
 
 .file-box {
-  background: #222b40;
+  background: var(--item-bg);
   padding: 10px;
   margin: 15px 0;
   border-radius: 8px;
@@ -186,23 +201,24 @@ button:hover {
 
 
 .drop-zone {
-  border: 2px dashed var(--primary);
-  border-radius: 10px;
-  padding: 30px;
+  border: 2px dashed var(--dropzone-border);
+  border-radius: 8px;
+  padding: 25px;
   text-align: center;
   cursor: pointer;
-  margin: 20px 0;
+  transition: 0.2s ease;
+  background: var(--dropzone-bg);
 }
 
 .drop-zone:hover {
-  background: #1d2436;
+  background: var(--card-bg);
 }
 
 .file-preview {
-  background: #222b40;
-  padding: 15px;
-  border-radius: 8px;
   margin-top: 15px;
+  padding: 12px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
 }
 
 .search-filters {
@@ -214,32 +230,17 @@ button:hover {
 
 .search-filters input {
   padding: 8px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border-gray);
   border-radius: 6px;
   min-width: 150px;
 }
 
-.drop-zone {
-  border: 2px dashed #bdbdbd;
-  border-radius: 8px;
-  padding: 25px;
-  text-align: center;
-  cursor: pointer;
-  transition: 0.2s ease;
-  background: #fafafa;
-}
 
 .drop-zone.drag-active {
-  border-color: #2563eb;
-  background: #eff6ff;
+  border-color: var(--dropzone-active);
+  background: var(--dropzone-active-bg);
 }
 
-.file-preview {
-  margin-top: 15px;
-  padding: 12px;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-}
 
 .file-preview button {
   margin-top: 10px;
