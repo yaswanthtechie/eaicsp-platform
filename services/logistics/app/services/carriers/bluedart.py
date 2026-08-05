@@ -1,9 +1,13 @@
-from app.services.carriers.base import CarrierAdapter, api_retry
+from app.services.carriers.base import (
+    CarrierAdapter,
+    api_retry,
+)
+
 from app.schemas.shipment import (
     Carrier,
     Status,
     CarrierRate,
-    TrackingInfo
+    TrackingInfo,
 )
 
 
@@ -14,7 +18,7 @@ class BlueDartAdapter(CarrierAdapter):
         self,
         origin: str,
         destination: str,
-        weight_kg: float
+        weight_kg: float,
     ) -> CarrierRate:
 
         return CarrierRate(
@@ -30,7 +34,7 @@ class BlueDartAdapter(CarrierAdapter):
     @api_retry()
     def get_tracking(
         self,
-        tracking_number: str
+        tracking_number: str,
     ) -> TrackingInfo:
 
         return TrackingInfo(
@@ -38,5 +42,5 @@ class BlueDartAdapter(CarrierAdapter):
             carrier=Carrier.bluedart,
             status=Status.in_transit,
             location="In Transit",
-            estimated_delivery=None
+            estimated_delivery=None,
         )
