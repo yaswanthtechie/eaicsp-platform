@@ -1,36 +1,47 @@
 """
 BentoML service for Demand Forecasting.
 
-Features:
-- Forecast prediction
+Features
+--------
 - Health endpoint
-- Metrics endpoint
-- Latency measurement
+- Prediction endpoint
+- Service metrics
+- Best Ensemble (Prophet + XGBoost)
 """
 
 import time
+print("Loaded:", __file__)
 
 import bentoml
 from pydantic import BaseModel, Field
 
-from predict import predict
+from src.predict import predict
 
+
+# =====================================================
+# Request
+# =====================================================
 
 class ForecastRequest(BaseModel):
-    """Forecast request."""
+    """Prediction request."""
 
     sku_id: str = Field(...)
 
     warehouse_id: str = Field(...)
 
-    horizon_days: int = Field(
-        default=30,
-        gt=0
+    horizon_months: int = Field(
+        default=6,
+        gt=0,
+        description="Number of future months to forecast."
     )
 
 
+# =====================================================
+# Response
+# =====================================================
+
 class ForecastResponse(BaseModel):
-    """Forecast response."""
+    """Prediction response."""
 
     forecast: list
 
@@ -38,6 +49,10 @@ class ForecastResponse(BaseModel):
 
     latency_ms: float
 
+
+# =====================================================
+# Service
+# =====================================================
 
 @bentoml.service(name="forecast_service")
 class ForecastService:
@@ -52,11 +67,13 @@ class ForecastService:
 
         self.error_count = 0
 
+
+    # =================================================
+    # Health
+    # =================================================
+
     @bentoml.api
     def health(self) -> dict:
-        """
-        Health check.
-        """
 
         try:
 
@@ -68,8 +85,7 @@ class ForecastService:
 
                 "model_version": self.model_version,
 
-                "sample_forecast":
-                    result["forecast"][0]
+                "sample_forecast": result["forecast"][0]
 
             }
 
@@ -83,39 +99,39 @@ class ForecastService:
 
             }
 
+
+    # =================================================
+    # Metrics
+    # =================================================
+
     @bentoml.api
     def service_metrics(self) -> dict:
-        """
-        Service metrics.
-        """
 
         avg_latency = 0
 
         if self.total_predictions > 0:
 
             avg_latency = (
-
                 self.total_latency
-
                 / self.total_predictions
-
             )
 
         return {
 
-            "model_version":
-                self.model_version,
+            "model_version": self.model_version,
 
-            "total_predictions":
-                self.total_predictions,
+            "total_predictions": self.total_predictions,
 
-            "average_latency_ms":
-                round(avg_latency, 3),
+            "average_latency_ms": round(avg_latency, 3),
 
-            "error_count":
-                self.error_count
+            "error_count": self.error_count
 
         }
+
+
+    # =================================================
+    # Prediction
+    # =================================================
 
     @bentoml.api
     def predict(
@@ -127,20 +143,12 @@ class ForecastService:
 
         try:
 
-            # Currently sku_id and warehouse_id
-            # are accepted to satisfy API contract.
-            # The Prophet model is global.
-
             result = predict(
-                request.horizon_days
+                request.horizon_months
             )
 
             latency = (
-
-                time.perf_counter()
-
-                - start
-
+                time.perf_counter() - start
             ) * 1000
 
             self.total_predictions += 1
