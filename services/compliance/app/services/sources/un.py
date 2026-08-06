@@ -66,6 +66,6 @@ def load_un(xml_path) -> list[SanctionedEntity]:
 
         )
 
-    print(f"Loaded {len(entities)} UN records")
+   
 
     return entities

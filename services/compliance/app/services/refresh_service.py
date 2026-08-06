@@ -1,50 +1,53 @@
 import json
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.core.config import (
-    DATA_DIR,
     SNAPSHOT_FILE,
     LOG_DIR,
 )
 
 
-# =====================================================
-# PATHS
-# =====================================================
+def utc_now():
 
-REFRESH_LOG_FILE = LOG_DIR / "refresh.log"
+    return datetime.now(
+        timezone.utc
+    ).isoformat()
 
 
+def save_snapshot(
+    data: dict
+):
 
-# =====================================================
-# SAVE JSON
-# =====================================================
-
-def save_json(path, data):
-
-    path.parent.mkdir(
+    SNAPSHOT_FILE.parent.mkdir(
         parents=True,
-        exist_ok=True
+        exist_ok=True,
     )
 
+
+    temp_file = SNAPSHOT_FILE.with_suffix(
+        ".tmp"
+    )
+
+
     with open(
-        path,
+        temp_file,
         "w",
-        encoding="utf-8"
+        encoding="utf-8",
     ) as file:
+
 
         json.dump(
             data,
             file,
-            indent=4
+            indent=4,
         )
 
 
+    temp_file.replace(
+        SNAPSHOT_FILE
+    )
 
-# =====================================================
-# LOAD PREVIOUS SNAPSHOT
-# =====================================================
 
 def load_snapshot():
 
@@ -53,104 +56,183 @@ def load_snapshot():
         return {}
 
 
-    with open(
-        SNAPSHOT_FILE,
-        encoding="utf-8"
-    ) as file:
+    try:
 
-        return json.load(file)
+        with open(
+            SNAPSHOT_FILE,
+            "r",
+            encoding="utf-8",
+        ) as file:
+
+            return json.load(file)
 
 
+    except json.JSONDecodeError:
 
-# =====================================================
-# COMPARE SANCTIONS
-# =====================================================
 
-def compare_lists(
-    old,
-    new
+        write_refresh_log(
+            "Snapshot corrupted. Starting fresh."
+        )
+
+
+        return {}
+
+
+def write_refresh_log(
+    message: str
 ):
 
-    old_names = set(
-        old.keys()
+    LOG_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
     )
 
 
-    new_names = set(
-        new.keys()
+    log_file = LOG_DIR / "refresh.log"
+
+
+    with open(
+        log_file,
+        "a",
+        encoding="utf-8",
+    ) as file:
+
+
+        file.write(
+            f"{utc_now()} : {message}\n"
+        )
+
+
+def build_snapshot(
+    sanction_index: dict
+):
+
+    snapshot = {}
+
+
+    for key, record in sanction_index.items():
+
+
+        snapshot[key] = {
+
+            "name": record.get(
+                "name"
+            ),
+
+
+            "sources": sorted(
+
+                record.get(
+                    "sources",
+                    []
+                )
+
+            ),
+
+
+            "confidence": record.get(
+                "confidence",
+                100
+            )
+
+        }
+
+
+    return snapshot
+
+
+
+def compare_snapshots(
+    previous: dict,
+    current: dict,
+):
+
+
+    previous_keys = set(
+        previous.keys()
+    )
+
+
+    current_keys = set(
+        current.keys()
+    )
+
+
+    added = sorted(
+        current_keys - previous_keys
+    )
+
+
+    removed = sorted(
+        previous_keys - current_keys
     )
 
 
     return {
 
-        "added":
-            list(
-                new_names - old_names
-            ),
+        "added": added,
 
+        "removed": removed,
 
-        "removed":
-            list(
-                old_names - new_names
-            )
+        "timestamp": utc_now(),
 
     }
 
 
 
-# =====================================================
-# WRITE REFRESH LOG
-# =====================================================
+def refresh_sanctions(
+    current_snapshot: dict
+):
 
-def write_log(message):
 
-    LOG_DIR.mkdir(
-        parents=True,
-        exist_ok=True
+    previous_snapshot = load_snapshot()
+
+
+    changes = compare_snapshots(
+
+        previous_snapshot,
+
+        current_snapshot,
+
     )
 
 
-    with open(
-        REFRESH_LOG_FILE,
-        "a",
-        encoding="utf-8"
-    ) as file:
+    write_refresh_log(
+        "Refresh comparison completed"
+    )
 
-        file.write(
-            f"{datetime.now()} : {message}\n"
+
+    write_refresh_log(
+        f"Added entities: {len(changes['added'])}"
+    )
+
+
+    write_refresh_log(
+        f"Removed entities: {len(changes['removed'])}"
+    )
+
+
+    # Avoid huge log files
+
+    if changes["added"]:
+
+
+        write_refresh_log(
+            f"First added entities: {changes['added'][:20]}"
+        )
+
+
+    if changes["removed"]:
+
+
+        write_refresh_log(
+            f"First removed entities: {changes['removed'][:20]}"
         )
 
 
 
-# =====================================================
-# REFRESH PROCESS
-# =====================================================
-
-def refresh_sanctions(current_data):
-
-
-    old_data = load_snapshot()
-
-
-    changes = compare_lists(
-        old_data,
-        current_data
-    )
-
-
-    write_log(
-        f"Added: {changes['added']}"
-    )
-
-
-    write_log(
-        f"Removed: {changes['removed']}"
-    )
-
-
-    save_json(
-        SNAPSHOT_FILE,
-        current_data
+    save_snapshot(
+        current_snapshot
     )
 
 

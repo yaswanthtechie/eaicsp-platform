@@ -1,6 +1,8 @@
 import time
+from pathlib import Path
 
 from rapidfuzz import fuzz, process
+
 
 from app.core.config import (
     OFAC_CSV_PATH,
@@ -9,12 +11,21 @@ from app.core.config import (
     MATCH_THRESHOLD,
 )
 
+
 from app.services.sources.ofac import load_ofac
 from app.services.sources.un import load_un
 from app.services.sources.eu import load_eu
 
-from app.services.dedupe_service import normalize_name
 
+from app.services.dedupe_service import (
+    normalize_name,
+    deduplicate_entities,
+)
+
+
+from app.services.downloader_service import (
+    download_all_lists,
+)
 
 
 
@@ -34,7 +45,53 @@ def load_all_sanctions():
     search_keys.clear()
 
 
+
+    required_files = [
+
+        Path(OFAC_CSV_PATH),
+        Path(UN_XML_PATH),
+        Path(EU_XML_PATH),
+
+    ]
+
+
+    missing = [
+
+        str(file)
+
+        for file in required_files
+
+        if not file.exists()
+
+    ]
+
+
+
+    if missing:
+
+
+        print(
+            "Missing sanctions files:"
+        )
+
+
+        for file in missing:
+
+            print(
+                file
+            )
+
+
+        print(
+            "Downloading sanctions lists..."
+        )
+
+
+        download_all_lists()
+
+
     print("Loading OFAC")
+
 
     ofac_records = load_ofac(
         OFAC_CSV_PATH
@@ -46,8 +103,9 @@ def load_all_sanctions():
     )
 
 
-    print("Loading UN")
 
+    print("Loading UN")        
+    
     un_records = load_un(
         UN_XML_PATH
     )
@@ -58,7 +116,9 @@ def load_all_sanctions():
     )
 
 
+
     print("Loading EU")
+
 
     eu_records = load_eu(
         EU_XML_PATH
@@ -70,13 +130,17 @@ def load_all_sanctions():
     )
 
 
+
     all_records = (
+
         ofac_records
         +
         un_records
         +
         eu_records
+
     )
+
 
 
     print(
@@ -84,145 +148,314 @@ def load_all_sanctions():
     )
 
 
+    if not all_records:
 
 
-    for entity in all_records:
+        raise RuntimeError(
 
+            "No sanctions loaded. Startup aborted."
 
-        names = []
-
-
-        if entity.name:
-
-            names.append(
-                entity.name
-            )
-
-
-        if entity.aliases:
-
-            names.extend(
-                entity.aliases
-            )
+        )
 
 
 
-        for current_name in names:
+    merged_records = deduplicate_entities(
 
+        all_records,
 
-            key = normalize_name(current_name)
-            if not key:
-                continue
-            if len(key) < 3:
-                continue
+        threshold=MATCH_THRESHOLD
 
-
-
-            source = entity.source.upper()
-
-
-
-            if key not in sanction_index:
-
-
-                sanction_index[key] = {
-
-
-                    "name":
-                        current_name,
-
-
-                    "sources":
-                        [
-                            source
-                        ],
-
-
-                    "aliases":
-                        []
-
-                }
-
-
-
-            else:
-
-
-                if source not in sanction_index[key]["sources"]:
-
-                    sanction_index[key]["sources"].append(
-                        source
-                    )
-
-
-
-    search_keys.extend(
-        sanction_index.keys()
     )
+
 
 
     print(
-        f"Sanctions index ready: {len(search_keys)}"
+        f"Merged entities: {len(merged_records)}"
     )
 
 
 
-def build_response(
-        flagged,
-        record,
-        score,
-        duration
-):
+    for _, record in merged_records.items():
 
 
-    if not flagged:
+        main_key = normalize_name(
+            record["name"]
+        )
 
-        return {
 
-            "is_flagged": False,
 
-            "matched_lists": [],
+        if not main_key:
 
-            "matched_name": None,
+            continue
 
-            "match_score":0,
 
-            "confidence":0.0,
 
-            "duration_ms":round(duration,2)
+        if len(main_key) < 3:
+
+            continue
+
+
+
+        indexed_record = {
+
+
+            "name": record["name"],
+
+
+            "sources": sorted(
+
+                list(
+
+                    set(
+
+                        record.get(
+                            "sources",
+                            []
+
+                        )
+
+                    )
+
+                )
+
+            ),
+
+
+            "aliases": list(
+
+                set(
+
+                    record.get(
+                        "aliases",
+                        []
+
+                    )
+
+                )
+
+            ),
+
+
+            "confidence": record.get(
+
+                "confidence",
+
+                100
+
+            )
 
         }
 
 
 
+        sanction_index[main_key] = indexed_record
+
+
+
+        for alias in indexed_record["aliases"]:
+
+
+            alias_key = normalize_name(
+                alias
+            )
+
+
+            if not alias_key:
+
+                continue
+
+
+            if len(alias_key) < 3:
+
+                continue
+
+
+
+            if alias_key in sanction_index:
+
+
+                existing = sanction_index[alias_key]
+
+
+                existing["sources"] = sorted(
+
+                    list(
+
+                        set(
+
+                            existing["sources"]
+
+                            +
+
+                            indexed_record["sources"]
+
+                        )
+
+                    )
+
+                )
+
+
+            else:
+
+
+                sanction_index[alias_key] = indexed_record
+
+
+
+
+
+    search_keys.extend(
+
+        sanction_index.keys()
+
+    )
+
+
+
+    print(
+
+        f"Sanctions index ready: {len(search_keys)}"
+
+    )
+
+
+
+    if not search_keys:
+
+
+        raise RuntimeError(
+
+            "Sanctions index empty. Startup aborted."
+
+        )
+
+
+
+def build_response(
+
+    flagged,
+
+    record,
+
+    score,
+
+    duration
+
+):
+
+
+    if not flagged:
+
+
+        return {
+
+
+            "is_flagged": False,
+
+
+            "matched_lists": [],
+
+
+            "matched_count": 0,
+
+
+            "matched_name": None,
+
+
+            "match_score": 0,
+
+
+            "confidence": 0,
+
+
+            "duration_ms": round(
+
+                duration,
+
+                2
+
+            )
+
+        }
+
+
+
+    sources = sorted(
+
+        list(
+
+            set(
+
+                record.get(
+
+                    "sources",
+
+                    []
+
+                )
+
+            )
+
+        )
+
+    )
+
+
+
     return {
 
-        "is_flagged":True,
 
-        "matched_lists":
-            record["sources"],
+        "is_flagged": True,
 
-        "matched_name":
-            record["name"],
 
-        "match_score":
-            score,
+        "matched_lists": sources,
 
-        "confidence":
-            round(score/100,2),
 
-        "duration_ms":
-            round(duration,2)
+        "matched_count": len(sources),
+
+
+        "matched_name": record["name"],
+
+
+        "match_score": score,
+
+
+        "confidence": round(
+
+            record.get(
+
+                "confidence",
+
+                100
+
+            )
+
+            /
+
+            100,
+
+            2
+
+        ),
+
+
+        "duration_ms": round(
+
+            duration,
+
+            2
+
+        )
 
     }
 
 
-def screen_entity(
-        name:str
-):
+
+def screen_entity(name: str):
 
 
-    start=time.perf_counter()
+    start = time.perf_counter()
 
 
 
@@ -231,28 +464,39 @@ def screen_entity(
     )
 
 
+
     if not normalized:
 
 
         return build_response(
+
             False,
+
             None,
+
             0,
+
             0
+
         )
 
 
 
+    # EXACT MATCH
+
     if normalized in sanction_index:
 
 
-        duration=(
+        duration = (
 
             time.perf_counter()
+
             -
+
             start
 
-        )*1000
+        ) * 1000
+
 
 
         return build_response(
@@ -264,6 +508,23 @@ def screen_entity(
             100,
 
             duration
+
+        )
+
+
+
+    if not search_keys:
+
+
+        return build_response(
+
+            False,
+
+            None,
+
+            0,
+
+            0
 
         )
 
@@ -281,95 +542,238 @@ def screen_entity(
 
 
 
-    duration=(
+    duration = (
 
         time.perf_counter()
+
         -
+
         start
 
-    )*1000
+    ) * 1000
 
 
 
-    if match:
-        matched_key = match[0]
+    if not match:
+
+
+        return build_response(
+
+            False,
+
+            None,
+
+            0,
+
+            duration
+
+        )
+
+
+
+    matched_key = match[0]
+
     score = int(match[1])
 
-    if len(matched_key) < 3:
+
+
+    if score < MATCH_THRESHOLD:
+
+
         return build_response(
+
             False,
+
             None,
+
             0,
+
             duration
+
         )
 
-    if score >= MATCH_THRESHOLD:
 
-        record = sanction_index[matched_key]
+
+    record = sanction_index.get(
+        matched_key
+    )
+
+
+
+    if not record:
+
 
         return build_response(
-            True,
-            record,
-            score,
+
+            False,
+
+            None,
+
+            0,
+
             duration
+
         )
+
+
+
     return build_response(
-    False,
-    None,
-    0,
-    duration
-)
 
+        True,
 
+        record,
 
+        score,
+
+        duration
+
+    )
 
 
 def screen_bulk(
-        names:list[str]
+    names: list[str]
 ):
 
+    start = time.perf_counter()
 
-    start=time.perf_counter()
+    results = []
 
+    cache = {}
 
-    results=[]
+    fuzzy_candidates = []
 
 
     for name in names:
 
-
-        results.append(
-
-            screen_entity(
-                name
-            )
-
+        normalized = normalize_name(
+            name
         )
 
 
+        if not normalized:
 
-    duration=(
+            results.append(
+                build_response(
+                    False,
+                    None,
+                    0,
+                    0
+                )
+            )
+
+            continue
+
+
+        # exact match first
+
+        if normalized in sanction_index:
+
+            results.append(
+
+                build_response(
+
+                    True,
+
+                    sanction_index[normalized],
+
+                    100,
+
+                    0
+
+                )
+
+            )
+
+            continue
+
+
+
+        if normalized in cache:
+
+            results.append(
+                cache[normalized]
+            )
+
+        else:
+
+            fuzzy_candidates.append(
+                normalized
+            )
+
+    for name in fuzzy_candidates:
+
+
+        result = screen_entity(
+            name
+        )
+
+
+        cache[name] = result
+
+        results.append(
+            result
+        )
+
+
+    duration = (
 
         time.perf_counter()
+
         -
+
         start
 
-    )*1000
+    ) * 1000
 
 
 
     return {
 
+        "count": len(names),
 
-        "count":
-            len(names),
+        "results": results,
 
-
-        "results":
-            results,
-
-
-        "total_duration_ms":
-            round(duration,2)
+        "total_duration_ms": round(
+            duration,
+            2
+        )
 
     }
+
+
+def get_index_statistics():
+
+    return {
+
+
+        "indexed_entities": len(search_keys),
+
+
+        "unique_records": len(sanction_index)
+
+    }
+
+
+
+def reload_sanctions():
+
+    load_all_sanctions()
+
+
+    return {
+
+
+        "status": "success",
+
+
+        "indexed_entities": len(search_keys)
+
+    }
+
+
+
+def startup_check():
+
+    if not sanction_index:
+
+        load_all_sanctions()

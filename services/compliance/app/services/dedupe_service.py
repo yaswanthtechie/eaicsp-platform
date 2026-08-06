@@ -8,8 +8,7 @@ def normalize_name(name: str) -> str:
     if not name:
         return ""
 
-    name = name.upper()
-
+    name = name.upper().strip()
 
     replacements = {
 
@@ -18,10 +17,10 @@ def normalize_name(name: str) -> str:
         "LIMITED": "LTD",
         "INCORPORATED": "INC",
         "PUBLIC LIMITED COMPANY": "PLC",
+        "PUBLIC LIMITED": "PLC",
         "&": "AND",
 
     }
-
 
     for old, new in replacements.items():
 
@@ -43,79 +42,84 @@ def normalize_name(name: str) -> str:
     )
 
 
-
-
-def create_bucket_key(name: str):
+def create_bucket_key(name: str) -> str:
 
     normalized = normalize_name(name)
 
-
     if not normalized:
-
         return ""
 
 
     words = normalized.split()
 
 
+    if len(words) >= 2:
+
+        return (
+            words[0][:3]
+            +
+            words[1][:3]
+        )
+
+
     return words[0][:4]
 
 
-
-
-def calculate_similarity(
-        entity1,
-        entity2
+def merge_records(
+    target,
+    source
 ):
 
-    names = [
+    # Merge sources
 
-        normalize_name(entity1.name),
-
-        normalize_name(entity2.name)
-
-    ]
-
-
-    scores = [
-
-        fuzz.WRatio(
-            names[0],
-            names[1]
-        )
-
-    ]
-
-
-    # compare aliases also
-
-    for alias1 in entity1.aliases:
-
-        for alias2 in entity2.aliases:
-
-            scores.append(
-
-                fuzz.WRatio(
-
-                    normalize_name(alias1),
-
-                    normalize_name(alias2)
-
-                )
-
+    target["sources"] = sorted(
+        list(
+            set(
+                target.get("sources", [])
+                +
+                source.get("sources", [])
             )
+        )
+    )
 
 
-    return max(scores)
+    # Merge aliases
+
+    target["aliases"] = list(
+        set(
+            target.get("aliases", [])
+            +
+            source.get("aliases", [])
+        )
+    )
+
+
+    # Keep highest confidence
+
+    target["confidence"] = max(
+        target.get(
+            "confidence",
+            100
+        ),
+        source.get(
+            "confidence",
+            100
+        )
+    )
+
+
+    return target
 
 
 
 def deduplicate_entities(
-        entities,
-        threshold=90
+    entities,
+    threshold=90
 ):
 
     buckets = {}
+
+    comparisons = 0
 
 
 
@@ -127,25 +131,36 @@ def deduplicate_entities(
         )
 
 
-        if key not in buckets:
+        if not key:
 
-            buckets[key] = []
-
-
-        buckets[key].append(
-            entity
-        )
+            continue
 
 
-
-    merged = {}
+        buckets.setdefault(
+            key,
+            []
+        ).append(entity)
 
 
 
-    for bucket in buckets.values():
+    print(
+        f"Created buckets: {len(buckets)}"
+    )
 
 
-        for entity in bucket:
+
+    final_records = {}
+
+
+
+    for bucket_key, bucket_entities in buckets.items():
+
+
+        bucket_records = {}
+
+
+
+        for entity in bucket_entities:
 
 
             normalized = normalize_name(
@@ -154,28 +169,29 @@ def deduplicate_entities(
 
 
             if not normalized:
+                continue
 
+
+            if len(normalized) < 3:
                 continue
 
 
 
-            matched_key = None
+            matched = None
 
             best_score = 0
 
 
 
-            for key, record in merged.items():
+            for existing_key, existing_record in bucket_records.items():
+
+
+                comparisons += 1
 
 
                 score = fuzz.WRatio(
-
                     normalized,
-
-                    normalize_name(
-                        record["name"]
-                    )
-
+                    existing_key
                 )
 
 
@@ -183,74 +199,105 @@ def deduplicate_entities(
 
                     best_score = score
 
-                    matched_key = key
+                    matched = existing_key
 
 
+            if (
+                matched
+                and
+                best_score >= threshold
+            ):
 
 
-            if best_score >= threshold:
+                existing_record = bucket_records[matched]
 
 
-                record = merged[
-                    matched_key
-                ]
+                # add source
 
+                if entity.source not in existing_record["sources"]:
 
-                if entity.source not in record["sources"]:
-
-                    record["sources"].append(
+                    existing_record["sources"].append(
                         entity.source
                     )
 
 
+                # add aliases
 
                 for alias in entity.aliases:
 
+                    if alias not in existing_record["aliases"]:
 
-                    if alias not in record["aliases"]:
-
-                        record["aliases"].append(
+                        existing_record["aliases"].append(
                             alias
                         )
 
 
-                record["confidence"] = max(
+                # confidence
 
-                    record["confidence"],
+                existing_record["confidence"] = max(
+
+                    existing_record["confidence"],
 
                     int(best_score)
 
                 )
 
 
-
-
-
             else:
 
 
-                merged[normalized] = {
+                bucket_records[normalized] = {
 
 
-                    "name":
-                        entity.name,
+                    "name": entity.name,
 
 
-                    "aliases":
-                        list(entity.aliases),
+                    "aliases": list(
+                        entity.aliases
+                    ),
 
 
-                    "sources":
-                        [
-                            entity.source
-                        ],
+                    "sources": [
+
+                        entity.source
+
+                    ],
 
 
-                    "confidence":
-                        100
+                    "confidence": 100
 
                 }
 
 
+        for key, record in bucket_records.items():
 
-    return merged
+
+            if key in final_records:
+
+
+                final_records[key] = merge_records(
+
+                    final_records[key],
+
+                    record
+
+                )
+
+
+            else:
+
+                final_records[key] = record
+
+
+
+    print(
+        f"Fuzzy comparisons performed: {comparisons}"
+    )
+
+
+    print(
+        f"Merged entities: {len(final_records)}"
+    )
+
+
+    return final_records

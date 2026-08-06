@@ -41,6 +41,6 @@ def load_ofac(csv_path) -> list[SanctionedEntity]:
 
             )
 
-    print(f"Loaded {len(entities)} OFAC records")
+   
 
     return entities

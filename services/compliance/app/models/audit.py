@@ -1,15 +1,20 @@
-from sqlalchemy import (
-    Column,
-    Integer,
-    String,
-    Float,
-    DateTime,
-    Boolean,
+from datetime import (
+    datetime,
+    timezone,
 )
 
-from datetime import datetime
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    Integer,
+    String,
+    Index,
+)
 
 from app.core.database import Base
+
 
 
 class ComplianceAudit(Base):
@@ -18,55 +23,108 @@ class ComplianceAudit(Base):
 
 
     id = Column(
+
         Integer,
+
         primary_key=True,
-        index=True
+
+        index=True,
+
     )
 
 
     entity_name = Column(
+
         String,
-        nullable=False
+
+        nullable=False,
+
+        index=True,
+
     )
 
 
     matched = Column(
+
         Boolean,
-        default=False
+
+        nullable=False,
+
+        default=False,
+
     )
 
 
     matched_name = Column(
+
         String,
-        nullable=True
+
+        nullable=True,
+
     )
 
 
     matched_lists = Column(
+
         String,
-        nullable=True
+
+        nullable=True,
+
     )
 
 
     match_score = Column(
+
         Integer,
-        default=0
+
+        nullable=False,
+
+        default=0,
+
     )
 
 
     service_name = Column(
+
         String,
-        nullable=False
+
+        nullable=False,
+
     )
 
 
     duration_ms = Column(
+
         Float,
-        nullable=False
+
+        nullable=False,
+
     )
 
 
     created_at = Column(
-        DateTime,
-        default=datetime.utcnow
+
+        DateTime(
+            timezone=True
+        ),
+
+        nullable=False,
+
+        default=lambda: datetime.now(
+            timezone.utc
+        ),
+
+        index=True,
+
+    )
+
+
+    __table_args__ = (
+
+        Index(
+            "idx_audit_entity_date",
+            "entity_name",
+            "created_at",
+        ),
+
     )

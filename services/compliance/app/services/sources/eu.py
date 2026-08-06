@@ -3,16 +3,19 @@ import xmltodict
 from app.schemas.sanctions import SanctionedEntity
 
 
+def get_value(data: dict, key: str):
 
-def get_value(data, key):
+    if not isinstance(data, dict):
+        return None
+
 
     for item_key, value in data.items():
 
         clean_key = item_key.split(":")[-1]
 
         if clean_key == key:
-
             return value
+
 
     return None
 
@@ -20,7 +23,7 @@ def get_value(data, key):
 
 def find_entities(data):
 
-    found = []
+    entities = []
 
 
     if isinstance(data, dict):
@@ -34,50 +37,81 @@ def find_entities(data):
 
                 if isinstance(value, list):
 
-                    found.extend(value)
+                    entities.extend(value)
 
                 else:
 
-                    found.append(value)
+                    entities.append(value)
 
 
-            elif isinstance(value, (dict,list)):
 
-                found.extend(
+            elif isinstance(value, (dict, list)):
+
+                entities.extend(
                     find_entities(value)
                 )
 
 
-    elif isinstance(data,list):
+
+    elif isinstance(data, list):
 
         for item in data:
 
-            found.extend(
+            entities.extend(
                 find_entities(item)
             )
 
 
-    return found
+    return entities
+
+
+def load_eu(
+    xml_path
+) -> list[SanctionedEntity]:
+
+
+    print("Loading EU sanctions list...")
+
+
+    try:
+
+        with open(
+            xml_path,
+            encoding="utf-8-sig"
+        ) as file:
+
+            xml_content = file.read()
 
 
 
-def load_eu(xml_path) -> list[SanctionedEntity]:
+        if not xml_content.strip():
+
+            raise RuntimeError(
+                "EU XML file is empty"
+            )
 
 
-    with open(
-        xml_path,
-        encoding="utf-8"
-    ) as file:
 
         data = xmltodict.parse(
-            file.read()
+            xml_content
         )
+
+
+
+    except Exception as error:
+
+        raise RuntimeError(
+            f"Failed loading EU sanctions XML: {error}"
+        )
+
 
 
     entities = []
 
 
-    sanctions = find_entities(data)
+    sanctions = find_entities(
+        data
+    )
 
 
     print(
@@ -85,7 +119,14 @@ def load_eu(xml_path) -> list[SanctionedEntity]:
     )
 
 
+
     for entity in sanctions:
+
+
+        if not isinstance(entity, dict):
+
+            continue
+
 
 
         aliases = []
@@ -97,6 +138,7 @@ def load_eu(xml_path) -> list[SanctionedEntity]:
             entity,
             "nameAlias"
         )
+
 
 
         if name_alias:
@@ -112,12 +154,17 @@ def load_eu(xml_path) -> list[SanctionedEntity]:
                 ]
 
 
+
             for alias in name_alias:
 
 
-                if not isinstance(alias,dict):
+                if not isinstance(
+                    alias,
+                    dict
+                ):
 
                     continue
+
 
 
                 whole_name = (
@@ -131,38 +178,59 @@ def load_eu(xml_path) -> list[SanctionedEntity]:
                 )
 
 
+
                 if whole_name:
 
 
                     if not primary_name:
 
-                        primary_name = whole_name
+                        primary_name = whole_name.strip()
+
 
 
                     elif whole_name not in aliases:
 
                         aliases.append(
-                            whole_name
+                            whole_name.strip()
                         )
 
 
 
         if not primary_name:
 
+
             name = get_value(
                 entity,
                 "name"
             )
 
-            if isinstance(name,str):
 
-                primary_name = name
+            if isinstance(
+                name,
+                str
+            ):
+
+                primary_name = name.strip()
 
 
+
+        # Ignore invalid records
 
         if not primary_name:
 
             continue
+
+
+
+        listed_date = (
+
+            entity.get("@designationDate")
+
+            or
+
+            entity.get("designationDate")
+
+        )
 
 
 
@@ -176,19 +244,12 @@ def load_eu(xml_path) -> list[SanctionedEntity]:
 
                 source="EU",
 
-                listed_date=(
-
-                    entity.get("@designationDate")
-
-                    or
-
-                    entity.get("designationDate")
-
-                )
+                listed_date=listed_date
 
             )
 
         )
+
 
 
     print(

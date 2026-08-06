@@ -1,18 +1,21 @@
 from sqlalchemy.orm import Session
 
-from app.models.audit import ComplianceAudit
+from app.models.audit import (
+    ComplianceAudit,
+)
+
+from app.core.config import (
+    SERVICE_NAME,
+)
+
 
 
 def write_audit(
     db: Session,
     entity_name: str,
     result: dict,
-    service_name: str,
     duration_ms: float,
 ):
-    """
-    Store one screening event.
-    """
 
     audit = ComplianceAudit(
 
@@ -28,28 +31,30 @@ def write_audit(
 
         match_score=result["match_score"],
 
-        service_name=service_name,
+        service_name=SERVICE_NAME,
 
         duration_ms=duration_ms,
 
     )
 
-    db.add(audit)
+    db.add(
+        audit
+    )
 
     db.commit()
 
-    db.refresh(audit)
+    db.refresh(
+        audit
+    )
 
     return audit
+
 
 
 def get_audit_history(
     db: Session,
     entity_name: str,
 ):
-    """
-    Return all screenings for one entity.
-    """
 
     return (
 
@@ -68,3 +73,34 @@ def get_audit_history(
         .all()
 
     )
+
+
+def get_all_audits(
+    db: Session,
+):
+
+    return (
+
+        db.query(
+            ComplianceAudit
+        )
+
+        .order_by(
+            ComplianceAudit.created_at.desc()
+        )
+
+        .all()
+
+    )
+
+
+
+def delete_all_audits(
+    db: Session,
+):
+
+    db.query(
+        ComplianceAudit
+    ).delete()
+
+    db.commit()
