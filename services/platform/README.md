@@ -4,12 +4,20 @@
 
 Platform Service handles authentication and authorization for the Supply Chain Management System.
 
-Features:
-- User authentication
-- JWT token generation
-- Refresh token flow
-- Protected APIs
-- Role Based Access Control (RBAC)
+# Features
+
+* User authentication
+* JWT Access Token (15 minutes)
+* JWT Refresh Token (7 days)
+* Refresh token storage in database
+* Refresh token revocation (Logout)
+* Protected APIs
+* Role-Based Access Control (RBAC)
+* Role hierarchy support
+* Login rate limiting
+* Failed login tracking
+* Password policy validation
+* BCrypt password hashing
 ---
 ## Tech Stack
 
@@ -20,13 +28,15 @@ Features:
 - python-jose
 - passlib
 - bcrypt
----
+- sqlalchemy
 
+---
 ## Project Structure
 
 ```
 app/
 ├── main.py
+├── database.py
 ├── routes/
 │   ├── auth_routes.py
 │   ├── user_routes.py
@@ -40,7 +50,10 @@ app/
 │   ├── config.py
 │   ├── security.py
 │   └── dependencies.py
+│   └── password_validator.py
 └── models/
+│   ├── failed_login_attempts.py
+│   ├── refresh_token.py
 ```
 ---
 
@@ -56,6 +69,21 @@ Implemented roles:
 - warehouse_manager
 - analyst
 - supplier
+
+# Database
+
+Development Database
+
+* SQLite
+
+Production Database
+
+* PostgreSQL
+
+Current Tables
+
+* refresh_tokens
+* failed_login_attempts
 
 ---
 
@@ -103,6 +131,78 @@ Allowed roles:
 ceo
 vp_operations
 ```
+
+
+
+# Role Hierarchy
+
+```
+ceo
+└── vp_operations
+    └── procurement_manager
+        └── logistics_manager
+            └── warehouse_manager
+```
+
+Higher roles automatically inherit permissions from lower roles.
+
+Example:
+
+* CEO automatically has VP Operations permissions.
+* VP Operations automatically has Procurement Manager permissions.
+
+---
+
+# Password Policy
+
+Passwords must contain:
+
+* Minimum 12 characters
+* At least one uppercase letter
+* At least one lowercase letter
+* At least one number
+* At least one special character
+
+Passwords are securely hashed using BCrypt before storage.
+Here We will be calling password validator in register,reset password as they aren't having endpoints just used it.
+## Logout
+
+```
+POST /api/v1/auth/logout
+```
+
+Body
+
+```json
+{
+    "refresh_token": "<refresh_token>"
+}
+```
+
+Revokes the refresh token from the database.
+
+After logout, the refresh token cannot be used again.
+
+---
+
+
+## User Permissions
+
+```
+GET /api/v1/auth/me/permissions
+```
+
+Headers
+
+```
+Authorization: Bearer <access_token>
+```
+
+Returns all effective permissions for the logged-in user based on the role hierarchy.
+
+---
+
+
 ---
 ## Authentication Flow
 ```
@@ -168,3 +268,9 @@ Implemented tests:
 - Refresh token validation (success, wrong token type, malformed token)
 - Tampered token rejection
 - Rate limiting (per account + IP)
+- Logout revokes refresh token
+- CEO inherits VP Operations permissions
+---
+
+
+
