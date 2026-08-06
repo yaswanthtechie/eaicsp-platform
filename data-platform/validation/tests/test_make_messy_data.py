@@ -32,19 +32,17 @@ def test_generate_messy_data(tmp_path):
     expected_min_neg_qty = int(n_base * config.frac_negative_qty)  # ~5
     expected_min_bad_sku = int(n_base * config.frac_bad_sku_format)  # ~14
     expected_min_missing_sku = int(n_base * config.frac_missing_sku)  # ~9
-    expected_min_missing_txn = int(n_base * config.frac_missing_txn)  # ~9
+    expected_min_missing_price = int(n_base * config.frac_missing_price)  # ~19
 
     # Total rows: 970 base + 30 duplicates = 1000
     expected_total_rows = n_base + expected_system_dupes
     assert len(df) == expected_total_rows, f"Expected {expected_total_rows} rows, got {len(df)}"
 
-    # # Assert the new schema columns
-    # assert list(df.columns) == ["order_date", "sku_id", "product_name", "quantity_sold", "transaction_id"]
-    # Assert the new schema columns
-    assert list(df.columns) == ["order_date", "sku_id", "product_name", "quantity_sold", "transaction_id", "unit_price"]
+    # Assert the new schema columns map perfectly to sales_fact
+    assert list(df.columns) == ["date", "sku_id", "warehouse_id", "quantity_sold", "unit_price"]
 
     # Check for missing dates
-    missing_dates_count = df["order_date"].isna().sum()
+    missing_dates_count = df["date"].isna().sum()
     assert missing_dates_count >= expected_min_missing_date, f"Expected >= {expected_min_missing_date} missing dates, got {missing_dates_count}"
 
     # Check for missing quantities
@@ -63,9 +61,9 @@ def test_generate_messy_data(tmp_path):
     missing_sku_count = df["sku_id"].isna().sum()
     assert missing_sku_count >= expected_min_missing_sku, f"Expected >= {expected_min_missing_sku} missing SKUs, got {missing_sku_count}"
 
-    # Check for missing Transaction IDs
-    missing_txn_count = df["transaction_id"].isna().sum()
-    assert missing_txn_count >= expected_min_missing_txn, f"Expected >= {expected_min_missing_txn} missing TXNs, got {missing_txn_count}"
+    # Check for missing Prices
+    missing_price_count = df["unit_price"].isna().sum()
+    assert missing_price_count >= expected_min_missing_price, f"Expected >= {expected_min_missing_price} missing prices, got {missing_price_count}"
 
     # Check for duplicated rows
     # (Total duplicates = injected system duplicates + naturally occurring organic duplicates)
