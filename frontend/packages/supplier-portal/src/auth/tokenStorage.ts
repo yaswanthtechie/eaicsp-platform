@@ -10,7 +10,6 @@ export function saveTokens(
   refreshToken: string,
   rememberMe: boolean
 ): void {
-  // Clear old tokens first
   clearTokens();
 
   const storage = getStorage(rememberMe);
@@ -43,4 +42,17 @@ export function clearTokens(): void {
 
 export function isAuthenticated(): boolean {
   return getAccessToken() !== null;
+}
+
+// 👇 Add this at the end of the file
+export function updateAccessToken(
+  accessToken: string
+): void {
+  if (localStorage.getItem(ACCESS_TOKEN_KEY)) {
+    localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
+  }
+
+  if (sessionStorage.getItem(ACCESS_TOKEN_KEY)) {
+    sessionStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
+  }
 }

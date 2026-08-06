@@ -1,27 +1,21 @@
 import { useState } from "react";
-
-import { useInvoice } from "../hooks/useInvoice";
 import { toast } from "react-toastify";
 
-
-
+import { useInvoice } from "../hooks/useInvoice";
 
 import Loading from "../components/Loading";
 import ErrorState from "../components/ErrorState";
 import FileUpload from "../components/FileUpload";
 
-
 import { colors } from "../tokens";
 
-
-
 const Invoice = () => {
-const {
-  submitInvoice,
-  acknowledgedPOs,
-  loading,
-  error,
-} = useInvoice();
+  const {
+    submitInvoice,
+    acknowledgedPOs,
+    loading,
+    error,
+  } = useInvoice();
 
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [poReference, setPoReference] = useState("");
@@ -34,14 +28,15 @@ const {
   const [fileError, setFileError] = useState("");
 
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (loading) return <Loading />;
 
   if (error) return <ErrorState />;
 
-
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (
+    e: React.FormEvent
+  ) => {
     e.preventDefault();
 
     setFormError("");
@@ -50,7 +45,7 @@ const {
       !invoiceNumber ||
       !poReference ||
       !amount ||
-      !date ||  
+      !date ||
       !file
     ) {
       setFormError("Please fill all fields.");
@@ -60,12 +55,16 @@ const {
     const invoiceRegex = /^INV\d+$/i;
 
     if (!invoiceRegex.test(invoiceNumber.trim())) {
-      setFormError("Invoice number must be like INV001.");
+      setFormError(
+        "Invoice number must be like INV001."
+      );
       return;
     }
 
     if (Number(amount) <= 0) {
-      setFormError("Invoice amount must be greater than 0.");
+      setFormError(
+        "Invoice amount must be greater than 0."
+      );
       return;
     }
 
@@ -73,11 +72,14 @@ const {
     const invoiceDate = new Date(date);
 
     if (invoiceDate > today) {
-      setFormError("Invoice date cannot be in the future.");
+      setFormError(
+        "Invoice date cannot be in the future."
+      );
       return;
     }
 
     setUploadProgress(0);
+    setIsSubmitting(true);
 
     const timer = setInterval(() => {
       setUploadProgress((prev) => {
@@ -103,7 +105,9 @@ const {
       clearInterval(timer);
       setUploadProgress(100);
 
-      toast.success("Invoice Submitted Successfully!");
+      toast.success(
+        "Invoice Submitted Successfully!"
+      );
 
       setInvoiceNumber("");
       setPoReference("");
@@ -117,14 +121,17 @@ const {
       setTimeout(() => {
         setUploadProgress(0);
       }, 1500);
-
     } catch (err) {
       clearInterval(timer);
       setUploadProgress(0);
 
       console.error(err);
 
-      setFormError("Failed to submit invoice.");
+      setFormError(
+        "Failed to submit invoice."
+      );
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -139,16 +146,22 @@ const {
           type="text"
           placeholder="INV001"
           value={invoiceNumber}
-          onChange={(e) => setInvoiceNumber(e.target.value)}
+          onChange={(e) =>
+            setInvoiceNumber(e.target.value)
+          }
         />
 
         <label>Purchase Order</label>
 
         <select
           value={poReference}
-          onChange={(e) => setPoReference(e.target.value)}
+          onChange={(e) =>
+            setPoReference(e.target.value)
+          }
         >
-          <option value="">Select Purchase Order</option>
+          <option value="">
+            Select Purchase Order
+          </option>
 
           {acknowledgedPOs.map((po) => (
             <option
@@ -165,7 +178,9 @@ const {
         <input
           type="number"
           value={amount}
-          onChange={(e) => setAmount(e.target.value)}
+          onChange={(e) =>
+            setAmount(e.target.value)
+          }
         />
 
         <label>Invoice Date</label>
@@ -173,7 +188,9 @@ const {
         <input
           type="date"
           value={date}
-          onChange={(e) => setDate(e.target.value)}
+          onChange={(e) =>
+            setDate(e.target.value)
+          }
         />
 
         <FileUpload
@@ -190,6 +207,7 @@ const {
               max={100}
               style={{ width: "100%" }}
             />
+
             <p>{uploadProgress}% Uploaded</p>
           </div>
         )}
@@ -218,9 +236,12 @@ const {
 
         <button
           type="submit"
+          disabled={isSubmitting}
           style={{ marginTop: "20px" }}
         >
-          Submit Invoice
+          {isSubmitting
+            ? "Uploading..."
+            : "Submit Invoice"}
         </button>
       </form>
     </div>

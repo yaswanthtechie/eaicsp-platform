@@ -9,7 +9,7 @@ interface Props {
 
 const FileUpload = ({
   file,
-  setFile,
+  setFile,  
   error,
   setError,
 }: Props) => {
@@ -80,10 +80,17 @@ const FileUpload = ({
 
   return (
     <>
-      <div
-        className={`drop-zone ${
-          isDragging ? "drag-active" : ""
-        }`}
+<div
+  className={`drop-zone ${
+    isDragging ? "drag-active" : ""
+  }`}
+  role="button"
+  tabIndex={0}
+  onKeyDown={(e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      inputRef.current?.click();
+    }
+  }}
         onDragEnter={() => setIsDragging(true)}
         onDragLeave={(e) => {
   e.preventDefault();
@@ -123,12 +130,19 @@ const FileUpload = ({
           </p>
 
 
-          <button
-            type="button"
-            onClick={() => setFile(null)}
-          >
-            Remove
-          </button>
+<button
+  type="button"
+onClick={() => {
+  setFile(null);
+  setError("");
+
+  if (inputRef.current) {
+    inputRef.current.value = "";
+  }
+}}
+>
+  Remove
+</button>
 
         </div>
       )}

@@ -58,7 +58,8 @@ const handleLogin = async (
       searchParams.get("next") || "/orders";
 
     navigate(nextPage);
-  } catch (error) {
+
+  } catch {
     setPasswordError(
       "Invalid email or password"
     );

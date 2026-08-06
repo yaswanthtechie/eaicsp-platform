@@ -311,7 +311,7 @@ Query: {
       );
     }
 
-    if (maxAmount !== null) {
+    if (maxAmount != null) {
       filteredOrders = filteredOrders.filter(
         (po) => po.total_amount <= maxAmount
       );

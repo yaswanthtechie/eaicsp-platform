@@ -50,7 +50,7 @@ const { data, loading, error, fetchMore } =
   const handleLogout = async () => {
     clearTokens();
     await apolloClient.clearStore();
-    navigate("/login");
+    navigate("/login", { replace: true });
   };
 
 const handleLoadMore = () => {
