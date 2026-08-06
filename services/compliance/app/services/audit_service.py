@@ -1,49 +1,70 @@
-import json
+from sqlalchemy.orm import Session
 
-from pathlib import Path
+from app.models.audit import ComplianceAudit
 
-from datetime import (
-    datetime,
-    timezone
-)
 
 def write_audit(
-    file_path,
-    record
+    db: Session,
+    entity_name: str,
+    result: dict,
+    service_name: str,
+    duration_ms: float,
 ):
+    """
+    Store one screening event.
+    """
 
-    try:
+    audit = ComplianceAudit(
 
-        path = Path(file_path)
+        entity_name=entity_name,
 
-        path.parent.mkdir(
-            parents=True,
-            exist_ok=True
+        matched=result["is_flagged"],
+
+        matched_name=result["matched_name"],
+
+        matched_lists=",".join(
+            result["matched_lists"]
+        ),
+
+        match_score=result["match_score"],
+
+        service_name=service_name,
+
+        duration_ms=duration_ms,
+
+    )
+
+    db.add(audit)
+
+    db.commit()
+
+    db.refresh(audit)
+
+    return audit
+
+
+def get_audit_history(
+    db: Session,
+    entity_name: str,
+):
+    """
+    Return all screenings for one entity.
+    """
+
+    return (
+
+        db.query(
+            ComplianceAudit
         )
 
-        record["timestamp"] = datetime.now(
-            timezone.utc
-        ).isoformat()
- 
-
-
-        with path.open(
-            "a",
-            encoding="utf-8"
-        ) as file:
-
-
-            json.dump(
-                record,
-                file,
-                ensure_ascii=False
-            )
-
-
-            file.write("\n")
-
-    except Exception as error:
-
-        print(
-            f"Audit failed: {error}"
+        .filter(
+            ComplianceAudit.entity_name == entity_name
         )
+
+        .order_by(
+            ComplianceAudit.created_at.desc()
+        )
+
+        .all()
+
+    )

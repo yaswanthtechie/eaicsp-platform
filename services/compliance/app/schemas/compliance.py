@@ -1,35 +1,32 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+
+
+EntityType = Literal[
+    "supplier",
+    "customer"
+]
 
 
 
 class ComplianceRequest(BaseModel):
 
-    entity_name: str = Field(
-        ...,
-        min_length=1,
-        max_length=255
-    )
+    entity_name: str
 
+    entity_type: EntityType
 
-    entity_type: Literal[
-        "supplier",
-        "customer"
-    ]
-
-
-    country: str = Field(
-        ...,
-        min_length=2,
-        max_length=100
-    )
-
-
+    country: str
 
 
 
 class ComplianceResponse(BaseModel):
+
+    entity_name: str
+
+    entity_type: EntityType
+
+    country: str
 
     is_flagged: bool
 
@@ -39,4 +36,49 @@ class ComplianceResponse(BaseModel):
 
     match_score: int
 
-    checked_at: str
+    confidence: float
+
+    duration_ms: float
+
+
+
+
+class BulkComplianceRequest(BaseModel):
+
+    entity_names: list[str]
+
+    entity_type: EntityType
+
+    country: str
+
+
+
+class BulkComplianceResult(BaseModel):
+
+    entity_name: str
+
+    is_flagged: bool
+
+    matched_lists: list[str]
+
+    matched_name: str | None
+
+    match_score: int
+
+    confidence: float
+
+    duration_ms: float
+
+
+
+class BulkComplianceResponse(BaseModel):
+
+    entity_type: EntityType
+
+    country: str
+
+    count: int
+
+    total_duration_ms: float
+
+    results: list[BulkComplianceResult]

@@ -1,0 +1,907 @@
+# Compliance Service
+
+A FastAPI-based sanctions screening service that checks individuals and organizations against global sanctions lists from:
+
+- OFAC (Office of Foreign Assets Control)
+- United Nations Consolidated Sanctions List
+- European Union Financial Sanctions List
+
+The service supports:
+
+- Single entity screening
+- Bulk entity screening
+- Fuzzy name matching
+- Alias matching
+- Multi-source sanctions detection
+- Duplicate entity merging
+- Audit logging
+- Daily sanctions refresh
+- Change detection between list versions
+
+
+---
+
+# Features
+
+## 1. Sanctions Data Sources
+
+The service loads sanctions data from:
+
+
+### OFAC
+
+Source:
+
+- OFAC SDN CSV
+
+
+Format:
+
+```
+CSV
+```
+
+
+Contains:
+
+- Individuals
+- Organizations
+- Vessels
+- Entities
+
+
+---
+
+### United Nations
+
+Source:
+
+```
+UN Consolidated Sanctions List
+```
+
+
+Format:
+
+```
+XML
+```
+
+
+Contains:
+
+- Individual names
+- Multiple name fields
+- Aliases
+- Listed dates
+
+
+Example:
+
+```xml
+<FIRST_NAME>
+ERIC
+</FIRST_NAME>
+
+<SECOND_NAME>
+BADEGE
+</SECOND_NAME>
+```
+
+
+Converted into:
+
+```
+ERIC BADEGE
+```
+
+
+---
+
+### European Union
+
+Source:
+
+```
+EU Financial Sanctions List
+```
+
+
+Format:
+
+```
+XML
+```
+
+
+Supports:
+
+- Names
+- Aliases
+- Multiple XML namespaces
+
+
+---
+
+
+# Architecture
+
+
+```
+compliance-service/
+
+│
+├── app/
+│
+│   ├── main.py
+│
+│   ├── core/
+│   │   └── config.py
+│       └──database.py
+│   ├── schemas/
+│   │   └── sanctions.py
+│       └──compliance.py
+│   ├── routes/
+│   │   └── compliance.py
+│
+│   ├── services/
+│   │   ├──dedupe_service.py
+│   │   ├── sanctions_service.py
+│   │   ├── audit_service.py
+│   │   ├── refresh_service.py
+│   │
+│   │   └── sources/
+│   │       ├── ofac.py
+│   │       ├── un.py
+│   │       └── eu.py
+│
+│   ├── jobs/
+│   │   └── refresh_job.py
+│
+│   └── data/
+│
+│       ├── downloads/
+│       │
+│       ├── archive/
+│       │
+│       └── logs/
+│
+│
+├── tests/
+│
+│   ├── test_compliance.py
+│   └── test_refresh.py
+│
+│
+├── requirements.txt
+│
+└── README.md
+
+```
+
+
+---
+
+
+# Technology Stack
+
+
+Backend:
+
+- Python 3.14
+- FastAPI
+- Uvicorn
+
+
+Data Processing:
+
+- xmltodict
+- csv
+
+
+Matching:
+
+- RapidFuzz
+
+
+Testing:
+
+- Pytest
+
+
+Database:
+
+- SQLite
+
+
+---
+
+
+# Installation
+
+
+## Clone Repository
+
+
+```bash
+git clone <repository-url>
+
+cd compliance-service
+```
+
+
+---
+
+## Create Virtual Environment
+
+
+```bash
+python -m venv venv
+```
+
+
+Activate:
+
+
+Windows:
+
+```bash
+venv\Scripts\activate
+```
+
+
+Linux/Mac:
+
+```bash
+source venv/bin/activate
+```
+
+
+---
+
+## Install Dependencies
+
+
+```bash
+pip install -r requirements.txt
+```
+
+
+---
+
+# Configuration
+
+
+File:
+
+
+```
+app/core/config.py
+```
+
+
+Contains:
+
+
+```python
+OFAC_DOWNLOAD_URL
+
+UN_DOWNLOAD_URL
+
+EU_DOWNLOAD_URL
+
+MATCH_THRESHOLD
+```
+
+
+Example:
+
+
+```python
+MATCH_THRESHOLD = 90
+```
+
+
+---
+
+
+# Running Application
+
+
+Start FastAPI:
+
+
+```bash
+python -m uvicorn app.main:app --reload
+```
+
+
+Server:
+
+
+```
+http://127.0.0.1:8000
+```
+
+
+Swagger documentation:
+
+
+```
+http://127.0.0.1:8000/docs
+```
+
+
+OpenAPI:
+
+
+```
+http://127.0.0.1:8000/openapi.json
+```
+
+
+---
+
+
+# API Endpoints
+
+
+## Health Check
+
+
+GET
+
+
+```
+/
+```
+
+
+Response:
+
+
+```json
+{
+ "service":"Compliance Service",
+ "status":"running"
+}
+```
+
+
+---
+
+
+# Single Entity Screening
+
+
+POST
+
+
+```
+/api/v1/compliance/screen
+```
+
+
+Request:
+
+
+```json
+{
+ "entity_name":"HAMAS",
+ "entity_type":"organization",
+ "country":""
+}
+```
+
+
+Response:
+
+
+```json
+{
+ "is_flagged":true,
+ "matched_lists":[
+    "OFAC",
+    "UN"
+ ],
+ "matched_name":"HAMAS",
+ "match_score":100,
+ "confidence":1.0,
+ "duration_ms":2.4
+}
+```
+
+
+---
+
+
+# Matching Logic
+
+
+The service uses multiple levels of matching.
+
+
+## 1. Name Normalization
+
+
+Example:
+
+
+Input:
+
+
+```
+Hamas!!!
+```
+
+
+Converted:
+
+
+```
+HAMAS
+```
+
+
+Operations:
+
+
+- Uppercase conversion
+- Remove special characters
+- Remove extra spaces
+
+
+---
+
+
+## 2. Exact Matching
+
+
+Example:
+
+
+Input:
+
+
+```
+HAMAS
+```
+
+
+Matches:
+
+
+```
+HAMAS
+```
+
+
+Score:
+
+
+```
+100
+```
+
+
+---
+
+
+## 3. Fuzzy Matching
+
+
+Library:
+
+
+```
+RapidFuzz
+```
+
+
+Algorithm:
+
+
+```
+WRatio
+```
+
+
+Example:
+
+
+Input:
+
+
+```
+Acme Corp
+```
+
+
+Matches:
+
+
+```
+ACME CORPORATION LTD
+```
+
+
+---
+
+
+# Duplicate Entity Handling
+
+
+The same entity may exist in multiple lists.
+
+
+Example:
+
+
+```
+HAMAS
+```
+
+
+Appears in:
+
+
+```
+OFAC
+UN
+EU
+```
+
+
+The service merges them:
+
+
+```json
+{
+"name":"HAMAS",
+
+"sources":[
+ "OFAC",
+ "UN",
+ "EU"
+]
+}
+```
+
+
+---
+
+
+# Alias Support
+
+
+Example:
+
+
+Entity:
+
+
+```
+ERIC BADEGE
+```
+
+
+Aliases:
+
+
+```
+BADEGE ERIC
+```
+
+
+Both names are indexed.
+
+
+---
+
+
+# Bulk Screening
+
+
+Endpoint:
+
+
+```
+/api/v1/compliance/screen-bulk
+```
+
+
+Request:
+
+
+```json
+{
+"entities":[
+
+"HAMAS",
+
+"APPLE"
+
+]
+}
+```
+
+
+Response:
+
+
+```json
+{
+"count":2,
+
+"results":[
+
+{
+"is_flagged":true
+},
+
+{
+"is_flagged":false
+}
+
+]
+
+}
+```
+
+
+---
+
+
+# Audit Logging
+
+
+Every screening request is logged.
+
+
+Location:
+
+
+```
+app/data/logs/audit.log
+```
+
+
+Example:
+
+
+```json
+{
+"name":"HAMAS",
+
+"matched":true,
+
+"score":100,
+
+"time":"2026-08-05"
+}
+```
+
+
+---
+
+
+# Daily Sanctions Refresh
+
+
+Requirement:
+
+
+Download latest sanctions lists daily and detect changes.
+
+
+Implemented using:
+
+
+```
+app/jobs/refresh_job.py
+```
+
+
+Run manually:
+
+
+```bash
+python -m app.jobs.refresh_job
+```
+
+
+Process:
+
+
+1. Download latest OFAC CSV
+
+2. Download latest UN XML
+
+3. Download latest EU XML
+
+4. Compare with previous files
+
+5. Detect:
+
+- Added entities
+- Removed entities
+
+6. Reload sanctions index
+
+
+Example output:
+
+
+```json
+{
+"added":[
+ "NEW ENTITY"
+],
+
+"removed":[
+
+]
+}
+```
+
+
+---
+
+
+# Refresh Folder Structure
+
+
+```
+data/
+
+├── downloads/
+
+│   ├── ofac.csv
+
+│   ├── un.xml
+
+│   └── eu.xml
+
+
+├── archive/
+
+│
+└── logs/
+
+```
+
+
+---
+
+
+# Running Refresh Job Automatically
+
+
+The refresh job can be scheduled using:
+
+
+## Windows Task Scheduler
+
+
+Run:
+
+
+```
+python -m app.jobs.refresh_job
+```
+
+
+daily.
+
+
+## Linux Cron
+
+
+Example:
+
+
+```
+0 2 * * * python -m app.jobs.refresh_job
+```
+
+
+Runs every day at 2 AM.
+
+
+---
+
+
+# Testing
+
+
+Run:
+
+
+```bash
+pytest -v
+```
+
+
+Expected:
+
+
+```
+13 passed
+```
+
+
+Tests cover:
+
+
+- Exact match
+- Fuzzy match
+- UN entity detection
+- EU entity loading
+- Duplicate sources
+- Empty input
+- Special characters
+- Case insensitive matching
+- Bulk screening
+- Refresh change detection
+
+
+---
+
+
+# Performance
+
+
+Current design:
+
+
+- Loads sanctions into memory during startup
+- Creates normalized search index
+- Uses RapidFuzz optimized matching
+
+
+Benefits:
+
+
+- Fast screening
+- No database lookup for every request
+- Supports bulk screening
+
+
+---
+
+
+# Future Improvements
+
+
+Possible enhancements:
+
+
+- Background scheduler using Celery/Airflow
+- PostgreSQL storage
+- Redis caching
+- Advanced entity resolution
+- Country-based filtering
+- Risk scoring
+- Webhook notifications
+- Authentication
+- Role-based access control
+
+
+---
+
+
+# Summary
+
+
+This Compliance Service provides an automated sanctions screening platform capable of:
+
+✔ Loading OFAC, UN, and EU sanctions lists  
+✔ Parsing CSV and XML sources  
+✔ Matching names intelligently  
+✔ Supporting aliases  
+✔ Detecting duplicate entities  
+✔ Returning confidence scores  
+✔ Handling bulk screening  
+✔ Maintaining audit logs  
+✔ Refreshing sanctions data automatically  
+
