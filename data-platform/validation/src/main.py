@@ -59,7 +59,7 @@ def main():
                         help="Path to input data.")
     parser.add_argument("--output", type=str, default=str(PROJECT_ROOT / "data" / "clean_sales.csv"),
                         help="Path to save cleaned data.")
-    parser.add_argument("--generate", action="store_true", help="Generate new messy data before validating.")
+    parser.add_argument("--skip-generate", action="store_true", help="Skip auto-generating data and use existing input file.")
     parser.add_argument("--no-strict", action="store_false", dest="strict", help="Disable strict cleaning mode.")
     args = parser.parse_args()
 
@@ -73,12 +73,12 @@ def main():
         logger.error(f"FATAL ERROR: Config file not found at {config_path}")
         return
 
-    # 1. Simulate the client data (Auto-generate if missing or forced by CLI)
-    if args.generate or not input_path.exists():
-        if not input_path.exists() and not args.generate:
-            logger.info(f"Input file not found at {input_path}. Auto-generating data...")
+    # 1. Simulate the client data (Auto-generate by default unless skipped)
+    if not args.skip_generate or not input_path.exists():
+        if args.skip_generate and not input_path.exists():
+            logger.info(f"Input file not found at {input_path}. Overriding --skip-generate and auto-generating data...")
         else:
-            logger.info(f"Generating simulated messy data at {input_path} (forced via --generate)...")
+            logger.info(f"Generating simulated messy data at {input_path} (Default behavior)...")
         generate_messy_data(filepath=input_path)
 
     # 2. Load data
