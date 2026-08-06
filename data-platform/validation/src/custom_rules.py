@@ -1,14 +1,13 @@
 import pandas as pd
 from typing import Optional, Literal
 
-
 # ==========================================
 # VALIDATION RULES (type: custom)
-# Uses 'field' because validator.py explicitly passes it
 # ==========================================
 
 def check_unparseable_dates(
     df: pd.DataFrame,
+    *,  # <--- Forces all following arguments to be passed as keywords
     field: str,
     iso_format: str = '%Y-%m-%d',
     mixed_format: str = 'mixed',
@@ -24,6 +23,7 @@ def check_unparseable_dates(
 
 def check_outliers(
     df: pd.DataFrame,
+    *,
     field: str,
     lower_q: float = 0.25,
     upper_q: float = 0.75,
@@ -41,13 +41,14 @@ def check_outliers(
     return (df[field] < lower_bound) | (df[field] > upper_bound)
 
 
-def check_negatives(df: pd.DataFrame, field: str, **kwargs) -> pd.Series:
+def check_negatives(df: pd.DataFrame, *, field: str, **kwargs) -> pd.Series:
     """Returns a boolean mask for rows where the quantity is less than zero."""
     return df[field] < 0
 
 
 def check_duplicate_rows(
     df: pd.DataFrame,
+    *,
     field: Optional[str] = None,
     keep: Literal['first', 'last', False] = 'first',
     **kwargs
@@ -58,6 +59,7 @@ def check_duplicate_rows(
 
 def check_composite_unique(
     df: pd.DataFrame,
+    *,
     subset: list,
     keep: Literal['first', 'last', False] = False,
     **kwargs
@@ -68,11 +70,11 @@ def check_composite_unique(
 
 # ==========================================
 # TRANSFORMATION RULES (type: transform)
-# Uses 'target_col' to bypass the standard keys filter
 # ==========================================
 
 def standardize_products(
     df: pd.DataFrame,
+    *,
     field: str = 'product_name',
     target_char: str = '-',
     replace_char: str = ' ',
@@ -92,7 +94,7 @@ def standardize_products(
     return df_c
 
 
-def flag_negatives(df: pd.DataFrame, field: str = 'quantity_sold', **kwargs) -> pd.DataFrame:
+def flag_negatives(df: pd.DataFrame, *, field: str = 'quantity_sold', **kwargs) -> pd.DataFrame:
     """Adds a 'flagged_for_review' column for rows with negative quantities."""
     df_c = df.copy()
     if 'flagged_for_review' not in df_c.columns:
@@ -104,7 +106,7 @@ def flag_negatives(df: pd.DataFrame, field: str = 'quantity_sold', **kwargs) -> 
     return df_c
 
 
-def standardize_dates(df: pd.DataFrame, field: str = 'order_date', **kwargs) -> pd.DataFrame:
+def standardize_dates(df: pd.DataFrame, *, field: str = 'order_date', **kwargs) -> pd.DataFrame:
     """Unifies various date string formats into a standard YYYY-MM-DD format."""
     df_c = df.copy()
     if field in df_c.columns:
@@ -120,6 +122,7 @@ def standardize_dates(df: pd.DataFrame, field: str = 'order_date', **kwargs) -> 
 
 def drop_duplicate_rows(
     df: pd.DataFrame,
+    *,
     keep: Literal['first', 'last', False] = 'first',
     **kwargs
 ) -> pd.DataFrame:
