@@ -2,60 +2,111 @@
 
 A FastAPI-based anomaly detection service for synthetic supply-chain sensor readings.
 
-This project demonstrates an end-to-end anomaly detection workflow including:
+This project demonstrates an end-to-end machine learning workflow for unsupervised anomaly detection using synthetic supply-chain sensor data.
+
+Unlike supervised classification, the anomaly detection models are trained **only on normal operating data**. During evaluation, separate synthetic datasets containing injected anomalies are used to measure each model's ability to detect abnormal behaviour.
+
+The project includes:
 
 - Synthetic data generation
-- Synthetic anomaly labeling
-- Model training
-- Model evaluation
-- Saved model loading
-- Prediction with feature contribution explanations
+- Synthetic anomaly injection
+- Model training using only normal data
+- Hyperparameter tuning
+- Benchmark evaluation across multiple anomaly datasets
+- SHAP-based feature contribution explanations
+- FastAPI REST API for anomaly detection
+- Single-reading and rolling-window anomaly detection
 - Synthetic streaming simulation
-- REST API for prediction and streaming
-
-The service currently supports three unsupervised anomaly detection algorithms:
-
-- Isolation Forest
-- Local Outlier Factor (LOF)
-- One-Class SVM
+- Rolling prediction window
+- Rolling-window retraining for drift adaptation (Stretch Goal)
+- Automatic model versioning and deployment decisions
+- Comprehensive unit and regression testing using pytest
 
 ---
 
-## Project Structure
+# Features
 
-```text
-ml-services/anomaly-detection/
-│-- app.py
-│-- main.py
-│-- schemas.py
-│-- requirements.txt
-│-- README.md
-│-- src/
-│   │-- __init__.py
-│   │-- data.py
-│   │-- evaluate.py
-│   │-- isolation_forest_model.py
-│   │-- lof_model.py
-│   │-- model_loader.py
-│   │-- one_class_svm_model.py
-│   │-- plot.py
-│   │-- predict.py
-│   │-- streaming.py
-│   └── train.py
-```
-
-The following directories are generated after running the training pipeline and are intentionally excluded from version control:
-
-```text
-models/
-output/
-```
+- Synthetic supply-chain sensor data generation
+- Automatic anomaly injection across multiple anomaly scenarios
+- Three unsupervised anomaly detection models
+  - Isolation Forest
+  - Local Outlier Factor (LOF)
+  - One-Class SVM
+- Hyperparameter tuning with model ranking
+- Benchmark evaluation using Precision and Recall across four anomaly datasets
+- Model persistence and versioning using Joblib
+- SHAP-based feature contribution explanations (Top 3 features)
+- Single-reading anomaly detection (`/detect`)
+- Rolling-window anomaly detection (`/detect-window`)
+- Synthetic streaming simulation with rolling prediction history
+- Rolling-window retraining for drift adaptation
+- Conditional model deployment based on benchmark performance
+- REST API built with FastAPI
+- Comprehensive unit and regression testing using pytest
 
 ---
 
-## Requirements
+# Project Structure
 
-Recommended Python version:
+```text
+ml-services/
+└── anomaly-detection/
+    │
+    ├── app.py                         # FastAPI application
+    ├── main.py                        # Training and evaluation pipeline
+    ├── schemas.py                     # Request/response schemas
+    ├── README.md
+    ├── requirements.txt
+    │
+    ├── models/
+    │   ├── background_sample.csv      # SHAP background data
+    │   ├── isolation_forest_model.joblib
+    │   ├── lof_model.joblib
+    │   ├── one_class_svm_model.joblib
+    │   └── model_metadata.json        # Model version metadata
+    │
+    ├── output/
+    │   ├── precision_recall.csv               # Benchmark evaluation results
+    │   ├── retrain_log.csv                    # Deployment decisions
+    │   ├── model_performance_history.csv      # Rolling retraining history
+    │   ├── train_normal.csv
+    │   ├── test_temperature_spike.csv
+    │   ├── test_temperature_drift.csv
+    │   ├── test_stock_anomaly.csv
+    │   └── test_combined_anomaly.csv
+    │
+    ├── src/
+    │   ├── __init__.py
+    │   ├── data.py                    # Dataset generation and anomaly injection
+    │   ├── train.py                   # Model training and deployment
+    │   ├── evaluate.py                # Benchmark evaluation
+    │   ├── retrain.py                 # Rolling-window retraining and drift adaptation
+    │   ├── tuning.py                  # Hyperparameter tuning
+    │   ├── tuning_utils.py            # Shared tuning utilities
+    │   ├── predict.py                 # Prediction and SHAP explanations
+    │   ├── streaming.py               # Streaming simulator with rolling window support
+    │   ├── plot.py                    # Performance visualization
+    │   ├── model_loader.py            # Lazy loading of deployed models and SHAP explainers
+    │   ├── isolation_forest_model.py  # Isolation Forest wrapper
+    │   ├── lof_model.py               # Local Outlier Factor wrapper
+    │   └── one_class_svm_model.py     # One-Class SVM wrapper
+    │
+    └── tests/
+        ├── conftest.py                # Session fixture to prepare datasets and models
+        ├── test_api.py                # API endpoint tests
+        ├── test_evaluate.py           # Benchmark evaluation and recall floor tests
+        ├── test_models.py             # Model wrapper tests
+        ├── test_predict.py            # Prediction and SHAP explanation tests
+        ├── test_reproducibility.py    # Dataset reproducibility regression test
+        └── test_retrain.py            # Rolling-window retraining tests
+
+Generated model artifacts and evaluation outputs are intentionally excluded from version control.
+
+---
+
+# Requirements
+
+Recommended Python version
 
 ```
 Python 3.11
@@ -67,30 +118,90 @@ or
 Python 3.12
 ```
 
-Install dependencies:
+Install dependencies
 
 ```bash
-python -m pip install -r requirements.txt
+pip install -r requirements.txt
 ```
 
-Current dependencies:
+Main dependencies
 
 - numpy
 - pandas
 - scikit-learn
-- matplotlib
 - shap
 - fastapi
 - uvicorn
+- matplotlib
 - joblib
+- pytest
+- httpx2
+- logging
 
 ---
 
-# First-Time Setup
+# Synthetic Dataset
 
-After cloning the repository, generate the synthetic dataset and train the models before using prediction or streaming endpoints.
+The project uses entirely synthetic supply-chain sensor data to simulate warehouse monitoring scenarios.
 
-Run:
+Each sensor reading contains:
+
+- Temperature
+- Humidity
+- Stock Count
+
+Normal operating data is generated first, after which several independent anomaly datasets are created for evaluation.
+
+## Training Dataset
+
+The anomaly detection models are trained **only on normal sensor readings**.
+
+This follows the standard workflow for one-class anomaly detection algorithms:
+
+- Isolation Forest
+- Local Outlier Factor (LOF)
+- One-Class SVM
+
+These algorithms learn the characteristics of normal system behaviour and identify observations that deviate significantly from the learned normal distribution.
+
+The normal training dataset is saved as:
+
+```text
+output/train_normal.csv
+```
+
+---
+
+# Evaluation Datasets
+
+To evaluate the trained models, four independent synthetic datasets containing injected anomalies are generated.
+
+| Dataset | Description |
+|----------|-------------|
+| `test_temperature_spike.csv` | Sudden increase in temperature |
+| `test_temperature_drift.csv` | Gradual increase in temperature over time |
+| `test_stock_anomaly.csv` | Sudden abnormal inventory values |
+| `test_combined_anomaly.csv` | Combination of temperature and stock anomalies |
+
+Each evaluation dataset contains labelled anomalies, allowing objective comparison of model performance using standard evaluation metrics.
+
+The evaluation datasets are never used for model training. They are used only to measure each model's ability to detect unseen anomalies.
+
+The evaluation datasets are written to:
+
+```text
+output/
+├── test_temperature_spike.csv
+├── test_temperature_drift.csv
+├── test_stock_anomaly.csv
+└── test_combined_anomaly.csv
+```
+
+---
+
+# Training Pipeline
+
+Run the complete training pipeline:
 
 ```bash
 python main.py
@@ -98,103 +209,168 @@ python main.py
 
 The pipeline performs the following steps:
 
-1. Generates synthetic sensor data
-2. Injects synthetic anomalies
-3. Trains all three anomaly detection models
-4. Evaluates model performance
-5. Saves trained model artifacts
-6. Generates evaluation plots
-
-The FastAPI application can start even when trained models are unavailable.
-
-Until the training pipeline has been executed:
-
-- `POST /detect` returns **HTTP 503**
-- `POST /stream/start` returns **HTTP 503**
-
-Once `python main.py` has completed successfully, all prediction and streaming endpoints become available.
-
----
-
-# Synthetic Dataset
-
-The project uses entirely synthetic data.
-
-Dataset characteristics:
-
-- 5,000 sensor readings
-- Approximately 17 days
-- 5-minute intervals
-- 20 planted anomalies
-
-Each anomaly is created by increasing the temperature by a random value between **8°C and 15°C**.
-
-Generated features:
-
-- temperature
-- humidity
-- stock_count
-
-Generated label:
-
-- is_anomaly
-
-The labeled dataset is written to:
-
-```text
-output/sensor_readings_with_anomalies.csv
-```
-
----
-
-# Training Pipeline
-
-Run:
-
-```bash
-python main.py
-```
+1. Generate synthetic normal sensor readings.
+2. Save the normal training dataset.
+3. Train Isolation Forest using normal data.
+4. Train Local Outlier Factor using normal data.
+5. Train One-Class SVM using normal data.
+6. Save the trained models.
+7. Generate background samples for SHAP explanations.
 
 Generated model artifacts:
 
 ```text
 models/
+├── background_sample.csv
 ├── isolation_forest_model.joblib
 ├── lof_model.joblib
 └── one_class_svm_model.joblib
 ```
 
-Generated outputs:
+The FastAPI application starts independently of the training pipeline.
+
+If trained models are unavailable:
+
+- `POST /detect` returns **HTTP 503**
+- Streaming prediction endpoints return **HTTP 503**
+
+until the training pipeline has been executed.
+
+---
+
+# Hyperparameter Tuning
+
+Hyperparameter tuning is provided to identify the best-performing configuration for each anomaly detection model.
+
+Run:
+
+```bash
+python src/tuning.py
+```
+
+The tuning process evaluates multiple parameter combinations for:
+
+- Isolation Forest
+- Local Outlier Factor
+- One-Class SVM
+
+Each configuration is evaluated on all four anomaly datasets.
+
+For every configuration, the following metrics are calculated:
+
+- Precision
+- Recall
+- PR Score (average of Precision and Recall)
+- F1 Score
+- True Positives (TP)
+- True Negatives (TN)
+- False Positives (FP)
+- False Negatives (FN)
+
+Configurations are ranked using:
+
+1. PR Score - average of precision and recall
+2. F1 Score
+3. False Positives (ascending)
+4. False Negatives (ascending)
+
+The top-performing configurations for each dataset are written to:
 
 ```text
-output/
-├── sensor_readings.csv
-├── sensor_readings_with_anomalies.csv
-├── precision_recall.csv
-└── anomalies_comparison.png
+output/hyperparameter_tuning_results.csv
 ```
+
+The selected hyperparameters can then be manually applied to the corresponding model before retraining.
 
 ---
 
 # Model Evaluation
 
-Evaluation metrics are calculated using the synthetic anomaly labels.
+The trained models are evaluated on four independent anomaly datasets using the labelled synthetic anomalies.
 
-Latest observed performance:
+The following metrics are reported for every model:
 
-| Model | Precision | Recall |
-|-------|----------:|-------:|
-| Isolation Forest | 0.7 | 0.7 |
-| Local Outlier Factor | 0.85 | 0.85 |
-| One-Class SVM | 0.00 | 0.00 |
+- Precision
+- Recall
+- PR Score
+- F1 Score
+- True Positives (TP)
+- True Negatives (TN)
+- False Positives (FP)
+- False Negatives (FN)
 
-On the current synthetic dataset, Local Outlier Factor performs best.
+The evaluation results are written to:
 
-One-Class SVM requires additional feature scaling and parameter tuning before it should be considered reliable.
+```text
+output/precision_recall.csv
+```
+
+## Evaluation Results
+
+| Dataset | Model | Precision | Recall | Detected | False Alarms |
+|---------|-------|----------:|-------:|---------:|-------------:|
+| Temperature Spike | Isolation Forest | 0.286 | 0.400 | 8 | 20 |
+| Temperature Spike | One-Class SVM | 0.278 | 1.000 | 20 | 52 |
+| Temperature Spike | **Local Outlier Factor** | **0.541** | **1.000** | **20** | **17** |
+| Temperature Drift | Isolation Forest | 0.710 | 0.170 | 49 | 20 |
+| Temperature Drift | One-Class SVM | 0.769 | 0.566 | 163 | 49 |
+| Temperature Drift | **Local Outlier Factor** | **0.905** | 0.531 | 153 | **16** |
+| Stock Anomaly | Isolation Forest | 0.167 | 0.200 | 4 | 20 |
+| Stock Anomaly | One-Class SVM | 0.274 | **1.000** | **20** | 53 |
+| Stock Anomaly | **Local Outlier Factor** | **0.556** | **1.000** | **20** | **16** |
+| Combined Anomaly | Isolation Forest | 0.487 | 0.950 | 19 | 20 |
+| Combined Anomaly | One-Class SVM | 0.264 | 0.950 | 19 | 53 |
+| Combined Anomaly | **Local Outlier Factor** | **0.556** | **1.000** | **20** | **16** |
 
 ---
 
-# Run the API
+# Performance Analysis
+
+The three anomaly detection algorithms exhibit different strengths across the evaluation datasets.
+
+## Isolation Forest
+
+Isolation Forest generally produces fewer false positives than One-Class SVM, but it misses a significant number of anomalies in several datasets, resulting in lower recall. This behaviour is most noticeable on the Temperature Drift and Stock Anomaly datasets.
+
+## One-Class SVM
+
+One-Class SVM achieves very high recall, detecting nearly every injected anomaly. However, it also generates a large number of false alarms, leading to lower precision. This makes it less suitable when reducing unnecessary alerts is important.
+
+## Local Outlier Factor (LOF)
+
+Local Outlier Factor consistently provides the strongest balance between anomaly detection and false alarm reduction.
+
+Across the evaluation datasets it:
+
+- Achieves **100% recall** on Temperature Spike, Stock Anomaly and Combined Anomaly datasets.
+- Produces the **highest precision** across all four evaluation datasets.
+- Generates substantially **fewer false alarms** than One-Class SVM while maintaining comparable recall.
+- Demonstrates the most consistent performance across different anomaly types.
+
+Because it maintains both high precision and high recall, Local Outlier Factor was selected as the preferred model for this project.
+
+---
+
+# Why Local Outlier Factor Was Selected
+
+The objective of this project is not only to detect anomalies, but also to minimise unnecessary alerts.
+
+Although One-Class SVM detects almost every anomaly, its high number of false positives would generate many unnecessary alerts in a real warehouse environment.
+
+Isolation Forest produces fewer false positives than One-Class SVM in some scenarios, but misses a larger proportion of anomalies.
+
+Local Outlier Factor provides the best trade-off between these competing objectives by:
+
+- Detecting nearly all anomalies.
+- Maintaining the highest precision.
+- Producing the fewest false alarms.
+- Performing consistently across all evaluation datasets.
+
+For these reasons, Local Outlier Factor is the recommended model for deployment in this synthetic supply-chain anomaly detection system.
+
+---
+
+# Running the API
 
 Start the FastAPI application from the project root:
 
@@ -202,25 +378,25 @@ Start the FastAPI application from the project root:
 uvicorn app:app --reload
 ```
 
-Swagger UI:
+Swagger UI
 
 ```text
 http://127.0.0.1:8000/docs
 ```
 
-Health endpoint:
+Health endpoint
 
 ```text
 GET /health
 ```
 
-Example response:
+Example response
 
 ```json
 {
-  "status": "healthy",
-  "service": "anomaly-detection-api",
-  "model_version": "1.0.0"
+    "status": "healthy",
+    "service": "anomaly-detection-api",
+    "model_version": "1.0.0"
 }
 ```
 
@@ -229,217 +405,443 @@ Example response:
 # API Endpoints
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
+|---------|----------|-------------|
 | GET | `/health` | Service health check |
-| POST | `/detect` | Predict anomaly for a single sensor reading |
+| POST | `/detect` | Detect anomaly for a single sensor reading |
+| POST | `/detect-window` | Detect anomaly for N readings |
 | POST | `/stream/start` | Start synthetic streaming |
-| POST | `/stream/stop` | Stop streaming |
+| POST | `/stream/stop` | Stop synthetic streaming |
 | POST | `/stream/reset` | Reset streaming state |
-| GET | `/stream/window/{model}` | Retrieve current rolling window |
-| GET | `/stream/latest/{model}` | Retrieve latest prediction |
-| GET | `/stream/history/{model}` | Retrieve prediction history |
+| GET | `/stream/rolling-window` | Retrieve the current rolling prediction window |
+| GET | `/stream/latest/{model}` | Retrieve the latest prediction |
+| GET | `/stream/prediction-history/{model}` | Retrieve recent prediction history |
 
 ---
 
 # Prediction API
 
-Supported model identifiers:
+Supported model identifiers
 
 - `iforest`
 - `lof`
 - `ocsvm`
 
-Example request:
+Example request
 
 ```json
 {
-  "model": "iforest",
-  "reading": {
-    "temperature": 22.0,
-    "humidity": 40.0,
-    "stock_count": 450
-  }
+    "model": "lof",
+    "reading": {
+        "temperature": 22.0,
+        "humidity": 45.0,
+        "stock_count": 420
+    }
 }
 ```
 
-Example response:
+Example response
 
 ```json
 {
-  "model": "iforest",
-  "model_label": "Isolation Forest",
-  "is_anomaly": false,
-  "score": -0.12,
-  "reasons": [
-    {
-      "feature": "temperature",
-      "contribution": 0.23
-    }
-  ],
-  "model_version": "1.0.0"
+    "model": "lof",
+    "model_label": "Local Outlier Factor",
+    "is_anomaly": false,
+    "score": 0.18,
+    "reasons": [
+        {
+            "feature": "temperature",
+            "contribution": 0.61
+        },
+        {
+            "feature": "humidity",
+            "contribution": 0.27
+        },
+        {
+            "feature": "stock_count",
+            "contribution": 0.12
+        }
+    ],
+    "model_version": "1.0.0"
 }
 ```
 
 ---
 
-## Understanding the Anomaly Score
+# Understanding the Anomaly Score
 
-The returned **score** is the raw anomaly score produced by the underlying model.
-
-For Isolation Forest and One-Class SVM, this value comes directly from the model's `decision_function()` output. For Local Outlier Factor, an equivalent anomaly score is returned using the estimator's scoring function.
+The returned anomaly score is the raw score produced by the underlying anomaly detection algorithm.
 
 The score:
 
 - is **not** a probability
-- should **not** be interpreted as a confidence percentage
-- is intended for comparing predictions produced by the **same model**
+- is **not** a confidence percentage
+- is intended only for comparing predictions generated by the **same model**
 
-Different algorithms produce scores on different scales, so scores should not be compared directly across models.
+Different algorithms compute anomaly scores using different scoring functions, therefore scores should **not** be compared directly between different models.
 
 ---
 
-# Streaming API
+# Streaming Simulation
 
-The streaming simulator generates one synthetic sensor reading every second.
-
-Each generated reading is evaluated by:
-
-- Isolation Forest
-- Local Outlier Factor
-- One-Class SVM
+- The project includes a synthetic streaming simulator that continuously generates sensor readings.
+- The streaming simulator maintains an in-memory rolling window using module-level state.
+- It is intended for demonstration purposes and assumes a single FastAPI process.
+- For production deployments this state should be replaced by Redis, Kafka, or another shared streaming store.
 
 During streaming:
 
-- every generated reading has a **5% probability** of containing an injected temperature anomaly
-- each model maintains a rolling window containing the latest **50** readings
-- prediction history is retained for the latest **50** predictions
+- A new sensor reading is generated every second.
+- Every reading is evaluated by all three trained models.
+- Each model maintains a rolling prediction window.
+- Recent prediction history is retained for inspection.
 
-Streaming model identifiers:
-
-- `1` or `iforest`
-- `2` or `lof`
-- `3` or `ocsvm`
-
-Streaming requires trained model artifacts.
-
-If the training pipeline has not been executed, calling
+Streaming can be controlled using:
 
 ```text
 POST /stream/start
+POST /stream/stop
+POST /stream/reset
 ```
 
-returns
+Prediction history can be retrieved using:
 
 ```text
-HTTP 503 Service Unavailable
+GET /stream/latest/{model}
+GET /stream/rolling-window
+GET /stream/detect-window/{model}
 ```
 
-until the models have been generated.
+## Limitations
 
-Example usage:
-
-```bash
-curl -X POST http://127.0.0.1:8000/stream/start
-
-curl http://127.0.0.1:8000/stream/latest/iforest
-
-curl http://127.0.0.1:8000/stream/history/lof
-
-curl -X POST http://127.0.0.1:8000/stream/stop
-```
+- Designed for a single-process development environment.
+- Not intended for multi-process or distributed deployments.
+- A production implementation should replace the in-memory state with a shared datastore or message queue.
+- Streaming requires trained model artifacts.
+- If the models have not yet been trained, prediction endpoints return **HTTP 503 Service Unavailable** until the training pipeline has been executed.
 
 ---
 
 # Module Guide
 
 | Module | Responsibility |
-|--------|----------------|
-| `app.py` | FastAPI application and API routes |
-| `main.py` | End-to-end training pipeline |
-| `schemas.py` | Request schemas and model validation |
-| `src/data.py` | Synthetic data generation and anomaly injection |
-| `src/train.py` | Trains all anomaly detection models |
-| `src/evaluate.py` | Evaluates trained models using the labeled synthetic dataset |
-| `src/plot.py` | Generates comparison plots |
-| `src/model_loader.py` | Lazily loads trained models and SHAP explainers |
-| `src/predict.py` | Prediction logic and feature contribution explanations |
-| `src/streaming.py` | Synthetic streaming simulator and rolling prediction state |
-| `src/anomaly.py` | Shared anomaly detection helper functions |
-| `src/*_model.py` | Lightweight wrappers around the sklearn estimators |
+|---------|----------------|
+| `app.py` | FastAPI application exposing health check, prediction, and streaming APIs |
+| `main.py` | Generates datasets, trains models, evaluates them, and exports benchmark results |
+| `schemas.py` | Pydantic request and response validation models |
+| `src/data.py` | Generates synthetic normal sensor data and injects anomaly scenarios for evaluation |
+| `src/train.py` | Trains Isolation Forest, One-Class SVM, and Local Outlier Factor models on normal data and deploys trained models |
+| `src/evaluate.py` | Evaluates deployed or candidate models on labelled benchmark datasets using Precision and Recall |
+| `src/retrain.py` | **Stretch Goal:** Simulates deployment-time drift adaptation using a rolling 30-day retraining window, evaluates candidate models, performs conditional deployment, updates model versions, and records deployment and performance logs |
+| `src/tuning.py` | Performs hyperparameter tuning for all anomaly detection models |
+| `src/tuning_utils.py` | Shared utilities for ranking hyperparameter combinations using Precision, Recall, F1-score, and PR Score |
+| `src/predict.py` | Performs anomaly prediction and generates SHAP-based feature explanations |
+| `src/model_loader.py` | Lazily loads trained models, SHAP explainers, feature metadata, and model version information |
+| `src/streaming.py` | Simulates real-time sensor streaming with a rolling prediction window |
+| `src/plot.py` | Generates visualizations for generated datasets and anomaly behaviour |
+| `src/isolation_forest_model.py` | Wrapper around the Isolation Forest implementation |
+| `src/lof_model.py` | Wrapper around the Local Outlier Factor implementation |
+| `src/one_class_svm_model.py` | Wrapper around the One-Class SVM implementation |
+
+---
+
+# Testing
+
+The project includes a comprehensive test suite covering API behavior, model evaluation, retraining, prediction logic, benchmark regression, and dataset reproducibility.
+
+Test files:
+
+```text
+tests/
+├── conftest.py
+├── test_api.py
+├── test_evaluate.py
+├── test_models.py
+├── test_predict.py
+├── test_reproducibility.py
+└── test_retrain.py
+```
+
+`conftest.py` automatically prepares the required test environment by generating benchmark datasets and training model artifacts if they are not already present. This enables the entire test suite to run successfully on a fresh clone without requiring a manual execution of `main.py`.
+
+Run all tests using:
+
+```bash
+python -m pytest
+```
+
+Expected output:
+
+```text
+45 passed
+```
+
+The test suite covers:
+
+- API endpoint validation (`/detect` and `/detect-window`)
+- Request schema validation and error handling
+- Model loading and prediction
+- Prediction response format and SHAP explanations
+- Benchmark evaluation across all anomaly types
+- Recall floor regression tests for benchmark datasets
+- Dataset reproducibility verification with floating-point tolerance
+- Rolling-window generation
+- Model comparison and deployment decision logic
+- Retraining workflow and utility functions
+- Automatic test environment setup on clean checkouts
 
 ---
 
 # Challenges Faced
 
-## Model serialization
+## Training One-Class Models
 
-Initially, trained wrapper classes were serialized directly. This caused module path compatibility issues when loading models from different execution contexts.
+Unlike supervised machine learning, the models used in this project are trained **only on normal sensor readings**.
 
-The solution was to serialize the underlying scikit-learn estimators using `joblib`, making model loading more portable and reliable.
+This required creating separate datasets:
+
+- A normal dataset for model training.
+- Independent labelled anomaly datasets for evaluation and hyperparameter tuning.
+
+This approach better reflects real-world anomaly detection systems where anomalous examples are often rare or unavailable during training.
 
 ---
 
-## Separating training from inference
+## Hyperparameter Selection
 
-Earlier versions executed training-related work during module import.
+Each anomaly detection algorithm behaves differently depending on its hyperparameters.
 
-The project was refactored into a dedicated pipeline (`main.py`) so that:
+To identify the best configuration, a dedicated hyperparameter tuning pipeline was implemented that evaluates every parameter combination across multiple anomaly datasets.
+
+Instead of selecting models based solely on Precision or Recall, configurations are ranked using:
+
+1. PR Score (average of Precision and Recall)
+2. F1 Score
+3. False Positives (ascending)
+4. False Negatives (ascending)
+
+This ranking strategy helps select models that provide a balanced trade-off between detecting anomalies and minimizing false alarms.
+
+---
+
+## Separating Training from Inference
+
+The project separates the training pipeline from the prediction API.
+
+Training tasks such as:
 
 - data generation
-- training
+- model training
+- hyperparameter tuning
 - evaluation
-- visualization
 
-are performed only when explicitly requested.
+are executed independently from the FastAPI application.
 
-The FastAPI application now starts independently of the training pipeline.
-
----
-
-## Lazy model loading
-
-The API now lazily loads trained model artifacts only when predictions are requested.
-
-This allows the application to start successfully even if trained models have not yet been generated.
-
-Prediction and streaming endpoints return **HTTP 503** until the training pipeline has been executed.
+This allows the API to focus only on inference and improves maintainability.
 
 ---
 
-## Streaming state management
+## Model Persistence
 
-The streaming simulator maintains rolling windows and prediction history using bounded `deque` objects.
+Trained models are serialized using **Joblib** and loaded only when required.
 
-Explicit start, stop, and reset operations are provided to avoid duplicate background threads and stale streaming state.
-
----
-
-## Model performance
-
-The three anomaly detection algorithms perform differently on the current synthetic dataset.
-
-Local Outlier Factor currently provides the strongest performance, while One-Class SVM requires additional tuning and feature scaling.
+Lazy loading reduces application startup time and avoids loading large model artifacts until predictions are requested.
 
 ---
 
-# Future Work
+## Streaming State Management
 
-Potential improvements include:
+The streaming simulator maintains a rolling window of recent predictions for each model.
 
-- Add automated tests for prediction, streaming, and API behavior.
-- Apply feature scaling before training distance-based models.
-- Tune hyperparameters for each anomaly detection algorithm.
-- Improve streaming scalability using external state management for multi-worker deployments.
-- Expand evaluation with additional datasets and performance metrics.
-- Add configurable training parameters through the API or configuration files.
+This enables users to inspect:
+
+- the latest prediction
+- recent prediction history
+- rolling window data
+
+without continuously retraining the models.
+
+---
+
+# Future Improvements
+
+Potential enhancements include:
+
+- Automatic nightly retraining using the latest normal sensor data.
+- Automatic model selection based on evaluation metrics.
+- Additional anomaly scenarios such as humidity drift and combined environmental anomalies.
+- Real-time streaming using Redis,Kafka or MQTT instead of a synthetic simulator.
+- Model performance monitoring and drift detection.
+- Docker support for simplified deployment.
+- CI/CD integration using GitHub Actions.
+- Support for configurable model parameters through API requests.
 
 ---
 
 # Notes
 
-- All commands should be executed from the `ml-services/anomaly-detection` directory.
-- The API accepts model identifiers (`iforest`, `lof`, `ocsvm`) rather than display names.
-- `zoneinfo` is part of the Python standard library and does not need to be listed in `requirements.txt`.
-- Trained model artifacts are saved using `joblib` and loaded lazily during inference.
-- Generated artifacts (`models/` and `output/`) are intentionally excluded from version control.
-- The anomaly score returned by the API is the model's raw scoring output (such as `decision_function()` where available). It is intended for relative comparison within the same model and should not be interpreted as a probability.
+- Execute all commands from the `ml-services/anomaly-detection` directory.
+- Models must be trained before using prediction or streaming endpoints.
+- Trained model artifacts are stored in the `models/` directory.
+- Evaluation datasets and generated reports are stored in the `output/` directory.
+- The anomaly score returned by the API is the model's raw scoring output and should not be interpreted as a probability.
+- Hyperparameter tuning results are generated separately and saved as `output/hyperparameter_tuning_results.csv`.
+- Local Outlier Factor was selected as the preferred model because it consistently achieved the best balance between anomaly detection performance and false alarm reduction across all evaluation datasets.
+
+
+# Stretch Goal: Deployment Mode (Drift Adaptation)
+
+## Retraining Guide (Stretch Goal)
+
+The project includes a deployment-oriented retraining pipeline to demonstrate how anomaly detection models can adapt to changing data distributions after deployment.
+
+Unlike the initial training pipeline, retraining operates on a **rolling window of recent normal sensor data**, simulating continuous model maintenance.
+
+## Retraining Workflow
+
+```text
+Generate 35 Days of Normal Data
+                │
+                ▼
+Create 6 Rolling 30-Day Windows
+                │
+                ▼
+For Each Window
+                │
+                ▼
+Evaluate Currently Deployed Models
+                │
+                ▼
+Train Candidate Models
+                │
+                ▼
+Evaluate Candidate Models
+                │
+                ▼
+Compare Average Precision
+                │
+        ┌───────┴────────┐
+        │                │
+ Precision Improved?     No
+        │                │
+       Yes               │
+        │                │
+Deploy Candidate     Keep Existing Models
+Update Version
+Write Logs
+```
+
+---
+
+## Rolling Window
+
+The retraining pipeline generates **35 days** of normal operating data and creates **6 rolling windows** of **30 days** each.
+
+```text
+Window 1 : Day 1  → Day 30
+Window 2 : Day 2  → Day 31
+Window 3 : Day 3  → Day 32
+Window 4 : Day 4  → Day 33
+Window 5 : Day 5  → Day 34
+Window 6 : Day 6  → Day 35
+```
+
+Each window represents a simulated nightly retraining cycle using the latest available normal operating data.
+
+---
+
+## Deployment Strategy
+
+For every rolling window, the pipeline:
+
+1. Evaluates the currently deployed models.
+2. Trains candidate models using the latest normal data.
+3. Evaluates candidate models on all benchmark datasets.
+4. Compares the average Precision across benchmark datasets.
+5. Deploys the candidate models only if they outperform the currently deployed models.
+6. Increments the model version after successful deployment.
+7. Logs every deployment decision and model performance.
+
+---
+
+## Model Versioning
+
+Every successful deployment increments the deployed model version.
+
+Example:
+
+```text
+1.0.0
+   ↓
+1.0.1
+   ↓
+1.0.2
+```
+
+The current deployed version is maintained in:
+
+```text
+models/model_metadata.json
+```
+
+---
+
+## Generated Logs
+
+### `retrain_log.csv`
+
+Stores deployment decisions.
+
+| Column |
+|--------|
+| Timestamp |
+| Window |
+| Window Start |
+| Window End |
+| Model |
+| Old Version |
+| Candidate Version |
+| Old Precision |
+| New Precision |
+| Decision |
+| Reason |
+
+---
+
+### `model_performance_history.csv`
+
+Stores detailed evaluation metrics for every retraining cycle.
+
+| Column |
+|--------|
+| Timestamp |
+| Window |
+| Dataset |
+| Model |
+| Version |
+| Precision |
+| Recall |
+| Caught |
+| False Alarms |
+| Predicted |
+
+This historical log enables comparison of model performance across multiple retraining cycles and helps identify the most suitable model for future deployment.
+
+---
+
+## Running Retraining
+
+
+```bash
+python -m src.retrain
+```
+
+The retraining script will:
+
+- Generate 35 days of normal sensor data.
+- Simulate six rolling 30-day retraining windows.
+- Evaluate deployed and candidate models.
+- Conditionally deploy improved models.
+- Update model version metadata.
+- Generate deployment and performance logs.
+
+---
