@@ -71,7 +71,10 @@ class ConfigRule(BaseModel):
 
     def evaluate(self, df: pd.DataFrame) -> pd.Series:
         if self.field and self.field not in df.columns:
-            return pd.Series(True, index=df.index, dtype=bool)
+            # Fail loudly instead of silently flagging all rows as invalid
+            raise ValueError(
+                f"CRITICAL: Rule '{self.name}' expects field '{self.field}', but it is missing from the dataset.")
+            # return pd.Series(True, index=df.index, dtype=bool)
 
         s: Optional[pd.Series] = df[self.field] if self.field else None
 
