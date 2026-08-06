@@ -56,6 +56,16 @@ def check_duplicate_rows(
     return df.duplicated(keep=keep)
 
 
+def check_composite_unique(
+    df: pd.DataFrame,
+    subset: list,
+    keep: Literal['first', 'last', False] = False,
+    **kwargs
+) -> pd.Series:
+    """Checks for duplicated rows based on a subset of columns (Composite Key)."""
+    return df.duplicated(subset=subset, keep=keep)
+
+
 # ==========================================
 # TRANSFORMATION RULES (type: transform)
 # Uses 'target_col' to bypass the standard keys filter
