@@ -39,56 +39,6 @@ def save_refresh_token(user_id: int, token: str, expires_at):
     finally:
         db.close()
 
-
-'''def get_refresh_token(
-    token: str
-):
-    db = SessionLocal()
-    try:
-
-        refresh = (
-            db.query(RefreshToken)
-            .filter(
-                RefreshToken.token == token
-            )
-            .first()
-        )
-
-        if refresh is None:
-            return None
-
-        if refresh.is_revoked:
-            return None
-
-        return refresh
-
-    finally:
-
-        db.close()
-
-
-def revoke_refresh_token(
-    token: str
-):
-
-    db = SessionLocal()
-    try:
-        refresh = (
-            db.query(RefreshToken)
-            .filter(
-                RefreshToken.token == token
-            )
-            .first()
-        )
-        if refresh is None:
-            return False
-
-        refresh.is_revoked = True
-        db.commit()
-        return True
-    
-    finally:
-        db.close()'''
 def get_refresh_token(token: str):
 
     db = SessionLocal()
