@@ -130,6 +130,9 @@ class DataValidator:
         try:
             with open(config_path, 'r') as f:
                 data: Dict[str, Any] = yaml.safe_load(f)
+            # Handle empty files which cause safe_load to return None
+            if data is None:
+                raise ValueError("YAML file is completely empty.")
         except Exception as e:
             raise ValueError(f"Config parse failed: {e}")
 
