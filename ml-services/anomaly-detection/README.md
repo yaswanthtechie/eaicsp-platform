@@ -12,31 +12,37 @@ The project includes:
 - Synthetic anomaly injection
 - Model training using only normal data
 - Hyperparameter tuning
-- Model evaluation on multiple anomaly datasets
+- Benchmark evaluation across multiple anomaly datasets
 - SHAP-based feature contribution explanations
-- REST API built with FastAPI
+- FastAPI REST API for anomaly detection
+- Single-reading and rolling-window anomaly detection
 - Synthetic streaming simulation
 - Rolling prediction window
-- Unit testing using pytest
+- Rolling-window retraining for drift adaptation (Stretch Goal)
+- Automatic model versioning and deployment decisions
+- Comprehensive unit and regression testing using pytest
 
 ---
 
 # Features
 
 - Synthetic supply-chain sensor data generation
-- Automatic anomaly injection
+- Automatic anomaly injection across multiple anomaly scenarios
 - Three unsupervised anomaly detection models
   - Isolation Forest
   - Local Outlier Factor (LOF)
   - One-Class SVM
-- Hyperparameter tuning
-- Precision, Recall, PR Score and F1 evaluation
-- Multiple anomaly evaluation datasets
-- Model persistence using Joblib
-- SHAP explanations for predictions
-- Streaming anomaly detection
-- REST API using FastAPI
-- Unit tests using pytest
+- Hyperparameter tuning with model ranking
+- Benchmark evaluation using Precision and Recall across four anomaly datasets
+- Model persistence and versioning using Joblib
+- SHAP-based feature contribution explanations (Top 3 features)
+- Single-reading anomaly detection (`/detect`)
+- Rolling-window anomaly detection (`/detect-window`)
+- Synthetic streaming simulation with rolling prediction history
+- Rolling-window retraining for drift adaptation
+- Conditional model deployment based on benchmark performance
+- REST API built with FastAPI
+- Comprehensive unit and regression testing using pytest
 
 ---
 
@@ -78,20 +84,21 @@ ml-services/
     │   ├── tuning.py                  # Hyperparameter tuning
     │   ├── tuning_utils.py            # Shared tuning utilities
     │   ├── predict.py                 # Prediction and SHAP explanations
-    │   ├── streaming.py               # Streaming simulator and rolling window support
+    │   ├── streaming.py               # Streaming simulator with rolling window support
     │   ├── plot.py                    # Performance visualization
-    │   ├── model_loader.py            # Lazy loading of deployed models and explainers
+    │   ├── model_loader.py            # Lazy loading of deployed models and SHAP explainers
     │   ├── isolation_forest_model.py  # Isolation Forest wrapper
     │   ├── lof_model.py               # Local Outlier Factor wrapper
     │   └── one_class_svm_model.py     # One-Class SVM wrapper
     │
     └── tests/
+        ├── conftest.py                # Session fixture to prepare datasets and models
         ├── test_api.py                # API endpoint tests
-        ├── test_evaluate.py           # Benchmark and recall floor tests
+        ├── test_evaluate.py           # Benchmark evaluation and recall floor tests
         ├── test_models.py             # Model wrapper tests
-        ├── test_predict.py            # Prediction and SHAP tests
-        └── test_retrain.py            # Retraining workflow tests
-```
+        ├── test_predict.py            # Prediction and SHAP explanation tests
+        ├── test_reproducibility.py    # Dataset reproducibility regression test
+        └── test_retrain.py            # Rolling-window retraining tests
 
 Generated model artifacts and evaluation outputs are intentionally excluded from version control.
 
@@ -129,6 +136,7 @@ Main dependencies
 - joblib
 - pytest
 - httpx2
+- logging
 
 ---
 
@@ -404,9 +412,9 @@ Example response
 | POST | `/stream/start` | Start synthetic streaming |
 | POST | `/stream/stop` | Stop synthetic streaming |
 | POST | `/stream/reset` | Reset streaming state |
-| GET | `/stream/rolling-window/{model}` | Retrieve the current rolling prediction window |
+| GET | `/stream/rolling-window` | Retrieve the current rolling prediction window |
 | GET | `/stream/latest/{model}` | Retrieve the latest prediction |
-| GET | `/stream/detect-window/{model}` | Retrieve recent prediction history |
+| GET | `/stream/prediction-history/{model}` | Retrieve recent prediction history |
 
 ---
 
@@ -499,7 +507,7 @@ Prediction history can be retrieved using:
 
 ```text
 GET /stream/latest/{model}
-GET /stream/rolling-window/{model}
+GET /stream/rolling-window
 GET /stream/detect-window/{model}
 ```
 
@@ -507,7 +515,6 @@ GET /stream/detect-window/{model}
 
 - Designed for a single-process development environment.
 - Not intended for multi-process or distributed deployments.
-- Concurrent access is not synchronized with thread locks.
 - A production implementation should replace the in-memory state with a shared datastore or message queue.
 - Streaming requires trained model artifacts.
 - If the models have not yet been trained, prediction endpoints return **HTTP 503 Service Unavailable** until the training pipeline has been executed.
@@ -539,18 +546,22 @@ GET /stream/detect-window/{model}
 
 # Testing
 
-Unit tests are provided to verify the core functionality of the project, including model evaluation, retraining, API endpoints, and prediction logic.
+The project includes a comprehensive test suite covering API behavior, model evaluation, retraining, prediction logic, benchmark regression, and dataset reproducibility.
 
 Test files:
 
 ```text
 tests/
+├── conftest.py
 ├── test_api.py
 ├── test_evaluate.py
 ├── test_models.py
 ├── test_predict.py
+├── test_reproducibility.py
 └── test_retrain.py
 ```
+
+`conftest.py` automatically prepares the required test environment by generating benchmark datasets and training model artifacts if they are not already present. This enables the entire test suite to run successfully on a fresh clone without requiring a manual execution of `main.py`.
 
 Run all tests using:
 
@@ -561,7 +572,7 @@ python -m pytest
 Expected output:
 
 ```text
-44 passed
+45 passed
 ```
 
 The test suite covers:
@@ -570,11 +581,13 @@ The test suite covers:
 - Request schema validation and error handling
 - Model loading and prediction
 - Prediction response format and SHAP explanations
-- Evaluation pipeline and benchmark metrics
+- Benchmark evaluation across all anomaly types
 - Recall floor regression tests for benchmark datasets
-- Rolling window generation
+- Dataset reproducibility verification with floating-point tolerance
+- Rolling-window generation
 - Model comparison and deployment decision logic
-- Retraining utility functions
+- Retraining workflow and utility functions
+- Automatic test environment setup on clean checkouts
 
 ---
 

@@ -18,7 +18,10 @@ model_mapping = {
     "3": "ocsvm",
 }
 
-# One rolling window for the sensor stream
+# Shared state
+
+state_lock = threading.Lock()
+
 rolling_window = deque(maxlen=window_size)
 
 latest_results = {
@@ -33,7 +36,9 @@ prediction_history = {
     "ocsvm": deque(maxlen=history_size),
 }
 
-current_time = pd.Timestamp.now(tz=ZoneInfo("Asia/Kolkata")).floor("s")
+current_time = pd.Timestamp.now(
+    tz=ZoneInfo("Asia/Kolkata")
+).floor("s")
 
 running = False
 stream_thread = None
@@ -42,6 +47,10 @@ np.random.seed(42)
 
 
 def generate_reading():
+    """
+    Generate one synthetic sensor reading.
+    """
+
     global current_time
 
     reading = {
@@ -53,7 +62,6 @@ def generate_reading():
     planted = False
     anomaly_type = None
 
-    # 5% chance of injecting an anomaly
     if np.random.random() < 0.05:
 
         planted = True
@@ -68,43 +76,67 @@ def generate_reading():
         )
 
         if anomaly_type == "temperature_spike":
-            reading["temperature"] += float(np.random.uniform(8, 15))
+            reading["temperature"] += float(
+                np.random.uniform(8, 15)
+            )
 
         elif anomaly_type == "humidity_anomaly":
-            reading["humidity"] += float(np.random.uniform(20, 35))
+            reading["humidity"] += float(
+                np.random.uniform(20, 35)
+            )
 
         elif anomaly_type == "stock_anomaly":
-            reading["stock_count"] += float(np.random.uniform(150, 300))
+            reading["stock_count"] += float(
+                np.random.uniform(150, 300)
+            )
 
         elif anomaly_type == "combined_anomaly":
-            reading["temperature"] += float(np.random.uniform(8, 15))
-            reading["humidity"] += float(np.random.uniform(20, 35))
+            reading["temperature"] += float(
+                np.random.uniform(8, 15)
+            )
+            reading["humidity"] += float(
+                np.random.uniform(20, 35)
+            )
 
-    timestamp = current_time
-    current_time += pd.Timedelta(seconds=1)
+    with state_lock:
+        timestamp = current_time
+        current_time += pd.Timedelta(seconds=1)
 
     return timestamp, reading, planted, anomaly_type
 
 
 def stream_loop():
+    """
+    Background streaming thread.
+    """
+
     global running
 
-    while running:
+    while True:
+
+        with state_lock:
+            if not running:
+                break
 
         timestamp, reading, planted, anomaly_type = generate_reading()
 
-        rolling_window.append(
-            {
-                "timestamp": timestamp.isoformat(),
-                **reading,
-                "planted_anomaly": planted,
-                "anomaly_type": anomaly_type,
-            }
-        )
+        with state_lock:
+
+            rolling_window.append(
+                {
+                    "timestamp": timestamp.isoformat(),
+                    **reading,
+                    "planted_anomaly": planted,
+                    "anomaly_type": anomaly_type,
+                }
+            )
 
         for model in latest_results:
 
-            result = predict(reading, model)
+            result = predict(
+                reading,
+                model,
+            )
 
             prediction = {
                 "timestamp": timestamp.isoformat(),
@@ -114,73 +146,125 @@ def stream_loop():
                 **result,
             }
 
-            latest_results[model] = prediction
+            with state_lock:
 
-            prediction_history[model].append(prediction)
+                latest_results[model] = prediction
+
+                prediction_history[model].append(
+                    prediction
+                )
 
         time.sleep(1)
 
 
 def start_stream():
-    global running, stream_thread
+    """
+    Start background streaming.
+    """
 
-    if running:
-        return False
+    global running
+    global stream_thread
 
-    # Ensure trained models exist before starting the stream.
-    get_models()
+    with state_lock:
 
-    running = True
+        if running:
+            return False
 
-    stream_thread = threading.Thread(
-        target=stream_loop,
-        daemon=True,
-    )
+        get_models()
 
-    stream_thread.start()
+        running = True
+
+        stream_thread = threading.Thread(
+            target=stream_loop,
+            daemon=True,
+        )
+
+        stream_thread.start()
 
     return True
 
 
 def stop_stream():
+    """
+    Stop background streaming.
+    """
+
     global running
 
-    running = False
+    with state_lock:
+        running = False
 
 
 def reset_stream():
+    """
+    Reset all streaming state.
+    """
+
     global current_time
 
     stop_stream()
 
-    current_time = pd.Timestamp.now(tz=ZoneInfo("Asia/Kolkata")).floor("s")
+    with state_lock:
 
-    rolling_window.clear()
+        current_time = pd.Timestamp.now(
+            tz=ZoneInfo("Asia/Kolkata")
+        ).floor("s")
 
-    for history in prediction_history.values():
-        history.clear()
+        rolling_window.clear()
 
-    for model in latest_results:
-        latest_results[model] = None
+        for history in prediction_history.values():
+            history.clear()
+
+        for model in latest_results:
+            latest_results[model] = None
 
 
 def get_window():
-    return list(rolling_window)
+    """
+    Return the current rolling window.
+    """
+
+    with state_lock:
+        return list(rolling_window)
 
 
 def get_latest(model):
-    model = model_mapping.get(model, model)
+    """
+    Return the latest prediction.
+    """
 
-    if model not in latest_results:
-        raise ValueError("Invalid model.")
+    model = model_mapping.get(
+        model,
+        model,
+    )
 
-    return latest_results[model]
+    with state_lock:
+
+        if model not in latest_results:
+            raise ValueError(
+                "Invalid model."
+            )
+
+        return latest_results[model]
 
 
 def get_history(model):
-    model = model_mapping.get(model, model)
+    """
+    Return prediction history.
+    """
 
-    if model not in prediction_history:
-        raise ValueError("Invalid model.")
+    model = model_mapping.get(
+        model,
+        model,
+    )
 
-    return list(prediction_history[model])
+    with state_lock:
+
+        if model not in prediction_history:
+            raise ValueError(
+                "Invalid model."
+            )
+
+        return list(
+            prediction_history[model]
+        )
