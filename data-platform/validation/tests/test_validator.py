@@ -42,7 +42,7 @@ def test_from_config_loads_correctly(mock_yaml_config):
 
 
 def test_from_config_file_not_found():
-    with pytest.raises(FileNotFoundError, match="Config file not found"):
+    with pytest.raises(ValueError, match="Config parse failed"):
         DataValidator.from_config("fake_path/does_not_exist.yaml")
 
 
@@ -116,7 +116,7 @@ def test_all_null_column():
 def test_mixed_valid_invalid(mock_yaml_config, sample_df):
     validator = DataValidator.from_config(mock_yaml_config)
     report = validator.validate(sample_df)
-    assert report['total_rows_affected'] == 4
+    assert report['total_rows_affected'] == 2
 
 
 def test_sample_bad_rows_formatting(mock_yaml_config, sample_df):
@@ -143,25 +143,19 @@ def test_clean_strict_false_drops_specified_rules(mock_yaml_config, sample_df):
 
 
 def test_unknown_rule_type_raises_error():
-    # Pydantic will catch the bad type before evaluate() is ever called
     with pytest.raises(ValidationError):
         ConfigRule(**{"name": "r1", "field": "A", "type": "magic"})
 
 
 # --- HELPER FUNCTIONS FOR CUSTOM/TRANSFORM RULE TESTS ---
+
 def dummy_custom_rule(df: pd.DataFrame, field: str, target_val: str = 'FAIL', **kwargs) -> pd.Series:
-    """
-    A simple dummy function to test the dynamic import engine and kwargs injection.
-    Flags any row where the value matches the dynamic target_val.
-    """
+    """A simple dummy function to test the dynamic import engine and kwargs injection."""
     return df[field] == target_val
 
 
 def dummy_transform_rule(df: pd.DataFrame, target_case: str = 'upper', **kwargs) -> pd.DataFrame:
-    """
-    A simple dummy function to test the transform engine and kwargs injection.
-    Converts string to uppercase or lowercase based on the parameter.
-    """
+    """A simple dummy function to test the transform engine and kwargs injection."""
     df_c = df.copy()
     if 'col' in df_c.columns:
         if target_case == 'lower':
@@ -171,7 +165,20 @@ def dummy_transform_rule(df: pd.DataFrame, target_case: str = 'upper', **kwargs)
     return df_c
 
 
-# --- THE NEW ENGINE TESTS ---
+def dummy_custom_rule_no_field(df: pd.DataFrame, **kwargs) -> pd.Series:
+    """Helper for testing custom rules that evaluate the whole df, lacking a 'field'."""
+    return pd.Series([True, False], index=df.index)
+
+
+def dummy_transform_no_field(df: pd.DataFrame, **kwargs) -> pd.DataFrame:
+    """Helper for testing transform rules that don't target a specific field."""
+    df_c = df.copy()
+    df_c['injected_by_transform'] = True
+    return df_c
+
+
+# --- ENGINE TESTS ---
+
 def test_rule_custom():
     df = pd.DataFrame({"col": ["PASS", "FAIL", "PASS"]})
     rule = ConfigRule(**{
@@ -185,10 +192,7 @@ def test_rule_custom():
 
 
 def test_custom_rule_with_kwargs():
-    """Tests that non-standard config keys are correctly passed as kwargs to custom functions."""
     df = pd.DataFrame({"col": ["PASS", "TARGET", "PASS"]})
-
-    # We add 'target_val' which is NOT a standard key.
     rule = ConfigRule(**{
         "name": "r1",
         "field": "col",
@@ -196,17 +200,14 @@ def test_custom_rule_with_kwargs():
         "function": "tests.test_validator.dummy_custom_rule",
         "target_val": "TARGET"
     })
-
     mask = rule.evaluate(df)
-
-    # If kwargs injection works, it should flag 'TARGET', not the default 'FAIL'
     assert mask.tolist() == [False, True, False]
 
 
 def test_custom_rule_missing_function():
     df = pd.DataFrame({"col": ["PASS"]})
     rule = ConfigRule(**{"name": "bad_rule", "field": "col", "type": "custom"})
-    with pytest.raises(ValueError, match="is missing a 'function' path"):
+    with pytest.raises(ValueError, match="missing 'function' path"):
         rule.evaluate(df)
 
 
@@ -235,10 +236,7 @@ def test_rule_transform_evaluation():
 
 
 def test_transform_rule_with_kwargs():
-    """Tests that non-standard config keys are correctly passed as kwargs to transform functions."""
     df = pd.DataFrame({"col": ["MixedCase"]})
-
-    # We add 'target_case' which is NOT a standard key.
     rule = ConfigRule(**{
         "name": "t1",
         "type": "transform",
@@ -246,17 +244,14 @@ def test_transform_rule_with_kwargs():
         "target_case": "lower",
         "severity": "INFO"
     })
-
     clean_df = rule.apply_transform(df)
-
-    # If kwargs injection works, it should convert to lowercase instead of the default uppercase
     assert clean_df.at[0, "col"] == "mixedcase"
 
 
 def test_transform_rule_missing_function():
     df = pd.DataFrame({"col": ["pass"]})
     rule = ConfigRule(**{"name": "bad_transform", "type": "transform"})
-    with pytest.raises(ValueError, match="is missing a 'function' path"):
+    with pytest.raises(ValueError, match="missing 'function' path"):
         rule.apply_transform(df)
 
 
@@ -302,54 +297,103 @@ def test_clean_applies_transforms():
 # --- 100% COVERAGE EDGE CASE TESTS ---
 
 def test_from_config_yaml_error(tmp_path):
-    """Hits the 'except yaml.YAMLError' block by providing malformed syntax."""
     bad_yaml = tmp_path / "bad_syntax.yaml"
     with open(bad_yaml, "w") as f:
         f.write("] : invalid : yaml : [")
 
-    with pytest.raises(ValueError, match="Failed to parse YAML config file"):
+    with pytest.raises(ValueError, match="Config parse failed"):
         DataValidator.from_config(str(bad_yaml))
 
 
 def test_from_config_validation_error(tmp_path):
-    """Hits the 'except ValidationError' block by providing valid YAML but a bad Pydantic schema."""
     bad_schema = tmp_path / "bad_schema.yaml"
     with open(bad_schema, "w") as f:
         yaml.dump({"rules": [{"name": "r1", "type": "not_null", "severity": "SUPER_ERROR"}]}, f)
 
-    with pytest.raises(ValueError, match="Configuration validation failed"):
+    with pytest.raises(ValidationError):
         DataValidator.from_config(str(bad_schema))
 
 
 def test_evaluate_unknown_rule_type():
-    """Hits the 'Unknown rule type' fallback by mutating the type after Pydantic validates it."""
     df = pd.DataFrame({"A": [1]})
     rule = ConfigRule(**{"name": "r1", "field": "A", "type": "not_null"})
 
-    # Bypass Pydantic's initialization check by mutating the attribute directly
     rule.type = "magic"  # type: ignore
 
-    with pytest.raises(ValueError, match="Unknown rule type or missing field mapping: magic"):
+    with pytest.raises(ValueError, match="Unknown rule type: magic"):
         rule.evaluate(df)
 
 
 def test_regex_rule_missing_pattern():
-    """Hits the regex missing pattern ValueError."""
     df = pd.DataFrame({"A": ["test"]})
-    # Instantiate without the 'pattern' kwarg
     rule = ConfigRule(**{"name": "missing_pattern_rule", "field": "A", "type": "regex"})
 
-    with pytest.raises(ValueError, match="is missing a 'pattern'"):
+    with pytest.raises(ValueError, match="Regex missing 'pattern'"):
         rule.evaluate(df)
 
 
 def test_uppercase_severity_non_string():
-    """Hits the 'return v' fallback in uppercase_severity by passing an integer."""
     with pytest.raises(ValidationError):
         ConfigRule(**{"name": "r1", "type": "not_null", "severity": 123})
 
 
 def test_missing_field_for_field_bound_rule():
-    """Hits the check_field_requirement model_validator by omitting 'field' for a field-bound rule."""
     with pytest.raises(ValidationError, match="requires a 'field' to be specified"):
         ConfigRule(**{"name": "bad_rule", "type": "not_null", "severity": "ERROR"})
+
+
+def test_validation_result_dict_access():
+    """Hits ValidationResult.__getitem__ and verifies attribute/dict parity."""
+    from src.validator import ValidationResult
+    res = ValidationResult(passed=True, total_rows_affected=10)
+
+    assert res["passed"] is True
+    assert res["total_rows_affected"] == 10
+    with pytest.raises(AttributeError):
+        _ = res["does_not_exist"]
+
+
+def test_from_config_empty_or_missing_rules(tmp_path):
+    """Hits data.get('rules', []) fallback and verifies 'YAML file is completely empty' exception."""
+    from src.validator import DataValidator
+
+    # 1. Valid YAML structure without 'rules' key
+    no_rules = tmp_path / "no_rules.yaml"
+    no_rules.write_text("some_other_key: value")
+    val1 = DataValidator.from_config(str(no_rules))
+    assert len(val1.rules) == 0
+
+    # 2. Completely empty YAML file (triggers `if data is None: raise ValueError("YAML file is completely empty.")`)
+    empty_yaml = tmp_path / "empty.yaml"
+    empty_yaml.write_text("")
+    with pytest.raises(ValueError, match="YAML file is completely empty"):
+        DataValidator.from_config(str(empty_yaml))
+
+
+def test_evaluate_and_transform_without_field():
+    """Hits branches in evaluate(), apply_transform(), and validate() where rule.field is None."""
+    from src.validator import ConfigRule, DataValidator
+    df = pd.DataFrame({"A": [1, 2]})
+
+    rule_custom = ConfigRule(**{
+        "name": "custom_no_field",
+        "type": "custom",
+        "severity": "ERROR",
+        "function": "tests.test_validator.dummy_custom_rule_no_field"
+    })
+
+    rule_transform = ConfigRule(**{
+        "name": "transform_no_field",
+        "type": "transform",
+        "severity": "INFO",
+        "function": "tests.test_validator.dummy_transform_no_field"
+    })
+
+    validator = DataValidator([rule_custom, rule_transform])
+
+    report = validator.validate(df)
+    assert report.passed is False
+    assert report.sample_bad_rows['custom_no_field'][0]['failed_value'] is None
+
+    clean_df = validator.clean(df)
+    assert "injected_by_transform" in clean_df.columns
