@@ -5,15 +5,11 @@ import { Spinner } from "./Spinner";
 
 export type ButtonProps = {
   variant?: "primary" | "secondary" | "danger";
-
   size?: "sm" | "md";
-
   loading?: boolean;
-
   disabled?: boolean;
-
+  type?: "button" | "submit" | "reset";
   onClick?: () => void;
-
   children: ReactNode;
 };
 

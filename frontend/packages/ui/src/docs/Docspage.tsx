@@ -15,6 +15,17 @@ import { Table, type Column } from "../components/Table";
 import { DataTable } from "../components/DataTable";
 import type { Column as DataTableColumn } from "../components/DataTable";
 
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+
+const schema = z.object({
+  email: z.string().email("Enter a valid email"),
+  quantity: z.coerce.number().min(1, "Must be at least 1"),
+});
+
+type FormValues = z.infer<typeof schema>;
+
 
 type Inventory = {
   product: string;
@@ -136,6 +147,23 @@ export function DocsPage() {
 
   const [showToast, setShowToast] =
     useState(false);
+
+  const methods = useForm<
+  z.input<typeof schema>,
+  unknown,
+  z.output<typeof schema>
+>({
+  resolver: zodResolver(schema),
+  defaultValues: {
+    email: "",
+    quantity: 1,
+  },
+});
+
+
+  const onSubmit = (data: FormValues) => {
+    console.log(data);
+  };
 
 
   return (
@@ -302,16 +330,40 @@ export function DocsPage() {
       />
 
 
-      <h2>Data Table</h2>
+ <h2>Data Table</h2>
 
-      <DataTable
-        columns={dataTableColumns}
-        data={inventoryData}
-        rowKey={(row) =>
-          row.product
-        }
-      />
+<DataTable
+  columns={dataTableColumns}
+  data={inventoryData}
+  rowKey={(row) =>
+    row.product
+  }
+/>
 
-    </div>
+<h2>React Hook Form Example</h2>
+
+<form onSubmit={methods.handleSubmit(onSubmit)}>
+  <div style={{ display: "flex", flexDirection: "column", gap: "12px", maxWidth: "300px" }}>
+    <input
+      type="email"
+      placeholder="Email"
+      {...methods.register("email")}
+    />
+
+    <input
+      type="number"
+      placeholder="Quantity"
+      {...methods.register("quantity", {
+        valueAsNumber: true,
+      })}
+    />
+
+    <Button variant="primary" type="submit">
+      Submit
+    </Button>
+  </div>
+</form>
+
+</div>
   );
 }

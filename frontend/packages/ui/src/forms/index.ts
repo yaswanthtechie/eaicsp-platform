@@ -1,8 +1,8 @@
 export { Form } from "./Form";
 export type { FormProps } from "./Form";
 
-export { FormField } from "./Formfield";
-export type { FormFieldProps } from "./Formfield";
+export { FormField } from "./FormField";
+export type { FormFieldProps } from "./FormField";
 
 export { Checkbox } from "./Checkbox";
 export type { CheckboxProps } from "./Checkbox";

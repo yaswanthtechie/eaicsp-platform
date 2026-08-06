@@ -45,7 +45,7 @@ src
 │   ├── Table.tsx
 │   ├── DataTable.tsx
 │   ├── Modal.tsx
-│   ├── Tabs.tsxcd C:\Users\Dell\Desktop\Frontend_task\ui-lib\eaicsp-platform\frontend
+│   ├── Tabs.tsx
 
 │   ├── Toast.tsx
 │   └── Spinner.tsx
