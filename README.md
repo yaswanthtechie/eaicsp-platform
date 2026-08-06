@@ -1,233 +1,143 @@
-﻿# Enterprise AI Demand Forecasting Pipeline
+﻿# EAICSP Platform
+Enterprise AI-Powered Supply Chain Platform.
+## Structure
+- ` services/ ` — backend microservices (Pod 1)
+- ` ml-services/ ` — ML models (Pod 2)
+- ` Frontend/ ` — dashboard + supplier portal (Pod 3)
+- ` frontend/ ` — dashboard + supplier portal (Pod 3)
+- ` data-platform/ ` — ETL, pipelines (Pod 0)
+- ` infra/ ` — docker, k8s
+- ` docs/ ` — architecture
+## Rules
+- Never push to ` main `. Branch → PR → review → merge.
+- Branch naming: ` yourname/what-you-did ` (e.g. ` gopi/anomaly-detection `)
+- No secrets in code. Use ` .env ` (gitignored).
+- Every service follows the ` _reference/ ` pattern.
+## Getting started
+1. Clone
+2. ` git checkout -b yourname/your-service `
+3. Work in your assigned folder only
+4. Push, open PR, wait for review
+﻿# UI Library
 
-An end-to-end demand forecasting system built using Prophet, XGBoost, MLflow, and BentoML. The project predicts future product demand, compares multiple forecasting models, creates an ensemble model, tracks experiments, and serves predictions through a REST API.
+## Overview
 
----
+This project is a reusable UI component library built using **React**, **TypeScript**, and **Vite**.
 
-## Project Overview
-
-The goal of this project is to forecast product demand accurately to help businesses:
-
-- Reduce stock shortages
-- Reduce overstocking
-- Improve inventory planning
-- Improve supply chain efficiency
-
-The project compares Prophet and XGBoost models and combines them using a weighted ensemble.
-
----
-
-## Features
-
-### Prophet Forecasting
-
-- Trend detection
-- Yearly seasonality
-- Weekly seasonality
-- Confidence intervals
-
-### XGBoost Forecasting
-
-Feature Engineering includes:
-
-- Lag 1
-- Lag 7
-- Lag 30
-- Rolling Mean (7)
-- Rolling Mean (30)
-- Rolling Std (7)
-- Month
-- Quarter
-- Day of Week
-- Holiday Flag
+The goal was to build reusable, fully typed UI components without using `any`, maintain consistent styling using design tokens, and demonstrate all components in a showcase page.
 
 ---
 
-## Ensemble
+# Components Implemented
 
-Three ensemble weight combinations were tested:
+The following reusable components have been implemented:
 
-- 50% Prophet + 50% XGBoost
-- 40% Prophet + 60% XGBoost
-- 30% Prophet + 70% XGBoost
+- Button
+- Card
+- Badge
+- KPI Card
+- Table
+- Modal
+- Tabs
+- Spinner
+- Toast
 
-Best Model:
-
-- Prophet Weight: 30%
-- XGBoost Weight: 70%
-
----
-
-## Prediction Intervals
-
-Prophet provides confidence intervals directly.
-
-XGBoost prediction intervals are generated using residual standard deviation.
-
-The ensemble combines both lower and upper prediction bounds.
+Each component is designed to be reusable and can be imported into other React applications.
 
 ---
 
-## MLflow Experiment Tracking
+# Features
 
-The following are logged:
-
-- Parameters
-- Metrics
-- Prophet Model
-- XGBoost Model
-- Three Ensemble Runs
-
-Models can be compared directly in the MLflow UI.
-
----
-
-## Model Performance
-
-| Model | RMSE | MAPE |
-|-------|------:|------:|
-| Prophet | 17378.02 | 3.46% |
-| XGBoost | 12299.57 | 2.24% |
-| Ensemble (50/50) | 12091.61 | 2.28% |
-| Ensemble (40/60) | 11591.07 | 2.22% |
-| Ensemble (30/70) | **11354.85** | **2.19%** |
-
-XGBoost outperformed Prophet.
-
-The best Ensemble (30% Prophet + 70% XGBoost) achieved the lowest error.
+- React + TypeScript
+- Fully typed components
+- No use of `any`
+- Reusable UI components
+- Shared design tokens (`tokens.ts`)
+- Mock data stored in `src/mocks`
+- Showcase page demonstrating all components
+- Loading and empty states where applicable
 
 ---
 
-## Project Structure
+# Project Structure
 
 ```
-.
-├── data.py
-├── train_prophet.py
-├── train_xgboost.py
-├── evaluate.py
-├── ensemble.py
-├── predict.py
-├── plot.py
-├── mlflow_utils.py
-├── bentoml_service.py
-├── main.py
-├── output/
-├── models/
-└── README.md
+src/
+├── components/
+│   ├── Badge.tsx
+│   ├── Button.tsx
+│   ├── Card.tsx
+│   ├── KpiCard.tsx
+│   ├── Modal.tsx
+│   ├── Spinner.tsx
+│   ├── Table.tsx
+│   ├── Tabs.tsx
+│   └── Toast.tsx
+│
+├── mocks/
+│
+├── App.tsx
+├── App.css
+├── index.css
+├── main.tsx
+└── tokens.ts
 ```
 
 ---
 
-## Installation
+# Technologies Used
 
-Create Virtual Environment
+- React
+- TypeScript
+- Vite
+- CSS
+
+---
+
+# How to Run
+
+### Install dependencies
 
 ```bash
-python -m venv venv
+npm install
 ```
 
-Activate
-
-Windows
+### Start the development server
 
 ```bash
-venv\Scripts\activate
+npm run dev
 ```
 
-Install dependencies
+### Open in browser
 
-```bash
-pip install -r requirements.txt
 ```
-
----
-
-## Run Project
-
-```bash
-python main.py
+http://localhost:5173
 ```
 
 ---
 
-## Start MLflow
+# What I Found
 
-```bash
-mlflow ui
-```
+During this assignment, I learned:
 
-Open
-
-```
-http://127.0.0.1:5000
-```
-
----
-
-## Start BentoML Service
-
-```bash
-python -m bentoml serve bentoml_service:ForecastService --reload
-```
+- How to build reusable React components.
+- How to define component props using TypeScript interfaces and types.
+- How to avoid using `any` by using proper TypeScript types.
+- How to use shared design tokens for colors, spacing, and border radius.
+- How to build a generic Table component using TypeScript generics.
+- How to organize components in a reusable project structure.
+- How different UI components can be composed together in a showcase page.
 
 ---
 
-## API Endpoint
+# What I Got Stuck On
 
-POST
+Some challenges I encountered during development were:
 
-```
-/predict
-```
+- Understanding TypeScript generics in the Table component.
+- Managing component props and state with strict TypeScript typing.
+- Organizing the project structure for a reusable UI library.
+- Understanding how to prepare the project for submission in a shared Git repository and create a pull request.
+- Resolving minor TypeScript and import errors while integrating components.
 
-Example Request
-
-```json
-{
-  "request": {
-    "sku_id": "1001",
-    "warehouse_id": "HYD",
-    "horizon_days": 30
-  }
-}
-```
-
-Example Response
-
-```json
-{
-  "forecast": [
-    {
-      "date": "2015-01-01",
-      "predicted": 420694.49,
-      "lower": 412827.59,
-      "upper": 428874.35
-    }
-  ]
-}
-```
-
----
-
-## Technologies Used
-
-- Python
-- Pandas
-- Prophet
-- XGBoost
-- NumPy
-- Matplotlib
-- MLflow
-- BentoML
-- Scikit-learn
-
----
-
-## Future Improvements
-
-- Quantile Regression for XGBoost prediction intervals
-- Automated retraining
-- Weekly backtesting
-- Docker deployment
-- CI/CD integration
+These issues were resolved by reviewing the project requirements, testing the components, and updating the code accordingly

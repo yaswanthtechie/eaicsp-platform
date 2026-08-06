@@ -5,11 +5,15 @@ from app.schemas.shipment import (
     ShipmentCreate,
     Status,
     QuoteRequest,
-    CarrierRate,
-    TrackingInfo
+    QuoteResponse,
+    BulkQuoteRequest,
+    BulkQuoteResponse,
+    ShipmentEvent,
+    TrackingInfo,
 )
 
 from app.services.shipment_service import (
+    CARRIERS,
     create_shipment,
     get_all_shipments,
     get_shipment,
@@ -18,7 +22,8 @@ from app.services.shipment_service import (
     filter_shipments_by_status,
     shipment_exists,
     get_quotes,
-    CARRIERS
+    get_bulk_quotes,
+    get_shipment_history,
 )
 
 
@@ -54,21 +59,6 @@ def get_shipments(
 
     return get_all_shipments()
 
-
-# GET QUOTE
-@router.post(
-    "/quote",
-    response_model=list[CarrierRate]
-)
-def shipment_quote(
-    data: QuoteRequest
-):
-
-    return get_quotes(
-        data.origin,
-        data.destination,
-        data.weight_kg
-    )
 
 
 # GET SHIPMENT BY ID
@@ -112,10 +102,16 @@ def update_existing_shipment(
             detail="Shipment ID in body does not match path ID"
         )
 
-    return update_shipment(
-        shipment_id,
-        data
-    )
+    try:
+        return update_shipment(
+            shipment_id,
+            data
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc)
+        )
 
 
 # DELETE SHIPMENT
@@ -170,3 +166,51 @@ def track_shipment(
     return adapter.get_tracking(
         str(shipment_id)
     )
+# GET QUOTE
+@router.post(
+    "/quote",
+    response_model=QuoteResponse,
+)
+def shipment_quote(
+    data: QuoteRequest
+):
+
+    return get_quotes(
+        data.origin,
+        data.destination,
+        data.weight_kg,
+        data.preference,
+    )
+
+
+# BULK QUOTE
+@router.post(
+    "/bulk-quote",
+    response_model=BulkQuoteResponse,
+)
+async def shipment_bulk_quote(
+    data: BulkQuoteRequest
+):
+    quotes = await get_bulk_quotes(data.shipments)
+    return BulkQuoteResponse(quotes=quotes)
+
+
+
+# SHIPMENT HISTORY
+@router.get(
+    "/{shipment_id}/history",
+    response_model=list[ShipmentEvent]
+)
+def shipment_history(
+    shipment_id: int
+):
+    shipment = get_shipment(shipment_id)
+
+    if shipment is None:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Shipment not found"
+        )
+
+    return get_shipment_history(shipment_id)
