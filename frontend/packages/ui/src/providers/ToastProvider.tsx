@@ -1,0 +1,122 @@
+import {
+  createContext,
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+
+export type ToastVariant = "success" | "error" | "warning" | "info";
+
+export interface ToastItem {
+  id: number;
+  title: string;
+  description?: string;
+  variant: ToastVariant;
+  duration?: number;
+}
+
+interface ShowToastOptions {
+  title: string;
+  description?: string;
+  variant?: ToastVariant;
+  duration?: number;
+}
+
+export interface ToastContextValue {
+  toasts: ToastItem[];
+  showToast: (options: ShowToastOptions) => void;
+  removeToast: (id: number) => void;
+}
+
+export const ToastContext = createContext<ToastContextValue | undefined>(
+  undefined
+);
+
+interface ToastProviderProps {
+  children: ReactNode;
+}
+
+export function ToastProvider({ children }: ToastProviderProps) {
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const idRef = useRef(0);
+
+  const removeToast = useCallback((id: number) => {
+    setToasts((previous) => previous.filter((toast) => toast.id !== id));
+  }, []);
+
+  const showToast = useCallback(
+    ({
+      title,
+      description,
+      variant = "info",
+      duration = 3000,
+    }: ShowToastOptions) => {
+      const id = ++idRef.current;
+
+      const toast: ToastItem = {
+        id,
+        title,
+        description,
+        variant,
+        duration,
+      };
+
+      setToasts((previous) => [...previous, toast]);
+
+      window.setTimeout(() => {
+        removeToast(id);
+      }, duration);
+    },
+    [removeToast]
+  );
+
+  const value = useMemo(
+    () => ({
+      toasts,
+      showToast,
+      removeToast,
+    }),
+    [toasts, showToast, removeToast]
+  );
+
+  return (
+    <ToastContext.Provider value={value}>
+      {children}
+
+      {/* Temporary renderer */}
+      <div
+        style={{
+          position: "fixed",
+          top: 16,
+          right: 16,
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+          zIndex: 9999,
+        }}
+      >
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            style={{
+              background: "white",
+              border: "1px solid #ddd",
+              padding: "12px 16px",
+              borderRadius: "8px",
+              minWidth: "260px",
+              boxShadow: "0 4px 10px rgba(0,0,0,0.12)",
+            }}
+          >
+            <strong>{toast.title}</strong>
+
+            {toast.description && (
+              <div style={{ marginTop: 4 }}>{toast.description}</div>
+            )}
+          </div>
+        ))}
+      </div>
+    </ToastContext.Provider>
+  );
+}
