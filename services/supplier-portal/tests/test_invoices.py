@@ -76,6 +76,104 @@ def create_sample_invoice():
 
     return response
 
+def test_get_all_invoices():
+
+    create_sample_po()
+
+    invoice1 = {
+        "invoice_number": "INV1001",
+        "po_number": "PO1001",
+        "supplier_id": "SUP001",
+        "amount": 50000,
+        "invoice_date": "2026-08-06"
+    }
+
+    response1 = client.post(
+        "/api/v1/invoices",
+        json=invoice1
+    )
+
+    assert response1.status_code == 201
+
+
+    invoice2 = {
+        "invoice_number": "INV1002",
+        "po_number": "PO1001",
+        "supplier_id": "SUP001",
+        "amount": 50000,
+        "invoice_date": "2026-08-06"
+    }
+
+    response2 = client.post(
+        "/api/v1/invoices",
+        json=invoice2
+    )
+
+    assert response2.status_code == 201
+
+
+    response = client.get(
+        "/api/v1/invoices"
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert len(data) == 2
+
+    assert data[0]["invoice_number"] == "INV1001"
+    assert data[1]["invoice_number"] == "INV1002"
+
+def test_get_invoice_by_number():
+
+    create_sample_po()
+
+    invoice = {
+        "invoice_number": "INV2001",
+        "po_number": "PO1001",
+        "supplier_id": "SUP001",
+        "amount": 50000,
+        "invoice_date": "2026-08-06"
+    }
+
+
+    create_response = client.post(
+        "/api/v1/invoices",
+        json=invoice
+    )
+
+    assert create_response.status_code == 201
+
+
+    response = client.get(
+        "/api/v1/invoices/INV2001"
+    )
+
+
+    assert response.status_code == 200
+
+
+    data = response.json()
+
+
+    assert data["invoice_number"] == "INV2001"
+    assert data["po_number"] == "PO1001"
+    assert data["supplier_id"] == "SUP001"
+    assert data["amount"] == 50000
+
+def test_get_invoice_not_found():
+
+    response = client.get(
+        "/api/v1/invoices/INVALID001"
+    )
+
+
+    assert response.status_code == 404
+
+
+    assert response.json()["detail"] == "Invoice not found."
+
 def test_duplicate_invoice():
 
     create_sample_po()

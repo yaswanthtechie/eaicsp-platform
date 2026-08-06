@@ -11,6 +11,22 @@ from app.core.config import UPLOAD_DIR
 # In-memory storage
 invoices = {}
 
+def get_all_invoices():
+    """
+    Return all invoices.
+    """
+    return list(invoices.values())
+
+
+def get_invoice_by_number(invoice_number: str):
+    """
+    Return invoice by invoice number.
+    """
+
+    if invoice_number not in invoices:
+        raise ValueError("Invoice not found.")
+
+    return invoices[invoice_number]
 
 def create_invoice(invoice: InvoiceCreate):
      

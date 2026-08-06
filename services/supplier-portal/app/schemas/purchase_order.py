@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import List
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime, date
 
 
@@ -20,8 +20,25 @@ class PurchaseOrderHistory(BaseModel):
 
 
 class PurchaseOrderCreate(BaseModel):
-    po_number: str = Field(..., example="PO1001")
-    supplier_id: str = Field(..., example="SUP001")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "po_number": "PO1001",
+                "supplier_id": "SUP001",
+                "items": [
+                    "Laptop",
+                    "Mouse"
+                ],
+                "total_amount": 50000,
+                "created_at": "2026-08-06T10:00:00",
+                "expected_delivery": "2026-08-30"
+            }
+        }
+    )
+
+    po_number: str
+    supplier_id: str
     items: List[str]
     total_amount: float
     created_at: datetime
