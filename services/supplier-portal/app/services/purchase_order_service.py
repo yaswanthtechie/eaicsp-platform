@@ -10,7 +10,7 @@ from app.schemas.purchase_order import (
 purchase_orders = {}
 
 # In-memory event storage
-po_events = []
+po_events =  {}
 
 
 
@@ -33,6 +33,8 @@ def create_purchase_order(purchase_order: PurchaseOrderCreate):
     purchase_order_data["actual_delivery_date"] = None
 
     purchase_orders[purchase_order.po_number] = purchase_order_data
+
+    po_events[purchase_order.po_number] = []
 
     return purchase_order_data
 
@@ -76,14 +78,14 @@ def update_purchase_order(
 
 
 def delete_purchase_order(po_number: str):
-    """
-    Delete a Purchase Order.
-    """
 
     if po_number not in purchase_orders:
         return False
 
     del purchase_orders[po_number]
+
+    if po_number in po_events:
+        del po_events[po_number]
 
     return True
 
@@ -162,29 +164,11 @@ def transition_purchase_order(
             f"Allowed transitions: {allowed}."
         )
 
-    # Create history if it does not exist
-    if "history" not in purchase_order:
-        purchase_order["history"] = []
-
-
-    if target_state == PurchaseOrderStatus.sent:
-        actor = "procurement"
-
-    elif target_state == PurchaseOrderStatus.acknowledged:
-        actor = "supplier"
-
-    elif target_state == PurchaseOrderStatus.fulfilled:
-        actor = "logistics"
-
+    if target_state == PurchaseOrderStatus.fulfilled:
         purchase_order["actual_delivery_date"] = (
-        date.today()
+            date.today()
     )
-
-    elif target_state == PurchaseOrderStatus.cancelled:
-        actor = "admin"
-
-
-    # Create event
+# Create event
     event = {
         "actor": actor, 
         "from_status": current_state,
@@ -196,12 +180,10 @@ def transition_purchase_order(
     purchase_order["history"].append(event)
 
     # Save event log,
-    po_events.append(
-        {
-            "po_number": po_number,
-            **event,
-        }
-    )
+    if po_number not in po_events:
+        po_events[po_number] = []
+
+    po_events[po_number].append(event)
 
     # Update status
     purchase_order["status"] = target_state
@@ -210,3 +192,14 @@ def transition_purchase_order(
     purchase_orders[po_number] = purchase_order
 
     return purchase_order
+
+
+def get_purchase_order_events(po_number: str):
+    """
+    Return all events for a Purchase Order.
+    """
+
+    if po_number not in purchase_orders:
+        return None
+
+    return po_events.get(po_number, [])

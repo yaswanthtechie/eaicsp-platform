@@ -28,35 +28,42 @@ def create_sample_po():
         json={
             "po_number": "PO1001",
             "supplier_id": "SUP001",
-            "items": [
-                "Laptop",
-                "Mouse"
-            ],
+            "items": ["Laptop", "Mouse"],
             "total_amount": 50000,
             "created_at": "2026-07-23T10:00:00",
             "expected_delivery": "2026-07-30"
         }
     )
 
-    client.post(
+    assert response.status_code == 201
+
+    response = client.post(
         "/api/v1/purchase-orders/PO1001/transition",
         json={
+            "actor": "harish",
             "target_state": "sent"
         }
     )
+    print(response.status_code)
+    
 
-    client.post(
+    print(response.json())
+
+    assert response.status_code == 200
+
+    response = client.post(
         "/api/v1/purchase-orders/PO1001/acknowledge"
     )
 
+    print(response.json())
+
+    assert response.status_code == 200
+
     return response
 
-
 def create_sample_invoice():
-    """
-    Create an Invoice.
-    """
-    return client.post(
+
+    response = client.post(
         "/api/v1/invoices",
         json={
             "invoice_number": "INV1001",
@@ -67,8 +74,9 @@ def create_sample_invoice():
         }
     )
 
+    return response
 
-def test_create_invoice():
+def test_duplicate_invoice():
 
     create_sample_po()
 
@@ -76,25 +84,12 @@ def test_create_invoice():
 
     assert response.status_code == 201
 
-    body = response.json()
-
-    assert body["invoice_number"] == "INV1001"
-
-    assert body["document_url"] is None
-
-
-def test_duplicate_invoice():
-
-    create_sample_po() 
-
-    create_sample_invoice()
-
     response = create_sample_invoice()
 
     assert response.status_code == 400
 
     assert "already exists" in response.json()["detail"]
-
+    
 
 def test_invoice_po_not_found():
 

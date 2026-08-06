@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse
 from app.services.invoice_service import get_invoice_document
 
 
@@ -66,13 +66,10 @@ def download_invoice_document(
         )
 
 
-        return StreamingResponse(
-           open(filepath, "rb"),
-            media_type="application/pdf",
-            headers={
-                "Content-Disposition":
-                f"attachment; filename={invoice_number}.pdf"
-            },
+        return FileResponse(
+             path=filepath,
+             media_type="application/pdf",
+             filename=f"{invoice_number}.pdf"
         )
 
     except ValueError as e:

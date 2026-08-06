@@ -2,9 +2,11 @@ from fastapi import APIRouter, HTTPException
 
 from app.schemas.purchase_order import (
     PurchaseOrderCreate,
+    PurchaseOrderHistory,
     PurchaseOrderUpdate,
     PurchaseOrderResponse,
     PurchaseOrderTransition,
+    PurchaseOrderStatus,
     MessageResponse
 )
 
@@ -16,9 +18,26 @@ from app.services.purchase_order_service import (
     delete_purchase_order,
     acknowledge_purchase_order,
     transition_purchase_order,
+    get_purchase_order_events,
 )
 
 router = APIRouter()
+
+@router.get(
+    "/purchase-orders/{po_number}/events",
+    response_model=list[PurchaseOrderHistory]
+)
+def get_po_events(po_number: str):
+
+    events = get_purchase_order_events(po_number)
+
+    if events is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Purchase Order not found"
+        )
+
+    return events
 
 
 # Create Purchase Order
@@ -148,7 +167,7 @@ def transition_po(
 
         purchase_order = transition_purchase_order(
             po_number,
-            "procurement",
+            transition.actor,
             transition.target_state
         )
 
@@ -165,5 +184,3 @@ def transition_po(
             status_code=400,
             detail=str(e)
         )
-    
-

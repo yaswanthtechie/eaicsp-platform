@@ -53,5 +53,6 @@ class MessageResponse(BaseModel):
 
 class PurchaseOrderTransition(BaseModel):
     target_state : PurchaseOrderStatus
+    actor: str
 
 

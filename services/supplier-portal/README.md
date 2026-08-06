@@ -126,6 +126,68 @@ supplier-portal/
 
 ---
 
+# po and invoice flow
+
+
+                     ADMIN
+
+                        │ 
+
+                        ▼ 
+
+               Create Purchase Order 
+
+                      │ 
+ 
+                      ▼ 
+
+              PO Status = Draft 
+
+                     │ 
+
+                     ▼ 
+
+             Transition to Sent 
+
+                     │ 
+
+                     ▼ 
+
+            Supplier Acknowledges PO 
+
+                     │ 
+
+                     ▼ 
+
+            PO Status = Acknowledged 
+
+                     │ 
+
+                     ▼ 
+
+              PO Fulfilled 
+
+                    │ 
+
+                    ▼ 
+
+              Submit Invoice 
+
+                    │ 
+
+                    ▼ 
+
+            Upload Invoice PDF 
+
+                    │ 
+
+                    ▼ 
+
+        Invoice Stored Successfully
+
+
+
+
 # Purchase Order Lifecycle
 
 ```text
@@ -141,12 +203,12 @@ Draft ───► Sent ───► Acknowledged ───► Fulfilled
 # State Machine
 
 | Current Status | Allowed Status |
-|---|---|
-| Draft | Sent, Cancelled |
-| Sent | Acknowledged, Cancelled |
-| Acknowledged | Fulfilled, Cancelled |
-| Fulfilled | None |
-| Cancelled | None |
+            |---|---|
+| Draft          | Sent, Cancelled |
+| Sent           | Acknowledged, Cancelled |
+| Acknowledged   | Fulfilled, Cancelled |
+| Fulfilled      | None |
+| Cancelled      | None |
 
 ---
 
@@ -159,19 +221,19 @@ Example:
 ```json
 [
     {
-        "actor": "procurement",
+        "actor": "harshi",
         "from_status": "draft",
         "to_status": "sent",
         "timestamp": "2026-08-01T10:00:00"
     },
     {
-        "actor": "supplier",
+        "actor": "siri",
         "from_status": "sent",
         "to_status": "acknowledged",
         "timestamp": "2026-08-01T11:00:00"
     },
     {
-        "actor": "logistics",
+        "actor": "dhanush",
         "from_status": "acknowledged",
         "to_status": "fulfilled",
         "timestamp": "2026-08-02T09:00:00"
