@@ -8,6 +8,13 @@ def start_experiment(experiment_name):
 
 
 def start_run(run_name):
+    """
+    Start a new MLflow run.
+    If another run is active, end it first.
+    """
+    if mlflow.active_run():
+        mlflow.end_run()
+
     mlflow.start_run(run_name=run_name)
 
 
