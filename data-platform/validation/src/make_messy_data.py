@@ -16,10 +16,7 @@ class MessyDataConfig:
     start_date: str = "2024-01-01"
     end_date: str = "2024-04-10"
     date_freq: str = "D"
-
-    products: List[str] = field(default_factory=lambda: [
-        "iPhone 15", "IPHONE-15", "iphone 15 ", "Galaxy S24", "GALAXY-s24", " galaxy s24"
-    ])
+    warehouses: List[str] = field(default_factory=lambda: ["WH-01", "WH-02", "WH-03", "WH-04"])
 
     sku_start_range: int = 1000
     sku_end_range: int = 1050
@@ -37,7 +34,7 @@ class MessyDataConfig:
     frac_negative_qty: float = 0.006
     frac_bad_sku_format: float = 0.015
     frac_missing_sku: float = 0.01
-    frac_missing_txn: float = 0.01
+    frac_missing_warehouse_id: float = 0.01
     frac_missing_date: float = 0.012
     frac_exact_duplicates: float = 0.031
     frac_missing_price: float = 0.02
@@ -59,25 +56,19 @@ def generate_messy_data(filepath: Path | str, config: Optional[MessyDataConfig] 
 
     # --- 1. Generate Base Data (Vectorized) ---
     date_range = pd.date_range(start=cfg.start_date, end=cfg.end_date, freq=cfg.date_freq)
-    product_col = np.random.choice(cfg.products, size=cfg.n_base)
     dates: List[Any] = np.random.choice(date_range, size=cfg.n_base).tolist()  # type: ignore
-
     valid_skus = [f"SKU-{str(i).zfill(4)}" for i in range(cfg.sku_start_range, cfg.sku_end_range)]
     sku_col: List[str] = np.random.choice(valid_skus, size=cfg.n_base).tolist()  # type: ignore
+    warehouse_col = np.random.choice(cfg.warehouses, size=cfg.n_base).tolist() # type: ignore
+    quantities: List[float] = np.random.randint(cfg.qty_min, cfg.qty_max, size=cfg.n_base).astype(float).tolist()  # type: ignore
 
-    quantities: List[float] = np.random.randint(cfg.qty_min, cfg.qty_max, size=cfg.n_base).astype(
-        float).tolist()  # type: ignore
-    txn_col: List[str] = [f"TXN-{uuid.uuid4().hex[:8].upper()}" for _ in range(cfg.n_base)]
-
-    # price = np.random.randint(100, 100000, size=cfg.n_base).astype((float)).tolist()
-    prices = np.random.uniform(cfg.price_min, cfg.price_max, size=cfg.n_base).round(2).tolist()
+    prices = np.random.uniform(cfg.price_min, cfg.price_max, size=cfg.n_base).round(2).tolist() # type: ignore
 
     df = pd.DataFrame({
-        "order_date": dates,
+        "date": dates,
         "sku_id": sku_col,
-        "product_name": product_col,
+        "warehouse_id": warehouse_col,
         "quantity_sold": quantities,
-        "transaction_id": txn_col,
         "unit_price": prices
     })
 
@@ -93,16 +84,16 @@ def generate_messy_data(filepath: Path | str, config: Optional[MessyDataConfig] 
 
     _inject_anomaly(df, "sku_id", cfg.frac_bad_sku_format, cfg.bad_sku_string)
     _inject_anomaly(df, "sku_id", cfg.frac_missing_sku, np.nan)
-    _inject_anomaly(df, "transaction_id", cfg.frac_missing_txn, np.nan)
+    _inject_anomaly(df, "warehouse_id", cfg.frac_missing_warehouse_id, np.nan)
     _inject_anomaly(df, "unit_price", cfg.frac_missing_price, np.nan)
 
     random_formats: List[str] = np.random.choice(cfg.date_formats, size=cfg.n_base).tolist()  # type: ignore
-    df["order_date"] = [
+    df["date"] = [
         d.strftime(fmt) if pd.notna(d) else d
-        for d, fmt in zip(pd.to_datetime(df["order_date"]), random_formats)
+        for d, fmt in zip(pd.to_datetime(df["date"]), random_formats)
     ]
 
-    _inject_anomaly(df, "order_date", cfg.frac_missing_date, np.nan)
+    _inject_anomaly(df, "date", cfg.frac_missing_date, np.nan)
 
     # --- 3. Duplicates & Shuffling ---
     dup_count = int(len(df) * cfg.frac_exact_duplicates)
