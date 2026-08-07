@@ -1,102 +1,321 @@
 # Supplier Risk NLP Service
 
-A FastAPI application that analyzes news headlines about suppliers to calculate a comprehensive risk score based on NLP sentiment analysis (FinBERT) and keyword detection (weighted signals for financial, operational, and reputational risks).
+A FastAPI-based Machine Learning microservice that analyzes supplier-related news headlines and calculates a supplier risk score using NLP sentiment analysis (FinBERT) and keyword-based risk detection.
 
-## Setup
+---
 
-<<<<<<< HEAD
-1. Ensure you are installing into the right virtual environment (PowerShell):
-   ```bash
-   python -m venv .venv
-   .\.venv\Scripts\Activate.ps1
-   ```
+# Features
 
-2. Install requirements:
-   ```bash
-   python -m pip install -r requirements.txt
-   ```
+- FastAPI REST API
+- HuggingFace FinBERT Sentiment Analysis
+- Financial Risk Detection
+- Operational Risk Detection
+- Reputational Risk Detection
+- Supplier Risk Score Calculation
+- Pydantic Response Models
+- Health Check Endpoint
+- Unit Testing with Pytest
 
-3. Run tests:
-=======
-1. Install requirements:
-   ```bash
-   pip install -r requirements.txt
-   ```
+---
 
-2. Run tests:
->>>>>>> 062c2fc (Restore Supplier Risk ML service)
-   ```bash
-   pytest tests/
-   ```
+# Technology Stack
 
-<<<<<<< HEAD
-4. Start the API Server:
-=======
-3. Start the API Server:
->>>>>>> 062c2fc (Restore Supplier Risk ML service)
-   ```bash
-   uvicorn analyze:app --reload --port 8006
-   ```
+- Python 3.11+
+- FastAPI
+- Uvicorn
+- HuggingFace Transformers
+- PyTorch
+- Pydantic
+- Pytest
 
-<<<<<<< Updated upstream
-<<<<<<< HEAD
-5. View documentation at `http://localhost:8006/docs`.
-=======
-4. View documentation at `http://localhost:8006/docs`.
->>>>>>> 062c2fc (Restore Supplier Risk ML service)
+---
 
-## Project Structure
-- `data.py`: Loads the raw headlines dataset.
-- `preprocess.py`: Contains text cleaning logic.
-- `sentiment.py`: Encapsulates FinBERT pipeline and provides sentiment breakdown.
-- `signals.py`: Detects domain-specific keywords and assigns risk weights.
-- `analyze.py`: Exposes a FastAPI endpoint to invoke the pipeline over the dataset.
-- `evaluate.py`: A standalone evaluation script against the realistic 50-headline dataset.
+# Installation
 
-## Supplier Evaluation
+## 1. Create Virtual Environment
 
-The model was tested against a realistic dataset containing 10 headlines each for 5 major companies. Below are human observations regarding the model's performance:
+### Windows
 
-**Boeing**
-High risk because several headlines explicitly mention lawsuits, a strike, recalls, and regulatory investigations. The model accurately captures this high risk and the score seems reasonable.
-
-**Intel**
-Mixed news, including expansions and positive earnings, but also layoffs and a downgrade. The model's score reflects a moderate-to-high risk, which appears slightly conservative given the severity of a 15% layoff, but is balanced by the positive headlines.
-
-**Tesla**
-A highly volatile mix of recalls, lawsuits, and layoffs versus record earnings and expansions. The model penalizes Tesla heavily for the layoffs and recall keywords, potentially overestimating the overall business risk despite strong financial performance.
-
-**Nissan**
-Mostly operational disruptions (shortages, recalls) and restructuring efforts. The model captures the operational risk well, accurately balancing it against their new EV partnerships and positive earnings.
-
-**Foxconn**
-The model exhibits a clear limitation here. It assigns a very high risk score because headlines contain keywords like "fraud" and "sanction". However, the actual context of the headlines is "Foxconn *denies* allegations of fraud" and "Foxconn *avoids* sanction". The keyword-based model overestimates risk because it lacks contextual comprehension for negations.
-=======
-# Analyze text
-result = analyze_sentiment("The supplier announced a major breakthrough in logistics.")
-print(result) # {"label": "positive", "confidence": 0.95}
+```bash
+python -m venv .venv
+.\.venv\Scripts\activate
 ```
 
-## Scoring Methodology Note
+### Linux / macOS
 
-The overall risk score for a supplier is calculated as the average (mean) of all individual headline scores. An average is used instead of a sum to prevent large suppliers with high news volume from being unfairly penalized simply due to the quantity of coverage. It normalizes the risk score, providing a more balanced comparison between suppliers regardless of how frequently they appear in the news.
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
 
-## Human Assessment
+---
 
-Below are the summarized risk assessments for 5 major suppliers based on recent news headlines.
+## 2. Install Dependencies
 
-### 1. Boeing
-Boeing is facing significant challenges, including a strike by machinists, a lawsuit over safety violations, and an investigation into manufacturing processes. A recall of aircraft parts further highlights operational risks. Although there is a positive note with a massive partnership and positive earnings amidst delays, the threat of an FAA sanction keeps the risk level elevated.
+```bash
+pip install -r requirements.txt
+```
 
-### 2. Intel
-Intel is undergoing a restructuring to focus on its foundry business alongside a $20 billion expansion. However, a massive layoff affecting 15% of its workforce and an EU antitrust investigation signal severe operational and reputational risks. A lawsuit and a supply chain disruption delaying a processor launch add to the concerns, culminating in a stock downgrade.
+---
 
-### 3. Tesla
-Tesla is navigating a mix of operational and reputational challenges, including a major recall of 2 million vehicles and an investigation into battery fires. A class-action lawsuit and another round of layoffs impacting global sales teams underscore elevated risks. A stock downgrade and a supply chain shortage causing production disruption in Shanghai further amplify concerns, despite record earnings.
+## 3. Run Tests
 
-### 4. Nissan
-Nissan's outlook involves a sweeping restructuring plan and a massive recall affecting over 1 million vehicles. Operational hurdles include a parts shortage and supply chain disruption leading to factory closures. Reputational risks arise from a lawsuit by former executives and a stock downgrade, though the conclusion of a past financial investigation offers a silver lining.
+```bash
+pytest tests/
+```
 
-### 5. Foxconn
-Foxconn is grappling with severe production disruption and a worker strike protesting conditions. An investigation into labor practices and a component shortage add to operational strains. The company is pursuing corporate restructuring to diversify and has denied allegations of fraud, successfully avoiding trade sanctions.
->>>>>>> Stashed changes
+---
+
+## 4. Start the API
+
+```bash
+uvicorn analyze:app --reload --port 8006
+```
+
+---
+
+## 5. Open Swagger Documentation
+
+```
+http://localhost:8006/docs
+```
+
+---
+
+# Project Structure
+
+```
+supplier-risk/
+│
+├── analyze.py
+├── data.py
+├── evaluate.py
+├── predict.py
+├── preprocess.py
+├── sentiment.py
+├── signals.py
+├── supplier_headlines.json
+├── requirements.txt
+├── README.md
+└── tests/
+```
+
+---
+
+# Module Description
+
+## data.py
+
+Loads and groups supplier news headlines.
+
+---
+
+## preprocess.py
+
+Performs text preprocessing.
+
+- Lowercase conversion
+- Remove punctuation
+- Remove extra whitespace
+
+---
+
+## sentiment.py
+
+Loads the HuggingFace FinBERT model and performs sentiment analysis.
+
+Returns
+
+- Positive
+- Neutral
+- Negative
+
+with confidence score.
+
+---
+
+## signals.py
+
+Detects predefined supplier risk keywords.
+
+Categories include
+
+### Financial
+
+- Bankruptcy
+- Insolvency
+- Default
+- Downgrade
+- Restructuring
+- Layoff
+
+### Operational
+
+- Strike
+- Recall
+- Disruption
+- Shortage
+
+### Reputational
+
+- Fraud
+- Investigation
+- Lawsuit
+- Sanction
+
+---
+
+## predict.py
+
+Combines
+
+- Sentiment Analysis
+- Signal Detection
+
+to calculate
+
+- Risk Score
+- Sentiment Breakdown
+- Top 3 Worst Headlines
+- Unique Risk Signals
+
+---
+
+## analyze.py
+
+FastAPI application.
+
+Endpoints
+
+### Health
+
+```
+GET /health
+```
+
+### Risk Analysis
+
+```
+GET /api/v1/supplier-risk/analyze
+```
+
+---
+
+## evaluate.py
+
+Runs the NLP pipeline locally using the JSON dataset.
+
+---
+
+# Example Response
+
+```json
+{
+  "supplier": "Tesla",
+  "risk_score": 52.75,
+  "sentiment_breakdown": {
+    "positive": 2,
+    "neutral": 3,
+    "negative": 5
+  },
+  "signals": [
+    {
+      "keyword": "recall",
+      "weight": 20
+    }
+  ],
+  "top_worst_3": [
+    {
+      "headline": "Tesla announces major recall...",
+      "score": 51.42
+    }
+  ]
+}
+```
+
+---
+
+# Example Usage
+
+```python
+from sentiment import analyze_sentiment
+
+result = analyze_sentiment(
+    "The supplier announced a major breakthrough in logistics."
+)
+
+print(result)
+```
+
+Example Output
+
+```python
+{
+    "label": "positive",
+    "confidence": 0.95
+}
+```
+
+---
+
+# Risk Scoring Method
+
+Each headline receives a score based on
+
+- FinBERT sentiment
+- Keyword weights
+
+The final supplier risk score is calculated using the average of all headline scores.
+
+This prevents suppliers with a large number of news articles from being unfairly penalized because of higher news volume.
+
+---
+
+# Sample Suppliers
+
+The evaluation dataset contains realistic headlines for
+
+- Boeing
+- Intel
+- Tesla
+- Nissan
+- Foxconn
+
+The service analyzes every supplier independently and generates a complete supplier risk summary.
+
+---
+
+# Run Evaluation
+
+```bash
+python evaluate.py
+```
+
+---
+
+# Run API
+
+```bash
+uvicorn analyze:app --reload --port 8006
+```
+
+---
+
+# Run Tests
+
+```bash
+pytest tests/
+```
+
+---
+
+# Author
+
+Supplier Risk NLP Microservice
+
+Built using
+
+- FastAPI
+- HuggingFace Transformers
+- FinBERT
+- PyTorch

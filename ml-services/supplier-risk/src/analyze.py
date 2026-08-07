@@ -1,32 +1,45 @@
 import logging
 from contextlib import asynccontextmanager
-from typing import List, Dict, Any
+from typing import Any, Dict, List
+
+# pyrefly: ignore [missing-import]
 from fastapi import FastAPI, HTTPException
+# pyrefly: ignore [missing-import]
 from pydantic import BaseModel
 
 from data import load_headlines
 from sentiment import init_model
 from predict import predict
 
-# Configure logging
+# ----------------------------------------------------
+# Logging
+# ----------------------------------------------------
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Pydantic models for response validation
+
+# ----------------------------------------------------
+# Response Models
+# ----------------------------------------------------
+
 class SentimentBreakdown(BaseModel):
     positive: int
     neutral: int
     negative: int
 
+
 class SignalDetail(BaseModel):
     keyword: str
     weight: int
+
 
 class HeadlineDetail(BaseModel):
     headline: str
     sentiment: str
     score: float
     signals: List[SignalDetail]
+
 
 class SupplierSummary(BaseModel):
     supplier: str
@@ -35,47 +48,109 @@ class SupplierSummary(BaseModel):
     signals: List[SignalDetail]
     top_worst_3: List[HeadlineDetail]
 
+
 class AnalysisResponse(BaseModel):
     supplier_summary: Dict[str, SupplierSummary]
 
+
+# ----------------------------------------------------
+# FastAPI Lifespan
+# ----------------------------------------------------
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Lifespan context manager for the FastAPI application.
-    Initializes the NLP model on startup.
-    """
-    logger.info("Loading ProsusAI/finbert model... (this may take a moment)")
+
+    logger.info("Loading FinBERT model...")
+
     try:
         init_model()
-        logger.info("Model loaded successfully.")
-    except Exception as e:
-        logger.error(f"Failed to load model: {e}")
+        logger.info("FinBERT model loaded successfully.")
+    except Exception as exc:
+        logger.exception("Failed to initialize model.")
+        raise exc
+
     yield
-    # Clean up on shutdown can be added here if needed
 
-app = FastAPI(title="Supplier Risk Service", lifespan=lifespan)
+    logger.info("Supplier Risk Service stopped.")
 
-@app.get("/api/v1/supplier-risk/analyze", response_model=AnalysisResponse)
+
+# ----------------------------------------------------
+# FastAPI App
+# ----------------------------------------------------
+
+app = FastAPI(
+    title="Supplier Risk Service",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+
+# ----------------------------------------------------
+# Health Endpoint
+# ----------------------------------------------------
+
+@app.get("/health")
+def health():
+
+    return {
+        "status": "UP",
+        "service": "supplier-risk",
+    }
+
+
+# ----------------------------------------------------
+# Analyze Endpoint
+# ----------------------------------------------------
+
+@app.get(
+    "/api/v1/supplier-risk/analyze",
+    response_model=AnalysisResponse,
+)
 def analyze_headlines():
-    """
-    Endpoint to analyze hardcoded supplier headlines and return a risk summary.
-    """
+
     try:
-        # Load grouped headlines
+
         grouped_headlines = load_headlines()
-        
+
         response_data: Dict[str, Any] = {}
-        
-        # Analyze each supplier
+
         for supplier, headlines in grouped_headlines.items():
-            summary = predict(supplier, headlines)
+
+            summary = predict(
+                supplier_name=supplier,
+                headlines=headlines,
+            )
+
             response_data[supplier] = summary
-            
-        return {"supplier_summary": response_data}
-    except Exception as e:
-        logger.error(f"Error during headline analysis: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error during analysis")
+
+        return {
+            "supplier_summary": response_data
+        }
+
+    except Exception as exc:
+
+        logger.exception(
+            "Supplier risk analysis failed."
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Internal Server Error",
+        ) from exc
+
+
+# ----------------------------------------------------
+# Local Run
+# ----------------------------------------------------
 
 if __name__ == "__main__":
+
+    # pyrefly: ignore [missing-import]
     import uvicorn
-    uvicorn.run("analyze:app", host="0.0.0.0", port=8006, reload=True)
+
+    uvicorn.run(
+        "analyze:app",
+        host="0.0.0.0",
+        port=8006,
+        reload=True,
+    )
