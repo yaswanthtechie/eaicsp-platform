@@ -110,6 +110,14 @@ models:/iris_classifier@production
 
 No code changes are required when a new production model is promoted.
 
+
+## Production Promotion Gate
+
+Only models meeting the configured accuracy threshold are promoted to the
+`@production` alias.
+
+```python
+PROMOTION_ACCURACY_THRESHOLD = 0.85
 ---
 
 # Project Structure
@@ -129,6 +137,8 @@ ml-reference/
 │
 ├── tests/
 │   └── test_service.py
+    └──test_promotion.py
+    └── test_config.py
 │
 ├── mlruns/
 │
@@ -318,7 +328,6 @@ http://localhost:3000
 ```
 
 ---
-
 # API Examples
 
 
@@ -353,14 +362,15 @@ Endpoint:
 Response:
 
 ```json
+``
 {
-    "total_predictions": 10,
-    "average_latency_ms": 8.5,
+    "total_predictions": 4,
+    "total_batches": 1,
+    "average_prediction_latency_ms": 47.71,
+    "average_batch_latency_ms": 46.86,
     "error_count": 0,
     "model_version": "2"
 }
-```
-
 ---
 
 # Single Prediction
@@ -372,6 +382,7 @@ Endpoint:
 ```
 
 Request:
+
 
 ```json
 {
@@ -388,14 +399,14 @@ Response:
 
 ```json
 {
-    "prediction":"setosa",
-    "confidence":1.0,
-    "model_version":"2",
-    "latency_ms":10.2,
-    "probabilities":{
-        "setosa":1.0,
-        "versicolor":0.0,
-        "virginica":0.0
+    "prediction": "setosa",
+    "confidence": 1,
+    "model_version": "2",
+    "latency_ms": 47.71,
+    "probabilities": {
+        "setosa": 1,
+        "versicolor": 0,
+        "virginica": 0
     }
 }
 ```
@@ -426,19 +437,42 @@ Response:
 
 ```json
 {
-    "predictions":[
+    "predictions": [
         {
-            "prediction":"setosa",
-            "confidence":1.0,
-            "model_version":"2"
+            "prediction": "setosa",
+            "confidence": 1,
+            "probabilities": {
+                "setosa": 1,
+                "versicolor": 0,
+                "virginica": 0
+            },
+            "latency_ms": 46.86,
+            "model_version": "2"
         },
         {
-            "prediction":"virginica",
-            "confidence":0.98,
-            "model_version":"2"
+            "prediction": "virginica",
+            "confidence": 0.99,
+            "probabilities": {
+                "setosa": 0,
+                "versicolor": 0.01,
+                "virginica": 0.99
+            },
+            "latency_ms": 46.86,
+            "model_version": "2"
+        },
+        {
+            "prediction": "versicolor",
+            "confidence": 0.9823333333333334,
+            "probabilities": {
+                "setosa": 0,
+                "versicolor": 0.9823333333333334,
+                "virginica": 0.017666666666666667
+            },
+            "latency_ms": 46.86,
+            "model_version": "2"
         }
     ],
-    "batch_latency_ms":5.4
+    "batch_latency_ms": 46.86
 }
 ```
 
@@ -451,22 +485,29 @@ The project includes automated tests using pytest.
 Run:
 
 ```powershell
-pytest tests/test_service.py
-```
+python -m pytest tests/
 
 Expected:
 
-```
-5 passed
+12 passed
+
+
+
+
 ```
 
 Tests cover:
 
-- Valid prediction
-- Invalid input validation
-- Health endpoint
-- Metrics tracking
+Tests cover:
+
+- Model registry operations
+- Model promotion workflow
+- Production promotion gate
+- Single prediction
 - Batch prediction
+- Health endpoint
+- Metrics endpoint
+- Request validation
 
 ---
 
@@ -492,7 +533,7 @@ Response:
 
 # Results
 
-Latest model performance:
+## Example Evaluation Metrics
 
 ```
 Accuracy  : 0.9333
@@ -587,7 +628,7 @@ docker run -p 3000:3000 iris_service:latest
 Compared loop inference vs batch inference.
 
 Result:
-taken 150 simples  iris dataset
+using  150 samples from the Iris dataset
 | Method | Time |
 |---|---:|
 | Loop Prediction | 4009.16 ms |
@@ -609,7 +650,10 @@ Batch inference improvement:
 
 ## Pending Improvements
 
-- Separate staging and production promotion workflow.
-- Add model promotion test coverage.
-- Add automated approval gate before production deployment.
-- Add model promotion audit information.
+## Future Improvements
+
+- Manual approval workflow before production promotion
+- CI/CD pipeline using GitHub Actions
+- Model drift monitoring with Evidently AI
+- Automated retraining pipeline
+- Docker Compose deployment

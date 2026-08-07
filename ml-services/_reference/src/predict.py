@@ -9,6 +9,7 @@ so promoting a new version requires no code changes.
 """
 
 import mlflow.sklearn
+from mlflow.exceptions import MlflowException
 from mlflow.tracking import MlflowClient
 
 from src.config import MODEL_NAME
@@ -27,16 +28,30 @@ def load_model():
             model,
             model_version
         )
+
+    Raises
+    ------
+    RuntimeError
+        If no model has been promoted to the Production alias.
     """
 
     model_uri = f"models:/{MODEL_NAME}@production"
 
-    model = mlflow.sklearn.load_model(model_uri)
+    try:
+        model = mlflow.sklearn.load_model(model_uri)
 
-    model_version = client.get_model_version_by_alias(
-        MODEL_NAME,
-        "production",
-    ).version
+        model_version = client.get_model_version_by_alias(
+            MODEL_NAME,
+            "production",
+        ).version
+
+    except MlflowException as exc:
+        raise RuntimeError(
+            f"No model is promoted to @production for '{MODEL_NAME}'. "
+            "Run `python -m src.train` (the model must clear "
+            "PROMOTION_ACCURACY_THRESHOLD), or promote an existing "
+            "staging version with promote_model()."
+        ) from exc
 
     return model, str(model_version)
 

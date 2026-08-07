@@ -21,6 +21,8 @@ from src.config import (
     N_ESTIMATORS,
     MAX_DEPTH,
     PROMOTION_ACCURACY_THRESHOLD,
+    PROMOTED_BY,
+    should_promote,
 )
 
 from src.data import load_data
@@ -104,7 +106,7 @@ def train():
         # Promote only if the model meets the quality gate
         production_version = None
 
-        if accuracy >= PROMOTION_ACCURACY_THRESHOLD:
+        if should_promote(accuracy):
 
             production_version = promote_model(
                 model_name=MODEL_NAME,

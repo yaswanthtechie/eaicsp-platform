@@ -376,28 +376,18 @@ class IrisService:
         self,
         request: IrisBatchRequest,
     ) -> dict:
-
-
         start = time.perf_counter()
-
-
         try:
-
-
             predictions = self.model.predict(
 
                 request.features
 
             )
-
-
             probabilities = self.model.predict_proba(
 
                 request.features
 
             )
-
-
             latency = (
 
                 time.perf_counter()
@@ -414,61 +404,38 @@ class IrisService:
             self.total_predictions += len(
                 request.features
             )
-
-
             self.total_batches += 1
-
-
             self.total_batch_latency += latency
-
-
-
             results = []
-
-
 
             for pred, probs in zip(
                 predictions,
                 probabilities,
             ):
-
-
                 results.append(
-
                     {
-
-
                         "prediction":
                             TARGET_NAMES[pred],
-
-
                         "confidence":
                             float(
                                 np.max(probs)
                             ),
-
 
                         "probabilities":
                             {
 
                                 TARGET_NAMES[i]:
                                     float(probs[i])
-
-
                                 for i in range(
                                     len(TARGET_NAMES)
                                 )
 
                             },
-
-
                         "latency_ms":
                             round(
                                 latency,
                                 2,
                             ),
-
-
                         "model_version":
                             str(
                                 self.model_version
@@ -477,16 +444,9 @@ class IrisService:
                     }
 
                 )
-
-
-
             return {
-
-
                 "predictions":
                     results,
-
-
                 "batch_latency_ms":
                     round(
                         latency,
@@ -494,18 +454,9 @@ class IrisService:
                     ),
 
             }
-
-
-
         except Exception:
-
-
             self.error_count += 1
-
-
             logger.exception(
                 "Batch prediction failed"
             )
-
-
             raise
