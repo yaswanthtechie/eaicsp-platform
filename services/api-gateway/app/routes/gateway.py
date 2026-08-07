@@ -1,24 +1,66 @@
-# pyrefly: ignore [missing-import]
+"""
+Gateway routes for forwarding incoming requests
+to downstream microservices.
+"""
+
 from fastapi import APIRouter, Request
+
 from app.services.proxy import ProxyService
+
+
+# --------------------------------------------------
+# Router
+# --------------------------------------------------
 
 router = APIRouter(
     prefix="",
-    tags=["Gateway"]
+    tags=["Gateway"],
+)
+
+# --------------------------------------------------
+# Supported HTTP Methods
+# --------------------------------------------------
+
+SUPPORTED_METHODS = (
+    "GET",
+    "POST",
+    "PUT",
+    "DELETE",
+    "PATCH",
+    "OPTIONS",
+    "HEAD",
 )
 
 
-async def gateway_proxy(request: Request, path: str):
-    """
-    Catch all API Gateway requests under /api/v1/*
-    and forward them to downstream microservices.
-    """
-    return await ProxyService.forward_request(request, path)
+# --------------------------------------------------
+# Catch-All Gateway Route
+# --------------------------------------------------
 
-for method in ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"]:
+async def gateway_proxy(
+    request: Request,
+    path: str,
+):
+    """
+    Catch all incoming requests and
+    forward them to the appropriate
+    downstream microservice.
+    """
+
+    return await ProxyService.forward_request(
+        request,
+        path,
+    )
+
+
+# --------------------------------------------------
+# Register Dynamic Routes
+# --------------------------------------------------
+
+for method in SUPPORTED_METHODS:
+
     router.add_api_route(
         "/{path:path}",
         gateway_proxy,
         methods=[method],
-        name=f"gateway_proxy_{method.lower()}"
+        name=f"gateway_proxy_{method.lower()}",
     )
