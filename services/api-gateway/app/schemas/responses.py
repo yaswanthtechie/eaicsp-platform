@@ -1,9 +1,3 @@
-<<<<<<< HEAD
-from pydantic import BaseModel, RootModel
-from typing import Dict
-
-class RootResponse(BaseModel):
-=======
 """
 Response models used by the API Gateway.
 """
@@ -18,15 +12,10 @@ class RootResponse(BaseModel):
     Root endpoint response model.
     """
 
->>>>>>> mahendher/round3-api-gateway
     message: str
     status: str
     version: str
 
-<<<<<<< HEAD
-class HealthResponse(RootModel[Dict[str, str]]):
-    pass
-=======
 
 class HealthResponse(RootModel[Dict[str, str]]):
     """
@@ -41,4 +30,3 @@ class HealthResponse(RootModel[Dict[str, str]]):
     """
 
     pass
->>>>>>> mahendher/round3-api-gateway
