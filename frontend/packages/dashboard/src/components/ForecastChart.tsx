@@ -31,7 +31,7 @@ export default function ForecastChart() {
   },[]);
 
   if(loading){
-    return <h2>Loading Sales Forecast Data....</h2>
+    return <h2 style={{ color: colors.text}}>Loading Sales Forecast Data....</h2>
   }
   if(error){
     return(
@@ -42,7 +42,7 @@ export default function ForecastChart() {
     );
   }
   if(forecast.length == 0){
-    return <h2>No Forecast Data Available.</h2>;
+    return <h2 style={{ color: colors.text}}>No Forecast Data Available.</h2>;
   }
   return (
     <div

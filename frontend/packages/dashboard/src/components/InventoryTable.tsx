@@ -15,7 +15,7 @@ export default function InventoryTable() {
   },[]);
 
   if(loading){
-    return <h2>Loading Inventory Table...</h2>;
+    return <h2 style={{ color: colors.text}}>Loading Inventory Table...</h2>;
   }
   if(error){
     return(
@@ -26,7 +26,7 @@ export default function InventoryTable() {
     );
   }
   if(inventory.length == 0){
-    return <h2>No Table data available.</h2>;
+    return <h2 style={{ color: colors.text}}>No Table data available.</h2>;
   }
   const filteredInventory = inventory.filter((item) => {
     if (showLowStock) {
