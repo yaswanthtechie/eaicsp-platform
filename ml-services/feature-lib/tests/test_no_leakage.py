@@ -1,11 +1,11 @@
 import sys
 from pathlib import Path
 
-sys.path.append(str(Path(__file__).resolve().parent.parent / "src"))
-
 import pandas as pd
 
-from build_features import build_all_features
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
+from src.build_features import build_all_features
 
 
 def test_no_data_leakage():
@@ -17,8 +17,8 @@ def test_no_data_leakage():
                 periods=10
             ),
             "sales": [
-                10,20,30,40,50,
-                60,70,80,90,100
+                10, 20, 30, 40, 50,
+                60, 70, 80, 90, 100
             ]
         }
     )
@@ -29,13 +29,20 @@ def test_no_data_leakage():
         target_col="sales"
     )
 
-    # Lag check
+    # Lag feature check
     assert result.loc[7, "sales_lag_7"] == 10
 
-    # Rolling Mean Check
-    expected_mean = (10+20+30+40+50+60+70)/7
+    # Rolling mean should use only past values
+    expected_mean = (10 + 20 + 30 + 40 + 50 + 60 + 70) / 7
 
-    assert result.loc[6, "sales_roll_mean_7"] == expected_mean
+    assert result.loc[7, "sales_roll_mean_7"] == expected_mean
+
+    # Ensure current row is NOT included
+    assert result.loc[7, "sales_roll_mean_7"] != (
+        20 + 30 + 40 + 50 + 60 + 70 + 80
+    ) / 7
+
+
 if __name__ == "__main__":
     test_no_data_leakage()
-    print("✅ No data leakage test passed!")    
+    print("✅ No data leakage test passed!")

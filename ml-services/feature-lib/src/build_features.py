@@ -14,6 +14,9 @@ def build_all_features(
 
     data = df.copy()
 
+    # Ensure data is sorted by date
+    data = data.sort_values(date_col).reset_index(drop=True)
+
     data = add_lag_features(
         data,
         target_col

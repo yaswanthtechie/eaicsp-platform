@@ -11,29 +11,25 @@ def add_calendar_features(
 
     data = df.copy()
 
+    # Ensure datetime format
     data[date_col] = pd.to_datetime(data[date_col])
 
+    # Calendar features
     data["day_of_week"] = data[date_col].dt.dayofweek
-
     data["month"] = data[date_col].dt.month
+    data["day_of_month"] = data[date_col].dt.day
 
+    # Boolean features converted to integers
     data["is_weekend"] = (
-        data[date_col]
-        .dt
-        .dayofweek
-        .isin([5, 6])
-    )
+        data[date_col].dt.dayofweek >= 5
+    ).astype(int)
 
     data["is_month_start"] = (
-        data[date_col]
-        .dt
-        .is_month_start
-    )
+        data[date_col].dt.is_month_start
+    ).astype(int)
 
     data["is_month_end"] = (
-        data[date_col]
-        .dt
-        .is_month_end
-    )
+        data[date_col].dt.is_month_end
+    ).astype(int)
 
     return data

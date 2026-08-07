@@ -7,8 +7,7 @@ def add_rolling_features(
     windows=[7, 30]
 ):
     """
-    Add rolling mean and rolling standard deviation features
-    to the dataframe.
+    Add rolling mean and rolling standard deviation features.
     """
 
     data = df.copy()
@@ -17,12 +16,14 @@ def add_rolling_features(
 
         data[f"{target_col}_roll_mean_{window}"] = (
             data[target_col]
+            .shift(1)
             .rolling(window)
             .mean()
         )
 
         data[f"{target_col}_roll_std_{window}"] = (
             data[target_col]
+            .shift(1)
             .rolling(window)
             .std()
         )
