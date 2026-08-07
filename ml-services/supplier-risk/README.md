@@ -1,20 +1,57 @@
 # Supplier Risk NLP Service
 
-A FastAPI-based Machine Learning microservice that analyzes supplier-related news headlines and calculates a supplier risk score using NLP sentiment analysis (FinBERT) and keyword-based risk detection.
+## Overview
+
+The **Supplier Risk** service is a Machine Learning microservice built with **FastAPI** that evaluates supplier risk by analyzing news headlines.
+
+The service combines:
+
+- FinBERT Sentiment Analysis
+- Keyword-based Risk Detection
+- Supplier Risk Scoring
+- REST API
+- Automated Unit Testing
+
+It is designed to integrate seamlessly with the API Gateway in a microservices architecture.
 
 ---
 
 # Features
 
-- FastAPI REST API
-- HuggingFace FinBERT Sentiment Analysis
+- FinBERT Sentiment Analysis
+- Supplier Risk Prediction
 - Financial Risk Detection
 - Operational Risk Detection
 - Reputational Risk Detection
-- Supplier Risk Score Calculation
-- Pydantic Response Models
-- Health Check Endpoint
-- Unit Testing with Pytest
+- REST API using FastAPI
+- Automatic Model Loading
+- Unit Tested with Pytest
+- JSON Dataset Evaluation
+
+---
+
+# Project Structure
+
+```text
+supplier-risk/
+│
+├── src/
+│   ├── __init__.py
+│   ├── analyze.py
+│   ├── data.py
+│   ├── evaluate.py
+│   ├── predict.py
+│   ├── preprocess.py
+│   ├── sentiment.py
+│   ├── signals.py
+│   └── supplier_headlines.json
+│
+├── tests/
+│   └── test_predict.py
+│
+├── requirements.txt
+└── README.md
+```
 
 ---
 
@@ -23,7 +60,8 @@ A FastAPI-based Machine Learning microservice that analyzes supplier-related new
 - Python 3.11+
 - FastAPI
 - Uvicorn
-- HuggingFace Transformers
+- Transformers (Hugging Face)
+- FinBERT (ProsusAI/finbert)
 - PyTorch
 - Pydantic
 - Pytest
@@ -32,7 +70,15 @@ A FastAPI-based Machine Learning microservice that analyzes supplier-related new
 
 # Installation
 
-## 1. Create Virtual Environment
+## 1. Navigate to the project
+
+```bash
+cd ml-services/supplier-risk
+```
+
+---
+
+## 2. Create a Virtual Environment
 
 ### Windows
 
@@ -50,7 +96,7 @@ source .venv/bin/activate
 
 ---
 
-## 2. Install Dependencies
+## 3. Install Dependencies
 
 ```bash
 pip install -r requirements.txt
@@ -58,264 +104,215 @@ pip install -r requirements.txt
 
 ---
 
-## 3. Run Tests
+# Run the FastAPI Server
 
 ```bash
-pytest tests/
+uvicorn src.analyze:app --reload --port 8006
+```
+
+The service will start at:
+
+```
+http://127.0.0.1:8006
 ```
 
 ---
 
-## 4. Start the API
+# API Documentation
 
-```bash
-uvicorn analyze:app --reload --port 8006
+Swagger UI
+
+```
+http://127.0.0.1:8006/docs
+```
+
+OpenAPI JSON
+
+```
+http://127.0.0.1:8006/openapi.json
 ```
 
 ---
 
-## 5. Open Swagger Documentation
+# API Endpoints
 
-```
-http://localhost:8006/docs
-```
-
----
-
-# Project Structure
-
-```
-supplier-risk/
-│
-├── analyze.py
-├── data.py
-├── evaluate.py
-├── predict.py
-├── preprocess.py
-├── sentiment.py
-├── signals.py
-├── supplier_headlines.json
-├── requirements.txt
-├── README.md
-└── tests/
-```
-
----
-
-# Module Description
-
-## data.py
-
-Loads and groups supplier news headlines.
-
----
-
-## preprocess.py
-
-Performs text preprocessing.
-
-- Lowercase conversion
-- Remove punctuation
-- Remove extra whitespace
-
----
-
-## sentiment.py
-
-Loads the HuggingFace FinBERT model and performs sentiment analysis.
-
-Returns
-
-- Positive
-- Neutral
-- Negative
-
-with confidence score.
-
----
-
-## signals.py
-
-Detects predefined supplier risk keywords.
-
-Categories include
-
-### Financial
-
-- Bankruptcy
-- Insolvency
-- Default
-- Downgrade
-- Restructuring
-- Layoff
-
-### Operational
-
-- Strike
-- Recall
-- Disruption
-- Shortage
-
-### Reputational
-
-- Fraud
-- Investigation
-- Lawsuit
-- Sanction
-
----
-
-## predict.py
-
-Combines
-
-- Sentiment Analysis
-- Signal Detection
-
-to calculate
-
-- Risk Score
-- Sentiment Breakdown
-- Top 3 Worst Headlines
-- Unique Risk Signals
-
----
-
-## analyze.py
-
-FastAPI application.
-
-Endpoints
-
-### Health
+## Health Check
 
 ```
 GET /health
 ```
 
-### Risk Analysis
+Example Response
+
+```json
+{
+  "status": "UP",
+  "service": "supplier-risk"
+}
+```
+
+---
+
+## Analyze Supplier Risk
 
 ```
 GET /api/v1/supplier-risk/analyze
 ```
 
----
-
-## evaluate.py
-
-Runs the NLP pipeline locally using the JSON dataset.
-
----
-
-# Example Response
+Example Response
 
 ```json
 {
-  "supplier": "Tesla",
-  "risk_score": 52.75,
-  "sentiment_breakdown": {
-    "positive": 2,
-    "neutral": 3,
-    "negative": 5
-  },
-  "signals": [
-    {
-      "keyword": "recall",
-      "weight": 20
+  "supplier_summary": {
+    "TechCorp": {
+      "supplier": "TechCorp",
+      "risk_score": 74.25,
+      "sentiment_breakdown": {
+        "positive": 1,
+        "neutral": 0,
+        "negative": 2
+      },
+      "signals": [
+        {
+          "keyword": "fraud",
+          "weight": 30
+        }
+      ],
+      "top_worst_3": [
+        {
+          "headline": "TechCorp files for bankruptcy after massive fraud scandal.",
+          "sentiment": "negative",
+          "score": 92.4,
+          "signals": [
+            {
+              "keyword": "bankruptcy",
+              "weight": 40
+            },
+            {
+              "keyword": "fraud",
+              "weight": 30
+            }
+          ]
+        }
+      ]
     }
-  ],
-  "top_worst_3": [
-    {
-      "headline": "Tesla announces major recall...",
-      "score": 51.42
-    }
-  ]
+  }
 }
 ```
 
 ---
 
-# Example Usage
+# Risk Signals
 
-```python
-from sentiment import analyze_sentiment
+The service detects predefined supplier risk keywords.
 
-result = analyze_sentiment(
-    "The supplier announced a major breakthrough in logistics."
-)
+| Category     | Keywords                                                          |
+| ------------ | ----------------------------------------------------------------- |
+| Financial    | bankruptcy, insolvency, default, restructuring, layoff, downgrade |
+| Operational  | strike, recall, disruption, shortage                              |
+| Reputational | fraud, investigation, lawsuit, sanction                           |
 
-print(result)
+Each keyword contributes a predefined weight toward the overall supplier risk score.
+
+---
+
+# Risk Score Calculation
+
+The final supplier risk score is calculated using:
+
+- FinBERT sentiment confidence
+- Keyword signal weights
+- Average headline score
+- Maximum score capped at **100**
+
+---
+
+# Dataset
+
+The project includes a sample dataset:
+
+```
+src/supplier_headlines.json
+```
+
+Dataset contains:
+
+- 5 suppliers
+- 10 headlines per supplier
+- Total 50 headlines
+
+---
+
+# Running Evaluation
+
+Run the evaluation script:
+
+```bash
+python src/evaluate.py
+```
+
+The script prints:
+
+- Supplier Name
+- Risk Score
+- Sentiment Breakdown
+- Detected Signals
+- Top 3 Highest Risk Headlines
+
+---
+
+# Running Tests
+
+Execute all unit tests:
+
+```bash
+python -m pytest -v
 ```
 
 Example Output
 
-```python
-{
-    "label": "positive",
-    "confidence": 0.95
-}
+```
+9 passed in 66.39s
 ```
 
----
+The test suite validates:
 
-# Risk Scoring Method
-
-Each headline receives a score based on
-
-- FinBERT sentiment
-- Keyword weights
-
-The final supplier risk score is calculated using the average of all headline scores.
-
-This prevents suppliers with a large number of news articles from being unfairly penalized because of higher news volume.
+- Text preprocessing
+- Keyword detection
+- Sentiment pipeline
+- Risk prediction
+- Response schema
+- Dataset validation
+- Score calculation
+- Maximum score cap
 
 ---
 
-# Sample Suppliers
+# Model
 
-The evaluation dataset contains realistic headlines for
+The service uses the Hugging Face FinBERT model.
 
-- Boeing
-- Intel
-- Tesla
-- Nissan
-- Foxconn
-
-The service analyzes every supplier independently and generates a complete supplier risk summary.
-
----
-
-# Run Evaluation
-
-```bash
-python evaluate.py
+```
+ProsusAI/finbert
 ```
 
----
-
-# Run API
-
-```bash
-uvicorn analyze:app --reload --port 8006
-```
+The model is loaded once during application startup and reused for all prediction requests.
 
 ---
 
-# Run Tests
+# Logging
 
-```bash
-pytest tests/
-```
+The service logs:
+
+- Model initialization
+- API startup
+- API shutdown
+- Runtime exceptions
 
 ---
 
 # Author
 
-Supplier Risk NLP Microservice
+EAICSP Platform
 
-Built using
-
-- FastAPI
-- HuggingFace Transformers
-- FinBERT
-- PyTorch
+Supplier Risk ML Service
