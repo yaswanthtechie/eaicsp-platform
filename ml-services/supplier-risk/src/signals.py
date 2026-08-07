@@ -3,14 +3,14 @@ Keyword signal detection module for identifying
 financial, operational, and reputational risks.
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, Final, List
 
-# ----------------------------------------------------
-# Signal Weights
-# ----------------------------------------------------
+# ------------------------------------------------------------------
+# Risk Signal Weights
+# ------------------------------------------------------------------
 
-SIGNAL_WEIGHTS = {
-    # Financial
+SIGNAL_WEIGHTS: Final[Dict[str, int]] = {
+    # Financial Risks
     "bankruptcy": 40,
     "insolvency": 35,
     "default": 35,
@@ -18,13 +18,13 @@ SIGNAL_WEIGHTS = {
     "layoff": 15,
     "downgrade": 15,
 
-    # Operational
+    # Operational Risks
     "strike": 10,
     "recall": 20,
     "disruption": 15,
     "shortage": 10,
 
-    # Reputational
+    # Reputational Risks
     "fraud": 30,
     "investigation": 25,
     "lawsuit": 20,
@@ -34,16 +34,16 @@ SIGNAL_WEIGHTS = {
 
 def detect_signals(text: str) -> List[Dict[str, Any]]:
     """
-    Detect predefined risk keywords from text.
+    Detect predefined supplier risk keywords.
 
     Args:
-        text (str):
+        text:
             Preprocessed lowercase text.
 
     Returns:
-        List[Dict[str, Any]]
+        A list of detected keyword signals.
 
-        Example:
+    Example:
         [
             {
                 "keyword": "fraud",
@@ -57,13 +57,11 @@ def detect_signals(text: str) -> List[Dict[str, Any]]:
 
     detected_signals: List[Dict[str, Any]] = []
 
-    # Split into unique words
     words = set(text.lower().split())
 
     for keyword, weight in SIGNAL_WEIGHTS.items():
 
         if keyword in words:
-
             detected_signals.append(
                 {
                     "keyword": keyword,

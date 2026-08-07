@@ -4,9 +4,10 @@ for supplier risk scoring.
 """
 
 from typing import Any, Dict, List
-from preprocess import clean_text
-from sentiment import analyze_sentiment
-from signals import detect_signals
+
+from src.preprocess import clean_text
+from src.sentiment import analyze_sentiment
+from src.signals import detect_signals
 
 
 def _empty_response(supplier_name: str) -> Dict[str, Any]:

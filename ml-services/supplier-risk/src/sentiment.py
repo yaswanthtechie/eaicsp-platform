@@ -1,77 +1,84 @@
 """
-Sentiment analysis module using HuggingFace's FinBERT.
+Sentiment analysis module using HuggingFace FinBERT.
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, Final, Optional
 
 try:
     # pyrefly: ignore [missing-import]
     from transformers import pipeline
-except ModuleNotFoundError as e:
+except ModuleNotFoundError as exc:
     raise ModuleNotFoundError(
-        "Missing dependency 'transformers'. "
-        "Install it using:\n"
+        "Missing dependency 'transformers'.\n"
+        "Install project dependencies using:\n"
         "python -m pip install -r requirements.txt"
-    ) from e
+    ) from exc
 
 
-# Global variable to hold the initialized model pipeline
-_nlp_pipeline = None
+# ------------------------------------------------------------------
+# Model Configuration
+# ------------------------------------------------------------------
+
+MODEL_NAME: Final[str] = "ProsusAI/finbert"
+
+# Global pipeline instance (loaded only once)
+_nlp_pipeline: Optional[Any] = None
 
 
 def init_model() -> None:
     """
-    Initialize the FinBERT model pipeline.
+    Initialize the FinBERT sentiment analysis model.
 
-    This should be called during FastAPI startup.
-    The model is loaded only once.
+    The model is loaded only once during the
+    application lifecycle.
     """
+
     global _nlp_pipeline
 
-    if _nlp_pipeline is None:
-        _nlp_pipeline = pipeline(
-            "text-classification",
-            model="ProsusAI/finbert"
-        )
+    if _nlp_pipeline is not None:
+        return
+
+    _nlp_pipeline = pipeline(
+        task="text-classification",
+        model=MODEL_NAME,
+    )
 
 
 def analyze_sentiment(text: str) -> Dict[str, Any]:
     """
-    Analyze the sentiment of the provided text using FinBERT.
+    Analyze the sentiment of the supplied text.
 
     Args:
-        text (str): Input text.
+        text:
+            Input text.
 
     Returns:
-        Dict[str, Any]:
-            Example:
-            {
-                "label": "negative",
-                "confidence": 0.95
-            }
+        Dictionary containing:
+
+        {
+            "label": "positive",
+            "confidence": 0.97
+        }
     """
 
     global _nlp_pipeline
 
-    # Lazy initialization
     if _nlp_pipeline is None:
         init_model()
 
-    # Handle empty input
     if not text or not text.strip():
         return {
             "label": "neutral",
-            "confidence": 1.0
+            "confidence": 1.0,
         }
 
-    # Run inference
     result = _nlp_pipeline(
         text,
         truncation=True,
-        max_length=512
+        max_length=512,
     )[0]
 
     return {
-        "label": result["label"].lower(),
-        "confidence": float(result["score"])
+        "label": str(result["label"]).lower(),
+        "confidence": float(result["score"]),
     }

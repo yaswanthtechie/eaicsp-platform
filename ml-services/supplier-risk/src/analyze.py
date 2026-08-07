@@ -2,14 +2,9 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List
 
-# pyrefly: ignore [missing-import]
-from fastapi import FastAPI, HTTPException
-# pyrefly: ignore [missing-import]
-from pydantic import BaseModel
-
-from data import load_headlines
-from sentiment import init_model
-from predict import predict
+from src.data import load_headlines
+from src.sentiment import init_model
+from src.predict import predict
 
 # ----------------------------------------------------
 # Logging
