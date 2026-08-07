@@ -2,9 +2,14 @@ import numpy as np
 
 
 def mape(actual, predicted) -> float:
-    """Mean Absolute Percentage Error, standard for forecasting."""
+    """Mean Absolute Percentage Error, standard for forecasting.
+    Rows where actual == 0 are excluded, since percentage error is undefined there.
+    """
     actual, predicted = np.array(actual), np.array(predicted)
-    return float(np.mean(np.abs((actual - predicted) / actual)) * 100)
+    mask = actual != 0
+    if not mask.any():
+        raise ValueError("MAPE undefined: all actual values are zero")
+    return float(np.mean(np.abs((actual[mask] - predicted[mask]) / actual[mask])) * 100)
 
 
 def rmse(actual, predicted) -> float:

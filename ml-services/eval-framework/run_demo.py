@@ -4,7 +4,8 @@ from src.baseline import naive_forecast
 from src.splits import time_based_split
 from src.report import compare_models
 
-df = pd.read_csv("data/example_retail_sales.csv")
+URL = "https://raw.githubusercontent.com/facebook/prophet/main/examples/example_retail_sales.csv"
+df = pd.read_csv(URL)
 df.columns = ["date", "y"]
 df["date"] = pd.to_datetime(df["date"])
 

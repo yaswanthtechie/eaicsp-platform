@@ -1,8 +1,11 @@
 def compare_models(results: dict) -> None:
     """
-    results = {"prophet": {...metrics}, "xgboost": {...metrics}, "naive": {...metrics}}
-    Prints a clean side-by-side table. Highlights the winner per metric.
+    results = {"prophet": {...metrics}, "xgboost": {...metrics}, "naive":
+    {...metrics}}
+    Prints a clean side by side table. Highlights the winner per metric.
     """
+    HIGHER_IS_BETTER = {"precision", "recall", "f1"}
+
     metrics_names = list(next(iter(results.values())).keys())
     model_names = list(results.keys())
 
@@ -12,7 +15,7 @@ def compare_models(results: dict) -> None:
 
     for metric in metrics_names:
         values = {m: results[m][metric] for m in model_names}
-        winner = min(values, key=values.get)
+        winner = (max if metric in HIGHER_IS_BETTER else min)(values, key=values.get)
         row = f"{metric:<15}"
         for m in model_names:
             mark = " *" if m == winner else ""
