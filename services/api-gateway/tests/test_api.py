@@ -78,21 +78,19 @@ def test_health_endpoint_service_down(mock_get, client):
 
 @patch("httpx.AsyncClient.send", new_callable=AsyncMock)
 def test_reverse_proxy_success(mock_send, client):
-    """
-    Successful reverse proxy request.
-    """
+    # build a response with bytes content and content-type header
+    content_bytes = b'{"data":"success"}'
     mock_send.return_value = httpx.Response(
         status_code=200,
-        json={"data": "success"},
+        content=content_bytes,
+        headers={"content-type": "application/json"},
         request=httpx.Request("GET", "http://test"),
     )
 
     response = client.get("/api/v1/inventory/items")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "data": "success"
-    }
+    assert response.json() == {"data": "success"}
 
 
 @patch("httpx.AsyncClient.send", new_callable=AsyncMock)

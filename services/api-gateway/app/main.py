@@ -9,6 +9,7 @@ from fastapi import FastAPI
 
 from app.core.config import settings
 from app.middleware.logging import LoggingMiddleware
+from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.ratelimit import (
     RateLimitExceeded,
     SlowAPIMiddleware,
@@ -68,6 +69,7 @@ app.add_exception_handler(
 
 app.add_middleware(LoggingMiddleware)
 app.add_middleware(SlowAPIMiddleware)
+app.add_middleware(RequestIDMiddleware)
 
 # --------------------------------------------------
 # Health Routes

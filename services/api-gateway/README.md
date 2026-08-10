@@ -128,6 +128,9 @@ cp .env.example .env
 
 The gateway uses **Pydantic Settings** to load configuration values.
 
+- MAX_RETRIES: number of retries on retryable failures (e.g. 2 → original request + 2 retries).
+- The gateway generates or forwards X-Request-ID for tracing. Downstream services should log this header.
+
 The downstream services are configured through the `SERVICE_ROUTES` mapping located in:
 
 ```text

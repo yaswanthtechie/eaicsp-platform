@@ -54,6 +54,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 time.perf_counter() - start_time
             ) * 1000
 
+            request_id = getattr(request.state, "request_id", None)
             method = request.method
             path = request.url.path
 
@@ -69,7 +70,8 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 )
 
             logger.info(
-                "method=%s path=%s status=%s duration=%.2fms ip=%s",
+                "request_id=%s method=%s path=%s status=%s duration=%.2fms ip=%s",
+                request_id,
                 method,
                 path,
                 status_code,

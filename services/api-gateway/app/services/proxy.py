@@ -2,6 +2,7 @@
 HTTP reverse-proxy service used by the API Gateway.
 """
 
+import logging
 from typing import Optional
 
 import httpx
@@ -15,6 +16,8 @@ from tenacity import (
 )
 
 from app.core.config import settings
+
+logger = logging.getLogger("api_gateway.proxy")
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +100,7 @@ def _is_retryable_exception(
     if method.upper() not in RETRYABLE_METHODS:
         return False
 
+    # Include the base TimeoutException to cover httpx's timeout hierarchy
     return isinstance(
         exception,
         (
@@ -105,6 +109,7 @@ def _is_retryable_exception(
             httpx.ReadTimeout,
             httpx.WriteTimeout,
             httpx.PoolTimeout,
+            httpx.TimeoutException,
         ),
     )
 
@@ -140,6 +145,11 @@ def _build_forward_headers(
         headers["x-forwarded-for"] = client_ip
 
     headers["x-forwarded-proto"] = request.url.scheme
+
+    # propagate or set X-Request-ID for downstream services
+    request_id = getattr(request.state, "request_id", None)
+    if request_id:
+        headers["x-request-id"] = request_id
 
     return headers
 
@@ -215,10 +225,16 @@ class ProxyService:
         # 2. Build downstream URL
         # ------------------------------------------------------------------
 
-        target_url = httpx.URL(
-            f"{target_base_url.rstrip('/')}{request.url.path}",
-            query=request.url.query.encode("utf-8"),
-        )
+        # NEW: build the target URL using the original path and query as text
+        # preserve request.url.query (already percent-encoded by Starlette/httpx)
+        base = target_base_url.rstrip('/')
+        path = request.url.path  # already starts with /
+        query = str(request.url.query)  # keep as text ('' if none)
+
+        if query:
+            target_url = f"{base}{path}?{query}"
+        else:
+            target_url = f"{base}{path}"
 
         # ------------------------------------------------------------------
         # 3. Read request body once
@@ -268,9 +284,8 @@ class ProxyService:
 
         try:
             async for attempt in AsyncRetrying(
-                stop=stop_after_attempt(
-                    max(1, settings.MAX_RETRIES)
-                ),
+                # settings.MAX_RETRIES is the NUMBER OF RETRIES (e.g. 2 retries → 3 attempts total)
+                stop=stop_after_attempt(max(1, settings.MAX_RETRIES + 1)),
                 wait=wait_exponential(
                     multiplier=0.5,
                     min=0.5,
@@ -280,6 +295,18 @@ class ProxyService:
                 reraise=True,
             ):
                 with attempt:
+                    if (
+                        attempt.retry_state.attempt_number > 1
+                        and attempt.retry_state.outcome
+                    ):
+                        exc = attempt.retry_state.outcome.exception()
+                        logger.info(
+                            "Retry attempt %s for %s due to %s",
+                            attempt.retry_state.attempt_number,
+                            target_url,
+                            exc,
+                        )
+
                     downstream_request = client.build_request(
                         method=request.method,
                         url=target_url,
