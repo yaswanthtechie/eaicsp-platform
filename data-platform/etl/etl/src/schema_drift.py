@@ -6,6 +6,11 @@ EXPECTED_SCHEMA = {
     "unit_price": "int64",
 }
 
+# unit_price is NUMERIC(12,2) downstream, so both whole-number (int64) and
+# fractional (float64) representations are legitimate and shouldn't be
+# reported as drift against each other.
+_NUMERIC_EQUIVALENTS = {"int64", "float64"}
+
 
 def detect_schema_drift(df):
 
@@ -33,6 +38,12 @@ def detect_schema_drift(df):
         if (
             expected_dtype.startswith("datetime64")
             and actual_dtype.startswith("datetime64")
+        ):
+            continue
+
+        if (
+            expected_dtype in _NUMERIC_EQUIVALENTS
+            and actual_dtype in _NUMERIC_EQUIVALENTS
         ):
             continue
 

@@ -1,28 +1,43 @@
 import logging
 
+import pandas as pd
+
 logger = logging.getLogger(__name__)
 
 EXPECTED_SCHEMA = {
     "date": {
-        "type": "datetime64[us]",
+        "category": "datetime",
         "required": True
     },
     "sku_id": {
-        "type": "str",
+        "category": "string",
         "required": True
     },
     "warehouse_id": {
-        "type": "str",
+        "category": "string",
         "required": True
     },
     "quantity_sold": {
-        "type": "int64",
+        "category": "integer",
         "required": True
     },
     "unit_price": {
-        "type": "int64",
+        # NUMERIC(12,2) in the DDL covers both whole-number prices (e.g. 773,
+        # which pandas infers as int64) and genuinely fractional prices (e.g.
+        # 19.99, inferred as float64), so both dtypes are valid here.
+        "category": "numeric",
         "required": True
     },
+}
+
+# Checked by dtype *category* rather than an exact dtype string (e.g.
+# "datetime64[us]" vs "datetime64[ns]") so this doesn't break across pandas
+# versions/resolutions or reject valid numeric variants.
+_CATEGORY_CHECKS = {
+    "datetime": pd.api.types.is_datetime64_any_dtype,
+    "string": lambda s: pd.api.types.is_object_dtype(s) or pd.api.types.is_string_dtype(s),
+    "integer": pd.api.types.is_integer_dtype,
+    "numeric": pd.api.types.is_numeric_dtype,
 }
 
 
@@ -46,14 +61,17 @@ def validate_schema(df):
         if column not in df.columns:
             continue
 
-        actual = str(df[column].dtype)
+        category = rule["category"]
+        check = _CATEGORY_CHECKS[category]
 
-        if actual != rule["type"]:
+        if not check(df[column]):
+
+            actual = str(df[column].dtype)
 
             logger.error(
                 f"{column} datatype mismatch. "
-                f"Expected={rule['type']} "
-                f"Actual={actual}"
+                f"Expected category={category} "
+                f"Actual dtype={actual}"
             )
 
             raise TypeError(

@@ -1,5 +1,6 @@
 from pathlib import Path
 import shutil
+
 from alert_service import write_alert
 
 
@@ -15,7 +16,7 @@ def check_batch(df, batch_name):
         "null_rate": null_rate,
         "negative_rate": negative_rate,
         "rows_dropped": 0,
-        "reason": ""
+        "reason": "",
     }
 
     if null_rate >= 0.10:
@@ -40,48 +41,72 @@ def quality_gate(extracted_batches):
     rejected_folder = Path("data/rejected")
     rejected_folder.mkdir(exist_ok=True)
 
-    for batch in extracted_batches:
+    try:
 
-        file_path = batch["file_path"]
-        df = batch["data"].copy()
+        for batch in extracted_batches:
 
-        passed, report = check_batch(df, file_path.name)
+            file_path = batch["file_path"]
+            df = batch["data"].copy()
 
-        if not passed:
-
-            shutil.move(str(file_path), rejected_folder / file_path.name)
-
-            print(f"{file_path.name} rejected ({report['reason']})")
-            write_alert(          
-                pipeline="sales_etl",
-                severity="WARN",
-                message=report["reason"],
-                batch_file=file_path.name
+            passed, report = check_batch(
+                df,
+                file_path.name,
             )
 
-            continue
+            if not passed:
 
-        rows_before = len(df)
+                shutil.move(
+                    str(file_path),
+                    rejected_folder / file_path.name,
+                )
 
-        df = df.dropna(
-            subset=[
-                "date",
-                "sku_id",
-                "warehouse_id"
-            ]
+                print(
+                    f"{file_path.name} rejected "
+                    f"({report['reason']})"
+                )
+
+                write_alert(
+                    pipeline="sales_etl",
+                    severity="WARN",
+                    message=report["reason"],
+                    batch_file=file_path.name,
+                )
+
+                continue
+
+            rows_before = len(df)
+
+            df = df.dropna(
+                subset=[
+                    "date",
+                    "sku_id",
+                    "warehouse_id",
+                ]
+            )
+
+            df = df[df["quantity_sold"] > 0]
+            df = df[df["unit_price"] > 0]
+
+            report["rows_dropped"] = (
+                rows_before - len(df)
+            )
+
+            validated_batches.append(
+                {
+                    "data": df,
+                    "file_path": file_path,
+                    "report": report,
+                }
+            )
+
+        return validated_batches
+
+    except Exception as e:
+
+        write_alert(
+            pipeline="sales_etl",
+            severity="CRITICAL",
+            message=f"Quality gate stage failed: {e}",
         )
 
-        df = df[df["quantity_sold"] > 0]
-        df = df[df["unit_price"] > 0]
-
-        report["rows_dropped"] = rows_before - len(df)
-
-        validated_batches.append(
-            {
-                "data": df,
-                "file_path": file_path,
-                "report": report
-            }
-        )
-
-    return validated_batches
+        raise

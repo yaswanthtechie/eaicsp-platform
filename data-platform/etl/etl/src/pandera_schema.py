@@ -12,8 +12,9 @@ sales_schema = DataFrameSchema(
             checks=pa.Check.ge(0)
         ),
         "unit_price": Column(
-            int,
-            checks=pa.Check.gt(0)
+            float,
+            checks=pa.Check.gt(0),
+            coerce=True
         ),
     },
     strict=False

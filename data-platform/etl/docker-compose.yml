@@ -72,6 +72,11 @@ x-airflow-common:
     DB_NAME: salesdb
     DB_USER: admin
     DB_PASSWORD: ${DB_PASSWORD}
+    # /opt/airflow/etl (the mounted etl/ project dir) must be importable as
+    # the "etl" package so "from etl.src.alerts import ..." in the DAG resolves.
+    # /opt/airflow/etl/src is also needed directly, since the pipeline
+    # modules themselves use flat imports (e.g. "from database import get_engine").
+    PYTHONPATH: /opt/airflow:/opt/airflow/etl/src
     # WARNING: Use _PIP_ADDITIONAL_REQUIREMENTS option ONLY for a quick checks
     # for other purpose (development, test and especially production usage) build/extend Airflow image.
     _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-}
@@ -103,6 +108,7 @@ services:
       POSTGRES_DB: salesdb
     volumes:
       - postgres-db-volume:/var/lib/postgresql/data
+
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "admin"]
       interval: 10s

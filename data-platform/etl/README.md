@@ -1,223 +1,299 @@
-# Sales ETL Data Pipeline
+# Sales ETL Pipeline
 
-## Project Overview
+## Overview
 
-This project implements an end-to-end ETL (Extract, Transform, Load) data pipeline for daily sales data using Python, PostgreSQL, Docker, and Apache Airflow.
+I am implementing an end-to-end ETL (Extract, Transform, Load) pipeline for processing sales data.
 
-The pipeline extracts sales data from CSV files, validates data quality, transforms the data, and loads it into a PostgreSQL database while supporting incremental loading through a watermark mechanism. Airflow is used to schedule and automate the pipeline execution.
+The pipeline:
 
----
+- Extracts sales CSV files.
+- Validates data using schema and business rules.
+- Transforms data into a standardized format.
+- Loads data into PostgreSQL.
+- Supports incremental loading using watermarks.
+- Tracks every pipeline execution.
+- Provides alerting.
+- Is orchestrated using Apache Airflow.
 
-## Architecture
-
-```
-                CSV Files
-                    │
-                    ▼
-              Extract Data
-                    │
-                    ▼
-             Quality Gate
-                    │
-                    ▼
-              Transform Data
-                    │
-                    ▼
-             Load (UPSERT)
-                    │
-         ┌──────────┴──────────┐
-         ▼                     ▼
- Watermark Table         ETL Run Log
-                    │
-                    ▼
-            PostgreSQL Database
-                    │
-                    ▼
-              Apache Airflow
-```
-
----
-
-## Technologies Used
+## Technology Stack
 
 - Python
 - PostgreSQL
 - SQLAlchemy
+- Pandas
+- Pandera
+- Flask
 - Apache Airflow
 - Docker & Docker Compose
-- Pandas
-
----
 
 ## Project Structure
 
-```
-data_platform/
-│
-├── dags/
-│   └── sales_etl_pipeline.py
-│
-├── etl/
-│   └── src/
-│       ├── config.py
-│       ├── database.py
-│       ├── extract.py
-│       ├── quality_gate.py
-│       ├── transform.py
-│       ├── load.py
-│       ├── watermark.py
-│       ├── logger.py
-│       ├── logging_config.py
-│       ├── pipeline.py
-│       ├── make_batches.py
-│       └── main.py
-│
-├── sql/
-│   └── schema.sql
-│
-├── data/
-│   ├── batches/
-│   └── rejected/
-│
-├── docker-compose.yml
-├── requirements.txt
-└── README.md
-```
+    data-platform/
+    │
+    ├── dags/
+    │   └── sales_etl_dag.py
+    │
+    ├── etl/
+    │   └── src/
+    │       ├── extract.py
+    │       ├── transform.py
+    │       ├── quality_gate.py
+    │       ├── load.py
+    │       ├── pipeline.py
+    │       ├── main.py
+    │       ├── alerts.py
+    │       ├── alerts_api.py
+    │       ├── lineage_api.py
+    │       ├── alert_service.py
+    │       ├── data_contract.py
+    │       ├── pandera_schema.py
+    │       └── schema_drift.py
+    │
+    ├── sql/
+    │   └── schema.sql
+    │
+    └── docker-compose.yml
 
----
+## ETL Pipeline Flow
+
+The pipeline is orchestrated using Apache Airflow.
+
+    CSV Files
+        |
+        v
+      Extract
+        |
+        v
+    Quality Gate
+        |
+        v
+    BranchPythonOperator
+        |
+        +------------------+
+        |                  |
+        v                  v
+       Load        Reject & Notify
+        |
+        v
+    Update Watermark
+        |
+        v
+    Log Pipeline Run
+
+The quality gate determines whether the data proceeds to loading or is rejected and reported.
 
 ## Database Tables
 
-The project uses three main tables:
+The pipeline uses the following PostgreSQL tables:
 
-### sales_fact
+| Table | Purpose |
+|---|---|
+| `sales_fact` | Stores processed sales records |
+| `etl_watermark` | Tracks the last processed date for incremental loading |
+| `etl_run_log` | Stores ETL execution history |
+| `sales_fact_history` | Stores previous versions of updated records |
+| `etl_alerts` | Stores pipeline alerts and failures |
 
-Stores processed sales records.
+The `sales_fact` table also stores:
 
-### etl_watermark
+- `run_id`
+- `pipeline_version`
 
-Tracks the latest processed business date for incremental loading.
+These fields associate loaded records with a pipeline execution and pipeline version.
 
-### etl_run_log
+## Database Setup
 
-Stores ETL execution details including:
+Before running the pipeline, initialize the PostgreSQL database using:
 
-- Pipeline status
-- Start time
-- End time
-- Rows inserted
-- Rows rejected
-- Error messages
+    sql/schema.sql
 
----
+The schema creates the required tables:
 
-## ETL Workflow
+- `sales_fact`
+- `etl_watermark`
+- `etl_run_log`
+- `sales_fact_history`
+- `etl_alerts`
 
-1. Extract CSV files from the batches folder.
-2. Apply Quality Gate validations:
-   - Reject batches with fewer than 100 rows or more than 2000 rows.
-   - Reject batches with more than 10% null values.
-   - Reject batches with more than 5% negative quantities.
-3. Transform data:
-   - Remove duplicate records.
-   - Convert columns to the correct data types.
-4. Load data into PostgreSQL using UPSERT.
-5. Update the watermark table.
-6. Log pipeline execution details.
+These tables support:
 
----
+- Incremental loading
+- Pipeline execution logging
+- Alerting
+- Change history
+- Pipeline run tracking
 
-## Setup Instructions
+## Running the Project
 
-### Clone the project
+Start the Docker services:
 
-```bash
-git clone <repository-url>
-cd data_platform
-```
+    docker compose up -d
 
-### Start Docker services
+Run the ETL pipeline directly:
 
-```bash
-docker compose up -d
-```
+    python etl/src/main.py
 
-### Verify containers
-
-```bash
-docker ps
-```
-
----
-
-## Initialize Database
-
-Connect to PostgreSQL and execute:
-
-```bash
-psql -U admin -d salesdb
-```
-
-Run:
-
-```sql
-\i sql/schema.sql
-```
-
----
-
-## Generate Sample Data
-
-```bash
-python etl/src/make_batches.py
-```
-
----
-
-## Run the ETL Pipeline
-
-```bash
-python etl/src/main.py
-```
-
----
-
-## Run Using Apache Airflow
-
-1. Open Airflow UI:
-
-```
-http://localhost:8080
-```
-
-Default credentials:
-
-```
-Username: airflow
-Password: airflow
-```
-
-2. Enable the DAG:
-
-```
-sales_etl_pipeline
-```
-
-3. Click **Trigger DAG** to execute the pipeline.
-
----
+The pipeline can also be executed through Apache Airflow by triggering the `sales_etl_pipeline` DAG from the Airflow UI.
 
 ## Features
 
-- Incremental loading using watermark
-- UPSERT to prevent duplicate records
-- Data quality validation
-- Automatic rejection of invalid batches
-- ETL execution logging
-- Airflow scheduling
-- Dockerized deployment
+### Incremental Loading
 
----
+The pipeline uses the watermark table to determine the last processed date and avoid unnecessary reprocessing.
 
+### Data Quality
 
-Data Engineering Project
+The pipeline validates:
+
+- Required columns
+- Data types
+- Extra columns
+- Missing columns
+- Business validation rules
+- Schema drift
+
+Pandera validation is also wired into the pipeline schema-validation stage.
+
+Invalid batches are rejected before loading.
+
+### UPSERT Loading
+
+The loader performs INSERT or UPDATE operations using PostgreSQL `ON CONFLICT`.
+
+Each loaded record also stores:
+
+- `run_id`
+- `pipeline_version`
+
+### Change History
+
+Previous versions of records are stored in `sales_fact_history` when processing existing sales records.
+
+### Run Logging
+
+Each execution records:
+
+- Start time
+- Finish time
+- Status
+- Inserted rows
+- Updated rows
+- Rejected rows
+- Error message, if any
+
+### Alerts
+
+Pipeline and stage failures are written into the `etl_alerts` table.
+
+The alerts API supports filtering recent alerts using the `since` parameter.
+
+Example:
+
+    GET /alerts?since=1h
+
+The API also supports minute-based filters such as:
+
+    GET /alerts?since=10m
+
+## Airflow
+
+The pipeline is orchestrated using Apache Airflow.
+
+Airflow provides:
+
+- Scheduling
+- Monitoring
+- Logging
+- Retry support
+- DAG visualization
+- Task-level execution
+- Quality-based branching
+
+The DAG follows this task flow:
+
+    extract
+       |
+       v
+    quality_gate
+       |
+       v
+    BranchPythonOperator
+       |------------------+
+       |                  |
+       v                  v
+      load        reject_and_notify
+       |
+       v
+    update_watermark
+       |
+       v
+      log_run
+
+## Backfill
+
+Historical data can be processed using the backfill command:
+
+    python etl/src/main.py backfill --from YYYY-MM-DD --to YYYY-MM-DD
+
+Example:
+
+    python etl/src/main.py backfill --from 2026-07-01 --to 2026-07-31
+
+## Useful Database Commands
+
+View processed sales records:
+
+    SELECT *
+    FROM sales_fact
+    LIMIT 5;
+
+View recent ETL runs:
+
+    SELECT *
+    FROM etl_run_log
+    ORDER BY run_id DESC
+    LIMIT 5;
+
+View the current watermark:
+
+    SELECT *
+    FROM etl_watermark;
+
+View sales history:
+
+    SELECT *
+    FROM sales_fact_history
+    LIMIT 5;
+
+View generated alerts:
+
+    SELECT *
+    FROM etl_alerts
+    ORDER BY created_at DESC
+    LIMIT 5;
+
+## Testing
+
+Run the test suite with:
+
+    pytest -q
+
+The schema validation tests cover:
+
+- Missing required columns
+- Incorrect data types
+- Extra columns
+
+## Pipeline Monitoring
+
+The Airflow UI can be used to monitor individual pipeline stages, task status, retries, logs, and branching behavior.
+
+The PostgreSQL ETL tables can be queried to verify:
+
+- Pipeline execution status
+- Rows inserted
+- Rows updated
+- Rows rejected
+- Watermark progress
+- Generated alerts
+- Historical records
