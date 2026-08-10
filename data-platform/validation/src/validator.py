@@ -1,127 +1,137 @@
 import importlib
-import yaml
 import logging
+from typing import Any, Dict, List, Optional
+
 import pandas as pd
-from typing import Any, Dict, List, Optional, Literal, Callable, Type, ClassVar
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator, ValidationError, Field
+import yaml
+from pydantic import BaseModel, ConfigDict, model_validator, Field
 
 # Initialize the logger for this module
 logger = logging.getLogger(__name__)
 
 
 class ValidationResult(BaseModel):
-    """Wraps validation output to support both attribute (.passed) and dict (['passed']) access."""
-    model_config = ConfigDict(extra='allow')
-
     passed: bool
+    total_rows_affected: int
     errors: List[Dict[str, Any]] = Field(default_factory=list)
     warnings: List[Dict[str, Any]] = Field(default_factory=list)
-    info: List[Dict[str, Any]] = Field(default_factory=list)
-    total_rows_affected: int = 0
-    sample_bad_rows: Dict[str, Any] = Field(default_factory=dict)
+    sample_bad_rows: Dict[str, List[Dict[str, Any]]] = Field(default_factory=dict)
 
     def __getitem__(self, item):
-        # Enables backward compatibility for result["passed"]
-        return getattr(self, item)
+        """Allows dictionary-style access to the model's attributes (e.g., result['passed'])."""
+        if hasattr(self, item):
+            return getattr(self, item)
+        raise KeyError(item)
+
 
 class ConfigRule(BaseModel):
+    # Allow extra kwargs from the YAML (like 'min', 'max', 'pattern', 'subset', etc.)
     model_config = ConfigDict(extra='allow')
-
-    FIELD_BOUND_RULES: ClassVar[set] = {'not_null', 'range', 'regex', 'unique'}
-    # Define standard keys so we know which ones to exclude when extracting **kwargs
-    STANDARD_KEYS: ClassVar[set] = {'name', 'field', 'type', 'severity', 'function', 'min', 'max', 'pattern'}
 
     name: str
     field: Optional[str] = None
-    type: Literal['not_null', 'range', 'regex', 'unique', 'custom', 'transform']
-    severity: Literal['ERROR', 'WARNING', 'INFO'] = 'WARNING'
+    type: str
+    severity: str = "INFO"
 
-    @field_validator('severity', mode='before')
+    @model_validator(mode='before')
     @classmethod
-    def uppercase_severity(cls, v: Any) -> Any:
-        if isinstance(v, str):
-            return v.upper()
-        return v
+    def uppercase_severity(cls, values: Any) -> Any:
+        """Ensures severity is always uppercase (ERROR, WARNING, INFO)."""
+        if isinstance(values, dict) and isinstance(values.get('severity'), str):
+            values['severity'] = values['severity'].upper()
+        return values
 
     @model_validator(mode='after')
     def check_field_requirement(self) -> 'ConfigRule':
-        if self.type in self.FIELD_BOUND_RULES and not self.field:
-            raise ValueError(f"Rule '{self.name}' of type '{self.type}' requires a 'field' to be specified.")
+        """Ensures standard rules have a target field specified."""
+        if self.type not in ['custom', 'transform'] and self.field is None:
+            raise ValueError(f"Rule '{self.name}' requires a 'field' to be specified.")
         return self
 
-    @property
-    def config(self) -> Dict[str, Any]:
-        return self.model_dump()
-
-    def _get_custom_kwargs(self) -> Dict[str, Any]:
-        """Extracts any non-standard keys from the YAML config to pass as kwargs."""
-        return {k: v for k, v in self.config.items() if k not in self.STANDARD_KEYS}
-
-    def _load_function(self) -> Callable[..., Any]:
-        func_path: Optional[str] = self.config.get('function')
-        if not func_path:
-            raise ValueError(f"Rule '{self.name}' missing 'function' path.")
-
+    def _load_function(self, func_path: str):
+        """Dynamically loads a Python function from a string path (e.g., 'src.module.func')."""
         try:
-            mod_name, func_name = func_path.rsplit('.', 1)
-            mod = importlib.import_module(mod_name)
-            return getattr(mod, func_name)
-        except (ModuleNotFoundError, AttributeError, ValueError) as e:
-            raise RuntimeError(f"Failed to load function '{func_path}': {e}")
+            module_name, func_name = func_path.rsplit('.', 1)
+            module = importlib.import_module(module_name)
+            return getattr(module, func_name)
+        except Exception as e:
+            raise RuntimeError(f"Failed to load function {func_path}: {e}")
 
     def evaluate(self, df: pd.DataFrame) -> pd.Series:
-        if self.field and self.field not in df.columns:
-            # Fail loudly instead of silently flagging all rows as invalid
-            raise ValueError(
-                f"CRITICAL: Rule '{self.name}' expects field '{self.field}', but it is missing from the dataset.")
-            # return pd.Series(True, index=df.index, dtype=bool)
+        """Returns a boolean mask where True indicates a row FAILED the rule."""
+        if df.empty:
+            return pd.Series(dtype=bool, index=df.index)
 
-        s: Optional[pd.Series] = df[self.field] if self.field else None
+        # Standard missing value check
+        if self.type == "not_null":
+            if self.field not in df.columns:
+                return pd.Series([True] * len(df), index=df.index)
+            return df[self.field].isna()
 
-        if self.type == 'not_null' and s is not None:
-            return s.isna()
+        # Standard range check
+        elif self.type == "range":
+            min_val = self.model_extra.get('min', float('-inf'))
+            max_val = self.model_extra.get('max', float('inf'))
+            s = df[self.field]
+            # Flag if OUTSIDE the range (only check non-nulls)
+            return ~((s >= min_val) & (s <= max_val)) & s.notna()
 
-        elif self.type == 'range' and s is not None:
-            min_val = float(self.config.get('min', float('-inf')))
-            max_val = float(self.config.get('max', float('inf')))
-            return (s < min_val) | (s > max_val)
-
-        elif self.type == 'regex' and s is not None:
-            pattern: Any | None = self.config.get('pattern')
+        # Standard Regex check
+        elif self.type == "regex":
+            pattern = self.model_extra.get('pattern')
             if not pattern:
-                raise ValueError(f"Regex missing 'pattern'.")
+                raise ValueError(f"Regex missing 'pattern' in rule '{self.name}'")
+            s = df[self.field]
+            return ~s.astype(str).str.match(pattern) & s.notna()
 
-            non_nulls = s.dropna()
-            bad_strings = ~non_nulls.astype(str).str.match(pattern)
-            return bad_strings.reindex(s.index, fill_value=False).astype(bool)
-
-        elif self.type == 'unique' and s is not None:
+        # Standard Uniqueness check
+        elif self.type == "unique":
+            s = df[self.field]
             return s.duplicated(keep=False) & s.notna()
 
-        elif self.type == 'custom':
-            func = self._load_function()
-            kwargs = self._get_custom_kwargs()
-            # Inject 'field' as a kwarg if it exists
-            if hasattr(self, 'field') and self.field is not None:
-                kwargs['field'] = self.field
-            return pd.Series(func(df, **kwargs), dtype=bool)
+        # Dynamic Custom Evaluation (Returns boolean mask)
+        elif self.type == "custom":
+            func_path = self.model_extra.get('function')
+            if not func_path:
+                raise ValueError(f"Custom rule '{self.name}' missing 'function' path.")
 
-        elif self.type == 'transform':
-            return pd.Series(False, index=df.index, dtype=bool)
+            func = self._load_function(func_path)
+
+            # Pass all extra YAML keys as kwargs to the custom function
+            kwargs = self.model_extra.copy()
+            kwargs.pop('function', None)
+
+            if self.field:
+                return func(df, field=self.field, **kwargs)
+            else:
+                return func(df, **kwargs)
+
+        # Transform rules do not evaluate failures; they return an empty mask
+        elif self.type == "transform":
+            return pd.Series([False] * len(df), index=df.index)
 
         else:
             raise ValueError(f"Unknown rule type: {self.type}")
 
     def apply_transform(self, df: pd.DataFrame) -> pd.DataFrame:
-        if self.type == 'transform':
-            func = self._load_function()
-            kwargs = self._get_custom_kwargs()
-            # Pass extracted kwargs dynamically
-            # Manually inject the 'field' back into kwargs so the transform function receives it!
-            if hasattr(self, 'field') and self.field is not None:
-                kwargs['field'] = self.field
+        """Applies data transformation logic if the rule type is 'transform'."""
+        if self.type != "transform":
+            return df
+
+        func_path = self.model_extra.get('function')
+        if not func_path:
+            raise ValueError(f"Transform rule '{self.name}' missing 'function' path.")
+
+        func = self._load_function(func_path)
+
+        # Pass all extra YAML keys as kwargs to the transform function
+        kwargs = self.model_extra.copy()
+        kwargs.pop('function', None)
+
+        if self.field:
+            return func(df, field=self.field, **kwargs)
+        else:
             return func(df, **kwargs)
-        return df
 
 
 class DataValidator:
@@ -129,99 +139,119 @@ class DataValidator:
         self.rules = rules
 
     @classmethod
-    def from_config(cls: Type['DataValidator'], config_path: str) -> 'DataValidator':
+    def from_config(cls, yaml_path: str) -> 'DataValidator':
+        """Instantiates the validator directly from a YAML configuration file."""
         try:
-            with open(config_path, 'r') as f:
-                data: Dict[str, Any] = yaml.safe_load(f)
-            # Handle empty files which cause safe_load to return None
+            with open(yaml_path, 'r') as f:
+                data = yaml.safe_load(f)
+
+            # Edge Case Fix: Prevent NoneType exceptions on empty files
             if data is None:
                 raise ValueError("YAML file is completely empty.")
-        except Exception as e:
+
+            rules_data = data.get('rules', [])
+            rules = [ConfigRule(**r) for r in rules_data]
+            return cls(rules)
+
+        except (FileNotFoundError, yaml.YAMLError) as e:
             raise ValueError(f"Config parse failed: {e}")
-
-        rules = [ConfigRule(**r) for r in data.get('rules', [])]
-
-        return cls(rules)
+        # Note: Pydantic ValidationErrors bubble up natively without being caught here.
 
     def validate(self, df: pd.DataFrame) -> ValidationResult:
-        report: Dict[str, Any] = {
-            "passed": True,
-            "errors": [],
-            "warnings": [],
-            "info": [],
-            "total_rows_affected": 0,
-            "sample_bad_rows": {}
-        }
-
-        # Handle Empty Batch
-        if df.empty:
-            report["warnings"].append({
-                "rule": "empty_batch",
-                "field": None,
-                "count": 0,
-                "message": "Received an empty DataFrame."
-            })
-            return ValidationResult(**report)
-
-        global_bad_mask: pd.Series = pd.Series(False, index=df.index, dtype=bool)
+        """Executes the validation pipeline and generates a report."""
+        errors = []
+        warnings = []
+        sample_bad = {}
+        affected_indices = set()
 
         for rule in self.rules:
-            bad_mask: pd.Series = rule.evaluate(df)
-            bad_count: int = int(bad_mask.sum())
+            # Skip evaluation for transform rules
+            if rule.type == "transform":
+                continue
+
+            # --- Fail-Safe Implementation ---
+            try:
+                bad_mask = rule.evaluate(df)
+            except Exception as e:
+                logger.error(f"FATAL ERROR: Rule '{rule.name}' crashed during validation: {e}. Skipping rule.")
+                continue
+
+            bad_count = int(bad_mask.sum())
 
             if bad_count > 0:
-                # Do not count INFO flags towards global severities or row drops
-                if rule.severity in ['ERROR', 'WARNING']:
-                    global_bad_mask |= bad_mask
+                bad_rows = df[bad_mask]
+                sample = []
 
-                issue: Dict[str, Any] = {
+                # Gather samples for debugging
+                for idx, row in bad_rows.head(5).iterrows():
+                    failed_val = row[rule.field] if rule.field and rule.field in df.columns else None
+                    sample.append({
+                        "row_index": idx,
+                        "failed_value": failed_val,
+                        "rule_name": rule.name
+                    })
+                sample_bad[rule.name] = sample
+
+                report_item = {
                     "rule": rule.name,
                     "field": rule.field,
                     "count": bad_count
                 }
 
-                if rule.severity == 'ERROR':
-                    report['passed'] = False
-                    report['errors'].append(issue)
-                elif rule.severity == 'WARNING':
-                    report['warnings'].append(issue)
-                elif rule.severity == 'INFO':
-                    report['info'].append(issue)
+                if rule.severity == "ERROR":
+                    errors.append(report_item)
+                    affected_indices.update(bad_rows.index.tolist())
+                elif rule.severity == "WARNING":
+                    warnings.append(report_item)
+                    affected_indices.update(bad_rows.index.tolist())
+                # Note: INFO severity records issues but does not count them as "affected rows"
 
-                sample_indices = df[bad_mask].head(5).index
-                field_exists: bool = bool(rule.field and rule.field in df.columns)
-
-                report['sample_bad_rows'][rule.name] = [
-                    {
-                        "row_index": idx,
-                        "failed_value": df.at[idx, rule.field] if field_exists else None,
-                        "rule_name": rule.name
-                    } for idx in sample_indices
-                ]
-
-        report['total_rows_affected'] = int(global_bad_mask.sum())
-        return ValidationResult(**report)
+        passed = len(errors) == 0
+        return ValidationResult(
+            passed=passed,
+            total_rows_affected=len(affected_indices),
+            errors=errors,
+            warnings=warnings,
+            sample_bad_rows=sample_bad
+        )
 
     def clean(self, df: pd.DataFrame, strict: bool = True, target_rules: Optional[List[str]] = None) -> pd.DataFrame:
-        drop_mask: pd.Series = pd.Series(False, index=df.index, dtype=bool)
-        target_rules_set: set = set(target_rules or [])
+        """
+        Cleans the dataset by applying transforms and removing invalid rows.
+        If strict=True, all rows with ERRORs are dropped.
+        If strict=False, only rows failing 'target_rules' are dropped.
+        """
+        df_clean = df.copy()
 
+        # 1. First Pass: Apply Transforms
         for rule in self.rules:
-            if rule.type == 'transform':
-                continue
-            if strict and rule.severity != 'ERROR':
-                continue
-            if not strict and rule.name not in target_rules_set:
-                continue
+            if rule.type == "transform":
+                # --- Fail-Safe Implementation for Transforms ---
+                try:
+                    df_clean = rule.apply_transform(df_clean)
+                except Exception as e:
+                    logger.error(f"FATAL ERROR: Transform rule '{rule.name}' crashed: {e}. Skipping rule.")
+                    continue
 
-            bad_mask: pd.Series = rule.evaluate(df)
-            drop_mask |= bad_mask
-
-        clean_df: pd.DataFrame = df[~drop_mask].copy()
-
+        # 2. Second Pass: Filter rows
+        drop_indices = set()
         for rule in self.rules:
-            if rule.type == 'transform':
-                logger.info(f"Applying transformation rule: {rule.name}")
-                clean_df = rule.apply_transform(clean_df)
+            if rule.type == "transform":
+                continue
 
-        return clean_df
+            # --- Fail-Safe Implementation for Cleaning ---
+            try:
+                if strict and rule.severity == "ERROR":
+                    mask = rule.evaluate(df_clean)
+                    drop_indices.update(df_clean[mask].index.tolist())
+                elif not strict and target_rules and rule.name in target_rules:
+                    mask = rule.evaluate(df_clean)
+                    drop_indices.update(df_clean[mask].index.tolist())
+            except Exception as e:
+                logger.error(f"FATAL ERROR: Rule '{rule.name}' crashed during cleaning: {e}. Skipping rule.")
+                continue
+
+        if drop_indices:
+            df_clean = df_clean.drop(index=list(drop_indices))
+
+        return df_clean

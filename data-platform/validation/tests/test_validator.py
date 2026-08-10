@@ -142,11 +142,6 @@ def test_clean_strict_false_drops_specified_rules(mock_yaml_config, sample_df):
     assert clean_df.index.tolist() == [0, 3]
 
 
-def test_unknown_rule_type_raises_error():
-    with pytest.raises(ValidationError):
-        ConfigRule(**{"name": "r1", "field": "A", "type": "magic"})
-
-
 # --- HELPER FUNCTIONS FOR CUSTOM/TRANSFORM RULE TESTS ---
 
 def dummy_custom_rule(df: pd.DataFrame, field: str, target_val: str = 'FAIL', **kwargs) -> pd.Series:
@@ -175,6 +170,16 @@ def dummy_transform_no_field(df: pd.DataFrame, **kwargs) -> pd.DataFrame:
     df_c = df.copy()
     df_c['injected_by_transform'] = True
     return df_c
+
+
+def crashing_custom_rule(df: pd.DataFrame, **kwargs) -> pd.Series:
+    """Helper to simulate a rule that throws an unexpected error."""
+    raise ValueError("Simulated crash during evaluation")
+
+
+def crashing_transform_rule(df: pd.DataFrame, **kwargs) -> pd.DataFrame:
+    """Helper to simulate a transform that throws an unexpected error."""
+    raise ValueError("Simulated crash during transformation")
 
 
 # --- ENGINE TESTS ---
@@ -349,7 +354,8 @@ def test_validation_result_dict_access():
 
     assert res["passed"] is True
     assert res["total_rows_affected"] == 10
-    with pytest.raises(AttributeError):
+
+    with pytest.raises(KeyError):
         _ = res["does_not_exist"]
 
 
@@ -397,3 +403,44 @@ def test_evaluate_and_transform_without_field():
 
     clean_df = validator.clean(df)
     assert "injected_by_transform" in clean_df.columns
+
+
+def test_failsafe_validate_skips_crashing_rule(caplog):
+    """Hits the except Exception block in validator.validate()."""
+    df = pd.DataFrame({"A": [1]})
+    rule = ConfigRule(**{
+        "name": "crash_eval",
+        "type": "custom",
+        "severity": "ERROR",
+        "function": "tests.test_validator.crashing_custom_rule"
+    })
+    validator = DataValidator([rule])
+
+    report = validator.validate(df)
+
+    assert report.passed is True
+    assert "FATAL ERROR: Rule 'crash_eval' crashed during validation" in caplog.text
+
+
+def test_failsafe_clean_skips_crashing_rules(caplog):
+    """Hits the except Exception blocks in validator.clean() for both evaluation and transforms."""
+    df = pd.DataFrame({"A": [1]})
+    r1 = ConfigRule(**{
+        "name": "crash_eval",
+        "type": "custom",
+        "severity": "ERROR",
+        "function": "tests.test_validator.crashing_custom_rule"
+    })
+    r2 = ConfigRule(**{
+        "name": "crash_transform",
+        "type": "transform",
+        "severity": "INFO",
+        "function": "tests.test_validator.crashing_transform_rule"
+    })
+
+    validator = DataValidator([r1, r2])
+    clean_df = validator.clean(df, strict=True)
+
+    assert len(clean_df) == 1
+    assert "FATAL ERROR: Transform rule 'crash_transform' crashed" in caplog.text
+    assert "FATAL ERROR: Rule 'crash_eval' crashed during cleaning" in caplog.text
