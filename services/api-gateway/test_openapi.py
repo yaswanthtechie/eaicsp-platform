@@ -32,16 +32,14 @@ app.include_router(router)
 
 client = TestClient(app)
 
-
 def test_openapi_schema_contains_gateway_route():
-
     response = client.get("/openapi.json")
 
     assert response.status_code == 200
 
     schema = response.json()
 
-    assert "/{path:path}" in schema["paths"]
+    assert "/{path}" in schema["paths"]
 
     expected_methods = {
         "get",
@@ -54,7 +52,7 @@ def test_openapi_schema_contains_gateway_route():
     }
 
     actual_methods = set(
-        schema["paths"]["/{path:path}"].keys()
+        schema["paths"]["/{path}"].keys()
     )
 
     assert expected_methods == actual_methods
