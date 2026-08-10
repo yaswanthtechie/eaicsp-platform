@@ -1,76 +1,112 @@
+from random import randint
+
 import pandas as pd
 import numpy as np
+import uuid
 from pathlib import Path
-
-# 1. Dependency Injection: Keep the path configuration outside the main logic
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_FILEPATH = PROJECT_ROOT / "data" / "messy_sales.csv"
+from typing import Any, List, Optional
+from dataclasses import dataclass, field
 
 
-def generate_messy_data(filepath=DEFAULT_FILEPATH, n_base=970):
-    # Ensure safe directory creation
+# 1. Centralized Configuration (No Magic Numbers/Strings)
+@dataclass
+class MessyDataConfig:
+    n_base: int = 970
+    seed: int = 42
+    start_date: str = "2024-01-01"
+    end_date: str = "2024-04-10"
+    date_freq: str = "D"
+    warehouses: List[str] = field(default_factory=lambda: ["WH-01", "WH-02", "WH-03", "WH-04"])
+
+    sku_start_range: int = 1000
+    sku_end_range: int = 1050
+    qty_min: int = 1
+    qty_max: int = 15
+    price_min: float = 10.0
+    price_max: float = 1200.0
+
+
+    date_formats: List[str] = field(default_factory=lambda: ["%Y-%m-%d", "%d/%m/%Y", "%b %d %Y"])
+    bad_sku_string: str = "BAD-9999"
+
+    # Corruption Percentages
+    frac_missing_qty: float = 0.05
+    frac_negative_qty: float = 0.006
+    frac_bad_sku_format: float = 0.015
+    frac_missing_sku: float = 0.01
+    frac_missing_warehouse_id: float = 0.01
+    frac_missing_date: float = 0.012
+    frac_exact_duplicates: float = 0.031
+    frac_missing_price: float = 0.02
+
+
+def _inject_anomaly(df: pd.DataFrame, column: str, fraction: float, replacement: Any) -> pd.Index:
+    count = int(len(df) * fraction)
+    idx = df.sample(n=count, replace=False).index
+    df.loc[idx, column] = replacement
+    return idx
+
+
+def generate_messy_data(filepath: Path | str, config: Optional[MessyDataConfig] = None) -> pd.DataFrame:
+    cfg = config or MessyDataConfig()
+
     filepath = Path(filepath)
     filepath.parent.mkdir(parents=True, exist_ok=True)
-
-    np.random.seed(42)
+    np.random.seed(cfg.seed)
 
     # --- 1. Generate Base Data (Vectorized) ---
-    date_range = pd.date_range(start="2024-01-01", end="2024-04-10", freq="D")
-    dates = np.random.choice(date_range, size=n_base)
+    date_range = pd.date_range(start=cfg.start_date, end=cfg.end_date, freq=cfg.date_freq)
+    dates: List[Any] = np.random.choice(date_range, size=cfg.n_base).tolist()  # type: ignore
+    valid_skus = [f"SKU-{str(i).zfill(4)}" for i in range(cfg.sku_start_range, cfg.sku_end_range)]
+    sku_col: List[str] = np.random.choice(valid_skus, size=cfg.n_base).tolist()  # type: ignore
+    warehouse_col = np.random.choice(cfg.warehouses, size=cfg.n_base).tolist() # type: ignore
+    quantities: List[float] = np.random.randint(cfg.qty_min, cfg.qty_max, size=cfg.n_base).astype(float).tolist()  # type: ignore
 
-    products = ["iPhone 15", "IPHONE-15", "iphone 15 ", "Galaxy S24", "GALAXY-s24", " galaxy s24"]
-    product_col = np.random.choice(products, size=n_base)
-
-    quantities = np.random.randint(1, 15, size=n_base).astype(float)
+    prices = np.random.uniform(cfg.price_min, cfg.price_max, size=cfg.n_base).round(2).tolist() # type: ignore
 
     df = pd.DataFrame({
         "date": dates,
-        "product_name": product_col,
-        "quantity_sold": quantities
+        "sku_id": sku_col,
+        "warehouse_id": warehouse_col,
+        "quantity_sold": quantities,
+        "unit_price": prices
     })
 
-    # --- 2. Introduce Data Corruption (Dynamic & Vectorized) ---
+    # --- 2. Introduce Data Corruption ---
+    missing_idx = _inject_anomaly(df, "quantity_sold", cfg.frac_missing_qty, np.nan)
 
-    # Missing quantities (~5%)
-    missing_count = int(len(df) * 0.05)
-    missing_idx = np.random.choice(df.index, size=missing_count, replace=False)
-    df.loc[missing_idx, "quantity_sold"] = np.nan
+    valid_idx = df.index.difference(missing_idx)
+    neg_count = int(len(df) * cfg.frac_negative_qty)
+    neg_idx = df.loc[valid_idx].sample(n=neg_count, replace=False).index
 
-    # Negative quantities (~0.6%) - explicitly avoiding the missing indexes
-    valid_idx = df.index[~df.index.isin(missing_idx)]
-    neg_count = int(len(df) * 0.006)
-    neg_idx = np.random.choice(valid_idx, size=neg_count, replace=False)
-    df.loc[neg_idx, "quantity_sold"] = -df.loc[neg_idx, "quantity_sold"]
+    target_series = df.loc[neg_idx, "quantity_sold"]
+    df.loc[neg_idx, "quantity_sold"] = target_series.astype(float) * -1.0
 
-    # Inconsistent Date Formatting
-    formats = ["%Y-%m-%d", "%d/%m/%Y", "%b %d %Y"]
-    random_formats = np.random.choice(formats, size=n_base)
+    _inject_anomaly(df, "sku_id", cfg.frac_bad_sku_format, cfg.bad_sku_string)
+    _inject_anomaly(df, "sku_id", cfg.frac_missing_sku, np.nan)
+    _inject_anomaly(df, "warehouse_id", cfg.frac_missing_warehouse_id, np.nan)
+    _inject_anomaly(df, "unit_price", cfg.frac_missing_price, np.nan)
 
-    # Fast list comprehension over zipped arrays to apply mixed formats
+    random_formats: List[str] = np.random.choice(cfg.date_formats, size=cfg.n_base).tolist()  # type: ignore
     df["date"] = [
-        d.strftime(fmt) for d, fmt in zip(df["date"], random_formats)
+        d.strftime(fmt) if pd.notna(d) else d
+        for d, fmt in zip(pd.to_datetime(df["date"]), random_formats)
     ]
 
-    # Unparseable Dates (~1.2%)
-    invalid_count = int(len(df) * 0.012)
-    invalid_date_idx = np.random.choice(df.index, size=invalid_count, replace=False)
-    df.loc[invalid_date_idx, "date"] = "invalid_date"
+    _inject_anomaly(df, "date", cfg.frac_missing_date, np.nan)
 
-    # --- 3. Duplicates, Shuffling, and Finalizing ---
-
-    # Add exact duplicates (~3% to roughly reach 1000 rows if n_base is 970)
-    dup_count = int(len(df) * 0.031)
-    duplicates = df.sample(n=dup_count, replace=True, random_state=42)
+    # --- 3. Duplicates & Shuffling ---
+    dup_count = int(len(df) * cfg.frac_exact_duplicates)
+    duplicates = df.sample(n=dup_count, replace=True, random_state=cfg.seed)
     df = pd.concat([df, duplicates], ignore_index=True)
 
-    # Shuffle to distribute all anomalies randomly throughout the dataset
-    df = df.sample(frac=1, random_state=42).reset_index(drop=True)
-
-    # Save to disk
+    df = df.sample(frac=1, random_state=cfg.seed).reset_index(drop=True)
     df.to_csv(filepath, index=False)
 
-    # Return the DataFrame so it can be analyzed immediately in memory
+    print(f"Messy data successfully generated at: {filepath}")
     return df
 
+
 if __name__ == "__main__":
-    generate_messy_data()
+    # Provides a default path strictly for standalone testing purposes
+    generate_messy_data(Path(__file__).resolve().parent.parent / "data" / "messy_sales.csv")
