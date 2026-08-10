@@ -1,11 +1,11 @@
 import asyncio
-# pyrefly: ignore [missing-import]
-import httpx
 from typing import Dict
+
+import httpx
+from fastapi import Request
+
 from app.core.config import settings
 from app.services.proxy import get_service_name
-# pyrefly: ignore [missing-import]
-from fastapi import Request
 
 async def _ping_service(client: httpx.AsyncClient, service_name: str, base_url: str) -> tuple[str, str]:
     """Pings a service to determine if it is up or down."""

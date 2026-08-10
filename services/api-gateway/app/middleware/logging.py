@@ -7,7 +7,7 @@ import time
 
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
+from app.middleware.ratelimit import get_real_ip
 
 # --------------------------------------------------
 # Configure Logging
@@ -58,16 +58,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             method = request.method
             path = request.url.path
 
-            forwarded_for = request.headers.get("X-Forwarded-For")
-
-            if forwarded_for:
-                client_ip = forwarded_for.split(",")[0].strip()
-            else:
-                client_ip = (
-                    request.client.host
-                    if request.client
-                    else "unknown"
-                )
+            client_ip = get_real_ip(request)
 
             logger.info(
                 "request_id=%s method=%s path=%s status=%s duration=%.2fms ip=%s",

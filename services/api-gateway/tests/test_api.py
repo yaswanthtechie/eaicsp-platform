@@ -29,6 +29,17 @@ def test_root_endpoint(client):
     }
 
 
+def test_openapi_schema(client):
+    """
+    Test that the OpenAPI schema endpoint returns 200 and valid paths.
+    """
+    response = client.get("/api/v1/openapi.json")
+
+    assert response.status_code == 200
+    schema = response.json()
+    assert "/{path}" in schema["paths"]
+
+
 def test_invalid_service(client):
     """
     Test invalid route.
