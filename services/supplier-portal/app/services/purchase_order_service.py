@@ -180,7 +180,7 @@ def transition_purchase_order(
         "actor": actor,
         "from_status": current_state,
         "to_status": target_state,
-        "timestamp": datetime.now(),
+        "timestamp": datetime.now().isoformat(),
     }
 
     # Store the event in ONE place only.

@@ -13,7 +13,7 @@ class PurchaseOrderStatus(str, Enum):
     cancelled = "cancelled"
 
 class PurchaseOrderHistory(BaseModel):
-    actor: str
+    actor: str | None = None
     from_status: PurchaseOrderStatus
     to_status: PurchaseOrderStatus
     timestamp: datetime
