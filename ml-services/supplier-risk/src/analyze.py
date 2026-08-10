@@ -6,8 +6,9 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from src.data import load_headlines
-from src.sentiment import init_model
 from src.predict import predict
+from src.sentiment import init_model
+
 
 # ----------------------------------------------------
 # Logging
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 # ----------------------------------------------------
-# Response Models
+# Request / Response Models
 # ----------------------------------------------------
 
 class SentimentBreakdown(BaseModel):
@@ -51,13 +52,19 @@ class AnalysisResponse(BaseModel):
     supplier_summary: Dict[str, SupplierSummary]
 
 
+class AnalyzeRequest(BaseModel):
+    """Request body for supplier risk analysis."""
+
+    supplier_name: str
+    headlines: List[str]
+
+
 # ----------------------------------------------------
 # FastAPI Lifespan
 # ----------------------------------------------------
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-
     logger.info("Loading FinBERT model...")
 
     try:
@@ -89,7 +96,6 @@ app = FastAPI(
 
 @app.get("/health")
 def health():
-
     return {
         "status": "UP",
         "service": "supplier-risk",
@@ -98,22 +104,66 @@ def health():
 
 # ----------------------------------------------------
 # Analyze Endpoint
+# POST with request body
 # ----------------------------------------------------
 
 @app.post(
     "/api/v1/supplier-risk/analyze",
     response_model=AnalysisResponse,
 )
-def analyze_headlines():
+def analyze_headlines(request: AnalyzeRequest):
+    """
+    Analyze supplier risk for given headlines.
+
+    Args:
+        request: Contains supplier_name and headlines.
+
+    Returns:
+        AnalysisResponse with risk scores and signals.
+    """
 
     try:
+        summary = predict(
+            supplier_name=request.supplier_name,
+            headlines=request.headlines,
+        )
 
+        return {
+            "supplier_summary": {
+                request.supplier_name: summary,
+            }
+        }
+
+    except Exception as exc:
+        logger.exception("Supplier risk analysis failed.")
+
+        raise HTTPException(
+            status_code=500,
+            detail="Internal Server Error",
+        ) from exc
+
+
+# ----------------------------------------------------
+# Optional Static Dataset Endpoint
+# ----------------------------------------------------
+
+@app.get(
+    "/api/v1/supplier-risk/analyze-static",
+    response_model=AnalysisResponse,
+)
+def analyze_static_dataset():
+    """
+    Analyze all suppliers in the static dataset.
+
+    Useful for testing and evaluation.
+    """
+
+    try:
         grouped_headlines = load_headlines()
 
         response_data: Dict[str, Any] = {}
 
         for supplier, headlines in grouped_headlines.items():
-
             summary = predict(
                 supplier_name=supplier,
                 headlines=headlines,
@@ -122,14 +172,11 @@ def analyze_headlines():
             response_data[supplier] = summary
 
         return {
-            "supplier_summary": response_data
+            "supplier_summary": response_data,
         }
 
     except Exception as exc:
-
-        logger.exception(
-            "Supplier risk analysis failed."
-        )
+        logger.exception("Static dataset analysis failed.")
 
         raise HTTPException(
             status_code=500,
@@ -142,8 +189,6 @@ def analyze_headlines():
 # ----------------------------------------------------
 
 if __name__ == "__main__":
-
-    # pyrefly: ignore [missing-import]
     import uvicorn
 
     uvicorn.run(
