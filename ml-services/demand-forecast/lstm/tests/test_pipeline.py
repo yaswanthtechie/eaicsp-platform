@@ -1,58 +1,65 @@
+import os
+import sys
 import pytest
 import torch
 import numpy as np
 import torch.nn as nn
-from src.model import MultiStepLSTM
+
+# Ensure tests can import modules from src/ regardless of CWD
+TEST_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+SRC_DIR = os.path.join(TEST_ROOT, "src")
+if SRC_DIR not in sys.path:
+    sys.path.insert(0, SRC_DIR)
+
+from model import MultiStepLSTM
+from data import get_walk_forward_folds, generate_data
 
 
 @pytest.fixture
 def sample_model():
     """Pytest fixture to instantiate a sample model for testing."""
-    return MultiStepLSTM(1,32, 1,7, 0.2)
-
-
-def test_sliding_window_shape():
-    """Verify sliding window shape logic."""
-    dummy_data = np.arange(100)
-    lookback, horizon = 30, 7
-    
-    X, y = [], []
-    for i in range(len(dummy_data) - lookback - horizon + 1):
-        X.append(dummy_data[i : i + lookback])
-        y.append(dummy_data[i + lookback : i + lookback + horizon])
-        
-    X_arr, y_arr = np.array(X), np.array(y)
-    
-    # Expected samples: 100 - 30 - 7 + 1 = 64
-    assert X_arr.shape == (64, 30), f"Expected X shape (64, 30), got {X_arr.shape}"
-    assert y_arr.shape == (64, 7), f"Expected y shape (64, 7), got {y_arr.shape}"
-
-
-def test_no_data_leakage_in_walk_forward_folds():
-    """Verify that training and testing sets in walk-forward validation do not overlap."""
-    data_length = 100
-    num_folds = 5
-    fold_size = data_length // (num_folds + 1)
-    
-    for fold in range(1, num_folds + 1):
-        train_indices = list(range(0, fold * fold_size))
-        test_indices = list(range(fold * fold_size, (fold + 1) * fold_size))
-        
-        # Ensure training set strictly precedes test set
-        assert max(train_indices) < min(test_indices), f"Data leakage detected in fold {fold}"
+    return MultiStepLSTM(input_size=1, hidden_size=32, num_layers=1, horizon=7, dropout_rate=0.2)
 
 
 def test_mc_dropout_activation(sample_model):
     """Ensure dropout modules remain active during MC-Dropout inference."""
     model = sample_model
     model.eval()
-    
-    # Force dropout layers to train mode
-    for m in model.modules():
-        if isinstance(m, nn.Dropout):
-            m.train()
-            
+
+    # Call the public API that should enable MC-dropout behaviour
+    model.enable_mc_dropout()
+
     # Assert that dropout modules specifically are in training mode
     dropout_modules = [m for m in model.modules() if isinstance(m, nn.Dropout)]
+    assert len(dropout_modules) > 0, "Model should contain Dropout modules for MC-Dropout"
     for m in dropout_modules:
         assert m.training is True, "Dropout module should remain in training mode during MC-Dropout"
+
+
+def test_get_walk_forward_folds_no_leakage():
+    """Call the real fold generator and assert test targets aren't in the training set."""
+    days = 100
+    n_folds = 5
+    lookback = 10
+    horizon = 3
+
+    df = generate_data(days=days)
+    values = df["Demand"].values
+    folds = get_walk_forward_folds(df, n_folds=n_folds, lookback=lookback, horizon=horizon)
+
+    n_samples = len(values)
+    fold_size = n_samples // (n_folds + 1)
+
+    for k, (X_tr, y_tr, X_te, y_te, scaler) in enumerate(folds, start=1):
+        train_end = fold_size * k
+        raw_train = values[:train_end]  # raw training values for this fold
+
+        # Inverse transform y_test back to original scale using fold's scaler
+        y_test_unscaled = scaler.inverse_transform(y_te.reshape(-1, 1)).flatten()
+
+        # Round floats to avoid tiny floating point mismatches, then test set disjointness
+        raw_train_rounded = set(np.round(raw_train, 6))
+        y_test_rounded = set(np.round(y_test_unscaled, 6))
+        assert raw_train_rounded.isdisjoint(y_test_rounded), f"Data leakage: fold {k} test targets appear in training data"
+        
+        

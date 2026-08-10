@@ -53,8 +53,11 @@ def train_and_evaluate():
             y_train_t = torch.tensor(y_tr, dtype=torch.float32)
             X_test_t = torch.tensor(X_te, dtype=torch.float32).unsqueeze(-1)
 
+            # 1. Instantiate dataset FIRST
             dataset = TensorDataset(X_train_t, y_train_t)
-            loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
+
+            # 2. Build DataLoader with shuffle=True for stochastic training
+            loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
 
             model = MultiStepLSTM(horizon=HORIZON)
             criterion = nn.MSELoss()
