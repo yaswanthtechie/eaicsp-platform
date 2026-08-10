@@ -1,116 +1,522 @@
-# UI Library
+# UI Component Library
 
-## Overview
+A reusable **React + TypeScript UI Component Library** designed for building scalable and consistent dashboard applications.
 
-This project is a reusable UI component library built using **React**, **TypeScript**, and **Vite**.
-
-The goal was to build reusable, fully typed UI components without using `any`, maintain consistent styling using design tokens, and demonstrate all components in a showcase page.
+This library provides reusable UI primitives, complex components, dashboard-specific composites, and documentation examples so developers can build applications without recreating common UI patterns.
 
 ---
 
-# Components Implemented
+## Features
 
-The following reusable components have been implemented:
-
-- Button
-- Card
-- Badge
-- KPI Card
-- Table
-- Modal
-- Tabs
-- Spinner
-- Toast
-
-Each component is designed to be reusable and can be imported into other React applications.
+- Fully typed React components using TypeScript
+- Reusable and composable components
+- No usage of `any`
+- Centralized design tokens
+- Consistent UI patterns
+- Accessible components
+- Dashboard-ready components
+- Interactive component documentation
 
 ---
 
-# Features
-
-- React + TypeScript
-- Fully typed components
-- No use of `any`
-- Reusable UI components
-- Shared design tokens (`tokens.ts`)
-- Mock data stored in App.tsx
-- Showcase page demonstrating all components
-- Loading and empty states where applicable
-
----
-
-# Project Structure
-
-````
-src/
-├── components/
-│   ├── Badge.tsx
-│   ├── Button.tsx
-│   ├── Card.tsx
-│   ├── KpiCard.tsx
-│   ├── Modal.tsx
-│   ├── Spinner.tsx
-│   ├── Table.tsx
-│   ├── Tabs.tsx
-│   └── Toast.tsx
-│
-│
-├── App.tsx
-└── tokens.ts
-
----
-
-# Technologies Used
+## Tech Stack
 
 - React
 - TypeScript
 - Vite
 - CSS
+- React Hooks
 
 ---
 
-# How to Run
+# Project Structure
 
-### Install dependencies
+```
+src
+│
+├── components
+│   ├── Button.tsx
+│   ├── Card.tsx
+│   ├── Badge.tsx
+│   ├── KpiCard.tsx
+│   ├── KpiGrid.tsx
+│   ├── AlertBanner.tsx
+│   ├── StatusIndicator.tsx
+│   ├── Table.tsx
+│   ├── DataTable.tsx
+│   ├── Modal.tsx
+│   ├── Tabs.tsx
+
+│   ├── Toast.tsx
+│   └── Spinner.tsx
+│
+├── docs
+│   └── DocsPage.tsx
+│
+├── theme
+│   └── tokens.ts
+│
+├── hooks
+│
+├── providers
+│
+├── forms
+│
+├── App.tsx
+└── main.tsx
+```
+
+---
+
+# Installation
+
+Install dependencies:
 
 ```bash
 npm install
-````
+```
 
-### Start the development server
+Run development server:
 
 ```bash
 npm run dev
 ```
 
-### Open in browser
+Build project:
 
-```
-http://localhost:5173
+```bash
+npm run build
 ```
 
 ---
 
-# What I Found
+# Components
 
-During this assignment, I learned:
+## Button
 
-- How to build reusable React components.
-- How to define component props using TypeScript interfaces and types.
-- How to avoid using `any` by using proper TypeScript types.
-- How to use shared design tokens for colors, spacing, and border radius.
-- How to build a generic Table component using TypeScript generics.
-- How to organize components in a reusable project structure.
-- How different UI components can be composed together in a showcase page.
+Reusable button component for user actions.
+
+### Supported Features
+
+- Primary button
+- Secondary button
+- Danger button
+- Loading state
+- Disabled state
+- Small and medium sizes
+
+
+Example:
+
+```tsx
+<Button
+  variant="primary"
+  size="md"
+>
+  Save
+</Button>
+```
 
 ---
 
-# What I Got Stuck On
+## Card
 
-Some challenges I encountered during development were:
+Reusable container component for displaying grouped content.
 
-- Understanding TypeScript generics in the Table component.
-- Managing component props and state with strict TypeScript typing.
-- Organizing the project structure for a reusable UI library.
-- Understanding how to prepare the project for submission in a shared Git repository and create a pull request.
-- Resolving minor TypeScript and import errors while integrating components.
+### Features
+
+- Optional title
+- Optional actions
+- Custom content support
+
+
+Example:
+
+```tsx
+<Card title="Inventory">
+
+  <p>
+    Product details
+  </p>
+
+</Card>
+```
+
+---
+
+## Badge
+
+Displays status labels and indicators.
+
+### Variants
+
+- Success
+- Warning
+- Danger
+- Info
+- Neutral
+
+
+Example:
+
+```tsx
+<Badge status="success">
+ Active
+</Badge>
+```
+
+---
+
+## KPI Card
+
+Displays important dashboard metrics.
+
+### Features
+
+- Label
+- Value
+- Percentage change
+- Positive and negative indicators
+
+
+Example:
+
+```tsx
+<KpiCard
+ label="Revenue"
+ value="₹5M"
+ delta={5}
+/>
+```
+
+---
+
+## KPI Grid
+
+Dashboard composite component built using KPI Cards.
+
+### Features
+
+- Multiple KPI display
+- Configurable columns
+- Responsive grid layout
+
+
+Example:
+
+```tsx
+<KpiGrid
+ items={kpis}
+ columns={4}
+/>
+```
+
+---
+
+## Status Indicator
+
+Displays application or system status.
+
+### Supported Status
+
+- Online
+- Offline
+- Pending
+- Success
+- Warning
+- Error
+
+
+Example:
+
+```tsx
+<StatusIndicator
+ status="online"
+ label="Server Online"
+/>
+```
+
+---
+
+## Alert Banner
+
+Dashboard notification component built using existing primitives.
+
+Built with:
+
+- Card
+- Badge
+- Button
+
+
+### Supported Types
+
+- Info
+- Success
+- Warning
+- Danger
+
+
+Example:
+
+```tsx
+<AlertBanner
+ type="warning"
+ title="Low Stock"
+ message="Some products are below minimum quantity"
+/>
+```
+
+---
+
+## Table
+
+Generic TypeScript table component.
+
+### Features
+
+- Type-safe columns
+- Custom rendering
+- Loading state
+- Empty state
+
+
+Example:
+
+```tsx
+<Table
+ columns={columns}
+ data={data}
+ rowKey={(row)=>row.id}
+/>
+```
+
+---
+
+## DataTable
+
+Advanced table component for daily dashboard usage.
+
+### Features
+
+- Sorting
+- Filtering
+- Pagination
+- Row selection
+- TypeScript generics
+
+
+Example:
+
+```tsx
+<DataTable
+ columns={columns}
+ data={users}
+/>
+```
+
+---
+
+## Modal
+
+Accessible dialog component.
+
+### Features
+
+- Escape key close
+- Overlay click close
+- ARIA dialog support
+- Custom footer support
+
+
+Example:
+
+```tsx
+<Modal
+ isOpen={true}
+ title="Delete Item"
+ onClose={()=>{}}
+>
+ Content
+</Modal>
+```
+
+---
+
+## Tabs
+
+Content navigation component.
+
+### Features
+
+- Controlled mode
+- Uncontrolled mode
+- Disabled tabs
+
+
+Example:
+
+```tsx
+<Tabs
+ items={tabs}
+/>
+```
+
+---
+
+## Toast
+
+Notification component.
+
+### Features
+
+- Success notification
+- Error notification
+- Warning notification
+- Info notification
+- Auto dismiss
+- Pause on hover
+
+
+Example:
+
+```tsx
+<Toast
+ id={1}
+ title="Saved Successfully"
+ variant="success"
+ onClose={()=>{}}
+/>
+```
+
+---
+
+## Spinner
+
+Loading indicator component.
+
+### Sizes
+
+- Small
+- Medium
+- Large
+
+
+Example:
+
+```tsx
+<Spinner size="md"/>
+```
+
+---
+
+# Design System
+
+All components use centralized design tokens.
+
+Location:
+
+```
+src/theme/tokens.ts
+```
+
+Tokens include:
+
+- Colors
+- Spacing
+- Border radius
+- Font sizes
+- Shadows
+- Transitions
+
+
+Example:
+
+```ts
+colors.primary
+
+spacing.md
+
+radius.md
+```
+
+---
+
+# Documentation
+
+The component library includes a documentation page:
+
+```
+src/docs/DocsPage.tsx
+```
+
+Documentation provides:
+
+- Live examples
+- Component usage
+- Supported variants
+- Component behavior
+
+---
+
+# Dashboard Component Usage
+
+Developers can create dashboards using only library components.
+
+Example:
+
+```
+Dashboard
+
+ |
+ |
+ UI Library
+
+ ├── Button
+ ├── Card
+ ├── Badge
+ ├── KPI Components
+ ├── Tables
+ ├── Modal
+ ├── Toast
+ ├── Tabs
+ └── Status Components
+```
+
+---
+
+# Future Enhancements
+
+Planned improvements:
+
+- Storybook integration
+- ThemeProvider
+- Dark mode support
+- CSS variable based tokens
+- Form components
+- React Hook Form integration
+- Zod validation support
+
+---
+
+# Definition of Done
+
+The UI Component Library is complete when developers can build their daily dashboard work using only reusable library components.
+
+Developers should not need to recreate:
+
+- Buttons
+- Cards
+- Tables
+- Modals
+- Notifications
+- KPI layouts
+- Status indicators
+
+The library becomes the single source of truth for UI development.
+
+---
+
+# Author
+
+Built using React + TypeScript.

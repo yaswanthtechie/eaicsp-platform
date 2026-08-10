@@ -1,5 +1,5 @@
 
-import { colors } from "../tokens";
+import { colors } from "../theme/tokens";
 import "./Spinner.css";
 
 export interface SpinnerProps {

@@ -1,411 +1,449 @@
-# Demand Forecasting using Prophet + XGBoost + Ensemble + MLflow
+# Demand Forecasting using Prophet + XGBoost + Ensemble
 
 ## Project Overview
 
-This project predicts future product demand using two machine learning models:
+This project forecasts future demand using two forecasting models:
 
-- Prophet (Time Series Forecasting)
-- XGBoost Regressor
+- Prophet
+- XGBoost
 
-The predictions from both models are combined using a weighted ensemble to improve forecasting accuracy.
+Both models are trained using the same time-based train/test split and evaluated using identical metrics.
 
-The project also tracks experiments, parameters, metrics, and models using MLflow.
-
----
-
-# Project Structure
-
-```
-demand-forecast/
-│
-├── api.py
-├── data.py
-├── train_prophet.py
-├── train_xgboost.py
-├── ensemble.py
-├── evaluate.py
-├── predict.py
-├── mlflow_utils.py
-├── main.py
-├── requirements.txt
-└── README.md
-```
+Finally, a weighted ensemble combines predictions from both models to improve forecasting performance.
 
 ---
 
-# Features
+## Features
 
-- Data preprocessing
-- Time-based train/test split
 - Prophet forecasting
 - XGBoost forecasting
-- Ensemble forecasting
-- MAPE evaluation
-- RMSE evaluation
+- Feature engineering
+    - Lag features
+    - Rolling mean
+    - Rolling standard deviation
+    - Calendar features
+    - Holiday flags
+- Weighted ensemble
+- Prediction intervals
 - MLflow experiment tracking
-- Model logging
-- Forecast generation
-- Confidence intervals
-- Easy prediction pipeline
+- BentoML REST API
 
 ---
 
-# Technologies Used
+## Dataset
 
-- Python
-- Prophet
-- XGBoost
-- Pandas
-- NumPy
-- Scikit-learn
-- MLflow
-- Matplotlib
+Public retail sales dataset
+
+Columns:
+
+- date
+- quantity_sold
 
 ---
 
-# Installation
+## Models
 
-Clone the repository
+### Prophet
 
-```bash
-git clone <repository-url>
-```
+Uses yearly and weekly seasonality.
 
-Go inside the project
+Advantages
 
-```bash
-cd demand-forecast
-```
-
-Create virtual environment
-
-```bash
-python -m venv venv
-```
-
-Activate environment
-
-Windows
-
-```bash
-venv\Scripts\activate
-```
-
-Linux / Mac
-
-```bash
-source venv/bin/activate
-```
-
-Install dependencies
-
-```bash
-pip install -r requirements.txt
-```
+- Captures trend automatically
+- Produces prediction intervals
+- Easy to train
 
 ---
 
-# Dataset
+### XGBoost
 
-The dataset should contain two columns.
+Uses engineered features
 
-| Column | Description |
-|----------|------------|
-| ds | Date |
-| y | Sales |
+- lag_1
+- lag_7
+- lag_30
+- rolling_mean_7
+- rolling_mean_30
+- rolling_std_7
+- day_of_week
+- month
+- quarter
+- year
+- holiday flag
 
-Example
-
-| ds | y |
-|----|----|
-|2022-01-01|125|
-|2022-01-02|135|
-
----
-
-# Running the Project
-
-Run the complete forecasting pipeline
-
-```bash
-python main.py
-```
+Prediction intervals are created using residual standard deviation.
 
 ---
 
-# MLflow
+## Ensemble
 
-Start MLflow UI
+Three weight combinations were evaluated.
 
-```bash
-python -m mlflow ui
-```
+- 0.5 / 0.5
+- 0.4 / 0.6
+- 0.3 / 0.7
 
-Open browser
+The best combination is selected based only on test RMSE.
 
-```
-http://127.0.0.1:5000
-```
+The selected weights are stored in:
 
-MLflow stores
+models/best_weights.json
 
-- Parameters
-- Metrics
-- Models
-- Artifacts
-- Runs
+The BentoML API always serves the best ensemble model.
+## SKU and Warehouse Limitation
 
----
+The API accepts `sku_id` and `warehouse_id` fields for request compatibility.
 
-# Modules
+Currently, the forecasting model is a global demand forecasting model.
+It is trained on historical demand patterns and does not create separate
+models for individual SKU or warehouse combinations.
 
-## data.py
-
-Responsible for
-
-- Loading dataset
-- Cleaning data
-- Handling missing values
-- Time-based split
-
-Returns
-
-- Train Data
-- Test Data
+Future enhancement:
+- Train SKU-level forecasting models
+- Add warehouse-specific forecasting
+- Support multi-series forecasting
 
 ---
 
-## train_prophet.py
+## Evaluation
 
-Responsible for
+Metrics used
 
-- Building Prophet model
-- Training model
-- Forecast generation
-
-Output
-
-- Prophet Model
-- Forecast
-
----
-
-## train_xgboost.py
-
-Responsible for
-
-- Feature Engineering
-- Training XGBoost
-- Forecast generation
-
-Output
-
-- XGBoost Model
-- Predictions
-
----
-
-## ensemble.py
-
-Combines
-
-```
-Final Prediction
-
-=
-(Prophet Weight × Prophet Prediction)
-
-+
-
-(XGBoost Weight × XGBoost Prediction)
-```
-
-Weights can be configured.
-
-Example
-
-```
-Prophet = 0.6
-
-XGBoost = 0.4
-```
-
----
-
-## evaluate.py
-
-Evaluates
-
-- MAPE
 - RMSE
+- MAPE
 
-Compares
+Example:
 
-- Prophet
-- XGBoost
-- Ensemble
+| Model | RMSE | MAPE |
+|------|------|------|
+| Prophet | 17378.02 | 3.46% |
+| XGBoost | 12299.57 | 2.24% |
+| Ensemble (0.3/0.7) | 11354.85 | 2.19% |
 
----
-
-## predict.py
-
-Loads trained models
-
-Makes future predictions
-
-Returns
-
-- Forecast
-- Lower Confidence Bound
-- Upper Confidence Bound
+Replace the values above with your actual results.
 
 ---
 
-## mlflow_utils.py
+## Result
 
-Handles
+If XGBoost performs better than Prophet:
 
-- Experiment creation
-- Start run
-- Log parameters
-- Log metrics
-- Log artifacts
-- Log models
+> XGBoost achieved lower RMSE than Prophet because the lag and rolling statistical features captured historical demand patterns more effectively.
+
+OR
+
+If Prophet performs better:
+
+> Prophet outperformed XGBoost because the dataset mainly follows a smooth trend and seasonality, which Prophet models naturally without requiring extensive feature engineering.
+
+The ensemble model selects the best weighted combination using test data.
 
 ---
 
-## api.py
+## Running
 
-Provides REST API using FastAPI.
+Train
 
-Example endpoint
-
-```
-POST /predict
+```bash
+python src/main.py
 ```
 
-Input
+Serve
+
+```bash
+bentoml serve src/bentoml_service.py:ForecastService
+```
+
+---
+
+## MLflow
+
+```bash
+mlflow ui
+```
+
+---
+
+## BentoML API
+
+POST
+
+```
+/predict
+```
+
+Example Request
 
 ```json
 {
-  "days":30
+    "sku_id":"SKU001",
+    "warehouse_id":"WH001",
+    "horizon_days":30
 }
 ```
 
-Output
+Response
 
 ```json
 {
-    "forecast":[]
+    "forecast":[...],
+    "model_version":"1.0",
+    "latency_ms":12.4
+}
+```
+
+# Demand Forecasting using Prophet + XGBoost + Ensemble
+
+## Overview
+
+This project forecasts future demand using two forecasting models:
+
+- Prophet
+- XGBoost
+
+The models are trained on the same time-based train/test split and evaluated using identical metrics (RMSE and MAPE). A weighted ensemble is then created by combining both model predictions. The best ensemble weights are selected using test RMSE and are served through the BentoML API.
+
+---
+
+## Features
+
+- Prophet forecasting
+- XGBoost forecasting
+- Time-based train/test split
+- Feature engineering
+  - Lag features (t-1, t-7, t-30)
+  - Rolling mean
+  - Rolling standard deviation
+  - Calendar features
+- Weighted ensemble forecasting
+- Prediction intervals
+- MLflow experiment tracking
+- BentoML REST API
+- Unit tests
+
+---
+
+## Dataset
+
+Public Retail Sales Dataset
+
+Columns:
+
+- date
+- quantity_sold
+
+---
+
+## Models
+
+### Prophet
+
+- Automatically captures trend and seasonality
+- Produces prediction intervals
+- Used as the baseline forecasting model
+
+---
+
+### XGBoost
+
+Engineered features include:
+
+- lag_1
+- lag_7
+- lag_30
+- rolling_mean_7
+- rolling_mean_30
+- rolling_std_7
+- year
+- month
+
+Prediction intervals are generated using the training residual standard deviation to avoid test-set leakage.
+
+---
+
+## Ensemble
+
+Three weight combinations were evaluated:
+
+| Prophet | XGBoost |
+|----------|----------|
+| 0.5 | 0.5 |
+| 0.4 | 0.6 |
+| 0.3 | 0.7 |
+
+The best weights are selected using **test RMSE only** and stored in:
+
+```
+models/best_weights.json
+```
+
+The BentoML API always loads:
+
+- Prophet model
+- XGBoost model
+- Best ensemble weights
+
+and serves the selected ensemble model.
+
+---
+
+## Evaluation
+
+Metrics used
+
+- RMSE
+- MAPE
+
+Results
+
+| Model | RMSE | MAPE |
+|------|------|------|
+| Prophet | 17378.02 | 3.46% |
+| XGBoost | 12299.57 | 2.24% |
+| Ensemble | 11354.85 | 2.19% |
+
+---
+
+## Result
+
+XGBoost outperformed Prophet because the engineered lag and rolling statistical features captured historical demand patterns more effectively.
+
+The ensemble further improved forecasting accuracy.
+
+Best ensemble weights:
+
+```
+Prophet : 0.3
+XGBoost : 0.7
+```
+
+---
+
+## Production Improvements
+
+The following production issues were addressed:
+
+### ✔ Serving the Best Model
+
+The `/predict` endpoint now loads:
+
+- output/prophet_model.json
+- models/xgb_model.pkl
+- models/best_weights.json
+
+instead of serving only the Prophet model.
+
+---
+
+### ✔ Prediction Interval Leakage Fixed
+
+Prediction intervals for XGBoost are now calibrated using **training residuals**, preventing information leakage from the test dataset.
+
+---
+
+### ✔ Unit Tests Added
+
+Tests include:
+
+- Feature engineering leakage prevention
+- Ensemble weight validation
+- BentoML prediction API
+
+All tests pass successfully.
+
+```
+pytest tests -v
+
+5 passed
+```
+
+---
+
+## Running
+
+### Train
+
+```bash
+python -m src.main
+```
+
+### Serve
+
+```bash
+python -m bentoml serve src.bentoml_service:ForecastService
+```
+
+---
+
+## MLflow
+
+```bash
+mlflow ui
+```
+
+---
+
+## BentoML API
+
+POST
+
+```
+/predict
+```
+
+Example Request
+
+```json
+{
+    "request": {
+        "sku_id": "SKU001",
+        "warehouse_id": "WH001",
+        "horizon_months": 6
+    }
+}
+```
+
+Example Response
+
+```json
+{
+    "forecast": [
+        {
+            "date": "2015-01-01",
+            "predicted": 462150.54,
+            "lower": 458300.12,
+            "upper": 466420.31
+        }
+    ],
+    "model_version": "1.0",
+    "latency_ms": 12.4
 }
 ```
 
 ---
 
-## main.py
-
-Project Entry Point
-
-Workflow
+## Project Structure
 
 ```
-Load Data
+src/
+ ├── train_prophet.py
+ ├── train_xgboost.py
+ ├── ensemble.py
+ ├── predict.py
+ ├── bentoml_service.py
+ ├── evaluate.py
+ ├── main.py
 
-↓
+models/
+ ├── xgb_model.pkl
+ ├── best_weights.json
 
-Train Prophet
+output/
+ ├── prophet_model.json
+ ├── forecast.png
 
-↓
-
-Train XGBoost
-
-↓
-
-Create Ensemble
-
-↓
-
-Evaluate Models
-
-↓
-
-Log Results to MLflow
-
-↓
-
-Save Models
-
-↓
-
-Prediction
+tests/
+ ├── test_service.py
+ ├── test_features.py
+ ├── test_ensemble.py
 ```
-
----
-
-# Evaluation Metrics
-
-The project compares
-
-- Prophet
-- XGBoost
-- Ensemble
-
-Metrics
-
-- Mean Absolute Percentage Error (MAPE)
-- Root Mean Square Error (RMSE)
-
-Lower values indicate better performance.
-
----
-
-# MLflow Tracks
-
-Parameters
-
-- Prophet settings
-- XGBoost parameters
-- Ensemble weights
-
-Metrics
-
-- MAPE
-- RMSE
-
-Artifacts
-
-- Forecast Plot
-- Saved Models
-
-Models
-
-- Prophet
-- XGBoost
-
----
-
-# Future Improvements
-
-- Hyperparameter tuning
-- FastAPI deployment
-- Docker support
-- Kubernetes deployment
-- CI/CD pipeline
-- Cloud deployment
-- Real-time forecasting
-- Automatic retraining
-
----
-
-# Author
-
-Uday Kiran
-
-Demand Forecasting Project
-
-Using
-
-- Prophet
-- XGBoost
-- MLflow
-- Python

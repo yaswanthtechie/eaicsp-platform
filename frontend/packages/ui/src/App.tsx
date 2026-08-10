@@ -1,15 +1,23 @@
 import { useState } from "react";
-
 import { Button } from "./components/Button";
 import { Card } from "./components/Card";
 import { Badge } from "./components/Badge";
 import { KpiCard } from "./components/KpiCard";
-import { Table } from "./components/Table";
+import type { Column as TableColumn } from "./components/Table";
+import type { Column as DataTableColumn } from "./components/DataTable";
 import { Modal } from "./components/Modal";
+import type { TabItem } from "./components/Tabs";
 import { Tabs } from "./components/Tabs";
 import { Toast } from "./components/Toast";
 import { Spinner } from "./components/Spinner";
-import type { Column } from "./components/Table";
+import { KpiGrid } from "./components/KpiGrid";
+import { AlertBanner } from "./components/AlertBanner";
+import { DataTable } from "./components/DataTable";
+import { StatusIndicator } from "./components/StatusIndicator";
+import { Table } from "./components/Table";
+
+
+
 
 type Inventory = {
   product: string;
@@ -35,7 +43,8 @@ const inventoryData: Inventory[] = [
   },
 ];
 
-const columns: Column<Inventory>[] = [
+
+const tableColumns: TableColumn<Inventory>[] = [
   {
     key: "product",
     header: "Product",
@@ -62,8 +71,29 @@ const columns: Column<Inventory>[] = [
     ),
   },
 ];
-const tabs = [
+
+const dataTableColumns: DataTableColumn<Inventory>[] = [
   {
+    key: "product",
+    label: "Product",
+    sortable: true,
+    searchable: true,
+  },
+  {
+    key: "stock",
+    label: "Stock",
+    sortable: true,
+  },
+  {
+    key: "status",
+    label: "Status",
+    searchable: true,
+  },
+];
+
+const tabs: TabItem[] = [
+  {
+    value: "overview",
     label: "Overview",
     content: (
       <p>
@@ -72,6 +102,7 @@ const tabs = [
     ),
   },
   {
+    value: "products",
     label: "Products",
     content: (
       <p>
@@ -80,6 +111,7 @@ const tabs = [
     ),
   },
   {
+    value: "settings",
     label: "Settings",
     content: (
       <p>
@@ -88,6 +120,30 @@ const tabs = [
     ),
   },
 ];
+const kpis = [
+  {
+    label: "Revenue",
+    value: "₹5.2M",
+    delta: 5.4,
+  },
+  {
+    label: "Orders",
+    value: 356,
+    delta: 8,
+  },
+  {
+    label: "Inventory",
+    value: 120,
+    delta: -3.5,
+  },
+  {
+    label: "Forecast Accuracy",
+    value: "92.4%",
+    delta: 2.1,
+  },
+];
+
+
 function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showToast, setShowToast] = useState(false);
@@ -101,11 +157,24 @@ function App() {
         gap: "30px",
       }}
     >
-      <h1>Component Showcase</h1>
+      <h1>UI Component Library Documentation</h1>
+
+<p>
+  A reusable React + TypeScript component library built for dashboard
+  applications. Each section below contains a live example, supported variants,
+  and usage guidance.
+</p>
+
+<hr />
 
       {/* Buttons */}
 
-      <h2>Buttons</h2>
+      <h2>Button</h2>
+
+<p>
+  A reusable button component used for user actions. It supports different
+  variants, sizes, loading, and disabled states.
+</p>
 
       <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
         <Button
@@ -154,6 +223,10 @@ function App() {
 
 <h2>Card</h2>
 
+<p>
+  A reusable container for grouping related content.
+</p>
+
 <Card
   title="Inventory Summary"
   actions={
@@ -170,10 +243,57 @@ function App() {
     This card displays reusable content with a title, actions, and body.
   </p>
 </Card>
+<h2>Status Indicator</h2>
+
+<p>
+  Shows the current status using a colored badge.
+</p>
+
+<div
+  style={{
+    display: "flex",
+    gap: "12px",
+    flexWrap: "wrap",
+  }}
+>
+  <StatusIndicator
+    status="online"
+    label="Online"
+  />
+
+  <StatusIndicator
+    status="pending"
+    label="Pending"
+  />
+
+  <StatusIndicator
+    status="offline"
+    label="Offline"
+  />
+
+  <StatusIndicator
+    status="success"
+    label="Completed"
+  />
+
+  <StatusIndicator
+    status="warning"
+    label="Warning"
+  />
+
+  <StatusIndicator
+    status="error"
+    label="Failed"
+  />
+</div>
 
       {/* Badges */}
 
-      <h2>Badges</h2>
+      <h2>Badge</h2>
+
+<p>
+  Displays status labels such as success, warning, danger, and neutral.
+</p>
 
       <div style={{ display: "flex", gap: "10px" }}>
         <Badge status="success">Success</Badge>
@@ -185,7 +305,11 @@ function App() {
       {/* KPI Card
 {/* KPI Cards */}
 
-<h2>KPI Cards</h2>
+<h2>KPI Card</h2>
+
+<p>
+  Displays a single key performance indicator with an optional percentage change.
+</p>
 
 <div
   style={{
@@ -212,10 +336,27 @@ function App() {
     delta={-3.5}
   />
 </div>
+{/* KPI Grid */}
+<h2>KPI Grid</h2>
+
+<p>
+  Arranges multiple KPI cards in a responsive grid layout.
+</p>
+
+
+<KpiGrid
+  items={kpis}
+  columns={2}
+/>
+
 
       {/* Modal */}
 
       <h2>Modal</h2>
+
+<p>
+  Displays content in an accessible dialog window.
+</p>
 
       <Button
         variant="primary"
@@ -226,7 +367,7 @@ function App() {
       </Button>
 
       <Modal
-        open={isModalOpen}
+        isOpen={isModalOpen}
         title="Delete Product"
         onClose={() => setIsModalOpen(false)}
       >
@@ -263,13 +404,19 @@ function App() {
         </div>
       </Modal>
       {/* Tabs */}
+ <h2>Tabs</h2>
 
-<h2>Tabs</h2>
+<p>
+  Organizes content into multiple tab panels.
+</p>
 
-<Tabs tabs={tabs} />
+<Tabs items={tabs} />
 {/* Toast */}
+ <h2>Toast</h2>
 
-<h2>Toast</h2>
+<p>
+  Displays temporary notification messages.
+</p>
 
 <Button
   variant="primary"
@@ -279,15 +426,22 @@ function App() {
   Show Toast
 </Button>
 
-<Toast
-  open={showToast}
-  message="Product Saved Successfully!"
-  type="success"
-  onClose={() => setShowToast(false)}
-/>
+{showToast && (
+  <Toast
+    id={1}
+    title="Product Saved Successfully!"
+    description="The product has been saved successfully."
+    variant="success"
+    onClose={() => setShowToast(false)}
+  />
+)}
 {/* Spinner */}
 
 <h2>Spinner</h2>
+
+<p>
+  Indicates loading or processing state.
+</p>
 
 <div
   style={{
@@ -311,17 +465,71 @@ function App() {
     <Spinner size="lg" />
   </div>
 </div>
+<h2>Alert Banner</h2>
+
+<p>
+  Highlights important messages and optional actions.
+</p>
+
+<AlertBanner
+  type="warning"
+  title="Inventory Running Low"
+  message="Some products are below the minimum stock level."
+  actionLabel="View Inventory"
+  onAction={() => alert("Opening Inventory")}
+/>
+
+<div style={{ height: 16 }} />
+
+<AlertBanner
+  type="success"
+  title="Backup Completed"
+  message="Today's backup completed successfully."
+/>
+
+<div style={{ height: 16 }} />
+
+<AlertBanner
+  type="danger"
+  title="Server Offline"
+  message="The reporting server is currently unavailable."
+/>
+
+<div style={{ height: 16 }} />
+
+<AlertBanner
+  type="info"
+  title="New Update Available"
+  message="Version 2.0 is ready to install."
+  actionLabel="Update"
+  onAction={() => alert("Updating...")}
+/>
 
       {/* Table */}
 
       <h2>Table</h2>
 
-      <Table
-  columns={columns}
+<p>
+  Displays tabular data with customizable columns.
+</p>
+
+  <Table
+  columns={tableColumns}
   data={inventoryData}
   rowKey={(row) => row.product}
   loading={false}
   emptyMessage="Inventory is empty"
+/>
+<h2>Data Table</h2>
+
+<p>
+  Extends the table with sorting, filtering, pagination, and row selection.
+</p>
+
+<DataTable
+  columns={dataTableColumns}
+  data={inventoryData}
+  rowKey={(row) => row.product}
 />
     </div>
   );
