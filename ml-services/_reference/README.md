@@ -268,7 +268,7 @@ python -m src.train
 Example output:
 
 ```
-Created version '2' of model 'iris_classifier'
+Created version '3' of model 'iris_classifier'
 
 STAGING ASSIGNED
 
@@ -276,7 +276,7 @@ MODEL PROMOTED
 
 TRAINING COMPLETED SUCCESSFULLY
 
-Production Version : 2
+Production Version : 3
 Accuracy : 0.9333
 F1 Score : 0.9333
 ```
@@ -344,7 +344,7 @@ Response:
 ```json
 {
     "status": "healthy",
-    "model_version": "2",
+    "model_version": "3",
     "canary_prediction": "setosa"
 }
 ```
@@ -369,7 +369,7 @@ Response:
     "average_prediction_latency_ms": 47.71,
     "average_batch_latency_ms": 46.86,
     "error_count": 0,
-    "model_version": "2"
+    "model_version": "3"
 }
 ---
 
@@ -401,7 +401,7 @@ Response:
 {
     "prediction": "setosa",
     "confidence": 1,
-    "model_version": "2",
+    "model_version": "3",
     "latency_ms": 47.71,
     "probabilities": {
         "setosa": 1,
@@ -447,7 +447,7 @@ Response:
                 "virginica": 0
             },
             "latency_ms": 46.86,
-            "model_version": "2"
+            "model_version": "3"
         },
         {
             "prediction": "virginica",
@@ -458,7 +458,7 @@ Response:
                 "virginica": 0.99
             },
             "latency_ms": 46.86,
-            "model_version": "2"
+            "model_version": "3"
         },
         {
             "prediction": "versicolor",
@@ -469,7 +469,7 @@ Response:
                 "virginica": 0.017666666666666667
             },
             "latency_ms": 46.86,
-            "model_version": "2"
+            "model_version": "3"
         }
     ],
     "batch_latency_ms": 46.86
@@ -657,3 +657,56 @@ Batch inference improvement:
 - Model drift monitoring with Evidently AI
 - Automated retraining pipeline
 - Docker Compose deployment
+
+
+---
+
+# Work Completed - 10-08-2026
+
+## MLflow Compatibility and Model Lifecycle Fixes
+
+The required MLflow compatibility and model lifecycle changes have been
+implemented and verified.
+
+### Completed Changes
+
+- Replaced `datetime.UTC` usage with `timezone.utc` for promotion timestamps.
+- Added `_set_alias()` helper for MLflow model alias management.
+- Added support for `set_registered_model_alias()`.
+- Added fallback support for `transition_model_version_stage()`.
+- Updated `assign_staging()` to use `_set_alias()`.
+- Updated `promote_model()` to use `_set_alias()`.
+- Added a guard when the source alias does not contain a model version.
+- Updated `get_model_version_by_alias()` to consistently return:
+  - Model version string when the alias exists.
+  - `None` when the alias does not exist.
+- Updated `MODEL_STAGE` configuration to use lowercase:
+  `production`.
+- Removed the outdated commented test block.
+- Verified that the project has no import errors.
+
+### MLflow Version Verification
+
+Current installed MLflow version:
+
+```text
+MLflow 3.4.0
+
+set_registered_model_alias: True
+transition_model_version_stage: True
+
+### Test Verification
+cd ml-services/_reference
+python -m pytest tests/ -q
+12 passed
+
+UTC Compatibility Fix       : Completed
+Alias Helper                : Completed
+Staging Alias               : Completed
+Production Promotion        : Completed
+Missing Alias Guard         : Completed
+Alias Return Handling       : Completed
+MODEL_STAGE Configuration   : Completed
+Test Cleanup                : Completed
+MLflow Compatibility Check  : Completed
+Full Test Suite             : Passed

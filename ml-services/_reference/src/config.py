@@ -7,10 +7,9 @@ EXPERIMENT_NAME = "Iris_Reference"
 
 # Model alias used by the inference service
 
-MODEL_STAGE = "Production"
+MODEL_STAGE = "production"
 
 # Data settings
-
 RANDOM_STATE = 42
 TEST_SIZE = 0.2
 

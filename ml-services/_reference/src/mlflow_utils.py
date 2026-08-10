@@ -1,7 +1,9 @@
+
 """
 MLflow utility wrapper.
 
 Reusable helper functions for:
+
 - Experiment management
 - Run management
 - Parameter logging
@@ -11,7 +13,7 @@ Reusable helper functions for:
 """
 
 from contextlib import contextmanager
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 
 import mlflow
 import mlflow.sklearn
@@ -25,10 +27,61 @@ client = MlflowClient()
 
 
 # ==========================================================
+# Alias Helper
+# ==========================================================
+
+def _set_alias(
+    model_name: str,
+    alias: str,
+    version: str,
+) -> None:
+    """
+    Set an alias for a registered model version.
+
+    Tries MLflow's newer alias API first.
+    Falls back to transition_model_version_stage
+    if the alias API is unavailable.
+    """
+
+    # Prefer the newer alias API
+    try:
+        if hasattr(client, "set_registered_model_alias"):
+            client.set_registered_model_alias(
+                name=model_name,
+                alias=alias,
+                version=version,
+            )
+            return
+    except Exception:
+        # If the API exists but fails, expose the error
+        raise
+
+    # Fallback: map alias to stage name
+    stage = alias.capitalize()
+
+    if hasattr(client, "transition_model_version_stage"):
+        client.transition_model_version_stage(
+            name=model_name,
+            version=version,
+            stage=stage,
+            archive_existing_versions=False,
+        )
+        return
+
+    raise RuntimeError(
+        "Cannot set alias: Mlflow client has neither "
+        "'set_registered_model_alias' nor "
+        "'transition_model_version_stage'."
+    )
+
+
+# ==========================================================
 # Experiment
 # ==========================================================
 
-def set_experiment(experiment_name: str) -> None:
+def set_experiment(
+    experiment_name: str,
+) -> None:
     """
     Create or set an MLflow experiment.
     """
@@ -41,7 +94,9 @@ def set_experiment(experiment_name: str) -> None:
 # ==========================================================
 
 @contextmanager
-def start_run(run_name: str | None = None):
+def start_run(
+    run_name: str | None = None,
+):
     """
     Start MLflow run.
     """
@@ -54,7 +109,9 @@ def start_run(run_name: str | None = None):
 # Logging
 # ==========================================================
 
-def log_params(params: dict) -> None:
+def log_params(
+    params: dict,
+) -> None:
     """
     Log model parameters.
     """
@@ -63,7 +120,9 @@ def log_params(params: dict) -> None:
         mlflow.log_params(params)
 
 
-def log_metrics(metrics: dict) -> None:
+def log_metrics(
+    metrics: dict,
+) -> None:
     """
     Log evaluation metrics.
     """
@@ -72,7 +131,9 @@ def log_metrics(metrics: dict) -> None:
         mlflow.log_metrics(metrics)
 
 
-def log_artifact(file_path: str):
+def log_artifact(
+    file_path: str,
+):
     """
     Log artifacts.
     """
@@ -80,7 +141,9 @@ def log_artifact(file_path: str):
     mlflow.log_artifact(file_path)
 
 
-def set_tags(tags: dict):
+def set_tags(
+    tags: dict,
+):
     """
     Add MLflow tags.
     """
@@ -117,7 +180,9 @@ def log_model(
 # Registry Helpers
 # ==========================================================
 
-def get_latest_version(model_name: str):
+def get_latest_version(
+    model_name: str,
+):
     """
     Get latest registered model version.
     """
@@ -142,20 +207,19 @@ def get_model_version_by_alias(
     alias: str,
 ):
     """
-    Get model version using alias.
+    Get model version string for a given alias,
+    or None if the alias is not present.
     """
 
     try:
-
-        version = client.get_model_version_by_alias(
+        mv = client.get_model_version_by_alias(
             model_name,
             alias,
         )
 
-        return version.version
+        return mv.version if mv is not None else None
 
     except Exception:
-
         return None
 
 
@@ -182,10 +246,10 @@ def assign_staging(
         model_name
     )
 
-    client.set_registered_model_alias(
-        name=model_name,
-        alias="staging",
-        version=latest.version,
+    _set_alias(
+        model_name,
+        "staging",
+        latest.version,
     )
 
     print("=" * 60)
@@ -220,20 +284,32 @@ def promote_model(
     @production
     """
 
+    # Get source model version
     version = client.get_model_version_by_alias(
         model_name,
         from_alias,
     )
 
+    # Guard against missing source alias
+    if version is None:
+        raise RuntimeError(
+            f"No version found for alias '{from_alias}' "
+            f"on registered model '{model_name}'. "
+            "Assign a staging version (assign_staging) "
+            "or register a model first."
+        )
+
+    # Get existing production version
     old_production = get_model_version_by_alias(
         model_name,
         to_alias,
     )
 
-    client.set_registered_model_alias(
-        name=model_name,
-        alias=to_alias,
-        version=version.version,
+    # Promote model using alias helper
+    _set_alias(
+        model_name,
+        to_alias,
+        version.version,
     )
 
     # Record promotion metadata
@@ -248,11 +324,11 @@ def promote_model(
         name=model_name,
         version=version.version,
         key="promotion_time",
-        value=datetime.now(UTC).isoformat(),
+        value=datetime.now(timezone.utc).isoformat(),
     )
 
+    # Store previous production version
     if old_production:
-
         client.set_model_version_tag(
             name=model_name,
             version=version.version,
@@ -313,7 +389,9 @@ def load_production_model(
 # Registry Info
 # ==========================================================
 
-def list_versions(model_name: str):
+def list_versions(
+    model_name: str,
+):
     """
     Display all model versions.
     """
@@ -323,13 +401,14 @@ def list_versions(model_name: str):
     )
 
     for version in versions:
-
         print(
             f"Version : {version.version}"
         )
 
 
-def current_production(model_name: str):
+def current_production(
+    model_name: str,
+):
     """
     Display current production version.
     """
@@ -344,3 +423,4 @@ def current_production(model_name: str):
     )
 
     return version
+

@@ -46,20 +46,7 @@ def test_health(service):
     assert "canary_prediction" in response
 
 
-# def test_metrics(service):
 
-#     request = IrisRequest(
-#         features=[5.1, 3.5, 1.4, 0.2]
-#     )
-
-#     service.predict(request)
-
-#     metrics = service.metrics()
-
-#     assert metrics["total_predictions"] >= 1
-#     assert metrics["average_latency_ms"] >= 0
-#     assert metrics["average_batch_latency_ms"] >= 0
-#     assert metrics["error_count"] >= 0
 def test_metrics(service):
 
     request = IrisRequest(
