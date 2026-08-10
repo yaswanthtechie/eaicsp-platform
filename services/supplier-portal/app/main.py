@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from app.routes.purchase_order import router as purchase_order_router
 from app.routes.invoice import router as invoice_router
 from app.schemas.purchase_order import MessageResponse
+from app.routes import supplier_stats_routes
 
 app = FastAPI(
     title="Supplier Portal Service",
@@ -20,6 +21,13 @@ app.include_router(
     invoice_router,
     prefix="/api/v1",
     tags=["Invoices"]
+)
+
+
+app.include_router(
+    supplier_stats_routes.router,
+    prefix="/api/v1",
+    tags=["Supplier Stats"],
 )
 
 @app.get(

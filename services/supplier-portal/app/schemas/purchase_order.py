@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import List
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime, date
 
 
@@ -13,14 +13,38 @@ class PurchaseOrderStatus(str, Enum):
     cancelled = "cancelled"
 
 class PurchaseOrderHistory(BaseModel):
+    actor: str | None = None
     from_status: PurchaseOrderStatus
     to_status: PurchaseOrderStatus
     timestamp: datetime
 
 
 class PurchaseOrderCreate(BaseModel):
-    po_number: str = Field(..., example="PO1001")
-    supplier_id: str = Field(..., example="SUP001")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "po_number": "PO1001",
+                "supplier_id": "SUP001",
+                "items": [
+                    "Laptop",
+                    "Mouse"
+                ],
+                "total_amount": 50000,
+                "created_at": "2026-08-06T10:00:00",
+                "expected_delivery": "2026-08-30"
+            }
+        }
+    )
+
+    po_number: str = Field(
+        pattern=r"^[A-Za-z0-9_-]+$"
+    )
+
+    supplier_id: str = Field(
+        pattern=r"^[A-Za-z0-9_-]+$"
+    )
+
     items: List[str]
     total_amount: float
     created_at: datetime
@@ -42,6 +66,7 @@ class PurchaseOrderResponse(BaseModel):
     status: PurchaseOrderStatus
     created_at: datetime
     expected_delivery: date
+    actual_delivery_date: date | None = None
     history: List[PurchaseOrderHistory] = Field(default_factory=list)
 
 #responce when po deleted successfully
@@ -51,5 +76,6 @@ class MessageResponse(BaseModel):
 
 class PurchaseOrderTransition(BaseModel):
     target_state : PurchaseOrderStatus
+    actor: str
 
 

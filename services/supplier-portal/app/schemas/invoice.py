@@ -1,12 +1,33 @@
-from pydantic import BaseModel, Field
 from datetime import date
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class InvoiceCreate(BaseModel):
-    invoice_number: str = Field(..., example="INV1001")
-    po_number: str = Field(..., example="PO1001")
-    supplier_id: str = Field(..., example="SUP001")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "invoice_number": "INV1001",
+                "po_number": "PO1001",
+                "supplier_id": "SUP001",
+                "amount": 1000,
+                "invoice_date": "2026-08-06"
+            }
+        }
+    )
+
+    invoice_number: str = Field(
+        pattern=r"^[A-Za-z0-9_-]+$"
+    )
+
+    po_number: str
+
+    supplier_id: str = Field(
+        pattern=r"^[A-Za-z0-9_-]+$"
+    )
+
     amount: float
+
     invoice_date: date
 
 
