@@ -2,6 +2,9 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List
 
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+
 from src.data import load_headlines
 from src.sentiment import init_model
 from src.predict import predict
@@ -97,7 +100,7 @@ def health():
 # Analyze Endpoint
 # ----------------------------------------------------
 
-@app.get(
+@app.post(
     "/api/v1/supplier-risk/analyze",
     response_model=AnalysisResponse,
 )

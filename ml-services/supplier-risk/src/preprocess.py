@@ -35,34 +35,6 @@ def clean_text(text: str) -> str:
     if not isinstance(text, str):
         return ""
 
-    return (
-        text.lower()
-        .translate(PUNCTUATION_TRANSLATOR)
-        .strip()
-        .replace("\n", " ")
-        .replace("\t", " ")
-    ).split()
-
-
-def clean_text(text: str) -> str:
-    """
-    Clean the input text.
-
-    Processing steps:
-    - Convert to lowercase
-    - Remove punctuation
-    - Remove extra whitespace
-
-    Args:
-        text: Raw input text.
-
-    Returns:
-        Cleaned text.
-    """
-
-    if not isinstance(text, str):
-        return ""
-
     cleaned_text = (
         text.lower()
         .translate(PUNCTUATION_TRANSLATOR)

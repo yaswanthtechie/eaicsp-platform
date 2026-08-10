@@ -156,7 +156,7 @@ Example Response
 ## Analyze Supplier Risk
 
 ```
-GET /api/v1/supplier-risk/analyze
+POST /api/v1/supplier-risk/analyze
 ```
 
 Example Response
