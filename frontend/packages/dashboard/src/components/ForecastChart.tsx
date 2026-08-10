@@ -22,28 +22,54 @@ const chartData = forecast.map((item) => ({
 export default function ForecastChart() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [startDate, setStartDate] = useState("2026-07-29");
+  const [endDate, setEndDate] = useState("2026-08-13");
 
-  useEffect(()=>{
+  useEffect(() => {
     const timer = setTimeout(() => {
       setLoading(false);
     }, 1000);
-    return () =>clearTimeout(timer);
-  },[]);
 
-  if(loading){
-    return <h2 style={{ color: colors.text}}>Loading Sales Forecast Data....</h2>
+    return () => clearTimeout(timer);
+  }, []);
+
+  const filteredData = chartData.filter(
+    (item) => item.date >= startDate && item.date <= endDate
+  );
+
+  const resetDates = () => {
+    setStartDate(chartData[0].date);
+    setEndDate(chartData[chartData.length - 1].date);
+  };
+
+  if (loading) {
+    return (
+      <h2 style={{ color: colors.text }}>
+        Loading Sales Forecast Data....
+      </h2>
+    );
   }
-  if(error){
-    return(
-      <div>
-        <h2>Something went wrong.</h2>
-        <button onClick={() => setError(false)}>Retry</button>
+
+  if (error) {
+    return (
+      <div style={{ color: colors.text }}>
+        <p>Something went wrong.</p>
+
+        <button onClick={() => setError(false)}>
+          Retry
+        </button>
       </div>
     );
   }
-  if(forecast.length == 0){
-    return <h2 style={{ color: colors.text}}>No Forecast Data Available.</h2>;
+
+  if (forecast.length === 0) {
+    return (
+      <h2 style={{ color: colors.text }}>
+        No Forecast Data Available.
+      </h2>
+    );
   }
+
   return (
     <div
       style={{
@@ -52,10 +78,63 @@ export default function ForecastChart() {
         borderRadius: 10,
       }}
     >
-      <h2 style={{ color: colors.text ,textAlign:"center"}}>Sales Forecasting</h2>
+      <div
+        style={{
+          display: "flex",
+          gap: 16,
+          marginBottom: 20,
+          alignItems: "center",
+          flexWrap: "wrap",
+        }}
+      >
+        <label style={{ color: colors.text }}>
+          Start Date:
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            style={{
+              marginLeft: 8,
+              padding: "6px 8px",
+            }}
+          />
+        </label>
+
+        <label style={{ color: colors.text }}>
+          End Date:
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            style={{
+              marginLeft: 8,
+              padding: "6px 8px",
+            }}
+          />
+        </label>
+
+        <button
+          onClick={resetDates}
+          style={{
+            padding: "7px 14px",
+            cursor: "pointer",
+          }}
+        >
+          Reset
+        </button>
+      </div>
+
+      <h2
+        style={{
+          color: colors.text,
+          textAlign: "center",
+        }}
+      >
+        Sales Forecasting From : {startDate} to {endDate}
+      </h2>
 
       <ResponsiveContainer width="100%" height={400}>
-        <ComposedChart data={chartData}>
+        <ComposedChart data={filteredData}>
           <CartesianGrid
             stroke={colors.border}
             strokeDasharray="3 4"
@@ -71,6 +150,7 @@ export default function ForecastChart() {
           <Tooltip />
 
           <Legend />
+
           <Area
             dataKey="lower_bound"
             stackId="band"
