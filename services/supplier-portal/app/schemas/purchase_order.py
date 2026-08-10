@@ -37,8 +37,14 @@ class PurchaseOrderCreate(BaseModel):
         }
     )
 
-    po_number: str
-    supplier_id: str
+    po_number: str = Field(
+        pattern=r"^[A-Za-z0-9_-]+$"
+    )
+
+    supplier_id: str = Field(
+        pattern=r"^[A-Za-z0-9_-]+$"
+    )
+
     items: List[str]
     total_amount: float
     created_at: datetime

@@ -39,12 +39,15 @@ def create_purchase_order(purchase_order: PurchaseOrderCreate):
     return purchase_order_data
 
 
-def get_all_purchase_orders():
+def get_purchase_order_events(po_number: str):
     """
-    Return all Purchase Orders.
+    Return all events for a Purchase Order.
     """
 
-    return list(purchase_orders.values())
+    if po_number not in po_events:
+        return None
+
+    return po_events[po_number]
 
 
 def get_purchase_order_by_id(po_number: str):
@@ -53,6 +56,12 @@ def get_purchase_order_by_id(po_number: str):
     """
 
     return purchase_orders.get(po_number)
+
+def get_all_purchase_orders():
+    """
+    Return all Purchase Orders.
+    """
+    return list(purchase_orders.values())
 
 
 def update_purchase_order(
@@ -78,14 +87,13 @@ def update_purchase_order(
 
 
 def delete_purchase_order(po_number: str):
-
     if po_number not in purchase_orders:
         return False
 
     del purchase_orders[po_number]
 
-    if po_number in po_events:
-        del po_events[po_number]
+    # Keep audit events even after the Purchase Order is deleted.
+    # The audit trail must outlive the Purchase Order it describes.
 
     return True
 
@@ -129,7 +137,6 @@ def transition_purchase_order(
     po_number: str,
     actor: str,
     target_state: PurchaseOrderStatus,
-
 ):
     """
     Change Purchase Order status using the state machine
@@ -161,32 +168,33 @@ def transition_purchase_order(
         raise ValueError(
             f"Cannot go from {current_state.value} "
             f"to {target_state.value}. "
-            f"Allowed transitions: {allowed}."
+            f"Allowed: {allowed}."
         )
 
+    # Set actual delivery date when PO is fulfilled
     if target_state == PurchaseOrderStatus.fulfilled:
-        purchase_order["actual_delivery_date"] = (
-            date.today()
-    )
-# Create event
+        purchase_order["actual_delivery_date"] = date.today()
+
+    # Create audit event
     event = {
-        "actor": actor, 
+        "actor": actor,
         "from_status": current_state,
         "to_status": target_state,
         "timestamp": datetime.now(),
     }
 
-    # Save history
-    purchase_order["history"].append(event)
-
-    # Save event log,
-    if po_number not in po_events:
-        po_events[po_number] = []
-
-    po_events[po_number].append(event)
+    # Store the event in ONE place only.
+    # po_events is the single source of truth for audit history.
+    po_events.setdefault(po_number, []).append(event)
 
     # Update status
     purchase_order["status"] = target_state
+
+    # Get history from the single event store
+    purchase_order["history"] = po_events.get(
+        po_number,
+        []
+    )
 
     # Save Purchase Order
     purchase_orders[po_number] = purchase_order
@@ -194,12 +202,3 @@ def transition_purchase_order(
     return purchase_order
 
 
-def get_purchase_order_events(po_number: str):
-    """
-    Return all events for a Purchase Order.
-    """
-
-    if po_number not in purchase_orders:
-        return None
-
-    return po_events.get(po_number, [])

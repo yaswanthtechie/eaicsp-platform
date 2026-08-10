@@ -382,7 +382,7 @@ def test_invalid_pdf_signature():
 
 def test_invalid_invoice_number():
 
-    create_sample_po() 
+    create_sample_po()
 
     response = client.post(
         "/api/v1/invoices",
@@ -395,9 +395,7 @@ def test_invalid_invoice_number():
         }
     )
 
-    assert response.status_code == 400
-
-    assert "Invalid invoice number" in response.json()["detail"]
+    assert response.status_code == 422
 
 def test_invoice_not_found():
 
@@ -488,3 +486,17 @@ def test_download_invoice_document():
         "content-type"
     ].startswith("application/pdf")
 
+def test_supplier_id_cannot_escape_upload_dir():
+
+    response = client.post(
+        "/api/v1/invoices",
+        json={
+            "invoice_number": "INV9999",
+            "po_number": "PO1001",
+            "supplier_id": "../uploads_evil",
+            "amount": 1000,
+            "invoice_date": "2026-08-06",
+        },
+    )
+
+    assert response.status_code == 422

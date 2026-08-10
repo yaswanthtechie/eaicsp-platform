@@ -1,5 +1,5 @@
-from pydantic import BaseModel, ConfigDict, Field
 from datetime import date
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class InvoiceCreate(BaseModel):
@@ -16,10 +16,18 @@ class InvoiceCreate(BaseModel):
         }
     )
 
-    invoice_number: str
+    invoice_number: str = Field(
+        pattern=r"^[A-Za-z0-9_-]+$"
+    )
+
     po_number: str
-    supplier_id: str
+
+    supplier_id: str = Field(
+        pattern=r"^[A-Za-z0-9_-]+$"
+    )
+
     amount: float
+
     invoice_date: date
 
 
