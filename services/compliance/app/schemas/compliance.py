@@ -6,6 +6,8 @@ from pydantic import (
 )
 
 
+
+
 class ComplianceRequest(BaseModel):
 
     entity_name: str = Field(
@@ -24,9 +26,10 @@ class ComplianceRequest(BaseModel):
     country: str
 
 
+
 class ComplianceResponse(BaseModel):
 
-    entity_name: str
+    entity_name: str | None = None
 
     entity_type: str
 
@@ -36,7 +39,11 @@ class ComplianceResponse(BaseModel):
 
     matched_lists: list[str]
 
+    matched_count: int
+
     matched_name: str | None
+
+    aliases: list[str]
 
     match_score: int
 
@@ -65,6 +72,7 @@ class BulkComplianceRequest(BaseModel):
     ]
 
     country: str
+
 
 
 class BulkComplianceResponse(BaseModel):

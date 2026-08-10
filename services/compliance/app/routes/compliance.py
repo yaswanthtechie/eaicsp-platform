@@ -1,13 +1,12 @@
 from fastapi import (
     APIRouter,
     Depends,
+    Query,
 )
 
 from sqlalchemy.orm import Session
 
-from app.core.database import (
-    get_db,
-)
+from app.core.database import get_db
 
 from app.schemas.compliance import (
     ComplianceRequest,
@@ -23,6 +22,7 @@ from app.services.sanctions_service import (
 
 from app.services.audit_service import (
     write_audit,
+    write_bulk_audit,
     get_audit_history,
 )
 
@@ -38,6 +38,10 @@ def screen(
     request: ComplianceRequest,
     db: Session = Depends(get_db),
 ):
+    """
+    Screen one entity against the sanctions lists.
+    """
+
     result = screen_entity(
         request.entity_name
     )
@@ -64,6 +68,8 @@ def bulk_screen(
     request: BulkComplianceRequest,
     db: Session = Depends(get_db),
 ):
+   
+
     bulk_result = screen_bulk(
         request.entity_names
     )
@@ -74,34 +80,42 @@ def bulk_screen(
         request.entity_names,
         bulk_result["results"],
     ):
-
         result["entity_name"] = entity_name
         result["entity_type"] = request.entity_type
         result["country"] = request.country
 
-        write_audit(
-            db=db,
-            entity_name=entity_name,
-            result=result,
-            duration_ms=result["duration_ms"],
-        )
-
         results.append(result)
+
+    write_bulk_audit(
+        db=db,
+        entity_names=request.entity_names,
+        results=results,
+    )
 
     return {
         "entity_type": request.entity_type,
         "country": request.country,
         "count": bulk_result["count"],
-        "total_duration_ms": bulk_result["total_duration_ms"],
+        "total_duration_ms": bulk_result[
+            "total_duration_ms"
+        ],
         "results": results,
     }
 
-
-@router.get("/audit/{entity_name}")
+@router.get(
+    "/audit"
+)
 def audit_history(
-    entity_name: str,
+    entity_name: str = Query(...),
     db: Session = Depends(get_db),
 ):
+    """
+    Get audit history for an entity.
+
+    Example:
+        GET /audit?entity_name=HAMAS
+    """
+
     return get_audit_history(
         db=db,
         entity_name=entity_name,

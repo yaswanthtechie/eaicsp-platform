@@ -3,6 +3,10 @@ import xmltodict
 from app.schemas.sanctions import SanctionedEntity
 
 
+# =====================================================
+# GET VALUE FROM XML DICT
+# =====================================================
+
 def get_value(data: dict, key: str):
 
     if not isinstance(data, dict):
@@ -20,6 +24,10 @@ def get_value(data: dict, key: str):
     return None
 
 
+
+# =====================================================
+# FIND SANCTION ENTITIES RECURSIVELY
+# =====================================================
 
 def find_entities(data):
 
@@ -64,6 +72,11 @@ def find_entities(data):
 
     return entities
 
+
+
+# =====================================================
+# LOAD EU SANCTIONS XML
+# =====================================================
 
 def load_eu(
     xml_path
@@ -134,6 +147,11 @@ def load_eu(
         primary_name = ""
 
 
+
+        # -------------------------------------
+        # Extract nameAlias
+        # -------------------------------------
+
         name_alias = get_value(
             entity,
             "nameAlias"
@@ -195,6 +213,10 @@ def load_eu(
                         )
 
 
+
+        # -------------------------------------
+        # Fallback name field
+        # -------------------------------------
 
         if not primary_name:
 

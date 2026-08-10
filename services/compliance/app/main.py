@@ -16,6 +16,10 @@ from app.services.sanctions_service import (
 )
 
 
+# =====================================================
+# APPLICATION LIFESPAN
+# =====================================================
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
@@ -36,6 +40,9 @@ async def lifespan(app: FastAPI):
     print("Compliance Service stopped.")
 
 
+# =====================================================
+# FASTAPI APPLICATION
+# =====================================================
 
 app = FastAPI(
 
@@ -48,6 +55,9 @@ app = FastAPI(
 )
 
 
+# =====================================================
+# ROUTES
+# =====================================================
 
 app.include_router(
 

@@ -3,17 +3,11 @@ import time
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services.sanctions_service import (
-    load_all_sanctions,
-)
-
-
-
-load_all_sanctions()
 
 
 
 client = TestClient(app)
+
 
 
 def test_screen_api():
@@ -49,6 +43,8 @@ def test_screen_api():
     ) >= 1
 
 
+
+
 def test_unknown_entity():
 
     response = client.post(
@@ -73,7 +69,7 @@ def test_unknown_entity():
 
 
 
-def test_bulk_screen():
+def test_bulk_screen_api():
 
     response = client.post(
         "/api/v1/compliance/screen-bulk",
@@ -110,6 +106,56 @@ def test_bulk_screen():
 
 
 
+
+def test_bulk_preserves_input_order():
+
+    response = client.post(
+        "/api/v1/compliance/screen-bulk",
+        json={
+            "entity_names": [
+                "OpenAI",
+                "HAMAS",
+            ],
+            "entity_type": "supplier",
+            "country": "India",
+        },
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["count"] == 2
+
+    first = data["results"][0]
+    second = data["results"][1]
+
+    # OpenAI must remain at position 0
+    assert first["entity_name"] == "OpenAI"
+    assert first["is_flagged"] is False
+
+    # HAMAS must remain at position 1
+    assert second["entity_name"] == "HAMAS"
+    assert second["is_flagged"] is True
+    assert second["matched_name"] == "HAMAS"
+
+
+
+def test_empty_entity_name():
+
+    response = client.post(
+        "/api/v1/compliance/screen",
+        json={
+            "entity_name": "",
+            "entity_type": "supplier",
+            "country": "India",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+
 def test_screen_under_100ms():
 
     start = time.perf_counter()
@@ -124,8 +170,50 @@ def test_screen_under_100ms():
     )
 
     elapsed = (
-        time.perf_counter() - start
+        time.perf_counter()
+        - start
     ) * 1000
 
     assert response.status_code == 200
-    assert elapsed < 100
+
+    assert elapsed < 100, (
+        f"Single screen took "
+        f"{elapsed:.2f}ms"
+    )
+
+
+
+def test_bulk_50_names_under_100ms():
+
+    names = [
+        f"Definitely Not Sanctioned Company {i}"
+        for i in range(50)
+    ]
+
+    start = time.perf_counter()
+
+    response = client.post(
+        "/api/v1/compliance/screen-bulk",
+        json={
+            "entity_names": names,
+            "entity_type": "supplier",
+            "country": "India",
+        },
+    )
+
+    elapsed = (
+        time.perf_counter()
+        - start
+    ) * 1000
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["count"] == 50
+    assert len(data["results"]) == 50
+
+    assert elapsed < 100, (
+        f"50-name bulk took "
+        f"{elapsed:.2f}ms"
+    )

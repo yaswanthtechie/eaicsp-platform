@@ -13,6 +13,9 @@ from app.core.config import (
 )
 
 
+# =====================================================
+# VALIDATE DOWNLOADED FILE
+# =====================================================
 
 def validate_download(
     file_path: Path
@@ -27,6 +30,8 @@ def validate_download(
 
     file_size = file_path.stat().st_size
 
+
+    # Prevent corrupted / partial downloads
 
     minimum_size = 100
 
@@ -48,6 +53,9 @@ def validate_download(
         first_bytes = file.read(500).lower()
 
 
+
+    # Prevent HTML error pages
+
     if (
 
         b"<html" in first_bytes
@@ -64,6 +72,8 @@ def validate_download(
 
 
 
+    # XML validation
+
     if file_path.suffix.lower() == ".xml":
 
 
@@ -77,6 +87,7 @@ def validate_download(
 
 
 
+    # CSV validation
 
     if file_path.suffix.lower() == ".csv":
 
@@ -88,6 +99,10 @@ def validate_download(
             )
 
 
+
+# =====================================================
+# DOWNLOAD SINGLE FILE
+# =====================================================
 
 def download_file(
     url: str,
@@ -144,6 +159,9 @@ def download_file(
         response.raise_for_status()
 
 
+
+        # Validate server response type
+
         content_type = response.headers.get(
 
             "content-type",
@@ -170,6 +188,10 @@ def download_file(
 
             )
 
+
+
+        # Write temporary file first
+
         with open(
 
             temp_path,
@@ -186,6 +208,8 @@ def download_file(
 
             ):
 
+
+
                 if chunk:
 
                     file.write(chunk)
@@ -199,6 +223,10 @@ def download_file(
             temp_path
 
         )
+
+
+
+        # Replace old file safely
 
         shutil.move(
 
@@ -242,20 +270,44 @@ def download_file(
             temp_path.unlink()
 
 
+
+# =====================================================
+# DOWNLOAD ALL SANCTIONS LISTS
+# =====================================================
+
 def download_all_lists():
 
 
     download_tasks = [
 
 
-        (OFAC_DOWNLOAD_URL,
-            OFAC_CSV_PATH),
+        (
 
-       (UN_DOWNLOAD_URL,
-            UN_XML_PATH),
+            OFAC_DOWNLOAD_URL,
 
-        (EU_DOWNLOAD_URL,
-            EU_XML_PATH),
+            OFAC_CSV_PATH
+
+        ),
+
+
+
+        (
+
+            UN_DOWNLOAD_URL,
+
+            UN_XML_PATH
+
+        ),
+
+
+
+        (
+
+            EU_DOWNLOAD_URL,
+
+            EU_XML_PATH
+
+        ),
 
 
     ]

@@ -28,6 +28,7 @@ from app.services.refresh_service import (
 
 
 
+
 def write_refresh_log(message: str):
 
     LOG_DIR.mkdir(
@@ -49,6 +50,7 @@ def write_refresh_log(message: str):
         file.write(
             f"{datetime.now()} : {message}\n"
         )
+
 
 
 def archive_previous_downloads():
@@ -173,14 +175,23 @@ def archive_previous_downloads():
 
 
 
-    print(f"Archived files: {archived}")
+    print(
+
+        f"Archived files: {archived}"
+
+    )
+
 
 
 def create_snapshot():
 
+
     snapshot = {}
 
+
+
     for key, record in sanction_index.items():
+
 
         snapshot[key] = {
 
@@ -268,7 +279,14 @@ def print_changes(changes):
         if len(added) > 20:
 
 
-            print(f"... and {len(added)-20} more")
+            print(
+
+                f"... and {len(added)-20} more"
+
+            )
+
+
+
 
     if removed:
 
@@ -334,6 +352,8 @@ def run_refresh():
         archive_previous_downloads()
 
 
+
+
         print(
 
             "\nDownloading latest sanctions lists..."
@@ -357,6 +377,8 @@ def run_refresh():
             "Download completed"
 
         )
+
+
 
         print(
 
@@ -391,7 +413,12 @@ def run_refresh():
         )
 
 
+
+
         current_snapshot = create_snapshot()
+
+
+
 
 
         changes = refresh_sanctions(
@@ -414,11 +441,16 @@ def run_refresh():
 
         )
 
+
+
+
         print_changes(
 
             changes
 
         )
+
+
 
         duration = (
 
@@ -431,11 +463,34 @@ def run_refresh():
         ) * 1000
 
 
-        print(f"\nRefresh completed successfully")
-        print(f"Duration: {round(duration,2)} ms")
-        write_refresh_log("Refresh completed successfully")
-        
+
+        print(
+
+            f"\nRefresh completed successfully"
+
+        )
+
+
+        print(
+
+            f"Duration: {round(duration,2)} ms"
+
+        )
+
+
+
+        write_refresh_log(
+
+            "Refresh completed successfully"
+
+        )
+
+
+
         return changes
+
+
+
 
     except Exception as error:
 
@@ -455,6 +510,10 @@ def run_refresh():
 
 
         raise
+
+
+
+
 
 
 if __name__ == "__main__":

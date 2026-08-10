@@ -8,12 +8,21 @@ from app.core.config import (
 )
 
 
+# =====================================================
+# UTC TIME
+# =====================================================
+
 def utc_now():
 
     return datetime.now(
         timezone.utc
     ).isoformat()
 
+
+
+# =====================================================
+# SAVE SNAPSHOT
+# =====================================================
 
 def save_snapshot(
     data: dict
@@ -49,6 +58,11 @@ def save_snapshot(
     )
 
 
+
+# =====================================================
+# LOAD SNAPSHOT
+# =====================================================
+
 def load_snapshot():
 
     if not SNAPSHOT_FILE.exists():
@@ -78,6 +92,11 @@ def load_snapshot():
         return {}
 
 
+
+# =====================================================
+# WRITE REFRESH LOG
+# =====================================================
+
 def write_refresh_log(
     message: str
 ):
@@ -102,6 +121,11 @@ def write_refresh_log(
             f"{utc_now()} : {message}\n"
         )
 
+
+
+# =====================================================
+# CREATE SNAPSHOT DATA
+# =====================================================
 
 def build_snapshot(
     sanction_index: dict
@@ -142,6 +166,10 @@ def build_snapshot(
 
 
 
+# =====================================================
+# COMPARE SNAPSHOTS
+# =====================================================
+
 def compare_snapshots(
     previous: dict,
     current: dict,
@@ -179,6 +207,10 @@ def compare_snapshots(
     }
 
 
+
+# =====================================================
+# REFRESH SANCTIONS
+# =====================================================
 
 def refresh_sanctions(
     current_snapshot: dict
