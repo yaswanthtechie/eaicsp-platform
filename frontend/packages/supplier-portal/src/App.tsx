@@ -1,7 +1,13 @@
 import AppRoutes from "./routes/AppRoutes";
+import OfflineBanner from "./components/OfflineBanner";
 
 function App() {
-  return <AppRoutes />;
+  return (
+    <>
+      <OfflineBanner />
+      <AppRoutes />
+    </>
+  );
 }
 
 export default App;

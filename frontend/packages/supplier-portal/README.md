@@ -1,228 +1,679 @@
 # Supplier Portal
 
-## Project Overview
+A mobile-first Supplier Portal built with **React, TypeScript, Vite, Apollo Client, and GraphQL**. The application allows suppliers to securely manage Purchase Orders, acknowledge orders, and create and submit invoices.
 
-Supplier Portal is a React + TypeScript application that allows suppliers to manage purchase orders and invoices.
+The project implements authentication, protected routes, token management, GraphQL communication, pagination, search and filtering, optimistic UI updates, invoice PDF upload, offline action queuing, responsive UI, and automated unit/component testing.
 
-This project demonstrates a complete supplier workflow using GraphQL and Apollo Client with a mocked GraphQL backend.
+---
 
-# Features
+# Project Overview
 
-- Supplier Login
-- View Purchase Orders
-- View Purchase Order Details
-- Acknowledge Purchase Orders
-- Submit Invoice
-- Upload Invoice PDF
-- GraphQL Query
-- GraphQL Mutation
-- Apollo Client
-- Mock Apollo Server
-- Loading State
-- Error State
-- Empty State
-- Responsive Mobile First UI
-- PWA Ready (Optional Stretch Goal)
+The Supplier Portal provides a complete supplier workflow:
+
+```text
+Login
+  ↓
+Purchase Orders
+  ↓
+Purchase Order Details
+  ↓
+Acknowledge Purchase Order
+  ↓
+Updated Order Status
+  ↓
+Create Invoice
+  ↓
+Select Acknowledged Purchase Order
+  ↓
+Upload Invoice PDF
+  ↓
+Validate Invoice
+  ↓
+Submit Invoice
+```
+
+The application is designed with a **mobile-first approach**, targeting a minimum viewport of approximately **375px** for supplier and warehouse users.
+
+---
 
 # Technology Stack
 
-Frontend
+## Frontend
 
-- React
-- TypeScript
-- Vite
-- React Router DOM
-- Apollo Client
-- CSS
+* React
+* TypeScript
+* Vite
+* React Router DOM
+* Apollo Client
+* GraphQL
+* React Toastify
+* CSS
+* PWA / Service Worker support
 
-Backend
+## Backend
 
-- Apollo Server
-- GraphQL
-- Express (Mock Server)
+* Apollo Server
+* GraphQL
+* Mock Purchase Order data
+* Authentication Service
+* FastAPI Authentication API
+* JWT Access Tokens
+* JWT Refresh Tokens
 
-Development Tools
+## Testing
 
-- VS Code
-- Node.js
-- npm
-- Chrome DevTools
+* Vitest
+* React Testing Library
+* jsdom
 
-# Folder Structure
+## Development Tools
 
+* Node.js
+* npm
+* VS Code
+* Chrome DevTools
+* Git
+
+---
+
+# Main Features
+
+## Authentication
+
+* Supplier Login
+* Email validation
+* Password validation
+* JWT Access Token
+* JWT Refresh Token
+* Remember Me
+* Local Storage token persistence
+* Session Storage token persistence
+* Protected Routes
+* Automatic Authorization Header
+* Silent Token Refresh
+* Token Expiry Detection
+* Logout
+* Token Cleanup
+* Apollo Cache Clear on Logout
+* Redirect to Login for unauthenticated users
+
+---
+
+# Authentication Flow
+
+```text
+User Login
+    ↓
+Authentication API
+    ↓
+Access Token + Refresh Token
+    ↓
+Token Storage
+    ↓
+Remember Me?
+    ├── Yes → localStorage
+    └── No  → sessionStorage
+    ↓
+Protected Routes
+    ↓
+Apollo Auth Link
+    ↓
+Authorization Header
+    ↓
+GraphQL Request
+    ↓
+Token Expiry Check
+    ↓
+Silent Refresh
+    ↓
+Updated Access Token
+```
+
+### Remember Me
+
+When Remember Me is enabled:
+
+```text
+localStorage
+```
+
+is used so the session can persist.
+
+When Remember Me is disabled:
+
+```text
+sessionStorage
+```
+
+is used so the session is limited to the browser tab/session.
+
+---
+
+# Purchase Orders
+
+Suppliers can manage Purchase Orders from the Orders page.
+
+## Features
+
+* View Purchase Orders
+* Purchase Order Details
+* Purchase Order Number
+* Supplier Information
+* Order Items
+* Quantity
+* Unit Price
+* Total Amount
+* Order Status
+* Search by PO Number
+* Filter by Status
+* Filter by Minimum Amount
+* Filter by Maximum Amount
+* Filter by Date Range
+* Cursor-Based Pagination
+* Load More
+* Loading State
+* Error State
+* Empty State
+
+---
+
+# Purchase Order Acknowledgement
+
+Suppliers can acknowledge Purchase Orders that are in the appropriate state.
+
+## Acknowledgement Flow
+
+```text
+Purchase Order
+      ↓
+Order Details
+      ↓
+Click Acknowledge
+      ↓
+Optimistic UI Update
+      ↓
+GraphQL Mutation
+      ↓
+Apollo Server
+      ↓
+Resolver
+      ↓
+Purchase Order Status Updated
+```
+
+## Features
+
+* Acknowledge Purchase Order
+* Optimistic UI
+* Apollo Cache Update
+* GraphQL Mutation
+* Success Notification
+* Error Handling
+* Offline Queue Support
+
+---
+
+# Invoice Management
+
+Suppliers can create invoices for acknowledged Purchase Orders.
+
+## Invoice Features
+
+* Invoice Number
+* Purchase Order Selection
+* Invoice Amount
+* Invoice Date
+* Form Validation
+* Purchase Order Validation
+* Amount Validation
+* Date Validation
+* PDF Validation
+* File Size Validation
+* Drag and Drop
+* File Preview
+* Remove Selected File
+* Upload Progress UI
+* Submit Invoice
+* Success Notification
+* Error Notification
+
+Only **acknowledged Purchase Orders** are available for invoice creation.
+
+---
+
+# File Upload
+
+The `FileUpload` component provides invoice PDF upload functionality.
+
+## Current Features
+
+* PDF-only validation
+* Maximum file size: **10 MB**
+* Drag-and-drop upload
+* File selection
+* File preview
+* Remove selected file
+* File validation errors
+* Upload progress UI
+* File input reset handling
+
+---
+
+# Offline Support
+
+The application supports offline-friendly user actions.
+
+When the browser is offline, supported actions can be stored in an offline queue instead of being immediately sent to the backend.
+
+```text
+User Action
+    ↓
+Browser Offline?
+    ├── No
+    │    ↓
+    │  Execute GraphQL/API Request
+    │
+    └── Yes
+         ↓
+      Add Action to Queue
+         ↓
+      Store in localStorage
+         ↓
+      Browser Comes Online
+         ↓
+      Offline Sync
+         ↓
+      Execute Queued Actions
+         ↓
+      Remove Successfully Synced Actions
+```
+
+## Offline Modules
+
+### `src/utils/offlineQueue.ts`
+
+Responsible for:
+
+* Adding offline actions
+* Reading queued actions
+* Removing individual actions
+* Clearing queued actions
+* Handling invalid stored data
+
+### `src/utils/offlineSync.ts`
+
+Responsible for:
+
+* Reading queued actions
+* Executing queued actions
+* Removing successfully processed actions
+* Handling synchronization errors
+
+### `src/hooks/useOfflineSync.ts`
+
+Responsible for:
+
+* Detecting online status
+* Synchronizing when the application starts online
+* Synchronizing when the browser comes back online
+* Registering and removing the `online` event listener
+
+---
+
+# GraphQL
+
+The application uses **Apollo Client** for GraphQL communication.
+
+## GraphQL Flow
+
+```text
+React Page
+    ↓
+Custom Hook
+    ↓
+Apollo Client
+    ↓
+GraphQL Query / Mutation
+    ↓
+Apollo Server
+    ↓
+Resolver
+    ↓
+Mock Data
+    ↓
+Response
+    ↓
+Apollo Cache
+    ↓
+React UI
+```
+
+---
+
+# Apollo Client
+
+Location:
+
+```text
+src/graphql/apollo.ts
+```
+
+Responsibilities:
+
+* Configure Apollo Client
+* Connect to GraphQL server
+* Configure InMemoryCache
+* Configure pagination cache behavior
+* Support GraphQL queries and mutations
+* Integrate authentication
+
+---
+
+# Authentication Link
+
+Location:
+
+```text
+src/graphql/authLink.ts
+```
+
+Responsibilities:
+
+* Read Access Token from token storage
+* Add token to GraphQL requests
+* Automatically create the Authorization header
+
+Example:
+
+```text
+Authorization: Bearer <access-token>
+```
+
+---
+
+# GraphQL Queries
+
+Location:
+
+```text
+src/graphql/queries.ts
+```
+
+Contains GraphQL queries such as:
+
+```text
+GET_PURCHASE_ORDERS
+```
+
+The Purchase Order query supports:
+
+* Cursor pagination
+* Search
+* Status filtering
+* Amount filtering
+* Date filtering
+
+---
+
+# GraphQL Mutations
+
+Location:
+
+```text
+src/graphql/mutations.ts
+```
+
+Contains mutations such as:
+
+```text
+ACKNOWLEDGE_PO
+SUBMIT_INVOICE
+```
+
+### `ACKNOWLEDGE_PO`
+
+Updates the Purchase Order acknowledgement status.
+
+### `SUBMIT_INVOICE`
+
+Submits invoice information for an acknowledged Purchase Order.
+
+---
+
+# Cursor-Based Pagination
+
+Purchase Orders are fetched using cursor-based pagination instead of loading all records at once.
+
+Example:
+
+```text
+first: 20
+after: <cursor>
+```
+
+Flow:
+
+```text
+Page 1
+20 Purchase Orders
+      ↓
+next cursor
+      ↓
+Load More
+      ↓
+Next 20 Purchase Orders
+```
+
+This approach is more suitable for large datasets than loading thousands of Purchase Orders in a single request.
+
+---
+
+# Search and Filtering
+
+Purchase Orders support multiple filters.
+
+Available filters:
+
+* PO Number
+* Status
+* Minimum Amount
+* Maximum Amount
+* Start Date
+* End Date
+
+These filters are passed through the GraphQL query.
+
+---
+
+# Apollo Cache
+
+Apollo Client uses `InMemoryCache` to store GraphQL results.
+
+The cache helps:
+
+* Avoid unnecessary requests
+* Update UI efficiently
+* Support optimistic updates
+* Merge paginated results
+* Maintain client-side GraphQL state
+
+---
+
+# Optimistic UI
+
+When a supplier acknowledges a Purchase Order, the UI can update immediately before the backend response is received.
+
+```text
+User clicks Acknowledge
+        ↓
+UI immediately shows ACKNOWLEDGED
+        ↓
+GraphQL mutation sent
+        ↓
+Server processes request
+        ↓
+Success → Keep update
+        ↓
+Failure → Handle error / rollback
+```
+
+This improves perceived application performance.
+
+---
+
+# Project Structure
+
+```text
 supplier-portal/
-
-```
-public/
 │
-├── favicon.ico
-├── pwa-192.png
-├── pwa-512.png
+├── public/
+│   ├── favicon.ico
+│   ├── pwa-192.png
+│   └── pwa-512.png
 │
-server/
+├── server/
+│   └── index.js
 │
-└── index.js
+├── src/
+│   │
+│   ├── api/
+│   │   └── auth.ts
+│   │
+│   ├── auth/
+│   │   ├── tokenStorage.ts
+│   │   ├── refreshToken.ts
+│   │   └── tokenUtils.ts
+│   │
+│   ├── components/
+│   │   ├── POCard.tsx
+│   │   ├── StatusBadge.tsx
+│   │   ├── FileUpload.tsx
+│   │   ├── Loading.tsx
+│   │   ├── ErrorState.tsx
+│   │   └── EmptyState.tsx
+│   │
+│   ├── constants/
+│   │
+│   ├── graphql/
+│   │   ├── apollo.ts
+│   │   ├── authLink.ts
+│   │   ├── queries.ts
+│   │   └── mutations.ts
+│   │
+│   ├── hooks/
+│   │   ├── usePurchaseOrders.ts
+│   │   ├── useOrderDetails.ts
+│   │   ├── useInvoice.ts
+│   │   ├── useAcknowledgePO.ts
+│   │   └── useOfflineSync.ts
+│   │
+│   ├── mocks/
+│   │   └── purchaseOrders.ts
+│   │
+│   ├── pages/
+│   │   ├── Login.tsx
+│   │   ├── Orders.tsx
+│   │   ├── OrderDetails.tsx
+│   │   └── Invoice.tsx
+│   │
+│   ├── routes/
+│   │   ├── AppRoutes.tsx
+│   │   └── ProtectedRoute.tsx
+│   │
+│   ├── types/
+│   │   └── po.ts
+│   │
+│   ├── utils/
+│   │   ├── offlineQueue.ts
+│   │   ├── offlineSync.ts
+│   │   ├── currency.ts
+│   │   └── date.ts
+│   │
+│   ├── App.tsx
+│   ├── main.tsx
+│   ├── index.css
+│   └── tokens.ts
 │
-src/
-│
-├── components/
-│
-├── context/
-│
-├── graphql/
-│
-├── pages/
-│
-├── routes/
-│
-├── types/
-│
-├── utils/
-│
-├── App.tsx
-├── main.tsx
-├── index.css
-└── tokens.ts
-│
-package.json
-vite.config.ts
-README.md
-```
-
-# Installation
-
-Move into project
-
-```bash
-cd supplier-portal
-```
-
-Install Dependencies
-
-```bash
-npm install
-```
-
-# Packages Installed
-
-## React Router
-
-```bash
-npm install react-router-dom
-```
-
-Purpose
-
-Navigation between pages.
-
----
-
-## Apollo Client
-
-```bash
-npm install @apollo/client graphql
-```
-
-Purpose
-
-Connect React application to GraphQL server.
-
-## Apollo Server
-
-Inside server folder
-
-```bash
-npm install @apollo/server graphql express cors body-parser
-```
-
-Purpose
-
-Creates Mock GraphQL Backend.
-
-## PWA (Optional)
-
-```bash
-npm install vite-plugin-pwa --save-dev
-```
-
-Purpose
-
-Makes application installable and offline friendly.
-
----
-
-# Running the Project
-
-## Terminal 1
-
-Frontend
-
-```bash
-npm run dev
-```
-
-Runs
-
-```
-http://localhost:5173
+├── package.json
+├── vite.config.ts
+├── tsconfig.json
+└── README.md
 ```
 
 ---
 
-## Terminal 2
+# Important Files
 
-Backend
+## `src/auth/tokenStorage.ts`
 
-```bash
-cd server
+Responsible for token storage.
 
-node index.js
+Functions include:
+
+```text
+saveTokens()
+getAccessToken()
+getRefreshToken()
+clearTokens()
 ```
 
-Runs
+Supports:
 
-```
-http://localhost:4000
+```text
+localStorage
+sessionStorage
 ```
 
 ---
 
-# Application Flow
+## `src/auth/tokenUtils.ts`
 
-```
+Responsible for token-related utility operations such as:
+
+* Reading token expiry
+* Checking whether a token is expired
+* Supporting refresh timing logic
+
+---
+
+## `src/auth/refreshToken.ts`
+
+Responsible for:
+
+* Refresh token requests
+* Obtaining a new access token
+* Updating stored access token
+
+---
+
+## `src/api/auth.ts`
+
+Responsible for authentication API communication.
+
+Handles:
+
+```text
 Login
+Refresh Token
+Logout
+```
 
-↓
+---
 
-Purchase Orders
+## `src/routes/ProtectedRoute.tsx`
 
-↓
+Protects authenticated pages.
 
-View Details
+If a user is not authenticated:
 
-↓
-
-Acknowledge Purchase Order
-
-↓
-
-Status Updated
-
-↓
-
-Back to Orders
-
-↓
-
-New Invoice
-
-↓
-
-Upload Invoice
-
-↓
-
-Submit Invoice
+```text
+Protected Page
+      ↓
+Authentication Check
+      ↓
+Not Authenticated
+      ↓
+Redirect to /login
 ```
 
 ---
@@ -231,533 +682,819 @@ Submit Invoice
 
 ## Login Page
 
-Purpose
+Location:
 
-Supplier Authentication.
-
-Functions
-
-- Enter Email
-- Enter Password
-- Login
-- Navigate to Orders
-
-Main Hook
-
+```text
+src/pages/Login.tsx
 ```
-useNavigate()
-```
+
+Responsibilities:
+
+* Supplier login
+* Email validation
+* Password validation
+* Remember Me
+* Token storage
+* Authentication
+* Redirect to Orders
+
+---
 
 ## Orders Page
 
-Purpose
+Location:
 
-Display Purchase Orders.
-
-Functions
-
-- Fetch Orders
-- Filter Orders
-- Logout
-- Open Invoice
-- View Details
-
-GraphQL
-
-```
-GET_PURCHASE_ORDERS
+```text
+src/pages/Orders.tsx
 ```
 
-React Hook
+Responsibilities:
 
-```
-useQuery()
-```
+* Fetch Purchase Orders
+* Display Purchase Orders
+* Search
+* Filters
+* Cursor pagination
+* Load More
+* Loading state
+* Error state
+* Empty state
+* Logout
 
 ---
 
 ## Order Details Page
 
-Purpose
+Location:
 
-Display Complete Purchase Order.
-
-Functions
-
-- Show Items
-- Show Total
-- Show Status
-- Acknowledge Purchase Order
-
-GraphQL
-
-```
-ACKNOWLEDGE_PO
+```text
+src/pages/OrderDetails.tsx
 ```
 
-React Hooks
+Responsibilities:
 
-```
-useParams()
+* Display complete Purchase Order
+* Display items
+* Display amount
+* Display status
+* Acknowledge Purchase Order
+* Optimistic UI
 
-useMutation()
-```
+---
+
 ## Invoice Page
 
-Purpose
+Location:
 
-Create Invoice.
-
-Functions
-
-- Invoice Number
-- Select Purchase Order
-- Amount
-- Date
-- Upload PDF
-- Submit Invoice
-
-Only acknowledged Purchase Orders are shown.
-
-
-# Components
-
-## POCard
-
-Displays one Purchase Order.
-
-Reusable Component.
-
-## StatusBadge
-
-Displays
-
-- Draft
-- Sent
-- Acknowledged
-- Fulfilled
-- Cancelled
-
-## Loading
-
-Displayed while GraphQL request is loading.
-
-## ErrorState
-
-Displayed when API request fails.
-
-## EmptyState
-
-Displayed when no Purchase Orders exist.
-
-## FileUpload
-
-Uploads Invoice PDF.
-
-# GraphQL
-
-## Apollo Client
-
-Location
-
-```
-src/graphql/apollo.ts
+```text
+src/pages/Invoice.tsx
 ```
 
-Purpose
+Responsibilities:
 
-Connect React with GraphQL Server.
+* Create invoice
+* Select acknowledged Purchase Order
+* Validate invoice
+* Upload PDF
+* Display upload progress
+* Submit invoice
 
-## Queries
+---
 
-Location
+# Reusable Components
 
-```
-src/graphql/queries.ts
-```
+## `POCard`
 
-Purpose
+Displays Purchase Order summary information.
 
-Fetch Purchase Orders.
+---
 
-Example
+## `StatusBadge`
 
-```
-GET_PURCHASE_ORDERS
-```
+Displays Purchase Order status.
 
-## Mutations
+Supported statuses:
 
-Location
-
-```
-src/graphql/mutations.ts
-```
-
-Purpose
-
-Update Purchase Order Status.
-
-Example
-
-```
-ACKNOWLEDGE_PO
+```text
+DRAFT
+SENT
+ACKNOWLEDGED
+FULFILLED
+CANCELLED
 ```
 
-# Backend
+---
 
-Location
+## `FileUpload`
 
-```
-server/index.js
-```
+Provides:
 
-Contains
+* File selection
+* Drag and drop
+* PDF validation
+* File size validation
+* File preview
+* Remove file
+* Upload progress
 
-- GraphQL Schema
-- Queries
-- Mutations
-- Resolvers
-- Mock Purchase Orders
+---
 
-# Types
+## `Loading`
 
-Location
+Displays loading indicators during asynchronous operations.
 
-```
-src/types/po.ts
-```
+---
 
-Contains
+## `ErrorState`
 
-- PurchaseOrder
-- POItem
-- POStatus
+Displays user-friendly error information when an operation fails.
 
-Purpose
+---
 
-Provides TypeScript type safety.
+## `EmptyState`
+
+Displays a meaningful message when no data is available.
+
+---
 
 # Routing
 
-Location
+Location:
 
-```
+```text
 src/routes/AppRoutes.tsx
 ```
 
-Routes
+Application routes:
 
-```
+```text
 /login
-
 /orders
-
 /orders/:poNumber
-
 /invoices/new
 ```
-# Main File Flow
 
+Route flow:
+
+```text
+/login
+   ↓
+/orders
+   ↓
+/orders/:poNumber
+   ↓
+/invoices/new
 ```
-main.tsx
 
-↓
+The Orders, Order Details, and Invoice pages are protected by `ProtectedRoute`.
 
-App.tsx
+---
 
-↓
+# TypeScript Types
 
-AppRoutes.tsx
+Location:
 
-↓
+```text
+src/types/po.ts
+```
 
-Login
+Contains TypeScript definitions for:
 
-↓
+* Purchase Order
+* Purchase Order Item
+* Purchase Order Status
+* Pagination-related data
 
-Orders
+TypeScript provides compile-time type safety across the application.
 
-↓
+---
 
+# Backend
+
+Mock GraphQL server:
+
+```text
+server/index.js
+```
+
+Responsibilities:
+
+* GraphQL schema
+* Query definitions
+* Mutation definitions
+* Resolvers
+* Mock Purchase Order data
+* Purchase Order status updates
+* Invoice submission handling
+
+---
+
+# Authentication Service
+
+The frontend can communicate with the Authentication Service through:
+
+```text
+VITE_AUTH_URL
+```
+
+The authentication service is responsible for:
+
+* Login
+* Access Token generation
+* Refresh Token generation
+* Token refresh
+* Logout/revocation
+
+---
+
+# Environment Variables
+
+Create a `.env` file in the Supplier Portal project.
+
+```env
+VITE_GRAPHQL_URL=http://localhost:4000
+VITE_AUTH_URL=http://localhost:8005
+```
+
+### `VITE_GRAPHQL_URL`
+
+URL of the GraphQL server.
+
+### `VITE_AUTH_URL`
+
+URL of the authentication service.
+
+Do not commit sensitive secrets to the repository.
+
+---
+
+# Installation
+
+Clone or open the project and move into the Supplier Portal directory:
+
+```bash
+cd frontend/packages/supplier-portal
+```
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+---
+
+# Running the Application
+
+## 1. Start Frontend
+
+From the Supplier Portal directory:
+
+```bash
+npm run dev
+```
+
+The Vite development server normally runs at:
+
+```text
+http://localhost:5173
+```
+
+---
+
+# 2. Start GraphQL Server
+
+Open another terminal:
+
+```bash
+cd frontend/packages/supplier-portal
+node server/index.js
+```
+
+The mock GraphQL server runs on:
+
+```text
+http://localhost:4000
+```
+
+---
+
+# 3. Start Authentication Service
+
+The authentication service is a separate backend service.
+
+From the authentication service directory:
+
+```bash
+uvicorn app.main:app --reload --port 8005
+```
+
+The authentication service runs on:
+
+```text
+http://localhost:8005
+```
+
+---
+
+# Testing
+
+The project uses **Vitest** and **React Testing Library**.
+
+Run all tests:
+
+```bash
+npm run test:run
+```
+
+The current test suite covers:
+
+* Token Storage
+* Token Utilities
+* Offline Queue
+* Offline Sync
+* Offline Sync Hook
+* File Upload
+* Status Badge
+* Acknowledge Purchase Order Hook
+
+Current test result:
+
+```text
+Test Files: 8 passed
+Tests:      44 passed
+```
+
+All current automated tests are passing.
+
+---
+
+# Test Coverage Areas
+
+## Token Storage Tests
+
+Validates:
+
+* Local Storage
+* Session Storage
+* Access Token
+* Refresh Token
+* Authentication state
+* Token cleanup
+* Access Token update
+
+---
+
+## Offline Queue Tests
+
+Validates:
+
+* Add action
+* Read actions
+* Multiple actions
+* Remove action
+* Clear queue
+* Invalid JSON handling
+
+---
+
+## Offline Sync Tests
+
+Validates:
+
+* Synchronization
+* Queued action processing
+* Successful removal after synchronization
+
+---
+
+## Offline Sync Hook Tests
+
+Validates:
+
+* Initial online synchronization
+* Synchronization when browser comes online
+* Event listener cleanup
+
+---
+
+## File Upload Tests
+
+Validates:
+
+* Upload area
+* PDF validation
+* Invalid file rejection
+* File size validation
+* Selected file display
+* File removal
+* Error display
+
+---
+
+## Status Badge Tests
+
+Validates:
+
+* Draft status
+* Sent status
+* Acknowledged status
+* Fulfilled status
+* Cancelled status
+* Status styling
+* Uppercase display
+
+---
+
+## Acknowledge Purchase Order Tests
+
+Validates:
+
+* Offline acknowledgement queue
+* Online GraphQL mutation
+
+---
+
+# Build
+
+Create a production build:
+
+```bash
+npm run build
+```
+
+The build performs:
+
+```text
+TypeScript Compilation
+        ↓
+Vite Production Build
+        ↓
+dist/
+```
+
+A successful build means the application passes TypeScript compilation and Vite production bundling.
+
+---
+
+# Application Architecture
+
+```text
+                    Supplier
+                       │
+                       ▼
+                 React Frontend
+                       │
+          ┌────────────┴────────────┐
+          │                         │
+          ▼                         ▼
+   Authentication API         Apollo Client
+          │                         │
+          ▼                         ▼
+    JWT Tokens                 GraphQL API
+                                    │
+                                    ▼
+                              Apollo Server
+                                    │
+                                    ▼
+                                Resolvers
+                                    │
+                                    ▼
+                                Mock Data
+```
+
+---
+
+# Complete Purchase Order Flow
+
+```text
+Supplier Login
+      ↓
+Authentication API
+      ↓
+Access + Refresh Tokens
+      ↓
+Protected Orders Page
+      ↓
+Fetch Purchase Orders
+      ↓
+Search / Filter / Pagination
+      ↓
+Select Purchase Order
+      ↓
 Order Details
-
-↓
-
-Invoice
-```
-# GraphQL Flow
-
-```
-React Component
-
-↓
-
-Apollo Client
-
-↓
-
-GraphQL Query
-
-↓
-
-Apollo Server
-
-↓
-
-Resolver
-
-↓
-
-Mock Data
-
-↓
-
-React UI
-```
-# Mutation Flow
-
-```
-Click Acknowledge
-
-↓
-
+      ↓
+Acknowledge Purchase Order
+      ↓
+Optimistic UI
+      ↓
 GraphQL Mutation
-
-↓
-
-Apollo Server
-
-↓
-
-Resolver
-
-↓
-
-Status Updated
-
-↓
-
-React UI Updated
+      ↓
+Updated Status
 ```
-# Project Features Completed
 
-- Login
-- Purchase Orders
-- Purchase Order Details
-- GraphQL Query
-- GraphQL Mutation
-- Apollo Client
-- Apollo Server
-- Optimistic UI
-- Loading State
-- Error State
-- Empty State
-- Invoice Submission
-- Upload PDF
-- Responsive Design
-- Mobile First
-- PWA Support (Optional)
+---
 
-# Learning Outcomes
+# Complete Invoice Flow
 
-This project demonstrates practical knowledge of
+```text
+Orders
+   ↓
+Select Acknowledged PO
+   ↓
+Create Invoice
+   ↓
+Enter Invoice Number
+   ↓
+Enter Invoice Amount
+   ↓
+Select Invoice Date
+   ↓
+Upload PDF
+   ↓
+Validate PDF
+   ↓
+Preview File
+   ↓
+Submit Invoice
+   ↓
+GraphQL Mutation
+   ↓
+Success / Error Notification
+```
 
-- React
-- TypeScript
-- GraphQL
-- Apollo Client
-- Apollo Server
-- React Router
-- Component Reusability
-- State Management
-- File Upload
-- Mobile First Design
-- Progressive Web App (PWA)
+---
 
-#
+# Error and Loading Handling
 
-Project Name
+The application provides proper UI states for asynchronous operations.
+
+## Loading
+
+Displayed while:
+
+* Login is processing
+* Purchase Orders are loading
+* Purchase Order details are loading
+* Invoice is submitting
+* File operations are processing
+
+## Error
+
+Displayed when:
+
+* API request fails
+* GraphQL request fails
+* Authentication fails
+* File validation fails
+* Invoice validation fails
+* Offline synchronization fails
+
+## Empty
+
+Displayed when:
+
+* No Purchase Orders are available
+* Search/filter returns no results
+
+---
+
+# Responsive Design
+
+The application follows a mobile-first design approach.
+
+Primary target:
+
+```text
+375px mobile viewport
+```
+
+The UI is responsive for:
+
+* Mobile
+* Tablet
+* Desktop
+
+The main supplier workflow is optimized for users who may access the application from mobile devices.
+
+---
+
+# PWA Support
+
+The project is configured to support Progressive Web App capabilities where enabled.
+
+PWA assets include:
+
+```text
+public/pwa-192.png
+public/pwa-512.png
+```
+
+PWA functionality can provide:
+
+* Installable application
+* Service worker support
+* Cached application shell
+* Better experience in unreliable network conditions
+
+---
+
+# Current Implementation Status
+
+## Authentication
+
+* [x] Login
+* [x] JWT Access Token
+* [x] Refresh Token
+* [x] Remember Me
+* [x] Local Storage
+* [x] Session Storage
+* [x] Protected Routes
+* [x] Authorization Header
+* [x] Silent Token Refresh
+* [x] Logout
+* [x] Token Cleanup
+* [x] Apollo Cache Clear
+
+## Purchase Orders
+
+* [x] Purchase Order List
+* [x] Purchase Order Details
+* [x] Search
+* [x] Status Filter
+* [x] Amount Filter
+* [x] Date Filter
+* [x] Cursor-Based Pagination
+* [x] Load More
+* [x] Loading State
+* [x] Error State
+* [x] Empty State
+
+## Purchase Order Acknowledgement
+
+* [x] Acknowledge Purchase Order
+* [x] GraphQL Mutation
+* [x] Optimistic UI
+* [x] Apollo Cache Update
+* [x] Success Notification
+* [x] Error Handling
+* [x] Offline Queue
+
+## Invoice
+
+* [x] Invoice Form
+* [x] Purchase Order Selection
+* [x] Invoice Validation
+* [x] Invoice Number Validation
+* [x] Invoice Amount Validation
+* [x] Invoice Date Validation
+* [x] PDF Validation
+* [x] File Size Validation
+* [x] Drag and Drop
+* [x] File Preview
+* [x] Remove File
+* [x] Upload Progress UI
+* [x] Invoice GraphQL Mutation
+
+## Offline Support
+
+* [x] Offline Queue
+* [x] Local Storage Queue
+* [x] Online Detection
+* [x] Automatic Synchronization
+* [x] Online Event Listener
+* [x] Queue Cleanup
+* [x] Offline Acknowledgement Support
+
+## Testing
+
+* [x] Vitest Configuration
+* [x] React Testing Library
+* [x] Token Storage Tests
+* [x] Token Utility Tests
+* [x] Offline Queue Tests
+* [x] Offline Sync Tests
+* [x] Hook Tests
+* [x] File Upload Tests
+* [x] Status Badge Tests
+* [x] Acknowledge PO Tests
+* [x] 44/44 Tests Passing
+
+## UI
+
+* [x] Mobile-First Design
+* [x] Responsive Layout
+* [x] Loading State
+* [x] Error State
+* [x] Empty State
+* [x] Reusable Components
+* [x] Design Tokens
+
+---
+
+# Future Enhancements
+
+The core Supplier Portal workflow is implemented. Possible future enhancements include:
+
+* Real production Purchase Order API
+* Real production Invoice API
+* Real PDF storage service
+* Chunked uploads for very large files
+* Upload retry mechanism
+* Real upload progress from backend
+* WebSocket-based real-time Purchase Order updates
+* Production database integration
+* Production monitoring and logging
+* End-to-end testing
+* CI/CD pipeline
+* Additional security hardening
+
+---
+
+# Development Guidelines
+
+When adding new functionality:
+
+1. Use TypeScript types instead of `any`.
+2. Keep GraphQL queries and mutations inside `src/graphql/`.
+3. Keep reusable business logic inside custom hooks.
+4. Keep reusable UI inside `src/components/`.
+5. Protect authenticated routes.
+6. Handle loading, error, and empty states.
+7. Validate user input before submission.
+8. Keep authentication tokens out of application state when possible.
+9. Test important utility functions and components.
+10. Verify the UI at the 375px mobile viewport.
+11. Avoid unnecessary API requests.
+12. Use cursor pagination for large Purchase Order datasets.
+
+---
+
+# Project Summary
+
+**Project Name**
 
 Supplier Portal
 
-Technology
+**Purpose**
 
-React + TypeScript + GraphQL + Apollo Client + Apollo Server + Vite
+A mobile-first supplier application for Purchase Order management and Invoice submission.
 
-Purpose
+**Frontend**
 
-Supplier Purchase Order and Invoice Management Portal
+React + TypeScript + Vite
 
+**API**
 
-#### Updated 
+GraphQL + Apollo Client
 
+**Backend**
 
+Apollo Server + Authentication Service
 
-## src/auth/
+**Authentication**
 
-### tokenStorage.ts
-Purpose:
-- Stores Access Token and Refresh Token.
-- Uses localStorage when "Remember Me" is selected.
-- Uses sessionStorage when "Remember Me" is not selected.
-- Provides helper functions:
-  - saveTokens()
-  - getAccessToken()
-  - getRefreshToken()
-  - clearTokens()
+JWT Access Token + Refresh Token
 
----
+**Testing**
 
-## src/graphql/
+Vitest + React Testing Library
 
-### apollo.ts
-Purpose:
-- Configures Apollo Client.
-- Connects the React application to the GraphQL server.
-- Configures Apollo Cache.
-- Supports cursor-based pagination.
+**Core Workflow**
 
-### authLink.ts
-Purpose:
-- Adds the Access Token to every GraphQL request.
-- Reads the token from tokenStorage.
-- Sends the Authorization header automatically.
-
-### queries.ts
-Purpose:
-- Stores all GraphQL Queries.
-- Includes Purchase Order query with:
-  - Pagination
-  - Search
-  - Filters
-
-### mutations.ts
-Purpose:
-- Stores all GraphQL Mutations.
-- Purchase Order Acknowledge Mutation.
-- Invoice Submission Mutation.
+```text
+Login
+  ↓
+Purchase Orders
+  ↓
+Order Details
+  ↓
+Acknowledge PO
+  ↓
+Create Invoice
+  ↓
+Upload PDF
+  ↓
+Submit Invoice
+```
 
 ---
 
-## src/routes/
+# Author
 
-### AppRoutes.tsx
-Purpose:
-- Defines all application routes.
-- Protects private pages.
-- Redirects users to Login when not authenticated.
+**Supplier Portal Frontend**
 
-### ProtectedRoute.tsx
-Purpose:
-- Checks whether the user is logged in.
-- Prevents unauthorized access to protected pages.
+Built using:
 
----
-
-## src/pages/
-
-### Login.tsx
-Purpose:
-- User Login.
-- Form Validation.
-- Stores tokens.
-- Supports Remember Me.
-
-### Orders.tsx
-Purpose:
-- Displays Purchase Orders.
-- GraphQL Query.
-- Cursor Pagination.
-- Search & Filters.
-- Load More functionality.
-- Logout.
-
-### OrderDetails.tsx
-Purpose:
-- Displays complete Purchase Order details.
-- Purchase Order acknowledgement.
-- Optimistic UI update.
-
-### Invoice.tsx
-Purpose:
-- Invoice creation.
-- Form validation.
-- GraphQL mutation.
-- Upload progress.
-- File upload.
-
----
-
-## src/components/
-
-### FileUpload.tsx
-Purpose:
-- Drag & Drop upload.
-- PDF validation.
-- File size validation.
-- File preview.
-- Remove uploaded file.
-
-### POCard.tsx
-Purpose:
-- Displays Purchase Order summary.
-
-### StatusBadge.tsx
-Purpose:
-- Displays Purchase Order status with different badge colors.
-
-### Loading.tsx
-Purpose:
-- Shows loading state while data is being fetched.
-
-### EmptyState.tsx
-Purpose:
-- Displays a message when no Purchase Orders are available.
-
-### ErrorState.tsx
-Purpose:
-- Displays an error message when a GraphQL request fails.
-
----
-
-## src/types/
-
-### po.ts
-Purpose:
-- Defines TypeScript interfaces for Purchase Orders and PO Items.
-- Provides type safety throughout the application.
-
-src/
-│
-├── auth/
-│   └── tokenStorage.ts
-│
-├── components/
-│   ├── EmptyState.tsx
-│   ├── ErrorState.tsx
-│   ├── FileUpload.tsx
-│   ├── Loading.tsx
-│   ├── POCard.tsx
-│   └── StatusBadge.tsx
-│
-├── graphql/
-│   ├── apollo.ts
-│   ├── authLink.ts
-│   ├── mutations.ts
-│   └── queries.ts
-│
-├── pages/
-│   ├── Login.tsx
-│   ├── Orders.tsx
-│   ├── OrderDetails.tsx
-│   └── Invoice.tsx
-│
-├── routes/
-│   ├── AppRoutes.tsx
-│   └── ProtectedRoute.tsx
-│
-├── types/
-│   └── po.ts
-│
-└── App.tsx
+```text
+React
+TypeScript
+Vite
+Apollo Client
+GraphQL
+Apollo Server
+React Router
+JWT Authentication
+Vitest
+React Testing Library
+```

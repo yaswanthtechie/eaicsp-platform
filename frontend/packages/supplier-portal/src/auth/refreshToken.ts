@@ -1,20 +1,16 @@
-import { getRefreshToken, saveTokens } from "./tokenStorage";
+import { getRefreshToken, updateAccessToken } from "./tokenStorage";
+import { refreshToken } from "../api/auth";
 
 export async function refreshAccessToken() {
-  const refreshToken = getRefreshToken();
+  const refreshTokenValue = getRefreshToken();
 
-  if (!refreshToken) {
+  if (!refreshTokenValue) {
     throw new Error("No refresh token found");
   }
 
-  // Temporary mock implementation
-  const newAccessToken = "new-access-token";
+  const response = await refreshToken(refreshTokenValue);
 
-  saveTokens(
-    newAccessToken,
-    refreshToken,
-    true
-  );
+  updateAccessToken(response.access_token);
 
-  return newAccessToken;
+  return response.access_token;
 }

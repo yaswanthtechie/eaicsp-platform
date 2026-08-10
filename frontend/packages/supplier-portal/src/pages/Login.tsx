@@ -47,6 +47,7 @@ const handleLogin = async (
       email,
       password
     );
+    console.log("Remember Me:", rememberMe);
 
     saveTokens(
       response.access_token,
@@ -97,15 +98,14 @@ const handleLogin = async (
         {passwordError && (
           <p className="error">{passwordError}</p>
         )}
-        <div className="remember-me">
-  <label>
-    <input
-      type="checkbox"
-      checked={rememberMe}
-      onChange={(e) => setRememberMe(e.target.checked)}
-    />
-    Remember Me
-  </label>
+<div className="remember-me">
+  <input
+    type="checkbox"
+    id="rememberMe"
+    checked={rememberMe}
+    onChange={(e) => setRememberMe(e.target.checked)}
+  />
+  <label htmlFor="rememberMe">Remember Me</label>
 </div>
 
         <button type="submit">

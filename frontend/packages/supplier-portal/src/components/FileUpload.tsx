@@ -9,11 +9,10 @@ interface Props {
 
 const FileUpload = ({
   file,
-  setFile,  
+  setFile,
   error,
   setError,
 }: Props) => {
-
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [isDragging, setIsDragging] = useState(false);
@@ -35,11 +34,9 @@ const FileUpload = ({
     setFile(selected);
   };
 
-
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
-
     const selected = e.target.files?.[0];
 
     if (selected) {
@@ -49,11 +46,9 @@ const FileUpload = ({
     e.target.value = "";
   };
 
-
   const handleDrop = (
-    e: React.DragEvent<HTMLDivElement>
+    e: React.DragEvent<HTMLLabelElement>
   ) => {
-
     e.preventDefault();
 
     setIsDragging(false);
@@ -65,9 +60,7 @@ const FileUpload = ({
     }
   };
 
-
   const formatFileSize = (size: number) => {
-
     const kb = size / 1024;
 
     if (kb > 1024) {
@@ -77,83 +70,79 @@ const FileUpload = ({
     return `${kb.toFixed(2)} KB`;
   };
 
+  const handleRemove = () => {
+    setFile(null);
+    setError("");
+
+    if (inputRef.current) {
+      inputRef.current.value = "";
+    }
+  };
+
+  const handlePreview = () => {
+    if (!file) return;
+
+    const url = URL.createObjectURL(file);
+    window.open(url, "_blank");
+
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <>
-<div
-  className={`drop-zone ${
-    isDragging ? "drag-active" : ""
-  }`}
-  role="button"
-  tabIndex={0}
-  onKeyDown={(e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      inputRef.current?.click();
-    }
-  }}
-        onDragEnter={() => setIsDragging(true)}
-        onDragLeave={(e) => {
-  e.preventDefault();
-  setIsDragging(false);
-}}
+      <label
+        htmlFor="invoice-file"
+        className={`upload-box ${
+          isDragging ? "dragging" : ""
+        }`}
         onDragOver={(e) => {
-  e.preventDefault();
-  setIsDragging(true);
-}}
+          e.preventDefault();
+          setIsDragging(true);
+        }}
+        onDragLeave={() => setIsDragging(false)}
         onDrop={handleDrop}
-        onClick={() => inputRef.current?.click()}
       >
-
         <p>Drag & Drop PDF Here</p>
 
         <p>or Click to Upload</p>
 
-
         <input
+          id="invoice-file"
           ref={inputRef}
           type="file"
-          accept=".pdf"
+          accept=".pdf,application/pdf"
           hidden
           onChange={handleChange}
         />
-
-      </div>
-
+      </label>
 
       {file && (
         <div className="file-preview">
-
           <p>{file.name}</p>
 
-          <p>
-            {formatFileSize(file.size)}
-          </p>
+          <p>{formatFileSize(file.size)}</p>
 
+          <button
+            type="button"
+            onClick={handlePreview}
+          >
+            Preview PDF
+          </button>
 
-<button
-  type="button"
-onClick={() => {
-  setFile(null);
-  setError("");
-
-  if (inputRef.current) {
-    inputRef.current.value = "";
-  }
-}}
->
-  Remove
-</button>
-
+          <button
+            type="button"
+            onClick={handleRemove}
+          >
+            Remove
+          </button>
         </div>
       )}
-
 
       {error && (
         <p className="error">
           {error}
         </p>
       )}
-
     </>
   );
 };
