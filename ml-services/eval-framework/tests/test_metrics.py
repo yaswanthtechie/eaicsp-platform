@@ -29,3 +29,10 @@ def test_time_based_split_no_leakage():
     train, test = time_based_split(df, "date", test_size=0.2)
     assert len(train) == 8 and len(test) == 2
     assert train["date"].max() < test["date"].min()
+    
+def test_compare_to_baseline_tie():
+    result = compare_to_baseline([110, 190], [110, 190], [100, 200])
+    assert result["mape_winner"] == "tie"
+    assert result["mape_diff"] == 0
+    assert result["rmse_winner"] == "tie"
+    assert result["rmse_diff"] == 0
