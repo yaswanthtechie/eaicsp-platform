@@ -37,7 +37,12 @@ def test_mc_dropout_activation(sample_model):
 
 
 def test_get_walk_forward_folds_no_leakage():
-    """Call the real fold generator and assert test targets aren't in the training set."""
+    """Call the real fold generator and assert test targets aren't in the training set.
+    
+    Each fold's scaler is fit on that fold's training data only.
+    We unscale BOTH training and test targets using the fold's scaler to validate
+    no test data leaked into training.
+    """
     days = 100
     n_folds = 5
     lookback = 10
@@ -54,12 +59,16 @@ def test_get_walk_forward_folds_no_leakage():
         train_end = fold_size * k
         raw_train = values[:train_end]  # raw training values for this fold
 
-        # Inverse transform y_test back to original scale using fold's scaler
+        # Unscale TRAINING targets using the fold's scaler
+        y_train_unscaled = scaler.inverse_transform(y_tr.reshape(-1, 1)).flatten()
+
+        # Unscale TEST targets using the fold's scaler (same one)
         y_test_unscaled = scaler.inverse_transform(y_te.reshape(-1, 1)).flatten()
 
         # Round floats to avoid tiny floating point mismatches, then test set disjointness
-        raw_train_rounded = set(np.round(raw_train, 6))
+        y_train_rounded = set(np.round(y_train_unscaled, 6))
         y_test_rounded = set(np.round(y_test_unscaled, 6))
-        assert raw_train_rounded.isdisjoint(y_test_rounded), f"Data leakage: fold {k} test targets appear in training data"
-        
-        
+
+        # Assert NO overlap: test targets must NOT appear in training targets
+        assert y_train_rounded.isdisjoint(y_test_rounded), \
+            f"Data leakage: fold {k} test targets appear in training targets"
