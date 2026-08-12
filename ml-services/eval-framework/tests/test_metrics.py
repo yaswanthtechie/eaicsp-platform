@@ -5,6 +5,10 @@ from src.metrics import mape, rmse
 from src.baseline import naive_forecast, compare_to_baseline
 from src.splits import time_based_split
 import pandas as pd
+from src.metrics import confusion_matrix, precision_recall
+from src.splits import walk_forward_split
+
+
 
 
 def test_mape():
@@ -36,3 +40,55 @@ def test_compare_to_baseline_tie():
     assert result["mape_diff"] == 0
     assert result["rmse_winner"] == "tie"
     assert result["rmse_diff"] == 0
+
+
+
+def test_confusion_matrix_basic():
+    result = confusion_matrix([1, 0, 1, 0], [1, 0, 0, 0])
+    assert result == {"tp": 1, "tn": 2, "fp": 0, "fn": 1}
+
+
+def test_confusion_matrix_empty_raises():
+    try:
+        confusion_matrix([], [])
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+
+
+def test_precision_recall_all_same_class():
+    # every prediction is 0, no actual positives predicted correctly
+    result = precision_recall([1, 1, 0], [0, 0, 0])
+    assert result["precision"] == 0.0
+    assert result["recall"] == 0.0
+    assert result["f1"] == 0.0
+
+
+def test_precision_recall_perfect():
+    result = precision_recall([1, 0, 1, 0], [1, 0, 1, 0])
+    assert result["precision"] == 1.0
+    assert result["recall"] == 1.0
+    assert result["f1"] == 1.0
+
+
+def test_walk_forward_split_basic():
+    import pandas as pd
+    df = pd.DataFrame({"date": pd.date_range("2024-01-01", periods=20), "y": range(20)})
+    folds = walk_forward_split(df, "date", n_splits=3)
+    assert len(folds) == 3
+    for train, test in folds:
+        assert train["date"].max() < test["date"].min()
+
+
+def test_walk_forward_split_too_little_data_raises():
+    import pandas as pd
+    df = pd.DataFrame({"date": pd.date_range("2024-01-01", periods=1), "y": [1]})
+    try:
+        walk_forward_split(df, "date", n_splits=3)
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+
+
+def test_mape_single_row():
+    assert round(mape([100], [110]), 2) == 10.0
