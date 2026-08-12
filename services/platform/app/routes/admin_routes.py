@@ -18,16 +18,18 @@ class AdminTestResponse(BaseModel):
     response_model=AdminTestResponse
 )
 
-def admin_test(
-    user=Depends(
-        require_role(
-            "ceo",
-            "vp_operations",
-
-        )
-    )
-):
+def admin_test(user=Depends(require_role("ceo","vp_operations"))):
     return {
         "message": "Admin access granted",
-        "user": user
+        "user": {
+            "user_id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role.name,
+            "is_active": user.is_active,
+        }
     }
+
+
+       
+

@@ -1,303 +1,367 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
-from app.schemas.user import Role
-from app.core.security import hash_password, verify_password
+from sqlalchemy.orm import Session
 
+from app.core.password_validator import validate_password
 from app.core.security import (
     create_access_token,
-    create_refresh_token
-)  
-from datetime import timedelta
-from app.database import SessionLocal
+    create_refresh_token,
+    hash_password,
+    verify_password,
+)
+
+from app.models.users import User
 from app.models.refresh_token import RefreshToken
 from app.models.failed_login_attempts import FailedLoginAttempt
+from app.schemas.auth import RegisterRequest
 
-from app.core.config import REFRESH_TOKEN_EXPIRE_DAYS
-
-login_attempts = {}
 
 MAX_ATTEMPTS = 5
 WINDOW = timedelta(minutes=15)
 
-def save_refresh_token(user_id: int, token: str, expires_at):
-    
-    db = SessionLocal()
-    try:
-        refresh = RefreshToken(
-            user_id=user_id,
-            token=token,
-            expires_at=datetime.now(
-                timezone.utc
-            ) + timedelta(
-                days=REFRESH_TOKEN_EXPIRE_DAYS
-            )
 
-        )
-        db.add(refresh)
-        db.commit()
-    finally:
-        db.close()
+# ============================================================
+# REFRESH TOKEN
+# ============================================================
+
+def save_refresh_token(
+    db: Session,
+    user_id: int,
+    token: str,
+    expires_at: datetime
+):
+    refresh = RefreshToken(
+        user_id=user_id,
+        token=token,
+        expires_at=expires_at,
+    )
+
+    db.add(refresh)
+    db.commit()
 
 
-'''def get_refresh_token(
+def get_refresh_token(
+    db: Session,
     token: str
 ):
-    db = SessionLocal()
-    try:
+    now = datetime.now(timezone.utc)
 
-        refresh = (
-            db.query(RefreshToken)
-            .filter(
-                RefreshToken.token == token
-            )
-            .first()
+    return (
+        db.query(RefreshToken)
+        .filter(
+            RefreshToken.token == token,
+            RefreshToken.is_revoked.is_(False),
+            RefreshToken.expires_at > now,
         )
+        .first()
+    )
 
-        if refresh is None:
-            return None
+def get_refresh_token(
+    db: Session,
+    token: str
+):
+    now = datetime.now(timezone.utc)
 
-        if refresh.is_revoked:
-            return None
+    return (
+        db.query(RefreshToken)
+        .filter(
+            RefreshToken.token == token,
+            RefreshToken.is_revoked == False,
+            RefreshToken.expires_at > now
+        )
+        .first()
+    )
 
-        return refresh
+def revoke_refresh_token(
+    db: Session,
+    token: str
+):
+    refresh = (
+        db.query(RefreshToken)
+        .filter(
+            RefreshToken.token == token
+        )
+        .first()
+    )
 
-    finally:
+    if refresh is None:
+        return False
 
-        db.close()
+    refresh.is_revoked = True
+    db.commit()
+
+    return True
 
 
 def revoke_refresh_token(
+    db: Session,
     token: str
 ):
-
-    db = SessionLocal()
-    try:
-        refresh = (
-            db.query(RefreshToken)
-            .filter(
-                RefreshToken.token == token
-            )
-            .first()
+    refresh = (
+        db.query(RefreshToken)
+        .filter(
+            RefreshToken.token == token
         )
-        if refresh is None:
-            return False
+        .first()
+    )
 
-        refresh.is_revoked = True
-        db.commit()
-        return True
-    
-    finally:
-        db.close()'''
-def get_refresh_token(token: str):
+    if refresh is None:
+        return False
 
-    db = SessionLocal()
+    refresh.is_revoked = True
+    db.commit()
 
-    try:
-        return (
-            db.query(RefreshToken)
-            .filter(
-                RefreshToken.token == token,
-                RefreshToken.is_revoked == False
-            )
-            .first()
+    return True
+# ============================================================
+# FAILED LOGIN TRACKING
+# ============================================================
+
+def log_failed_login(
+    db: Session,
+    email: str,
+    ip_address: str
+):
+    db.add(
+        FailedLoginAttempt(
+            email=email,
+            ip_address=ip_address,
+            attempted_at=datetime.now(timezone.utc),
         )
+    )
 
-    finally:
-        db.close()
+    db.commit()
 
 
-def revoke_refresh_token(token: str):
+def get_recent_attempts_by_email(
+    db: Session,
+    email: str
+):
+    cutoff = (
+        datetime.now(timezone.utc)
+        - WINDOW
+    )
 
-    db = SessionLocal()
-
-    try:
-
-        refresh = (
-            db.query(RefreshToken)
-            .filter(RefreshToken.token == token)
-            .first()
+    return (
+        db.query(FailedLoginAttempt)
+        .filter(
+            FailedLoginAttempt.email == email,
+            FailedLoginAttempt.attempted_at >= cutoff,
         )
-
-        if refresh is None:
-            return False
-
-        refresh.is_revoked = True
-
-        db.commit()
-
-        return True
-
-    finally:
-        db.close()
+        .count()
+    )
 
 
-def log_failed_login(email: str, ip_address: str):
-    db = SessionLocal()
-    try:
-        db.add(
-            FailedLoginAttempt(
-                email=email,
-                ip_address=ip_address
-            )
+def get_recent_attempts_by_ip(
+    db: Session,
+    ip_address: str
+):
+    cutoff = (
+        datetime.now(timezone.utc)
+        - WINDOW
+    )
+
+    return (
+        db.query(FailedLoginAttempt)
+        .filter(
+            FailedLoginAttempt.ip_address == ip_address,
+            FailedLoginAttempt.attempted_at >= cutoff,
         )
-        db.commit()
+        .count()
+    )
 
-    finally:
-        db.close()
 
-def login_user(
-    username: str,
-    password: str,
+def check_login_rate_limit(
+    db: Session,
+    email: str,
     client_ip: str
 ):
+    email_attempts = get_recent_attempts_by_email(
+        db=db,
+        email=email,
+    )
 
-    now = datetime.now(timezone.utc)
-    # Key on (email, ip) so a few bad attempts for one account cannot lock out
-    # every other user sharing that IP (NAT / office network / load balancer).
-    key = (username.lower(),client_ip)
+    ip_attempts = get_recent_attempts_by_ip(
+        db=db,
+        ip_address=client_ip,
+    )
 
-    attempts = [
-        t for t in login_attempts.get(key,[])
-        if now - t < WINDOW
-    ]
-
-    if len(attempts) >= MAX_ATTEMPTS:
+    if (
+        email_attempts >= MAX_ATTEMPTS
+        or ip_attempts >= MAX_ATTEMPTS
+    ):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many login attempts. Try again after 15 minutes."
+            detail="Too many login attempts. Try again after 15 minutes.",
         )
 
-    user = login(username, password)
 
-    if not user:
+# ============================================================
+# REGISTER
+# ============================================================
 
-        attempts.append(now)
-
-        login_attempts[key] = attempts
-        log_failed_login(
-            email=username,
-            ip_address=client_ip
+def register_user(
+    db: Session,
+    request: RegisterRequest
+):
+    existing = (
+        db.query(User)
+        .filter(
+            User.email == request.email
         )
+        .first()
+    )
 
+    if existing:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User already exists",
         )
-    if not user["is_active"]:
-        log_failed_login(
-            email=username,
-            ip_address=client_ip
-        )
-        raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="User account is inactive"
-                )
 
-    login_attempts.pop(key, None)
+    # Validate before hashing
+    validate_password(request.password)
 
-    access_token = create_access_token(
-        {
-            "sub": user["email"],
-            "role": user["role"].value,
-            "user_id": user["user_id"]
-        }
+    hashed_password = hash_password(
+        request.password
     )
 
-    refresh_token = create_refresh_token(
-        {
-            "sub": user["email"],
-            "user_id": user["user_id"]
-        }
+    user = User(
+        email=request.email,
+        full_name=request.full_name,
+        password=hashed_password,
+        is_active=True,
+        role_id=None
+
     )
-    save_refresh_token(
-        user_id=user["user_id"],
-        token=refresh_token,
-        expires_at=datetime.now(timezone.utc) + timedelta(days=7)
-    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
     return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer"
+        "message": "User registered successfully"
     }
 
-users = {
-    "ceo@company.com": {
-        "user_id": 1,
-        "email": "ceo@company.com",
-        "password": hash_password("ceocompany@123"),
-        "full_name": "Company CEO",
-        "role": Role.ceo,
-        "is_active": True,
-    },
-    "warehousemanager@company.com": {
-        "user_id": 2,
-        "email": "warehousemanager@company.com",
-        "password": hash_password("warehouse@123"),
-        "full_name": "Warehouse Manager",
-        "role": Role.warehouse_manager,
-        "is_active": True,
-    },
-    "vpoperations@company.com":{
-                "user_id": 3,
-                "email": "vpoperations@company.com",
-                "password": hash_password("vpoperations@123"),
-                "full_name": "vp_operations Manager",
-                "role": Role.vp_operations,
-                "is_active": True,
-    },
-    "procurementmanager@company.com":{
-                "user_id":4,
-                "email":"procurementmanager@company.com",
-                "password":hash_password("procurement@123"),
-                "full_name":"procurement_manager",
-                "role":Role.procurement_manager,
-                "is_active":True,
+# ============================================================
+# LOGIN
+# ============================================================
 
-    },
-     "logisticsmanager@company.com":{
-                    "user_id":5,
-                    "email":"logisticsmanager@company.com",
-                    "password":hash_password("logistics@123"),
-                    "full_name":"logistics_manager",
-                    "role":Role.logistics_manager,
-                    "is_active":True,
-     },
-    "compliance@company.com":{
-                    "user_id":6,
-                    "email":"compliance@company.com",
-                    "password":hash_password("compliance@123"),
-                    "full_name":"compliance_officer",
-                    "role":Role.compliance_officer,
-                    "is_active":True,
-    },
-    "analyst@company.com":{
-                            "user_id":7,
-                            "email":"analyst@company.com",
-                            "password":hash_password("analyst@123"),
-                            "full_name":"analyst",
-                            "role":Role.analyst,
-                            "is_active":True,
-    },
-    "supplier@company.com":{
-                            "user_id":8,
-                            "email":"supplier@company.com",
-                            "password":hash_password("supplier@123"),
-                            "full_name":"supplier",
-                            "role":Role.supplier,
-                            "is_active":True,
-    }
-        
-}
-def login(username: str, password: str):
+def login(
+    db: Session,
+    username: str,
+    password: str
+):
+    username = username.lower()
 
-    user = users.get(username)
+    user = (
+        db.query(User)
+        .filter(
+            User.email == username
+        )
+        .first()
+    )
 
     if user is None:
         return None
 
-    if not verify_password(password, user["password"]):
+    if not verify_password(
+        password,
+        user.password
+    ):
         return None
 
     return user
 
+def login_user(
+    db: Session,
+    username: str,
+    password: str,
+    client_ip: str
+):
+    username = username.lower()
+
+    check_login_rate_limit(
+        db=db,
+        email=username,
+        client_ip=client_ip,
+    )
+
+    user= login(
+        db=db,
+        username=username,
+        password=password,
+    )
+
+    # --------------------------------------------------------
+    # Wrong username OR wrong password
+    # --------------------------------------------------------
+
+    if not user:
+        log_failed_login(
+            db=db,
+            email=username,
+            ip_address=client_ip,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+        )
+
+    if not user.is_active:
+        log_failed_login(
+            db=db,
+            email=username,
+            ip_address=client_ip,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+        )
+
+    if not user.role:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User role is not assigned",
+        )
+
+    # --------------------------------------------------------
+    # Access token
+    # --------------------------------------------------------
+
+    access_token = create_access_token(
+        {
+            "sub": user.email,
+            "role": user.role.name,
+            "user_id": user.id,
+        }
+    )
+
+    # --------------------------------------------------------
+    # Refresh token
+    # --------------------------------------------------------
+
+    refresh_token = create_refresh_token(
+        {
+            "sub": user.email,
+            "user_id": user.id,
+        }
+    )
+
+    refresh_expires_at = (
+        datetime.now(timezone.utc)
+        + timedelta(days=7)
+    )
+
+    save_refresh_token(
+        db=db,
+        user_id=user.id,
+        token=refresh_token,
+        expires_at=refresh_expires_at,
+    )
+
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+    }

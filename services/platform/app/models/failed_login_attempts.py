@@ -1,8 +1,5 @@
-
 from datetime import datetime, timezone
-
 from sqlalchemy import Column, DateTime, Integer, String
-
 from app.database import Base
 
 def utc_now():

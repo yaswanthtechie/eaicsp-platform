@@ -5,11 +5,9 @@ from app.core.config import (
     SECRET_KEY,
     ALGORITHM,
     ACCESS_TOKEN_EXPIRE_MINUTES,
-    REFRESH_TOKEN_EXPIRE_DAYS
 )
 
-import re
-
+import uuid
 pwd_context = CryptContext(
     schemes=["bcrypt"],
     deprecated="auto"
@@ -53,26 +51,22 @@ def create_access_token(
         algorithm=ALGORITHM
     )
 
-def create_refresh_token(
-    data: dict
-):
+
+def create_refresh_token(data: dict):
     to_encode = data.copy()
 
-    expire = datetime.now(timezone.utc) + timedelta(
-        days=REFRESH_TOKEN_EXPIRE_DAYS
-    )
-    to_encode.update(
-        {
-            "exp": expire,
-            "type": "refresh"
-        }
-    )
+    to_encode.update({
+        "type": "refresh",
+        "jti": str(uuid.uuid4()),
+        "exp": datetime.now(timezone.utc) + timedelta(days=7)
+    })
 
     return jwt.encode(
         to_encode,
         SECRET_KEY,
         algorithm=ALGORITHM
     )
+
 
 def decode_token(token: str):
     return jwt.decode(
@@ -81,6 +75,4 @@ def decode_token(token: str):
         algorithms=[ALGORITHM]
     )
 
-
-    
 
