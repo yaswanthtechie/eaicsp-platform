@@ -4,24 +4,15 @@ import { toast } from "react-toastify";
 import { useAcknowledgePO } from "../hooks/useAcknowledgePO";
 import { useOrderDetails } from "../hooks/useOrderDetails";
 
-import { GET_PURCHASE_ORDERS } from "../graphql/queries";
-
 import StatusBadge from "../components/StatusBadge";
 import Loading from "../components/Loading";
 import ErrorState from "../components/ErrorState";
 
 import type { PurchaseOrder } from "../types/po";
-
-import type {
-  PurchaseOrderEdge,
-  PurchaseOrdersQuery,
-  AcknowledgePurchaseOrderMutation,
-} from "../types/graphql";
+import type { PurchaseOrderEdge } from "../types/graphql";
 
 import { formatCurrency } from "../utils/formatCurrency";
 import { formatDate } from "../utils/formatDate";
-
-import { ORDER_DETAILS_PAGE_SIZE } from "../constants/pagination";
 
 const OrderDetails = () => {
   const { poNumber } = useParams();
@@ -29,12 +20,9 @@ const OrderDetails = () => {
 
   const { data, loading, error } = useOrderDetails();
 
-  const { acknowledgePurchaseOrder } =
-    useAcknowledgePO();
+  const { acknowledgePO } = useAcknowledgePO();
 
-  // Show loading only when there is no existing data.
-  // This prevents polling from replacing the page
-  // with a loading spinner.
+  // Prevent polling from replacing the page with a loader
   if (loading && !data) {
     return <Loading />;
   }
@@ -78,70 +66,24 @@ const OrderDetails = () => {
     0
   );
 
-  const acknowledgePO = async () => {
+  // Button click handler
+  const handleAcknowledge = async () => {
+    if (!poNumber) {
+      toast.error("Purchase Order number is missing");
+      return;
+    }
+
     try {
-      await acknowledgePurchaseOrder({
-        variables: {
-          po_number: poNumber,
-        },
+      const result = await acknowledgePO(poNumber);
 
-        optimisticResponse: {
-          acknowledgePurchaseOrder: {
-            __typename: "PurchaseOrder",
-            ...order,
-            status: "acknowledged",
-          },
-        },
+      if (result.queued) {
+        toast.success(
+          "Purchase Order queued. It will sync when you're online."
+        );
 
-        update(
-          cache,
-          {
-            data,
-          }: {
-            data?: AcknowledgePurchaseOrderMutation;
-          }
-        ) {
-          const existing =
-            cache.readQuery<PurchaseOrdersQuery>({
-              query: GET_PURCHASE_ORDERS,
-              variables: {
-                first: ORDER_DETAILS_PAGE_SIZE,
-                after: null,
-              },
-            });
-
-          if (!existing?.purchaseOrders) {
-            return;
-          }
-
-          cache.writeQuery<PurchaseOrdersQuery>({
-            query: GET_PURCHASE_ORDERS,
-            variables: {
-              first: ORDER_DETAILS_PAGE_SIZE,
-              after: null,
-            },
-            data: {
-              purchaseOrders: {
-                ...existing.purchaseOrders,
-
-                edges:
-                  existing.purchaseOrders.edges.map(
-                    (edge: PurchaseOrderEdge) => ({
-                      ...edge,
-
-                      node:
-                        edge.node.po_number ===
-                        poNumber
-                          ? data?.acknowledgePurchaseOrder ??
-                            edge.node
-                          : edge.node,
-                    })
-                  ),
-              },
-            },
-          });
-        },
-      });
+        navigate("/orders");
+        return;
+      }
 
       toast.success(
         "Purchase Order Acknowledged Successfully"
@@ -158,22 +100,22 @@ const OrderDetails = () => {
   };
 
   return (
-    <div className="order-details">
+    <div className="details">
       <h2>Purchase Order Details</h2>
 
       <div className="detail-card">
         <p>
-          <strong>PO Number :</strong>{" "}
+          <strong>PO Number:</strong>{" "}
           {order.po_number}
         </p>
 
         <p>
-          <strong>Supplier :</strong>{" "}
+          <strong>Supplier:</strong>{" "}
           {order.supplier_id}
         </p>
 
         <p>
-          <strong>Expected Delivery :</strong>{" "}
+          <strong>Expected Delivery:</strong>{" "}
           {formatDate(order.expected_delivery)}
         </p>
 
@@ -200,22 +142,22 @@ const OrderDetails = () => {
             <h4>{item.product_name}</h4>
 
             <p>
-              <strong>SKU :</strong>{" "}
+              <strong>SKU:</strong>{" "}
               {item.sku}
             </p>
 
             <p>
-              <strong>Quantity :</strong>{" "}
+              <strong>Quantity:</strong>{" "}
               {item.quantity}
             </p>
 
             <p>
-              <strong>Unit Price :</strong>{" "}
+              <strong>Unit Price:</strong>{" "}
               {formatCurrency(item.unit_price)}
             </p>
 
             <p>
-              <strong>Subtotal :</strong>{" "}
+              <strong>Subtotal:</strong>{" "}
               {formatCurrency(
                 item.quantity * item.unit_price
               )}
@@ -225,13 +167,13 @@ const OrderDetails = () => {
       )}
 
       <h2>
-        Total : {formatCurrency(total)}
+        Total: {formatCurrency(total)}
       </h2>
 
       {order.status === "sent" && (
         <button
           className="acknowledge-btn"
-          onClick={acknowledgePO}
+          onClick={handleAcknowledge}
         >
           Acknowledge
         </button>
