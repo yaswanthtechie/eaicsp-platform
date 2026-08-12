@@ -40,19 +40,15 @@ export function useWebSocket(options: UseWebSocketOptions) {
     const connect = () => {
       if (isUnmounted) {
         return;
-      }
-
+      } 
       setIsConnecting(true);
 
       const socket = new WebSocket(url);
-
       socketRef.current = socket;
-
       socket.onopen = () => {
         if (isUnmounted) {
           return;
         }
-
         setConnected(true);
         setIsConnecting(false);
 
@@ -62,7 +58,6 @@ export function useWebSocket(options: UseWebSocketOptions) {
       socket.onmessage = (event) => {
         try {
           const data: AlertMessage = JSON.parse(event.data);
-
           onMessage(data);
         } catch (error) {
           console.error("Invalid WebSocket message:", error);
