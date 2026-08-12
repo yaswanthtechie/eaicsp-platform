@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class ValidationResult(BaseModel):
+    config_version: str = 'unknown'  # <-- Added version tracking
     passed: bool
     total_rows_affected: int
     errors: List[Dict[str, Any]] = Field(default_factory=list)
