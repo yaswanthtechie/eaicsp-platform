@@ -1,5 +1,6 @@
 from datetime import datetime
 from pathlib import Path
+import time
 
 import numpy as np
 import pandas as pd
@@ -690,6 +691,8 @@ def run_backfill(from_date, to_date):
     rows_updated = 0
     rows_rejected = total_batches - len(validated_batches)
 
+    start_time = time.perf_counter()
+
     for i, batch in enumerate(validated_batches, start=1):
         transformed = transform_data([batch["data"]])
         batch["data"] = transformed[0]
@@ -705,11 +708,15 @@ def run_backfill(from_date, to_date):
         rows_rejected += batch["report"]["rows_dropped"]
 
         if i % 10 == 0 or i == len(validated_batches):
-            progress = (i / len(validated_batches)) * 100
+            total = len(validated_batches)
+            progress = (i / total) * 100
+
+            elapsed = time.perf_counter() - start_time
+            eta_seconds = (elapsed / i) * (total - i) if i else 0
 
             logger.info(
-                f"Processed {i}/{len(validated_batches)} batches "
-                f"({progress:.1f}%)"
+                f"Processed {i}/{total} batches "
+                f"({progress:.1f}%). ETA {eta_seconds / 60:.0f}m"
             )
 
     finish_run(

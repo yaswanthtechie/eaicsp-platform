@@ -4,6 +4,10 @@ import shutil
 from alert_service import write_alert
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+REJECTED_DIR = PROJECT_ROOT / "data" / "rejected"
+
+
 def check_batch(df, batch_name):
 
     null_rate = df["quantity_sold"].isna().mean()
@@ -38,8 +42,8 @@ def quality_gate(extracted_batches):
 
     validated_batches = []
 
-    rejected_folder = Path("data/rejected")
-    rejected_folder.mkdir(exist_ok=True)
+    rejected_folder = REJECTED_DIR
+    rejected_folder.mkdir(parents=True, exist_ok=True)
 
     try:
 
