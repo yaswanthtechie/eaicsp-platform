@@ -74,11 +74,25 @@ def test_rule_unique():
     assert mask.tolist() == [True, False, True, False, False, False]
 
 
-def test_missing_column_fails_all():
+def test_missing_column_raises_error():
+    """Verifies that an individual rule evaluation throws an error if its target column is missing."""
     df = pd.DataFrame({"other_col": [1, 2]})
     rule = ConfigRule(**{"name": "r1", "field": "missing_col", "type": "not_null"})
-    mask = rule.evaluate(df)
-    assert mask.all() == True
+    with pytest.raises(ValueError, match="Target field 'missing_col' missing from DataFrame."):
+        rule.evaluate(df)
+
+
+def test_pipeline_missing_columns_fails_fast():
+    """Verifies that the entire pipeline halts before processing if configured columns are missing."""
+    df = pd.DataFrame({"other_col": [1, 2]})
+    validator = DataValidator(
+        [ConfigRule(**{"name": "r1", "field": "missing_col", "type": "not_null", "severity": "ERROR"})])
+
+    with pytest.raises(ValueError, match="Missing required columns: missing_col"):
+        validator.validate(df)
+
+    with pytest.raises(ValueError, match="Missing required columns: missing_col"):
+        validator.clean(df)
 
 
 def test_severity_error_fails_validation(sample_df, mock_yaml_config):

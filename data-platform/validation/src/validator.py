@@ -1,12 +1,11 @@
 import importlib
 import logging
-from typing import Any, Dict, List, Optional
+from typing import List, Dict, Any, Optional
 
 import pandas as pd
 import yaml
-from pydantic import BaseModel, ConfigDict, model_validator, Field
+from pydantic import BaseModel, Field, model_validator, ConfigDict
 
-# Initialize the logger for this module
 logger = logging.getLogger(__name__)
 
 
@@ -48,7 +47,8 @@ class ConfigRule(BaseModel):
             raise ValueError(f"Rule '{self.name}' requires a 'field' to be specified.")
         return self
 
-    def _load_function(self, func_path: str):
+    @staticmethod
+    def _load_function(func_path: str):
         """Dynamically loads a Python function from a string path (e.g., 'src.module.func')."""
         try:
             module_name, func_name = func_path.rsplit('.', 1)
@@ -57,15 +57,32 @@ class ConfigRule(BaseModel):
         except Exception as e:
             raise RuntimeError(f"Failed to load function {func_path}: {e}")
 
+    def _execute_dynamic_function(self, df: pd.DataFrame) -> Any:
+        """Helper to deduplicate dynamic function execution for custom/transform rules."""
+        func_path = self.model_extra.get('function')
+        if not func_path:
+            raise ValueError(f"Rule '{self.name}' missing 'function' path.")
+
+        func = self._load_function(func_path)
+
+        kwargs = (self.model_extra or {}).copy()
+        kwargs.pop('function', None)
+
+        if self.field:
+            return func(df, field=self.field, **kwargs)
+        return func(df, **kwargs)
+
     def evaluate(self, df: pd.DataFrame) -> pd.Series:
         """Returns a boolean mask where True indicates a row FAILED the rule."""
         if df.empty:
             return pd.Series(dtype=bool, index=df.index)
 
+        # Fail-fast if the target field is entirely missing from the dataframe
+        if self.field and self.field not in df.columns:
+            raise ValueError(f"Target field '{self.field}' missing from DataFrame.")
+
         # Standard missing value check
         if self.type == "not_null":
-            if self.field not in df.columns:
-                return pd.Series([True] * len(df), index=df.index)
             return df[self.field].isna()
 
         # Standard range check
@@ -91,20 +108,8 @@ class ConfigRule(BaseModel):
 
         # Dynamic Custom Evaluation (Returns boolean mask)
         elif self.type == "custom":
-            func_path = self.model_extra.get('function')
-            if not func_path:
-                raise ValueError(f"Custom rule '{self.name}' missing 'function' path.")
-
-            func = self._load_function(func_path)
-
-            # Pass all extra YAML keys as kwargs to the custom function
-            kwargs = self.model_extra.copy()
-            kwargs.pop('function', None)
-
-            if self.field:
-                return func(df, field=self.field, **kwargs)
-            else:
-                return func(df, **kwargs)
+            # Fix: Replaced duplicated code with helper
+            return self._execute_dynamic_function(df)
 
         # Transform rules do not evaluate failures; they return an empty mask
         elif self.type == "transform":
@@ -118,20 +123,8 @@ class ConfigRule(BaseModel):
         if self.type != "transform":
             return df
 
-        func_path = self.model_extra.get('function')
-        if not func_path:
-            raise ValueError(f"Transform rule '{self.name}' missing 'function' path.")
-
-        func = self._load_function(func_path)
-
-        # Pass all extra YAML keys as kwargs to the transform function
-        kwargs = self.model_extra.copy()
-        kwargs.pop('function', None)
-
-        if self.field:
-            return func(df, field=self.field, **kwargs)
-        else:
-            return func(df, **kwargs)
+        # Fix: Replaced duplicated code with helper
+        return self._execute_dynamic_function(df)
 
 
 class DataValidator:
@@ -145,7 +138,6 @@ class DataValidator:
             with open(yaml_path, 'r') as f:
                 data = yaml.safe_load(f)
 
-            # Edge Case Fix: Prevent NoneType exceptions on empty files
             if data is None:
                 raise ValueError("YAML file is completely empty.")
 
@@ -155,10 +147,18 @@ class DataValidator:
 
         except (FileNotFoundError, yaml.YAMLError) as e:
             raise ValueError(f"Config parse failed: {e}")
-        # Note: Pydantic ValidationErrors bubble up natively without being caught here.
+
+    def _validate_schema(self, df: pd.DataFrame):
+        """Ensures all fields required by the rules exist in the DataFrame before execution."""
+        required_fields = {str(rule.field) for rule in self.rules if rule.field}
+        missing_fields = required_fields - set(df.columns)
+        if missing_fields:
+            raise ValueError(f"Pipeline failed to start. Missing required columns: {', '.join(missing_fields)}")
 
     def validate(self, df: pd.DataFrame) -> ValidationResult:
         """Executes the validation pipeline and generates a report."""
+        self._validate_schema(df)
+
         errors = []
         warnings = []
         sample_bad = {}
@@ -204,7 +204,6 @@ class DataValidator:
                 elif rule.severity == "WARNING":
                     warnings.append(report_item)
                     affected_indices.update(bad_rows.index.tolist())
-                # Note: INFO severity records issues but does not count them as "affected rows"
 
         passed = len(errors) == 0
         return ValidationResult(
@@ -218,9 +217,8 @@ class DataValidator:
     def clean(self, df: pd.DataFrame, strict: bool = True, target_rules: Optional[List[str]] = None) -> pd.DataFrame:
         """
         Cleans the dataset by applying transforms and removing invalid rows.
-        If strict=True, all rows with ERRORs are dropped.
-        If strict=False, only rows failing 'target_rules' are dropped.
         """
+        self._validate_schema(df)
         df_clean = df.copy()
 
         # 1. First Pass: Apply Transforms
