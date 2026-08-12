@@ -131,4 +131,3 @@ def test_dashboard_100_percent_cache_hit_rate(client):
 
     auth_svc = response.json()["services"]["auth"]
     assert auth_svc["cache_hit_rate"] == 100.0
-

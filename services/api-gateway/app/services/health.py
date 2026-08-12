@@ -14,7 +14,7 @@ async def _ping_service(client: httpx.AsyncClient, service_name: str, base_url: 
         status = "UP" if response.status_code < 500 else "DOWN"
     except Exception:
         status = "DOWN"
-        
+
     return service_name.lower().replace(" ", "-"), status
 
 async def get_system_health(request: Request) -> Dict[str, str]:
@@ -24,6 +24,6 @@ async def get_system_health(request: Request) -> Dict[str, str]:
     for prefix, url in settings.SERVICE_ROUTES.items():
         name = get_service_name(prefix)
         tasks.append(_ping_service(client, name, url))
-    
+
     results = await asyncio.gather(*tasks)
     return {name: status for name, status in results}

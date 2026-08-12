@@ -264,4 +264,3 @@ def test_circuit_breaker_concurrency():
 
     # Verify state remains valid without race conditions or locks crashing
     assert circuit_breaker_manager.get_state(service_id) in {"closed", "open", "half-open"}
-

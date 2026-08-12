@@ -2,6 +2,8 @@
 Per-user and per-role rate limiting middleware for the API Gateway.
 """
 
+import base64
+import json
 import logging
 import os
 import threading
@@ -104,43 +106,56 @@ def extract_jwt_identity(
         return None, None
 
     token = auth_header[7:].strip()
-    if not token or jwt is None:
+    if not token:
         return None, None
 
-    try:
-        # First attempt to decode with secret & algorithm
-        try:
-            payload = jwt.decode(
-                token,
-                settings.JWT_SECRET,
-                algorithms=[settings.JWT_ALGORITHM],
-            )
-        except Exception:
-            # Fallback to unverified payload extraction for identity keying
-            payload = jwt.decode(
-                token,
-                options={"verify_signature": False},
-                algorithms=[settings.JWT_ALGORITHM],
-            )
+    payload = None
 
-        if not isinstance(payload, dict):
+    if jwt is not None:
+        try:
+            # First attempt to decode with secret & algorithm
+            try:
+                payload = jwt.decode(
+                    token,
+                    settings.JWT_SECRET,
+                    algorithms=[settings.JWT_ALGORITHM],
+                )
+            except Exception:
+                # Fallback to unverified payload extraction for identity keying
+                payload = jwt.decode(
+                    token,
+                    options={"verify_signature": False},
+                    algorithms=[settings.JWT_ALGORITHM],
+                )
+        except Exception as exc:
+            logger.debug("Failed to decode JWT via PyJWT: %s", exc)
+
+    if payload is None:
+        # Fallback to base64url payload decoding if PyJWT package is missing or decoding failed
+        try:
+            parts = token.split(".")
+            if len(parts) >= 2:
+                payload_b64 = parts[1]
+                payload_b64 += "=" * (-len(payload_b64) % 4)
+                payload_bytes = base64.urlsafe_b64decode(payload_b64)
+                payload = json.loads(payload_bytes)
+        except Exception as exc:
+            logger.debug("Failed to base64 decode JWT token: %s", exc)
             return None, None
 
-        user_id = payload.get("user_id") or payload.get("sub")
-        role = payload.get("role") or payload.get("roles")
-
-        if isinstance(role, list) and len(role) > 0:
-            role = role[0]
-
-        user_id_str = str(user_id) if user_id is not None else None
-        role_str = str(role) if role is not None else None
-
-        return user_id_str, role_str
-
-    except Exception as exc:
-        logger.debug("Failed to decode JWT token for rate limiting: %s", exc)
+    if not isinstance(payload, dict):
         return None, None
 
+    user_id = payload.get("user_id") or payload.get("sub")
+    role = payload.get("role") or payload.get("roles")
+
+    if isinstance(role, list) and len(role) > 0:
+        role = role[0]
+
+    user_id_str = str(user_id) if user_id is not None else None
+    role_str = str(role) if role is not None else None
+
+    return user_id_str, role_str
 
 
 # ---------------------------------------------------------------------------
