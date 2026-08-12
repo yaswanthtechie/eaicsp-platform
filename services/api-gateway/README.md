@@ -167,11 +167,29 @@ http://127.0.0.1:8000/api/v1/openapi.json
 
 # API Endpoints
 
-| Method | Endpoint       | Description                              |
-| ------ | -------------- | ---------------------------------------- |
-| GET    | `/`            | Gateway status                           |
-| GET    | `/health`      | Health status of all downstream services |
-| ALL    | `/{path:path}` | Reverse proxy endpoint                   |
+| Method | Endpoint                 | Description                              |
+| ------ | ------------------------ | ---------------------------------------- |
+| GET    | `/`                      | Gateway status                           |
+| GET    | `/health`                | Health status of all downstream services |
+| GET    | `/gateway/dashboard`     | Aggregated Health & Metrics Dashboard    |
+| GET    | `/api/v2/status`         | API v2 Gateway Status (Stub)             |
+| GET    | `/api/v2/inventory/items`| API v2 Inventory Items (Stub Demo)       |
+| ALL    | `/{path:path}`           | Reverse proxy endpoint (`/api/v1/...`)   |
+
+---
+
+# API Versioning
+
+The gateway supports API Versioning to demonstrate backward compatibility and breaking contract migrations:
+
+- **API v1 (`/api/v1/...`)**: Production proxy API forwarding requests to downstream microservices via `SERVICE_ROUTES`.
+- **API v2 (`/api/v2/...`)**: Demonstration/stub API showing future breaking contract changes (e.g. envelope-wrapped response format).
+
+> **Important**:
+> - v1 remains the existing production proxy API.
+> - v2 is currently a demonstration/stub for future breaking changes.
+> - v2 does not replace v1.
+> - v1 clients remain unaffected.
 
 ---
 
@@ -237,22 +255,56 @@ The middleware also records failed requests that result in **500 Internal Server
 
 ---
 
+# In-Memory Caching
+
+The gateway provides a thread-safe in-memory caching service (`app/services/cache.py`):
+
+- **TTL Expiration**: Configurable time-to-live per cache entry.
+- **Pattern Invalidation**: Support for key prefix or fnmatch pattern invalidation (`invalidate_pattern("inventory:*")`).
+- **Metrics Collector Integration**: Tracks `cache_hits` and `cache_misses` per service for real-time hit rate calculation on `/gateway/dashboard`.
+- **Thread Safety**: Guarantees lock-protected atomic cache operations under concurrent workloads.
+
+---
+
 # Testing
 
-The project includes:
+The gateway features full test coverage across all features and boundary conditions:
 
-- Unit Tests
-- Integration Tests
-- Reverse Proxy Tests
-- Health Endpoint Tests
-- Timeout Tests
-- Service Unavailable Tests
+- **Circuit Breaker (`app/tests/test_circuit_breaker.py`)**: 10 tests (CLOSED, OPEN, HALF-OPEN transitions, fail-fast, dashboard sync, full dynamic lifecycle, concurrency).
+- **Per-User/Role Rate Limiting (`app/tests/test_rate_limit.py`)**: 13 tests (user buckets, role quotas, IP fallback, boundary limits, normalization, concurrency).
+- **Aggregated Health Dashboard (`app/tests/test_dashboard.py`)**: 6 tests (structure, volume, percentiles, cache hit rate, circuit breaker state, empty metrics defaults).
+- **API Versioning (`app/tests/test_versioning.py`)**: 6 tests (v2 status, v2 stub envelope, v1 proxy preservation, 404 fallthrough, middleware, OpenAPI schema).
+- **In-Memory Cache (`app/tests/test_cache.py`)**: 6 tests (set/get, TTL expiration, delete/clear, pattern invalidation, hit rate metrics, concurrency).
+- **Integration Tests (`tests/`)**: 10 tests (proxy forwarding, health endpoint, status, service error fallbacks).
 
-Run all tests:
+Run all unit tests:
 
 ```bash
-pytest tests/
+pytest app/tests/ -v
 ```
+
+Run all integration tests:
+
+```bash
+pytest tests/ -v
+```
+
+---
+
+# Known Limitations
+
+- **Node-Local State (Single Instance Memory)**:
+  - The rate limiter (`InMemoryRateLimiter`), circuit breaker (`CircuitBreakerManager`), metrics collector (`MetricsCollector`), and cache (`InMemoryCache`) maintain thread-safe state in-memory within a single Gateway process.
+  - In multi-instance or horizontally scaled cloud deployments, state is not automatically shared across worker processes or separate nodes.
+  - **Production Recommendation**: Upgrade backends to distributed data stores (e.g. Redis / Redis Cluster) when running multi-node clusters.
+
+- **Reverse Proxy Trust Boundary**:
+  - `X-Forwarded-For` headers are strictly **ignored** unless the immediate peer IP address (`request.client.host`) is explicitly listed in `TRUSTED_PROXIES`.
+  - Ensure reverse proxies or load balancers (e.g. NGINX, AWS ALB) are properly configured in `TRUSTED_PROXIES` when deployed behind trusted infrastructure.
+
+- **Route Prefix Matching**:
+  - Routing to downstream services relies on exact prefix matching against `SERVICE_ROUTES`.
+  - Unmatched request paths fall through to a 404 Not Found error.
 
 ---
 

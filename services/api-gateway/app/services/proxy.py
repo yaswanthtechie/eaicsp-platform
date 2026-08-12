@@ -3,6 +3,7 @@ HTTP reverse-proxy service used by the API Gateway.
 """
 
 import logging
+import time
 from typing import Optional
 
 import httpx
@@ -16,6 +17,8 @@ from tenacity import (
 )
 
 from app.core.config import settings
+from app.services.circuit_breaker import circuit_breaker_manager
+from app.services.metrics import metrics_collector
 
 logger = logging.getLogger("api_gateway.proxy")
 
@@ -54,9 +57,19 @@ def get_service_name(prefix: str) -> str:
     """
     Extract a human-readable service name from a route prefix.
 
+    Checks settings.SERVICE_NAMES first for an explicit override.
+    Otherwise formats the prefix path gracefully.
+
     Example:
         /api/v1/supplier-risk -> Supplier risk
     """
+    explicit = getattr(settings, "SERVICE_NAMES", {})
+    if prefix in explicit:
+        name = explicit[prefix]
+        if name.endswith(" Service"):
+            name = name[:-8]
+        return name
+
     return (
         prefix.strip("/")
         .split("/")[-1]
@@ -220,6 +233,20 @@ class ProxyService:
 
         route_prefix, target_base_url = route
         service_name = get_service_name(route_prefix)
+        service_id = route_prefix.strip("/").split("/")[-1]
+        start_time = time.perf_counter()
+
+        # ------------------------------------------------------------------
+        # Circuit Breaker Check
+        # ------------------------------------------------------------------
+
+        if not circuit_breaker_manager.can_execute(service_id):
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "error": f"{service_name} service circuit breaker open"
+                },
+            )
 
         # ------------------------------------------------------------------
         # 2. Build downstream URL
@@ -318,8 +345,18 @@ class ProxyService:
                         downstream_request,
                         stream=True,
                     )
+                    elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+                    metrics_collector.record_request(service_id, elapsed_ms)
+
+                    if response.status_code >= 500:
+                        circuit_breaker_manager.record_failure(service_id)
+                    else:
+                        circuit_breaker_manager.record_success(service_id)
 
         except httpx.TimeoutException:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+            metrics_collector.record_request(service_id, elapsed_ms)
+            circuit_breaker_manager.record_failure(service_id)
             return JSONResponse(
                 status_code=504,
                 content={
@@ -328,6 +365,9 @@ class ProxyService:
             )
 
         except httpx.RequestError:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+            metrics_collector.record_request(service_id, elapsed_ms)
+            circuit_breaker_manager.record_failure(service_id)
             return JSONResponse(
                 status_code=503,
                 content={

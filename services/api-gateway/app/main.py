@@ -9,6 +9,7 @@ from fastapi import FastAPI
 
 from app.core.config import settings
 from app.middleware.logging import LoggingMiddleware
+from app.middleware.rate_limit import PerUserRoleRateLimitMiddleware
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.ratelimit import (
     RateLimitExceeded,
@@ -16,7 +17,7 @@ from app.middleware.ratelimit import (
     _rate_limit_exceeded_handler,
     limiter,
 )
-from app.routes import gateway, health
+from app.routes import dashboard, gateway, health, v2
 from app.schemas.responses import RootResponse
 
 
@@ -69,6 +70,7 @@ app.add_exception_handler(
 
 app.add_middleware(LoggingMiddleware)
 app.add_middleware(SlowAPIMiddleware)
+app.add_middleware(PerUserRoleRateLimitMiddleware)
 app.add_middleware(RequestIDMiddleware)
 
 # --------------------------------------------------
@@ -102,6 +104,24 @@ async def root():
         "status": "healthy",
         "version": settings.VERSION,
     }
+
+
+# --------------------------------------------------
+# Dashboard Routes
+# --------------------------------------------------
+
+app.include_router(
+    dashboard.router,
+    prefix="/gateway",
+    tags=["Dashboard"],
+)
+
+
+# --------------------------------------------------
+# API v2 Routes (Stub)
+# --------------------------------------------------
+
+app.include_router(v2.router)
 
 
 # --------------------------------------------------
