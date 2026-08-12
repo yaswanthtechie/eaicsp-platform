@@ -1,63 +1,80 @@
 import { useNavigate, useParams } from "react-router-dom";
+import { toast } from "react-toastify";
+
 import { useAcknowledgePO } from "../hooks/useAcknowledgePO";
+import { useOrderDetails } from "../hooks/useOrderDetails";
 
 import { GET_PURCHASE_ORDERS } from "../graphql/queries";
-
 
 import StatusBadge from "../components/StatusBadge";
 import Loading from "../components/Loading";
 import ErrorState from "../components/ErrorState";
 
 import type { PurchaseOrder } from "../types/po";
-import { toast } from "react-toastify";
+
+import type {
+  PurchaseOrderEdge,
+  PurchaseOrdersQuery,
+  AcknowledgePurchaseOrderMutation,
+} from "../types/graphql";
 
 import { formatCurrency } from "../utils/formatCurrency";
 import { formatDate } from "../utils/formatDate";
-import type { PurchaseOrderEdge, PurchaseOrdersQuery,AcknowledgePurchaseOrderMutation } from "../types/graphql";
+
 import { ORDER_DETAILS_PAGE_SIZE } from "../constants/pagination";
-import { useOrderDetails } from "../hooks/useOrderDetails";
-
-
 
 const OrderDetails = () => {
   const { poNumber } = useParams();
   const navigate = useNavigate();
 
-const { data, loading, error } = useOrderDetails();
+  const { data, loading, error } = useOrderDetails();
 
-  const { acknowledgePurchaseOrder } = useAcknowledgePO();
+  const { acknowledgePurchaseOrder } =
+    useAcknowledgePO();
 
+  // Show loading only when there is no existing data.
+  // This prevents polling from replacing the page
+  // with a loading spinner.
+  if (loading && !data) {
+    return <Loading />;
+  }
 
+  if (error) {
+    return <ErrorState />;
+  }
 
-  if (loading) return <Loading />;
-
-  if (error) return <ErrorState />;
-
-
-
-const orders: PurchaseOrder[] =
-  data?.purchaseOrders?.edges?.map(
-    (edge: PurchaseOrderEdge) => edge.node
-  ) || [];
+  const orders: PurchaseOrder[] =
+    data?.purchaseOrders?.edges?.map(
+      (edge: PurchaseOrderEdge) => edge.node
+    ) || [];
 
   const order = orders.find(
     (po) => po.po_number === poNumber
   );
 
+  // Empty state
   if (!order) {
     return (
       <div style={{ padding: "20px" }}>
         <h2>Purchase Order Not Found</h2>
 
-        <button onClick={() => navigate("/orders")}>
-          Back
+        <p>
+          The requested Purchase Order is not available.
+        </p>
+
+        <button
+          className="back-btn"
+          onClick={() => navigate("/orders")}
+        >
+          Back to Orders
         </button>
       </div>
     );
   }
 
   const total = order.items.reduce(
-    (sum, item) => sum + item.quantity * item.unit_price,
+    (sum, item) =>
+      sum + item.quantity * item.unit_price,
     0
   );
 
@@ -76,67 +93,83 @@ const orders: PurchaseOrder[] =
           },
         },
 
-update(
-  cache,
-  {
-    data,
-  }: {
-    data?: AcknowledgePurchaseOrderMutation;
-  }
-) {
-const existing = cache.readQuery<PurchaseOrdersQuery>({
-  query: GET_PURCHASE_ORDERS,
-  variables: {
-    first: ORDER_DETAILS_PAGE_SIZE,
-    after: null,
-  },
-});
+        update(
+          cache,
+          {
+            data,
+          }: {
+            data?: AcknowledgePurchaseOrderMutation;
+          }
+        ) {
+          const existing =
+            cache.readQuery<PurchaseOrdersQuery>({
+              query: GET_PURCHASE_ORDERS,
+              variables: {
+                first: ORDER_DETAILS_PAGE_SIZE,
+                after: null,
+              },
+            });
 
+          if (!existing?.purchaseOrders) {
+            return;
+          }
 
-  if (!existing) return;
+          cache.writeQuery<PurchaseOrdersQuery>({
+            query: GET_PURCHASE_ORDERS,
+            variables: {
+              first: ORDER_DETAILS_PAGE_SIZE,
+              after: null,
+            },
+            data: {
+              purchaseOrders: {
+                ...existing.purchaseOrders,
 
-cache.writeQuery({
-  query: GET_PURCHASE_ORDERS,
-  variables: {
-    first: ORDER_DETAILS_PAGE_SIZE,
-    after: null,
-  },
-  data: {
-    purchaseOrders: {
-      ...existing.purchaseOrders,
-      edges: existing.purchaseOrders.edges.map((edge) => ({
-        ...edge,
-        node:
-          edge.node.po_number === poNumber
-            ? data?.acknowledgePurchaseOrder ?? edge.node
-            : edge.node,
-      })),
-    },
-  },
-});
-},
+                edges:
+                  existing.purchaseOrders.edges.map(
+                    (edge: PurchaseOrderEdge) => ({
+                      ...edge,
+
+                      node:
+                        edge.node.po_number ===
+                        poNumber
+                          ? data?.acknowledgePurchaseOrder ??
+                            edge.node
+                          : edge.node,
+                    })
+                  ),
+              },
+            },
+          });
+        },
       });
 
-      toast.success("Purchase Order Acknowledged Successfully");
+      toast.success(
+        "Purchase Order Acknowledged Successfully"
+      );
 
       navigate("/orders");
     } catch (err) {
-      toast.error("Failed to acknowledge Purchase Order");
+      toast.error(
+        "Failed to acknowledge Purchase Order"
+      );
+
       console.error(err);
     }
   };
 
   return (
-    <div className="details">
+    <div className="order-details">
       <h2>Purchase Order Details</h2>
 
       <div className="detail-card">
         <p>
-          <strong>PO Number :</strong> {order.po_number}
+          <strong>PO Number :</strong>{" "}
+          {order.po_number}
         </p>
 
         <p>
-          <strong>Supplier :</strong> {order.supplier_id}
+          <strong>Supplier :</strong>{" "}
+          {order.supplier_id}
         </p>
 
         <p>
@@ -151,32 +184,45 @@ cache.writeQuery({
 
       <h3>Items</h3>
 
-      {order.items.map((item) => (
-        <div
-          key={item.sku}
-          className="item-card"
-        >
-          <h4>{item.product_name}</h4>
-
+      {order.items.length === 0 ? (
+        <div style={{ padding: "20px 0" }}>
           <p>
-            <strong>SKU :</strong> {item.sku}
-          </p>
-
-          <p>
-            <strong>Quantity :</strong> {item.quantity}
-          </p>
-
-          <p>
-            <strong>Unit Price :</strong>{" "}
-            {formatCurrency(item.unit_price)}
-          </p>
-
-          <p>
-            <strong>Subtotal :</strong>{" "}
-            {formatCurrency(item.quantity * item.unit_price)}
+            No items are available for this
+            Purchase Order.
           </p>
         </div>
-      ))}
+      ) : (
+        order.items.map((item) => (
+          <div
+            key={item.sku}
+            className="item-card"
+          >
+            <h4>{item.product_name}</h4>
+
+            <p>
+              <strong>SKU :</strong>{" "}
+              {item.sku}
+            </p>
+
+            <p>
+              <strong>Quantity :</strong>{" "}
+              {item.quantity}
+            </p>
+
+            <p>
+              <strong>Unit Price :</strong>{" "}
+              {formatCurrency(item.unit_price)}
+            </p>
+
+            <p>
+              <strong>Subtotal :</strong>{" "}
+              {formatCurrency(
+                item.quantity * item.unit_price
+              )}
+            </p>
+          </div>
+        ))
+      )}
 
       <h2>
         Total : {formatCurrency(total)}

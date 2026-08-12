@@ -15,24 +15,48 @@ const Invoice = () => {
     acknowledgedPOs,
     loading,
     error,
+    data,
   } = useInvoice();
 
-  const [invoiceNumber, setInvoiceNumber] = useState("");
-  const [poReference, setPoReference] = useState("");
-  const [amount, setAmount] = useState("");
-  const [date, setDate] = useState("");
+  const [invoiceNumber, setInvoiceNumber] =
+    useState("");
 
-  const [file, setFile] = useState<File | null>(null);
+  const [poReference, setPoReference] =
+    useState("");
 
-  const [formError, setFormError] = useState("");
-  const [fileError, setFileError] = useState("");
+  const [amount, setAmount] =
+    useState("");
 
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [date, setDate] =
+    useState("");
 
-  if (loading) return <Loading />;
+  const [file, setFile] =
+    useState<File | null>(null);
 
-  if (error) return <ErrorState />;
+  const [formError, setFormError] =
+    useState("");
+
+  const [fileError, setFileError] =
+    useState("");
+
+  const [isSubmitting, setIsSubmitting] =
+    useState(false);
+
+  // Important:
+  // Only show the full-page loader when
+  // there is no previous data.
+  //
+  // Because usePurchaseOrders polls, loading
+  // can become true again every few seconds.
+  // This condition prevents the form from
+  // disappearing while the supplier is typing.
+  if (loading && !data) {
+    return <Loading />;
+  }
+
+  if (error) {
+    return <ErrorState />;
+  }
 
   const handleSubmit = async (
     e: React.FormEvent
@@ -48,13 +72,19 @@ const Invoice = () => {
       !date ||
       !file
     ) {
-      setFormError("Please fill all fields.");
+      setFormError(
+        "Please fill all fields."
+      );
       return;
     }
 
     const invoiceRegex = /^INV\d+$/i;
 
-    if (!invoiceRegex.test(invoiceNumber.trim())) {
+    if (
+      !invoiceRegex.test(
+        invoiceNumber.trim()
+      )
+    ) {
       setFormError(
         "Invoice number must be like INV001."
       );
@@ -69,6 +99,7 @@ const Invoice = () => {
     }
 
     const today = new Date();
+
     const invoiceDate = new Date(date);
 
     if (invoiceDate > today) {
@@ -78,19 +109,7 @@ const Invoice = () => {
       return;
     }
 
-    setUploadProgress(0);
     setIsSubmitting(true);
-
-    const timer = setInterval(() => {
-      setUploadProgress((prev) => {
-        if (prev >= 90) {
-          clearInterval(timer);
-          return 90;
-        }
-
-        return prev + 10;
-      });
-    }, 200);
 
     try {
       await submitInvoice({
@@ -101,9 +120,6 @@ const Invoice = () => {
           date,
         },
       });
-
-      clearInterval(timer);
-      setUploadProgress(100);
 
       toast.success(
         "Invoice Submitted Successfully!"
@@ -117,14 +133,7 @@ const Invoice = () => {
 
       setFormError("");
       setFileError("");
-
-      setTimeout(() => {
-        setUploadProgress(0);
-      }, 1500);
     } catch (err) {
-      clearInterval(timer);
-      setUploadProgress(0);
-
       console.error(err);
 
       setFormError(
@@ -140,6 +149,7 @@ const Invoice = () => {
       <h2>Create Invoice</h2>
 
       <form onSubmit={handleSubmit}>
+        {/* Invoice Number */}
         <label>Invoice Number</label>
 
         <input
@@ -147,32 +157,52 @@ const Invoice = () => {
           placeholder="INV001"
           value={invoiceNumber}
           onChange={(e) =>
-            setInvoiceNumber(e.target.value)
+            setInvoiceNumber(
+              e.target.value
+            )
           }
         />
 
+        {/* Purchase Order */}
         <label>Purchase Order</label>
 
-        <select
-          value={poReference}
-          onChange={(e) =>
-            setPoReference(e.target.value)
-          }
-        >
-          <option value="">
-            Select Purchase Order
-          </option>
-
-          {acknowledgedPOs.map((po) => (
-            <option
-              key={po.po_number}
-              value={po.po_number}
-            >
-              {po.po_number}
+        {acknowledgedPOs.length === 0 ? (
+          <div
+            style={{
+              marginTop: "8px",
+              marginBottom: "15px",
+            }}
+          >
+            <p>
+              No acknowledged Purchase Orders
+              are available for invoicing.
+            </p>
+          </div>
+        ) : (
+          <select
+            value={poReference}
+            onChange={(e) =>
+              setPoReference(
+                e.target.value
+              )
+            }
+          >
+            <option value="">
+              Select Purchase Order
             </option>
-          ))}
-        </select>
 
+            {acknowledgedPOs.map((po) => (
+              <option
+                key={po.po_number}
+                value={po.po_number}
+              >
+                {po.po_number}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {/* Invoice Amount */}
         <label>Invoice Amount</label>
 
         <input
@@ -183,6 +213,7 @@ const Invoice = () => {
           }
         />
 
+        {/* Invoice Date */}
         <label>Invoice Date</label>
 
         <input
@@ -193,6 +224,7 @@ const Invoice = () => {
           }
         />
 
+        {/* PDF File */}
         <FileUpload
           file={file}
           setFile={setFile}
@@ -200,18 +232,7 @@ const Invoice = () => {
           setError={setFileError}
         />
 
-        {uploadProgress > 0 && (
-          <div style={{ marginTop: "15px" }}>
-            <progress
-              value={uploadProgress}
-              max={100}
-              style={{ width: "100%" }}
-            />
-
-            <p>{uploadProgress}% Uploaded</p>
-          </div>
-        )}
-
+        {/* File Error */}
         {fileError && (
           <p
             style={{
@@ -223,6 +244,7 @@ const Invoice = () => {
           </p>
         )}
 
+        {/* Form Error */}
         {formError && (
           <p
             style={{
@@ -234,13 +256,19 @@ const Invoice = () => {
           </p>
         )}
 
+        {/* Submit */}
         <button
           type="submit"
-          disabled={isSubmitting}
-          style={{ marginTop: "20px" }}
+          disabled={
+            isSubmitting ||
+            acknowledgedPOs.length === 0
+          }
+          style={{
+            marginTop: "20px",
+          }}
         >
           {isSubmitting
-            ? "Uploading..."
+            ? "Submitting..."
             : "Submit Invoice"}
         </button>
       </form>

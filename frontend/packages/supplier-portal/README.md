@@ -2,7 +2,7 @@
 
 A mobile-first Supplier Portal built with **React, TypeScript, Vite, Apollo Client, and GraphQL**. The application allows suppliers to securely manage Purchase Orders, acknowledge orders, and create and submit invoices.
 
-The project implements authentication, protected routes, token management, GraphQL communication, pagination, search and filtering, optimistic UI updates, invoice PDF upload, offline action queuing, responsive UI, and automated unit/component testing.
+The project implements authentication, protected routes, token management, GraphQL communication, pagination, search and filtering, optimistic UI updates, invoice form validation, offline action queuing, responsive UI, and automated unit/component testing.
 
 ---
 
@@ -232,7 +232,6 @@ Suppliers can create invoices for acknowledged Purchase Orders.
 * Drag and Drop
 * File Preview
 * Remove Selected File
-* Upload Progress UI
 * Submit Invoice
 * Success Notification
 * Error Notification
@@ -243,19 +242,27 @@ Only **acknowledged Purchase Orders** are available for invoice creation.
 
 # File Upload
 
-The `FileUpload` component provides invoice PDF upload functionality.
+The `FileUpload` component currently handles invoice file selection and validation.
 
 ## Current Features
 
-* PDF-only validation
-* Maximum file size: **10 MB**
-* Drag-and-drop upload
-* File selection
-* File preview
-* Remove selected file
-* File validation errors
-* Upload progress UI
-* File input reset handling
+- PDF-only validation
+- Maximum file size: **10 MB**
+- Drag-and-drop file selection
+- File selection
+- File preview
+- Remove selected file
+- File validation errors
+- File input reset handling
+
+## Not Yet Implemented
+
+The actual PDF document transfer is deferred to the next implementation round.
+
+- Real PDF upload
+- Real upload progress tracking
+- Chunked upload for files larger than 5 MB
+- Upload retry mechanism
 
 ---
 
@@ -752,12 +759,13 @@ src/pages/Invoice.tsx
 
 Responsibilities:
 
-* Create invoice
-* Select acknowledged Purchase Order
-* Validate invoice
-* Upload PDF
-* Display upload progress
-* Submit invoice
+- Create invoice
+- Select acknowledged Purchase Order
+- Validate invoice
+- Select and validate invoice PDF
+- Submit invoice information
+
+Note: Real PDF document upload and real upload progress are not yet implemented and are deferred to the next implementation round.
 
 ---
 
@@ -789,13 +797,14 @@ CANCELLED
 
 Provides:
 
-* File selection
-* Drag and drop
-* PDF validation
-* File size validation
-* File preview
-* Remove file
-* Upload progress
+- File selection
+- Drag and drop
+- PDF validation
+- File size validation
+- File preview
+- Remove file
+
+Real PDF upload and upload progress are deferred to a future implementation round.
 
 ---
 
@@ -1342,19 +1351,24 @@ PWA functionality can provide:
 
 ## Invoice
 
-* Invoice Form
-* Purchase Order Selection
-* Invoice Validation
-* Invoice Number Validation
-* Invoice Amount Validation
-* Invoice Date Validation
-* PDF Validation
-* File Size Validation
-* Drag and Drop
-* File Preview
-* Remove File
-* Upload Progress UI
-* Invoice GraphQL Mutation
+- Invoice Form
+- Purchase Order Selection
+- Invoice Validation
+- Invoice Number Validation
+- Invoice Amount Validation
+- Invoice Date Validation
+- PDF Validation
+- File Size Validation
+- Drag and Drop
+- File Preview
+- Remove File
+- Invoice GraphQL Mutation
+
+### Deferred
+
+- Real PDF document upload
+- Real upload progress
+- Chunked upload for large files
 
 ## Offline Support
 
@@ -1394,16 +1408,17 @@ PWA functionality can provide:
 
 # Future Enhancements
 
-The core Supplier Portal workflow is implemented. Possible future enhancements include:
+The core Supplier Portal workflow is implemented. The following functionality is planned for a future implementation round:
 
-* Real production Purchase Order API
-* Real production Invoice API
-* Real PDF storage service
-* Chunked uploads for very large files
-* Upload retry mechanism
-* Real upload progress from backend
-* WebSocket-based real-time Purchase Order updates
-* Production database integration
+- Real production Purchase Order API
+- Real production Invoice API
+- Real PDF document upload
+- Real PDF storage service
+- Real upload progress tracking
+- Chunked uploads for files larger than 5 MB
+- Upload retry mechanism
+- WebSocket-based real-time Purchase Order updates
+- Production database integration
 
 
 ---
@@ -1493,5 +1508,5 @@ Apollo Server
 React Router
 JWT Authentication
 Vitest
-React Testing Library
+React Testing Library 
 ```
