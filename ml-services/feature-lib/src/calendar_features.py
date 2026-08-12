@@ -19,6 +19,7 @@ def add_calendar_features(
     data["month"] = data[date_col].dt.month
     data["day_of_month"] = data[date_col].dt.day
 
+
     # Boolean features converted to integers
     data["is_weekend"] = (
         data[date_col].dt.dayofweek >= 5
