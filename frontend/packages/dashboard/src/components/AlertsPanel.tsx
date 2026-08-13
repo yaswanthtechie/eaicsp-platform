@@ -1,26 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import { colors } from "../tokens";
-
-interface AlertMessage {
-  id: string;
-  type: "low-stock" | "forecast-change" | "system";
-  severity: "error" | "warning" | "info";
-  message: string;
-  timestamp: string;
-}
+import type { AlertMessage } from "../types/forecast";
 
 interface AlertsPanelProps {
   alerts: AlertMessage[];
   connected: boolean;
+  isConnecting: boolean;
   onRemove: (id: string) => void;
 }
 
 export default function AlertsPanel({
   alerts,
   connected,
+  isConnecting,
   onRemove,
 }: AlertsPanelProps) {
   const [fadingAlerts, setFadingAlerts] = useState<string[]>([]);
+
   const timers = useRef<
     Record<string, ReturnType<typeof setTimeout>>
   >({});
@@ -45,6 +41,11 @@ export default function AlertsPanel({
         }, 500);
       }, 5000);
     });
+
+    return () => {
+      Object.values(timers.current).forEach(clearTimeout);
+      timers.current = {};
+    };
   }, [alerts, onRemove]);
 
   const getColor = (
@@ -76,9 +77,8 @@ export default function AlertsPanel({
   };
 
   const formatTime = (timestamp: string) => {
-    return new Date(timestamp).toLocaleTimeString();
+  return new Date(timestamp).toLocaleTimeString("en-GB");
   };
-  
 
   return (
     <div
@@ -109,17 +109,25 @@ export default function AlertsPanel({
 
         <span
           style={{
-            color: connected
-              ? colors.success
-              : colors.danger,
+            color: isConnecting
+              ? colors.warning
+              : connected
+                ? colors.success
+                : colors.danger,
           }}
         >
-          {connected ? "🟢 Connected" : "🔴 Disconnected"}
+          {isConnecting
+            ? "🟡 Connecting…"
+            : connected
+              ? "🟢 Connected"
+              : "🔴 Disconnected"}
         </span>
       </div>
 
       {alerts.length === 0 ? (
-        <p style={{ color: colors.textMuted }}> No recent alerts available </p>
+        <p style={{ color: colors.textMuted }}>
+          No recent alerts available
+        </p>
       ) : (
         alerts.map((alert) => {
           const color = getColor(alert.severity);

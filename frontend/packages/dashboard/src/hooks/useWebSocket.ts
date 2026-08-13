@@ -1,12 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-
-interface AlertMessage {
-  id: string;
-  type: "low-stock" | "forecast-change" | "system";
-  severity: "error" | "warning" | "info";
-  message: string;
-  timestamp: string;
-}
+import type { AlertMessage } from "../types/forecast";
 
 interface UseWebSocketOptions {
   url: string;
@@ -30,9 +23,9 @@ export function useWebSocket(options: UseWebSocketOptions) {
 
   const socketRef = useRef<WebSocket | null>(null);
   const retryCountRef = useRef(0);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  );
+  const reconnectTimerRef = useRef<
+    ReturnType<typeof setTimeout> | null
+  >(null);
 
   useEffect(() => {
     let isUnmounted = false;
@@ -40,15 +33,18 @@ export function useWebSocket(options: UseWebSocketOptions) {
     const connect = () => {
       if (isUnmounted) {
         return;
-      } 
+      }
+
       setIsConnecting(true);
 
       const socket = new WebSocket(url);
       socketRef.current = socket;
+
       socket.onopen = () => {
         if (isUnmounted) {
           return;
         }
+
         setConnected(true);
         setIsConnecting(false);
 
@@ -57,10 +53,28 @@ export function useWebSocket(options: UseWebSocketOptions) {
 
       socket.onmessage = (event) => {
         try {
-          const data: AlertMessage = JSON.parse(event.data);
-          onMessage(data);
+          const data = JSON.parse(event.data);
+
+          if (
+            typeof data.id !== "string" ||
+            typeof data.type !== "string" ||
+            typeof data.severity !== "string" ||
+            typeof data.message !== "string" ||
+            typeof data.timestamp !== "string"
+          ) {
+            console.error(
+              "Ignoring malformed alert:",
+              data
+            );
+            return;
+          }
+
+          onMessage(data as AlertMessage);
         } catch (error) {
-          console.error("Invalid WebSocket message:", error);
+          console.error(
+            "Invalid WebSocket message:",
+            error
+          );
         }
       };
 
@@ -106,7 +120,13 @@ export function useWebSocket(options: UseWebSocketOptions) {
       socketRef.current?.close();
       socketRef.current = null;
     };
-  }, [url, onMessage, onError, autoReconnect, maxRetries]);
+  }, [
+    url,
+    onMessage,
+    onError,
+    autoReconnect,
+    maxRetries,
+  ]);
 
   return {
     connected,

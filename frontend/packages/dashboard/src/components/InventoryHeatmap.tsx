@@ -52,12 +52,7 @@ export default function InventoryHeatmap() {
         Warehouse Inventory Heatmap
       </h2>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
-        }}
-      >
+      <div className="heatmap-grid">
         {warehouses.map((warehouse) => (
           <div key={warehouse}>
             <h3

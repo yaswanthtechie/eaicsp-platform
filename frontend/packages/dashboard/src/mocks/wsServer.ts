@@ -1,14 +1,7 @@
 import { Server } from "mock-socket";
+import type { AlertMessage } from "../types/forecast";
 
-interface MockAlert {
-  id: string;
-  type: "low-stock" | "forecast-change" | "system";
-  severity: "error" | "warning" | "info";
-  message: string;
-  timestamp: string;
-}
-
-const alerts: Omit<MockAlert, "id" | "timestamp">[] = [
+const alerts: Omit<AlertMessage, "id" | "timestamp">[] = [
   {
     type: "low-stock",
     severity: "error",
@@ -61,29 +54,39 @@ export function startMockWebSocketServer() {
   const server = new Server("ws://localhost:8080");
 
   server.on("connection", (socket) => {
-    console.log("Mock WebSocket connected..");
+    console.log("Mock WebSocket connected");
+
+    let alertTimer: ReturnType<typeof setTimeout>;
 
     const sendAlert = () => {
       const randomAlert =
         alerts[Math.floor(Math.random() * alerts.length)];
 
-      const alert: MockAlert = {
+      const alert: AlertMessage = {
         id: crypto.randomUUID(),
         ...randomAlert,
         timestamp: new Date().toISOString(),
       };
 
+      console.log(
+        "Alert sent:",
+        alert.timestamp,
+        alert.message
+      );
+
       socket.send(JSON.stringify(alert));
 
       const nextTime = 3000 + Math.random() * 2000;
 
-      setTimeout(sendAlert, nextTime);
+      alertTimer = setTimeout(sendAlert, nextTime);
     };
 
     sendAlert();
 
     socket.on("close", () => {
-      console.log("Mock WebSocket disconnected..");
+      clearTimeout(alertTimer);
+
+      console.log("Mock WebSocket disconnected.");
     });
   });
 

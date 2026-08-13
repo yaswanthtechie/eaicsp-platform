@@ -4,29 +4,23 @@
 frontend/
 └── packages/
     └── dashboard/
-        ├── public/
-        ├── src/
-        │   ├── assets/
-        │   ├── components/
-        │   │   ├── ForecastChart.tsx
-        │   │   └── InventoryTable.tsx
-        │   ├── mocks/
-        │   │   ├── forecast.ts
-        │   │   └── inventory.ts
-        │   ├── types/
-        │   │   └── forecast.ts
-        │   ├── App.tsx
-        │   ├── index.css
-        │   ├── main.tsx
-        │   └── tokens.ts
-        ├── .gitignore
-        ├── eslint.config.js
-        ├── index.html
-        ├── package.json
-        ├── tsconfig.json
-        ├── vite.config.ts
-        └── README.md
-
+        └── src/
+            ├── components/
+            │   ├── AlertsPanel.tsx
+            │   ├── ForecastChart.tsx
+            │   ├── InventoryHeatmap.tsx
+            │   └── InventoryTable.tsx
+            ├── hooks/
+            │   └── useWebSocket.ts
+            ├── mocks/
+            │   ├── forecast.ts
+            │   ├── inventory.ts
+            │   └── wsServer.ts
+            ├── types/
+            │   └── forecast.ts
+            ├── App.tsx
+            └── tokens.ts
+            
 
 
 
@@ -81,4 +75,8 @@ npm run dev
 
 While working on the Alert Panel, I faced an issue where the panel was working correctly, but the WebSocket connection was repeatedly showing  **connected and disconnected** states on close with alerts are changing very fast.
 After researching the issue, I found that unnecessary re-renders were causing the connection logic to run again. I used **useCallback** to keep the function reference stable, which prevented unnecessary re-renders and resolved the connection issue.
+
+### Inventory Heatmap
+
+As a stretch goal, I implemented an Inventory Heatmap to provide a visual representation of inventory levels across warehouses and help executives quickly identify low-stock areas.
 

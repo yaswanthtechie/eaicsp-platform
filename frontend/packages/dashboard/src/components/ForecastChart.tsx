@@ -19,11 +19,28 @@ const chartData = forecast.map((item) => ({
   band: item.upper_bound - item.lower_bound,
 }));
 
+// "Today" is the last date we have an actual for;
+// everything after is forecast.
+const lastActualIndex = chartData.reduce(
+  (last, item, index) =>
+    item.actual !== undefined ? index : last,
+  0
+);
+
+// Spec default: last 10 days + next 5 days.
+const defaultStart =
+  chartData[Math.max(0, lastActualIndex - 9)].date;
+
+const defaultEnd =
+  chartData[
+    Math.min(chartData.length - 1, lastActualIndex + 5)
+  ].date;
+
 export default function ForecastChart() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const [startDate, setStartDate] = useState("2026-07-29");
-  const [endDate, setEndDate] = useState("2026-08-13");
+  const [startDate, setStartDate] = useState(defaultStart);
+  const [endDate, setEndDate] = useState(defaultEnd);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -67,6 +84,44 @@ export default function ForecastChart() {
       <h2 style={{ color: colors.text }}>
         No Forecast Data Available.
       </h2>
+    );
+  }
+
+  if (startDate > endDate) {
+    return (
+      <div style={{ color: colors.text }}>
+        <h2 style={{ color: colors.danger }}>
+          Start date must be on or before the end date.
+        </h2>
+
+        <button
+          onClick={resetDates}
+          style={{
+            padding: "7px 14px",
+            cursor: "pointer",
+          }}
+        >
+          Reset
+        </button>
+      </div>
+    );
+  }
+
+  if (filteredData.length === 0) {
+    return (
+      <div style={{ color: colors.text }}>
+        <h2>No forecast data in the selected range.</h2>
+
+        <button
+          onClick={resetDates}
+          style={{
+            padding: "7px 14px",
+            cursor: "pointer",
+          }}
+        >
+          Reset
+        </button>
+      </div>
     );
   }
 

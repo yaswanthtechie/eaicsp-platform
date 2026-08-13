@@ -1,21 +1,15 @@
-import {useCallback,useEffect,useState} from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import AlertsPanel from "./components/AlertsPanel";
-import { useWebSocket } from "./hooks/useWebSocket";
-import { startMockWebSocketServer } from "./mocks/wsServer";
-
 import ForecastChart from "./components/ForecastChart";
 import InventoryTable from "./components/InventoryTable";
-import { colors } from "./tokens";
 import InventoryHeatmap from "./components/InventoryHeatmap";
 
-interface AlertMessage {
-  id: string;
-  type: "low-stock" | "forecast-change" | "system";
-  severity: "error" | "warning" | "info";
-  message: string;
-  timestamp: string;
-}
+import { useWebSocket } from "./hooks/useWebSocket";
+import { startMockWebSocketServer } from "./mocks/wsServer";
+import { colors } from "./tokens";
+
+import type { AlertMessage } from "./types/forecast";
 
 function App() {
   const [alerts, setAlerts] = useState<AlertMessage[]>([]);
@@ -24,12 +18,9 @@ function App() {
     startMockWebSocketServer();
   }, []);
 
-  const handleMessage = useCallback(
-    (alert: AlertMessage) => {
-      setAlerts((prev) => [alert, ...prev]);
-    },
-    []
-  );
+  const handleMessage = useCallback((alert: AlertMessage) => {
+    setAlerts((prev) => [alert, ...prev]);
+  }, []);
 
   const removeAlert = useCallback((id: string) => {
     setAlerts((prev) =>
@@ -37,7 +28,7 @@ function App() {
     );
   }, []);
 
-  const { connected } = useWebSocket({
+  const { connected, isConnecting } = useWebSocket({
     url: "ws://localhost:8080",
     onMessage: handleMessage,
     autoReconnect: true,
@@ -71,14 +62,7 @@ function App() {
         </h1>
       </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "2fr 1fr",
-          gap: 20,
-        }}
-      >
-
+      <div className="dashboard-grid">
         <div>
           <div
             style={{
@@ -106,6 +90,7 @@ function App() {
         <AlertsPanel
           alerts={alerts}
           connected={connected}
+          isConnecting={isConnecting}
           onRemove={removeAlert}
         />
       </div>
