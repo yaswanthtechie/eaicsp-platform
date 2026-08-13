@@ -3,11 +3,42 @@ Prediction module that orchestrates the NLP pipeline
 for supplier risk scoring.
 """
 
+import math
 from typing import Any, Dict, List
 
 from src.preprocess import clean_text
 from src.sentiment import analyze_sentiment
 from src.signals import detect_signals
+
+
+def _calculate_confidence(num_headlines: int) -> float:
+    """
+    Calculate a volume-based evidence strength (confidence) score.
+
+    Uses an exponential saturation curve that increases smoothly
+    with headline count and asymptotically approaches 1.0.
+
+    Formula: confidence = 1 - exp(-n / 8)
+
+    Key properties:
+    - n = 0  → 0.00 (no evidence)
+    - n = 1  → 0.12 (very low)
+    - n = 2  → 0.22 (low)
+    - n = 5  → 0.46 (moderate)
+    - n = 10 → 0.71 (high)
+    - n = 20 → 0.92 (very high)
+    - n → ∞  → ~1.0 (approaches full confidence)
+
+    The divisor 8 is chosen so that the typical dataset size of
+    12 headlines/company yields ~0.78 confidence (substantial but
+    not absolute), matching the Round 4 calibration dataset.
+    """
+    if num_headlines <= 0:
+        return 0.0
+    return round(
+        1.0 - math.exp(-num_headlines / 8.0),
+        4,
+    )
 
 
 def _empty_response(supplier_name: str) -> Dict[str, Any]:
@@ -17,6 +48,7 @@ def _empty_response(supplier_name: str) -> Dict[str, Any]:
     return {
         "supplier": supplier_name,
         "risk_score": 0.0,
+        "confidence": 0.0,
         "sentiment_breakdown": {
             "positive": 0,
             "neutral": 0,
@@ -33,10 +65,10 @@ def _sentiment_penalty(label: str, confidence: float) -> float:
     """
 
     if label == "negative":
-        return 30.0 * confidence
+        return 40.0 * confidence
 
     if label == "neutral":
-        return 10.0 * confidence
+        return 0.0
 
     return 0.0
 
@@ -168,12 +200,21 @@ def predict(
             unique_signals[keyword] = signal
 
     # ----------------------------------------
+    # Confidence / Evidence Strength
+    # ----------------------------------------
+
+    confidence = _calculate_confidence(
+        len(processed_headlines),
+    )
+
+    # ----------------------------------------
     # Final Response
     # ----------------------------------------
 
     return {
         "supplier": supplier_name,
         "risk_score": round(final_risk_score, 2),
+        "confidence": confidence,
         "sentiment_breakdown": sentiment_breakdown,
         "signals": list(unique_signals.values()),
         "top_worst_3": top_worst_3,

@@ -11,24 +11,28 @@ from typing import Any, Dict, Final, List
 
 SIGNAL_WEIGHTS: Final[Dict[str, int]] = {
     # Financial Risks
-    "bankruptcy": 40,
-    "insolvency": 35,
-    "default": 35,
+    "bankruptcy": 50,
+    "insolvency": 45,
+    "default": 40,
     "restructuring": 20,
-    "layoff": 15,
-    "downgrade": 15,
+    "layoff": 25,
+    "downgrade": 20,
 
     # Operational Risks
-    "strike": 10,
-    "recall": 20,
-    "disruption": 15,
-    "shortage": 10,
+    "strike": 25,
+    "recall": 30,
+    "disruption": 20,
+    "shortage": 20,
+    "delays": 15,
+    "shutdown": 35,
+    "outage": 25,
 
-    # Reputational Risks
-    "fraud": 30,
+    # Reputational/Security Risks
+    "fraud": 40,
     "investigation": 25,
-    "lawsuit": 20,
-    "sanction": 30,
+    "lawsuit": 25,
+    "sanction": 35,
+    "cyberattack": 35,
 }
 
 
