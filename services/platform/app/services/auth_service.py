@@ -16,10 +16,8 @@ from app.models.refresh_token import RefreshToken
 from app.models.failed_login_attempts import FailedLoginAttempt
 from app.schemas.auth import RegisterRequest
 
-
 MAX_ATTEMPTS = 5
 WINDOW = timedelta(minutes=15)
-
 
 # ============================================================
 # REFRESH TOKEN
@@ -57,22 +55,6 @@ def get_refresh_token(
         .first()
     )
 
-def get_refresh_token(
-    db: Session,
-    token: str
-):
-    now = datetime.now(timezone.utc)
-
-    return (
-        db.query(RefreshToken)
-        .filter(
-            RefreshToken.token == token,
-            RefreshToken.is_revoked == False,
-            RefreshToken.expires_at > now
-        )
-        .first()
-    )
-
 def revoke_refresh_token(
     db: Session,
     token: str
@@ -93,26 +75,6 @@ def revoke_refresh_token(
 
     return True
 
-
-def revoke_refresh_token(
-    db: Session,
-    token: str
-):
-    refresh = (
-        db.query(RefreshToken)
-        .filter(
-            RefreshToken.token == token
-        )
-        .first()
-    )
-
-    if refresh is None:
-        return False
-
-    refresh.is_revoked = True
-    db.commit()
-
-    return True
 # ============================================================
 # FAILED LOGIN TRACKING
 # ============================================================
@@ -195,7 +157,6 @@ def check_login_rate_limit(
             detail="Too many login attempts. Try again after 15 minutes.",
         )
 
-
 # ============================================================
 # REGISTER
 # ============================================================
@@ -215,12 +176,12 @@ def register_user(
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User already exists",
+            detail="User already exists"
         )
 
-    # Validate before hashing
+    #Validate password before hashing
     validate_password(request.password)
-
+    
     hashed_password = hash_password(
         request.password
     )

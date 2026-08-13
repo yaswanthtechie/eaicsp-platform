@@ -7,13 +7,12 @@ from app.database import Base, engine
 
 app = FastAPI()
 
-
-# Create tables
-Base.metadata.create_all(bind=engine)
-
 app.include_router(admin_router)
 app.include_router(auth_router)
 app.include_router(user_router)
+
+# Create tables
+Base.metadata.create_all(bind=engine)
 
 @app.get("/")
 def root():

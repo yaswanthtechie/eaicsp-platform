@@ -92,9 +92,9 @@ def require_any_role(*allowed_roles):
 
     def dependency(user=Depends(get_current_user)):
 
-        user_role = getattr(user["role"], "value", user["role"])
-
-        permissions = ROLE_HIERARCHY.get(user_role, {user_role})
+        #user_role = getattr(user["role"], "value", user["role"])
+        role = user.role.name
+        permissions = ROLE_HIERARCHY.get(role, {role})
 
         if not any(role in permissions for role in allowed_roles):
             raise HTTPException(
@@ -110,9 +110,8 @@ def require_all_roles(*required_roles):
 
     def dependency(user=Depends(get_current_user)):
 
-        user_role = getattr(user["role"], "value", user["role"])
-
-        permissions = ROLE_HIERARCHY.get(user_role, {user_role})
+        role = user.role.name
+        permissions = ROLE_HIERARCHY.get(role, {role})
 
         if not all(role in permissions for role in required_roles):
             raise HTTPException(
