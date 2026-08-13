@@ -5,9 +5,10 @@ Custom logging middleware for the API Gateway.
 import logging
 import time
 
-from fastapi import Request
+from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
+
+from app.middleware.ratelimit import get_real_ip
 
 # --------------------------------------------------
 # Configure Logging
@@ -54,22 +55,15 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 time.perf_counter() - start_time
             ) * 1000
 
+            request_id = getattr(request.state, "request_id", None)
             method = request.method
             path = request.url.path
 
-            forwarded_for = request.headers.get("X-Forwarded-For")
-
-            if forwarded_for:
-                client_ip = forwarded_for.split(",")[0].strip()
-            else:
-                client_ip = (
-                    request.client.host
-                    if request.client
-                    else "unknown"
-                )
+            client_ip = get_real_ip(request)
 
             logger.info(
-                "method=%s path=%s status=%s duration=%.2fms ip=%s",
+                "request_id=%s method=%s path=%s status=%s duration=%.2fms ip=%s",
+                request_id,
                 method,
                 path,
                 status_code,

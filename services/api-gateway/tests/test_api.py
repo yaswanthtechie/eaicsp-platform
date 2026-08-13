@@ -1,6 +1,7 @@
+from unittest.mock import AsyncMock, patch
+
 import httpx
 import pytest
-from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -27,6 +28,17 @@ def test_root_endpoint(client):
         "status": "healthy",
         "version": "1.0.0",
     }
+
+
+def test_openapi_schema(client):
+    """
+    Test that the OpenAPI schema endpoint returns 200 and valid paths.
+    """
+    response = client.get("/api/v1/openapi.json")
+
+    assert response.status_code == 200
+    schema = response.json()
+    assert "/{path}" in schema["paths"]
 
 
 def test_invalid_service(client):
@@ -64,7 +76,10 @@ def test_health_endpoint_service_down(mock_get, client):
     """
     Downstream services are unavailable.
     """
-    mock_get.side_effect = Exception("Failed to connect")
+    mock_get.side_effect = httpx.ConnectError(
+        "Failed to connect",
+        request=httpx.Request("GET", "http://test"),
+    )
 
     response = client.get("/health")
 
@@ -78,21 +93,19 @@ def test_health_endpoint_service_down(mock_get, client):
 
 @patch("httpx.AsyncClient.send", new_callable=AsyncMock)
 def test_reverse_proxy_success(mock_send, client):
-    """
-    Successful reverse proxy request.
-    """
+    # build a response with bytes content and content-type header
+    content_bytes = b'{"data":"success"}'
     mock_send.return_value = httpx.Response(
         status_code=200,
-        json={"data": "success"},
+        content=content_bytes,
+        headers={"content-type": "application/json"},
         request=httpx.Request("GET", "http://test"),
     )
 
     response = client.get("/api/v1/inventory/items")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "data": "success"
-    }
+    assert response.json() == {"data": "success"}
 
 
 @patch("httpx.AsyncClient.send", new_callable=AsyncMock)
@@ -128,4 +141,56 @@ def test_reverse_proxy_timeout(mock_send, client):
     assert response.status_code == 504
     assert response.json() == {
         "error": "Inventory service timeout"
-    }
+    }
+
+
+def test_request_id_header_injection_prevention(client):
+    """
+    Security: Verify that CR/LF characters in a client-supplied X-Request-ID
+    header are stripped to prevent log injection and HTTP header injection attacks.
+    The response must echo the sanitized value (without newlines).
+    """
+    malicious_id = "legit-id\r\nX-Injected: evil"
+    response = client.get("/", headers={"x-request-id": malicious_id})
+
+    assert response.status_code == 200
+    returned_id = response.headers.get("x-request-id", "")
+    # CR and LF must NOT appear in the echoed header
+    assert "\r" not in returned_id
+    assert "\n" not in returned_id
+    # The sanitized prefix should still appear
+    assert "legit-id" in returned_id
+
+
+def test_request_id_generated_when_injection_only(client):
+    """
+    Security: Verify that if a client-supplied X-Request-ID contains ONLY
+    newline characters, after stripping it becomes empty, and a fresh UUID
+    is generated instead of propagating an empty value.
+    """
+    response = client.get("/", headers={"x-request-id": "\r\n"})
+
+    assert response.status_code == 200
+    returned_id = response.headers.get("x-request-id", "")
+    # Must be a non-empty, sanitized request ID (the UUID fallback)
+    assert len(returned_id) > 0
+    assert "\r" not in returned_id
+    assert "\n" not in returned_id
+
+
+@patch("httpx.AsyncClient.get", new_callable=AsyncMock)
+def test_health_endpoint_unexpected_exception(mock_get, client):
+    """
+    Bug fix: Verify the health endpoint returns 200 with DOWN status for any
+    unexpected exception during a downstream health check call. The broad
+    `except Exception` in _ping_service ensures the gateway never crashes.
+    """
+    mock_get.side_effect = RuntimeError("unexpected internal failure")
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    data = response.json()
+    # All services should show DOWN, not crash the gateway
+    for status in data.values():
+        assert status == "DOWN"

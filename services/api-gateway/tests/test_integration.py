@@ -9,7 +9,6 @@ from fastapi.testclient import TestClient
 
 from app.main import app as gateway_app
 
-
 # ----------------------------------------------------
 # Dummy Inventory Service
 # ----------------------------------------------------
@@ -56,7 +55,10 @@ def run_server(server: uvicorn.Server):
     """
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    loop.run_until_complete(server.serve())
+    try:
+        loop.run_until_complete(server.serve())
+    finally:
+        loop.close()
 
 
 # ----------------------------------------------------

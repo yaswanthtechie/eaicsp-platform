@@ -1,0 +1,67 @@
+API Gateway Load Test Results
+================================================================================
+Target: http://127.0.0.1:8000/api/v2/status
+Requests per level: 200
+
+Concurrency: 1
+Success rate: 100.00%
+Status codes: {200: 200}
+Average latency: 5.16 ms
+P50 latency: 4.97 ms
+P95 latency: 6.46 ms
+P99 latency: 9.62 ms
+Throughput: 192.62 req/s
+Status: HEALTHY
+--------------------------------------------------------------------------------
+Concurrency: 5
+Success rate: 100.00%
+Status codes: {200: 200}
+Average latency: 19.87 ms
+P50 latency: 18.53 ms
+P95 latency: 36.05 ms
+P99 latency: 45.01 ms
+Throughput: 238.58 req/s
+Status: HEALTHY
+--------------------------------------------------------------------------------
+Concurrency: 10
+Success rate: 100.00%
+Status codes: {200: 200}
+Average latency: 56.53 ms
+P50 latency: 43.22 ms
+P95 latency: 140.96 ms
+P99 latency: 212.23 ms
+Throughput: 168.77 req/s
+Status: HEALTHY
+--------------------------------------------------------------------------------
+Concurrency: 25
+Success rate: 100.00%
+Status codes: {200: 200}
+Average latency: 195.06 ms
+P50 latency: 132.82 ms
+P95 latency: 546.53 ms
+P99 latency: 743.18 ms
+Throughput: 117.64 req/s
+Status: DEGRADED
+--------------------------------------------------------------------------------
+Concurrency: 50
+Success rate: 100.00%
+Status codes: {200: 200}
+Average latency: 453.17 ms
+P50 latency: 316.59 ms
+P95 latency: 1282.50 ms
+P99 latency: 1615.08 ms
+Throughput: 97.27 req/s
+Status: DEGRADED
+--------------------------------------------------------------------------------
+Concurrency: 100
+Success rate: 100.00%
+Status codes: {200: 200}
+Average latency: 607.18 ms
+P50 latency: 607.56 ms
+P95 latency: 937.99 ms
+P99 latency: 951.02 ms
+Throughput: 141.42 req/s
+Status: DEGRADED
+--------------------------------------------------------------------------------
+
+DEGRADATION POINT: 25 concurrent requests

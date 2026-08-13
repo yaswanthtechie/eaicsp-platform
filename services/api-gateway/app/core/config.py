@@ -2,9 +2,8 @@
 Application configuration for the API Gateway.
 """
 
-from typing import Dict
-# pyrefly: ignore [missing-import]
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
 
 class Settings(BaseSettings):
     """
@@ -19,22 +18,29 @@ class Settings(BaseSettings):
     APP_NAME: str = "API Gateway"
     VERSION: str = "1.0.0"
     DEBUG: bool = False
+    LOAD_TEST_MODE: bool = False
 
     # --------------------------------------------------
     # Downstream Service Routes
     # --------------------------------------------------
 
-    SERVICE_ROUTES: Dict[str, str] = {
+    SERVICE_ROUTES: dict[str, str] = {
         "/api/v1/inventory": "http://localhost:8001",
         "/api/v1/shipments": "http://localhost:8002",
         "/api/v1/compliance": "http://localhost:8003",
         "/api/v1/purchase-orders": "http://localhost:8004",
         "/api/v1/auth": "http://localhost:8005",
         "/api/v1/supplier-risk": "http://localhost:8006",
+    }
 
-        # Dummy service routes used for testing
-        "/timeout": "http://localhost:8001",
-        "/error": "http://localhost:8001",
+    # Explicit human-readable service name overrides
+    SERVICE_NAMES: dict[str, str] = {
+        "/api/v1/inventory": "Inventory Service",
+        "/api/v1/shipments": "Shipments Service",
+        "/api/v1/compliance": "Compliance Service",
+        "/api/v1/purchase-orders": "Purchase Order Service",
+        "/api/v1/auth": "Auth Service",
+        "/api/v1/supplier-risk": "Supplier Risk Service",
     }
 
     # --------------------------------------------------
@@ -42,7 +48,62 @@ class Settings(BaseSettings):
     # --------------------------------------------------
 
     TIMEOUT_SECONDS: int = 5
+
+    # Number of retries to attempt on retryable failures.
+    # Example: MAX_RETRIES=2 means original request + 2 retries.
     MAX_RETRIES: int = 2
+
+    # --------------------------------------------------
+    # JWT Configuration
+    # --------------------------------------------------
+
+    JWT_SECRET: str = "super-secret-key-change-in-production"
+    JWT_ALGORITHM: str = "HS256"
+
+    # --------------------------------------------------
+    # Rate Limiting Configuration
+    # --------------------------------------------------
+
+    TRUSTED_PROXIES: list[str] = []
+
+    RATE_LIMIT_WINDOW_SECONDS: int = 60
+
+    ROLE_RATE_LIMITS: dict[str, int] = {
+        "admin": 200,
+        "ceo": 200,
+        "vp_operations": 200,
+        "manager": 100,
+        "user": 60,
+        "guest": 30,
+        "default": 60,
+    }
+
+    def get_role_rate_limit(self, role: str | None = None) -> int:
+        """
+        Return the rate limit quota for a given role name.
+        """
+
+        if not role:
+            return self.ROLE_RATE_LIMITS.get("default", 60)
+
+        normalized = (
+            str(role)
+            .lower()
+            .strip()
+            .replace(" ", "_")
+        )
+
+        return self.ROLE_RATE_LIMITS.get(
+            normalized,
+            self.ROLE_RATE_LIMITS.get("default", 60),
+        )
+
+    # --------------------------------------------------
+    # Circuit Breaker Configuration
+    # --------------------------------------------------
+
+    CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = 5
+    CIRCUIT_BREAKER_RECOVERY_TIMEOUT: float = 10.0
 
     # --------------------------------------------------
     # Environment Configuration
@@ -53,5 +114,9 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-# Singleton settings instance
+
+# --------------------------------------------------
+# Singleton Settings Instance
+# --------------------------------------------------
+
 settings = Settings()
