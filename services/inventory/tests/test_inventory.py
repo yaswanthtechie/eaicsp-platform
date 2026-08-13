@@ -1,485 +1,1044 @@
-import threading
-from urllib import response
-import pytest
+import time
+
+from datetime import date
+
+from app.models.sales_history import (
+    SalesHistory,
+)
+
+from tests.conftest import (
+    TestingSessionLocal,
+    seed_sales_history,
+)
 
 
+# =========================================================
+# TEST PAYLOAD
+# =========================================================
 
 def create_payload(
     sku="SKU100",
     warehouse="WH001",
-    quantity=40
+    quantity=40,
 ):
 
     return {
+
         "sku_id": sku,
+
         "product_name": "Laptop",
+
         "warehouse_id": warehouse,
+
         "quantity_on_hand": quantity,
-        "avg_daily_demand": 5,
+
         "lead_time_days": 4,
+
         "safety_stock": 10,
     }
 
 
+# =========================================================
+# CREATE
+# =========================================================
 
-# -----------------------------------
-# CREATE INVENTORY
-# -----------------------------------
+def test_create_inventory(
+    client,
+):
 
-def test_create_inventory(client):
+    seed_sales_history(
+        "SKU101",
+        "WH001",
+        daily_quantity=5,
+    )
 
     response = client.post(
         "/api/v1/inventory",
         json=create_payload(
             "SKU101"
-        )
+        ),
     )
-
 
     assert response.status_code == 201
 
+    data = response.json()
 
-    data=response.json()
+    assert data["sku_id"] == "SKU101"
+
+    assert (
+        data["warehouse_id"]
+        == "WH001"
+    )
+
+    assert (
+        data["avg_daily_demand"]
+        == 5
+    )
+
+    # C-tier:
+    # 5 * 4 + 10 = 30
+
+    assert (
+        data["reorder_point"]
+        == 30
+    )
 
 
-    assert data["sku_id"]=="SKU101"
-    assert data["warehouse_id"]=="WH001"
-    assert data["reorder_point"]==30
+# =========================================================
+# MANUAL DEMAND MUST BE REJECTED
+# =========================================================
+
+def test_manual_avg_daily_demand_rejected(
+    client,
+):
+
+    payload = create_payload(
+        "MANUAL1",
+        "WH001",
+        40,
+    )
+
+    payload[
+        "avg_daily_demand"
+    ] = 999
+
+    response = client.post(
+        "/api/v1/inventory",
+        json=payload,
+    )
+
+    assert response.status_code == 422
 
 
+# =========================================================
+# GET
+# =========================================================
 
+def test_get_inventory(
+    client,
+):
 
-
-# -----------------------------------
-# GET INVENTORY BY WAREHOUSE
-# -----------------------------------
-
-def test_get_inventory(client):
+    seed_sales_history(
+        "SKU100",
+        "WH001",
+        daily_quantity=5,
+    )
 
     client.post(
         "/api/v1/inventory",
-        json=create_payload()
+        json=create_payload(),
+    )
+
+    response = client.get(
+        "/api/v1/inventory/"
+        "SKU100/WH001"
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert (
+        data["sku_id"]
+        == "SKU100"
+    )
+
+    assert (
+        data["warehouse_id"]
+        == "WH001"
+    )
+
+    assert (
+        data["avg_daily_demand"]
+        == 5
     )
 
 
-    response=client.get(
-        "/api/v1/inventory/SKU100/WH001"
+# =========================================================
+# DYNAMIC REORDER
+# =========================================================
+
+def test_dynamic_reorder_point(
+    client,
+):
+
+    seed_sales_history(
+        "ROP1",
+        "WH001",
+        daily_quantity=5,
     )
 
-
-    assert response.status_code==200
-
-
-    data=response.json()
-
-
-    assert data["sku_id"]=="SKU100"
-    assert data["warehouse_id"]=="WH001"
-
-
-
-
-
-# -----------------------------------
-# REORDER CHECK
-# -----------------------------------
-
-def test_reorder_check(client):
-
-    client.post(
+    response = client.post(
         "/api/v1/inventory",
-        json=create_payload()
+        json=create_payload(
+            "ROP1",
+            quantity=40,
+        ),
+    )
+
+    assert response.status_code == 201
+
+    data = response.json()
+
+    assert (
+        data["reorder_point"]
+        == 30
     )
 
 
-    response=client.get(
-        "/api/v1/inventory/SKU100/WH001/reorder-check"
+# =========================================================
+# REORDER REQUIRED
+# =========================================================
+
+def test_reorder_required(
+    client,
+):
+
+    seed_sales_history(
+        "LOW1",
+        "WH001",
+        daily_quantity=5,
     )
-
-
-    data=response.json()
-
-
-    assert data["reorder_point"]==30
-    assert data["needs_reorder"] is False
-
-
-
-
-
-# -----------------------------------
-# BELOW REORDER POINT
-# -----------------------------------
-
-def test_reorder_required(client):
 
     client.post(
         "/api/v1/inventory",
         json=create_payload(
             "LOW1",
-            quantity=10
-        )
+            quantity=10,
+        ),
+    )
+
+    response = client.get(
+        "/api/v1/inventory/"
+        "LOW1/WH001/reorder-check"
+    )
+
+    data = response.json()
+
+    assert (
+        data["reorder_point"]
+        == 30
+    )
+
+    assert (
+        data["needs_reorder"]
+        is True
+    )
+
+    assert (
+        data["suggested_order_qty"]
+        == 20
     )
 
 
-    response=client.get(
-        "/api/v1/inventory/LOW1/WH001/reorder-check"
+# =========================================================
+# EXACT THRESHOLD
+# =========================================================
+
+def test_equal_reorder_point(
+    client,
+):
+
+    seed_sales_history(
+        "EQ1",
+        "WH001",
+        daily_quantity=5,
     )
-
-
-    data=response.json()
-
-
-    assert data["needs_reorder"] is True
-    assert data["suggested_order_qty"]==20
-
-
-
-
-
-# -----------------------------------
-# EQUAL REORDER POINT
-# -----------------------------------
-
-def test_equal_reorder_point(client):
 
     client.post(
         "/api/v1/inventory",
         json=create_payload(
             "EQ1",
-            quantity=30
-        )
+            quantity=30,
+        ),
+    )
+
+    response = client.get(
+        "/api/v1/inventory/"
+        "EQ1/WH001/reorder-check"
+    )
+
+    data = response.json()
+
+    assert (
+        data["reorder_point"]
+        == 30
+    )
+
+    # Exactly at ROP:
+    # no reorder
+
+    assert (
+        data["needs_reorder"]
+        is False
+    )
+
+    assert (
+        data["suggested_order_qty"]
+        == 0
     )
 
 
-    response=client.get(
-        "/api/v1/inventory/EQ1/WH001/reorder-check"
-    )
-
-
-    assert response.json()["needs_reorder"] is True
-
-
-
-
-
-# -----------------------------------
+# =========================================================
 # MULTI WAREHOUSE
-# -----------------------------------
+# =========================================================
 
-def test_same_sku_multiple_warehouses(client):
+def test_same_sku_multiple_warehouses(
+    client,
+):
 
+    seed_sales_history(
+        "MULTI1",
+        "WH001",
+        daily_quantity=5,
+    )
+
+    seed_sales_history(
+        "MULTI1",
+        "WH002",
+        daily_quantity=3,
+    )
 
     first = client.post(
         "/api/v1/inventory",
         json=create_payload(
             "MULTI1",
             "WH001",
-            100
-        )
+            100,
+        ),
     )
-
 
     second = client.post(
         "/api/v1/inventory",
         json=create_payload(
             "MULTI1",
             "WH002",
-            20
-        )
+            20,
+        ),
+    )
+
+    assert (
+        first.status_code
+        == 201
+    )
+
+    assert (
+        second.status_code
+        == 201
     )
 
 
-    assert first.status_code==201
-    assert second.status_code==201
-
-
-
-
-
-# -----------------------------------
+# =========================================================
 # REORDER PLAN
-# -----------------------------------
+# =========================================================
 
-def test_reorder_plan(client):
+def test_reorder_plan(
+    client,
+):
+
+    seed_sales_history(
+        "PLAN1",
+        "WH001",
+        daily_quantity=5,
+    )
 
     client.post(
         "/api/v1/inventory",
         json=create_payload(
             "PLAN1",
-            "WH001",
-            5
-        )
+            quantity=5,
+        ),
+    )
+
+    response = client.get(
+        "/api/v1/inventory/"
+        "reorder-plan"
+    )
+
+    assert (
+        response.status_code
+        == 200
+    )
+
+    data = response.json()
+
+    assert len(data) > 0
+
+    assert (
+        "urgency_score"
+        in data[0]
+    )
+
+    assert (
+        "rolling_avg_demand"
+        in data[0]
+    )
+
+    assert (
+        "abc_tier"
+        in data[0]
+    )
+
+    assert (
+        "adjusted_safety_stock"
+        in data[0]
     )
 
 
-    response=client.get(
-        "/api/v1/inventory/reorder-plan"
-    )
-
-
-    assert response.status_code==200
-
-
-    data=response.json()
-
-
-    assert len(data)>0
-    assert "urgency_score" in data[0]
-
-
-
-
-
-# -----------------------------------
+# =========================================================
 # LOW STOCK
-# -----------------------------------
+# =========================================================
 
-def test_low_stock(client):
+def test_low_stock(
+    client,
+):
+
+    seed_sales_history(
+        "LOW2",
+        "WH001",
+        daily_quantity=5,
+    )
 
     client.post(
         "/api/v1/inventory",
         json=create_payload(
             "LOW2",
-            quantity=5
+            quantity=5,
+        ),
+    )
+
+    response = client.get(
+        "/api/v1/inventory/"
+        "low-stock"
+    )
+
+    assert (
+        response.status_code
+        == 200
+    )
+
+    assert isinstance(
+        response.json(),
+        list,
+    )
+
+
+# =========================================================
+# SINGLE SKU SIMULATION
+# =========================================================
+
+def test_simulate(
+    client,
+):
+
+    seed_sales_history(
+        "SIM1",
+        "WH001",
+        daily_quantity=5,
+    )
+
+    client.post(
+        "/api/v1/inventory",
+        json=create_payload(
+            "SIM1"
+        ),
+    )
+
+    response = client.post(
+        "/api/v1/inventory/"
+        "SIM1/WH001/simulate",
+        json={
+            "demand_spike_percent": 50
+        },
+    )
+
+    assert (
+        response.status_code
+        == 200
+    )
+
+    data = response.json()
+
+    assert (
+        "new_reorder_point"
+        in data
+    )
+
+
+# =========================================================
+# WHAT IF +30%
+# =========================================================
+
+def test_what_if(
+    client,
+):
+
+    seed_sales_history(
+        "WHAT1",
+        "WH001",
+        daily_quantity=5,
+    )
+
+    client.post(
+        "/api/v1/inventory",
+        json=create_payload(
+            "WHAT1",
+            quantity=10,
+        ),
+    )
+
+    response = client.post(
+        "/api/v1/inventory/"
+        "what-if",
+        json={
+            "spike_percent": 30
+        },
+    )
+
+    assert (
+        response.status_code
+        == 200
+    )
+
+    data = response.json()
+
+    assert (
+        data["spike_percent"]
+        == 30
+    )
+
+    assert (
+        "total_items"
+        in data
+    )
+
+    assert (
+        "affected_items"
+        in data
+    )
+
+    assert (
+        "total_suggested_order_qty"
+        in data
+    )
+
+    assert (
+        "details"
+        in data
+    )
+
+
+# =========================================================
+# DELETE
+# =========================================================
+
+def test_delete_inventory(
+    client,
+):
+
+    seed_sales_history(
+        "DEL1",
+        "WH001",
+        daily_quantity=5,
+    )
+
+    client.post(
+        "/api/v1/inventory",
+        json=create_payload(
+            "DEL1"
+        ),
+    )
+
+    response = client.delete(
+        "/api/v1/inventory/"
+        "DEL1/WH001"
+    )
+
+    assert (
+        response.status_code
+        == 200
+    )
+
+
+# =========================================================
+# BULK ROLLBACK
+# =========================================================
+
+def test_bulk_update_failure(
+    client,
+):
+
+    seed_sales_history(
+        "BULK1",
+        "WH1",
+        daily_quantity=5,
+    )
+
+    create_response = (
+        client.post(
+            "/api/v1/inventory",
+            json=create_payload(
+                "BULK1",
+                "WH1",
+                50,
+            ),
         )
     )
 
-
-    response=client.get(
-        "/api/v1/inventory/low-stock"
+    assert (
+        create_response.status_code
+        == 201
     )
-
-
-    assert response.status_code==200
-    assert isinstance(response.json(),list)
-
-
-
-
-
-# -----------------------------------
-# DEMAND SPIKE
-# -----------------------------------
-
-def test_simulate(client):
-
-    client.post(
-        "/api/v1/inventory",
-        json=create_payload()
-    )
-
-
-    response=client.post(
-        "/api/v1/inventory/SKU100/WH001/simulate",
-        json={
-            "demand_spike_percent":50
-        }
-    )
-
-
-    assert response.status_code==200
-
-
-    data=response.json()
-
-
-    assert "new_reorder_point" in data
-
-
-
-
-
-# -----------------------------------
-# WHAT IF
-# -----------------------------------
-
-def test_what_if(client):
-
-    client.post(
-        "/api/v1/inventory",
-        json=create_payload()
-    )
-
-
-    response=client.post(
-        "/api/v1/inventory/what-if",
-        json={
-            "spike_percent":50
-        }
-    )
-
-
-    assert response.status_code==200
-
-    assert "affected_skus" in response.json()
-
-
-
-
-
-# -----------------------------------
-# DELETE
-# -----------------------------------
-
-def test_delete_inventory(client):
-
-    client.post(
-        "/api/v1/inventory",
-        json=create_payload()
-    )
-
-
-    response=client.delete(
-        "/api/v1/inventory/SKU100/WH001"
-    )
-
-
-    assert response.status_code==200
-
-
-
-
-
-# -----------------------------------
-# BULK UPDATE ROLLBACK
-# -----------------------------------
-# -----------------------------------
-# BULK UPDATE ROLLBACK
-# -----------------------------------
-
-def test_bulk_update_failure(client):
-
-    create_response = client.post(
-        "/api/v1/inventory/",
-        json={
-            "sku_id": "BULK1",
-            "product_name": "Laptop",
-            "warehouse_id": "WH1",
-            "quantity_on_hand": 50,
-            "avg_daily_demand": 5,
-            "lead_time_days": 2,
-            "safety_stock": 5
-        }
-    )
-
-
-    assert create_response.status_code == 201
-
 
     response = client.post(
-        "/api/v1/inventory/bulk-update",
+        "/api/v1/inventory/"
+        "bulk-update",
         json=[
+
             {
                 "sku_id": "BULK1",
                 "warehouse_id": "WH1",
-                "quantity_delta": -10
+                "quantity_delta": -10,
             },
+
             {
                 "sku_id": "INVALID",
                 "warehouse_id": "WH1",
-                "quantity_delta": -10
-            }
+                "quantity_delta": -10,
+            },
+        ],
+    )
+
+    assert (
+        response.status_code
+        == 409
+    )
+
+    check_response = client.get(
+        "/api/v1/inventory/"
+        "BULK1/WH1"
+    )
+
+    assert (
+        check_response.status_code
+        == 200
+    )
+
+    data = (
+        check_response.json()
+    )
+
+    # First update must also be rolled back.
+
+    assert (
+        data["quantity_on_hand"]
+        == 50
+    )
+
+
+# =========================================================
+# 1000 ITEM BULK
+# =========================================================
+
+def test_bulk_update_1000_items(
+    client,
+):
+
+    for i in range(1000):
+
+        response = client.post(
+            "/api/v1/inventory",
+            json=create_payload(
+                sku=f"LOAD{i}",
+                warehouse="WHLOAD",
+                quantity=100,
+            ),
+        )
+
+        assert (
+            response.status_code
+            == 201
+        )
+
+    updates = [
+
+        {
+            "sku_id": f"LOAD{i}",
+            "warehouse_id": "WHLOAD",
+            "quantity_delta": -1,
+        }
+
+        for i in range(1000)
+    ]
+
+    start = time.perf_counter()
+
+    response = client.post(
+        "/api/v1/inventory/"
+        "bulk-update",
+        json=updates,
+    )
+
+    elapsed = (
+        time.perf_counter()
+        - start
+    )
+
+    assert (
+        response.status_code
+        == 200
+    )
+
+    assert (
+        len(response.json())
+        == 1000
+    )
+
+    print(
+        f"\n1000-item bulk update: "
+        f"{elapsed:.4f} seconds"
+    )
+
+
+# =========================================================
+# NEGATIVE DEMAND
+# =========================================================
+
+def test_negative_demand_data(
+    client,
+):
+
+    db = TestingSessionLocal()
+
+    try:
+
+        db.add(
+            SalesHistory(
+
+                sku_id="NEG1",
+
+                warehouse_id="WH1",
+
+                sale_date=date.today(),
+
+                quantity_sold=-1,
+            )
+        )
+
+        db.commit()
+
+    finally:
+
+        db.close()
+
+    response = client.post(
+        "/api/v1/inventory",
+        json=create_payload(
+            "NEG1",
+            "WH1",
+            20,
+        ),
+    )
+
+    assert (
+        response.status_code
+        == 400
+    )
+
+    assert (
+        "Negative demand"
+        in response.json()["detail"]
+    )
+
+
+# =========================================================
+# ABC + 20% BOUNDARY
+# =========================================================
+
+def test_abc_boundary(
+    client,
+):
+
+    # Total sales volume:
+    #
+    # A = 20%
+    # B = 30%
+    # C = 50%
+    #
+    # A cumulative = 20% exactly
+    # therefore A.
+    #
+    # B cumulative = 50%
+    # therefore B.
+
+    seed_sales_history(
+        "ABC_A",
+        "WH1",
+        daily_quantity=20,
+    )
+
+    seed_sales_history(
+        "ABC_B",
+        "WH1",
+        daily_quantity=30,
+    )
+
+    seed_sales_history(
+        "ABC_C",
+        "WH1",
+        daily_quantity=50,
+    )
+
+    for sku in [
+        "ABC_A",
+        "ABC_B",
+        "ABC_C",
+    ]:
+
+        response = client.post(
+            "/api/v1/inventory",
+            json=create_payload(
+                sku,
+                "WH1",
+                1,
+            ),
+        )
+
+        assert (
+            response.status_code
+            == 201
+        )
+
+    response = client.get(
+        "/api/v1/inventory/"
+        "reorder-plan"
+    )
+
+    assert (
+        response.status_code
+        == 200
+    )
+
+    data = {
+        item["sku_id"]: item
+        for item in response.json()
+    }
+
+    assert (
+        data["ABC_A"]["abc_tier"]
+        == "A"
+    )
+
+    assert (
+        data["ABC_B"]["abc_tier"]
+        == "B"
+    )
+
+    assert (
+        data["ABC_C"]["abc_tier"]
+        == "C"
+    )
+
+    # Base safety stock = 10
+
+    assert (
+        data["ABC_A"][
+            "adjusted_safety_stock"
+        ]
+        == 15
+    )
+
+    assert (
+        data["ABC_B"][
+            "adjusted_safety_stock"
+        ]
+        == 12
+    )
+
+    assert (
+        data["ABC_C"][
+            "adjusted_safety_stock"
+        ]
+        == 10
+    )
+
+
+# =========================================================
+# TRANSFER
+# =========================================================
+
+def test_transfer_suggestion(
+    client,
+):
+
+    seed_sales_history(
+        "TR1",
+        "SOURCE",
+        daily_quantity=5,
+    )
+
+    seed_sales_history(
+        "TR1",
+        "DEST",
+        daily_quantity=5,
+    )
+
+    # Source = 100
+    client.post(
+        "/api/v1/inventory",
+        json=create_payload(
+            "TR1",
+            "SOURCE",
+            100,
+        ),
+    )
+
+    # Destination = 5
+    client.post(
+        "/api/v1/inventory",
+        json=create_payload(
+            "TR1",
+            "DEST",
+            5,
+        ),
+    )
+
+    response = client.get(
+        "/api/v1/inventory/"
+        "reorder-plan"
+    )
+
+    assert (
+        response.status_code
+        == 200
+    )
+
+    data = response.json()
+
+    destination = next(
+        item
+        for item in data
+        if item["warehouse_id"]
+        == "DEST"
+    )
+
+    transfer = (
+        destination[
+            "transfer_suggestion"
         ]
     )
 
+    assert transfer is not None
 
-    # Route converts service exception into 409
-    assert response.status_code == 409
+    assert (
+        transfer[
+            "source_warehouse"
+        ]
+        == "SOURCE"
+    )
 
+    assert (
+        transfer[
+            "destination_warehouse"
+        ]
+        == "DEST"
+    )
 
-    check_response = client.get(
-        "/api/v1/inventory/BULK1/WH1"
+    assert (
+        transfer[
+            "recommendation"
+        ]
+        == "TRANSFER"
     )
 
 
-    assert check_response.status_code == 200
+# =========================================================
+# UPDATE
+# =========================================================
 
+def test_update_inventory(
+    client,
+):
 
-    data = check_response.json()
+    seed_sales_history(
+        "UPD1",
+        "WH1",
+        daily_quantity=5,
+    )
 
-
-    # Verify rollback happened
-    assert data["quantity_on_hand"] == 50
-# -----------------------------------
-# CONCURRENT DECREMENT
-# -----------------------------------
-
-def test_concurrent_decrement(client):
-
-
-    create_response = client.post(
+    response = client.post(
         "/api/v1/inventory",
+        json=create_payload(
+            "UPD1",
+            "WH1",
+            50,
+        ),
+    )
+
+    assert (
+        response.status_code
+        == 201
+    )
+
+    response = client.put(
+        "/api/v1/inventory/"
+        "UPD1/WH1",
         json={
-            "sku_id": "CON1",
-            "product_name": "Phone",
-            "warehouse_id": "WH1",
-            "quantity_on_hand": 100,
-            "avg_daily_demand": 5,
-            "lead_time_days": 2,
-            "safety_stock": 10
-        }
+            "quantity_on_hand": 20,
+            "lead_time_days": 6,
+            "safety_stock": 20,
+        },
+    )
+
+    assert (
+        response.status_code
+        == 200
+    )
+
+    data = response.json()
+
+    # Demand comes from SalesHistory.
+    # Changing inventory settings does
+    # not change sales demand.
+
+    assert (
+        data["avg_daily_demand"]
+        == 5
     )
 
 
-    assert create_response.status_code == 201
+# =========================================================
+# MANUAL DEMAND UPDATE MUST FAIL
+# =========================================================
 
+def test_manual_demand_update_rejected(
+    client,
+):
 
-
-    results = []
-
-
-    def worker():
-
-        response = client.post(
-    "/api/v1/inventory/decrement",
-    params={
-        "sku_id": "CON1",
-        "warehouse_id": "WH1",
-        "quantity": 1
-    }
-)
-
-
-        results.append(
-            response.status_code
-        )
-
-
-
-    threads = []
-
-
-    for _ in range(10):
-
-        thread = threading.Thread(
-            target=worker
-        )
-
-        threads.append(thread)
-
-        thread.start()
-
-
-
-    for thread in threads:
-
-        thread.join()
-
-
-
-    assert len(results) == 10
-
-
-    print(results)
-
-    assert len(results) == 10
-
-
-
-    final_response = client.get(
-        "/api/v1/inventory/CON1/WH1"
+    seed_sales_history(
+        "UPD2",
+        "WH1",
+        daily_quantity=5,
     )
 
+    client.post(
+        "/api/v1/inventory",
+        json=create_payload(
+            "UPD2",
+            "WH1",
+            50,
+        ),
+    )
 
-    assert final_response.json()["quantity_on_hand"] == 90
+    response = client.put(
+        "/api/v1/inventory/"
+        "UPD2/WH1",
+        json={
+            "avg_daily_demand": 999
+        },
+    )
+
+    assert (
+        response.status_code
+        == 422
+    )

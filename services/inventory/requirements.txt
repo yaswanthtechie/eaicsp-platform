@@ -12,7 +12,6 @@ psycopg2-binary==2.9.10
 pydantic==2.10.4
 pydantic-settings==2.7.0
 
-
 # Environment Variables
 python-dotenv==1.0.1
 
@@ -21,5 +20,5 @@ python-multipart==0.0.20
 
 # Testing
 pytest==8.3.4
+pytest-cov==6.0.0
 httpx==0.28.1
-

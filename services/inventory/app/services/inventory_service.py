@@ -1,58 +1,102 @@
-from io import StringIO
 import csv
+import io
 
-from fastapi import UploadFile, HTTPException
+from fastapi import UploadFile
 from sqlalchemy.orm import Session
-from sqlalchemy import select
 
 from app.models.inventory import Inventory
+from app.models.sales_history import SalesHistory
 from app.schemas.inventory import (
     InventoryCreate,
     InventoryUpdate,
     BulkUpdateItem,
 )
+from app.services.reorder_service import (
+    calculate_reorder_point,
+    calculate_urgency_score,
+)
 
 
-class InventoryOperationError(Exception):
-    pass
+# =========================================================
+# RESPONSE
+# =========================================================
 
-
-# ---------------------------------------
-# Helper Functions
-# ---------------------------------------
-
-def calculate_reorder_point(item: Inventory) -> int:
-    return int(
-        (item.avg_daily_demand * item.lead_time_days)
-        + item.safety_stock
+def inventory_response(
+    inventory: Inventory,
+    db: Session,
+):
+    calculation = calculate_reorder_point(
+        db=db,
+        inventory=inventory,
     )
 
-
-def inventory_response(item: Inventory):
-
     return {
-        "sku_id": item.sku_id,
-        "product_name": item.product_name,
-        "warehouse_id": item.warehouse_id,
-        "quantity_on_hand": item.quantity_on_hand,
-        "reorder_point": calculate_reorder_point(item),
-        "avg_daily_demand": item.avg_daily_demand,
-        "lead_time_days": item.lead_time_days,
-        "safety_stock": item.safety_stock,
+        "sku_id": inventory.sku_id,
+        "product_name": inventory.product_name,
+        "warehouse_id": inventory.warehouse_id,
+        "quantity_on_hand": inventory.quantity_on_hand,
+        "reorder_point": calculation["reorder_point"],
+        "avg_daily_demand": calculation["rolling_avg_demand"],
+        "lead_time_days": inventory.lead_time_days,
+        "safety_stock": calculation["adjusted_safety_stock"],
     }
 
 
+# =========================================================
+# CREATE
+# =========================================================
 
-# ---------------------------------------
-# Get Inventory
-# ---------------------------------------
+def create_inventory(
+    db: Session,
+    inventory: InventoryCreate,
+):
+    existing = (
+        db.query(Inventory)
+        .filter(
+            Inventory.sku_id == inventory.sku_id,
+            Inventory.warehouse_id == inventory.warehouse_id,
+        )
+        .first()
+    )
+
+    if existing:
+        return None
+
+    item = Inventory(
+        sku_id=inventory.sku_id,
+        product_name=inventory.product_name,
+        warehouse_id=inventory.warehouse_id,
+        quantity_on_hand=inventory.quantity_on_hand,
+        lead_time_days=inventory.lead_time_days,
+        safety_stock=inventory.safety_stock,
+    )
+
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+
+    return item
+
+
+# =========================================================
+# GET ALL
+# =========================================================
+
+def get_all_inventory(
+    db: Session,
+):
+    return db.query(Inventory).all()
+
+
+# =========================================================
+# GET SINGLE
+# =========================================================
 
 def get_inventory(
     db: Session,
     sku_id: str,
     warehouse_id: str,
 ):
-
     return (
         db.query(Inventory)
         .filter(
@@ -63,65 +107,9 @@ def get_inventory(
     )
 
 
-
-def get_all_inventory(db: Session):
-
-    items = (
-        db.query(Inventory)
-        .all()
-    )
-
-    return [
-        inventory_response(item)
-        for item in items
-    ]
-
-
-
-# ---------------------------------------
-# Create Inventory
-# ---------------------------------------
-
-def create_inventory(
-    db: Session,
-    inventory: InventoryCreate,
-):
-
-    existing = get_inventory(
-        db,
-        inventory.sku_id,
-        inventory.warehouse_id,
-    )
-
-    if existing:
-        return None
-
-
-    item = Inventory(
-        sku_id=inventory.sku_id,
-        warehouse_id=inventory.warehouse_id,
-        product_name=inventory.product_name,
-        quantity_on_hand=inventory.quantity_on_hand,
-        avg_daily_demand=inventory.avg_daily_demand,
-        lead_time_days=inventory.lead_time_days,
-        safety_stock=inventory.safety_stock,
-    )
-
-
-    db.add(item)
-
-    db.commit()
-
-    db.refresh(item)
-
-
-    return inventory_response(item)
-
-
-
-# ---------------------------------------
-# Update Inventory
-# ---------------------------------------
+# =========================================================
+# UPDATE
+# =========================================================
 
 def update_inventory(
     db: Session,
@@ -129,215 +117,110 @@ def update_inventory(
     warehouse_id: str,
     inventory: InventoryUpdate,
 ):
-
     item = get_inventory(
         db,
         sku_id,
         warehouse_id,
     )
 
-
     if item is None:
         return None
 
-
-    data = inventory.model_dump(
+    update_data = inventory.model_dump(
         exclude_unset=True
     )
 
-
-    for key, value in data.items():
-        setattr(
-            item,
-            key,
-            value
-        )
-
+    for field, value in update_data.items():
+        setattr(item, field, value)
 
     db.commit()
-
     db.refresh(item)
 
-
-    return inventory_response(item)
-
+    return item
 
 
-# ---------------------------------------
-# Delete Inventory
-# ---------------------------------------
+# =========================================================
+# DELETE
+# =========================================================
 
 def delete_inventory(
     db: Session,
     sku_id: str,
     warehouse_id: str,
 ):
-
     item = get_inventory(
         db,
         sku_id,
         warehouse_id,
     )
-
 
     if item is None:
         return False
-    
-    
-    db.delete(item)
 
+    db.delete(item)
     db.commit()
 
-
     return True
-# ---------------------------------------
-# Reorder Check
-# ---------------------------------------
-
-def reorder_check(
-    db: Session,
-    sku_id: str,
-    warehouse_id: str,
-):
-
-    item = get_inventory(
-        db,
-        sku_id,
-        warehouse_id,
-    )
 
 
-    if item is None:
-        return None
-
-
-    reorder_point = calculate_reorder_point(item)
-
-
-    return {
-        "sku_id": item.sku_id,
-        "current_qty": item.quantity_on_hand,
-        "reorder_point": reorder_point,
-        "needs_reorder":
-            item.quantity_on_hand <= reorder_point,
-        "suggested_order_qty":
-            max(
-                0,
-                reorder_point - item.quantity_on_hand
-            ),
-    }
-
-
-
-# ---------------------------------------
-# Low Stock Items
-# ---------------------------------------
+# =========================================================
+# LOW STOCK
+# =========================================================
 
 def get_low_stock_items(
     db: Session,
 ):
-
-    items = (
-        db.query(Inventory)
-        .all()
-    )
-
+    inventories = db.query(Inventory).all()
 
     result = []
 
-
-    for item in items:
-
-        reorder_point = calculate_reorder_point(
-            item
+    for inventory in inventories:
+        calculation = calculate_reorder_point(
+            db=db,
+            inventory=inventory,
         )
 
+        reorder_point = calculation[
+            "reorder_point"
+        ]
 
-        if item.quantity_on_hand <= reorder_point:
+        if inventory.quantity_on_hand >= reorder_point:
+            continue
 
-            result.append(
-                {
-                    "sku_id": item.sku_id,
-                    "product_name": item.product_name,
-                    "quantity_on_hand":
-                        item.quantity_on_hand,
-                    "reorder_point":
-                        reorder_point,
-                }
-            )
+        avg_demand = calculation[
+            "rolling_avg_demand"
+        ]
 
+        urgency_score = calculate_urgency_score(
+            quantity_on_hand=inventory.quantity_on_hand,
+            reorder_point=reorder_point,
+            avg_daily_demand=avg_demand,
+        )
+
+        if urgency_score <= 1:
+            urgency_days = 1
+        elif urgency_score <= 3:
+            urgency_days = 3
+        else:
+            urgency_days = 5
+
+        result.append(
+            {
+                "sku_id": inventory.sku_id,
+                "product_name": inventory.product_name,
+                "warehouse_id": inventory.warehouse_id,
+                "quantity_on_hand": inventory.quantity_on_hand,
+                "reorder_point": reorder_point,
+                "urgency_days": urgency_days,
+            }
+        )
 
     return result
 
 
-
-# ---------------------------------------
-# Multi Warehouse Reorder Plan
-# ---------------------------------------
-
-def get_reorder_plan(
-    db: Session,
-):
-
-    items = (
-        db.query(Inventory)
-        .all()
-    )
-
-
-    plan = []
-
-
-    for item in items:
-
-        reorder_point = calculate_reorder_point(
-            item
-        )
-
-
-        if item.avg_daily_demand > 0:
-
-            urgency = (
-                reorder_point -
-                item.quantity_on_hand
-            ) / item.avg_daily_demand
-
-        else:
-
-            urgency = 0
-
-
-
-        plan.append(
-            {
-                "sku_id": item.sku_id,
-                "product_name": item.product_name,
-                "warehouse_id": item.warehouse_id,
-                "quantity_on_hand":
-                    item.quantity_on_hand,
-                "reorder_point":
-                    reorder_point,
-                "urgency_score":
-                    urgency,
-            }
-        )
-
-
-    # Highest urgency first
-
-    plan.sort(
-        key=lambda x: x["urgency_score"],
-        reverse=True
-    )
-
-
-    return plan
-
-
-
-# ---------------------------------------
-# Demand Spike Simulation
-# ---------------------------------------
+# =========================================================
+# DEMAND SPIKE / SIMULATION
+# =========================================================
 
 def simulate_demand_spike(
     db: Session,
@@ -345,392 +228,286 @@ def simulate_demand_spike(
     warehouse_id: str,
     demand_spike_percent: float,
 ):
-
-    item = get_inventory(
+    inventory = get_inventory(
         db,
         sku_id,
         warehouse_id,
     )
 
-
-    if item is None:
+    if inventory is None:
         return None
 
-
-
-    new_demand = (
-        item.avg_daily_demand *
-        (
-            1 +
-            demand_spike_percent / 100
-        )
+    calculation = calculate_reorder_point(
+        db=db,
+        inventory=inventory,
     )
 
+    current_demand = calculation[
+        "rolling_avg_demand"
+    ]
 
+    new_demand = current_demand * (
+        1 + demand_spike_percent / 100
+    )
 
     new_reorder_point = int(
-        (
-            new_demand *
-            item.lead_time_days
-        )
-        +
-        item.safety_stock
+        new_demand * inventory.lead_time_days
+        + inventory.safety_stock
     )
 
+    needs_reorder = (
+        inventory.quantity_on_hand
+        < new_reorder_point
+    )
 
+    suggested_order_qty = max(
+        new_reorder_point
+        - inventory.quantity_on_hand,
+        0,
+    )
 
     return {
-
-        "sku_id": item.sku_id,
-
-        "current_quantity":
-            item.quantity_on_hand,
-
-        "new_reorder_point":
-            new_reorder_point,
-
-        "needs_reorder":
-            item.quantity_on_hand
-            <= new_reorder_point,
-
-
-        "suggested_order_qty":
-            max(
-                0,
-                new_reorder_point -
-                item.quantity_on_hand
-            )
+        "sku_id": inventory.sku_id,
+        "current_quantity": inventory.quantity_on_hand,
+        "new_reorder_point": new_reorder_point,
+        "needs_reorder": needs_reorder,
+        "suggested_order_qty": suggested_order_qty,
     }
 
 
+# =========================================================
+# BULK UPDATE
+# =========================================================
 
-# ---------------------------------------
-# What If Simulation
-# ---------------------------------------
-
-def what_if_simulation(
+def bulk_update_inventory(
+    updates: list[BulkUpdateItem],
     db: Session,
-    spike_percent: float,
 ):
-
-    items = (
-        db.query(Inventory)
-        .all()
-    )
-
-
-    affected = []
-
-
-    for item in items:
-
-
-        new_demand = (
-            item.avg_daily_demand *
-            (
-                1 +
-                spike_percent / 100
-            )
-        )
-
-
-        new_reorder_point = int(
-            (
-                new_demand *
-                item.lead_time_days
-            )
-            +
-            item.safety_stock
-        )
-
-
-        if item.quantity_on_hand <= new_reorder_point:
-
-
-            affected.append(
-                {
-                    "sku_id":
-                        item.sku_id,
-
-                    "warehouse_id":
-                        item.warehouse_id,
-
-                    "current_quantity":
-                        item.quantity_on_hand,
-
-                    "new_reorder_point":
-                        new_reorder_point
-                }
-            )
-
-
-    return {
-        "spike_percent": spike_percent,
-        "affected_skus": affected
-    }
-
-
-
-# ---------------------------------------
-# Bulk Update Inventory
-# Transaction + Row Locking
-# ---------------------------------------
-
-def bulk_update_inventory(items, db):
+    updated_items = []
 
     try:
-
-        # Always lock rows in same order
-        # Prevents PostgreSQL deadlocks
-        items = sorted(
-            items,
-            key=lambda x: (
-                x.sku_id,
-                x.warehouse_id
-            )
-        )
-
-
-        updated_items = []
-
-
-        for item in items:
-
-
-            inventory = (
+        for update in updates:
+            item = (
                 db.query(Inventory)
                 .filter(
-                    Inventory.sku_id == item.sku_id,
-                    Inventory.warehouse_id == item.warehouse_id
+                    Inventory.sku_id == update.sku_id,
+                    Inventory.warehouse_id
+                    == update.warehouse_id,
                 )
-                .with_for_update()
                 .first()
             )
 
-
-            if inventory is None:
-
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Inventory not found: {item.sku_id}"
+            if item is None:
+                raise ValueError(
+                    f"Inventory not found: "
+                    f"{update.sku_id}/"
+                    f"{update.warehouse_id}"
                 )
-
 
             new_quantity = (
-                inventory.quantity_on_hand
-                +
-                item.quantity_delta
+                item.quantity_on_hand
+                + update.quantity_delta
             )
-
 
             if new_quantity < 0:
-
-                raise HTTPException(
-                    status_code=409,
-                    detail="Insufficient inventory quantity"
+                raise ValueError(
+                    f"Quantity cannot be negative "
+                    f"for {update.sku_id}/"
+                    f"{update.warehouse_id}"
                 )
 
+            item.quantity_on_hand = new_quantity
 
-            inventory.quantity_on_hand = new_quantity
-
-
-            updated_items.append(
-                inventory
-            )
-
+            updated_items.append(item)
 
         db.commit()
 
+        for item in updated_items:
+            db.refresh(item)
 
-        return [
-            inventory_response(item)
-            for item in updated_items
-        ]
+        return updated_items
 
-
-    except HTTPException:
-
+    except Exception:
         db.rollback()
         raise
 
 
-    except Exception as e:
-
-        db.rollback()
-
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
-
-
-# ---------------------------------------
-# CSV Bulk Upload
-# ---------------------------------------
+# =========================================================
+# CSV BULK UPLOAD
+# =========================================================
 
 def bulk_upload_csv(
     db: Session,
     file: UploadFile,
 ):
+    content = file.file.read()
 
-
-    if not file.filename.endswith(".csv"):
-
-        raise HTTPException(
-            status_code=400,
-            detail="Only CSV files allowed"
-        )
-
-
-    try:
-
-        content = (
-            file.file
-            .read()
-            .decode("utf-8")
-        )
-
-
-    except Exception:
-
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid CSV file"
-        )
-
-
+    if isinstance(content, bytes):
+        content = content.decode("utf-8")
 
     reader = csv.DictReader(
-        StringIO(content)
+        io.StringIO(content)
     )
 
+    total_records = 0
 
-    required_columns = {
+    for row in reader:
 
-        "sku_id",
-        "product_name",
-        "warehouse_id",
-        "quantity_on_hand",
-        "avg_daily_demand",
-        "lead_time_days",
-        "safety_stock",
+        sku_id = row["sku_id"]
+        warehouse_id = row["warehouse_id"]
 
+        # =====================================================
+        # Check existing inventory
+        # =====================================================
+
+        existing = get_inventory(
+            db,
+            sku_id,
+            warehouse_id,
+        )
+
+        if existing:
+            continue
+
+        # =====================================================
+        # Get sales history for this SKU + warehouse
+        # =====================================================
+
+        sales = (
+            db.query(SalesHistory)
+            .filter(
+                SalesHistory.sku_id == sku_id,
+                SalesHistory.warehouse_id == warehouse_id,
+            )
+            .all()
+        )
+
+        # =====================================================
+        # Calculate average daily demand automatically
+        # =====================================================
+
+        if sales:
+
+            total_sales = sum(
+                sale.quantity_sold
+                for sale in sales
+            )
+
+            sales_days = len(sales)
+
+            avg_daily_demand = round(
+                total_sales / sales_days,
+                2
+            )
+
+        else:
+
+            # No sales history found
+            avg_daily_demand = 0.0
+
+        # =====================================================
+        # Create inventory
+        # =====================================================
+
+        item = Inventory(
+            sku_id=sku_id,
+            product_name=row["product_name"],
+            warehouse_id=warehouse_id,
+
+            quantity_on_hand=int(
+                row["quantity_on_hand"]
+            ),
+
+            avg_daily_demand=avg_daily_demand,
+
+            lead_time_days=int(
+                row["lead_time_days"]
+            ),
+
+            safety_stock=int(
+                row["safety_stock"]
+            ),
+        )
+
+        db.add(item)
+
+        total_records += 1
+
+    # =========================================================
+    # Save
+    # =========================================================
+
+    db.commit()
+
+    return {
+        "message": "CSV uploaded successfully",
+        "total_records": total_records,
     }
 
+# =========================================================
+# WHAT-IF
+# =========================================================
 
+def what_if_simulation(
+    db: Session,
+    spike_percent: float,
+):
+    inventories = db.query(Inventory).all()
 
-    if reader.fieldnames is None:
+    result = []
 
-        raise HTTPException(
-            status_code=400,
-            detail="Empty CSV"
+    for inventory in inventories:
+        calculation = calculate_reorder_point(
+            db=db,
+            inventory=inventory,
         )
 
+        current_demand = calculation[
+            "rolling_avg_demand"
+        ]
 
-
-    missing = (
-        required_columns
-        -
-        set(reader.fieldnames)
-    )
-
-
-    if missing:
-
-        raise HTTPException(
-            status_code=400,
-            detail=
-            f"Missing columns {missing}"
+        new_demand = current_demand * (
+            1 + spike_percent / 100
         )
 
+        new_reorder_point = int(
+            new_demand
+            * inventory.lead_time_days
+            + inventory.safety_stock
+        )
 
+        needs_reorder = (
+            inventory.quantity_on_hand
+            < new_reorder_point
+        )
 
-    inserted = 0
+        suggested_order_qty = max(
+            new_reorder_point
+            - inventory.quantity_on_hand,
+            0,
+        )
 
+        result.append(
+            {
+                "sku_id": inventory.sku_id,
+                "current_quantity": inventory.quantity_on_hand,
+                "new_reorder_point": new_reorder_point,
+                "needs_reorder": needs_reorder,
+                "suggested_order_qty": suggested_order_qty,
+            }
+        )
 
-
-    try:
-
-
-        for row in reader:
-            
-            existing = get_inventory(
-                db,
-                row["sku_id"],
-                row["warehouse_id"],
-            )
-
-
-
-            if existing:
-
-                raise HTTPException(
-                    status_code=409,
-                    detail=
-                    f"Duplicate SKU "
-                    f"{row['sku_id']} "
-                    f"in warehouse "
-                    f"{row['warehouse_id']}"
-                )
-
-
-
-            item = Inventory(
-
-                sku_id=
-                    row["sku_id"],
-
-                warehouse_id=
-                    row["warehouse_id"],
-
-                product_name=
-                    row["product_name"],
-
-                quantity_on_hand=
-                    int(
-                        row["quantity_on_hand"]
-                    ),
-
-                avg_daily_demand=
-                    float(
-                        row["avg_daily_demand"]
-                    ),
-
-                lead_time_days=
-                    int(
-                        row["lead_time_days"]
-                    ),
-
-                safety_stock=
-                    int(
-                        row["safety_stock"]
-                    ),
-            )
-
-
-            db.add(item)
-
-            inserted += 1
-
-
-
-        db.commit()
-
-
-
-        return {
-
-            "message":
-                "CSV uploaded successfully",
-
-            "total_records":
-                inserted
-        }
-
-
-
-    except Exception:
-
-        db.rollback()
-
-        raise
+    return {
+        "spike_percent": spike_percent,
+        "total_items": len(result),
+        "affected_items": sum(
+            1
+            for item in result
+            if item["needs_reorder"]
+        ),
+        "total_suggested_order_qty": sum(
+            item["suggested_order_qty"]
+            for item in result
+        ),
+        "details": result,
+    }
