@@ -710,3 +710,277 @@ MODEL_STAGE Configuration   : Completed
 Test Cleanup                : Completed
 MLflow Compatibility Check  : Completed
 Full Test Suite             : Passed
+
+
+
+### Round 4
+1. Overview
+
+R4 extends the R3 ML service with prediction monitoring, deterministic canary/A-B serving, simulated retraining checks, manual retraining, promotion edge-case tests, input validation, and forward-looking integration documentation.
+
+2. Health Check
+
+The /health endpoint confirms that the service is running and identifies the currently served model version.
+
+Example response:
+{
+  "status": "healthy",
+  "model_version": "6",
+  "canary_prediction": "setosa"
+}
+
+This confirms that the service is healthy, model version 6 is being served, and a canary prediction can be generated.
+
+3. Prediction Monitoring
+
+The /metrics/summary endpoint provides real monitoring information collected from actual prediction requests.
+
+Example response:
+{
+  "request_volume": 304,
+  "latency_ms": {
+    "p50": 13,
+    "p95": 40
+  },
+  "volume_over_time": {
+    "2026-08-13T10:05": 18,
+    "2026-08-13T10:08": 36,
+    "2026-08-13T10:12": 18,
+    "2026-08-13T10:24": 18,
+    "2026-08-13T10:25": 18,
+    "2026-08-13T10:30": 1
+  }
+}
+
+This demonstrates 304 recorded prediction requests, P50 latency of 13 ms, P95 latency of 40 ms, and request volume tracked over time. Prediction latency is stored in a local SQLite monitoring database.
+
+4. Single Prediction
+
+The /predict endpoint performs a validated prediction using the served model.
+
+Example input:
+{
+  "request": {
+    "features": [5.1, 3.5, 1.4, 0.3]
+  }
+}
+
+Example response:
+{
+  "prediction": "setosa",
+  "confidence": 1,
+  "model_version": "6",
+  "latency_ms": 15.47,
+  "probabilities": {
+    "setosa": 1,
+    "versicolor": 0,
+    "virginica": 0
+  }
+}
+5. Metrics
+
+Endpoint:
+
+```
+/metrics
+```
+
+Response:
+
+```json
+``
+{
+    "total_predictions": 4,
+    "total_batches": 1,
+    "average_prediction_latency_ms": 47.71,
+    "average_batch_latency_ms": 46.86,
+    "error_count": 0,
+    "model_version": "6"
+}
+
+6. Batch Prediction
+
+The /predict_batch endpoint supports multiple inputs in a single request.
+
+Example input:
+{
+  "request": {
+    "features": [
+      [5.1, 3.5, 1.4, 0.2],
+      [6.7, 3.1, 4.7, 1.5],
+      [7.2, 3.6, 6.1, 2.5]
+    ]
+  }
+}
+
+Example response:
+{
+  "predictions": [
+    {
+      "prediction": "setosa",
+      "confidence": 1,
+      "probabilities": {
+        "setosa": 1,
+        "versicolor": 0,
+        "virginica": 0
+      },
+      "latency_ms": 15.84,
+      "model_version": "6"
+    },
+    {
+      "prediction": "versicolor",
+      "confidence": 0.9965,
+      "probabilities": {
+        "setosa": 0,
+        "versicolor": 0.9965,
+        "virginica": 0.0035
+      },
+      "latency_ms": 15.84,
+      "model_version": "6"
+    },
+    {
+      "prediction": "virginica",
+      "confidence": 1,
+      "probabilities": {
+        "setosa": 0,
+        "versicolor": 0,
+        "virginica": 1
+      },
+      "latency_ms": 15.84,
+      "model_version": "6"
+    }
+  ],
+  "batch_latency_ms": 15.84
+}
+
+7.Simulated Retraining Check
+
+The /retrain/check endpoint checks whether recent input data has significant drift compared with the training data.
+
+Example low-drift response:
+{
+  "retrain_needed": false,
+  "reason": "No significant drift detected",
+  "drift_score": 0.4174,
+  "threshold": 1,
+  "sample_count": 4
+}
+
+Because 0.4174 is below the threshold of 1, retraining is not required for this example. A shifted input dataset can produce retrain_needed=true when its drift score exceeds the configured threshold.
+
+8. Manual Retraining Trigger
+
+The /retrain/trigger endpoint manually starts the existing training pipeline.
+
+Example response:
+{
+  "status": "retraining_completed",
+  "message": "Model retraining completed successfully",
+  "model_type": "RandomForestClassifier"
+}
+
+The manual trigger is intentionally available even when retrain_needed=false. The check answers whether retraining is recommended, while the trigger explicitly starts training. Automated scheduling is not implemented in R4.
+
+9. Canary / A-B Serving
+
+Two model versions can be served simultaneously using deterministic request-based routing. The configured traffic split is demonstrated using a request hash, so the same input consistently maps to the same model version.
+
+The served model version is logged for each request. This demonstrates version-per-request observability and deterministic canary routing.
+
+10. Promotion Edge Cases
+
+The test suite covers the following model registry cases:
+
+Promotion from Staging to Production.
+
+Promotion auditing.
+
+Production serving follows the production alias rather than a hard-coded model path.
+
+Attempting to promote a non-existent model version.
+
+Demoting Production back to Staging.
+
+11. Input Validation
+
+The test suite validates malformed and missing inference requests, including:
+
+Malformed prediction input.
+
+Missing prediction input.
+
+Invalid feature type.
+
+Invalid feature count.
+
+Missing batch input.
+
+Invalid batch feature count.
+
+Empty batch input.
+
+Invalid batch feature type.
+
+12. Test Verification
+
+The complete test suite was executed with pytest.
+
+Result: 43 passed, 39 warnings, 0 failed.
+
+The warnings are dependency deprecation warnings from installed packages and do not represent failed tests.
+
+R4 Requirement
+
+Verification
+
+Prediction monitoring
+
+/metrics/summary returns real request volume and P50/P95 latency.
+
+Local monitoring store
+
+Prediction records are stored in SQLite.
+
+Canary/A-B serving
+
+Deterministic traffic split is tested.
+
+Version-per-request logging
+
+Served model version is recorded.
+
+Retraining check
+
+/retrain/check detects input drift.
+
+Manual retraining
+
+/retrain/trigger executes the training pipeline.
+
+Promotion edge cases
+
+Invalid versions and demotion are tested.
+
+Input validation
+
+Malformed/missing input cases are tested.
+
+Test coverage
+
+43 tests passed.
+
+Future integration
+
+Documented as future work; not implemented in R4.
+
+13. Future Integration
+
+The current R4 implementation provides the core ML serving and monitoring functionality locally. In a future round, the service can later be connected to external MLOps infrastructure.
+
+Possible future integrations include Prometheus for metrics collection, Grafana for dashboards, Evidently for data/model monitoring, and Kubernetes for deployment and scaling.
+
+Important: Prometheus, Grafana, Evidently, and Kubernetes are not integrated in R4. They are documented only as future integration points. Automated retraining scheduling is also not implemented in R4.
+
+14. R4 Definition of Done
+
+The R4 definition of done is satisfied by demonstrating deterministic canary routing with logged model versions and real latency percentiles from actual served prediction requests. The service also includes retraining checks, manual retraining, validation, promotion edge-case tests, and forward-looking integration documentation.
