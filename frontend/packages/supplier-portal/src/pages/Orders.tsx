@@ -36,9 +36,9 @@ const { data, loading, error, fetchMore } =
     endDate: endDate || undefined,
   });
 
-  if (loading && !data) return <Loading />;
+if (loading && !data) return <Loading />;
 
-  if (error) return <ErrorState />; 
+if (error && !data) return <ErrorState />;
 
   const orders: PurchaseOrder[] =
     data?.purchaseOrders?.edges?.map(

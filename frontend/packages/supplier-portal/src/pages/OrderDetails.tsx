@@ -23,13 +23,13 @@ const OrderDetails = () => {
   const { acknowledgePO } = useAcknowledgePO();
 
   // Prevent polling from replacing the page with a loader
-  if (loading && !data) {
-    return <Loading />;
-  }
+ if (loading && !data) {
+  return <Loading />;
+}
 
-  if (error) {
-    return <ErrorState />;
-  }
+if (error && !data) {
+  return <ErrorState />;
+}
 
   const orders: PurchaseOrder[] =
     data?.purchaseOrders?.edges?.map(

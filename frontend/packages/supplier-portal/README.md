@@ -508,10 +508,14 @@ The cache helps:
 
 # Optimistic UI
 
-When a supplier acknowledges a Purchase Order, the UI can update immediately before the backend response is received.
+When a supplier acknowledges a Purchase Order, the UI updates immediately before the backend response is received.
+
+Apollo Client uses an optimistic response in `useAcknowledgePO.ts` to update the normalized `PurchaseOrder` cache immediately. The Purchase Order is normalized using `po_number` as its cache key.
 
 ```text
 User clicks Acknowledge
+        ↓
+Apollo applies optimistic response
         ↓
 UI immediately shows ACKNOWLEDGED
         ↓
@@ -521,7 +525,7 @@ Server processes request
         ↓
 Success → Keep update
         ↓
-Failure → Handle error / rollback
+Failure → Apollo rolls back optimistic update
 ```
 
 This improves perceived application performance.

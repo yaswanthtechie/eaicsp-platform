@@ -11,7 +11,7 @@ import { colors } from "../tokens";
 
 const Invoice = () => {
   const {
-    submitInvoice,
+    submitInvoiceWithOfflineSupport,
     acknowledgedPOs,
     loading,
     error,
@@ -42,14 +42,13 @@ const Invoice = () => {
   const [isSubmitting, setIsSubmitting] =
     useState(false);
 
-  // Important:
   // Only show the full-page loader when
   // there is no previous data.
   //
   // Because usePurchaseOrders polls, loading
   // can become true again every few seconds.
-  // This condition prevents the form from
-  // disappearing while the supplier is typing.
+  // This prevents the form from disappearing
+  // while the supplier is typing.
   if (loading && !data) {
     return <Loading />;
   }
@@ -99,7 +98,6 @@ const Invoice = () => {
     }
 
     const today = new Date();
-
     const invoiceDate = new Date(date);
 
     if (invoiceDate > today) {
@@ -112,18 +110,23 @@ const Invoice = () => {
     setIsSubmitting(true);
 
     try {
-      await submitInvoice({
-        variables: {
-          invoiceNumber,
+      const result =
+        await submitInvoiceWithOfflineSupport(
+          invoiceNumber.trim(),
           poReference,
-          amount: Number(amount),
-          date,
-        },
-      });
+          Number(amount),
+          date
+        );
 
-      toast.success(
-        "Invoice Submitted Successfully!"
-      );
+      if (result.queued) {
+        toast.info(
+          "Invoice queued. It will be submitted when you are back online."
+        );
+      } else {
+        toast.success(
+          "Invoice Submitted Successfully!"
+        );
+      }
 
       setInvoiceNumber("");
       setPoReference("");
@@ -157,9 +160,7 @@ const Invoice = () => {
           placeholder="INV001"
           value={invoiceNumber}
           onChange={(e) =>
-            setInvoiceNumber(
-              e.target.value
-            )
+            setInvoiceNumber(e.target.value)
           }
         />
 
@@ -182,9 +183,7 @@ const Invoice = () => {
           <select
             value={poReference}
             onChange={(e) =>
-              setPoReference(
-                e.target.value
-              )
+              setPoReference(e.target.value)
             }
           >
             <option value="">

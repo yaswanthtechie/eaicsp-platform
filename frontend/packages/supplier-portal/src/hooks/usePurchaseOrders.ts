@@ -1,6 +1,6 @@
 import { useQuery } from "@apollo/client";
 import { GET_PURCHASE_ORDERS } from "../graphql/queries";
-import { POLLING_INTERVAL } from "../constants/pagination"; 
+import { POLLING_INTERVAL } from "../constants/pagination";
 
 interface PurchaseOrdersVariables {
   first: number;
@@ -20,5 +20,6 @@ export function usePurchaseOrders(
     variables,
     notifyOnNetworkStatusChange: true,
     pollInterval: POLLING_INTERVAL,
+    errorPolicy: "all",
   });
 }

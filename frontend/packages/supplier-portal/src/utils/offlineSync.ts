@@ -12,12 +12,14 @@ let isSyncing = false;
 
 export async function syncOfflineActions(
   handler: SyncHandler
-): Promise<void> {
+): Promise<number> {
   if (!navigator.onLine || isSyncing) {
-    return;
+    return 0;
   }
 
   isSyncing = true;
+
+  let syncedCount = 0;
 
   try {
     const actions = getOfflineActions();
@@ -27,6 +29,7 @@ export async function syncOfflineActions(
         await handler(action.type, action.payload);
 
         removeOfflineAction(action.id);
+        syncedCount += 1;
       } catch (error) {
         console.error(
           "Failed to sync offline action:",
@@ -34,11 +37,13 @@ export async function syncOfflineActions(
           error
         );
 
-        // Stop here so the action remains in the queue
-        // and can be retried when the connection is available.
-        break;
+        // Skip the failed/unsupported action
+        // and continue with the remaining actions.
+        continue;
       }
     }
+
+    return syncedCount;
   } finally {
     isSyncing = false;
   }

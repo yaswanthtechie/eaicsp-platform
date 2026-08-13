@@ -5,22 +5,30 @@ export function useOfflineSync(
   handler: (
     type: string,
     payload: Record<string, unknown>
-  ) => Promise<void>
+  ) => Promise<void>,
+  onSyncComplete?: (count: number) => void
 ) {
   useEffect(() => {
     const handleOnline = () => {
-      void syncOfflineActions(handler);
+      void syncOfflineActions(handler).then((count) => {
+        if (count > 0) {
+          onSyncComplete?.(count);
+        }
+      });
     };
 
     window.addEventListener("online", handleOnline);
 
-    // Try syncing once when the application starts.
     if (navigator.onLine) {
-      void syncOfflineActions(handler);
+      void syncOfflineActions(handler).then((count) => {
+        if (count > 0) {
+          onSyncComplete?.(count);
+        }
+      });
     }
 
     return () => {
       window.removeEventListener("online", handleOnline);
     };
-  }, [handler]);
+  }, [handler, onSyncComplete]);
 }

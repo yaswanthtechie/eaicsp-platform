@@ -19,32 +19,36 @@ const client = new ApolloClient({
 
   cache: new InMemoryCache({
     typePolicies: {
+      PurchaseOrder: {
+        keyFields: ["po_number"],
+      },
+
       Query: {
         fields: {
-purchaseOrders: {
-  keyArgs: [
-    "status",
-    "poNumber",
-    "minAmount",
-    "maxAmount",
-    "startDate",
-    "endDate",
-  ],
+          purchaseOrders: {
+            keyArgs: [
+              "status",
+              "poNumber",
+              "minAmount",
+              "maxAmount",
+              "startDate",
+              "endDate",
+            ],
 
-  merge(existing, incoming, { args }) {
-    if (!args?.after) {
-      return incoming;
-    }
+            merge(existing, incoming, { args }) {
+              if (!args?.after) {
+                return incoming;
+              }
 
-    return {
-      ...incoming,
-      edges: [
-        ...(existing?.edges ?? []),
-        ...incoming.edges,
-      ],
-    };
-  },
-},
+              return {
+                ...incoming,
+                edges: [
+                  ...(existing?.edges ?? []),
+                  ...incoming.edges,
+                ],
+              };
+            },
+          },
         },
       },
     },
