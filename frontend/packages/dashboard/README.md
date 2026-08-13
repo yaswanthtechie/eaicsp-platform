@@ -74,7 +74,7 @@ Finally, I integrated all these components into **App.tsx**  with i used server 
 2. Open the terminal and run:
 
 npm install mock-socket
-npm run dev 
+npm run dev
 
 
 # Challenges  Faced

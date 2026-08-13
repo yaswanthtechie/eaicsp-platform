@@ -7,7 +7,6 @@ import { startMockWebSocketServer } from "./mocks/wsServer";
 import ForecastChart from "./components/ForecastChart";
 import InventoryTable from "./components/InventoryTable";
 import { colors } from "./tokens";
-import InventoryHeatmap from "./components/InventoryHeatmap";
 
 interface AlertMessage {
   id: string;
@@ -99,7 +98,6 @@ function App() {
             }}
           >
             <InventoryTable />
-            <InventoryHeatmap />
           </div>
         </div>
 
