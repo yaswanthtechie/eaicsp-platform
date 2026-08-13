@@ -95,9 +95,9 @@ export const inventory: InventoryItem[] = [
     sku_id: "SKU012",
     product_name: "Shampoo",
     warehouse_id: "WH003",
-    quantity_on_hand: 45,
+    quantity_on_hand: 60,
     reorder_point: 50,
-    needs_reorder: true,
+    needs_reorder: false,
   },
   {
     sku_id: "SKU013",
