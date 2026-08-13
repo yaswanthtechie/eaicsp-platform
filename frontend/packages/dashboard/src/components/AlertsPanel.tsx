@@ -119,9 +119,7 @@ export default function AlertsPanel({
       </div>
 
       {alerts.length === 0 ? (
-        <p style={{ color: colors.textMuted }}>
-          No recent alerts available
-        </p>
+        <p style={{ color: colors.textMuted }}> No recent alerts available </p>
       ) : (
         alerts.map((alert) => {
           const color = getColor(alert.severity);
