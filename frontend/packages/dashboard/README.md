@@ -67,7 +67,7 @@ Finally, I integrated all these components into **App.tsx**  with i used server 
 1. Open the project in **VS Code**.
 2. Open the terminal and run:
 
-npm install mock-socket
+npm install
 npm run dev
 
 
