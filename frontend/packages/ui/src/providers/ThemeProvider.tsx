@@ -8,15 +8,15 @@ import {
 
 export type Theme = "light" | "dark";
 
-interface ThemeContextValue {
+export interface ThemeContextValue {
   theme: Theme;
   toggleTheme: () => void;
   setTheme: (theme: Theme) => void;
 }
 
-export const ThemeContext = createContext<ThemeContextValue | undefined>(
-  undefined
-);
+export const ThemeContext = createContext<
+  ThemeContextValue | undefined
+>(undefined);
 
 interface ThemeProviderProps {
   children: ReactNode;
@@ -24,7 +24,9 @@ interface ThemeProviderProps {
 
 const STORAGE_KEY = "ui-library-theme";
 
-export function ThemeProvider({ children }: ThemeProviderProps) {
+export function ThemeProvider({
+  children,
+}: ThemeProviderProps) {
   const [theme, setTheme] = useState<Theme>(() => {
     const savedTheme = localStorage.getItem(STORAGE_KEY);
 
@@ -36,7 +38,11 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   });
 
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
+    document.documentElement.setAttribute(
+      "data-theme",
+      theme
+    );
+
     localStorage.setItem(STORAGE_KEY, theme);
   }, [theme]);
 
@@ -46,7 +52,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     );
   };
 
-  const value = useMemo(
+  const value = useMemo<ThemeContextValue>(
     () => ({
       theme,
       toggleTheme,
