@@ -43,6 +43,7 @@ class HeadlineDetail(BaseModel):
 class SupplierSummary(BaseModel):
     supplier: str
     risk_score: float
+    confidence: float
     sentiment_breakdown: SentimentBreakdown
     signals: List[SignalDetail]
     top_worst_3: List[HeadlineDetail]

@@ -119,6 +119,13 @@ def test_predict_schema():
 
     assert result["risk_score"] <= 100
 
+    assert "confidence" in result
+
+    assert isinstance(
+        result["confidence"],
+        (int, float),
+    )
+
     sentiment = result["sentiment_breakdown"]
 
     assert "positive" in sentiment
@@ -152,6 +159,124 @@ def test_predict_schema():
         assert "signals" in headline
 
 
+def test_confidence_exists():
+    """
+    Test 1: Confidence field is present in prediction response.
+    """
+
+    result = predict(
+        "TestSupplier",
+        ["The company reported positive earnings."],
+    )
+
+    assert "confidence" in result
+
+
+def test_confidence_bounds():
+    """
+    Test 2: Confidence is bounded within [0.0, 1.0].
+    """
+
+    for count in [0, 1, 2, 5, 10, 20, 50, 100]:
+        headlines = [
+            f"Headline {i} about the supplier."
+            for i in range(count)
+        ]
+
+        result = predict(
+            "BoundTestSupplier",
+            headlines,
+        )
+
+        confidence = result["confidence"]
+
+        assert confidence >= 0.0, (
+            f"confidence {confidence} < 0.0 "
+            f"for {count} headlines"
+        )
+        assert confidence <= 1.0, (
+            f"confidence {confidence} > 1.0 "
+            f"for {count} headlines"
+        )
+
+
+def test_confidence_zero_headlines():
+    """
+    Test 3: Zero headlines yields confidence == 0.0.
+    """
+
+    result_no_headlines = predict(
+        "ZeroHeadlineSupplier",
+        [],
+    )
+
+    assert result_no_headlines["confidence"] == 0.0
+
+    result_empty_strings = predict(
+        "AllEmptySupplier",
+        ["", "   ", "\t", "\n"],
+    )
+
+    assert result_empty_strings["confidence"] == 0.0
+
+
+def test_confidence_volume_relationship():
+    """
+    Test 4: 2 headlines have lower confidence than 20 headlines.
+    """
+
+    base_headline = (
+        "The company faces bankruptcy and fraud investigation."
+    )
+
+    result_2 = predict(
+        "LowVolumeSupplier",
+        [base_headline] * 2,
+    )
+
+    result_20 = predict(
+        "HighVolumeSupplier",
+        [base_headline] * 20,
+    )
+
+    assert (
+        result_2["confidence"]
+        < result_20["confidence"]
+    ), (
+        f"Expected confidence(2)={result_2['confidence']} < "
+        f"confidence(20)={result_20['confidence']}"
+    )
+
+
+def test_confidence_monotonic():
+    """
+    Test 5: More evidence never reduces confidence (monotonic).
+    """
+
+    base_headline = (
+        "The supplier announces operational updates."
+    )
+
+    previous_confidence = -1.0
+
+    for count in range(0, 31, 5):
+        result = predict(
+            "MonoTestSupplier",
+            [base_headline] * count,
+        )
+
+        current_confidence = result["confidence"]
+
+        assert (
+            current_confidence >= previous_confidence
+        ), (
+            f"Confidence decreased at n={count}: "
+            f"{previous_confidence} -> {current_confidence}"
+        )
+
+        previous_confidence = current_confidence
+
+
 def test_fraud_increases_score():
     """
     Fraud should increase supplier risk.
@@ -183,6 +308,26 @@ def test_fraud_increases_score():
         fraud_result["risk_score"]
         > base_result["risk_score"]
     )
+
+
+def test_clean_headline_remains_low_risk():
+    """
+    Positive/Clean headlines without risk signals
+    should remain low risk.
+    """
+
+    supplier = "CleanSupplier"
+
+    clean = [
+        "The company reports record revenue and positive earnings."
+    ]
+
+    result = predict(
+        supplier,
+        clean,
+    )
+
+    assert result["risk_score"] == 0.0
 
 
 def test_multiple_signals_combine():
@@ -270,7 +415,7 @@ def test_evaluation_dataset():
         dataset = json.load(file)
 
     assert isinstance(dataset, list)
-    assert len(dataset) == 50
+    assert len(dataset) == 96
 
     grouped = defaultdict(list)
 
@@ -283,7 +428,7 @@ def test_evaluation_dataset():
             item["headline"]
         )
 
-    assert len(grouped) == 5
+    assert len(grouped) == 8
 
     for supplier, headlines in grouped.items():
-        assert len(headlines) == 10
+        assert len(headlines) == 12
