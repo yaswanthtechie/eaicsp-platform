@@ -2,9 +2,7 @@ from sqlalchemy.orm import Session
 
 from app.models.inventory import Inventory
 
-from app.services.demand_service import (
-    calculate_rolling_average_demand,
-)
+from app.services import demand_service
 
 from app.services.abc_service import (
     classify_skus,
@@ -39,12 +37,17 @@ def calculate_reorder_point(
     # =====================================================
 
     rolling_avg_demand = (
-        calculate_rolling_average_demand(
-            db=db,
-            sku_id=inventory.sku_id,
-            warehouse_id=inventory.warehouse_id,
-            days=demand_days,
-        )
+    demand_service.calculate_rolling_average_demand(
+        db=db,
+        sku_id=inventory.sku_id,
+        warehouse_id=inventory.warehouse_id,
+        days=demand_days,
+    )
+)
+
+    if rolling_avg_demand < 0:
+        raise ValueError(
+        "Demand cannot be negative"
     )
 
     # =====================================================

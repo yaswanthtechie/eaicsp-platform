@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from app.database import Base, engine
@@ -8,17 +10,22 @@ from app.routes.inventory import router as inventory_router
 import app.models
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    Base.metadata.create_all(bind=engine)
+
+    yield
+
+    # Shutdown
+    engine.dispose()
+
+
 app = FastAPI(
     title="Inventory Service",
     version="1.0.0",
+    lifespan=lifespan,
 )
-
-
-@app.on_event("startup")
-def startup():
-    Base.metadata.create_all(
-        bind=engine
-    )
 
 
 app.include_router(

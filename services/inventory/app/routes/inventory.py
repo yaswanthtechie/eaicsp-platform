@@ -50,6 +50,9 @@ from app.services.reorder_service import (
 from app.services.transfer_service import (
     find_transfer_suggestion,
 )
+from app.services.simulation_service import (
+    simulate_demand_growth,
+)
 
 
 router = APIRouter()
@@ -726,6 +729,32 @@ def simulate_route(
 
     except ValueError as exc:
 
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        )
+
+@router.get("/simulate")
+def simulate_inventory(
+    growth_percent: float = 30.0,
+    db: Session = Depends(get_db),
+):
+    if growth_percent < 0:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Growth percentage "
+                "cannot be negative"
+            ),
+        )
+
+    try:
+        return simulate_demand_growth(
+            db=db,
+            growth_percent=growth_percent,
+        )
+
+    except ValueError as exc:
         raise HTTPException(
             status_code=400,
             detail=str(exc),

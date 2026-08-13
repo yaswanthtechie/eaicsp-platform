@@ -62,12 +62,14 @@ app.dependency_overrides[
 ] = override_get_db
 
 
-@pytest.fixture(
-    scope="session"
-)
-def client():
+@pytest.fixture
+def client(db_session):
+    app.state.db = db_session
 
-    return TestClient(app)
+    with TestClient(app) as test_client:
+        yield test_client
+
+    app.state.db = None
 
 
 @pytest.fixture(

@@ -15,7 +15,9 @@ from app.services.reorder_service import (
     calculate_reorder_point,
     calculate_urgency_score,
 )
-
+from app.services.demand_service import (
+    calculate_rolling_average_demand,
+)
 
 # =========================================================
 # RESPONSE
@@ -61,6 +63,23 @@ def create_inventory(
 
     if existing:
         return None
+
+    # Check actual SalesHistory data.
+    # If a real negative sale exists, reject the inventory creation.
+    negative_sales = (
+        db.query(SalesHistory)
+        .filter(
+            SalesHistory.sku_id == inventory.sku_id,
+            SalesHistory.warehouse_id == inventory.warehouse_id,
+            SalesHistory.quantity_sold < 0,
+        )
+        .first()
+    )
+
+    if negative_sales:
+        raise ValueError(
+            "Negative demand data is not allowed"
+        )
 
     item = Inventory(
         sku_id=inventory.sku_id,

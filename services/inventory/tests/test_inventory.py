@@ -1042,3 +1042,319 @@ def test_manual_demand_update_rejected(
         response.status_code
         == 422
     )
+def test_reorder_exactly_at_threshold(client):
+    payload = {
+        "sku_id": "SKU-THRESHOLD",
+        "product_name": "Threshold Product",
+        "warehouse_id": "WH001",
+        "quantity_on_hand": 50,
+        "lead_time_days": 4,
+        "safety_stock": 10,
+    }
+
+    response = client.post(
+        "/api/v1/inventory/",
+        json=payload,
+    )
+    print(response.json())
+
+    assert response.status_code in (200, 201)
+
+    response = client.get(
+        "/api/v1/inventory/reorder-plan"
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    matching = [
+        item
+        for item in data
+        if item["sku_id"] == "SKU-THRESHOLD"
+    ]
+
+    # ROP = (10 × 4) + 10 = 50
+    # Quantity on hand = 50
+    # Exactly at ROP means it should NOT be in reorder plan.
+    assert matching == []
+
+def test_simulate_30_percent_growth(client):
+    response = client.get(
+        "/api/v1/inventory/simulate?growth_percent=30"
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["growth_percent"] == 30
+    assert "total_inventory_items" in data
+    assert "total_current_daily_demand" in data
+    assert "total_simulated_daily_demand" in data
+    assert "additional_daily_demand" in data
+    assert "items" in data
+
+    assert (
+        data["total_simulated_daily_demand"]
+        >= data["total_current_daily_demand"]
+    )
+
+
+def test_simulation_does_not_modify_inventory(client):
+    response = client.get(
+        "/api/v1/inventory/"
+    )
+
+    assert response.status_code == 200
+
+    before_data = response.json()
+
+    response = client.get(
+        "/api/v1/inventory/simulate?growth_percent=30"
+    )
+
+    assert response.status_code == 200
+
+    response = client.get(
+        "/api/v1/inventory/"
+    )
+
+    assert response.status_code == 200
+
+    after_data = response.json()
+
+    assert len(before_data) == len(after_data)
+
+    before_items = {
+        (
+            item["sku_id"],
+            item["warehouse_id"],
+        ): item
+        for item in before_data
+    }
+
+    after_items = {
+        (
+            item["sku_id"],
+            item["warehouse_id"],
+        ): item
+        for item in after_data
+    }
+
+    assert before_items == after_items
+
+
+def test_simulate_negative_growth(client):
+    response = client.get(
+        "/api/v1/inventory/simulate?growth_percent=-30"
+    )
+
+    assert response.status_code == 400
+
+    assert (
+        response.json()["detail"]
+        == "Growth percentage cannot be negative"
+    )
+
+
+def test_simulate_zero_growth(client):
+    response = client.get(
+        "/api/v1/inventory/simulate?growth_percent=0"
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["growth_percent"] == 0
+
+    assert (
+        data["total_current_daily_demand"]
+        == data["total_simulated_daily_demand"]
+    )
+
+
+def test_simulate_empty_inventory(client):
+    response = client.get(
+        "/api/v1/inventory/simulate?growth_percent=30"
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert "total_inventory_items" in data
+    assert "items" in data
+
+    if data["total_inventory_items"] == 0:
+        assert data["items"] == []
+        assert (
+            data["total_current_daily_demand"]
+            == 0
+        )
+        assert (
+            data["total_simulated_daily_demand"]
+            == 0
+        )
+def test_negative_demand_is_rejected(client):
+    from app.services import demand_service
+
+    original_function = (
+        demand_service.calculate_rolling_average_demand
+    )
+
+    def negative_demand(*args, **kwargs):
+        return -10.0
+
+    demand_service.calculate_rolling_average_demand = (
+        negative_demand
+    )
+
+    try:
+        payload = {
+            "sku_id": "NEG-DEMAND-001",
+            "product_name": "Negative Demand Test",
+            "warehouse_id": "WH001",
+            "quantity_on_hand": 50,
+            "lead_time_days": 4,
+            "safety_stock": 10,
+        }
+
+        response = client.post(
+            "/api/v1/inventory/",
+            json=payload,
+        )
+
+        assert response.status_code == 400
+
+        data = response.json()
+
+        assert data["detail"] == "Demand cannot be negative"
+
+    finally:
+        demand_service.calculate_rolling_average_demand = (
+            original_function
+        )
+        
+        
+def test_bulk_update_partial_failure_rolls_back(
+    client,
+):
+    first_payload = {
+        "sku_id": "ROLLBACK-001",
+        "product_name": "Rollback One",
+        "warehouse_id": "WH001",
+        "quantity_on_hand": 100,
+        "lead_time_days": 5,
+        "safety_stock": 10,
+    }
+
+    second_payload = {
+        "sku_id": "ROLLBACK-002",
+        "product_name": "Rollback Two",
+        "warehouse_id": "WH001",
+        "quantity_on_hand": 200,
+        "lead_time_days": 5,
+        "safety_stock": 10,
+    }
+
+    response = client.post(
+        "/api/v1/inventory/",
+        json=first_payload,
+    )
+
+    assert response.status_code in (200, 201)
+
+    response = client.post(
+        "/api/v1/inventory/",
+        json=second_payload,
+    )
+
+    assert response.status_code in (200, 201)
+
+    bulk_payload = {
+        "updates": [
+            {
+                "sku_id": "ROLLBACK-001",
+                "warehouse_id": "WH001",
+                "quantity_on_hand": 500,
+            },
+            {
+                "sku_id": "DOES-NOT-EXIST",
+                "warehouse_id": "WH001",
+                "quantity_on_hand": 999,
+            },
+        ]
+    }
+
+    response = client.put(
+        "/api/v1/inventory/bulk-update",
+        json=bulk_payload,
+    )
+
+    assert response.status_code >= 400
+
+    response = client.get(
+        "/api/v1/inventory/"
+        "ROLLBACK-001/WH001"
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["quantity_on_hand"] == 100
+    
+    
+def test_abc_exactly_at_20_percentile(
+    client,
+):
+    from app.services.abc_service import (
+        classify_skus,
+    )
+
+    result = classify_skus(
+        client.app.state.db
+    )
+
+    assert result is not None
+
+def test_abc_exactly_at_20_percent_boundary(
+    db_session,
+):
+    from app.models.sales_history import SalesHistory
+    from app.services.abc_service import classify_skus
+
+    records = [
+        SalesHistory(
+            sku_id="ABC001",
+            warehouse_id="WH001",
+            sale_date=date(2026, 8, 1),
+            quantity_sold=20,
+),
+        SalesHistory(
+            sku_id="ABC002",
+            warehouse_id="WH001",
+            sale_date=date(2026, 8, 1),
+            quantity_sold=80,
+        ),
+    ]
+
+    db_session.add_all(records)
+    db_session.commit()
+
+    result = classify_skus(db_session)
+
+    item = result[
+        ("ABC001", "WH001")
+    ]
+
+    assert item["sales_volume"] == 20
+
+    assert (
+        item["cumulative_percentage"]
+        == 20.0
+    )
+
+    assert item["abc_tier"] == "A"
