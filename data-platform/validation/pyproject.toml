@@ -28,5 +28,8 @@ run_pipeline = "src.main:main"
 # for running the  Performance at scale Generate a 100,000-row file
 perf_test = "src.perf_test:main"
 
+# for batch validating multiple files and folders
+validate_folder = "src.validate_folder:main"
+
 [tool.setuptools]
 packages = ["src"]
