@@ -22,3 +22,13 @@ def test_indian_holidays_and_non_holiday():
     assert result.loc[1, "is_holiday"] == 1
     assert result.loc[2, "is_holiday"] == 1
     assert result.loc[3, "is_holiday"] == 0
+
+
+def test_holiday_features_outside_supported_year_range():
+    df = pd.DataFrame({
+        "date": ["1992-01-26", "2036-01-26"]
+    })
+
+    result = create_holiday_features(df)
+
+    assert result["is_holiday"].tolist() == [0, 0]

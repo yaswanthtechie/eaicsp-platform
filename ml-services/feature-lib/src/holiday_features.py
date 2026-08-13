@@ -6,12 +6,25 @@ def create_holiday_features(df, date_col="date"):
     df[date_col] = pd.to_datetime(df[date_col])
 
     years = df[date_col].dt.year.unique()
-    india_holidays = holidays.India(years=years)
+
+    # The holidays library supports India holidays from 2001 to 2035.
+    supported_years = [
+        year for year in years
+        if 2001 <= year <= 2035
+    ]
+
+    india_holidays = holidays.India(years=supported_years)
 
     df["is_holiday"] = (
         df[date_col]
         .dt.date
-        .apply(lambda date: date in india_holidays)
+        .apply(
+            lambda date: (
+                date in india_holidays
+                if 2001 <= date.year <= 2035
+                else False
+            )
+        )
         .astype(int)
     )
 

@@ -121,6 +121,7 @@ After understanding these concepts, I was able to complete the feature engineeri
 - The feature builder accepts a configuration dictionary so lag and rolling-window settings can be changed without modifying the feature generation code.
 - The feature usefulness helper calculates correlations only for numeric features and requires the target column to be numeric.
 - Features with undefined (`NaN`) correlations, such as constant features, are excluded from the usefulness results.
+- Holiday detection covers 2001–2035; data outside that range returns `is_holiday=False`, not a computed value.
 
 ## 6. How Another Model Can Use This Library
 
