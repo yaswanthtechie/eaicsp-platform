@@ -3,10 +3,11 @@ from sqlalchemy import text
 from database import get_engine
 from alert_service import write_alert
 
-engine = get_engine()
 
 
 def get_watermark():
+
+    engine = get_engine()
 
     try:
         query = text("""
@@ -36,6 +37,8 @@ def get_watermark():
 
 
 def update_watermark(last_processed_date):
+
+    engine = get_engine()
 
     try:
         query = text("""

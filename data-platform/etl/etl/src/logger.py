@@ -2,10 +2,11 @@ from sqlalchemy import text
 from database import get_engine
 from alert_service import write_alert
 
-engine = get_engine()
 
 
 def create_run():
+
+    engine = get_engine()
 
     try:
         query = text("""
@@ -51,6 +52,8 @@ def finish_run(
     rows_rejected,
     error_message=None
 ):
+
+    engine = get_engine()
 
     try:
         query = text("""
@@ -101,6 +104,8 @@ def log_success(
     rows_updated,
     rows_rejected
 ):
+
+    engine = get_engine()
 
     try:
         query = text("""
@@ -165,6 +170,8 @@ def log_failure(
     rows_rejected=0,
     status="FAILED"
 ):
+
+    engine = get_engine()
 
     try:
         query = text("""

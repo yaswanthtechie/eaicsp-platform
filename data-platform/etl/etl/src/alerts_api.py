@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import os
 
 from flask import Flask, jsonify, request
 from sqlalchemy import text
@@ -7,11 +8,12 @@ from database import get_engine
 
 app = Flask(__name__)
 
-engine = get_engine()
 
 
 @app.get("/alerts")
 def get_alerts():
+
+    engine = get_engine()
 
     since = request.args.get("since", "1h")
 
@@ -58,4 +60,4 @@ def get_alerts():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=os.getenv("FLASK_DEBUG") == "1")

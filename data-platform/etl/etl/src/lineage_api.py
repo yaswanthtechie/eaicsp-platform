@@ -1,15 +1,17 @@
 from flask import Flask, jsonify
+import os
 from sqlalchemy import text
 
 from database import get_engine
 
 app = Flask(__name__)
 
-engine = get_engine()
 
 
 @app.route("/lineage/row/<int:row_id>", methods=["GET"])
 def get_lineage(row_id):
+
+    engine = get_engine()
 
     query = text("""
         SELECT
@@ -66,6 +68,6 @@ def get_lineage(row_id):
 if __name__ == "__main__":
 
     app.run(
-        debug=True,
+        debug=os.getenv("FLASK_DEBUG") == "1",
         port=5002
     )

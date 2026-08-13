@@ -73,7 +73,11 @@ def load_data(validated_data_frames, run_id):
         WHERE
             date = :date
             AND sku_id = :sku_id
-            AND warehouse_id = :warehouse_id;
+            AND warehouse_id = :warehouse_id
+            AND (
+                quantity_sold IS DISTINCT FROM :quantity_sold
+                OR unit_price IS DISTINCT FROM :unit_price
+            );
     """)
 
     rows_inserted = 0
@@ -85,6 +89,11 @@ def load_data(validated_data_frames, run_id):
 
         with engine.begin() as connection:
 
+            connection.execute(
+                text("SELECT pg_advisory_xact_lock(:key)"),
+                {"key": 4815162342},
+            )
+
             for batch in validated_data_frames:
 
                 df = batch["data"]
@@ -93,7 +102,9 @@ def load_data(validated_data_frames, run_id):
 
                 records = df.to_dict(orient="records")
 
-                for i in range(0, len(records), batch_size):
+                i = 0
+
+                while i < len(records):
 
                     batch_records = records[i:i + batch_size]
 
@@ -121,6 +132,8 @@ def load_data(validated_data_frames, run_id):
                             rows_inserted += 1
                         else:
                             rows_updated += 1
+
+                    i += len(batch_records)
 
                     elapsed = time.perf_counter() - start
 

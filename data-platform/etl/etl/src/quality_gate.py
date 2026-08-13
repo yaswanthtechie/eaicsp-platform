@@ -2,10 +2,7 @@ from pathlib import Path
 import shutil
 
 from alert_service import write_alert
-
-
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-REJECTED_DIR = PROJECT_ROOT / "data" / "rejected"
+from config import REJECTED_DIR
 
 
 def check_batch(df, batch_name):

@@ -297,3 +297,31 @@ The PostgreSQL ETL tables can be queried to verify:
 - Watermark progress
 - Generated alerts
 - Historical records
+## Generating Sample Data
+
+The pipeline reads CSV batches from `data/batches/`, which is gitignored. Generate sample batches with:
+
+    python etl/src/make_batches.py
+
+## Environment
+
+Copy `.env.example` to `.env` and set `DB_PASSWORD`.
+
+When the pipeline runs inside Docker/Airflow, use `DB_HOST=postgres`. When running `python etl/src/main.py` from the host, use `DB_HOST=localhost` because Docker publishes PostgreSQL on port 5432.
+
+## What Works / What Doesn't
+
+### Working
+
+- Airflow DAG with quality-based branching and downstream trigger rules.
+- Data contract validation and schema drift detection, including broken-file tests.
+- Alerts table and `GET /alerts?since=` filtering.
+- Idempotent upsert, watermarks, and incremental loads.
+- Historical backfill with date ordering and progress/ETA logging.
+- Row-level lineage through `/lineage/row/{id}`.
+
+### Known Limitations
+
+- Concurrent loads are serialized by a transaction-scoped PostgreSQL advisory lock.
+- Alert webhooks are not implemented; alerts remain in `etl_alerts` and are available through the API.
+- Airflow runs from the pinned Docker image (`apache/airflow:2.10.5`). The main `requirements.txt` contains the application/test dependencies; Airflow dependencies are kept separate for local DAG linting.
