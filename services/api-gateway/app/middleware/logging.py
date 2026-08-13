@@ -5,8 +5,9 @@ Custom logging middleware for the API Gateway.
 import logging
 import time
 
-from fastapi import Request
+from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
+
 from app.middleware.ratelimit import get_real_ip
 
 # --------------------------------------------------

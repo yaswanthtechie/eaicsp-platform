@@ -41,8 +41,8 @@ limiter = Limiter(
 )
 
 __all__ = (
-    "limiter",
     "RateLimitExceeded",
-    "_rate_limit_exceeded_handler",
     "SlowAPIMiddleware",
+    "_rate_limit_exceeded_handler",
+    "limiter",
 )

@@ -5,7 +5,6 @@ In-memory Circuit Breaker pattern implementation for the API Gateway.
 import logging
 import threading
 import time
-from typing import Dict, Optional
 
 from app.core.config import settings
 from app.services.metrics import metrics_collector
@@ -33,13 +32,13 @@ class CircuitBreakerManager:
         #    "failure_threshold": int,
         #    "recovery_timeout": float
         # }
-        self._services: Dict[str, dict] = {}
+        self._services: dict[str, dict] = {}
 
     def _init_service_if_missing(
         self,
         service_id: str,
-        failure_threshold: Optional[int] = None,
-        recovery_timeout: Optional[float] = None,
+        failure_threshold: int | None = None,
+        recovery_timeout: float | None = None,
     ):
         if service_id not in self._services:
             f_threshold = (
@@ -63,8 +62,8 @@ class CircuitBreakerManager:
     def configure_service(
         self,
         service_id: str,
-        failure_threshold: Optional[int] = None,
-        recovery_timeout: Optional[float] = None,
+        failure_threshold: int | None = None,
+        recovery_timeout: float | None = None,
     ):
         """
         Configure custom failure threshold or recovery timeout for a service.
@@ -108,8 +107,6 @@ class CircuitBreakerManager:
 
             if state == "half-open":
                 return True
-
-            return True
 
     def record_success(self, service_id: str):
         """
@@ -182,7 +179,7 @@ class CircuitBreakerManager:
         Reset circuit breaker state for all services.
         """
         with self._lock:
-            for service_id in self._services.keys():
+            for service_id in self._services:
                 metrics_collector.set_circuit_breaker_state(service_id, "closed")
             self._services.clear()
 

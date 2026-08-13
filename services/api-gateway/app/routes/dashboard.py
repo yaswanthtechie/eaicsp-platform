@@ -3,6 +3,7 @@ Aggregated Health Dashboard route for the API Gateway.
 """
 
 from fastapi import APIRouter
+
 from app.services.metrics import metrics_collector
 
 router = APIRouter(

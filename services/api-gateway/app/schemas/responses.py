@@ -2,8 +2,6 @@
 Response models used by the API Gateway.
 """
 
-from typing import Dict
-
 from pydantic import BaseModel, RootModel
 
 
@@ -17,7 +15,7 @@ class RootResponse(BaseModel):
     version: str
 
 
-class HealthResponse(RootModel[Dict[str, str]]):
+class HealthResponse(RootModel[dict[str, str]]):
     """
     Health status of downstream services.
 
@@ -28,5 +26,3 @@ class HealthResponse(RootModel[Dict[str, str]]):
         "supplier-risk": "DOWN"
     }
     """
-
-    pass

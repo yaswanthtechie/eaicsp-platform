@@ -3,16 +3,16 @@ Tests for downstream microservice Circuit Breaker pattern.
 """
 
 import time
+from unittest.mock import AsyncMock, patch
+
 import httpx
 import pytest
-from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.core.config import settings
+from app.middleware.ratelimit import limiter
 from app.services.circuit_breaker import circuit_breaker_manager
 from app.services.metrics import metrics_collector
-from app.middleware.ratelimit import limiter
 
 
 @pytest.fixture(autouse=True)

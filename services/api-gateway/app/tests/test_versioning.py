@@ -3,6 +3,7 @@ Tests for API Version 2 stub endpoints and versioning isolation.
 """
 
 from unittest.mock import AsyncMock, patch
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient

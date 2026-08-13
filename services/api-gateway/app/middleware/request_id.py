@@ -17,6 +17,12 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         request_id = request.headers.get("x-request-id")
 
+        if request_id:
+            # Strip CR/LF to prevent log injection via client-controlled header.
+            request_id = request_id.translate(str.maketrans("", "", "\r\n"))
+            if not request_id:
+                request_id = None
+
         if not request_id:
             request_id = str(uuid.uuid4())
 

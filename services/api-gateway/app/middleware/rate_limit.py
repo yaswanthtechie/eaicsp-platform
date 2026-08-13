@@ -5,10 +5,8 @@ Per-user and per-role rate limiting middleware for the API Gateway.
 import base64
 import json
 import logging
-import os
 import threading
 import time
-from typing import Dict, Optional, Tuple
 
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
@@ -37,14 +35,14 @@ class InMemoryRateLimiter:
     def __init__(self):
         self._lock = threading.Lock()
         # Maps identity_key -> [count, window_start_timestamp]
-        self._buckets: Dict[str, list] = {}
+        self._buckets: dict[str, list] = {}
 
     def check_and_update(
         self,
         key: str,
         limit: int,
         window_seconds: float,
-    ) -> Tuple[bool, int, int, int]:
+    ) -> tuple[bool, int, int, int]:
         """
         Check rate limit for `key`.
 
@@ -93,14 +91,14 @@ in_memory_limiter = InMemoryRateLimiter()
 
 def extract_jwt_identity(
     request: Request,
-) -> Tuple[Optional[str], Optional[str]]:
+) -> tuple[str | None, str | None]:
     """
     Extract user_id and role from Authorization: Bearer <JWT> header.
 
     Returns:
         (user_id, role)
     """
-    auth_header = request.headers.get("Authorization") or request.headers.get("authorization")
+    auth_header = request.headers.get("Authorization")
 
     if not auth_header or not auth_header.startswith("Bearer "):
         return None, None
@@ -113,25 +111,16 @@ def extract_jwt_identity(
 
     if jwt is not None:
         try:
-            # First attempt to decode with secret & algorithm
-            try:
-                payload = jwt.decode(
-                    token,
-                    settings.JWT_SECRET,
-                    algorithms=[settings.JWT_ALGORITHM],
-                )
-            except Exception:
-                # Fallback to unverified payload extraction for identity keying
-                payload = jwt.decode(
-                    token,
-                    options={"verify_signature": False},
-                    algorithms=[settings.JWT_ALGORITHM],
-                )
-        except Exception as exc:
+            payload = jwt.decode(
+                token,
+                settings.JWT_SECRET,
+                algorithms=[settings.JWT_ALGORITHM],
+            )
+        except (jwt.PyJWTError, ValueError, TypeError, AttributeError) as exc:
             logger.debug("Failed to decode JWT via PyJWT: %s", exc)
-
-    if payload is None:
-        # Fallback to base64url payload decoding if PyJWT package is missing or decoding failed
+            return None, None
+    else:
+        # Fallback to base64url payload decoding ONLY if PyJWT package is not installed
         try:
             parts = token.split(".")
             if len(parts) >= 2:
@@ -139,7 +128,7 @@ def extract_jwt_identity(
                 payload_b64 += "=" * (-len(payload_b64) % 4)
                 payload_bytes = base64.urlsafe_b64decode(payload_b64)
                 payload = json.loads(payload_bytes)
-        except Exception as exc:
+        except (json.JSONDecodeError, ValueError, TypeError, AttributeError) as exc:
             logger.debug("Failed to base64 decode JWT token: %s", exc)
             return None, None
 
@@ -168,7 +157,7 @@ class PerUserRoleRateLimitMiddleware(BaseHTTPMiddleware):
     or fallback per client IP.
     """
 
-    def __init__(self, app, window_seconds: Optional[float] = None):
+    def __init__(self, app, window_seconds: float | None = None):
         super().__init__(app)
         self.window_seconds = window_seconds
 
@@ -177,11 +166,7 @@ class PerUserRoleRateLimitMiddleware(BaseHTTPMiddleware):
         request: Request,
         call_next,
     ) -> Response:
-        if (
-            getattr(settings, "LOAD_TEST_MODE", False)
-            or os.getenv("LOAD_TEST_MODE", "").lower() in ("true", "1")
-            or request.headers.get("x-load-test") == "true"
-        ):
+        if getattr(settings, "LOAD_TEST_MODE", False):
             return await call_next(request)
 
         client_ip = get_real_ip(request)

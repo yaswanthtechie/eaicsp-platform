@@ -1,6 +1,7 @@
+from unittest.mock import AsyncMock, patch
+
 import httpx
 import pytest
-from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -75,7 +76,10 @@ def test_health_endpoint_service_down(mock_get, client):
     """
     Downstream services are unavailable.
     """
-    mock_get.side_effect = Exception("Failed to connect")
+    mock_get.side_effect = httpx.ConnectError(
+        "Failed to connect",
+        request=httpx.Request("GET", "http://test"),
+    )
 
     response = client.get("/health")
 
@@ -138,3 +142,55 @@ def test_reverse_proxy_timeout(mock_send, client):
     assert response.json() == {
         "error": "Inventory service timeout"
     }
+
+
+def test_request_id_header_injection_prevention(client):
+    """
+    Security: Verify that CR/LF characters in a client-supplied X-Request-ID
+    header are stripped to prevent log injection and HTTP header injection attacks.
+    The response must echo the sanitized value (without newlines).
+    """
+    malicious_id = "legit-id\r\nX-Injected: evil"
+    response = client.get("/", headers={"x-request-id": malicious_id})
+
+    assert response.status_code == 200
+    returned_id = response.headers.get("x-request-id", "")
+    # CR and LF must NOT appear in the echoed header
+    assert "\r" not in returned_id
+    assert "\n" not in returned_id
+    # The sanitized prefix should still appear
+    assert "legit-id" in returned_id
+
+
+def test_request_id_generated_when_injection_only(client):
+    """
+    Security: Verify that if a client-supplied X-Request-ID contains ONLY
+    newline characters, after stripping it becomes empty, and a fresh UUID
+    is generated instead of propagating an empty value.
+    """
+    response = client.get("/", headers={"x-request-id": "\r\n"})
+
+    assert response.status_code == 200
+    returned_id = response.headers.get("x-request-id", "")
+    # Must be a non-empty, sanitized request ID (the UUID fallback)
+    assert len(returned_id) > 0
+    assert "\r" not in returned_id
+    assert "\n" not in returned_id
+
+
+@patch("httpx.AsyncClient.get", new_callable=AsyncMock)
+def test_health_endpoint_unexpected_exception(mock_get, client):
+    """
+    Bug fix: Verify the health endpoint returns 200 with DOWN status for any
+    unexpected exception during a downstream health check call. The broad
+    `except Exception` in _ping_service ensures the gateway never crashes.
+    """
+    mock_get.side_effect = RuntimeError("unexpected internal failure")
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    data = response.json()
+    # All services should show DOWN, not crash the gateway
+    for status in data.values():
+        assert status == "DOWN"

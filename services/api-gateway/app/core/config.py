@@ -2,8 +2,6 @@
 Application configuration for the API Gateway.
 """
 
-from typing import Dict
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,7 +24,7 @@ class Settings(BaseSettings):
     # Downstream Service Routes
     # --------------------------------------------------
 
-    SERVICE_ROUTES: Dict[str, str] = {
+    SERVICE_ROUTES: dict[str, str] = {
         "/api/v1/inventory": "http://localhost:8001",
         "/api/v1/shipments": "http://localhost:8002",
         "/api/v1/compliance": "http://localhost:8003",
@@ -36,7 +34,7 @@ class Settings(BaseSettings):
     }
 
     # Explicit human-readable service name overrides (optional)
-    SERVICE_NAMES: Dict[str, str] = {
+    SERVICE_NAMES: dict[str, str] = {
         "/api/v1/inventory": "Inventory Service",
         "/api/v1/shipments": "Shipments Service",
         "/api/v1/compliance": "Compliance Service",
@@ -64,7 +62,7 @@ class Settings(BaseSettings):
     # --------------------------------------------------
     TRUSTED_PROXIES: list[str] = []
     RATE_LIMIT_WINDOW_SECONDS: int = 60
-    ROLE_RATE_LIMITS: Dict[str, int] = {
+    ROLE_RATE_LIMITS: dict[str, int] = {
         "admin": 200,
         "ceo": 200,
         "vp_operations": 200,

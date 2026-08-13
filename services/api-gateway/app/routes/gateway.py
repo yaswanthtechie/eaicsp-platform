@@ -7,7 +7,6 @@ from fastapi import APIRouter, Request
 
 from app.services.proxy import ProxyService
 
-
 # --------------------------------------------------
 # Router
 # --------------------------------------------------

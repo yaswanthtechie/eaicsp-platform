@@ -6,7 +6,7 @@ import fnmatch
 import logging
 import threading
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from app.services.metrics import metrics_collector
 
@@ -21,14 +21,14 @@ class InMemoryCache:
 
     def __init__(self):
         self._lock = threading.Lock()
-        # Maps key -> (value, expire_timestamp: Optional[float])
-        self._cache: Dict[str, Tuple[Any, Optional[float]]] = {}
+        # Maps key -> (value, expire_timestamp: float | None)
+        self._cache: dict[str, tuple[Any, float | None]] = {}
 
     def get(
         self,
         key: str,
-        service_name: Optional[str] = None,
-    ) -> Optional[Any]:
+        service_name: str | None = None,
+    ) -> Any | None:
         """
         Get value for `key`. Returns None if missing or expired.
         Automatically updates cache hit/miss metrics if `service_name` is provided.
@@ -53,7 +53,7 @@ class InMemoryCache:
         self,
         key: str,
         value: Any,
-        ttl_seconds: Optional[float] = None,
+        ttl_seconds: float | None = None,
     ):
         """
         Set value for `key` with optional TTL in seconds.
@@ -80,7 +80,7 @@ class InMemoryCache:
         removed_count = 0
         with self._lock:
             keys_to_remove = [
-                key for key in self._cache.keys()
+                key for key in self._cache
                 if fnmatch.fnmatch(key, pattern) or key.startswith(pattern)
             ]
             for key in set(keys_to_remove):

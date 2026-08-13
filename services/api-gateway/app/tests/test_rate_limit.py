@@ -4,16 +4,16 @@ Tests for per-user and per-role rate limiting middleware.
 
 import base64
 import json
-import os
 import time
+
 import pytest
+from fastapi import Request
 from fastapi.testclient import TestClient
 
-from app.main import app
 from app.core.config import settings
+from app.main import app
 from app.middleware.rate_limit import in_memory_limiter
-from app.middleware.ratelimit import limiter, get_real_ip
-from fastapi import Request
+from app.middleware.ratelimit import get_real_ip, limiter
 
 try:
     import jwt
@@ -55,9 +55,6 @@ def reset_rate_limiter():
 
     old_load_test_mode = getattr(settings, "LOAD_TEST_MODE", False)
     settings.LOAD_TEST_MODE = False
-    old_env_load_test = os.environ.get("LOAD_TEST_MODE")
-    if "LOAD_TEST_MODE" in os.environ:
-        del os.environ["LOAD_TEST_MODE"]
 
     yield
 
@@ -65,8 +62,6 @@ def reset_rate_limiter():
     limiter.enabled = True
     settings.TRUSTED_PROXIES = old_trusted
     settings.LOAD_TEST_MODE = old_load_test_mode
-    if old_env_load_test is not None:
-        os.environ["LOAD_TEST_MODE"] = old_env_load_test
 
 
 @pytest.fixture

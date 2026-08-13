@@ -4,7 +4,6 @@ HTTP reverse-proxy service used by the API Gateway.
 
 import logging
 import time
-from typing import Optional
 
 import httpx
 from fastapi import HTTPException, Request
@@ -66,8 +65,7 @@ def get_service_name(prefix: str) -> str:
     explicit = getattr(settings, "SERVICE_NAMES", {})
     if prefix in explicit:
         name = explicit[prefix]
-        if name.endswith(" Service"):
-            name = name[:-8]
+        name = name.removesuffix(" Service")
         return name
 
     return (
@@ -269,7 +267,7 @@ class ProxyService:
 
         body = await request.body()
 
-        content: Optional[bytes]
+        content: bytes | None
 
         if body:
             content = body
@@ -307,7 +305,7 @@ class ProxyService:
             )
         )
 
-        response: Optional[httpx.Response] = None
+        response: httpx.Response | None = None
 
         try:
             async for attempt in AsyncRetrying(

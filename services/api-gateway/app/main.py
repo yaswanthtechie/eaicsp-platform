@@ -2,28 +2,28 @@
 Main FastAPI application for the API Gateway.
 """
 
-import httpx
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI
 
 from app.core.config import settings
 from app.middleware.logging import LoggingMiddleware
 from app.middleware.rate_limit import PerUserRoleRateLimitMiddleware
-from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.ratelimit import (
     RateLimitExceeded,
     SlowAPIMiddleware,
     _rate_limit_exceeded_handler,
     limiter,
 )
+from app.middleware.request_id import RequestIDMiddleware
 from app.routes import dashboard, gateway, health, v2
 from app.schemas.responses import RootResponse
-
 
 # --------------------------------------------------
 # Application Lifespan
 # --------------------------------------------------
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -86,6 +86,7 @@ app.include_router(
 # --------------------------------------------------
 # Root Endpoint
 # --------------------------------------------------
+
 
 @app.get(
     "/",

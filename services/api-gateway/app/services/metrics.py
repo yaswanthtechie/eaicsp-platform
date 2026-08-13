@@ -4,18 +4,16 @@ Metrics collection and aggregation service for the API Gateway.
 
 import math
 import threading
-import time
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple
 
 from app.core.config import settings
-
 
 # ---------------------------------------------------------------------------
 # Percentile Helper
 # ---------------------------------------------------------------------------
 
-def calculate_percentile(data: List[float], percentile: float) -> float:
+
+def calculate_percentile(data: list[float], percentile: float) -> float:
     """
     Calculate the given percentile (0 to 100) of a list of numbers
     using the standard nearest-rank method.
@@ -52,7 +50,7 @@ class MetricsCollector:
         #   "cache_misses": int,
         #   "circuit_breaker_state": str ("closed" | "open" | "half-open")
         # }
-        self._services: Dict[str, dict] = {}
+        self._services: dict[str, dict] = {}
 
     def _init_service_if_missing(self, service_name: str):
         if service_name not in self._services:
@@ -146,13 +144,13 @@ class MetricsCollector:
         """
         # Extract configured downstream service names from SERVICE_ROUTES
         known_services = set()
-        for prefix in settings.SERVICE_ROUTES.keys():
+        for prefix in settings.SERVICE_ROUTES:
             if prefix.startswith("/api/v1/"):
                 name = prefix.strip("/").split("/")[-1]
                 known_services.add(name)
 
         with self._lock:
-            for sname in self._services.keys():
+            for sname in self._services:
                 known_services.add(sname)
 
         services_metrics = {}

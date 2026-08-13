@@ -6,8 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services.metrics import metrics_collector
 from app.middleware.ratelimit import limiter
+from app.services.metrics import metrics_collector
 
 
 @pytest.fixture(autouse=True)

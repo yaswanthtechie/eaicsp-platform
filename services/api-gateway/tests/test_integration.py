@@ -9,7 +9,6 @@ from fastapi.testclient import TestClient
 
 from app.main import app as gateway_app
 
-
 # ----------------------------------------------------
 # Dummy Inventory Service
 # ----------------------------------------------------
