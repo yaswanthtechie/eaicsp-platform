@@ -22,6 +22,7 @@ HORIZON = 7
 EPOCHS = 25
 BATCH_SIZE = 32
 LR = 0.001
+torch.manual_seed(42)  # For reproducibility
 
 
 def train_and_evaluate():
