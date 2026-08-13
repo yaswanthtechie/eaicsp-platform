@@ -167,6 +167,7 @@ Example Response
     "TechCorp": {
       "supplier": "TechCorp",
       "risk_score": 74.25,
+      "confidence": 0.7135,
       "sentiment_breakdown": {
         "positive": 1,
         "neutral": 0,
@@ -214,16 +215,107 @@ The service detects predefined supplier risk keywords.
 
 Each keyword contributes a predefined weight toward the overall supplier risk score.
 
+# Round 4 Calibrated Scoring
+
+## Current scoring pipeline
+
+The scoring pipeline operates as follows:
+`sentiment` + `risk signals` → `headline score` → `average` → `0–100 risk score`
+
+Each headline is first scored by evaluating its sentiment penalty and adding weights from any detected predefined risk signals. The scores across all evaluated headlines are averaged, and the final risk score is capped at a maximum of 100.
+
+## Weight table
+
+The following table summarizes the calibration adjustments made to the scoring components:
+
+| Component          | Old Value | New Value | Reason |
+| ------------------ | --------: | --------: | ------ |
+| Negative sentiment |      30.0 |      40.0 | Increased to ensure negative headlines without explicit keywords still reflect elevated risk. |
+| Neutral sentiment  |      10.0 |       0.0 | Neutral headlines (e.g., routine business updates) should not artificially inflate risk. |
+| Bankruptcy signal  |        40 |        50 | Bankruptcy is a severe financial event and should dominate the headline risk score. |
+| Strike signal      |        10 |        25 | A strike is highly disruptive to operations and was previously undervalued. |
+| Shortage signal    |        10 |        20 | Raw-material shortages directly impact production and require higher penalty. |
+| Recall signal      |        20 |        30 | Product recalls cause massive financial and reputational damage. |
+| Fraud signal       |        30 |        40 | Fraud investigations indicate critical reputational risk. |
+
+*(Note: New keywords such as 'shutdown' [35], 'outage' [25], 'cyberattack' [35], and 'delays' [15] were also added based on empirical dataset patterns).*
+
+## Calibration reasoning
+
+The weight adjustments were motivated by human review of the expanded 96-headline dataset:
+1. **Neutral Penalty Reduction**: Clean headlines like *"Maersk launches new fleet of green methanol-powered container ships"* were receiving an accumulated 10.0 risk purely for being neutral. Neutral sentiment now correctly contributes 0 risk.
+2. **Operational Risk Increase**: Headlines like *"TSMC faces temporary production shutdown after minor earthquake"* and *"Boeing machinists go on strike..."* represent tangible supply chain threats. Raising operational keywords ("strike", "shortage") and adding new ones ("shutdown", "outage") ensures these events produce appropriately medium-to-high scores (e.g., ~65-75 when combined with negative sentiment).
+3. **Severe Financial/Reputational Risks**: Events like bankruptcy or fraud are terminal or catastrophic risks for suppliers. Boosting their weights ensures that any supplier with these headlines will trigger a high overall risk score, even if mixed with routine positive news.
+
 ---
 
-# Risk Score Calculation
+## Confidence / Evidence Strength
 
-The final supplier risk score is calculated using:
+### What confidence means
 
-- FinBERT sentiment confidence
-- Keyword signal weights
-- Average headline score
-- Maximum score capped at **100**
+Confidence represents the **volume-based strength of evidence** supporting the risk score. It answers the question: "How many headlines went into this assessment?"
+
+A supplier with only 2 headlines could receive an identical risk score to a supplier with 20 headlines, but the 20-headline result rests on substantially more observational evidence. Confidence quantifies this difference.
+
+### Why it is based on headline volume
+
+- More headlines = more independent observations of the supplier's public activity.
+- A single negative headline might be a one-off media blip; 20 negative headlines describe a sustained pattern.
+- Volume is a transparent, defensible proxy for evidence reliability that does not require a statistical training set.
+
+Confidence is **NOT** a statistical model probability. It does not quantify the probability that the risk score is "correct." It is a heuristic evidence-strength indicator.
+
+### Formula implemented
+
+```
+confidence = 1 - exp(-n / 8)
+```
+
+where:
+- `n` = number of **valid, non-empty processed headlines** used in scoring.
+- `exp()` = natural exponential function.
+- Divisor `8` = chosen so the Round 4 dataset size of 12 headlines/company yields ~0.78 confidence (substantial but not absolute).
+
+### Reference values
+
+| Headlines (n) | Confidence | Interpretation |
+| ------------: | ---------: | -------------- |
+| 0             | 0.00       | No evidence — result is not meaningful |
+| 1             | 0.1175     | Very low — a single observation |
+| 2             | 0.2212     | Low — barely enough to form a tentative view |
+| 5             | 0.4647     | Moderate — some supporting evidence |
+| 10            | 0.7135     | High — substantial evidence base |
+| 12            | 0.7769     | High — matches typical Round 4 dataset size |
+| 20            | 0.9179     | Very high — strong evidence |
+| 50            | 0.9980     | Near-maximal |
+
+### Why 2 headlines vs 20 headlines differs
+
+With 2 headlines, even if both are strongly negative, there is a real chance that the next 18 headlines would be neutral or positive, pulling the average risk score in the other direction. With 20 headlines, the law of large numbers begins to operate: the average risk score is far more stable and unlikely to swing dramatically if a few more headlines are added.
+
+### Why confidence does not modify the risk score
+
+Confidence describes **evidence strength**, not risk magnitude. A supplier with 2 strongly negative headlines has a high estimated risk — that estimate is simply fragile. Multiplying the risk score by confidence would incorrectly convert "we don't know enough" into "the supplier is safe," which is a harmful misinterpretation for downstream procurement decisions.
+
+Instead, consumers of this API should treat:
+- High `risk_score` + low `confidence` → **investigate further** before onboarding.
+- High `risk_score` + high `confidence` → **real, stable risk** — reject or escalate.
+- Low `risk_score` + low `confidence` → **insufficient data**, cannot green-light.
+- Low `risk_score` + high `confidence` → **trusted low-risk** supplier.
+
+### Range
+
+- Minimum: **0.0** (zero headlines or all empty/invalid headlines)
+- Maximum: **<1.0** (asymptotically approaches 1.0 as n → ∞; never exceeds it)
+- Zero-headline response: **0.0** exactly
+
+### Requirements satisfied
+
+- `confidence(0) = 0.0`
+- `confidence(2) < confidence(20)`
+- Strictly **monotonic non-decreasing** with headline count
+- Bounded on `[0.0, 1.0]`
+- Computed independently from `risk_score`
 
 ---
 
@@ -235,11 +327,26 @@ The project includes a sample dataset:
 src/supplier_headlines.json
 ```
 
-Dataset contains:
+Two datasets are used:
 
-- 5 suppliers
-- 10 headlines per supplier
-- Total 50 headlines
+### Primary Calibration Dataset (used by default)
+
+`src/supplier_headlines.json` — the Round 4 calibrated dataset:
+
+- 8 real-world suppliers: Boeing, Intel, Tesla, Nissan, Foxconn, TSMC, Maersk, BASF
+- 12 headlines per supplier (mix of positive / neutral / risky)
+- **Total 96 headlines**
+- Intentionally spans financial, operational, and reputational risk patterns
+- Used by: `load_headlines()`, `src/evaluate.py`, and the `/analyze-static` endpoint
+
+### Inline Fallback Dataset (HEADLINES_DATA in `src/data.py`)
+
+Small synthetic dataset used **only if** `supplier_headlines.json` cannot be loaded:
+
+- 7 suppliers (TechCorp, AutoMaker Inc, Logistics Co, Global Trade, FoodSupplies, MetalWorks, BuildIt)
+- 1–3 headlines per supplier
+- Total 15 headlines
+- Useful for quick smoke tests when the JSON file is unavailable
 
 ---
 
@@ -272,7 +379,7 @@ python -m pytest -v
 Example Output
 
 ```
-9 passed in 66.39s
+15 passed in 115.34s
 ```
 
 The test suite validates:

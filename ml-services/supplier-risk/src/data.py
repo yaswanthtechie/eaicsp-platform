@@ -2,10 +2,12 @@
 Data loading module for the Supplier Risk NLP pipeline.
 """
 
+import json
+from pathlib import Path
 from typing import Dict, List
 
 # ------------------------------------------------------------------
-# Sample Supplier Headlines
+# Sample Supplier Headlines (fallback when JSON dataset unavailable)
 # ------------------------------------------------------------------
 
 HEADLINES_DATA = [
@@ -101,9 +103,39 @@ HEADLINES_DATA = [
 ]
 
 
+def _load_from_json() -> List[Dict[str, str]]:
+    """
+    Try to load the calibration dataset from supplier_headlines.json.
+
+    Returns the list of headline records, or an empty list if the
+    JSON file cannot be found or parsed.
+    """
+    json_path = Path(__file__).parent / "supplier_headlines.json"
+
+    if not json_path.exists():
+        return []
+
+    try:
+        with json_path.open("r", encoding="utf-8") as file:
+            data = json.load(file)
+
+        if isinstance(data, list) and len(data) > 0:
+            return data
+
+    except (OSError, json.JSONDecodeError):
+        return []
+
+    return []
+
+
 def load_headlines() -> Dict[str, List[str]]:
     """
     Load supplier news headlines grouped by supplier.
+
+    Priority:
+        1. Load the 96-headline / 8-company Round 4 calibration
+           dataset from ``supplier_headlines.json`` when available.
+        2. Fall back to the smaller inline ``HEADLINES_DATA`` sample.
 
     Returns:
         Dict[str, List[str]]:
@@ -111,9 +143,11 @@ def load_headlines() -> Dict[str, List[str]]:
             the value is a list of associated news headlines.
     """
 
+    source_data = _load_from_json() or HEADLINES_DATA
+
     grouped_headlines: Dict[str, List[str]] = {}
 
-    for item in HEADLINES_DATA:
+    for item in source_data:
 
         supplier = item.get("supplier")
         headline = item.get("headline")
