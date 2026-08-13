@@ -551,9 +551,7 @@ lstm/
 
 ## 🔍 Investigation: Does the LSTM beat naive baseline?
 
-Per TL's guidance: this investigation reports the honest result either way —
-whether the LSTM beats naive or not, both are valid "done" outcomes as long
-as the check was genuinely performed.
+
 
 Run `python src/diagnostics_check.py` to reproduce every number below.
 
