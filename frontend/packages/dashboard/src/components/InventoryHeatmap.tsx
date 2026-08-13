@@ -78,7 +78,7 @@ export default function InventoryHeatmap() {
                   onMouseLeave={() => setHovered(null)}
                   style={{
                     position: "relative",
-                    padding: 15,
+                    padding: 30,
                     border: `1px solid ${colors.border}`,
                     color: colors.text,
                     display: "flex",
@@ -107,8 +107,8 @@ export default function InventoryHeatmap() {
                         background: colors.bg,
                         padding: 10,
                         borderRadius: 6,
-                        top: 35,
-                        left: 20,
+                        top: 25,
+                        left: 10,
                         zIndex: 1,
                       }}
                     >

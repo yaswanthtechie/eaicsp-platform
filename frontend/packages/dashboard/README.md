@@ -79,5 +79,6 @@ npm run dev
 
 # Challenges  Faced
 
-While working on the Alert Panel, I faced an issue where the panel was working correctly, but the WebSocket connection was repeatedly showing  **connected and disconnected** states on close with alerts are changing very fast. 
+While working on the Alert Panel, I faced an issue where the panel was working correctly, but the WebSocket connection was repeatedly showing  **connected and disconnected** states on close with alerts are changing very fast.
 After researching the issue, I found that unnecessary re-renders were causing the connection logic to run again. I used **useCallback** to keep the function reference stable, which prevented unnecessary re-renders and resolved the connection issue.
+
