@@ -1,946 +1,1304 @@
-# 🚚 Logistics Service API
+# Logistics Service
 
-A FastAPI-based Logistics Management System for managing shipments, tracking delivery status, comparing carrier rates, and integrating multiple delivery providers.
+## Project Overview
 
-The project follows clean architecture principles and uses the **Adapter Design Pattern** for carrier integration.
+The Logistics Service is a FastAPI-based application that manages shipments, carrier quotes, shipment tracking, shipment history, retry and backoff, bulk quote processing, dynamic reliability scoring, shipment consolidation, circuit breaker handling, and ETA explanation.
 
-## Features
-
-- Shipment creation and management
-- Shipment status tracking
-- Shipment history
-- Carrier quote comparison
-- Cheapest, fastest, and reliable carrier selection
-- Retry mechanism for failed carrier requests
-- Async bulk quote processing
-- Automated Pytest testing
-
-
-# 📌 Project Description
-
-The Logistics Service API provides backend services for delivery management.
-
-Users can:
-
-- Create shipments
-- View shipment details
-- Update shipment status
-- Delete shipments
-- Track shipment history
-- Generate carrier quotations
-- Select carriers based on:
-  - Lowest price
-  - Fast delivery
-  - Reliability score
-
-
-# ✨ Main Features
-
-## Shipment Management
-
-Supported operations:
-
-✔ Create shipment  
-✔ Get all shipments  
-✔ Get shipment by ID  
-✔ Update status  
-✔ Delete shipment  
-
-
-## Tracking System
-
-Every shipment stores tracking events.
-
-Tracking information:
-
-- Shipment ID
-- Status
-- Location
-- Timestamp
-
-
-## Carrier Integration
-
-Supported carriers:
-
-- DHL
-- FedEx
-- UPS
-- BlueDart
-
-
-## Quote Management
-
-Provides:
-
-- Cheapest carrier
-- Fastest carrier
-- Most reliable carrier
-
-
-## Reliability Features
-
-- Automatic retry handling
-- Carrier failure management
-- Warning responses instead of application failure
-
-
-## Performance
-
-Uses:
-
-- asyncio
-- Non-blocking execution
-- Parallel quote processing
-
-
-# 🛠 Technology Stack
-
-
-| Technology | Purpose |
-|------------|---------|
-| Python | Programming Language |
-| FastAPI | REST API Framework |
-| Pydantic | Data Validation |
-| Uvicorn | ASGI Server |
-| Tenacity | Retry Handling |
-| Asyncio | Async Processing |
-| Pytest | Testing |
-
-
-
-# 🏗 System Architecture
-
-             Client
-                |
-                |
-          FastAPI Routes
-                |
-                |
-      Shipment Service Layer
-                |
-   ----------------------------
-   |            |             |
-   Shipment Quote History
-Management System Tracking
-|
-|
-Carrier Adapter Layer
-|
-
-| | | |
-DHL FedEx UPS BlueDart
-
-
-# 📂 Project Structure
-
-logistics/
-
-│
-├── app/
-│
-│ ├── main.py
-│ ├── routes/
-│ │ └── shipments.py
-│ │
-│ ├── schemas/
-│ │ └── shipment.py
-│ │
-│ └── services/
-│ ├── shipment_service.py
-│ │
-│ └── carriers/
-│ ├── base.py
-│ ├── dhl.py
-│ ├── fedex.py
-│ ├── ups.py
-│ └── bluedart.py
-│
-├── tests/
-│ ├── test_carriers.py
-│ └── test_quote_and_history.py
-│
-├── requirements.txt
-└── README.md
-
-
-
-# 📁 Folder Explanation
-
-
-## main.py
-
-Responsible for:
-
-- Creating FastAPI application
-- Registering routes
-- Running API
-
-
-## routes/shipments.py
-
-Contains shipment endpoints.
-
-Examples:
-
-
-POST /shipments
-
-GET /shipments
-
-PUT /shipments/{id}
-
-DELETE /shipments/{id}
-
-
-
-## schemas/shipment.py
-
-Contains Pydantic models:
-
-- ShipmentCreate
-- ShipmentEvent
-- CarrierRate
-- QuoteRequest
-- QuoteResponse
-
-
-Responsibilities:
-
-- Request validation
-- Response formatting
-
-
-## services/shipment_service.py
-
-Contains business logic.
-
-Handles:
-
-- Shipment storage
-- Status validation
-- History creation
-- Quote generation
-- Carrier sorting
-- Bulk processing
-
-
-## services/carriers/
-
-Contains carrier adapters:
-
-
-base.py
-dhl.py
-fedex.py
-ups.py
-bluedart.py
-
-
-Each carrier follows the same interface.
-
-
-# ⚙ Installation
-
-
-## Clone Repository
-
-
-```bash
-git clone <repository-url>
-
-Move into project:
-
-cd logistics
-Create Virtual Environment
-
-Windows:
-
-python -m venv venv
-
-Activate:
-
-venv\Scripts\activate
-
-Linux/Mac:
-
-source venv/bin/activate
-Install Dependencies
-pip install -r requirements.txt
-▶ Run Application
-uvicorn app.main:app --reload
-
-Application:
-
-http://127.0.0.1:8000
-📖 API Documentation
-
-Swagger:
-
-http://127.0.0.1:8000/docs
-
-ReDoc:
-
-http://127.0.0.1:8000/redoc
-🚚 Shipment APIs
-
-Base URL:
-
-/api/v1/shipments
-
-Create Shipment
-
-Endpoint:
-
-POST /api/v1/shipments
-
-
-Request:
-
-{
- "shipment_id":100,
- "origin":"Hyderabad",
- "destination":"Mumbai",
- "carrier":"dhl",
- "status":"pending",
- "estimated_delivery":"2027-01-01",
- "weight_kg":12.5
-}
-
-
-Response:
-
-{
- "shipment_id":100,
- "status":"pending"
-}
-# Get All Shipments
-
-
-Endpoint:
-
-
-GET /api/v1/shipments
-
-
-
-Returns all available shipments.
-
+The service is designed to continue processing shipments even when one or more carriers are temporarily unavailable.
 
 ---
 
-# Get Shipment By ID
+# Technologies Used
 
+* Python 3.13
+* FastAPI
+* Pydantic
+* Asyncio
+* Pytest
+* Tenacity
+* HTTPX
+* Coverage
+* Adapter Pattern
 
-Endpoint:
+---
 
+# Project Structure
 
-GET /api/v1/shipments/{shipment_id}
+```text
+logistics/
+│
+├── app/
+│   ├── main.py
+│   │
+│   ├── routes/
+│   │   └── shipment.py
+│   │
+│   ├── schemas/
+│   │   └── shipment.py
+│   │
+│   ├── services/
+│   │   ├── shipment_service.py
+│   │   │
+│   │   └── carriers/
+│   │       ├── base.py
+│   │       ├── dhl.py
+│   │       ├── fedex.py
+│   │       ├── ups.py
+│   │       └── bluedart.py
+│   │
+│   └── core/
+│       └── config.py
+│
+├── tests/
+│   ├── test_carriers.py
+│   ├── test_quote_and_history.py
+│   └── test_r4.py
+│
+├── requirements.txt
+├── README.md
+└── .coverage
+```
 
+---
 
+# Supported Carriers
+
+The service currently supports:
+
+* DHL
+* FedEx
+* UPS
+* BlueDart
+
+The carrier implementations use the Adapter Pattern so different carrier implementations can be handled through a common interface.
+
+---
+
+# Shipment Management
+
+## Shipment CRUD
+
+### Endpoints
+
+```text
+POST   /api/v1/shipments
+GET    /api/v1/shipments
+GET    /api/v1/shipments/{id}
+PUT    /api/v1/shipments/{id}
+DELETE /api/v1/shipments/{id}
+```
+
+### Create Shipment Example
+
+```json
+{
+  "shipment_id": 1,
+  "origin": "Hyderabad",
+  "destination": "Mumbai",
+  "carrier": "dhl",
+  "status": "pending",
+  "weight_kg": 10
+}
+```
+
+---
+
+# Shipment Status
+
+Supported statuses:
+
+```text
+pending
+in_transit
+delivered
+delayed
+cancelled
+```
+
+---
+
+# Status Transition Rules
+
+## Allowed
+
+```text
+pending → in_transit
+
+in_transit → delayed
+in_transit → delivered
+
+delayed → in_transit
+delayed → delivered
+```
+
+## Not Allowed
+
+```text
+delivered → pending
+delivered → in_transit
+cancelled → delivered
+```
+
+Invalid transitions return a validation error.
+
+---
+
+#  Quote and Tracking
+
+## Quote API
+
+### Endpoint
+
+```text
+POST /api/v1/shipments/quote
+```
+
+### Preferences
+
+```text
+cheapest
+fastest
+most_reliable
+```
+
+---
+
+## Cheapest Quote
+
+Selects the carrier with the lowest price.
 
 Example:
 
+```text
+BlueDart = ₹750
+DHL      = ₹850
+UPS      = ₹900
 
-GET /api/v1/shipments/100
-
-
-
----
-
-# Update Shipment Status
-
-
-Endpoint:
-
-
-PUT /api/v1/shipments/{shipment_id}
-
-
-
-The system checks whether the status change is valid before updating.
-
+Selected = BlueDart
+```
 
 ---
 
-# Delete Shipment
+## Fastest Quote
 
+Selects the carrier with the lowest estimated delivery time.
 
-Endpoint:
+Example:
 
+```text
+BlueDart = 2 days
+DHL      = 2 days
+UPS      = 4 days
+```
 
-DELETE /api/v1/shipments/{shipment_id}
+---
 
+## Most Reliable Quote
 
+Selects the carrier with the highest reliability score.
 
-Deletes:
+The reliability score is dynamically calculated in R4.
 
-- Shipment information
-- Shipment history
+---
 
+# Carrier Rate Example
 
+```text
+DHL
+Price: ₹850
+Estimated Days: 2
 
-# 📍 Shipment History
+FedEx
+Price: ₹950
+Estimated Days: 3
 
+UPS
+Price: ₹900
+Estimated Days: 4
 
-Endpoint:
+BlueDart
+Price: ₹750
+Estimated Days: 2
+```
 
+---
 
-GET /api/v1/shipments/{shipment_id}/history
+# Quote Output
 
+```json
+{
+  "rates": [
+    {
+      "carrier": "bluedart",
+      "price": 750,
+      "estimated_days": 2
+    },
+    {
+      "carrier": "dhl",
+      "price": 850,
+      "estimated_days": 2
+    }
+  ]
+}
+```
 
+---
 
-Response:
+# Tracking API
+
+### Endpoint
+
+```text
+GET /api/v1/shipments/{id}/tracking
+```
+
+### Example Output
+
+```json
+{
+  "tracking_number": "1",
+  "carrier": "dhl",
+  "status": "in_transit",
+  "location": "In Transit"
+}
+```
+
+---
+
+#  Retry and Shipment History
+
+## Retry Logic
+
+Carrier requests use Tenacity retry logic.
+
+### Retry Attempts
+
+```text
+3 attempts
+```
+
+### Backoff
+
+```text
+1 second
+2 seconds
+4 seconds
+```
+
+### Purpose
+
+* Handle temporary carrier failures
+* Handle timeout problems
+* Improve reliability
+* Give failed carrier requests another chance
+
+---
+
+# Retry Flow
+
+```text
+Carrier Request
+      |
+      v
+   Failure?
+    /   \
+  Yes    No
+   |      |
+ Retry   Success
+   |
+ Retry 2
+   |
+ Retry 3
+   |
+Final Failure
+```
+
+---
+
+# FedEx Failure Simulation
+
+FedEx can randomly simulate a carrier failure.
+
+Example:
+
+```python
+if random.random() < 0.3:
+    raise CarrierError()
+```
+
+Purpose:
+
+* Test retry logic
+* Test failure handling
+* Test warnings
+* Test circuit breaker
+
+---
+
+# Shipment History
+
+### Endpoint
+
+```text
+GET /api/v1/shipments/{id}/history
+```
+
+History stores:
+
+* Status
+* Timestamp
+* Location
+
+### Example
 
 ```json
 [
- {
-  "shipment_id":100,
-  "status":"pending",
-  "location":"Hyderabad"
- },
- {
-  "shipment_id":100,
-  "status":"in_transit",
-  "location":"Mumbai"
- }
-]
-Shipment Status Flow
-
-Allowed status transitions:
-
-pending
-   |
-   v
-in_transit
-   |
-   +----------------+
-   |                |
-   v                v
-delayed        delivered
-   |
-   v
-in_transit
-
-
-Invalid transition:
-
-delivered → pending
-
-Response:
-
-400 Bad Request
-💰 Carrier Quote System
-
-The quote system collects delivery prices from all carriers and selects the best option based on user preference.
-
-Quote API
-
-Endpoint:
-
-POST /api/v1/shipments/quote
-
-Request:
-
-{
- "origin":"Hyderabad",
- "destination":"Mumbai",
- "weight_kg":10,
- "preference":"cheapest"
-}
-
-
-Response:
-
-{
- "rates":[
   {
-   "carrier":"bluedart",
-   "price":750,
-   "estimated_days":2,
-   "reliability_score":0.90
+    "status": "pending",
+    "location": "Hyderabad"
+  },
+  {
+    "status": "in_transit",
+    "location": "In Transit"
   }
- ],
- "warnings":[]
-}
+]
+```
 
-Quote Selection Methods
-1. Cheapest Carrier
+---
 
-Selects carrier with minimum price.
+#  Advanced Logistics Features
 
-Sorting:
+R4 focuses on:
 
-price ascending
+* Performance
+* Concurrent processing
+* Dynamic reliability
+* Consolidation
+* Circuit breaker
+* Carrier failure handling
+* ETA explanation
 
-Example:
+---
 
-BlueDart
+# Async Bulk Quote
 
-Price: 750
-2. Fastest Carrier
+### Endpoint
 
-Selects carrier with minimum delivery time.
+```text
+POST /api/v1/shipments/bulk-quote
+```
 
-Sorting:
+The endpoint supports:
 
-estimated_days ascending
+```text
+20 shipments
+```
 
-Example:
+The quote requests are processed concurrently using:
 
-DHL
-
-Delivery: 2 days
-3. Most Reliable Carrier
-
-Uses reliability calculation:
-
-score =
-
-(reliability × 100)
--
-(price × 0.01)
--
-delivery_days
-
-
-Example:
-
-UPS
-
-Reliability: 0.95
-
-🚛 Carrier Integration
-
-The project uses the Adapter Design Pattern.
-
-Architecture:
-
-             Carrier Adapter
-
-                    |
-     --------------------------------
-     |              |       |       |
-    DHL           FedEx    UPS   BlueDart
-
-
-Shipment service communicates with the adapter instead of directly communicating with carriers.
-
-Flow:
-
-Shipment Service
-
-        |
-
-Carrier Interface
-
-        |
-
-Carrier Implementation
-Why Adapter Pattern?
-Loose Coupling
-
-Business logic does not depend on individual carrier classes.
-
-Easy Expansion
-
-New carriers can be added easily.
-
-Example:
-
-amazon.py
-
-without modifying existing shipment logic.
-
-Independent Carrier Logic
-
-Each carrier manages:
-
-Rate calculation
-Tracking information
-API communication
-Carrier Adapter Interface
-
-File:
-
-base.py
-
-Contains common methods:
-
-get_rate()
-
-get_tracking()
-
-
-Every carrier implements these methods.
-
-📦 Carrier Details
-DHL
-Price: 850
-
-Delivery Time: 2 days
-
-Reliability: 0.87
-
-FedEx
-Price: 950
-
-Delivery Time: 3 days
-
-Reliability: 0.92
-
-
-FedEx simulates temporary failures.
-
-Failure chance:
-
-30%
-UPS
-Price: 900
-
-Delivery Time: 4 days
-
-Reliability: 0.95
-
-BlueDart
-Price: 750
-
-Delivery Time: 2 days
-
-Reliability: 0.90
-
-🔁 Retry Mechanism
-
-Carrier APIs may fail because of:
-
-Network issues
-Timeout
-Temporary service problems
-
-The project uses:
-
-Tenacity Library
-Retry Configuration
-
-Maximum attempts:
-
-3 retries
-
-Retry delay:
-
-Attempt 1 → 1 second
-
-Attempt 2 → 2 seconds
-
-Attempt 3 → 4 seconds
-
-
-Flow:
-
-Request Carrier Rate
-
-        |
-
-Check Response
-
-        |
-
-Failure?
-
-        |
-
-Retry Request
-
-        |
-
-Return Result
-
-Error Handling
-
-Carrier failure does not stop the complete quote process.
-
-Example:
-
-If FedEx fails:
-
-{
- "warnings":[
-    "FedEx unavailable"
- ]
-}
-# ⚡ Bulk Quote Processing
-
-
-The system supports multiple quote requests at the same time using asynchronous processing.
-
-
-Technology:
-
-
+```python
 asyncio.gather()
+```
 
+---
 
+## Sequential Processing
+
+Without async processing:
+
+```text
+Shipment 1 → Quote
+Shipment 2 → Quote
+Shipment 3 → Quote
+Shipment 4 → Quote
+...
+Shipment 20 → Quote
+```
+
+Each operation waits for the previous operation.
+
+---
+
+## Parallel Processing
+
+With `asyncio.gather()`:
+
+```text
+Shipment 1 ─┐
+Shipment 2 ─┤
+Shipment 3 ─┤
+Shipment 4 ─┤
+Shipment 5 ─┤
+     ...    ├──→ asyncio.gather()
+Shipment 20 ┘
+```
+
+Multiple requests can execute concurrently.
+
+---
+
+## Example Output
+
+```json
+{
+  "quotes": 20,
+  "shipment_count": 20,
+  "parallel_time": 0.50,
+  "sequential_time": 2.10,
+  "speedup": 4.20
+}
+```
+
+---
+
+## Benefits
+
+* Faster quote processing
+* Better performance
+* Concurrent carrier requests
+* Suitable for multiple shipments
+
+---
+
+# R4.2 - Dynamic Reliability Score
+
+Previously the reliability score was static.
 
 Example:
 
+```python
+reliability_score = 0.95
+```
 
+This does not represent actual carrier performance.
 
-Request 1 → Hyderabad to Mumbai
+---
 
-Request 2 → Delhi to Chennai
+## New Reliability Formula
 
-Request 3 → Pune to Bangalore
+```text
+Reliability Score =
+On-Time Deliveries / Total Deliveries
+```
 
+---
 
+## Example
 
-Traditional processing:
+```text
+On-Time Deliveries = 8
+Total Deliveries   = 10
 
+Reliability Score = 8 / 10
 
+Reliability Score = 0.80
+```
 
-Request 1
-(wait)
+---
 
-Request 2
-(wait)
+## Benefits
 
-Request 3
+* Uses actual carrier history
+* More realistic reliability
+* Better carrier ranking
+* Improves `most_reliable` selection
 
+---
 
+# Shipment Consolidation
 
-Async processing:
+The service checks whether shipments can be combined.
 
+## Rule
 
+Consolidation is suggested when:
 
-Request 1
-Request 2
-Request 3
+```text
+2 or more shipments
+AND
+Same destination
+AND
+Within 2 days
+```
 
-Together
+---
 
+## Example
 
+```text
+Shipment 1
+Destination: Mumbai
+Date: 15-Aug
 
-Benefits:
+Shipment 2
+Destination: Mumbai
+Date: 16-Aug
+```
 
-- Faster response time
-- Better performance
-- Handles multiple users
+Suggestion:
 
+```text
+Combine shipments to save cost
+```
 
+---
 
-# 🧪 Testing
+## Example Output
 
+```json
+{
+  "destination": "Mumbai",
+  "message": "Combine shipments to save cost"
+}
+```
 
-Testing Framework:
+---
 
+## Benefits
 
-Pytest
+* Reduced transportation cost
+* Better vehicle utilization
+* Fewer individual shipments
+* Improved logistics efficiency
 
+---
 
+# Circuit Breaker
 
-Run tests:
+The circuit breaker prevents continuous requests to a carrier that is repeatedly failing.
 
+---
 
-```bash
-python -m pytest -v
-Code Coverage
+## Circuit States
 
-Run coverage:
+```text
+CLOSED
+   |
+   | repeated failures
+   v
+OPEN
+```
 
+---
+
+## Example
+
+```text
+DHL Request 1 → Failure
+DHL Request 2 → Failure
+DHL Request 3 → Failure
+
+Circuit → OPEN
+```
+
+When the circuit is open, additional requests to that carrier are prevented.
+
+---
+
+## Example Warning
+
+```json
+{
+  "warning": "DHL circuit is OPEN"
+}
+```
+
+---
+
+## Benefits
+
+* Prevents repeated calls to failed carriers
+* Reduces unnecessary retries
+* Improves response time
+* Protects the application
+* Improves system stability
+
+---
+
+# Circuit Breaker Testing
+
+Circuit breaker tests cover:
+
+```text
+Carrier available
+Carrier fails once
+Carrier fails multiple times
+Circuit opens
+Circuit reset
+Multiple carriers failing
+```
+
+Testing helper functions:
+
+```python
+reset_circuit_breaker()
+reset_all_circuit_breakers()
+```
+
+These functions make sure circuit state does not leak from one test to another.
+
+---
+
+# ETA Explain
+
+### Endpoint
+
+```text
+GET /api/v1/shipments/{id}/eta-explain
+```
+
+The endpoint explains why the shipment has a particular ETA.
+
+---
+
+## Example Output
+
+```json
+{
+  "shipment_id": 1,
+  "carrier": "dhl",
+  "estimated_days": 2,
+  "reason": [
+    "Carrier baseline 2 days",
+    "Normal weather",
+    "Medium distance"
+  ]
+}
+```
+
+---
+
+## Benefits
+
+* Easy to understand ETA
+* Better transparency
+* Helps users understand delivery estimation
+* Useful for debugging ETA decisions
+
+---
+
+# Carrier Failure Handling
+
+The system is designed to continue processing when one or more carriers fail.
+
+---
+
+# Scenario 1 - One Carrier Down
+
+```text
+DHL      → DOWN
+FedEx    → UP
+UPS      → UP
+BlueDart → UP
+```
+
+Expected:
+
+```text
+DHL warning returned
+
+FedEx quote available
+UPS quote available
+BlueDart quote available
+```
+
+The entire quote operation should not fail because one carrier is unavailable.
+
+---
+
+# Scenario 2 - Two Carriers Down
+
+```text
+DHL      → DOWN
+FedEx    → DOWN
+UPS      → UP
+BlueDart → UP
+```
+
+Expected:
+
+```text
+DHL unavailable
+FedEx unavailable
+
+UPS quote available
+BlueDart quote available
+```
+
+---
+
+# Scenario 3 - All Carriers Available
+
+```text
+DHL      → UP
+FedEx    → UP
+UPS      → UP
+BlueDart → UP
+```
+
+Expected:
+
+```text
+All carrier quotes returned
+No carrier failure warnings
+```
+
+---
+
+# Concurrent Carrier Failure Test
+
+Example:
+
+```text
+DHL      → DOWN
+FedEx    → DOWN
+UPS      → UP
+BlueDart → UP
+```
+
+Expected:
+
+```json
+[
+  "DHL unavailable",
+  "FedEx unavailable"
+]
+```
+
+while successful carriers continue returning quotes.
+
+---
+
+# Adapter Pattern
+
+The carrier implementations use a common interface.
+
+```text
+                 Carrier Interface
+                        |
+          +-------------+-------------+
+          |             |             |
+         DHL          FedEx          UPS
+                                      |
+                                   BlueDart
+```
+
+The application can communicate with all carriers through a common interface.
+
+---
+
+# Testing
+
+Run all tests using:
+
+```powershell
+python -m pytest -q
+```
+
+---
+
+# Shipment Tests
+
+Tests include:
+
+* Create shipment
+* Get shipment
+* Update shipment
+* Delete shipment
+* Status validation
+* Invalid status transitions
+
+---
+
+# Quote Tests
+
+Tests include:
+
+* Cheapest quote
+* Fastest quote
+* Most reliable quote
+* Carrier failure handling
+* Multiple carrier failures
+
+---
+
+# History Tests
+
+Tests include:
+
+* History creation
+* Status event creation
+* Event ordering
+* Tracking history
+
+---
+
+# Tests
+
+Tests include:
+
+* Bulk quote
+* Async execution
+* Parallel speedup
+* Dynamic reliability
+* Consolidation suggestion
+* Circuit breaker
+* Circuit breaker reset
+* Carrier failure handling
+* Two-carrier failure
+* Transition edge cases
+* ETA explanation
+
+---
+
+# Important Test Scenarios
+
+## Bulk Quote Test
+
+```text
+20 shipments
+      |
+      v
+asyncio.gather()
+      |
+      v
+Concurrent processing
+      |
+      v
+Bulk quote result
+```
+
+---
+
+## Two Carrier Failure Test
+
+```text
+DHL      → DOWN
+FedEx    → DOWN
+UPS      → UP
+BlueDart → UP
+```
+
+Expected:
+
+```text
+Warnings for DHL and FedEx
+
+Quotes from UPS and BlueDart
+```
+
+---
+
+## Invalid Transition Test
+
+Example:
+
+```text
+delivered → pending
+```
+
+Expected:
+
+```text
+Validation Error
+```
+
+---
+
+## Circuit Breaker Test
+
+```text
+Failure
+Failure
+Failure
+   |
+   v
+Circuit OPEN
+```
+
+Expected:
+
+```text
+Further calls are blocked
+```
+
+---
+
+# Blockers Faced
+
+# Blocker 1 - Circuit Breaker Test Failure
+
+### Problem
+
+The circuit breaker state remained open between tests.
+
+One test could affect another test.
+
+### Cause
+
+The circuit breaker stores state.
+
+### Fix
+
+Added reset helper functions:
+
+```python
+reset_circuit_breaker()
+reset_all_circuit_breakers()
+```
+
+This allows tests to start with a clean circuit state.
+
+---
+
+# Blocker 2 - Reliability Score Test Failure
+
+### Problem
+
+The reliability calculation expected a dictionary but sometimes received a boolean.
+
+Example:
+
+```python
+True
+```
+
+instead of:
+
+```python
+{
+    "on_time": True
+}
+```
+
+This produced an error similar to:
+
+```text
+bool object has no attribute get
+```
+
+### Fix
+
+The implementation was changed to handle both:
+
+```text
+True
+False
+```
+
+and:
+
+```python
+{
+    "on_time": True
+}
+```
+
+This made reliability calculation more robust.
+
+---
+
+# Blocker 3 - FedEx Warning Name
+
+### Problem
+
+Expected:
+
+```text
+FedEx unavailable
+```
+
+but received:
+
+```text
+Fedex unavailable
+```
+
+### Cause
+
+The carrier name was generated using normal capitalization.
+
+### Fix
+
+Added custom carrier display names:
+
+```text
+DHL
+FedEx
+UPS
+BlueDart
+```
+
+This keeps carrier names consistent in warnings and API responses.
+
+---
+
+# Blocker 4 - Multiple Carrier Failures
+
+### Problem
+
+When multiple carriers fail during async processing, one exception should not stop all other carrier requests.
+
+Example:
+
+```text
+DHL      → Failure
+FedEx    → Failure
+UPS      → Success
+BlueDart → Success
+```
+
+### Expected
+
+```text
+DHL warning
+FedEx warning
+
+UPS quote
+BlueDart quote
+```
+
+The bulk quote processing must handle each carrier failure independently.
+
+---
+
+# Environment Setup
+
+## Create Virtual Environment
+
+Use Python 3.13:
+
+```powershell
+py -3.13 -m venv venv
+```
+
+---
+
+## Activate Virtual Environment
+
+```powershell
+.\venv\Scripts\Activate.ps1
+```
+
+After activation:
+
+```text
+(venv) PS C:\Users\Sowmya\OneDrive\Desktop\logistical service\eaicsp-platform\services\logistics>
+```
+
+---
+
+## Install Dependencies
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
+---
+
+# Run Application
+
+Start the FastAPI server:
+
+```powershell
+python -m uvicorn app.main:app --reload
+```
+
+---
+
+# Swagger Documentation
+
+After starting the server, open:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+Swagger can be used to test all API endpoints.
+
+---
+
+# Run Tests
+
+```powershell
+python -m pytest -q
+```
+
+---
+
+# Run Coverage
+
+```powershell
 coverage run -m pytest
-
-coverage report -m
-
-
-Example:
-
-TOTAL
-
-Coverage: 95%+
-
-Test Cases Covered
-Carrier Tests
-
-File:
-
-test_carriers.py
-
-Covered:
-
-✔ DHL rate calculation
-✔ DHL tracking
-✔ FedEx rate calculation
-✔ FedEx tracking
-✔ UPS rate calculation
-✔ UPS tracking
-✔ BlueDart rate calculation
-✔ BlueDart tracking
-✔ Retry handling
-
-Shipment Tests
-
-File:
-
-test_quote_and_history.py
-
-Covered:
-
-✔ Create shipment
-
-✔ Get shipment details
-
-✔ Delete shipment
-
-✔ Shipment history
-
-✔ Valid status transition
-
-✔ Invalid status transition
-
-✔ Quote sorting
-
-✔ Carrier failure handling
-
-✔ Bulk quote processing
-
-🏛 Business Logic Flow
-
-Complete request flow:
-
-Client
-
- |
-
-API Endpoint
-
- |
-
-Shipment Route
-
- |
-
-Shipment Service
-
- |
-
-Carrier Adapter
-
- |
-
-Carrier Provider
-
- |
-
-Response
-
-💾 Current Storage
-
-The current implementation uses:
-
-In-memory Dictionary Storage
-
-Example:
-
-shipments = {}
-
-shipment_events = {}
-
-
-Advantages:
-
-Simple implementation
-Fast execution
-Easy testing
-
-Future versions can use:
-
-PostgreSQL
-MySQL
-MongoDB
-🚀 Future Enhancements
-Database Integration
-
-Replace memory storage with:
-
-PostgreSQL
-MySQL
-Authentication
-
-Add:
-
-JWT Authentication
-User roles
-API security
-Redis Cache
-
-Use Redis for:
-
-Carrier quote caching
-Faster response time
-Real Carrier APIs
-
-Integrate:
-
-DHL API
-FedEx API
-UPS API
-Background Workers
-
-Use:
-
-Celery
-RabbitMQ
-
-For:
-
-Notifications
-Tracking updates
-📚 Technology Explanation
-FastAPI
-
-Used for:
-
-REST API creation
-Request handling
-Automatic API documentation
-Pydantic
-
-Used for:
-
-Request validation
-Schema management
-Tenacity
-
-Used for:
-
-Retry failed carrier requests
-Handling temporary errors
-Asyncio
-
-Used for:
-
-Parallel quote processing
-Non-blocking execution
-Pytest
-
-Used for:
-
-Automated testing
-Code reliability
-Adapter Pattern
-
-Used for:
-
-Carrier integration
-Maintainable architecture
-👨‍💻 Author
-FastAPI Logistics Service Project
-
-Built using:
-
-Python
-FastAPI
-Pydantic
-Asyncio
-Tenacity
-Pytest
+```
+
+Then:
+
+```powershell
+coverage report
+```
+
+---
+
+# Git Branch
+
+Current R4 development branch:
+
+```text
+sowmya/round3-logistics
+```
+
+---
+
+# R1 Completion
+
+```text
+✓ Shipment CRUD
+✓ Shipment status
+✓ Status transition validation
+```
+
+---
+
+# R2 Completion
+
+```text
+✓ Quote API
+✓ Cheapest quote
+✓ Fastest quote
+✓ Most reliable quote
+✓ Tracking API
+```
+
+---
+
+# R3 Completion
+
+```text
+✓ Retry logic
+✓ Tenacity retry
+✓ Exponential backoff
+✓ Shipment history
+✓ FedEx failure simulation
+```
+
+---
+
+# R4 Completion
+
+```text
+✓ Async bulk quote
+✓ 20 shipment support
+✓ asyncio.gather()
+✓ Parallel speedup measurement
+✓ Dynamic reliability score
+✓ Consolidation suggestion
+✓ Circuit breaker
+✓ Circuit breaker reset
+✓ Concurrent carrier failure handling
+✓ Two-carrier failure handling
+✓ Transition edge-case testing
+✓ ETA explain endpoint
+```
+
+---
+
+# Current Status
+
+The project has reached the main R4 implementation and testing stage.
+
+The completed flow is:
+
+```text
+R1
+Shipment Management
+      ↓
+R2
+Quotes + Tracking
+      ↓
+R3
+Retry + History
+      ↓
+R4
+Async Bulk Quote
+      ↓
+Dynamic Reliability
+      ↓
+Consolidation
+      ↓
+Circuit Breaker
+      ↓
+Carrier Failure Handling
+      ↓
+ETA Explanation
+```
+
+# Final Testing Checklist
+
+```text
+[ ] Virtual environment created
+[ ] Virtual environment activated
+[ ] Requirements installed
+[ ] FastAPI server starts
+[ ] Swagger opens
+[ ] Shipment CRUD works
+[ ] Quote API works
+[ ] Tracking works
+[ ] Shipment history works
+[ ] Retry works
+[ ] Bulk quote accepts 20 shipments
+[ ] asyncio.gather() is used
+[ ] Parallel execution works
+[ ] Speedup is measured
+[ ] Dynamic reliability works
+[ ] Consolidation suggestion works
+[ ] Circuit breaker opens after failures
+[ ] Circuit breaker reset works
+[ ] One carrier failure is handled
+[ ] Two carrier failures are handled
+[ ] Invalid status transitions are rejected
+[ ] ETA explanation works
+[ ] All tests pass
+```
+
+
+# Final Summary
+
+The Logistics Service has evolved from a basic shipment management API into an advanced logistics service.
+
+The completed functionality includes:
+
+```text
+Shipment Management
+        +
+Carrier Quotes
+        +
+Tracking
+        +
+Retry and Backoff
+        +
+Shipment History
+        +
+Async Bulk Quotes
+        +
+Dynamic Reliability
+        +
+Shipment Consolidation
+        +
+Circuit Breaker
+        +
+Carrier Failure Handling
+        +
+ETA Explanation
+```
+
+The current stopping point is:
+
+```text
+R4 IMPLEMENTATION
+        +
+R4 TESTING
+        +
+R4 DOCUMENTATION
+```
 

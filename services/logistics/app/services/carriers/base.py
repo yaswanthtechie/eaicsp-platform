@@ -13,29 +13,46 @@ from app.schemas.shipment import (
 )
 
 
+# ============================================================
+# CARRIER ERROR
+# ============================================================
+
 class CarrierError(Exception):
     """
-    Retryable carrier/API exception.
-    Used for temporary carrier failures such as
-    timeouts, connection issues, and API outages.
+    Temporary carrier/API failure.
+
+    This exception is retryable by Tenacity.
     """
+
     pass
 
 
+# ============================================================
+# RETRY CONFIGURATION
+# ============================================================
+
 def api_retry():
+
     return retry(
         stop=stop_after_attempt(3),
+
         wait=wait_exponential(
             multiplier=1,
             min=1,
             max=4,
         ),
+
         retry=retry_if_exception_type(
             CarrierError
         ),
+
         reraise=True,
     )
 
+
+# ============================================================
+# COMMON CARRIER INTERFACE
+# ============================================================
 
 class CarrierAdapter(ABC):
 
@@ -46,6 +63,7 @@ class CarrierAdapter(ABC):
         destination: str,
         weight_kg: float,
     ) -> CarrierRate:
+
         pass
 
     @abstractmethod
@@ -53,4 +71,5 @@ class CarrierAdapter(ABC):
         self,
         tracking_number: str,
     ) -> TrackingInfo:
+
         pass

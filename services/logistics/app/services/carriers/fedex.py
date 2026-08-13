@@ -1,4 +1,5 @@
 import random
+import time
 
 from app.services.carriers.base import (
     CarrierAdapter,
@@ -24,8 +25,14 @@ class FedExAdapter(CarrierAdapter):
         weight_kg: float,
     ) -> CarrierRate:
 
-        if random.random() < 0.3:
-            raise CarrierError("FedEx API timeout")
+        time.sleep(0.10)
+
+        # Simulate temporary API failure.
+        if random.random() < 0.30:
+
+            raise CarrierError(
+                "FedEx API timeout"
+            )
 
         return CarrierRate(
             carrier=Carrier.fedex,
@@ -42,6 +49,8 @@ class FedExAdapter(CarrierAdapter):
         self,
         tracking_number: str,
     ) -> TrackingInfo:
+
+        time.sleep(0.05)
 
         return TrackingInfo(
             tracking_number=tracking_number,

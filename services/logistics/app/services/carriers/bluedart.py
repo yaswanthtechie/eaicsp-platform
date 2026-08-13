@@ -1,3 +1,5 @@
+import time
+
 from app.services.carriers.base import (
     CarrierAdapter,
     api_retry,
@@ -21,6 +23,8 @@ class BlueDartAdapter(CarrierAdapter):
         weight_kg: float,
     ) -> CarrierRate:
 
+        time.sleep(0.10)
+
         return CarrierRate(
             carrier=Carrier.bluedart,
             origin=origin,
@@ -36,6 +40,8 @@ class BlueDartAdapter(CarrierAdapter):
         self,
         tracking_number: str,
     ) -> TrackingInfo:
+
+        time.sleep(0.05)
 
         return TrackingInfo(
             tracking_number=tracking_number,

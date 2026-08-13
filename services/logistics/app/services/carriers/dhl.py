@@ -1,3 +1,5 @@
+import time
+
 from app.services.carriers.base import (
     CarrierAdapter,
     api_retry,
@@ -21,6 +23,10 @@ class DHLAdapter(CarrierAdapter):
         weight_kg: float,
     ) -> CarrierRate:
 
+        # Simulated external API latency.
+        # This makes the async speedup measurable.
+        time.sleep(0.10)
+
         return CarrierRate(
             carrier=Carrier.dhl,
             origin=origin,
@@ -36,6 +42,8 @@ class DHLAdapter(CarrierAdapter):
         self,
         tracking_number: str,
     ) -> TrackingInfo:
+
+        time.sleep(0.05)
 
         return TrackingInfo(
             tracking_number=tracking_number,
