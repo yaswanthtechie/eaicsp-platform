@@ -156,6 +156,8 @@ def quality_gate(df: pd.DataFrame, config_path: str):
 id ../data/messy_
 Standard run
 python -m src.main --input data/messy_sales.csv --config configs/sales_rules.yaml
+python -m src.validate_cli --file data/messy_sales.csv --config configs/sales_rules.yaml --output reports/output.json
+python src/validate_cli.py --file data/messy_sales.csv --config configs/sales_rules.yaml --output reports/output.json
 
 Force generation of new synthetic data
 python -m src.main --generate
@@ -167,3 +169,233 @@ Running the project generates:
 - `data/messy_sales.csv`
 - `data/cleam_sales.csv`
 - `logs/validation_time-stamp.log`
+
+
+# Rule Versioning (The Contract Update):
+- Rule versioning is critical for auditing data drift and understanding pipeline behavior over time. 
+- By embedding a version string in your configuration, every validation report explicitly states which rule set was active during execution. 
+- This ensures that if a data batch that passed in previous batch fails in present batch, we can quickly trace the discrepancy back to a specific configuration change.
+
+## Configuration (YAML):
+- Added a version string at the root level of the rules configuration file.
+```yaml
+# configs/sales_rules.yaml
+version: "1.1.0"
+rules:
+  - name: date_not_null
+    field: date
+    type: not_null
+    severity: ERROR
+```
+
+## Output (JSON Report):
+- The CLI and pipeline orchestrator will automatically extract this version from the YAML and inject it into the final ValidationResult payload. 
+- This makes it highly trackable for downstream CI/CD jobs 
+```json
+{
+  "config_version": "1.1.0",
+  "passed": false,
+  "total_rows_affected": 8,
+  "errors": [
+    {
+      "rule": "date_not_null",
+      "field": "date",
+      "count": 1
+    }
+  ]
+}
+```
+
+# Standalone Validation CLI (validate_cli.py):
+- The project includes a standalone command-line interface designed to act as a quality gate for CI/CD workflows and automated pipelines. 
+- It runs the data validator engine, exports a detailed JSON summary, and returns standard system exit codes based on the validation results.
+
+## CLI Arguments:
+- --file: The file path to the input CSV dataset (e.g., data/messy_sales.csv).
+- --config: The file path to your YAML configuration rules (e.g., configs/sales_rules.yaml).  
+- --output: The destination path where the JSON validation report will be saved (e.g., reports/output.json).
+
+## Integration & Behavior:
+- JSON Reporting: The CLI extracts the full ValidationResult (including error counts, rows affected, and the configuration version) and exports it to the path specified in --output
+- CI/CD Exit Codes: The script behaves like a standard Unix utility. If the data passes all ERROR-level rules, it exits with code 0 (Success). If validation fails, it exits with code 1 (Failure), automatically halting pipeline runners like GitHub Actions or Jenkins.
+
+## How to Run:
+It is recommended to run the CLI as a module from the root directory of the project. Here are standard execution examples:  
+```commandline
+# Standard validation run
+python -m src.validate_cli --file data/messy_sales.csv --config configs/sales_rules.yaml --output reports/output.json
+
+# Running against alternative datasets and rulesets
+python -m src.validate_cli --file data/messy_sales_1.csv --config configs/sales_rules_1.yaml --output reports/output_1.json
+python -m src.validate_cli --file data/messy_sales_2.csv --config configs/sales_rules_2.yaml --output reports/output_2.json
+```
+Alternatively, if you prefer not to use the module flag, you can execute using pyproject.toml cofig file:
+```commandline
+pip install -e .
+validate-data --file data/messy_sales.csv --config configs/sales_rules.yaml --output reports/output.json
+```
+
+# Configuring pyproject.toml file:
+- In true enterprise environments, the standard is to not call python directly at all. 
+- Instead, the project is packaged using a pyproject.toml file with defined console_scripts. 
+- This installs your CLI tool directly into the virtual environment, allowing you to run it like a native system command from anywhere.
+
+## Step 1: Create pyproject.toml
+```toml
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "data-validator"
+version = "1.0.0"
+description = "A configuration-driven data quality firewall."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "pandas",
+    "pydantic",
+    "pyyaml"
+]
+
+[project.scripts]
+# This is the magic line.
+# It maps the terminal command 'validate-data' to the 'main' function inside 'src/validate_cli.py'
+validate-data = "src.validate_cli:main"
+
+# for generating the synthetic data
+generate-messy-data = "src.make_messy_data:main"
+
+# for running the complete orchestrator pipeline
+run-pipeline = "src.main:main"
+
+[tool.setuptools]
+packages = ["src"]
+```
+
+## Step 2: Install the Package Locally:
+- Ensure your Conda environment (where your app is running) is activated. 
+- Then, run the following pip command from your root validation/ directory (where the pyproject.toml file is located):
+```commandline
+pip install -e .
+```
+- The -e flag stands for "editable". This means if you change the code inside src/validate_cli.py, you do not have to reinstall the package for the changes to take effect.
+- The dot (.) tells pip to install the package located in your current folder.
+
+## Step 3: Run Your Native Command:
+- You no longer need to call python, use -m, or worry about file paths. 
+- The tool is now installed globally in your Conda environment as an executable command.
+- You can run your validation from anywhere on your machine using this exact command:
+```commandline
+# src.validate_cli:main
+validate-data --file data/messy_sales.csv --config configs/sales_rules.yaml --output reports/output.json
+
+# "src.make_messy_data:main"
+generate-messy-data
+
+#"src.main:main"
+run-pipeline
+```
+
+# Performance Benchmarking (perf_test.py):
+
+## Objective:
+- To guarantee performance at scale, this project includes a dedicated benchmarking script. 
+- This utility allows you to generate a 100,000-row file to stress-test the validation pipeline. 
+- The primary goal is to confirm your rules run in vectorized pandas, not Python loops. 
+- The script will measure and log the actual time taken to validate the dataset. 
+- This ensures that if it's slow, you can profile and fix before moving on.
+
+## Features:
+- **Scalable Data Generation:** Dynamically generate hundreds of thousands of rows on the fly to test pipeline limits.
+- **Strict Time Thresholds:** Define maximum acceptable execution durations. The script warns if the validation exceeds this threshold, acting as a performance gate in CI/CD.
+- **Audit Logging:** Automatically outputs metrics to the console and generates timestamped audit files in the logs/ directory for historical performance tracking.
+
+## CLI Arguments:
+- --data-path: Path where test data will be generated and read from (default: data/perf_100k_sales.csv).
+- --config-path: Path to the YAML validation rules (default: configs/sales_rules.yaml).
+- --n-rows: Number of rows to generate (default: 100000).
+- --time-threshold: Maximum acceptable execution duration in seconds (default: 3.0).
+- --log-dir: Directory for saving timestamped log files (default: logs).
+- --log-level: Set the standard logging level (default: INFO).
+
+## How to Run:
+- You can execute the performance test using standard Python execution from the root directory:
+```commandline
+# Standard 100k row benchmark using defaults
+python -m src.perf_test
+
+# Stress test with 500k rows and a strict 5-second limit
+python -m src.perf_test --n-rows 500000 --time-threshold 5.0
+```
+
+### Adding to pyproject.toml:
+- To follow your existing enterprise standards, add perf_test.py to [project.scripts] section in pyproject.toml
+```toml
+# for running the  Performance at scale Generate a 100,000-row file
+per_test = "src.perf_test:main"
+```
+```commandline
+pip install -e .
+test-performance --n-rows 100000 --time-threshold 4.5
+```
+
+# Batch Folder Validation (validate_folder.py):
+
+## Objective:
+- The validate_folder.py script scales the validation engine to handle entire directories of data files at once. 
+- It introduces a routing mechanism that dynamically maps specific CSV file patterns to their corresponding YAML configuration rules. 
+- This is ideal for processing daily data lake partitions or batch uploads where multiple datasets with different schemas arrive simultaneously.
+
+## Features:
+- **Dynamic Routing:** Use a JSON mapping file to route different file patterns (e.g., sales_*.csv vs hr_data.csv) to entirely different YAML rulesets.
+- **Automated JSON Reporting:** Optionally export detailed, row-level JSON error reports for every file processed, alongside a master aggregate summary for the batch.
+- **Resilient Processing:** Automatically handles corrupt, empty, or unreadable files by logging the failure and safely continuing the batch job
+- **Validator Caching:** Optimizes CPU and I/O by parsing YAML configurations only once and caching the validator objects in memory.
+
+## CLI Arguments:
+- --folder: The target directory containing the data files to validate.
+- --mapping: Path to a JSON file mapping glob patterns to YAML config files (Mutually exclusive with --config).
+- --config: Path to a single YAML config file to apply to all discovered files (Mutually exclusive with --mapping).
+- --pattern: File pattern to match when using a single config (default: *.csv).
+- --save-reports: Flag to enable generating and saving detailed JSON reports to disk.
+- --output-dir: Destination folder for JSON reports when --save-reports is active (default: reports).
+- --top-n: Number of top error rules to summarize in the final log output (default: 3).
+
+## The Routing Map:
+- When dealing with multiple data sources, create a JSON routing file (e.g., routing_map.json) to dictate which rules apply to which files. 
+- The engine will match the keys against the files in your folder.
+```json
+{
+  "sales_*.csv": "configs/sales_rules.yaml",
+  "messy_sales_1.csv": "configs/sales_rules_1.yaml",
+  "employee_master.csv": "configs/hr_rules.yaml"
+}
+```
+
+## How to Run:
+- You can execute this module directly from the root directory:
+```commandline
+# Log-only mode using a mapping file (Fastest)
+python -m src.validate_folder --folder data/ --mapping routing_map.json
+
+# Run against a folder using a single config and generate JSON reports
+python -m src.validate_folder --folder data/ --config configs/sales_rules.yaml --save-reports --output-dir reports/
+```
+
+### Adding to pyproject.toml:
+- In true enterprise environments, the standard is to not call python directly at all. 
+- We can integrate this batch processor into your existing pyproject.toml file alongside your other commands.
+- Add the following line to your [project.scripts] section:
+```toml
+# for batch validating multiple files and folders
+validate_folder = "src.validate_folder:main"
+```
+- Once added, install the package locally using the editable flag:
+```commandline
+pip install -e .
+```
+You can now trigger batch validations from anywhere on your machine as a native system command:
+```commandline
+validate_folder --folder data/ --mapping routing_map.json --save-reports
+```
