@@ -1,23 +1,14 @@
-# UI Component Library
+# UI Component Library + Dashboard Shell
 
-A reusable **React + TypeScript UI Component Library** designed for building scalable and consistent dashboard applications.
+A reusable React + TypeScript UI Component Library for building consistent, accessible, and dashboard-ready applications.
 
-This library provides reusable UI primitives, complex components, dashboard-specific composites, and documentation examples so developers can build applications without recreating common UI patterns.
+The library provides reusable components, advanced DataTable features, forms, theming, charts, accessibility, performance optimizations, and documentation.
 
----
+## Project Location
 
-## Features
-
-- Fully typed React components using TypeScript
-- Reusable and composable components
-- No usage of `any`
-- Centralized design tokens
-- Consistent UI patterns
-- Accessible components
-- Dashboard-ready components
-- Interactive component documentation
-
----
+```text
+frontend/packages/ui/
+```
 
 ## Tech Stack
 
@@ -26,397 +17,98 @@ This library provides reusable UI primitives, complex components, dashboard-spec
 - Vite
 - CSS
 - React Hooks
+- React Hook Form
+- Zod
+- Recharts
+- Vitest
+- Testing Library
+- Storybook
 
----
+# Main Components
 
-# Project Structure
+## Basic Components
 
-```
-src
-│
-├── components
-│   ├── Button.tsx
-│   ├── Card.tsx
-│   ├── Badge.tsx
-│   ├── KpiCard.tsx
-│   ├── KpiGrid.tsx
-│   ├── AlertBanner.tsx
-│   ├── StatusIndicator.tsx
-│   ├── Table.tsx
-│   ├── DataTable.tsx
-│   ├── Modal.tsx
-│   ├── Tabs.tsx
-
-│   ├── Toast.tsx
-│   └── Spinner.tsx
-│
-├── docs
-│   └── DocsPage.tsx
-│
-├── theme
-│   └── tokens.ts
-│
-├── hooks
-│
-├── providers
-│
-├── forms
-│
-├── App.tsx
-└── main.tsx
-```
-
----
-
-# Installation
-
-Install dependencies:
-
-```bash
-npm install
-```
-
-Run development server:
-
-```bash
-npm run dev
-```
-
-Build project:
-
-```bash
-npm run build
-```
-
----
-
-# Components
-
-## Button
-
-Reusable button component for user actions.
-
-### Supported Features
-
-- Primary button
-- Secondary button
-- Danger button
-- Loading state
-- Disabled state
-- Small and medium sizes
-
-
-Example:
-
-```tsx
-<Button
-  variant="primary"
-  size="md"
->
-  Save
-</Button>
-```
-
----
-
-## Card
-
-Reusable container component for displaying grouped content.
-
-### Features
-
-- Optional title
-- Optional actions
-- Custom content support
-
-
-Example:
-
-```tsx
-<Card title="Inventory">
-
-  <p>
-    Product details
-  </p>
-
-</Card>
-```
-
----
-
-## Badge
-
-Displays status labels and indicators.
-
-### Variants
-
-- Success
-- Warning
-- Danger
-- Info
-- Neutral
-
-
-Example:
-
-```tsx
-<Badge status="success">
- Active
-</Badge>
-```
-
----
-
-## KPI Card
-
-Displays important dashboard metrics.
-
-### Features
-
-- Label
-- Value
-- Percentage change
-- Positive and negative indicators
-
-
-Example:
-
-```tsx
-<KpiCard
- label="Revenue"
- value="₹5M"
- delta={5}
-/>
-```
-
----
-
-## KPI Grid
-
-Dashboard composite component built using KPI Cards.
-
-### Features
-
-- Multiple KPI display
-- Configurable columns
-- Responsive grid layout
-
-
-Example:
-
-```tsx
-<KpiGrid
- items={kpis}
- columns={4}
-/>
-```
-
----
-
-## Status Indicator
-
-Displays application or system status.
-
-### Supported Status
-
-- Online
-- Offline
-- Pending
-- Success
-- Warning
-- Error
-
-
-Example:
-
-```tsx
-<StatusIndicator
- status="online"
- label="Server Online"
-/>
-```
-
----
-
-## Alert Banner
-
-Dashboard notification component built using existing primitives.
-
-Built with:
-
+- Button
 - Card
 - Badge
-- Button
+- KpiCard
+- KpiGrid
+- AlertBanner
+- StatusIndicator
+- Table
+- Spinner
 
+## Advanced Components
 
-### Supported Types
-
-- Info
-- Success
-- Warning
-- Danger
-
-
-Example:
-
-```tsx
-<AlertBanner
- type="warning"
- title="Low Stock"
- message="Some products are below minimum quantity"
-/>
-```
-
----
-
-## Table
-
-Generic TypeScript table component.
-
-### Features
-
-- Type-safe columns
-- Custom rendering
-- Loading state
-- Empty state
-
-
-Example:
-
-```tsx
-<Table
- columns={columns}
- data={data}
- rowKey={(row)=>row.id}
-/>
-```
-
----
-
-## DataTable
-
-Advanced table component for daily dashboard usage.
-
-### Features
+DataTable:
 
 - Sorting
 - Filtering
 - Pagination
 - Row selection
-- TypeScript generics
+- Loading state
+- Empty state
+- Overflow handling
 
+Modal:
 
-Example:
+- Keyboard navigation
+- Escape key support
+- Focus trap
+- Focus restoration
+- ARIA support
 
-```tsx
-<DataTable
- columns={columns}
- data={users}
-/>
-```
+Tabs:
 
----
-
-## Modal
-
-Accessible dialog component.
-
-### Features
-
-- Escape key close
-- Overlay click close
-- ARIA dialog support
-- Custom footer support
-
-
-Example:
-
-```tsx
-<Modal
- isOpen={true}
- title="Delete Item"
- onClose={()=>{}}
->
- Content
-</Modal>
-```
-
----
-
-## Tabs
-
-Content navigation component.
-
-### Features
-
-- Controlled mode
-- Uncontrolled mode
+- Controlled and uncontrolled modes
 - Disabled tabs
+- Keyboard navigation
+- ARIA support
 
+Toast:
 
-Example:
-
-```tsx
-<Tabs
- items={tabs}
-/>
-```
-
----
-
-## Toast
-
-Notification component.
-
-### Features
-
-- Success notification
-- Error notification
-- Warning notification
-- Info notification
+- Success
+- Error
+- Warning
+- Info
 - Auto dismiss
-- Pause on hover
+- `useToast` hook
 
+## Form Components
 
-Example:
+- Input
+- Select
+- Textarea
+- Checkbox
+- Form
+- FormField
 
-```tsx
-<Toast
- id={1}
- title="Saved Successfully"
- variant="success"
- onClose={()=>{}}
-/>
-```
+Forms use:
 
----
+- React Hook Form
+- Zod validation
+- Typed form values
+- Validation error messages
 
-## Spinner
+## Chart Components
 
-Loading indicator component.
+- TrendLine
+- MiniBarChart
+- DonutChart
 
-### Sizes
+These are reusable wrappers built using Recharts.
 
-- Small
-- Medium
-- Large
+# Theme System
 
+The library supports:
 
-Example:
+- Light mode
+- Dark mode
+- System mode
 
-```tsx
-<Spinner size="md"/>
-```
+The theme uses centralized design tokens and CSS variables.
 
----
-
-# Design System
-
-All components use centralized design tokens.
-
-Location:
-
-```
+```text
 src/theme/tokens.ts
 ```
 
@@ -424,99 +116,310 @@ Tokens include:
 
 - Colors
 - Spacing
+- Typography
 - Border radius
-- Font sizes
 - Shadows
 - Transitions
 
+# Accessibility
+
+Accessibility improvements were made for Modal, Tabs, and DataTable.
+
+The library supports:
+
+- Keyboard navigation
+- Visible focus indicators
+- ARIA roles and labels
+- Focus management
+- Focus trapping
+- Focus restoration
+- Accessible dialogs
+- Accessible tabs
+- Keyboard-accessible controls
+
+The components were tested using keyboard-only navigation.
+
+# Performance
+
+Performance improvements include:
+
+- `React.memo`
+- `useMemo`
+- Memoized DataTable filtering
+- Memoized DataTable sorting
+- Memoized pagination calculations
+- Reduced unnecessary renders
+- React DevTools Profiler analysis
+
+The DataTable was profiled before and after optimization to identify unnecessary renders and repeated calculations.
+
+# Importable Package
+
+The UI library is available as:
+
+```text
+@eaicsp/ui
+```
+
+Components can be imported using:
+
+```tsx
+import { Button } from "@eaicsp/ui";
+```
 
 Example:
 
-```ts
-colors.primary
+```tsx
+import { Button } from "@eaicsp/ui";
 
-spacing.md
-
-radius.md
+function App() {
+  return <Button variant="primary">Save</Button>;
+}
 ```
 
----
+This allows applications to use the library without depending on internal file paths.
 
-# Documentation
+# Documentation / Showcase
 
-The component library includes a documentation page:
+The Showcase page provides live examples of the components.
 
+It demonstrates:
+
+- Component variants
+- Loading states
+- Empty states
+- Disabled states
+- Long and overflow text
+- DataTable filtering and sorting
+- Pagination
+- Row selection
+- Form validation
+- Keyboard interaction
+- Theme switching
+
+Location:
+
+```text
+src/docs/Docspage.tsx
 ```
-src/docs/DocsPage.tsx
+# Storybook
+
+Storybook is included for isolated component development and documentation.
+
+Stories are available for key components such as:
+
+- Button
+- DataTable
+- Modal
+- Tabs
+
+# Challenges & Solutions
+
+# 1. TypeScript Errors
+
+Challenge:
+Incorrect prop types, imports, and file-name casing caused TypeScript errors.
+
+Solution:
+I corrected the prop types, fixed casing and import issues, enabled strict TypeScript checks, and kept the components fully typed without using `any`.
+
+# 2. Modal Accessibility
+
+Challenge:
+The Modal needed to work correctly for keyboard users and manage focus properly.
+
+Solution:
+I added:
+
+- Focus trapping
+- `Tab` / `Shift + Tab`
+- `Escape` key support
+- Focus restoration
+- `useId()`
+- `aria-labelledby`
+- Dialog ARIA support
+- Visible focus states
+
+# 3. DataTable Complexity
+
+Challenge:
+The DataTable needed sorting, filtering, pagination, row selection, loading, and empty states while remaining reusable.
+
+Solution:
+I separated the table functionality into reusable logic and used TypeScript generics to keep the component type-safe.
+
+# 4. Unnecessary Re-renders
+
+Challenge:
+DataTable filtering, sorting, pagination, and row rendering could cause repeated calculations and unnecessary renders.
+
+Solution:
+I used `React.memo` and `useMemo` for suitable components and derived DataTable calculations. I also used React DevTools Profiler to compare the component before and after optimization.
+
+# 5. Recharts Configuration
+
+Challenge:
+Using Recharts directly in every dashboard would require repeating chart configuration and styling.
+
+Solution:
+I created reusable chart wrappers:
+
+- `TrendLine`
+- `MiniBarChart`
+- `DonutChart`
+
+This gives dashboard developers a simple and consistent API.
+
+# 6. Package Import
+
+Challenge:
+The UI library needed to be consumed as a real package instead of through internal relative paths.
+
+Solution:
+I configured the package as `@eaicsp/ui` and verified that a consuming application could import and render components using:
+
+```tsx
+import { Button } from "@eaicsp/ui";
+```
+# 7. Documentation Edge Cases
+
+Challenge:
+The documentation should show more than just successful or happy-path examples.
+
+Solution:
+I added examples for:
+
+- Empty data
+- Loading
+- Disabled controls
+- Long text
+- Overflow content
+- No matching filter results
+- Form validation errors
+- Disabled tabs
+- Modal keyboard interaction
+- Theme switching
+
+# 8. Dependency and Build Issues
+
+Challenge:
+Missing dependencies and configuration issues caused development and build errors.
+
+Solution:
+I identified the missing dependencies, corrected the configuration and imports, and verified the project using the build and test commands.
+
+# Project Structure
+
+```text
+frontend/
+└── packages/
+    └── ui/
+        ├── src/
+        │   ├── components/
+        │   │   ├── Button.tsx
+        │   │   ├── Card.tsx
+        │   │   ├── Badge.tsx
+        │   │   ├── KpiCard.tsx
+        │   │   ├── KpiGrid.tsx
+        │   │   ├── DataTable/
+        │   │   ├── Modal/
+        │   │   ├── Tabs/
+        │   │   ├── Toast/
+        │   │   └── charts/
+        │   │       ├── TrendLine.tsx
+        │   │       ├── MiniBarChart.tsx
+        │   │       └── DonutChart.tsx
+        │   │
+        │   ├── forms/
+        │   ├── hooks/
+        │   ├── providers/
+        │   ├── theme/
+        │   ├── utils/
+        │   ├── docs/
+        │   └── index.ts
+        │
+        ├── storybook/
+        ├── package.json
+        ├── vite.config.ts
+        └── tsconfig.build.json
 ```
 
-Documentation provides:
 
-- Live examples
-- Component usage
-- Supported variants
-- Component behavior
+# Installation
 
----
+From the UI package directory:
 
-# Dashboard Component Usage
-
-Developers can create dashboards using only library components.
-
-Example:
-
-```
-Dashboard
-
- |
- |
- UI Library
-
- ├── Button
- ├── Card
- ├── Badge
- ├── KPI Components
- ├── Tables
- ├── Modal
- ├── Toast
- ├── Tabs
- └── Status Components
+```bash
+cd frontend/packages/ui
+npm install
 ```
 
----
+## Run Development Server
 
-# Future Enhancements
+```bash
+npm run dev
+```
 
-Planned improvements:
+## Build
 
-- Storybook integration
-- ThemeProvider
-- Dark mode support
-- CSS variable based tokens
-- Form components
-- React Hook Form integration
-- Zod validation support
+```bash
+npm run build
+```
 
----
+## Run Tests
+
+```bash
+npm test
+```
+
+# Design Principles
+
+The library follows these principles:
+
+- **Reusable** — Components can be shared across applications.
+- **Type-safe** — Components use TypeScript.
+- **Accessible** — Components support keyboard navigation and ARIA.
+- **Consistent** — Components use shared design tokens.
+- **Performant** — Unnecessary renders and calculations are optimized.
+- **Composable** — Components can be combined to build dashboards.
+- **Maintainable** — Common UI behavior is implemented once.
+
 
 # Definition of Done
 
-The UI Component Library is complete when developers can build their daily dashboard work using only reusable library components.
+The library provides:
 
-Developers should not need to recreate:
+- Reusable UI components
+- Advanced DataTable
+- Accessible Modal and Tabs
+- Toast notification system
+- Form primitives with Zod validation
+- Light/Dark/System themes
+- Centralized design tokens
+- Keyboard navigation
+- Performance optimization
+- React DevTools profiling
+- Reusable chart components
+- Importable `@eaicsp/ui` package
+- Showcase documentation
+- Edge-case examples
+- Storybook stories
 
-- Buttons
-- Cards
-- Tables
-- Modals
-- Notifications
-- KPI layouts
-- Status indicators
+The goal is to provide a reusable UI foundation so dashboard applications do not need to recreate common UI components.
 
-The library becomes the single source of truth for UI development.
+# Future Enhancements
 
----
+Possible future improvements:
+
+- More automated accessibility tests
+- Visual regression testing
+- DataTable virtualization
+- Server-side DataTable support
+- Advanced filtering
+- Column visibility controls
+- Additional chart components
+- More automated tests
 
 # Author
 
-Built using React + TypeScript.
+Built with **React + TypeScript** for the EAICSP platform.

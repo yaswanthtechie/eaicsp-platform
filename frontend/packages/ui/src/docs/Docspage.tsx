@@ -422,6 +422,7 @@ export function DocsPage() {
 
             <p>
               When the modal closes, focus should return to the button that
+              
               opened it.
             </p>
 
