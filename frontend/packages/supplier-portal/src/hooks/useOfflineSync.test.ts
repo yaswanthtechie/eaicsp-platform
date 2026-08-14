@@ -5,7 +5,7 @@ import { useOfflineSync } from "./useOfflineSync";
 import { syncOfflineActions } from "../utils/offlineSync";
 
 vi.mock("../utils/offlineSync", () => ({
-  syncOfflineActions: vi.fn(),
+  syncOfflineActions: vi.fn().mockResolvedValue(0),
 }));
 
 describe("useOfflineSync", () => {

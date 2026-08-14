@@ -8,7 +8,7 @@ const Login = () => {
   const [searchParams] = useSearchParams();
 
   const [email, setEmail] = useState("");
-  const [rememberMe, setRememberMe] = useState(false);  
+  const [rememberMe, setRememberMe] = useState(false);
   const [password, setPassword] = useState("");
 
   const [emailError, setEmailError] = useState("");
@@ -35,44 +35,43 @@ const Login = () => {
     return valid;
   };
 
-const handleLogin = async (
-  e: React.FormEvent
-) => {
-  e.preventDefault();
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
 
-  if (!validate()) return;
+    if (!validate()) return;
 
-  try {
-    const response = await login(
-      email,
-      password
-    );
-    console.log("Remember Me:", rememberMe);
+    try {
+      const response = await login(email, password);
 
-    saveTokens(
-      response.access_token,
-      response.refresh_token,
-      rememberMe
-    );
+      console.log("Remember Me:", rememberMe);
 
-    const nextPage =
-      searchParams.get("next") || "/orders";
+      saveTokens(
+        response.access_token,
+        response.refresh_token,
+        rememberMe
+      );
 
-    navigate(nextPage);
+      // Only allow safe internal paths for the next redirect.
+      const nextParam = searchParams.get("next");
 
-  } catch {
-    setPasswordError(
-      "Invalid email or password"
-    );
-  }
-};
+      const nextPage =
+        nextParam &&
+        nextParam.startsWith("/") &&
+        !nextParam.startsWith("//")
+          ? nextParam
+          : "/orders";
+
+      navigate(nextPage);
+    } catch {
+      setPasswordError("Invalid email or password");
+    }
+  };
 
   return (
     <div className="login-page">
       <h1>Supplier Portal</h1>
 
       <form onSubmit={handleLogin}>
-
         <label>Email</label>
 
         <input
@@ -82,9 +81,7 @@ const handleLogin = async (
           onChange={(e) => setEmail(e.target.value)}
         />
 
-        {emailError && (
-          <p className="error">{emailError}</p>
-        )}
+        {emailError && <p className="error">{emailError}</p>}
 
         <label>Password</label>
 
@@ -98,26 +95,26 @@ const handleLogin = async (
         {passwordError && (
           <p className="error">{passwordError}</p>
         )}
-<div className="remember-me">
-  <input
-    type="checkbox"
-    id="rememberMe"
-    checked={rememberMe}
-    onChange={(e) => setRememberMe(e.target.checked)}
-  />
-  <label htmlFor="rememberMe">Remember Me</label>
-</div>
+
+        <div className="remember-me">
+          <input
+            type="checkbox"
+            id="rememberMe"
+            checked={rememberMe}
+            onChange={(e) => setRememberMe(e.target.checked)}
+          />
+
+          <label htmlFor="rememberMe">Remember Me</label>
+        </div>
 
         <button type="submit">
           Login
         </button>
-
       </form>
 
       <p className="note">
         Any valid email and password will work.
       </p>
-
     </div>
   );
 };
