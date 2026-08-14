@@ -155,6 +155,7 @@ Quality score history can also be used to classify the overall trend as:
 
 # Project Structure
 
+
 ```text
 profiling/
 │
@@ -183,6 +184,7 @@ profiling/
 │   ├── test_compare.py
 │   ├── test_monitoring.py
 │   ├── test_outliers.py
+│   ├── test_pii_leakage.py
 │   ├── test_profile.py
 │   └── test_profiler.py
 │
@@ -216,8 +218,7 @@ df = pd.read_csv("data/sales_data.csv")
 profiler = Profiler()
 report = profiler.profile(df)
 
-print(report["quality_score"])
-print(report["worst_issues"])
+report.save_html("output/quality_report.html")
 ```
 
 # Compare Two DataFrames
@@ -233,8 +234,10 @@ new_df = pd.read_csv("data/sales_data_new.csv")
 profiler = Profiler()
 drift = profiler.compare(old_df, new_df)
 
-print(drift["status"])
-print(drift["column_drift"])
+print(drift)
+
+if drift.has_major_drift:
+    print("Major data drift detected")
 ```
 
 # Monitor a New Batch
@@ -332,7 +335,7 @@ The tests cover:
 Current test suite:
 
 ```text
-11 passed
+15 passed
 ```
 
 # Technologies
