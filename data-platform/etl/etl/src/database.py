@@ -1,4 +1,5 @@
 from sqlalchemy import create_engine
+
 from config import (
     DB_HOST,
     DB_PORT,
@@ -12,12 +13,17 @@ DATABASE_URL = (
     f"@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 )
 
-engine = create_engine(
-    DATABASE_URL,
-    pool_pre_ping=True,
-    future=True,
-)
+_engine = None
 
 
 def get_engine():
-    return engine
+    global _engine
+
+    if _engine is None:
+        _engine = create_engine(
+            DATABASE_URL,
+            pool_pre_ping=True,
+            future=True,
+        )
+
+    return _engine

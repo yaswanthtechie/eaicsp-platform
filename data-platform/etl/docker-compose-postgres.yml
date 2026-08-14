@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_DB: salesdb
       POSTGRES_USER: admin
-      POSTGRES_PASSWORD: admin123
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
 
     ports:
       - "5432:5432"

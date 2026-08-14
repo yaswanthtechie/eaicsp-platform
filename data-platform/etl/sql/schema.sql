@@ -6,6 +6,10 @@ CREATE TABLE IF NOT EXISTS sales_fact (
     quantity_sold INTEGER,
     unit_price NUMERIC(12,2),
     source_batch VARCHAR(100),
+
+    run_id BIGINT,
+    pipeline_version VARCHAR(20),
+
     loaded_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW(),
 
@@ -30,3 +34,31 @@ CREATE TABLE IF NOT EXISTS etl_run_log (
     rows_rejected INT,
     error_message TEXT
 );
+
+CREATE TABLE IF NOT EXISTS sales_fact_history (
+    history_id BIGSERIAL PRIMARY KEY,
+    sales_fact_id BIGINT NOT NULL,
+    date DATE,
+    sku_id VARCHAR(50),
+    warehouse_id VARCHAR(20),
+    quantity_sold INTEGER,
+    unit_price NUMERIC(12,2),
+    source_batch VARCHAR(100),
+    run_id BIGINT,
+    pipeline_version VARCHAR(20),
+    valid_from TIMESTAMP,
+    archived_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS etl_alerts (
+    alert_id BIGSERIAL PRIMARY KEY,
+    pipeline VARCHAR(100),
+    severity VARCHAR(20),
+    message TEXT,
+    batch_file VARCHAR(255),
+    run_id BIGINT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+
+
