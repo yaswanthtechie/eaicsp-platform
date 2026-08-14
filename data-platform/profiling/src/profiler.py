@@ -1,23 +1,26 @@
 import pandas as pd
 import numpy as np
 
-from src.profile import profile
-from src.compare import compare
+from src.profile import profile, ProfileReport
+from src.compare import compare, DriftReport
 from src.monitoring import MonitoringHistory
 
 class Profiler:
 
     def profile(self, df):
         report = profile(df)
-        return self._make_json_serializable(report)
+        report = self._make_json_serializable(report)
+        return ProfileReport(report)
 
     def compare(self, df_old, df_new):
         drift_report = compare(df_old, df_new)
-        return self._make_json_serializable(drift_report)
+        drift_report = self._make_json_serializable(drift_report)
+        return DriftReport(drift_report)
 
     def monitor(self, df, previous_df=None):
         # Profile current batch
         report = self.profile(df)
+
 
         # Compare with previous batch if available
         drift = None

@@ -1,6 +1,13 @@
 import pandas as pd
 
 
+class DriftReport(dict):
+
+    @property
+    def has_major_drift(self):
+        return self["status"] == "Major Drift"
+
+
 def compare(df_old, df_new):
     print("\n========== DATA DRIFT REPORT ==========\n")
 
@@ -23,11 +30,30 @@ def compare(df_old, df_new):
     # -----------------------------
     # Initialize Column Drift
     # -----------------------------
+
     for col in df_old.columns:
         column_drift[col] = {
             "status": "no_drift",
             "reasons": []
         }
+
+    # -----------------------------
+    # Detect New Columns
+    # -----------------------------
+    new_columns = [
+        col for col in df_new.columns
+        if col not in df_old.columns
+    ]
+
+    for col in new_columns:
+        column_drift[col] = {
+            "status": "major_drift",
+            "reasons": [
+                "New column added to new dataset"
+            ]
+        }
+
+    drift_report["new_columns"] = new_columns
 
 
     # -----------------------------
@@ -309,4 +335,4 @@ def compare(df_old, df_new):
     drift_report["status"] = drift_status
 
 
-    return drift_report
+    return DriftReport(drift_report)

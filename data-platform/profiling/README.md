@@ -259,6 +259,40 @@ print(result["drift"])
 print(result["history"])
 ```
 
+
+# How Vivek's pipeline would use this
+
+Vivek's pipeline can use the profiler whenever a new data batch is loaded.
+
+The first batch is profiled to understand its data quality and generate a quality report. When the next batch arrives, it is compared with the previous batch to detect data drift. If major drift is detected, the pipeline can trigger an alert.
+
+```python
+import pandas as pd
+
+from src.profiler import Profiler
+
+profiler = Profiler()
+
+# Load the previous batch
+last_df = pd.read_csv("data/sales_data.csv")
+
+# Profile the batch on load
+report = profiler.profile(last_df)
+report.save_html("output/quality_report.html")
+
+# Load the next batch
+df = pd.read_csv("data/sales_data_new.csv")
+
+# Compare the new batch with the previous batch
+drift = profiler.compare(last_df, df)
+
+# Alert if major drift is detected
+if drift.has_major_drift:
+    alert("Major data drift detected")
+
+```
+
+
 # Generated Reports
 
 The reporting workflow generates:

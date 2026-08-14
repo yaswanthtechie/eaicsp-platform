@@ -234,3 +234,6 @@ mlruns/
 *.pkl
 # OS
 .DS_Store
+
+# Data profiling generated output
+data-platform/profiling/output/

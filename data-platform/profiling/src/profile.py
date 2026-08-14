@@ -2,7 +2,16 @@ import pandas as pd
 from pathlib import Path
 from src.outliers import find_outliers
 from src.compare import compare
+
 import re
+
+class ProfileReport(dict):
+
+    def save_html(self, path):
+        generate_html(
+            report=self,
+            report_path=path
+        )
 
 
 # PII-Detection
@@ -50,7 +59,7 @@ def detect_pii(df):
 
 def build_column_summary(df):
     summary = []
-        
+
         #Column Summary
     for col in df.columns:
         null_count = df[col].isnull().sum()
@@ -74,7 +83,7 @@ def build_column_summary(df):
         else:
             cardinality = "High Cardinality"
 
-        
+
 
         summary.append({
             "column": col,
@@ -331,31 +340,45 @@ def profile(df):
     # Data Quality Score
     report["quality_score"] = calculate_quality_score(df, report)
     report["worst_issues"] = find_worst_issues(df, report)
-    
-    
+
+
 
     return report
 
-    
-def generate_html():
+def generate_html(report=None, drift_report=None, report_path=None):
+
     BASE_DIR = Path(__file__).resolve().parent.parent
-    DATA_PATH = BASE_DIR / "data" / "sales_data.csv"
-    REPORT_PATH = BASE_DIR / "reports" / "profile_report.html"
-    REPORT_PATH.parent.mkdir(exist_ok=True)
 
-    df = pd.read_csv(DATA_PATH)
-    report = profile(df)
+    if report_path is None:
+        report_path = BASE_DIR / "reports" / "profile_report.html"
+    else:
+        report_path = Path(report_path)
 
-    NEW_DATA_PATH = BASE_DIR / "data" / "sales_data_new.csv"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
 
-    new_df = pd.read_csv(NEW_DATA_PATH)
+    # Load data only when a report was not provided
+    if report is None:
+        DATA_PATH = BASE_DIR / "data" / "sales_data.csv"
 
-    drift_report = compare(df, new_df)
+        df = pd.read_csv(DATA_PATH)
 
-    
-    
+        report = profile(df)
 
-    with open(REPORT_PATH, "w", encoding="utf-8") as file:
+    # Generate drift report when one was not provided
+    if drift_report is None:
+        DATA_PATH = BASE_DIR / "data" / "sales_data.csv"
+        NEW_DATA_PATH = BASE_DIR / "data" / "sales_data_new.csv"
+
+        df = pd.read_csv(DATA_PATH)
+        new_df = pd.read_csv(NEW_DATA_PATH)
+
+        drift_report = compare(df, new_df)
+
+
+
+
+
+    with open(report_path, "w", encoding="utf-8") as file:
         file.write(f"""
 <!DOCTYPE html>
 <html>
@@ -489,7 +512,7 @@ h1 {{
 <th>Distribution </th>
 </tr>
 """)
-        
+
         for column, stats in report["statistics"].items():
             file.write(f"""
 <tr>
@@ -505,7 +528,7 @@ h1 {{
 <td>{report["sparklines"][column]}</td>
 </tr>
 """)
-            
+
 
         file.write("""
 </table>
@@ -564,10 +587,10 @@ h1 {{
 </tr>
 """)
 
-     
+
 
         for pii in report["pii_detection"]:
-           
+
            file.write(f"""
 <tr>
 <td>{pii['column']}</td>
@@ -590,8 +613,8 @@ h1 {{
 </tr>
 """)
 
-        
-        
+
+
 
 
         for column, outlier in report["outliers"].items():
@@ -607,7 +630,7 @@ h1 {{
 </table>
 """)
 
-            
+
         file.write("""
 <h2>Data Drift Report</h2>
 
@@ -702,14 +725,29 @@ h1 {{
 <th>New Values</th>
 </tr>
 """)
-
         for column, values in drift_report["new_categories"].items():
+
+            pii_info = next(
+                (
+                    item
+                    for item in report["pii_detection"]
+                    if item["column"] == column
+                ),
+                None
+            )
+
+            if pii_info and pii_info["severity"] != "LOW":
+                display_values = "[PII values hidden]"
+            else:
+                display_values = ", ".join(map(str, values))
+
             file.write(f"""
-<tr>
-<td>{column}</td>
-<td>{", ".join(map(str, values))}</td>
-</tr>
-""")
+        <tr>
+        <td>{column}</td>
+        <td>{display_values}</td>
+        </tr>
+        """)
+
 
         file.write("""
 </table>
@@ -748,8 +786,8 @@ h1 {{
 """)
 
 
-        
-    
+
+
         file.write("""
 <script>
 $(document).ready(function() {
