@@ -1,0 +1,217 @@
+import { useState } from "react";
+import { useMutation, useQuery } from "@apollo/client";
+import { toast } from "react-toastify";
+
+import { GET_PURCHASE_ORDERS } from "../graphql/queries";
+import { SUBMIT_INVOICE } from "../graphql/mutations";
+
+import Loading from "../components/Loading";
+import ErrorState from "../components/ErrorState";
+import FileUpload from "../components/FileUpload";
+
+import type { PurchaseOrder } from "../types/po";
+
+const Invoice = () => {
+  const { data, loading, error } = useQuery(GET_PURCHASE_ORDERS);
+
+  const [submitInvoice] = useMutation(SUBMIT_INVOICE);
+
+  const [invoiceNumber, setInvoiceNumber] = useState("");
+  const [poReference, setPoReference] = useState("");
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState("");
+
+  const [file, setFile] = useState<File | null>(null);
+
+  const [formError, setFormError] = useState("");
+  const [fileError, setFileError] = useState("");
+
+  if (loading) return <Loading />;
+
+  if (error) return <ErrorState />;
+
+  const orders = data?.purchaseOrders || [];
+
+  const acknowledgedPOs = orders.filter(
+    (po: PurchaseOrder) => po.status === "acknowledged"
+  );
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    setFormError("");
+
+    if (
+      !invoiceNumber ||
+      !poReference ||
+      !amount ||
+      !date ||
+      !file
+    ) {
+      setFormError("Please fill all fields.");
+      return;
+    }
+
+    const invoiceRegex = /^INV\d+$/i;
+
+    if (!invoiceRegex.test(invoiceNumber.trim())) {
+      setFormError(
+        "Invoice number must be like INV001."
+      );
+      return;
+    }
+
+    if (Number(amount) <= 0) {
+      setFormError(
+        "Invoice amount must be greater than 0."
+      );
+      return;
+    }
+
+    const today = new Date();
+    const invoiceDate = new Date(date);
+
+    if (invoiceDate > today) {
+      setFormError(
+        "Invoice date cannot be in the future."
+      );
+      return;
+    }
+
+    try {
+      await submitInvoice({
+        variables: {
+          invoiceNumber,
+          poReference,
+          amount: Number(amount),
+          date,
+        },
+      });
+
+      toast.success(
+        "Invoice Submitted Successfully!"
+      );
+
+      setInvoiceNumber("");
+      setPoReference("");
+      setAmount("");
+      setDate("");
+      setFile(null);
+
+      setFormError("");
+      setFileError("");
+
+    } catch (err) {
+      console.error(err);
+
+      setFormError(
+        "Failed to submit invoice."
+      );
+    }
+  };
+
+  return (
+    <div className="invoice-page">
+
+      <h2>Create Invoice</h2>
+
+      <form onSubmit={handleSubmit}>
+
+        <label>Invoice Number</label>
+
+        <input
+          type="text"
+          placeholder="INV001"
+          value={invoiceNumber}
+          onChange={(e) =>
+            setInvoiceNumber(e.target.value)
+          }
+        />
+
+        <label>Purchase Order</label>
+
+        <select
+          value={poReference}
+          onChange={(e) =>
+            setPoReference(e.target.value)
+          }
+        >
+          <option value="">
+            Select Purchase Order
+          </option>
+
+          {acknowledgedPOs.map(
+            (po: PurchaseOrder) => (
+              <option
+                key={po.po_number}
+                value={po.po_number}
+              >
+                {po.po_number}
+              </option>
+            )
+          )}
+        </select>
+
+        <label>Invoice Amount</label>
+
+        <input
+          type="number"
+          value={amount}
+          onChange={(e) =>
+            setAmount(e.target.value)
+          }
+        />
+
+        <label>Invoice Date</label>
+
+        <input
+          type="date"
+          value={date}
+          onChange={(e) =>
+            setDate(e.target.value)
+          }
+        />
+
+        <FileUpload
+          file={file}
+          setFile={setFile}
+          error={fileError}
+          setError={setFileError}
+        />
+
+        {fileError && (
+          <p
+            style={{
+              color: "red",
+              marginTop: "10px",
+            }}
+          >
+            {fileError}
+          </p>
+        )}
+
+        {formError && (
+          <p
+            style={{
+              color: "red",
+              marginTop: "10px",
+            }}
+          >
+            {formError}
+          </p>
+        )}
+
+        <button
+          type="submit"
+          style={{ marginTop: "20px" }}
+        >
+          Submit Invoice
+        </button>
+
+      </form>
+
+    </div>
+  );
+};
+
+export default Invoice;

@@ -1,0 +1,7 @@
+pandas
+sqlalchemy
+psycopg2-binary
+python-dotenv
+pytest
+pandera
+flask

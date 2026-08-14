@@ -1,0 +1,11 @@
+﻿numpy
+pandas
+scikit-learn
+joblib
+shap
+matplotlib
+fastapi
+uvicorn
+pytest
+httpx2
+logging
