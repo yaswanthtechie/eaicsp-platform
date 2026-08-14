@@ -48,3 +48,18 @@ rules:
     type: transform
     function: src.custom_rules.flag_negatives
     severity: INFO
+
+  # NEW: Standardize the dates before evaluating the range
+  - name: standardize_dates_transform
+    field: date
+    type: transform
+    function: src.custom_rules.standardize_dates
+    severity: INFO
+
+  - name: date_in_range
+    field: date
+    type: range
+    min: '2024-01-01'
+    max: '2024-04-02'
+    severity: WARNING
+    depends_on: [ "unparseable_dates" ]

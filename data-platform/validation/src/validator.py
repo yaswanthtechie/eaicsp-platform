@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class ValidationResult(BaseModel):
-    config_version: str = 'unknown'  # <-- Added version tracking
+    config_version: str = 'unknown' # <-- Added version tracking
     passed: bool
     total_rows_affected: int
     errors: List[Dict[str, Any]] = Field(default_factory=list)
@@ -32,6 +32,7 @@ class ConfigRule(BaseModel):
     field: Optional[str] = None
     type: str
     severity: str = "INFO"
+    depends_on: Optional[List[str]] = Field(default_factory=list)  # <-- Added dependency tracking
 
     @model_validator(mode='before')
     @classmethod
@@ -160,10 +161,22 @@ class DataValidator:
         """Executes the validation pipeline and generates a report."""
         self._validate_schema(df)
 
+        # NEW: Apply transforms to a working copy so validation rules evaluate clean data
+        df_working = df.copy()
+        for rule in self.rules:
+            if rule.type == "transform":
+                try:
+                    df_working = rule.apply_transform(df_working)
+                except Exception as e:
+                    logger.error(f"FATAL ERROR: Transform '{rule.name}' crashed during validation setup: {e}")
+
         errors = []
         warnings = []
         sample_bad = {}
         affected_indices = set()
+
+        # Dictionary to track boolean failure masks by rule name
+        rule_failure_masks = {}
 
         for rule in self.rules:
             # Skip evaluation for transform rules
@@ -172,7 +185,23 @@ class DataValidator:
 
             # --- Fail-Safe Implementation ---
             try:
-                bad_mask = rule.evaluate(df)
+                # IMPORTANT: Evaluate against df_working, not the raw df
+                # 1. Evaluate the rule independently
+                bad_mask = rule.evaluate(df_working)
+                # bad_mask = rule.evaluate(df)
+
+                # 2. Suppress failures if a dependency already failed this row
+                if rule.depends_on:
+                    for dep_name in rule.depends_on:
+                        if dep_name in rule_failure_masks:
+                            # Flips the dependency's True (failed) to False (ignore)
+                            bad_mask = bad_mask & ~rule_failure_masks[dep_name]
+                        else:
+                            logger.warning(
+                                f"Dependency '{dep_name}' for rule '{rule.name}' not found or not executed yet.")
+
+                # 3. Store the final evaluated mask for future dependencies
+                rule_failure_masks[rule.name] = bad_mask
             except Exception as e:
                 logger.error(f"FATAL ERROR: Rule '{rule.name}' crashed during validation: {e}. Skipping rule.")
                 continue
@@ -180,7 +209,7 @@ class DataValidator:
             bad_count = int(bad_mask.sum())
 
             if bad_count > 0:
-                bad_rows = df[bad_mask]
+                bad_rows = df_working[bad_mask]
                 sample = []
 
                 # Gather samples for debugging
@@ -234,17 +263,32 @@ class DataValidator:
 
         # 2. Second Pass: Filter rows
         drop_indices = set()
+        # NEW: Track failures to support rule dependencies during cleaning
+        rule_failure_masks = {}
         for rule in self.rules:
             if rule.type == "transform":
                 continue
 
             # --- Fail-Safe Implementation for Cleaning ---
             try:
+                # 1. Evaluate the rule independently (Must evaluate all to maintain dependency chain)
+                mask = rule.evaluate(df_clean)
+
+                # 2. Suppress failures if a dependency already failed this row
+                if rule.depends_on:
+                    for dep_name in rule.depends_on:
+                        if dep_name in rule_failure_masks:
+                            mask = mask & ~rule_failure_masks[dep_name]
+                        else:
+                            logger.warning(f"Dependency '{dep_name}' for rule '{rule.name}' not found/executed.")
+
+                # 3. Store the final evaluated mask for future dependencies
+                rule_failure_masks[rule.name] = mask
+
+                # 4. Filter the rows based on strictness settings using the correctly suppressed mask
                 if strict and rule.severity == "ERROR":
-                    mask = rule.evaluate(df_clean)
                     drop_indices.update(df_clean[mask].index.tolist())
                 elif not strict and target_rules and rule.name in target_rules:
-                    mask = rule.evaluate(df_clean)
                     drop_indices.update(df_clean[mask].index.tolist())
             except Exception as e:
                 logger.error(f"FATAL ERROR: Rule '{rule.name}' crashed during cleaning: {e}. Skipping rule.")

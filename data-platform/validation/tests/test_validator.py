@@ -458,3 +458,122 @@ def test_failsafe_clean_skips_crashing_rules(caplog):
     assert len(clean_df) == 1
     assert "FATAL ERROR: Transform rule 'crash_transform' crashed" in caplog.text
     assert "FATAL ERROR: Rule 'crash_eval' crashed during cleaning" in caplog.text
+
+# --- RECENT FEATURE TESTS (Dependencies & Transforms) ---
+
+def test_validation_result_config_version():
+    """Verifies that the new config_version attribute is available and defaults to 'unknown'."""
+    from src.validator import ValidationResult
+    res = ValidationResult(passed=True, total_rows_affected=0)
+    assert res.config_version == 'unknown'
+
+
+def test_rule_dependencies_suppression():
+    """Proves that a rule correctly suppresses failures if a dependency already flagged the row."""
+    # Row 0: Null, Row 1: 150 (Out of bounds), Row 2: 50 (Valid)
+    df = pd.DataFrame({"qty": [pd.NA, 150, 50]})
+
+    rule_a = ConfigRule(**{
+        "name": "rule_a",
+        "field": "qty",
+        "type": "not_null",
+        "severity": "ERROR"
+    })
+
+    # Range rule mathematically fails on Nulls too, but we want to explicitly
+    # suppress it because rule_a already caught it.
+    rule_b = ConfigRule(**{
+        "name": "rule_b",
+        "field": "qty",
+        "type": "range",
+        "min": 0,
+        "max": 100,
+        "severity": "WARNING",
+        "depends_on": ["rule_a"]
+    })
+
+    validator = DataValidator([rule_a, rule_b])
+
+    # 1. Test validation reporting suppression
+    report = validator.validate(df)
+    err_counts = {err['rule']: err['count'] for err in report.errors}
+    warn_counts = {warn['rule']: warn['count'] for warn in report.warnings}
+
+    assert err_counts.get("rule_a") == 1  # Flags Row 0
+    assert warn_counts.get("rule_b") == 1  # Flags Row 1 ONLY (Row 0 is suppressed)
+
+    # 2. Test strict cleaning suppression
+    # We set strict=False but target both rules to see what indices get dropped
+    clean_df = validator.clean(df, strict=False, target_rules=["rule_a", "rule_b"])
+
+    # Row 0 and Row 1 should be dropped. Row 2 remains.
+    assert len(clean_df) == 1
+    assert clean_df.index[0] == 2
+
+
+def test_rule_dependency_not_found_logs_warning(caplog):
+    """Hits the branch where a rule depends on a rule that hasn't executed/doesn't exist."""
+    df = pd.DataFrame({"A": [1]})
+    rule = ConfigRule(**{
+        "name": "rule_b",
+        "field": "A",
+        "type": "not_null",
+        "depends_on": ["missing_rule"]
+    })
+    validator = DataValidator([rule])
+
+    # Hits the warning branch in validate()
+    validator.validate(df)
+    assert "Dependency 'missing_rule' for rule 'rule_b' not found or not executed yet." in caplog.text
+
+    # Hits the warning branch in clean()
+    caplog.clear()
+    validator.clean(df)
+    assert "Dependency 'missing_rule' for rule 'rule_b' not found/executed." in caplog.text
+
+
+def test_validate_evaluates_transformed_working_copy():
+    """Proves that validate() runs rules against the df_working copy, not raw df."""
+    df = pd.DataFrame({"col": ["mixedCase"]})
+
+    # Transform makes the string lowercase -> "mixedcase"
+    t_rule = ConfigRule(**{
+        "name": "t1",
+        "type": "transform",
+        "function": "tests.test_validator.dummy_transform_rule",
+        "target_case": "lower",
+        "severity": "INFO"
+    })
+
+    # Regex explicitly expects lowercase only.
+    # If evaluate() runs on the raw df, it fails. If it runs on df_working, it passes.
+    v_rule = ConfigRule(**{
+        "name": "v1",
+        "field": "col",
+        "type": "regex",
+        "pattern": "^[a-z]+$",
+        "severity": "ERROR"
+    })
+
+    validator = DataValidator([t_rule, v_rule])
+    report = validator.validate(df)
+
+    # Assert validation passes because the regex evaluated the transformed lowercase data
+    assert report.passed is True
+
+
+def test_failsafe_validate_skips_crashing_transform_setup(caplog):
+    """Hits the exception block for the transform pre-pass inside validate()."""
+    df = pd.DataFrame({"A": [1]})
+    rule = ConfigRule(**{
+        "name": "crash_setup",
+        "type": "transform",
+        "severity": "INFO",
+        "function": "tests.test_validator.crashing_transform_rule"
+    })
+
+    validator = DataValidator([rule])
+    report = validator.validate(df)
+
+    assert report.passed is True
+    assert "FATAL ERROR: Transform 'crash_setup' crashed during validation setup" in caplog.text

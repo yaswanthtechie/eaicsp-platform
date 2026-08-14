@@ -261,13 +261,13 @@ dependencies = [
 [project.scripts]
 # This is the magic line.
 # It maps the terminal command 'validate-data' to the 'main' function inside 'src/validate_cli.py'
-validate-data = "src.validate_cli:main"
+validate_data = "src.validate_cli:main"
 
 # for generating the synthetic data
-generate-messy-data = "src.make_messy_data:main"
+generate_messy-data = "src.make_messy_data:main"
 
 # for running the complete orchestrator pipeline
-run-pipeline = "src.main:main"
+run_pipeline = "src.main:main"
 
 [tool.setuptools]
 packages = ["src"]
@@ -337,7 +337,7 @@ per_test = "src.perf_test:main"
 ```
 ```commandline
 pip install -e .
-test-performance --n-rows 100000 --time-threshold 4.5
+per_test --n-rows 100000 --time-threshold 4.5
 ```
 
 # Batch Folder Validation (validate_folder.py):
@@ -397,5 +397,41 @@ pip install -e .
 ```
 You can now trigger batch validations from anywhere on your machine as a native system command:
 ```commandline
-validate_folder --folder data/ --mapping routing_map.json --save-reports
+validate_folder --folder data/ --mapping .\configs\routing_map.json --save-reports --output-dir .\reports\csv_files_report
 ```
+
+# Rule Dependencies (depends_on):
+- The validation engine supports rule dependencies to prevent "cascading" errors on garbage data. 
+- By using the depends_on parameter, you can suppress downstream rule evaluations for a specific row if it has already been flagged by a foundational rule.
+- This ensures cleaner logs, prevents redundant error reporting, and guarantees that complex mathematical or pattern-based rules do not waste resources evaluating fundamentally broken data.
+
+## How It Works:
+- When a rule evaluates a dataset, it generates a boolean failure mask. 
+- If a rule has a depends_on configuration, the engine checks the failure masks of the specified parent rules. 
+- It then applies a bitwise AND NOT operation (mask & ~parent_mask) to explicitly ignore any rows that the parent rule already caught.
+
+## Configuration Example:
+In your YAML configuration, add the depends_on key as a list of parent rule names.
+```yaml
+rules:
+  # 1. Foundational Rule: Catches completely unparseable strings
+  - name: unparseable_dates
+    field: date
+    type: custom
+    function: src.custom_rules.check_unparseable_dates
+    severity: ERROR
+
+  # 2. Dependent Rule: Only evaluates rows that passed the 'unparseable_dates' rule
+  - name: date_in_range
+    field: date
+    type: range
+    min: '2024-01-01'
+    max: '2026-12-31'
+    severity: WARNING
+    depends_on: ["unparseable_dates"]
+```
+
+## Important Behaviors & Best Practices:
+- **Sequential Execution:** The validation engine processes rules top-to-bottom as they appear in the YAML file. Parent rules must be defined before the rules that depend on them.
+- **Missing Dependencies:** If a rule specifies a dependency that has not been executed yet (or does not exist), the engine will gracefully log a WARNING and evaluate the rule normally without suppression.
+- **Cleaning Phase:** Dependencies are fully respected during the clean() phase as well. If a row is targeted for removal by a parent rule, it will not be double-counted or redundantly processed by dependent rules.
