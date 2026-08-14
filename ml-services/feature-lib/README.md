@@ -30,13 +30,16 @@ The library provides the following features:
   - `build_all_features()` accepts a configuration dictionary for lag and rolling-window settings.
   - Allows feature generation to be changed without modifying the library code.
 
-  Example:
+Example:
 
-  ```python
-  config = {
-      "lags": [1, 7, 14],
-      "windows": [7, 30]
-  }
+```python
+config = {
+    "lags": [1, 7, 14],
+    "windows": [7, 30]
+}
+```
+
+
 
 - **Feature Usefulness Helper**
   - Calculates correlations between numeric features and the target.
@@ -125,7 +128,18 @@ After understanding these concepts, I was able to complete the feature engineeri
 
 ## 6. How Another Model Can Use This Library
 
-A forecasting model can use the shared feature engineering library instead of implementing its own lag, rolling, calendar, and holiday feature logic.
+**Before**: Every model author writes and maintains their own feature logic.
+
+```python
+# In a model's training script
+df = df.sort_values("date")
+df["sales_lag_1"] = df["sales"].shift(1)
+df["sales_lag_7"] = df["sales"].shift(7)
+df["sales_roll_7"] = df["sales"].rolling(7).mean()
+df["day_of_week"] = df["date"].dt.dayofweek
+```
+
+**After**: The shared library provides the feature engineering in one reusable call.
 
 Example:
 

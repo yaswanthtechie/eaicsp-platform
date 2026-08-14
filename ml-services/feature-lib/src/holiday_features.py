@@ -3,9 +3,11 @@ import pandas as pd
 
 
 def create_holiday_features(df, date_col="date"):
-    df[date_col] = pd.to_datetime(df[date_col])
+    data = df.copy()
 
-    years = df[date_col].dt.year.unique()
+    data[date_col] = pd.to_datetime(data[date_col])
+
+    years = data[date_col].dt.year.unique()
 
     # The holidays library supports India holidays from 2001 to 2035.
     supported_years = [
@@ -15,8 +17,8 @@ def create_holiday_features(df, date_col="date"):
 
     india_holidays = holidays.India(years=supported_years)
 
-    df["is_holiday"] = (
-        df[date_col]
+    data["is_holiday"] = (
+        data[date_col]
         .dt.date
         .apply(
             lambda date: (
@@ -28,4 +30,4 @@ def create_holiday_features(df, date_col="date"):
         .astype(int)
     )
 
-    return df
+    return data

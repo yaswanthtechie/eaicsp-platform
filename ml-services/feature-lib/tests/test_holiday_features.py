@@ -32,3 +32,11 @@ def test_holiday_features_outside_supported_year_range():
     result = create_holiday_features(df)
 
     assert result["is_holiday"].tolist() == [0, 0]
+
+def test_create_holiday_features_does_not_mutate_input():
+    df = pd.DataFrame({"date": ["2026-01-26", "2026-01-27"]})
+
+    create_holiday_features(df)
+
+    assert "is_holiday" not in df.columns
+    assert not pd.api.types.is_datetime64_any_dtype(df["date"])
