@@ -1,0 +1,12 @@
+service: "src.service:IrisService"
+
+include:
+  - "src"
+
+python:
+  packages:
+    - bentoml
+    - mlflow
+    - scikit-learn
+    - numpy
+    - pydantic
