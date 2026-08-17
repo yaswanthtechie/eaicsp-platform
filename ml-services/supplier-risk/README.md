@@ -57,7 +57,7 @@ supplier-risk/
 
 # Technology Stack
 
-- Python 3.11+
+- Python 3.11
 - FastAPI
 - Uvicorn
 - Transformers (Hugging Face)
@@ -159,6 +159,8 @@ Example Response
 POST /api/v1/supplier-risk/analyze
 ```
 
+**Note:** `supplier_name` cannot be blank (returns 400 Bad Request). Empty strings in `headlines` are ignored and do not contribute to risk scoring or confidence calculation.
+
 Example Response
 
 ```json
@@ -214,6 +216,11 @@ The service detects predefined supplier risk keywords.
 | Reputational | fraud, investigation, lawsuit, sanction                           |
 
 Each keyword contributes a predefined weight toward the overall supplier risk score.
+
+**Keyword Matching Limitations:**
+- The engine matches on stems (e.g., `delays` hits `delay`).
+- Mitigators such as `denies`, `avoids`, `cleared`, `resolved`, or `dismissed` occurring within a 4-word window before a keyword will neutralize it, avoiding false positives (e.g., "denies allegations of fraud" ignores the "fraud" signal).
+- The pipeline does not currently perform full-sentence semantic negation beyond this window.
 
 # Round 4 Calibrated Scoring
 
@@ -341,8 +348,8 @@ Two datasets are used:
 
 ### Inline Fallback Dataset (HEADLINES_DATA in `src/data.py`)
 
-Small synthetic dataset used **only if** `supplier_headlines.json` cannot be loaded:
-
+Small synthetic dataset used **only if** `supplier_headlines.json` cannot be loaded due to a missing file (`OSError`).
+- **Validation**: If `supplier_headlines.json` is present but malformed, empty, or incorrectly structured, the system throws a strict `ValueError` rather than silently failing over to this synthetic data.
 - 7 suppliers (TechCorp, AutoMaker Inc, Logistics Co, Global Trade, FoodSupplies, MetalWorks, BuildIt)
 - 1–3 headlines per supplier
 - Total 15 headlines
@@ -379,7 +386,7 @@ python -m pytest -v
 Example Output
 
 ```
-15 passed in 115.34s
+23 passed, 1 warning in 31.75s
 ```
 
 The test suite validates:

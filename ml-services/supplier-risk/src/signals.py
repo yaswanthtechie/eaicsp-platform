@@ -1,4 +1,4 @@
-"""
+﻿"""
 Keyword signal detection module for identifying
 financial, operational, and reputational risks.
 """
@@ -61,11 +61,32 @@ def detect_signals(text: str) -> List[Dict[str, Any]]:
 
     detected_signals: List[Dict[str, Any]] = []
 
-    words = set(text.lower().split())
+    # Mitigation words that negate following risks
+    mitigators = {"denies", "avoids", "cleared", "resolved", "dismissed"}
+
+    words = text.lower().split()
 
     for keyword, weight in SIGNAL_WEIGHTS.items():
+        base_keyword = keyword.rstrip('s')
 
-        if keyword in words:
+        # Find all occurrences of the keyword in words
+        keyword_detected_unmitigated = False
+
+        for idx, word in enumerate(words):
+            if word == keyword or word.startswith(base_keyword):
+                # Check if this specific occurrence is mitigated
+                is_mitigated = False
+                start_idx = max(0, idx - 4)
+                for i in range(start_idx, idx):
+                    if words[i] in mitigators:
+                        is_mitigated = True
+                        break
+
+                if not is_mitigated:
+                    keyword_detected_unmitigated = True
+                    break # We found at least one unmitigated occurrence, no need to check others
+
+        if keyword_detected_unmitigated:
             detected_signals.append(
                 {
                     "keyword": keyword,

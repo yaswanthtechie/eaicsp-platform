@@ -119,10 +119,21 @@ def _load_from_json() -> List[Dict[str, str]]:
         with json_path.open("r", encoding="utf-8") as file:
             data = json.load(file)
 
-        if isinstance(data, list) and len(data) > 0:
-            return data
+        if not isinstance(data, list):
+            raise ValueError("supplier_headlines.json must contain a list of records")
 
-    except (OSError, json.JSONDecodeError):
+        if len(data) == 0:
+            raise ValueError("supplier_headlines.json is empty")
+
+        for idx, record in enumerate(data):
+            if not isinstance(record, dict) or "supplier" not in record or "headline" not in record:
+                raise ValueError(f"Invalid record at index {idx} in supplier_headlines.json")
+
+        return data
+
+    except json.JSONDecodeError as exc:
+        raise ValueError("supplier_headlines.json is malformed") from exc
+    except FileNotFoundError:
         return []
 
     return []
