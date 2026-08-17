@@ -33,7 +33,7 @@
 |**Average** |**17.11**   | **6.93**  | **19.72** | **8.47**   |
 
 > **Note on baselines:** Benchmarked strictly against Naive Persistence ($\hat{y}_{t+1} = y_t$). Prophet baseline execution was omitted.
-
+- ⚠️ This table predates the torch.manual_seed(42) fix (see "Reproducibility Fix" section below) and does not reproduce on reruns — treat it as historical only. The reproducible, current numbers are Runs 2/3 in that section (~8.3-8.5 avg MAE), not this table.
 ---
 
 ## 🎯 R4: Real Hyperparameter Sweep
@@ -251,51 +251,85 @@ Run it:
 ```bash
 python src/robustness_test.py
 ```
+---
+## Two bugs found in review, both fixed
+1. Units mismatch in validate_sequence() (the guard never actually
+fired for out-of-range inputs). The guard compared a scaled input
+sequence (roughly [0,1]) against scaler.data_min_/scaler.data_max_
+(raw demand units, e.g. ~[77, 155]). With a 6x-range tolerance, the
+resulting rejection thresholds worked out to roughly [-391, 623] — a
+scaled input of 500 (wildly out-of-distribution in scaled space) fell
+comfortably inside that raw-unit range and passed through silently with
+the guard returning None.
+Fix: validate_sequence() now checks the RAW sequence (original
+demand units) before scaling — matching what a real incoming request
+would actually carry. Verified directly against the real scaler:
+Code
+```bash
+base_raw range: 134.4 - 155.2  (a real test sequence, inverse-transformed)
+scaler.data_min_/data_max_:    77.2 / 155.2
 
-**Findings (from code inspection + the logic in `robustness_test.py`,
-confirm exact numbers by running locally):**
-- The raw `MultiStepLSTM` / `AttentionMultiStepLSTM` forward pass has **no
-  input validation**. NaN and Inf values inside a lookback window are not
-  rejected — they propagate through the LSTM/Linear layers into a
-  NaN/Inf-contaminated forecast instead of raising.
-- Out-of-distribution values (e.g. far outside the scaler's fitted range)
-  run without crashing, but the model was never trained on inputs like that
-  — the forecast should not be trusted.
-- Wrong-length input (fewer than `lookback` timesteps) is not shape-checked
-  before being passed to the LSTM.
-- `validate_sequence()` in `robustness_test.py` is the recommended guard:
-  it rejects NaN/Inf, wrong-length, and far-out-of-range inputs *before*
-  they reach the model, and is what should be wired into `predict.py` /
-  `service.py` ahead of scoring any real request.
-
-### Known limitation discovered via testing (data.py)
-
-Writing `tests/test_edge_cases.py` surfaced a real bug, verified against the
-actual `get_walk_forward_folds` implementation: when `lookback` exceeds how
-much history an early fold has accumulated (`train_end < lookback`),
-`train_end - lookback` goes negative. Python/numpy silently interprets a
-negative slice start as "count from the end of the array" instead of
-clipping to 0, so `raw_test = values[train_end - lookback : test_end]`
-resolves to an **empty** slice instead of a smaller-but-valid one.
-`MinMaxScaler.transform()` then raises `ValueError: Found array with 0
-sample(s)` on that empty slice, and the exception propagates out of
-`get_walk_forward_folds` — fold generation crashes entirely rather than
-degrading gracefully.
-
-Verified directly (`days=60, n_folds=5` → `fold_size=10`, `lookback=50`):
-folds `k=1..4` all hit the empty-slice case and raise; only `k=5`
-(`train_end == lookback`) succeeds. See
-`TestSequenceWindowingEdgeCases.test_walk_forward_folds_lookback_larger_than_first_fold_train_slice`
-in `tests/test_edge_cases.py`, which pins down this exact behavior.
-
-**Recommended fix (not applied — flagging for your call on `data.py`):**
-clip the negative start to `0` explicitly:
-```python
-raw_test = values[max(train_end - lookback, 0) : test_end]
+OOR case (raw value ~1188, i.e. 50x the training range) -> "contains out-of-range values"  ✅ now correctly rejected
+Old buggy check (scaled=500 against raw thresholds)   
+ -> None confirms the bug existed
 ```
-This is a one-line change; left undone here since it touches `data.py`,
+The pipeline is now: validate the raw sequence first, reject if invalid,
+only then call scaler.transform() and feed the model — never the
+reverse.
+2. The README overstated what Inf-input actually produces. The
+original writeup claimed Inf values propagate into a "NaN/Inf-contaminated
+forecast." Actually running it: Inf input produces a finite,
+plausible-looking output (e.g. [0.559, 0.535, 0.516] in scaled space),
+not NaN/Inf. This is arguably a worse failure mode than what was
+documented, not a better one — a NaN output is at least obviously broken;
+a plausible-looking wrong number silently passes as if it were a real
+forecast. (Likely cause: LSTM gates use tanh/sigmoid, which saturate
+to finite bounded values for infinite input, rather than propagating Inf
+through arithmetic the way NaN does.)
+- ⚠️ Needs a fresh run to confirm final numbers: both fixes above are
+applied to the code; the exact printed output (guard verdicts, raw
+model outputs for all 5 cases) needs one more run of the corrected
+robustness_test.py to paste real, current numbers here — replacing
+this description with the actual terminal output, the same way the
+rest of this README treats every other script.
+What's still true from the original findings (code inspection, not
+overstated):
+The raw MultiStepLSTM / AttentionMultiStepLSTM forward pass has
+no input validation of its own — validate_sequence() exists
+precisely because the model itself doesn't guard against bad input.
+NaN values (as opposed to Inf) genuinely do propagate through
+arithmetic and contaminate the output, since NaN poisons any
+computation it touches, unlike Inf which can be squashed by
+saturating activations.
+Wrong-length input (fewer than lookback timesteps) is not
+shape-checked before being passed to the LSTM.
+validate_sequence() (now units-correct, see fix #1 above) is the
+recommended guard: reject NaN/Inf/wrong-length/out-of-range inputs
+before scaling and feeding the model. This is what should be wired
+into predict.py / service.py ahead of scoring any real request.
+## Known limitation discovered via testing (data.py)
+Writing tests/test_edge_case.py surfaced a real bug, verified against the
+actual get_walk_forward_folds implementation: when lookback exceeds how
+much history an early fold has accumulated (train_end < lookback),
+train_end - lookback goes negative. Python/numpy silently interprets a
+negative slice start as "count from the end of the array" instead of
+clipping to 0, so raw_test = values[train_end - lookback : test_end]
+resolves to an empty slice instead of a smaller-but-valid one.
+MinMaxScaler.transform() then raises ValueError: Found array with 0 sample(s) on that empty slice, and the exception propagates out of
+get_walk_forward_folds — fold generation crashes entirely rather than
+degrading gracefully.
+Verified directly (days=60, n_folds=5 → fold_size=10, lookback=50):
+folds k=1..4 all hit the empty-slice case and raise; only k=5
+(train_end == lookback) succeeds. See
+TestSequenceWindowingEdgeCases.test_walk_forward_folds_lookback_larger_than_first_fold_train_slice
+in tests/test_edge_case.py, which pins down this exact behavior.
+## Recommended fix (not applied — flagging for your call on data.py):
+clip the negative start to 0 explicitly:
+```bash
+ raw_test = values[max(train_end - lookback, 0) : test_end]
+```
+This is a one-line change; left undone here since it touches data.py,
 which the sweep/tests treat as read-only ground truth for R4.
-
 ---
 ## 🌟 Stretch: ONNX Export
 
@@ -308,8 +342,22 @@ pip install onnx onnxruntime
 python src/onnx_export.py           # writes output/model.onnx
 python -m pytest tests/test_onnx.py -v
 ```
+---
+## ⚠️ Bug found and fixed: requirements.txt was missing onnxscript.
+Torch 2.x's ONNX exporter (torch.onnx.export) pulls it in internally,
+but it is not a transitive dependency of onnx or onnxruntime
+themselves — a clean install from the previously-listed requirements
+failed immediately with ModuleNotFoundError: No module named 'onnxscript' before either ONNX test could run a single meaningful
+line, meaning the "2 passed" result below was not actually reproducible
+by anyone cloning fresh. onnxscript>=0.1.0 has been added to
+requirements.txt.
+
 
 **Real output:**
+Real output (needs a rerun to reconfirm with onnxscript now installed,
+but this is what a clean install + run produced before the dependency was
+identified as missing):
+---
 ```
 tests/test_onnx.py::test_onnx_identity_prediction_plain_lstm PASSED     [ 50%]
 tests/test_onnx.py::test_onnx_identity_prediction_attention_lstm PASSED [100%]
@@ -361,13 +409,12 @@ model horizon shapes, ONNX identity, and the pre-existing pipeline tests.
 
 ---
 
-## ⚠️ Finding: `train.py` has no fixed random seed (reproducibility gap)
-
-While re-running `train.py` to sanity-check the R3 baseline still holds
+## ⚠️ Reproducibility Fix: train.py now has a fixed random seed
+While re-running train.py to sanity-check the R3 baseline still holds
 after all R4 changes, the result differed substantially from the original
-R3 table — and a **third** run (done to check whether this was ordinary
-variance) sharpened the finding into something more specific than "results
-vary run to run":
+R3 table above — and a third run (done to check whether this was
+ordinary variance) sharpened the finding into something more specific than
+"results vary run to run":
 
 ```
 Metric          Run 1 (original R3 table)   Run 2 (rerun)   Run 3 (rerun)
@@ -390,29 +437,33 @@ Fold 1 is also consistently bad across all three runs (~19-21 MAE every
 time), matching the seasonal-coverage explanation above (Fold 1 never sees
 a full annual cycle) — that part of the result is structural, not random.
 
-What's actually anomalous is **Run 1** — the original R3 table — whose
+What's actually anomalous is Run 1 — the original R3 table — whose
 Folds 2, 4, and 5 (20.29, 18.46, 17.04) don't resemble either independent
 rerun at all. Two consistent reruns outvoting one outlier suggests the
 original R3-documented baseline (17.11 avg MAE) is the run that doesn't
-reproduce, rather than "results are just unpredictable." Root cause is
-still `train.py` never calling `torch.manual_seed()` — but the practical
-read is: **the current, reproducible LSTM behavior on Folds 2-5 clusters
-around 5-6 MAE (a real win over naive's ~6.9-7.1 on those folds), and the
-original 17.11 headline number should be treated as stale, not as the
-current baseline.**
+reproduce, rather than "results are just unpredictable."
+Fix applied: torch.manual_seed(42) was added near the top of
+train_and_evaluate() in train.py, matching the convention already used
+in train_utils.train_model(). This is the entire R4 diff to train.py:**
+```bash
+LR=0.001
++torch.manual_seed(42) # for Reproducibility
+```
 
-**Recommended fix (not applied — flagging for the team, since it touches
-`train.py`, which R4 treats as given):** add `torch.manual_seed(42)` near
-the top of `train_and_evaluate()`, matching the convention already used in
-`train_utils.train_model()`. This won't change *that* there's variance
-between architectures/configs, but it will make any single `train.py` run
-reproducible and comparable across machines/reviewers.
-
+*This makes train.py reproducible going forward**. It does not eliminate
+variance between architectures/configs (that's real, expected variance
+from different model designs) — it eliminates variance within repeated
+runs of the identical script.
+Still open: with the seed now in place, train.py needs one more
+run to produce the final, citable seeded baseline number that should
+replace the historical table above. That number will land close to the
+Run 2/Run 3 cluster (~8.3-8.5 avg MAE) since the seed just fixes which
+member of that already-consistent cluster you get, not the general
+behavior.
 This also means the diagnostic-check numbers earlier in this README (which
-*do* use a fixed seed via `train_utils.py`) remain the more reliable
-reference point going forward, and are consistent with what Runs 2 and 3
-show here — not the original Run 1 table.
-
+do use a fixed seed via train_utils.py) remain the more reliable
+reference point right now, and are consistent with what Runs 2 and 3 show
+here — not the original Run 1 table above.
 ---
 
 ## 🎯 Architecture Justification: Direct vs. Recursive

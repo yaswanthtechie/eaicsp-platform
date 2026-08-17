@@ -10,3 +10,5 @@ matplotlib>=3.5.0
 pytest>=7.0.0
 onnx>=1.14.0
 onnxruntime>=1.16.0
+onnxscript>=0.1.0
+

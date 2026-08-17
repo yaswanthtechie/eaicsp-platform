@@ -11,6 +11,7 @@ This script does not decide in advance which model "should" win. Whatever
 """
 
 import numpy as np
+import mlflow
 
 from data import generate_data, get_walk_forward_folds
 from evaluate import calculate_metrics
@@ -28,11 +29,29 @@ SEED = 42
 
 
 def run_comparison():
+    mlflow.set_tracking_uri("sqlite:///mlflow.db")
+    mlflow.set_experiment("Demand-Forecast-LSTM-Attention-Comparison")
+    
+    
     df = generate_data(days=1000)
     folds = get_walk_forward_folds(df, n_folds=5, lookback=LOOKBACK, horizon=HORIZON,
                                     save_scaler_path=None)
 
     plain_metrics, attn_metrics = [], []
+    
+    with mlflow.start_run(run_name="attention_vs_baseline_walkforward"):
+            # log hyperparameters
+            mlflow.log_params({
+                "lookback": LOOKBACK,
+                "horizon": HORIZON,
+                "epochs": EPOCHS,
+                "batch_size": BATCH_SIZE,
+                "lr": LR,
+                "hidden_size": HIDDEN_SIZE,
+                "num_layers": NUM_LAYERS,
+                "seed": SEED,
+                "n_folds": 5,
+            })
 
     print("=" * 78)
     print("PLAIN LSTM vs. ATTENTION LSTM -- 5-Fold Walk-Forward Comparison")
@@ -51,6 +70,13 @@ def run_comparison():
 
         plain_metrics.append(plain_result)
         attn_metrics.append(attn_result)
+        
+        #log prefold metrics to mlflow
+        mlflow.log_metrics({f"fold{fold_idx}_plain_mae": plain_result["MAE"],
+                            f"fold{fold_idx}_plain_rmse": plain_result["RMSE"],
+                            f"fold{fold_idx}_attn_mae": attn_result["MAE"],
+                            f"fold{fold_idx}_attn_rmse": attn_result["RMSE"]})
+        
 
         print(f"\nFold {fold_idx}:")
         print(f"  Plain LSTM     -> MAE: {plain_result['MAE']:.2f} | RMSE: {plain_result['RMSE']:.2f}")
@@ -60,6 +86,15 @@ def run_comparison():
     avg_plain_rmse = float(np.mean([m["RMSE"] for m in plain_metrics]))
     avg_attn_mae = float(np.mean([m["MAE"] for m in attn_metrics]))
     avg_attn_rmse = float(np.mean([m["RMSE"] for m in attn_metrics]))
+    
+    #log aggregated headline metrics to mlflow
+    mlflow.log_metrics({"avg_plain_mae": avg_plain_mae,
+                        "avg_plain_rmse": avg_plain_rmse,
+                        "avg_attn_mae": avg_attn_mae,
+                        "avg_attn_rmse": avg_attn_rmse,
+                        "mae_delta": avg_plain_mae - avg_attn_mae,
+                        })
+    
 
     print("\n" + "=" * 78)
     print("AVERAGE ACROSS ALL 5 FOLDS")
@@ -77,6 +112,8 @@ def run_comparison():
     print(f"\nVERDICT: {verdict}")
     print("=" * 78)
 
+    mlflow.set_tag("verdict", verdict)
+    
     return {
         "plain": {"avg_mae": avg_plain_mae, "avg_rmse": avg_plain_rmse, "per_fold": plain_metrics},
         "attention": {"avg_mae": avg_attn_mae, "avg_rmse": avg_attn_rmse, "per_fold": attn_metrics},

@@ -1,7 +1,8 @@
+import os
 from typing import Dict
-
 import numpy as np
 import torch
+import mlflow
 
 from model import MultiStepLSTM  # noqa: F401  (kept for type-hinting convenience in callers)
 
@@ -76,20 +77,41 @@ def predict_with_uncertainty(
 if __name__ == "__main__":
     # Small smoke-test / demo using the same synthetic pipeline as train.py.
     from data import generate_data, get_walk_forward_folds
+    from train_utils import train_model, build_model
 
     HORIZON = 7
     LOOKBACK = 30
+    N_PASSES = 100
+    CI = 0.90
+    
+    mlflow.set_tracking_uri("sqlite:///mlflow.db")
+    mlflow.set_experiment("Demand-Forecast-LSTM-Uncertainty")
+    
+    with mlflow.start_run(run_name="MC-Dropout-Evaluation"):
+        mlflow.log_params({
+            "lookback": LOOKBACK,
+            "horizon": HORIZON,
+            "n_passes": N_PASSES,
+            "ci": CI,
+            "method": "MC-Dropout",
+        })
+        
 
-    df = generate_data(days=1000)
-    folds = get_walk_forward_folds(df, n_folds=5, lookback=LOOKBACK, horizon=HORIZON,
-                                    save_scaler_path="output/scaler.pkl")
-    X_tr, y_tr, X_te, y_te, scaler = folds[-1]
+        os.makedirs("output", exist_ok=True)
+        df = generate_data(days=1000)
+        folds = get_walk_forward_folds(df, n_folds=5, lookback=LOOKBACK, horizon=HORIZON,
+                                        save_scaler_path="output/scaler.pkl")
+        X_tr, y_tr, X_te, y_te, scaler = folds[-1]
 
     from train_utils import train_model, build_model
     model = build_model(MultiStepLSTM, hidden_size=64, num_layers=2, horizon=HORIZON)
     model = train_model(model, X_tr, y_tr, epochs=25)
 
     result = predict_with_uncertainty(model, X_te[:5], scaler, n_passes=100, ci=0.90)
+    
+    avg_sample_std = np.mean(result["std_uncertainty"])
+    mlflow.log_metric("avg_sample_std", avg_sample_std)
+    
     for i in range(5):
         print(f"Sample {i}: mean={np.round(result['mean'][i], 2)}")
         print(f"           lower90={np.round(result['lower_bound'][i], 2)}")

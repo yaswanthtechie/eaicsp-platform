@@ -4,18 +4,18 @@ R4 item 5 -- Real test coverage for sequence-windowing and scaler edge cases.
 Run with: python -m pytest tests/test_edge_cases.py -v
 (from the lstm/ root, same as your existing tests/test_pipeline.py)
 """
-
 import os
 import sys
+from  pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 import numpy as np
 import pandas as pd
 import pytest
 from sklearn.preprocessing import MinMaxScaler
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from data import create_sequences, get_walk_forward_folds  # noqa: E402
+from data import create_sequences, get_walk_forward_folds 
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +133,6 @@ class TestModelHorizonShapes:
 
     def test_horizon_1_output_shape(self):
         torch = pytest.importorskip("torch")
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
         from model import MultiStepLSTM
 
         model = MultiStepLSTM(input_size=1, hidden_size=16, num_layers=1, horizon=1)
@@ -143,7 +142,6 @@ class TestModelHorizonShapes:
 
     def test_horizon_7_output_shape(self):
         torch = pytest.importorskip("torch")
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
         from model import MultiStepLSTM
 
         model = MultiStepLSTM(input_size=1, hidden_size=16, num_layers=1, horizon=7)
@@ -156,7 +154,6 @@ class TestModelHorizonShapes:
         as MultiStepLSTM for the same horizon -- attention_compare.py relies
         on this to swap models transparently."""
         torch = pytest.importorskip("torch")
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
         from model import MultiStepLSTM, AttentionMultiStepLSTM
 
         x = torch.randn(3, 30, 1)

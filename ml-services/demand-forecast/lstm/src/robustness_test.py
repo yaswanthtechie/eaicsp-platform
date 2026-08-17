@@ -17,9 +17,10 @@ Cases covered:
 """
 
 from typing import Optional
-
+import os
 import numpy as np
 import torch
+import mlflow
 
 from data import generate_data, get_walk_forward_folds
 from model import MultiStepLSTM
@@ -30,12 +31,11 @@ HORIZON = 7
 
 
 def validate_sequence(x: np.ndarray, lookback: int, scaler=None,
-                    oor_std_threshold: float = 6.0) -> Optional[str]:
+                      oor_std_threshold: float = 6.0) -> Optional[str]:
     """
     Guard to run BEFORE feeding a raw sequence into the model. Returns None if
     the sequence is safe to predict on, otherwise a short string describing
-    why it was rejected. This is what the finding below recommends wiring
-    into predict.py / service.py -- the raw model itself does not do this.
+    why it was rejected.
     """
     x = np.asarray(x, dtype=np.float64)
 
@@ -46,8 +46,6 @@ def validate_sequence(x: np.ndarray, lookback: int, scaler=None,
     if np.isinf(x).any():
         return "contains Inf"
     if scaler is not None:
-        # Values wildly outside the fitted scaler's training range are
-        # out-of-distribution; the model was never shown values like this.
         data_min = scaler.data_min_[0]
         data_max = scaler.data_max_[0]
         data_range = max(data_max - data_min, 1e-8)
@@ -58,6 +56,9 @@ def validate_sequence(x: np.ndarray, lookback: int, scaler=None,
 
 
 def run_robustness_tests():
+    mlflow.set_tracking_uri("sqlite:///mlflow.db")
+    mlflow.set_experiment("Demand-Forecast-LSTM-Robustness")
+
     df = generate_data(days=1000)
     folds = get_walk_forward_folds(df, n_folds=5, lookback=LOOKBACK, horizon=HORIZON,
                                     save_scaler_path=None)
@@ -67,81 +68,95 @@ def run_robustness_tests():
     model = train_model(model, X_tr, y_tr, epochs=25)
     model.eval()
 
-    base_sequence = X_te[0].copy()  # a real, valid scaled sequence to perturb
+    base_scaled = X_te[0].copy()
+    base_raw = scaler.inverse_transform(base_scaled.reshape(-1, 1)).flatten()
 
     print("=" * 78)
     print("ROBUSTNESS TEST -- LSTM path (model.py + data.py)")
     print("=" * 78)
 
-    # 1. NaN in the input
-    nan_seq = base_sequence.copy()
-    nan_seq[5] = np.nan
-    guard_result = validate_sequence(nan_seq, LOOKBACK, scaler)
-    print(f"\n[1] NaN in lookback window")
-    print(f"    Guard verdict: {guard_result}")
-    try:
-        with torch.no_grad():
-            raw_out = model(torch.tensor(nan_seq, dtype=torch.float32).view(1, -1, 1)).numpy()
-        print(f"    Raw model (no guard) output: {raw_out.flatten()[:3]}... "
-            f"-> {'NaN propagated through output, no crash' if np.isnan(raw_out).any() else 'no NaN in output'}")
-    except Exception as e:
-        print(f"    Raw model (no guard) raised: {type(e).__name__}: {e}")
+    results = {}
 
-    # 2. Inf in the input
-    inf_seq = base_sequence.copy()
-    inf_seq[10] = np.inf
-    guard_result = validate_sequence(inf_seq, LOOKBACK, scaler)
-    print(f"\n[2] Inf in lookback window")
-    print(f"    Guard verdict: {guard_result}")
-    try:
-        with torch.no_grad():
-            raw_out = model(torch.tensor(inf_seq, dtype=torch.float32).view(1, -1, 1)).numpy()
-        print(f"    Raw model (no guard) output: {raw_out.flatten()[:3]}... "
-            f"-> {'NaN/Inf propagated, no crash' if (np.isnan(raw_out).any() or np.isinf(raw_out).any()) else 'finite output'}")
-    except Exception as e:
-        print(f"    Raw model (no guard) raised: {type(e).__name__}: {e}")
+    with mlflow.start_run(run_name="Input_Guard_Robustness_Validation"):
+        # Log test parameters & scaler reference bounds
+        mlflow.log_params({
+            "lookback": LOOKBACK,
+            "horizon": HORIZON,
+            "oor_std_threshold": 6.0,
+            "data_min_raw": float(scaler.data_min_[0]),
+            "data_max_raw": float(scaler.data_max_[0]),
+        })
 
-    # 3. Out-of-range values (e.g. 100x the training max, in scaled space)
-    oor_seq = base_sequence.copy()
-    oor_seq[:] = 500.0  # scaled values should be roughly in [0, 1]; this is far out of distribution
-    guard_result = validate_sequence(oor_seq, LOOKBACK, scaler)
-    print(f"\n[3] Out-of-range values (scaled value=500, training range ~[0,1])")
-    print(f"    Guard verdict: {guard_result}")
-    with torch.no_grad():
-        raw_out = model(torch.tensor(oor_seq, dtype=torch.float32).view(1, -1, 1)).numpy()
-    print(f"    Raw model (no guard) output: {raw_out.flatten()} "
-        f"-> runs without crashing but the model was never trained on inputs like this; "
-        f"output should not be trusted")
+        def run_case(name, raw_seq, expect_reject=True):
+            verdict = validate_sequence(raw_seq, LOOKBACK, scaler)
+            print(f"\n{name}")
+            print(f"    Guard verdict: {verdict}")
+            raw_out = None
+            try:
+                scaled_seq = scaler.transform(raw_seq.reshape(-1, 1)).flatten()
+                with torch.no_grad():
+                    raw_out = model(torch.tensor(scaled_seq, dtype=torch.float32).view(1, -1, 1)).numpy()
+                finite = np.isfinite(raw_out).all()
+                print(f"    Raw model (no guard) output: {raw_out.flatten()[:3]}... -> {'finite output' if finite else 'NaN/Inf propagated through output'}")
+            except Exception as e:
+                print(f"    Raw model (no guard) raised: {type(e).__name__}: {e}")
+            
+            # Guard passes if expected outcome matches verdict existence
+            guard_correct = (verdict is not None) if expect_reject else (verdict is None)
+            results[name] = guard_correct
+            return raw_out
 
-    # 4. Degenerate all-zero window
-    zero_seq = np.zeros(LOOKBACK)
-    guard_result = validate_sequence(zero_seq, LOOKBACK, scaler)
-    print(f"\n[4] All-zero window")
-    print(f"    Guard verdict: {guard_result}")
-    with torch.no_grad():
-        raw_out = model(torch.tensor(zero_seq, dtype=torch.float32).view(1, -1, 1)).numpy()
-    print(f"    Raw model (no guard) output: {raw_out.flatten()} -> runs fine, valid edge case (not rejected)")
+        # 1. NaN in lookback window
+        nan_seq = base_raw.copy()
+        nan_seq[5] = np.nan
+        run_case("case1_nan", nan_seq, expect_reject=True)
 
-    # 5. Wrong-length input (shorter than lookback)
-    short_seq = base_sequence[:10]
-    guard_result = validate_sequence(short_seq, LOOKBACK, scaler)
-    print(f"\n[5] Wrong-length input (10 values, expected {LOOKBACK})")
-    print(f"    Guard verdict: {guard_result}")
-    try:
-        with torch.no_grad():
-            model(torch.tensor(short_seq, dtype=torch.float32).view(1, -1, 1))
-        print("    Raw model (no guard): accepted short input silently (shape mismatch not caught)")
-    except Exception as e:
-        print(f"    Raw model (no guard) raised: {type(e).__name__}: {e}")
+        # 2. Inf in lookback window
+        inf_seq = base_raw.copy()
+        inf_seq[10] = np.inf
+        run_case("case2_inf", inf_seq, expect_reject=True)
 
-    print("\n" + "=" * 78)
-    print("FINDING: the raw MultiStepLSTM/AttentionMultiStepLSTM forward pass does NOT")
-    print("guard against NaN, Inf, or out-of-distribution inputs -- it will silently")
-    print("propagate bad values into a bad forecast rather than raising. "
-        "validate_sequence()")
-    print("above is the recommended guard to call in predict.py/service.py BEFORE")
-    print("scoring any request, rejecting anything that fails the checks.")
-    print("=" * 78)
+        # 3. Out-of-range values in raw units
+        oor_seq = base_raw.copy()
+        oor_seq[:] = base_raw.mean() + 50 * (base_raw.max() - base_raw.min())
+        print(f"\n[3] Out-of-range raw values (value~{oor_seq[0]:.0f}, training range ~[{scaler.data_min_[0]:.0f}, {scaler.data_max_[0]:.0f}])")
+        run_case("case3_oor", oor_seq, expect_reject=True)
+
+        # 4. Degenerate all-zero window
+        zero_seq = np.zeros(LOOKBACK)
+        run_case("case4_zero", zero_seq, expect_reject=False)
+
+        # 5. Wrong-length input
+        short_seq = base_raw[:10]
+        verdict = validate_sequence(short_seq, LOOKBACK, scaler)
+        print(f"\n[5] Wrong-length input (10 values, expected {LOOKBACK})")
+        print(f"    Guard verdict: {verdict}")
+        try:
+            scaled_short = scaler.transform(short_seq.reshape(-1, 1)).flatten()
+            with torch.no_grad():
+                model(torch.tensor(scaled_short, dtype=torch.float32).view(1, -1, 1))
+            print("    Raw model (no guard): accepted short input silently (shape mismatch not caught)")
+        except Exception as e:
+            print(f"    Raw model (no guard) raised: {type(e).__name__}: {e}")
+        
+        results["case5_short"] = (verdict is not None)
+
+        print("\n" + "=" * 78)
+        print("FINDING: validate_sequence() now checks RAW (pre-scale) values against")
+        print("scaler.data_min_/data_max_, matching units. This is the guard to call in")
+        print("predict.py/service.py BEFORE scaling any incoming request -- scale only")
+        print("after validation passes.")
+        print("=" * 78)
+
+        # Log individual guard validation metrics to MLflow
+        mlflow.log_metrics({
+            "case1_nan_guard_passed": float(results.get("case1_nan", False)),
+            "case2_inf_guard_passed": float(results.get("case2_inf", False)),
+            "case3_oor_guard_passed": float(results.get("case3_oor", False)),
+            "case4_zero_guard_passed": float(results.get("case4_zero", False)),
+            "case5_short_guard_passed": float(results.get("case5_short", False)),
+            "all_guards_passed": float(all(results.values())),
+        })
 
 
 if __name__ == "__main__":

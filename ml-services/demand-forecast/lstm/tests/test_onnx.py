@@ -7,16 +7,13 @@ Requires onnx + onnxruntime:
 
 Run with: python -m pytest tests/test_onnx.py -v
 """
-
 import os
-import sys
 import warnings
 
 import numpy as np
 import pytest
 import torch
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from model import MultiStepLSTM, AttentionMultiStepLSTM  # noqa: E402
 from onnx_export import export_to_onnx  # noqa: E402

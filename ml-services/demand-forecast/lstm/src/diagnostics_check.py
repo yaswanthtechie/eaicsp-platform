@@ -14,6 +14,7 @@ Writes: output/loss_curve.png
 
 import os
 import numpy as np
+import mlflow
 
 from data import generate_data, get_walk_forward_folds
 from model import MultiStepLSTM
@@ -105,14 +106,22 @@ def check_2_same_fold_naive_vs_lstm(folds):
 
         lstm_fold_metrics.append(lstm_metrics)
         naive_fold_metrics.append(naive_metrics)
+        
+        
+        # log individual fold metrics to mlflow
+        mlflow.log_metric(f"lstm_fold_{fold_idx}_mae", lstm_metrics['MAE'])
+        mlflow.log_metric(f"naive_fold_{fold_idx}_mae", naive_metrics['MAE'])
 
         print(f"Fold {fold_idx}: LSTM MAE={lstm_metrics['MAE']:.2f}  "
             f"Naive MAE={naive_metrics['MAE']:.2f}  "
             f"(both scored on identical {X_te.shape[0]}-sample test slice, same scaler)")
 
+
     avg_lstm_mae = float(np.mean([m["MAE"] for m in lstm_fold_metrics]))
     avg_naive_mae = float(np.mean([m["MAE"] for m in naive_fold_metrics]))
-
+    
+    mlflow.log_metrics({"avg_lstm_mae": avg_lstm_mae, "avg_naive_mae": avg_naive_mae})
+    
     print(f"\nAverage LSTM MAE:  {avg_lstm_mae:.2f}")
     print(f"Average Naive MAE: {avg_naive_mae:.2f}")
     if avg_lstm_mae < avg_naive_mae:
@@ -156,12 +165,26 @@ def check_3_loss_curve(epoch_losses_all_folds):
         plt.tight_layout()
         plt.savefig("output/loss_curve.png")
         print("\nSaved output/loss_curve.png")
+        # log to mlflow as an artifact
+        mlflow.log_artifact("output/loss_curve.png", artifact_path="loss_curve")
     except ImportError:
         print("\nmatplotlib not installed -- skipped saving output/loss_curve.png "
             "(numbers above are still valid, install matplotlib to get the plot)")
 
 
 if __name__ == "__main__":
+    mlflow.set_tracking_uri("sqlite:///mlflow.db")
+    mlflow.set_experiment("Demand-Forecast-LSTM-Diagnostics")
+    
+    with mlflow.start_run(run_name="Diagnostics_Sanity_Check"):
+        mlflow.log_params({
+            "lookback": LOOKBACK,
+            "horizon": HORIZON,
+            "epochs": EPOCHS,
+            "batch_size": BATCH_SIZE,
+            "lr": LR,
+            "seed": SEED,
+        })
     df = generate_data(days=1000)
     folds = get_walk_forward_folds(df, n_folds=5, lookback=LOOKBACK, horizon=HORIZON,
                                     save_scaler_path=None)
@@ -169,6 +192,7 @@ if __name__ == "__main__":
     check_1_data_volume(folds)
     epoch_losses, avg_lstm_mae, avg_naive_mae = check_2_same_fold_naive_vs_lstm(folds)
     check_3_loss_curve(epoch_losses)
+    
 
     print("=" * 78)
     print("SUMMARY -- paste this block into README")
