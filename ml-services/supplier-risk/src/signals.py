@@ -1,4 +1,4 @@
-﻿"""
+"""
 Keyword signal detection module for identifying
 financial, operational, and reputational risks.
 """
@@ -61,30 +61,67 @@ def detect_signals(text: str) -> List[Dict[str, Any]]:
 
     detected_signals: List[Dict[str, Any]] = []
 
-    # Mitigation words that negate following risks
-    mitigators = {"denies", "avoids", "cleared", "resolved", "dismissed"}
+    # Mitigation stems
+    mitigation_stems = {"deni", "deny", "avoid", "clear", "resolv", "dismiss"}
 
     words = text.lower().split()
 
-    for keyword, weight in SIGNAL_WEIGHTS.items():
-        base_keyword = keyword.rstrip('s')
+    def is_mitigating_word(w: str) -> bool:
+        for stem in mitigation_stems:
+            if w.startswith(stem):
+                return True
+        return False
 
-        # Find all occurrences of the keyword in words
+    def match_keyword(w: str, kw: str) -> bool:
+        base = kw.rstrip('s')
+        if w == base or w == kw:
+            return True
+        allowed_suffixes = ['s', 'es', 'ed', 'ing']
+        for suffix in allowed_suffixes:
+            if w == base + suffix:
+                return True
+            if base.endswith('e') and w == base[:-1] + suffix:
+                return True
+        if kw == 'fraud' and w == 'fraudulent':
+            return True
+        if kw == 'bankruptcy' and w == 'bankruptcies':
+            return True
+        return False
+
+    for keyword, weight in SIGNAL_WEIGHTS.items():
         keyword_detected_unmitigated = False
 
         for idx, word in enumerate(words):
-            if word == keyword or word.startswith(base_keyword):
-                # Check if this specific occurrence is mitigated
+            if match_keyword(word, keyword):
+                # Context disambiguation for ambiguous words
+                if keyword == "strike":
+                    context_words = set(words[max(0, idx-5):idx+6])
+                    valid_context = {"worker", "workers", "union", "unions", "staff", "labor", "labour", "employee", "employees", "walkout"}
+                    if not any(cw in context_words for cw in valid_context):
+                        continue
+                elif keyword == "recall":
+                    context_words = set(words[max(0, idx-5):idx+6])
+                    valid_context = {"product", "products", "defective", "safety", "vehicle", "vehicles", "part", "parts", "issue"}
+                    if not any(cw in context_words for cw in valid_context):
+                        continue
+                elif keyword == "default":
+                    context_words = set(words[max(0, idx-5):idx+6])
+                    valid_context = {"loan", "loans", "debt", "debts", "payment", "payments", "credit", "bond", "bonds", "obligation"}
+                    if not any(cw in context_words for cw in valid_context):
+                        continue
+
+                # Check for mitigation before and after (4 words before, 5 words after)
                 is_mitigated = False
                 start_idx = max(0, idx - 4)
-                for i in range(start_idx, idx):
-                    if words[i] in mitigators:
+                end_idx = min(len(words), idx + 6)
+                for i in range(start_idx, end_idx):
+                    if i != idx and is_mitigating_word(words[i]):
                         is_mitigated = True
                         break
 
                 if not is_mitigated:
                     keyword_detected_unmitigated = True
-                    break # We found at least one unmitigated occurrence, no need to check others
+                    break
 
         if keyword_detected_unmitigated:
             detected_signals.append(
@@ -95,3 +132,4 @@ def detect_signals(text: str) -> List[Dict[str, Any]]:
             )
 
     return detected_signals
+

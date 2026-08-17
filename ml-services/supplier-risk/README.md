@@ -30,6 +30,19 @@ It is designed to integrate seamlessly with the API Gateway in a microservices a
 
 ---
 
+# Risk Score Interpretation
+
+The risk score (0-100) is calculated based on keyword severity and sentiment analysis. These bands are heuristic, operational guidelines to help procurement teams understand the practical risk level of a supplier based on current system calibration (where scores typically fall between 20-41 in real-world news).
+
+| Score Range | Risk Level | Interpretation |
+| :--- | :--- | :--- |
+| **0.0 - 15.0** | **Low** | Routine operational updates, clean or positive news, and minimal risk signals. Continue normal procurement operations. |
+| **15.1 - 30.0** | **Medium** | Some negative sentiment or minor operational disruptions (e.g. delays, small shortages). Monitor supplier for potential escalation. |
+| **30.1 - 50.0** | **High** | Significant risk signals (e.g. lawsuits, major layoffs, strikes) and high negative sentiment. Review supplier contracts and seek mitigations. |
+| **50.1 - 100.0** | **Critical** | Severe structural or legal risks (e.g. bankruptcy, fraud, major sanctions, default). Immediate procurement intervention required. |
+
+---
+
 # Project Structure
 
 ```text

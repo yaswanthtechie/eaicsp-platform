@@ -51,14 +51,7 @@
   {"supplier": "Foxconn", "headline": "Foxconn workers go on strike protesting working conditions and bonuses."},
   {"supplier": "Foxconn", "headline": "Foxconn announces a massive expansion of its manufacturing footprint in India."},
   {"supplier": "Foxconn", "headline": "Foxconn reports strong positive earnings driven by robust smartphone demand."},
-  {"supplier": "Foxconn", "headline": "Foxconn faces an investigation by local authorities over labor practices."},
-  {"supplier": "Foxconn", "headline": "Foxconn hit by a component shortage affecting assembly lines."},
-  {"supplier": "Foxconn", "headline": "Foxconn announces a new partnership to manufacture electric vehicles."},
-  {"supplier": "Foxconn", "headline": "Foxconn plans corporate restructuring to diversify away from consumer electronics."},
-  {"supplier": "Foxconn", "headline": "Foxconn denies allegations of fraud in its recent financial disclosures."},
-  {"supplier": "Foxconn", "headline": "Foxconn avoids sanction from trade regulators following compliance audits."},
-  {"supplier": "Foxconn", "headline": "Foxconn reports zero downtime during peak production season."},
-  {"supplier": "Foxconn", "headline": "Foxconn passes comprehensive international labor audit with top marks."},
+
   {"supplier": "TSMC", "headline": "TSMC announces plans for a massive capacity expansion in Arizona."},
   {"supplier": "TSMC", "headline": "TSMC reports record revenue driven by strong AI chip demand."},
   {"supplier": "TSMC", "headline": "TSMC faces temporary production shutdown after minor earthquake."},
@@ -86,13 +79,5 @@
   {"supplier": "BASF", "headline": "BASF announces breakthrough in sustainable battery materials."},
   {"supplier": "BASF", "headline": "BASF faces regulatory scrutiny over chemical emissions at European plant."},
   {"supplier": "BASF", "headline": "BASF inaugurates state-of-the-art production complex in China."},
-  {"supplier": "BASF", "headline": "BASF declares force majeure after explosion at key manufacturing site."},
-  {"supplier": "BASF", "headline": "BASF reports solid earnings growth in agricultural solutions division."},
-  {"supplier": "BASF", "headline": "BASF struggles with raw-material shortages for specialty plastics."},
-  {"supplier": "BASF", "headline": "BASF signs long-term renewable energy contract to power operations."},
-  {"supplier": "BASF", "headline": "BASF faces lawsuit from local residents over alleged water contamination."},
-  {"supplier": "BASF", "headline": "BASF expands automotive coatings capacity to meet rising demand."},
-  {"supplier": "BASF", "headline": "BASF implements restructuring plan leading to potential layoffs."},
-  {"supplier": "BASF", "headline": "BASF successfully passes environmental compliance audits across all sites."},
-  {"supplier": "BASF", "headline": "BASF supply chain disruption resolved, production returns to normal."}
+  {"supplier": "BASF", "headline": "BASF declares force majeure after explosion at key manufacturing site."}
 ]

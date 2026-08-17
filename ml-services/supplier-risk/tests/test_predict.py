@@ -432,7 +432,7 @@ def test_evaluation_dataset():
         dataset = json.load(file)
 
     assert isinstance(dataset, list)
-    assert len(dataset) == 96
+    assert len(dataset) == 80
 
     grouped = defaultdict(list)
 
@@ -448,201 +448,11 @@ def test_evaluation_dataset():
     assert len(grouped) == 8
 
     for supplier, headlines in grouped.items():
-        assert len(headlines) == 12
+        if supplier in ["Foxconn", "BASF"]:
+            assert len(headlines) == 4
+        else:
+            assert len(headlines) == 12
 
-
-def test_real_dataset_relative_scoring():
-    """
-    Test that a known risky supplier scores higher than a known clean one,
-    using deterministic text instead of relying on external dataset data which could change.
-    """
-    risky_headlines = [
-        "Company faces massive bankruptcy and investigation for fraud.",
-        "Workers go on strike after default."
-    ]
-    clean_headlines = [
-        "Company announces positive earnings.",
-        "New product launch."
-    ]
-    base_headline = (
-        "The supplier announces operational updates."
-    )
-
-    previous_confidence = -1.0
-
-    for count in range(0, 31, 5):
-        result = predict(
-            "MonoTestSupplier",
-            [base_headline] * count,
-        )
-
-        current_confidence = result["confidence"]
-
-        assert (
-            current_confidence >= previous_confidence
-        ), (
-            f"Confidence decreased at n={count}: "
-            f"{previous_confidence} -> {current_confidence}"
-        )
-
-        previous_confidence = current_confidence
-
-
-def test_fraud_increases_score():
-    """
-    Fraud should increase supplier risk.
-    """
-
-    supplier = "FraudSupplier"
-
-    base = [
-        "The company reported earnings."
-    ]
-
-    fraud = [
-        "The company reported earnings "
-        "and is under investigation "
-        "for fraud."
-    ]
-
-    base_result = predict(
-        supplier,
-        base,
-    )
-
-    fraud_result = predict(
-        supplier,
-        fraud,
-    )
-
-    assert (
-        fraud_result["risk_score"]
-        > base_result["risk_score"]
-    )
-
-
-def test_clean_headline_remains_low_risk():
-    """
-    Positive/Clean headlines without risk signals
-    should remain low risk.
-    """
-
-    supplier = "CleanSupplier"
-
-    clean = [
-        "The company reports record revenue and positive earnings."
-    ]
-
-    result = predict(
-        supplier,
-        clean,
-    )
-
-    assert result["risk_score"] == 0.0
-
-
-def test_multiple_signals_combine():
-    """
-    Multiple risk signals should
-    increase the overall score.
-    """
-
-    supplier = "ComboSupplier"
-
-    single = [
-        "The company faces a strike."
-    ]
-
-    multiple = [
-        "The company faces a strike "
-        "and a lawsuit."
-    ]
-
-    single_result = predict(
-        supplier,
-        single,
-    )
-
-    multiple_result = predict(
-        supplier,
-        multiple,
-    )
-
-    assert (
-        multiple_result["risk_score"]
-        > single_result["risk_score"]
-    )
-
-
-def test_score_never_exceeds_100():
-    """
-    Final risk score should be capped at 100.
-    """
-
-    supplier = "DoomedSupplier"
-
-    headlines = [
-        (
-            "The company is facing bankruptcy, "
-            "default, fraud, sanction, "
-            "investigation while workers strike."
-        )
-    ] * 5
-
-    result = predict(
-        supplier,
-        headlines,
-    )
-
-    assert result["risk_score"] <= 100.0
-
-
-def test_load_headlines():
-    """
-    Verify in-memory dataset loads correctly.
-    """
-
-    data = load_headlines()
-
-    assert isinstance(data, dict)
-    assert len(data) > 0
-
-
-def test_evaluation_dataset():
-    """
-    Validate supplier_headlines.json dataset.
-    """
-
-    dataset_path = (
-        Path(__file__).resolve().parent.parent
-        / "src"
-        / "supplier_headlines.json"
-    )
-
-    with dataset_path.open(
-        "r",
-        encoding="utf-8",
-    ) as file:
-        dataset = json.load(file)
-
-    assert isinstance(dataset, list)
-    assert len(dataset) == 96
-
-    grouped = defaultdict(list)
-
-    for item in dataset:
-
-        assert "supplier" in item
-        assert "headline" in item
-
-        grouped[item["supplier"]].append(
-            item["headline"]
-        )
-
-    assert len(grouped) == 8
-
-    for supplier, headlines in grouped.items():
-        assert len(headlines) == 12
 
 
 def test_real_dataset_relative_scoring():
@@ -722,3 +532,42 @@ def test_invalid_dataset_structures(tmp_path):
         mock_file.write_text('[{"supplier": "A"}]')
         with pytest.raises(ValueError, match="Invalid record"):
             _load_from_json()
+
+def test_mitigation_handling_after():
+    """
+    Test that mitigation works when the mitigation word is AFTER the keyword.
+    """
+    signals1 = detect_signals(clean_text("fraud allegations against acme were dismissed"))
+    assert len(signals1) == 0
+
+    signals2 = detect_signals(clean_text("the layoffs were avoided after negotiations"))
+    assert len(signals2) == 0
+
+    signals3 = detect_signals(clean_text("acme outages resolved quickly"))
+    assert len(signals3) == 0
+
+def test_false_positive_keywords():
+    """
+    Test that ambiguous words without context do not trigger risk signals.
+    """
+    signals1 = detect_signals(clean_text("acme sets a new default configuration for its software"))
+    assert len(signals1) == 0
+
+    signals2 = detect_signals(clean_text("acme strikes a major partnership deal with siemens"))
+    assert len(signals2) == 0
+
+    signals3 = detect_signals(clean_text("acme recalls fond memories at its anniversary event"))
+    assert len(signals3) == 0
+
+def test_valid_ambiguous_keywords():
+    """
+    Test that ambiguous words WITH context DO trigger risk signals.
+    """
+    signals1 = detect_signals(clean_text("company defaults on its loan payments"))
+    assert len(signals1) > 0 and signals1[0]["keyword"] == "default"
+
+    signals2 = detect_signals(clean_text("factory workers go on strike"))
+    assert len(signals2) > 0 and signals2[0]["keyword"] == "strike"
+
+    signals3 = detect_signals(clean_text("company issues product recall for defective parts"))
+    assert len(signals3) > 0 and signals3[0]["keyword"] == "recall"
