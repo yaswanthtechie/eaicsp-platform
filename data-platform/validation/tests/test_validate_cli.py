@@ -4,7 +4,6 @@ from unittest.mock import MagicMock, mock_open, patch
 
 import pandas as pd
 import pytest
-import yaml
 
 # Import mapped correctly to the src folder
 import src.validate_cli as validate_cli
@@ -59,33 +58,6 @@ def test_parse_args_missing_required():
         validate_cli.parse_args([])
 
 
-# --- Tests for extract_config_version ---
-
-@patch("pathlib.Path.open", new_callable=mock_open, read_data="version: '1.2.3'")
-def test_extract_config_version_success(mock_file):
-    version = validate_cli.extract_config_version(Path("dummy.yaml"))
-    assert version == "1.2.3"
-
-
-@patch("pathlib.Path.open", new_callable=mock_open, read_data="")
-def test_extract_config_version_fallback(mock_file):
-    version = validate_cli.extract_config_version(Path("dummy.yaml"))
-    assert version == validate_cli.DEFAULT_CONFIG_VERSION
-
-
-@patch("pathlib.Path.open", side_effect=OSError("Mock OS Error"))
-def test_extract_config_version_os_error(mock_file):
-    with pytest.raises(OSError):
-        validate_cli.extract_config_version(Path("dummy.yaml"))
-
-
-@patch("yaml.safe_load", side_effect=yaml.YAMLError("Mock YAML Error"))
-@patch("pathlib.Path.open", new_callable=mock_open, read_data="invalid: yaml:")
-def test_extract_config_version_yaml_error(mock_file, mock_yaml):
-    with pytest.raises(yaml.YAMLError):
-        validate_cli.extract_config_version(Path("dummy.yaml"))
-
-
 # --- Tests for export_report ---
 
 @patch("pathlib.Path.mkdir")
@@ -132,54 +104,44 @@ def test_export_report_os_error(mock_mkdir, mock_report):
 @patch("pathlib.Path.is_file")
 def test_main_input_not_file(mock_is_file, mock_args):
     mock_is_file.side_effect = [False, True]
-    assert validate_cli.main(mock_args) == validate_cli.EXIT_FAILURE
+    assert validate_cli.main(mock_args) == validate_cli.EXIT_TOOL_ERROR
 
 
 @patch("pathlib.Path.is_file")
 def test_main_config_not_file(mock_is_file, mock_args):
     mock_is_file.side_effect = [True, False]
-    assert validate_cli.main(mock_args) == validate_cli.EXIT_FAILURE
+    assert validate_cli.main(mock_args) == validate_cli.EXIT_TOOL_ERROR
 
 
 @patch("pathlib.Path.is_file", return_value=True)
-@patch("src.validate_cli.extract_config_version", side_effect=OSError)
-def test_main_config_extract_fails(mock_extract, mock_is_file, mock_args):
-    assert validate_cli.main(mock_args) == validate_cli.EXIT_FAILURE
-
-
-@patch("pathlib.Path.is_file", return_value=True)
-@patch("src.validate_cli.extract_config_version", return_value="1.0")
 @patch("pandas.read_csv", side_effect=ValueError("Bad CSV"))
-def test_main_validation_fails_data_error(mock_read, mock_extract, mock_is_file, mock_args):
-    assert validate_cli.main(mock_args) == validate_cli.EXIT_FAILURE
+def test_main_validation_fails_data_error(mock_read, mock_is_file, mock_args):
+    assert validate_cli.main(mock_args) == validate_cli.EXIT_TOOL_ERROR
 
 
 @patch("pathlib.Path.is_file", return_value=True)
-@patch("src.validate_cli.extract_config_version", return_value="1.0")
 @patch("pandas.read_csv", side_effect=RuntimeError("Unexpected Runtime"))
-def test_main_validation_fails_runtime_error(mock_read, mock_extract, mock_is_file, mock_args):
-    assert validate_cli.main(mock_args) == validate_cli.EXIT_FAILURE
+def test_main_validation_fails_runtime_error(mock_read, mock_is_file, mock_args):
+    assert validate_cli.main(mock_args) == validate_cli.EXIT_TOOL_ERROR
 
 
 @patch("pathlib.Path.is_file", return_value=True)
-@patch("src.validate_cli.extract_config_version", return_value="1.0")
 @patch("pandas.read_csv", return_value=pd.DataFrame())
 @patch("src.validator.DataValidator.from_config")
 @patch("src.validate_cli.export_report", side_effect=TypeError("Bad Export"))
-def test_main_export_fails(mock_export, mock_validator, mock_read, mock_extract, mock_is_file, mock_args, mock_report):
+def test_main_export_fails(mock_export, mock_validator, mock_read, mock_is_file, mock_args, mock_report):
     mock_instance = MagicMock()
     mock_instance.validate.return_value = mock_report
     mock_validator.return_value = mock_instance
-    assert validate_cli.main(mock_args) == validate_cli.EXIT_FAILURE
+    assert validate_cli.main(mock_args) == validate_cli.EXIT_TOOL_ERROR
 
 
 @patch("pathlib.Path.is_file", return_value=True)
-@patch("src.validate_cli.extract_config_version", return_value="1.0")
 @patch("pandas.read_csv", return_value=pd.DataFrame())
 @patch("src.validator.DataValidator.from_config")
 @patch("src.validate_cli.export_report")
-def test_main_validation_passed_false(mock_export, mock_validator, mock_read, mock_extract, mock_is_file, mock_args,
-                                      mock_report):
+def test_main_validation_passed_false(mock_export, mock_validator, mock_read, mock_is_file, mock_args, mock_report):
+    # Set up failure condition for the mock report
     mock_report.passed = False
     mock_report.total_rows_affected = 5
 
@@ -187,21 +149,18 @@ def test_main_validation_passed_false(mock_export, mock_validator, mock_read, mo
     mock_instance.validate.return_value = mock_report
     mock_validator.return_value = mock_instance
 
-    assert validate_cli.main(mock_args) == validate_cli.EXIT_FAILURE
-    assert mock_report.config_version == "1.0"
+    # Assert it returns Code 1 (Validation Failed)
+    assert validate_cli.main(mock_args) == validate_cli.EXIT_VALIDATION_FAILED
 
 
 @patch("pathlib.Path.is_file", return_value=True)
-@patch("src.validate_cli.extract_config_version", return_value="1.0")
 @patch("pandas.read_csv", return_value=pd.DataFrame())
 @patch("src.validator.DataValidator.from_config")
 @patch("src.validate_cli.export_report")
-def test_main_validation_passed_true(mock_export, mock_validator, mock_read, mock_extract, mock_is_file, mock_args,
-                                     mock_report):
-    del mock_report.config_version
-
+def test_main_validation_passed_true(mock_export, mock_validator, mock_read, mock_is_file, mock_args, mock_report):
     mock_instance = MagicMock()
     mock_instance.validate.return_value = mock_report
     mock_validator.return_value = mock_instance
 
+    # Assert it returns Code 0 (Success)
     assert validate_cli.main(mock_args) == validate_cli.EXIT_SUCCESS

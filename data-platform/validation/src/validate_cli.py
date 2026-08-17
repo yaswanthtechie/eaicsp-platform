@@ -7,13 +7,13 @@ from pathlib import Path
 from typing import Any, Optional
 
 import pandas as pd
-import yaml
 
 from src.validator import DataValidator
 
 # --- Configuration Constants ---
 EXIT_SUCCESS = 0
-EXIT_FAILURE = 1
+EXIT_VALIDATION_FAILED = 1
+EXIT_TOOL_ERROR = 2  # New exit code for tool crashes
 
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -42,17 +42,6 @@ def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument("--config", type=Path, required=True, help="Path to YAML rules")
     parser.add_argument("--output", type=Path, required=True, help="Path for JSON report output")
     return parser.parse_args(args)
-
-
-def extract_config_version(config_path: Path) -> str:
-    """Safely extracts the version string from the YAML configuration."""
-    try:
-        with config_path.open('r', encoding=ENCODING) as f:
-            yaml_data = yaml.safe_load(f) or {}
-            return yaml_data.get(CONFIG_VERSION_KEY, DEFAULT_CONFIG_VERSION)
-    except (yaml.YAMLError, OSError) as e:
-        logger.exception("Failed to read config version from %s: %s", config_path, e)
-        raise
 
 
 def export_report(report: Any, output_path: Path) -> None:
@@ -85,19 +74,14 @@ def main(cli_args: Optional[list[str]] = None) -> int:
     # Validate file existence strictly as files, not just paths
     if not input_path.is_file():
         logger.error("Input file does not exist or is not a file: %s", input_path)
-        return EXIT_FAILURE
+        return EXIT_TOOL_ERROR
 
     if not config_path.is_file():
         logger.error("Config file does not exist or is not a file: %s", config_path)
-        return EXIT_FAILURE
+        return EXIT_TOOL_ERROR
 
-    # 1. Extract config version (Fixed broad exception)
-    try:
-        config_version = extract_config_version(config_path)
-    except (yaml.YAMLError, OSError):
-        return EXIT_FAILURE
 
-    # 2. Load Data & Validate (Fixed broad exception)
+    # Load Data & Validate (Fixed broad exception)
     try:
         df = pd.read_csv(input_path)
         validator = DataValidator.from_config(str(config_path))
@@ -105,31 +89,29 @@ def main(cli_args: Optional[list[str]] = None) -> int:
         # Run validation
         report = validator.validate(df)
 
-        # Inject version dynamically if the attribute exists
-        if hasattr(report, 'config_version'):
-            report.config_version = config_version
-
     except (pd.errors.EmptyDataError, pd.errors.ParserError, ValueError, OSError) as e:
         logger.exception("Validation execution failed: %s", e)
-        return EXIT_FAILURE
+        return EXIT_TOOL_ERROR
     except RuntimeError as e:  # Catch fallback for external library runtime errors
         logger.exception("Runtime error during validation: %s", e)
-        return EXIT_FAILURE
+        return EXIT_TOOL_ERROR
 
     # 3. Export JSON Report (Fixed broad exception)
     try:
         export_report(report, output_path)
     except (OSError, TypeError, ValueError, AttributeError):
-        return EXIT_FAILURE
+        return EXIT_TOOL_ERROR
 
     # 4. CI/CD Exit Codes
     passed = getattr(report, 'passed', False)
+    # Extract the version natively from the generated report
+    config_ver = getattr(report, 'config_version', 'unknown')
     if not passed:
         rows_affected = getattr(report, 'total_rows_affected', 'unknown')
-        logger.error(f"Validation FAILED. {rows_affected} rows affected (Config version:{config_version}).")
-        return EXIT_FAILURE
+        logger.error(f"Validation FAILED. {rows_affected} rows affected (Config version:{config_ver}).")
+        return EXIT_VALIDATION_FAILED
 
-    logger.info(f"Validation PASSED (Config version:{config_version})")
+    logger.info(f"Validation PASSED (Config version:{config_ver})")
     return EXIT_SUCCESS
 
 
