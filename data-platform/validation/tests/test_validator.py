@@ -115,9 +115,27 @@ def test_empty_dataframe(mock_yaml_config):
     df = pd.DataFrame(columns=["A", "B", "C", "D"])
     validator = DataValidator.from_config(mock_yaml_config)
     report = validator.validate(df)
-    assert report['passed'] is True
+    assert report['passed'] is False
     assert report['total_rows_affected'] == 0
+    assert report['errors'][0]['rule'] == "empty_dataframe"
 
+
+def test_rule_evaluate_empty_dataframe():
+    """Directly hits the df.empty early exit inside ConfigRule.evaluate()."""
+    from src.validator import ConfigRule
+
+    # Create an entirely empty dataframe with the required column
+    df = pd.DataFrame(columns=["col"])
+
+    # Initialize a standalone rule
+    rule = ConfigRule(**{"name": "r1", "field": "col", "type": "not_null"})
+
+    # Evaluate it directly
+    mask = rule.evaluate(df)
+
+    # Verify the fallback return statement executed properly
+    assert mask.empty is True
+    assert mask.dtype == bool
 
 def test_all_null_column():
     df = pd.DataFrame({"A": [None, None]})

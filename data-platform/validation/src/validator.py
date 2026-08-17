@@ -130,8 +130,9 @@ class ConfigRule(BaseModel):
 
 
 class DataValidator:
-    def __init__(self, rules: List[ConfigRule]):
+    def __init__(self, rules: List[ConfigRule],  version: str = 'unknown'):
         self.rules = rules
+        self.version = version
 
     @classmethod
     def from_config(cls, yaml_path: str) -> 'DataValidator':
@@ -143,10 +144,12 @@ class DataValidator:
             if data is None:
                 raise ValueError("YAML file is completely empty.")
 
+            # Extract version directly here
+            version = data.get('version', 'unknown')
             rules_data = data.get('rules', [])
             rules = [ConfigRule(**r) for r in rules_data]
-            return cls(rules)
-
+            return cls(rules, version)
+        
         except (FileNotFoundError, yaml.YAMLError) as e:
             raise ValueError(f"Config parse failed: {e}")
 
@@ -159,6 +162,13 @@ class DataValidator:
 
     def validate(self, df: pd.DataFrame) -> ValidationResult:
         """Executes the validation pipeline and generates a report."""
+        if df.empty:
+            return ValidationResult(
+                config_version=getattr(self, 'version', 'unknown'),
+                passed=False,
+                total_rows_affected=0,
+                errors=[{"rule": "empty_dataframe", "field": None, "count": 1}]
+            )
         self._validate_schema(df)
 
         # NEW: Apply transforms to a working copy so validation rules evaluate clean data
@@ -237,6 +247,7 @@ class DataValidator:
 
         passed = len(errors) == 0
         return ValidationResult(
+            config_version=self.version,  # Injected natively
             passed=passed,
             total_rows_affected=len(affected_indices),
             errors=errors,
