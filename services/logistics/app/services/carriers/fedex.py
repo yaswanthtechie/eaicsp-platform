@@ -1,21 +1,43 @@
 import random
-import time
+
+from app.schemas.shipment import (
+    Carrier,
+    CarrierRate,
+    Status,
+    TrackingInfo,
+)
 
 from app.services.carriers.base import (
-    CarrierAdapter,
+    BaseCarrier,
     CarrierError,
     api_retry,
 )
 
-from app.schemas.shipment import (
-    Carrier,
-    Status,
-    CarrierRate,
-    TrackingInfo,
-)
 
+# ============================================================
+# FEDEX CARRIER
+# ============================================================
 
-class FedExAdapter(CarrierAdapter):
+class FedExAdapter(BaseCarrier):
+    """
+    FedEx carrier implementation.
+
+    R4 features:
+    - Carrier API failure simulation.
+    - Tenacity retry through api_retry().
+    - Local circuit breaker is handled by shipment_service.py.
+    - Dynamic reliability is calculated from carrier history.
+    """
+
+    carrier = Carrier.fedex
+
+    base_price = 950.0
+
+    estimated_days = 3
+
+    # --------------------------------------------------------
+    # GET RATE
+    # --------------------------------------------------------
 
     @api_retry()
     def get_rate(
@@ -24,37 +46,67 @@ class FedExAdapter(CarrierAdapter):
         destination: str,
         weight_kg: float,
     ) -> CarrierRate:
+        """
+        Return FedEx shipping rate.
 
-        time.sleep(0.10)
+        Approximately 30% of requests simulate
+        a FedEx API timeout.
+        """
 
-        # Simulate temporary API failure.
+        # ----------------------------------------------------
+        # VALIDATE WEIGHT
+        # ----------------------------------------------------
+
+        if weight_kg <= 0:
+
+            raise CarrierError(
+                "Invalid shipment weight"
+            )
+
+        # ----------------------------------------------------
+        # SIMULATE FEDEX FAILURE
+        # ----------------------------------------------------
+
         if random.random() < 0.30:
 
             raise CarrierError(
                 "FedEx API timeout"
             )
 
+        # ----------------------------------------------------
+        # RETURN RATE
+        # ----------------------------------------------------
+
         return CarrierRate(
-            carrier=Carrier.fedex,
+            carrier=self.carrier,
             origin=origin,
             destination=destination,
             weight_kg=weight_kg,
-            price=950,
-            estimated_days=3,
+            price=self.base_price,
+            estimated_days=self.estimated_days,
+
+            # Default/mock value only.
+            # shipment_service.py replaces this with
+            # the dynamically calculated reliability score.
             reliability_score=0.92,
         )
+
+    # --------------------------------------------------------
+    # GET TRACKING
+    # --------------------------------------------------------
 
     @api_retry()
     def get_tracking(
         self,
         tracking_number: str,
     ) -> TrackingInfo:
-
-        time.sleep(0.05)
+        """
+        Return FedEx tracking information.
+        """
 
         return TrackingInfo(
             tracking_number=tracking_number,
-            carrier=Carrier.fedex,
+            carrier=self.carrier,
             status=Status.in_transit,
             location="In Transit",
             estimated_delivery=None,

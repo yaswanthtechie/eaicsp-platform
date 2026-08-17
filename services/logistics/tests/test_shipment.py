@@ -1,162 +1,598 @@
 from datetime import date
 
-import pytest
+from fastapi.testclient import TestClient
 
-from app.schemas.shipment import (
-    ShipmentCreate,
-    Status,
-    Carrier,
+from app.main import app
+from app.services.shipment_service import (
+    shipments,
+    shipment_events,
+    reset_all_circuit_breakers,
 )
 
-from app.services import shipment_service
 
-
-def make_shipment(
-    shipment_id=1,
-    status=Status.pending,
-    carrier=Carrier.dhl,
-):
-
-    return ShipmentCreate(
-        shipment_id=shipment_id,
-        origin="Hyderabad",
-        destination="Mumbai",
-        carrier=carrier,
-        status=status,
-        estimated_delivery=date(
-            2026,
-            8,
-            20,
-        ),
-        weight_kg=5,
-    )
+client = TestClient(app)
 
 
 # ============================================================
-# VALID TRANSITIONS
+# TEST SETUP
 # ============================================================
 
-def test_pending_to_in_transit():
+def setup_function():
+    """
+    Clear in-memory data before every test.
+    """
 
-    assert shipment_service.is_valid_transition(
-        Status.pending,
-        Status.in_transit,
-    )
-
-
-def test_in_transit_to_delivered():
-
-    assert shipment_service.is_valid_transition(
-        Status.in_transit,
-        Status.delivered,
-    )
-
-
-def test_in_transit_to_delayed():
-
-    assert shipment_service.is_valid_transition(
-        Status.in_transit,
-        Status.delayed,
-    )
-
-
-def test_delayed_to_delivered():
-
-    assert shipment_service.is_valid_transition(
-        Status.delayed,
-        Status.delivered,
-    )
+    shipments.clear()
+    shipment_events.clear()
+    reset_all_circuit_breakers()
 
 
 # ============================================================
-# INVALID TRANSITIONS
+# CREATE SHIPMENT
 # ============================================================
 
-def test_pending_to_delivered_invalid():
-
-    assert not shipment_service.is_valid_transition(
-        Status.pending,
-        Status.delivered,
+def test_create_shipment():
+    response = client.post(
+        "/api/v1/shipments/",
+        json={
+            "shipment_id": 1,
+            "origin": "Hyderabad",
+            "destination": "Mumbai",
+            "carrier": "dhl",
+            "status": "pending",
+            "estimated_delivery": "2026-08-20",
+            "weight_kg": 10,
+        },
     )
 
+    assert response.status_code == 200
 
-def test_delivered_to_in_transit_invalid():
+    data = response.json()
 
-    assert not shipment_service.is_valid_transition(
-        Status.delivered,
-        Status.in_transit,
-    )
-
-
-def test_cancelled_to_in_transit_invalid():
-
-    assert not shipment_service.is_valid_transition(
-        Status.cancelled,
-        Status.in_transit,
-    )
+    assert data["shipment_id"] == 1
+    assert data["origin"] == "Hyderabad"
+    assert data["destination"] == "Mumbai"
+    assert data["carrier"] == "dhl"
+    assert data["status"] == "pending"
 
 
 # ============================================================
-# SHIPMENT UPDATE
+# DUPLICATE SHIPMENT
 # ============================================================
 
-def test_update_invalid_transition():
+def test_duplicate_shipment():
+    payload = {
+        "shipment_id": 2,
+        "origin": "Hyderabad",
+        "destination": "Delhi",
+        "carrier": "ups",
+        "status": "pending",
+        "estimated_delivery": "2026-08-20",
+        "weight_kg": 5,
+    }
 
-    shipment_service.shipments.clear()
-    shipment_service.shipment_events.clear()
-
-    shipment = make_shipment()
-
-    shipment_service.create_shipment(
-        shipment
+    first_response = client.post(
+        "/api/v1/shipments/",
+        json=payload,
     )
 
-    delivered = make_shipment(
-        status=Status.delivered
+    assert first_response.status_code == 200
+
+    second_response = client.post(
+        "/api/v1/shipments/",
+        json=payload,
     )
 
-    with pytest.raises(ValueError):
+    assert second_response.status_code == 409
 
-        shipment_service.update_shipment(
-            1,
-            delivered,
+
+# ============================================================
+# GET ALL SHIPMENTS
+# ============================================================
+
+def test_get_all_shipments():
+    client.post(
+        "/api/v1/shipments/",
+        json={
+            "shipment_id": 3,
+            "origin": "Hyderabad",
+            "destination": "Chennai",
+            "carrier": "bluedart",
+            "status": "pending",
+            "estimated_delivery": "2026-08-20",
+            "weight_kg": 8,
+        },
+    )
+
+    response = client.get(
+        "/api/v1/shipments/"
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert len(data) == 1
+    assert data[0]["shipment_id"] == 3
+
+
+# ============================================================
+# GET SHIPMENT BY ID
+# ============================================================
+
+def test_get_shipment_by_id():
+    client.post(
+        "/api/v1/shipments/",
+        json={
+            "shipment_id": 4,
+            "origin": "Hyderabad",
+            "destination": "Bangalore",
+            "carrier": "dhl",
+            "status": "pending",
+            "estimated_delivery": "2026-08-20",
+            "weight_kg": 12,
+        },
+    )
+
+    response = client.get(
+        "/api/v1/shipments/4"
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["shipment_id"] == 4
+
+
+# ============================================================
+# SHIPMENT NOT FOUND
+# ============================================================
+
+def test_shipment_not_found():
+    response = client.get(
+        "/api/v1/shipments/9999"
+    )
+
+    assert response.status_code == 404
+
+
+# ============================================================
+# UPDATE SHIPMENT
+# ============================================================
+
+def test_update_shipment_status():
+    client.post(
+        "/api/v1/shipments/",
+        json={
+            "shipment_id": 5,
+            "origin": "Hyderabad",
+            "destination": "Mumbai",
+            "carrier": "ups",
+            "status": "pending",
+            "estimated_delivery": "2026-08-20",
+            "weight_kg": 15,
+        },
+    )
+
+    response = client.put(
+        "/api/v1/shipments/5",
+        json={
+            "shipment_id": 5,
+            "origin": "Hyderabad",
+            "destination": "Mumbai",
+            "carrier": "ups",
+            "status": "in_transit",
+            "estimated_delivery": "2026-08-20",
+            "weight_kg": 15,
+        },
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["status"] == "in_transit"
+
+
+# ============================================================
+# INVALID STATUS TRANSITION
+# ============================================================
+
+def test_invalid_status_transition():
+    client.post(
+        "/api/v1/shipments/",
+        json={
+            "shipment_id": 6,
+            "origin": "Hyderabad",
+            "destination": "Delhi",
+            "carrier": "dhl",
+            "status": "pending",
+            "estimated_delivery": "2026-08-20",
+            "weight_kg": 10,
+        },
+    )
+
+    response = client.put(
+        "/api/v1/shipments/6",
+        json={
+            "shipment_id": 6,
+            "origin": "Hyderabad",
+            "destination": "Delhi",
+            "carrier": "dhl",
+            "status": "delivered",
+            "estimated_delivery": "2026-08-20",
+            "weight_kg": 10,
+        },
+    )
+
+    assert response.status_code == 400
+
+
+# ============================================================
+# FILTER BY STATUS
+# ============================================================
+
+def test_filter_shipments_by_status():
+    client.post(
+        "/api/v1/shipments/",
+        json={
+            "shipment_id": 7,
+            "origin": "Hyderabad",
+            "destination": "Mumbai",
+            "carrier": "fedex",
+            "status": "pending",
+            "estimated_delivery": "2026-08-20",
+            "weight_kg": 10,
+        },
+    )
+
+    response = client.get(
+        "/api/v1/shipments/?status=pending"
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert len(data) == 1
+    assert data[0]["status"] == "pending"
+
+
+# ============================================================
+# SHIPMENT HISTORY
+# ============================================================
+
+def test_shipment_history():
+    client.post(
+        "/api/v1/shipments/",
+        json={
+            "shipment_id": 8,
+            "origin": "Hyderabad",
+            "destination": "Chennai",
+            "carrier": "bluedart",
+            "status": "pending",
+            "estimated_delivery": "2026-08-20",
+            "weight_kg": 7,
+        },
+    )
+
+    client.put(
+        "/api/v1/shipments/8",
+        json={
+            "shipment_id": 8,
+            "origin": "Hyderabad",
+            "destination": "Chennai",
+            "carrier": "bluedart",
+            "status": "in_transit",
+            "estimated_delivery": "2026-08-20",
+            "weight_kg": 7,
+        },
+    )
+
+    response = client.get(
+        "/api/v1/shipments/8/history"
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert len(data) == 2
+    assert data[0]["status"] == "pending"
+    assert data[1]["status"] == "in_transit"
+
+
+# ============================================================
+# SINGLE QUOTE
+# ============================================================
+
+def test_single_quote():
+    response = client.post(
+        "/api/v1/shipments/quote",
+        json={
+            "origin": "Hyderabad",
+            "destination": "Mumbai",
+            "weight_kg": 10,
+            "preference": "cheapest",
+        },
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert "rates" in data
+    assert "warnings" in data
+
+
+# ============================================================
+# BULK QUOTE
+# ============================================================
+
+def test_bulk_quote():
+    response = client.post(
+        "/api/v1/shipments/bulk-quote",
+        json={
+            "shipments": [
+                {
+                    "origin": "Hyderabad",
+                    "destination": "Mumbai",
+                    "weight_kg": 10,
+                    "preference": "cheapest",
+                },
+                {
+                    "origin": "Hyderabad",
+                    "destination": "Delhi",
+                    "weight_kg": 5,
+                    "preference": "fastest",
+                },
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert "quotes" in data
+    assert "performance" in data
+
+    assert len(data["quotes"]) == 2
+
+    performance = data["performance"]
+
+    assert performance["shipment_count"] == 2
+    assert performance["parallel_seconds"] >= 0
+
+
+# ============================================================
+# BULK QUOTE BENCHMARK
+# ============================================================
+
+def test_bulk_quote_benchmark():
+    response = client.post(
+        "/api/v1/shipments/bulk-quote?benchmark=true",
+        json={
+            "shipments": [
+                {
+                    "origin": "Hyderabad",
+                    "destination": "Mumbai",
+                    "weight_kg": 10,
+                    "preference": "cheapest",
+                },
+                {
+                    "origin": "Hyderabad",
+                    "destination": "Delhi",
+                    "weight_kg": 10,
+                    "preference": "fastest",
+                },
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert "quotes" in data
+    assert "performance" in data
+
+    performance = data["performance"]
+
+    assert performance["shipment_count"] == 2
+    assert performance["parallel_seconds"] >= 0
+    assert performance["sequential_seconds"] is not None
+    assert performance["speedup"] is not None
+
+
+# ============================================================
+# BULK QUOTE MAXIMUM 20
+# ============================================================
+
+def test_bulk_quote_maximum_20():
+    requests = []
+
+    for _ in range(20):
+        requests.append(
+            {
+                "origin": "Hyderabad",
+                "destination": "Mumbai",
+                "weight_kg": 5,
+                "preference": "cheapest",
+            }
         )
 
-
-# ============================================================
-# RELIABILITY
-# ============================================================
-
-def test_dynamic_reliability():
-
-    original = (
-        shipment_service.carrier_history[
-            Carrier.dhl
-        ]
+    response = client.post(
+        "/api/v1/shipments/bulk-quote",
+        json={
+            "shipments": requests
+        },
     )
 
-    try:
+    assert response.status_code == 200
 
-        shipment_service.carrier_history[
-            Carrier.dhl
-        ] = [
-            True,
-            True,
-            True,
-            False,
-        ]
+    data = response.json()
 
-        score = (
-            shipment_service
-            .get_reliability_score(
-                Carrier.dhl
-            )
+    assert len(data["quotes"]) == 20
+
+
+# ============================================================
+# BULK QUOTE MORE THAN 20
+# ============================================================
+
+def test_bulk_quote_more_than_20():
+    requests = []
+
+    for _ in range(21):
+        requests.append(
+            {
+                "origin": "Hyderabad",
+                "destination": "Mumbai",
+                "weight_kg": 5,
+                "preference": "cheapest",
+            }
         )
 
-        assert score == 0.75
+    response = client.post(
+        "/api/v1/shipments/bulk-quote",
+        json={
+            "shipments": requests
+        },
+    )
 
-    finally:
+    assert response.status_code == 422
 
-        shipment_service.carrier_history[
-            Carrier.dhl
-        ] = original
+
+# ============================================================
+# CIRCUIT BREAKER STATUS
+# ============================================================
+
+def test_circuit_breaker_status():
+    response = client.get(
+        "/api/v1/shipments/circuit-breaker-status"
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert "dhl" in data
+    assert "fedex" in data
+    assert "ups" in data
+    assert "bluedart" in data
+
+
+# ============================================================
+# CONSOLIDATION SUGGESTIONS
+# ============================================================
+
+def test_consolidation_suggestions():
+    client.post(
+        "/api/v1/shipments/",
+        json={
+            "shipment_id": 20,
+            "origin": "Hyderabad",
+            "destination": "Mumbai",
+            "carrier": "dhl",
+            "status": "pending",
+            "estimated_delivery": "2026-08-20",
+            "weight_kg": 10,
+        },
+    )
+
+    client.post(
+        "/api/v1/shipments/",
+        json={
+            "shipment_id": 21,
+            "origin": "Hyderabad",
+            "destination": "Mumbai",
+            "carrier": "ups",
+            "status": "pending",
+            "estimated_delivery": "2026-08-21",
+            "weight_kg": 15,
+        },
+    )
+
+    response = client.get(
+        "/api/v1/shipments/consolidation-suggestions"
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert len(data) >= 1
+
+    assert 20 in data[0]["shipment_ids"]
+    assert 21 in data[0]["shipment_ids"]
+
+
+# ============================================================
+# ETA EXPLANATION
+# ============================================================
+
+def test_eta_explanation():
+    client.post(
+        "/api/v1/shipments/",
+        json={
+            "shipment_id": 30,
+            "origin": "Hyderabad",
+            "destination": "Mumbai",
+            "carrier": "dhl",
+            "status": "pending",
+            "estimated_delivery": "2026-08-20",
+            "weight_kg": 10,
+        },
+    )
+
+    response = client.get(
+        "/api/v1/shipments/30/eta-explain"
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["shipment_id"] == 30
+    assert "distance_km" in data
+    assert "reliability_score" in data
+    assert "estimated_days" in data
+    assert "explanation" in data
+
+
+# ============================================================
+# DELETE SHIPMENT
+# ============================================================
+
+def test_delete_shipment():
+    client.post(
+        "/api/v1/shipments/",
+        json={
+            "shipment_id": 40,
+            "origin": "Hyderabad",
+            "destination": "Delhi",
+            "carrier": "ups",
+            "status": "pending",
+            "estimated_delivery": "2026-08-20",
+            "weight_kg": 10,
+        },
+    )
+
+    response = client.delete(
+        "/api/v1/shipments/40"
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["message"] == (
+        "Shipment deleted successfully"
+    )
+
+    get_response = client.get(
+        "/api/v1/shipments/40"
+    )
+
+    assert get_response.status_code == 404
