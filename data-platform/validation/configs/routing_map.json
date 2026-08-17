@@ -1,5 +1,3 @@
 {
-  "*_sales.csv": "configs/sales_rules.yaml",
-  "messy_sales_1.csv": "configs/sales_rules_1.yaml",
-  "messy_sales_2.csv": "configs/sales_rules_2.yaml"
+  "*_sales.csv": "configs/sales_rules.yaml"
 }

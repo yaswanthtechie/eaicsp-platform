@@ -157,7 +157,6 @@ id ../data/messy_
 Standard run
 python -m src.main --input data/messy_sales.csv --config configs/sales_rules.yaml
 python -m src.validate_cli --file data/messy_sales.csv --config configs/sales_rules.yaml --output reports/output.json
-python src/validate_cli.py --file data/messy_sales.csv --config configs/sales_rules.yaml --output reports/output.json
 
 Force generation of new synthetic data
 python -m src.main --generate
@@ -264,7 +263,7 @@ dependencies = [
 validate_data = "src.validate_cli:main"
 
 # for generating the synthetic data
-generate_messy-data = "src.make_messy_data:main"
+generate_messy_data = "src.make_messy_data:main"
 
 # for running the complete orchestrator pipeline
 run_pipeline = "src.main:main"
@@ -288,13 +287,13 @@ pip install -e .
 - You can run your validation from anywhere on your machine using this exact command:
 ```commandline
 # src.validate_cli:main
-validate-data --file data/messy_sales.csv --config configs/sales_rules.yaml --output reports/output.json
+validate_data --file data/messy_sales.csv --config configs/sales_rules.yaml --output reports/output.json
 
 # "src.make_messy_data:main"
-generate-messy-data
+generate_messy_data
 
 #"src.main:main"
-run-pipeline
+run_pipeline
 ```
 
 # Performance Benchmarking (perf_test.py):
@@ -337,7 +336,7 @@ per_test = "src.perf_test:main"
 ```
 ```commandline
 pip install -e .
-per_test --n-rows 100000 --time-threshold 4.5
+perf_test --n-rows 100000 --time-threshold 4.5
 ```
 
 # Batch Folder Validation (validate_folder.py):
@@ -367,9 +366,7 @@ per_test --n-rows 100000 --time-threshold 4.5
 - The engine will match the keys against the files in your folder.
 ```json
 {
-  "sales_*.csv": "configs/sales_rules.yaml",
-  "messy_sales_1.csv": "configs/sales_rules_1.yaml",
-  "employee_master.csv": "configs/hr_rules.yaml"
+  "sales_*.csv": "configs/sales_rules.yaml"
 }
 ```
 
