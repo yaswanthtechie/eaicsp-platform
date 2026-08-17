@@ -3,10 +3,7 @@ import re
 from rapidfuzz import fuzz
 
 
-
 def normalize_name(name: str) -> str:
-    
-
     if not name:
         return ""
 
@@ -41,11 +38,7 @@ def normalize_name(name: str) -> str:
 
 
 def create_bucket_key(name: str) -> str:
-    
-
-    normalized = normalize_name(
-        name
-    )
+    normalized = normalize_name(name)
 
     if not normalized:
         return ""
@@ -68,9 +61,8 @@ def merge_records(
     target: dict,
     source: dict,
 ) -> dict:
-  
 
-    
+
 
     target_sources = target.get(
         "sources",
@@ -90,7 +82,6 @@ def merge_records(
         )
     )
 
-
     target_aliases = target.get(
         "aliases",
         [],
@@ -109,7 +100,6 @@ def merge_records(
         )
     )
 
-   
 
     target["confidence"] = max(
         target.get(
@@ -122,13 +112,38 @@ def merge_records(
         ),
     )
 
+
+
+    target_date = target.get(
+        "listed_date"
+    )
+
+    source_date = source.get(
+        "listed_date"
+    )
+
+    if target_date and source_date:
+
+        if source_date < target_date:
+            target["listed_date"] = source_date
+
+    elif source_date and not target_date:
+
+        target["listed_date"] = source_date
+
+
+    if not target.get("name"):
+        target["name"] = source.get(
+            "name"
+        )
+
     return target
 
 
 
-
-def create_entity_record(entity) -> dict:
-   
+def create_entity_record(
+    entity,
+) -> dict:
 
     return {
         "name": entity.name,
@@ -144,16 +159,16 @@ def create_entity_record(entity) -> dict:
         ],
 
         "confidence": 100,
+
+        "listed_date": entity.listed_date,
     }
+
 
 
 def deduplicate_entities(
     entities,
     threshold: int = 90,
 ) -> dict:
-   
-
-
 
     buckets = {}
 
@@ -180,16 +195,16 @@ def deduplicate_entities(
         f"Created buckets: {len(buckets)}"
     )
 
-
     final_records = {}
 
 
 
-    for bucket_key, bucket_entities in buckets.items():
+    for (
+        bucket_key,
+        bucket_entities,
+    ) in buckets.items():
 
         bucket_records = {}
-
-     
 
         for entity in bucket_entities:
 
@@ -206,7 +221,6 @@ def deduplicate_entities(
             matched_key = None
             best_score = 0
 
-         
 
             for existing_key in bucket_records:
 
@@ -222,7 +236,6 @@ def deduplicate_entities(
                     best_score = score
 
                     matched_key = existing_key
-
 
             if (
                 matched_key
@@ -250,7 +263,7 @@ def deduplicate_entities(
                     matched_key
                 ] = merged_record
 
-    
+   
 
             else:
 
@@ -261,7 +274,10 @@ def deduplicate_entities(
                 )
 
 
-        for key, record in bucket_records.items():
+        for (
+            key,
+            record,
+        ) in bucket_records.items():
 
             if key in final_records:
 
@@ -273,7 +289,6 @@ def deduplicate_entities(
             else:
 
                 final_records[key] = record
-
 
     print(
         f"Fuzzy comparisons performed: {comparisons}"

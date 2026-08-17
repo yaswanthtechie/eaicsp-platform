@@ -3,14 +3,16 @@ import csv
 from app.schemas.sanctions import SanctionedEntity
 
 
-def load_ofac(csv_path) -> list[SanctionedEntity]:
+def load_ofac(
+    csv_path,
+) -> list[SanctionedEntity]:
 
     entities = []
 
     with open(
         csv_path,
         encoding="utf-8",
-        newline=""
+        newline="",
     ) as file:
 
         reader = csv.reader(file)
@@ -26,21 +28,12 @@ def load_ofac(csv_path) -> list[SanctionedEntity]:
                 continue
 
             entities.append(
-
                 SanctionedEntity(
-
                     name=name,
-
                     aliases=[],
-
                     source="OFAC",
-
-                    listed_date=None
-
+                    listed_date=None,
                 )
-
             )
-
-   
 
     return entities
