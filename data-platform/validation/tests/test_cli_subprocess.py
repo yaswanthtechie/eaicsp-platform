@@ -3,7 +3,6 @@ import sys
 from pathlib import Path
 import pytest
 
-# Adjust this path based on where your tests/ folder is relative to src/
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CLI_SCRIPT = PROJECT_ROOT / "src" / "validate_cli.py"
 
@@ -74,5 +73,4 @@ def test_cli_exit_tool_error(tmp_path, test_config):
         text=True
     )
 
-    # Assuming you updated validate_cli.py to return 2 (EXIT_TOOL_ERROR) for missing files
     assert result.returncode == 2, f"Expected tool error (2), but got {result.returncode}. Stderr: {result.stderr}"
