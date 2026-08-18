@@ -1,11 +1,9 @@
-from random import randint
-
-import pandas as pd
-import numpy as np
-import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, List, Optional
-from dataclasses import dataclass, field
+
+import numpy as np
+import pandas as pd
 
 
 # 1. Centralized Configuration (No Magic Numbers/Strings)
@@ -107,6 +105,9 @@ def generate_messy_data(filepath: Path | str, config: Optional[MessyDataConfig] 
     return df
 
 
-if __name__ == "__main__":
+def main():
     # Provides a default path strictly for standalone testing purposes
     generate_messy_data(Path(__file__).resolve().parent.parent / "data" / "messy_sales.csv")
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,125 @@
+import argparse
+import json
+import logging
+import os
+import sys
+from pathlib import Path
+from typing import Any, Optional
+
+import pandas as pd
+
+from src.validator import DataValidator
+
+# --- PATH RESOLUTION ---
+# Ensure the script can be invoked directly by path (e.g., python src/validate_cli.py)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+# --- Configuration Constants ---
+EXIT_SUCCESS = 0
+EXIT_VALIDATION_FAILED = 1
+EXIT_TOOL_ERROR = 2  # New exit code for tool crashes
+
+DEFAULT_LOG_LEVEL = "INFO"
+DEFAULT_LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+DEFAULT_CONFIG_VERSION = "unknown"
+CONFIG_VERSION_KEY = "version"
+JSON_INDENT = 2
+ENCODING = "utf-8"
+
+
+# --- Logger Setup ---
+def setup_logger(log_level: str = DEFAULT_LOG_LEVEL) -> logging.Logger:
+    """Configures and returns a logger instance."""
+    numeric_level = getattr(logging, log_level.upper(), logging.INFO)
+    logging.basicConfig(level=numeric_level, format=DEFAULT_LOG_FORMAT)
+    return logging.getLogger(__name__)
+
+
+logger = setup_logger(os.getenv("LOG_LEVEL", DEFAULT_LOG_LEVEL))
+
+
+# --- Core Functions ---
+def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
+    """Parses CLI arguments."""
+    parser = argparse.ArgumentParser(description="Standalone Quality Gate CLI")
+    parser.add_argument("--file", type=Path, required=True, help="Path to input CSV")
+    parser.add_argument("--config", type=Path, required=True, help="Path to YAML rules")
+    parser.add_argument("--output", type=Path, required=True, help="Path for JSON report output")
+    return parser.parse_args(args)
+
+
+def export_report(report: Any, output_path: Path) -> None:
+    """Exports the validation report to JSON, handling Pydantic V1/V2 differences."""
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Dynamically resolve Pydantic V2 (model_dump) or V1 (dict) method
+        dump_method = getattr(report, "model_dump", getattr(report, "dict", None))
+        if not callable(dump_method):
+            raise AttributeError("Report object lacks Pydantic export methods (model_dump/dict)")
+
+        with output_path.open('w', encoding=ENCODING) as f:
+            json.dump(dump_method(), f, indent=JSON_INDENT)
+
+        logger.info("JSON report generated at: %s", output_path)
+    except (OSError, TypeError, ValueError, AttributeError) as e:
+        logger.exception("Failed to write JSON output to %s: %s", output_path, e)
+        raise
+
+
+def main(cli_args: Optional[list[str]] = None) -> int:
+    """Main execution flow. Returns an integer exit code."""
+    args = parse_args(cli_args)
+
+    input_path: Path = args.file
+    config_path: Path = args.config
+    output_path: Path = args.output
+
+    # Validate file existence strictly as files, not just paths
+    if not input_path.is_file():
+        logger.error("Input file does not exist or is not a file: %s", input_path)
+        return EXIT_TOOL_ERROR
+
+    if not config_path.is_file():
+        logger.error("Config file does not exist or is not a file: %s", config_path)
+        return EXIT_TOOL_ERROR
+
+
+    # Load Data & Validate (Fixed broad exception)
+    try:
+        df = pd.read_csv(input_path)
+        validator = DataValidator.from_config(str(config_path))
+
+        # Run validation
+        report = validator.validate(df)
+
+    except (pd.errors.EmptyDataError, pd.errors.ParserError, ValueError, OSError) as e:
+        logger.exception("Validation execution failed: %s", e)
+        return EXIT_TOOL_ERROR
+    except RuntimeError as e:  # Catch fallback for external library runtime errors
+        logger.exception("Runtime error during validation: %s", e)
+        return EXIT_TOOL_ERROR
+
+    # 3. Export JSON Report (Fixed broad exception)
+    try:
+        export_report(report, output_path)
+    except (OSError, TypeError, ValueError, AttributeError):
+        return EXIT_TOOL_ERROR
+
+    # 4. CI/CD Exit Codes
+    passed = getattr(report, 'passed', False)
+    # Extract the version natively from the generated report
+    config_ver = getattr(report, 'config_version', 'unknown')
+    if not passed:
+        rows_affected = getattr(report, 'total_rows_affected', 'unknown')
+        logger.error(f"Validation FAILED. {rows_affected} rows affected (Config version:{config_ver}).")
+        return EXIT_VALIDATION_FAILED
+
+    logger.info(f"Validation PASSED (Config version:{config_ver})")
+    return EXIT_SUCCESS
+
+
+if __name__ == "__main__":
+    # Defer sys.exit to the very edge of the application
+    sys.exit(main())
