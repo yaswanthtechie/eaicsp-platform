@@ -7,9 +7,10 @@ import re
 
 class ProfileReport(dict):
 
-    def save_html(self, path):
+    def save_html(self, path, drift_report=None):
         generate_html(
             report=self,
+            drift_report=drift_report,
             report_path=path
         )
 
@@ -364,15 +365,14 @@ def generate_html(report=None, drift_report=None, report_path=None):
 
         report = profile(df)
 
-    # Generate drift report when one was not provided
-    if drift_report is None:
+    # Generate drift report only when explicitly provided
+    # Load data only when a report was not provided
+    if report is None:
         DATA_PATH = BASE_DIR / "data" / "sales_data.csv"
-        NEW_DATA_PATH = BASE_DIR / "data" / "sales_data_new.csv"
 
         df = pd.read_csv(DATA_PATH)
-        new_df = pd.read_csv(NEW_DATA_PATH)
 
-        drift_report = compare(df, new_df)
+        report = profile(df)
 
 
 
@@ -631,31 +631,32 @@ h1 {{
 """)
 
 
-        file.write("""
-<h2>Data Drift Report</h2>
+        if drift_report is not None:
+            file.write("""
+            <h2>Data Drift Report</h2>
 
-<p><b>Old Dataset Shape:</b> {}</p>
-<p><b>New Dataset Shape:</b> {}</p>
+            <p><b>Old Dataset Shape:</b> {}</p>
+            <p><b>New Dataset Shape:</b> {}</p>
 
-<h3>Overall Drift Status</h3>
-<p><b>Status:</b> {}</p>
+            <h3>Overall Drift Status</h3>
+            <p><b>Status:</b> {}</p>
 
-<h3>Datatype Changes</h3>
+            <h3>Datatype Changes</h3>
 
-<table>
-<tr>
-<th>Column</th>
-<th>Old Type</th>
-<th>New Type</th>
-</tr>
-""".format(
-    drift_report["old_shape"],
-    drift_report["new_shape"],
-    drift_report["status"]
-))
+            <table>
+            <tr>
+            <th>Column</th>
+            <th>Old Type</th>
+            <th>New Type</th>
+            </tr>
+            """.format(
+                    drift_report["old_shape"],
+                    drift_report["new_shape"],
+                    drift_report["status"]
+                ))
 
-        for item in drift_report["dtype_changes"]:
-            file.write(f"""
+            for item in drift_report["dtype_changes"]:
+                file.write(f"""
 <tr>
 <td>{item['column']}</td>
 <td>{item['old']}</td>
@@ -663,7 +664,7 @@ h1 {{
 </tr>
 """)
 
-        file.write("""
+            file.write("""
 </table>
 
 <h3>Null Percentage Changes</h3>
@@ -678,100 +679,100 @@ h1 {{
 
 
 
-        for item in drift_report["null_changes"]:
-            file.write(f"""
-<tr>
-<td>{item['column']}</td>
-<td>{item['old']}%</td>
-<td>{item['new']}%</td>
-</tr>
-""")
+            for item in drift_report["null_changes"]:
+                file.write(f"""
+    <tr>
+    <td>{item['column']}</td>
+    <td>{item['old']}%</td>
+    <td>{item['new']}%</td>
+    </tr>
+    """)
 
-        file.write("""
-</table>
-""")
-
-
-        file.write("""
-<h3>Numeric Mean Changes</h3>
-
-<table>
-<tr>
-<th>Column</th>
-<th>Old Mean</th>
-<th>New Mean</th>
-</tr>
-""")
-
-        for item in drift_report["mean_changes"]:
-            file.write(f"""
-<tr>
-<td>{item['column']}</td>
-<td>{item['old']}</td>
-<td>{item['new']}</td>
-</tr>
-""")
-
-        file.write("""
-</table>
-""")
-        # NEW CATEGORICAL VALUES
-        file.write("""
-<h3>New Categorical Values</h3>
-
-<table>
-<tr>
-<th>Column</th>
-<th>New Values</th>
-</tr>
-""")
-        for column, values in drift_report["new_categories"].items():
-
-            pii_info = next(
-                (
-                    item
-                    for item in report["pii_detection"]
-                    if item["column"] == column
-                ),
-                None
-            )
-
-            if pii_info and pii_info["severity"] != "LOW":
-                display_values = "[PII values hidden]"
-            else:
-                display_values = ", ".join(map(str, values))
-
-            file.write(f"""
-        <tr>
-        <td>{column}</td>
-        <td>{display_values}</td>
-        </tr>
-        """)
+            file.write("""
+    </table>
+    """)
 
 
-        file.write("""
-</table>
-""")
-        # PER-COLUMN DRIFT STATUS
-        file.write("""
-<h3>Column Drift Status</h3>
+            file.write("""
+    <h3>Numeric Mean Changes</h3>
 
-<table>
-<tr>
-<th>Column</th>
-<th>Drift Status</th>
-<th>Reason</th>
-</tr>
-""")
+    <table>
+    <tr>
+    <th>Column</th>
+    <th>Old Mean</th>
+    <th>New Mean</th>
+    </tr>
+    """)
 
-        for column, details in drift_report["column_drift"].items():
+            for item in drift_report["mean_changes"]:
+                file.write(f"""
+    <tr>
+    <td>{item['column']}</td>
+    <td>{item['old']}</td>
+    <td>{item['new']}</td>
+    </tr>
+    """)
 
-            reasons = details["reasons"]
+            file.write("""
+    </table>
+    """)
+            # NEW CATEGORICAL VALUES
+            file.write("""
+    <h3>New Categorical Values</h3>
 
-            if reasons:
-                reason_text = ", ".join(reasons)
-            else:
-                reason_text = "No detected changes"
+    <table>
+    <tr>
+    <th>Column</th>
+    <th>New Values</th>
+    </tr>
+    """)
+            for column, values in drift_report["new_categories"].items():
+
+                pii_info = next(
+                    (
+                        item
+                        for item in report["pii_detection"]
+                        if item["column"] == column
+                    ),
+                    None
+                )
+
+                if pii_info and pii_info["severity"] != "LOW":
+                    display_values = "[PII values hidden]"
+                else:
+                    display_values = ", ".join(map(str, values))
+
+                file.write(f"""
+            <tr>
+            <td>{column}</td>
+            <td>{display_values}</td>
+            </tr>
+            """)
+
+
+            file.write("""
+    </table>
+    """)
+            # PER-COLUMN DRIFT STATUS
+            file.write("""
+            <h3>Column Drift Status</h3>
+
+            <table>
+            <tr>
+            <th>Column</th>
+            <th>Drift Status</th>
+            <th>Reason</th>
+            </tr>
+            """)
+
+            for column, details in drift_report["column_drift"].items():
+
+                reasons = details["reasons"]
+
+                if reasons:
+                    reason_text = ", ".join(reasons)
+                else:
+                    reason_text = "No detected changes"
 
             file.write(f"""
 <tr>
