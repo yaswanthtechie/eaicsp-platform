@@ -10,6 +10,11 @@ import pandas as pd
 
 from src.validator import DataValidator
 
+# --- PATH RESOLUTION ---
+# Ensure the script can be invoked directly by path (e.g., python src/validate_cli.py)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
 # --- Configuration Constants ---
 EXIT_SUCCESS = 0
 EXIT_VALIDATION_FAILED = 1
