@@ -61,8 +61,9 @@ def detect_signals(text: str) -> List[Dict[str, Any]]:
 
     detected_signals: List[Dict[str, Any]] = []
 
-    # Mitigation stems
+    # Mitigation stems and clause boundaries
     mitigation_stems = {"deni", "deny", "avoid", "clear", "resolv", "dismiss"}
+    clause_boundaries = {"but", "however", "although", "yet", "while", "though", "nevertheless"}
 
     words = text.lower().split()
 
@@ -116,6 +117,17 @@ def detect_signals(text: str) -> List[Dict[str, Any]]:
                 end_idx = min(len(words), idx + 6)
                 for i in range(start_idx, end_idx):
                     if i != idx and is_mitigating_word(words[i]):
+                        span_start = min(idx, i)
+                        span_end = max(idx, i)
+
+                        # Do not cross clause boundaries
+                        if any(words[s] in clause_boundaries for s in range(span_start + 1, span_end)):
+                            continue
+
+                        # Mitigation binds to the nearest risk keyword; do not cross intervening keywords
+                        if any(any(match_keyword(words[j], kw) for kw in SIGNAL_WEIGHTS) for j in range(span_start + 1, span_end)):
+                            continue
+
                         is_mitigated = True
                         break
 

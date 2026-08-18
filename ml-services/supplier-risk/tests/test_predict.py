@@ -607,3 +607,58 @@ def test_valid_ambiguous_keywords():
 
     signals3 = detect_signals(clean_text("company issues product recall for defective parts"))
     assert len(signals3) > 0 and signals3[0]["keyword"] == "recall"
+
+
+def test_mitigation_cross_clause_preservation():
+    """
+    Test that mitigation does not cross clause boundaries or suppress unrelated signals.
+    """
+    # 1. resolved outage but faces fraud investigation
+    signals1 = detect_signals(clean_text("Supplier resolved outage but faces fraud investigation."))
+    keywords1 = [s["keyword"] for s in signals1]
+    assert "outage" not in keywords1
+    assert "fraud" in keywords1
+    assert "investigation" in keywords1
+
+    # 2. denies fraud but faces bankruptcy
+    signals2 = detect_signals(clean_text("Supplier denies fraud but faces bankruptcy."))
+    keywords2 = [s["keyword"] for s in signals2]
+    assert "fraud" not in keywords2
+    assert "bankruptcy" in keywords2
+
+    # 3. resolved outage; fraud investigation continues
+    signals3 = detect_signals(clean_text("Supplier resolved outage; fraud investigation continues."))
+    keywords3 = [s["keyword"] for s in signals3]
+    assert "outage" not in keywords3
+    assert "fraud" in keywords3
+    assert "investigation" in keywords3
+
+
+def test_punctuation_word_merging_and_signal_detection():
+    """
+    Test that punctuation separating words is replaced by whitespace and detected correctly.
+    """
+    # Verify clean_text splits words joined by punctuation
+    assert clean_text("strike/walkout") == "strike walkout"
+    assert clean_text("fraud.investigation") == "fraud investigation"
+    assert clean_text("bankruptcy-investigation") == "bankruptcy investigation"
+    assert clean_text("fraud,investigation") == "fraud investigation"
+
+    # Verify signal detection on punctuation-joined words
+    signals_slash = detect_signals(clean_text("factory workers strike/walkout today"))
+    assert any(s["keyword"] == "strike" for s in signals_slash)
+
+    signals_dot = detect_signals(clean_text("company faces fraud.investigation by authorities"))
+    keywords_dot = [s["keyword"] for s in signals_dot]
+    assert "fraud" in keywords_dot
+    assert "investigation" in keywords_dot
+
+    signals_hyphen = detect_signals(clean_text("company faces bankruptcy-investigation"))
+    keywords_hyphen = [s["keyword"] for s in signals_hyphen]
+    assert "bankruptcy" in keywords_hyphen
+    assert "investigation" in keywords_hyphen
+
+    signals_comma = detect_signals(clean_text("company faces fraud,investigation"))
+    keywords_comma = [s["keyword"] for s in signals_comma]
+    assert "fraud" in keywords_comma
+    assert "investigation" in keywords_comma
