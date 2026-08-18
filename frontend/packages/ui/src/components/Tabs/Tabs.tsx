@@ -64,7 +64,6 @@ export function Tabs({
     event: KeyboardEvent<HTMLButtonElement>,
     currentValue: string
   ) => {
-    
     const enabledTabs = items.filter(
       (item) => !item.disabled
     );
@@ -81,7 +80,7 @@ export function Tabs({
       return;
     }
 
-    let nextIndex: number | null = null;
+    let nextIndex: number;
 
     switch (event.key) {
       case "ArrowRight":
@@ -133,7 +132,8 @@ export function Tabs({
         aria-label="Tabs"
       >
         {items.map((item) => {
-          const isActive = item.value === activeValue;
+          const isActive =
+            item.value === activeValue;
 
           const tabId = `tab-${item.value}`;
           const panelId = `tabpanel-${item.value}`;

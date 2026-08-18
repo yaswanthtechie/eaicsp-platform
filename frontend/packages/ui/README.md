@@ -123,9 +123,31 @@ Tokens include:
 
 # Accessibility
 
-Accessibility improvements were made for Modal, Tabs, and DataTable.
+Accessibility improvements were made for Modal, Tabs, and DataTable
+and verified using keyboard-only navigation.
 
-The library supports:
+### Issues found and fixes
+
+- **Modal focus could escape the dialog:** Focus was trapped between
+  the first and last focusable elements so keyboard focus stays inside
+  the open modal.
+
+- **Modal focus was not restored after closing:** The previously focused
+  element is stored when the modal opens and focus is restored to that
+  element when the modal closes.
+
+- **Tabs needed keyboard navigation:** Keyboard navigation was added so
+  users can move between tabs using the keyboard.
+
+- **Interactive controls needed accessible semantics:** ARIA roles,
+  labels, and states were added where required to make controls
+  understandable to assistive technologies.
+
+- **Focus indicators were not consistent across the library:** A
+  library-wide `:focus-visible` style was added using the existing
+  `--color-primary` theme token.
+
+### Accessibility capabilities
 
 - Keyboard navigation
 - Visible focus indicators
@@ -137,21 +159,69 @@ The library supports:
 - Accessible tabs
 - Keyboard-accessible controls
 
-The components were tested using keyboard-only navigation.
-
 # Performance
 
 Performance improvements include:
 
 - `React.memo`
 - `useMemo`
+- `useCallback`
 - Memoized DataTable filtering
 - Memoized DataTable sorting
 - Memoized pagination calculations
 - Reduced unnecessary renders
-- React DevTools Profiler analysis
+- Render-count analysis
 
-The DataTable was profiled before and after optimization to identify unnecessary renders and repeated calculations.
+The DataTable was tested before and after optimization to identify unnecessary renders and repeated calculations.
+Before vs After Render Comparison
+
+The TableRow component was tested with 5 visible rows to measure unnecessary re-renders.
+
+A Test Re-render control was used to trigger a parent component re-render without changing the row data.
+
+Before — without React.memo
+
+Before optimization, all 5 visible rows re-rendered when the parent component re-rendered.
+
+Console output showed additional renders for:
+
+TableRow 1
+TableRow 2
+TableRow 3
+TableRow 4
+TableRow 5
+
+Therefore:
+
+Rows re-rendered: 5/5
+
+The console also showed duplicate development renders because the application runs inside React StrictMode. These duplicate renders were not counted as the optimization result.
+
+After — with React.memo
+
+TableRow was wrapped with React.memo to prevent rows from rendering again when their props had not changed.
+
+After triggering the same Test Re-render action:
+
+TableRow 1 → no additional render
+TableRow 2 → no additional render
+TableRow 3 → no additional render
+TableRow 4 → no additional render
+TableRow 5 → no additional render
+
+Therefore:
+
+Rows re-rendered: 0/5
+Performance Result
+Measurement Before After
+Visible rows 5 5
+Rows re-rendered after parent update 5/5 0/5
+React.memo Not used Used
+Unnecessary row renders Present Prevented
+
+This demonstrates that unchanged TableRow components are skipped during parent re-renders after applying React.memo.
+
+The initial duplicate console renders are expected during development because the application uses React StrictMode
 
 # Importable Package
 
@@ -202,6 +272,7 @@ Location:
 ```text
 src/docs/Docspage.tsx
 ```
+
 # Storybook
 
 Storybook is included for isolated component development and documentation.
@@ -281,6 +352,7 @@ I configured the package as `@eaicsp/ui` and verified that a consuming applicati
 ```tsx
 import { Button } from "@eaicsp/ui";
 ```
+
 # 7. Documentation Edge Cases
 
 Challenge:
@@ -344,7 +416,6 @@ frontend/
         └── tsconfig.build.json
 ```
 
-
 # Installation
 
 From the UI package directory:
@@ -383,7 +454,6 @@ The library follows these principles:
 - **Performant** — Unnecessary renders and calculations are optimized.
 - **Composable** — Components can be combined to build dashboards.
 - **Maintainable** — Common UI behavior is implemented once.
-
 
 # Definition of Done
 

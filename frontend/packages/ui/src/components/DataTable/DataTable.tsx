@@ -24,13 +24,14 @@ export interface DataTableProps<T> {
 }
 
 type SortDirection = "asc" | "desc";
+const EMPTY_SELECTED_ROWS: never[] = [];
 
 export function DataTable<T>({
   data,
   columns,
   pageSize = 5,
   selectableRows = false,
-  selectedRows = [],
+  selectedRows = EMPTY_SELECTED_ROWS,
   onSelectionChange,
   rowKey,
 }: DataTableProps<T>) {

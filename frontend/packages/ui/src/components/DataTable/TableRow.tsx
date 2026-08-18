@@ -18,6 +18,7 @@ function TableRowComponent<T>({
   selected,
   onSelectionChange,
 }: TableRowProps<T>) {
+  console.count(`TableRow ${index + 1} render`);
   return (
     <tr>
       {selectableRows && (

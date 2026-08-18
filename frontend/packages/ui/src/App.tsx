@@ -153,6 +153,7 @@ const kpis = [
 ];
 
 function App() {
+  const [performanceTest, setPerformanceTest] = useState(0);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showToast, setShowToast] = useState(false);
 
@@ -524,12 +525,20 @@ function App() {
         Extends the table with sorting, filtering, pagination, and row
         selection.
       </p>
+<Button
+  variant="secondary"
+  size="sm"
+  onClick={() => setPerformanceTest((value) => value + 1)}
+>
+  Test Re-render: {performanceTest}
+</Button>
 
-      <DataTable
-        columns={dataTableColumns}
-        data={inventoryData}
-        rowKey={(row) => row.product}
-      />
+<DataTable
+  columns={dataTableColumns}
+  data={inventoryData}
+  rowKey={(row) => row.product}
+  selectableRows
+/>
 
       {/* Data Visualization */}
       <h2>Data Visualization</h2>

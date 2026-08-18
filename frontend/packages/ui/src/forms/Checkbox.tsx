@@ -1,5 +1,4 @@
 import {
-  useController,
   useFormContext,
   type FieldPath,
   type FieldValues,
@@ -16,16 +15,14 @@ export function Checkbox<T extends FieldValues>({
   label,
   disabled = false,
 }: CheckboxProps<T>) {
-  const { control } = useFormContext<T>();
-
   const {
-    field,
-    fieldState: { error },
-  } = useController({
-    name,
-    control,
-    defaultValue: false as T[FieldPath<T>],
-  });
+    register,
+    formState: { errors },
+  } = useFormContext<T>();
+
+  const registration = register(name);
+
+  const error = errors[name];
 
   return (
     <div style={{ marginBottom: "1rem" }}>
@@ -39,12 +36,10 @@ export function Checkbox<T extends FieldValues>({
       >
         <input
           type="checkbox"
-          checked={Boolean(field.value)}
-          onChange={(e) => field.onChange(e.target.checked)}
-          onBlur={field.onBlur}
-          ref={field.ref}
+          {...registration}
           disabled={disabled}
         />
+
         {label}
       </label>
 
@@ -56,7 +51,9 @@ export function Checkbox<T extends FieldValues>({
             fontSize: "14px",
           }}
         >
-          {error.message}
+          {typeof error.message === "string"
+            ? error.message
+            : ""}
         </p>
       )}
     </div>

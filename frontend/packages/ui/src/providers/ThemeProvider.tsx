@@ -1,22 +1,14 @@
 import {
-  createContext,
+  useCallback,
   useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from "react";
-
-export type Theme = "light" | "dark";
-
-export interface ThemeContextValue {
-  theme: Theme;
-  toggleTheme: () => void;
-  setTheme: (theme: Theme) => void;
-}
-
-export const ThemeContext = createContext<
-  ThemeContextValue | undefined
->(undefined);
+import {
+  ThemeContext,
+  type Theme,
+} from "./ThemeContext";
 
 interface ThemeProviderProps {
   children: ReactNode;
@@ -30,7 +22,10 @@ export function ThemeProvider({
   const [theme, setTheme] = useState<Theme>(() => {
     const savedTheme = localStorage.getItem(STORAGE_KEY);
 
-    if (savedTheme === "light" || savedTheme === "dark") {
+    if (
+      savedTheme === "light" ||
+      savedTheme === "dark"
+    ) {
       return savedTheme;
     }
 
@@ -46,19 +41,21 @@ export function ThemeProvider({
     localStorage.setItem(STORAGE_KEY, theme);
   }, [theme]);
 
-  const toggleTheme = () => {
+  const toggleTheme = useCallback(() => {
     setTheme((previousTheme) =>
-      previousTheme === "light" ? "dark" : "light"
+      previousTheme === "light"
+        ? "dark"
+        : "light"
     );
-  };
+  }, []);
 
-  const value = useMemo<ThemeContextValue>(
+  const value = useMemo(
     () => ({
       theme,
       toggleTheme,
       setTheme,
     }),
-    [theme]
+    [theme, toggleTheme]
   );
 
   return (
