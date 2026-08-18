@@ -1,5 +1,7 @@
 import json
 import pickle
+from pathlib import Path
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 import pandas as pd
 
@@ -121,7 +123,7 @@ def predict(
     # --------------------------------------------------
 
     with open(
-        "output/prophet_model.json",
+      PROJECT_ROOT / "output" / "prophet_model.json",
         "r",
     ) as f:
         prophet_model = model_from_json(
@@ -133,7 +135,7 @@ def predict(
     # --------------------------------------------------
 
     with open(
-        "models/xgb_model.pkl",
+        PROJECT_ROOT / "models" / "xgb_model.pkl",
         "rb",
     ) as f:
         xgb_model = pickle.load(f)
@@ -143,7 +145,7 @@ def predict(
     # --------------------------------------------------
 
     with open(
-        "models/best_weights.json",
+        PROJECT_ROOT / "models" / "best_weights.json",
         "r",
     ) as f:
         weights = json.load(f)

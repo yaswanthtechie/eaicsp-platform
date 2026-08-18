@@ -1,20 +1,28 @@
 import os
 import pickle
+from pathlib import Path
+
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from train_xgboost import FEATURES
+from src.data import load_sales_data
+from src.train_xgboost import FEATURES, train_xgboost
 
 
-MODEL_PATH = "models/xgb_model.pkl"
-OUTPUT_DIR = "output"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+MODEL_PATH = PROJECT_ROOT / "models" / "xgb_model.pkl"
+OUTPUT_DIR = PROJECT_ROOT / "output"
 
 
-def load_model():
-    if not os.path.exists(MODEL_PATH):
-        raise FileNotFoundError(
-            f"XGBoost model not found: {MODEL_PATH}"
+def load_model(df):
+    if not MODEL_PATH.exists():
+        print(
+            "\nXGBoost model not found."
+            "\nTraining XGBoost model..."
         )
+
+        train_xgboost(df)
 
     with open(MODEL_PATH, "rb") as f:
         model_info = pickle.load(f)
@@ -55,7 +63,6 @@ def sanity_check(result):
         f"{top_feature['importance']:.4f}"
     )
 
-    # Check whether one feature completely dominates
     total_importance = result["importance"].sum()
 
     top_share = (
@@ -79,7 +86,6 @@ def sanity_check(result):
             "no single feature dominates the model."
         )
 
-    # Check expected temporal features
     temporal_features = [
         "lag_1",
         "lag_7",
@@ -116,15 +122,12 @@ def sanity_check(result):
 
 def save_results(result):
 
-    os.makedirs(
-        OUTPUT_DIR,
+    OUTPUT_DIR.mkdir(
+        parents=True,
         exist_ok=True
     )
 
-    output_file = os.path.join(
-        OUTPUT_DIR,
-        "feature_importance.csv"
-    )
+    output_file = OUTPUT_DIR / "feature_importance.csv"
 
     result.to_csv(
         output_file,
@@ -139,8 +142,8 @@ def save_results(result):
 
 def create_plot(result):
 
-    os.makedirs(
-        OUTPUT_DIR,
+    OUTPUT_DIR.mkdir(
+        parents=True,
         exist_ok=True
     )
 
@@ -159,10 +162,7 @@ def create_plot(result):
 
     plt.tight_layout()
 
-    output_file = os.path.join(
-        OUTPUT_DIR,
-        "feature_importance.png"
-    )
+    output_file = OUTPUT_DIR / "feature_importance.png"
 
     plt.savefig(
         output_file,
@@ -183,7 +183,9 @@ def main():
         "========== XGBoost Feature Importance =========="
     )
 
-    model = load_model()
+    df = load_sales_data()
+
+    model = load_model(df)
 
     result = extract_feature_importance(
         model

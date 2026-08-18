@@ -46,6 +46,14 @@ def bottom_up_reconcile(
         .sum()
     )
 
+    # Logging category aggregation
+    print(
+        "\nCategory aggregation completed:"
+    )
+    print(
+        category_forecasts.to_string(index=False)
+    )
+
     # Region forecast = sum of category forecasts
     region_forecasts = (
         category_forecasts
@@ -54,6 +62,14 @@ def bottom_up_reconcile(
             as_index=False
         )["predicted"]
         .sum()
+    )
+
+    # Logging region aggregation
+    print(
+        "\nRegion aggregation completed:"
+    )
+    print(
+        region_forecasts.to_string(index=False)
     )
 
     return (

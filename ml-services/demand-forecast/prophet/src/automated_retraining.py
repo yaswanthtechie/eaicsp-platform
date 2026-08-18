@@ -14,8 +14,8 @@ from prophet.serialize import model_to_json
 from xgboost import XGBRegressor
 from sklearn.metrics import mean_squared_error
 
-from data import load_sales_data
-from train_xgboost import create_features
+from src.data import load_sales_data
+from src.inference import create_features
 
 
 # ============================================================
@@ -558,6 +558,7 @@ def promote_model(candidate):
     metadata = {
         "model_version":
             MODEL_VERSION,
+        "status": "promoted",    
 
         "mape":
             candidate["mape"],

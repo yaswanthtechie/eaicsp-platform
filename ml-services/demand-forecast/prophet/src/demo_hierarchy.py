@@ -17,8 +17,8 @@ hierarchy = pd.read_csv(
 # FUTURE FORECAST DATE
 # ============================================================
 
-# 2025 data is historical.
-# We forecast the next month.
+# The hierarchy demo uses mock data covering 2025.
+# Therefore, 2026-01-01 is used as the next forecast month.
 forecast_date = "2026-01-01"
 
 

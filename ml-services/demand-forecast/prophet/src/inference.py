@@ -179,7 +179,47 @@ def predict_future_xgboost(
     horizon_months
 ):
     """
-    Recursive future forecasting using XGBoost.
+    Generate future monthly demand forecasts recursively using XGBoost.
+
+    The function predicts one future month at a time. After each prediction,
+    the predicted demand is added to the historical data and is then used
+    when generating features for the next forecast month.
+
+    This recursive approach allows lag and rolling features to be generated
+    for future periods even though the actual future demand is unknown.
+
+    Missing feature values in future rows are handled as follows:
+    1. Forward-fill (ffill) uses the most recently available feature value.
+    2. Any remaining NaN values are replaced with 0.
+
+    Prediction intervals are calculated using the model's training residual
+    standard deviation and a 95% confidence multiplier of 1.96.
+
+    Example:
+        If the latest historical month is 2025-12 and horizon_months=3:
+
+            2025-12 historical demand
+                    ↓
+            Predict 2026-01
+                    ↓
+            Add 2026-01 prediction to history
+                    ↓
+            Predict 2026-02
+                    ↓
+            Add 2026-02 prediction to history
+                    ↓
+            Predict 2026-03
+
+    Args:
+        model_info: Dictionary containing the trained XGBoost model,
+            feature names, and training residual standard deviation.
+        history_df: Historical demand DataFrame containing `ds` and `y`
+            columns.
+        horizon_months: Number of future months to forecast.
+
+    Returns:
+        A list of dictionaries containing the forecast date, prediction,
+        lower prediction bound, and upper prediction bound.
     """
 
     model = model_info["model"]

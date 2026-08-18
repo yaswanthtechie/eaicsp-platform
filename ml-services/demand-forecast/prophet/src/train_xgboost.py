@@ -1,5 +1,6 @@
 import os
 import pickle
+from pathlib import Path
 import numpy as np
 import pandas as pd
 
@@ -24,7 +25,9 @@ from src.inference import (
 )
 
 
-MODEL_PATH = "models/xgb_model.pkl"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+MODEL_PATH = PROJECT_ROOT / "models" / "xgb_model.pkl"
 
 
 XGB_PARAMS = {
@@ -210,8 +213,8 @@ def train_xgboost(df):
     # Save XGBoost Package
     # =====================================
 
-    os.makedirs(
-        "models",
+        os.makedirs(
+        MODEL_PATH.parent,
         exist_ok=True
     )
 
