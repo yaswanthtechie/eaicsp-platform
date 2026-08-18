@@ -173,12 +173,63 @@ def test_calculate_drift_accepts_custom_training_mean():
     assert drift_score == 0.0
 
 
+def test_retraining_needed_for_all_zero_inputs():
+    """
+    All-zero inputs represent a severe sensor or input
+    pipeline failure and should trigger retraining.
+    """
+
+    recent_inputs = [
+        [0.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 0.0],
+    ]
+
+    result = check_retraining_needed(recent_inputs)
+
+    assert result["drift_score"] == pytest.approx(1.0)
+    assert result["retrain_needed"] is True
+    assert result["reason"] == "Input feature drift detected"
+
+
+def test_retraining_triggered_at_exact_threshold():
+    """
+    Drift exactly at the configured threshold should
+    trigger retraining because the comparison is inclusive.
+    """
+
+    training_mean = np.array([
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+    ])
+
+    recent_inputs = [
+        [1.2, 1.2, 1.2, 1.2],
+        [1.2, 1.2, 1.2, 1.2],
+    ]
+
+    result = check_retraining_needed(
+        recent_inputs,
+        training_mean=training_mean,
+        threshold=0.20,
+    )
+
+    assert result["drift_score"] == pytest.approx(0.20)
+    assert result["retrain_needed"] is True
+    assert result["reason"] == "Input feature drift detected"
+
+
 def test_empty_inputs_raise_error():
     """
     Empty prediction input history should raise ValueError.
     """
 
-    with pytest.raises(ValueError, match="recent_inputs cannot be empty"):
+    with pytest.raises(
+        ValueError,
+        match="recent_inputs cannot be empty",
+    ):
         calculate_drift([])
 
 

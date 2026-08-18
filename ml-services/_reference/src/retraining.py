@@ -67,7 +67,15 @@ def check_retraining_needed(
         training_mean,
     )
 
-    retrain_needed = drift_score > threshold
+    retrain_needed = bool(
+        np.isclose(
+            drift_score,
+            threshold,
+            rtol=1e-9,
+            atol=1e-9,
+        )
+        or drift_score >= threshold
+    )
 
     if retrain_needed:
         reason = "Input feature drift detected"

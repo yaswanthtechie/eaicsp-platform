@@ -295,7 +295,7 @@ class IrisService:
                 select_model(
                     request.features,
                     self.canary_models,
-                    
+
                 )
             )
 
@@ -400,7 +400,6 @@ class IrisService:
             )
 
             raise
-
     # ======================================================
     # Batch Prediction
     # ======================================================
@@ -411,26 +410,102 @@ class IrisService:
         request: IrisBatchRequest,
     ) -> dict:
 
-        start = time.perf_counter()
+        batch_start = time.perf_counter()
 
         try:
+            results = []
 
-            predictions = self.model.predict(
-                request.features
-            )
+            for features in request.features:
 
-            probabilities = self.model.predict_proba(
-                request.features
-            )
+                # ==================================================
+                # Canary / A-B Model Selection
+                # ==================================================
 
-            latency = (
+                model, selected_alias, selected_version, bucket = (
+                    select_model(
+                        features,
+                        self.canary_models,
+                    )
+                )
+
+                logger.info(
+                    "Batch canary routing: alias=%s version=%s bucket=%s",
+                    selected_alias,
+                    selected_version,
+                    bucket,
+                )
+
+                # ==================================================
+                # Per-prediction timing
+                # ==================================================
+
+                prediction_start = time.perf_counter()
+
+                prediction = model.predict(
+                    [features]
+                )[0]
+
+                probabilities = model.predict_proba(
+                    [features]
+                )[0]
+
+                prediction_latency = (
+                    time.perf_counter()
+                    - prediction_start
+                ) * 1000
+
+                # ==================================================
+                # Monitoring
+                # ==================================================
+
+                request_id = str(uuid.uuid4())
+
+                log_prediction(
+                    request_id=request_id,
+                    model_version=str(selected_version),
+                    latency_ms=prediction_latency,
+                    prediction=TARGET_NAMES[prediction],
+                )
+
+                # ==================================================
+                # Response
+                # ==================================================
+
+                probability_dict = {
+                    TARGET_NAMES[i]: float(probabilities[i])
+                    for i in range(len(TARGET_NAMES))
+                }
+
+                results.append(
+                    {
+                        "prediction": TARGET_NAMES[prediction],
+                        "confidence": float(
+                            np.max(probabilities)
+                        ),
+                        "probabilities": probability_dict,
+                        "latency_ms": round(
+                            prediction_latency,
+                            2,
+                        ),
+                        "model_version": str(
+                            selected_version
+                        ),
+                        "model_alias": selected_alias,
+                    }
+                )
+
+            # ======================================================
+            # Batch-level latency
+            # ======================================================
+
+            batch_latency = (
                 time.perf_counter()
-                - start
+                - batch_start
             ) * 1000
 
-            # ================================
-            # Update Metrics
-            # ================================
+            # ======================================================
+            # Metrics
+            # ======================================================
 
             self.total_predictions += len(
                 request.features
@@ -438,59 +513,15 @@ class IrisService:
 
             self.total_batches += 1
 
-            self.total_batch_latency += latency
-
-            results = []
-
-            for pred, probs in zip(
-                predictions,
-                probabilities,
-            ):
-
-                results.append(
-
-                    {
-                        "prediction":
-                            TARGET_NAMES[pred],
-
-                        "confidence":
-                            float(
-                                np.max(probs)
-                            ),
-
-                        "probabilities":
-                            {
-                                TARGET_NAMES[i]:
-                                    float(probs[i])
-
-                                for i in range(
-                                    len(TARGET_NAMES)
-                                )
-                            },
-
-                        "latency_ms":
-                            round(
-                                latency,
-                                2,
-                            ),
-
-                        "model_version":
-                            str(
-                                self.model_version
-                            ),
-                    }
-                )
+            self.total_batch_latency += batch_latency
 
             return {
-
-                "predictions":
-                    results,
-
-                "batch_latency_ms":
-                    round(
-                        latency,
-                        2,
-                    ),
+                "predictions": results,
+                "batch_size": len(request.features),
+                "batch_latency_ms": round(
+                    batch_latency,
+                    2,
+                ),
             }
 
         except Exception:
@@ -502,6 +533,7 @@ class IrisService:
             )
 
             raise
+
 
     # ======================================================
     # R4 Monitoring Summary
