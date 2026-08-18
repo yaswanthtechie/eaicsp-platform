@@ -243,17 +243,17 @@ def test_confidence_volume_relationship():
     """
 
     base_headline = (
-        "The company faces bankruptcy and fraud investigation."
+        "The company faces bankruptcy and fraud investigation"
     )
 
     result_2 = predict(
         "LowVolumeSupplier",
-        [base_headline] * 2,
+        [f"{base_headline} {i}." for i in range(2)],
     )
 
     result_20 = predict(
         "HighVolumeSupplier",
-        [base_headline] * 20,
+        [f"{base_headline} {i}." for i in range(20)],
     )
 
     assert (
@@ -271,7 +271,7 @@ def test_confidence_monotonic():
     """
 
     base_headline = (
-        "The supplier announces operational updates."
+        "The supplier announces operational updates"
     )
 
     previous_confidence = -1.0
@@ -279,7 +279,7 @@ def test_confidence_monotonic():
     for count in range(0, 31, 5):
         result = predict(
             "MonoTestSupplier",
-            [base_headline] * count,
+            [f"{base_headline} {i}." for i in range(count)],
         )
 
         current_confidence = result["confidence"]
@@ -469,7 +469,7 @@ def test_real_dataset_relative_scoring_monotonic_check():
         "New product launch."
     ]
     base_headline = (
-        "The supplier announces operational updates."
+        "The supplier announces operational updates"
     )
 
     previous_confidence = -1.0
@@ -477,7 +477,7 @@ def test_real_dataset_relative_scoring_monotonic_check():
     for count in range(0, 31, 5):
         result = predict(
             "MonoTestSupplier",
-            [base_headline] * count,
+            [f"{base_headline} {i}." for i in range(count)],
         )
 
         current_confidence = result["confidence"]
@@ -662,3 +662,62 @@ def test_punctuation_word_merging_and_signal_detection():
     keywords_comma = [s["keyword"] for s in signals_comma]
     assert "fraud" in keywords_comma
     assert "investigation" in keywords_comma
+
+
+def test_duplicate_headlines_do_not_inflate_confidence():
+    """
+    Regression Test (Bug #4): Duplicate headlines must not inflate confidence
+    or multiply risk evidence.
+    """
+    headline = "The company is under investigation for fraud and default."
+
+    result_single = predict("TestSupplier", [headline])
+    result_dups = predict("TestSupplier", [headline, headline, headline])
+    result_dups_whitespace = predict(
+        "TestSupplier",
+        [headline, f"  {headline}  ", headline.upper(), headline.lower()],
+    )
+
+    # Confidence must represent unique evidence
+    assert result_single["confidence"] == result_dups["confidence"]
+    assert result_single["confidence"] == result_dups_whitespace["confidence"]
+
+    # Duplicate copies do not change risk evidence
+    assert result_single["risk_score"] == result_dups["risk_score"]
+    assert result_single["risk_score"] == result_dups_whitespace["risk_score"]
+    assert result_single["sentiment_breakdown"] == result_dups["sentiment_breakdown"]
+    assert result_single["signals"] == result_dups["signals"]
+    assert len(result_single["top_worst_3"]) == len(result_dups["top_worst_3"])
+
+
+def test_high_risk_not_diluted_by_neutral_headlines():
+    """
+    Regression Test (Bug #2): High risk headline must not be diluted into
+    an obviously safe/low-risk result (<= 15.0) merely because neutral headlines are added.
+    """
+    high_risk_headline = (
+        "TechCorp files for bankruptcy and is under investigation for fraud."
+    )
+    neutral_headlines_9 = [
+        f"TechCorp opens a new office location in district {i}."
+        for i in range(9)
+    ]
+    neutral_headlines_20 = [
+        f"TechCorp opens a new office location in district {i}."
+        for i in range(20)
+    ]
+
+    result_1 = predict("TechCorp", [high_risk_headline])
+    result_10 = predict("TechCorp", [high_risk_headline] + neutral_headlines_9)
+    result_21 = predict("TechCorp", [high_risk_headline] + neutral_headlines_20)
+
+    # The high risk headline alone is severe (Critical tier)
+    assert result_1["risk_score"] >= 50.0
+
+    # Adding 9 or 20 neutral headlines must not collapse into Low Risk (<= 15.0) or safe result
+    assert result_10["risk_score"] > 30.0, (
+        f"Expected score > 30.0 (High/Critical risk), got {result_10['risk_score']}"
+    )
+    assert result_21["risk_score"] > 30.0, (
+        f"Expected score > 30.0 (High/Critical risk), got {result_21['risk_score']}"
+    )

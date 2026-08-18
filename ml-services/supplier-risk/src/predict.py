@@ -85,6 +85,23 @@ def predict(
     if not headlines:
         return _empty_response(supplier_name)
 
+    # ----------------------------------------
+    # Deduplicate Headlines (case & whitespace insensitive)
+    # ----------------------------------------
+    seen_headlines = set()
+    unique_headlines: List[str] = []
+
+    for headline in headlines:
+        if not headline or not headline.strip():
+            continue
+        normalized = headline.strip().lower()
+        if normalized not in seen_headlines:
+            seen_headlines.add(normalized)
+            unique_headlines.append(headline.strip())
+
+    if not unique_headlines:
+        return _empty_response(supplier_name)
+
     sentiment_breakdown = {
         "positive": 0,
         "neutral": 0,
@@ -96,11 +113,7 @@ def predict(
 
     total_headline_score = 0.0
 
-    for headline in headlines:
-
-        # Skip empty headlines
-        if not headline or not headline.strip():
-            continue
+    for headline in unique_headlines:
 
         # -------------------------
         # Sentiment Analysis
@@ -167,13 +180,22 @@ def predict(
     # Final Risk Score
     # ----------------------------------------
 
+    peak_score = min(
+        100.0,
+        max(item["score"] for item in processed_headlines),
+    )
+
     average_score = (
         total_headline_score / len(processed_headlines)
     )
 
+    blended_score = (
+        0.5 * average_score + 0.5 * peak_score
+    )
+
     final_risk_score = min(
         100.0,
-        average_score,
+        blended_score,
     )
 
     # ----------------------------------------
