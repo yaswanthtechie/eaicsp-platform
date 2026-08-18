@@ -1,6 +1,7 @@
 from io import BytesIO
 import os
 import shutil
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,6 +11,9 @@ from app.schemas.invoice import InvoiceStatus
 from app.services.purchase_order_service import purchase_orders
 from app.services.invoice_service import invoices, invoice_events
 from app.services.purchase_order_service import po_events
+
+
+from app.services import invoice_service
 
 
 client = TestClient(app)
@@ -251,35 +255,75 @@ def create_submitted_invoice(
 
 
 def transition_invoice(
-    invoice_number,
-    target_state,
+    invoice_number="INV1001",
+    target_state="approved",
+    reason=None,
+    supplier_id="SUP001",
     actor_id="USER001",
     actor_name="Test User",
     role="buyer",
-    reason=None,
 ):
-    """
-    Transition an invoice through the invoice state machine.
-    """
-
-    payload = {
-        "actor_id": actor_id,
-        "actor_name": actor_name,
-        "role": role,
-        "target_state": target_state,
-    }
-
-    if reason is not None:
-        payload["reason"] = reason
-
     return client.post(
-        f"/api/v1/invoices/{invoice_number}/transition",
-        json=payload,
+        f"/api/v1/invoices/{supplier_id}/{invoice_number}/transition",
+        json={
+            "target_state": target_state,
+            "actor_id": actor_id,
+            "actor_name": actor_name,
+            "role": role,
+            "reason": reason,
+        },
     )
-
 # ============================================================
 # INVOICE STATE MACHINE - LEGAL TRANSITIONS
 # ============================================================
+
+
+def transition_invoice(
+    invoice_number="INV1001",
+    target_state="approved",
+    reason=None,
+    supplier_id="SUP001",
+    actor_id="USER001",
+    actor_name="Test User",
+    role="buyer",
+):
+    return client.post(
+        f"/api/v1/invoices/{supplier_id}/{invoice_number}/transition",
+        json={
+            "target_state": target_state,
+            "actor_id": actor_id,
+            "actor_name": actor_name,
+            "role": role,
+            "reason": reason,
+        },
+    )
+
+
+def adjust_invoice_api(
+    invoice_number="INV1001",
+    quantity=1,
+    unit_price=50000,
+    reason="Correcting invoice quantity.",
+    supplier_id="SUP001",
+):
+    return client.post(
+        f"/api/v1/invoices/{supplier_id}/{invoice_number}/adjust",
+        json={
+            "actor_id": "USER002",
+            "actor_name": "Adjustment User",
+            "role": "finance",
+            "reason": reason,
+            "items": [
+                {
+                    "po_number": "PO1001",
+                    "item_code": "LAPTOP",
+                    "description": "Laptop",
+                    "quantity": quantity,
+                    "unit_price": unit_price,
+                }
+            ],
+        },
+    )
 
 
 def test_submitted_to_approved():
@@ -340,6 +384,38 @@ def test_submitted_to_rejected():
 
     assert data["status"] == "rejected"
 
+def test_adjusted_to_rejected():
+    create_submitted_invoice()
+
+    # submitted -> disputed
+    response = transition_invoice(
+        "INV1001",
+        "disputed",
+        reason="Invoice has an incorrect amount.",
+    )
+
+    assert response.status_code == 200
+
+    # disputed -> adjusted
+    response = adjust_invoice_api(
+        invoice_number="INV1001",
+        quantity=1,
+        unit_price=50000,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "adjusted"
+
+    # adjusted -> rejected
+    response = transition_invoice(
+        "INV1001",
+        "rejected",
+        reason="The adjustment is still incorrect.",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "rejected"
+
 
 def test_disputed_to_approved():
     create_submitted_invoice()
@@ -394,31 +470,6 @@ def test_disputed_to_rejected():
     assert data["dispute"]["resolved_by"] == "USER001"
     assert data["dispute"]["resolved_at"] is not None
 
-def adjust_invoice_api(
-    invoice_number="INV1001",
-    quantity=1,
-    unit_price=50000,
-    reason="Correcting invoice quantity.",
-):
-    return client.post(
-        f"/api/v1/invoices/{invoice_number}/adjust",
-        json={
-            "actor_id": "USER002",
-            "actor_name": "Adjustment User",
-            "role": "finance",
-            "reason": reason,
-            "items": [
-                {
-                    "po_number": "PO1001",
-                    "item_code": "LAPTOP",
-                    "description": "Laptop",
-                    "quantity": quantity,
-                    "unit_price": unit_price,
-                }
-            ],
-        },
-    )
-
 
 def test_disputed_to_adjusted_to_approved():
     create_submitted_invoice()
@@ -429,7 +480,7 @@ def test_disputed_to_adjusted_to_approved():
         reason="Incorrect quantity.",
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
 
     response = adjust_invoice_api(
         quantity=1,
@@ -453,6 +504,7 @@ def test_disputed_to_adjusted_to_approved():
 
     assert data["status"] == "approved"
 
+
 def test_dispute_requires_reason():
     create_submitted_invoice()
 
@@ -467,7 +519,14 @@ def test_dispute_requires_reason():
 
     assert "reason is required" in detail.lower()
 
-    assert invoices["INV1001"]["status"] == InvoiceStatus.submitted
+    # IMPORTANT:
+    # invoices now uses (supplier_id, invoice_number)
+    invoice_key = ("SUP001", "INV1001")
+
+    assert (
+        invoices[invoice_key]["status"]
+        == InvoiceStatus.submitted
+    )
 
 
 def test_dispute_rejects_blank_reason():
@@ -485,12 +544,17 @@ def test_dispute_rejects_blank_reason():
         response.json()["detail"].lower()
     )
 
-    assert invoices["INV1001"]["status"] == InvoiceStatus.submitted
+    invoice_key = ("SUP001", "INV1001")
+
+    assert (
+        invoices[invoice_key]["status"]
+        == InvoiceStatus.submitted
+    )
+
 
 # ============================================================
 # INVOICE STATE MACHINE - ILLEGAL TRANSITIONS
 # ============================================================
-
 
 @pytest.mark.parametrize(
     "current_state,target_state",
@@ -502,7 +566,6 @@ def test_dispute_rejects_blank_reason():
         # disputed
         ("disputed", "submitted"),
         ("disputed", "disputed"),
-        ("disputed", "adjusted"),
 
         # approved
         ("approved", "submitted"),
@@ -519,7 +582,6 @@ def test_dispute_rejects_blank_reason():
         # adjusted
         ("adjusted", "submitted"),
         ("adjusted", "disputed"),
-        ("adjusted", "rejected"),
         ("adjusted", "adjusted"),
     ],
 )
@@ -529,7 +591,10 @@ def test_illegal_invoice_transitions(
 ):
     create_submitted_invoice()
 
-    # Move invoice to required starting state.
+    # --------------------------------------------------------
+    # Move invoice to required current state
+    # --------------------------------------------------------
+
     if current_state == "disputed":
         response = transition_invoice(
             "INV1001",
@@ -537,7 +602,7 @@ def test_illegal_invoice_transitions(
             reason="Test dispute.",
         )
 
-        assert response.status_code == 200
+        assert response.status_code == 200, response.text
 
     elif current_state == "approved":
         response = transition_invoice(
@@ -545,7 +610,7 @@ def test_illegal_invoice_transitions(
             "approved",
         )
 
-        assert response.status_code == 200
+        assert response.status_code == 200, response.text
 
     elif current_state == "rejected":
         response = transition_invoice(
@@ -553,22 +618,31 @@ def test_illegal_invoice_transitions(
             "rejected",
         )
 
-        assert response.status_code == 200
+        assert response.status_code == 200, response.text
 
     elif current_state == "adjusted":
+        # adjusted is reached only through the dedicated
+        # adjustment endpoint.
         response = transition_invoice(
             "INV1001",
             "disputed",
             reason="Test dispute.",
         )
 
-        assert response.status_code == 200
+        assert response.status_code == 200, response.text
 
-        response = adjust_invoice_api()
+        response = adjust_invoice_api(
+            invoice_number="INV1001",
+            quantity=1,
+            unit_price=50000,
+        )
 
-        assert response.status_code == 200
-
+        assert response.status_code == 200, response.text
         assert response.json()["status"] == "adjusted"
+
+    # --------------------------------------------------------
+    # Attempt illegal transition
+    # --------------------------------------------------------
 
     response = transition_invoice(
         "INV1001",
@@ -580,7 +654,7 @@ def test_illegal_invoice_transitions(
         ),
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 400, response.text
 
     detail = response.json()["detail"]
 
@@ -598,6 +672,40 @@ def test_invoice_transition_not_found():
         "Invoice not found."
     )
 
+def test_rejected_invoice_quantity_is_not_counted():
+    create_acknowledged_po(
+        quantity=10,
+        unit_price=50000,
+    )
+
+    # First invoice consumes all 10 units
+    response = create_sample_invoice(
+        invoice_number="INV1001",
+        quantity=10,
+        amount=500000,
+    )
+
+    assert response.status_code == 201
+
+    # Reject the invoice
+    response = transition_invoice(
+        invoice_number="INV1001",
+        target_state="rejected",
+        reason="Invoice is incorrect.",
+    )
+
+    assert response.status_code == 200
+
+    # Because rejected invoice should no longer count,
+    # another invoice for the same 10 units is allowed.
+    response = create_sample_invoice(
+        invoice_number="INV1002",
+        quantity=10,
+        amount=500000,
+    )
+
+    assert response.status_code == 201, response.text
+    
 def test_invoice_unit_price_exactly_5_percent_below():
     create_acknowledged_po(
         unit_price=50000,
@@ -687,7 +795,9 @@ def test_invoice_history_is_created_on_transition():
     assert event["reason"] == "Invoice verified."
     assert event["timestamp"] is not None
 
-    assert invoice_events["INV1001"] == data["history"]
+    invoice_key = ("SUP001", "INV1001")
+
+    assert invoice_events[invoice_key] == data["history"]
 
 
 def test_invoice_history_tracks_multiple_transitions():
@@ -738,9 +848,12 @@ def test_invoice_history_tracks_multiple_transitions():
     assert first_event["timestamp"] is not None
     assert second_event["timestamp"] is not None
 
-    assert invoice_events["INV1001"] == data["history"]
+    invoice_key = ("SUP001", "INV1001")
+
+    assert invoice_events[invoice_key] == data["history"]
 
     
+
 def test_valid_pdf_with_renamed_extension_is_accepted():
     create_acknowledged_po()
 
@@ -751,7 +864,7 @@ def test_valid_pdf_with_renamed_extension_is_accepted():
     assert response.status_code == 201
 
     response = client.post(
-        "/api/v1/invoices/INV9201/document",
+        "/api/v1/invoices/SUP001/INV9201/document",
         files={
             "file": (
                 "invoice.txt",
@@ -796,7 +909,7 @@ def test_corrupted_pdf_header_rejected(content):
     assert response.status_code == 201
 
     response = client.post(
-        "/api/v1/invoices/INV9301/document",
+        "/api/v1/invoices/SUP001/INV9301/document",
         files={
             "file": (
                 "invoice.pdf",
@@ -822,7 +935,7 @@ def test_valid_pdf_with_wrong_content_type_rejected():
     assert response.status_code == 201
 
     response = client.post(
-        "/api/v1/invoices/INV9401/document",
+        "/api/v1/invoices/SUP001/INV9401/document",
         files={
             "file": (
                 "invoice.pdf",
@@ -839,10 +952,6 @@ def test_valid_pdf_with_wrong_content_type_rejected():
     )
 
 def valid_pdf():
-    """
-    Return a minimal valid PDF-like byte stream.
-    """
-
     return BytesIO(
         b"%PDF-1.4\n"
         b"1 0 obj\n"
@@ -937,13 +1046,13 @@ def test_get_invoice_by_number():
         invoice_number="INV2001"
     )
 
-    assert create_response.status_code == 201
+    assert create_response.status_code == 201, create_response.text
 
     response = client.get(
-        "/api/v1/invoices/INV2001"
+        "/api/v1/invoices/SUP001/INV2001"
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
 
     data = response.json()
 
@@ -961,7 +1070,7 @@ def test_get_invoice_by_number():
 def test_get_invoice_not_found():
 
     response = client.get(
-        "/api/v1/invoices/INVALID001"
+        "/api/v1/invoices/SUP001/INVALID001"
     )
 
     assert response.status_code == 404
@@ -969,7 +1078,6 @@ def test_get_invoice_not_found():
     assert response.json()["detail"] == (
         "Invoice not found."
     )
-
 
 # ============================================================
 # DUPLICATE INVOICE
@@ -1001,7 +1109,6 @@ def test_duplicate_invoice():
 # ============================================================
 
 def test_same_invoice_number_different_supplier():
-
     create_acknowledged_po(
         po_number="PO1001",
         supplier_id="SUP001",
@@ -1012,22 +1119,46 @@ def test_same_invoice_number_different_supplier():
         supplier_id="SUP002",
     )
 
+    # Supplier 1 can create INV1001
     response = create_sample_invoice(
         invoice_number="INV1001",
         po_number="PO1001",
         supplier_id="SUP001",
     )
 
-    assert response.status_code == 201
+    assert response.status_code == 201, response.text
 
+    # Supplier 2 can also create INV1001 because
+    # invoice numbers are supplier-scoped.
     response = create_sample_invoice(
         invoice_number="INV1001",
         po_number="PO1002",
         supplier_id="SUP002",
     )
 
-    assert response.status_code == 201
+    assert response.status_code == 201, response.text
 
+def test_duplicate_invoice_number_same_supplier():
+    create_acknowledged_po(
+        po_number="PO1001",
+        supplier_id="SUP001",
+    )
+
+    response = create_sample_invoice(
+        invoice_number="INV1001",
+        po_number="PO1001",
+        supplier_id="SUP001",
+    )
+
+    assert response.status_code == 201, response.text
+
+    response = create_sample_invoice(
+        invoice_number="INV1001",
+        po_number="PO1001",
+        supplier_id="SUP001",
+    )
+
+    assert response.status_code == 409, response.text
 
 # ============================================================
 # PO NOT FOUND
@@ -1665,7 +1796,7 @@ def test_upload_invoice_pdf():
     assert response.status_code == 201
 
     response = client.post(
-        "/api/v1/invoices/INV1001/document",
+        "/api/v1/invoices/SUP001/INV1001/document",
         files={
             "file": (
                 "invoice.pdf",
@@ -1699,7 +1830,7 @@ def test_upload_invoice_pdf():
 def test_upload_document_invoice_not_found():
 
     response = client.post(
-        "/api/v1/invoices/INV9999/document",
+        "/api/v1/invoices/SUP001/INV9999/document",
         files={
             "file": (
                 "invoice.pdf",
@@ -1763,7 +1894,7 @@ def test_document_not_found():
     assert response.status_code == 201
 
     response = client.get(
-        "/api/v1/invoices/INV1001/document"
+        "/api/v1/invoices/SUP001/INV1001/document"
     )
 
     assert response.status_code == 404
@@ -1780,7 +1911,7 @@ def test_document_not_found():
 def test_invoice_document_invoice_not_found():
 
     response = client.get(
-        "/api/v1/invoices/INV9999/document"
+        "/api/v1/invoices/SUP001/INV9999/document"
     )
 
     assert response.status_code == 404
@@ -1810,7 +1941,7 @@ def test_large_pdf_rejected():
     )
 
     response = client.post(
-        "/api/v1/invoices/INV1001/document",
+        "/api/v1/invoices/SUP001/INV1001/document",
         files={
             "file": (
                 "large.pdf",
@@ -1844,7 +1975,7 @@ def test_pdf_exactly_10_mb_accepted():
    )
     
     response = client.post(
-        "/api/v1/invoices/INV9501/document",
+        "/api/v1/invoices/SUP001/INV9501/document",
         files={
             "file": (
                 "invoice.pdf",
@@ -1872,7 +2003,7 @@ def test_download_invoice_document():
     assert response.status_code == 201
 
     upload_response = client.post(
-        "/api/v1/invoices/INV1001/document",
+        "/api/v1/invoices/SUP001/INV1001/document",
         files={
             "file": (
                 "invoice.pdf",
@@ -1885,7 +2016,7 @@ def test_download_invoice_document():
     assert upload_response.status_code == 200
 
     response = client.get(
-        "/api/v1/invoices/INV1001/document"
+        "/api/v1/invoices/SUP001/INV1001/document"
     )
 
     assert response.status_code == 200
@@ -1914,7 +2045,7 @@ def test_file_deleted_after_upload():
     assert response.status_code == 201
 
     upload_response = client.post(
-        "/api/v1/invoices/INV1001/document",
+        "/api/v1/invoices/SUP001/INV1001/document",
         files={
             "file": (
                 "invoice.pdf",
@@ -1935,7 +2066,7 @@ def test_file_deleted_after_upload():
     os.remove(filepath)
 
     response = client.get(
-        "/api/v1/invoices/INV1001/document"
+        "/api/v1/invoices/SUP001/INV1001/document"
     )
 
     assert response.status_code == 404
@@ -1959,12 +2090,14 @@ def test_document_url_saved_in_memory():
 
     assert response.status_code == 201
 
+    invoice_key = ("SUP001", "INV1001")
+
     assert invoices[
-        "INV1001"
+        invoice_key
     ]["document_url"] is None
 
     upload_response = client.post(
-        "/api/v1/invoices/INV1001/document",
+        "/api/v1/invoices/SUP001/INV1001/document",
         files={
             "file": (
                 "invoice.pdf",
@@ -1974,12 +2107,13 @@ def test_document_url_saved_in_memory():
         },
     )
 
-    assert upload_response.status_code == 200
+    assert upload_response.status_code == 200, (
+        upload_response.text
+    )
 
     assert invoices[
-        "INV1001"
+        invoice_key
     ]["document_url"] is not None
-
 
 # ============================================================
 # SUPPLIER DIRECTORY
@@ -1999,7 +2133,7 @@ def test_invoice_document_saved_under_supplier_directory():
     assert response.status_code == 201
 
     upload_response = client.post(
-        "/api/v1/invoices/INV1001/document",
+        "/api/v1/invoices/SUP123/INV1001/document",
         files={
             "file": (
                 "invoice.pdf",
@@ -2059,7 +2193,7 @@ def test_get_invoice_after_document_upload():
     assert response.status_code == 201
 
     upload_response = client.post(
-        "/api/v1/invoices/INV1001/document",
+        "/api/v1/invoices/SUP001/INV1001/document",
         files={
             "file": (
                 "invoice.pdf",
@@ -2072,7 +2206,7 @@ def test_get_invoice_after_document_upload():
     assert upload_response.status_code == 200
 
     response = client.get(
-        "/api/v1/invoices/INV1001"
+        "/api/v1/invoices/SUP001/INV1001"
     )
 
     assert response.status_code == 200
@@ -2201,3 +2335,699 @@ def test_invoice_multiple_items_same_po():
 
     assert len(data["items"]) == 2
     assert data["amount"] == 53000
+
+
+# ============================================================
+# ORPHANED INVOICE FILE TEST SETUP
+# ============================================================
+
+@pytest.fixture
+def orphan_test_setup(tmp_path, monkeypatch):
+    """
+    Create an isolated upload directory and reset
+    in-memory invoice storage.
+    """
+
+    upload_dir = tmp_path / "uploads"
+    upload_dir.mkdir()
+
+    # invoice_service imported UPLOAD_DIR directly,
+    # therefore patch the value inside invoice_service.
+    monkeypatch.setattr(
+        invoice_service,
+        "UPLOAD_DIR",
+        str(upload_dir),
+    )
+
+    # Clear in-memory storage
+    invoice_service.invoices.clear()
+    invoice_service.invoice_events.clear()
+
+    yield upload_dir
+
+    # Cleanup
+    invoice_service.invoices.clear()
+    invoice_service.invoice_events.clear()
+
+
+def create_old_pdf(
+    upload_dir: Path,
+    supplier_id: str,
+    invoice_number: str,
+    age_days: int = 2,
+):
+    """
+    Create a PDF file and make its modification time old.
+    """
+
+    supplier_dir = upload_dir / supplier_id
+    supplier_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    file_path = supplier_dir / f"{invoice_number}.pdf"
+
+    # Minimal valid PDF signature for our service
+    file_path.write_bytes(
+        b"%PDF-1.4\n"
+    )
+
+    old_timestamp = (
+        file_path.stat().st_mtime
+        - (age_days * 24 * 60 * 60)
+    )
+
+    os.utime(
+        file_path,
+        (old_timestamp, old_timestamp),
+    )
+
+    return file_path
+
+
+def create_recent_pdf(
+    upload_dir: Path,
+    supplier_id: str,
+    invoice_number: str,
+):
+    """
+    Create a recent PDF file.
+    """
+
+    supplier_dir = upload_dir / supplier_id
+    supplier_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    file_path = supplier_dir / f"{invoice_number}.pdf"
+
+    file_path.write_bytes(
+        b"%PDF-1.4\n"
+    )
+
+    return file_path
+
+
+# ============================================================
+# TEST 1 - NO UPLOAD DIRECTORY
+# ============================================================
+
+def test_find_orphaned_files_when_directory_does_not_exist(
+    tmp_path,
+    monkeypatch,
+):
+    """
+    If the upload directory does not exist,
+    no orphaned files should be returned.
+    """
+
+    upload_dir = tmp_path / "does-not-exist"
+
+    monkeypatch.setattr(
+        invoice_service,
+        "UPLOAD_DIR",
+        str(upload_dir),
+    )
+
+    invoice_service.invoices.clear()
+
+    result = (
+        invoice_service.find_orphaned_invoice_files(
+            older_than_days=1,
+        )
+    )
+
+    assert result == []
+
+
+# ============================================================
+# TEST 2 - INVALID AGE
+# ============================================================
+
+def test_find_orphaned_files_rejects_negative_age(
+    orphan_test_setup,
+):
+    """
+    older_than_days cannot be negative.
+    """
+
+    with pytest.raises(ValueError) as exc_info:
+
+        invoice_service.find_orphaned_invoice_files(
+            older_than_days=-1,
+        )
+
+    assert (
+        "older_than_days must be greater than or equal to zero"
+        in str(exc_info.value)
+    )
+
+
+# ============================================================
+# TEST 3 - FILE WITHOUT INVOICE RECORD
+# ============================================================
+
+def test_find_orphaned_file_when_invoice_does_not_exist(
+    orphan_test_setup,
+):
+    """
+    An old PDF with no matching invoice record
+    must be considered orphaned.
+    """
+
+    upload_dir = orphan_test_setup
+
+    file_path = create_old_pdf(
+        upload_dir=upload_dir,
+        supplier_id="SUP001",
+        invoice_number="INV001",
+        age_days=2,
+    )
+
+    result = (
+        invoice_service.find_orphaned_invoice_files(
+            older_than_days=1,
+        )
+    )
+
+    assert len(result) == 1
+
+    orphan = result[0]
+
+    assert orphan["invoice_number"] == "INV001"
+    assert orphan["supplier_id"] == "SUP001"
+    assert orphan["file_name"] == "INV001.pdf"
+    assert orphan["file_path"] == str(file_path)
+    assert orphan["invoice_status"] is None
+    assert (
+        orphan["reason"]
+        == "No matching invoice record exists."
+    )
+
+
+# ============================================================
+# TEST 4 - APPROVED INVOICE IS NOT ORPHANED
+# ============================================================
+
+def test_approved_invoice_file_is_not_orphaned(
+    orphan_test_setup,
+):
+    """
+    Approved invoices are terminal.
+    Their files must not be considered orphaned.
+    """
+
+    upload_dir = orphan_test_setup
+
+    file_path = create_old_pdf(
+        upload_dir,
+        "SUP001",
+        "INV002",
+        age_days=2,
+    )
+
+    invoice_service.invoices[
+        ("SUP001", "INV002")
+    ] = {
+        "invoice_number": "INV002",
+        "supplier_id": "SUP001",
+        "status": InvoiceStatus.approved,
+        "document_url": str(file_path),
+    }
+
+    result = (
+        invoice_service.find_orphaned_invoice_files(
+            older_than_days=1,
+        )
+    )
+
+    assert result == []
+
+
+# ============================================================
+# TEST 5 - REJECTED INVOICE IS NOT ORPHANED
+# ============================================================
+
+def test_rejected_invoice_file_is_not_orphaned(
+    orphan_test_setup,
+):
+    """
+    Rejected invoices are terminal.
+    Their files must not be considered orphaned.
+    """
+
+    upload_dir = orphan_test_setup
+
+    file_path = create_old_pdf(
+        upload_dir,
+        "SUP001",
+        "INV003",
+        age_days=2,
+    )
+
+    invoice_service.invoices[
+        ("SUP001", "INV003")
+    ] = {
+        "invoice_number": "INV003",
+        "supplier_id": "SUP001",
+        "status": InvoiceStatus.rejected,
+        "document_url": str(file_path),
+    }
+
+    result = (
+        invoice_service.find_orphaned_invoice_files(
+            older_than_days=1,
+        )
+    )
+
+    assert result == []
+
+
+# ============================================================
+# TEST 6 - SUBMITTED OLD FILE IS ORPHANED
+# ============================================================
+
+def test_submitted_old_invoice_file_is_orphaned(
+    orphan_test_setup,
+):
+    """
+    A submitted invoice is non-terminal.
+    If its PDF is old, it is considered orphaned.
+    """
+
+    upload_dir = orphan_test_setup
+
+    file_path = create_old_pdf(
+        upload_dir,
+        "SUP001",
+        "INV004",
+        age_days=2,
+    )
+
+    invoice_service.invoices[
+        ("SUP001", "INV004")
+    ] = {
+        "invoice_number": "INV004",
+        "supplier_id": "SUP001",
+        "status": InvoiceStatus.submitted,
+        "document_url": str(file_path),
+    }
+
+    result = (
+        invoice_service.find_orphaned_invoice_files(
+            older_than_days=1,
+        )
+    )
+
+    assert len(result) == 1
+
+    orphan = result[0]
+
+    assert orphan["invoice_number"] == "INV004"
+    assert orphan["invoice_status"] == "submitted"
+
+    assert (
+        "not in a terminal state"
+        in orphan["reason"]
+    )
+
+
+# ============================================================
+# TEST 7 - DISPUTED FILE WITHOUT DOCUMENT ASSOCIATION
+# ============================================================
+
+def test_non_terminal_invoice_without_document_url_is_orphaned(
+    orphan_test_setup,
+):
+    """
+    If the invoice exists but document_url is missing,
+    the physical PDF has no registered association.
+    """
+
+    upload_dir = orphan_test_setup
+
+    file_path = create_old_pdf(
+        upload_dir,
+        "SUP002",
+        "INV005",
+        age_days=2,
+    )
+
+    invoice_service.invoices[
+        ("SUP002", "INV005")
+    ] = {
+        "invoice_number": "INV005",
+        "supplier_id": "SUP002",
+        "status": InvoiceStatus.disputed,
+        "document_url": None,
+    }
+
+    result = (
+        invoice_service.find_orphaned_invoice_files(
+            older_than_days=1,
+        )
+    )
+
+    assert len(result) == 1
+
+    orphan = result[0]
+
+    assert orphan["invoice_number"] == "INV005"
+    assert orphan["invoice_status"] == "disputed"
+
+    assert (
+        "file is not registered"
+        in orphan["reason"]
+    )
+
+
+# ============================================================
+# TEST 8 - DOCUMENT PATH MISMATCH
+# ============================================================
+
+def test_invoice_file_with_wrong_document_path_is_orphaned(
+    orphan_test_setup,
+):
+    """
+    If invoice.document_url points to another file,
+    the physical file is orphaned.
+    """
+
+    upload_dir = orphan_test_setup
+
+    file_path = create_old_pdf(
+        upload_dir,
+        "SUP003",
+        "INV006",
+        age_days=2,
+    )
+
+    wrong_path = (
+        upload_dir
+        / "SUP003"
+        / "different-file.pdf"
+    )
+
+    invoice_service.invoices[
+        ("SUP003", "INV006")
+    ] = {
+        "invoice_number": "INV006",
+        "supplier_id": "SUP003",
+        "status": InvoiceStatus.submitted,
+        "document_url": str(wrong_path),
+    }
+
+    result = (
+        invoice_service.find_orphaned_invoice_files(
+            older_than_days=1,
+        )
+    )
+
+    assert len(result) == 1
+
+    orphan = result[0]
+
+    assert orphan["invoice_number"] == "INV006"
+
+    assert (
+        "File path does not match"
+        in orphan["reason"]
+    )
+
+    assert file_path.exists()
+
+
+# ============================================================
+# TEST 9 - RECENT FILE IS NOT ORPHANED
+# ============================================================
+
+def test_recent_invoice_file_is_not_orphaned(
+    orphan_test_setup,
+):
+    """
+    Files newer than older_than_days must be ignored.
+    """
+
+    upload_dir = orphan_test_setup
+
+    file_path = create_recent_pdf(
+        upload_dir,
+        "SUP004",
+        "INV007",
+    )
+
+    result = (
+        invoice_service.find_orphaned_invoice_files(
+            older_than_days=1,
+        )
+    )
+
+    assert result == []
+
+    assert file_path.exists()
+
+
+# ============================================================
+# TEST 10 - PURGE ORPHANED FILE
+# ============================================================
+
+def test_purge_deletes_orphaned_file(
+    orphan_test_setup,
+):
+    """
+    purge_orphaned_invoice_files() must physically
+    delete orphaned PDF files.
+    """
+
+    upload_dir = orphan_test_setup
+
+    file_path = create_old_pdf(
+        upload_dir,
+        "SUP005",
+        "INV008",
+        age_days=2,
+    )
+
+    assert file_path.exists()
+
+    result = (
+        invoice_service.purge_orphaned_invoice_files(
+            older_than_days=1,
+        )
+    )
+
+    assert result["total"] == 1
+    assert result["deleted"] == 1
+
+    assert len(result["files"]) == 1
+
+    assert (
+        result["files"][0]["invoice_number"]
+        == "INV008"
+    )
+
+    assert not file_path.exists()
+
+
+# ============================================================
+# TEST 11 - PURGE DOES NOT DELETE APPROVED FILE
+# ============================================================
+
+def test_purge_does_not_delete_approved_file(
+    orphan_test_setup,
+):
+    """
+    Approved invoice documents must remain untouched.
+    """
+
+    upload_dir = orphan_test_setup
+
+    file_path = create_old_pdf(
+        upload_dir,
+        "SUP006",
+        "INV009",
+        age_days=2,
+    )
+
+    invoice_service.invoices[
+        ("SUP006", "INV009")
+    ] = {
+        "invoice_number": "INV009",
+        "supplier_id": "SUP006",
+        "status": InvoiceStatus.approved,
+        "document_url": str(file_path),
+    }
+
+    result = (
+        invoice_service.purge_orphaned_invoice_files(
+            older_than_days=1,
+        )
+    )
+
+    assert result["total"] == 0
+    assert result["deleted"] == 0
+
+    assert file_path.exists()
+
+
+# ============================================================
+# TEST 12 - PURGE DOES NOT DELETE RECENT ORPHAN
+# ============================================================
+
+def test_purge_does_not_delete_recent_file(
+    orphan_test_setup,
+):
+    """
+    A recent file must not be deleted even if
+    there is no invoice record.
+    """
+
+    upload_dir = orphan_test_setup
+
+    file_path = create_recent_pdf(
+        upload_dir,
+        "SUP007",
+        "INV010",
+    )
+
+    result = (
+        invoice_service.purge_orphaned_invoice_files(
+            older_than_days=1,
+        )
+    )
+
+    assert result["total"] == 0
+    assert result["deleted"] == 0
+
+    assert file_path.exists()
+
+
+# ============================================================
+# TEST 13 - PURGE MULTIPLE ORPHANED FILES
+# ============================================================
+
+def test_purge_multiple_orphaned_files(
+    orphan_test_setup,
+):
+    """
+    Multiple orphaned files should all be deleted.
+    """
+
+    upload_dir = orphan_test_setup
+
+    file1 = create_old_pdf(
+        upload_dir,
+        "SUP008",
+        "INV011",
+        age_days=3,
+    )
+
+    file2 = create_old_pdf(
+        upload_dir,
+        "SUP008",
+        "INV012",
+        age_days=3,
+    )
+
+    file3 = create_old_pdf(
+        upload_dir,
+        "SUP009",
+        "INV013",
+        age_days=3,
+    )
+
+    result = (
+        invoice_service.purge_orphaned_invoice_files(
+            older_than_days=1,
+        )
+    )
+
+    assert result["total"] == 3
+    assert result["deleted"] == 3
+
+    assert not file1.exists()
+    assert not file2.exists()
+    assert not file3.exists()
+
+
+# ============================================================
+# TEST 14 - PURGE MIXED FILES
+# ============================================================
+
+def test_purge_only_deletes_orphaned_files(
+    orphan_test_setup,
+):
+    """
+    Verify that purge deletes only orphaned files.
+
+    Old orphan       -> DELETE
+    Old approved     -> KEEP
+    Recent orphan    -> KEEP
+    """
+
+    upload_dir = orphan_test_setup
+
+    # --------------------------------------------------------
+    # Old orphan
+    # --------------------------------------------------------
+
+    orphan_file = create_old_pdf(
+        upload_dir,
+        "SUP010",
+        "INV014",
+        age_days=3,
+    )
+
+    # --------------------------------------------------------
+    # Old approved invoice
+    # --------------------------------------------------------
+
+    approved_file = create_old_pdf(
+        upload_dir,
+        "SUP010",
+        "INV015",
+        age_days=3,
+    )
+
+    invoice_service.invoices[
+        ("SUP010", "INV015")
+    ] = {
+        "invoice_number": "INV015",
+        "supplier_id": "SUP010",
+        "status": InvoiceStatus.approved,
+        "document_url": str(approved_file),
+    }
+
+    # --------------------------------------------------------
+    # Recent orphan
+    # --------------------------------------------------------
+
+    recent_file = create_recent_pdf(
+        upload_dir,
+        "SUP010",
+        "INV016",
+    )
+
+    # --------------------------------------------------------
+    # Execute purge
+    # --------------------------------------------------------
+
+    result = (
+        invoice_service.purge_orphaned_invoice_files(
+            older_than_days=1,
+        )
+    )
+
+    # Only old orphan should be deleted
+    assert result["total"] == 1
+    assert result["deleted"] == 1
+
+    assert not orphan_file.exists()
+
+    # Approved file remains
+    assert approved_file.exists()
+
+    # Recent file remains
+    assert recent_file.exists()

@@ -1,4 +1,10 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import (
+    APIRouter,
+    HTTPException,
+    UploadFile,
+    File,
+    Query,
+)
 from fastapi.responses import FileResponse
 
 from app.schemas.invoice import (
@@ -48,31 +54,32 @@ def get_invoices():
 # GET INVOICE BY NUMBER
 # ============================================================
 
+
 @router.get(
-    "/invoices/{invoice_number}",
-    response_model=InvoiceResponse,
+    "/invoices/{supplier_id}/{invoice_number}",
 )
-def get_invoice(invoice_number: str):
-    """
-    Get a single invoice by invoice number.
-
-    Possible responses:
-        200 - Invoice found
-        404 - Invoice not found
-    """
-
+def get_invoice(
+    supplier_id: str,
+    invoice_number: str,
+):
     try:
         return get_invoice_by_number(
-            invoice_number
+            supplier_id=supplier_id,
+            invoice_number=invoice_number,
         )
 
-    except ValueError as e:
+    except ValueError as exc:
         raise HTTPException(
             status_code=404,
-            detail=str(e),
+            detail=str(exc),
         )
 
-
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        )
+    
 # ============================================================
 # CREATE / SUBMIT INVOICE
 # ============================================================
@@ -90,12 +97,6 @@ def submit_invoice(
 
     New invoices always start in:
         submitted
-
-    Possible responses:
-        201 - Invoice created
-        400 - Business validation error
-        404 - Purchase Order not found
-        409 - Duplicate invoice
     """
 
     try:
@@ -106,20 +107,14 @@ def submit_invoice(
         message = str(e)
         lower_message = message.lower()
 
-        # ----------------------------------------------------
         # Duplicate invoice
-        # ----------------------------------------------------
-
         if "already exists" in lower_message:
             raise HTTPException(
                 status_code=409,
                 detail=message,
             )
 
-        # ----------------------------------------------------
         # Purchase Order not found
-        # ----------------------------------------------------
-
         if (
             "purchase order" in lower_message
             and "not found" in lower_message
@@ -129,10 +124,7 @@ def submit_invoice(
                 detail=message,
             )
 
-        # ----------------------------------------------------
         # Other business validation errors
-        # ----------------------------------------------------
-
         raise HTTPException(
             status_code=400,
             detail=message,
@@ -142,105 +134,79 @@ def submit_invoice(
 # ============================================================
 # TRANSITION INVOICE
 # ============================================================
-
 @router.post(
-    "/invoices/{invoice_number}/transition",
+    "/invoices/{supplier_id}/{invoice_number}/transition",
     response_model=InvoiceResponse,
 )
 def transition_invoice_status(
+    supplier_id: str,
     invoice_number: str,
     transition: InvoiceTransition,
 ):
     """
-    Change the invoice status using the invoice state machine.
-
-    Allowed transitions:
-
-        submitted -> approved
-        submitted -> disputed
-        submitted -> rejected
-
-        disputed -> approved
-        disputed -> adjusted
-        disputed -> rejected
-
-    Possible responses:
-        200 - Transition successful
-        400 - Illegal transition / validation error
-        404 - Invoice not found
+    Change invoice status using the invoice state machine.
     """
 
     try:
         return transition_invoice(
+            supplier_id=supplier_id,
             invoice_number=invoice_number,
-
-            # NEW audit fields
             actor_id=transition.actor_id,
             actor_name=transition.actor_name,
             role=transition.role,
-
             target_state=transition.target_state,
             reason=transition.reason,
         )
 
     except ValueError as e:
-
         message = str(e)
         lower_message = message.lower()
 
-        # ----------------------------------------------------
-        # Invoice not found
-        # ----------------------------------------------------
-
-        if "invoice not found" in lower_message:
+        # Invoice does not exist
+        if "invoice" in lower_message and "not found" in lower_message:
             raise HTTPException(
                 status_code=404,
-                detail=message,
+                detail="Invoice not found.",
             )
 
-        # ----------------------------------------------------
-        # Illegal state transition
-        # ----------------------------------------------------
-
+        # Other business validation errors
         raise HTTPException(
             status_code=400,
             detail=message,
         )
-
 
 # ============================================================
 # ADJUST INVOICE
 # ============================================================
 
 @router.post(
-    "/invoices/{invoice_number}/adjust",
+    "/invoices/{supplier_id}/{invoice_number}/adjust",
     response_model=InvoiceResponse,
 )
 def adjust_invoice_endpoint(
+    supplier_id: str,
     invoice_number: str,
     adjustment: InvoiceAdjustment,
 ):
     """
     Adjust a disputed invoice.
 
-    This endpoint changes the invoice amount and moves
-    the invoice from:
+    Flow:
 
-        disputed -> adjusted
-
-    After that, the normal transition endpoint can be used:
-
-        adjusted -> approved
-
-    Possible responses:
-        200 - Invoice adjusted successfully
-        400 - Invoice cannot be adjusted
-        404 - Invoice not found
+        disputed
+            ↓
+        adjust
+            ↓
+        adjusted
+            ↓
+        transition
+            ↓
+        approved
     """
 
     try:
-
         return adjust_invoice(
+            supplier_id=supplier_id,
             invoice_number=invoice_number,
             adjustment=adjustment,
         )
@@ -250,101 +216,77 @@ def adjust_invoice_endpoint(
         message = str(e)
         lower_message = message.lower()
 
-        # ----------------------------------------------------
-        # Invoice not found
-        # ----------------------------------------------------
-
         if "invoice not found" in lower_message:
-
             raise HTTPException(
                 status_code=404,
                 detail=message,
             )
 
-        # ----------------------------------------------------
-        # Other adjustment errors
-        # ----------------------------------------------------
-
         raise HTTPException(
             status_code=400,
             detail=message,
         )
+
 
 # ============================================================
 # UPLOAD INVOICE DOCUMENT
 # ============================================================
 
 @router.post(
-    "/invoices/{invoice_number}/document",
+    "/invoices/{supplier_id}/{invoice_number}/document",
     response_model=InvoiceResponse,
 )
 def upload_document(
+    supplier_id: str,
     invoice_number: str,
     file: UploadFile = File(...),
 ):
     """
     Upload a PDF document for an existing invoice.
-
-    Possible responses:
-        200 - PDF uploaded successfully
-        400 - Invalid file / PDF / size
-        404 - Invoice not found
     """
 
     try:
         return upload_invoice_document(
-            invoice_number,
-            file,
+            supplier_id=supplier_id,
+            invoice_number=invoice_number,
+            file=file,
         )
 
     except ValueError as e:
-
         message = str(e)
         lower_message = message.lower()
 
-        # ----------------------------------------------------
         # Invoice does not exist
-        # ----------------------------------------------------
-
-        if "invoice not found" in lower_message:
+        if "invoice" in lower_message and "not found" in lower_message:
             raise HTTPException(
                 status_code=404,
-                detail=message,
+                detail="Invoice not found.",
             )
 
-        # ----------------------------------------------------
-        # Upload validation error
-        # ----------------------------------------------------
-
+        # Other validation/business errors
         raise HTTPException(
             status_code=400,
             detail=message,
         )
 
-
 # ============================================================
 # DOWNLOAD INVOICE DOCUMENT
 # ============================================================
-
 @router.get(
-    "/invoices/{invoice_number}/document",
+    "/invoices/{supplier_id}/{invoice_number}/document",
 )
 def download_invoice_document(
+    supplier_id: str,
     invoice_number: str,
 ):
     """
     Download the PDF document attached to an invoice.
-
-    Possible responses:
-        200 - PDF returned
-        404 - Invoice/document/file not found
-        400 - Other document error
     """
 
     try:
-
         filepath = get_invoice_document(
-            invoice_number
+            supplier_id=supplier_id,
+            invoice_number=invoice_number,
         )
 
         return FileResponse(
@@ -354,49 +296,44 @@ def download_invoice_document(
         )
 
     except ValueError as e:
-
         message = str(e)
         lower_message = message.lower()
 
         # ----------------------------------------------------
-        # Invoice not found
+        # 1. Document is not associated with the invoice
         # ----------------------------------------------------
-
-        if "invoice not found" in lower_message:
-            raise HTTPException(
-                status_code=404,
-                detail=message,
-            )
-
-        # ----------------------------------------------------
-        # Document not found
-        # ----------------------------------------------------
-
         if "document not found" in lower_message:
             raise HTTPException(
                 status_code=404,
-                detail=message,
+                detail="Document not found.",
             )
 
         # ----------------------------------------------------
-        # Physical file missing
+        # 2. Physical document file was deleted/missing
         # ----------------------------------------------------
-
-        if "file does not exist" in lower_message:
+        if "document does not exist" in lower_message:
             raise HTTPException(
                 status_code=404,
-                detail=message,
+                detail="File does not exist.",
             )
 
         # ----------------------------------------------------
-        # Other document errors
+        # 3. Invoice itself does not exist
         # ----------------------------------------------------
+        if "invoice" in lower_message and "not found" in lower_message:
+            raise HTTPException(
+                status_code=404,
+                detail="Invoice not found.",
+            )
 
+        # ----------------------------------------------------
+        # 4. Other validation/business errors
+        # ----------------------------------------------------
         raise HTTPException(
             status_code=400,
             detail=message,
         )
-
+    
 # ============================================================
 # FIND ORPHANED INVOICE FILES
 # ============================================================
@@ -405,14 +342,51 @@ def download_invoice_document(
     "/maintenance/orphaned-invoice-files",
     response_model=OrphanedFileCleanupResponse,
 )
-def find_orphaned_files():
+def find_orphaned_files(
+    older_than_days: int = Query(
+        default=1,
+        ge=0,
+        description=(
+            "Only files older than this number "
+            "of days are considered orphaned."
+        ),
+    ),
+):
+    """
+    Find invoice files that have remained incomplete
+    beyond the specified age threshold.
 
-    orphaned_files = find_orphaned_invoice_files()
+    Terminal invoice states:
+        approved
+        rejected
 
-    return {
-        "total": len(orphaned_files),
-        "orphaned_files": orphaned_files,
-    }
+    Non-terminal states:
+        submitted
+        disputed
+        adjusted
+    """
+
+    try:
+
+        orphaned_files = (
+            find_orphaned_invoice_files(
+                older_than_days=older_than_days,
+            )
+        )
+
+        return {
+            "total": len(
+                orphaned_files
+            ),
+            "orphaned_files": orphaned_files,
+        }
+
+    except ValueError as e:
+
+        raise HTTPException(
+            status_code=400,
+            detail=str(e),
+        )
 
 
 # ============================================================
@@ -423,6 +397,30 @@ def find_orphaned_files():
     "/maintenance/orphaned-invoice-files",
     response_model=OrphanedFilePurgeResponse,
 )
-def purge_orphaned_files():
+def purge_orphaned_files(
+    older_than_days: int = Query(
+        default=1,
+        ge=0,
+        description=(
+            "Only files older than this number "
+            "of days can be deleted."
+        ),
+    ),
+):
+    """
+    Delete invoice files that have remained incomplete
+    beyond the specified age threshold.
+    """
 
-    return purge_orphaned_invoice_files()
+    try:
+
+        return purge_orphaned_invoice_files(
+            older_than_days=older_than_days,
+        )
+
+    except ValueError as e:
+
+        raise HTTPException(
+            status_code=400,
+            detail=str(e),
+        )

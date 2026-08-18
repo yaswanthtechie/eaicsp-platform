@@ -499,32 +499,33 @@ The invoice number uniquely identifies the invoice within the supplier context.
 The invoice lifecycle was implemented as a controlled state machine.
 
 ```text
-                     ┌───────────────┐
-                     │    Disputed   │
-                     └───────┬───────┘
-                             │
-                             ▼
-                        ┌───────────┐
-                        │ Resolved  │
-                        └─────┬─────┘
-                              │
-                              ▼
-┌─────────┐      ┌───────────┐      ┌──────────┐
-│ Created │ ───► │ Submitted │ ───► │ Approved │
-└─────────┘      └───────────┘      └──────────┘
-                       │
-                       │
-                       └──────────────► Disputed
+
+                    
+ Submitted
+   │
+   ├──────────────► Approved
+   │
+   ├──────────────► Rejected
+   │
+   ▼
+Disputed
+   │
+   ├──────────────► Approved
+   ├──────────────► Rejected
+   └──────────────► Adjusted
+                         │
+                         ├────────► Approved
+                         └────────► Rejected
 ```
 
 The important business states are:
 
 ```text
-created
 submitted
 disputed
-resolved
+adjusted
 approved
+rejected
 ```
 
 ---
@@ -535,33 +536,13 @@ Invoice status changes are controlled rather than allowing arbitrary status upda
 
 The intended lifecycle is:
 
-| Current Status | Allowed Status     |
-| -------------- | ------------------ |
-| Created        | Submitted          |
-| Submitted      | Approved, Disputed |
-| Disputed       | Resolved           |
-| Resolved       | Approved           |
-| Approved       | None               |
+Current Status	Allowed Status
+Submitted	    Approved, Disputed, Rejected
+Disputed	    Approved, Rejected, Adjusted
+Adjusted	    Approved, Rejected
+Approved	    None
+Rejected	    None
 
-Therefore:
-
-```text
-Created
-   │
-   ▼
-Submitted
-   │
-   ├──────────────► Approved
-   │
-   ▼
-Disputed
-   │
-   ▼
-Resolved
-   │
-   ▼
-Approved
-```
 
 ---
 
@@ -570,11 +551,16 @@ Approved
 The following transitions are legal:
 
 ```text
-Created → Submitted
 Submitted → Approved
 Submitted → Disputed
-Disputed → Resolved
-Resolved → Approved
+Submitted → Rejected
+
+Disputed → Approved
+Disputed → Rejected
+Disputed → Adjusted
+
+Adjusted → Approved
+Adjusted → Rejected
 ```
 
 Each legal transition represents a valid business event.
@@ -606,14 +592,27 @@ The service rejects transitions that do not follow the defined invoice lifecycle
 Examples:
 
 ```text
-Created → Approved
-Created → Disputed
-Submitted → Resolved
-Disputed → Approved
+Submitted → Submitted
+Submitted → Adjusted
+
 Approved → Submitted
 Approved → Disputed
-Approved → Created
-Resolved → Submitted
+Approved → Rejected
+Approved → Adjusted
+Approved → Approved
+
+Disputed → Submitted
+Disputed → Disputed
+
+Rejected → Submitted
+Rejected → Disputed
+Rejected → Approved
+Rejected → Adjusted
+Rejected → Rejected
+
+Adjusted → Submitted
+Adjusted → Disputed
+Adjusted → Adjusted
 ```
 
 Illegal transitions return:
@@ -626,7 +625,7 @@ Example:
 
 ```json
 {
-    "detail": "Cannot transition invoice from created to approved."
+    "detail": "Cannot transition invoice from Rejected to approved."
 }
 ```
 
@@ -952,29 +951,31 @@ The existence of dispute information is also used by supplier performance calcul
 
 # 29. Invoice Resolution
 
-Once a disputed invoice has been investigated, it can move to:
+Once a disputed invoice has been investigated, it can be resolved through one of the following outcomes:
 
-```text
-Resolved
-```
-
-The resolved state represents that the dispute investigation has completed.
-
-The invoice can then proceed to:
-
-```text
-Resolved → Approved
-```
-
-An invoice cannot directly move from:
-
-```text
 Disputed → Approved
-```
+Disputed → Rejected
+Disputed → Adjusted
 
-because the resolution step must occur first.
+An Adjusted invoice represents an invoice whose line items or invoice details have been corrected after the dispute.
 
----
+An adjusted invoice can then proceed to:
+
+Adjusted → Approved
+Adjusted → Rejected
+
+Therefore, the dispute resolution flow is:
+
+Disputed
+   │
+   ├──────────────► Approved
+   │
+   ├──────────────► Rejected
+   │
+   └──────────────► Adjusted
+                         │
+                         ├────────► Approved
+                         └────────► Rejected
 
 # 30. Invoice Dispute History
 
@@ -1352,7 +1353,336 @@ Save document_url
 
 ---
 
-# 44. Blockers Encountered 
+# 44. Orphaned Invoice Files
+
+
+The invoice service provides a mechanism to identify invoice PDF files that
+are no longer properly associated with an active invoice record.
+
+
+An invoice PDF is considered orphaned when:
+
+
+1. The file is a PDF inside the invoice upload directory.
+2. The file is older than the configured `older_than_days` threshold.
+3. The corresponding invoice record does not exist, or the invoice exists but
+   the file is not considered validly associated with a completed invoice.
+
+
+The default threshold is:
+
+
+```text
+older_than_days = 1
+
+This means files that are less than one day old are not considered orphaned.
+
+## 44.1 Invoice Terminal States
+
+The following invoice states are considered terminal:
+
+Approved
+Rejected
+
+Files belonging to invoices in these states are protected and are not
+considered orphaned.
+
+The following states are non-terminal:
+
+Submitted
+Disputed
+Adjusted
+
+Files associated with invoices in these states can be considered orphaned
+when they exceed the configured age threshold.
+
+## 44.2 Orphan Detection Rules
+
+
+The service checks invoice PDF files under supplier-specific directories:
+
+uploads/
+├── SUP001/
+│   ├── INV1001.pdf
+│   └── INV1002.pdf
+├── SUP002/
+│   └── INV2001.pdf
+
+The supplier ID and invoice number are used together to identify the
+corresponding invoice:
+
+(supplier_id, invoice_number)
+
+For example:
+
+SUP001/INV1001.pdf
+
+is associated with:
+
+("SUP001", "INV1001")
+
+
+44.3 Cases Considered Orphaned
+
+Case 1: Invoice Record Does Not Exist
+
+If an old PDF file exists but there is no corresponding invoice record, the
+file is considered orphaned.
+
+PDF file exists
+      │
+      ▼
+Invoice record does not exist
+      │
+      ▼
+ORPHANED
+
+The result includes:
+
+reason:
+"No matching invoice record exists."
+Case 2: Invoice Is Non-Terminal and Document Is Not Registered
+
+If the invoice exists but:
+
+document_url = None
+
+the physical PDF file has no registered association with the invoice.
+
+The file is therefore considered orphaned if it is older than the configured
+threshold.
+
+Invoice exists
+      │
+      ▼
+Non-terminal status
+      │
+      ▼
+document_url missing
+      │
+      ▼
+ORPHANED
+Case 3: Stored Document Path Does Not Match
+
+If the invoice has a document_url, but the stored path does not match the
+actual PDF file being scanned, the file is considered orphaned.
+
+For example:
+
+Actual file:
+uploads/SUP001/INV1001.pdf
+
+
+Invoice document_url:
+uploads/SUP001/different-file.pdf
+
+The file is reported with:
+
+reason:
+"File path does not match the invoice document."
+Case 4: Non-Terminal Invoice With an Old Registered File
+
+If:
+
+the invoice exists,
+the invoice is non-terminal,
+the document is correctly registered,
+and the file is older than the configured threshold,
+
+the file is still considered orphaned because the invoice has remained
+incomplete beyond the configured age threshold.
+
+Non-terminal invoice
+        │
+        ▼
+Correct document association
+        │
+        ▼
+File older than threshold
+        │
+        ▼
+ORPHANED
+
+
+30.4 Recent Files Are Protected
+
+Files newer than the configured threshold are ignored.
+
+For example, with:
+
+older_than_days = 1
+
+a recently uploaded invoice PDF is not considered orphaned.
+
+File age < 1 day
+      │
+      ▼
+NOT ORPHANED
+
+This prevents recently uploaded invoice documents from being incorrectly
+identified or deleted.
+
+44.5 Finding Orphaned Files
+
+The service provides:
+
+find_orphaned_invoice_files(
+    older_than_days=1
+)
+
+The function scans the invoice upload directory and returns information about
+files identified as orphaned.
+
+Each result can contain:
+
+invoice_number
+supplier_id
+file_path
+file_name
+size_bytes
+invoice_status
+file_age_days
+reason
+
+Example:
+
+{
+    "invoice_number": "INV1001",
+    "supplier_id": "SUP001",
+    "file_name": "INV1001.pdf",
+    "invoice_status": "submitted",
+    "file_age_days": 2.0,
+    "reason": "Invoice is not in a terminal state and has remained incomplete beyond the configured age threshold."
+}
+
+If the upload directory does not exist, the function returns an empty list.
+
+A negative older_than_days value is rejected.
+
+
+44.5. Purging Orphaned Invoice Files
+-----------------------------------------------------------------------------
+
+The invoice service also provides a purge operation that physically deletes
+files identified as orphaned.
+
+The function is:
+
+purge_orphaned_invoice_files(
+    older_than_days=1
+)
+
+The purge operation first calls:
+
+find_orphaned_invoice_files()
+
+and deletes only the files returned by the orphan-detection process.
+
+44.6 Purge Flow
+
+The purge process is:
+
+Find PDF files
+      │
+      ▼
+Check file age
+      │
+      ▼
+Ignore recent files
+      │
+      ▼
+Find matching invoice
+      │
+      ▼
+Check invoice status
+      │
+      ├──────────────► Approved / Rejected
+      │                      │
+      │                      ▼
+      │                   KEEP FILE
+      │
+      ▼
+Check document association
+      │
+      ▼
+Identify orphan
+      │
+      ▼
+Delete file
+31.2 Terminal Invoice Files Are Never Deleted
+
+Files belonging to completed invoices are protected.
+
+Approved → KEEP
+Rejected → KEEP
+
+Therefore:
+
+Old approved invoice PDF → KEEP
+Old rejected invoice PDF → KEEP
+
+The purge operation only deletes files identified as orphaned.
+
+44.7 Recent Orphan Files Are Not Deleted
+
+Even if a file does not have a matching invoice record, it will not be deleted
+if it is newer than the configured threshold.
+
+For example:
+
+Recent orphan PDF
+      │
+      ▼
+Below age threshold
+      │
+      ▼
+KEEP
+
+This provides protection against deleting files that may have been uploaded
+recently but have not yet been associated with an invoice record.
+
+44.8 Purge Result
+
+The purge operation returns:
+
+{
+    "total": 3,
+    "deleted": 3,
+    "files": [],
+    "older_than_days": 1
+}
+
+The result contains:
+
+Field	Description
+total	Total number of orphaned files identified
+deleted	Number of files successfully deleted
+files	Details of files successfully deleted
+older_than_days	Age threshold used for the purge
+
+If one file cannot be deleted, the service continues processing the remaining
+orphaned files.
+
+44.9 Safety Rules
+
+The orphan-file cleanup process follows these rules:
+
+Recent file              → KEEP
+Approved invoice         → KEEP
+Rejected invoice         → KEEP
+Old orphaned file        → DELETE
+
+The cleanup process therefore avoids deleting:
+
+Recently uploaded PDFs
+Approved invoice documents
+Rejected invoice documents
+
+Only files identified by the orphan-detection logic are eligible for
+deletion.
+
+# . Blockers Encountered 
+-----------------------------
 
 ## Blocker 1 — Invoice Validation Was Not a Simple CRUD Operation
 
