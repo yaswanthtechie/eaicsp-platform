@@ -1,7 +1,7 @@
 import pandas as pd
 
-from sku_forecast import forecast_sku_demand
-from hierarchy import bottom_up_reconcile
+from src.sku_forecast import forecast_sku_demand
+from src.hierarchy import bottom_up_reconcile
 
 
 # ============================================================
@@ -120,39 +120,29 @@ region_total = region_result[
     "predicted"
 ].sum()
 
+print("\n=== PER-REGION RECONCILIATION CHECK ===")
 
-print("\n=== RECONCILIATION CHECK ===")
-
-print(
-    f"SKU total      : {sku_total:.2f}"
+region_predictions = (
+    region_result
+    .set_index("region")["predicted"]
 )
 
-print(
-    f"Category total : {category_total:.2f}"
-)
+for region, region_prediction in region_predictions.items():
 
-print(
-    f"Region total   : {region_total:.2f}"
-)
+    category_sum = category_result.loc[
+        category_result["region"] == region,
+        "predicted"
+    ].sum()
 
+    print(
+        f"{region}: "
+        f"Category total = {category_sum:.2f}, "
+        f"Region total = {region_prediction:.2f}"
+    )
 
-# ============================================================
-# VERIFY TOTALS
-# ============================================================
+    assert abs(category_sum - region_prediction) < 1e-9, (
+        f"{region}: "
+        f"{region_prediction} != {category_sum}"
+    )
 
-assert abs(
-    sku_total - category_total
-) < 1e-6
-
-assert abs(
-    category_total - region_total
-) < 1e-6
-
-
-print(
-    "\nReconciliation successful!"
-)
-
-print(
-    "SKU total = Category total = Region total"
-)
+print("\nPer-region reconciliation successful!")

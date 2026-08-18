@@ -6,7 +6,7 @@ import pandas as pd
 from prophet.serialize import model_from_json
 
 from src.data import load_sales_data
-from src.train_xgboost import predict_future_xgboost
+from src.inference import predict_future_xgboost
 from src.ensemble import (
     weighted_ensemble,
     ensemble_interval,

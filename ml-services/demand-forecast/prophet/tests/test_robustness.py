@@ -7,6 +7,8 @@ from src.predict import predict
 
 def valid_history():
 
+    np.random.seed(42)
+
     dates = pd.date_range(
         start="1992-01-01",
         periods=60,

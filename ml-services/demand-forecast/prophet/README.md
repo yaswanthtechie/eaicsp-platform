@@ -448,23 +448,19 @@ tests/
  ├── test_ensemble.py
 ```
 
-
 ## Hierarchical Forecasting
 
-In R4, I added hierarchical forecasting on top of the existing
-SKU-level forecast.
+In R4, hierarchical forecasting was added on top of the existing SKU-level forecasting pipeline.
 
 The hierarchy used in the local mock data is:
 
-SKU -> Category -> Region
+**SKU → Category → Region**
 
-I used a bottom-up approach because the existing forecasting
-pipeline already produces predictions at SKU level. Instead of
-training separate models for category and region, I aggregate
-the SKU predictions.
+A **bottom-up approach** is used because the existing forecasting pipeline already produces predictions at SKU level. Instead of training separate models for category and region, SKU-level predictions are aggregated upward.
 
 For example:
 
+```text
 SKU001 = 100
 SKU002 = 150
 
@@ -475,50 +471,103 @@ SKU004 = 70
 
 Furniture = 80 + 70 = 150
 
-Region total = 250 + 150 = 400
+Region Total = 250 + 150 = 400
+```
 
-So the totals are consistent:
+Therefore:
 
-SKU total = 400
-Category total = 400
-Region total = 400
- I used Prophet for the hierarchy demo because the existing XGBoost model is trained as a global demand model and is not SKU-specific. To produce valid SKU-level forecasts, I generated forecasts separately for each SKU using Prophet and then applied bottom-up reconciliation.
+```text
+SKU Total      = 400
+Category Total = 400
+Region Total   = 400
+```
 
-I also added a test to verify that the totals at each level
-remain equal after reconciliation.
+Prophet is used for the hierarchy demonstration because the existing XGBoost model is trained as a global demand model and is not designed for direct SKU-specific forecasting.
 
-The hierarchy data is local/mock data and does not depend on
-any shared infrastructure.
-# xg boost feature importance and sanity check
+Therefore, separate Prophet forecasts are generated for each SKU, and the predictions are then reconciled using the bottom-up approach.
 
-XGBoost feature importance was extracted after training. The highest importance was observed for rolling_mean_30 (43.96%), followed by rolling_mean_7 (30.30%) and year (13.20%). These features are reasonable for demand forecasting because recent demand history and long-term trend are expected to influence future demand.
+The hierarchy demo uses local mock data stored in:
 
-No single random feature dominated the model. Calendar features such as day_of_week and is_holiday had very low importance, which is reasonable because the dataset is monthly. The is_holiday feature had zero importance, indicating that it did not contribute to the current model.
+```text
+data/hierarchy_sales.csv
+```
 
-Conclusion: Feature importance was considered reasonable and no obvious random-feature dominance was observed.
+The reconciliation logic includes a **per-region reconciliation check**.
+
+Example output:
+
+```text
+East: Category total = 13248.62, Region total = 13248.62
+North: Category total = 15636.19, Region total = 15636.19
+South: Category total = 10144.81, Region total = 10144.81
+West: Category total = 17174.28, Region total = 17174.28
+
+Per-region reconciliation successful!
+```
+
+The overall totals were:
+
+```text
+SKU total      : 56203.90
+Category total : 56203.90
+Region total   : 56203.90
+```
+
+This confirms that the hierarchy is consistent at both the overall and per-region levels.
+
+---
+
+# XGBoost Feature Importance and Sanity Check
+
+XGBoost feature importance was extracted after training to understand which features contributed most to the model.
+
+The highest feature importance was observed for:
+
+```text
+rolling_mean_30 = 43.96%
+rolling_mean_7  = 30.30%
+year            = 13.20%
+```
+
+These features are reasonable for demand forecasting because recent demand history and long-term trends are expected to influence future demand.
+
+No single random or irrelevant feature dominated the model.
+
+Calendar features such as `day_of_week` and `is_holiday` had very low importance. This is reasonable because the current dataset contains monthly demand data rather than daily demand data.
+
+The `is_holiday` feature had zero importance, indicating that it did not contribute to the current model.
+
+### Conclusion
+
+The feature importance distribution was considered reasonable for the current monthly demand dataset, and no obvious random-feature dominance was observed.
+
+---
+
 ## Automated Retraining
 
 R4 also includes a simulated automated retraining workflow.
 
-NOTE:The original design considered weekly retraining, but running hundreds of weekly historical cycles on the full dataset was computationally expensive and resulted in unnecessary repeated model training when no new monthly data was available.
+The original design considered weekly retraining. However, running hundreds of weekly historical cycles on the full dataset was computationally expensive and resulted in repeated model training when no new monthly data was available.
 
-Therefore, for this local demonstration, retraining is simulated on a yearly schedule to reduce execution time while still demonstrating the complete retraining workflow.
+Therefore, for this local demonstration, retraining is simulated on a **yearly schedule** to reduce execution time while still demonstrating the complete retraining workflow.
 
 For each retraining cycle:
 
 1. A training window is selected from the available historical data.
-2. A validation period is kept separate from training.
+2. A separate validation period is kept aside.
 3. Prophet and XGBoost are retrained.
 4. Their ensemble prediction is evaluated on the held-out validation set.
 5. The result is logged as a new MLflow run.
-6. The new model is promoted only when its validation RMSE is better
-   than the currently promoted model.
+6. The new model is compared with the currently promoted model.
+7. **MAPE is used as the primary promotion metric, with RMSE used as a tie-breaker when MAPE values are effectively equal.**
 
-This is intentionally implemented as a local simulation rather than
-using Airflow or shared infrastructure.
+The actual promotion policy is therefore:
 
-The workflow therefore demonstrates the retraining and model-promotion
-logic without requiring external infrastructure.
+```text
+Primary metric : MAPE
+Tie-breaker    : RMSE
+```
+
 
 ---
 
@@ -528,17 +577,16 @@ R4 includes robustness tests for invalid and unexpected input data.
 
 The prediction pipeline was tested with cases including:
 
-- Missing demand values
-- Negative demand values
-- Missing dates
-- Duplicate dates
-- Non-numeric demand values
-- Empty history
-- Invalid forecast horizon
-- Extreme demand values
+* Missing demand values
+* Negative demand values
+* Missing dates
+* Duplicate dates
+* Non-numeric demand values
+* Empty history
+* Invalid forecast horizon
+* Extreme demand values
 
-The expected behavior is a clear validation error or safe handling
-instead of an unhandled exception.
+The expected behavior is a clear validation error or safe handling instead of an unhandled exception.
 
 All robustness tests passed successfully.
 
@@ -550,45 +598,51 @@ Additional tests were added for the Prophet + XGBoost ensemble.
 
 The tests cover:
 
-- Valid ensemble weights
-- Prophet weight equal to zero
-- XGBoost weight equal to zero
-- Valid combinations of weights
-- Weights that do not sum to one
-- Negative weights
-- Weighted ensemble prediction
-- Prediction interval validity
+* Valid ensemble weights
+* Prophet weight equal to zero
+* XGBoost weight equal to zero
+* Valid combinations of weights
+* Weights that do not sum to one
+* Negative weights
+* Weighted ensemble prediction
+* Prediction interval validity
 
-The prediction interval is also checked to ensure that:
+The prediction interval is also checked to ensure:
 
+```text
 lower <= predicted <= upper
+```
 
 The complete test suite currently passes with:
 
+```text
 26 passed
+```
 
 ---
 
 ## Seasonal Naive Baseline
 
-As a stretch goal, a seasonal-naive baseline was added as an additional
-reference model.
+As a stretch goal, a seasonal-naive baseline was added as an additional reference model.
 
-The seasonal-naive method predicts each future month using the demand
-from the same month in the previous year.
+The seasonal-naive method predicts each future month using the demand from the same month in the previous year.
 
 For example:
 
+```text
 2015-01 -> 2016-01
 2015-02 -> 2016-02
 2015-03 -> 2016-03
+```
 
-This baseline is not used for serving. It is included only as a simple
-reference point for model comparison.
+This baseline is **not used for serving**. It is included only as a simple reference point for model comparison.
 
-The seasonal-naive implementation also includes validation for empty
-data, insufficient history, invalid forecast horizons, and missing
-demand values.
+The seasonal-naive implementation also includes validation for:
+
+* Empty data
+* Insufficient history
+* Invalid forecast horizons
+* Missing demand values
 
 All seasonal-naive tests passed successfully.
 
@@ -600,20 +654,111 @@ The complete test suite was executed locally.
 
 Result:
 
+```text
 26 passed
+```
 
 No test failures were observed.
 
-The test suite covers ensemble behavior, feature generation,
-hierarchical reconciliation, robustness handling, seasonal-naive
-forecasting, and the existing prediction service.
+The test suite covers:
 
-The project intentionally uses local/mock data and does not require
-shared infrastructure for the R4 implementation.
+* Ensemble behavior
+* Feature generation
+* Hierarchical reconciliation
+* Per-region reconciliation
+* Robustness handling
+* Seasonal-naive forecasting
+* Existing prediction service
 
-# comparision table
-Model	         Type	            MAPE  	                RMSE	                      Production Serving
-Seasonal Naive	Baseline		      --                    --                          ❌ Reference only
-Prophet	        Time-series model	3.76%	                 18,547.88	                    ✅
-XGBoost	        ML model	    	3.17%                   15,897.89                       ✅
-Prophet+XGBoost	Ensemble		 	 --                        --                           ✅
+The project intentionally uses local/mock data and does not require shared infrastructure for the R4 implementation.
+
+---
+
+# Model Comparison
+
+The current model evaluation produced the following results:
+
+| Model          |      MAPE |         RMSE |
+| -------------- | --------: | -----------: |
+| Seasonal Naive |     3.06% |     15492.76 |
+| Prophet        |     3.46% |     17378.02 |
+| XGBoost        |     2.24% |     12299.57 |
+| **Ensemble**   | **2.19%** | **11354.85** |
+
+The ensemble uses the following weights:
+
+```text
+Prophet = 0.3
+XGBoost = 0.7
+```
+
+The tested ensemble combinations were:
+
+| Prophet Weight | XGBoost Weight |      MAPE |         RMSE |
+| -------------: | -------------: | --------: | -----------: |
+|            0.5 |            0.5 |     2.28% |     12091.61 |
+|            0.4 |            0.6 |     2.22% |     11591.07 |
+|        **0.3** |        **0.7** | **2.19%** | **11354.85** |
+
+Among the tested combinations, **0.3 Prophet + 0.7 XGBoost produced the best result**.
+
+### Comparison Finding
+
+The Seasonal Naive baseline provides a useful reference point, but in the current evaluation:
+
+* XGBoost performs better than Seasonal Naive.
+* The Ensemble performs better than XGBoost.
+* Prophet performs worse than the other three models.
+
+The Ensemble achieved the best MAPE and RMSE among the evaluated models:
+
+```text
+Ensemble MAPE = 2.19%
+Ensemble RMSE = 11354.85
+```
+
+Therefore, the current results support using the **Prophet + XGBoost ensemble with 30% Prophet and 70% XGBoost** as the best-performing configuration among the tested models.
+
+---
+
+## Final R4 Result
+
+The R4 implementation now demonstrates:
+
+```text
+SKU-level forecasting
+        ↓
+Hierarchical forecasting
+        ↓
+SKU → Category → Region
+        ↓
+Per-region reconciliation
+        ↓
+XGBoost feature importance
+        ↓
+Prophet + XGBoost ensemble
+        ↓
+Seasonal Naive baseline
+        ↓
+Robustness testing
+        ↓
+Automated retraining simulation
+        ↓
+MLflow experiment tracking
+        ↓
+Model promotion logic
+```
+
+The final selected ensemble uses:
+
+```text
+Prophet = 30%
+XGBoost = 70%
+```
+
+with the current evaluation results:
+
+```text
+MAPE = 2.19%
+RMSE = 11354.85
+```
