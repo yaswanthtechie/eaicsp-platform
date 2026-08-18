@@ -6,17 +6,24 @@ from typing import Any
 
 from app.core.database import SessionLocal
 from app.models.audit import ComplianceAudit
+from app.models.compliance_override import ComplianceOverride
 from app.services.audit_service import write_audit
 from app.services.sanctions_service import screen_entity
-
-
+from app.services.override_service import (
+    normalize_override_name,
+    normalize_source,
+)
 
 
 def refresh_sanctions_data() -> None:
-   
+  
 
-    from app.services.downloader_service import download_all_lists
-    from app.services.sanctions_service import load_all_sanctions
+    from app.services.downloader_service import (
+        download_all_lists,
+    )
+    from app.services.sanctions_service import (
+        load_all_sanctions,
+    )
 
     download_all_lists()
     load_all_sanctions()
@@ -24,13 +31,16 @@ def refresh_sanctions_data() -> None:
 
 def load_all_sanctions() -> None:
   
-
-    from app.services.sanctions_service import load_all_sanctions
+    from app.services.sanctions_service import (
+        load_all_sanctions,
+    )
 
     load_all_sanctions()
 
 
 def generate_screening_run_id() -> str:
+  
+
     return datetime.now(
         timezone.utc
     ).strftime(
@@ -39,10 +49,11 @@ def generate_screening_run_id() -> str:
 
 
 
+
 def get_latest_audits(
     db,
 ) -> dict[str, ComplianceAudit]:
-  
+   
 
     records = (
         db.query(ComplianceAudit)
@@ -76,10 +87,11 @@ def get_latest_audits(
 
 
 
+
 def get_previously_cleared_entities(
     db,
 ) -> list[ComplianceAudit]:
-    
+   
     latest_records = get_latest_audits(db)
 
     cleared_entities = []
@@ -92,15 +104,77 @@ def get_previously_cleared_entities(
     return cleared_entities
 
 
-
 def get_previous_cleared_entities(
     db,
 ) -> list[ComplianceAudit]:
-   
-
+    
     return get_previously_cleared_entities(db)
 
 
+
+def get_matching_override(
+    db,
+    entity_name: str,
+    result: dict[str, Any],
+):
+    
+
+    matched_name = (
+        result.get("matched_name")
+    )
+
+    if not matched_name:
+        return None
+
+    matched_lists = (
+        result.get("matched_lists")
+        or []
+    )
+
+    normalized_entity = (
+        normalize_override_name(
+            entity_name
+        )
+    )
+
+    normalized_match = (
+        normalize_override_name(
+            matched_name
+        )
+    )
+
+    for source in matched_lists:
+
+        if not source:
+            continue
+
+        normalized_source = (
+            normalize_source(
+                source
+            )
+        )
+
+        override = (
+            db.query(
+                ComplianceOverride
+            )
+            .filter(
+                ComplianceOverride.entity_name
+                == normalized_entity,
+
+                ComplianceOverride.matched_name
+                == normalized_match,
+
+                ComplianceOverride.source
+                == normalized_source,
+            )
+            .first()
+        )
+
+        if override:
+            return override
+
+    return None
 
 
 def rescreen_entity(
@@ -108,6 +182,7 @@ def rescreen_entity(
     entity,
     screening_run_id: str | None = None,
 ) -> dict[str, Any]:
+   
 
     if screening_run_id is None:
         screening_run_id = (
@@ -120,6 +195,7 @@ def rescreen_entity(
     )
 
     start = time.perf_counter()
+
 
     result = screen_entity(
         entity_name
@@ -138,6 +214,34 @@ def rescreen_entity(
     )
 
 
+    override = None
+
+    if is_flagged:
+
+        override = get_matching_override(
+            db=db,
+            entity_name=entity_name,
+            result=result,
+        )
+
+        if override:
+
+            # Suppress the sanctions match because
+            # compliance already reviewed it.
+            result["override_applied"] = True
+            result["is_flagged"] = False
+
+            is_flagged = False
+
+        else:
+
+            result["override_applied"] = False
+
+    else:
+
+        result["override_applied"] = False
+
+
 
     if not is_flagged:
 
@@ -153,7 +257,6 @@ def rescreen_entity(
                 2,
             ),
         }
-
 
 
     write_audit(
@@ -182,6 +285,7 @@ def rescreen_entity(
 
 
 def rescreen_cleared_entities() -> dict[str, Any]:
+   
 
     job_start = time.perf_counter()
 
@@ -193,7 +297,6 @@ def rescreen_cleared_entities() -> dict[str, Any]:
 
     try:
 
-    
         refresh_sanctions_data()
 
 
@@ -207,11 +310,17 @@ def rescreen_cleared_entities() -> dict[str, Any]:
             cleared_entities
         )
 
+        print(
+            f"Previously-cleared entities: "
+            f"{total_checked}"
+        )
+
         newly_flagged = 0
         still_clean = 0
 
         results = []
 
+    
 
         for entity in cleared_entities:
 
@@ -221,18 +330,19 @@ def rescreen_cleared_entities() -> dict[str, Any]:
                 screening_run_id=screening_run_id,
             )
 
-            results.append(result)
+            results.append(
+                result
+            )
 
             if result["newly_flagged"]:
                 newly_flagged += 1
             else:
                 still_clean += 1
 
-  
+ 
 
         db.commit()
 
-     
 
         total_duration_ms = (
             time.perf_counter()
@@ -263,13 +373,18 @@ def rescreen_cleared_entities() -> dict[str, Any]:
         db.close()
 
 
+
+
 def nightly_rescreen_job() -> dict[str, Any]:
+  
 
     print(
         "Starting nightly re-screen..."
     )
 
-    result = rescreen_cleared_entities()
+    result = (
+        rescreen_cleared_entities()
+    )
 
     print(
         "Re-screen completed: "
@@ -279,8 +394,6 @@ def nightly_rescreen_job() -> dict[str, Any]:
     )
 
     return result
-
-
 
 
 if __name__ == "__main__":

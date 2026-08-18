@@ -498,8 +498,13 @@ def test_bulk_screen_500_entities():
         entities
     )
 
-    duration = (
+    duration_ms = (
         time.perf_counter() - start
+    ) * 1000
+
+    print(
+        f"\nBulk screening 500 entities "
+        f"took {duration_ms:.2f} ms"
     )
 
     assert result["count"] == 500
@@ -513,9 +518,7 @@ def test_bulk_screen_500_entities():
         >= 0
     )
 
-    
-    assert duration < 100
-
+    assert duration_ms < 100
 
 
 
@@ -609,3 +612,12 @@ def test_clean_result_duration_is_non_negative():
 
 
 
+def test_ofac_missing_listing_date_is_handled():
+    result = sanctions_service.screen_entity(
+        "AEROCARIBBEAN AIRLINES"
+    )
+
+    assert result["is_flagged"] is True
+    assert result["risk_factors"]["recency"] == 0
+    assert result["risk_factors"]["match_confidence"] > 0
+    assert result["risk_factors"]["source_coverage"] > 0

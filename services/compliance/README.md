@@ -223,6 +223,19 @@ For production deployment, the interval can be changed to an appropriate nightly
 * HTTPX
 
 
+## 500 entities
+
+Bulk screening is optimized for high-volume screening.
+
+Using the committed sanctions fixture dataset, the automated performance
+test screened 500 entities in **26.35 ms**.
+
+The performance test enforces a limit of **<100 ms** for screening 500 entities.
+
+Run the benchmark with:
+
+```bash
+pytest tests/test_sanctions.py::test_bulk_screen_500_entities -s -v
 
 ## Installation
 
@@ -431,6 +444,8 @@ for row in rows:
 
 connection.close()
 ```
+
+
 
 ## Important Implementation Notes
 

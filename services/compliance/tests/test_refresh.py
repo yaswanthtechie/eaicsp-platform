@@ -771,3 +771,4 @@ def test_overall_supplier_risk_is_float():
         result,
         float,
     )
+

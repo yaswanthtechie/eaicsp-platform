@@ -27,6 +27,9 @@ def create_audit(
 
     db.add(record)
     db.commit()
+    db.refresh(record)
+
+    return record
 
 
 def test_get_latest_audits():
@@ -565,3 +568,65 @@ def test_nightly_rescreen_job(monkeypatch):
     assert result["still_clean"] == 8
     assert result["total_duration_ms"] == 25.5
     assert result["results"] == []
+
+def test_rescreen_respects_override(monkeypatch):
+    db = SessionLocal()
+
+    try:
+        record = create_audit(
+            db,
+            "ABC TEST COMPANY",
+            matched=False,
+        )
+
+        # Create false-positive override
+        from app.services.override_service import create_override
+
+        create_override(
+            db=db,
+            entity_name="ABC TEST COMPANY",
+            matched_name="ABC TEST COMPANY",
+            source="OFAC",
+            reason="Reviewed and confirmed false positive",
+            reviewed_by="compliance-team",
+        )
+
+        monkeypatch.setattr(
+            rescreen_service,
+            "screen_entity",
+            lambda name: {
+                "entity_name": name,
+                "is_flagged": True,
+                "matched_name": "ABC TEST COMPANY",
+                "matched_lists": ["OFAC"],
+                "matched_count": 1,
+                "match_score": 100,
+                "confidence": 1.0,
+                "risk_score": 90,
+                "risk_factors": {
+                    "match_confidence": 100,
+                    "source_coverage": 33.33,
+                    "recency": 100,
+                },
+            },
+        )
+
+        result = rescreen_service.rescreen_entity(
+            db=db,
+            entity=record,
+        )
+
+        assert result["newly_flagged"] is False
+
+        assert (
+            result["result"]["override_applied"]
+            is True
+        )
+
+        assert (
+            result["result"]["is_flagged"]
+            is False
+        )
+
+    finally:
+        db.close()
