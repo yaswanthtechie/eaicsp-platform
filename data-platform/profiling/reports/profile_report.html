@@ -3,6 +3,13 @@
 <html>
 <head>
 <title>Data Profiling Report</title>
+<link rel="stylesheet"
+href="https://cdn.datatables.net/2.3.7/css/dataTables.dataTables.min.css">
+
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+
+<script src="https://cdn.datatables.net/2.3.7/js/dataTables.min.js"></script>
+
 <style>
 body {
     font-family: Arial;
@@ -28,7 +35,64 @@ h1 {
 </head>
 <body>
 
+
+
 <h1>Data Profiling Report</h1>
+
+<h2>Data Quality Score</h2>
+
+<p><b>Score:</b> 70 / 100</p>
+<p><b>Missing Values:</b> 297</p>
+<p><b>Duplicate Rows:</b> 0</p>
+<p><b>Total Outliers:</b> 50</p>
+
+
+<h2>Worst Issues</h2>
+
+<table>
+<tr>
+<th>Rank</th>
+<th>Column</th>
+<th>Problems</th>
+<th>Severity</th>
+</tr>
+
+<tr>
+<td>1</td>
+<td>quantity_sold</td>
+<td>147 missing values, 50 outliers</td>
+<td>High</td>
+</tr>
+
+<tr>
+<td>2</td>
+<td>unit_price</td>
+<td>150 missing values</td>
+<td>High</td>
+</tr>
+
+<tr>
+<td>3</td>
+<td>date</td>
+<td>No major issues</td>
+<td>Low</td>
+</tr>
+
+<tr>
+<td>4</td>
+<td>sku_id</td>
+<td>No major issues</td>
+<td>Low</td>
+</tr>
+
+<tr>
+<td>5</td>
+<td>warehouse_id</td>
+<td>No major issues</td>
+<td>Low</td>
+</tr>
+
+</table>
 
 <h2>Dataset Summary</h2>
 
@@ -37,9 +101,12 @@ h1 {
 <p><b>Earliest Date:</b> 2024-01-01 00:00:00</p>
 <p><b>Latest Date:</b> 2025-12-31 00:00:00</p>
 
+
 <h2>Column Summary</h2>
 
-<table>
+<table id="columnTable">
+
+<thead>
 <tr>
 <th>Column</th>
 <th>Data Type</th>
@@ -47,7 +114,11 @@ h1 {
 <th>Null %</th>
 <th>Unique Count</th>
 <th>Role</th>
+<th>Cardinality</th>
 </tr>
+</thead>
+
+<tbody>
 
 <tr>
 <td>date</td>
@@ -56,6 +127,7 @@ h1 {
 <td>0.0</td>
 <td>731</td>
 <td>Text</td>
+<td>High Cardinality</td>
 </tr>
 
 <tr>
@@ -65,6 +137,7 @@ h1 {
 <td>0.0</td>
 <td>50</td>
 <td>ID</td>
+<td>High Cardinality</td>
 </tr>
 
 <tr>
@@ -74,6 +147,7 @@ h1 {
 <td>0.0</td>
 <td>5</td>
 <td>ID</td>
+<td>Category</td>
 </tr>
 
 <tr>
@@ -83,6 +157,7 @@ h1 {
 <td>2.94</td>
 <td>101</td>
 <td>Measure</td>
+<td>High Cardinality</td>
 </tr>
 
 <tr>
@@ -92,8 +167,10 @@ h1 {
 <td>3.0</td>
 <td>898</td>
 <td>Measure</td>
+<td>High Cardinality</td>
 </tr>
 
+</tbody>
 </table>
 
 <h2>Distribution Statistics</h2>
@@ -109,6 +186,7 @@ h1 {
 <th>50%</th>
 <th>75%</th>
 <th>Max</th>
+<th>Distribution </th>
 </tr>
 
 <tr>
@@ -121,6 +199,7 @@ h1 {
 <td>50.0</td>
 <td>75.0</td>
 <td>99999.0</td>
+<td><svg width="120" height="35" viewBox="0 0 120 35" xmlns="http://www.w3.org/2000/svg"><rect x="0.0" y="0.0" width="11.0" height="35.0" /><rect x="12.0" y="35.0" width="11.0" height="0.0" /><rect x="24.0" y="35.0" width="11.0" height="0.0" /><rect x="36.0" y="35.0" width="11.0" height="0.0" /><rect x="48.0" y="35.0" width="11.0" height="0.0" /><rect x="60.0" y="35.0" width="11.0" height="0.0" /><rect x="72.0" y="35.0" width="11.0" height="0.0" /><rect x="84.0" y="35.0" width="11.0" height="0.0" /><rect x="96.0" y="35.0" width="11.0" height="0.0" /><rect x="108.0" y="34.6" width="11.0" height="0.4" /></svg></td>
 </tr>
 
 <tr>
@@ -133,6 +212,100 @@ h1 {
 <td>559.5</td>
 <td>774.0</td>
 <td>1000.0</td>
+<td><svg width="120" height="35" viewBox="0 0 120 35" xmlns="http://www.w3.org/2000/svg"><rect x="0.0" y="3.8" width="11.0" height="31.2" /><rect x="12.0" y="4.1" width="11.0" height="30.9" /><rect x="24.0" y="4.4" width="11.0" height="30.6" /><rect x="36.0" y="5.9" width="11.0" height="29.1" /><rect x="48.0" y="3.3" width="11.0" height="31.7" /><rect x="60.0" y="3.9" width="11.0" height="31.1" /><rect x="72.0" y="0.0" width="11.0" height="35.0" /><rect x="84.0" y="3.4" width="11.0" height="31.6" /><rect x="96.0" y="3.3" width="11.0" height="31.7" /><rect x="108.0" y="4.8" width="11.0" height="30.2" /></svg></td>
+</tr>
+
+</table>
+
+<h2>Correlation Analysis</h2>
+
+<table>
+<tr>
+<th>Column 1</th>
+<th>Column 2</th>
+<th>Correlation</th>
+</tr>
+
+        <tr>
+        <td>quantity_sold</td>
+        <td>quantity_sold</td>
+        <td>1.0</td>
+        </tr>
+
+        <tr>
+        <td>quantity_sold</td>
+        <td>unit_price</td>
+        <td>-0.01</td>
+        </tr>
+
+        <tr>
+        <td>unit_price</td>
+        <td>quantity_sold</td>
+        <td>-0.01</td>
+        </tr>
+
+        <tr>
+        <td>unit_price</td>
+        <td>unit_price</td>
+        <td>1.0</td>
+        </tr>
+
+</table>
+
+<h2>Top 5 Strongest Correlations</h2>
+
+<table>
+<tr>
+<th>Column 1</th>
+<th>Column 2</th>
+<th>Correlation</th>
+</tr>
+
+<tr>
+<td>quantity_sold</td>
+<td>unit_price</td>
+<td>-0.01</td>
+</tr>
+
+</table>
+
+<h2>PII Detection</h2>
+
+<table>
+<tr>
+<th>Column</th>
+<th>Severity</th>
+<th>Reason</th>
+</tr>
+
+<tr>
+<td>date</td>
+<td>LOW</td>
+<td>No PII detected</td>
+</tr>
+
+<tr>
+<td>sku_id</td>
+<td>LOW</td>
+<td>No PII detected</td>
+</tr>
+
+<tr>
+<td>warehouse_id</td>
+<td>LOW</td>
+<td>No PII detected</td>
+</tr>
+
+<tr>
+<td>quantity_sold</td>
+<td>LOW</td>
+<td>No PII detected</td>
+</tr>
+
+<tr>
+<td>unit_price</td>
+<td>LOW</td>
+<td>No PII detected</td>
 </tr>
 
 </table>
@@ -162,6 +335,114 @@ h1 {
 </tr>
 
 </table>
+
+<h2>Data Drift Report</h2>
+
+<p><b>Old Dataset Shape:</b> (5000, 5)</p>
+<p><b>New Dataset Shape:</b> (5005, 5)</p>
+
+<h3>Overall Drift Status</h3>
+<p><b>Status:</b> Major Drift</p>
+
+<h3>Datatype Changes</h3>
+
+<table>
+<tr>
+<th>Column</th>
+<th>Old Type</th>
+<th>New Type</th>
+</tr>
+
+</table>
+
+<h3>Null Percentage Changes</h3>
+
+<table>
+<tr>
+<th>Column</th>
+<th>Old Null %</th>
+<th>New Null %</th>
+</tr>
+
+</table>
+
+<h3>Numeric Mean Changes</h3>
+
+<table>
+<tr>
+<th>Column</th>
+<th>Old Mean</th>
+<th>New Mean</th>
+</tr>
+
+</table>
+
+<h3>New Categorical Values</h3>
+
+<table>
+<tr>
+<th>Column</th>
+<th>New Values</th>
+</tr>
+
+        <tr>
+        <td>sku_id</td>
+        <td>SKU052, SKU054, SKU053, SKU051, SKU055</td>
+        </tr>
+
+        <tr>
+        <td>warehouse_id</td>
+        <td>WH6</td>
+        </tr>
+
+</table>
+
+<h3>Column Drift Status</h3>
+
+<table>
+<tr>
+<th>Column</th>
+<th>Drift Status</th>
+<th>Reason</th>
+</tr>
+
+<tr>
+<td>date</td>
+<td>no_drift</td>
+<td>No detected changes</td>
+</tr>
+
+<tr>
+<td>sku_id</td>
+<td>major_drift</td>
+<td>5 new categorical values</td>
+</tr>
+
+<tr>
+<td>warehouse_id</td>
+<td>minor_drift</td>
+<td>1 new categorical value(s)</td>
+</tr>
+
+<tr>
+<td>quantity_sold</td>
+<td>no_drift</td>
+<td>No detected changes</td>
+</tr>
+
+<tr>
+<td>unit_price</td>
+<td>no_drift</td>
+<td>No detected changes</td>
+</tr>
+
+</table>
+
+<script>
+$(document).ready(function() {
+    $('#columnTable').DataTable();
+});
+</script>
 
 </body>
 </html>

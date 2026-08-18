@@ -1,7 +1,7 @@
 import unittest
 import pandas as pd
 
-from src.profile import profile
+from src.profile import profile, detect_pii
 
 
 class TestProfile(unittest.TestCase):
@@ -16,6 +16,30 @@ class TestProfile(unittest.TestCase):
         self.assertEqual(
             report["column_summary"][0]["null_count"],
             1
+        )
+
+    def test_pii_email_is_high(self):
+        df = pd.DataFrame({
+            "email": ["user@example.com"]
+        })
+
+        pii_report = detect_pii(df)
+
+        self.assertEqual(
+            pii_report[0]["severity"],
+            "HIGH"
+        )
+
+    def test_pii_numeric_is_low(self):
+        df = pd.DataFrame({
+            "quantity_sold": [10, 20, 30]
+        })
+
+        pii_report = detect_pii(df)
+
+        self.assertEqual(
+            pii_report[0]["severity"],
+            "LOW"
         )
 
 
