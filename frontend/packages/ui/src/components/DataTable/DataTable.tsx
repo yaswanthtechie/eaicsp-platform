@@ -296,10 +296,12 @@ export function DataTable<T>({
               <th
                 scope="col"
                 aria-hidden="true"
+
               />
             )}
 
             {columns.map((column) => (
+
               <th
                 key={String(column.key)}
                 scope="col"
@@ -313,6 +315,7 @@ export function DataTable<T>({
                     }
                     onChange={(event) =>
                       handleFilterChange(
+
                         column.key,
                         event.target.value
                       )
