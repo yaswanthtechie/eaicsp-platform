@@ -455,6 +455,42 @@ def test_evaluation_dataset():
 
 
 
+def test_real_dataset_relative_scoring_monotonic_check():
+    """
+    Test that a known risky supplier scores higher than a known clean one,
+    using deterministic text instead of relying on external dataset data which could change.
+    """
+    risky_headlines = [
+        "Company faces massive bankruptcy and investigation for fraud.",
+        "Workers go on strike after default."
+    ]
+    clean_headlines = [
+        "Company announces positive earnings.",
+        "New product launch."
+    ]
+    base_headline = (
+        "The supplier announces operational updates."
+    )
+
+    previous_confidence = -1.0
+
+    for count in range(0, 31, 5):
+        result = predict(
+            "MonoTestSupplier",
+            [base_headline] * count,
+        )
+
+        current_confidence = result["confidence"]
+
+        assert (
+            current_confidence >= previous_confidence
+        ), (
+            f"Confidence decreased at n={count}: "
+            f"{previous_confidence} -> {current_confidence}"
+        )
+
+        previous_confidence = current_confidence
+
 def test_real_dataset_relative_scoring():
     """
     Test that a known risky supplier scores higher than a known clean one,
