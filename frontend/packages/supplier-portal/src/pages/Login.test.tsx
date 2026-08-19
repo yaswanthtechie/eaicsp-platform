@@ -93,6 +93,24 @@ describe("Login next redirect security", () => {
     });
   });
 
+  it("rejects a backslash-based external next URL", async () => {
+    renderLogin("/login?next=/\\evil.com");
+
+    fireEvent.change(screen.getByPlaceholderText("Enter Email"), {
+      target: { value: "supplier@company.com" },
+    });
+
+    fireEvent.change(screen.getByPlaceholderText("Enter Password"), {
+      target: { value: "sup123" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("location")).toHaveTextContent("/orders");
+    });
+  });
+
   it("defaults to orders when next is missing", async () => {
     renderLogin("/login");
 

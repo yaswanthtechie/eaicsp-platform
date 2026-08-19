@@ -153,9 +153,12 @@ const Invoice = () => {
 
       <form onSubmit={handleSubmit}>
         {/* Invoice Number */}
-        <label>Invoice Number</label>
+        <label htmlFor="invoiceNumber">
+          Invoice Number
+        </label>
 
         <input
+          id="invoiceNumber"
           type="text"
           placeholder="INV001"
           value={invoiceNumber}
@@ -165,7 +168,9 @@ const Invoice = () => {
         />
 
         {/* Purchase Order */}
-        <label>Purchase Order</label>
+        <label htmlFor="poReference">
+          Purchase Order
+        </label>
 
         {acknowledgedPOs.length === 0 ? (
           <div
@@ -181,6 +186,7 @@ const Invoice = () => {
           </div>
         ) : (
           <select
+            id="poReference"
             value={poReference}
             onChange={(e) =>
               setPoReference(e.target.value)
@@ -202,9 +208,12 @@ const Invoice = () => {
         )}
 
         {/* Invoice Amount */}
-        <label>Invoice Amount</label>
+        <label htmlFor="amount">
+          Invoice Amount
+        </label>
 
         <input
+          id="amount"
           type="number"
           value={amount}
           onChange={(e) =>
@@ -213,9 +222,12 @@ const Invoice = () => {
         />
 
         {/* Invoice Date */}
-        <label>Invoice Date</label>
+        <label htmlFor="date">
+          Invoice Date
+        </label>
 
         <input
+          id="date"
           type="date"
           value={date}
           onChange={(e) =>

@@ -1,5 +1,13 @@
+const express = require("express");
+const cors = require("cors");
+const bodyParser = require("body-parser");
+
 const { ApolloServer } = require("@apollo/server");
-const { startStandaloneServer } = require("@apollo/server/standalone");
+const { expressMiddleware } = require("@as-integrations/express5");
+
+// -----------------------------------------------------------------------------
+// Mock data
+// -----------------------------------------------------------------------------
 
 const purchaseOrders = [
   {
@@ -112,116 +120,108 @@ const purchaseOrders = [
     ],
   },
 
-{
-  po_number: "PO1006",
-  supplier_id: "SUP005",
-  status: "fulfilled",
-  total_amount: 30000,
-  expected_delivery: "2026-07-20",
-  items: [
-    {
-      sku: "SKU011",
-      product_name: "Desktop PC",
-      quantity: 3,
-      unit_price: 10000,
-    },
-    {
-      sku: "SKU014",
-      product_name: "Keyboard",
-      quantity: 5,
-      unit_price: 500,
-    },
-  ],
-},
+  {
+    po_number: "PO1006",
+    supplier_id: "SUP005",
+    status: "fulfilled",
+    total_amount: 30000,
+    expected_delivery: "2026-07-20",
+    items: [
+      {
+        sku: "SKU011",
+        product_name: "Desktop PC",
+        quantity: 3,
+        unit_price: 10000,
+      },
+      {
+        sku: "SKU014",
+        product_name: "Keyboard",
+        quantity: 5,
+        unit_price: 500,
+      },
+    ],
+  },
 
-{
-  po_number: "PO1007",
-  supplier_id: "SUP006",
-  status: "fulfilled",
-  total_amount: 9000,
-  expected_delivery: "2026-07-22",
-  items: [
-    {
-      sku: "SKU012",
-      product_name: "Router",
-      quantity: 3,
-      unit_price: 3000,
-    },
-    {
-      sku: "SKU015",
-      product_name: "Network Cable",
-      quantity: 10,
-      unit_price: 100,
-    },
-  ],
-},
-{
-  po_number: "PO1008",
-  supplier_id: "SUP007",
-  status: "cancelled",
-  total_amount: 12000,
-  expected_delivery: "2026-08-25",
-  items: [
-    {
-      sku: "SKU013",
-      product_name: "Projector",
-      quantity: 1,
-      unit_price: 12000,
-    },
-    {
-      sku: "SKU016",
-      product_name: "Projector Stand",
-      quantity: 2,
-      unit_price: 1000,
-    },
-  ],
-},
+  {
+    po_number: "PO1007",
+    supplier_id: "SUP006",
+    status: "fulfilled",
+    total_amount: 9000,
+    expected_delivery: "2026-07-22",
+    items: [
+      {
+        sku: "SKU012",
+        product_name: "Router",
+        quantity: 3,
+        unit_price: 3000,
+      },
+      {
+        sku: "SKU015",
+        product_name: "Network Cable",
+        quantity: 10,
+        unit_price: 100,
+      },
+    ],
+  },
 
-
+  {
+    po_number: "PO1008",
+    supplier_id: "SUP007",
+    status: "cancelled",
+    total_amount: 12000,
+    expected_delivery: "2026-08-25",
+    items: [
+      {
+        sku: "SKU013",
+        product_name: "Projector",
+        quantity: 1,
+        unit_price: 12000,
+      },
+      {
+        sku: "SKU016",
+        product_name: "Projector Stand",
+        quantity: 2,
+        unit_price: 1000,
+      },
+    ],
+  },
 ];
 
 const invoices = [];
 
+// -----------------------------------------------------------------------------
+// Mock refresh-token store
+// -----------------------------------------------------------------------------
+
+const activeRefreshTokens = new Set();
+
+// -----------------------------------------------------------------------------
+// GraphQL schema
+// -----------------------------------------------------------------------------
+
 const typeDefs = `#graphql
 
-type POItem{
-
-sku:String!
-
-product_name:String!
-
-quantity:Int!
-
-unit_price:Int!
-
+type POItem {
+  sku: String!
+  product_name: String!
+  quantity: Int!
+  unit_price: Int!
 }
 
-
-type PurchaseOrder{
-
-po_number:String!
-
-supplier_id:String!
-
-status:String!
-
-total_amount:Int!
-
-expected_delivery:String!
-
-items:[POItem!]!
-
+type PurchaseOrder {
+  po_number: String!
+  supplier_id: String!
+  status: String!
+  total_amount: Int!
+  expected_delivery: String!
+  items: [POItem!]!
 }
-type Invoice{
 
-invoiceNumber:String!
-
-poReference:String!
-
-amount:Int!
-
-date:String!
-
+type Invoice {
+  invoiceNumber: String!
+  poReference: String!
+  amount: Int!
+  date: String!
 }
 
 type PurchaseOrderEdge {
@@ -243,194 +243,244 @@ type Query {
   purchaseOrders(
     first: Int!
     after: String
-
     poNumber: String
     status: String
     minAmount: Int
     maxAmount: Int
-
     startDate: String
     endDate: String
-
   ): PurchaseOrderConnection!
 }
 
-type Mutation{
-
-acknowledgePurchaseOrder(
-po_number:String!
-):PurchaseOrder
-
-submitInvoice(
-invoiceNumber:String!
-poReference:String!
-amount:Int!
-date:String!
-):Invoice!
-
-}
-
-`;
-
-const resolvers = {
-
-Query: {
-  purchaseOrders(
-    _,
-    {
-      first,
-      after,
-      poNumber,
-      status,
-      minAmount,
-      maxAmount,
-      startDate,
-      endDate,
-    }
-  ) {
-    let filteredOrders = [...purchaseOrders];
-
-    // Filter by PO Number
-    if (poNumber) {
-      filteredOrders = filteredOrders.filter((po) =>
-        po.po_number.toLowerCase().includes(poNumber.toLowerCase())
-      );
-    }
-
-    // Filter by Status
-    if (status) {
-      filteredOrders = filteredOrders.filter(
-        (po) => po.status.toLowerCase() === status.toLowerCase()
-      );
-    }
-
-    // Filter by Amount
-    if (minAmount != null) {
-      filteredOrders = filteredOrders.filter(
-        (po) => po.total_amount >= minAmount
-      );
-    }
-
-    if (maxAmount != null) {
-      filteredOrders = filteredOrders.filter(
-        (po) => po.total_amount <= maxAmount
-      );
-    }
-
-    // Filter by Date
-    if (startDate) {
-      filteredOrders = filteredOrders.filter(
-        (po) => po.expected_delivery >= startDate
-      );
-    }
-
-    if (endDate) {
-      filteredOrders = filteredOrders.filter(
-        (po) => po.expected_delivery <= endDate
-      );
-    }
-
-    let startIndex = 0;
-
-    if (after) {
-      startIndex =
-        filteredOrders.findIndex(
-          (po) => po.po_number === after
-        ) + 1;
-    }
-
-    const items = filteredOrders.slice(
-      startIndex,
-      startIndex + first
-    );
-
-    const edges = items.map((po) => ({
-      cursor: po.po_number,
-      node: po,
-    }));
-
-    const endCursor =
-      edges.length > 0
-        ? edges[edges.length - 1].cursor
-        : null;
-
-    const hasNextPage =
-      startIndex + first < filteredOrders.length;
-
-    return {
-      edges,
-      pageInfo: {
-        hasNextPage,
-        endCursor,
-      },
-    };
-  },
-},
-
-Mutation: {
-
-  acknowledgePurchaseOrder(_, { po_number }) {
-
-    const order = purchaseOrders.find(
-      (po) => po.po_number === po_number
-    );
-
-    if (!order) {
-      throw new Error("Purchase Order not found");
-    }
-
-    if (order.status !== "sent") {
-      throw new Error(
-        "Only sent purchase orders can be acknowledged"
-      );
-    }
-
-    order.status = "acknowledged";
-
-    return order;
-  },
+type Mutation {
+  acknowledgePurchaseOrder(
+    po_number: String!
+  ): PurchaseOrder
 
   submitInvoice(
-    _,
-    {
-      invoiceNumber,
-      poReference,
-      amount,
-      date,
-    }
-  ) {
+    invoiceNumber: String!
+    poReference: String!
+    amount: Int!
+    date: String!
+  ): Invoice!
+}
+`;
 
-    const invoice = {
-      invoiceNumber,
-      poReference,
-      amount,
-      date,
-    };
+// -----------------------------------------------------------------------------
+// GraphQL resolvers
+// -----------------------------------------------------------------------------
 
-    invoices.push(invoice);
+const resolvers = {
+  Query: {
+    purchaseOrders(
+      _,
+      {
+        first,
+        after,
+        poNumber,
+        status,
+        minAmount,
+        maxAmount,
+        startDate,
+        endDate,
+      }
+    ) {
+      let filteredOrders = [...purchaseOrders];
 
-    return invoice;
+      if (poNumber) {
+        filteredOrders = filteredOrders.filter((po) =>
+          po.po_number.toLowerCase().includes(poNumber.toLowerCase())
+        );
+      }
+
+      if (status) {
+        filteredOrders = filteredOrders.filter(
+          (po) => po.status.toLowerCase() === status.toLowerCase()
+        );
+      }
+
+      if (minAmount != null) {
+        filteredOrders = filteredOrders.filter(
+          (po) => po.total_amount >= minAmount
+        );
+      }
+
+      if (maxAmount != null) {
+        filteredOrders = filteredOrders.filter(
+          (po) => po.total_amount <= maxAmount
+        );
+      }
+
+      if (startDate) {
+        filteredOrders = filteredOrders.filter(
+          (po) => po.expected_delivery >= startDate
+        );
+      }
+
+      if (endDate) {
+        filteredOrders = filteredOrders.filter(
+          (po) => po.expected_delivery <= endDate
+        );
+      }
+
+      let startIndex = 0;
+
+      if (after) {
+        const afterIndex = filteredOrders.findIndex(
+          (po) => po.po_number === after
+        );
+
+        startIndex = afterIndex >= 0 ? afterIndex + 1 : 0;
+      }
+
+      const items = filteredOrders.slice(
+        startIndex,
+        startIndex + first
+      );
+
+      const edges = items.map((po) => ({
+        cursor: po.po_number,
+        node: po,
+      }));
+
+      const endCursor =
+        edges.length > 0
+          ? edges[edges.length - 1].cursor
+          : null;
+
+      const hasNextPage =
+        startIndex + first < filteredOrders.length;
+
+      return {
+        edges,
+        pageInfo: {
+          hasNextPage,
+          endCursor,
+        },
+      };
+    },
   },
 
-},
+  Mutation: {
+    acknowledgePurchaseOrder(_, { po_number }) {
+      const order = purchaseOrders.find(
+        (po) => po.po_number === po_number
+      );
 
+      if (!order) {
+        throw new Error("Purchase Order not found");
+      }
+
+      if (order.status !== "sent") {
+        throw new Error(
+          "Only sent purchase orders can be acknowledged"
+        );
+      }
+
+      order.status = "acknowledged";
+
+      return order;
+    },
+
+    submitInvoice(
+      _,
+      {
+        invoiceNumber,
+        poReference,
+        amount,
+        date,
+      }
+    ) {
+      const invoice = {
+        invoiceNumber,
+        poReference,
+        amount,
+        date,
+      };
+
+      invoices.push(invoice);
+
+      return invoice;
+    },
+  },
 };
 
-const server = new ApolloServer({
+// -----------------------------------------------------------------------------
+// Apollo server
+// -----------------------------------------------------------------------------
 
-typeDefs,
-
-resolvers,
-
+const apolloServer = new ApolloServer({
+  typeDefs,
+  resolvers,
 });
+
+// -----------------------------------------------------------------------------
+// Express server
+// -----------------------------------------------------------------------------
+
+const app = express();
+
+app.use(cors());
+
+// -----------------------------------------------------------------------------
+// Server-side logout / refresh-token revoke endpoint
+// -----------------------------------------------------------------------------
+
+app.post(
+  "/api/v1/auth/logout",
+  bodyParser.json(),
+  (req, res) => {
+    const { refresh_token } = req.body;
+
+    if (!refresh_token) {
+      return res.status(400).json({
+        detail: "refresh_token is required",
+      });
+    }
+
+    const wasActive = activeRefreshTokens.delete(refresh_token);
+
+    return res.status(200).json({
+      revoked: true,
+      was_active: wasActive,
+    });
+  }
+);
+
+// -----------------------------------------------------------------------------
+// Health check
+// -----------------------------------------------------------------------------
+
+app.get("/health", (_req, res) => {
+  res.json({
+    status: "ok",
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Start server
+// -----------------------------------------------------------------------------
 
 const PORT = process.env.PORT || 4000;
 
-startStandaloneServer(server, {
-  listen: { port: PORT },
-}).then(({ url }) => {
-  console.log(`Server Ready at ${url}`);
+async function startServer() {
+  await apolloServer.start();
+
+  app.use(
+    "/graphql",
+    bodyParser.json(),
+    expressMiddleware(apolloServer)
+  );
+
+  app.listen(PORT, () => {
+    console.log(`Server Ready at http://localhost:${PORT}`);
+    console.log(`GraphQL endpoint: http://localhost:${PORT}/graphql`);
+    console.log(
+      `Logout endpoint: http://localhost:${PORT}/api/v1/auth/logout`
+    );
+  });
+}
+
+startServer().catch((error) => {
+  console.error("Failed to start server:", error);
 });
-
-
-

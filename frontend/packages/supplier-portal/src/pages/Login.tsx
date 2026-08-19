@@ -54,12 +54,22 @@ const Login = () => {
       // Only allow safe internal paths for the next redirect.
       const nextParam = searchParams.get("next");
 
-      const nextPage =
-        nextParam &&
-        nextParam.startsWith("/") &&
-        !nextParam.startsWith("//")
-          ? nextParam
-          : "/orders";
+      const isInternal = (next: string | null) => {
+        if (!next) {
+          return false;
+        }
+
+        const url = new URL(
+          next,
+          window.location.origin
+        );
+
+        return url.origin === window.location.origin;
+      };
+
+      const nextPage = isInternal(nextParam)
+        ? nextParam!
+        : "/orders";
 
       navigate(nextPage);
     } catch {
@@ -72,20 +82,24 @@ const Login = () => {
       <h1>Supplier Portal</h1>
 
       <form onSubmit={handleLogin}>
-        <label>Email</label>
+        <label htmlFor="email">Email</label>
 
         <input
+          id="email"
           type="email"
           placeholder="Enter Email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
         />
 
-        {emailError && <p className="error">{emailError}</p>}
+        {emailError && (
+          <p className="error">{emailError}</p>
+        )}
 
-        <label>Password</label>
+        <label htmlFor="password">Password</label>
 
         <input
+          id="password"
           type="password"
           placeholder="Enter Password"
           value={password}
@@ -101,10 +115,14 @@ const Login = () => {
             type="checkbox"
             id="rememberMe"
             checked={rememberMe}
-            onChange={(e) => setRememberMe(e.target.checked)}
+            onChange={(e) =>
+              setRememberMe(e.target.checked)
+            }
           />
 
-          <label htmlFor="rememberMe">Remember Me</label>
+          <label htmlFor="rememberMe">
+            Remember Me
+          </label>
         </div>
 
         <button type="submit">
