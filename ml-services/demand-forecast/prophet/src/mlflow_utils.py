@@ -42,7 +42,11 @@ def log_model(model, model_name):
             model,
             name=model_name
         )
-
+    else:
+        mlflow.log_dict(
+            model,
+            f"{model_name}.json"
+        )
 
 def end_run():
     mlflow.end_run()

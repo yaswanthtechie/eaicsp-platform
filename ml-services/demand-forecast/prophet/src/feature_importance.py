@@ -183,7 +183,14 @@ def main():
         "========== XGBoost Feature Importance =========="
     )
 
-    df = load_sales_data()
+    # train_xgboost() / create_features() expect the Prophet-style
+    # frame (ds / y), the same shape main.py builds.
+    df = load_sales_data().rename(
+        columns={
+            "date": "ds",
+            "quantity_sold": "y",
+        }
+    )
 
     model = load_model(df)
 

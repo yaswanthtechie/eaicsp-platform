@@ -111,17 +111,7 @@ Replace the values above with your actual results.
 
 ---
 
-## Result
 
-If XGBoost performs better than Prophet:
-
-> XGBoost achieved lower RMSE than Prophet because the lag and rolling statistical features captured historical demand patterns more effectively.
-
-OR
-
-If Prophet performs better:
-
-> Prophet outperformed XGBoost because the dataset mainly follows a smooth trend and seasonality, which Prophet models naturally without requiring extensive feature engineering.
 
 The ensemble model selects the best weighted combination using test data.
 
@@ -129,11 +119,14 @@ The ensemble model selects the best weighted combination using test data.
 
 ## Running
 
-Train
+### Train
+
+First-time setup and execution:
 
 ```bash
-python src/main.py
-```
+pip install -r requirements.txt
+python -m src.main
+pytest -q
 
 Serve
 
