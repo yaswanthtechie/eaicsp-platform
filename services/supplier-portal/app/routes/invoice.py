@@ -57,6 +57,7 @@ def get_invoices():
 
 @router.get(
     "/invoices/{supplier_id}/{invoice_number}",
+    response_model=InvoiceResponse,
 )
 def get_invoice(
     supplier_id: str,
@@ -74,11 +75,6 @@ def get_invoice(
             detail=str(exc),
         )
 
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=str(exc),
-        )
     
 # ============================================================
 # CREATE / SUBMIT INVOICE

@@ -229,8 +229,6 @@ class InvoiceResponse(BaseModel):
     adjustment: InvoiceAdjustmentAudit | None = None
 
     document_url: str | None = None
-
-    # NEW
     history: List[InvoiceHistory] = Field(
        default_factory=list
    )

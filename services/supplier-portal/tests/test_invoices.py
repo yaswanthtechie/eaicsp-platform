@@ -2,6 +2,7 @@ from io import BytesIO
 import os
 import shutil
 from pathlib import Path
+from app.core.config import UPLOAD_DIR
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,7 +10,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.schemas.invoice import InvoiceStatus
 from app.services.purchase_order_service import purchase_orders
-from app.services.invoice_service import invoices, invoice_events
+from app.services.invoice_service import invoices, invoice_events, resolve_document_path
 from app.services.purchase_order_service import po_events
 
 
@@ -879,15 +880,23 @@ def test_valid_pdf_with_renamed_extension_is_accepted():
     data = response.json()
 
     assert data["invoice_number"] == "INV9201"
-    assert data["document_url"] is not None
 
-    assert data["document_url"].endswith(
-        "INV9201.pdf"
+    # Public API URL
+    assert data["document_url"] == (
+        "/api/v1/invoices/SUP001/INV9201/document"
     )
 
-    assert os.path.exists(
-        data["document_url"]
+    # Internal filesystem path is not exposed
+    assert "document_path" not in data
+
+    # Verify the actual file exists using the configured upload root
+    expected_path = (
+        Path(UPLOAD_DIR)
+        / "SUP001"
+        / "INV9201.pdf"
     )
+
+    assert expected_path.exists()
 
 @pytest.mark.parametrize(
     "content",
@@ -1810,17 +1819,35 @@ def test_upload_invoice_pdf():
 
     body = response.json()
 
+    # --------------------------------------------------------
+    # Public response
+    # --------------------------------------------------------
+
     assert body["invoice_number"] == "INV1001"
-    assert body["document_url"] is not None
 
-    assert "SUP001" in body["document_url"]
-    assert body["document_url"].endswith(
-        "INV1001.pdf"
+    assert body["document_url"] == (
+        "/api/v1/invoices/SUP001/INV1001/document"
     )
 
-    assert os.path.exists(
-        body["document_url"]
+    # Internal storage path must NOT be exposed
+    assert "document_path" not in body
+
+    # --------------------------------------------------------
+    # Internal storage
+    # --------------------------------------------------------
+
+    invoice_key = ("SUP001", "INV1001")
+
+    assert invoices[invoice_key]["document_path"] == (
+        "SUP001/INV1001.pdf"
     )
+
+    # Resolve the internal relative path
+    resolved_path = resolve_document_path(
+        invoices[invoice_key]["document_path"]
+    )
+
+    assert os.path.exists(resolved_path)
 
 
 # ============================================================
@@ -2029,7 +2056,6 @@ def test_download_invoice_document():
         b"%PDF-"
     )
 
-
 # ============================================================
 # FILE DOES NOT EXIST AFTER UPLOAD
 # ============================================================
@@ -2057,14 +2083,23 @@ def test_file_deleted_after_upload():
 
     assert upload_response.status_code == 200
 
-    filepath = upload_response.json()[
-        "document_url"
-    ]
+    invoice_key = ("SUP001", "INV1001")
 
-    assert os.path.exists(filepath)
+    # document_path is the internal filesystem path
+    document_path = invoices[
+        invoice_key
+    ]["document_path"]
 
+    filepath = resolve_document_path(
+        document_path
+    )
+
+    assert filepath.exists()
+
+    # Delete the physical file
     os.remove(filepath)
 
+    # Download should now fail because the file is gone
     response = client.get(
         "/api/v1/invoices/SUP001/INV1001/document"
     )
@@ -2092,9 +2127,14 @@ def test_document_url_saved_in_memory():
 
     invoice_key = ("SUP001", "INV1001")
 
+    # Before upload there is no document
     assert invoices[
         invoice_key
     ]["document_url"] is None
+
+    assert invoices[
+        invoice_key
+    ]["document_path"] is None
 
     upload_response = client.post(
         "/api/v1/invoices/SUP001/INV1001/document",
@@ -2111,9 +2151,20 @@ def test_document_url_saved_in_memory():
         upload_response.text
     )
 
+    # Public URL
     assert invoices[
         invoice_key
-    ]["document_url"] is not None
+    ]["document_url"] == (
+        "/api/v1/invoices/SUP001/INV1001/document"
+    )
+
+    # Internal relative filesystem path
+    assert invoices[
+        invoice_key
+    ]["document_path"] == (
+        "SUP001/INV1001.pdf"
+    )
+
 
 # ============================================================
 # SUPPLIER DIRECTORY
@@ -2145,19 +2196,35 @@ def test_invoice_document_saved_under_supplier_directory():
 
     assert upload_response.status_code == 200
 
-    filepath = upload_response.json()[
-        "document_url"
-    ]
+    invoice_key = ("SUP123", "INV1001")
 
-    assert "SUP123" in filepath
+    # Internal document path
+    document_path = invoices[
+        invoice_key
+    ]["document_path"]
 
-    assert filepath.endswith(
-        os.path.join(
-            "SUP123",
-            "INV1001.pdf",
-        )
+    assert document_path == (
+        "SUP123/INV1001.pdf"
     )
 
+    # Resolve internal path and verify physical file
+    filepath = resolve_document_path(
+        document_path
+    )
+
+    assert filepath.exists()
+
+    # Public API URL
+    assert upload_response.json()["document_url"] == (
+        "/api/v1/invoices/SUP123/INV1001/document"
+    )
+
+    # Internal path must not be exposed
+    assert "document_path" not in upload_response.json()
+
+# ============================================================
+# INVOICE CREATE DOES NOT CREATE DOCUMENT
+# ============================================================
 
 # ============================================================
 # INVOICE CREATE DOES NOT CREATE DOCUMENT
@@ -2173,10 +2240,26 @@ def test_invoice_document_url_initially_none():
 
     assert response.status_code == 201
 
+    # --------------------------------------------------------
+    # Public API response
+    # --------------------------------------------------------
+
     data = response.json()
 
     assert data["document_url"] is None
 
+    # Internal filesystem path must never be exposed
+    assert "document_path" not in data
+
+    # --------------------------------------------------------
+    # Internal invoice storage
+    # --------------------------------------------------------
+
+    invoice_key = ("SUP001", "INV1001")
+
+    assert invoices[
+        invoice_key
+    ].get("document_path") is None
 
 # ============================================================
 # GET AFTER UPLOAD
@@ -2215,6 +2298,11 @@ def test_get_invoice_after_document_upload():
 
     assert data["invoice_number"] == "INV1001"
     assert data["document_url"] is not None
+    assert data["document_url"] == (
+    "/api/v1/invoices/SUP001/INV1001/document"
+    )
+
+    assert "document_path" not in data
 
 
 # ============================================================
@@ -2336,7 +2424,6 @@ def test_invoice_multiple_items_same_po():
     assert len(data["items"]) == 2
     assert data["amount"] == 53000
 
-
 # ============================================================
 # ORPHANED INVOICE FILE TEST SETUP
 # ============================================================
@@ -2351,8 +2438,8 @@ def orphan_test_setup(tmp_path, monkeypatch):
     upload_dir = tmp_path / "uploads"
     upload_dir.mkdir()
 
-    # invoice_service imported UPLOAD_DIR directly,
-    # therefore patch the value inside invoice_service.
+    # invoice_service imports UPLOAD_DIR directly,
+    # therefore patch it inside invoice_service.
     monkeypatch.setattr(
         invoice_service,
         "UPLOAD_DIR",
@@ -2381,6 +2468,7 @@ def create_old_pdf(
     """
 
     supplier_dir = upload_dir / supplier_id
+
     supplier_dir.mkdir(
         parents=True,
         exist_ok=True,
@@ -2388,7 +2476,7 @@ def create_old_pdf(
 
     file_path = supplier_dir / f"{invoice_number}.pdf"
 
-    # Minimal valid PDF signature for our service
+    # Minimal valid PDF signature
     file_path.write_bytes(
         b"%PDF-1.4\n"
     )
@@ -2416,6 +2504,7 @@ def create_recent_pdf(
     """
 
     supplier_dir = upload_dir / supplier_id
+
     supplier_dir.mkdir(
         parents=True,
         exist_ok=True,
@@ -2519,13 +2608,18 @@ def test_find_orphaned_file_when_invoice_does_not_exist(
     assert orphan["invoice_number"] == "INV001"
     assert orphan["supplier_id"] == "SUP001"
     assert orphan["file_name"] == "INV001.pdf"
-    assert orphan["file_path"] == str(file_path)
+
+    # Relative path only — never expose absolute filesystem path
+    assert orphan["file_path"] == (
+        "SUP001/INV001.pdf"
+    )
+
     assert orphan["invoice_status"] is None
+
     assert (
         orphan["reason"]
         == "No matching invoice record exists."
     )
-
 
 # ============================================================
 # TEST 4 - APPROVED INVOICE IS NOT ORPHANED
@@ -2554,7 +2648,17 @@ def test_approved_invoice_file_is_not_orphaned(
         "invoice_number": "INV002",
         "supplier_id": "SUP001",
         "status": InvoiceStatus.approved,
-        "document_url": str(file_path),
+
+        # Public API URL
+        "document_url": (
+            "/api/v1/invoices/"
+            "SUP001/INV002/document"
+        ),
+
+        # Internal relative filesystem path
+        "document_path": (
+            "SUP001/INV002.pdf"
+        ),
     }
 
     result = (
@@ -2593,7 +2697,17 @@ def test_rejected_invoice_file_is_not_orphaned(
         "invoice_number": "INV003",
         "supplier_id": "SUP001",
         "status": InvoiceStatus.rejected,
-        "document_url": str(file_path),
+
+        # Public API URL
+        "document_url": (
+            "/api/v1/invoices/"
+            "SUP001/INV003/document"
+        ),
+
+        # Internal relative filesystem path
+        "document_path": (
+            "SUP001/INV003.pdf"
+        ),
     }
 
     result = (
@@ -2632,7 +2746,17 @@ def test_submitted_old_invoice_file_is_orphaned(
         "invoice_number": "INV004",
         "supplier_id": "SUP001",
         "status": InvoiceStatus.submitted,
-        "document_url": str(file_path),
+
+        # Correct internal path for INV004
+        "document_path": (
+            "SUP001/INV004.pdf"
+        ),
+
+        # Public API URL
+        "document_url": (
+            "/api/v1/invoices/"
+            "SUP001/INV004/document"
+        ),
     }
 
     result = (
@@ -2646,6 +2770,7 @@ def test_submitted_old_invoice_file_is_orphaned(
     orphan = result[0]
 
     assert orphan["invoice_number"] == "INV004"
+    assert orphan["supplier_id"] == "SUP001"
     assert orphan["invoice_status"] == "submitted"
 
     assert (
@@ -2655,14 +2780,14 @@ def test_submitted_old_invoice_file_is_orphaned(
 
 
 # ============================================================
-# TEST 7 - DISPUTED FILE WITHOUT DOCUMENT ASSOCIATION
+# TEST 7 - NON-TERMINAL FILE WITHOUT DOCUMENT PATH
 # ============================================================
 
-def test_non_terminal_invoice_without_document_url_is_orphaned(
+def test_non_terminal_invoice_without_document_path_is_orphaned(
     orphan_test_setup,
 ):
     """
-    If the invoice exists but document_url is missing,
+    If the invoice exists but document_path is missing,
     the physical PDF has no registered association.
     """
 
@@ -2681,6 +2806,11 @@ def test_non_terminal_invoice_without_document_url_is_orphaned(
         "invoice_number": "INV005",
         "supplier_id": "SUP002",
         "status": InvoiceStatus.disputed,
+
+        # No physical document association
+        "document_path": None,
+
+        # No public document URL
         "document_url": None,
     }
 
@@ -2695,6 +2825,7 @@ def test_non_terminal_invoice_without_document_url_is_orphaned(
     orphan = result[0]
 
     assert orphan["invoice_number"] == "INV005"
+    assert orphan["supplier_id"] == "SUP002"
     assert orphan["invoice_status"] == "disputed"
 
     assert (
@@ -2711,7 +2842,7 @@ def test_invoice_file_with_wrong_document_path_is_orphaned(
     orphan_test_setup,
 ):
     """
-    If invoice.document_url points to another file,
+    If invoice.document_path points to another file,
     the physical file is orphaned.
     """
 
@@ -2724,10 +2855,9 @@ def test_invoice_file_with_wrong_document_path_is_orphaned(
         age_days=2,
     )
 
-    wrong_path = (
-        upload_dir
-        / "SUP003"
-        / "different-file.pdf"
+    # Invoice incorrectly points to another file
+    wrong_document_path = (
+        "SUP003/different-file.pdf"
     )
 
     invoice_service.invoices[
@@ -2736,7 +2866,15 @@ def test_invoice_file_with_wrong_document_path_is_orphaned(
         "invoice_number": "INV006",
         "supplier_id": "SUP003",
         "status": InvoiceStatus.submitted,
-        "document_url": str(wrong_path),
+
+        # WRONG internal path
+        "document_path": wrong_document_path,
+
+        # Public URL remains an API URL
+        "document_url": (
+            "/api/v1/invoices/"
+            "SUP003/INV006/document"
+        ),
     }
 
     result = (
@@ -2750,12 +2888,14 @@ def test_invoice_file_with_wrong_document_path_is_orphaned(
     orphan = result[0]
 
     assert orphan["invoice_number"] == "INV006"
+    assert orphan["supplier_id"] == "SUP003"
 
     assert (
         "File path does not match"
         in orphan["reason"]
     )
 
+    # Physical orphan still exists before purge
     assert file_path.exists()
 
 
@@ -2857,7 +2997,15 @@ def test_purge_does_not_delete_approved_file(
         "invoice_number": "INV009",
         "supplier_id": "SUP006",
         "status": InvoiceStatus.approved,
-        "document_url": str(file_path),
+
+        "document_path": (
+            "SUP006/INV009.pdf"
+        ),
+
+        "document_url": (
+            "/api/v1/invoices/"
+            "SUP006/INV009/document"
+        ),
     }
 
     result = (
@@ -2997,7 +3145,17 @@ def test_purge_only_deletes_orphaned_files(
         "invoice_number": "INV015",
         "supplier_id": "SUP010",
         "status": InvoiceStatus.approved,
-        "document_url": str(approved_file),
+
+        # Internal relative path
+        "document_path": (
+            "SUP010/INV015.pdf"
+        ),
+
+        # Public API URL
+        "document_url": (
+            "/api/v1/invoices/"
+            "SUP010/INV015/document"
+        ),
     }
 
     # --------------------------------------------------------

@@ -549,6 +549,7 @@ def create_invoice(invoice: InvoiceCreate):
     invoice_data["amount"] = submitted_amount
 
     invoice_data["document_url"] = None
+    invoice_data["document_path"] = None
 
     invoice_data["status"] = (
         InvoiceStatus.submitted
@@ -1194,7 +1195,52 @@ def adjust_invoice(
 
     return invoice
 
- # ---------------------------------------------------------
+ # ========================================================
+    # Resolve stored invoice document path
+# ========================================================
+
+def resolve_document_path(
+    document_path: str,
+) -> Path:
+    """
+    Resolve a stored invoice document path safely
+    relative to UPLOAD_DIR.
+    """
+
+    if not document_path:
+        raise ValueError(
+            "Document path is required."
+        )
+
+    upload_root = Path(
+        UPLOAD_DIR
+    ).resolve()
+
+    relative_path = Path(
+        document_path
+    )
+
+    # Stored paths must be relative to UPLOAD_DIR.
+    if relative_path.is_absolute():
+        raise ValueError(
+            "Invalid document path."
+        )
+
+    full_path = (
+        upload_root / relative_path
+    ).resolve()
+
+    # Protect against path traversal.
+    if not full_path.is_relative_to(
+        upload_root
+    ):
+        raise ValueError(
+            "Invalid document path."
+        )
+
+    return full_path
+
+# ---------------------------------------------------------
 # upload_invoice_document
 # ---------------------------------------------------------
 
@@ -1380,11 +1426,21 @@ def upload_invoice_document(
         f.write(contents)
 
     # ---------------------------------------------------------
-    # 18. Store document path
+    # 18. Store relative document path and public URL
     # ---------------------------------------------------------
 
-    invoice["document_url"] = str(
-        final_path
+    relative_path = (
+        Path(supplier_id) / filename
+    )
+
+    invoice["document_path"] = str(
+        relative_path
+    ).replace("\\", "/")
+
+    invoice["document_url"] = (
+        f"/api/v1/invoices/"
+        f"{supplier_id}/"
+        f"{invoice_number}/document"
     )
 
     invoices[invoice_key] = invoice
@@ -1394,7 +1450,6 @@ def upload_invoice_document(
     # ---------------------------------------------------------
 
     return invoice
-
 
 def get_invoice_document(
     supplier_id: str,
@@ -1462,17 +1517,17 @@ def get_invoice_document(
     # 6. Get stored document path
     # ---------------------------------------------------------
 
-    filepath = invoices[
+    document_path = invoices[
         invoice_key
     ].get(
-        "document_url"
+        "document_path"
     )
 
     # ---------------------------------------------------------
     # 7. Validate document is associated
     # ---------------------------------------------------------
 
-    if not filepath:
+    if not document_path:
         raise ValueError(
             f"Document not found for invoice "
             f"'{invoice_number}' "
@@ -1480,7 +1535,15 @@ def get_invoice_document(
         )
 
     # ---------------------------------------------------------
-    # 8. Validate file still exists
+    # 8. Resolve stored relative path safely
+    # ---------------------------------------------------------
+
+    filepath = resolve_document_path(
+        document_path
+    )
+
+    # ---------------------------------------------------------
+    # 9. Validate file still exists
     # ---------------------------------------------------------
 
     if not os.path.exists(filepath):
@@ -1491,10 +1554,10 @@ def get_invoice_document(
         )
 
     # ---------------------------------------------------------
-    # 9. Return document path
+    # 10. Return document path
     # ---------------------------------------------------------
 
-    return filepath
+    return str(filepath)
 
 
 def find_orphaned_invoice_files(
@@ -1641,6 +1704,16 @@ def find_orphaned_invoice_files(
             )
 
             # -------------------------------------------------
+            # Build safe relative file path
+            # -------------------------------------------------
+
+            relative_file_path = str(
+                file_path.relative_to(
+                    upload_root
+                )
+            ).replace("\\", "/")
+
+            # -------------------------------------------------
             # CASE A:
             # No corresponding invoice exists.
             #
@@ -1653,9 +1726,7 @@ def find_orphaned_invoice_files(
                     {
                         "invoice_number": invoice_number,
                         "supplier_id": supplier_id,
-                        "file_path": str(
-                            file_path
-                        ),
+                        "file_path": relative_file_path,
                         "file_name": file_path.name,
                         "size_bytes": file_path.stat().st_size,
                         "invoice_status": None,
@@ -1707,27 +1778,25 @@ def find_orphaned_invoice_files(
             # 13. Verify document association
             # -------------------------------------------------
 
-            document_url = invoice.get(
-                "document_url"
+            document_path = invoice.get(
+                "document_path"
             )
 
             # -------------------------------------------------
             # Case B:
-            # Invoice exists, but document_url is missing.
+            # Invoice exists, but document_path is missing.
             #
             # The physical file has no registered association
             # with the invoice.
             # -------------------------------------------------
 
-            if not document_url:
+            if not document_path:
 
                 orphaned_files.append(
                     {
                         "invoice_number": invoice_number,
                         "supplier_id": supplier_id,
-                        "file_path": str(
-                            file_path
-                        ),
+                        "file_path": relative_file_path,
                         "file_name": file_path.name,
                         "size_bytes": file_path.stat().st_size,
                         "invoice_status": (
@@ -1757,23 +1826,23 @@ def find_orphaned_invoice_files(
 
             try:
 
-                stored_path = Path(
-                    document_url
-                ).resolve()
+                stored_path = (
+                    resolve_document_path(
+                        document_path
+                    )
+                )
 
                 current_path = (
                     file_path.resolve()
                 )
 
-            except OSError:
+            except (OSError, ValueError):
 
                 orphaned_files.append(
                     {
                         "invoice_number": invoice_number,
                         "supplier_id": supplier_id,
-                        "file_path": str(
-                            file_path
-                        ),
+                        "file_path": relative_file_path,
                         "file_name": file_path.name,
                         "size_bytes": file_path.stat().st_size,
                         "invoice_status": (
@@ -1806,9 +1875,7 @@ def find_orphaned_invoice_files(
                     {
                         "invoice_number": invoice_number,
                         "supplier_id": supplier_id,
-                        "file_path": str(
-                            file_path
-                        ),
+                        "file_path": relative_file_path,
                         "file_name": file_path.name,
                         "size_bytes": file_path.stat().st_size,
                         "invoice_status": (
@@ -1845,9 +1912,7 @@ def find_orphaned_invoice_files(
                 {
                     "invoice_number": invoice_number,
                     "supplier_id": supplier_id,
-                    "file_path": str(
-                        file_path
-                    ),
+                    "file_path": relative_file_path,
                     "file_name": file_path.name,
                     "size_bytes": file_path.stat().st_size,
                     "invoice_status": (
@@ -1870,7 +1935,6 @@ def find_orphaned_invoice_files(
             )
 
     return orphaned_files
-
 
 def purge_orphaned_invoice_files(
     older_than_days: int = 1,
@@ -1901,7 +1965,7 @@ def purge_orphaned_invoice_files(
 
     for orphan in orphaned_files:
 
-        file_path = Path(
+        file_path = resolve_document_path(
             orphan["file_path"]
         )
 

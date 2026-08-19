@@ -1053,7 +1053,7 @@ The invoice lifecycle transition endpoint, if exposed separately by the implemen
 Invoice documents are uploaded through:
 
 ```http
-POST /api/v1/invoices/{invoice_number}/document
+POST /api/v1/invoices/{supplier_id}/{invoice_number}/document
 ```
 
 Only PDF documents are accepted.
@@ -1136,23 +1136,58 @@ This protects the service from oversized invoice uploads.
 
 # 37. Invoice Document Storage
 
+
 Documents are stored using the supplier ID as part of the directory structure.
 
+
 Conceptually:
+
 
 ```text
 uploads/
 └── SUP001/
     └── INV1001.pdf
-```
 
-The resulting path is stored against the invoice using:
+The invoice maintains two separate document references.
 
-```text
+Public document URL
+
+The document_url field contains the API endpoint used to retrieve the document:
+
+/api/v1/invoices/SUP001/INV1001/document
+
+This value is exposed through the public InvoiceResponse.
+
+Internal document path
+
+The document_path field contains the relative filesystem path:
+
+SUP001/INV1001.pdf
+
+This value is used internally by the service to locate the physical PDF.
+
+The internal document_path is not exposed through the API response.
+
+Therefore:
+
 document_url
-```
+    ↓
+Public API reference
 
-The document therefore remains associated with the corresponding invoice.
+
+document_path
+    ↓
+Internal filesystem reference
+
+Before a document is uploaded:
+
+document_url  = None
+document_path = None
+
+After a successful upload:
+
+document_url  = "/api/v1/invoices/SUP001/INV1001/document"
+document_path = "SUP001/INV1001.pdf"
 
 ---
 
@@ -1160,26 +1195,52 @@ The document therefore remains associated with the corresponding invoice.
 
 Invoice documents require special filesystem protection because supplier and invoice values participate in document paths.
 
-The upload root is resolved:
+The configured upload root is resolved before any filesystem operation:
 
 ```python
 upload_root = Path(UPLOAD_DIR).resolve()
 ```
 
-The final path is also resolved:
+The service stores the invoice document path as a **relative path**, not an absolute filesystem path.
+
+For example:
+
+```text
+SUP-001/INV-1001.pdf
+```
+
+The internal invoice representation contains:
 
 ```python
-final_path = ...
+invoice["document_path"] = "SUP-001/INV-1001.pdf"
+```
+
+The public API URL is stored separately:
+
+```python
+invoice["document_url"] = (
+    f"/api/v1/invoices/{supplier_id}/{invoice_number}/document"
+)
+```
+
+The relative `document_path` is resolved against `UPLOAD_DIR` only when filesystem access is required.
+
+The final filesystem path is resolved:
+
+```python
+final_path = (upload_root / document_path).resolve()
 ```
 
 The implementation then verifies:
 
 ```python
 if not final_path.is_relative_to(upload_root):
-    raise ValueError("Invalid file path.")
+    raise ValueError("Invalid document path.")
 ```
 
-This ensures the final file remains inside the configured upload directory.
+This ensures that the resolved file remains inside the configured upload directory.
+
+This protection is applied both when storing documents and when resolving stored document paths for later operations.
 
 This is safer than using:
 
@@ -1189,6 +1250,24 @@ final_path.startswith(upload_root)
 
 because filesystem paths must be compared structurally rather than as plain strings.
 
+The separation between the two fields is intentional:
+
+```text
+document_path
+    │
+    └── Internal filesystem reference
+        Example: SUP-001/INV-1001.pdf
+
+document_url
+    │
+    └── Public API endpoint
+        Example: /api/v1/invoices/SUP-001/INV-1001/document
+```
+
+The public `document_url` is never used as a filesystem path.
+
+Storing only the relative `document_path` also keeps the stored invoice data independent of the machine-specific location of `UPLOAD_DIR`.
+
 ---
 
 # 39. Invoice Document Download
@@ -1196,7 +1275,7 @@ because filesystem paths must be compared structurally rather than as plain stri
 Invoice documents can be retrieved through:
 
 ```http
-GET /api/v1/invoices/{invoice_number}/document
+GET /api/v1/invoices/{supplier_id}/{invoice_number}/document
 ```
 
 The service verifies:
@@ -1208,11 +1287,31 @@ Invoice exists
 Document path exists
        │
        ▼
+Resolve document_path against UPLOAD_DIR
+       │
+       ▼
+Traversal protection
+       │
+       ▼
 Stored file exists
        │
        ▼
 Return PDF
 ```
+
+The filesystem lookup uses the internal `document_path`, not `document_url`.
+
+The stored relative path is resolved safely against the configured upload directory:
+
+```python
+upload_root = Path(UPLOAD_DIR).resolve()
+full_path = (upload_root / document_path).resolve()
+
+if not full_path.is_relative_to(upload_root):
+    raise ValueError("Invalid document path.")
+```
+
+This provides defense in depth because even a malformed stored path cannot resolve outside the configured upload directory.
 
 The document is returned as a file response rather than a JSON representation of the file.
 
@@ -1237,6 +1336,8 @@ FileResponse
     ▼
 Client receives PDF
 ```
+
+The endpoint resolves the internal `document_path`, verifies that the resulting file is inside `UPLOAD_DIR`, verifies that the file exists, and then returns it using `FileResponse`.
 
 This is appropriate for document-download APIs because the client receives the actual file rather than JSON containing file contents.
 
@@ -1348,44 +1449,125 @@ Create Supplier Directory
 Store PDF
       │
       ▼
-Save document_url
+Store Relative document_path
+      │
+      ▼
+Store Public document_url
 ```
+
+The stored values are intentionally separated.
+
+Example:
+
+```python
+invoice["document_path"] = "SUP-001/INV-1001.pdf"
+
+invoice["document_url"] = (
+    "/api/v1/invoices/SUP-001/INV-1001/document"
+)
+```
+
+The `document_path` is used only for internal filesystem operations.
+
+The `document_url` is exposed through the API and is used by clients to retrieve the document.
 
 ---
 
-# 44. Orphaned Invoice Files
+# 44. Invoice Document Path Resolution
 
+All filesystem operations involving invoice documents use the stored relative `document_path`.
 
-The invoice service provides a mechanism to identify invoice PDF files that
-are no longer properly associated with an active invoice record.
+The service resolves the path through a centralized safety check:
 
+```python
+def resolve_document_path(document_path: str) -> Path:
+    upload_root = Path(UPLOAD_DIR).resolve()
+    full_path = (upload_root / document_path).resolve()
+
+    if not full_path.is_relative_to(upload_root):
+        raise ValueError("Invalid document path.")
+
+    return full_path
+```
+
+This helper is used wherever a stored invoice document needs to be mapped back to the filesystem.
+
+The same protection therefore applies to:
+
+```text
+Document download
+      │
+      └── document_path → filesystem
+
+Orphan detection
+      │
+      └── document_path → filesystem
+```
+
+This prevents the public API URL from being incorrectly treated as a filesystem path and ensures that stored document paths cannot escape the configured upload directory.
+
+---
+
+# 45. Invoice Orphan File Detection
+
+Invoice document maintenance also uses the internal `document_path`.
+
+The orphan detection process resolves the stored relative path against `UPLOAD_DIR` before comparing it with files present on disk.
+
+Conceptually:
+
+```text
+Invoice document_path
+        │
+        ▼
+Resolve against UPLOAD_DIR
+        │
+        ▼
+Apply traversal protection
+        │
+        ▼
+Compare with stored files
+        │
+        ▼
+Detect orphaned files
+```
+
+Orphaned-file information must not expose the machine-specific absolute filesystem path.
+
+Where a file path is returned by the maintenance API, it is represented relative to `UPLOAD_DIR`, for example:
+
+```text
+SUP-001/INV-1001.pdf
+```
+
+This keeps maintenance responses portable and avoids exposing server filesystem details.
+
+The API's public `document_url` remains separate from the internal filesystem path throughout the document lifecycle.
+
+44. Orphaned Invoice Files
+
+The invoice service provides a mechanism to identify invoice PDF files that are no longer properly associated with an invoice record.
 
 An invoice PDF is considered orphaned when:
 
-
-1. The file is a PDF inside the invoice upload directory.
-2. The file is older than the configured `older_than_days` threshold.
-3. The corresponding invoice record does not exist, or the invoice exists but
-   the file is not considered validly associated with a completed invoice.
-
+The file is a PDF inside the invoice upload directory.
+The file is older than the configured older_than_days threshold.
+The corresponding invoice record does not exist, or the invoice exists but the file is not considered validly associated with the invoice according to the invoice status and document-association rules.
 
 The default threshold is:
 
-
-```text
 older_than_days = 1
 
 This means files that are less than one day old are not considered orphaned.
 
-## 44.1 Invoice Terminal States
+44.1 Invoice Terminal States
 
 The following invoice states are considered terminal:
 
 Approved
 Rejected
 
-Files belonging to invoices in these states are protected and are not
-considered orphaned.
+Files belonging to invoices in these states are protected and are not considered orphaned.
 
 The following states are non-terminal:
 
@@ -1393,11 +1575,9 @@ Submitted
 Disputed
 Adjusted
 
-Files associated with invoices in these states can be considered orphaned
-when they exceed the configured age threshold.
+Files associated with invoices in these states can be considered orphaned when they exceed the configured age threshold.
 
-## 44.2 Orphan Detection Rules
-
+44.2 Orphan Detection Rules
 
 The service checks invoice PDF files under supplier-specific directories:
 
@@ -1408,8 +1588,7 @@ uploads/
 ├── SUP002/
 │   └── INV2001.pdf
 
-The supplier ID and invoice number are used together to identify the
-corresponding invoice:
+The supplier ID and invoice number are used together to identify the corresponding invoice:
 
 (supplier_id, invoice_number)
 
@@ -1421,13 +1600,12 @@ is associated with:
 
 ("SUP001", "INV1001")
 
+This ensures that invoice numbers are evaluated within the correct supplier scope.
 
 44.3 Cases Considered Orphaned
-
 Case 1: Invoice Record Does Not Exist
 
-If an old PDF file exists but there is no corresponding invoice record, the
-file is considered orphaned.
+If an old PDF file exists but there is no corresponding invoice record, the file is considered orphaned.
 
 PDF file exists
       │
@@ -1441,16 +1619,15 @@ The result includes:
 
 reason:
 "No matching invoice record exists."
-Case 2: Invoice Is Non-Terminal and Document Is Not Registered
+Case 2: Non-Terminal Invoice With No Registered Document
 
 If the invoice exists but:
 
 document_url = None
 
-the physical PDF file has no registered association with the invoice.
+the invoice has no registered association with the physical PDF file.
 
-The file is therefore considered orphaned if it is older than the configured
-threshold.
+The file is therefore considered orphaned if it is older than the configured threshold.
 
 Invoice exists
       │
@@ -1464,14 +1641,14 @@ document_url missing
 ORPHANED
 Case 3: Stored Document Path Does Not Match
 
-If the invoice has a document_url, but the stored path does not match the
-actual PDF file being scanned, the file is considered orphaned.
+If the invoice has a document_url, but the stored path does not match the actual PDF file being scanned, the file is considered orphaned.
 
 For example:
 
 Actual file:
 uploads/SUP001/INV1001.pdf
 
+but:
 
 Invoice document_url:
 uploads/SUP001/different-file.pdf
@@ -1485,12 +1662,11 @@ Case 4: Non-Terminal Invoice With an Old Registered File
 If:
 
 the invoice exists,
-the invoice is non-terminal,
+the invoice is in a non-terminal state,
 the document is correctly registered,
-and the file is older than the configured threshold,
+and the file is older than the configured age threshold,
 
-the file is still considered orphaned because the invoice has remained
-incomplete beyond the configured age threshold.
+the file is considered orphaned because the invoice has remained incomplete beyond the configured threshold.
 
 Non-terminal invoice
         │
@@ -1503,8 +1679,9 @@ File older than threshold
         ▼
 ORPHANED
 
+This allows stale documents associated with invoices that have remained in submitted, disputed, or adjusted states to be identified for cleanup.
 
-30.4 Recent Files Are Protected
+44.4 Recent Files Are Protected
 
 Files newer than the configured threshold are ignored.
 
@@ -1519,8 +1696,7 @@ File age < 1 day
       ▼
 NOT ORPHANED
 
-This prevents recently uploaded invoice documents from being incorrectly
-identified or deleted.
+This prevents recently uploaded invoice documents from being incorrectly identified or deleted.
 
 44.5 Finding Orphaned Files
 
@@ -1530,8 +1706,7 @@ find_orphaned_invoice_files(
     older_than_days=1
 )
 
-The function scans the invoice upload directory and returns information about
-files identified as orphaned.
+The function scans the invoice upload directory and returns information about files identified as orphaned.
 
 Each result can contain:
 
@@ -1559,12 +1734,9 @@ If the upload directory does not exist, the function returns an empty list.
 
 A negative older_than_days value is rejected.
 
+44.6 Purging Orphaned Invoice Files
 
-44.5. Purging Orphaned Invoice Files
------------------------------------------------------------------------------
-
-The invoice service also provides a purge operation that physically deletes
-files identified as orphaned.
+The invoice service also provides a purge operation that physically deletes files identified as orphaned.
 
 The function is:
 
@@ -1578,7 +1750,9 @@ find_orphaned_invoice_files()
 
 and deletes only the files returned by the orphan-detection process.
 
-44.6 Purge Flow
+This ensures that the purge operation does not independently implement different orphan-detection rules.
+
+44.7 Purge Flow
 
 The purge process is:
 
@@ -1609,24 +1783,25 @@ Identify orphan
       │
       ▼
 Delete file
-31.2 Terminal Invoice Files Are Never Deleted
+44.8 Terminal Invoice Files Are Never Deleted
 
-Files belonging to completed invoices are protected.
+Files belonging to terminal invoices are protected.
 
 Approved → KEEP
 Rejected → KEEP
 
 Therefore:
 
-Old approved invoice PDF → KEEP
-Old rejected invoice PDF → KEEP
+Old approved invoice PDF  → KEEP
+Old rejected invoice PDF  → KEEP
 
 The purge operation only deletes files identified as orphaned.
 
-44.7 Recent Orphan Files Are Not Deleted
+Terminal invoice documents are never deleted merely because they are old.
 
-Even if a file does not have a matching invoice record, it will not be deleted
-if it is newer than the configured threshold.
+44.9 Recent Orphan Files Are Not Deleted
+
+Even if a file does not have a matching invoice record, it will not be deleted if it is newer than the configured threshold.
 
 For example:
 
@@ -1638,17 +1813,34 @@ Below age threshold
       ▼
 KEEP
 
-This provides protection against deleting files that may have been uploaded
-recently but have not yet been associated with an invoice record.
+This provides protection against deleting files that may have been uploaded recently but have not yet been associated with an invoice record.
 
-44.8 Purge Result
+44.10 Purge Result
 
-The purge operation returns:
+The purge operation returns information about the orphaned files identified and the files successfully deleted.
+
+Example:
 
 {
     "total": 3,
     "deleted": 3,
-    "files": [],
+    "files": [
+        {
+            "invoice_number": "INV1001",
+            "supplier_id": "SUP001",
+            "file_name": "INV1001.pdf"
+        },
+        {
+            "invoice_number": "INV1002",
+            "supplier_id": "SUP001",
+            "file_name": "INV1002.pdf"
+        },
+        {
+            "invoice_number": "INV2001",
+            "supplier_id": "SUP002",
+            "file_name": "INV2001.pdf"
+        }
+    ],
     "older_than_days": 1
 }
 
@@ -1660,10 +1852,11 @@ deleted	Number of files successfully deleted
 files	Details of files successfully deleted
 older_than_days	Age threshold used for the purge
 
-If one file cannot be deleted, the service continues processing the remaining
-orphaned files.
+If one file cannot be deleted, the service continues processing the remaining orphaned files.
 
-44.9 Safety Rules
+The deleted count reflects only files that were successfully removed.
+
+44.11 Safety Rules
 
 The orphan-file cleanup process follows these rules:
 
@@ -1678,47 +1871,37 @@ Recently uploaded PDFs
 Approved invoice documents
 Rejected invoice documents
 
-Only files identified by the orphan-detection logic are eligible for
-deletion.
+Only files identified by the orphan-detection logic are eligible for deletion.
 
-# . Blockers Encountered 
------------------------------
+## Blockers Encountered
 
-## Blocker 1 — Invoice Validation Was Not a Simple CRUD Operation
+ ## Blocker 1 — Invoice Validation Was Not a Simple CRUD Operation
 
 The invoice initially appeared to be a straightforward resource:
 
-```text
 Create Invoice
 Retrieve Invoice
-```
 
-However, creation depended on multiple business conditions.
+However, invoice creation depended on multiple business conditions.
 
 The invoice needed to validate:
 
-```text
 Invoice Number
 Supplier ID
 PO Existence
 PO Status
 Invoice Amount
 Duplicate Invoice
-```
-
-### Resolution
+Resolution
 
 Validation was separated into:
 
-```text
 Schema Validation
         +
 Service Business Validation
-```
 
-This made the invoice implementation easier to maintain and test.
+Schema validation handles the structure and basic data requirements, while service-level validation handles business rules involving purchase orders, suppliers, duplicate invoices, amounts, and invoice state.
 
----
 
  ## Blocker 2 — Invoice Amount Tolerance
 
