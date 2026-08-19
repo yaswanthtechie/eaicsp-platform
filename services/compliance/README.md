@@ -75,6 +75,8 @@ Weighted risk score ≈ 81
 
 Therefore, two entities can both be flagged but have different risk scores depending on the strength and supporting evidence of the match.
 
+
+
 ### 4. Country Risk and Overall Supplier Risk
 
 The screening response can also include:
@@ -204,6 +206,45 @@ scheduler.add_job(
 
 `max_instances=1` prevents multiple re-screening jobs from running simultaneously.
 
+ 10 .Fixture Data vs Live Data
+
+The project supports both fixture-based testing and live sanctions-data testing.
+
+Fixture Data
+
+Local fixture files are used by the normal automated test suite because they are:
+
+Small
+Fast
+Deterministic
+Independent of external network availability
+
+Fixture files are stored under:
+
+app/data/fixtures/
+
+Example:
+
+app/data/fixtures/
+├── ofac_sample.csv
+├── un_sample.xml
+└── eu_sample.xml
+Live Data
+
+The live integration test uses the configured external URLs.
+
+Run:
+
+pytest -m integration -v -s
+
+The live test downloads:
+
+OFAC → ofac.csv
+UN   → un.xml
+EU   → eu.xml
+
+The live download test does not rely on the local fixture records for its download verification.
+
 For production deployment, the interval can be changed to an appropriate nightly schedule.
 
 ## Technology Stack
@@ -234,8 +275,14 @@ The performance test enforces a limit of **<100 ms** for screening 500 entities.
 
 Run the benchmark with:
 
-```bash
 pytest tests/test_sanctions.py::test_bulk_screen_500_entities -s -v
+
+## ofac recency
+
+OFAC records without a listing date contribute to risk scoring through match confidence and source coverage; the recency component is neutral when the listing date is unavailable.
+
+pytest tests/test_sanctions.py::test_ofac_missing_listing_date_is_handled -s -v
+
 
 ## Installation
 
@@ -275,7 +322,7 @@ OFAC_DOWNLOAD_URL=https://sanctionslistservice.ofac.treas.gov/api/PublicationPre
 
 UN_DOWNLOAD_URL=https://scsanctions.un.org/resources/xml/en/consolidated.xml
 
-EU_DOWNLOAD_URL=<configured-EU-download-url>
+EU_DOWNLOAD_URL=https://webgate.ec.europa.eu/fsd/fsf/public/files/xmlFullSanctionsList_1_1/content?token=n002gggg
 ```
 
 Do not put square brackets or parentheses around URLs in `.env`.
@@ -394,6 +441,18 @@ Run the complete test suite:
 pytest
 ```
 
+Run the live sanctions download integration test separately:
+
+pytest -v tests/test_live_download.py -s
+Latest live-download result:
+
+1 passed, 1 warning
+
+Collect tests without executing them:
+
+pytest --collect-only -q
+
+
 The current test suite contains tests covering:
 
 * API behavior
@@ -445,7 +504,9 @@ for row in rows:
 connection.close()
 ```
 
+Unit Tests
 
+Unit tests cover individual functions and service behavior without depending on live sanctions downloads.
 
 ## Important Implementation Notes
 

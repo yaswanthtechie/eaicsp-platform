@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -6,24 +7,19 @@ from typing import Any
 
 from app.core.database import SessionLocal
 from app.models.audit import ComplianceAudit
-from app.models.compliance_override import ComplianceOverride
 from app.services.audit_service import write_audit
-from app.services.sanctions_service import screen_entity
-from app.services.override_service import (
-    normalize_override_name,
-    normalize_source,
+from app.services.sanctions_service import (
+    apply_override,
+    screen_entity,
 )
 
 
-def refresh_sanctions_data() -> None:
-  
 
-    from app.services.downloader_service import (
-        download_all_lists,
-    )
-    from app.services.sanctions_service import (
-        load_all_sanctions,
-    )
+def refresh_sanctions_data() -> None:
+   
+
+    from app.services.downloader_service import download_all_lists
+    from app.services.sanctions_service import load_all_sanctions
 
     download_all_lists()
     load_all_sanctions()
@@ -31,11 +27,14 @@ def refresh_sanctions_data() -> None:
 
 def load_all_sanctions() -> None:
   
+
     from app.services.sanctions_service import (
-        load_all_sanctions,
+        load_all_sanctions as _load,
     )
 
-    load_all_sanctions()
+    _load()
+
+
 
 
 def generate_screening_run_id() -> str:
@@ -49,11 +48,9 @@ def generate_screening_run_id() -> str:
 
 
 
-
 def get_latest_audits(
     db,
 ) -> dict[str, ComplianceAudit]:
-   
 
     records = (
         db.query(ComplianceAudit)
@@ -68,14 +65,9 @@ def get_latest_audits(
 
     for record in records:
 
-        entity_name = (
-            record.entity_name
-            or ""
-        )
+        entity_name = record.entity_name or ""
 
-        entity_key = (
-            entity_name.strip().upper()
-        )
+        entity_key = entity_name.strip().upper()
 
         if not entity_key:
             continue
@@ -86,15 +78,14 @@ def get_latest_audits(
     return latest
 
 
-
-
 def get_previously_cleared_entities(
     db,
 ) -> list[ComplianceAudit]:
-   
+
+
     latest_records = get_latest_audits(db)
 
-    cleared_entities = []
+    cleared_entities: list[ComplianceAudit] = []
 
     for record in latest_records.values():
 
@@ -107,74 +98,10 @@ def get_previously_cleared_entities(
 def get_previous_cleared_entities(
     db,
 ) -> list[ComplianceAudit]:
-    
+
+
     return get_previously_cleared_entities(db)
 
-
-
-def get_matching_override(
-    db,
-    entity_name: str,
-    result: dict[str, Any],
-):
-    
-
-    matched_name = (
-        result.get("matched_name")
-    )
-
-    if not matched_name:
-        return None
-
-    matched_lists = (
-        result.get("matched_lists")
-        or []
-    )
-
-    normalized_entity = (
-        normalize_override_name(
-            entity_name
-        )
-    )
-
-    normalized_match = (
-        normalize_override_name(
-            matched_name
-        )
-    )
-
-    for source in matched_lists:
-
-        if not source:
-            continue
-
-        normalized_source = (
-            normalize_source(
-                source
-            )
-        )
-
-        override = (
-            db.query(
-                ComplianceOverride
-            )
-            .filter(
-                ComplianceOverride.entity_name
-                == normalized_entity,
-
-                ComplianceOverride.matched_name
-                == normalized_match,
-
-                ComplianceOverride.source
-                == normalized_source,
-            )
-            .first()
-        )
-
-        if override:
-            return override
-
-    return None
 
 
 def rescreen_entity(
@@ -182,29 +109,29 @@ def rescreen_entity(
     entity,
     screening_run_id: str | None = None,
 ) -> dict[str, Any]:
-   
+ 
 
     if screening_run_id is None:
-        screening_run_id = (
-            generate_screening_run_id()
-        )
+        screening_run_id = generate_screening_run_id()
 
-    entity_name = (
-        entity.entity_name
-        or ""
-    )
+    entity_name = entity.entity_name or ""
 
     start = time.perf_counter()
 
 
-    result = screen_entity(
-        entity_name
-    )
+    result = screen_entity(entity_name)
 
     duration_ms = (
-        time.perf_counter()
-        - start
+        time.perf_counter() - start
     ) * 1000
+
+   
+
+    result = apply_override(
+        db=db,
+        entity_name=entity_name,
+        result=result,
+    )
 
     is_flagged = bool(
         result.get(
@@ -213,35 +140,19 @@ def rescreen_entity(
         )
     )
 
+    
 
-    override = None
+    risk_score = result.get(
+        "risk_score",
+        0,
+    )
 
-    if is_flagged:
+    risk_factors = result.get(
+        "risk_factors",
+        {},
+    )
 
-        override = get_matching_override(
-            db=db,
-            entity_name=entity_name,
-            result=result,
-        )
-
-        if override:
-
-            # Suppress the sanctions match because
-            # compliance already reviewed it.
-            result["override_applied"] = True
-            result["is_flagged"] = False
-
-            is_flagged = False
-
-        else:
-
-            result["override_applied"] = False
-
-    else:
-
-        result["override_applied"] = False
-
-
+    
 
     if not is_flagged:
 
@@ -251,6 +162,8 @@ def rescreen_entity(
             "newly_flagged": False,
             "screening_type": "RESCREEN",
             "screening_run_id": screening_run_id,
+            "risk_score": risk_score,
+            "risk_factors": risk_factors,
             "result": result,
             "duration_ms": round(
                 duration_ms,
@@ -258,6 +171,17 @@ def rescreen_entity(
             ),
         }
 
+    
+
+    result["screening_type"] = "RESCREEN"
+    result["newly_flagged"] = True
+    result["screening_run_id"] = screening_run_id
+
+    # Explicitly preserve risk information in the result.
+    result["risk_score"] = risk_score
+    result["risk_factors"] = risk_factors
+
+    
 
     write_audit(
         db=db,
@@ -269,12 +193,15 @@ def rescreen_entity(
         screening_run_id=screening_run_id,
     )
 
+
     return {
         "entity_name": entity_name,
         "previously_cleared": True,
         "newly_flagged": True,
         "screening_type": "RESCREEN",
         "screening_run_id": screening_run_id,
+        "risk_score": risk_score,
+        "risk_factors": risk_factors,
         "result": result,
         "duration_ms": round(
             duration_ms,
@@ -285,42 +212,32 @@ def rescreen_entity(
 
 
 def rescreen_cleared_entities() -> dict[str, Any]:
-   
+ 
 
     job_start = time.perf_counter()
 
-    screening_run_id = (
-        generate_screening_run_id()
-    )
+    screening_run_id = generate_screening_run_id()
 
     db = SessionLocal()
 
     try:
-
+     
         refresh_sanctions_data()
 
+        cleared_entities = get_previously_cleared_entities(db)
 
-        cleared_entities = (
-            get_previously_cleared_entities(
-                db
-            )
-        )
-
-        total_checked = len(
-            cleared_entities
-        )
+        total_checked = len(cleared_entities)
 
         print(
-            f"Previously-cleared entities: "
+            "Previously-cleared entities: "
             f"{total_checked}"
         )
 
         newly_flagged = 0
         still_clean = 0
 
-        results = []
+        results: list[dict[str, Any]] = []
 
-    
 
         for entity in cleared_entities:
 
@@ -330,23 +247,17 @@ def rescreen_cleared_entities() -> dict[str, Any]:
                 screening_run_id=screening_run_id,
             )
 
-            results.append(
-                result
-            )
+            results.append(result)
 
             if result["newly_flagged"]:
                 newly_flagged += 1
             else:
                 still_clean += 1
 
- 
-
         db.commit()
 
-
         total_duration_ms = (
-            time.perf_counter()
-            - job_start
+            time.perf_counter() - job_start
         ) * 1000
 
         return {
@@ -373,18 +284,13 @@ def rescreen_cleared_entities() -> dict[str, Any]:
         db.close()
 
 
-
-
 def nightly_rescreen_job() -> dict[str, Any]:
-  
 
     print(
         "Starting nightly re-screen..."
     )
 
-    result = (
-        rescreen_cleared_entities()
-    )
+    result = rescreen_cleared_entities()
 
     print(
         "Re-screen completed: "
@@ -398,3 +304,4 @@ def nightly_rescreen_job() -> dict[str, Any]:
 
 if __name__ == "__main__":
     nightly_rescreen_job()
+

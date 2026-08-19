@@ -99,3 +99,8 @@ EU_DOWNLOAD_URL = os.getenv(
     "",
 )
 
+USE_FIXTURES = os.getenv(
+    "USE_FIXTURES",
+    "false",
+).lower() == "true"
+

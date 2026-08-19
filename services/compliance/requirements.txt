@@ -1,9 +1,11 @@
-﻿fastapi
+﻿fastapi>=0.115
 uvicorn
-sqlalchemy
+sqlalchemy>=2.0
 python-dotenv
 rapidfuzz
 requests
 apscheduler
 pytest
 httpx
+xmltodict
+pydantic

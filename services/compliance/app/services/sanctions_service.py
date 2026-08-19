@@ -3,12 +3,17 @@ from pathlib import Path
 from typing import Any
 
 from rapidfuzz import fuzz, process
+from sqlalchemy.orm import Session
 
 from app.core.config import (
     OFAC_CSV_PATH,
     UN_XML_PATH,
     EU_XML_PATH,
     MATCH_THRESHOLD,
+    USE_FIXTURES,
+    OFAC_FIXTURE_PATH,
+    UN_FIXTURE_PATH,
+    EU_FIXTURE_PATH,
 )
 
 from app.services.sources.ofac import load_ofac
@@ -30,28 +35,23 @@ from app.services.risk_score_service import (
     calculate_overall_supplier_risk,
 )
 
+from app.services.override_service import get_override
 
 
 sanction_index: dict[str, dict[str, Any]] = {}
-
 search_keys: list[str] = []
 
 prefix_index: dict[str, list[str]] = {}
 two_char_index: dict[str, list[str]] = {}
 first_char_index: dict[str, list[str]] = {}
 
-_indexes_loaded: bool = False
-
+_indexes_loaded = False
 
 MAX_FALLBACK_CANDIDATES = 500
 MIN_SEARCH_KEY_LENGTH = 3
 
 
-def _normalize_sources(
-    sources: Any,
-) -> list[str]:
-   
-
+def _normalize_sources(sources: Any) -> list[str]:
     if not sources:
         return []
 
@@ -68,11 +68,7 @@ def _normalize_sources(
     return sorted(normalized)
 
 
-def _normalize_aliases(
-    aliases: Any,
-) -> list[str]:
-    
-
+def _normalize_aliases(aliases: Any) -> list[str]:
     if not aliases:
         return []
 
@@ -93,8 +89,6 @@ def _safe_float(
     value: Any,
     default: float = 0.0,
 ) -> float:
-   
-
     try:
         return float(value)
     except (TypeError, ValueError):
@@ -106,21 +100,68 @@ def _clamp(
     minimum: float = 0.0,
     maximum: float = 100.0,
 ) -> float:
-    
-
     return max(
         minimum,
         min(value, maximum),
     )
 
 
+def apply_override(
+    db: Session | None,
+    result: dict[str, Any],
+    entity_name: str | None = None,
+) -> dict[str, Any]:
+
+    result["override_applied"] = False
+    result["override_reason"] = None
+    result["reviewed_by"] = None
+
+    if db is None:
+        return result
+
+    if not result.get("is_flagged"):
+        return result
+
+    matched_name = result.get("matched_name")
+
+    if not matched_name:
+        return result
+
+    if entity_name is None:
+        entity_name = result.get("entity_name")
+
+    if not entity_name:
+        return result
+
+    sources = _normalize_sources(
+        result.get("matched_lists", [])
+    )
+
+    for source in sources:
+        override = get_override(
+            db=db,
+            entity_name=entity_name,
+            matched_name=matched_name,
+            source=source,
+        )
+
+        if override is None:
+            continue
+
+        result["is_flagged"] = False
+        result["override_applied"] = True
+        result["override_reason"] = override.reason
+        result["reviewed_by"] = override.reviewed_by
+
+        break
+
+    return result
+
 
 def merge_index_records(
     target: dict[str, Any],
     source: dict[str, Any],
 ) -> dict[str, Any]:
-    
-
 
     target_sources = set(
         _normalize_sources(
@@ -138,7 +179,6 @@ def merge_index_records(
         target_sources | source_sources
     )
 
-
     target_aliases = set(
         _normalize_aliases(
             target.get("aliases", [])
@@ -155,12 +195,8 @@ def merge_index_records(
         target_aliases | source_aliases
     )
 
-   
-
     if not target.get("name"):
         target["name"] = source.get("name")
-
-  
 
     target_confidence = _safe_float(
         target.get("confidence", 100),
@@ -177,32 +213,22 @@ def merge_index_records(
         source_confidence,
     )
 
-
-    target_date = target.get(
-        "listed_date"
-    )
-
-    source_date = source.get(
-        "listed_date"
-    )
+    target_date = target.get("listed_date")
+    source_date = source.get("listed_date")
 
     if target_date and source_date:
-
         if str(source_date) < str(target_date):
             target["listed_date"] = source_date
-
     elif source_date and not target_date:
-
         target["listed_date"] = source_date
 
     return target
 
 
-
 def create_index_record(
     record: dict[str, Any],
 ) -> dict[str, Any]:
-  
+
     confidence = _safe_float(
         record.get("confidence", 100),
         100.0,
@@ -210,32 +236,21 @@ def create_index_record(
 
     return {
         "name": record.get("name"),
-
         "aliases": _normalize_aliases(
             record.get("aliases", [])
         ),
-
         "sources": _normalize_sources(
             record.get("sources", [])
         ),
-
-        "confidence": _clamp(
-            confidence
-        ),
-
-        "listed_date": record.get(
-            "listed_date"
-        ),
+        "confidence": _clamp(confidence),
+        "listed_date": record.get("listed_date"),
     }
-
-
 
 
 def add_to_index(
     key: str,
     record: dict[str, Any],
 ) -> None:
-    
 
     if not key:
         return
@@ -243,14 +258,10 @@ def add_to_index(
     if len(key) < MIN_SEARCH_KEY_LENGTH:
         return
 
-    existing = sanction_index.get(
-        key
-    )
+    existing = sanction_index.get(key)
 
     if existing is None:
-
         sanction_index[key] = record
-
         return
 
     sanction_index[key] = merge_index_records(
@@ -259,9 +270,7 @@ def add_to_index(
     )
 
 
-
 def build_prefix_index() -> None:
-   
 
     prefix_index.clear()
     two_char_index.clear()
@@ -272,24 +281,17 @@ def build_prefix_index() -> None:
         if not key:
             continue
 
-
-
         if len(key) >= 3:
-
             prefix_index.setdefault(
                 key[:3],
                 [],
             ).append(key)
 
-    
         if len(key) >= 2:
-
             two_char_index.setdefault(
                 key[:2],
                 [],
             ).append(key)
-
-  
 
         first_char_index.setdefault(
             key[0],
@@ -297,12 +299,9 @@ def build_prefix_index() -> None:
         ).append(key)
 
 
-
-
 def build_sanction_index(
     merged_records: dict[str, dict[str, Any]],
 ) -> None:
-   
 
     sanction_index.clear()
     search_keys.clear()
@@ -311,17 +310,13 @@ def build_sanction_index(
     two_char_index.clear()
     first_char_index.clear()
 
-  
-
     for record in merged_records.values():
 
         indexed_record = create_index_record(
             record
         )
 
-        name = indexed_record.get(
-            "name"
-        )
+        name = indexed_record.get("name")
 
         normalized_name = normalize_name(
             name or ""
@@ -334,8 +329,6 @@ def build_sanction_index(
             normalized_name,
             indexed_record,
         )
-
-  
 
     for record in merged_records.values():
 
@@ -362,13 +355,9 @@ def build_sanction_index(
                 indexed_record,
             )
 
-
-
     search_keys.extend(
         sanction_index.keys()
     )
-
-  
 
     build_prefix_index()
 
@@ -377,10 +366,8 @@ def build_sanction_index(
     )
 
 
-
-
 def _clear_indexes() -> None:
-  
+
     global _indexes_loaded
 
     sanction_index.clear()
@@ -393,22 +380,110 @@ def _clear_indexes() -> None:
     _indexes_loaded = False
 
 
+def _get_sanctions_paths() -> tuple[Path, Path, Path]:
+
+    if USE_FIXTURES:
+        return (
+            Path(OFAC_FIXTURE_PATH),
+            Path(UN_FIXTURE_PATH),
+            Path(EU_FIXTURE_PATH),
+        )
+
+    return (
+        Path(OFAC_CSV_PATH),
+        Path(UN_XML_PATH),
+        Path(EU_XML_PATH),
+    )
 
 
-def load_all_sanctions() -> None:
-   
+def _load_fixture_data() -> None:
 
-    global _indexes_loaded
+    print("Using local sanctions fixtures")
 
-    _clear_indexes()
+    ofac_path, un_path, eu_path = _get_sanctions_paths()
+
+    fixture_files = [
+        ofac_path,
+        un_path,
+        eu_path,
+    ]
+
+    missing_files = [
+        file
+        for file in fixture_files
+        if not file.exists()
+    ]
+
+    if missing_files:
+        raise FileNotFoundError(
+            "Required fixture files are missing: "
+            + ", ".join(
+                str(file)
+                for file in missing_files
+            )
+        )
+
+    print("Loading OFAC fixture")
+
+    ofac_records = load_ofac(
+        str(ofac_path)
+    )
+
+    print(
+        f"Loaded {len(ofac_records)} OFAC fixture records"
+    )
+
+    print("Loading UN fixture")
+
+    un_records = load_un(
+        str(un_path)
+    )
+
+    print(
+        f"Loaded {len(un_records)} UN fixture records"
+    )
+
+    print("Loading EU fixture")
+
+    eu_records = load_eu(
+        str(eu_path)
+    )
+
+    print(
+        f"Loaded {len(eu_records)} EU fixture records"
+    )
+
+    all_records = (
+        ofac_records
+        + un_records
+        + eu_records
+    )
+
+    print(
+        f"Total fixture records: {len(all_records)}"
+    )
+
+    merged_records = deduplicate_entities(
+        all_records,
+        threshold=MATCH_THRESHOLD,
+    )
+
+    print(
+        f"Merged fixture entities: {len(merged_records)}"
+    )
+
+    build_sanction_index(
+        merged_records
+    )
+
+
+def _load_downloaded_data() -> None:
 
     required_files = [
         Path(OFAC_CSV_PATH),
         Path(UN_XML_PATH),
         Path(EU_XML_PATH),
     ]
-
-   
 
     missing_files = [
         file
@@ -418,23 +493,14 @@ def load_all_sanctions() -> None:
 
     if missing_files:
 
-        print(
-            "Missing sanctions files:"
-        )
+        print("Missing sanctions files:")
 
         for file in missing_files:
+            print(f"  - {file}")
 
-            print(
-                f"  - {file}"
-            )
-
-        print(
-            "Downloading sanctions lists..."
-        )
+        print("Downloading sanctions lists...")
 
         download_all_lists()
-
-
 
     missing_after_download = [
         file
@@ -443,7 +509,6 @@ def load_all_sanctions() -> None:
     ]
 
     if missing_after_download:
-
         raise FileNotFoundError(
             "Required sanctions files are missing: "
             + ", ".join(
@@ -451,8 +516,6 @@ def load_all_sanctions() -> None:
                 for file in missing_after_download
             )
         )
-
-  
 
     print("Loading OFAC")
 
@@ -464,7 +527,6 @@ def load_all_sanctions() -> None:
         f"Loaded {len(ofac_records)} OFAC records"
     )
 
-
     print("Loading UN")
 
     un_records = load_un(
@@ -475,7 +537,6 @@ def load_all_sanctions() -> None:
         f"Loaded {len(un_records)} UN records"
     )
 
-  
     print("Loading EU")
 
     eu_records = load_eu(
@@ -496,7 +557,6 @@ def load_all_sanctions() -> None:
         f"Total records: {len(all_records)}"
     )
 
-
     merged_records = deduplicate_entities(
         all_records,
         threshold=MATCH_THRESHOLD,
@@ -506,23 +566,38 @@ def load_all_sanctions() -> None:
         f"Merged entities: {len(merged_records)}"
     )
 
-  
-
     build_sanction_index(
         merged_records
     )
 
+
+def load_all_sanctions() -> None:
+
+    global _indexes_loaded
+
+    _clear_indexes()
+
+    if USE_FIXTURES:
+        _load_fixture_data()
+    else:
+        _load_downloaded_data()
+
     _indexes_loaded = True
 
 
-
-
 def refresh_sanctions_data() -> None:
-   
 
-    print(
-        "Refreshing sanctions data..."
-    )
+    if USE_FIXTURES:
+
+        print(
+            "USE_FIXTURES=true; skipping live sanctions refresh."
+        )
+
+        load_all_sanctions()
+
+        return
+
+    print("Refreshing sanctions data...")
 
     download_all_lists()
 
@@ -533,18 +608,13 @@ def refresh_sanctions_data() -> None:
     )
 
 
-
-
 def ensure_index_loaded() -> None:
-   
 
     if (
         not _indexes_loaded
         or not sanction_index
     ):
-
         load_all_sanctions()
-
 
 
 def build_clean_response(
@@ -552,7 +622,6 @@ def build_clean_response(
     entity_name: str | None,
     country: str | None,
 ) -> dict[str, Any]:
-   
 
     country_risk_score = _clamp(
         _safe_float(
@@ -575,39 +644,27 @@ def build_clean_response(
 
     return {
         "entity_name": entity_name,
-
         "is_flagged": False,
-
         "matched_lists": [],
-
         "matched_count": 0,
-
         "matched_name": None,
-
         "aliases": [],
-
         "match_score": 0,
-
         "confidence": 0.0,
-
         "risk_score": 0.0,
-
         "risk_factors": {
             "match_confidence": 0.0,
             "source_coverage": 0.0,
             "recency": 0.0,
         },
-
         "country_risk_score": round(
             country_risk_score,
             2,
         ),
-
         "overall_supplier_risk": round(
             overall_supplier_risk,
             2,
         ),
-
         "duration_ms": max(
             round(
                 _safe_float(duration),
@@ -615,23 +672,14 @@ def build_clean_response(
             ),
             0.0,
         ),
-
         "source": [],
-
         "override_applied": False,
-
         "override_reason": None,
-
         "reviewed_by": None,
-
         "screening_type": "INITIAL",
-
         "newly_flagged": False,
-
         "screening_run_id": None,
     }
-
-
 
 
 def build_matched_response(
@@ -641,9 +689,6 @@ def build_matched_response(
     entity_name: str | None,
     country: str | None,
 ) -> dict[str, Any]:
-   
-
-   
 
     sources = _normalize_sources(
         record.get(
@@ -652,15 +697,12 @@ def build_matched_response(
         )
     )
 
-
-
     aliases = _normalize_aliases(
         record.get(
             "aliases",
             [],
         )
     )
-
 
     confidence_value = _clamp(
         _safe_float(
@@ -677,8 +719,6 @@ def build_matched_response(
         2,
     )
 
-
-
     matched_name = record.get(
         "name"
     )
@@ -686,7 +726,6 @@ def build_matched_response(
     listed_date = record.get(
         "listed_date"
     )
-
 
     risk_result = calculate_risk_score(
         match_score=score,
@@ -703,7 +742,6 @@ def build_matched_response(
         )
     )
 
-
     country_risk_score = _clamp(
         _safe_float(
             calculate_country_risk(
@@ -711,8 +749,6 @@ def build_matched_response(
             )
         )
     )
-
-
 
     overall_supplier_risk = _clamp(
         _safe_float(
@@ -722,7 +758,6 @@ def build_matched_response(
             )
         )
     )
-
 
     risk_factors = risk_result.get(
         "risk_factors",
@@ -747,30 +782,25 @@ def build_matched_response(
         )
     )
 
-    recency = _clamp(
-        _safe_float(
-            risk_factors.get(
-                "recency",
-                0,
+    if listed_date is None or not str(listed_date).strip():
+        recency = 0.0
+    else:
+        recency = _clamp(
+            _safe_float(
+                risk_factors.get(
+                    "recency",
+                    0,
+                )
             )
         )
-    )
-
-
 
     return {
         "entity_name": entity_name,
-
         "is_flagged": True,
-
         "matched_lists": sources,
-
         "matched_count": len(sources),
-
         "matched_name": matched_name,
-
         "aliases": aliases,
-
         "match_score": max(
             0,
             min(
@@ -778,41 +808,33 @@ def build_matched_response(
                 100,
             ),
         ),
-
         "confidence": confidence,
-
         "risk_score": round(
             sanctions_risk_score,
             2,
         ),
-
         "risk_factors": {
             "match_confidence": round(
                 match_confidence,
                 2,
             ),
-
             "source_coverage": round(
                 source_coverage,
                 2,
             ),
-
             "recency": round(
                 recency,
                 2,
             ),
         },
-
         "country_risk_score": round(
             country_risk_score,
             2,
         ),
-
         "overall_supplier_risk": round(
             overall_supplier_risk,
             2,
         ),
-
         "duration_ms": max(
             round(
                 _safe_float(duration),
@@ -820,23 +842,14 @@ def build_matched_response(
             ),
             0.0,
         ),
-
         "source": sources,
-
         "override_applied": False,
-
         "override_reason": None,
-
         "reviewed_by": None,
-
         "screening_type": "INITIAL",
-
         "newly_flagged": False,
-
         "screening_run_id": None,
     }
-
-
 
 
 def build_response(
@@ -847,13 +860,8 @@ def build_response(
     entity_name: str | None = None,
     country: str | None = None,
 ) -> dict[str, Any]:
-    
 
-    if (
-        not flagged
-        or record is None
-    ):
-
+    if not flagged or record is None:
         return build_clean_response(
             duration=duration,
             entity_name=entity_name,
@@ -869,16 +877,12 @@ def build_response(
     )
 
 
-
-
 def _get_fuzzy_candidates(
     normalized: str,
 ) -> list[str]:
-    
 
     if not normalized:
         return []
-
 
     if len(normalized) >= 3:
 
@@ -890,7 +894,6 @@ def _get_fuzzy_candidates(
         if candidates:
             return candidates
 
-
     if len(normalized) >= 2:
 
         candidates = two_char_index.get(
@@ -901,29 +904,24 @@ def _get_fuzzy_candidates(
         if candidates:
             return candidates
 
-   
     candidates = first_char_index.get(
         normalized[0],
         [],
     )
 
     if candidates:
-
         return candidates[
             :MAX_FALLBACK_CANDIDATES
         ]
-
 
     return search_keys[
         :MAX_FALLBACK_CANDIDATES
     ]
 
 
-
 def fuzzy_search(
     normalized: str,
 ):
-   
 
     if not normalized:
         return None
@@ -943,19 +941,13 @@ def fuzzy_search(
     )
 
 
-
 def screen_normalized_entity(
     normalized: str,
     original_name: str,
     country: str | None = None,
 ) -> dict[str, Any]:
-    """
-    Screen a normalized entity name.
-    """
 
     start = time.perf_counter()
-
-
 
     record = sanction_index.get(
         normalized
@@ -977,7 +969,6 @@ def screen_normalized_entity(
             country=country,
         )
 
-
     match = fuzzy_search(
         normalized
     )
@@ -986,8 +977,6 @@ def screen_normalized_entity(
         time.perf_counter()
         - start
     ) * 1000
-
-
 
     if not match:
 
@@ -1000,13 +989,8 @@ def screen_normalized_entity(
             country=country,
         )
 
-
-
     matched_key = match[0]
-
-    score = int(
-        match[1]
-    )
+    score = int(match[1])
 
     record = sanction_index.get(
         matched_key
@@ -1033,14 +1017,11 @@ def screen_normalized_entity(
     )
 
 
-
 def _validate_entity_name(
     name: str,
 ) -> None:
-   
 
     if name is None:
-
         raise ValueError(
             "entity_name must not be null"
         )
@@ -1049,68 +1030,62 @@ def _validate_entity_name(
         name,
         str,
     ):
-
         raise ValueError(
             "entity_name must be a string"
         )
 
     if not name.strip():
-
         raise ValueError(
             "entity_name must not be blank"
         )
 
 
-
-
 def screen_entity(
     name: str,
     country: str | None = None,
+    db: Session | None = None,
 ) -> dict[str, Any]:
-  
 
-    _validate_entity_name(
-        name
-    )
-
+    _validate_entity_name(name)
 
     ensure_index_loaded()
 
-
-    normalized = normalize_name(
-        name
-    )
-
-
+    normalized = normalize_name(name)
 
     if not normalized:
 
-        return build_clean_response(
+        result = build_clean_response(
             duration=0,
             entity_name=name,
             country=country,
         )
 
-  
+        return apply_override(
+            db=db,
+            result=result,
+            entity_name=name,
+        )
 
-    return screen_normalized_entity(
+    result = screen_normalized_entity(
         normalized=normalized,
         original_name=name,
         country=country,
     )
 
+    return apply_override(
+        db=db,
+        result=result,
+        entity_name=name,
+    )
 
 
 def screen_bulk(
     names: list[str],
     country: str | None = None,
+    db: Session | None = None,
 ) -> dict[str, Any]:
-    
-
-  
 
     if names is None:
-
         raise ValueError(
             "entity_names must not be null"
         )
@@ -1119,26 +1094,17 @@ def screen_bulk(
         names,
         list,
     ):
-
         raise ValueError(
             "entity_names must be a list"
         )
 
     if not names:
-
         raise ValueError(
             "entity_names must contain at least one item"
         )
 
- 
-
     for name in names:
-
-        _validate_entity_name(
-            name
-        )
-
-  
+        _validate_entity_name(name)
 
     ensure_index_loaded()
 
@@ -1147,8 +1113,6 @@ def screen_bulk(
     results: list[
         dict[str, Any] | None
     ] = [None] * len(names)
-
-
 
     cache: dict[
         str,
@@ -1159,34 +1123,27 @@ def screen_bulk(
         tuple[int, str, str]
     ] = []
 
+    for position, name in enumerate(names):
 
-
-    for position, name in enumerate(
-        names
-    ):
-
-        normalized = normalize_name(
-            name
-        )
-
+        normalized = normalize_name(name)
 
         if not normalized:
 
-            results[position] = (
-                build_clean_response(
-                    duration=0,
-                    entity_name=name,
-                    country=country,
-                )
+            result = build_clean_response(
+                duration=0,
+                entity_name=name,
+                country=country,
+            )
+
+            results[position] = apply_override(
+                db=db,
+                result=result,
+                entity_name=name,
             )
 
             continue
 
-
-
-        cached = cache.get(
-            normalized
-        )
+        cached = cache.get(normalized)
 
         if cached is not None:
 
@@ -1194,11 +1151,15 @@ def screen_bulk(
 
             result["entity_name"] = name
 
+            result = apply_override(
+                db=db,
+                result=result,
+                entity_name=name,
+            )
+
             results[position] = result
 
             continue
-
-   
 
         record = sanction_index.get(
             normalized
@@ -1215,12 +1176,17 @@ def screen_bulk(
                 country=country,
             )
 
-            cache[normalized] = result
+            cache[normalized] = result.copy()
+
+            result = apply_override(
+                db=db,
+                result=result,
+                entity_name=name,
+            )
 
             results[position] = result
 
             continue
-
 
         fuzzy_items.append(
             (
@@ -1230,23 +1196,24 @@ def screen_bulk(
             )
         )
 
-
     for (
         position,
         normalized,
         original_name,
     ) in fuzzy_items:
 
-        cached = cache.get(
-            normalized
-        )
+        cached = cache.get(normalized)
 
         if cached is not None:
 
             result = cached.copy()
 
-            result["entity_name"] = (
-                original_name
+            result["entity_name"] = original_name
+
+            result = apply_override(
+                db=db,
+                result=result,
+                entity_name=original_name,
             )
 
             results[position] = result
@@ -1259,18 +1226,21 @@ def screen_bulk(
             country=country,
         )
 
-        cache[normalized] = result
+        cache[normalized] = result.copy()
+
+        result = apply_override(
+            db=db,
+            result=result,
+            entity_name=original_name,
+        )
 
         results[position] = result
-
 
     final_results: list[
         dict[str, Any]
     ] = []
 
-    for index, result in enumerate(
-        results
-    ):
+    for index, result in enumerate(results):
 
         if result is None:
 
@@ -1280,10 +1250,13 @@ def screen_bulk(
                 country=country,
             )
 
-        final_results.append(
-            result
-        )
+            result = apply_override(
+                db=db,
+                result=result,
+                entity_name=names[index],
+            )
 
+        final_results.append(result)
 
     total_duration = (
         time.perf_counter()
@@ -1292,9 +1265,7 @@ def screen_bulk(
 
     return {
         "count": len(names),
-
         "results": final_results,
-
         "total_duration_ms": round(
             total_duration,
             2,
