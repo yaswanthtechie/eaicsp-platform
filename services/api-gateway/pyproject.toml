@@ -1,0 +1,3 @@
+[tool.bandit]
+targets = ["app"]
+exclude_dirs = ["app/tests", "tests"]
