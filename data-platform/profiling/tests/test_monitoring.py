@@ -116,3 +116,39 @@ def test_quality_score_trend(tmp_path):
     assert trend["batches"] == 4
     assert trend["quality_scores"] == [60, 65, 70, 75]
     assert trend["trend"] == "Improving"
+
+
+def test_column_null_rate_trend(tmp_path):
+    from src.monitoring import MonitoringHistory
+
+    history_file = tmp_path / "history.json"
+
+    monitoring = MonitoringHistory(
+        history_file=str(history_file),
+        max_batches=10
+    )
+
+    reports = [2.0, 3.5, 4.0]
+
+    for null_rate in reports:
+        report = {
+            "quality_score": {
+                "score": 90,
+                "missing_values": 0,
+                "duplicate_rows": 0,
+                "total_outliers": 0
+            },
+            "column_summary": [
+                {
+                    "column": "quantity_sold",
+                    "null_percent": null_rate
+                }
+            ]
+        }
+
+        monitoring.save_batch(report)
+
+    trend = monitoring.get_column_trend("quantity_sold")
+
+    assert trend["column"] == "quantity_sold"
+    assert trend["values"] == [2.0, 3.5, 4.0]

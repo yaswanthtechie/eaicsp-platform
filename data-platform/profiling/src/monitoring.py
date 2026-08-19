@@ -19,13 +19,20 @@ class MonitoringHistory:
     def save_batch(self, report, drift=None):
         history = self.load_history()
 
+        # Collect null percentage for every column
+        null_rates = {
+            column["column"]: column["null_percent"]
+            for column in report.get("column_summary", [])
+        }
+
         batch = {
             "timestamp": datetime.now().isoformat(),
             "quality_score": report["quality_score"]["score"],
             "missing_values": report["quality_score"]["missing_values"],
             "duplicate_rows": report["quality_score"]["duplicate_rows"],
             "total_outliers": report["quality_score"]["total_outliers"],
-            "drift_status": drift["status"] if drift else "No Previous Batch"
+            "drift_status": drift["status"] if drift else "No Previous Batch",
+            "null_rates": null_rates
         }
 
         history.append(batch)
@@ -74,4 +81,26 @@ class MonitoringHistory:
             "batches": len(history),
             "quality_scores": quality_scores,
             "trend": trend
+        }
+
+    def get_column_trend(self, column_name):
+        history = self.load_history()
+
+        if not history:
+            return {
+                "column": column_name,
+                "values": []
+                }
+
+        values = []
+
+        for batch in history:
+            null_rates = batch.get("null_rates", {})
+
+            if column_name in null_rates:
+                values.append(null_rates[column_name])
+
+        return {
+            "column": column_name,
+            "values": values
         }
