@@ -435,6 +435,21 @@ audit     RESCREEN audit
 
 ## Testing
 
+The current test suite contains tests covering:
+
+* API behavior
+* Compliance screening
+* Exact and fuzzy sanctions matching
+* Cross-source deduplication
+* Risk scoring
+* Country risk scoring
+* Audit functionality
+* False-positive overrides
+* Bulk screening
+* Re-screening
+* Sanctions data refresh
+* Scheduler behavior
+
 Run the complete test suite:
 
 ```bash
@@ -452,16 +467,111 @@ Collect tests without executing them:
 
 pytest --collect-only -q
 
+app/data/fixtures/
+├── ofac_sample.csv
+├── un_sample.xml
+└── eu_sample.xml
 
-The current test suite contains tests covering:
 
-* API behavior
-* Compliance screening
-* Audit functionality
-* Sanctions refresh
-* Re-screening
-* Risk scoring
-* Sanctions matching
+To explicitly enable fixture-based screening in the current PowerShell session:
+
+```powershell
+$env:USE_FIXTURES="true"
+```
+
+Verify the setting:
+
+```powershell
+$env:USE_FIXTURES
+```
+
+Expected output:
+true
+
+Run a sanctions test:
+
+```powershell
+pytest -v tests/test_sanctions.py::test_exact_match -s
+```
+
+The test output should contain:
+
+
+Using local sanctions fixtures
+Loading OFAC fixture
+Loaded 9 OFAC fixture records
+Loading UN fixture
+Loaded 11 UN fixture records
+Loading EU fixture
+Loaded 10 EU fixture records
+Total fixture records: 30
+...
+PASSED
+```
+
+This confirms that the application is loading the local OFAC, UN, and EU fixture datasets correctly.
+
+### Live Sanctions Download Testing
+
+The project also includes a separate integration test that verifies the current OFAC, UN, and EU sanctions lists can be downloaded successfully.
+
+The live test is marked with:
+
+```python
+@pytest.mark.integration
+```
+
+The integration test is excluded from the normal fixture-loading setup in `tests/conftest.py`, allowing it to test the real download path independently.
+
+Before running the live-download test, disable fixture mode:
+
+```powershell
+$env:USE_FIXTURES="false"
+```
+
+Verify:
+
+```powershell
+$env:USE_FIXTURES
+```
+
+Expected output:
+
+false
+
+Run:
+
+powershell
+pytest -v tests/test_live_download.py -s
+
+
+A successful live test loads the current sanctions data and downloads:
+
+
+ofac.csv
+un.xml
+eu.xml
+
+
+Example output:
+
+Loading OFAC
+Loaded 19202 OFAC records
+Loading UN
+Loaded 736 UN records
+Loading EU
+Loaded 6234 EU records
+
+Downloading ofac.csv...
+Downloaded ofac.csv
+Downloading un.xml...
+Downloaded un.xml
+Downloading eu.xml...
+Downloaded eu.xml
+
+All sanctions lists downloaded successfully.
+PASSED
+
 
 
 
@@ -472,9 +582,8 @@ The service uses SQLite through SQLAlchemy.
 
 The configured database is:
 
-```text
 compliance.db
-```
+
 
 The database stores compliance audit history, including both initial screenings and re-screening results.
 
@@ -504,9 +613,6 @@ for row in rows:
 connection.close()
 ```
 
-Unit Tests
-
-Unit tests cover individual functions and service behavior without depending on live sanctions downloads.
 
 ## Important Implementation Notes
 
