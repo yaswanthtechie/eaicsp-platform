@@ -1,7 +1,6 @@
 from sqlalchemy.orm import Session
 
 from app.models.inventory import Inventory
-
 from app.services.reorder_service import (
     calculate_reorder_point,
 )
@@ -11,7 +10,23 @@ def find_transfer_suggestion(
     db: Session,
     destination: Inventory,
     destination_reorder_point: int,
+    context=None,
 ):
+    """
+    Find a warehouse with excess stock of the same SKU
+    that can transfer inventory to the destination warehouse.
+
+    A transfer is suggested when:
+
+    1. Destination is below its reorder point.
+    2. Another warehouse has the same SKU.
+    3. Source has stock above its own reorder point.
+    4. Source lead time is not slower than destination lead time.
+    """
+
+    # -----------------------------------------------------
+    # DESTINATION SHORTAGE
+    # -----------------------------------------------------
 
     destination_shortage = max(
         destination_reorder_point
@@ -20,19 +35,16 @@ def find_transfer_suggestion(
     )
 
     if destination_shortage <= 0:
-
         return None
 
-    # =====================================================
-    # Find same SKU in other warehouses
-    # =====================================================
+    # -----------------------------------------------------
+    # FIND OTHER WAREHOUSES WITH SAME SKU
+    # -----------------------------------------------------
 
     source_warehouses = (
         db.query(Inventory)
         .filter(
-            Inventory.sku_id
-            == destination.sku_id,
-
+            Inventory.sku_id == destination.sku_id,
             Inventory.warehouse_id
             != destination.warehouse_id,
         )
@@ -41,24 +53,25 @@ def find_transfer_suggestion(
 
     candidates = []
 
-    # =====================================================
-    # Find warehouses with excess
-    # =====================================================
+    # -----------------------------------------------------
+    # CHECK EACH SOURCE WAREHOUSE
+    # -----------------------------------------------------
 
     for source in source_warehouses:
 
-        source_calculation = (
-            calculate_reorder_point(
-                db=db,
-                inventory=source,
-            )
+        source_calculation = calculate_reorder_point(
+            db=db,
+            inventory=source,
+            context=context,
         )
 
-        source_reorder_point = (
-            source_calculation[
-                "reorder_point"
-            ]
+        source_reorder_point = int(
+            source_calculation["reorder_point"]
         )
+
+        # -------------------------------------------------
+        # SOURCE EXCESS STOCK
+        # -------------------------------------------------
 
         source_excess = max(
             source.quantity_on_hand
@@ -69,57 +82,87 @@ def find_transfer_suggestion(
         if source_excess <= 0:
             continue
 
+        # -------------------------------------------------
+        # LEAD TIME CHECK
+        # -------------------------------------------------
+
+        if (
+            source.lead_time_days
+            > destination.lead_time_days
+        ):
+            continue
+
+        # -------------------------------------------------
+        # TRANSFER QUANTITY
+        # -------------------------------------------------
+
         transfer_quantity = min(
             source_excess,
             destination_shortage,
         )
 
-        if transfer_quantity > 0:
+        if transfer_quantity <= 0:
+            continue
 
-            candidates.append(
-                (
-                    source_excess,
-                    source,
-                    transfer_quantity,
-                )
-            )
+        days_saved = (
+            destination.lead_time_days
+            - source.lead_time_days
+        )
+
+        candidates.append(
+            {
+                "source": source,
+                "source_excess": source_excess,
+                "transfer_quantity": transfer_quantity,
+                "days_saved": days_saved,
+            }
+        )
+
+    # -----------------------------------------------------
+    # NO VALID SOURCE
+    # -----------------------------------------------------
 
     if not candidates:
-
         return None
 
-    # Choose source with largest excess.
+    # -----------------------------------------------------
+    # BEST SOURCE
+    # -----------------------------------------------------
+    #
+    # Priority:
+    # 1. Most days saved
+    # 2. Most excess stock
+    #
+
     candidates.sort(
-        key=lambda item: item[0],
+        key=lambda item: (
+            item["days_saved"],
+            item["source_excess"],
+        ),
         reverse=True,
     )
 
-    source_excess, source, transfer_quantity = (
-        candidates[0]
-    )
+    best = candidates[0]
+
+    source = best["source"]
 
     return {
         "sku_id": destination.sku_id,
-
-        "source_warehouse": (
-            source.warehouse_id
-        ),
-
+        "source_warehouse": source.warehouse_id,
         "destination_warehouse": (
             destination.warehouse_id
         ),
-
         "transfer_quantity": (
-            transfer_quantity
+            best["transfer_quantity"]
         ),
-
         "source_excess_quantity": (
-            source_excess
+            best["source_excess"]
         ),
-
         "destination_shortage_quantity": (
             destination_shortage
         ),
-
         "recommendation": "TRANSFER",
+        "days_saved_vs_reorder": (
+            best["days_saved"]
+        ),
     }

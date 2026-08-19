@@ -35,11 +35,8 @@ class Inventory(Base):
     )
 
     # Kept for R3/database compatibility.
-    #
-    # R4 does NOT use this as the source
-    # for calculating reorder points.
-    #
-    # R4 calculates demand from SalesHistory.
+    # R4 calculates demand dynamically
+    # from SalesHistory.
     avg_daily_demand = Column(
         Float,
         nullable=False,

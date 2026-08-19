@@ -2,22 +2,27 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.database import Base, engine
-from app.routes.inventory import router as inventory_router
+from app.database import (
+    Base,
+    engine,
+)
 
-# Import all models so SQLAlchemy knows about
-# Inventory and SalesHistory tables.
+from app.routes.inventory import (
+    router as inventory_router,
+)
+
 import app.models
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
-    Base.metadata.create_all(bind=engine)
+
+    Base.metadata.create_all(
+        bind=engine
+    )
 
     yield
 
-    # Shutdown
     engine.dispose()
 
 

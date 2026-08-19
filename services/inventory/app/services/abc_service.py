@@ -1,5 +1,6 @@
-from collections import defaultdict
+import math
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.sales_history import SalesHistory
@@ -8,17 +9,26 @@ from app.models.sales_history import SalesHistory
 def calculate_sales_volume(
     db: Session,
 ):
-
     records = (
-        db.query(SalesHistory)
+        db.query(
+            SalesHistory.sku_id,
+            SalesHistory.warehouse_id,
+            func.sum(
+                SalesHistory.quantity_sold
+            ).label("sales_volume"),
+        )
+        .group_by(
+            SalesHistory.sku_id,
+            SalesHistory.warehouse_id,
+        )
         .all()
     )
 
-    volumes = defaultdict(int)
+    volumes = {}
 
     for record in records:
 
-        if record.quantity_sold < 0:
+        if record.sales_volume < 0:
             raise ValueError(
                 "Negative demand data is not allowed"
             )
@@ -28,27 +38,16 @@ def calculate_sales_volume(
             record.warehouse_id,
         )
 
-        volumes[key] += record.quantity_sold
+        volumes[key] = int(
+            record.sales_volume
+        )
 
-    return dict(volumes)
+    return volumes
 
 
 def classify_skus(
     db: Session,
 ):
-    """
-    Pareto-style ABC classification.
-
-    A:
-        cumulative sales volume <= 20%
-
-    B:
-        cumulative sales volume <= 50%
-
-    C:
-        remaining items
-    """
-
     volumes = calculate_sales_volume(db)
 
     if not volumes:
@@ -56,58 +55,56 @@ def classify_skus(
 
     sorted_items = sorted(
         volumes.items(),
-        key=lambda item: item[1],
+        key=lambda item: (
+            -item[1],
+            item[0][0],
+            item[0][1],
+        ),
     )
 
-    total_volume = sum(
-        volume
-        for _, volume in sorted_items
+    total_items = len(sorted_items)
+
+    if total_items == 0:
+        return {}
+
+    a_cutoff = math.ceil(
+        total_items * 0.20
     )
 
-    if total_volume <= 0:
+    b_cutoff = math.ceil(
+        total_items * 0.50
+    )
 
-        return {
-            key: {
-                "sales_volume": volume,
-                "abc_tier": "C",
-                "cumulative_percentage": 100.0,
-            }
-            for key, volume in sorted_items
-        }
+    classifications = {}
 
-    result = {}
+    for index, (key, volume) in enumerate(
+        sorted_items
+    ):
 
-    cumulative_volume = 0
-
-    for key, volume in sorted_items:
-
-        cumulative_volume += volume
-
-        cumulative_percentage = (
-            cumulative_volume
-            / total_volume
-            * 100
+        rank_percentile = round(
+            (
+                (index + 1)
+                / total_items
+            ) * 100,
+            2,
         )
 
-        if cumulative_percentage <= 20:
+        if index < a_cutoff:
             tier = "A"
 
-        elif cumulative_percentage <= 50:
+        elif index < b_cutoff:
             tier = "B"
 
         else:
             tier = "C"
 
-        result[key] = {
-            "sales_volume": volume,
+        classifications[key] = {
             "abc_tier": tier,
-            "cumulative_percentage": round(
-                cumulative_percentage,
-                2,
-            ),
+            "sales_volume": volume,
+            "rank_percentile": rank_percentile,
         }
 
-    return result
+    return classifications
 
 
 def calculate_tier_safety_stock(
@@ -121,21 +118,14 @@ def calculate_tier_safety_stock(
         )
 
     if abc_tier == "A":
+        multiplier = 1.5
 
-        return int(
-            base_safety_stock * 1.50
-        )
+    elif abc_tier == "B":
+        multiplier = 1.2
 
-    if abc_tier == "B":
+    else:
+        multiplier = 1.0
 
-        return int(
-            base_safety_stock * 1.20
-        )
-
-    if abc_tier == "C":
-
-        return base_safety_stock
-
-    raise ValueError(
-        "Invalid ABC tier"
+    return int(
+        base_safety_stock * multiplier
     )

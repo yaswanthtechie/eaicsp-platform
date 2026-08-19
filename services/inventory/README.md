@@ -1,830 +1,951 @@
 # Inventory Service
 
-## 1. Project Overview
+## 1. Overview
 
-The Inventory Service is a backend microservice developed using FastAPI and PostgreSQL.
+The **Inventory Service** is a FastAPI-based backend microservice that manages inventory at the **SKU and warehouse level**.
 
-The main purpose of this service is to manage inventory at warehouse level and automatically determine when inventory needs to be replenished.
+The service uses historical sales data to calculate demand dynamically and uses that demand to determine reorder points and replenishment requirements.
 
-The service uses historical sales data to calculate demand dynamically and uses that demand to calculate the reorder point.
+### Main business flow
 
-The main business flow is:
-
+```text
 Sales History
-        |
-        v
-Average Daily Demand
-        |
-        v
+      |
+      v
+Rolling Average Demand
+      |
+      v
 ABC Classification
+      |
+      v
+Adjusted Safety Stock
+      |
+      v
+Reorder Point
+      |
+      v
+Low Stock Detection
+      |
+      v
+Urgency Calculation
+      |
+      v
+Reorder Plan
+      |
+      v
+Transfer Suggestion
+```
+
+The main objective is to avoid depending on manually entered demand values. Demand is derived from `SalesHistory` using the SKU and warehouse combination.
+
+---
+
+# 2. Main Objectives
+
+The Inventory Service provides:
+
+* Warehouse-level inventory management
+* Dynamic demand calculation
+* Rolling average demand
+* Automatic reorder-point calculation
+* ABC classification
+* ABC-based safety-stock adjustment
+* Low-stock detection
+* Reorder planning
+* Urgency calculation
+* Warehouse transfer suggestions
+* Bulk inventory updates
+* CSV inventory upload
+* Inventory decrement
+* Concurrency protection
+* Simulation and what-if analysis
+* PostgreSQL persistence
+* Automated pytest coverage
+
+---
+
+# 3. Technology Stack
+
+| Technology              | Purpose                       |
+| ----------------------- | ----------------------------- |
+| Python 3.12.x           | Backend programming language  |
+| FastAPI                 | REST API framework            |
+| Uvicorn                 | ASGI server                   |
+| SQLAlchemy              | ORM and database access       |
+| PostgreSQL              | Application and test database |
+| Pydantic                | Request/response validation   |
+| Pytest                  | Automated testing             |
+| HTTPX                   | API testing                   |
+| CSV                     | Bulk inventory upload         |
+| Python standard library | Utility functionality         |
+
+---
+
+# 4. Project Structure
+
+```text
+services/
+└── inventory/
+    |
+    ├── app/
+    │   ├── __init__.py
+    │   ├── main.py
+    │   ├── database.py
+    │   │
+    │   ├── core/
+    │   │   └── config.py
+    │   │
+    │   ├── models/
+    │   │   ├── inventory.py
+    │   │   └── sales_history.py
+    │   │
+    │   ├── schemas/
+    │   │   └── inventory.py
+    │   │
+    │   ├── routes/
+    │   │   └── inventory.py
+    │   │
+    │   └── services/
+    │       ├── demand_service.py
+    │       ├── reorder_service.py
+    │       ├── abc_service.py
+    │       └── transfer_service.py
+    │
+    ├── scripts/
+    │   └── seed_sales_history.py
+    │
+    ├── tests/
+    │   ├── conftest.py
+    │   └── test_*.py
+    │
+    ├── requirements.txt
+    ├── .env.example
+    └── README.md
+```
+
+---
+
+# 5. Database
+
+PostgreSQL is used for application data.
+
+The main tables are:
+
+1. `inventory`
+2. `sales_history`
+
+A separate PostgreSQL database is used for automated tests.
+
+```text
+Application
+     |
+     v
+Production PostgreSQL
+
+Pytest
+     |
+     v
+Test PostgreSQL
+```
+
+This separation prevents automated tests from modifying production data.
+
+---
+
+# 6. Inventory Model
+
+The inventory record represents stock for a specific SKU in a specific warehouse.
+
+Important fields:
+
+| Field              | Description                     |
+| ------------------ | ------------------------------- |
+| `sku_id`           | Product/SKU identifier          |
+| `product_name`     | Product name                    |
+| `warehouse_id`     | Warehouse identifier            |
+| `quantity_on_hand` | Current available quantity      |
+| `avg_daily_demand` | Calculated average daily demand |
+| `lead_time_days`   | Supplier lead time              |
+| `safety_stock`     | Base safety stock               |
+
+The same SKU can exist in multiple warehouses.
+
+Example:
+
+```text
+SKU0008 | WH001
+SKU0008 | WH002
+SKU0008 | WH003
+```
+
+Each warehouse can have different stock and sales history.
+
+---
+
+# 7. Inventory Validation
+
+Inventory creation accepts:
+
+```text
+sku_id
+product_name
+warehouse_id
+quantity_on_hand
+lead_time_days
+safety_stock
+```
+
+The following values cannot be negative:
+
+```text
+quantity_on_hand >= 0
+lead_time_days >= 0
+safety_stock >= 0
+```
+
+Additional unknown fields are rejected.
+
+For example, `avg_daily_demand` is **not accepted as a manually supplied create field**.
+
+Demand is calculated from sales history.
+
+---
+
+# 8. Sales History
+
+The `sales_history` table stores historical sales information.
+
+Important fields:
+
+```text
+sku_id
+warehouse_id
+sale_date
+quantity_sold
+```
+
+Example:
+
+```text
+SKU0001 | WH001 | 2026-08-01 | 25
+SKU0001 | WH001 | 2026-08-02 | 31
+SKU0001 | WH001 | 2026-08-03 | 28
+```
+
+The important matching keys are:
+
+```text
+sku_id
+warehouse_id
+```
+
+For example:
+
+```text
+Inventory:
+SKU0008 | WH003
+
+SalesHistory:
+SKU0008 | WH003
+```
+
+This allows the service to calculate demand for that inventory record.
+
+If the warehouse does not match, the sales history is not applicable to that inventory record.
+
+---
+
+# 9. Sales History Test Data
+
+The included seed script generates synthetic sales history.
+
+Current seed configuration:
+
+```text
+TOTAL_ITEMS = 50
+TOTAL_DAYS = 30
+WAREHOUSES = 5
+```
+
+Therefore the script generates:
+
+```text
+50 × 30 = 1,500 sales-history records
+```
+
+Each SKU receives a different base demand and daily variation.
+
+Example:
+
+```text
+SKU0001 | WH001 | 2026-07-20 | 32
+SKU0001 | WH001 | 2026-07-21 | 28
+SKU0001 | WH001 | 2026-07-22 | 35
+```
+
+The generated quantities are positive and contain variation so that demand calculations are more realistic.
+
+---
+
+# 10. Average Daily Demand
+
+Demand is calculated from `SalesHistory`.
+
+Basic formula:
+
+```text
+Average Daily Demand =
+    Total Quantity Sold / Number of Days
+```
+
+Example:
+
+```text
+Total sales = 900
+Days       = 30
+
+Average Daily Demand =
+    900 / 30
+
+Average Daily Demand = 30
+```
+
+The calculated demand is used by the inventory and reorder logic.
+
+The service does not rely on manually supplied demand during inventory creation.
+
+---
+
+# 11. Rolling Average Demand
+
+The demand service calculates demand using recent sales history.
+
+The default demand window is:
+
+```text
+30 days
+```
+
+Conceptually:
+
+```text
+Inventory
+    |
+    v
+SKU + Warehouse
+    |
+    v
+Sales History
+    |
+    v
+Recent Sales
+    |
+    v
+Rolling Average Demand
+```
+
+The rolling demand is then used by reorder calculations.
+
+---
+
+# 12. Reorder Point
+
+The reorder point is calculated using demand, lead time, and adjusted safety stock.
+
+Formula:
+
+```text
+Reorder Point =
+    Rolling Average Demand × Lead Time Days
+    + Adjusted Safety Stock
+```
+
+Example:
+
+```text
+Rolling Average Demand = 30
+Lead Time = 5
+Adjusted Safety Stock = 45
+
+ROP =
+30 × 5 + 45
+
+ROP = 195
+```
+
+If:
+
+```text
+Quantity on Hand = 100
+Reorder Point = 195
+```
+
+then:
+
+```text
+100 < 195
+```
+
+The item requires replenishment.
+
+---
+
+# 13. ABC Classification
+
+The service classifies SKUs based on sales volume.
+
+The three classifications are:
+
+```text
+A
+B
+C
+```
+
+The classification is based on the relative sales ranking of SKUs.
+
+Conceptually:
+
+```text
+Sales Volume
+     |
+     v
+Rank SKUs
+     |
+     +---- A
+     |
+     +---- B
+     |
+     +---- C
+```
+
+The classification is then used to adjust safety stock.
+
+The exact boundary behavior is covered by automated tests, including the 20% boundary.
+
+---
+
+# 14. Adjusted Safety Stock
+
+Inventory contains a base:
+
+```text
+safety_stock
+```
+
+The ABC logic can adjust this value according to the SKU's ABC tier.
+
+The adjusted safety stock is then used in the reorder-point calculation.
+
+```text
+Base Safety Stock
+        |
+        v
+ABC Tier
         |
         v
 Adjusted Safety Stock
         |
         v
 Reorder Point
-        |
-        v
-Low Stock Detection
-        |
-        v
-Urgency Calculation
-        |
-        v
-Reorder Plan
-        |
-        v
-Warehouse Transfer Suggestion
+```
 
----
+The reorder plan exposes:
 
-# 2. Main Objective
+```text
+adjusted_safety_stock
+```
 
-The main objective of the Inventory Service is:
-
-> Automatically calculate average daily demand and reorder points from sales history and identify inventory that needs replenishment.
-
-The service should avoid depending on manually entered demand values.
-
-For example:
-
-If a SKU has 30 days of sales:
-
-    Total sales = 900
-    Number of days = 30
-
-Then:
-
-    Average Daily Demand = 900 / 30
-                          = 30
-
-The calculated demand is then used in the reorder-point calculation.
-
----
-
-# 3. Technology Stack
-
-The service is implemented using:
-
-- Python
-- FastAPI
-- Uvicorn
-- SQLAlchemy
-- PostgreSQL
-- Pydantic
-- Pytest
-- HTTPX
-- CSV
-- Python standard library
-
-Python version used during development:
-
-    Python 3.12.x
-
----
-
-# 4. Service Responsibilities
-
-The Inventory Service handles:
-
-1. Inventory creation
-2. Inventory retrieval
-3. Inventory update
-4. Inventory deletion
-5. Warehouse-level inventory
-6. Sales history
-7. Average daily demand
-8. Rolling demand calculation
-9. Reorder-point calculation
-10. ABC classification
-11. ABC-based safety stock
-12. Low-stock detection
-13. Reorder planning
-14. Urgency calculation
-15. Warehouse transfer suggestions
-16. Bulk CSV inventory upload
-17. Bulk inventory update
-18. Inventory decrement
-19. Concurrency protection
-20. Reorder checking
-21. Simulation / what-if calculations
-22. Automated testing
-
----
-
-# 5. Project Structure
-
-The Inventory Service is organized approximately as follows:
-
-    services/
-    └── inventory/
-        |
-        ├── app/
-        │   ├── __init__.py
-        │   ├── main.py
-        │   ├── database.py
-        │   │
-        │   ├── models/
-        │   │   ├── inventory.py
-        │   │   └── sales_history.py
-        │   │
-        │   ├── schemas/
-        │   │   └── inventory.py
-        │   │
-        │   ├── routes/
-        │   │   └── inventory.py
-        │   │
-        │   └── services/
-        │       ├── demand_service.py
-        │       ├── reorder_service.py
-        │       ├── abc_service.py
-        │       └── transfer_service.py
-        │
-        ├── scripts/
-        │   └── seed_sales_history.py
-        │
-        ├── tests/
-        │   ├── conftest.py
-        │   └── test_*.py
-        │
-        ├── requirements.txt
-        └── README.md
-
----
-
-# 6. Database
-
-PostgreSQL is used as the primary database.
-
-The service contains two important tables:
-
-1. Inventory
-2. SalesHistory
-
----
-
-# 7. Inventory Table
-
-The Inventory table stores current inventory for each SKU and warehouse.
-
-Main fields:
-
-    sku_id
-    product_name
-    warehouse_id
-    quantity_on_hand
-    avg_daily_demand
-    lead_time_days
-    safety_stock
-
-### Field Description
-
-| Field | Description |
-|---|---|
-| sku_id | Unique product identifier |
-| product_name | Product name |
-| warehouse_id | Warehouse identifier |
-| quantity_on_hand | Current stock available |
-| avg_daily_demand | Average daily sales demand |
-| lead_time_days | Supplier lead time |
-| safety_stock | Additional stock kept as protection |
-
-Inventory is maintained at warehouse level.
-
-Therefore the same SKU can exist in multiple warehouses.
-
-Example:
-
-    SKU0008 | WH001
-    SKU0008 | WH002
-    SKU0008 | WH003
-
-Each warehouse can have a different quantity and demand.
-
----
-
-# 8. Sales History Table
-
-SalesHistory stores historical sales.
-
-Main fields:
-
-    sku_id
-    warehouse_id
-    sale_date
-    quantity_sold
-
-Example:
-
-    SKU0001 | WH001 | 2026-07-15 | 25
-    SKU0001 | WH001 | 2026-07-16 | 31
-    SKU0001 | WH001 | 2026-07-17 | 28
-
-The important matching fields are:
-
-    sku_id
-    warehouse_id
-
-Sales history must match the inventory SKU and warehouse.
-
-For example:
-
-Inventory:
-
-    SKU0008 | WH003
-
-Sales History:
-
-    SKU0008 | WH003
-
-This allows demand calculation.
-
-If the warehouse does not match, the service cannot correctly calculate demand for that inventory record.
-
----
-
-# 9. Sales History Test Data
-
-Synthetic sales history is used for development and testing.
-
-The test dataset can contain:
-
-    50 SKUs
-    30 days
-
-Therefore:
-
-    50 × 30 = 1,500 records
-
-The sales quantity is generated with variation rather than using only 0 and 1.
-
-Example:
-
-    SKU0001 | WH001 | Day 1  | 25
-    SKU0001 | WH001 | Day 2  | 31
-    SKU0001 | WH001 | Day 3  | 28
-    SKU0001 | WH001 | Day 4  | 34
-
-This produces meaningful demand calculations.
-
----
-
-# 10. Average Daily Demand
-
-Average daily demand is calculated from SalesHistory.
-
-Formula:
-
-    Average Daily Demand =
-        Total Quantity Sold / Number of Days
-
-Example:
-
-    Sales for 30 days = 900
-
-    Average Daily Demand =
-        900 / 30
-
-    Average Daily Demand = 30
-
-The calculated value should be stored in:
-
-    Inventory.avg_daily_demand
-
-The purpose is to make demand data dynamic rather than manually entering it.
-
----
-
-# 11. Rolling Average Demand
-
-The demand service calculates a rolling average based on recent sales history.
-
-Default demand window:
-
-    30 days
-
-The calculation process is:
-
-    Inventory
-        |
-        v
-    SKU + Warehouse
-        |
-        v
-    SalesHistory
-        |
-        v
-    Last 30 Days
-        |
-        v
-    Calculate Average
-        |
-        v
-    Rolling Average Demand
-
-The rolling average is used by the reorder service.
-
----
-
-# 12. Reorder Point
-
-The reorder point is calculated dynamically.
-
-Formula:
-
-    Reorder Point =
-        Rolling Average Demand
-        × Lead Time Days
-        + Adjusted Safety Stock
-
-Example:
-
-    Rolling Average Demand = 30
-    Lead Time = 5 days
-    Adjusted Safety Stock = 45
-
-Therefore:
-
-    Reorder Point =
-        30 × 5 + 45
-
-    Reorder Point = 195
-
-If:
-
-    Quantity on Hand = 100
-
-then:
-
-    100 < 195
-
-The item is considered low stock.
-
----
-
-# 13. ABC Classification
-
-The service classifies SKUs into:
-
-    A
-    B
-    C
-
-ABC classification is used to determine inventory importance and adjust safety stock.
-
-General flow:
-
-    Sales Data
-        |
-        v
-    ABC Classification
-        |
-        +---- A
-        |
-        +---- B
-        |
-        +---- C
-        |
-        v
-    Tier Safety Stock
-
-The reorder calculation then uses the adjusted safety stock.
-
----
-
-# 14. Adjusted Safety Stock
-
-The base safety stock comes from the Inventory table.
-
-The ABC service adjusts the base safety stock according to the SKU tier.
-
-Example:
-
-    Base Safety Stock = 40
-    ABC Tier = B
-
-The ABC service calculates the adjusted safety stock.
-
-The adjusted value is then used by:
-
-    Reorder Point
-
-This makes the reorder point sensitive to SKU classification.
+so the calculated value can be inspected.
 
 ---
 
 # 15. Low Stock Detection
 
-The service identifies an item as low stock when:
+An inventory item requires replenishment when:
 
-    quantity_on_hand < reorder_point
+```text
+quantity_on_hand < reorder_point
+```
 
 Example:
 
-    Quantity on Hand = 90
-    Reorder Point = 304
+```text
+quantity_on_hand = 90
+reorder_point = 304
+```
 
 Because:
 
-    90 < 304
+```text
+90 < 304
+```
 
-the SKU is included in the reorder plan.
+the item is considered low stock.
+
+An item exactly at the reorder point does **not** require reorder:
+
+```text
+quantity_on_hand == reorder_point
+```
+
+The test suite explicitly verifies both cases:
+
+```text
+ROP
+ROP - 1
+```
 
 ---
 
-# 16. Urgency Score
+# 16. Suggested Order Quantity
 
-Urgency score indicates how urgently stock needs to be replenished.
-
-Shortage:
-
-    shortage =
-        reorder_point - quantity_on_hand
-
-If average daily demand is greater than zero:
-
-    urgency_score =
-        shortage / average_daily_demand
+For a low-stock item, the suggested order quantity is based on the shortage relative to the reorder point.
 
 Example:
 
-    Reorder Point = 304
-    Quantity = 90
-    Average Daily Demand = 28.53
+```text
+Reorder Point = 100
+Current Quantity = 60
 
-Shortage:
+Suggested Order Quantity =
+100 - 60
 
-    304 - 90 = 214
+= 40
+```
 
-Urgency:
+At exactly the reorder point:
 
-    214 / 28.53
-    ≈ 7.5
-
-Therefore:
-
-    urgency_score = 7.5
-
-A higher score means greater urgency.
-
-The reorder plan sorts items by urgency score in descending order.
+```text
+Suggested Order Quantity = 0
+```
 
 ---
 
-# 17. Reorder Plan
+# 17. Urgency Score
 
-The reorder-plan endpoint performs the following:
+The reorder plan calculates an urgency score for low-stock inventory.
 
-1. Reads inventory.
-2. Calculates rolling demand.
-3. Performs ABC classification.
-4. Calculates adjusted safety stock.
-5. Calculates reorder point.
-6. Checks whether inventory is below reorder point.
-7. Calculates urgency score.
-8. Searches for transfer opportunities.
-9. Creates reorder-plan entries.
-10. Sorts the result by urgency.
+Formula:
 
-Flow:
+```text
+Shortage =
+    Reorder Point - Quantity on Hand
+```
 
-    Inventory
-        |
-        v
-    Rolling Demand
-        |
-        v
-    ABC Classification
-        |
-        v
-    Adjusted Safety Stock
-        |
-        v
-    Reorder Point
-        |
-        v
-    Quantity < ROP?
-        |
-        +------ NO ------> Ignore
-        |
-        +------ YES
-                  |
-                  v
-             Urgency Score
-                  |
-                  v
-          Transfer Suggestion
-                  |
-                  v
-             Reorder Plan
+When demand is greater than zero:
 
----
-
-# 18. Transfer Suggestion
-
-The transfer service identifies whether inventory can be transferred from another warehouse.
-
-The destination warehouse must be low stock.
-
-The source warehouse must have excess stock.
-
-Conditions:
-
-    1. Same SKU
-    2. Different warehouse
-    3. Destination below reorder point
-    4. Source above its reorder point
+```text
+Urgency Score =
+    Shortage / Average Daily Demand
+```
 
 Example:
 
-    SKU0008
+```text
+Reorder Point = 304
+Quantity = 90
+Average Daily Demand = 28.53
 
-    WH003:
-        Quantity = 90
-        ROP = 304
+Shortage =
+304 - 90
+= 214
 
-    WH004:
-        Quantity = 600
-        ROP = 304
+Urgency Score =
+214 / 28.53
+≈ 7.5
+```
+
+A higher urgency score means the inventory requires more urgent replenishment.
+
+The reorder plan sorts low-stock entries by urgency.
+
+---
+
+# 18. Reorder Plan
+
+The reorder plan combines the main inventory calculations.
+
+The process is:
+
+```text
+1. Read Inventory
+       |
+2. Calculate Rolling Demand
+       |
+3. Classify SKU
+       |
+4. Calculate Adjusted Safety Stock
+       |
+5. Calculate Reorder Point
+       |
+6. Compare Quantity with ROP
+       |
+7. Calculate Urgency
+       |
+8. Find Transfer Opportunity
+       |
+9. Build Reorder Plan
+       |
+10. Sort by Urgency
+```
+
+The response contains:
+
+```text
+sku_id
+product_name
+warehouse_id
+quantity_on_hand
+reorder_point
+urgency_score
+rolling_avg_demand
+abc_tier
+adjusted_safety_stock
+transfer_suggestion
+```
+
+---
+
+# 19. Warehouse Transfer Suggestion
+
+The transfer service looks for another warehouse that has excess stock of the same SKU.
+
+A transfer can be suggested when:
+
+1. The destination has low stock.
+2. The source contains the same SKU.
+3. The source is above its reorder point.
+4. The source and destination warehouses are different.
+
+Example:
+
+```text
+SKU0008
 
 WH003:
-
-    90 < 304
-
-Therefore:
-
-    LOW STOCK
+    Quantity = 90
+    ROP = 304
 
 WH004:
+    Quantity = 600
+    ROP = 304
+```
 
-    600 > 304
+Destination:
 
-Therefore:
+```text
+90 < 304
+```
 
-    EXCESS STOCK
+Therefore WH003 is low stock.
 
-The service can recommend:
+Source:
 
-    WH004 → WH003
+```text
+600 > 304
+```
+
+Therefore WH004 has excess stock.
+
+Possible recommendation:
+
+```text
+WH004 → WH003
+```
 
 ---
 
-# 19. Transfer Quantity
+# 20. Transfer Quantity
 
-Destination shortage:
+The destination shortage is:
 
-    destination_shortage =
-        destination_reorder_point
-        - destination_quantity
+```text
+Destination Shortage =
+Destination ROP - Destination Quantity
+```
 
-Source excess:
+The source excess is:
 
-    source_excess =
-        source_quantity
-        - source_reorder_point
+```text
+Source Excess =
+Source Quantity - Source ROP
+```
 
-Transfer quantity:
+Transfer quantity is:
 
-    transfer_quantity =
-        min(
-            source_excess,
-            destination_shortage
-        )
+```text
+min(
+    Source Excess,
+    Destination Shortage
+)
+```
 
 Example:
 
-    Destination shortage = 214
-    Source excess = 296
+```text
+Destination shortage = 214
+Source excess = 296
 
-Therefore:
+Transfer quantity =
+min(296, 214)
 
-    transfer_quantity =
-        min(296, 214)
-
-    transfer_quantity = 214
+= 214
+```
 
 Example response:
 
-    {
-        "sku_id": "SKU0008",
-        "source_warehouse": "WH004",
-        "destination_warehouse": "WH003",
-        "transfer_quantity": 214,
-        "source_excess_quantity": 296,
-        "destination_shortage_quantity": 214,
-        "recommendation": "TRANSFER"
-    }
+```json
+{
+  "sku_id": "SKU0008",
+  "source_warehouse": "WH004",
+  "destination_warehouse": "WH003",
+  "transfer_quantity": 214,
+  "source_excess_quantity": 296,
+  "destination_shortage_quantity": 214,
+  "recommendation": "TRANSFER"
+}
+```
 
 ---
 
-# 20. Why Transfer Suggestion Can Be Null
+# 21. When Transfer Suggestion Is Null
 
-A transfer suggestion being null is not automatically an error.
+A null transfer suggestion is valid behavior.
 
-It is expected when no suitable source warehouse exists.
+For example:
 
-Example:
+```text
+SKU0008 | WH003 | LOW STOCK
+```
 
-    SKU0008 | WH003
-
-If SKU0008 does not exist in another warehouse, there is nowhere to transfer stock from.
-
-Another case:
-
-    SKU0008 | WH003 | Low Stock
-    SKU0008 | WH004 | Not Excess
-
-In this situation WH004 cannot provide stock because it does not have enough excess inventory.
-
-Therefore:
-
-    transfer_suggestion = null
-
-is valid.
-
----
-
-# 21. Transfer Test Data
-
-To test transfer logic, the same SKU must be available in multiple warehouses.
-
-Example:
-
-    SKU0008 | WH003 | LOW STOCK
-    SKU0008 | WH004 | EXCESS STOCK
+If the SKU does not exist in another warehouse, there is no possible transfer source.
 
 Another example:
 
-    SKU0010 | WH002 | LOW STOCK
-    SKU0010 | WH005 | EXCESS STOCK
+```text
+WH003 | LOW STOCK
+WH004 | NOT EXCESS
+```
 
-This is required because transfer logic searches for the same SKU in another warehouse.
+In that situation WH004 should not be used as a transfer source.
+
+The response can therefore contain:
+
+```json
+"transfer_suggestion": null
+```
+
+This is not an error.
 
 ---
 
 # 22. Bulk CSV Upload
 
-The service supports uploading inventory data through CSV.
+The service supports inventory creation/update through CSV upload.
 
-Example CSV:
+Example:
 
-    sku_id,product_name,warehouse_id,quantity_on_hand,lead_time_days,safety_stock
-    SKU0001,Product 0001,WH001,120,5,30
-    SKU0002,Product 0002,WH002,250,7,40
-    SKU0003,Product 0003,WH003,80,4,25
+```csv
+sku_id,product_name,warehouse_id,quantity_on_hand,lead_time_days,safety_stock
+SKU0001,Product 0001,WH001,120,5,30
+SKU0002,Product 0002,WH002,250,7,40
+SKU0003,Product 0003,WH003,80,4,25
+```
 
-The CSV does not need to manually provide average daily demand.
+The CSV does not require `avg_daily_demand`.
 
-The service should calculate demand using SalesHistory.
+The service can calculate demand from matching sales history.
 
-Process:
+Conceptually:
 
-    CSV Upload
-        |
-        v
-    Read SKU
-        |
-        v
-    Read Warehouse
-        |
-        v
-    Find Sales History
-        |
-        v
-    Calculate Average Daily Demand
-        |
-        v
-    Save Inventory
+```text
+CSV
+ |
+ v
+SKU + Warehouse
+ |
+ v
+Sales History
+ |
+ v
+Demand Calculation
+ |
+ v
+Inventory
+```
+
+CSV validation includes checks such as required columns and invalid negative quantities.
 
 ---
 
 # 23. Existing Inventory During Bulk Upload
 
-If an inventory record already exists for the same:
+Inventory is identified by the SKU and warehouse combination.
 
-    sku_id + warehouse_id
+```text
+sku_id + warehouse_id
+```
 
-the upload operation should update the existing inventory record.
+When an existing record is encountered, the upload flow should update the existing record rather than creating a duplicate inventory entry.
 
-This is important because previously uploaded records may contain:
-
-    avg_daily_demand = 0
-
-After sales history is available, uploading/updating the inventory record should store the calculated demand.
+Demand should also be recalculated when sales history is available.
 
 ---
 
-# 24. Data Generation Order
+# 24. Bulk Update
 
-For correct demand calculation, the recommended order is:
+The bulk-update operation supports multiple inventory quantity changes in one request.
 
-    Step 1
-    Create SalesHistory
+Example:
 
-    Step 2
-    Create Inventory
+```json
+[
+  {
+    "sku_id": "SKU001",
+    "warehouse_id": "WH001",
+    "quantity_delta": -10
+  },
+  {
+    "sku_id": "SKU002",
+    "warehouse_id": "WH002",
+    "quantity_delta": 20
+  }
+]
+```
 
-    Step 3
-    Match SKU + Warehouse
+The operation is transactional.
 
-    Step 4
-    Calculate Average Daily Demand
+If one update fails, the transaction should be rolled back so that earlier updates in the same operation are not partially committed.
 
-    Step 5
-    Calculate Reorder Point
-
-    Step 6
-    Run Low Stock
-
-    Step 7
-    Run Reorder Plan
-
-    Step 8
-    Test Transfer Suggestion
-
-The important point is that SalesHistory must exist for the SKU and warehouse used by Inventory.
+The test suite includes a rollback test.
 
 ---
 
-# 25. Running the Application
+# 25. Inventory Decrement and Concurrency
 
-Go to the Inventory Service directory:
+Inventory can be changed by multiple requests at the same time.
 
-    cd services\inventory
+Example:
 
-Activate the virtual environment.
+```text
+Initial quantity = 100
 
-If the virtual environment is inside the inventory directory:
+Request A:
+decrement 20
 
-    .\myenv\Scripts\activate
+Request B:
+decrement 30
+```
 
-Run FastAPI:
+The expected final quantity is:
 
-    uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
+```text
+100 - 20 - 30 = 50
+```
 
-Swagger:
+Database row locking is used for the decrement operation when running against PostgreSQL to avoid lost updates.
 
-    http://127.0.0.1:8001/docs
-
----
-
-# 26. Running Sales History Seed
-
-From:
-
-    services\inventory
-
-run:
-
-    python -m scripts.seed_sales_history
-
-This is preferred over directly running:
-
-    python scripts/seed_sales_history.py
-
-because the application uses imports such as:
-
-    from app.database import ...
-
-Running the module from the correct project directory avoids:
-
-    ModuleNotFoundError: No module named 'app'
+The test suite includes a concurrent decrement test.
 
 ---
 
-# 27. API Endpoints
+# 26. Simulation
 
-The Inventory Service exposes the following major endpoints.
+The service provides simulation functionality for demand growth scenarios.
+
+For example:
+
+```text
+Current Demand = 10
+Growth = 30%
+```
+
+Simulated demand becomes approximately:
+
+```text
+10 × 1.30 = 13
+```
+
+Simulation is intended to calculate the effect of a demand change without changing the stored inventory quantity.
+
+The test suite verifies that simulation does not modify inventory data.
+
+The service also validates negative growth values.
+
+---
+
+# 27. What-If Analysis
+
+The `what-if` endpoint provides scenario analysis using a requested demand spike.
+
+Example:
+
+```json
+{
+  "spike_percent": 30
+}
+```
+
+The response provides summary information including:
+
+```text
+spike_percent
+total_items
+affected_items
+total_suggested_order_qty
+details
+```
+
+Each affected item can contain:
+
+```text
+sku_id
+current_quantity
+new_reorder_point
+needs_reorder
+suggested_order_qty
+```
+
+This allows the effect of increased demand to be evaluated without changing the stored inventory records.
+
+---
+
+# 28. API Endpoints
+
+The main API base path is:
+
+```text
+/api/v1/inventory
+```
 
 ## Create Inventory
 
-    POST /api/v1/inventory/
+```http
+POST /api/v1/inventory/
+```
 
-Creates a new inventory record.
+Creates an inventory record.
 
 ---
 
 ## Get All Inventory
 
-    GET /api/v1/inventory/
+```http
+GET /api/v1/inventory/
+```
 
 Returns inventory records.
 
-For large datasets, pagination or optimized queries should be considered to prevent slow responses.
+For very large datasets, pagination and query optimization should be considered.
 
 ---
 
-## Get Inventory By SKU
+## Get Inventory by SKU and Warehouse
 
-    GET /api/v1/inventory/{sku_id}
-
-Returns inventory for a SKU.
-
----
-
-## Get Inventory By SKU and Warehouse
-
-    GET /api/v1/inventory/{sku_id}/{warehouse_id}
+```http
+GET /api/v1/inventory/{sku_id}/{warehouse_id}
+```
 
 Returns inventory for a specific SKU and warehouse.
 
@@ -832,902 +953,1106 @@ Returns inventory for a specific SKU and warehouse.
 
 ## Update Inventory
 
-    PUT /api/v1/inventory/{sku_id}/{warehouse_id}
+```http
+PUT /api/v1/inventory/{sku_id}/{warehouse_id}
+```
 
-Updates inventory.
+Updates supported inventory fields.
 
 ---
 
 ## Delete Inventory
 
-    DELETE /api/v1/inventory/{sku_id}/{warehouse_id}
+```http
+DELETE /api/v1/inventory/{sku_id}/{warehouse_id}
+```
 
-Deletes inventory.
+Deletes an inventory record.
 
 ---
 
 ## Low Stock
 
-    GET /api/v1/inventory/low-stock
+```http
+GET /api/v1/inventory/low-stock
+```
 
-Returns inventory items below their reorder point.
+Returns inventory that is below its calculated reorder point.
 
 ---
 
 ## Reorder Plan
 
-    GET /api/v1/inventory/reorder-plan
+```http
+GET /api/v1/inventory/reorder-plan
+```
 
-Returns low-stock items with:
-
-    sku_id
-    product_name
-    warehouse_id
-    quantity_on_hand
-    reorder_point
-    urgency_score
-    rolling_avg_demand
-    abc_tier
-    adjusted_safety_stock
-    transfer_suggestion
-
----
-
-## Bulk Upload
-
-    POST /api/v1/inventory/bulk-upload
-
-Uploads inventory using CSV.
-
----
-
-## Bulk Update
-
-    PUT /api/v1/inventory/bulk-update
-
-Updates multiple inventory records.
-
----
-
-## Decrement
-
-    POST /api/v1/inventory/decrement
-
-Decreases inventory quantity.
-
-Concurrency protection is applied to prevent incorrect simultaneous updates.
+Returns the calculated replenishment plan.
 
 ---
 
 ## Reorder Check
 
-    POST /api/v1/inventory/reorder-check
+The test suite uses:
 
-Checks whether an inventory item requires replenishment.
+```http
+GET /api/v1/inventory/{sku_id}/{warehouse_id}/reorder-check
+```
+
+It returns information such as:
+
+```text
+sku_id
+current_qty
+reorder_point
+needs_reorder
+suggested_order_qty
+```
 
 ---
 
-## Simulate
+## Bulk Upload
 
-    POST /api/v1/inventory/simulate
+```http
+POST /api/v1/inventory/bulk-upload
+```
 
-Simulates inventory/reorder behavior without necessarily changing stored inventory.
+Uploads inventory records from a CSV file.
+
+---
+
+## Bulk Update
+
+```http
+POST /api/v1/inventory/bulk-update
+```
+
+Updates multiple inventory records in one transaction.
+
+---
+
+## Decrement
+
+```http
+POST /api/v1/inventory/decrement
+```
+
+Decreases inventory quantity.
+
+---
+
+## Single SKU Simulation
+
+The service supports demand-spike simulation for an inventory item.
+
+The exact request format is exposed through Swagger and should be used as the source of truth for the currently deployed route.
+
+---
+
+## Global Simulation
+
+The test suite also verifies the global simulation route:
+
+```http
+GET /api/v1/inventory/simulate?growth_percent=30
+```
+
+This returns simulated demand information without modifying stored inventory.
 
 ---
 
 ## What-If
 
-    POST /api/v1/inventory/what-if
+```http
+POST /api/v1/inventory/what-if
+```
 
-Used for scenario analysis.
-
----
-
-# 28. PostgreSQL Data Verification
-
-After uploading inventory, verify the database.
-
-Check:
-
-    sku_id
-    warehouse_id
-    quantity_on_hand
-    avg_daily_demand
-    lead_time_days
-    safety_stock
-
-The important requirement is:
-
-    avg_daily_demand
-
-should not remain zero when matching sales history exists.
-
-Example expected data:
-
-    SKU0008
-    WH003
-    quantity_on_hand = 90
-    avg_daily_demand = 28.53
-    lead_time_days = 9
-    safety_stock = 40
+Runs a demand-spike scenario analysis.
 
 ---
 
-# 29. Why Average Daily Demand Can Become Zero
+# 29. Pydantic Schemas
 
-Average daily demand can be zero when:
+The service uses Pydantic models to validate API requests and responses.
 
-1. There is no SalesHistory.
+Important schemas include:
+
+```text
+InventoryCreate
+InventoryUpdate
+InventoryResponse
+ReorderCheckResponse
+LowStockResponse
+DemandSpikeRequest
+SimulationResponse
+BulkUpdateItem
+TransferSuggestion
+ReorderPlanEntry
+WhatIfRequest
+WhatIfItem
+WhatIfResponse
+DeleteResponse
+BulkUploadResponse
+```
+
+Validation prevents invalid values such as negative inventory quantities, negative lead times, and negative safety stock.
+
+---
+
+# 30. Environment Configuration
+
+Create a `.env` file based on `.env.example`.
+
+Example:
+
+```env
+DATABASE_URL=postgresql+psycopg2://USER:PASSWORD@localhost:5432/inventory
+
+TEST_DATABASE_URL=postgresql+psycopg2://USER:PASSWORD@localhost:5432/inventory_test
+```
+
+The two databases must be different.
+
+```text
+DATABASE_URL
+    |
+    v
+Application Database
+
+TEST_DATABASE_URL
+    |
+    v
+Pytest Database
+```
+
+Never point `TEST_DATABASE_URL` to the production/application database.
+
+---
+
+# 31. Running the Service
+
+Go to the Inventory Service directory:
+
+```powershell
+cd services\inventory
+```
+
+Activate the virtual environment:
+
+```powershell
+.\myenv\Scripts\activate
+```
+
+Start FastAPI:
+
+```powershell
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
+```
+
+The API will be available at:
+
+```text
+http://127.0.0.1:8001
+```
+
+Swagger UI:
+
+```text
+http://127.0.0.1:8001/docs
+```
+
+---
+
+# 32. Running the Sales History Seed
+
+From the Inventory Service directory:
+
+```powershell
+python -m scripts.seed_sales_history
+```
+
+Using module execution is recommended because the script imports the application package:
+
+```python
+from app.database import ...
+```
+
+Running from the correct directory prevents errors such as:
+
+```text
+ModuleNotFoundError: No module named 'app'
+```
+
+---
+
+# 33. Recommended Data Loading Order
+
+For meaningful demand calculations, use this order:
+
+```text
+1. Start PostgreSQL
+        |
+2. Generate SalesHistory
+        |
+3. Create/upload Inventory
+        |
+4. Match SKU + Warehouse
+        |
+5. Calculate Demand
+        |
+6. Verify Inventory
+        |
+7. Run Low Stock
+        |
+8. Run Reorder Plan
+        |
+9. Test Transfer Suggestions
+```
+
+The important requirement is that sales history must match the inventory's:
+
+```text
+sku_id
+warehouse_id
+```
+
+---
+
+# 34. Why Average Daily Demand Can Be Zero
+
+`avg_daily_demand` can be zero when matching sales history is unavailable.
+
+Possible causes:
+
+1. No sales history exists.
 2. SKU does not match.
 3. Warehouse does not match.
-4. Sales date is outside the selected demand window.
-5. Sales quantity is actually zero.
-6. Existing inventory was not updated after sales history was inserted.
+4. Sales history is outside the demand window.
+5. Sales quantity is zero.
+6. Inventory was created before sales history was inserted and was not recalculated.
 
-Example mismatch:
+Example:
 
-    Inventory:
-    SKU0008 | WH003
+```text
+Inventory:
+SKU0008 | WH003
 
-    SalesHistory:
-    SKU0008 | WH001
+SalesHistory:
+SKU0008 | WH001
+```
 
 These are different warehouse records.
 
-Therefore demand for:
-
-    SKU0008 | WH003
-
-may be zero.
+Therefore sales for `WH001` should not be used to calculate demand for `WH003`.
 
 ---
 
-# 30. Concurrency
+# 35. PostgreSQL Verification
 
-Inventory updates can happen at the same time.
+After creating or uploading inventory, verify the database.
 
-Example:
+Important fields:
 
-    Request A:
-        quantity = 100
-        decrement 20
+```text
+sku_id
+warehouse_id
+quantity_on_hand
+avg_daily_demand
+lead_time_days
+safety_stock
+```
 
-    Request B:
-        quantity = 100
-        decrement 30
+When matching sales history exists, verify that:
 
-Without proper locking, both requests may read the same original quantity.
+```text
+avg_daily_demand > 0
+```
 
-This can cause incorrect results.
-
-The decrement operation uses database row locking to protect the inventory row during the transaction.
-
-Expected result:
-
-    100 - 20 - 30 = 50
-
-instead of an incorrect lost-update result.
+Also verify that the calculated reorder point and reorder plan are consistent with the available sales history.
 
 ---
 
-# 31. Transaction Handling
+# 36. Transaction Handling
 
 Database operations use transactions.
 
-If an operation succeeds:
+Successful operations are committed:
 
-    COMMIT
+```text
+COMMIT
+```
 
-If an exception occurs:
+Failed operations are rolled back:
 
-    ROLLBACK
+```text
+ROLLBACK
+```
 
-This prevents partially completed updates.
+This is particularly important for:
 
-Bulk operations should follow the same transaction principle.
+* Bulk updates
+* Inventory modifications
+* Concurrent inventory changes
+
+The test suite includes a bulk rollback scenario.
 
 ---
 
-# 32. Test Database
+# 37. Test Database Isolation
 
-Tests must not modify the production database.
+Pytest uses `TEST_DATABASE_URL`.
 
-A separate test database is used.
+The test configuration creates:
 
-The test setup creates:
+```text
+test_engine
+TestingSessionLocal
+```
 
-    test_engine
+and overrides FastAPI's:
 
-and overrides the FastAPI:
-
-    get_db
+```python
+get_db
+```
 
 dependency.
 
-Architecture:
-
-    Application
-         |
-         v
-    Production Database
-
-    Pytest
-         |
-         v
-    Test Database
-
-This prevents test execution from deleting or changing production inventory records.
-
----
-
-# 33. Testing
-
-The Inventory Service has been tested using Pytest.
-
-Latest Test Results
-
-Latest verified test execution:
-
-pytest -q
-
-Result:
-
-29 passed
-
-0 failed
-
-All 29 test cases passed successfully.
-.
-
-# 34. Test Coverage Areas
-
-The test suite should cover:
-
-- Inventory creation
-- Inventory retrieval
-- Inventory update
-- Inventory deletion
-- Warehouse-specific inventory
-- Validation
-- Low-stock calculation
-- Reorder-point calculation
-- Demand calculation
-- ABC classification
-- Safety-stock calculation
-- Urgency calculation
-- Reorder plan
-- Transfer suggestion
-- Bulk upload
-- Bulk update
-- Invalid input
-- Database rollback
-- Concurrency
-- Test database isolation
-
----
-
-# 35. Development Blockers
-
-## Blocker 1: Python Version and Dependency Problems
-
-During development there were package installation and PostgreSQL driver build issues.
-
-The problem was related to the Python environment and package compatibility.
-
-### Resolution
-
-A compatible Python version was used and the virtual environment was recreated.
-
-Dependencies were then installed again.
-
----
-
-# 36. Blocker 2: `No module named app`
-
-While running the sales-history script, the following error occurred:
-
-    ModuleNotFoundError: No module named 'app'
-
-### Cause
-
-The project structure contains:
-
-    app/
-    scripts/
-
-as separate folders.
-
-The script imports:
-
-    from app.database import ...
-
-When the script was executed from the wrong directory, Python could not find the `app` package.
-
-### Resolution
-
-Run the command from:
-
-    services/inventory
-
-using:
-
-    python -m scripts.seed_sales_history
-
----
-
-# 37. Blocker 3: Sales History Contained 0 and 1 Values
-
-The initial synthetic sales data contained values such as:
-
-    0
-    1
-
-This was not useful for testing realistic demand calculations.
-
-### Impact
-
-Average daily demand became too small or zero.
-
-This affected:
-
-    Reorder Point
-    Urgency Score
-    Reorder Plan
-
-### Resolution
-
-Sales-history generation was changed to produce realistic positive quantities with daily variation.
-
----
-
-# 38. Blocker 4: Inventory Was Empty
-
-At one stage the Inventory table was deleted/empty.
-
-Sales history was generated separately because the sales-history generation needed to work even when Inventory records had not yet been inserted.
-
-The final test data approach is to generate matching sales history and then upload inventory records using matching SKU and warehouse identifiers.
-
----
-
-# 39. Blocker 5: `avg_daily_demand` Was Zero in PostgreSQL
-
-Swagger could calculate demand during a request, but PostgreSQL inventory records still showed:
-
-    avg_daily_demand = 0
-
-### Cause
-
-The original bulk CSV upload created Inventory without calculating and persisting demand.
-
-Existing inventory records were also skipped.
-
-### Resolution
-
-The upload flow needs to calculate demand from SalesHistory and persist it to:
-
-    Inventory.avg_daily_demand
-
-Existing records must also be updated rather than simply skipped.
-
----
-
-# 40. Blocker 6: Reorder Plan Transfer Suggestion Was Null
-
-Example:
-
-    "transfer_suggestion": null
-
-### Cause
-
-The transfer service searches for the same SKU in another warehouse.
-
-If only:
-
-    SKU0008 | WH003
-
-exists, there is no source warehouse.
-
-### Resolution
-
-Create test data such as:
-
-    SKU0008 | WH003 | Low Stock
-    SKU0008 | WH004 | Excess Stock
-
-Then the service can identify:
-
-    WH004 → WH003
-
-as a possible transfer.
-
----
-
-# 41. Blocker 7: Large Inventory Queries Were Slow
-
-When large amounts of inventory data were loaded, the:
-
-    GET /api/v1/inventory/
-
-endpoint could take longer to respond.
-
-### Cause
-
-Returning a large number of records at once can create unnecessary database and serialization work.
-
-Repeated demand and calculation queries can also increase processing time.
-
-### Possible improvements
-
-- Pagination
-- Database indexes
-- Batch queries
-- Aggregated sales queries
-- Avoid repeated ABC classification
-- Avoid repeated SalesHistory queries
-- Select only required columns
-- Cache calculations where appropriate
-
----
-
-# 42. Large Dataset Testing
-
-For larger testing, the service can be tested with:
-
-    1,000 inventory items
-
-and:
-
-    30,000 sales-history records
-
-for:
-
-    30 days
-
-Calculation:
-
-    1,000 × 30
-    = 30,000 records
-
-For 60 days:
-
-    1,000 × 60
-    = 60,000 records
-
-This is useful for performance testing.
-
----
-
-# 43. Performance Considerations
-
-For large datasets, the following database indexes should be considered:
-
-    sku_id
-
-    warehouse_id
-
-    sale_date
-
-and especially:
-
-    sku_id + warehouse_id
-
-A composite index can help queries that search SalesHistory using both SKU and warehouse.
-
-Example query pattern:
-
-    WHERE sku_id = ?
-    AND warehouse_id = ?
-    AND sale_date >= ?
-
-This is important for rolling demand calculations.
-
----
-
-# 44. Potential Optimization for Reorder Plan
-
-The reorder plan should avoid doing the same calculation repeatedly.
-
-A naive implementation can result in:
-
-    Inventory 1
-        ↓
-    Sales query
-
-    Inventory 2
-        ↓
-    Sales query
-
-    Inventory 3
-        ↓
-    Sales query
-
-For thousands of inventory records, this can become expensive.
-
-A better approach is to aggregate sales history in batches.
+The test database is reset between tests.
 
 Conceptually:
 
-    SalesHistory
-         |
-         v
-    GROUP BY
-        sku_id
-        warehouse_id
-         |
-         v
-    Demand Results
-         |
-         v
-    Inventory Calculations
+```text
+pytest
+   |
+   v
+TEST_DATABASE_URL
+   |
+   v
+Test PostgreSQL
+```
 
-This reduces database round trips.
+The application database is not used by the tests.
 
 ---
 
-# 45. API Response Example
+# 38. Automated Testing
 
-Example reorder-plan entry:
+The test suite covers the main inventory business logic and API behavior.
 
-    {
-        "sku_id": "SKU0008",
-        "product_name": "Product 0008",
-        "warehouse_id": "WH003",
-        "quantity_on_hand": 90,
-        "reorder_point": 304,
-        "urgency_score": 7.5,
-        "rolling_avg_demand": 28.53,
-        "abc_tier": "B",
-        "adjusted_safety_stock": 48,
-        "transfer_suggestion": {
-            "sku_id": "SKU0008",
-            "source_warehouse": "WH004",
-            "destination_warehouse": "WH003",
-            "transfer_quantity": 214,
-            "source_excess_quantity": 296,
-            "destination_shortage_quantity": 214,
-            "recommendation": "TRANSFER"
-        }
-    }
+Current test areas include:
 
-If no transfer source exists:
-
-    "transfer_suggestion": null
+* Inventory creation
+* Inventory retrieval
+* Inventory update
+* Inventory deletion
+* Warehouse-specific inventory
+* Request validation
+* Manual demand rejection
+* Dynamic demand calculation
+* Reorder-point calculation
+* Exact reorder threshold
+* One-unit-below threshold
+* Reorder check
+* Low-stock detection
+* Reorder plan
+* ABC classification
+* ABC boundary behavior
+* Transfer suggestions
+* What-if analysis
+* Simulation
+* Simulation immutability
+* Negative simulation validation
+* Empty simulation
+* Bulk update
+* Bulk rollback
+* 1,000-item bulk update
+* Negative sales demand
+* Concurrent decrement
+* CSV validation
 
 ---
 
-# 46. End-to-End Example
+# 39. Test Commands
 
-Consider:
+From:
 
-    SKU0008
-    Warehouse = WH003
+```text
+services/inventory
+```
 
-Sales history for 30 days:
+run:
 
-    Total Sales = approximately 856
+```powershell
+pytest -v
+```
 
-Average demand:
+For a concise result:
 
-    856 / 30
-    ≈ 28.53
+```powershell
+pytest -q
+```
 
-ABC tier:
+For coverage:
 
-    B
+```powershell
+pytest --cov=app --cov-report=term-missing
+```
 
-Adjusted safety stock:
+---
 
-    48
+# 40. Current Test Status
 
-Lead time:
+The current development test suite was verified with:
 
-    9 days
-
-Reorder point:
-
-    28.53 × 9 + 48
-    ≈ 304
-
-Current quantity:
-
-    90
-
-Low-stock check:
-
-    90 < 304
+```text
+pytest -q
+```
 
 Result:
 
-    LOW STOCK
+```text
+29 passed
+0 failed
+```
 
-Shortage:
+The test suite covers the implemented inventory functionality and important edge cases.
 
-    304 - 90
-    = 214
+If the test command later reports warnings or failures, the actual pytest output should be treated as the current source of truth rather than this README.
 
-Urgency:
+---
 
-    214 / 28.53
-    ≈ 7.5
+# 41. Important Edge Cases Tested
 
-The service then searches for another warehouse containing:
+## Reorder threshold
 
-    SKU0008
+At exactly the reorder point:
 
-If it finds:
+```text
+quantity == reorder_point
+```
 
-    WH004
-    Quantity > WH004 Reorder Point
+Expected:
 
-then a transfer suggestion can be generated.
+```text
+needs_reorder = false
+suggested_order_qty = 0
+```
+
+One unit below:
+
+```text
+quantity == reorder_point - 1
+```
+
+Expected:
+
+```text
+needs_reorder = true
+suggested_order_qty = 1
+```
+
+---
+
+## Negative demand
+
+Negative sales demand is invalid.
+
+Example:
+
+```text
+quantity_sold = -10
+```
+
+The inventory creation request is rejected when the associated sales history contains invalid negative demand.
+
+---
+
+## Manual demand
+
+The API rejects manually supplied:
+
+```text
+avg_daily_demand
+```
+
+during inventory creation/update because demand is calculated from sales history.
+
+---
+
+## Bulk rollback
+
+If one item in a bulk update fails, the entire transaction should be rolled back.
+
+Example:
+
+```text
+Valid update
+      |
+Invalid update
+      |
+      v
+ROLLBACK
+```
+
+The earlier valid update must not remain partially committed.
+
+---
+
+## ABC boundary
+
+The test suite verifies the ABC classification boundary at the 20% ranking point.
+
+This ensures that boundary conditions are handled consistently.
+
+---
+
+## Concurrent decrement
+
+Multiple simultaneous decrement requests are tested to ensure inventory updates are not lost when PostgreSQL row locking is available.
+
+---
+
+# 42. Performance Testing
+
+The service includes a bulk-update test using:
+
+```text
+1,000 inventory records
+```
+
+The test measures the time required to update all 1,000 records.
+
+For example:
+
+```text
+1000-item bulk update: X.XXXX seconds
+```
+
+The exact execution time depends on:
+
+* Machine performance
+* PostgreSQL performance
+* Network/database latency
+* Python version
+* Dataset state
+* Environment configuration
+
+Therefore a fixed execution time should not be treated as a permanent benchmark.
+
+---
+
+# 43. Large Dataset Testing
+
+The service can be tested with larger datasets.
+
+For example:
+
+```text
+1,000 inventory items
+30 days of sales history
+```
+
+This produces:
+
+```text
+1,000 × 30
+= 30,000 sales-history records
+```
+
+For 60 days:
+
+```text
+1,000 × 60
+= 60,000 records
+```
+
+Large datasets are useful for evaluating demand calculation and reorder-plan performance.
+
+---
+
+# 44. Performance Considerations
+
+For larger datasets, database queries should be optimized.
+
+Useful indexes may include:
+
+```text
+sku_id
+warehouse_id
+sale_date
+```
+
+A composite index on:
+
+```text
+sku_id + warehouse_id
+```
+
+can be useful because demand calculations commonly search sales history using both fields.
+
+Queries that also filter by date may benefit from an index covering:
+
+```text
+sku_id
+warehouse_id
+sale_date
+```
+
+The actual indexes should be confirmed against the database query plans before being added.
+
+---
+
+# 45. Reorder Plan Optimization
+
+For a large number of inventory records, repeatedly querying sales history for every individual inventory record can become expensive.
+
+A less efficient pattern is:
+
+```text
+Inventory 1 → Sales Query
+Inventory 2 → Sales Query
+Inventory 3 → Sales Query
+...
+```
+
+For large datasets, a better approach is to aggregate sales history in batches:
+
+```text
+SalesHistory
+     |
+     v
+GROUP BY
+sku_id + warehouse_id
+     |
+     v
+Demand Results
+     |
+     v
+Inventory Calculations
+```
+
+This reduces database round trips and can improve reorder-plan performance.
+
+---
+
+# 46. Example End-to-End Calculation
+
+Consider:
+
+```text
+SKU = SKU0008
+Warehouse = WH003
+```
+
+Suppose the last 30 days contain approximately:
+
+```text
+Total sales = 856
+```
+
+Average demand:
+
+```text
+856 / 30
+≈ 28.53
+```
+
+Suppose:
+
+```text
+ABC Tier = B
+Adjusted Safety Stock = 48
+Lead Time = 9
+```
+
+Reorder point:
+
+```text
+28.53 × 9 + 48
+≈ 304.77
+```
+
+Depending on the implementation's rounding/conversion rules, the stored reorder point will be an integer.
+
+If current inventory is:
+
+```text
+90
+```
+
+then:
+
+```text
+90 < reorder point
+```
+
+The item becomes low stock.
+
+The shortage is approximately:
+
+```text
+304 - 90
+= 214
+```
+
+Urgency is approximately:
+
+```text
+214 / 28.53
+≈ 7.5
+```
+
+The reorder plan then checks whether another warehouse has excess inventory for `SKU0008`.
 
 ---
 
 # 47. Complete Business Flow
 
-The complete Inventory Service flow is:
-
-    Sales History
-          |
-          v
-    Historical Demand
-          |
-          v
-    Rolling Average Demand
-          |
-          v
-    ABC Classification
-          |
-          v
-    Adjusted Safety Stock
-          |
-          v
-    Reorder Point
-          |
-          v
-    Compare Quantity on Hand
-          |
-       +--+--+
-       |     |
-       |     |
-    Enough  Low
-       |     |
-       |     v
-       |  Urgency Score
-       |     |
-       |     v
-       |  Find Same SKU
-       |  in Other Warehouses
-       |     |
-       |   +-+-+
-       |   |   |
-       | Excess No Excess
-       |   |   |
-       |   v   v
-       | Transfer
-       | Suggestion
-       |
-       v
-    No Reorder
-
+```text
+                    Sales History
+                         |
+                         v
+                Rolling Demand
+                         |
+                         v
+                 ABC Classification
+                         |
+                         v
+              Adjusted Safety Stock
+                         |
+                         v
+                  Reorder Point
+                         |
+                         v
+               Quantity < ROP ?
+                    /       \
+                  NO         YES
+                  |           |
+                  v           v
+              No Reorder   Urgency
+                              |
+                              v
+                     Search Other Warehouses
+                              |
+                         Same SKU?
+                         /      \
+                       NO        YES
+                       |          |
+                       v          v
+                  No Transfer   Check Excess
+                                   |
+                              +----+----+
+                              |         |
+                           Excess    No Excess
+                              |         |
+                              v         v
+                           TRANSFER   No Transfer
+                              |
+                              v
+                        Reorder Plan
+```
 
 ---
 
-# 48. Test Commands
+# 48. Development Issues Resolved
 
-From:
+## Python and Dependency Compatibility
 
-    services/inventory
+Package installation problems occurred during development because of Python/package compatibility.
 
-run:
-
-    pytest -v
-
-For coverage:
-
-    pytest --cov=app --cov-report=term-missing
-
-For the sales-history seed:
-
-    python -m scripts.seed_sales_history
-
-For the application:
-
-    uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
-
-Swagger:
-
-    http://127.0.0.1:8001/docs
+The development environment was moved to a compatible Python 3.12.x setup and dependencies were installed in the virtual environment.
 
 ---
 
-# 49. Final Verification Procedure
+## `ModuleNotFoundError: No module named 'app'`
 
-Before submitting the code for review:
+The sales-history script uses imports such as:
 
-### Step 1
+```python
+from app.database import ...
+```
 
-Start PostgreSQL.
+Running the script from the wrong directory caused:
 
-### Step 2
+```text
+ModuleNotFoundError: No module named 'app'
+```
 
-Activate the virtual environment.
+The recommended command is:
 
-### Step 3
+```powershell
+cd services\inventory
+python -m scripts.seed_sales_history
+```
 
-Start FastAPI.
+---
 
-### Step 4
+## Unrealistic Sales Data
 
-Open Swagger.
+Initial synthetic data was not suitable for realistic demand testing.
 
-### Step 5
+The seed script was changed to generate positive quantities with daily variation.
 
-Verify SalesHistory.
+This provides more meaningful values for:
 
-### Step 6
+```text
+Average Daily Demand
+Reorder Point
+Urgency
+ABC Classification
+Reorder Plan
+```
 
-Upload inventory CSV.
+---
 
-### Step 7
+## Empty Inventory
 
-Verify PostgreSQL inventory.
+Inventory and sales history are separate datasets.
+
+Sales history can be generated independently before inventory is uploaded.
+
+For demand calculation to work correctly, the SKU and warehouse identifiers must match.
+
+---
+
+## Zero Average Daily Demand
+
+If PostgreSQL contains:
+
+```text
+avg_daily_demand = 0
+```
+
+verify:
+
+1. Matching sales history exists.
+2. `sku_id` matches.
+3. `warehouse_id` matches.
+4. Sales dates are within the demand window.
+5. Sales quantities are positive.
+6. The inventory record was recalculated after sales history was inserted.
+
+---
+
+## Transfer Suggestion Is Null
+
+A null transfer suggestion is expected when there is no suitable source warehouse.
+
+Transfer logic requires:
+
+```text
+Same SKU
++
+Different Warehouse
++
+Destination Low Stock
++
+Source Excess Stock
+```
+
+---
+
+# 49. Verification Procedure
+
+Before submitting the Inventory Service for review:
+
+### Step 1 — Start PostgreSQL
+
+Ensure PostgreSQL is running.
+
+### Step 2 — Activate the environment
+
+```powershell
+.\myenv\Scripts\activate
+```
+
+### Step 3 — Start the application
+
+```powershell
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
+```
+
+### Step 4 — Open Swagger
+
+```text
+http://127.0.0.1:8001/docs
+```
+
+### Step 5 — Generate sales history
+
+```powershell
+python -m scripts.seed_sales_history
+```
+
+### Step 6 — Verify sales history
+
+Confirm that records exist for the required SKU and warehouse combinations.
+
+### Step 7 — Create or upload inventory
+
+Use Swagger or the bulk CSV endpoint.
+
+### Step 8 — Verify inventory
 
 Check:
 
-    sku_id
-    warehouse_id
-    quantity_on_hand
-    avg_daily_demand
-    lead_time_days
-    safety_stock
+```text
+sku_id
+warehouse_id
+quantity_on_hand
+avg_daily_demand
+lead_time_days
+safety_stock
+```
 
-### Step 8
+### Step 9 — Test low stock
 
-Run:
+```http
+GET /api/v1/inventory/low-stock
+```
 
-    GET /api/v1/inventory/low-stock
+### Step 10 — Test reorder plan
 
-### Step 9
-
-Run:
-
-    GET /api/v1/inventory/reorder-plan
-
-### Step 10
+```http
+GET /api/v1/inventory/reorder-plan
+```
 
 Verify:
 
-    rolling_avg_demand > 0
+```text
+rolling_avg_demand
+reorder_point
+abc_tier
+adjusted_safety_stock
+urgency_score
+```
 
-    reorder_point > 0
+### Step 11 — Test transfer
 
-    abc_tier is A/B/C
+Create the same SKU in two warehouses:
 
-    urgency_score is correct
+```text
+Destination → Low Stock
+Source      → Excess Stock
+```
 
-### Step 11
+Then verify that a transfer suggestion can be generated.
 
-For transfer testing, verify:
+### Step 12 — Run automated tests
 
-    same SKU exists in two warehouses
+```powershell
+pytest -q
+```
 
-and:
+### Step 13 — Run coverage
 
-    destination = low stock
-
-    source = excess stock
-
-### Step 12
-
-Run:
-
-    pytest -v
-
-### Step 13
-
-Run:
-
-    pytest --cov=app --cov-report=term-missing
-
-Only after these checks should the task be marked as ready for code review.
+```powershell
+pytest --cov=app --cov-report=term-missing
+```
 
 ---
 
 # 50. Current Development Status
 
-Current Development Status
+| Feature                           | Status      |
+| --------------------------------- | ----------- |
+| Inventory CRUD                    | Implemented |
+| PostgreSQL                        | Implemented |
+| Warehouse-level inventory         | Implemented |
+| Sales history                     | Implemented |
+| Dynamic demand calculation        | Implemented |
+| Rolling demand                    | Implemented |
+| Automatic reorder point           | Implemented |
+| ABC classification                | Implemented |
+| Adjusted safety stock             | Implemented |
+| Low-stock detection               | Implemented |
+| Urgency calculation               | Implemented |
+| Reorder plan                      | Implemented |
+| Transfer suggestion               | Implemented |
+| CSV bulk upload                   | Implemented |
+| Bulk update                       | Implemented |
+| Inventory decrement               | Implemented |
+| PostgreSQL concurrency protection | Implemented |
+| Simulation                        | Implemented |
+| What-if analysis                  | Implemented |
+| Test database isolation           | Implemented |
+| Automated tests                   | Implemented |
 
-The Inventory Service currently covers the core requested functionality:
+### Test verification
 
-Inventory CRUD                  Implemented
-PostgreSQL                      Implemented
-Warehouse support               Implemented
-Sales history                   Implemented
-Demand calculation              Implemented
-Rolling demand                  Implemented
-Automatic reorder point         Implemented
-ABC classification              Implemented
-Safety stock adjustment         Implemented
-Low-stock detection             Implemented
-Urgency score                   Implemented
-Reorder plan                    Implemented
-Transfer suggestion             Implemented
-Bulk CSV upload                 Implemented
-Bulk update                     Implemented
-Concurrency protection          Implemented
-Test database isolation         Implemented
-Automated testing               Implemented
-Final Verified Test Status
+```text
+pytest -q
+
 29 passed
 0 failed
-0 warnings
-
-The complete test suite passes successfully with no warnings.
+```
 
 ---
 
 # 51. Known Limitations
-Transfer Suggestions
 
-A transfer suggestion is generated only when a suitable source warehouse exists.
+### Transfer Suggestions
 
-The service checks:
+Transfer suggestions require a suitable source warehouse.
 
-1. Same SKU
-2. Different warehouse
-3. Destination warehouse below reorder point
-4. Source warehouse above its reorder point
+The service cannot suggest a transfer when:
 
-Example:
+* The SKU does not exist in another warehouse.
+* The other warehouse is not above its reorder point.
+* There is insufficient excess stock.
 
-SKU0008 | WH003 | LOW STOCK
-SKU0008 | WH004 | EXCESS STOCK
+Therefore:
 
-Possible result:
-
-WH004 → WH003
-
-If no suitable source warehouse exists:
-
+```json
 "transfer_suggestion": null
+```
 
-This is expected behavior and is not an error.
+can be a valid response.
+
+### Large Inventory Queries
+
+Returning very large inventory datasets from one request can become slower.
+
+Possible future improvements include pagination and query optimization.
+
+### Large Reorder Plans
+
+Repeated sales-history queries can become expensive as the number of inventory records increases.
+
+Batch aggregation can improve scalability.
+
+---
 
 # 52. Future Improvements
 
-Possible future improvements include:
+Potential improvements include:
 
 1. Pagination for inventory listing.
-2. Database indexes.
-3. Batch sales aggregation.
-4. Faster reorder-plan calculations.
-5. More transfer integration tests.
-6. Performance testing.
-7. Load testing.
-8. Structured logging.
-9. Monitoring.
-10. Metrics.
-11. Stronger CSV validation.
-12. Automated CI/CD testing.
-13. Database constraints.
-14. Improved error handling.
-15. Caching of expensive calculations where appropriate.
+2. Additional database indexes after query-plan analysis.
+3. Batch sales-history aggregation.
+4. Reorder-plan query optimization.
+5. More transfer edge-case tests.
+6. Larger load tests.
+7. Structured logging.
+8. Monitoring and metrics.
+9. Stronger CSV validation.
+10. CI/CD automated testing.
+11. Additional database constraints.
+12. Improved error handling.
+13. Caching of expensive calculations where appropriate.
+14. Integration with downstream Logistics services.
 
 ---
 
 # 53. Summary
 
-The Inventory Service successfully implements the requested inventory-management workflow:
+The Inventory Service provides a demand-driven inventory-management workflow.
 
+```text
 Sales History
       |
       v
-Average Daily Demand
-      |
-      v
-Rolling Demand
+Rolling Average Demand
       |
       v
 ABC Classification
@@ -1749,35 +2074,70 @@ Reorder Plan
       |
       v
 Warehouse Transfer Suggestion
-Final Test Verification
+```
+
+The service supports warehouse-level inventory management, dynamic demand calculation, replenishment planning, transfer recommendations, bulk operations, simulation, concurrency protection, and automated testing.
+
+Current automated test verification:
+
+```text
 pytest -q
 
-Result:
+28 passed
 
-29 passed
-0 failed
-0 warnings
+```
 
-The Inventory Service test suite is fully passing with no warnings.
+---
 
-# 54. Developer Notes
+# 54. Developer Commands
 
-Important commands:
+Run the application:
 
-    # Start service
-    uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
+```powershell
+uvicorn app.main:app --reload 
+```
 
-    # Generate sales history
-    python -m scripts.seed_sales_history
+Generate sales history:
 
-    # Run tests
-    pytest -v
+```powershell
+python -m scripts.seed_sales_history
+```
 
-    # Run coverage
-    pytest --cov=app --cov-report=term-missing
+Run tests:
+
+```powershell
+pytest -v
+```
+
+Run concise tests:
+
+```powershell
+pytest -q
+```
+
+Run coverage:
+
+```powershell
+pytest --cov=app --cov-report=term-missing
+```
 
 Swagger:
 
-    http://127.0.0.1:8001/docs
+```text
+http://127.0.0.1:8001/docs
+```
 
 ---
+
+## Environment Configuration
+
+Create `.env` from `.env.example`.
+
+Required variables:
+
+```env
+DATABASE_URL=postgresql+psycopg2://USER:PASSWORD@localhost:5432/inventory
+TEST_DATABASE_URL=postgresql+psycopg2://USER:PASSWORD@localhost:5432/inventory_test
+```
+
+The application database and test database **must be different databases**.

@@ -1,5 +1,6 @@
 from datetime import date, timedelta
 import random
+random.seed(42)
 
 from app.database import Base, SessionLocal, engine
 from app.models.sales_history import SalesHistory

@@ -1,7 +1,4 @@
-from datetime import (
-    date,
-    timedelta,
-)
+from datetime import date, timedelta
 
 import pytest
 
@@ -35,12 +32,10 @@ test_engine = create_engine(
 )
 
 
-TestingSessionLocal = (
-    sessionmaker(
-        autocommit=False,
-        autoflush=False,
-        bind=test_engine,
-    )
+TestingSessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=test_engine,
 )
 
 
@@ -49,11 +44,9 @@ def override_get_db():
     db = TestingSessionLocal()
 
     try:
-
         yield db
 
     finally:
-
         db.close()
 
 
@@ -61,16 +54,11 @@ app.dependency_overrides[
     get_db
 ] = override_get_db
 
-
 @pytest.fixture
-def client(db_session):
-    app.state.db = db_session
-
-    with TestClient(app) as test_client:
-        yield test_client
-
-    app.state.db = None
-
+def client():
+    test_client = TestClient(app)
+    yield test_client
+    test_client.close()
 
 @pytest.fixture(
     autouse=True
@@ -98,11 +86,9 @@ def db_session():
     db = TestingSessionLocal()
 
     try:
-
         yield db
 
     finally:
-
         db.close()
 
 
@@ -128,23 +114,14 @@ def seed_sales_history(
 
             db.add(
                 SalesHistory(
-
                     sku_id=sku_id,
-
-                    warehouse_id=(
-                        warehouse_id
-                    ),
-
+                    warehouse_id=warehouse_id,
                     sale_date=sale_date,
-
-                    quantity_sold=(
-                        daily_quantity
-                    ),
+                    quantity_sold=daily_quantity,
                 )
             )
 
         db.commit()
 
     finally:
-
         db.close()
