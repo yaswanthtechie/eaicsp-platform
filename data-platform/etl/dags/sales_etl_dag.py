@@ -1,26 +1,107 @@
+"""
+R4 Sales + Inventory ETL DAG
+
+Important:
+- Keep DAG parsing lightweight.
+- Do not import pandas, database engines, or heavy ETL modules at DAG parse time.
+- Pipeline configuration is read directly from pipeline_config.yaml using
+  lightweight YAML parsing.
+- Heavy ETL imports happen only when tasks execute.
+"""
+
 from datetime import datetime, timedelta
-import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+import yaml
 
 from airflow import DAG
-from airflow.operators.python import (
-    PythonOperator,
-    BranchPythonOperator,
-)
+from airflow.operators.python import PythonOperator, BranchPythonOperator
 
-# Make the project package and src modules available.
-sys.path.insert(0, "/opt/airflow")
-sys.path.insert(0, "/opt/airflow/etl/src")
+from etl.src.logging_config import logger
 
-from etl.src.alerts import airflow_failure_callback
-from etl.src.pipeline import (
-    extract_airflow_task,
-    quality_gate_airflow_task,
-    load_airflow_task,
-    reject_and_notify_airflow_task,
-    update_watermark_airflow_task,
-    log_run_airflow_task,
-)
 
+# ---------------------------------------------------------------------------
+# Lightweight configuration
+# ---------------------------------------------------------------------------
+
+DAG_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = DAG_DIR.parent
+PIPELINE_CONFIG_FILE = PROJECT_ROOT / "pipeline_config.yaml"
+
+
+def _namespace(value):
+    """
+    Convert dictionaries recursively into SimpleNamespace objects.
+
+    This keeps DAG parsing lightweight while allowing the existing ETL
+    functions to continue using source_config.name, source_config.path, etc.
+    """
+    if isinstance(value, dict):
+        return SimpleNamespace(
+            **{key: _namespace(val) for key, val in value.items()}
+        )
+
+    if isinstance(value, list):
+        return [_namespace(item) for item in value]
+
+    return value
+
+
+def load_dag_config():
+    """
+    Read only the lightweight YAML configuration required to construct
+    the Airflow DAG.
+
+    No pandas, SQLAlchemy, database connection, or ETL module is loaded here.
+    """
+    with open(PIPELINE_CONFIG_FILE, "r", encoding="utf-8") as file:
+        raw_config = yaml.safe_load(file)
+
+    return _namespace(raw_config)
+
+
+PIPELINE_CONFIG = load_dag_config()
+
+
+# ---------------------------------------------------------------------------
+# Validate source dependency ordering
+# ---------------------------------------------------------------------------
+
+_seen_sources = set()
+
+for _source in PIPELINE_CONFIG.sources:
+
+    if (
+        _source.depends_on
+        and _source.depends_on not in _seen_sources
+    ):
+        raise ValueError(
+            f"pipeline_config.yaml: source '{_source.name}' depends on "
+            f"'{_source.depends_on}', but that source must appear earlier "
+            f"in the sources list."
+        )
+
+    _seen_sources.add(_source.name)
+
+
+# ---------------------------------------------------------------------------
+# Airflow failure callback
+# ---------------------------------------------------------------------------
+
+def airflow_failure_callback(context):
+    """
+    Import alert functionality only when a task actually fails.
+    """
+
+    from etl.src.alerts import airflow_failure_callback as _callback
+
+    _callback(context)
+
+
+# ---------------------------------------------------------------------------
+# Default Airflow arguments
+# ---------------------------------------------------------------------------
 
 default_args = {
     "owner": "airflow",
@@ -30,49 +111,765 @@ default_args = {
 }
 
 
+# ---------------------------------------------------------------------------
+# XCom serialization helpers
+# ---------------------------------------------------------------------------
+
+def _serialize_batches(batches):
+
+    return [
+        {
+            "file_path": str(batch["file_path"]),
+            "data": batch["data"].to_dict(orient="records"),
+            "report": batch.get("report"),
+        }
+        for batch in batches
+    ]
+
+
+def _deserialize_batches(serialized):
+
+    import pandas as pd
+
+    result = []
+
+    for item in serialized or []:
+
+        batch = {
+            "file_path": Path(item["file_path"]),
+            "data": pd.DataFrame(item["data"]),
+        }
+
+        if item.get("report") is not None:
+            batch["report"] = item["report"]
+
+        result.append(batch)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Start run
+# ---------------------------------------------------------------------------
+
+def start_run_task(**context):
+
+    from etl.src.logger import create_run
+
+    run_id = create_run()
+
+    context["ti"].xcom_push(
+        key="run_id",
+        value=run_id,
+    )
+
+    logger.info(
+        f"Pipeline run started: run_id={run_id}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Extract
+# ---------------------------------------------------------------------------
+
+def make_extract_task(source_config, extract_task_id):
+
+    def _extract(source_config=source_config, **context):
+
+        from etl.src.alert_service import write_alert
+        from etl.src.data_contract import validate_schema_against
+        from etl.src.extract import extract_data
+        from etl.src.watermark import get_watermark
+
+        ti = context["ti"]
+
+        run_id = ti.xcom_pull(
+            task_ids="start_run",
+            key="run_id",
+        )
+
+        watermark_name = (
+            f"sales_etl_{source_config.name}"
+        )
+
+        last_processed_date = get_watermark(
+            pipeline_name=watermark_name
+        )
+
+        extracted_batches = extract_data(
+            last_processed_date=last_processed_date,
+            source_path=source_config.path,
+            date_column=source_config.date_column,
+        )
+
+        ti.xcom_push(
+            key="batches_seen",
+            value=len(extracted_batches),
+        )
+
+        if not extracted_batches:
+
+            logger.warning(
+                f"[{source_config.name}] No new files found"
+            )
+
+            return []
+
+        schema_valid = []
+
+        for batch in extracted_batches:
+
+            try:
+
+                validate_schema_against(
+                    batch["data"],
+                    source_config.columns,
+                )
+
+                schema_valid.append(batch)
+
+            except Exception as e:
+
+                logger.error(
+                    f"[{source_config.name}] "
+                    f"Schema validation failed: {e}"
+                )
+
+                write_alert(
+                    pipeline="sales_etl",
+                    severity="WARN",
+                    message=str(e),
+                    batch_file=batch["file_path"].name,
+                    run_id=run_id,
+                )
+
+        return _serialize_batches(schema_valid)
+
+    return _extract
+
+
+# ---------------------------------------------------------------------------
+# Quality gate
+# ---------------------------------------------------------------------------
+
+def make_quality_gate_task(
+    source_config,
+    extract_task_id,
+    load_task_id,
+    reject_task_id,
+):
+
+    def _quality_gate(
+        source_config=source_config,
+        **context,
+    ):
+
+        from etl.src.quality_gate import quality_gate_generic
+
+        ti = context["ti"]
+
+        schema_valid_batches = _deserialize_batches(
+            ti.xcom_pull(
+                task_ids=extract_task_id
+            )
+        )
+
+        if not schema_valid_batches:
+
+            logger.warning(
+                f"[{source_config.name}] "
+                "All batches failed schema validation"
+            )
+
+            ti.xcom_push(
+                key="rows_rejected_pre_load",
+                value=0,
+            )
+
+            return reject_task_id
+
+        validated_batches = quality_gate_generic(
+            schema_valid_batches,
+            source_config,
+        )
+
+        rejected_by_quality = (
+            len(schema_valid_batches)
+            - len(validated_batches)
+        )
+
+        ti.xcom_push(
+            key="rows_rejected_pre_load",
+            value=rejected_by_quality,
+        )
+
+        if not validated_batches:
+
+            logger.warning(
+                f"[{source_config.name}] "
+                "All batches rejected by quality gate"
+            )
+
+            return reject_task_id
+
+        ti.xcom_push(
+            key="validated_batches",
+            value=_serialize_batches(
+                validated_batches
+            ),
+        )
+
+        return load_task_id
+
+    return _quality_gate
+
+
+# ---------------------------------------------------------------------------
+# Load
+# ---------------------------------------------------------------------------
+
+def make_load_task(
+    source_config,
+    extract_task_id,
+    quality_gate_task_id,
+):
+
+    def _load(
+        source_config=source_config,
+        **context,
+    ):
+
+        from etl.src.load import load_data_bulk_generic
+        from etl.src.transform import transform_data_generic
+
+        ti = context["ti"]
+
+        run_id = ti.xcom_pull(
+            task_ids="start_run",
+            key="run_id",
+        )
+
+        validated_batches = _deserialize_batches(
+            ti.xcom_pull(
+                task_ids=quality_gate_task_id,
+                key="validated_batches",
+            )
+        )
+
+        if not validated_batches:
+
+            ti.xcom_push(
+                key="rows_inserted",
+                value=0,
+            )
+
+            ti.xcom_push(
+                key="rows_updated",
+                value=0,
+            )
+
+            ti.xcom_push(
+                key="rows_rejected",
+                value=0,
+            )
+
+            ti.xcom_push(
+                key="status",
+                value="SUCCESS",
+            )
+
+            return
+
+        data_frames = [
+            batch["data"]
+            for batch in validated_batches
+        ]
+
+        transformed = transform_data_generic(
+            data_frames,
+            source_config,
+        )
+
+        for batch, dataframe in zip(
+            validated_batches,
+            transformed,
+        ):
+            batch["data"] = dataframe
+
+        rows_inserted, rows_updated = (
+            load_data_bulk_generic(
+                validated_batches,
+                run_id,
+                source_config,
+            )
+        )
+
+        rows_dropped_in_gate = sum(
+            batch.get(
+                "report",
+                {},
+            ).get(
+                "rows_dropped",
+                0,
+            )
+            for batch in validated_batches
+        )
+
+        rejected_pre_load = ti.xcom_pull(
+            task_ids=quality_gate_task_id,
+            key="rows_rejected_pre_load",
+        ) or 0
+
+        rows_rejected = (
+            rejected_pre_load
+            + rows_dropped_in_gate
+        )
+
+        non_empty_dates = []
+
+        for batch in validated_batches:
+
+            if not batch["data"].empty:
+
+                latest_value = batch["data"][
+                    source_config.date_column
+                ].max()
+
+                if hasattr(latest_value, "date"):
+                    latest_value = latest_value.date()
+
+                non_empty_dates.append(
+                    latest_value
+                )
+
+        latest_date = (
+            max(non_empty_dates)
+            if non_empty_dates
+            else None
+        )
+
+        ti.xcom_push(
+            key="rows_inserted",
+            value=rows_inserted,
+        )
+
+        ti.xcom_push(
+            key="rows_updated",
+            value=rows_updated,
+        )
+
+        ti.xcom_push(
+            key="rows_rejected",
+            value=rows_rejected,
+        )
+
+        ti.xcom_push(
+            key="latest_date",
+            value=(
+                latest_date.isoformat()
+                if latest_date
+                else None
+            ),
+        )
+
+        ti.xcom_push(
+            key="status",
+            value="SUCCESS",
+        )
+
+        logger.info(
+            f"[{source_config.name}] "
+            f"Loaded batches. "
+            f"Inserted={rows_inserted} "
+            f"Updated={rows_updated}"
+        )
+
+    return _load
+
+
+# ---------------------------------------------------------------------------
+# Reject
+# ---------------------------------------------------------------------------
+
+def make_reject_task(
+    source_config,
+    extract_task_id,
+):
+
+    def _reject(
+        source_config=source_config,
+        **context,
+    ):
+
+        from etl.src.alert_service import write_alert
+
+        ti = context["ti"]
+
+        run_id = ti.xcom_pull(
+            task_ids="start_run",
+            key="run_id",
+        )
+
+        batches_seen = ti.xcom_pull(
+            task_ids=extract_task_id,
+            key="batches_seen",
+        ) or 0
+
+        if batches_seen == 0:
+
+            message = (
+                f"No {source_config.name} "
+                "batches to process"
+            )
+
+        else:
+
+            message = (
+                f"All {source_config.name} batches "
+                "failed schema or quality validation"
+            )
+
+        logger.warning(message)
+
+        write_alert(
+            pipeline="sales_etl",
+            severity="WARN",
+            message=message,
+            run_id=run_id,
+        )
+
+        ti.xcom_push(
+            key="rows_rejected",
+            value=batches_seen,
+        )
+
+        ti.xcom_push(
+            key="status",
+            value=(
+                "SUCCESS"
+                if batches_seen == 0
+                else "REJECTED"
+            ),
+        )
+
+    return _reject
+
+
+# ---------------------------------------------------------------------------
+# Watermark
+# ---------------------------------------------------------------------------
+
+def make_join_watermark_update(
+    source_config,
+    load_task_id,
+):
+
+    def _join(
+        source_config=source_config,
+        **context,
+    ):
+
+        from etl.src.watermark import update_watermark
+
+        ti = context["ti"]
+
+        latest_date = ti.xcom_pull(
+            task_ids=load_task_id,
+            key="latest_date",
+        )
+
+        if not latest_date:
+
+            logger.info(
+                f"[{source_config.name}] "
+                "Skipping watermark update: "
+                "no rows were loaded this run"
+            )
+
+            return
+
+        update_watermark(
+            datetime.fromisoformat(
+                latest_date
+            ).date(),
+            pipeline_name=(
+                f"sales_etl_{source_config.name}"
+            ),
+        )
+
+        logger.info(
+            f"[{source_config.name}] "
+            f"Watermark advanced to {latest_date}"
+        )
+
+    return _join
+
+
+# ---------------------------------------------------------------------------
+# Run logging
+# ---------------------------------------------------------------------------
+
+def log_run_task(**context):
+
+    from etl.src.logger import finish_run
+
+    ti = context["ti"]
+
+    run_id = ti.xcom_pull(
+        task_ids="start_run",
+        key="run_id",
+    )
+
+    total_batches = 0
+    total_inserted = 0
+    total_updated = 0
+    total_rejected = 0
+
+    statuses = []
+
+    for source_config in PIPELINE_CONFIG.sources:
+
+        extract_id = (
+            f"extract_{source_config.name}"
+        )
+
+        load_id = (
+            f"load_{source_config.name}"
+        )
+
+        reject_id = (
+            f"reject_{source_config.name}"
+        )
+
+        total_batches += (
+            ti.xcom_pull(
+                task_ids=extract_id,
+                key="batches_seen",
+            ) or 0
+        )
+
+        total_inserted += (
+            ti.xcom_pull(
+                task_ids=load_id,
+                key="rows_inserted",
+            ) or 0
+        )
+
+        total_updated += (
+            ti.xcom_pull(
+                task_ids=load_id,
+                key="rows_updated",
+            ) or 0
+        )
+
+        rows_rejected = ti.xcom_pull(
+            task_ids=load_id,
+            key="rows_rejected",
+        )
+
+        if rows_rejected is None:
+
+            rows_rejected = ti.xcom_pull(
+                task_ids=reject_id,
+                key="rows_rejected",
+            ) or 0
+
+        total_rejected += rows_rejected
+
+        status = (
+            ti.xcom_pull(
+                task_ids=load_id,
+                key="status",
+            )
+            or ti.xcom_pull(
+                task_ids=reject_id,
+                key="status",
+            )
+            or "FAILED"
+        )
+
+        statuses.append(status)
+
+    overall_status = (
+        "SUCCESS"
+        if all(
+            status == "SUCCESS"
+            for status in statuses
+        )
+        else (
+            "FAILED"
+            if any(
+                status == "FAILED"
+                for status in statuses
+            )
+            else "REJECTED"
+        )
+    )
+
+    finish_run(
+        run_id=run_id,
+        end_time=datetime.now(),
+        status=overall_status,
+        batches_seen=total_batches,
+        rows_inserted=total_inserted,
+        rows_updated=total_updated,
+        rows_rejected=total_rejected,
+    )
+
+    logger.info(
+        f"Pipeline run {run_id} finished "
+        f"with status={overall_status}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Archive
+# ---------------------------------------------------------------------------
+
+def archive_task(**context):
+
+    from etl.src.archive import archive_old_sales
+
+    cutoff_date = (
+        datetime.now().date()
+        - timedelta(
+            days=PIPELINE_CONFIG.archive.cutoff_days
+        )
+    )
+
+    result = archive_old_sales(
+        cutoff_date=cutoff_date,
+    )
+
+    logger.info(
+        f"Archive task result: {result}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# DAG
+# ---------------------------------------------------------------------------
+
 with DAG(
     dag_id="sales_etl_pipeline",
-    description="Daily Sales ETL Pipeline",
+    description=(
+        "Config-driven multi-source ETL "
+        "pipeline with sales and inventory"
+    ),
     default_args=default_args,
     start_date=datetime(2026, 7, 1),
-    schedule="0 2 * * *",
+    schedule=PIPELINE_CONFIG.schedule,
     catchup=False,
-    tags=["etl", "sales"],
+    tags=[
+        "etl",
+        "sales",
+        "inventory",
+        "r4",
+    ],
 ) as dag:
 
-    extract = PythonOperator(
-        task_id="extract",
-        python_callable=extract_airflow_task,
+    start_run = PythonOperator(
+        task_id="start_run",
+        python_callable=start_run_task,
     )
 
-    quality_gate = BranchPythonOperator(
-        task_id="quality_gate",
-        python_callable=quality_gate_airflow_task,
-    )
+    last_join = start_run
 
-    load = PythonOperator(
-        task_id="load",
-        python_callable=load_airflow_task,
-    )
+    for source_config in PIPELINE_CONFIG.sources:
 
-    reject_and_notify = PythonOperator(
-        task_id="reject_and_notify",
-        python_callable=reject_and_notify_airflow_task,
-    )
+        name = source_config.name
 
-    update_watermark = PythonOperator(
-        task_id="update_watermark",
-        python_callable=update_watermark_airflow_task,
-        trigger_rule="none_failed_min_one_success",
-    )
+        extract_id = (
+            f"extract_{name}"
+        )
+
+        quality_gate_id = (
+            f"quality_gate_{name}"
+        )
+
+        load_id = (
+            f"load_{name}"
+        )
+
+        reject_id = (
+            f"reject_{name}"
+        )
+
+        join_id = (
+            f"join_{name}"
+        )
+
+        extract = PythonOperator(
+            task_id=extract_id,
+            python_callable=make_extract_task(
+                source_config,
+                extract_id,
+            ),
+        )
+
+        quality_gate = BranchPythonOperator(
+            task_id=quality_gate_id,
+            python_callable=make_quality_gate_task(
+                source_config,
+                extract_id,
+                load_id,
+                reject_id,
+            ),
+        )
+
+        load = PythonOperator(
+            task_id=load_id,
+            python_callable=make_load_task(
+                source_config,
+                extract_id,
+                quality_gate_id,
+            ),
+        )
+
+        reject = PythonOperator(
+            task_id=reject_id,
+            python_callable=make_reject_task(
+                source_config,
+                extract_id,
+            ),
+        )
+
+        join = PythonOperator(
+            task_id=join_id,
+            python_callable=make_join_watermark_update(
+                source_config,
+                load_id,
+            ),
+            trigger_rule="none_failed_min_one_success",
+        )
+
+        # Explicit source dependency.
+        #
+        # Sales:
+        # start_run -> extract_sales -> quality_gate_sales
+        #           -> load/reject -> join_sales
+        #
+        # Inventory:
+        # join_sales -> extract_inventory -> ...
+        #
+        # Therefore inventory can never start before sales completes.
+        last_join >> extract
+        extract >> quality_gate
+        quality_gate >> [load, reject]
+        [load, reject] >> join
+
+        last_join = join
 
     log_run = PythonOperator(
         task_id="log_run",
-        python_callable=log_run_airflow_task,
+        python_callable=log_run_task,
         trigger_rule="none_failed_min_one_success",
     )
 
-    extract >> quality_gate >> [
-        load,
-        reject_and_notify,
-    ] >> update_watermark >> log_run
+    archive_old_data = PythonOperator(
+        task_id="archive_old_data",
+        python_callable=archive_task,
+        trigger_rule="none_failed_min_one_success",
+    )
+
+    last_join >> log_run >> archive_old_data
