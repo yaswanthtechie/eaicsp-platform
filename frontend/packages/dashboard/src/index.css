@@ -1,0 +1,19 @@
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 20px;
+}
+.heatmap-grid {
+display: grid;
+grid-template-columns: repeat(3, 1fr);
+gap: 10px;
+}
+
+
+/* Phones and small tablets: everything becomes one column */
+@media (max-width: 768px) {
+.dashboard-grid,
+.heatmap-grid {
+grid-template-columns: 1fr;
+}
+}

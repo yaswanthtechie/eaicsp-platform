@@ -1,0 +1,247 @@
+:root {
+  --bg: #0B0F1A;
+  --surface: #141A2A;
+  --primary: #3B82F6;
+  --success: #10B981;
+  --danger: #EF4444;
+  --text: #E6EAF2;
+  --text-muted: #8B95A8;
+  
+  --text-on-primary: #ffffff;
+  --card-bg: #1d2436;
+  --item-bg: #222b40;
+  --border-light: #ddd;
+  --border-gray: #ccc;
+  --dropzone-border: #bdbdbd;
+  --dropzone-active: #2563eb;
+  --dropzone-active-bg: #eff6ff;
+  --input-border: gray;
+  --dropzone-bg: #fafafa;
+
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+#root {
+  width: 100%;
+  margin: 0 auto;
+  max-width: 480px;
+  min-height: 100vh;
+  background: var(--surface);
+}
+
+.login-page {
+  padding: 24px;
+}
+
+.login-page h1 {
+  text-align: center;
+  margin-top: 50px;
+  margin-bottom: 40px;
+}
+
+label {
+  display: block;
+  margin-top: 20px;
+  margin-bottom: 6px;
+}
+
+input {
+  width: 100%;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--input-border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+button {
+  width: 100%;
+  margin-top: 30px;
+  padding: 14px;
+  border: none;
+  border-radius: 8px;
+  background: var(--primary);
+  color: var(--text-on-primary);  
+  cursor: pointer;
+}
+
+button:hover {
+  opacity: .9;
+}
+
+.error {
+  color: var(--danger);
+  font-size: 14px;
+  margin-top: 5px;
+}
+
+.note {
+  margin-top: 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+
+/* orders page */
+
+.orders {
+  padding: 20px;
+}
+
+.tabs {
+  display: flex;
+  gap: 10px;
+  margin: 20px 0;
+  overflow: auto;
+}
+
+.card {
+  background: var(--card-bg);
+  padding: 15px;
+  margin-bottom: 15px;
+  border-radius: 10px;
+}
+
+.card-top {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.card p {
+  margin: 8px 0;
+}
+
+
+/* order details page */
+
+.details {
+  padding: 20px;
+}
+
+.detail-card {
+  background: var(--card-bg);
+  padding: 15px;
+  border-radius: 10px;
+  margin-bottom: 20px;
+}
+
+.item-card {
+  background: var(--item-bg);
+  padding: 15px;
+  margin-bottom: 15px;
+  border-radius: 10px;
+}
+
+.item-card p {
+  margin: 5px 0;
+}
+
+
+/* invoice page */
+
+.invoice-page {
+  padding: 20px;
+}
+
+.invoice-page input,
+.invoice-page select {
+  width: 100%;
+  padding: 12px;
+  margin-top: 8px;
+  margin-bottom: 15px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+}
+
+.file-box {
+  background: var(--item-bg);
+  padding: 10px;
+  margin: 15px 0;
+  border-radius: 8px;
+}
+
+
+/* file upload */
+
+.top-buttons {
+  display: flex;
+  gap: 10px;
+  margin: 15px 0;
+}
+
+.invoice-btn {
+  flex: 1;
+  background: var(--success);
+}
+
+.logout-btn {
+  flex: 1;
+  background: var(--danger);
+}
+
+.active-tab {
+  background: var(--primary);
+}
+
+
+.drop-zone {
+  border: 2px dashed var(--dropzone-border);
+  border-radius: 8px;
+  padding: 25px;
+  text-align: center;
+  cursor: pointer;
+  transition: 0.2s ease;
+  background: var(--dropzone-bg);
+}
+
+.drop-zone:hover {
+  background: var(--card-bg);
+}
+
+.file-preview {
+  margin-top: 15px;
+  padding: 12px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+}
+
+.search-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 20px 0;
+}
+
+.search-filters input {
+  padding: 8px;
+  border: 1px solid var(--border-gray);
+  border-radius: 6px;
+  min-width: 150px;
+}
+
+
+.drop-zone.drag-active {
+  border-color: var(--dropzone-active);
+  background: var(--dropzone-active-bg);
+}
+
+
+.file-preview button {
+  margin-top: 10px;
+}
