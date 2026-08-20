@@ -1,52 +1,119 @@
-import random
-
-from app.services.carriers.base import (
-    CarrierAdapter,
-    CarrierError,
-    api_retry,
-)
-
 from app.schemas.shipment import (
     Carrier,
-    Status,
     CarrierRate,
     TrackingInfo,
 )
 
+from app.services.carriers.base import (
+    BaseCarrier,
+    CarrierError,
+)
 
-class FedExAdapter(CarrierAdapter):
 
-    @api_retry()
+class FedExAdapter(BaseCarrier):
+    """
+    FedEx carrier adapter.
+
+    Provides:
+    - Shipping rate calculation
+    - Tracking information
+
+    Retry and circuit-breaker handling are performed
+    by shipment_service.py.
+    """
+
+    BASE_PRICE = 950.0
+    ESTIMATED_DAYS = 3
+    RELIABILITY_SCORE = 0.92
+
+    # ========================================================
+    # GET RATE
+    # ========================================================
+
     def get_rate(
         self,
         origin: str,
         destination: str,
         weight_kg: float,
     ) -> CarrierRate:
+        """
+        Return FedEx shipping rate.
 
-        if random.random() < 0.3:
-            raise CarrierError("FedEx API timeout")
+        The method is deterministic so the carrier unit
+        tests do not randomly fail.
+        """
+
+        # ----------------------------------------------------
+        # VALIDATE WEIGHT
+        # ----------------------------------------------------
+
+        if weight_kg <= 0:
+            raise CarrierError(
+                "Invalid shipment weight"
+            )
+
+        # ----------------------------------------------------
+        # VALIDATE ORIGIN
+        # ----------------------------------------------------
+
+        if not origin or not origin.strip():
+            raise CarrierError(
+                "Origin is required"
+            )
+
+        # ----------------------------------------------------
+        # VALIDATE DESTINATION
+        # ----------------------------------------------------
+
+        if not destination or not destination.strip():
+            raise CarrierError(
+                "Destination is required"
+            )
+
+        # ----------------------------------------------------
+        # CALCULATE PRICE
+        # ----------------------------------------------------
+
+        price = (
+            self.BASE_PRICE
+            + (weight_kg * 10)
+        )
+
+        # ----------------------------------------------------
+        # RETURN RATE
+        # ----------------------------------------------------
 
         return CarrierRate(
             carrier=Carrier.fedex,
             origin=origin,
             destination=destination,
             weight_kg=weight_kg,
-            price=950,
-            estimated_days=3,
-            reliability_score=0.92,
+            price=round(price, 2),
+            estimated_days=self.ESTIMATED_DAYS,
+            reliability_score=self.RELIABILITY_SCORE,
         )
 
-    @api_retry()
+    # ========================================================
+    # GET TRACKING
+    # ========================================================
+
     def get_tracking(
         self,
-        tracking_number: str,
+        tracking_id: str,
     ) -> TrackingInfo:
+        """
+        Return FedEx tracking information.
+        """
+
+        if not tracking_id or not str(tracking_id).strip():
+            raise CarrierError(
+                "Tracking ID is required"
+            )
 
         return TrackingInfo(
-            tracking_number=tracking_number,
             carrier=Carrier.fedex,
-            status=Status.in_transit,
-            location="In Transit",
+            tracking_number=str(tracking_id),
+            status="in_transit",
+            location="FedEx Hub",
             estimated_delivery=None,
         )

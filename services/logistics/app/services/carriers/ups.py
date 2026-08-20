@@ -1,45 +1,89 @@
-from app.services.carriers.base import (
-    CarrierAdapter,
-    api_retry,
-)
-
 from app.schemas.shipment import (
     Carrier,
-    Status,
     CarrierRate,
+    Status,
     TrackingInfo,
 )
 
+from app.services.carriers.base import (
+    BaseCarrier,
+    CarrierError,
+)
 
-class UPSAdapter(CarrierAdapter):
 
-    @api_retry()
+# ============================================================
+# UPS CARRIER
+# ============================================================
+
+class UPSAdapter(BaseCarrier):
+    """
+    UPS carrier implementation.
+
+    R4 features:
+    - Uses the common BaseCarrier interface.
+    - Retry is controlled by shipment_service.py.
+    - Local circuit breaker is controlled by
+      shipment_service.py.
+    - Dynamic reliability is calculated from carrier history.
+    """
+
+    carrier = Carrier.ups
+
+    base_price = 900.0
+
+    estimated_days = 4
+
+    # --------------------------------------------------------
+    # GET RATE
+    # --------------------------------------------------------
+
     def get_rate(
         self,
         origin: str,
         destination: str,
         weight_kg: float,
     ) -> CarrierRate:
+        """
+        Return UPS shipping rate.
+
+        Retry is intentionally NOT handled here.
+        shipment_service.py controls retry + circuit breaker.
+        """
+
+        if weight_kg <= 0:
+            raise CarrierError(
+                "Invalid shipment weight"
+            )
 
         return CarrierRate(
-            carrier=Carrier.ups,
+            carrier=self.carrier,
             origin=origin,
             destination=destination,
             weight_kg=weight_kg,
-            price=900,
-            estimated_days=4,
+            price=self.base_price,
+            estimated_days=self.estimated_days,
+
+            # Default/mock value only.
+            # shipment_service.py replaces this with the
+            # dynamically calculated reliability score.
             reliability_score=0.95,
         )
 
-    @api_retry()
+    # --------------------------------------------------------
+    # GET TRACKING
+    # --------------------------------------------------------
+
     def get_tracking(
         self,
         tracking_number: str,
     ) -> TrackingInfo:
+        """
+        Return UPS tracking information.
+        """
 
         return TrackingInfo(
             tracking_number=tracking_number,
-            carrier=Carrier.ups,
+            carrier=self.carrier,
             status=Status.in_transit,
             location="In Transit",
             estimated_delivery=None,
