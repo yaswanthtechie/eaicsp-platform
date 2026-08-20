@@ -11,6 +11,7 @@ export { StatusIndicator } from "./components/StatusIndicator";
 
 // DataTable
 export { DataTable } from "./components/DataTable";
+export type { DataTableProps, Column } from "./components/DataTable";
 
 // Modal
 export { Modal } from "./components/Modal";

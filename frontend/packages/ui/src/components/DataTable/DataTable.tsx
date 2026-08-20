@@ -24,63 +24,134 @@ export interface DataTableProps<T> {
 }
 
 type SortDirection = "asc" | "desc";
-const EMPTY_SELECTED_ROWS: never[] = [];
 
 export function DataTable<T>({
   data,
   columns,
   pageSize = 5,
   selectableRows = false,
-  selectedRows = EMPTY_SELECTED_ROWS,
+  selectedRows,
   onSelectionChange,
   rowKey,
 }: DataTableProps<T>) {
+  /* --------------------------------
+     Sorting state
+  -------------------------------- */
+
   const [sortKey, setSortKey] =
     useState<keyof T | null>(null);
 
   const [sortDirection, setSortDirection] =
     useState<SortDirection>("asc");
 
+  /* --------------------------------
+     Filtering state
+  -------------------------------- */
+
   const [filters, setFilters] =
     useState<Partial<Record<keyof T, string>>>({});
 
-  const [currentPage, setCurrentPage] =
-    useState(1);
+  /* --------------------------------
+     Pagination state
+  -------------------------------- */
 
-  /*
-   * Sorting
-   */
-  const handleSort = (key: keyof T) => {
-    if (sortKey === key) {
-      setSortDirection((previous) =>
-        previous === "asc" ? "desc" : "asc"
-      );
-    } else {
-      setSortKey(key);
-      setSortDirection("asc");
-    }
+  const [currentPage, setCurrentPage] = useState(1);
 
-    setCurrentPage(1);
-  };
+  /* --------------------------------
+     Local selection state
 
-  /*
-   * Filtering
-   */
-  const handleFilterChange = (
-    key: keyof T,
-    value: string
-  ) => {
-    setFilters((previous) => ({
-      ...previous,
-      [key]: value,
-    }));
+     Used when selectedRows is not
+     provided by the parent.
+  -------------------------------- */
 
-    setCurrentPage(1);
-  };
+  const [internalSelectedRows, setInternalSelectedRows] =
+    useState<T[]>(selectedRows ?? []);
 
-  /*
-   * Memoized filtering
-   */
+  /* --------------------------------
+     Current selection
+
+     If selectedRows is provided, the
+     component is controlled and uses
+     the parent's value.
+
+     Otherwise, it uses local state.
+  -------------------------------- */
+
+  const currentSelectedRows =
+    selectedRows !== undefined
+      ? selectedRows
+      : internalSelectedRows;
+
+  /* --------------------------------
+     Row identity helper
+  -------------------------------- */
+
+  const getRowKey = useCallback(
+    (row: T): React.Key => {
+      if (rowKey) {
+        return rowKey(row);
+      }
+
+      return row as unknown as React.Key;
+    },
+    [rowKey]
+  );
+
+  /* --------------------------------
+     Check whether two rows are the same
+  -------------------------------- */
+
+  const areRowsEqual = useCallback(
+    (first: T, second: T) => {
+      if (rowKey) {
+        return getRowKey(first) === getRowKey(second);
+      }
+
+      return first === second;
+    },
+    [getRowKey, rowKey]
+  );
+
+  /* --------------------------------
+     Sorting
+  -------------------------------- */
+
+  const handleSort = useCallback(
+    (key: keyof T) => {
+      if (sortKey === key) {
+        setSortDirection((previous) =>
+          previous === "asc" ? "desc" : "asc"
+        );
+      } else {
+        setSortKey(key);
+        setSortDirection("asc");
+      }
+
+      setCurrentPage(1);
+    },
+    [sortKey]
+  );
+
+  /* --------------------------------
+     Filtering
+  -------------------------------- */
+
+  const handleFilterChange = useCallback(
+    (key: keyof T, value: string) => {
+      setFilters((previous) => ({
+        ...previous,
+        [key]: value,
+      }));
+
+      setCurrentPage(1);
+    },
+    []
+  );
+
+  /* --------------------------------
+     Filtering calculation
+  -------------------------------- */
+
   const filteredData = useMemo(() => {
     return data.filter((row) => {
       return columns.every((column) => {
@@ -99,9 +170,10 @@ export function DataTable<T>({
     });
   }, [data, columns, filters]);
 
-  /*
-   * Memoized sorting
-   */
+  /* --------------------------------
+     Sorting calculation
+  -------------------------------- */
+
   const sortedData = useMemo(() => {
     if (!sortKey) {
       return filteredData;
@@ -135,20 +207,26 @@ export function DataTable<T>({
         ? comparison
         : -comparison;
     });
-  }, [filteredData, sortKey, sortDirection]);
+  }, [
+    filteredData,
+    sortKey,
+    sortDirection,
+  ]);
 
-  /*
-   * Memoized total pages
-   */
+  /* --------------------------------
+     Total pages
+  -------------------------------- */
+
   const totalPages = useMemo(() => {
     return Math.ceil(
       sortedData.length / pageSize
     );
   }, [sortedData.length, pageSize]);
 
-  /*
-   * Memoized pagination
-   */
+  /* --------------------------------
+     Pagination
+  -------------------------------- */
+
   const paginatedData = useMemo(() => {
     const startIndex =
       (currentPage - 1) * pageSize;
@@ -157,75 +235,172 @@ export function DataTable<T>({
       startIndex,
       startIndex + pageSize
     );
-  }, [sortedData, currentPage, pageSize]);
+  }, [
+    sortedData,
+    currentPage,
+    pageSize,
+  ]);
 
-  /*
-   * Row selection
-   */
-  const isSelected = (row: T) => {
-    return selectedRows.some(
-      (selectedRow) =>
-        selectedRow === row
-    );
-  };
+  /* --------------------------------
+     Check if row is selected
+  -------------------------------- */
+
+  const isSelected = useCallback(
+    (row: T) => {
+      return currentSelectedRows.some(
+        (selectedRow) =>
+          areRowsEqual(selectedRow, row)
+      );
+    },
+    [
+      currentSelectedRows,
+      areRowsEqual,
+    ]
+  );
+
+  /* --------------------------------
+     Update selection
+  -------------------------------- */
+
+  const updateSelection = useCallback(
+    (rows: T[]) => {
+      /*
+       * Only update local state when
+       * the component is uncontrolled.
+       */
+      if (selectedRows === undefined) {
+        setInternalSelectedRows(rows);
+      }
+
+      /*
+       * Notify parent if callback exists.
+       */
+      onSelectionChange?.(rows);
+    },
+    [selectedRows, onSelectionChange]
+  );
+
+  /* --------------------------------
+     Individual row selection
+  -------------------------------- */
 
   const handleRowSelection = useCallback(
-  (row: T) => {
-    if (!onSelectionChange) {
-      return;
-    }
-
-    const exists = selectedRows.some(
-      (selectedRow) => selectedRow === row
-    );
-
-    const updatedRows = exists
-      ? selectedRows.filter(
-          (selectedRow) => selectedRow !== row
-        )
-      : [...selectedRows, row];
-
-    onSelectionChange(updatedRows);
-  },
-  [selectedRows, onSelectionChange]
-);
-
-  /*
-   * Select all rows on current page
-   */
-  const handleSelectAll = () => {
-    if (!onSelectionChange) {
-      return;
-    }
-
-    const allSelected =
-      paginatedData.length > 0 &&
-      paginatedData.every((row) =>
-        isSelected(row)
+    (row: T) => {
+      const exists = currentSelectedRows.some(
+        (selectedRow) =>
+          areRowsEqual(selectedRow, row)
       );
 
+      let updatedRows: T[];
+
+      if (exists) {
+        updatedRows =
+          currentSelectedRows.filter(
+            (selectedRow) =>
+              !areRowsEqual(
+                selectedRow,
+                row
+              )
+          );
+      } else {
+        updatedRows = [
+          ...currentSelectedRows,
+          row,
+        ];
+      }
+
+      updateSelection(updatedRows);
+    },
+    [
+      currentSelectedRows,
+      areRowsEqual,
+      updateSelection,
+    ]
+  );
+
+  /* --------------------------------
+     Header Select All
+     Current page only
+  -------------------------------- */
+
+  const handleSelectAll = useCallback(() => {
+    if (paginatedData.length === 0) {
+      return;
+    }
+
+    const allSelected = paginatedData.every(
+      (row) => isSelected(row)
+    );
+
     if (allSelected) {
+      /*
+       * Remove all current-page rows
+       * from selection.
+       */
       const remainingRows =
-        selectedRows.filter(
+        currentSelectedRows.filter(
           (selectedRow) =>
-            !paginatedData.includes(
-              selectedRow
+            !paginatedData.some(
+              (row) =>
+                areRowsEqual(
+                  selectedRow,
+                  row
+                )
             )
         );
 
-      onSelectionChange(remainingRows);
+      updateSelection(remainingRows);
     } else {
-      const mergedRows = [...selectedRows];
+      /*
+       * Add all current-page rows.
+       */
+      const mergedRows = [
+        ...currentSelectedRows,
+      ];
 
       paginatedData.forEach((row) => {
-        if (!isSelected(row)) {
+        const alreadySelected =
+          mergedRows.some(
+            (selectedRow) =>
+              areRowsEqual(
+                selectedRow,
+                row
+              )
+          );
+
+        if (!alreadySelected) {
           mergedRows.push(row);
         }
       });
 
-      onSelectionChange(mergedRows);
+      updateSelection(mergedRows);
     }
-  };
+  }, [
+    paginatedData,
+    isSelected,
+    currentSelectedRows,
+    areRowsEqual,
+    updateSelection,
+  ]);
+
+  /* --------------------------------
+     Header checkbox state
+  -------------------------------- */
+
+  const allCurrentPageSelected =
+    paginatedData.length > 0 &&
+    paginatedData.every((row) =>
+      isSelected(row)
+    );
+
+  const someCurrentPageSelected =
+    paginatedData.some((row) =>
+      isSelected(row)
+    );
+
+  /* --------------------------------
+     Render
+  -------------------------------- */
 
   return (
     <div className="datatable">
@@ -234,18 +409,23 @@ export function DataTable<T>({
         aria-label="Data table"
       >
         <thead>
-          {/* Column headers */}
+          {/* =========================
+              HEADER ROW
+          ========================= */}
+
           <tr>
             {selectableRows && (
               <th scope="col">
                 <input
                   type="checkbox"
-                  checked={
-                    paginatedData.length > 0 &&
-                    paginatedData.every((row) =>
-                      isSelected(row)
-                    )
-                  }
+                  checked={allCurrentPageSelected}
+                  ref={(checkbox) => {
+                    if (checkbox) {
+                      checkbox.indeterminate =
+                        someCurrentPageSelected &&
+                        !allCurrentPageSelected;
+                    }
+                  }}
                   onChange={handleSelectAll}
                   aria-label="Select all rows on current page"
                 />
@@ -272,14 +452,17 @@ export function DataTable<T>({
                     <button
                       type="button"
                       onClick={() =>
-                        handleSort(column.key)
+                        handleSort(
+                          column.key
+                        )
                       }
                       aria-label={`Sort by ${column.label}`}
                     >
                       {column.label}
 
                       {isSorted &&
-                        (sortDirection === "asc"
+                        (sortDirection ===
+                        "asc"
                           ? " ↑"
                           : " ↓")}
                     </button>
@@ -291,18 +474,19 @@ export function DataTable<T>({
             })}
           </tr>
 
-          {/* Search row */}
+          {/* =========================
+              SEARCH ROW
+          ========================= */}
+
           <tr>
             {selectableRows && (
               <th
                 scope="col"
                 aria-hidden="true"
-
               />
             )}
 
             {columns.map((column) => (
-
               <th
                 key={String(column.key)}
                 scope="col"
@@ -312,11 +496,12 @@ export function DataTable<T>({
                     type="text"
                     placeholder={`Search ${column.label}`}
                     value={
-                      filters[column.key] ?? ""
+                      filters[
+                        column.key
+                      ] ?? ""
                     }
                     onChange={(event) =>
                       handleFilterChange(
-
                         column.key,
                         event.target.value
                       )
@@ -329,13 +514,19 @@ export function DataTable<T>({
           </tr>
         </thead>
 
+        {/* =========================
+            TABLE BODY
+        ========================= */}
+
         <tbody>
           {paginatedData.length === 0 ? (
             <tr>
               <td
                 colSpan={
                   columns.length +
-                  (selectableRows ? 1 : 0)
+                  (selectableRows
+                    ? 1
+                    : 0)
                 }
                 className="datatable-empty"
               >
@@ -348,28 +539,35 @@ export function DataTable<T>({
               </td>
             </tr>
           ) : (
-            paginatedData.map((row, index) => (
-           <TableRow
-  key={
-    rowKey
-      ? rowKey(row)
-      : index
-  }
-  row={row}
-  index={index}
-  columns={columns}
-  selectableRows={selectableRows}
-  selected={isSelected(row)}
-  onSelectionChange={
-    handleRowSelection
-  }
-/>
-            ))
+            paginatedData.map(
+              (row, index) => (
+                <TableRow
+                  key={
+                    rowKey
+                      ? rowKey(row)
+                      : index
+                  }
+                  row={row}
+                  index={index}
+                  columns={columns}
+                  selectableRows={
+                    selectableRows
+                  }
+                  selected={isSelected(row)}
+                  onSelectionChange={
+                    handleRowSelection
+                  }
+                />
+              )
+            )
           )}
         </tbody>
       </table>
 
-      {/* Pagination */}
+      {/* =========================
+          PAGINATION
+      ========================= */}
+
       <nav
         className="datatable-pagination"
         aria-label="Data table pagination"
@@ -396,7 +594,8 @@ export function DataTable<T>({
         <button
           type="button"
           disabled={
-            currentPage === totalPages ||
+            currentPage ===
+              totalPages ||
             totalPages === 0
           }
           onClick={() =>
