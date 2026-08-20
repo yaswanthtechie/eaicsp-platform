@@ -5,19 +5,17 @@
 - The goal is to forecast a 7-day demand horizon from a synthetic daily time series while adhering to strict ML engineering practices for time-series forecasting.
 
 
-## 🛠️ Features & System Architecture
 
-- **Synthetic Demand Pipeline** — Generates synthetic daily demand with linear trend, weekly seasonality, and random noise over a 1000-day time series.
-- **Direct Multi-Step Forecasting** — Predicts a 7-day future horizon directly from a 30-day historical lookback window ($X_{t-29:t} \rightarrow Y_{t+1:t+7}$).
-- **Data Scaling & Leakage Prevention** — `MinMaxScaler` is fitted strictly on training data/folds to prevent future data leakage. Saved as `output/scaler.pkl`.
-- **Walk-Forward Validation** — Evaluated on 5 sequential, expanding-window temporal folds rather than a single random split.
-- **Baseline Benchmarking** — Validated against a Naive Persistence baseline ($\hat{y}_{t+1} = y_t$) across all folds.
-- **Real Hyperparameter Sweep (R4)** — `sweep.py` grid-searches `hidden_size × num_layers × lookback` (12 configurations), every run tracked in MLflow, winner selected strictly on **validation** performance, never test.
-- **Uncertainty Quantification (R4)** — Monte Carlo Dropout (`enable_mc_dropout()` + N forward passes) produces mean, std, and a 90% confidence interval per forecast. See `uncertainty.py` and the tradeoff discussion vs. quantile regression below.
-- **Attention Variant (R4)** — `AttentionMultiStepLSTM` in `model.py` adds additive attention over the lookback window; `attention_compare.py` reports the honest walk-forward result against the plain LSTM.
-- **Robustness Testing (R4)** — `robustness_test.py` probes NaN/Inf/out-of-range/degenerate/wrong-shape inputs against the raw model and documents actual (not assumed) behavior.
-- **MLflow Logging & Sweeps** — Tracks parameters, training loss curves, evaluation metrics, and hyperparameter grid searches (`hidden_size × num_layers × lookback`).
-- **Production Serving** — Serves model predictions via a high-throughput BentoML HTTP service with dynamic checkpoint loading (`output/best_model.pt`).
+---
+
+## 📌 Architecture & Features
+
+- **Model Architecture:** 2-layer LSTM with 64 hidden units, 0.2 dropout, mapping $(N, 30, 1) \to (N, 7)$.
+- **Uncertainty Quantification:** Monte Carlo Dropout (100 forward passes) estimating empirical mean, 90% confidence intervals (5th–95th percentile), and standard deviation in native demand units.
+- **Data Normalization & Scaling:** Dedicated `MinMaxScaler` fitting on raw historical demand, properly serialized and wired into real-time serving pipelines.
+- **Experiment Tracking:** MLflow tracking for walk-forward validation folds, model diagnostic baselines, and attention comparison experiments.
+- **Robust Serving:** BentoML inference API guarded against non-finite inputs (`NaN`, `Inf`), wrong sequence dimensions, and out-of-distribution values.
+
 
 ---
 
@@ -500,7 +498,7 @@ python src/evaluate_all.py
 **Run hyperparameter sweep (MLflow, R4)**
 ```bash
 python src/sweep.py
-python -m mlflow ui --backend-store-uri sqlite:///mlflow.db
+python -m mlflow ui --backend-store-uri sqlite:///mlflow.db --host 127.0.0.1 --port 5000 --workers 1
 ```
 
 **Run attention vs. plain LSTM comparison (R4)**

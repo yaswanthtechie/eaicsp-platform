@@ -127,6 +127,6 @@ class AttentionMultiStepLSTM(nn.Module):
 
     def enable_mc_dropout(self):
         """Enables dropout layers during inference for Monte Carlo Dropout uncertainty estimation."""
-        for module in self.modules():
-            if isinstance(module, nn.Dropout):
-                module.train()
+        for m in self.modules():
+            if isinstance(m, torch.nn.Dropout):
+                m.train()

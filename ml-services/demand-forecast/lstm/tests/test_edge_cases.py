@@ -8,14 +8,14 @@ import os
 import sys
 from  pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 import numpy as np
 import pandas as pd
 import pytest
 from sklearn.preprocessing import MinMaxScaler
 
 
-from data import create_sequences, get_walk_forward_folds 
+from data import create_sequences, get_walk_forward_folds
+from model import AttentionMultiStepLSTM, MultiStepLSTM 
 
 
 # ---------------------------------------------------------------------------
@@ -72,36 +72,21 @@ class TestSequenceWindowingEdgeCases:
 
     def test_walk_forward_folds_lookback_larger_than_first_fold_train_slice(self, tmp_path):
         """
-        DISCOVERED BUG (reported honestly, not hidden): when `lookback` exceeds
-        how much history has accumulated by an early fold (train_end < lookback),
-        `train_end - lookback` goes negative. Python/numpy silently treats a
-        negative slice start as counting from the end of the array instead of
-        raising, so `raw_test = values[train_end - lookback : test_end]`
-        produces an EMPTY slice (or a wrong-region slice) instead of a
-        clipped-but-valid one. MinMaxScaler.transform() then raises ValueError
-        on the 0-sample input, and the exception propagates out of
-        get_walk_forward_folds -- it doesn't fail gracefully, it crashes the
-        whole fold-generation call on fold 1, before folds 2-5 even run.
-
-        Verified directly: for days=60, n_folds=5 (fold_size=10), lookback=50,
-        folds k=1..4 all compute a raw_test slice of length 0 and raise;
-        only k=5 (where train_end==lookback) succeeds.
-
-        This test pins down that CURRENT behavior so a future fix is a
-        deliberate, visible change instead of a silent one. See README
-        "Known limitation" for the recommended fix (validate
-        `lookback <= fold_size * 1` before generating folds, or clip the
-        negative start to 0 instead of letting it wrap).
+        Verify that when lookback > train_end on early folds, get_walk_forward_folds
+        clips the start index to 0 and completes without crashing on empty slices.
         """
-        days = 60  # small series relative to a large lookback
+        days = 60
         t = np.arange(days)
         dates = pd.date_range(start="2024-01-01", periods=days, freq="D")
         df = pd.DataFrame({"Day": t, "date": dates, "Demand": 100 + t * 0.1})
 
-        scaler_path = str(tmp_path / "scaler.pkl")
-        with pytest.raises(ValueError):
-            get_walk_forward_folds(df, n_folds=5, lookback=50, horizon=7,
-                                    save_scaler_path=scaler_path)
+        # Runs cleanly across all 5 folds without ValueError from MinMaxScaler
+        folds = get_walk_forward_folds(df, n_folds=5, lookback=50, horizon=7)
+        assert len(folds) == 5
+
+        # Last fold has sufficient history (60 >= 50 + 7) to generate test sequences
+        _, _, X_te_last, y_te_last, _ = folds[-1]
+        assert len(X_te_last) > 0
 
     def test_walk_forward_folds_lookback_equal_to_first_fold_size_succeeds(self, tmp_path):
         """Sanity check on the boundary: once lookback no longer exceeds the
