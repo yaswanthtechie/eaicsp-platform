@@ -66,6 +66,11 @@ SERVICE_NAME = os.getenv(
     "compliance-service",
 )
 
+ENVIRONMENT = os.getenv(
+    "ENVIRONMENT",
+    "development",
+)
+
 MATCH_THRESHOLD = int(
     os.getenv(
         "MATCH_THRESHOLD",
@@ -99,8 +104,9 @@ EU_DOWNLOAD_URL = os.getenv(
     "",
 )
 
+
+
 USE_FIXTURES = os.getenv(
     "USE_FIXTURES",
     "false",
 ).lower() == "true"
-

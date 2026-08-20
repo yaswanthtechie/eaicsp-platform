@@ -26,10 +26,11 @@ def normalize_name(name: str) -> str:
         name = name.replace(old, new)
 
     name = re.sub(
-        r"[^A-Z0-9 ]",
-        " ",
-        name,
-    )
+    r"[^\w\s]",
+    " ",
+    name,
+    flags=re.UNICODE,
+)
 
     return " ".join(name.split())
 

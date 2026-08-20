@@ -28,7 +28,9 @@ def create_schema():
 )
 def load_sanctions(request):
 
-    if request.node.get_closest_marker("integration"):
+    mark_expression = request.config.getoption("-m")
+
+    if mark_expression.strip() == "integration":
         return
 
     sanctions_service.load_all_sanctions()
