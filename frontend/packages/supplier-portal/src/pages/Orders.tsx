@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { NetworkStatus } from "@apollo/client";
 
 import POCard from "../components/POCard";
 import EmptyState from "../components/EmptyState";
@@ -22,7 +23,13 @@ const Orders = () => {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
-  const { data, loading, error, fetchMore } = usePurchaseOrders({
+  const {
+    data,
+    loading,
+    error,
+    fetchMore,
+    networkStatus,
+  } = usePurchaseOrders({
     first: ORDERS_PER_PAGE,
     after: null,
     status: filter === "All" ? undefined : filter.toLowerCase(),
@@ -33,9 +40,16 @@ const Orders = () => {
     endDate: endDate || undefined,
   });
 
-  if (loading && !data) return <Loading />;
+  const loadingMore =
+    networkStatus === NetworkStatus.fetchMore;
 
-  if (error && !data) return <ErrorState />;
+  if (loading && !data) {
+    return <Loading />;
+  }
+
+  if (error && !data) {
+    return <ErrorState />;
+  }
 
   const orders: PurchaseOrder[] =
     data?.purchaseOrders?.edges?.map(
@@ -43,18 +57,28 @@ const Orders = () => {
     ) || [];
 
   const handleLoadMore = () => {
-    if (!data?.purchaseOrders?.pageInfo?.endCursor) {
+    const endCursor =
+      data?.purchaseOrders?.pageInfo?.endCursor;
+
+    if (!endCursor || loadingMore) {
       return;
     }
 
-    fetchMore({
+    void fetchMore({
       variables: {
         first: ORDERS_PER_PAGE,
-        after: data.purchaseOrders.pageInfo.endCursor,
-        status: filter === "All" ? undefined : filter.toLowerCase(),
+        after: endCursor,
+        status:
+          filter === "All"
+            ? undefined
+            : filter.toLowerCase(),
         poNumber: poNumber || undefined,
-        minAmount: minAmount ? Number(minAmount) : undefined,
-        maxAmount: maxAmount ? Number(maxAmount) : undefined,
+        minAmount: minAmount
+          ? Number(minAmount)
+          : undefined,
+        maxAmount: maxAmount
+          ? Number(maxAmount)
+          : undefined,
         startDate: startDate || undefined,
         endDate: endDate || undefined,
       },
@@ -117,10 +141,17 @@ const Orders = () => {
       </div>
 
       <div className="tabs">
-        {["All", "Sent", "Acknowledged", "Fulfilled"].map((tab) => (
+        {[
+          "All",
+          "Sent",
+          "Acknowledged",
+          "Fulfilled",
+        ].map((tab) => (
           <button
             key={tab}
-            className={filter === tab ? "active-tab" : ""}
+            className={
+              filter === tab ? "active-tab" : ""
+            }
             onClick={() => setFilter(tab)}
           >
             {tab}
@@ -143,8 +174,11 @@ const Orders = () => {
         <button
           className="load-more-btn"
           onClick={handleLoadMore}
+          disabled={loadingMore}
         >
-          Load More
+          {loadingMore
+            ? "Loading..."
+            : "Load More"}
         </button>
       )}
     </div>

@@ -42,9 +42,6 @@ const Login = () => {
 
     try {
       const response = await login(email, password);
-
-      console.log("Remember Me:", rememberMe);
-
       saveTokens(
         response.access_token,
         response.refresh_token,
