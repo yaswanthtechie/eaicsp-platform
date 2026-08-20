@@ -9,7 +9,7 @@ sys.path.append(
 
 import pandas as pd
 
-from src.train_xgboost import create_features
+from src.inference import create_features
 
 
 
