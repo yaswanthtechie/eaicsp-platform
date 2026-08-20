@@ -78,7 +78,7 @@ def get_walk_forward_folds(
         
         # Raw splits
         raw_train = values[:train_end]
-        raw_test = values[train_end - lookback : test_end]
+        raw_test = values[max(train_end - lookback, 0):test_end]  # Ensure test has enough lookback
         
         # Fit scaler ONLY on training data (Zero Data Leakage)
         scaler = MinMaxScaler()
