@@ -28,6 +28,16 @@ function saveQueue(queue: OfflineAction[]): void {
   );
 }
 
+function isSamePO(
+  action: OfflineAction,
+  newAction: Omit<OfflineAction, "id" | "createdAt">
+): boolean {
+  return (
+    action.type === newAction.type &&
+    action.payload.po_number === newAction.payload.po_number
+  );
+}
+
 export function addOfflineAction(
   action: Omit<OfflineAction, "id" | "createdAt">
 ): OfflineAction {
@@ -37,7 +47,14 @@ export function addOfflineAction(
     createdAt: Date.now(),
   };
 
-  const queue = getQueue();
+  let queue = getQueue();
+
+  // Prevent duplicate pending actions for the same PO.
+  // The latest user action replaces the older pending action.
+  queue = queue.filter(
+    (existingAction) =>
+      !isSamePO(existingAction, newAction)
+  );
 
   queue.push(newAction);
 

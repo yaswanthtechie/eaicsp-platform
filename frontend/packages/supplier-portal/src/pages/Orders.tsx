@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useApolloClient } from "@apollo/client";
+import { NetworkStatus } from "@apollo/client";
 
 import POCard from "../components/POCard";
 import EmptyState from "../components/EmptyState";
 import ErrorState from "../components/ErrorState";
 import Loading from "../components/Loading";
-import { clearTokens } from "../auth/tokenStorage";
+import { logout } from "../auth/logout";
 import type { PurchaseOrder } from "../types/po";
 import { usePurchaseOrders } from "../hooks/usePurchaseOrders";
 
@@ -15,17 +15,21 @@ import { ORDERS_PER_PAGE } from "../constants/pagination";
 
 const Orders = () => {
   const navigate = useNavigate();
-  const apolloClient = useApolloClient();
 
-const [filter, setFilter] = useState("All");
-const [poNumber, setPoNumber] = useState("");
-const [minAmount, setMinAmount] = useState("");
-const [maxAmount, setMaxAmount] = useState("");
-const [startDate, setStartDate] = useState("");
-const [endDate, setEndDate] = useState("");
+  const [filter, setFilter] = useState("All");
+  const [poNumber, setPoNumber] = useState("");
+  const [minAmount, setMinAmount] = useState("");
+  const [maxAmount, setMaxAmount] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
 
-const { data, loading, error, fetchMore } =
-  usePurchaseOrders({
+  const {
+    data,
+    loading,
+    error,
+    fetchMore,
+    networkStatus,
+  } = usePurchaseOrders({
     first: ORDERS_PER_PAGE,
     after: null,
     status: filter === "All" ? undefined : filter.toLowerCase(),
@@ -36,78 +40,89 @@ const { data, loading, error, fetchMore } =
     endDate: endDate || undefined,
   });
 
-if (loading && !data) return <Loading />;
+  const loadingMore =
+    networkStatus === NetworkStatus.fetchMore;
 
-if (error && !data) return <ErrorState />;
+  if (loading && !data) {
+    return <Loading />;
+  }
+
+  if (error && !data) {
+    return <ErrorState />;
+  }
 
   const orders: PurchaseOrder[] =
     data?.purchaseOrders?.edges?.map(
       (edge: PurchaseOrderEdge) => edge.node
     ) || [];
 
+  const handleLoadMore = () => {
+    const endCursor =
+      data?.purchaseOrders?.pageInfo?.endCursor;
 
+    if (!endCursor || loadingMore) {
+      return;
+    }
 
-  const handleLogout = async () => {
-    clearTokens();
-    await apolloClient.clearStore();
-    navigate("/login", { replace: true });
+    void fetchMore({
+      variables: {
+        first: ORDERS_PER_PAGE,
+        after: endCursor,
+        status:
+          filter === "All"
+            ? undefined
+            : filter.toLowerCase(),
+        poNumber: poNumber || undefined,
+        minAmount: minAmount
+          ? Number(minAmount)
+          : undefined,
+        maxAmount: maxAmount
+          ? Number(maxAmount)
+          : undefined,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+      },
+    });
   };
 
-const handleLoadMore = () => {
-  fetchMore({
-    variables: {
-      first: ORDERS_PER_PAGE,
-      after: data.purchaseOrders.pageInfo.endCursor,
-
-      status: filter === "All" ? undefined : filter.toLowerCase(),
-      poNumber: poNumber || undefined,
-      minAmount: minAmount ? Number(minAmount) : undefined,
-      maxAmount: maxAmount ? Number(maxAmount) : undefined,
-      startDate: startDate || undefined,
-      endDate: endDate || undefined,
-    },
-  });
-};
-
-  return (  
+  return (
     <div className="orders">
       <h1>Purchase Orders</h1>
+
       <div className="search-filters">
+        <input
+          type="text"
+          placeholder="Search PO Number"
+          value={poNumber}
+          onChange={(e) => setPoNumber(e.target.value)}
+        />
 
-  <input
-    type="text"
-    placeholder="Search PO Number"
-    value={poNumber}
-    onChange={(e) => setPoNumber(e.target.value)}
-  />
+        <input
+          type="number"
+          placeholder="Min Amount"
+          value={minAmount}
+          onChange={(e) => setMinAmount(e.target.value)}
+        />
 
-  <input
-    type="number"
-    placeholder="Min Amount"
-    value={minAmount}
-    onChange={(e) => setMinAmount(e.target.value)}
-  />
+        <input
+          type="number"
+          placeholder="Max Amount"
+          value={maxAmount}
+          onChange={(e) => setMaxAmount(e.target.value)}
+        />
 
-  <input
-    type="number"
-    placeholder="Max Amount"
-    value={maxAmount}
-    onChange={(e) => setMaxAmount(e.target.value)}
-  />
+        <input
+          type="date"
+          value={startDate}
+          onChange={(e) => setStartDate(e.target.value)}
+        />
 
-  <input
-    type="date"
-    value={startDate}
-    onChange={(e) => setStartDate(e.target.value)}
-  />
-
-  <input
-    type="date"
-    value={endDate}
-    onChange={(e) => setEndDate(e.target.value)}
-  />
-
-</div>
+        <input
+          type="date"
+          value={endDate}
+          onChange={(e) => setEndDate(e.target.value)}
+        />
+      </div>
 
       <div className="top-buttons">
         <button
@@ -119,17 +134,24 @@ const handleLoadMore = () => {
 
         <button
           className="logout-btn"
-          onClick={handleLogout}
+          onClick={logout}
         >
           Logout
         </button>
       </div>
 
       <div className="tabs">
-        {["All", "Sent", "Acknowledged", "Fulfilled"].map((tab) => (
+        {[
+          "All",
+          "Sent",
+          "Acknowledged",
+          "Fulfilled",
+        ].map((tab) => (
           <button
             key={tab}
-            className={filter === tab ? "active-tab" : ""}
+            className={
+              filter === tab ? "active-tab" : ""
+            }
             onClick={() => setFilter(tab)}
           >
             {tab}
@@ -152,8 +174,11 @@ const handleLoadMore = () => {
         <button
           className="load-more-btn"
           onClick={handleLoadMore}
+          disabled={loadingMore}
         >
-          Load More
+          {loadingMore
+            ? "Loading..."
+            : "Load More"}
         </button>
       )}
     </div>

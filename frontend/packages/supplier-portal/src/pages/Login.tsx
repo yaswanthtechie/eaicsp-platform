@@ -8,7 +8,7 @@ const Login = () => {
   const [searchParams] = useSearchParams();
 
   const [email, setEmail] = useState("");
-  const [rememberMe, setRememberMe] = useState(false);  
+  const [rememberMe, setRememberMe] = useState(false);
   const [password, setPassword] = useState("");
 
   const [emailError, setEmailError] = useState("");
@@ -35,47 +35,54 @@ const Login = () => {
     return valid;
   };
 
-const handleLogin = async (
-  e: React.FormEvent
-) => {
-  e.preventDefault();
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
 
-  if (!validate()) return;
+    if (!validate()) return;
 
-  try {
-    const response = await login(
-      email,
-      password
-    );
-    console.log("Remember Me:", rememberMe);
+    try {
+      const response = await login(email, password);
+      saveTokens(
+        response.access_token,
+        response.refresh_token,
+        rememberMe
+      );
 
-    saveTokens(
-      response.access_token,
-      response.refresh_token,
-      rememberMe
-    );
+      // Only allow safe internal paths for the next redirect.
+      const nextParam = searchParams.get("next");
 
-    const nextPage =
-      searchParams.get("next") || "/orders";
+      const isInternal = (next: string | null) => {
+        if (!next) {
+          return false;
+        }
 
-    navigate(nextPage);
+        const url = new URL(
+          next,
+          window.location.origin
+        );
 
-  } catch {
-    setPasswordError(
-      "Invalid email or password"
-    );
-  }
-};
+        return url.origin === window.location.origin;
+      };
+
+      const nextPage = isInternal(nextParam)
+        ? nextParam!
+        : "/orders";
+
+      navigate(nextPage);
+    } catch {
+      setPasswordError("Invalid email or password");
+    }
+  };
 
   return (
     <div className="login-page">
       <h1>Supplier Portal</h1>
 
       <form onSubmit={handleLogin}>
-
-        <label>Email</label>
+        <label htmlFor="email">Email</label>
 
         <input
+          id="email"
           type="email"
           placeholder="Enter Email"
           value={email}
@@ -86,9 +93,10 @@ const handleLogin = async (
           <p className="error">{emailError}</p>
         )}
 
-        <label>Password</label>
+        <label htmlFor="password">Password</label>
 
         <input
+          id="password"
           type="password"
           placeholder="Enter Password"
           value={password}
@@ -98,26 +106,30 @@ const handleLogin = async (
         {passwordError && (
           <p className="error">{passwordError}</p>
         )}
-<div className="remember-me">
-  <input
-    type="checkbox"
-    id="rememberMe"
-    checked={rememberMe}
-    onChange={(e) => setRememberMe(e.target.checked)}
-  />
-  <label htmlFor="rememberMe">Remember Me</label>
-</div>
+
+        <div className="remember-me">
+          <input
+            type="checkbox"
+            id="rememberMe"
+            checked={rememberMe}
+            onChange={(e) =>
+              setRememberMe(e.target.checked)
+            }
+          />
+
+          <label htmlFor="rememberMe">
+            Remember Me
+          </label>
+        </div>
 
         <button type="submit">
           Login
         </button>
-
       </form>
 
       <p className="note">
         Any valid email and password will work.
       </p>
-
     </div>
   );
 };
