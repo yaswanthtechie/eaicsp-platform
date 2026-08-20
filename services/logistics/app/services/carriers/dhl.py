@@ -8,7 +8,6 @@ from app.schemas.shipment import (
 from app.services.carriers.base import (
     BaseCarrier,
     CarrierError,
-    api_retry,
 )
 
 
@@ -20,10 +19,12 @@ class DHLAdapter(BaseCarrier):
     """
     DHL carrier implementation.
 
-    R4:
+    R4 features:
     - Uses the common BaseCarrier interface.
-    - Uses Tenacity retry through api_retry().
-    - Dynamic reliability is calculated by shipment_service.py.
+    - Retry is controlled by shipment_service.py.
+    - Local circuit breaker is controlled by
+      shipment_service.py.
+    - Dynamic reliability is calculated from carrier history.
     """
 
     carrier = Carrier.dhl
@@ -36,7 +37,6 @@ class DHLAdapter(BaseCarrier):
     # GET RATE
     # --------------------------------------------------------
 
-    @api_retry()
     def get_rate(
         self,
         origin: str,
@@ -45,10 +45,12 @@ class DHLAdapter(BaseCarrier):
     ) -> CarrierRate:
         """
         Return DHL shipping rate.
+
+        Retry is intentionally NOT handled here.
+        shipment_service.py controls retry + circuit breaker.
         """
 
         if weight_kg <= 0:
-
             raise CarrierError(
                 "Invalid shipment weight"
             )
@@ -61,9 +63,9 @@ class DHLAdapter(BaseCarrier):
             price=self.base_price,
             estimated_days=self.estimated_days,
 
-            # This is only the carrier's default/mock value.
-            # shipment_service.py replaces it with the
-            # dynamically calculated history-based score.
+            # Default/mock value only.
+            # shipment_service.py replaces this with the
+            # dynamically calculated reliability score.
             reliability_score=0.87,
         )
 
@@ -71,7 +73,6 @@ class DHLAdapter(BaseCarrier):
     # GET TRACKING
     # --------------------------------------------------------
 
-    @api_retry()
     def get_tracking(
         self,
         tracking_number: str,

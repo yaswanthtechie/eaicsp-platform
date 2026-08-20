@@ -16,37 +16,36 @@ from app.schemas.shipment import (
 from app.services.shipment_service import (
     CARRIERS,
 
-    # --------------------------------------------------------
+    # ========================================================
     # SHIPMENT CRUD
-    # --------------------------------------------------------
+    # ========================================================
     create_shipment,
-    get_all_shipments,
+    get_shipments,
     get_shipment,
     update_shipment,
     delete_shipment,
-    filter_shipments_by_status,
     shipment_exists,
 
-    # --------------------------------------------------------
+    # ========================================================
     # QUOTES
-    # --------------------------------------------------------
+    # ========================================================
     get_quotes,
     get_bulk_quotes,
 
-    # --------------------------------------------------------
+    # ========================================================
     # HISTORY
-    # --------------------------------------------------------
+    # ========================================================
     get_shipment_history,
 
-    # --------------------------------------------------------
+    # ========================================================
     # R4
-    # --------------------------------------------------------
+    # ========================================================
     get_consolidation_suggestions,
     explain_eta,
 
-    # --------------------------------------------------------
+    # ========================================================
     # CIRCUIT BREAKER
-    # --------------------------------------------------------
+    # ========================================================
     get_circuit_breaker_status,
 )
 
@@ -65,7 +64,10 @@ router = APIRouter(
 # CREATE SHIPMENT
 # ============================================================
 
-@router.post("/")
+@router.post(
+    "/",
+    status_code=status.HTTP_200_OK,
+)
 def create_new_shipment(
     data: ShipmentCreate,
 ):
@@ -74,13 +76,19 @@ def create_new_shipment(
     """
 
     if shipment_exists(data.shipment_id):
-
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Shipment already exists",
         )
 
-    return create_shipment(data)
+    try:
+        return create_shipment(data)
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
 
 # ============================================================
@@ -88,7 +96,7 @@ def create_new_shipment(
 # ============================================================
 
 @router.get("/")
-def get_shipments(
+def get_all_shipments_route(
     shipment_status: Optional[Status] = Query(
         default=None,
         alias="status",
@@ -107,20 +115,13 @@ def get_shipments(
         ?status=cancelled
     """
 
-    if shipment_status is not None:
-
-        return filter_shipments_by_status(
-            shipment_status
-        )
-
-    return get_all_shipments()
+    return get_shipments(
+        shipment_status
+    )
 
 
 # ============================================================
 # BULK QUOTE - R4
-#
-# IMPORTANT:
-# This route must be before /{shipment_id}
 # ============================================================
 
 @router.post(
@@ -132,45 +133,36 @@ async def shipment_bulk_quote(
     benchmark: bool = Query(
         default=False,
         description=(
-            "Run sequential quoting also and "
-            "calculate parallel speedup."
+            "When true, also runs sequential quoting "
+            "and calculates speedup."
         ),
     ),
 ):
     """
-    R4 asynchronous bulk quotation.
+    R4 asynchronous bulk quote.
 
-    Normal:
+    Maximum 20 shipments.
 
-        POST /api/v1/shipments/bulk-quote
-
-    Benchmark:
-
-        POST /api/v1/shipments/bulk-quote?benchmark=true
-
-    The service uses asyncio.gather() to process
-    multiple shipment quotes in parallel.
-
-    Maximum batch size:
-
-        20 shipments
+    Uses asyncio.gather() internally.
     """
 
     try:
-
-        result = await get_bulk_quotes(
+        return await get_bulk_quotes(
             data.shipments,
             benchmark=benchmark,
         )
 
-        return result
-
     except ValueError as exc:
-
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
-        )
+        ) from exc
+
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to process bulk quote request.",
+        ) from None
 
 
 # ============================================================
@@ -188,19 +180,29 @@ def shipment_quote(
     Get a quote for one shipment.
     """
 
-    return get_quotes(
-        data.origin,
-        data.destination,
-        data.weight_kg,
-        data.preference,
-    )
+    try:
+        return get_quotes(
+            data.origin,
+            data.destination,
+            data.weight_kg,
+            data.preference,
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to retrieve shipment quote.",
+        ) from None
 
 
 # ============================================================
 # CONSOLIDATION SUGGESTIONS - R4
-#
-# IMPORTANT:
-# This route must be before /{shipment_id}
 # ============================================================
 
 @router.get(
@@ -208,23 +210,21 @@ def shipment_quote(
 )
 def consolidation_suggestions():
     """
-    R4 rule-based shipment consolidation.
-
-    Suggest combining shipments when:
-
-    1. There are at least 2 shipments.
-    2. They have the same destination.
-    3. Their estimated delivery dates are within 2 days.
+    Return shipment consolidation suggestions.
     """
 
-    return get_consolidation_suggestions()
+    try:
+        return get_consolidation_suggestions()
+
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to generate consolidation suggestions.",
+        ) from None
 
 
 # ============================================================
 # CIRCUIT BREAKER STATUS - R4
-#
-# IMPORTANT:
-# This route must be before /{shipment_id}
 # ============================================================
 
 @router.get(
@@ -232,18 +232,21 @@ def consolidation_suggestions():
 )
 def circuit_breaker_status():
     """
-    Return local circuit breaker status
-    for every carrier.
+    Return circuit breaker status for all carriers.
     """
 
-    return get_circuit_breaker_status()
+    try:
+        return get_circuit_breaker_status()
+
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to retrieve circuit breaker status.",
+        ) from None
 
 
 # ============================================================
-# TRACK SHIPMENT
-#
-# IMPORTANT:
-# This route must be before /{shipment_id}
+# TRACKING
 # ============================================================
 
 @router.get(
@@ -257,49 +260,46 @@ def track_shipment(
     Get tracking information for a shipment.
     """
 
-    shipment = get_shipment(
-        shipment_id
-    )
+    try:
+        shipment = get_shipment(
+            shipment_id
+        )
+    except ValueError:
+        shipment = None
 
+    # IMPORTANT:
+    # Some service implementations return None
+    # instead of raising ValueError.
     if shipment is None:
-
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Shipment not found",
         )
 
-    carrier = shipment.carrier
-
     adapter = CARRIERS.get(
-        carrier
+        shipment.carrier
     )
 
     if adapter is None:
-
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Unsupported carrier",
         )
 
     try:
-
         return adapter.get_tracking(
             str(shipment_id)
         )
 
-    except Exception as exc:
-
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(exc),
-        )
+            detail="Unable to retrieve tracking information.",
+        ) from None
 
 
 # ============================================================
 # SHIPMENT HISTORY
-#
-# IMPORTANT:
-# This route must be before /{shipment_id}
 # ============================================================
 
 @router.get(
@@ -310,31 +310,42 @@ def shipment_history(
     shipment_id: int,
 ):
     """
-    Get complete status history
-    of a shipment.
+    Get complete shipment status history.
     """
 
-    shipment = get_shipment(
-        shipment_id
-    )
+    try:
+        shipment = get_shipment(
+            shipment_id
+        )
+    except ValueError:
+        shipment = None
 
     if shipment is None:
-
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Shipment not found",
         )
 
-    return get_shipment_history(
-        shipment_id
-    )
+    try:
+        return get_shipment_history(
+            shipment_id
+        )
+
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Shipment not found",
+        ) from None
+
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to retrieve shipment history.",
+        ) from None
 
 
 # ============================================================
-# ETA EXPLANATION - R4 STRETCH
-#
-# IMPORTANT:
-# This route must be before /{shipment_id}
+# ETA EXPLANATION - R4
 # ============================================================
 
 @router.get(
@@ -344,49 +355,47 @@ def shipment_eta_explain(
     shipment_id: int,
 ):
     """
-    R4 stretch feature.
+    Explain shipment ETA using:
 
-    Explain the ETA using:
-
-    - Origin
-    - Destination
-    - Route distance
-    - Carrier baseline
-    - Dynamic reliability score
-    - Estimated days
-    - Weather flag
+    - route distance
+    - carrier
+    - estimated days
+    - reliability score
     """
 
-    shipment = get_shipment(
-        shipment_id
-    )
+    try:
+        shipment = get_shipment(
+            shipment_id
+        )
+    except ValueError:
+        shipment = None
 
     if shipment is None:
-
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Shipment not found",
         )
 
     try:
-
         return explain_eta(
             shipment_id
         )
 
     except ValueError as exc:
-
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
-        )
+        ) from None
+
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to generate ETA explanation.",
+        ) from None
 
 
 # ============================================================
 # GET SHIPMENT BY ID
-#
-# IMPORTANT:
-# Keep this AFTER all specific routes.
 # ============================================================
 
 @router.get(
@@ -399,12 +408,23 @@ def get_one_shipment(
     Get one shipment by ID.
     """
 
-    shipment = get_shipment(
-        shipment_id
-    )
+    try:
+        shipment = get_shipment(
+            shipment_id
+        )
+    except ValueError:
+        shipment = None
 
+    # IMPORTANT:
+    # Handle both:
+    #
+    #   get_shipment() -> None
+    #
+    # and:
+    #
+    #   get_shipment() -> ValueError
+    #
     if shipment is None:
-
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Shipment not found",
@@ -426,28 +446,26 @@ def update_existing_shipment(
 ):
     """
     Update an existing shipment.
-
-    Status transition validation is handled
-    inside shipment_service.py.
     """
 
-    shipment = get_shipment(
-        shipment_id
-    )
+    try:
+        existing = get_shipment(
+            shipment_id
+        )
+    except ValueError:
+        existing = None
 
-    if shipment is None:
-
+    if existing is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Shipment not found",
         )
 
-    # --------------------------------------------------------
-    # CHECK PATH ID AND BODY ID
-    # --------------------------------------------------------
+    # ========================================================
+    # PATH ID AND BODY ID
+    # ========================================================
 
     if data.shipment_id != shipment_id:
-
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
@@ -456,23 +474,27 @@ def update_existing_shipment(
             ),
         )
 
-    # --------------------------------------------------------
+    # ========================================================
     # UPDATE
-    # --------------------------------------------------------
+    # ========================================================
 
     try:
-
         return update_shipment(
             shipment_id,
             data,
         )
 
     except ValueError as exc:
-
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
-        )
+        ) from exc
+
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to update shipment.",
+        ) from None
 
 
 # ============================================================
@@ -489,17 +511,45 @@ def delete_existing_shipment(
     Delete a shipment by ID.
     """
 
-    shipment = delete_shipment(
-        shipment_id
-    )
+    # First check whether shipment exists.
+    try:
+        existing = get_shipment(
+            shipment_id
+        )
+    except ValueError:
+        existing = None
 
-    if shipment is None:
-
+    if existing is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Shipment not found",
         )
 
-    return {
-        "message": "Shipment deleted successfully"
-    }
+    # ========================================================
+    # DELETE
+    # ========================================================
+
+    try:
+        result = delete_shipment(
+            shipment_id
+        )
+
+        # Some implementations return the deleted object,
+        # while others return None.
+        # Either is acceptable because deletion succeeded.
+
+        return {
+            "message": "Shipment deleted successfully"
+        }
+
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Shipment not found",
+        ) from None
+
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to delete shipment.",
+        ) from None

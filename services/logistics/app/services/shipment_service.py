@@ -1,11 +1,16 @@
-from __future__ import annotations
-
 import asyncio
 import logging
 import random
 import time
-from datetime import UTC, datetime
-from typing import Any
+from datetime import datetime
+from typing import Optional
+
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from app.schemas.shipment import (
     Carrier,
@@ -18,6 +23,7 @@ from app.schemas.shipment import (
     Status,
 )
 
+from app.services.carriers.base import CarrierError
 from app.services.carriers.dhl import DHLAdapter
 from app.services.carriers.fedex import FedExAdapter
 from app.services.carriers.ups import UPSAdapter
@@ -41,7 +47,7 @@ shipment_events: dict[int, list[ShipmentEvent]] = {}
 
 
 # ============================================================
-# CARRIERS
+# CARRIER INSTANCES
 # ============================================================
 
 CARRIERS = {
@@ -53,22 +59,14 @@ CARRIERS = {
 
 
 # ============================================================
-# DYNAMIC RELIABILITY HISTORY
+# RELIABILITY CONFIGURATION
 # ============================================================
 
-carrier_history: dict[Carrier, list[Any]] = {
-    Carrier.dhl: [],
-    Carrier.fedex: [],
-    Carrier.ups: [],
-    Carrier.bluedart: [],
-}
+RELIABILITY_WINDOW = 200
 
+INITIAL_HISTORY_SIZE = 50
 
-# Initial simulated reliability probabilities.
-# These values are ONLY used to generate the initial
-# simulated history. They are NOT returned directly
-# as reliability_score.
-INITIAL_RELIABILITY_PROBABILITY = {
+INITIAL_RELIABILITY = {
     Carrier.dhl: 0.87,
     Carrier.fedex: 0.92,
     Carrier.ups: 0.95,
@@ -76,96 +74,87 @@ INITIAL_RELIABILITY_PROBABILITY = {
 }
 
 
-def generate_reliability_history(
-    shipments_per_carrier: int = 50,
-) -> None:
+# ============================================================
+# DETERMINISTIC INITIAL RELIABILITY HISTORY
+# ============================================================
+
+def _build_initial_history(
+    score: float,
+    size: int = INITIAL_HISTORY_SIZE,
+) -> list[bool]:
     """
-    Generate simulated historical shipment results.
+    Create deterministic initial carrier history.
 
-    The generated history contains True/False values:
+    True  = on-time delivery
+    False = late delivery
 
-        True  -> shipment delivered on time
-        False -> shipment delayed
-
-    The reliability score is calculated later from this
-    history instead of using a hardcoded score.
+    A local seeded Random object is used so that
+    restarting the application produces the same
+    initial history.
     """
 
-    for carrier in Carrier:
+    seed = int(score * 10000) + size
 
-        carrier_history[carrier] = []
+    rng = random.Random(seed)
 
-        probability = INITIAL_RELIABILITY_PROBABILITY[
-            carrier
-        ]
+    history = [
+        rng.random() < score
+        for _ in range(size)
+    ]
 
-        for _ in range(shipments_per_carrier):
-
-            on_time = (
-                random.random() < probability
-            )
-
-            carrier_history[carrier].append(
-                on_time
-            )
+    return history
 
 
-# Generate initial history when service starts.
-generate_reliability_history()
+carrier_history: dict[Carrier, list[bool]] = {
+    carrier: _build_initial_history(
+        score,
+        INITIAL_HISTORY_SIZE,
+    )
+    for carrier, score in INITIAL_RELIABILITY.items()
+}
 
 
 # ============================================================
-# RELIABILITY SCORE
+# RELIABILITY FUNCTIONS
 # ============================================================
 
 def calculate_reliability_score(
-    history: list[Any],
+    history: list[bool],
 ) -> float:
     """
-    Calculate reliability from tracked shipment history.
+    Calculate reliability from delivery history.
 
-    Formula:
+    Example:
 
-        reliability =
-            on-time shipments / total shipments
+        [True, True, True, False]
+
+    Score:
+
+        3 / 4 = 0.75
     """
 
     if not history:
         return 0.0
 
-    on_time_count = 0
-
-    for record in history:
-
-        if isinstance(record, bool):
-
-            if record:
-                on_time_count += 1
-
-        elif isinstance(record, dict):
-
-            if record.get("on_time") is True:
-                on_time_count += 1
-
-    return round(
-        on_time_count / len(history),
-        4,
-    )
+    return sum(history) / len(history)
 
 
 def get_reliability_score(
     carrier: Carrier,
 ) -> float:
     """
-    Return the current reliability score calculated
-    from the carrier's tracked history.
+    Return the current reliability score
+    for a carrier.
     """
 
-    return calculate_reliability_score(
-        carrier_history.get(
-            carrier,
-            [],
-        )
+    history = carrier_history.get(
+        carrier,
+        [],
+    )
+
+    return round(
+        calculate_reliability_score(history),
+        4,
     )
 
 
@@ -174,175 +163,375 @@ def record_carrier_result(
     on_time: bool,
 ) -> None:
     """
-    Add a new shipment result to carrier history.
+    Record an actual carrier delivery result.
 
-    This allows reliability to change over time.
+    Only the most recent RELIABILITY_WINDOW
+    results are retained.
     """
 
-    carrier_history.setdefault(
-        carrier,
-        [],
-    ).append(on_time)
+    if carrier not in carrier_history:
+        carrier_history[carrier] = []
+
+    carrier_history[carrier].append(
+        bool(on_time)
+    )
+
+    if len(carrier_history[carrier]) > RELIABILITY_WINDOW:
+        carrier_history[carrier] = (
+            carrier_history[carrier][
+                -RELIABILITY_WINDOW:
+            ]
+        )
 
 
-def simulate_carrier_history(
-    shipments_per_carrier: int = 50,
+def reset_reliability_history() -> None:
+    """
+    Reset all carrier reliability histories.
+
+    Useful for tests.
+    """
+
+    carrier_history.clear()
+
+    for carrier, score in INITIAL_RELIABILITY.items():
+        carrier_history[carrier] = _build_initial_history(
+            score,
+            INITIAL_HISTORY_SIZE,
+        )
+
+
+# ============================================================
+# RETRY CONFIGURATION
+# ============================================================
+
+RETRY_ATTEMPTS = 3
+
+RETRY_DELAYS = (
+    1,
+    2,
+)
+
+
+def api_retry():
+    """
+    Compatibility helper for existing tests/imports.
+
+    IMPORTANT:
+
+    The actual carrier call in this service does NOT use
+    this decorator around the complete carrier operation.
+
+    The circuit breaker must be checked before every retry
+    attempt.
+
+    This helper is kept because older tests may import api_retry.
+    """
+
+    return retry(
+        retry=retry_if_exception_type(CarrierError),
+        stop=stop_after_attempt(RETRY_ATTEMPTS),
+        wait=wait_exponential(
+            multiplier=1,
+            min=1,
+            max=4,
+        ),
+        reraise=True,
+    )
+
+
+# ============================================================
+# CIRCUIT BREAKER
+# ============================================================
+
+class CircuitBreaker:
+    """
+    Local per-carrier circuit breaker.
+
+    CLOSED:
+        Carrier requests are allowed.
+
+    OPEN:
+        Carrier requests are blocked.
+
+    HALF_OPEN:
+        After the recovery timeout, exactly one trial
+        request is allowed.
+
+    R4 configuration:
+
+        failure threshold = 3
+        recovery timeout = 30 seconds
+    """
+
+    FAILURE_THRESHOLD = 3
+
+    RECOVERY_TIMEOUT = 30
+
+    def __init__(self):
+        self.failure_count = 0
+        self.state = "CLOSED"
+        self.opened_at: Optional[float] = None
+        self.half_open_trial = False
+
+    def record_failure(self) -> None:
+        """
+        Record one carrier failure.
+
+        Three consecutive failures open the circuit.
+        """
+
+        self.failure_count += 1
+
+        if self.failure_count >= self.FAILURE_THRESHOLD:
+            self.state = "OPEN"
+            self.opened_at = time.monotonic()
+            self.half_open_trial = False
+
+    def record_success(self) -> None:
+        """
+        Successful carrier call closes the circuit.
+        """
+
+        self.failure_count = 0
+        self.state = "CLOSED"
+        self.opened_at = None
+        self.half_open_trial = False
+
+    def is_open(self) -> bool:
+        """
+        Return True when the carrier call should be blocked.
+
+        OPEN -> HALF_OPEN after recovery timeout.
+
+        In HALF_OPEN, only one trial request is allowed.
+        """
+
+        # ----------------------------------------------------
+        # CLOSED
+        # ----------------------------------------------------
+
+        if self.state == "CLOSED":
+            return False
+
+        # ----------------------------------------------------
+        # OPEN
+        # ----------------------------------------------------
+
+        if self.state == "OPEN":
+
+            if (
+                self.opened_at is not None
+                and (
+                    time.monotonic()
+                    - self.opened_at
+                    >= self.RECOVERY_TIMEOUT
+                )
+            ):
+                self.state = "HALF_OPEN"
+                self.half_open_trial = False
+
+            else:
+                return True
+
+        # ----------------------------------------------------
+        # HALF_OPEN
+        # ----------------------------------------------------
+
+        if self.state == "HALF_OPEN":
+
+            if self.half_open_trial:
+                return True
+
+            self.half_open_trial = True
+
+            return False
+
+        return False
+
+
+CIRCUIT_BREAKERS = {
+    carrier: CircuitBreaker()
+    for carrier in Carrier
+}
+
+
+def is_circuit_open(
+    carrier: Carrier,
+) -> bool:
+    """
+    Check whether a carrier circuit is blocking calls.
+    """
+
+    return CIRCUIT_BREAKERS[
+        carrier
+    ].is_open()
+
+
+def reset_circuit_breaker(
+    carrier: Carrier,
 ) -> None:
     """
-    Public helper used by tests/demo code to regenerate
-    simulated carrier history.
+    Reset one carrier circuit breaker.
     """
 
-    generate_reliability_history(
-        shipments_per_carrier
-    )
+    breaker = CIRCUIT_BREAKERS[carrier]
+
+    breaker.failure_count = 0
+    breaker.state = "CLOSED"
+    breaker.opened_at = None
+    breaker.half_open_trial = False
 
 
-def get_carrier_history(
-    carrier: Carrier,
-) -> list[Any]:
+def reset_all_circuit_breakers() -> None:
     """
-    Return a copy of the carrier's history.
+    Reset every carrier circuit breaker.
     """
 
-    return list(
-        carrier_history.get(
-            carrier,
-            [],
-        )
-    )
+    for carrier in Carrier:
+        reset_circuit_breaker(carrier)
 
 
 # ============================================================
 # STATUS TRANSITIONS
 # ============================================================
 
-LEGAL_TRANSITIONS = {
-
-    Status.pending: [
+VALID_TRANSITIONS = {
+    Status.pending: {
         Status.in_transit,
         Status.cancelled,
-    ],
+    },
 
-    Status.in_transit: [
+    Status.in_transit: {
         Status.delayed,
         Status.delivered,
         Status.cancelled,
-    ],
+    },
 
-    Status.delayed: [
+    Status.delayed: {
         Status.in_transit,
         Status.delivered,
         Status.cancelled,
-    ],
+    },
 
-    Status.delivered: [],
+    Status.delivered: set(),
 
-    Status.cancelled: [],
+    Status.cancelled: set(),
 }
 
 
 def is_valid_transition(
-    from_status: Status,
-    to_status: Status,
+    current_status: Status,
+    new_status: Status,
 ) -> bool:
     """
-    Validate shipment status transition.
+    Check whether a shipment status transition is valid.
     """
 
-    if from_status == to_status:
+    if current_status == new_status:
         return True
 
-    return to_status in LEGAL_TRANSITIONS.get(
-        from_status,
-        [],
+    return new_status in VALID_TRANSITIONS.get(
+        current_status,
+        set(),
     )
-
-
-# ============================================================
-# EVENT MANAGEMENT
-# ============================================================
-
-def event_location_for_status(
-    status: Status,
-    shipment: ShipmentCreate,
-) -> str:
-
-    if status == Status.delivered:
-        return shipment.destination
-
-    if status == Status.in_transit:
-        return "In Transit"
-
-    if status == Status.delayed:
-        return "Delayed"
-
-    if status == Status.cancelled:
-        return shipment.origin
-
-    return shipment.origin
-
-
-def record_event(
-    shipment: ShipmentCreate,
-) -> ShipmentEvent:
-    """
-    Record a shipment status event.
-    """
-
-    event = ShipmentEvent(
-        shipment_id=shipment.shipment_id,
-        status=shipment.status,
-        timestamp=datetime.now(UTC),
-        location=event_location_for_status(
-            shipment.status,
-            shipment,
-        ),
-    )
-
-    shipment_events.setdefault(
-        shipment.shipment_id,
-        [],
-    ).append(event)
-
-    return event
 
 
 # ============================================================
 # SHIPMENT CRUD
 # ============================================================
 
-def create_shipment(
-    shipment: ShipmentCreate,
-) -> ShipmentCreate:
-    """
-    Create a shipment and record its first event.
-    """
-
-    shipments[shipment.shipment_id] = shipment
-
-    record_event(shipment)
-
-    return shipment
-
-
 def shipment_exists(
     shipment_id: int,
 ) -> bool:
+    """
+    Check whether a shipment exists.
+    """
 
     return shipment_id in shipments
 
 
+def create_shipment(
+    shipment: ShipmentCreate,
+) -> ShipmentCreate:
+    """
+    Create a shipment and record its initial event.
+    """
+
+    if shipment.shipment_id in shipments:
+        raise ValueError(
+            "Shipment already exists"
+        )
+
+    shipments[shipment.shipment_id] = shipment
+
+    shipment_events[
+        shipment.shipment_id
+    ] = [
+        ShipmentEvent(
+            shipment_id=shipment.shipment_id,
+            status=shipment.status,
+            timestamp=datetime.now(),
+            location=shipment.origin,
+        )
+    ]
+
+    return shipment
+
+
 def get_all_shipments() -> list[ShipmentCreate]:
+    """
+    Return all shipments.
+    """
 
     return list(
         shipments.values()
     )
 
 
+def get_shipments(
+    status: Optional[Status] = None,
+) -> list[ShipmentCreate]:
+    """
+    Return shipments.
+
+    Optional status filtering is supported.
+    """
+
+    if status is None:
+        return get_all_shipments()
+
+    return [
+        shipment
+        for shipment in shipments.values()
+        if shipment.status == status
+    ]
+
+
+def filter_shipments_by_status(
+    shipment_status: Status,
+) -> list[ShipmentCreate]:
+    """
+    Filter shipments by status.
+
+    This name is kept for the route layer.
+    """
+
+    return get_shipments(
+        shipment_status
+    )
+
+
 def get_shipment(
     shipment_id: int,
-) -> ShipmentCreate | None:
+) -> Optional[ShipmentCreate]:
+    """
+    Return a shipment if it exists.
+
+    Returns None when not found.
+
+    This is important because the route layer
+    converts None into HTTP 404.
+    """
 
     return shipments.get(
         shipment_id
@@ -352,520 +541,354 @@ def get_shipment(
 def update_shipment(
     shipment_id: int,
     shipment: ShipmentCreate,
-) -> ShipmentCreate | None:
+) -> ShipmentCreate:
     """
-    Update shipment after validating status transition.
+    Update an existing shipment.
+
+    Status transition validation is enforced.
     """
 
-    existing_shipment = get_shipment(
+    existing = shipments.get(
         shipment_id
     )
 
-    if existing_shipment is None:
-        return None
+    if existing is None:
+        raise ValueError(
+            "Shipment not found"
+        )
 
     if not is_valid_transition(
-        existing_shipment.status,
+        existing.status,
         shipment.status,
     ):
-
         raise ValueError(
-            f"Invalid status transition: "
-            f"{existing_shipment.status.value} -> "
+            "Invalid status transition: "
+            f"{existing.status.value} -> "
             f"{shipment.status.value}"
         )
 
     shipments[shipment_id] = shipment
 
-    if shipment.status != existing_shipment.status:
+    shipment_events.setdefault(
+        shipment_id,
+        [],
+    ).append(
+        ShipmentEvent(
+            shipment_id=shipment_id,
+            status=shipment.status,
+            timestamp=datetime.now(),
+            location=shipment.destination,
+        )
+    )
 
-        record_event(shipment)
+    # --------------------------------------------------------
+    # RECORD ACTUAL DELIVERY PERFORMANCE
+    # --------------------------------------------------------
+
+    if shipment.status == Status.delivered:
+
+        if (
+            shipment.actual_delivery is not None
+            and shipment.estimated_delivery is not None
+        ):
+            on_time = (
+                shipment.actual_delivery
+                <= shipment.estimated_delivery
+            )
+        else:
+            on_time = False
+
+        record_carrier_result(
+            shipment.carrier,
+            on_time,
+        )
 
     return shipment
 
 
 def delete_shipment(
     shipment_id: int,
-) -> ShipmentCreate | None:
+) -> Optional[ShipmentCreate]:
+    """
+    Delete a shipment.
+
+    Returns the deleted shipment.
+
+    Returns None when it does not exist.
+    """
+
+    shipment = shipments.pop(
+        shipment_id,
+        None,
+    )
+
+    if shipment is None:
+        return None
 
     shipment_events.pop(
         shipment_id,
         None,
     )
 
-    return shipments.pop(
+    return shipment
+
+
+# ============================================================
+# SHIPMENT HISTORY
+# ============================================================
+
+def get_shipment_history(
+    shipment_id: int,
+) -> list[ShipmentEvent]:
+    """
+    Return shipment status history.
+
+    Raises ValueError when shipment does not exist.
+    """
+
+    if shipment_id not in shipments:
+        raise ValueError(
+            "Shipment not found"
+        )
+
+    return shipment_events.get(
         shipment_id,
-        None,
+        [],
     )
 
 
-def filter_shipments_by_status(
-    status: Status,
-) -> list[ShipmentCreate]:
-
-    return [
-        shipment
-        for shipment in shipments.values()
-        if shipment.status == status
-    ]
-
-
 # ============================================================
-# CIRCUIT BREAKER
+# CARRIER RATE
 # ============================================================
 
-CIRCUIT_FAILURE_THRESHOLD = 3
-
-CIRCUIT_RECOVERY_SECONDS = 5.0
-
-
-class CircuitBreaker:
-    """
-    Local circuit breaker for one carrier.
-
-    States:
-
-        CLOSED
-        OPEN
-        HALF_OPEN
-
-    CLOSED:
-        Carrier calls are allowed.
-
-    OPEN:
-        Carrier calls are blocked.
-
-    HALF_OPEN:
-        One recovery attempt is allowed.
-    """
-
-    def __init__(
-        self,
-        failure_threshold: int = (
-            CIRCUIT_FAILURE_THRESHOLD
-        ),
-        recovery_timeout: float = (
-            CIRCUIT_RECOVERY_SECONDS
-        ),
-    ):
-
-        self.failure_threshold = (
-            failure_threshold
-        )
-
-        self.recovery_timeout = (
-            recovery_timeout
-        )
-
-        self.failure_count = 0
-
-        self.state = "CLOSED"
-
-        self.opened_at: float | None = None
-
-        self._lock = asyncio.Lock()
-
-    def record_success(self) -> None:
-        """
-        Close/reset circuit after successful request.
-        """
-
-        self.failure_count = 0
-
-        self.state = "CLOSED"
-
-        self.opened_at = None
-
-    def record_failure(self) -> None:
-        """
-        Record a carrier failure.
-        """
-
-        self.failure_count += 1
-
-        if (
-            self.failure_count
-            >= self.failure_threshold
-        ):
-
-            self.state = "OPEN"
-
-            self.opened_at = time.monotonic()
-
-    def is_open(self) -> bool:
-        """
-        Return True when carrier calls should currently
-        be blocked.
-
-        After recovery_timeout, allow HALF_OPEN state.
-        """
-
-        if self.state != "OPEN":
-            return False
-
-        if self.opened_at is None:
-            return True
-
-        elapsed = (
-            time.monotonic()
-            - self.opened_at
-        )
-
-        if elapsed >= self.recovery_timeout:
-
-            self.state = "HALF_OPEN"
-
-            return False
-
-        return True
-
-    def is_available(self) -> bool:
-        """
-        Return whether a carrier call can be attempted.
-        """
-
-        return not self.is_open()
-
-    def reset(self) -> None:
-        """
-        Completely reset the circuit.
-        """
-
-        self.failure_count = 0
-
-        self.state = "CLOSED"
-
-        self.opened_at = None
-
-
-CIRCUIT_BREAKERS = {
-    carrier: CircuitBreaker()
-    for carrier in Carrier
-}
-
-
-def reset_circuit_breaker(
-    carrier: Carrier,
-) -> None:
-
-    breaker = CIRCUIT_BREAKERS.get(
-        carrier
-    )
-
-    if breaker:
-
-        breaker.reset()
-
-
-def reset_all_circuit_breakers() -> None:
-
-    for breaker in CIRCUIT_BREAKERS.values():
-
-        breaker.reset()
-
-
-def reset_circuit_breakers() -> None:
-    """
-    Backward-compatible function name.
-    """
-
-    reset_all_circuit_breakers()
-
-
-def is_circuit_open(
-    carrier: Carrier,
-) -> bool:
-
-    breaker = CIRCUIT_BREAKERS.get(
-        carrier
-    )
-
-    if breaker is None:
-        return False
-
-    return breaker.is_open()
-
-
-def get_circuit_breaker_status() -> dict:
-    """
-    Return status of every carrier circuit breaker.
-    """
-
-    result = {}
-
-    for carrier, breaker in (
-        CIRCUIT_BREAKERS.items()
-    ):
-
-        result[carrier.value] = {
-            "state": breaker.state,
-            "failure_count": (
-                breaker.failure_count
-            ),
-            "failure_threshold": (
-                breaker.failure_threshold
-            ),
-            "recovery_timeout_seconds": (
-                breaker.recovery_timeout
-            ),
-        }
-
-    return result
-
-
-# ============================================================
-# SINGLE CARRIER CALL
-# ============================================================
-
-def call_one_carrier(
+def _call_carrier_with_retry(
     carrier: Carrier,
     origin: str,
     destination: str,
     weight_kg: float,
-) -> tuple[CarrierRate | None, str | None]:
-    """
-    Call one carrier through the local circuit breaker.
-
-    IMPORTANT:
-
-    The circuit breaker check happens BEFORE calling
-    the carrier adapter.
-
-    Therefore an OPEN carrier is not repeatedly hammered.
-    """
-
-    breaker = CIRCUIT_BREAKERS[carrier]
-
-    # --------------------------------------------------------
-    # CIRCUIT OPEN
-    # --------------------------------------------------------
-
-    if breaker.is_open():
-
-        warning = (
-            f"{carrier.value.title()} "
-            f"circuit is OPEN"
-        )
-
-        logger.warning(
-            warning
-        )
-
-        return None, warning
-
-    # --------------------------------------------------------
-    # GET CARRIER
-    # --------------------------------------------------------
-
-    adapter = CARRIERS.get(
-        carrier
-    )
-
-    if adapter is None:
-
-        warning = (
-            f"{carrier.value.title()} unavailable"
-        )
-
-        return None, warning
-
-    # --------------------------------------------------------
-    # CALL CARRIER
-    # --------------------------------------------------------
-
-    try:
-
-        rate = adapter.get_rate(
-            origin,
-            destination,
-            weight_kg,
-        )
-
-        breaker.record_success()
-
-        return rate, None
-
-    except Exception as exc:
-
-        breaker.record_failure()
-
-        carrier_names = {
-            Carrier.dhl: "DHL",
-            Carrier.fedex: "FedEx",
-            Carrier.ups: "UPS",
-            Carrier.bluedart: "BlueDart",
-        }
-
-        carrier_name = carrier_names.get(
-            carrier,
-            carrier.value,
-        )
-
-        warning = (
-            f"{carrier_name} unavailable"
-        )
-
-        logger.warning(
-            "%s: %s",
-            warning,
-            exc,
-        )
-
-        return None, warning
-
-
-# ============================================================
-# SORT RATES
-# ============================================================
-
-def sort_rates(
-    rates: list[CarrierRate],
-    preference: QuotePreference,
-) -> list[CarrierRate]:
-
-    if preference == QuotePreference.cheapest:
-
-        return sorted(
-            rates,
-            key=lambda rate: rate.price,
-        )
-
-    if preference == QuotePreference.fastest:
-
-        return sorted(
-            rates,
-            key=lambda rate: rate.estimated_days,
-        )
-
-    if preference == QuotePreference.most_reliable:
-
-        return sorted(
-            rates,
-            key=lambda rate: (
-                rate.reliability_score,
-                -rate.estimated_days,
-                -rate.price,
-            ),
-            reverse=True,
-        )
-
-    return rates
-
-
-# ============================================================
-# APPLY DYNAMIC RELIABILITY
-# ============================================================
-
-def apply_dynamic_reliability(
-    rate: CarrierRate,
 ) -> CarrierRate:
     """
-    Replace the carrier's static mock reliability with
-    the score calculated from tracked shipment history.
+    Call one carrier with retry + circuit breaker.
+
+    IMPORTANT R4 FIX:
+
+    The circuit breaker is checked BEFORE EVERY retry attempt.
+
+    Therefore:
+
+        Attempt 1 -> failure
+        Attempt 2 -> failure
+        Attempt 3 -> failure
+
+    opens the circuit.
+
+    Once the circuit opens, another shipment in the same
+    parallel batch does NOT continue calling the dead carrier.
+
+    This prevents the previous 60-invocation storm.
     """
 
-    score = get_reliability_score(
-        rate.carrier
+    adapter = CARRIERS[carrier]
+
+    last_error: Optional[CarrierError] = None
+
+    for attempt in range(
+        1,
+        RETRY_ATTEMPTS + 1,
+    ):
+
+        # ----------------------------------------------------
+        # CHECK CIRCUIT BEFORE EVERY ATTEMPT
+        # ----------------------------------------------------
+
+        breaker = CIRCUIT_BREAKERS[carrier]
+
+        if breaker.is_open():
+
+            raise CarrierError(
+                f"{carrier.value} circuit breaker is open"
+            )
+
+        try:
+
+            rate = adapter.get_rate(
+                origin,
+                destination,
+                weight_kg,
+            )
+
+            # ------------------------------------------------
+            # SUCCESS
+            # ------------------------------------------------
+
+            breaker.record_success()
+
+            # Always use current dynamic reliability.
+            rate.reliability_score = (
+                get_reliability_score(
+                    carrier
+                )
+            )
+
+            return rate
+
+        except CarrierError as exc:
+
+            last_error = exc
+
+            breaker.record_failure()
+
+            # ------------------------------------------------
+            # STOP IMMEDIATELY IF BREAKER OPENED
+            # ------------------------------------------------
+
+            if breaker.state == "OPEN":
+
+                raise CarrierError(
+                    f"{carrier.value} circuit breaker is open"
+                ) from exc
+
+            # ------------------------------------------------
+            # NO MORE RETRIES
+            # ------------------------------------------------
+
+            if attempt >= RETRY_ATTEMPTS:
+
+                raise
+
+            # ------------------------------------------------
+            # EXPONENTIAL BACKOFF
+            #
+            # 1 second
+            # 2 seconds
+            # ------------------------------------------------
+
+            delay = RETRY_DELAYS[
+                attempt - 1
+            ]
+
+            time.sleep(
+                delay
+            )
+
+    if last_error is not None:
+        raise last_error
+
+    raise CarrierError(
+        f"{carrier.value} carrier request failed"
     )
 
-    return rate.model_copy(
-        update={
-            "reliability_score": score
-        }
-    )
 
-
-# ============================================================
-# SEQUENTIAL SINGLE QUOTE
-# ============================================================
-
-def get_quote_response_sequential(
+def _get_carrier_rate(
+    carrier: Carrier,
     origin: str,
     destination: str,
     weight_kg: float,
-    preference: QuotePreference = (
-        QuotePreference.cheapest
-    ),
+) -> CarrierRate:
+    """
+    Get one carrier rate.
+
+    This wrapper is kept for compatibility with
+    existing tests and code.
+    """
+
+    return _call_carrier_with_retry(
+        carrier=carrier,
+        origin=origin,
+        destination=destination,
+        weight_kg=weight_kg,
+    )
+
+
+# ============================================================
+# SINGLE QUOTE
+# ============================================================
+
+def get_quotes(
+    origin: str,
+    destination: str,
+    weight_kg: float,
+    preference: QuotePreference,
 ) -> QuoteResponse:
     """
-    Query all carriers one after another.
+    Get quotes from all available carriers.
 
-    Used as the R4 performance baseline.
+    If one carrier fails, other carriers continue.
+
+    Failed carriers are returned as warnings.
     """
 
     rates: list[CarrierRate] = []
 
     warnings: list[str] = []
 
-    for carrier in CARRIERS:
+    carrier_names = {
+        Carrier.dhl: "DHL",
+        Carrier.fedex: "FedEx",
+        Carrier.ups: "UPS",
+        Carrier.bluedart: "BlueDart",
+    }
 
-        rate, warning = call_one_carrier(
-            carrier,
-            origin,
-            destination,
-            weight_kg,
-        )
+    # --------------------------------------------------------
+    # QUERY ALL CARRIERS
+    # --------------------------------------------------------
 
-        if rate is not None:
+    for carrier in Carrier:
 
-            rate = apply_dynamic_reliability(
+        try:
+
+            rate = _get_carrier_rate(
+                carrier=carrier,
+                origin=origin,
+                destination=destination,
+                weight_kg=weight_kg,
+            )
+
+            rates.append(
                 rate
             )
 
-            rates.append(rate)
+        except CarrierError as exc:
 
-        if warning:
-
-            warnings.append(
-                warning
+            display_name = carrier_names.get(
+                carrier,
+                carrier.value,
             )
 
-    rates = sort_rates(
-        rates,
-        preference,
-    )
+            warnings.append(
+                f"{display_name} unavailable: {str(exc)}"
+            )
+
+    # --------------------------------------------------------
+    # SORT BY PREFERENCE
+    # --------------------------------------------------------
+
+    if preference == QuotePreference.cheapest:
+
+        rates.sort(
+            key=lambda rate: rate.price
+        )
+
+    elif preference == QuotePreference.fastest:
+
+        rates.sort(
+            key=lambda rate: rate.estimated_days
+        )
+
+    elif preference == QuotePreference.most_reliable:
+
+        rates.sort(
+            key=lambda rate: rate.reliability_score,
+            reverse=True,
+        )
+
+    # --------------------------------------------------------
+    # RETURN
+    # --------------------------------------------------------
 
     return QuoteResponse(
         rates=rates,
         warnings=warnings,
-    )
-
-
-# ============================================================
-# BACKWARD COMPATIBILITY
-# ============================================================
-
-def get_quote_response(
-    origin: str,
-    destination: str,
-    weight_kg: float,
-    preference: QuotePreference = (
-        QuotePreference.cheapest
-    ),
-) -> QuoteResponse:
-
-    return get_quote_response_sequential(
-        origin,
-        destination,
-        weight_kg,
-        preference,
-    )
-
-
-def get_quotes(
-    origin: str,
-    destination: str,
-    weight_kg: float,
-    preference: QuotePreference = (
-        QuotePreference.cheapest
-    ),
-) -> QuoteResponse:
-
-    return get_quote_response(
-        origin,
-        destination,
-        weight_kg,
-        preference,
     )
 
 
@@ -873,109 +896,70 @@ def get_quotes(
 # ASYNC SINGLE QUOTE
 # ============================================================
 
-async def get_quote_response_async(
-    origin: str,
-    destination: str,
-    weight_kg: float,
-    preference: QuotePreference = (
-        QuotePreference.cheapest
-    ),
+async def _async_get_quotes(
+    request: QuoteRequest,
 ) -> QuoteResponse:
     """
-    Query all carriers concurrently.
+    Run synchronous quote processing inside a worker thread.
 
-    asyncio.gather() is used here as required by R4.
+    This allows multiple shipment quotes to run concurrently.
     """
 
-    tasks = []
-
-    for carrier in CARRIERS:
-
-        task = asyncio.to_thread(
-            call_one_carrier,
-            carrier,
-            origin,
-            destination,
-            weight_kg,
-        )
-
-        tasks.append(task)
-
-    results = await asyncio.gather(
-        *tasks,
-        return_exceptions=True,
-    )
-
-    rates: list[CarrierRate] = []
-
-    warnings: list[str] = []
-
-    for result in results:
-
-        if isinstance(
-            result,
-            Exception,
-        ):
-
-            warnings.append(
-                f"Carrier unavailable: {result}"
-            )
-
-            continue
-
-        rate, warning = result
-
-        if rate is not None:
-
-            rate = apply_dynamic_reliability(
-                rate
-            )
-
-            rates.append(rate)
-
-        if warning:
-
-            warnings.append(
-                warning
-            )
-
-    rates = sort_rates(
-        rates,
-        preference,
-    )
-
-    return QuoteResponse(
-        rates=rates,
-        warnings=warnings,
+    return await asyncio.to_thread(
+        get_quotes,
+        request.origin,
+        request.destination,
+        request.weight_kg,
+        request.preference,
     )
 
 
 # ============================================================
-# BULK QUOTE - PARALLEL
+# SEQUENTIAL BULK QUOTES
 # ============================================================
 
-async def get_bulk_quotes_parallel(
+async def _sequential_bulk_quotes(
     requests: list[QuoteRequest],
 ) -> list[QuoteResponse]:
     """
-    Process all shipments concurrently.
+    Execute bulk quotes sequentially.
 
-    There are two levels of concurrency:
+    Used only for optional benchmarking.
+    """
 
-    Level 1:
-        Multiple shipments run together.
+    results: list[QuoteResponse] = []
 
-    Level 2:
-        For each shipment, all carriers run together
-        using asyncio.gather().
+    for request in requests:
+
+        result = await _async_get_quotes(
+            request
+        )
+
+        results.append(
+            result
+        )
+
+    return results
+
+
+# ============================================================
+# PARALLEL BULK QUOTES
+# ============================================================
+
+async def _parallel_bulk_quotes(
+    requests: list[QuoteRequest],
+) -> list[QuoteResponse]:
+    """
+    Execute all shipment quotes concurrently.
+
+    R4 requirement:
+
+        asyncio.gather()
     """
 
     tasks = [
-        get_quote_response_async(
-            request.origin,
-            request.destination,
-            request.weight_kg,
-            request.preference,
+        _async_get_quotes(
+            request
         )
         for request in requests
     ]
@@ -986,36 +970,7 @@ async def get_bulk_quotes_parallel(
 
 
 # ============================================================
-# BULK QUOTE - SEQUENTIAL
-# ============================================================
-
-def get_bulk_quotes_sequential(
-    requests: list[QuoteRequest],
-) -> list[QuoteResponse]:
-    """
-    Process shipments one by one.
-
-    This is the baseline used to measure R4 speedup.
-    """
-
-    results = []
-
-    for request in requests:
-
-        result = get_quote_response_sequential(
-            request.origin,
-            request.destination,
-            request.weight_kg,
-            request.preference,
-        )
-
-        results.append(result)
-
-    return results
-
-
-# ============================================================
-# R4 BULK QUOTE
+# BULK QUOTE
 # ============================================================
 
 async def get_bulk_quotes(
@@ -1023,44 +978,44 @@ async def get_bulk_quotes(
     benchmark: bool = False,
 ) -> dict:
     """
-    R4 bulk quote implementation.
+    R4 asynchronous bulk quotation.
 
-    Requirements:
+    Maximum batch size:
 
-    - Maximum 20 shipments.
-    - All carriers queried in parallel.
-    - asyncio.gather() used.
-    - Parallel execution time measured.
-    - Optional sequential benchmark.
-    - Speedup calculated and logged.
+        20 shipments
+
+    Normal request:
+
+        parallel execution only
+
+    benchmark=true:
+
+        sequential execution is also measured
+        and speedup is calculated.
     """
 
     # --------------------------------------------------------
-    # VALIDATE REQUEST
+    # VALIDATE
     # --------------------------------------------------------
 
-    if len(requests) == 0:
-
+    if not requests:
         raise ValueError(
             "At least one shipment is required"
         )
 
     if len(requests) > 20:
-
         raise ValueError(
-            "Batch quote supports up to 20 shipments"
+            "Maximum 20 shipments are allowed"
         )
 
     # --------------------------------------------------------
-    # PARALLEL QUOTE
+    # PARALLEL EXECUTION
     # --------------------------------------------------------
 
     parallel_start = time.perf_counter()
 
-    parallel_quotes = (
-        await get_bulk_quotes_parallel(
-            requests
-        )
+    quotes = await _parallel_bulk_quotes(
+        requests
     )
 
     parallel_seconds = (
@@ -1069,28 +1024,28 @@ async def get_bulk_quotes(
     )
 
     # --------------------------------------------------------
-    # DEFAULT PERFORMANCE
+    # PERFORMANCE RESULT
     # --------------------------------------------------------
 
     performance = {
         "shipment_count": len(requests),
         "parallel_seconds": round(
             parallel_seconds,
-            4,
+            6,
         ),
         "sequential_seconds": None,
         "speedup": None,
     }
 
     # --------------------------------------------------------
-    # BENCHMARK MODE
+    # OPTIONAL BENCHMARK
     # --------------------------------------------------------
 
     if benchmark:
 
         sequential_start = time.perf_counter()
 
-        get_bulk_quotes_sequential(
+        await _sequential_bulk_quotes(
             requests
         )
 
@@ -1114,7 +1069,7 @@ async def get_bulk_quotes(
             "sequential_seconds"
         ] = round(
             sequential_seconds,
-            4,
+            6,
         )
 
         performance[
@@ -1125,354 +1080,342 @@ async def get_bulk_quotes(
         )
 
         logger.info(
-            "R4 BULK QUOTE BENCHMARK | "
-            "Shipments=%s | "
-            "Sequential=%.4fs | "
-            "Parallel=%.4fs | "
-            "Speedup=%.2fx",
+            "R4 bulk quote benchmark: "
+            "shipments=%s sequential=%.4fs "
+            "parallel=%.4fs speedup=%.2fx",
             len(requests),
             sequential_seconds,
             parallel_seconds,
             speedup,
         )
 
-    else:
-
-        logger.info(
-            "R4 BULK QUOTE | "
-            "Shipments=%s | "
-            "Parallel=%.4fs",
-            len(requests),
-            parallel_seconds,
-        )
-
     # --------------------------------------------------------
-    # RESPONSE
+    # RETURN
     # --------------------------------------------------------
 
     return {
-        "quotes": parallel_quotes,
+        "quotes": quotes,
         "performance": performance,
     }
 
 
 # ============================================================
-# CONSOLIDATION SUGGESTIONS
+# CONSOLIDATION
 # ============================================================
+
+def _normalize_destination(
+    destination: str,
+) -> str:
+    """
+    Normalize destination text for comparison.
+    """
+
+    return " ".join(
+        destination.strip().lower().split()
+    )
+
 
 def get_consolidation_suggestions() -> list[dict]:
     """
-    Simple rule-based consolidation.
+    Find active shipments that can potentially
+    be consolidated.
 
-    Rule:
+    Conditions:
 
-        2 or more shipments
-        +
-        same destination
-        +
-        delivery dates within 2 days
-        =
-        consolidation suggestion
+    1. Same destination.
+    2. Estimated delivery within 2 days.
+    3. Shipment is not delivered.
+    4. Shipment is not cancelled.
     """
 
-    grouped: dict[
-        str,
-        list[ShipmentCreate],
-    ] = {}
+    active_shipments = [
+        shipment
+        for shipment in shipments.values()
+        if shipment.status
+        not in {
+            Status.delivered,
+            Status.cancelled,
+        }
+    ]
 
-    # --------------------------------------------------------
-    # GROUP BY DESTINATION
-    # --------------------------------------------------------
+    suggestions: list[dict] = []
 
-    for shipment in shipments.values():
+    visited: set[int] = set()
 
-        destination = (
-            shipment.destination
-            .strip()
-            .lower()
-        )
+    for index, first in enumerate(
+        active_shipments
+    ):
 
-        grouped.setdefault(
-            destination,
-            [],
-        ).append(shipment)
-
-    suggestions = []
-
-    # --------------------------------------------------------
-    # FIND SHIPMENTS WITHIN 2 DAYS
-    # --------------------------------------------------------
-
-    for destination, group in grouped.items():
-
-        if len(group) < 2:
+        if first.shipment_id in visited:
             continue
 
-        group.sort(
-            key=lambda shipment: (
-                shipment.estimated_delivery
+        group = [
+            first
+        ]
+
+        first_destination = (
+            _normalize_destination(
+                first.destination
             )
         )
 
-        for index in range(
-            len(group) - 1
-        ):
+        for second in active_shipments[
+            index + 1:
+        ]:
 
-            first = group[index]
+            second_destination = (
+                _normalize_destination(
+                    second.destination
+                )
+            )
 
-            for second in group[
-                index + 1:
-            ]:
+            if (
+                first_destination
+                != second_destination
+            ):
+                continue
 
-                days_apart = abs(
-                    (
-                        second.estimated_delivery
-                        - first.estimated_delivery
-                    ).days
+            date_difference = abs(
+                (
+                    first.estimated_delivery
+                    - second.estimated_delivery
+                ).days
+            )
+
+            if date_difference <= 2:
+
+                group.append(
+                    second
                 )
 
-                if days_apart <= 2:
+        if len(group) >= 2:
 
-                    suggestions.append(
-                        {
-                            "shipment_ids": [
-                                first.shipment_id,
-                                second.shipment_id,
-                            ],
-                            "destination": (
-                                first.destination
-                            ),
-                            "suggestion": (
-                                "These shipments can "
-                                "be combined to "
-                                "potentially save "
-                                "delivery cost."
-                            ),
-                            "reason": (
-                                "2 or more shipments "
-                                "have the same "
-                                "destination and "
-                                "delivery dates "
-                                "within 2 days."
-                            ),
-                            "days_apart": days_apart,
-                        }
-                    )
+            shipment_ids = [
+                shipment.shipment_id
+                for shipment in group
+            ]
+
+            visited.update(
+                shipment_ids
+            )
+
+            total_weight = sum(
+                shipment.weight_kg
+                for shipment in group
+            )
+
+            suggestions.append(
+                {
+                    "shipment_ids": shipment_ids,
+                    "destination": first.destination,
+                    "shipment_count": len(group),
+                    "total_weight_kg": total_weight,
+                    "reason": (
+                        "Shipments have the same "
+                        "destination and estimated "
+                        "delivery dates within 2 days."
+                    ),
+                }
+            )
 
     return suggestions
 
 
 # ============================================================
-# ETA EXPLANATION
+# ETA DISTANCE
 # ============================================================
 
-CARRIER_BASELINE_DAYS = {
-    Carrier.dhl: 2,
-    Carrier.fedex: 3,
-    Carrier.ups: 4,
-    Carrier.bluedart: 2,
+DISTANCES_KM = {
+
+    (
+        "hyderabad",
+        "mumbai",
+    ): 710,
+
+    (
+        "mumbai",
+        "hyderabad",
+    ): 710,
+
+    (
+        "hyderabad",
+        "delhi",
+    ): 1550,
+
+    (
+        "delhi",
+        "hyderabad",
+    ): 1550,
+
+    (
+        "hyderabad",
+        "bangalore",
+    ): 570,
+
+    (
+        "bangalore",
+        "hyderabad",
+    ): 570,
+
+    (
+        "hyderabad",
+        "chennai",
+    ): 630,
+
+    (
+        "chennai",
+        "hyderabad",
+    ): 630,
 }
 
 
-def estimate_distance_km(
+def _get_distance(
     origin: str,
     destination: str,
 ) -> int:
     """
-    Simple rule-based distance lookup.
+    Return known route distance.
 
-    This is intentionally not route optimization.
+    Unknown routes use 500 km as a mock distance.
     """
-
-    known_routes = {
-
-        (
-            "hyderabad",
-            "mumbai",
-        ): 710,
-
-        (
-            "mumbai",
-            "hyderabad",
-        ): 710,
-
-        (
-            "hyderabad",
-            "delhi",
-        ): 1550,
-
-        (
-            "delhi",
-            "hyderabad",
-        ): 1550,
-
-        (
-            "hyderabad",
-            "bangalore",
-        ): 570,
-
-        (
-            "bangalore",
-            "hyderabad",
-        ): 570,
-
-        (
-            "hyderabad",
-            "chennai",
-        ): 630,
-
-        (
-            "chennai",
-            "hyderabad",
-        ): 630,
-    }
 
     key = (
         origin.strip().lower(),
         destination.strip().lower(),
     )
 
-    return known_routes.get(
+    return DISTANCES_KM.get(
         key,
         500,
     )
 
 
+# ============================================================
+# ETA EXPLANATION
+# ============================================================
+
 def explain_eta(
-    shipment_or_id: ShipmentCreate | int,
+    shipment_id: int,
 ) -> dict:
     """
-    Return a plain-English ETA explanation.
+    Explain the shipment ETA using:
 
-    Factors:
-
-    - Distance
-    - Carrier baseline
-    - Dynamic reliability
-    - Mock weather flag
+    - origin
+    - destination
+    - route distance
+    - carrier
+    - carrier estimated days
+    - dynamic reliability
     """
 
-    # --------------------------------------------------------
-    # GET SHIPMENT
-    # --------------------------------------------------------
+    shipment = shipments.get(
+        shipment_id
+    )
 
-    if isinstance(
-        shipment_or_id,
-        int,
-    ):
-
-        shipment = get_shipment(
-            shipment_or_id
+    if shipment is None:
+        raise ValueError(
+            "Shipment not found"
         )
-
-        if shipment is None:
-
-            raise ValueError(
-                "Shipment not found"
-            )
-
-    else:
-
-        shipment = shipment_or_id
-
-    # --------------------------------------------------------
-    # BASIC DATA
-    # --------------------------------------------------------
 
     carrier = shipment.carrier
 
-    distance = estimate_distance_km(
+    adapter = CARRIERS.get(
+        carrier
+    )
+
+    if adapter is None:
+        raise ValueError(
+            "Unsupported carrier"
+        )
+
+    distance_km = _get_distance(
         shipment.origin,
         shipment.destination,
     )
 
-    baseline = CARRIER_BASELINE_DAYS.get(
-        carrier,
-        3,
+    reliability_score = (
+        get_reliability_score(
+            carrier
+        )
     )
 
-    reliability = get_reliability_score(
-        carrier
+    estimated_days = (
+        adapter.estimated_days
     )
 
     # --------------------------------------------------------
-    # WEATHER FLAG
+    # RELIABILITY DESCRIPTION
     # --------------------------------------------------------
 
-    weather_flag = False
+    if reliability_score >= 0.90:
 
-    # --------------------------------------------------------
-    # ETA CALCULATION
-    # --------------------------------------------------------
+        reliability_description = (
+            "high carrier reliability"
+        )
 
-    estimated_days = baseline
+    elif reliability_score >= 0.75:
 
-    # Lower reliability adds one day.
-    if reliability < 0.80:
+        reliability_description = (
+            "moderate carrier reliability"
+        )
 
-        estimated_days += 1
+    else:
 
-    # Long distance adds one day.
-    if distance > 1500:
-
-        estimated_days += 1
-
-    # Mock weather rule.
-    if weather_flag:
-
-        estimated_days += 1
+        reliability_description = (
+            "lower carrier reliability"
+        )
 
     # --------------------------------------------------------
     # EXPLANATION
     # --------------------------------------------------------
 
-    weather_text = (
-        "A weather delay is simulated."
-        if weather_flag
-        else
-        "No weather delay is currently simulated."
-    )
-
     explanation = (
-        f"The ETA is approximately "
-        f"{estimated_days} day(s). "
-        f"The route distance is about "
-        f"{distance} km. "
-        f"{carrier.value.title()} has a "
-        f"baseline delivery time of "
-        f"{baseline} day(s). "
-        f"The current dynamically calculated "
-        f"reliability score is "
-        f"{reliability:.2f}. "
-        f"{weather_text}"
+        f"Estimated delivery is based on the "
+        f"{carrier.value.upper()} carrier estimate "
+        f"of {estimated_days} days, the route distance "
+        f"of approximately {distance_km} km, and the "
+        f"current reliability score of "
+        f"{reliability_score:.2f}, indicating "
+        f"{reliability_description}."
     )
 
     return {
-        "shipment_id": shipment.shipment_id,
+        "shipment_id": shipment_id,
         "origin": shipment.origin,
         "destination": shipment.destination,
         "carrier": carrier.value,
-        "distance_km": distance,
-        "carrier_baseline_days": baseline,
-        "reliability_score": reliability,
-        "weather_flag": weather_flag,
+        "distance_km": distance_km,
+        "reliability_score": reliability_score,
         "estimated_days": estimated_days,
         "explanation": explanation,
     }
 
 
 # ============================================================
-# SHIPMENT HISTORY
+# CIRCUIT BREAKER STATUS
 # ============================================================
 
-def get_shipment_history(
-    shipment_id: int,
-) -> list[ShipmentEvent]:
+def get_circuit_breaker_status() -> dict:
+    """
+    Return current circuit breaker information
+    for every carrier.
+    """
 
-    return sorted(
-        shipment_events.get(
-            shipment_id,
-            [],
-        ),
-        key=lambda event: event.timestamp,
-    )
+    result = {}
+
+    for carrier, breaker in (
+        CIRCUIT_BREAKERS.items()
+    ):
+
+        result[
+            carrier.value
+        ] = {
+            "state": breaker.state,
+            "failure_count": breaker.failure_count,
+            "threshold": breaker.FAILURE_THRESHOLD,
+            "recovery_timeout_seconds": (
+                breaker.RECOVERY_TIMEOUT
+            ),
+        }
+
+    return result

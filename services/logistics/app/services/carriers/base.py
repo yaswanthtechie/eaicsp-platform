@@ -1,28 +1,10 @@
 from abc import ABC, abstractmethod
-from functools import wraps
-from typing import Any, Callable, TypeVar
 
 from tenacity import (
     retry,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-)
-
-from app.schemas.shipment import (
-    Carrier,
-    CarrierRate,
-    TrackingInfo,
-)
-
-
-# ============================================================
-# TYPE
-# ============================================================
-
-F = TypeVar(
-    "F",
-    bound=Callable[..., Any],
 )
 
 
@@ -32,44 +14,40 @@ F = TypeVar(
 
 class CarrierError(Exception):
     """
-    Raised when a carrier API fails or is unavailable.
+    Exception raised when a carrier API operation fails.
     """
 
     pass
 
 
 # ============================================================
-# RETRY CONFIGURATION
+# RETRY DECORATOR
 # ============================================================
 
-def api_retry() -> Callable[[F], F]:
+def api_retry():
     """
-    Retry a carrier API call up to 3 attempts.
+    Retry carrier API calls up to 3 times.
 
-    Retry sequence:
+    Retry pattern:
 
-        Attempt 1 -> immediate
-        Attempt 2 -> wait 1 second
-        Attempt 3 -> wait 2 seconds
+        Attempt 1
+        Wait 1 second
+        Attempt 2
+        Wait 2 seconds
+        Attempt 3
 
-    Exponential backoff:
-
-        1 second
-        2 seconds
-        4 seconds maximum
-
-    Only CarrierError is retried.
+    Retry happens only for CarrierError.
     """
 
     return retry(
+        retry=retry_if_exception_type(
+            CarrierError
+        ),
         stop=stop_after_attempt(3),
         wait=wait_exponential(
             multiplier=1,
             min=1,
             max=4,
-        ),
-        retry=retry_if_exception_type(
-            CarrierError
         ),
         reraise=True,
     )
@@ -81,7 +59,7 @@ def api_retry() -> Callable[[F], F]:
 
 class BaseCarrier(ABC):
     """
-    Common interface for all carrier implementations.
+    Base class for all carrier adapters.
 
     Every carrier must implement:
 
@@ -89,54 +67,24 @@ class BaseCarrier(ABC):
         get_tracking()
     """
 
-    carrier: Carrier
-
-    base_price: float
-
-    estimated_days: int
-
-    # --------------------------------------------------------
-    # RELIABILITY
-    # --------------------------------------------------------
-
-    # This is only a default class attribute.
-    #
-    # IMPORTANT:
-    # R4 does NOT use this value as the final reliability
-    # score.
-    #
-    # shipment_service.py calculates the real score from
-    # carrier_history.
-    reliability_score: float = 0.0
-
-    # --------------------------------------------------------
-    # GET RATE
-    # --------------------------------------------------------
-
     @abstractmethod
     def get_rate(
         self,
         origin: str,
         destination: str,
         weight_kg: float,
-    ) -> CarrierRate:
+    ):
         """
-        Return a shipping rate from the carrier.
+        Return the shipping rate for the carrier.
         """
-
         raise NotImplementedError
-
-    # --------------------------------------------------------
-    # GET TRACKING
-    # --------------------------------------------------------
 
     @abstractmethod
     def get_tracking(
         self,
         tracking_number: str,
-    ) -> TrackingInfo:
+    ):
         """
-        Return tracking information from the carrier.
+        Return tracking information for a shipment.
         """
-
         raise NotImplementedError
