@@ -14,9 +14,9 @@ class OneClassSVMModel:
 
     def __init__(
         self,
-        nu=0.004,
-        kernel="rbf",
-        gamma="scale",
+        nu=0.006,
+        kernel="poly",
+        gamma=0.01,
         degree=3,
     ):
         self.scaler = StandardScaler()
