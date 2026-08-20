@@ -4,7 +4,7 @@ from sqlalchemy import (
     Integer,
     Float,
     PrimaryKeyConstraint,
-    Index,
+    
 )
 
 from app.database import Base
@@ -60,10 +60,5 @@ class Inventory(Base):
             "warehouse_id",
         ),
 
-        Index(
-            "ix_inventory_sku_warehouse_quantity",
-            "sku_id",
-            "warehouse_id",
-            "quantity_on_hand",
-        ),
+        
     )

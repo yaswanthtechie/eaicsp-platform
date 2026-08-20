@@ -43,9 +43,7 @@ class SalesHistory(Base):
         ),
 
         Index(
-            "ix_sales_history_sku_warehouse_date",
-            "sku_id",
-            "warehouse_id",
+            "ix_sales_history_sale_date",
             "sale_date",
         ),
     )

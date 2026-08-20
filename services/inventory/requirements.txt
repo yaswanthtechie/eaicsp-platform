@@ -6,10 +6,10 @@ uvicorn[standard]==0.34.0
 sqlalchemy==2.0.36
 
 # PostgreSQL Driver
-psycopg2-binary==2.9.10
+psycopg2-binary>=2.9.10
 
 # Data Validation and Configuration
-pydantic==2.10.4
+pydantic>=2.10.4,<3
 pydantic-settings==2.7.0
 
 # Environment Variables

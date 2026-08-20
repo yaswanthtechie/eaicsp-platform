@@ -41,12 +41,18 @@ def find_transfer_suggestion(
     # FIND OTHER WAREHOUSES WITH SAME SKU
     # -----------------------------------------------------
 
-    source_warehouses = (
+    if context is not None:
+        source_warehouses = [
+            item
+        for item in context["inventory_by_sku"].get(destination.sku_id, [])
+        if item.warehouse_id != destination.warehouse_id
+        ]
+    else:
+        source_warehouses = (
         db.query(Inventory)
         .filter(
             Inventory.sku_id == destination.sku_id,
-            Inventory.warehouse_id
-            != destination.warehouse_id,
+            Inventory.warehouse_id != destination.warehouse_id,
         )
         .all()
     )
