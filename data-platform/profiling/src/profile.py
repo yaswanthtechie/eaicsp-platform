@@ -68,10 +68,7 @@ def build_column_summary(df):
         null_count = df[col].isnull().sum()
         unique_count = df[col].nunique()
 
-        if pd.api.types.is_numeric_dtype(df[col]):
-            role = "Measure"
-
-        elif col.lower() == "id":
+        if col.lower() == "id":
             role = "ID"
 
         elif col.lower().endswith("_id"):
@@ -81,6 +78,9 @@ def build_column_summary(df):
                 role = "ID"
             else:
                 role = "Foreign Key"
+
+        elif pd.api.types.is_numeric_dtype(df[col]):
+            role = "Measure"
 
         elif unique_count <= 50:
             role = "Category"

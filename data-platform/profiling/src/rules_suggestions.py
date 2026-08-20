@@ -1,3 +1,5 @@
+import yaml
+
 def suggest_rules(report, null_threshold=0.2):
     """
     Generate suggested data-quality rules from profiling results.
@@ -41,7 +43,7 @@ def suggest_rules(report, null_threshold=0.2):
     return {"rules": rules}
 
 
-import yaml
+
 
 
 def write_rules_yaml(
