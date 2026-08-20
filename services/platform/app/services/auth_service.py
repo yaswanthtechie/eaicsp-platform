@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
-
+from app.services.audit_service import create_audit_log
 from app.core.password_validator import validate_password
 from app.core.security import (
     create_access_token,
@@ -11,14 +11,25 @@ from app.core.security import (
     verify_password,
 )
 
+from app.core.security import hash_password
 from app.models.users import User
+import secrets
+from app.models.password_reset_tokens import PasswordResetToken
 from app.models.refresh_token import RefreshToken
-from app.models.failed_login_attempts import FailedLoginAttempt
 from app.schemas.auth import RegisterRequest
+from app.models.failed_login_attempts import FailedLoginAttempt
+
+from app.services.audit_service import (
+    LOGIN_SUCCESS,
+    LOGIN_FAILED ,
+    create_audit_log,
+    PASSWORD_RESET
+)
 
 MAX_ATTEMPTS = 5
 WINDOW = timedelta(minutes=15)
 
+RESET_TOKEN_EXPIRE_MINUTES = 15
 # ============================================================
 # REFRESH TOKEN
 # ============================================================
@@ -74,6 +85,7 @@ def revoke_refresh_token(
     db.commit()
 
     return True
+   
 
 # ============================================================
 # FAILED LOGIN TRACKING
@@ -251,7 +263,7 @@ def login_user(
         username=username,
         password=password,
     )
-
+   
     # --------------------------------------------------------
     # Wrong username OR wrong password
     # --------------------------------------------------------
@@ -262,7 +274,15 @@ def login_user(
             email=username,
             ip_address=client_ip,
         )
-
+        create_audit_log(
+            db=db,
+            event_type=LOGIN_FAILED,
+            email=username,
+            ip_address=client_ip,
+            details="Invalid credentials",
+        )
+        db.commit()
+        
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
@@ -274,6 +294,15 @@ def login_user(
             email=username,
             ip_address=client_ip,
         )
+        create_audit_log(
+            db=db,
+            event_type=LOGIN_FAILED,
+            user_id=user.id,
+            email=user.email,
+            ip_address=client_ip,
+            details="Inactive user",
+        )
+        db.commit()
 
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -285,7 +314,7 @@ def login_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User role is not assigned",
         )
-
+   
     # --------------------------------------------------------
     # Access token
     # --------------------------------------------------------
@@ -320,9 +349,135 @@ def login_user(
         token=refresh_token,
         expires_at=refresh_expires_at,
     )
-
+    create_audit_log(
+        db=db,
+        event_type=LOGIN_SUCCESS,
+        user_id=user.id,
+        email=user.email,
+        ip_address=client_ip,
+        details="Login Successful"
+    )
+    db.commit()
+    
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
         "token_type": "bearer",
     }
+
+
+def request_password_reset(
+    db: Session,
+    email: str,
+):
+    email = email.lower()
+
+    user = (
+        db.query(User)
+        .filter(User.email == email)
+        .first()
+    )
+    if user is None:
+        return
+
+    token = secrets.token_urlsafe(32)
+
+    expires_at = (
+        datetime.now(timezone.utc)
+        + timedelta(minutes=RESET_TOKEN_EXPIRE_MINUTES)
+    )
+
+    reset_token = PasswordResetToken(
+        user_id=user.id,
+        token=token,
+        expires_at=expires_at,
+        used=False,
+    )
+
+    db.add(reset_token)
+
+    db.commit()
+
+    print(
+        f"[MOCK EMAIL] Password reset token "
+        f"for {user.email}: {token}"
+    )
+
+
+def reset_password(
+    db: Session,
+    token: str,
+    new_password: str,
+):
+    reset_token = (
+        db.query(PasswordResetToken)
+        .filter(
+            PasswordResetToken.token == token
+        )
+        .first()
+    )
+
+    if reset_token is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid password reset token",
+        )
+
+    if reset_token.used:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password reset token already used",
+        )
+
+    '''now = datetime.now(timezone.utc)
+
+    if reset_token.expires_at <= now:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password reset token expired",
+        )'''
+
+    now = datetime.utcnow()
+
+    if reset_token.expires_at <= now:
+        raise HTTPException(
+        status_code=400,
+        detail="Password reset token has expired",
+    )
+
+    user = (
+        db.query(User)
+        .filter(User.id == reset_token.user_id)
+        .first()
+    )
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid password reset token",
+        )
+
+    validate_password(new_password)
+
+    user.password = hash_password(new_password)
+
+    db.query(RefreshToken).filter(
+    RefreshToken.user_id == user.id,
+    RefreshToken.is_revoked.is_(False),
+    ).update(
+    {
+        RefreshToken.is_revoked: True
+    },
+    synchronize_session=False,
+    )
+
+    reset_token.used = True
+    create_audit_log(
+        db=db,
+        event_type=PASSWORD_RESET,
+        user_id=user.id,
+        email=user.email,
+        details="Password reset completed",
+    )
+    db.commit()
+
