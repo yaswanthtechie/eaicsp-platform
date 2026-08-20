@@ -42,6 +42,22 @@ class TestProfile(unittest.TestCase):
             "LOW"
         )
 
+    def test_foreign_key_detection(self):
+        df = pd.DataFrame({
+            "warehouse_id": ["WH1", "WH2", "WH1", "WH3", "WH2"],
+            "quantity_sold": [10, 20, 30, 40, 50]
+        })
+
+        report = profile(df)
+
+        roles = {
+            item["column"]: item["role"]
+            for item in report["column_summary"]
+        }
+
+        self.assertEqual(roles["warehouse_id"], "Foreign Key")
+        self.assertEqual(roles["quantity_sold"], "Measure")
+
 
 if __name__ == "__main__":
     unittest.main()

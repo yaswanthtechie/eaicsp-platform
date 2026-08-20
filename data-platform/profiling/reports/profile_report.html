@@ -136,7 +136,7 @@ h1 {
 <td>0</td>
 <td>0.0</td>
 <td>50</td>
-<td>ID</td>
+<td>Foreign Key</td>
 <td>High Cardinality</td>
 </tr>
 
@@ -146,7 +146,7 @@ h1 {
 <td>0</td>
 <td>0.0</td>
 <td>5</td>
-<td>ID</td>
+<td>Foreign Key</td>
 <td>Category</td>
 </tr>
 
@@ -336,107 +336,38 @@ h1 {
 
 </table>
 
-<h2>Data Drift Report</h2>
+<h2>Anomaly Correlation</h2>
 
-<p><b>Old Dataset Shape:</b> (5000, 5)</p>
-<p><b>New Dataset Shape:</b> (5005, 5)</p>
-
-<h3>Overall Drift Status</h3>
-<p><b>Status:</b> Major Drift</p>
-
-<h3>Datatype Changes</h3>
+<p><b>Outlier Column:</b> quantity_sold</p>
+<p><b>Outlier Rows:</b> 50</p>
 
 <table>
 <tr>
-<th>Column</th>
-<th>Old Type</th>
-<th>New Type</th>
-</tr>
-
-</table>
-
-<h3>Null Percentage Changes</h3>
-
-<table>
-<tr>
-<th>Column</th>
-<th>Old Null %</th>
-<th>New Null %</th>
-</tr>
-
-</table>
-
-<h3>Numeric Mean Changes</h3>
-
-<table>
-<tr>
-<th>Column</th>
-<th>Old Mean</th>
-<th>New Mean</th>
-</tr>
-
-</table>
-
-<h3>New Categorical Values</h3>
-
-<table>
-<tr>
-<th>Column</th>
-<th>New Values</th>
-</tr>
-
-        <tr>
-        <td>sku_id</td>
-        <td>SKU052, SKU054, SKU053, SKU051, SKU055</td>
-        </tr>
-
-        <tr>
-        <td>warehouse_id</td>
-        <td>WH6</td>
-        </tr>
-
-</table>
-
-<h3>Column Drift Status</h3>
-
-<table>
-<tr>
-<th>Column</th>
-<th>Drift Status</th>
-<th>Reason</th>
-</tr>
-
-<tr>
-<td>date</td>
-<td>no_drift</td>
-<td>No detected changes</td>
-</tr>
-
-<tr>
-<td>sku_id</td>
-<td>major_drift</td>
-<td>5 new categorical values</td>
-</tr>
-
-<tr>
-<td>warehouse_id</td>
-<td>minor_drift</td>
-<td>1 new categorical value(s)</td>
-</tr>
-
-<tr>
-<td>quantity_sold</td>
-<td>no_drift</td>
-<td>No detected changes</td>
+<th>Related Column</th>
+<th>Issue</th>
+<th>Outlier Row Rate</th>
+<th>Normal Row Rate</th>
+<th>Likelihood</th>
 </tr>
 
 <tr>
 <td>unit_price</td>
-<td>no_drift</td>
-<td>No detected changes</td>
+<td>Missing values</td>
+<td>8.0%</td>
+<td>2.95%</td>
+<td>2.71x</td>
 </tr>
 
 </table>
+
+</table>
+
+<h2>Historical Null Rate Trend</h2>
+
+<p><b>Column:</b> quantity_sold</p>
+
+<img src="quantity_sold_null_trend.png" alt="Quantity Sold Null Rate Trend"
+     style="max-width: 800px;">
 
 <script>
 $(document).ready(function() {
