@@ -16,36 +16,43 @@ class EngineState(str, Enum):
 
 class AdaptiveEngine:
     """
-    Adaptive anomaly-detection lifecycle.
+    Coordinates:
 
-    Model-specific configuration is applied during initialize()
-    so that direct AdaptiveEngine usage and AdaptiveEngineManager
-    usage behave identically.
+        - score-regime detection
+        - temporal validation
+        - adaptive thresholding
 
-    Production model configuration:
+    Lifecycle:
 
-        iforest:
-            shift_sigma=1.50
-            stability_tolerance=0.20
-            adaptive_percentile=98.0
+        STABLE
+            |
+            | score distribution changes
+            v
+        REGIME_CONFIRMATION
+            |
+            | stable + temporally normal
+            v
+        ACCEPT NEW REGIME
+            |
+            v
+        STABLE
 
-        lof:
-            shift_sigma=2.50
-            stability_tolerance=0.30
-            adaptive_percentile=97.0
+    Genuine sustained temporal drift:
 
-        ocsvm:
-            shift_sigma=2.25
-            stability_tolerance=0.20
-            adaptive_percentile=97.0
+        REGIME_CONFIRMATION
+            |
+            | TemporalDetector confirms drift
+            v
+        DRIFT_LOCKED
+            |
+            | recovery
+            v
+        STABLE
 
-    For model_name=None, the constructor values are preserved.
-    This keeps generic/unit-test usage backwards compatible.
+    TemporalDetector owns temporal persistence.
+    AdaptiveEngine does not maintain another independent
+    consecutive-window drift counter.
     """
-
-    # ============================================================
-    # MODEL-SPECIFIC PRODUCTION CONFIGURATION
-    # ============================================================
 
     MODEL_CONFIG = {
         "iforest": {
@@ -84,13 +91,19 @@ class AdaptiveEngine:
             )
 
         if candidate_sizes is None:
-            candidate_sizes = [10, 25, 50, 100, 200]
+            candidate_sizes = [
+                10,
+                25,
+                50,
+                100,
+                200,
+            ]
 
         candidate_sizes = sorted(
             set(
-                int(x)
-                for x in candidate_sizes
-                if int(x) > 0
+                int(value)
+                for value in candidate_sizes
+                if int(value) > 0
             )
         )
 
@@ -114,25 +127,27 @@ class AdaptiveEngine:
                 "min_stable_blocks must be at least 1."
             )
 
+        if adaptive_window_size < 1:
+            raise ValueError(
+                "adaptive_window_size must be positive."
+            )
+
+        if not 0 < adaptive_percentile < 100:
+            raise ValueError(
+                "adaptive_percentile must be between 0 and 100."
+            )
+
         if quarantine_recovery_required < 1:
             raise ValueError(
                 "quarantine_recovery_required must be positive."
             )
 
-        self.baseline_size = int(
-            baseline_size
-        )
-
+        self.baseline_size = int(baseline_size)
         self.candidate_sizes = candidate_sizes
-
-        self.shift_sigma = float(
-            shift_sigma
-        )
-
+        self.shift_sigma = float(shift_sigma)
         self.stability_tolerance = float(
             stability_tolerance
         )
-
         self.min_stable_blocks = int(
             min_stable_blocks
         )
@@ -140,7 +155,6 @@ class AdaptiveEngine:
         self.adaptive_window_size = int(
             adaptive_window_size
         )
-
         self.adaptive_percentile = float(
             adaptive_percentile
         )
@@ -210,6 +224,7 @@ class AdaptiveEngine:
 
         self._post_drift_quarantine = False
         self._quarantine_recovery_count = 0
+
         self._quarantine_recovery_required = int(
             quarantine_recovery_required
         )
@@ -226,16 +241,6 @@ class AdaptiveEngine:
         self,
         model_name,
     ):
-        """
-        Apply production model-specific configuration.
-
-        This is intentionally done during initialize(), rather
-        than only in AdaptiveEngineManager, because tests and
-        other callers may construct AdaptiveEngine directly.
-
-        Unknown/None model names retain constructor settings.
-        """
-
         if model_name is None:
             return
 
@@ -321,7 +326,7 @@ class AdaptiveEngine:
         return values
 
     # ============================================================
-    # RESULTS
+    # EMPTY RESULT
     # ============================================================
 
     def _empty_result(self):
@@ -363,6 +368,10 @@ class AdaptiveEngine:
             "sample_count": self.total_samples,
         }
 
+    # ============================================================
+    # RESULT BUILDER
+    # ============================================================
+
     def _build_result(
         self,
         score,
@@ -397,10 +406,18 @@ class AdaptiveEngine:
 
         result = {
             "state": self.state.value,
-            "is_anomaly": bool(is_anomaly),
-            "alert": bool(alert),
-            "adapted": bool(adapted),
-            "regime_changed": bool(regime_changed),
+            "is_anomaly": bool(
+                is_anomaly
+            ),
+            "alert": bool(
+                alert
+            ),
+            "adapted": bool(
+                adapted
+            ),
+            "regime_changed": bool(
+                regime_changed
+            ),
             "regime_confirmed": bool(
                 regime_confirmed
             ),
@@ -416,7 +433,9 @@ class AdaptiveEngine:
             "temporal_drift": bool(
                 temporal_drift
             ),
-            "adaptation_frozen": bool(frozen),
+            "adaptation_frozen": bool(
+                frozen
+            ),
             "transition_active": bool(
                 self._transition_active
             ),
@@ -450,7 +469,9 @@ class AdaptiveEngine:
                     False,
                 )
             ),
-            "score": float(score),
+            "score": float(
+                score
+            ),
             "threshold": (
                 None
                 if threshold is None
@@ -487,12 +508,14 @@ class AdaptiveEngine:
             "sample_count": self.total_samples,
         }
 
-        self.last_result = dict(result)
+        self.last_result = dict(
+            result
+        )
 
         return result
 
     # ============================================================
-    # INITIALIZE
+    # INITIALIZATION
     # ============================================================
 
     def initialize(
@@ -509,20 +532,6 @@ class AdaptiveEngine:
                 "calibration_scores must not be empty."
             )
 
-        # --------------------------------------------------------
-        # IMPORTANT:
-        #
-        # Apply model configuration BEFORE initializing the
-        # regime detector and adaptive threshold.
-        #
-        # This fixes the direct:
-        #
-        #     AdaptiveEngine()
-        #     engine.initialize(..., model_name="lof")
-        #
-        # path so it behaves exactly like the manager path.
-        # --------------------------------------------------------
-
         self._apply_model_configuration(
             model_name
         )
@@ -538,6 +547,7 @@ class AdaptiveEngine:
         self.temporal_detector.reset()
 
         self.state = EngineState.STABLE
+
         self.initialized = True
         self.model_name = model_name
 
@@ -548,10 +558,21 @@ class AdaptiveEngine:
         self.regime_transition_count = 0
         self.regime_confirmation_count = 0
 
-        self._clear_transition()
-        self._clear_quarantine()
+        self._transition_active = False
+
+        self._pending_regime_scores = None
+        self._pending_threshold = None
+        self._pending_regime_confirmed = False
 
         self._regime_confirmation_emitted = False
+
+        self._temporal_validation_started = False
+        self._temporal_clean_checks = 0
+
+        self._regime_validation_samples = 0
+
+        self._post_drift_quarantine = False
+        self._quarantine_recovery_count = 0
 
         self._drift_detected = False
 
@@ -614,6 +635,7 @@ class AdaptiveEngine:
 
         self._temporal_validation_started = False
         self._temporal_clean_checks = 0
+
         self._regime_validation_samples = 0
 
     def _clear_quarantine(self):
@@ -621,10 +643,121 @@ class AdaptiveEngine:
         self._quarantine_recovery_count = 0
 
     # ============================================================
+    # REGIME STABILITY
+    # ============================================================
+
+    def _has_regime_stability(
+        self,
+        regime_result=None,
+    ):
+        if regime_result is None:
+            regime_result = {}
+
+        try:
+            state = (
+                self.regime_detector.get_state()
+            )
+        except Exception:
+            state = {}
+
+        if not isinstance(
+            state,
+            dict,
+        ):
+            state = {}
+
+        if not isinstance(
+            regime_result,
+            dict,
+        ):
+            regime_result = {}
+
+        explicit_keys = (
+            "stable",
+            "is_stable",
+            "regime_stable",
+            "candidate_stable",
+            "stable_regime",
+        )
+
+        for key in explicit_keys:
+
+            value = regime_result.get(
+                key
+            )
+
+            if isinstance(
+                value,
+                (bool, np.bool_),
+            ) and bool(value):
+                return True
+
+            value = state.get(
+                key
+            )
+
+            if isinstance(
+                value,
+                (bool, np.bool_),
+            ) and bool(value):
+                return True
+
+        for source in (
+            regime_result,
+            state,
+        ):
+
+            for key in (
+                "stable_blocks",
+                "consecutive_stable_blocks",
+                "regime_stable_blocks",
+            ):
+
+                if key not in source:
+                    continue
+
+                try:
+                    blocks = int(
+                        source[key]
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    continue
+
+                if (
+                    blocks
+                    >= self.min_stable_blocks
+                ):
+                    return True
+
+        if self.regime_detector.is_confirmed():
+            return True
+
+        minimum_candidate = min(
+            self.candidate_sizes
+        )
+
+        required = max(
+            minimum_candidate,
+            self.min_stable_blocks
+            * minimum_candidate,
+        )
+
+        return (
+            self._regime_validation_samples
+            >= required
+        )
+
+    # ============================================================
     # TEMPORAL
     # ============================================================
 
-    def _check_temporal(self, temperature):
+    def _check_temporal(
+        self,
+        temperature,
+    ):
         return self.temporal_detector.update(
             temperature
         )
@@ -644,9 +777,11 @@ class AdaptiveEngine:
         if scores.size == 0:
             return False
 
-        self._pending_regime_scores = scores.copy()
+        self._pending_regime_scores = (
+            scores.copy()
+        )
 
-        candidate = AdaptiveThreshold(
+        candidate_threshold = AdaptiveThreshold(
             window_size=(
                 self.adaptive_threshold.window_size
             ),
@@ -655,10 +790,12 @@ class AdaptiveEngine:
             ),
         )
 
-        candidate.initialize(scores)
+        candidate_threshold.initialize(
+            scores
+        )
 
         self._pending_threshold = (
-            candidate.get_threshold()
+            candidate_threshold.get_threshold()
         )
 
         self._pending_regime_confirmed = True
@@ -674,12 +811,13 @@ class AdaptiveEngine:
             return False
 
         self._regime_confirmation_emitted = True
+
         self.regime_confirmation_count += 1
 
         return True
 
     # ============================================================
-    # COMMIT
+    # COMMIT REGIME
     # ============================================================
 
     def _commit_pending_regime(self):
@@ -713,6 +851,7 @@ class AdaptiveEngine:
         self.temporal_detector.reset()
 
         self._drift_detected = False
+
         self.state = EngineState.STABLE
 
         return True
@@ -723,6 +862,7 @@ class AdaptiveEngine:
 
     def _enter_drift_locked(self):
         self.regime_detector.reject_candidate()
+
         self.temporal_detector.reset()
 
         self._clear_transition()
@@ -733,6 +873,7 @@ class AdaptiveEngine:
         self._quarantine_recovery_count = 0
 
         self._drift_detected = True
+
         self.state = EngineState.DRIFT_LOCKED
 
     # ============================================================
@@ -746,8 +887,10 @@ class AdaptiveEngine:
     ):
         self.state = EngineState.DRIFT_LOCKED
 
-        temporal_result = self._check_temporal(
-            temperature
+        temporal_result = (
+            self._check_temporal(
+                temperature
+            )
         )
 
         temporal_drift = bool(
@@ -758,9 +901,11 @@ class AdaptiveEngine:
         )
 
         if temporal_drift:
+
             self._quarantine_recovery_count = 0
-            self.alert_count += 1
+
         else:
+
             self._quarantine_recovery_count += 1
 
             if (
@@ -776,7 +921,9 @@ class AdaptiveEngine:
         is_anomaly = (
             False
             if threshold is None
-            else bool(score > threshold)
+            else bool(
+                score > threshold
+            )
         )
 
         return self._build_result(
@@ -795,6 +942,7 @@ class AdaptiveEngine:
         self._clear_quarantine()
 
         self.temporal_detector.reset()
+
         self.regime_detector.reset()
 
         self._clear_transition()
@@ -802,6 +950,7 @@ class AdaptiveEngine:
         self._regime_confirmation_emitted = False
 
         self._drift_detected = False
+
         self.state = EngineState.STABLE
 
     # ============================================================
@@ -815,44 +964,22 @@ class AdaptiveEngine:
         regime_result,
     ):
         self._transition_active = True
+
         self.regime_transition_count += 1
 
-        self.state = EngineState.REGIME_CONFIRMATION
+        self.state = (
+            EngineState.REGIME_CONFIRMATION
+        )
 
         self._temporal_validation_started = True
         self._temporal_clean_checks = 0
-
         self._regime_validation_samples = 1
 
-        temporal_result = self._check_temporal(
-            temperature
-        )
-
-        temporal_drift = bool(
-            temporal_result.get(
-                "is_drift",
-                False,
+        temporal_result = (
+            self._check_temporal(
+                temperature
             )
         )
-
-        if temporal_drift:
-            self.alert_count += 1
-
-            self._enter_drift_locked()
-
-            return (
-                temporal_result,
-                True,
-                False,
-                True,
-                False,
-            )
-
-        if not temporal_result.get(
-            "is_trend",
-            False,
-        ):
-            self._temporal_clean_checks = 1
 
         detector_confirmed = bool(
             regime_result.get(
@@ -862,21 +989,52 @@ class AdaptiveEngine:
             or self.regime_detector.is_confirmed()
         )
 
-        confirmation_event = False
+        # A single observation is never sufficient to call
+        # temporal drift. TemporalDetector itself owns persistence.
 
         if detector_confirmed:
-            self._stage_confirmed_regime()
 
-            confirmation_event = (
-                self._emit_confirmation_event()
+            staged = (
+                self._stage_confirmed_regime()
             )
+
+            confirmation_event = False
+
+            if staged:
+                confirmation_event = (
+                    self._emit_confirmation_event()
+                )
+
+            if temporal_result.get(
+                "is_trend",
+                False,
+            ):
+                self._temporal_clean_checks = 0
+            else:
+                self._temporal_clean_checks = 1
+
+            return (
+                temporal_result,
+                True,
+                False,
+                False,
+                confirmation_event,
+            )
+
+        if temporal_result.get(
+            "is_trend",
+            False,
+        ):
+            self._temporal_clean_checks = 0
+        else:
+            self._temporal_clean_checks = 1
 
         return (
             temporal_result,
             True,
             False,
             False,
-            confirmation_event,
+            False,
         )
 
     # ============================================================
@@ -888,20 +1046,30 @@ class AdaptiveEngine:
         score,
         temperature,
     ):
-        self.state = EngineState.REGIME_CONFIRMATION
+        self.state = (
+            EngineState.REGIME_CONFIRMATION
+        )
 
         self._regime_validation_samples += 1
 
         regime_result = (
-            self.regime_detector.observe(score)
+            self.regime_detector.observe(
+                score
+            )
         )
 
-        detector_confirmed = (
-            self.regime_detector.is_confirmed()
+        regime_confirmed = bool(
+            regime_result.get(
+                "regime_confirmed",
+                False,
+            )
+            or self.regime_detector.is_confirmed()
         )
 
-        temporal_result = self._check_temporal(
-            temperature
+        temporal_result = (
+            self._check_temporal(
+                temperature
+            )
         )
 
         temporal_drift = bool(
@@ -911,7 +1079,18 @@ class AdaptiveEngine:
             )
         )
 
+        confirmation_event = False
+
+        # --------------------------------------------------------
+        # IMPORTANT:
+        #
+        # TemporalDetector has already performed its persistence
+        # check. If it confirms temporal drift, DRIFT_LOCKED must
+        # win over regime stability.
+        # --------------------------------------------------------
+
         if temporal_drift:
+
             self.alert_count += 1
 
             self._enter_drift_locked()
@@ -924,45 +1103,115 @@ class AdaptiveEngine:
                 False,
             )
 
+        # --------------------------------------------------------
+        # Score regime confirmation
+        # --------------------------------------------------------
+
+        if (
+            regime_confirmed
+            and not self._pending_regime_confirmed
+        ):
+
+            staged = (
+                self._stage_confirmed_regime()
+            )
+
+            if staged:
+                confirmation_event = (
+                    self._emit_confirmation_event()
+                )
+
+        # --------------------------------------------------------
+        # Pending confirmed regime
+        # --------------------------------------------------------
+
+        if self._pending_regime_confirmed:
+
+            self._temporal_validation_started = True
+
+            if temporal_result.get(
+                "is_trend",
+                False,
+            ):
+
+                self._temporal_clean_checks = 0
+
+            else:
+
+                self._temporal_clean_checks += 1
+
+            committed = False
+
+            if self._can_accept_pending_regime():
+
+                committed = (
+                    self._commit_pending_regime()
+                )
+
+            return (
+                temporal_result,
+                True,
+                committed,
+                False,
+                confirmation_event,
+            )
+
+        # --------------------------------------------------------
+        # Stable candidate without explicit confirmation
+        # --------------------------------------------------------
+
+        if self._has_regime_stability(
+            regime_result
+        ):
+
+            self._temporal_validation_started = True
+
+            if temporal_result.get(
+                "is_trend",
+                False,
+            ):
+
+                self._temporal_clean_checks = 0
+
+            else:
+
+                self._temporal_clean_checks += 1
+
+            return (
+                temporal_result,
+                True,
+                False,
+                False,
+                confirmation_event,
+            )
+
+        # --------------------------------------------------------
+        # Continue candidate validation
+        # --------------------------------------------------------
+
         self._temporal_validation_started = True
 
-        if not temporal_result.get(
+        if temporal_result.get(
             "is_trend",
             False,
         ):
-            self._temporal_clean_checks += 1
-        else:
+
             self._temporal_clean_checks = 0
 
-        confirmation_event = False
+        else:
 
-        if (
-            detector_confirmed
-            and not self._pending_regime_confirmed
-        ):
-            self._stage_confirmed_regime()
-
-            confirmation_event = (
-                self._emit_confirmation_event()
-            )
-
-        committed = False
-
-        if self._can_accept_pending_regime():
-            committed = (
-                self._commit_pending_regime()
-            )
+            self._temporal_clean_checks += 1
 
         return (
             temporal_result,
             True,
-            committed,
+            False,
             False,
             confirmation_event,
         )
 
     # ============================================================
-    # ACCEPTANCE
+    # ACCEPTANCE GATE
     # ============================================================
 
     def _can_accept_pending_regime(self):
@@ -975,10 +1224,7 @@ class AdaptiveEngine:
         if self._post_drift_quarantine:
             return False
 
-        if self.temporal_detector.is_confirmed():
-            return False
-
-        if not self.temporal_detector.is_validation_complete():
+        if self._drift_detected:
             return False
 
         if (
@@ -990,7 +1236,7 @@ class AdaptiveEngine:
         return True
 
     # ============================================================
-    # STABLE
+    # STABLE PROCESSING
     # ============================================================
 
     def _process_stable(
@@ -1003,7 +1249,9 @@ class AdaptiveEngine:
         )
 
         regime_result = (
-            self.regime_detector.observe(score)
+            self.regime_detector.observe(
+                score
+            )
         )
 
         detector_state = (
@@ -1040,10 +1288,13 @@ class AdaptiveEngine:
         is_anomaly = (
             False
             if threshold is None
-            else bool(score > threshold)
+            else bool(
+                score > threshold
+            )
         )
 
         if not shift_detected:
+
             self.state = EngineState.STABLE
 
             return {
@@ -1053,7 +1304,9 @@ class AdaptiveEngine:
                 "regime_changed": False,
                 "regime_confirmed": False,
                 "regime_accepted": False,
-                "candidate_started": candidate_started,
+                "candidate_started": (
+                    candidate_started
+                ),
                 "temporal_checked": False,
                 "temporal_drift": False,
                 "temporal_result": {},
@@ -1063,7 +1316,7 @@ class AdaptiveEngine:
             temporal_result,
             checked,
             drift,
-            confirmed,
+            accepted,
             confirmation_event,
         ) = self._start_transition(
             score,
@@ -1072,6 +1325,7 @@ class AdaptiveEngine:
         )
 
         if new_detector_confirmation:
+
             confirmation_event = (
                 self._emit_confirmation_event()
                 or confirmation_event
@@ -1079,25 +1333,46 @@ class AdaptiveEngine:
 
         return {
             "adapted": False,
+
             "is_anomaly": (
                 True
                 if drift
                 else is_anomaly
             ),
-            "alert": bool(drift),
+
+            "alert": bool(
+                drift
+            ),
+
             "regime_changed": True,
+
             "regime_confirmed": bool(
                 confirmation_event
             ),
-            "regime_accepted": False,
-            "candidate_started": candidate_started,
-            "temporal_checked": checked,
-            "temporal_drift": drift,
-            "temporal_result": temporal_result,
+
+            "regime_accepted": bool(
+                accepted
+            ),
+
+            "candidate_started": (
+                candidate_started
+            ),
+
+            "temporal_checked": bool(
+                checked
+            ),
+
+            "temporal_drift": bool(
+                drift
+            ),
+
+            "temporal_result": (
+                temporal_result
+            ),
         }
 
     # ============================================================
-    # MAIN
+    # MAIN PROCESS
     # ============================================================
 
     def process(
@@ -1111,7 +1386,9 @@ class AdaptiveEngine:
                 "before processing observations."
             )
 
-        score = self._validate_score(score)
+        score = self._validate_score(
+            score
+        )
 
         temperature = (
             self._validate_temperature(
@@ -1122,17 +1399,18 @@ class AdaptiveEngine:
         self.total_samples += 1
 
         # --------------------------------------------------------
-        # Drift quarantine
+        # DRIFT QUARANTINE
         # --------------------------------------------------------
 
         if self._post_drift_quarantine:
+
             return self._process_quarantine(
                 score,
                 temperature,
             )
 
         # --------------------------------------------------------
-        # Active regime transition
+        # ACTIVE REGIME TRANSITION
         # --------------------------------------------------------
 
         if self._transition_active:
@@ -1167,7 +1445,9 @@ class AdaptiveEngine:
             return self._build_result(
                 score=score,
                 is_anomaly=is_anomaly,
-                alert=bool(drift),
+                alert=bool(
+                    drift
+                ),
                 adapted=committed,
                 regime_changed=False,
                 regime_confirmed=(
@@ -1182,13 +1462,19 @@ class AdaptiveEngine:
                         False,
                     )
                 ),
-                temporal_checked=temporal_checked,
-                temporal_drift=drift,
-                temporal_result=temporal_result,
+                temporal_checked=(
+                    temporal_checked
+                ),
+                temporal_drift=bool(
+                    drift
+                ),
+                temporal_result=(
+                    temporal_result
+                ),
             )
 
         # --------------------------------------------------------
-        # Stable lifecycle
+        # STABLE
         # --------------------------------------------------------
 
         outcome = self._process_stable(
@@ -1198,29 +1484,41 @@ class AdaptiveEngine:
 
         return self._build_result(
             score=score,
-            is_anomaly=outcome["is_anomaly"],
-            alert=outcome["alert"],
-            adapted=outcome["adapted"],
-            regime_changed=outcome["regime_changed"],
-            regime_confirmed=outcome[
-                "regime_confirmed"
-            ],
-            regime_accepted=outcome[
-                "regime_accepted"
-            ],
-            candidate_started=outcome[
-                "candidate_started"
-            ],
-            temporal_checked=outcome[
-                "temporal_checked"
-            ],
-            temporal_drift=outcome[
-                "temporal_drift"
-            ],
-            temporal_result=outcome[
-                "temporal_result"
-            ],
+            is_anomaly=(
+                outcome["is_anomaly"]
+            ),
+            alert=(
+                outcome["alert"]
+            ),
+            adapted=(
+                outcome["adapted"]
+            ),
+            regime_changed=(
+                outcome["regime_changed"]
+            ),
+            regime_confirmed=(
+                outcome["regime_confirmed"]
+            ),
+            regime_accepted=(
+                outcome["regime_accepted"]
+            ),
+            candidate_started=(
+                outcome["candidate_started"]
+            ),
+            temporal_checked=(
+                outcome["temporal_checked"]
+            ),
+            temporal_drift=(
+                outcome["temporal_drift"]
+            ),
+            temporal_result=(
+                outcome["temporal_result"]
+            ),
         )
+
+    # ============================================================
+    # UPDATE ALIAS
+    # ============================================================
 
     def update(
         self,
@@ -1337,7 +1635,6 @@ class AdaptiveEngine:
         self._clear_quarantine()
 
         self._regime_confirmation_emitted = False
-
         self._drift_detected = False
 
         self.last_result = self._empty_result()

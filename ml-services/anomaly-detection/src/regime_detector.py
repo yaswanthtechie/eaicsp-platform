@@ -50,6 +50,16 @@ class RegimeDetector:
                                     |             |
                                     v             v
                               new baseline    discard candidate
+
+    IMPORTANT STABILITY RULE
+    ------------------------
+    Directional movement between block medians is recorded as
+    diagnostic information, but does NOT by itself invalidate
+    an otherwise stable shifted regime.
+
+    Slow drift is expected to be rejected by the repeated
+    validation lifecycle rather than by rejecting every small
+    same-direction movement inside a single candidate window.
     """
 
     def __init__(
@@ -492,6 +502,17 @@ class RegimeDetector:
             movement_limit
         )
 
+        # ----------------------------------------------------
+        # STABILITY GATE
+        #
+        # Block-to-block movement must remain small relative
+        # to the candidate distribution.
+        #
+        # Directional movement is recorded separately as a
+        # diagnostic. It is NOT sufficient by itself to reject
+        # a stable shifted regime.
+        # ----------------------------------------------------
+
         if any(
             abs(change) > movement_limit
             for change in changes
@@ -510,6 +531,7 @@ class RegimeDetector:
         directional = False
 
         if len(meaningful) >= 2:
+
             positive = all(
                 change > 0
                 for change in meaningful
@@ -520,15 +542,25 @@ class RegimeDetector:
                 for change in meaningful
             )
 
-            directional = positive or negative
+            directional = (
+                positive or negative
+            )
 
         diagnostics["directional"] = directional
 
-        if directional:
-            diagnostics["reason"] = (
-                "persistent_directional_movement"
-            )
-            return diagnostics
+        # ----------------------------------------------------
+        # IMPORTANT:
+        #
+        # Do NOT reject here merely because the block medians
+        # move in the same direction.
+        #
+        # A genuine seasonal regime can contain small
+        # directional movement while still being stable.
+        #
+        # Repeated validation checkpoints determine whether
+        # the candidate remains stable or should eventually be
+        # rejected as drift.
+        # ----------------------------------------------------
 
         diagnostics["stable"] = True
         diagnostics["reason"] = "stable"

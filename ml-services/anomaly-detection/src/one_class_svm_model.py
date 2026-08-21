@@ -14,9 +14,9 @@ class OneClassSVMModel:
 
     def __init__(
         self,
-        nu=0.006,
-        kernel="poly",
-        gamma=0.01,
+        nu=0.004,
+        kernel="rbf",
+        gamma=0.001,
         degree=3,
     ):
         self.scaler = StandardScaler()
@@ -28,26 +28,71 @@ class OneClassSVMModel:
             degree=degree,
         )
 
-    def train(self, features):
-        scaled = self.scaler.fit_transform(to_numpy(features))
-        self.model.fit(scaled)
+    def train(
+        self,
+        features,
+    ):
+        scaled = self.scaler.fit_transform(
+            to_numpy(features)
+        )
 
-    def predict(self, features):
-        scaled = self.scaler.transform(to_numpy(features))
-        return self.model.predict(scaled)
+        self.model.fit(
+            scaled
+        )
 
-    def score(self, features):
-        scaled = self.scaler.transform(to_numpy(features))
-        return self.model.decision_function(scaled)
+    def predict(
+        self,
+        features,
+    ):
+        scaled = self.scaler.transform(
+            to_numpy(features)
+        )
+
+        return self.model.predict(
+            scaled
+        )
+
+    def score(
+        self,
+        features,
+    ):
+        scaled = self.scaler.transform(
+            to_numpy(features)
+        )
+
+        return self.model.decision_function(
+            scaled
+        )
 
     def tune(
         self,
         train_features,
         test_datasets,
-        kernels=("linear", "rbf", "poly", "sigmoid"),
-        nus=(0.004, 0.005, 0.006, 0.008, 0.01),
-        gammas=("scale", "auto", 0.001, 0.01, 0.1),
-        degrees=(2, 3, 4),
+        kernels=(
+            "linear",
+            "rbf",
+            "poly",
+            "sigmoid",
+        ),
+        nus=(
+            0.004,
+            0.005,
+            0.006,
+            0.008,
+            0.01,
+        ),
+        gammas=(
+            "scale",
+            "auto",
+            0.001,
+            0.01,
+            0.1,
+        ),
+        degrees=(
+            2,
+            3,
+            4,
+        ),
         top_n=10,
     ):
         """
@@ -60,22 +105,41 @@ class OneClassSVMModel:
             "stock_count",
         ]
 
-        print("Running One-Class SVM Hyperparameter Tuning...")
+        print(
+            "Running One-Class SVM "
+            "Hyperparameter Tuning..."
+        )
 
-        X_train = self.scaler.fit_transform(to_numpy(train_features))
+        # --------------------------------------------------
+        # Scale training data once.
+        # --------------------------------------------------
+
+        X_train = (
+            self.scaler.fit_transform(
+                to_numpy(
+                    train_features
+                )
+            )
+        )
 
         results = []
+
+        # --------------------------------------------------
+        # Search all configured combinations.
+        # --------------------------------------------------
 
         for kernel in kernels:
 
             for nu in nus:
 
+                # Linear kernel does not use gamma.
                 gamma_values = (
                     [None]
                     if kernel == "linear"
                     else gammas
                 )
 
+                # Only polynomial kernel uses degree.
                 degree_values = (
                     degrees
                     if kernel == "poly"
@@ -93,22 +157,44 @@ class OneClassSVMModel:
                     }
 
                     if gamma is not None:
-                        params["gamma"] = gamma
+
+                        params[
+                            "gamma"
+                        ] = gamma
 
                     if degree is not None:
-                        params["degree"] = degree
 
-                    model = OneClassSVM(**params)
+                        params[
+                            "degree"
+                        ] = degree
 
-                    model.fit(X_train)
+                    # --------------------------------------
+                    # Train candidate
+                    # --------------------------------------
+
+                    model = OneClassSVM(
+                        **params
+                    )
+
+                    model.fit(
+                        X_train
+                    )
+
+                    # --------------------------------------
+                    # Evaluate candidate against every
+                    # anomaly dataset.
+                    # --------------------------------------
 
                     results.extend(
                         evaluate_model(
-                            model_name="One-Class SVM",
+                            model_name=(
+                                "One-Class SVM"
+                            ),
                             model=model,
                             test_datasets=test_datasets,
-                            feature_columns=feature_columns,
-                            scaler=self.scaler,
+                            feature_columns=(
+                                feature_columns
+                            ),
                             hyperparameters={
                                 "Contamination": None,
                                 "n_estimators": None,
@@ -120,7 +206,15 @@ class OneClassSVMModel:
                                 "gamma": gamma,
                                 "degree": degree,
                             },
+                            scaler=self.scaler,
                         )
                     )
 
-        return rank_results(results,top_n=top_n)
+        # --------------------------------------------------
+        # Apply production ranking from tuning_utils.py
+        # --------------------------------------------------
+
+        return rank_results(
+            results,
+            top_n=top_n,
+        )

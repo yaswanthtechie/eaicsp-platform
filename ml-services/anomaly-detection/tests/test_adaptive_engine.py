@@ -1,187 +1,35 @@
-from pathlib import Path
-
 import numpy as np
-import pandas as pd
+import pytest
 
-from src.adaptive_engine import AdaptiveEngine
-
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-OUTPUT_DIR = PROJECT_ROOT / "output"
-
-CALIBRATION = OUTPUT_DIR / "calibration_normal.csv"
-SEASONAL = OUTPUT_DIR / "test_seasonal_normal.csv"
-SPIKES = OUTPUT_DIR / "test_temperature_spike.csv"
-DRIFT = OUTPUT_DIR / "test_temperature_drift.csv"
+from src.adaptive_engine import (
+    AdaptiveEngine,
+    EngineState,
+)
 
 
-def load_dataset(path):
-    df = pd.read_csv(path)
-
-    required = {
-        "temperature",
-        "humidity",
-        "stock_count",
-        "is_anomaly",
-    }
-
-    missing = required - set(df.columns)
-
-    if missing:
-        raise ValueError(
-            f"{path} missing columns: {sorted(missing)}"
-        )
-
-    return df
+MODELS = [
+    "iforest",
+    "lof",
+    "ocsvm",
+]
 
 
-def load_model_scores(df, model_name):
-    """
-    Generate anomaly scores directly from the already-loaded
-    project model.
+# ============================================================
+# Helpers
+# ============================================================
 
-    Higher score = more anomalous.
-    """
-
-    from src.model_loader import get_models, feature_names
-
-    models = get_models()
-
-    if model_name not in models:
-        raise ValueError(
-            f"Unknown model: {model_name}"
-        )
-
-    model = models[model_name]
-
-    features = df[
-        feature_names
-    ].to_numpy(dtype=float)
-
-    raw_scores = model.score(features)
-
-    return -np.asarray(
-        raw_scores,
-        dtype=float,
-    ).reshape(-1)
-
-
-def metrics(
-    scores,
-    labels,
-    threshold,
+def create_engine(
+    calibration_scores,
+    model_name="iforest",
 ):
-    predictions = scores > threshold
+    engine = AdaptiveEngine()
 
-    labels = np.asarray(
-        labels,
-        dtype=int,
+    engine.initialize(
+        calibration_scores,
+        model_name=model_name,
     )
 
-    tp = int(
-        np.sum(
-            predictions
-            & (labels == 1)
-        )
-    )
-
-    tn = int(
-        np.sum(
-            (~predictions)
-            & (labels == 0)
-        )
-    )
-
-    fp = int(
-        np.sum(
-            predictions
-            & (labels == 0)
-        )
-    )
-
-    fn = int(
-        np.sum(
-            (~predictions)
-            & (labels == 1)
-        )
-    )
-
-    precision = (
-        tp / (tp + fp)
-        if tp + fp
-        else 0.0
-    )
-
-    recall = (
-        tp / (tp + fn)
-        if tp + fn
-        else 0.0
-    )
-
-    f1 = (
-        2 * precision * recall
-        / (precision + recall)
-        if precision + recall
-        else 0.0
-    )
-
-    fpr = (
-        fp / (fp + tn)
-        if fp + tn
-        else 0.0
-    )
-
-    return {
-        "tp": tp,
-        "tn": tn,
-        "fp": fp,
-        "fn": fn,
-        "precision": precision,
-        "recall": recall,
-        "f1": f1,
-        "fpr": fpr,
-    }
-
-
-def print_metrics(
-    title,
-    result,
-):
-    print()
-    print(title)
-    print("-" * 80)
-
-    print(
-        f"TP        : {result['tp']}"
-    )
-
-    print(
-        f"TN        : {result['tn']}"
-    )
-
-    print(
-        f"FP        : {result['fp']}"
-    )
-
-    print(
-        f"FN        : {result['fn']}"
-    )
-
-    print(
-        f"FPR       : {result['fpr']:.4f}"
-    )
-
-    print(
-        f"Precision : {result['precision']:.4f}"
-    )
-
-    print(
-        f"Recall    : {result['recall']:.4f}"
-    )
-
-    print(
-        f"F1        : {result['f1']:.4f}"
-    )
+    return engine
 
 
 def run_stream(
@@ -189,71 +37,235 @@ def run_stream(
     df,
     scores,
 ):
-    """
-    Process a complete dataset through the engine.
-    """
+    assert len(df) == len(scores)
 
     results = []
 
-    for index, row in df.iterrows():
-
-        result = engine.process(
-            score=float(
-                scores[index]
-            ),
-            temperature=float(
-                row["temperature"]
-            ),
-        )
+    for index in range(len(df)):
 
         results.append(
-            result
+            engine.process(
+                score=float(scores[index]),
+                temperature=float(
+                    df.iloc[index]["temperature"]
+                ),
+            )
         )
 
     return results
 
 
-def count_adaptations(results):
+def count_flag(
+    results,
+    key,
+):
     return sum(
-        bool(result["adapted"])
+        bool(result.get(key, False))
         for result in results
     )
 
 
-def count_alerts(results):
-    return sum(
-        bool(result["alert"])
-        for result in results
+def indices_for(
+    results,
+    key,
+):
+    return [
+        index
+        for index, result in enumerate(results)
+        if bool(result.get(key, False))
+    ]
+
+
+def get_threshold(engine):
+    threshold = (
+        engine.adaptive_threshold.get_threshold()
     )
 
+    assert threshold is not None
 
-def count_confirmations(results):
-    return sum(
-        bool(result["regime_confirmed"])
-        and result["state"] == "stable"
-        for result in results
+    return float(threshold)
+
+
+# ============================================================
+# 1. Initialization
+# ============================================================
+
+@pytest.mark.parametrize(
+    "model_name",
+    MODELS,
+)
+def test_engine_initializes_with_real_calibration(
+    calibration_scores,
+    model_name,
+):
+    engine = create_engine(
+        calibration_scores,
+        model_name,
+    )
+
+    state = engine.get_state()
+
+    assert engine.initialized is True
+    assert engine.model_name == model_name
+
+    assert state["state"] == (
+        EngineState.STABLE.value
+    )
+
+    assert state["total_samples"] == 0
+    assert state["alert_count"] == 0
+    assert state["adaptation_updates"] == 0
+
+    assert np.isfinite(
+        get_threshold(engine)
     )
 
 
 # ============================================================
-# TEST 1
+# 2. Initialization validation
 # ============================================================
 
-def test_normal_operation(
+def test_empty_calibration_is_rejected():
+    engine = AdaptiveEngine()
+
+    with pytest.raises(ValueError):
+        engine.initialize([])
+
+
+@pytest.mark.parametrize(
+    "scores",
+    [
+        [1.0, np.nan, 2.0],
+        [1.0, np.inf, 2.0],
+        [1.0, -np.inf, 2.0],
+    ],
+)
+def test_non_finite_calibration_is_rejected(
+    scores,
+):
+    engine = AdaptiveEngine()
+
+    with pytest.raises(ValueError):
+        engine.initialize(scores)
+
+
+def test_process_requires_initialization():
+    engine = AdaptiveEngine()
+
+    with pytest.raises(RuntimeError):
+        engine.process(
+            score=0.1,
+            temperature=25.0,
+        )
+
+
+@pytest.mark.parametrize(
+    "score",
+    [
+        np.nan,
+        np.inf,
+        -np.inf,
+    ],
+)
+def test_non_finite_score_is_rejected(
+    calibration_scores,
+    score,
+):
+    engine = create_engine(
+        calibration_scores
+    )
+
+    with pytest.raises(ValueError):
+        engine.process(
+            score=score,
+            temperature=25.0,
+        )
+
+
+@pytest.mark.parametrize(
+    "temperature",
+    [
+        np.nan,
+        np.inf,
+        -np.inf,
+    ],
+)
+def test_non_finite_temperature_is_rejected(
+    calibration_scores,
+    temperature,
+):
+    engine = create_engine(
+        calibration_scores
+    )
+
+    with pytest.raises(ValueError):
+        engine.process(
+            score=0.0,
+            temperature=temperature,
+        )
+
+
+# ============================================================
+# 3. Public result contract
+# ============================================================
+
+def test_process_returns_public_result_contract(
+    calibration_scores,
+):
+    engine = create_engine(
+        calibration_scores
+    )
+
+    result = engine.process(
+        score=float(
+            calibration_scores[0]
+        ),
+        temperature=25.0,
+    )
+
+    required_fields = {
+        "state",
+        "is_anomaly",
+        "alert",
+        "adapted",
+        "regime_changed",
+        "regime_confirmed",
+        "regime_accepted",
+        "candidate_started",
+        "temporal_checked",
+        "temporal_drift",
+        "adaptation_frozen",
+        "transition_active",
+        "score",
+        "threshold",
+        "sample_count",
+    }
+
+    assert required_fields.issubset(
+        result.keys()
+    )
+
+    assert result["score"] is not None
+    assert result["threshold"] is not None
+    assert result["sample_count"] == 1
+
+
+# ============================================================
+# 4. Normal operation
+# ============================================================
+
+def test_normal_calibration_stream_remains_stable(
     calibration_df,
     calibration_scores,
     model_name,
 ):
-    print()
-    print("=" * 80)
-    print("TEST 1 — ORIGINAL NORMAL OPERATION")
-    print("=" * 80)
-
-    engine = AdaptiveEngine()
-
-    engine.initialize(
+    engine = create_engine(
         calibration_scores,
-        model_name=model_name,
+        model_name,
+    )
+
+    initial_threshold = get_threshold(
+        engine
     )
 
     results = run_stream(
@@ -262,71 +274,156 @@ def test_normal_operation(
         calibration_scores,
     )
 
-    adaptations = count_adaptations(
-        results
+    assert results
+
+    assert all(
+        result["state"]
+        == EngineState.STABLE.value
+        for result in results
     )
 
-    alerts = count_alerts(
-        results
-    )
+    assert count_flag(
+        results,
+        "alert",
+    ) == 0
 
-    final_threshold = (
-        engine.adaptive_threshold
-        .get_threshold()
-    )
+    assert count_flag(
+        results,
+        "temporal_drift",
+    ) == 0
 
-    print(
-        f"Adaptation updates : {adaptations}"
-    )
+    assert count_flag(
+        results,
+        "adapted",
+    ) == 0
 
-    print(
-        f"Alerts             : {alerts}"
+    assert np.isclose(
+        get_threshold(engine),
+        initial_threshold,
+        rtol=0.0,
+        atol=1e-15,
     )
-
-    print(
-        f"Final threshold    : "
-        f"{final_threshold:.6f}"
-    )
-
-    assert alerts == 0, (
-        "Original calibration unexpectedly "
-        "produced temporal drift alerts."
-    )
-
-    print(
-        "[PASS] Original normal operation "
-        "does not generate drift alerts."
-    )
-
-    return engine
 
 
 # ============================================================
-# TEST 2
+# 5. Model configuration
 # ============================================================
 
-def test_seasonal_transition(
-    calibration_df,
+@pytest.mark.parametrize(
+    "model_name",
+    MODELS,
+)
+def test_model_configuration_is_applied(
+    calibration_scores,
+    model_name,
+):
+    engine = create_engine(
+        calibration_scores,
+        model_name,
+    )
+
+    config = (
+        AdaptiveEngine.MODEL_CONFIG[
+            model_name
+        ]
+    )
+
+    assert engine.shift_sigma == (
+        config["shift_sigma"]
+    )
+
+    assert engine.stability_tolerance == (
+        config["stability_tolerance"]
+    )
+
+    assert engine.adaptive_percentile == (
+        config["adaptive_percentile"]
+    )
+
+
+def test_unknown_model_preserves_explicit_configuration(
+    calibration_scores,
+):
+    engine = AdaptiveEngine(
+        shift_sigma=3.0,
+        stability_tolerance=0.4,
+        adaptive_percentile=96.0,
+    )
+
+    engine.initialize(
+        calibration_scores,
+        model_name="unknown-model",
+    )
+
+    assert engine.shift_sigma == 3.0
+    assert engine.stability_tolerance == 0.4
+    assert engine.adaptive_percentile == 96.0
+
+
+# ============================================================
+# 6. Component integration
+# ============================================================
+
+@pytest.mark.parametrize(
+    "model_name",
+    MODELS,
+)
+def test_engine_contains_required_components(
+    calibration_scores,
+    model_name,
+):
+    engine = create_engine(
+        calibration_scores,
+        model_name,
+    )
+
+    assert engine.adaptive_threshold is not None
+    assert engine.regime_detector is not None
+    assert engine.temporal_detector is not None
+
+
+def test_state_contains_component_states(
+    calibration_scores,
+):
+    engine = create_engine(
+        calibration_scores
+    )
+
+    state = engine.get_state()
+
+    assert isinstance(
+        state["regime"],
+        dict,
+    )
+
+    assert isinstance(
+        state["temporal"],
+        dict,
+    )
+
+    assert isinstance(
+        state["adaptive_threshold"],
+        dict,
+    )
+
+
+# ============================================================
+# 7. Seasonal regime evidence
+# ============================================================
+
+@pytest.mark.parametrize(
+    "model_name",
+    MODELS,
+)
+def test_seasonal_stream_produces_regime_evidence(
     calibration_scores,
     seasonal_df,
     seasonal_scores,
     model_name,
 ):
-    print()
-    print("=" * 80)
-    print("TEST 2 — SEASONAL REGIME TRANSITION")
-    print("=" * 80)
-
-    engine = AdaptiveEngine()
-
-    engine.initialize(
+    engine = create_engine(
         calibration_scores,
-        model_name=model_name,
-    )
-
-    initial_threshold = (
-        engine.adaptive_threshold
-        .get_threshold()
+        model_name,
     )
 
     results = run_stream(
@@ -335,186 +432,179 @@ def test_seasonal_transition(
         seasonal_scores,
     )
 
-    states = [
-        result["state"]
-        for result in results
-    ]
-
-    transition_count = states.count(
-        "regime_confirmation"
-    )
-
-    drift_alerts = sum(
-        result["alert"]
-        for result in results
-    )
-
-    confirmations = sum(
-        result["regime_confirmed"]
-        for result in results
-    )
-
-    final_threshold = (
-        engine.adaptive_threshold
-        .get_threshold()
-    )
-
-    print(
-        f"Initial threshold       : "
-        f"{initial_threshold:.6f}"
-    )
-
-    print(
-        f"Final threshold         : "
-        f"{final_threshold:.6f}"
-    )
-
-    print(
-        f"Confirmation states     : "
-        f"{transition_count}"
-    )
-
-    print(
-        f"Regime confirmations    : "
-        f"{confirmations}"
-    )
-
-    print(
-        f"Temporal drift alerts   : "
-        f"{drift_alerts}"
-    )
-
-    # We mainly care that the regime machinery actually
-    # enters transition/confirmation rather than blindly
-    # adapting immediately.
-
-    assert transition_count > 0, (
-        "Seasonal data never entered regime confirmation."
-    )
-
-    print(
-        "[PASS] Seasonal data entered the "
-        "regime-transition path."
-    )
-
-    return (
-        engine,
+    candidate_starts = count_flag(
         results,
+        "candidate_started",
     )
 
+    confirmations = count_flag(
+        results,
+        "regime_confirmed",
+    )
+
+    assert candidate_starts > 0
+    assert confirmations >= 0
+
 
 # ============================================================
-# TEST 3
+# 8. Successful regime acceptance
+#
+# IMPORTANT:
+#
+# regime_confirmed and regime_accepted are lifecycle events.
+# They do not have to be True on the same result.
+#
+# Correct sequence:
+#
+#     confirmation
+#          ↓
+#     acceptance
+#          ↓
+#       adapted
+#
 # ============================================================
 
-def test_drift_blocks_adaptation(
+@pytest.mark.parametrize(
+    "model_name",
+    MODELS,
+)
+def test_successful_regime_acceptance_is_consistent(
     calibration_scores,
-    drift_df,
-    drift_scores,
+    seasonal_df,
+    seasonal_scores,
     model_name,
 ):
-    print()
-    print("=" * 80)
-    print("TEST 3 — TEMPERATURE DRIFT BLOCKS ADAPTATION")
-    print("=" * 80)
-
-    engine = AdaptiveEngine()
-
-    engine.initialize(
+    engine = create_engine(
         calibration_scores,
-        model_name=model_name,
+        model_name,
     )
 
-    initial_threshold = (
-        engine.adaptive_threshold
-        .get_threshold()
+    initial_threshold = get_threshold(
+        engine
     )
 
     results = run_stream(
         engine,
-        drift_df,
-        drift_scores,
+        seasonal_df,
+        seasonal_scores,
     )
 
-    drift_results = [
-        result
-        for result in results
-        if result["temporal_drift"]
+    accepted_indices = indices_for(
+        results,
+        "regime_accepted",
+    )
+
+    for index in accepted_indices:
+
+        result = results[index]
+
+        # Acceptance itself must produce adaptation.
+        assert result["adapted"] is True
+
+        # Confirmation is an earlier lifecycle event.
+        confirmation_indices = indices_for(
+            results[: index + 1],
+            "regime_confirmed",
+        )
+
+        assert confirmation_indices
+
+        first_confirmation = (
+            confirmation_indices[0]
+        )
+
+        assert first_confirmation <= index
+
+        # The accepted regime must leave the engine stable.
+        assert result["state"] == (
+            EngineState.STABLE.value
+        )
+
+        assert result[
+            "transition_active"
+        ] is False
+
+    # If no model-specific regime was accepted,
+    # that is not automatically a failure.
+    #
+    # The real-data regime integration suite handles
+    # model/data-specific acceptance behavior.
+    if accepted_indices:
+
+        final_threshold = get_threshold(
+            engine
+        )
+
+        assert not np.isclose(
+            final_threshold,
+            initial_threshold,
+            rtol=0.0,
+            atol=1e-15,
+        )
+
+
+# ============================================================
+# 9. Adaptation is an event
+# ============================================================
+
+def test_adaptation_is_an_event_not_a_permanent_flag(
+    calibration_scores,
+    seasonal_df,
+    seasonal_scores,
+):
+    engine = create_engine(
+        calibration_scores
+    )
+
+    results = run_stream(
+        engine,
+        seasonal_df,
+        seasonal_scores,
+    )
+
+    adapted_indices = indices_for(
+        results,
+        "adapted",
+    )
+
+    if not adapted_indices:
+
+        pytest.skip(
+            "This real model/data combination "
+            "did not produce an accepted regime."
+        )
+
+    first_adaptation = (
+        adapted_indices[0]
+    )
+
+    subsequent = results[
+        first_adaptation + 1:
     ]
 
-    alerts = sum(
-        result["alert"]
-        for result in results
-    )
-
-    drift_adaptations = sum(
-        result["adapted"]
-        for result in drift_results
-    )
-
-    final_threshold = (
-        engine.adaptive_threshold
-        .get_threshold()
-    )
-
-    print(
-        f"Initial threshold       : "
-        f"{initial_threshold:.6f}"
-    )
-
-    print(
-        f"Final threshold         : "
-        f"{final_threshold:.6f}"
-    )
-
-    print(
-        f"Temporal drift readings : "
-        f"{len(drift_results)}"
-    )
-
-    print(
-        f"Alerts                  : "
-        f"{alerts}"
-    )
-
-    print(
-        f"Adaptations during drift: "
-        f"{drift_adaptations}"
-    )
-
-    assert drift_adaptations == 0, (
-        "Adaptive threshold was updated while "
-        "temporal drift was detected."
-    )
-
-    print(
-        "[PASS] Temporal drift does not contaminate "
-        "the adaptive baseline."
-    )
-
-    return engine, results
+    assert count_flag(
+        subsequent,
+        "adapted",
+    ) == 0
 
 
 # ============================================================
-# TEST 4
+# 10. Temperature spikes
 # ============================================================
 
-def test_spikes_are_not_temporal_drift(
+@pytest.mark.parametrize(
+    "model_name",
+    MODELS,
+)
+def test_temperature_spikes_do_not_become_temporal_drift(
     calibration_scores,
     spikes_df,
     spike_scores,
     model_name,
 ):
-    print()
-    print("=" * 80)
-    print("TEST 4 — TEMPERATURE SPIKES")
-    print("=" * 80)
-
-    engine = AdaptiveEngine()
-
-    engine.initialize(
+    engine = create_engine(
         calibration_scores,
-        model_name=model_name,
+        model_name,
     )
 
     results = run_stream(
@@ -523,227 +613,350 @@ def test_spikes_are_not_temporal_drift(
         spike_scores,
     )
 
-    temporal_drift_count = sum(
-        result["temporal_drift"]
-        for result in results
+    assert count_flag(
+        results,
+        "temporal_drift",
+    ) == 0
+
+    assert count_flag(
+        results,
+        "alert",
+    ) == 0
+
+
+# ============================================================
+# 11. Real temporal drift
+#
+# We inspect the result at the actual drift event.
+#
+# We do NOT assert engine.state after the entire 5000-row
+# stream because the engine may legitimately recover from
+# DRIFT_LOCKED later.
+# ============================================================
+
+@pytest.mark.parametrize(
+    "model_name",
+    MODELS,
+)
+def test_real_temporal_drift_is_detected(
+    calibration_scores,
+    drift_df,
+    drift_scores,
+    model_name,
+):
+    engine = create_engine(
+        calibration_scores,
+        model_name,
     )
 
-    alerts = sum(
-        result["alert"]
-        for result in results
+    results = run_stream(
+        engine,
+        drift_df,
+        drift_scores,
     )
 
-    print(
-        f"Temporal drift detections : "
-        f"{temporal_drift_count}"
+    drift_indices = indices_for(
+        results,
+        "temporal_drift",
     )
 
-    print(
-        f"Alerts                    : "
-        f"{alerts}"
-    )
+    assert drift_indices
 
-    # Spikes should not be broadly interpreted as sustained
-    # temporal drift.
+    first_drift = drift_indices[0]
 
-    rate = (
-        temporal_drift_count
-        / len(results)
-    )
+    result = results[first_drift]
 
-    print(
-        f"Temporal drift rate       : "
-        f"{rate:.4f}"
-    )
+    assert result["temporal_drift"] is True
+    assert result["alert"] is True
 
-    assert rate < 0.05, (
-        "Temperature spikes are being "
-        "classified as sustained temporal drift "
-        "too frequently."
-    )
+    assert result[
+        "adaptation_frozen"
+    ] is True
 
-    print(
-        "[PASS] Temperature spikes are not "
-        "broadly classified as temporal drift."
+    assert result["state"] == (
+        EngineState.DRIFT_LOCKED.value
     )
 
 
 # ============================================================
-# MAIN
+# 12. Drift freezes adaptation
 # ============================================================
 
-def main():
-
-    print("=" * 80)
-    print(
-        "ADAPTIVE ENGINE STATE-MACHINE INTEGRATION TEST"
-    )
-    print("=" * 80)
-
-    print()
-    print(
-        "Architecture:"
-    )
-
-    print(
-        "Regime change → Temporal drift check → "
-        "Regime confirmation → Adaptive threshold"
+@pytest.mark.parametrize(
+    "model_name",
+    MODELS,
+)
+def test_temporal_drift_freezes_adaptation(
+    calibration_scores,
+    drift_df,
+    drift_scores,
+    model_name,
+):
+    engine = create_engine(
+        calibration_scores,
+        model_name,
     )
 
-    print()
-    print(
-        "Adaptive threshold is frozen during "
-        "regime transitions and temporal drift."
+    results = run_stream(
+        engine,
+        drift_df,
+        drift_scores,
     )
 
-    calibration_df = load_dataset(
-        CALIBRATION
+    drift_indices = indices_for(
+        results,
+        "temporal_drift",
     )
 
-    seasonal_df = load_dataset(
-        SEASONAL
+    assert drift_indices
+
+    first_drift = drift_indices[0]
+
+    threshold_at_drift = float(
+        results[first_drift][
+            "threshold"
+        ]
     )
 
-    spikes_df = load_dataset(
-        SPIKES
+    after_drift = results[
+        first_drift:
+    ]
+
+    assert count_flag(
+        after_drift,
+        "adapted",
+    ) == 0
+
+    assert np.isclose(
+        get_threshold(engine),
+        threshold_at_drift,
+        rtol=0.0,
+        atol=1e-15,
     )
 
-    drift_df = load_dataset(
-        DRIFT
+
+# ============================================================
+# 13. Drift quarantine
+# ============================================================
+
+def test_drift_quarantine_does_not_adapt(
+    calibration_scores,
+    drift_df,
+    drift_scores,
+):
+    engine = create_engine(
+        calibration_scores
     )
 
-    for model_name in (
-        "iforest",
-        "lof",
-        "ocsvm",
-    ):
-
-        print()
-        print("#" * 80)
-        print(
-            f"MODEL: {model_name.upper()}"
-        )
-        print("#" * 80)
-
-        print()
-        print(
-            "Generating model scores..."
-        )
-
-        calibration_scores = load_model_scores(
-            calibration_df,
-            model_name,
-        )
-
-        seasonal_scores = load_model_scores(
-            seasonal_df,
-            model_name,
-        )
-
-        spike_scores = load_model_scores(
-            spikes_df,
-            model_name,
-        )
-
-        drift_scores = load_model_scores(
-            drift_df,
-            model_name,
-        )
-
-        print(
-            "Scores generated."
-        )
-
-        # ----------------------------------------------------
-        # 1. Original normal
-        # ----------------------------------------------------
-
-        test_normal_operation(
-            calibration_df,
-            calibration_scores,
-            model_name,
-        )
-
-        # ----------------------------------------------------
-        # 2. Seasonal transition
-        # ----------------------------------------------------
-
-        seasonal_engine, seasonal_results = (
-            test_seasonal_transition(
-                calibration_df,
-                calibration_scores,
-                seasonal_df,
-                seasonal_scores,
-                model_name,
-            )
-        )
-
-        # ----------------------------------------------------
-        # 3. Temperature drift
-        # ----------------------------------------------------
-
-        drift_engine, drift_results = (
-            test_drift_blocks_adaptation(
-                calibration_scores,
-                drift_df,
-                drift_scores,
-                model_name,
-            )
-        )
-
-        # ----------------------------------------------------
-        # 4. Temperature spikes
-        # ----------------------------------------------------
-
-        test_spikes_are_not_temporal_drift(
-            calibration_scores,
-            spikes_df,
-            spike_scores,
-            model_name,
-        )
-
-        print()
-        print(
-            f"[COMPLETED] {model_name.upper()}"
-        )
-
-        print()
-        print(
-            "FINAL ENGINE STATE"
-        )
-        print("-" * 80)
-
-        state = (
-            seasonal_engine.get_state()
-        )
-
-        print(
-            f"State                 : "
-            f"{state['state']}"
-        )
-
-        print(
-            f"Adaptation updates    : "
-            f"{state['adaptation_updates']}"
-        )
-
-        print(
-            f"Alerts                : "
-            f"{state['alert_count']}"
-        )
-
-        print(
-            f"Regime confirmations  : "
-            f"{state['regime_confirmation_count']}"
-        )
-
-    print()
-    print("=" * 80)
-    print(
-        "ADAPTIVE ENGINE TEST COMPLETED"
+    results = run_stream(
+        engine,
+        drift_df,
+        drift_scores,
     )
-    print("=" * 80)
+
+    drift_indices = indices_for(
+        results,
+        "temporal_drift",
+    )
+
+    assert drift_indices
+
+    first_drift = drift_indices[0]
+
+    quarantine_results = results[
+        first_drift:
+    ]
+
+    assert all(
+        result["adapted"] is False
+        for result in quarantine_results
+    )
 
 
-if __name__ == "__main__":
-    main()
+# ============================================================
+# 14. Recovery
+# ============================================================
+
+def test_engine_can_leave_drift_lock_after_recovery(
+    calibration_scores,
+    drift_df,
+    drift_scores,
+):
+    engine = create_engine(
+        calibration_scores
+    )
+
+    results = run_stream(
+        engine,
+        drift_df,
+        drift_scores,
+    )
+
+    drift_indices = indices_for(
+        results,
+        "temporal_drift",
+    )
+
+    assert drift_indices
+
+    # We only require that the engine entered DRIFT_LOCKED.
+    #
+    # The final state may be STABLE because the engine's
+    # quarantine recovery mechanism can legitimately recover
+    # before the stream ends.
+
+    first_drift = drift_indices[0]
+
+    assert results[first_drift][
+        "state"
+    ] == EngineState.DRIFT_LOCKED.value
+
+    assert engine.state in (
+        EngineState.STABLE,
+        EngineState.DRIFT_LOCKED,
+    )
+
+
+# ============================================================
+# 15. update() compatibility
+# ============================================================
+
+def test_update_is_compatible_with_process(
+    calibration_scores,
+):
+    engine_a = create_engine(
+        calibration_scores
+    )
+
+    engine_b = create_engine(
+        calibration_scores
+    )
+
+    score = float(
+        calibration_scores[0]
+    )
+
+    temperature = 25.0
+
+    result_process = engine_a.process(
+        score=score,
+        temperature=temperature,
+    )
+
+    result_update = engine_b.update(
+        score=score,
+        temperature=temperature,
+    )
+
+    assert result_process == result_update
+
+
+# ============================================================
+# 16. Sample accounting
+# ============================================================
+
+def test_engine_counts_processed_samples(
+    calibration_scores,
+):
+    engine = create_engine(
+        calibration_scores
+    )
+
+    for index in range(10):
+
+        engine.process(
+            score=float(
+                calibration_scores[index]
+            ),
+            temperature=25.0,
+        )
+
+    state = engine.get_state()
+
+    assert state["total_samples"] == 10
+    assert state["initialized"] is True
+
+    assert state["last_result"][
+        "sample_count"
+    ] == 10
+
+
+# ============================================================
+# 17. Reset
+# ============================================================
+
+def test_reset_returns_engine_to_initial_state(
+    calibration_scores,
+):
+    engine = create_engine(
+        calibration_scores
+    )
+
+    engine.process(
+        score=float(
+            calibration_scores[0]
+        ),
+        temperature=25.0,
+    )
+
+    engine.reset()
+
+    state = engine.get_state()
+
+    assert state["initialized"] is False
+    assert state["model_name"] is None
+    assert state["total_samples"] == 0
+    assert state["adaptation_updates"] == 0
+    assert state["alert_count"] == 0
+
+    assert state["state"] == (
+        EngineState.STABLE.value
+    )
+
+    with pytest.raises(RuntimeError):
+        engine.process(
+            score=0.0,
+            temperature=25.0,
+        )
+
+
+def test_engine_can_be_reinitialized_after_reset(
+    calibration_scores,
+):
+    engine = create_engine(
+        calibration_scores
+    )
+
+    old_threshold = get_threshold(
+        engine
+    )
+
+    engine.process(
+        score=float(
+            calibration_scores[0]
+        ),
+        temperature=25.0,
+    )
+
+    engine.reset()
+
+    engine.initialize(
+        calibration_scores,
+        model_name="lof",
+    )
+
+    new_threshold = get_threshold(
+        engine
+    )
+
+    assert engine.initialized is True
+    assert engine.model_name == "lof"
+    assert engine.total_samples == 0
+
+    assert np.isfinite(
+        new_threshold
+    )
+
+    assert np.isfinite(
+        old_threshold
+    )

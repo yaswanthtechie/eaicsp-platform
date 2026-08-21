@@ -1,22 +1,7 @@
-from pathlib import Path
-
 import numpy as np
-import pandas as pd
+import pytest
 
 from src.temporal_detector import TemporalDetector
-
-
-# ============================================================
-# Paths
-# ============================================================
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-OUTPUT_DIR = PROJECT_ROOT / "output"
-
-NORMAL = OUTPUT_DIR / "test_normal.csv"
-SEASONAL = OUTPUT_DIR / "test_seasonal_normal.csv"
-SPIKES = OUTPUT_DIR / "test_temperature_spike.csv"
-DRIFT = OUTPUT_DIR / "test_temperature_drift.csv"
 
 
 # ============================================================
@@ -28,31 +13,17 @@ MIN_SLOPE = 0.03
 MIN_TOTAL_CHANGE = 0.75
 MIN_R_SQUARED = 0.15
 
-# Require three consecutive qualifying trend evaluations.
-#
-# This is temporal persistence.
-#
-# The detector should not react to a single noisy window.
 REQUIRED_CONSECUTIVE_WINDOWS = 3
 
-# Maximum acceptable confirmation latency.
-#
-# This is intentionally measured in readings, not in percentage
-# of drift rows detected.
-#
-# At 5-minute sampling:
-#
-#     72 readings = 6 hours
-#
-# The injected drift lasts substantially longer than this.
 MAX_DRIFT_CONFIRMATION_LATENCY = 72
 
 
 # ============================================================
-# Detector factory
+# Detector fixture
 # ============================================================
 
-def create_detector():
+@pytest.fixture
+def temporal_detector():
     return TemporalDetector(
         window_size=WINDOW_SIZE,
         min_slope=MIN_SLOPE,
@@ -65,264 +36,222 @@ def create_detector():
 
 
 # ============================================================
-# Run detector
+# Helpers
 # ============================================================
 
-def run_detector(df):
-    detector = create_detector()
-
-    results = []
-
-    for temperature in df["temperature"].to_numpy():
-
-        result = detector.update(
-            temperature
-        )
-
-        results.append(result)
-
-    return detector, results
-
-
-# ============================================================
-# Summary
-# ============================================================
-
-def summarize(
-    name,
-    results,
+def run_detector(
+    detector,
+    temperatures,
 ):
-    drift_flags = np.array(
-        [
-            result["is_drift"]
-            for result in results
-        ],
-        dtype=bool,
-    )
-
-    detected = int(
-        drift_flags.sum()
-    )
-
-    total = len(results)
-
-    flag_rate = (
-        detected / total
-        if total > 0
-        else 0.0
-    )
-
-    print()
-    print(name)
-    print("-" * 70)
-
-    print(
-        f"Samples             : "
-        f"{total}"
-    )
-
-    print(
-        f"Drift confirmations : "
-        f"{detected}"
-    )
-
-    print(
-        f"Confirmation rate   : "
-        f"{flag_rate:.4f}"
-    )
-
-    usable_results = [
-        result
-        for result in results
-        if result["sample_count"]
-        >= WINDOW_SIZE
-    ]
-
-    if usable_results:
-
-        last = usable_results[-1]
-
-        print(
-            f"Final slope         : "
-            f"{last['slope']:.6f}"
-        )
-
-        print(
-            f"Final total change  : "
-            f"{last['total_change']:.6f}"
-        )
-
-        print(
-            f"Final R-squared     : "
-            f"{last['r_squared']:.4f}"
-        )
-
-        print(
-            f"Final direction     : "
-            f"{last['direction']}"
-        )
-
-        print(
-            f"Final trend windows : "
-            f"{last['consecutive_trend_windows']}"
-        )
-
-    return detected, flag_rate
-
-
-# ============================================================
-# 1. Original normal
-# ============================================================
-
-def test_original_normal():
-
-    print()
-    print("=" * 80)
-    print("1. ORIGINAL NORMAL")
-    print("=" * 80)
-
-    df = pd.read_csv(
-        NORMAL
-    )
-
-    _, results = run_detector(
-        df
-    )
-
-    detected, flag_rate = summarize(
-        "ORIGINAL NORMAL",
-        results,
-    )
-
-    # Original normal data should not produce sustained drift.
-    assert flag_rate < 0.01, (
-        "Temporal detector is producing "
-        "too many false drift confirmations "
-        "on original normal data."
-    )
-
-    print(
-        "[PASS] Original normal data "
-        "does not produce excessive "
-        "sustained drift confirmations."
-    )
-
-
-# ============================================================
-# 2. Seasonal normal
-# ============================================================
-
-def test_seasonal_normal():
-
-    print()
-    print("=" * 80)
-    print("2. SEASONAL NORMAL")
-    print("=" * 80)
-
-    df = pd.read_csv(
-        SEASONAL
-    )
-
-    _, results = run_detector(
-        df
-    )
-
-    detected, flag_rate = summarize(
-        "SEASONAL NORMAL",
-        results,
-    )
-
-    assert flag_rate < 0.01, (
-        "Temporal detector is producing "
-        "too many sustained drift confirmations "
-        "on seasonal normal data."
-    )
-
-    print(
-        "[PASS] Seasonal normal data "
-        "does not produce excessive "
-        "sustained drift confirmations."
-    )
-
-
-# ============================================================
-# 3. Temperature spikes
-# ============================================================
-
-def test_temperature_spikes():
-
-    print()
-    print("=" * 80)
-    print("3. TEMPERATURE SPIKES")
-    print("=" * 80)
-
-    df = pd.read_csv(
-        SPIKES
-    )
-
-    _, results = run_detector(
-        df
-    )
-
-    detected, flag_rate = summarize(
-        "TEMPERATURE SPIKES",
-        results,
-    )
-
-    assert flag_rate < 0.01, (
-        "Temporal detector is treating "
-        "too many sudden temperature spikes "
-        "as sustained drift."
-    )
-
-    print(
-        "[PASS] Sudden temperature spikes "
-        "are not broadly classified "
-        "as sustained drift."
-    )
-
-
-# ============================================================
-# 4. Slow temperature drift
-# ============================================================
-
-def test_temperature_drift():
-
-    print()
-    print("=" * 80)
-    print("4. SLOW TEMPERATURE DRIFT")
-    print("=" * 80)
-
-    df = pd.read_csv(
-        DRIFT
-    )
-
-    detector = create_detector()
-
-    temperatures = (
-        df["temperature"]
-        .to_numpy()
-    )
-
-    labels = (
-        df["is_anomaly"]
-        .astype(int)
-        .to_numpy()
-    )
-
     results = []
 
     for temperature in temperatures:
-
         results.append(
             detector.update(
-                temperature
+                float(temperature)
             )
         )
 
-    # --------------------------------------------------------
-    # Locate injected drift
-    # --------------------------------------------------------
+    return results
+
+
+def drift_indices(results):
+    return [
+        index
+        for index, result in enumerate(results)
+        if bool(
+            result.get(
+                "is_drift",
+                False,
+            )
+        )
+    ]
+
+
+# ============================================================
+# Configuration contract
+# ============================================================
+
+def test_detector_can_be_created(
+    temporal_detector,
+):
+    assert temporal_detector is not None
+
+
+def test_detector_uses_expected_configuration(
+    temporal_detector,
+):
+    assert temporal_detector.window_size == (
+        WINDOW_SIZE
+    )
+
+    assert temporal_detector.min_slope == (
+        MIN_SLOPE
+    )
+
+    assert temporal_detector.min_total_change == (
+        MIN_TOTAL_CHANGE
+    )
+
+    assert temporal_detector.min_r_squared == (
+        MIN_R_SQUARED
+    )
+
+    assert (
+        temporal_detector.required_consecutive_windows
+        == REQUIRED_CONSECUTIVE_WINDOWS
+    )
+
+
+# ============================================================
+# Result contract
+# ============================================================
+
+def test_update_returns_expected_result_fields(
+    temporal_detector,
+):
+    result = temporal_detector.update(
+        25.0
+    )
+
+    required_fields = {
+        "is_drift",
+        "slope",
+        "total_change",
+        "r_squared",
+        "direction",
+        "consecutive_trend_windows",
+        "sample_count",
+    }
+
+    assert required_fields.issubset(
+        result.keys()
+    )
+
+
+def test_detector_does_not_evaluate_trend_before_window_is_ready(
+    temporal_detector,
+):
+    results = run_detector(
+        temporal_detector,
+        np.full(
+            WINDOW_SIZE - 1,
+            25.0,
+        ),
+    )
+
+    assert results
+
+    for result in results:
+        assert result["is_drift"] is False
+
+    assert results[-1]["sample_count"] == (
+        WINDOW_SIZE - 1
+    )
+
+
+# ============================================================
+# Original normal
+# ============================================================
+
+def test_original_normal_does_not_produce_sustained_drift(
+    temporal_detector,
+    calibration_df,
+):
+    temperatures = (
+        calibration_df["temperature"]
+        .to_numpy(dtype=float)
+    )
+
+    results = run_detector(
+        temporal_detector,
+        temperatures,
+    )
+
+    confirmations = drift_indices(
+        results
+    )
+
+    flag_rate = (
+        len(confirmations)
+        / len(results)
+    )
+
+    assert flag_rate < 0.01
+
+
+# ============================================================
+# Seasonal normal
+# ============================================================
+
+def test_seasonal_normal_does_not_produce_sustained_drift(
+    temporal_detector,
+    seasonal_df,
+):
+    temperatures = (
+        seasonal_df["temperature"]
+        .to_numpy(dtype=float)
+    )
+
+    results = run_detector(
+        temporal_detector,
+        temperatures,
+    )
+
+    confirmations = drift_indices(
+        results
+    )
+
+    flag_rate = (
+        len(confirmations)
+        / len(results)
+    )
+
+    assert flag_rate < 0.01
+
+
+# ============================================================
+# Temperature spikes
+# ============================================================
+
+def test_temperature_spikes_do_not_produce_sustained_drift(
+    temporal_detector,
+    spikes_df,
+):
+    temperatures = (
+        spikes_df["temperature"]
+        .to_numpy(dtype=float)
+    )
+
+    results = run_detector(
+        temporal_detector,
+        temperatures,
+    )
+
+    confirmations = drift_indices(
+        results
+    )
+
+    flag_rate = (
+        len(confirmations)
+        / len(results)
+    )
+
+    assert flag_rate < 0.01
+
+
+# ============================================================
+# Slow temperature drift
+# ============================================================
+
+def test_temperature_drift_dataset_contains_injected_drift(
+    drift_df,
+):
+    labels = (
+        drift_df["is_anomaly"]
+        .astype(int)
+        .to_numpy()
+    )
 
     anomaly_indices = np.where(
         labels == 1
@@ -330,10 +259,32 @@ def test_temperature_drift():
 
     assert len(
         anomaly_indices
-    ) > 0, (
-        "Temperature drift dataset "
-        "contains no injected drift."
+    ) > 0
+
+
+def test_temperature_drift_is_eventually_confirmed(
+    temporal_detector,
+    drift_df,
+):
+    temperatures = (
+        drift_df["temperature"]
+        .to_numpy(dtype=float)
     )
+
+    labels = (
+        drift_df["is_anomaly"]
+        .astype(int)
+        .to_numpy()
+    )
+
+    results = run_detector(
+        temporal_detector,
+        temperatures,
+    )
+
+    anomaly_indices = np.where(
+        labels == 1
+    )[0]
 
     drift_start = int(
         anomaly_indices[0]
@@ -343,292 +294,302 @@ def test_temperature_drift():
         anomaly_indices[-1]
     )
 
-    drift_rows = len(
-        anomaly_indices
+    confirmations = drift_indices(
+        results
     )
-
-    print()
-    print("DRIFT LOCATION")
-    print("-" * 70)
-
-    print(
-        f"Start index : "
-        f"{drift_start}"
-    )
-
-    print(
-        f"End index   : "
-        f"{drift_end}"
-    )
-
-    print(
-        f"Drift rows  : "
-        f"{drift_rows}"
-    )
-
-    # --------------------------------------------------------
-    # IMPORTANT:
-    #
-    # We do NOT expect every drift row to be flagged.
-    #
-    # The detector needs historical evidence before it can
-    # conclude that a sustained trend exists.
-    #
-    # Therefore we measure:
-    #
-    #     1. Whether drift is eventually confirmed
-    #     2. Confirmation index
-    #     3. Confirmation latency
-    #
-    # rather than:
-    #
-    #     detected drift rows / total drift rows
-    # --------------------------------------------------------
-
-    confirmations = [
-        index
-        for index, result in enumerate(results)
-        if result["is_drift"]
-    ]
-
-    # --------------------------------------------------------
-    # Any confirmation before the actual injected drift is a
-    # false temporal confirmation.
-    # --------------------------------------------------------
-
-    pre_drift_confirmations = [
-        index
-        for index in confirmations
-        if index < drift_start
-    ]
-
-    print()
-    print("PRE-DRIFT CHECK")
-    print("-" * 70)
-
-    print(
-        f"Drift confirmations before "
-        f"drift start : "
-        f"{len(pre_drift_confirmations)}"
-    )
-
-    assert len(
-        pre_drift_confirmations
-    ) == 0, (
-        "Temporal detector confirmed "
-        "drift before the injected "
-        "temperature drift began."
-    )
-
-    # --------------------------------------------------------
-    # Find first confirmation during the injected drift.
-    # --------------------------------------------------------
 
     drift_confirmations = [
         index
         for index in confirmations
-        if drift_start
-        <= index
-        <= drift_end
+        if (
+            drift_start
+            <= index
+            <= drift_end
+        )
     ]
 
-    print()
-    print("DRIFT CONFIRMATION")
-    print("-" * 70)
-
-    if not drift_confirmations:
-
-        print(
-            "Drift confirmed : NO"
-        )
-
-        print(
-            "[FAIL] Sustained temperature "
-            "drift was never confirmed."
-        )
-
-        raise AssertionError(
-            "Temporal detector failed to "
-            "confirm the injected sustained "
-            "temperature drift."
-        )
-
-    first_confirmation = int(
-        drift_confirmations[0]
+    assert drift_confirmations, (
+        "Sustained temperature drift "
+        "was never confirmed."
     )
 
-    confirmation_latency = (
+
+def test_temperature_drift_is_not_confirmed_before_injected_drift(
+    temporal_detector,
+    drift_df,
+):
+    temperatures = (
+        drift_df["temperature"]
+        .to_numpy(dtype=float)
+    )
+
+    labels = (
+        drift_df["is_anomaly"]
+        .astype(int)
+        .to_numpy()
+    )
+
+    results = run_detector(
+        temporal_detector,
+        temperatures,
+    )
+
+    anomaly_indices = np.where(
+        labels == 1
+    )[0]
+
+    drift_start = int(
+        anomaly_indices[0]
+    )
+
+    confirmations_before_drift = [
+        index
+        for index in drift_indices(results)
+        if index < drift_start
+    ]
+
+    assert confirmations_before_drift == []
+
+
+def test_temperature_drift_confirmation_latency_is_bounded(
+    temporal_detector,
+    drift_df,
+):
+    temperatures = (
+        drift_df["temperature"]
+        .to_numpy(dtype=float)
+    )
+
+    labels = (
+        drift_df["is_anomaly"]
+        .astype(int)
+        .to_numpy()
+    )
+
+    results = run_detector(
+        temporal_detector,
+        temperatures,
+    )
+
+    anomaly_indices = np.where(
+        labels == 1
+    )[0]
+
+    drift_start = int(
+        anomaly_indices[0]
+    )
+
+    drift_end = int(
+        anomaly_indices[-1]
+    )
+
+    confirmations = [
+        index
+        for index in drift_indices(results)
+        if (
+            drift_start
+            <= index
+            <= drift_end
+        )
+    ]
+
+    assert confirmations, (
+        "No drift confirmation available "
+        "to measure latency."
+    )
+
+    first_confirmation = confirmations[0]
+
+    latency = (
         first_confirmation
         - drift_start
     )
 
-    print(
-        "Drift confirmed : YES"
+    assert latency <= (
+        MAX_DRIFT_CONFIRMATION_LATENCY
     )
 
-    print(
-        f"First confirmation index : "
-        f"{first_confirmation}"
+
+# ============================================================
+# Confirmed drift diagnostics
+# ============================================================
+
+def test_confirmed_drift_has_meaningful_trend_evidence(
+    temporal_detector,
+    drift_df,
+):
+    temperatures = (
+        drift_df["temperature"]
+        .to_numpy(dtype=float)
     )
 
-    print(
-        f"Confirmation latency     : "
-        f"{confirmation_latency} readings"
+    labels = (
+        drift_df["is_anomaly"]
+        .astype(int)
+        .to_numpy()
     )
 
-    print(
-        f"Confirmation latency     : "
-        f"{confirmation_latency * 5} minutes"
+    results = run_detector(
+        temporal_detector,
+        temperatures,
     )
 
-    # --------------------------------------------------------
-    # The detector should confirm within a reasonable period
-    # after enough evidence becomes available.
-    # --------------------------------------------------------
+    anomaly_indices = np.where(
+        labels == 1
+    )[0]
 
-    assert (
-        confirmation_latency
-        <= MAX_DRIFT_CONFIRMATION_LATENCY
-    ), (
-        "Temporal detector eventually "
-        "detected the drift, but confirmation "
-        "latency is too large."
+    drift_start = int(
+        anomaly_indices[0]
     )
 
-    # --------------------------------------------------------
-    # Strongest signal during injected drift
-    # --------------------------------------------------------
+    drift_end = int(
+        anomaly_indices[-1]
+    )
 
-    drift_results = [
-        results[index]
-        for index in range(
-            drift_start,
-            drift_end + 1,
+    confirmed_results = [
+        result
+        for index, result in enumerate(
+            results
         )
-        if results[index]["sample_count"]
+        if (
+            drift_start
+            <= index
+            <= drift_end
+            and result["is_drift"]
+        )
+    ]
+
+    assert confirmed_results
+
+    for result in confirmed_results:
+
+        # The detector must provide valid
+        # diagnostics when it confirms drift.
+        assert np.isfinite(
+            result["slope"]
+        )
+
+        assert np.isfinite(
+            result["total_change"]
+        )
+
+        assert np.isfinite(
+            result["r_squared"]
+        )
+
+        # R² is a bounded statistical diagnostic.
+        # Do not duplicate the detector's internal
+        # confirmation threshold here because the
+        # confirmation event may expose diagnostics
+        # from a later/reset evaluation window.
+        assert 0.0 <= result[
+            "r_squared"
+        ] <= 1.0
+
+
+# ============================================================
+# Constant temperature
+# ============================================================
+
+def test_constant_temperature_does_not_produce_drift(
+    temporal_detector,
+):
+    temperatures = np.full(
+        200,
+        25.0,
+    )
+
+    results = run_detector(
+        temporal_detector,
+        temperatures,
+    )
+
+    assert drift_indices(
+        results
+    ) == []
+
+
+# ============================================================
+# Directional trend sanity
+# ============================================================
+
+def test_sustained_increasing_temperature_has_positive_slope(
+    temporal_detector,
+):
+    temperatures = np.linspace(
+        20.0,
+        30.0,
+        200,
+    )
+
+    results = run_detector(
+        temporal_detector,
+        temperatures,
+    )
+
+    usable = [
+        result
+        for result in results
+        if result["sample_count"]
         >= WINDOW_SIZE
     ]
 
-    if drift_results:
+    assert usable
 
-        strongest = max(
-            drift_results,
-            key=lambda result: (
-                abs(result["slope"])
-            )
-        )
+    final = usable[-1]
 
-        print()
-        print(
-            "STRONGEST DRIFT SIGNAL"
-        )
+    assert final["slope"] > 0.0
+    assert final["total_change"] > 0.0
 
-        print("-" * 70)
 
-        print(
-            f"Slope                : "
-            f"{strongest['slope']:.6f}"
-        )
-
-        print(
-            f"Total change         : "
-            f"{strongest['total_change']:.6f}"
-        )
-
-        print(
-            f"R-squared            : "
-            f"{strongest['r_squared']:.4f}"
-        )
-
-        print(
-            f"Direction            : "
-            f"{strongest['direction']}"
-        )
-
-        print(
-            f"Consecutive windows  : "
-            f"{strongest['consecutive_trend_windows']}"
-        )
-
-    print(
-        "[PASS] Temporal detector confirmed "
-        "the sustained temperature drift "
-        "after accumulating sufficient evidence."
+def test_sustained_decreasing_temperature_has_negative_slope(
+    temporal_detector,
+):
+    temperatures = np.linspace(
+        30.0,
+        20.0,
+        200,
     )
+
+    results = run_detector(
+        temporal_detector,
+        temperatures,
+    )
+
+    usable = [
+        result
+        for result in results
+        if result["sample_count"]
+        >= WINDOW_SIZE
+    ]
+
+    assert usable
+
+    final = usable[-1]
+
+    assert final["slope"] < 0.0
+    assert final["total_change"] < 0.0
 
 
 # ============================================================
-# Main
+# Non-finite input validation
 # ============================================================
 
-def main():
-
-    print("=" * 80)
-
-    print(
-        "TEMPORAL TEMPERATURE DRIFT DETECTOR TEST"
-    )
-
-    print("=" * 80)
-
-    print()
-
-    print(
-        "CONFIGURATION"
-    )
-
-    print("-" * 80)
-
-    print(
-        f"Window size                    : "
-        f"{WINDOW_SIZE}"
-    )
-
-    print(
-        f"Minimum slope                  : "
-        f"{MIN_SLOPE}"
-    )
-
-    print(
-        f"Minimum total change           : "
-        f"{MIN_TOTAL_CHANGE}°C"
-    )
-
-    print(
-        f"Minimum R-squared              : "
-        f"{MIN_R_SQUARED}"
-    )
-
-    print(
-        f"Required consecutive windows   : "
-        f"{REQUIRED_CONSECUTIVE_WINDOWS}"
-    )
-
-    print(
-        f"Maximum confirmation latency   : "
-        f"{MAX_DRIFT_CONFIRMATION_LATENCY} "
-        f"readings"
-    )
-
-    print()
-
-    test_original_normal()
-
-    test_seasonal_normal()
-
-    test_temperature_spikes()
-
-    test_temperature_drift()
-
-    print()
-    print("=" * 80)
-
-    print(
-        "ALL TEMPORAL DETECTOR TESTS PASSED"
-    )
-
-    print("=" * 80)
-
-
-if __name__ == "__main__":
-    main()
+@pytest.mark.parametrize(
+    "temperature",
+    [
+        np.nan,
+        np.inf,
+        -np.inf,
+    ],
+)
+def test_non_finite_temperature_is_rejected(
+    temporal_detector,
+    temperature,
+):
+    with pytest.raises(
+        (ValueError, TypeError)
+    ):
+        temporal_detector.update(
+            temperature
+        )

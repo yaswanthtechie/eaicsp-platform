@@ -26,6 +26,137 @@ model_labels = {
 
 
 # ============================================================
+# R4.5 PRODUCTION COST-BASED THRESHOLDS
+# ============================================================
+#
+# Project anomaly-score convention:
+#
+#     anomaly_score = -model.score(features)
+#
+# Therefore:
+#
+#     higher score = MORE ANOMALOUS
+#
+# Production rule:
+#
+#     score >= threshold -> ANOMALY
+#
+# These thresholds were selected by the R4.5
+# cost-based threshold tuning using:
+#
+#     false-positive cost = 2
+#     false-negative cost = 500
+#
+# Primary datasets:
+#
+#     temperature_spike
+#     stock_anomaly
+#     combined_anomaly
+#
+# Temperature drift is intentionally handled separately
+# by the temporal/adaptive detection path.
+#
+# Current production candidates:
+#
+#     Isolation Forest : -0.04819341
+#     One-Class SVM    : -0.05911529
+#     LOF              : -0.07028774
+#
+# LOF is currently the selected production model because
+# it achieved:
+#
+#     Precision = 0.4000
+#     Recall    = 1.0000
+#     F1        = 0.5714
+#     TP        = 60
+#     FP        = 90
+#     FN        = 0
+#     Cost      = 180
+#
+# versus:
+#
+#     Isolation Forest cost = 482
+#     One-Class SVM cost    = 484
+#
+# ============================================================
+
+PRODUCTION_THRESHOLDS = {
+    "iforest": -0.04819341,
+    "ocsvm": -0.05911529,
+    "lof": -0.07028774,
+}
+
+
+# Currently selected production model.
+#
+# R4.5 evidence selected LOF because it has the lowest
+# expected business cost among the three models.
+
+PRODUCTION_MODEL = "lof"
+
+
+# ============================================================
+# INTERNAL HELPERS
+# ============================================================
+
+def _get_production_threshold(
+    model_name,
+):
+    """
+    Return the R4.5 production threshold for a model.
+
+    The threshold is expressed in the project's normalized
+    anomaly-score convention:
+
+        score = -model.score(...)
+
+    Higher score means more anomalous.
+    """
+
+    model_name = str(
+        model_name
+    )
+
+    if model_name not in PRODUCTION_THRESHOLDS:
+
+        raise ValueError(
+            f"No production threshold configured "
+            f"for model: {model_name}"
+        )
+
+    return float(
+        PRODUCTION_THRESHOLDS[
+            model_name
+        ]
+    )
+
+
+def _is_production_anomaly(
+    score,
+    model_name,
+):
+    """
+    Apply the R4.5 production threshold.
+
+    Project convention:
+
+        higher score = more anomalous
+
+    Therefore:
+
+        score >= threshold -> anomaly
+    """
+
+    threshold = _get_production_threshold(
+        model_name
+    )
+
+    return bool(
+        float(score) >= threshold
+    )
+
+
+# ============================================================
 # INTERNAL PREDICTION HELPER
 # ============================================================
 
@@ -34,8 +165,13 @@ def _get_prediction_details(
     model_name,
 ):
     """
-    Run the selected model and return its prediction,
-    normalized anomaly score, and SHAP reasons.
+    Run the selected model and return:
+
+        - native model prediction
+        - normalized anomaly score
+        - R4.5 production decision
+        - production threshold
+        - SHAP reasons
 
     Project convention:
 
@@ -44,16 +180,21 @@ def _get_prediction_details(
     Higher anomaly_score = more anomalous.
     """
 
-    model_name = str(model_name)
+    model_name = str(
+        model_name
+    )
 
     models = get_models()
 
     if model_name not in models:
+
         raise ValueError(
             f"Unknown model: {model_name}"
         )
 
-    model = models[model_name]
+    model = models[
+        model_name
+    ]
 
     explainer = get_explainer(
         model_name
@@ -61,22 +202,59 @@ def _get_prediction_details(
 
     features = pd.DataFrame(
         [reading]
-    )[feature_names]
+    )[
+        feature_names
+    ]
 
     model_input = features.to_numpy()
+
+    # --------------------------------------------------------
+    # Native model prediction
+    # --------------------------------------------------------
 
     prediction = model.predict(
         model_input
     )[0]
 
+    # --------------------------------------------------------
+    # Native model score
+    #
+    # model.score() returns the model's native decision
+    # function.
+    #
+    # We invert it so the project convention is:
+    #
+    #     higher = more anomalous
+    # --------------------------------------------------------
+
     raw_score = model.score(
         model_input
     )[0]
 
-    # Higher score = more anomalous.
     anomaly_score = float(
         -raw_score
     )
+
+    # --------------------------------------------------------
+    # R4.5 production decision
+    # --------------------------------------------------------
+
+    production_threshold = (
+        _get_production_threshold(
+            model_name
+        )
+    )
+
+    production_is_anomaly = (
+        _is_production_anomaly(
+            anomaly_score,
+            model_name,
+        )
+    )
+
+    # --------------------------------------------------------
+    # SHAP reasons
+    # --------------------------------------------------------
 
     reasons = []
 
@@ -94,6 +272,7 @@ def _get_prediction_details(
         total = contributions.sum()
 
         if total > 0:
+
             contributions = (
                 contributions / total
             )
@@ -120,26 +299,58 @@ def _get_prediction_details(
             reverse=True,
         )[:3]
 
+    # --------------------------------------------------------
+    # Return all decision information.
+    #
+    # Keeping both native and production decisions makes
+    # debugging/evaluation much easier.
+    # --------------------------------------------------------
+
     return {
         "model": model_name,
+
         "model_label": model_labels.get(
             model_name,
             model_name,
         ),
+
         "model_version": get_model_version(),
+
+        # Native sklearn prediction:
+        #
+        #     -1 = anomaly
+        #      1 = normal
+        #
         "model_prediction": int(
             prediction
         ),
+
         "model_is_anomaly": bool(
             prediction == -1
         ),
+
+        # Project normalized score:
+        #
+        # higher = more anomalous
+        #
         "score": anomaly_score,
+
+        # R4.5 production threshold.
+        "production_threshold": (
+            production_threshold
+        ),
+
+        # R4.5 production decision.
+        "production_is_anomaly": (
+            production_is_anomaly
+        ),
+
         "reasons": reasons,
     }
 
 
 # ============================================================
-# NATIVE MODEL PREDICTION
+# PRODUCTION PREDICTION
 # ============================================================
 
 def predict(
@@ -147,10 +358,22 @@ def predict(
     model_name="iforest",
 ):
     """
-    Uses the model's native predict() decision.
+    Production anomaly prediction.
 
-    This function is intentionally preserved so that
-    existing /detect behaviour remains unchanged.
+    This function uses the R4.5 cost-based threshold,
+    NOT the model's native predict() decision.
+
+    Project convention:
+
+        score = -model.score(features)
+
+        higher score = more anomalous
+
+        score >= production_threshold
+            -> anomaly
+
+    The native model prediction is still returned separately
+    as model_is_anomaly for comparison/debugging.
     """
 
     result = _get_prediction_details(
@@ -159,12 +382,59 @@ def predict(
     )
 
     return {
-        "model": result["model"],
-        "model_label": result["model_label"],
-        "model_version": result["model_version"],
-        "is_anomaly": result["model_is_anomaly"],
-        "score": result["score"],
-        "reasons": result["reasons"],
+        "model": result[
+            "model"
+        ],
+
+        "model_label": result[
+            "model_label"
+        ],
+
+        "model_version": result[
+            "model_version"
+        ],
+
+        # ----------------------------------------------------
+        # Production decision
+        # ----------------------------------------------------
+
+        "is_anomaly": (
+            result[
+                "production_is_anomaly"
+            ]
+        ),
+
+        "score": result[
+            "score"
+        ],
+
+        "production_threshold": (
+            result[
+                "production_threshold"
+            ]
+        ),
+
+        # ----------------------------------------------------
+        # Native model decision
+        #
+        # Kept for transparency/debugging.
+        # ----------------------------------------------------
+
+        "model_prediction": (
+            result[
+                "model_prediction"
+            ]
+        ),
+
+        "model_is_anomaly": (
+            result[
+                "model_is_anomaly"
+            ]
+        ),
+
+        "reasons": result[
+            "reasons"
+        ],
     }
 
 
@@ -181,8 +451,12 @@ def adaptive_predict(
 
     Kept for backward compatibility.
 
-    This function does NOT use the AdaptiveEngine state
-    machine and does NOT update the adaptive baseline.
+    IMPORTANT:
+
+    This function intentionally does NOT use the R4.5 fixed
+    production threshold.
+
+    It uses the adaptive threshold manager instead.
     """
 
     initialize_adaptive_thresholds()
@@ -192,13 +466,17 @@ def adaptive_predict(
         model_name,
     )
 
-    model_name = result["model"]
+    model_name = result[
+        "model"
+    ]
 
     manager = get_adaptive_threshold(
         model_name
     )
 
-    score = result["score"]
+    score = result[
+        "score"
+    ]
 
     is_anomaly, threshold = (
         manager.is_anomaly(
@@ -207,21 +485,43 @@ def adaptive_predict(
     )
 
     return {
-        "model": result["model"],
-        "model_label": result["model_label"],
-        "model_version": result["model_version"],
+        "model": result[
+            "model"
+        ],
+
+        "model_label": result[
+            "model_label"
+        ],
+
+        "model_version": result[
+            "model_version"
+        ],
+
         "is_anomaly": bool(
             is_anomaly
         ),
+
         "score": score,
-        "adaptive_threshold": threshold,
+
+        "adaptive_threshold": (
+            threshold
+        ),
+
         "model_prediction": (
-            result["model_prediction"]
+            result[
+                "model_prediction"
+            ]
         ),
+
         "model_is_anomaly": (
-            result["model_is_anomaly"]
+            result[
+                "model_is_anomaly"
+            ]
         ),
-        "reasons": result["reasons"],
+
+        "reasons": result[
+            "reasons"
+        ],
     }
 
 
@@ -241,10 +541,7 @@ def adaptive_engine_predict(
         SENSOR READING
               |
               v
-        MODEL PREDICTION
-              |
-              v
-        ANOMALY SCORE
+        MODEL SCORE
               |
               v
         REGIME DETECTOR
@@ -263,14 +560,19 @@ def adaptive_engine_predict(
                 v       v
               ALERT   REGIME
                ONLY   CONFIRMATION
-                        |
-                        v
-                   ADAPTATION
+                         |
+                         v
+                    ADAPTATION
 
-    The AdaptiveEngine owns the stateful adaptive
+    The AdaptiveEngine owns the complete stateful adaptive
     threshold lifecycle.
 
-    This function does not directly update thresholds.
+    IMPORTANT:
+
+    This path intentionally does NOT use the fixed R4.5
+    production threshold for its final alert decision.
+
+    The adaptive engine owns that decision.
     """
 
     mapping = {
@@ -283,7 +585,10 @@ def adaptive_engine_predict(
         model_name,
         "value",
     ):
-        model_name = model_name.value
+
+        model_name = (
+            model_name.value
+        )
 
     model_name = mapping.get(
         str(model_name),
@@ -291,7 +596,7 @@ def adaptive_engine_predict(
     )
 
     # --------------------------------------------------------
-    # Use the existing canonical model-scoring path.
+    # Existing canonical model-scoring path.
     # --------------------------------------------------------
 
     result = _get_prediction_details(
@@ -300,13 +605,16 @@ def adaptive_engine_predict(
     )
 
     # --------------------------------------------------------
-    # Send score + temperature to the state machine.
+    # Send normalized anomaly score + temperature
+    # to the state machine.
     # --------------------------------------------------------
 
     engine_result = (
         adaptive_engine_manager.process(
             model_name=model_name,
-            score=result["score"],
+            score=result[
+                "score"
+            ],
             temperature=reading[
                 "temperature"
             ],
@@ -315,13 +623,12 @@ def adaptive_engine_predict(
 
     # --------------------------------------------------------
     # Extract state-machine values.
-    #
-    # Use .get() so the API remains tolerant of optional
-    # fields returned by the current AdaptiveEngine.
     # --------------------------------------------------------
 
-    threshold = engine_result.get(
-        "threshold"
+    threshold = (
+        engine_result.get(
+            "threshold"
+        )
     )
 
     alert = bool(
@@ -336,7 +643,9 @@ def adaptive_engine_predict(
         # Existing model information
         # ----------------------------------------------------
 
-        "model": result["model"],
+        "model": result[
+            "model"
+        ],
 
         "model_label": result[
             "model_label"
@@ -350,13 +659,17 @@ def adaptive_engine_predict(
             "score"
         ],
 
-        "model_prediction": result[
-            "model_prediction"
-        ],
+        "model_prediction": (
+            result[
+                "model_prediction"
+            ]
+        ),
 
-        "model_is_anomaly": result[
-            "model_is_anomaly"
-        ],
+        "model_is_anomaly": (
+            result[
+                "model_is_anomaly"
+            ]
+        ),
 
         "reasons": result[
             "reasons"
@@ -368,7 +681,9 @@ def adaptive_engine_predict(
 
         "is_anomaly": alert,
 
-        "adaptive_threshold": threshold,
+        "adaptive_threshold": (
+            threshold
+        ),
 
         # ----------------------------------------------------
         # State-machine information
@@ -428,6 +743,9 @@ def predict_with_explanation(
         "3" -> ocsvm
 
     Or direct model names.
+
+    This uses the R4.5 production threshold through
+    predict().
     """
 
     mapping = {
@@ -440,7 +758,10 @@ def predict_with_explanation(
         model_choice,
         "value",
     ):
-        model_choice = model_choice.value
+
+        model_choice = (
+            model_choice.value
+        )
 
     model_key = mapping.get(
         str(model_choice),
@@ -466,6 +787,9 @@ def adaptive_predict_with_explanation(
     prediction path.
 
     Kept so existing imports do not break.
+
+    This uses adaptive_predict(), not the fixed R4.5
+    production threshold.
     """
 
     mapping = {
@@ -478,7 +802,10 @@ def adaptive_predict_with_explanation(
         model_choice,
         "value",
     ):
-        model_choice = model_choice.value
+
+        model_choice = (
+            model_choice.value
+        )
 
     model_key = mapping.get(
         str(model_choice),
@@ -504,6 +831,9 @@ def adaptive_engine_predict_with_explanation(
     state-machine path.
 
     This is the function that /detect-adaptive should use.
+
+    The AdaptiveEngine remains responsible for the adaptive
+    decision.
     """
 
     mapping = {
@@ -516,7 +846,10 @@ def adaptive_engine_predict_with_explanation(
         model_choice,
         "value",
     ):
-        model_choice = model_choice.value
+
+        model_choice = (
+            model_choice.value
+        )
 
     model_key = mapping.get(
         str(model_choice),

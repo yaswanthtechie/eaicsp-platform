@@ -1,627 +1,886 @@
-from pathlib import Path
-
 import numpy as np
-import pandas as pd
+import pytest
 
-from src.adaptive_threshold import AdaptiveThreshold
-from src.model_loader import (
-    feature_names,
-    get_models,
+from src.adaptive_threshold import (
+    AdaptiveThreshold,
+    get_adaptive_threshold,
+    reset_adaptive_thresholds,
 )
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-OUTPUT_DIR = PROJECT_ROOT / "output"
-
-CALIBRATION = OUTPUT_DIR / "calibration_normal.csv"
-SEASONAL = OUTPUT_DIR / "test_seasonal_normal.csv"
-SPIKES = OUTPUT_DIR / "test_temperature_spike.csv"
-
-WINDOW_SIZE = 50
-PERCENTILE = 99.0
-
-MODEL_NAMES = [
-    "iforest",
-    "lof",
-    "ocsvm",
-]
-
-
 # ============================================================
-# DATA
+# INITIALIZATION
 # ============================================================
 
-def load_dataset(path):
-    df = pd.read_csv(path)
-
-    required = set(
-        feature_names
-        + ["is_anomaly"]
-    )
-
-    missing = required - set(df.columns)
-
-    if missing:
-        raise ValueError(
-            f"{path} is missing columns: "
-            f"{sorted(missing)}"
-        )
-
-    return df
-
-
-# ============================================================
-# MODEL SCORING
-# ============================================================
-
-def score_dataset(
-    df,
-    model_name,
-):
+def test_initialization_calculates_calibration_threshold():
     """
-    Generate the project's normalized anomaly scores.
+    Initial threshold must be calculated from the complete
+    calibration score population.
 
-    Existing project convention:
-
-        raw_score = model.score(...)
-        anomaly_score = -raw_score
-
-    Therefore:
-
-        higher anomaly_score = more anomalous
-
-    SHAP is deliberately not used here because this test
-    evaluates AdaptiveThreshold, not explainability.
+    The rolling window is only used for future adaptive updates.
     """
 
-    models = get_models()
-
-    if model_name not in models:
-        raise ValueError(
-            f"Unknown model: {model_name}"
-        )
-
-    model = models[model_name]
-
-    features = df[
-        feature_names
-    ].to_numpy(
-        dtype=float
+    scores = np.array(
+        [
+            0.10,
+            0.20,
+            0.30,
+            0.40,
+            0.50,
+        ]
     )
 
-    raw_scores = model.score(
-        features
+    threshold = AdaptiveThreshold(
+        window_size=3,
+        percentile=80.0,
     )
 
-    raw_scores = np.asarray(
-        raw_scores,
-        dtype=float,
-    ).reshape(-1)
+    threshold.initialize(
+        scores
+    )
 
-    if len(raw_scores) != len(df):
-        raise ValueError(
-            f"{model_name} returned "
-            f"{len(raw_scores)} scores for "
-            f"{len(df)} rows."
+    expected = np.percentile(
+        scores,
+        80.0,
+    )
+
+    assert threshold.get_threshold() == pytest.approx(
+        expected
+    )
+
+
+def test_initialization_keeps_only_recent_scores_for_future_updates():
+    """
+    Initialization calculates the threshold from all calibration
+    scores, but only the most recent window_size observations are
+    retained in the rolling adaptive baseline.
+    """
+
+    scores = np.array(
+        [
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+            5.0,
+        ]
+    )
+
+    threshold = AdaptiveThreshold(
+        window_size=3,
+        percentile=50.0,
+    )
+
+    threshold.initialize(
+        scores
+    )
+
+    state = threshold.get_state()
+
+    assert state["sample_count"] == 3
+
+    assert state["window_size"] == 3
+
+    assert state["adaptive_started"] is False
+
+    assert state["initial_threshold"] == pytest.approx(
+        np.percentile(
+            scores,
+            50.0,
         )
+    )
 
-    if not np.all(
-        np.isfinite(raw_scores)
-    ):
-        raise ValueError(
-            f"{model_name} produced "
-            "non-finite raw scores."
-        )
 
-    # --------------------------------------------------------
-    # IMPORTANT:
-    #
-    # This matches src.predict._get_prediction_details()
-    #
-    # raw_score:
-    #     higher = more normal
-    #
-    # anomaly_score:
-    #     higher = more anomalous
-    # --------------------------------------------------------
+def test_empty_initialization_has_no_threshold():
+    """
+    An empty calibration population cannot produce a threshold.
+    """
 
-    anomaly_scores = -raw_scores
+    threshold = AdaptiveThreshold(
+        window_size=5,
+        percentile=99.0,
+    )
 
-    return anomaly_scores
+    threshold.initialize(
+        []
+    )
+
+    assert threshold.get_threshold() is None
+
+    state = threshold.get_state()
+
+    assert state["sample_count"] == 0
+
+    assert state["threshold"] is None
+
+    assert state["initial_threshold"] is None
+
+    assert state["adaptive_started"] is False
 
 
 # ============================================================
-# CLASSIFICATION
+# ADAPTIVE UPDATE
 # ============================================================
 
-def classify(
-    manager,
-    scores,
+def test_update_starts_adaptive_mode():
+    """
+    The first trusted normal update transitions the manager from
+    calibration mode into adaptive mode.
+    """
+
+    threshold = AdaptiveThreshold(
+        window_size=5,
+        percentile=90.0,
+    )
+
+    threshold.initialize(
+        [
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+            5.0,
+        ]
+    )
+
+    initial_threshold = (
+        threshold.get_threshold()
+    )
+
+    threshold.update(
+        10.0
+    )
+
+    state = threshold.get_state()
+
+    assert state["adaptive_started"] is True
+
+    assert state["sample_count"] == 5
+
+    assert threshold.get_threshold() != pytest.approx(
+        initial_threshold
+    )
+
+
+def test_update_recalculates_threshold_from_rolling_window():
+    """
+    Once adaptation starts, the threshold must be calculated from
+    the current rolling trusted-score window.
+    """
+
+    threshold = AdaptiveThreshold(
+        window_size=5,
+        percentile=80.0,
+    )
+
+    threshold.initialize(
+        [
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+            5.0,
+        ]
+    )
+
+    threshold.update(
+        10.0
+    )
+
+    expected_scores = np.array(
+        [
+            2.0,
+            3.0,
+            4.0,
+            5.0,
+            10.0,
+        ]
+    )
+
+    expected_threshold = np.percentile(
+        expected_scores,
+        80.0,
+    )
+
+    assert threshold.get_threshold() == pytest.approx(
+        expected_threshold
+    )
+
+
+def test_rolling_window_discards_oldest_score():
+    """
+    The rolling baseline must never exceed window_size.
+    """
+
+    threshold = AdaptiveThreshold(
+        window_size=3,
+        percentile=50.0,
+    )
+
+    threshold.initialize(
+        [
+            1.0,
+            2.0,
+            3.0,
+        ]
+    )
+
+    threshold.update(
+        4.0
+    )
+
+    state = threshold.get_state()
+
+    assert state["sample_count"] == 3
+
+    expected_scores = np.array(
+        [
+            2.0,
+            3.0,
+            4.0,
+        ]
+    )
+
+    assert threshold.get_threshold() == pytest.approx(
+        np.percentile(
+            expected_scores,
+            50.0,
+        )
+    )
+
+
+def test_multiple_updates_keep_window_bounded():
+    """
+    Repeated trusted updates must continue to maintain the
+    configured rolling window size.
+    """
+
+    threshold = AdaptiveThreshold(
+        window_size=4,
+        percentile=75.0,
+    )
+
+    threshold.initialize(
+        [
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+        ]
+    )
+
+    for score in [
+        5.0,
+        6.0,
+        7.0,
+        8.0,
+        9.0,
+    ]:
+        threshold.update(
+            score
+        )
+
+    state = threshold.get_state()
+
+    assert state["sample_count"] == 4
+
+    expected_scores = np.array(
+        [
+            6.0,
+            7.0,
+            8.0,
+            9.0,
+        ]
+    )
+
+    expected_threshold = np.percentile(
+        expected_scores,
+        75.0,
+    )
+
+    assert threshold.get_threshold() == pytest.approx(
+        expected_threshold
+    )
+
+
+# ============================================================
+# ANOMALY CLASSIFICATION
+# ============================================================
+
+def test_score_below_threshold_is_normal():
+    """
+    Higher score means more anomalous.
+
+    A score below the threshold must be classified as normal.
+    """
+
+    threshold = AdaptiveThreshold(
+        window_size=5,
+        percentile=90.0,
+    )
+
+    threshold.initialize(
+        [
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+            5.0,
+        ]
+    )
+
+    is_anomaly, active_threshold = (
+        threshold.is_anomaly(
+            1.0
+        )
+    )
+
+    assert is_anomaly is False
+
+    assert active_threshold == pytest.approx(
+        threshold.get_threshold()
+    )
+
+
+def test_score_above_threshold_is_anomaly():
+    """
+    A score above the active threshold must be classified as
+    anomalous.
+    """
+
+    threshold = AdaptiveThreshold(
+        window_size=5,
+        percentile=90.0,
+    )
+
+    threshold.initialize(
+        [
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+            5.0,
+        ]
+    )
+
+    is_anomaly, active_threshold = (
+        threshold.is_anomaly(
+            100.0
+        )
+    )
+
+    assert is_anomaly is True
+
+    assert active_threshold == pytest.approx(
+        threshold.get_threshold()
+    )
+
+
+def test_score_equal_to_threshold_is_not_anomaly():
+    """
+    AdaptiveThreshold uses:
+
+        score > threshold
+
+    Therefore equality is not anomalous.
+    """
+
+    threshold = AdaptiveThreshold(
+        window_size=5,
+        percentile=90.0,
+    )
+
+    threshold.initialize(
+        [
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+            5.0,
+        ]
+    )
+
+    active_threshold = (
+        threshold.get_threshold()
+    )
+
+    is_anomaly, returned_threshold = (
+        threshold.is_anomaly(
+            active_threshold
+        )
+    )
+
+    assert is_anomaly is False
+
+    assert returned_threshold == pytest.approx(
+        active_threshold
+    )
+
+
+def test_anomaly_check_without_calibration_returns_false():
+    """
+    Without any baseline scores there is no threshold, so the
+    manager cannot classify a score as anomalous.
+    """
+
+    threshold = AdaptiveThreshold(
+        window_size=5,
+        percentile=99.0,
+    )
+
+    is_anomaly, active_threshold = (
+        threshold.is_anomaly(
+            100.0
+        )
+    )
+
+    assert is_anomaly is False
+
+    assert active_threshold is None
+
+
+# ============================================================
+# PERCENTILE BEHAVIOR
+# ============================================================
+
+@pytest.mark.parametrize(
+    "percentile",
+    [
+        90.0,
+        95.0,
+        99.0,
+        99.5,
+    ],
+)
+def test_configured_percentile_is_used(
+    percentile,
 ):
-    predictions = []
+    """
+    The configured percentile must directly control the
+    threshold calculation.
+    """
 
-    for score in scores:
+    scores = np.array(
+        [
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+            5.0,
+            6.0,
+            7.0,
+            8.0,
+            9.0,
+            10.0,
+        ]
+    )
 
-        is_anomaly, _ = (
-            manager.is_anomaly(
-                score
-            )
-        )
+    threshold = AdaptiveThreshold(
+        window_size=10,
+        percentile=percentile,
+    )
 
-        predictions.append(
-            bool(is_anomaly)
-        )
+    threshold.initialize(
+        scores
+    )
 
-    return np.asarray(
-        predictions,
-        dtype=bool,
+    expected = np.percentile(
+        scores,
+        percentile,
+    )
+
+    assert threshold.get_threshold() == pytest.approx(
+        expected
+    )
+
+
+def test_different_percentiles_produce_different_thresholds():
+    """
+    Higher percentiles should produce a threshold at least as high
+    as lower percentiles for the same score distribution.
+    """
+
+    scores = np.array(
+        [
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+            5.0,
+            6.0,
+            7.0,
+            8.0,
+            9.0,
+            10.0,
+        ]
+    )
+
+    low = AdaptiveThreshold(
+        window_size=10,
+        percentile=90.0,
+    )
+
+    high = AdaptiveThreshold(
+        window_size=10,
+        percentile=99.0,
+    )
+
+    low.initialize(
+        scores
+    )
+
+    high.initialize(
+        scores
+    )
+
+    assert high.get_threshold() >= (
+        low.get_threshold()
     )
 
 
 # ============================================================
-# METRICS
+# STATE
 # ============================================================
 
-def confusion_matrix(
-    actual,
-    predicted,
-):
-    actual = np.asarray(
-        actual,
-        dtype=int,
+def test_state_reports_calibration_mode_correctly():
+    """
+    get_state() must accurately describe the manager before
+    adaptive updates begin.
+    """
+
+    threshold = AdaptiveThreshold(
+        window_size=5,
+        percentile=99.0,
     )
 
-    predicted = np.asarray(
-        predicted,
-        dtype=int,
+    threshold.initialize(
+        [
+            1.0,
+            2.0,
+            3.0,
+        ]
     )
 
-    tp = int(
-        np.sum(
-            (actual == 1)
-            & (predicted == 1)
-        )
-    )
+    state = threshold.get_state()
 
-    tn = int(
-        np.sum(
-            (actual == 0)
-            & (predicted == 0)
-        )
-    )
-
-    fp = int(
-        np.sum(
-            (actual == 0)
-            & (predicted == 1)
-        )
-    )
-
-    fn = int(
-        np.sum(
-            (actual == 1)
-            & (predicted == 0)
-        )
-    )
-
-    return tp, tn, fp, fn
-
-
-def print_metrics(
-    name,
-    actual,
-    predicted,
-):
-    tp, tn, fp, fn = confusion_matrix(
-        actual,
-        predicted,
-    )
-
-    precision = (
-        tp / (tp + fp)
-        if tp + fp
-        else 0.0
-    )
-
-    recall = (
-        tp / (tp + fn)
-        if tp + fn
-        else 0.0
-    )
-
-    f1 = (
-        2.0 * precision * recall
-        / (precision + recall)
-        if precision + recall
-        else 0.0
-    )
-
-    fpr = (
-        fp / (fp + tn)
-        if fp + tn
-        else 0.0
-    )
-
-    print()
-    print(name)
-    print("-" * 80)
-
-    print(
-        f"TP        : {tp}"
-    )
-
-    print(
-        f"TN        : {tn}"
-    )
-
-    print(
-        f"FP        : {fp}"
-    )
-
-    print(
-        f"FN        : {fn}"
-    )
-
-    print(
-        f"FPR       : {fpr:.4f}"
-    )
-
-    print(
-        f"Precision : {precision:.4f}"
-    )
-
-    print(
-        f"Recall    : {recall:.4f}"
-    )
-
-    print(
-        f"F1        : {f1:.4f}"
-    )
-
-    return {
-        "tp": tp,
-        "tn": tn,
-        "fp": fp,
-        "fn": fn,
-        "fpr": fpr,
-        "precision": precision,
-        "recall": recall,
-        "f1": f1,
+    assert state == {
+        "sample_count": 3,
+        "window_size": 5,
+        "percentile": 99.0,
+        "threshold": state["initial_threshold"],
+        "initial_threshold": state[
+            "initial_threshold"
+        ],
+        "adaptive_started": False,
     }
 
 
+def test_state_reports_adaptive_mode_correctly():
+    """
+    get_state() must accurately describe the manager after trusted
+    scores have started updating the rolling baseline.
+    """
+
+    threshold = AdaptiveThreshold(
+        window_size=5,
+        percentile=99.0,
+    )
+
+    threshold.initialize(
+        [
+            1.0,
+            2.0,
+            3.0,
+        ]
+    )
+
+    threshold.update(
+        4.0
+    )
+
+    state = threshold.get_state()
+
+    assert state["sample_count"] == 4
+
+    assert state["window_size"] == 5
+
+    assert state["percentile"] == 99.0
+
+    assert state["adaptive_started"] is True
+
+    assert state["threshold"] == pytest.approx(
+        threshold.get_threshold()
+    )
+
+    assert state["initial_threshold"] == pytest.approx(
+        np.percentile(
+            np.array(
+                [
+                    1.0,
+                    2.0,
+                    3.0,
+                ]
+            ),
+            99.0,
+        )
+    )
+
+
 # ============================================================
-# MAIN
+# RESET
 # ============================================================
 
-def main():
+def test_reset_clears_adaptive_state():
+    """
+    reset() must remove both the rolling baseline and the
+    calibration threshold.
+    """
 
-    print("=" * 80)
-    print(
-        "ADAPTIVE THRESHOLD MODEL INTEGRATION TEST"
-    )
-    print("=" * 80)
-
-    print()
-    print(
-        "Raw model scores are generated directly "
-        "from the loaded models."
+    threshold = AdaptiveThreshold(
+        window_size=5,
+        percentile=99.0,
     )
 
-    print(
-        "SHAP explanations are intentionally bypassed."
+    threshold.initialize(
+        [
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+            5.0,
+        ]
     )
 
-    print()
-    print(
-        "Score convention:"
+    threshold.update(
+        10.0
     )
 
-    print(
-        "raw_score -> anomaly_score = -raw_score"
+    threshold.reset()
+
+    state = threshold.get_state()
+
+    assert state["sample_count"] == 0
+
+    assert state["threshold"] is None
+
+    assert state["initial_threshold"] is None
+
+    assert state["adaptive_started"] is False
+
+    assert threshold.get_threshold() is None
+
+
+def test_reset_allows_fresh_initialization():
+    """
+    After reset(), the same manager can be initialized again as a
+    completely fresh threshold manager.
+    """
+
+    threshold = AdaptiveThreshold(
+        window_size=5,
+        percentile=99.0,
     )
 
-    print(
-        "Higher anomaly_score = more anomalous"
+    first_scores = np.array(
+        [
+            1.0,
+            2.0,
+            3.0,
+        ]
     )
 
-    print()
-    print(
-        f"Window size : {WINDOW_SIZE}"
+    second_scores = np.array(
+        [
+            10.0,
+            20.0,
+            30.0,
+        ]
     )
 
-    print(
-        f"Percentile  : {PERCENTILE}"
+    threshold.initialize(
+        first_scores
     )
 
-    # ========================================================
-    # Load datasets
-    # ========================================================
-
-    calibration_df = load_dataset(
-        CALIBRATION
+    threshold.update(
+        100.0
     )
 
-    seasonal_df = load_dataset(
-        SEASONAL
+    threshold.reset()
+
+    threshold.initialize(
+        second_scores
     )
 
-    spikes_df = load_dataset(
-        SPIKES
+    expected = np.percentile(
+        second_scores,
+        99.0,
     )
 
-    print()
-    print(
-        "DATASET SIZES"
-    )
-    print("-" * 80)
-
-    print(
-        f"Calibration : "
-        f"{len(calibration_df)}"
+    assert threshold.get_threshold() == pytest.approx(
+        expected
     )
 
-    print(
-        f"Seasonal    : "
-        f"{len(seasonal_df)}"
-    )
+    state = threshold.get_state()
 
-    print(
-        f"Spikes      : "
-        f"{len(spikes_df)}"
-    )
+    assert state["sample_count"] == 3
 
-    # ========================================================
-    # Models
-    # ========================================================
+    assert state["adaptive_started"] is False
 
-    for model_name in MODEL_NAMES:
 
-        print()
-        print("=" * 80)
+# ============================================================
+# MODEL-SPECIFIC MANAGERS
+# ============================================================
 
-        print(
-            f"{model_name.upper()} — "
-            "ADAPTIVE THRESHOLD"
+def test_model_specific_managers_are_available():
+    """
+    The project-level managers must exist for all supported models.
+    """
+
+    expected_models = {
+        "iforest",
+        "lof",
+        "ocsvm",
+    }
+
+    for model_name in expected_models:
+
+        manager = get_adaptive_threshold(
+            model_name
         )
 
-        print("=" * 80)
-
-        # ----------------------------------------------------
-        # Generate scores
-        # ----------------------------------------------------
-
-        print()
-        print(
-            "Generating model scores..."
+        assert isinstance(
+            manager,
+            AdaptiveThreshold,
         )
 
-        calibration_scores = score_dataset(
-            calibration_df,
-            model_name,
+
+@pytest.mark.parametrize(
+    "model_name",
+    [
+        "iforest",
+        "lof",
+        "ocsvm",
+    ],
+)
+def test_model_specific_managers_are_independent(
+    model_name,
+):
+    """
+    Updating one model manager must not modify another model's
+    threshold manager.
+    """
+
+    reset_adaptive_thresholds()
+
+    iforest = get_adaptive_threshold(
+        "iforest"
+    )
+
+    lof = get_adaptive_threshold(
+        "lof"
+    )
+
+    ocsvm = get_adaptive_threshold(
+        "ocsvm"
+    )
+
+    managers = {
+        "iforest": iforest,
+        "lof": lof,
+        "ocsvm": ocsvm,
+    }
+
+    selected = managers[
+        model_name
+    ]
+
+    selected.initialize(
+        [
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+            5.0,
+        ]
+    )
+
+    selected.update(
+        100.0
+    )
+
+    for other_name, other_manager in managers.items():
+
+        if other_name == model_name:
+            continue
+
+        assert other_manager.get_threshold() is None
+
+
+def test_unknown_model_raises_value_error():
+    """
+    Requesting a manager for an unsupported model must fail
+    explicitly rather than silently creating one.
+    """
+
+    with pytest.raises(
+        ValueError,
+        match="Unknown model",
+    ):
+        get_adaptive_threshold(
+            "unknown_model"
         )
 
-        seasonal_scores = score_dataset(
-            seasonal_df,
-            model_name,
-        )
 
-        spike_scores = score_dataset(
-            spikes_df,
-            model_name,
-        )
+# ============================================================
+# GLOBAL RESET
+# ============================================================
 
-        print(
-            "Scores generated."
-        )
+def test_reset_adaptive_thresholds_resets_all_models():
+    """
+    reset_adaptive_thresholds() must reset every model-specific
+    manager.
+    """
 
-        # ----------------------------------------------------
-        # Score distributions
-        # ----------------------------------------------------
+    for model_name in [
+        "iforest",
+        "lof",
+        "ocsvm",
+    ]:
 
-        print()
-        print(
-            "SCORE DISTRIBUTIONS"
-        )
-        print("-" * 80)
-
-        print(
-            f"Calibration P95 : "
-            f"{np.percentile(calibration_scores, 95):.6f}"
-        )
-
-        print(
-            f"Calibration P99 : "
-            f"{np.percentile(calibration_scores, 99):.6f}"
-        )
-
-        print(
-            f"Seasonal P95   : "
-            f"{np.percentile(seasonal_scores, 95):.6f}"
-        )
-
-        print(
-            f"Seasonal P99   : "
-            f"{np.percentile(seasonal_scores, 99):.6f}"
-        )
-
-        print(
-            f"Spike P95      : "
-            f"{np.percentile(spike_scores, 95):.6f}"
-        )
-
-        print(
-            f"Spike P99      : "
-            f"{np.percentile(spike_scores, 99):.6f}"
-        )
-
-        # ----------------------------------------------------
-        # Initialize threshold
-        # ----------------------------------------------------
-
-        manager = AdaptiveThreshold(
-            window_size=WINDOW_SIZE,
-            percentile=PERCENTILE,
+        manager = get_adaptive_threshold(
+            model_name
         )
 
         manager.initialize(
-            calibration_scores
+            [
+                1.0,
+                2.0,
+                3.0,
+            ]
         )
 
-        initial_threshold = (
-            manager.get_threshold()
+        manager.update(
+            10.0
         )
 
-        print()
-        print(
-            "INITIAL CALIBRATION"
+    reset_adaptive_thresholds()
+
+    for model_name in [
+        "iforest",
+        "lof",
+        "ocsvm",
+    ]:
+
+        manager = get_adaptive_threshold(
+            model_name
         )
-        print("-" * 80)
-
-        print(
-            f"Initial threshold : "
-            f"{initial_threshold:.6f}"
-        )
-
-        # ----------------------------------------------------
-        # Original calibration
-        # ----------------------------------------------------
-
-        calibration_pred = classify(
-            manager,
-            calibration_scores,
-        )
-
-        print_metrics(
-            "ORIGINAL CALIBRATION",
-            calibration_df[
-                "is_anomaly"
-            ].to_numpy(),
-            calibration_pred,
-        )
-
-        # ----------------------------------------------------
-        # Seasonal before adaptation
-        # ----------------------------------------------------
-
-        seasonal_pred_before = classify(
-            manager,
-            seasonal_scores,
-        )
-
-        print_metrics(
-            "SEASONAL NORMAL — BEFORE ADAPTATION",
-            seasonal_df[
-                "is_anomaly"
-            ].to_numpy(),
-            seasonal_pred_before,
-        )
-
-        # ----------------------------------------------------
-        # Controlled regime adaptation
-        #
-        # test_seasonal_normal.csv is known normal data.
-        #
-        # Therefore, for this controlled test only, all
-        # seasonal scores are considered trusted-normal scores.
-        # ----------------------------------------------------
-
-        manager.reset()
-
-        manager.initialize(
-            calibration_scores
-        )
-
-        for score in seasonal_scores:
-
-            manager.update(
-                score
-            )
-
-        adaptive_threshold = (
-            manager.get_threshold()
-        )
-
-        print()
-        print(
-            "SEASONAL ADAPTATION"
-        )
-        print("-" * 80)
-
-        print(
-            f"Initial threshold  : "
-            f"{initial_threshold:.6f}"
-        )
-
-        print(
-            f"Adaptive threshold : "
-            f"{adaptive_threshold:.6f}"
-        )
-
-        print(
-            f"Threshold movement : "
-            f"{adaptive_threshold - initial_threshold:.6f}"
-        )
-
-        # ----------------------------------------------------
-        # Seasonal after adaptation
-        # ----------------------------------------------------
-
-        seasonal_pred_after = classify(
-            manager,
-            seasonal_scores,
-        )
-
-        print_metrics(
-            "SEASONAL NORMAL — AFTER ADAPTATION",
-            seasonal_df[
-                "is_anomaly"
-            ].to_numpy(),
-            seasonal_pred_after,
-        )
-
-        # ----------------------------------------------------
-        # Temperature spikes
-        # ----------------------------------------------------
-
-        spike_pred = classify(
-            manager,
-            spike_scores,
-        )
-
-        print_metrics(
-            "TEMPERATURE SPIKES — AFTER ADAPTATION",
-            spikes_df[
-                "is_anomaly"
-            ].to_numpy(),
-            spike_pred,
-        )
-
-        # ----------------------------------------------------
-        # Final state
-        # ----------------------------------------------------
-
-        print()
-        print(
-            "FINAL ADAPTIVE STATE"
-        )
-        print("-" * 80)
 
         state = manager.get_state()
 
-        for key, value in state.items():
+        assert state["sample_count"] == 0
 
-            print(
-                f"{key:<25}: {value}"
-            )
+        assert state["threshold"] is None
 
-    print()
-    print("=" * 80)
-    print(
-        "TEST COMPLETED"
-    )
-    print("=" * 80)
+        assert state["initial_threshold"] is None
 
-
-if __name__ == "__main__":
-    main()
+        assert state["adaptive_started"] is False

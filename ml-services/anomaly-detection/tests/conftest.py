@@ -10,7 +10,9 @@ import pytest
 # PROJECT PATH
 # ---------------------------------------------------------------------
 
-project_root = Path(__file__).resolve().parent.parent
+project_root = (
+    Path(__file__).resolve().parent.parent
+)
 
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
@@ -51,6 +53,33 @@ FEATURE_NAMES = [
 
 
 # ---------------------------------------------------------------------
+# REQUIRED DATASETS
+# ---------------------------------------------------------------------
+
+REQUIRED_DATASETS = [
+    "train_normal.csv",
+    "calibration_normal.csv",
+    "test_seasonal_normal.csv",
+    "test_temperature_spike.csv",
+    "test_temperature_drift.csv",
+    "test_stock_anomaly.csv",
+    "test_combined_anomaly.csv",
+]
+
+
+# ---------------------------------------------------------------------
+# REQUIRED MODEL ARTIFACTS
+# ---------------------------------------------------------------------
+
+REQUIRED_MODEL_ARTIFACTS = [
+    "isolation_forest_model.joblib",
+    "lof_model.joblib",
+    "one_class_svm_model.joblib",
+    "background_sample.csv",
+]
+
+
+# ---------------------------------------------------------------------
 # TEST ENVIRONMENT
 # ---------------------------------------------------------------------
 
@@ -62,13 +91,19 @@ def setup_test_environment():
     """
     Prepare all artifacts required by the test suite.
 
-    On a clean clone:
+    This fixture is intentionally self-contained so that a fresh
+    clone can run the test suite without requiring manually generated
+    datasets or manually trained model artifacts.
 
-    1. Generate datasets.
-    2. Train models.
-    3. Save deployed model artifacts.
+    Steps:
 
-    Existing artifacts are reused.
+        1. Create output/models directories.
+        2. Check required datasets.
+        3. Generate datasets if any are missing.
+        4. Check required model artifacts.
+        5. Train and save models if any artifacts are missing.
+
+    Existing complete artifacts are reused.
     """
 
     output_dir.mkdir(
@@ -82,42 +117,90 @@ def setup_test_environment():
     )
 
     # -------------------------------------------------------------
-    # Required datasets
+    # DATASET CHECK
     # -------------------------------------------------------------
 
-    required_datasets = [
-        output_dir / "train_normal.csv",
-        output_dir / "calibration_normal.csv",
-        output_dir / "test_seasonal_normal.csv",
-        output_dir / "test_temperature_spike.csv",
-        output_dir / "test_temperature_drift.csv",
-        output_dir / "test_combined_anomaly.csv",
-        output_dir / "test_stock_anomaly.csv",
+    dataset_paths = [
+        output_dir / filename
+        for filename in REQUIRED_DATASETS
     ]
 
-    if not all(
-        path.exists()
-        for path in required_datasets
-    ):
+    datasets_ready = all(
+        path.is_file()
+        for path in dataset_paths
+    )
+
+    if not datasets_ready:
+
+        print(
+            "\n"
+            "============================================================\n"
+            "TEST SETUP: GENERATING DATASETS\n"
+            "============================================================"
+        )
+
         generate_all_datasets()
 
     # -------------------------------------------------------------
-    # Required model artifacts
+    # VERIFY DATASETS AFTER GENERATION
     # -------------------------------------------------------------
 
-    required_models = [
-        models_dir / "isolation_forest_model.joblib",
-        models_dir / "lof_model.joblib",
-        models_dir / "one_class_svm_model.joblib",
-        models_dir / "background_sample.csv",
+    missing_datasets = [
+        path
+        for path in dataset_paths
+        if not path.is_file()
     ]
 
-    if not all(
-        path.exists()
-        for path in required_models
-    ):
+    if missing_datasets:
+
+        missing_names = [
+            path.name
+            for path in missing_datasets
+        ]
+
+        raise FileNotFoundError(
+            "Dataset generation completed, but "
+            "the following required datasets are "
+            f"still missing: {missing_names}"
+        )
+
+    # -------------------------------------------------------------
+    # MODEL ARTIFACT CHECK
+    # -------------------------------------------------------------
+
+    model_paths = [
+        models_dir / filename
+        for filename in REQUIRED_MODEL_ARTIFACTS
+    ]
+
+    models_ready = all(
+        path.is_file()
+        for path in model_paths
+    )
+
+    if not models_ready:
+
+        print(
+            "\n"
+            "============================================================\n"
+            "TEST SETUP: TRAINING MODELS\n"
+            "============================================================"
+        )
+
+        train_path = (
+            output_dir
+            / "train_normal.csv"
+        )
+
+        if not train_path.is_file():
+
+            raise FileNotFoundError(
+                "Training dataset is missing: "
+                f"{train_path}"
+            )
+
         train_df = pd.read_csv(
-            output_dir / "train_normal.csv"
+            train_path
         )
 
         trained_models = train_models(
@@ -128,33 +211,110 @@ def setup_test_environment():
             trained_models
         )
 
+    # -------------------------------------------------------------
+    # VERIFY MODEL ARTIFACTS AFTER TRAINING
+    # -------------------------------------------------------------
+
+    missing_models = [
+        path
+        for path in model_paths
+        if not path.is_file()
+    ]
+
+    if missing_models:
+
+        missing_names = [
+            path.name
+            for path in missing_models
+        ]
+
+        raise FileNotFoundError(
+            "Model training completed, but "
+            "the following required artifacts "
+            f"are still missing: {missing_names}"
+        )
+
+
+# ---------------------------------------------------------------------
+# DATASET LOADING HELPER
+# ---------------------------------------------------------------------
+
+def _load_dataset(
+    filename,
+):
+    """
+    Load a generated dataset and verify that
+    all required ML features exist.
+    """
+
+    path = (
+        output_dir
+        / filename
+    )
+
+    if not path.is_file():
+
+        raise FileNotFoundError(
+            f"Dataset not found: {path}"
+        )
+
+    dataframe = pd.read_csv(
+        path
+    )
+
+    missing = [
+        feature
+        for feature in FEATURE_NAMES
+        if feature not in dataframe.columns
+    ]
+
+    if missing:
+
+        raise ValueError(
+            f"{filename} is missing required "
+            f"features: {missing}"
+        )
+
+    return dataframe
+
 
 # ---------------------------------------------------------------------
 # DATASET FIXTURES
 # ---------------------------------------------------------------------
 
-@pytest.fixture(scope="session")
+@pytest.fixture(
+    scope="session",
+)
+def train_df(
+    setup_test_environment,
+):
+    """
+    Normal training dataset.
+    """
+
+    return _load_dataset(
+        "train_normal.csv"
+    )
+
+
+@pytest.fixture(
+    scope="session",
+)
 def calibration_df(
     setup_test_environment,
 ):
     """
-    Calibration normal dataset.
+    Normal calibration dataset.
     """
 
-    path = (
-        output_dir
-        / "calibration_normal.csv"
+    return _load_dataset(
+        "calibration_normal.csv"
     )
 
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Calibration dataset not found: {path}"
-        )
 
-    return pd.read_csv(path)
-
-
-@pytest.fixture(scope="session")
+@pytest.fixture(
+    scope="session",
+)
 def seasonal_df(
     setup_test_environment,
 ):
@@ -162,20 +322,14 @@ def seasonal_df(
     Seasonal normal dataset.
     """
 
-    path = (
-        output_dir
-        / "test_seasonal_normal.csv"
+    return _load_dataset(
+        "test_seasonal_normal.csv"
     )
 
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Seasonal dataset not found: {path}"
-        )
 
-    return pd.read_csv(path)
-
-
-@pytest.fixture(scope="session")
+@pytest.fixture(
+    scope="session",
+)
 def drift_df(
     setup_test_environment,
 ):
@@ -183,20 +337,14 @@ def drift_df(
     Temperature-drift dataset.
     """
 
-    path = (
-        output_dir
-        / "test_temperature_drift.csv"
+    return _load_dataset(
+        "test_temperature_drift.csv"
     )
 
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Temperature drift dataset not found: {path}"
-        )
 
-    return pd.read_csv(path)
-
-
-@pytest.fixture(scope="session")
+@pytest.fixture(
+    scope="session",
+)
 def spike_df(
     setup_test_environment,
 ):
@@ -204,20 +352,44 @@ def spike_df(
     Temperature-spike dataset.
     """
 
-    path = (
-        output_dir
-        / "test_temperature_spike.csv"
+    return _load_dataset(
+        "test_temperature_spike.csv"
     )
 
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Temperature spike dataset not found: {path}"
-        )
 
-    return pd.read_csv(path)
+@pytest.fixture(
+    scope="session",
+)
+def stock_df(
+    setup_test_environment,
+):
+    """
+    Stock anomaly dataset.
+    """
+
+    return _load_dataset(
+        "test_stock_anomaly.csv"
+    )
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(
+    scope="session",
+)
+def combined_df(
+    setup_test_environment,
+):
+    """
+    Combined anomaly dataset.
+    """
+
+    return _load_dataset(
+        "test_combined_anomaly.csv"
+    )
+
+
+@pytest.fixture(
+    scope="session",
+)
 def spikes_df(
     spike_df,
 ):
@@ -233,7 +405,9 @@ def spikes_df(
 # GENERIC DATASETS FIXTURE
 # ---------------------------------------------------------------------
 
-@pytest.fixture(scope="session")
+@pytest.fixture(
+    scope="session",
+)
 def datasets(
     calibration_df,
     seasonal_df,
@@ -257,7 +431,9 @@ def datasets(
 @pytest.fixture(
     params=MODELS,
 )
-def model_name(request):
+def model_name(
+    request,
+):
     """
     Parametrized model fixture.
 
@@ -288,6 +464,7 @@ def model(
     models = get_models()
 
     if model_name not in models:
+
         raise ValueError(
             f"Unknown model: {model_name}"
         )
@@ -295,6 +472,43 @@ def model(
     return models[
         model_name
     ]
+
+
+# ---------------------------------------------------------------------
+# MODEL COLLECTION FIXTURE
+# ---------------------------------------------------------------------
+
+@pytest.fixture(
+    scope="session",
+)
+def models(
+    setup_test_environment,
+):
+    """
+    Return all deployed models.
+    """
+
+    loaded_models = get_models()
+
+    missing = [
+        model_name
+        for model_name in MODELS
+        if model_name not in loaded_models
+    ]
+
+    if missing:
+
+        raise ValueError(
+            "Required models are missing "
+            f"from model_loader: {missing}"
+        )
+
+    return {
+        model_name: loaded_models[
+            model_name
+        ]
+        for model_name in MODELS
+    }
 
 
 # ---------------------------------------------------------------------
@@ -306,14 +520,27 @@ def _calculate_scores(
     model,
 ):
     """
-    Calculate anomaly scores using the
-    project's scoring convention.
+    Calculate anomaly scores using the project's
+    canonical scoring convention.
 
-    model.score(X)
-        ->
-    anomaly_score = -model.score(X)
+    IMPORTANT:
 
-    Higher score means more anomalous.
+        model.score(X)
+            =
+        project anomaly score
+
+    Therefore:
+
+        higher score = more anomalous
+
+    Do NOT negate model.score(X) here.
+
+    This must remain consistent with:
+
+        predict.py
+        adaptive_threshold.py
+        cost_threshold_tuning.py
+        orchestration.py
     """
 
     missing = [
@@ -323,6 +550,7 @@ def _calculate_scores(
     ]
 
     if missing:
+
         raise ValueError(
             "Dataset is missing required "
             f"features: {missing}"
@@ -332,22 +560,44 @@ def _calculate_scores(
         FEATURE_NAMES
     ].to_numpy()
 
-    raw_scores = model.score(
+    scores = model.score(
         X
     )
 
-    scores = -np.asarray(
-        raw_scores,
+    scores = np.asarray(
+        scores,
         dtype=float,
     )
 
-    scores = scores[
-        np.isfinite(scores)
-    ]
+    if scores.ndim != 1:
+
+        scores = scores.reshape(
+            -1
+        )
+
+    if len(scores) != len(
+        dataframe
+    ):
+
+        raise ValueError(
+            "Number of anomaly scores "
+            "does not match dataset size: "
+            f"{len(scores)} scores for "
+            f"{len(dataframe)} rows."
+        )
 
     if scores.size == 0:
+
         raise ValueError(
-            "No finite anomaly scores "
+            "No anomaly scores were produced."
+        )
+
+    if not np.all(
+        np.isfinite(scores)
+    ):
+
+        raise ValueError(
+            "Non-finite anomaly scores "
             "were produced."
         )
 
@@ -358,21 +608,32 @@ def _calculate_scores(
 # DEFAULT CALIBRATION SCORES
 # ---------------------------------------------------------------------
 
-@pytest.fixture(scope="session")
+@pytest.fixture(
+    scope="session",
+)
 def calibration_scores(
     calibration_df,
     setup_test_environment,
 ):
     """
-    Calibration scores for the default
-    legacy adaptive-engine tests.
+    Calibration scores for legacy adaptive-engine tests.
 
-    LOF is used because the older tests
-    requesting this fixture do not provide
-    a model_name fixture.
+    LOF is used because older tests requesting this fixture
+    may not provide model_name.
+
+    New model-aware tests should prefer:
+
+        model_calibration_scores
     """
 
     models = get_models()
+
+    if "lof" not in models:
+
+        raise ValueError(
+            "LOF model is required for "
+            "the legacy calibration_scores fixture."
+        )
 
     model = models[
         "lof"
@@ -489,10 +750,64 @@ def spike_scores(
 
 
 # ---------------------------------------------------------------------
+# MODEL-SPECIFIC STOCK SCORES
+# ---------------------------------------------------------------------
+
+@pytest.fixture
+def stock_scores(
+    model_name,
+    stock_df,
+    setup_test_environment,
+):
+    """
+    Stock-anomaly scores for the selected model.
+    """
+
+    models = get_models()
+
+    model = models[
+        model_name
+    ]
+
+    return _calculate_scores(
+        stock_df,
+        model,
+    )
+
+
+# ---------------------------------------------------------------------
+# MODEL-SPECIFIC COMBINED SCORES
+# ---------------------------------------------------------------------
+
+@pytest.fixture
+def combined_scores(
+    model_name,
+    combined_df,
+    setup_test_environment,
+):
+    """
+    Combined-anomaly scores for the selected model.
+    """
+
+    models = get_models()
+
+    model = models[
+        model_name
+    ]
+
+    return _calculate_scores(
+        combined_df,
+        model,
+    )
+
+
+# ---------------------------------------------------------------------
 # ALL MODEL CALIBRATION SCORES
 # ---------------------------------------------------------------------
 
-@pytest.fixture(scope="session")
+@pytest.fixture(
+    scope="session",
+)
 def all_calibration_scores(
     calibration_df,
     setup_test_environment,
@@ -517,7 +832,9 @@ def all_calibration_scores(
 # ALL MODEL SEASONAL SCORES
 # ---------------------------------------------------------------------
 
-@pytest.fixture(scope="session")
+@pytest.fixture(
+    scope="session",
+)
 def all_seasonal_scores(
     seasonal_df,
     setup_test_environment,
@@ -531,6 +848,114 @@ def all_seasonal_scores(
     return {
         name: _calculate_scores(
             seasonal_df,
+            model,
+        )
+        for name, model in models.items()
+        if name in MODELS
+    }
+
+
+# ---------------------------------------------------------------------
+# ALL MODEL DRIFT SCORES
+# ---------------------------------------------------------------------
+
+@pytest.fixture(
+    scope="session",
+)
+def all_drift_scores(
+    drift_df,
+    setup_test_environment,
+):
+    """
+    Temperature-drift scores for all supported models.
+    """
+
+    models = get_models()
+
+    return {
+        name: _calculate_scores(
+            drift_df,
+            model,
+        )
+        for name, model in models.items()
+        if name in MODELS
+    }
+
+
+# ---------------------------------------------------------------------
+# ALL MODEL SPIKE SCORES
+# ---------------------------------------------------------------------
+
+@pytest.fixture(
+    scope="session",
+)
+def all_spike_scores(
+    spike_df,
+    setup_test_environment,
+):
+    """
+    Temperature-spike scores for all supported models.
+    """
+
+    models = get_models()
+
+    return {
+        name: _calculate_scores(
+            spike_df,
+            model,
+        )
+        for name, model in models.items()
+        if name in MODELS
+    }
+
+
+# ---------------------------------------------------------------------
+# ALL MODEL STOCK SCORES
+# ---------------------------------------------------------------------
+
+@pytest.fixture(
+    scope="session",
+)
+def all_stock_scores(
+    stock_df,
+    setup_test_environment,
+):
+    """
+    Stock-anomaly scores for all supported models.
+    """
+
+    models = get_models()
+
+    return {
+        name: _calculate_scores(
+            stock_df,
+            model,
+        )
+        for name, model in models.items()
+        if name in MODELS
+    }
+
+
+# ---------------------------------------------------------------------
+# ALL MODEL COMBINED SCORES
+# ---------------------------------------------------------------------
+
+@pytest.fixture(
+    scope="session",
+)
+def all_combined_scores(
+    combined_df,
+    setup_test_environment,
+):
+    """
+    Combined-anomaly scores for all supported models.
+    """
+
+    models = get_models()
+
+    return {
+        name: _calculate_scores(
+            combined_df,
             model,
         )
         for name, model in models.items()

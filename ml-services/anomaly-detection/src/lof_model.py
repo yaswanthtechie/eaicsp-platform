@@ -15,13 +15,14 @@ class LOFModel:
         self,
         contamination=0.004,
         n_neighbors=10,
-        metric="euclidean",
+        metric="manhattan",
+        novelty=True,
     ):
         self.model = LocalOutlierFactor(
-            n_neighbors=n_neighbors,
             contamination=contamination,
+            n_neighbors=n_neighbors,
             metric=metric,
-            novelty=True,
+            novelty=novelty,
         )
 
     def train(self, features):

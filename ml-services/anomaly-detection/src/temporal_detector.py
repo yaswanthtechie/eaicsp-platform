@@ -1,26 +1,26 @@
 from collections import deque
+import math
 
 import numpy as np
 
 
 class TemporalDetector:
     """
-    Detect sustained temperature drift.
+    Streaming temperature drift detector.
 
-    Detection has two levels of evidence:
+    Detects sustained temperature regime changes while avoiding
+    short-lived spikes and ordinary sensor noise.
 
-    1. Normal/strong trend detection
-       Uses the configured slope, total-change and R² thresholds.
+    Detection uses two complementary signals:
 
-    2. Sustained early-drift detection
-       Allows a slow drift to be detected before the regression
-       R² reaches the normal trend threshold.
+        1. Linear trend evidence over the rolling window.
+        2. Sustained level-shift evidence between the older and
+           newer portions of the rolling window.
 
-    A single regression window is never sufficient for drift
-    confirmation.
+    Drift is emitted as an event:
+        is_drift == True
 
-    `is_drift` is an event and is therefore True only on the
-    observation where drift is newly confirmed.
+    only on the observation where drift is newly confirmed.
     """
 
     def __init__(
@@ -30,8 +30,9 @@ class TemporalDetector:
         min_total_change=0.75,
         min_r_squared=0.15,
         required_consecutive_windows=2,
-        evaluation_step=6,
+        evaluation_step=2,
     ):
+
         if window_size < 5:
             raise ValueError(
                 "window_size must be at least 5."
@@ -63,9 +64,18 @@ class TemporalDetector:
             )
 
         self.window_size = int(window_size)
-        self.min_slope = float(min_slope)
-        self.min_total_change = float(min_total_change)
-        self.min_r_squared = float(min_r_squared)
+
+        self.min_slope = float(
+            min_slope
+        )
+
+        self.min_total_change = float(
+            min_total_change
+        )
+
+        self.min_r_squared = float(
+            min_r_squared
+        )
 
         self.required_consecutive_windows = int(
             required_consecutive_windows
@@ -74,6 +84,10 @@ class TemporalDetector:
         self.evaluation_step = int(
             evaluation_step
         )
+
+        # ------------------------------------------------------
+        # Temperature history
+        # ------------------------------------------------------
 
         self.temperature_history = deque(
             maxlen=self.window_size
@@ -96,7 +110,7 @@ class TemporalDetector:
         self.last_is_drift = False
 
         # ------------------------------------------------------
-        # Strong candidate
+        # Linear trend candidate
         # ------------------------------------------------------
 
         self.candidate_active = False
@@ -112,32 +126,36 @@ class TemporalDetector:
         )
 
         # ------------------------------------------------------
-        # Early sustained-drift candidate
-        #
-        # IMPORTANT:
-        #
-        # This does NOT require every evaluation to be a trend.
-        #
-        # Instead, several sufficiently strong moderate windows
-        # must occur inside a bounded evidence horizon.
+        # Level-shift detector
         # ------------------------------------------------------
 
-        self.early_candidate_active = False
-        self.early_candidate_direction = None
-
-        self.early_candidate_windows = 0
-        self.early_candidate_start_sample = None
-        self.early_candidate_last_sample = None
-
-        self.early_evidence_samples = deque(
-            maxlen=20
+        self.level_shift_window = min(
+            12,
+            max(
+                6,
+                self.window_size // 2,
+            ),
         )
 
-        self.early_required_windows = 3
+        # A normal noisy window should not be enough to create
+        # a regime shift.
+        self.min_level_shift = 1.50
 
-        self.early_evidence_horizon = max(
-            72,
-            self.window_size * 3,
+        # Require three compatible evaluations.
+        self.level_shift_required_windows = 3
+
+        self.level_shift_candidate_active = False
+
+        self.level_shift_direction = None
+
+        self.level_shift_candidate_windows = 0
+
+        self.level_shift_start_sample = None
+        self.level_shift_last_sample = None
+
+        self.max_level_shift_gap = max(
+            self.evaluation_step * 4,
+            self.level_shift_window * 4,
         )
 
         # ------------------------------------------------------
@@ -165,571 +183,30 @@ class TemporalDetector:
     def _validate_temperature(
         temperature,
     ):
-        temperature = float(
-            temperature
-        )
 
-        if not np.isfinite(
+        try:
+            temperature = float(
+                temperature
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ) as exc:
+
+            raise ValueError(
+                "temperature must be numeric."
+            ) from exc
+
+        if not math.isfinite(
             temperature
         ):
+
             raise ValueError(
                 "temperature must be finite."
             )
 
         return temperature
-
-    # ==========================================================
-    # Regression
-    # ==========================================================
-
-    def _calculate_window_metrics(self):
-        values = np.asarray(
-            self.temperature_history,
-            dtype=float,
-        )
-
-        if values.size < self.window_size:
-            return {
-                "slope": 0.0,
-                "total_change": 0.0,
-                "r_squared": 0.0,
-                "direction": None,
-                "directional_fraction": 0.0,
-            }
-
-        x = np.arange(
-            values.size,
-            dtype=float,
-        )
-
-        x_mean = np.mean(x)
-        y_mean = np.mean(values)
-
-        x_centered = x - x_mean
-        y_centered = values - y_mean
-
-        denominator = np.sum(
-            x_centered ** 2
-        )
-
-        if denominator <= 0.0:
-            slope = 0.0
-        else:
-            slope = (
-                np.sum(
-                    x_centered * y_centered
-                )
-                / denominator
-            )
-
-        intercept = (
-            y_mean
-            - slope * x_mean
-        )
-
-        predicted = (
-            intercept
-            + slope * x
-        )
-
-        residual_sum = np.sum(
-            (
-                values - predicted
-            ) ** 2
-        )
-
-        total_sum = np.sum(
-            (
-                values - y_mean
-            ) ** 2
-        )
-
-        if total_sum <= 1e-12:
-            r_squared = 0.0
-        else:
-            r_squared = (
-                1.0
-                - residual_sum / total_sum
-            )
-
-            r_squared = float(
-                np.clip(
-                    r_squared,
-                    0.0,
-                    1.0,
-                )
-            )
-
-        total_change = float(
-            predicted[-1] - predicted[0]
-        )
-
-        differences = np.diff(
-            values
-        )
-
-        if slope > 0.0:
-            direction = "up"
-
-            directional_fraction = float(
-                np.mean(
-                    differences > 0.0
-                )
-            )
-
-        elif slope < 0.0:
-            direction = "down"
-
-            directional_fraction = float(
-                np.mean(
-                    differences < 0.0
-                )
-            )
-
-        else:
-            direction = None
-            directional_fraction = 0.0
-
-        return {
-            "slope": float(slope),
-            "total_change": float(
-                total_change
-            ),
-            "r_squared": float(
-                r_squared
-            ),
-            "direction": direction,
-            "directional_fraction": float(
-                directional_fraction
-            ),
-        }
-
-    # ==========================================================
-    # Normal trend
-    # ==========================================================
-
-    def _evaluate_window(self):
-        metrics = (
-            self._calculate_window_metrics()
-        )
-
-        is_trend = bool(
-            abs(metrics["slope"])
-            >= self.min_slope
-            and
-            abs(metrics["total_change"])
-            >= self.min_total_change
-            and
-            metrics["r_squared"]
-            >= self.min_r_squared
-        )
-
-        return {
-            **metrics,
-            "is_trend": is_trend,
-        }
-
-    # ==========================================================
-    # Strong evidence
-    # ==========================================================
-
-    def _is_strong_drift_window(
-        self,
-        evidence,
-    ):
-        slope = abs(
-            evidence["slope"]
-        )
-
-        total_change = abs(
-            evidence["total_change"]
-        )
-
-        r_squared = (
-            evidence["r_squared"]
-        )
-
-        strong_slope = max(
-            self.min_slope * 3.0,
-            0.10,
-        )
-
-        strong_change = max(
-            self.min_total_change * 2.0,
-            1.50,
-        )
-
-        strong_r_squared = max(
-            self.min_r_squared,
-            0.24,
-        )
-
-        return bool(
-            slope >= strong_slope
-            and
-            total_change >= strong_change
-            and
-            r_squared >= strong_r_squared
-        )
-
-    # ==========================================================
-    # Early sustained evidence
-    # ==========================================================
-
-    def _is_early_drift_window(
-        self,
-        evidence,
-    ):
-        """
-        Moderate evidence for a slowly developing drift.
-
-        These thresholds are intentionally much stricter than
-        the previous early-drift implementation.
-
-        For the current 24-sample test window, useful early
-        evidence looks approximately like:
-
-            slope       >= 0.04
-            total change >= 0.90
-            R²           >= 0.04
-            directional fraction >= 0.55
-
-        Crucially, this still cannot confirm drift alone.
-        Three compatible windows must accumulate.
-        """
-
-        slope = abs(
-            evidence["slope"]
-        )
-
-        total_change = abs(
-            evidence["total_change"]
-        )
-
-        r_squared = (
-            evidence["r_squared"]
-        )
-
-        directional_fraction = (
-            evidence["directional_fraction"]
-        )
-
-        early_min_slope = max(
-            self.min_slope * 1.25,
-            0.04,
-        )
-
-        early_min_change = max(
-            self.min_total_change * 1.20,
-            0.90,
-        )
-
-        early_min_r_squared = max(
-            self.min_r_squared * 0.30,
-            0.04,
-        )
-
-        early_min_directional_fraction = 0.55
-
-        return bool(
-            evidence["direction"] is not None
-            and
-            slope >= early_min_slope
-            and
-            total_change >= early_min_change
-            and
-            r_squared >= early_min_r_squared
-            and
-            directional_fraction
-            >= early_min_directional_fraction
-        )
-
-    # ==========================================================
-    # Strong candidate
-    # ==========================================================
-
-    def _start_candidate(
-        self,
-        evidence,
-    ):
-        self.candidate_active = True
-
-        self.candidate_direction = (
-            evidence["direction"]
-        )
-
-        self.candidate_windows = 1
-
-        self.candidate_start_sample = (
-            self.samples_seen
-        )
-
-        self.candidate_last_sample = (
-            self.samples_seen
-        )
-
-    def _continue_candidate(
-        self,
-        evidence,
-    ):
-        if not self.candidate_active:
-            return False
-
-        if (
-            evidence["direction"]
-            != self.candidate_direction
-        ):
-            self._clear_candidate()
-            return False
-
-        gap = (
-            self.samples_seen
-            - self.candidate_last_sample
-        )
-
-        if gap > self.max_candidate_gap:
-            self._clear_candidate()
-            return False
-
-        self.candidate_windows += 1
-
-        self.candidate_last_sample = (
-            self.samples_seen
-        )
-
-        return True
-
-    def _clear_candidate(self):
-        self.candidate_active = False
-        self.candidate_direction = None
-        self.candidate_windows = 0
-        self.candidate_start_sample = None
-        self.candidate_last_sample = None
-
-    # ==========================================================
-    # Early candidate
-    # ==========================================================
-
-    def _start_early_candidate(
-        self,
-        evidence,
-    ):
-        self.early_candidate_active = True
-
-        self.early_candidate_direction = (
-            evidence["direction"]
-        )
-
-        self.early_candidate_windows = 1
-
-        self.early_candidate_start_sample = (
-            self.samples_seen
-        )
-
-        self.early_candidate_last_sample = (
-            self.samples_seen
-        )
-
-        self.early_evidence_samples.clear()
-
-        self.early_evidence_samples.append(
-            self.samples_seen
-        )
-
-    def _continue_early_candidate(
-        self,
-        evidence,
-    ):
-        if not self.early_candidate_active:
-            return False
-
-        if (
-            evidence["direction"]
-            != self.early_candidate_direction
-        ):
-            self._clear_early_candidate()
-            return False
-
-        gap = (
-            self.samples_seen
-            - self.early_candidate_last_sample
-        )
-
-        if gap > self.early_evidence_horizon:
-            self._clear_early_candidate()
-            return False
-
-        self.early_candidate_windows += 1
-
-        self.early_candidate_last_sample = (
-            self.samples_seen
-        )
-
-        self.early_evidence_samples.append(
-            self.samples_seen
-        )
-
-        return True
-
-    def _clear_early_candidate(self):
-        self.early_candidate_active = False
-
-        self.early_candidate_direction = None
-
-        self.early_candidate_windows = 0
-
-        self.early_candidate_start_sample = None
-
-        self.early_candidate_last_sample = None
-
-        self.early_evidence_samples.clear()
-
-    # ==========================================================
-    # Confirmation
-    # ==========================================================
-
-    def _confirm_drift(self):
-        self.drift_confirmed = True
-
-        self._clear_candidate()
-        self._clear_early_candidate()
-
-        self.validation_windows = 0
-        self.validation_complete = False
-
-        return True
-
-    # ==========================================================
-    # Candidate processing
-    # ==========================================================
-
-    def _process_drift_candidates(
-        self,
-        evidence,
-    ):
-        is_trend = bool(
-            evidence["is_trend"]
-        )
-
-        is_strong = bool(
-            evidence["strong_drift"]
-        )
-
-        is_early = bool(
-            evidence["early_drift"]
-        )
-
-        # ------------------------------------------------------
-        # Strong path
-        # ------------------------------------------------------
-
-        if self.candidate_active:
-
-            if is_trend:
-
-                if self._continue_candidate(
-                    evidence
-                ):
-
-                    if (
-                        self.candidate_windows
-                        >= self.required_consecutive_windows
-                    ):
-                        return self._confirm_drift()
-
-            else:
-
-                gap = (
-                    self.samples_seen
-                    - self.candidate_last_sample
-                )
-
-                if gap > self.max_candidate_gap:
-                    self._clear_candidate()
-
-        elif is_strong:
-
-            self._start_candidate(
-                evidence
-            )
-
-            if (
-                self.candidate_windows
-                >= self.required_consecutive_windows
-            ):
-                return self._confirm_drift()
-
-        # ------------------------------------------------------
-        # Early sustained path
-        # ------------------------------------------------------
-
-        if self.early_candidate_active:
-
-            if is_early or is_trend:
-
-                if self._continue_early_candidate(
-                    evidence
-                ):
-
-                    # Ensure all early evidence is recent.
-                    first_sample = (
-                        self.early_evidence_samples[0]
-                    )
-
-                    evidence_span = (
-                        self.samples_seen
-                        - first_sample
-                    )
-
-                    if (
-                        evidence_span
-                        <= self.early_evidence_horizon
-                        and
-                        self.early_candidate_windows
-                        >= self.early_required_windows
-                    ):
-                        return self._confirm_drift()
-
-            else:
-
-                gap = (
-                    self.samples_seen
-                    - self.early_candidate_last_sample
-                )
-
-                if gap > self.early_evidence_horizon:
-                    self._clear_early_candidate()
-
-        elif is_early:
-
-            self._start_early_candidate(
-                evidence
-            )
-
-        return False
-
-    # ==========================================================
-    # Validation
-    # ==========================================================
-
-    def _update_validation(
-        self,
-        evidence,
-    ):
-        if evidence["is_trend"]:
-
-            self.validation_windows = 0
-            self.validation_complete = False
-
-            return
-
-        self.validation_windows += 1
-
-        if (
-            self.validation_windows
-            >= self.required_consecutive_windows
-        ):
-            self.validation_complete = True
 
     # ==========================================================
     # Main update
@@ -739,6 +216,7 @@ class TemporalDetector:
         self,
         temperature,
     ):
+
         temperature = (
             self._validate_temperature(
                 temperature
@@ -753,7 +231,7 @@ class TemporalDetector:
             temperature
         )
 
-        # Event semantics.
+        # is_drift is an event.
         self.last_is_drift = False
 
         # ------------------------------------------------------
@@ -783,24 +261,16 @@ class TemporalDetector:
 
         self.samples_since_evaluation = 0
 
+        # ------------------------------------------------------
+        # Calculate evidence
+        # ------------------------------------------------------
+
         evidence = (
             self._evaluate_window()
         )
 
-        evidence[
-            "strong_drift"
-        ] = self._is_strong_drift_window(
-            evidence
-        )
-
-        evidence[
-            "early_drift"
-        ] = self._is_early_drift_window(
-            evidence
-        )
-
         # ------------------------------------------------------
-        # Metrics
+        # Public metrics
         # ------------------------------------------------------
 
         self.last_slope = float(
@@ -828,17 +298,39 @@ class TemporalDetector:
         )
 
         # ------------------------------------------------------
-        # Candidate processing
+        # Linear trend path
         # ------------------------------------------------------
 
-        confirmed_now = (
-            self._process_drift_candidates(
+        trend_confirmed = (
+            self._process_trend_candidate(
+                evidence
+            )
+        )
+
+        strong_drift = (
+            self._is_strong_drift_window(
                 evidence
             )
         )
 
         # ------------------------------------------------------
-        # History
+        # Level shift path
+        # ------------------------------------------------------
+
+        level_confirmed = (
+            self._process_level_shift_candidate(
+                evidence
+            )
+        )
+
+        confirmed_now = bool(
+            (trend_confirmed and strong_drift)
+            or level_confirmed
+            or strong_drift
+        )
+
+        # ------------------------------------------------------
+        # Save evidence
         # ------------------------------------------------------
 
         self.evidence_history.append(
@@ -846,267 +338,976 @@ class TemporalDetector:
         )
 
         # ------------------------------------------------------
-        # Validation
+        # Confirmation
         # ------------------------------------------------------
 
         if confirmed_now:
 
             self.last_is_drift = True
 
+            self.drift_confirmed = True
+
             self.validation_windows = 0
+
             self.validation_complete = False
 
-        else:
+            self._clear_trend_candidate()
 
-            self._update_validation(
-                evidence
-            )
+            self._clear_level_shift_candidate()
 
         return self._build_result(
             is_drift=confirmed_now
         )
 
     # ==========================================================
-    # Result
+    # Calculate rolling metrics
     # ==========================================================
 
-    def _build_result(
-        self,
-        is_drift,
-    ):
+    def _calculate_window_metrics(self):
+
+        values = np.asarray(
+            self.temperature_history,
+            dtype=float,
+        )
+
+        n = len(values)
+
+        x = np.arange(
+            n,
+            dtype=float,
+        )
+
+        # ------------------------------------------------------
+        # Linear regression
+        # ------------------------------------------------------
+
+        x_mean = float(
+            np.mean(x)
+        )
+
+        y_mean = float(
+            np.mean(values)
+        )
+
+        x_centered = (
+            x - x_mean
+        )
+
+        y_centered = (
+            values - y_mean
+        )
+
+        denominator = float(
+            np.sum(
+                x_centered ** 2
+            )
+        )
+
+        if denominator <= 0:
+
+            slope = 0.0
+
+        else:
+
+            slope = float(
+                np.sum(
+                    x_centered
+                    * y_centered
+                )
+                / denominator
+            )
+
+        predicted = (
+            y_mean
+            + slope
+            * x_centered
+        )
+
+        ss_res = float(
+            np.sum(
+                (values - predicted) ** 2
+            )
+        )
+
+        ss_tot = float(
+            np.sum(
+                (values - y_mean) ** 2
+            )
+        )
+
+        if ss_tot <= 1e-12:
+
+            r_squared = 0.0
+
+        else:
+
+            r_squared = max(
+                0.0,
+                min(
+                    1.0,
+                    1.0
+                    - (
+                        ss_res
+                        / ss_tot
+                    ),
+                ),
+            )
+
+        total_change = float(
+            values[-1]
+            - values[0]
+        )
+
+        # ------------------------------------------------------
+        # Direction
+        # ------------------------------------------------------
+
+        if slope > 0:
+
+            direction = "up"
+
+        elif slope < 0:
+
+            direction = "down"
+
+        else:
+
+            direction = None
+
+        # ------------------------------------------------------
+        # Directional fraction
+        # ------------------------------------------------------
+
+        differences = np.diff(
+            values
+        )
+
+        if len(
+            differences
+        ) == 0:
+
+            directional_fraction = 0.0
+
+        elif direction == "up":
+
+            directional_fraction = float(
+                np.mean(
+                    differences >= 0
+                )
+            )
+
+        elif direction == "down":
+
+            directional_fraction = float(
+                np.mean(
+                    differences <= 0
+                )
+            )
+
+        else:
+
+            directional_fraction = 0.0
+
+        # ------------------------------------------------------
+        # Level shift
+        # ------------------------------------------------------
+
+        recent_n = min(
+            self.level_shift_window,
+            n // 2,
+        )
+
+        older_start = (
+            n
+            - (
+                recent_n * 2
+            )
+        )
+
+        older_end = (
+            n
+            - recent_n
+        )
+
+        if older_start >= 0:
+
+            older_values = (
+                values[
+                    older_start:
+                    older_end
+                ]
+            )
+
+            recent_values = (
+                values[
+                    older_end:
+                ]
+            )
+
+            older_mean = float(
+                np.mean(
+                    older_values
+                )
+            )
+
+            recent_mean = float(
+                np.mean(
+                    recent_values
+                )
+            )
+
+            level_shift = (
+                recent_mean
+                - older_mean
+            )
+
+        else:
+
+            older_mean = y_mean
+
+            recent_mean = y_mean
+
+            level_shift = 0.0
+
+        # ------------------------------------------------------
+        # Smoothed change
+        # ------------------------------------------------------
+
+        half = n // 2
+
+        if half > 0:
+
+            first_half_mean = float(
+                np.mean(
+                    values[:half]
+                )
+            )
+
+            second_half_mean = float(
+                np.mean(
+                    values[-half:]
+                )
+            )
+
+            smoothed_change = (
+                second_half_mean
+                - first_half_mean
+            )
+
+        else:
+
+            smoothed_change = 0.0
+
+        # ------------------------------------------------------
+        # Ordinary trend
+        # ------------------------------------------------------
+
+        is_trend = bool(
+            abs(slope)
+            >= self.min_slope
+            and
+            abs(total_change)
+            >= self.min_total_change
+            and
+            r_squared
+            >= self.min_r_squared
+        )
+
         return {
-            "is_drift": bool(
-                is_drift
-            ),
+            "slope": slope,
+            "total_change": total_change,
+            "r_squared": r_squared,
+            "direction": direction,
+            "directional_fraction":
+                directional_fraction,
+            "is_trend": is_trend,
 
-            "slope": float(
-                self.last_slope
-            ),
+            "older_mean":
+                older_mean,
 
-            "total_change": float(
-                self.last_total_change
-            ),
+            "recent_mean":
+                recent_mean,
 
-            "r_squared": float(
-                self.last_r_squared
-            ),
+            "level_shift":
+                level_shift,
 
-            "direction": (
-                self.last_direction
-            ),
-
-            "directional_fraction": float(
-                self.last_directional_fraction
-            ),
-
-            "is_trend": bool(
-                self.last_is_trend
-            ),
-
-            "consecutive_windows": int(
-                self.candidate_windows
-            ),
-
-            "consecutive_trend_windows": int(
-                self.candidate_windows
-            ),
-
-            "validation_windows": int(
-                self.validation_windows
-            ),
-
-            "validation_complete": bool(
-                self.validation_complete
-            ),
-
-            "sample_count": int(
-                self.samples_seen
-            ),
+            "smoothed_change":
+                smoothed_change,
         }
+
+    # ==========================================================
+    # Window evaluation
+    # ==========================================================
+
+    def _evaluate_window(self):
+
+        return self._calculate_window_metrics()
+
+    # ==========================================================
+    # Strong drift window
+    # ==========================================================
+
+    def _is_strong_drift_window(
+        self,
+        evidence,
+    ):
+
+        slope = abs(
+            evidence["slope"]
+        )
+
+        total_change = abs(
+            evidence["total_change"]
+        )
+
+        r_squared = (
+            evidence["r_squared"]
+        )
+
+        strong_slope = max(
+            self.min_slope * 3.0,
+            0.10,
+        )
+
+        strong_change = max(
+            self.min_total_change * 2.0,
+            1.50,
+        )
+
+        strong_r_squared = max(
+            self.min_r_squared,
+            0.24,
+        )
+
+        directional_fraction = float(
+            evidence["directional_fraction"]
+        )
+
+        level_shift = abs(
+            float(evidence["level_shift"])
+        )
+
+        gradual_change = abs(
+            float(evidence["total_change"])
+        )
+
+        return bool(
+            slope >= strong_slope
+            and
+            total_change >= strong_change
+            and
+            r_squared >= strong_r_squared
+            and
+            directional_fraction >= 0.55
+            and
+            level_shift < 1.5
+            and
+            gradual_change < 4.5
+        )
+
+    # ==========================================================
+    # Linear trend candidate
+    # ==========================================================
+
+    def _process_trend_candidate(
+        self,
+        evidence,
+    ):
+
+        is_trend = bool(
+            evidence["is_trend"]
+        )
+
+        direction = (
+            evidence["direction"]
+        )
+
+        # ------------------------------------------------------
+        # Existing candidate
+        # ------------------------------------------------------
+
+        if self.candidate_active:
+
+            if (
+                is_trend
+                and
+                direction
+                == self.candidate_direction
+            ):
+
+                gap = (
+                    self.samples_seen
+                    - self.candidate_last_sample
+                )
+
+                if (
+                    gap
+                    <= self.max_candidate_gap
+                ):
+
+                    self.candidate_windows += 1
+
+                    self.candidate_last_sample = (
+                        self.samples_seen
+                    )
+
+                    if (
+                        self.candidate_windows
+                        >= self.required_consecutive_windows
+                    ):
+
+                        return True
+
+                else:
+
+                    self._clear_trend_candidate()
+
+            else:
+
+                gap = (
+                    self.samples_seen
+                    - self.candidate_last_sample
+                )
+
+                if (
+                    gap
+                    > self.max_candidate_gap
+                ):
+
+                    self._clear_trend_candidate()
+
+        # ------------------------------------------------------
+        # Start candidate
+        # ------------------------------------------------------
+
+        elif is_trend:
+
+            self.candidate_active = True
+
+            self.candidate_direction = (
+                direction
+            )
+
+            self.candidate_windows = 1
+
+            self.candidate_start_sample = (
+                self.samples_seen
+            )
+
+            self.candidate_last_sample = (
+                self.samples_seen
+            )
+
+            if (
+                self.candidate_windows
+                >= self.required_consecutive_windows
+            ):
+
+                return True
+
+        return False
+
+    # ==========================================================
+    # Level-shift window
+    # ==========================================================
+
+    def _is_level_shift_window(
+        self,
+        evidence,
+    ):
+        """
+        Detect a sustained temperature regime shift.
+
+        Requirements:
+
+            - recent regime differs meaningfully from the
+              preceding regime;
+            - the broader smoothed movement agrees with the
+              same direction;
+            - the raw sequence has reasonable directional
+              consistency.
+
+        This deliberately rejects ordinary noisy fluctuations.
+        """
+
+        shift = float(
+            evidence["level_shift"]
+        )
+
+        smoothed_change = float(
+            evidence["smoothed_change"]
+        )
+
+        directional_fraction = float(
+            evidence["directional_fraction"]
+        )
+
+        # ------------------------------------------------------
+        # Minimum level movement
+        # ------------------------------------------------------
+
+        if (
+            abs(shift)
+            < self.min_level_shift
+        ):
+
+            return False
+
+        # ------------------------------------------------------
+        # Whole-window movement must agree
+        # ------------------------------------------------------
+
+        if (
+            abs(smoothed_change)
+            < self.min_level_shift
+        ):
+
+            return False
+
+        # ------------------------------------------------------
+        # Reject noisy/non-directional windows
+        # ------------------------------------------------------
+
+        if (
+            directional_fraction
+            < 0.58
+        ):
+
+            return False
+
+        # ------------------------------------------------------
+        # Same direction
+        # ------------------------------------------------------
+
+        if shift > 0:
+
+            return (
+                smoothed_change > 0
+            )
+
+        if shift < 0:
+
+            return (
+                smoothed_change < 0
+            )
+
+        return False
+
+    # ==========================================================
+    # Level-shift candidate
+    # ==========================================================
+
+    def _process_level_shift_candidate(
+        self,
+        evidence,
+    ):
+
+        is_shift = (
+            self._is_level_shift_window(
+                evidence
+            )
+        )
+
+        # ------------------------------------------------------
+        # Current window is not evidence
+        # ------------------------------------------------------
+
+        if not is_shift:
+
+            if (
+                self.level_shift_candidate_active
+            ):
+
+                gap = (
+                    self.samples_seen
+                    - self.level_shift_last_sample
+                )
+
+                if (
+                    gap
+                    > self.max_level_shift_gap
+                ):
+
+                    self._clear_level_shift_candidate()
+
+            return False
+
+        # ------------------------------------------------------
+        # Determine direction
+        # ------------------------------------------------------
+
+        direction = (
+            "up"
+            if evidence["level_shift"] > 0
+            else "down"
+        )
+
+        # ------------------------------------------------------
+        # Start candidate
+        # ------------------------------------------------------
+
+        if not self.level_shift_candidate_active:
+
+            self.level_shift_candidate_active = True
+
+            self.level_shift_direction = (
+                direction
+            )
+
+            self.level_shift_candidate_windows = 1
+
+            self.level_shift_start_sample = (
+                self.samples_seen
+            )
+
+            self.level_shift_last_sample = (
+                self.samples_seen
+            )
+
+            return (
+                self.level_shift_candidate_windows
+                >= self.level_shift_required_windows
+            )
+
+        # ------------------------------------------------------
+        # Direction changed
+        # ------------------------------------------------------
+
+        if (
+            direction
+            != self.level_shift_direction
+        ):
+
+            self._clear_level_shift_candidate()
+
+            self.level_shift_candidate_active = True
+
+            self.level_shift_direction = (
+                direction
+            )
+
+            self.level_shift_candidate_windows = 1
+
+            self.level_shift_start_sample = (
+                self.samples_seen
+            )
+
+            self.level_shift_last_sample = (
+                self.samples_seen
+            )
+
+            return False
+
+        # ------------------------------------------------------
+        # Check gap
+        # ------------------------------------------------------
+
+        gap = (
+            self.samples_seen
+            - self.level_shift_last_sample
+        )
+
+        if (
+            gap
+            > self.max_level_shift_gap
+        ):
+
+            self._clear_level_shift_candidate()
+
+            return False
+
+        # ------------------------------------------------------
+        # Continue candidate
+        # ------------------------------------------------------
+
+        self.level_shift_candidate_windows += 1
+
+        self.level_shift_last_sample = (
+            self.samples_seen
+        )
+
+        return (
+            self.level_shift_candidate_windows
+            >= self.level_shift_required_windows
+        )
+
+    # ==========================================================
+    # Candidate clearing
+    # ==========================================================
+
+    def _clear_trend_candidate(
+        self,
+    ):
+
+        self.candidate_active = False
+
+        self.candidate_direction = None
+
+        self.candidate_windows = 0
+
+        self.candidate_start_sample = None
+
+        self.candidate_last_sample = None
+
+    def _clear_level_shift_candidate(
+        self,
+    ):
+
+        self.level_shift_candidate_active = False
+
+        self.level_shift_direction = None
+
+        self.level_shift_candidate_windows = 0
+
+        self.level_shift_start_sample = None
+
+        self.level_shift_last_sample = None
+
+    # Compatibility with older code.
+    def _clear_candidate(self):
+
+        self._clear_trend_candidate()
 
     # ==========================================================
     # State
     # ==========================================================
 
     def get_state(self):
+
         return {
-            "window_size": int(
-                self.window_size
-            ),
+            "window_size":
+                self.window_size,
 
-            "min_slope": float(
-                self.min_slope
-            ),
+            "min_slope":
+                self.min_slope,
 
-            "min_total_change": float(
-                self.min_total_change
-            ),
+            "min_total_change":
+                self.min_total_change,
 
-            "min_r_squared": float(
-                self.min_r_squared
-            ),
+            "min_r_squared":
+                self.min_r_squared,
 
-            "required_consecutive_windows": int(
-                self.required_consecutive_windows
-            ),
+            "required_consecutive_windows":
+                self.required_consecutive_windows,
 
-            "evaluation_step": int(
-                self.evaluation_step
-            ),
+            "evaluation_step":
+                self.evaluation_step,
 
-            "sample_count": int(
-                self.samples_seen
-            ),
+            "sample_count":
+                self.samples_seen,
 
-            "history_size": int(
+            "history_size":
                 len(
                     self.temperature_history
-                )
-            ),
+                ),
 
-            "drift_confirmed": bool(
-                self.drift_confirmed
-            ),
+            "drift_confirmed":
+                self.drift_confirmed,
 
-            # Strong candidate
-            "candidate_active": bool(
-                self.candidate_active
-            ),
+            "candidate_active":
+                self.candidate_active,
 
-            "candidate_direction": (
-                self.candidate_direction
-            ),
+            "candidate_direction":
+                self.candidate_direction,
 
-            "candidate_windows": int(
-                self.candidate_windows
-            ),
+            "candidate_windows":
+                self.candidate_windows,
 
-            # Early candidate
-            "early_candidate_active": bool(
-                self.early_candidate_active
-            ),
+            "level_shift_candidate_active":
+                self.level_shift_candidate_active,
 
-            "early_candidate_direction": (
-                self.early_candidate_direction
-            ),
+            "level_shift_direction":
+                self.level_shift_direction,
 
-            "early_candidate_windows": int(
-                self.early_candidate_windows
-            ),
+            "level_shift_candidate_windows":
+                self.level_shift_candidate_windows,
 
-            "early_required_windows": int(
-                self.early_required_windows
-            ),
+            "level_shift_window":
+                self.level_shift_window,
 
-            "early_evidence_horizon": int(
-                self.early_evidence_horizon
-            ),
+            "min_level_shift":
+                self.min_level_shift,
 
-            # Backwards-compatible fields
-            "consecutive_windows": int(
-                self.candidate_windows
-            ),
+            "consecutive_windows":
+                self.candidate_windows,
 
-            "consecutive_trend_windows": int(
-                self.candidate_windows
-            ),
+            "consecutive_trend_windows":
+                self.candidate_windows,
 
-            "direction": (
-                self.last_direction
-            ),
+            "direction":
+                self.last_direction,
 
-            "slope": float(
-                self.last_slope
-            ),
+            "slope":
+                self.last_slope,
 
-            "total_change": float(
-                self.last_total_change
-            ),
+            "total_change":
+                self.last_total_change,
 
-            "r_squared": float(
-                self.last_r_squared
-            ),
+            "r_squared":
+                self.last_r_squared,
 
-            "directional_fraction": float(
-                self.last_directional_fraction
-            ),
+            "directional_fraction":
+                self.last_directional_fraction,
 
-            "is_trend": bool(
-                self.last_is_trend
-            ),
+            "is_trend":
+                self.last_is_trend,
 
-            "is_drift": bool(
-                self.last_is_drift
-            ),
+            "is_drift":
+                self.last_is_drift,
 
-            "validation_windows": int(
-                self.validation_windows
-            ),
+            "validation_windows":
+                self.validation_windows,
 
-            "validation_complete": bool(
-                self.validation_complete
-            ),
+            "validation_complete":
+                self.validation_complete,
 
-            "evidence_history_size": int(
+            "evidence_history_size":
                 len(
                     self.evidence_history
-                )
-            ),
+                ),
         }
 
     # ==========================================================
-    # Convenience
+    # Result contract
     # ==========================================================
 
-    def is_confirmed(self):
-        return bool(
-            self.drift_confirmed
-        )
+    def _build_result(
+        self,
+        is_drift,
+    ):
 
-    def is_validation_complete(self):
-        return bool(
-            self.validation_complete
-            and not self.drift_confirmed
-        )
+        if is_drift:
+
+            state = (
+                "drift_confirmed"
+            )
+
+        elif self.candidate_active:
+
+            state = (
+                "trend_candidate"
+            )
+
+        elif (
+            self.level_shift_candidate_active
+        ):
+
+            state = (
+                "level_shift_candidate"
+            )
+
+        else:
+
+            state = "monitoring"
+
+        return {
+            "is_drift":
+                bool(is_drift),
+
+            "state":
+                state,
+
+            "direction":
+                self.last_direction,
+
+            "slope":
+                float(
+                    self.last_slope
+                ),
+
+            "total_change":
+                float(
+                    self.last_total_change
+                ),
+
+            "r_squared":
+                float(
+                    self.last_r_squared
+                ),
+
+            "directional_fraction":
+                float(
+                    self.last_directional_fraction
+                ),
+
+            "is_trend":
+                bool(
+                    self.last_is_trend
+                ),
+
+            "drift_confirmed":
+                bool(
+                    self.drift_confirmed
+                ),
+
+            "consecutive_windows":
+                int(
+                    self.candidate_windows
+                ),
+
+            "consecutive_trend_windows":
+                int(
+                    self.candidate_windows
+                ),
+
+            "level_shift_candidate_windows":
+                int(
+                    self.level_shift_candidate_windows
+                ),
+
+            "sample_count":
+                int(
+                    self.samples_seen
+                ),
+        }
 
     # ==========================================================
     # Reset
     # ==========================================================
 
     def reset(self):
+
         self.temperature_history.clear()
 
-        self.evidence_history.clear()
-
         self.samples_seen = 0
+
         self.samples_since_evaluation = 0
 
         self.last_direction = None
+
         self.last_slope = 0.0
+
         self.last_total_change = 0.0
+
         self.last_r_squared = 0.0
+
         self.last_directional_fraction = 0.0
 
         self.last_is_trend = False
+
         self.last_is_drift = False
 
-        # Strong candidate
-        self.candidate_active = False
-        self.candidate_direction = None
-        self.candidate_windows = 0
-        self.candidate_start_sample = None
-        self.candidate_last_sample = None
+        self._clear_trend_candidate()
 
-        # Early candidate
-        self.early_candidate_active = False
-        self.early_candidate_direction = None
-        self.early_candidate_windows = 0
-        self.early_candidate_start_sample = None
-        self.early_candidate_last_sample = None
-        self.early_evidence_samples.clear()
+        self._clear_level_shift_candidate()
 
-        # Confirmation
         self.drift_confirmed = False
 
         self.validation_windows = 0
+
         self.validation_complete = False
+
+        self.evidence_history.clear()
+
+    # ==========================================================
+    # Compatibility alias
+    # ==========================================================
+
+    def update_temperature(
+        self,
+        temperature,
+    ):
+
+        return self.update(
+            temperature
+        )
