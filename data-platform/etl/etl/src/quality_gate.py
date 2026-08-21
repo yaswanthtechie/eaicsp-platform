@@ -40,7 +40,7 @@ def quality_gate(extracted_batches):
     validated_batches = []
 
     rejected_folder = Path("data/rejected")
-    rejected_folder.mkdir(exist_ok=True)
+    rejected_folder.mkdir(parents=True, exist_ok=True)
 
     for batch in extracted_batches:
 

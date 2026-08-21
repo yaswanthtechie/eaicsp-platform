@@ -6,7 +6,7 @@ with actual row counts queried from the database, that the second run does
 not change sales_fact's row count or duplicate any rows.
 
 Usage:
-    cd etl/src && python3 ../../scripts/test_backfill_idempotency.py
+    cd etl/src && python3 ../../scripts/backfill_idempotency_check.py
 """
 
 import os

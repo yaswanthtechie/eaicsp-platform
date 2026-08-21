@@ -11,57 +11,24 @@ Important:
 
 from datetime import datetime, timedelta
 from pathlib import Path
-from types import SimpleNamespace
-
-import yaml
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator, BranchPythonOperator
 
+from etl.src.config_loader import load_pipeline_config
 from etl.src.logging_config import logger
 
 
 # ---------------------------------------------------------------------------
-# Lightweight configuration
+# Configuration
 # ---------------------------------------------------------------------------
+# config_loader.py is the single source of truth for pipeline_config.yaml -
+# it's what validate_schema_against() and the quality gate expect (a plain
+# dict for `columns`, not a SimpleNamespace), and it's still cheap enough
+# (just yaml.safe_load + dataclass construction) to run at DAG-parse time
+# without pulling in pandas or a DB engine.
 
-DAG_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = DAG_DIR.parent
-PIPELINE_CONFIG_FILE = PROJECT_ROOT / "pipeline_config.yaml"
-
-
-def _namespace(value):
-    """
-    Convert dictionaries recursively into SimpleNamespace objects.
-
-    This keeps DAG parsing lightweight while allowing the existing ETL
-    functions to continue using source_config.name, source_config.path, etc.
-    """
-    if isinstance(value, dict):
-        return SimpleNamespace(
-            **{key: _namespace(val) for key, val in value.items()}
-        )
-
-    if isinstance(value, list):
-        return [_namespace(item) for item in value]
-
-    return value
-
-
-def load_dag_config():
-    """
-    Read only the lightweight YAML configuration required to construct
-    the Airflow DAG.
-
-    No pandas, SQLAlchemy, database connection, or ETL module is loaded here.
-    """
-    with open(PIPELINE_CONFIG_FILE, "r", encoding="utf-8") as file:
-        raw_config = yaml.safe_load(file)
-
-    return _namespace(raw_config)
-
-
-PIPELINE_CONFIG = load_dag_config()
+PIPELINE_CONFIG = load_pipeline_config()
 
 
 # ---------------------------------------------------------------------------
@@ -730,15 +697,20 @@ def archive_task(**context):
 
     from etl.src.archive import archive_old_sales
 
-    cutoff_date = (
-        datetime.now().date()
-        - timedelta(
-            days=PIPELINE_CONFIG.archive.cutoff_days
-        )
+    ti = context["ti"]
+
+    run_id = ti.xcom_pull(
+        task_ids="start_run",
+        key="run_id",
     )
 
+    # archive_old_sales() takes the retention window in DAYS and derives the
+    # cutoff date itself - passing a pre-computed date here raised a
+    # TypeError on every run. Passing run_id through means a failed archive
+    # now raises an alert tied to that specific run.
     result = archive_old_sales(
-        cutoff_date=cutoff_date,
+        cutoff_days=PIPELINE_CONFIG.archive.cutoff_days,
+        run_id=run_id,
     )
 
     logger.info(
@@ -772,8 +744,6 @@ with DAG(
         task_id="start_run",
         python_callable=start_run_task,
     )
-
-    last_join = start_run
 
     for source_config in PIPELINE_CONFIG.sources:
 
@@ -843,22 +813,20 @@ with DAG(
             trigger_rule="none_failed_min_one_success",
         )
 
-        # Explicit source dependency.
-        #
-        # Sales:
-        # start_run -> extract_sales -> quality_gate_sales
-        #           -> load/reject -> join_sales
-        #
-        # Inventory:
-        # join_sales -> extract_inventory -> ...
-        #
-        # Therefore inventory can never start before sales completes.
-        last_join >> extract
+        # Build the actual dependency graph from depends_on.
+        # Every source also depends on start_run because extract tasks need
+        # the run_id XCom created by start_run.
+        start_run >> extract
+
+        if source_config.depends_on:
+            upstream_join = dag.get_task(
+                f"join_{source_config.depends_on}"
+            )
+            upstream_join >> extract
+
         extract >> quality_gate
         quality_gate >> [load, reject]
         [load, reject] >> join
-
-        last_join = join
 
     log_run = PythonOperator(
         task_id="log_run",
@@ -872,4 +840,10 @@ with DAG(
         trigger_rule="none_failed_min_one_success",
     )
 
-    last_join >> log_run >> archive_old_data
+    # log_run waits for every source to finish.
+    for source_config in PIPELINE_CONFIG.sources:
+        dag.get_task(
+            f"join_{source_config.name}"
+        ) >> log_run
+
+    log_run >> archive_old_data
