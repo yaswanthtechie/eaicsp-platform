@@ -43,6 +43,7 @@ class HeadlineDetail(BaseModel):
 class SupplierSummary(BaseModel):
     supplier: str
     risk_score: float
+    confidence: float
     sentiment_breakdown: SentimentBreakdown
     signals: List[SignalDetail]
     top_worst_3: List[HeadlineDetail]
@@ -114,6 +115,7 @@ def health():
 def analyze_headlines(request: AnalyzeRequest):
     """
     Analyze supplier risk for given headlines.
+    Empty headlines are ignored and do not contribute to risk score or confidence.
 
     Args:
         request: Contains supplier_name and headlines.
@@ -121,6 +123,12 @@ def analyze_headlines(request: AnalyzeRequest):
     Returns:
         AnalysisResponse with risk scores and signals.
     """
+
+    if not request.supplier_name or not request.supplier_name.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="supplier_name cannot be blank"
+        )
 
     try:
         summary = predict(
@@ -192,7 +200,7 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(
-        "analyze:app",
+        "src.analyze:app",
         host="0.0.0.0",
         port=8006,
         reload=True,
