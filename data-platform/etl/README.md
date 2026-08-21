@@ -2,198 +2,299 @@
 
 ## Overview
 
-I am implementing an end-to-end ETL (Extract, Transform, Load) pipeline for processing sales data.
+i am implementing an end-to-end ETL (Extract, Transform, Load) pipeline for processing sales data.
 
 The pipeline:
 
 - Extracts sales CSV files.
+
 - Validates data using schema and business rules.
+
 - Transforms data into a standardized format.
+
 - Loads data into PostgreSQL.
+
 - Supports incremental loading using watermarks.
+
 - Tracks every pipeline execution.
-- Provides alerting.
+
+- Provides alerting
+
 - Is orchestrated using Apache Airflow.
+
+---
 
 ## Technology Stack
 
 - Python
+
 - PostgreSQL
+
 - SQLAlchemy
+
 - Pandas
+
 - Pandera
+
 - Flask
+
 - Apache Airflow
+
 - Docker & Docker Compose
+
+---
 
 ## Project Structure
 
-    data-platform/
-    │
-    ├── dags/
-    │   └── sales_etl_dag.py
-    │
-    ├── etl/
-    │   └── src/
-    │       ├── extract.py
-    │       ├── transform.py
-    │       ├── quality_gate.py
-    │       ├── load.py
-    │       ├── pipeline.py
-    │       ├── main.py
-    │       ├── alerts.py
-    │       ├── alerts_api.py
-    │       ├── lineage_api.py
-    │       ├── alert_service.py
-    │       ├── data_contract.py
-    │       ├── pandera_schema.py
-    │       └── schema_drift.py
-    │
-    ├── sql/
-    │   └── schema.sql
-    │
-    └── docker-compose.yml
+```
+
+data-platform/
+
+│
+
+├── dags/
+
+│   └── sales_etl_dag.py
+
+│
+
+├── etl/
+
+│   └── src/
+
+│       ├── extract.py
+
+│       ├── transform.py
+
+│       ├── quality_gate.py
+
+│       ├── load.py
+
+│       ├── pipeline.py
+
+│       ├── main.py
+
+│       ├── alerts.py
+
+│       ├── alerts_api.py
+
+│       ├── lineage_api.py
+
+│       ├── alert_service.py
+
+│       ├── data_contract.py
+
+│       ├── pandera_schema.py
+
+│       └── schema_drift.py
+
+│
+
+├── sql/
+
+│   └── schema.sql
+
+│
+
+└── docker-compose.yml
+
+```
+
+---
 
 ## ETL Pipeline Flow
 
-The pipeline is orchestrated using Apache Airflow.
+```
 
-    CSV Files
-        |
-        v
-      Extract
-        |
-        v
-    Quality Gate
-        |
-        v
-    BranchPythonOperator
-        |
-        +------------------+
-        |                  |
-        v                  v
-       Load        Reject & Notify
-        |
-        v
-    Update Watermark
-        |
-        v
-    Log Pipeline Run
+CSV Files
 
-The quality gate determines whether the data proceeds to loading or is rejected and reported.
+     │
+
+     ▼
+
+ Extract
+
+     │
+
+     ▼
+
+ Quality Gate
+
+     │
+
+     ▼
+
+ Transform
+
+     │
+
+     ▼
+
+ Load
+
+     │
+
+     ▼
+
+ Update Watermark
+
+     │
+
+     ▼
+
+ Log Pipeline Run
+
+```
+
+---
 
 ## Database Tables
 
-The pipeline uses the following PostgreSQL tables:
+The pipeline uses the following database tables:
 
 | Table | Purpose |
-|---|---|
-| `sales_fact` | Stores processed sales records |
-| `etl_watermark` | Tracks the last processed date for incremental loading |
-| `etl_run_log` | Stores ETL execution history |
-| `sales_fact_history` | Stores previous versions of updated records |
-| `etl_alerts` | Stores pipeline alerts and failures |
 
-The `sales_fact` table also stores:
+|--------|----------|
 
-- `run_id`
-- `pipeline_version`
+| sales_fact | Stores processed sales records |
 
-These fields associate loaded records with a pipeline execution and pipeline version.
+| etl_watermark | Tracks last successfully processed data for incremental loading |
+
+| etl_run_log | Stores ETL execution history |
+
+| sales_fact_history | Stores previous versions of updated records |
+
+| etl_alerts | Stores pipeline alerts and failures |
+
+---
 
 ## Database Setup
 
 Before running the pipeline, initialize the PostgreSQL database using:
 
-    sql/schema.sql
+```sql
+
+sql/schema.sql
+
+```
 
 The schema creates the required tables:
 
-- `sales_fact`
-- `etl_watermark`
-- `etl_run_log`
-- `sales_fact_history`
-- `etl_alerts`
+- sales_fact
 
-These tables support:
+- etl_watermark
+
+- etl_run_log
+
+- sales_fact_history
+
+- etl_alerts
+
+These tables are required for:
 
 - Incremental loading
+
 - Pipeline execution logging
+
 - Alerting
+
 - Change history
-- Pipeline run tracking
+
+- Data lineage
+
+---
 
 ## Running the Project
 
-Start the Docker services:
+Start Docker services:
 
-    docker compose up -d
+```bash
 
-Run the ETL pipeline directly:
+docker compose up -d
 
-    python etl/src/main.py
+```
 
-The pipeline can also be executed through Apache Airflow by triggering the `sales_etl_pipeline` DAG from the Airflow UI.
+Run the ETL pipeline:
+
+```bash
+
+python etl/src/main.py
+
+```
+
+Run using Airflow:
+
+Trigger the `sales_etl_pipeline` DAG from the Airflow UI.
+
+---
 
 ## Features
 
 ### Incremental Loading
 
-The pipeline uses the watermark table to determine the last processed date and avoid unnecessary reprocessing.
+Only new or modified records are processed using the watermark table.
+
+---
 
 ### Data Quality
 
 The pipeline validates:
 
 - Required columns
-- Data types
-- Extra columns
-- Missing columns
-- Business validation rules
-- Schema drift
 
-Pandera validation is also wired into the pipeline schema-validation stage.
+- Data types
+
+- Missing columns
+
+- Business validation rules
 
 Invalid batches are rejected before loading.
+
+---
 
 ### UPSERT Loading
 
 The loader performs INSERT or UPDATE operations using PostgreSQL `ON CONFLICT`.
 
-Each loaded record also stores:
-
-- `run_id`
-- `pipeline_version`
-
-### Change History
-
-Previous versions of records are stored in `sales_fact_history` when processing existing sales records.
+---
 
 ### Run Logging
 
 Each execution records:
 
 - Start time
+
 - Finish time
+
 - Status
+
 - Inserted rows
+
 - Updated rows
+
 - Rejected rows
-- Error message, if any
+
+- Error message (if any)
+
+---
 
 ### Alerts
 
-Pipeline and stage failures are written into the `etl_alerts` table.
+Pipeline failures are written into the `etl_alerts` table.
 
-The alerts API supports filtering recent alerts using the `since` parameter.
 
-Example:
 
-    GET /alerts?since=1h
 
-The API also supports minute-based filters such as:
 
-    GET /alerts?since=10m
+
+
+
+
+---
+
+
+
+
 
 ## Airflow
 
@@ -202,126 +303,233 @@ The pipeline is orchestrated using Apache Airflow.
 Airflow provides:
 
 - Scheduling
+
 - Monitoring
+
 - Logging
+
 - Retry support
+
 - DAG visualization
-- Task-level execution
-- Quality-based branching
 
-The DAG follows this task flow:
+---
 
-    extract
-       |
-       v
-    quality_gate
-       |
-       v
-    BranchPythonOperator
-       |------------------+
-       |                  |
-       v                  v
-      load        reject_and_notify
-       |
-       v
-    update_watermark
-       |
-       v
-      log_run
+commands
 
-## Backfill
 
-Historical data can be processed using the backfill command:
 
-    python etl/src/main.py backfill --from YYYY-MM-DD --to YYYY-MM-DD
+SELECT * FROM sales_fact LIMIT 5;  This is the main fact table. It stores the cleaned and validated sales records after the ETL pipeline finishes.
 
-Example:
+SELECT * FROM etl_run_log ORDER BY run_id DESC LIMIT 5;
 
-    python etl/src/main.py backfill --from 2026-07-01 --to 2026-07-31
+Every ETL execution is logged here for auditing and monitoring. This lets us track whether a run succeeded and how many records were processed.
 
-## Useful Database Commands
+SELECT * FROM etl_watermark;
 
-View processed sales records:
+The watermark prevents reprocessing old data. On the next run, the pipeline processes only data after this date.
 
-    SELECT *
-    FROM sales_fact
-    LIMIT 5;
+SELECT * FROM sales_fact_history LIMIT 5;
 
-View recent ETL runs:
+Shows previous versions of updated records.
 
-    SELECT *
-    FROM etl_run_log
-    ORDER BY run_id DESC
-    LIMIT 5;
+SELECT * FROM etl_alerts;
 
-View the current watermark:
+Shows alerts generated by the ETL pipeline.
 
-    SELECT *
-    FROM etl_watermark;
+---
 
-View sales history:
+## Database Setup - R4 additions
 
-    SELECT *
-    FROM sales_fact_history
-    LIMIT 5;
+R4 added two new tables. Re-run `sql/schema.sql` (it's all `CREATE TABLE IF
 
-View generated alerts:
+NOT EXISTS`, so this is safe on an existing database - it won't touch your
 
-    SELECT *
-    FROM etl_alerts
-    ORDER BY created_at DESC
-    LIMIT 5;
+current data):
 
-## Testing
+```
 
-Run the test suite with:
+psql -h localhost -U admin -d salesdb -f sql/schema.sql
 
-    pytest -q
+```
 
-The schema validation tests cover:
+New tables: `inventory_snapshot` (the second source) and
 
-- Missing required columns
-- Incorrect data types
-- Extra columns
+`sales_fact_archive` (archival target for old `sales_fact` rows).
 
-## Pipeline Monitoring
+---
 
-The Airflow UI can be used to monitor individual pipeline stages, task status, retries, logs, and branching behavior.
+## Round 4: config-driven pipeline, second source, bulk upsert, archival
 
-The PostgreSQL ETL tables can be queried to verify:
+### What's done
 
-- Pipeline execution status
-- Rows inserted
-- Rows updated
-- Rows rejected
-- Watermark progress
-- Generated alerts
-- Historical records
-## Generating Sample Data
+**1. Second table, loaded in dependency order.** `inventory_snapshot`
 
-The pipeline reads CSV batches from `data/batches/`, which is gitignored. Generate sample batches with:
+(snapshot_date, sku_id, warehouse_id, quantity_on_hand), fed by
 
-    python etl/src/make_batches.py
+`data/batches/inventory/`. The DAG now uses the configured `depends_on`
 
-## Environment
+value to build the actual task dependency (`join_sales >> extract_inventory`),
 
-Copy `.env.example` to `.env` and set `DB_PASSWORD`.
+so inventory extraction cannot begin until the sales subgraph has completed.
 
-When the pipeline runs inside Docker/Airflow, use `DB_HOST=postgres`. When running `python etl/src/main.py` from the host, use `DB_HOST=localhost` because Docker publishes PostgreSQL on port 5432.
+A build-time check also validates that every declared dependency refers to a
 
-## What Works / What Doesn't
+source already declared in `pipeline_config.yaml`.
 
-### Working
+**2. Config-driven pipeline.** `pipeline_config.yaml` at the repo root
 
-- Airflow DAG with quality-based branching and downstream trigger rules.
-- Data contract validation and schema drift detection, including broken-file tests.
-- Alerts table and `GET /alerts?since=` filtering.
-- Idempotent upsert, watermarks, and incremental loads.
-- Historical backfill with date ordering and progress/ETA logging.
-- Row-level lineage through `/lineage/row/{id}`.
+defines every source: its file path, target table, column contract, quality
 
-### Known Limitations
+thresholds, and dependency. `dags/sales_etl_dag.py` uses the shared
 
-- Concurrent loads are serialized by a transaction-scoped PostgreSQL advisory lock.
-- Alert webhooks are not implemented; alerts remain in `etl_alerts` and are available through the API.
-- Airflow runs from the pinned Docker image (`apache/airflow:2.10.5`). The main `requirements.txt` contains the application/test dependencies; Airflow dependencies are kept separate for local DAG linting.
+`load_pipeline_config()` loader, so the DAG and generic ETL components use
+
+the same typed configuration. The schema validator, quality gate, and
+
+transform stages are generic functions driven by that config
+
+(`data_contract.validate_schema_against`,
+
+`quality_gate.quality_gate_generic`, and
+
+`transform.transform_data_generic`).
+
+The original R3 sales-only functions (`validate_schema`, `quality_gate`,
+
+`transform_data`, `load_data`) remain available for the legacy/manual flow;
+
+the config-driven engine is additive, not a replacement.
+
+**3. Bulk upsert.** `etl/src/load.py` has `bulk_upsert()`: a single
+
+multi-row `INSERT ... ON CONFLICT DO UPDATE` per chunk (default chunk size
+
+5,000) instead of one round-trip per row, still returning accurate
+
+inserted/updated counts via the same `RETURNING (xmax = 0)` trick the
+
+row-by-row loader uses. `scripts/benchmark_bulk_upsert.py` generates
+
+10,000 synthetic rows and times both approaches against a disposable
+
+scratch table.
+
+Captured benchmark output from this development environment:
+
+```
+
+==================================================
+
+BULK UPSERT BENCHMARK RESULTS
+
+==================================================
+
+Rows:            10,000
+
+Row-by-row time: 21.57 sec
+
+Bulk time:       1.11 sec
+
+Speedup:         19.4x
+
+==================================================
+
+```
+
+Results are environment-dependent and will vary with database latency,
+
+hardware, and workload.
+
+**4. Archival.** `etl/src/archive.py`'s
+
+`archive_old_sales(cutoff_days=730)` moves `sales_fact` rows older than the
+
+cutoff into `sales_fact_archive` and deletes them from the live table, in
+
+one transaction. It is idempotent by construction: after old rows are
+
+deleted from the live table, a subsequent run finds nothing left to move.
+
+`ON CONFLICT (id) DO NOTHING` on the archive insert provides crash-recovery
+
+protection. This runs as its own DAG task (`archive_old_data`), after
+
+`log_run`.
+
+**5. Backfill idempotency.** `scripts/backfill_idempotency_check.py` runs
+
+`run_backfill()` over a date range, then over an overlapping range twice
+
+more, and asserts the actual `sales_fact` row count from the database is
+
+identical after each run.
+
+Captured backfill verification:
+
+```
+
+BACKFILL IDEMPOTENCY RESULTS
+
+==================================================
+
+After run 1: 11973 rows
+
+After run 2: 11973 rows
+
+After run 3: 11973 rows
+
+PASS: row count unchanged across overlapping re-runs.
+
+==================================================
+
+```
+
+The overlapping re-runs produced updates rather than duplicate inserts, and
+
+the `sales_fact` row count remained unchanged at 11,973.
+
+**Stretch - dead-letter handling.** Implemented. `etl/src/dead_letter.py`
+
+tracks consecutive quality-gate failures per filename in a small local JSON
+
+file (persisted across runs, not just in-memory). A filename that fails 3
+
+times in a row moves to `data/needs_manual_review/` instead of
+
+`data/rejected/`, with a CRITICAL alert, and the counter resets - so a
+
+different file that later reuses the same name starts its own fresh count.
+
+Only wired into the new generic quality gate (`quality_gate_generic`), used
+
+by the config-driven multi-source pipeline; the original R3 `quality_gate()`
+
+used by the legacy single-process flow is untouched.
+
+### What's not done / not fully polished
+
+- The generic engine's quality-gate thresholds (null rate, negative rate,
+
+  row count bounds) are per-source config values, not auto-tuned - they're
+
+  set to match R3's sales defaults for `sales`, and reasonable-guess
+
+  defaults for `inventory`. Worth revisiting once there's real inventory
+
+  data to calibrate against.
+
+- `bulk_upsert()`'s history-copy step (`_bulk_copy_sales_history`) is
+
+  sales-specific - it isn't a generic "any table can have history" feature.
+
+  Fine for now since inventory doesn't need CDC history per the spec, but
+
+  if a future source does, that function needs generalizing.
+
+- No integration with Tharun's validation library or Sandeep's profiling
+
+  library this round - deliberately deferred per the round instructions.
+
+- Per-round instructions, this stays fully local/mocked - no shared
+
+  Postgres/Redis/Kafka assumed to exist yet.
