@@ -19,7 +19,7 @@ def analyze_anomaly_correlation(
             "findings": []
         }
 
-        # Anomaly correlation applies only to numeric columns
+    # Anomaly correlation applies only to numeric columns
     if not pd.api.types.is_numeric_dtype(df[outlier_column]):
         return {
             "column": outlier_column,
@@ -73,6 +73,33 @@ def analyze_anomaly_correlation(
                     if likelihood is not None
                     else None
                 )
+            })
+
+    # Check other numeric columns for outliers
+    for column in df.columns:
+        if column == outlier_column:
+            continue
+
+        if not pd.api.types.is_numeric_dtype(df[column]):
+            continue
+
+        other_outlier_result = find_outliers(df[column])
+        other_outlier_mask = other_outlier_result["outlier_mask"]
+
+        correlated_outliers = outlier_mask & other_outlier_mask
+
+        correlated_count = int(correlated_outliers.sum())
+
+        if correlated_count > 0:
+            outlier_row_rate = (
+                correlated_count / len(outlier_rows) * 100
+            )
+
+            findings.append({
+                "column": column,
+                "issue": "Other outliers",
+                "outlier_row_count": correlated_count,
+                "outlier_row_rate": round(outlier_row_rate, 2)
             })
 
     return {

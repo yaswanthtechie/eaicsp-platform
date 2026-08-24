@@ -34,4 +34,4 @@ def test_wrong_dtype():
     profiler = Profiler()
     report = profiler.profile(df)
 
-    assert pd.api.types.is_string_dtype(df["quantity_sold"])
+    assert report["column_summary"][0]["dtype"] in ("object", "str")

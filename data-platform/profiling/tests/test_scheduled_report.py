@@ -34,6 +34,22 @@ class TestScheduledReport(unittest.TestCase):
 
         self.assertEqual(result["status"], "OK")
 
+    def test_ok_when_score_equals_threshold(self):
+        report = {
+            "quality_score": {
+                "score": 80
+            }
+        }
+
+        result = check_quality_threshold(
+            report,
+            threshold=80
+        )
+
+        self.assertEqual(result["status"], "OK")
+        self.assertEqual(result["score"], 80)
+        self.assertEqual(result["threshold"], 80)
+
 
 if __name__ == "__main__":
     unittest.main()

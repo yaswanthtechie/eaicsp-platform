@@ -7,7 +7,7 @@ from src.profile import profile, generate_html
 from src.monitoring import MonitoringHistory
 from src.report import generate_report
 from src.scheduled_report import check_quality_threshold
-
+from src.rules_suggestions import write_rules_yaml
 
 def main():
     print("=" * 60)
@@ -23,6 +23,9 @@ def main():
 
     df = pd.read_csv(data_path)
     report = profile(df)
+   
+    # Generate suggested data-quality rules
+    write_rules_yaml(report)
 
     # Save current profiling run to historical monitoring
     monitoring = MonitoringHistory()

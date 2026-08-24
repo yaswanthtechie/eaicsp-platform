@@ -8,9 +8,13 @@ from pathlib import Path
 from src.monitoring import MonitoringHistory
 
 
+BASE_DIR = Path(__file__).resolve().parent.parent
+DEFAULT_OUTPUT_PATH = BASE_DIR / "reports" / "quantity_sold_null_trend.png"
+
+
 def generate_null_rate_trend(
     column_name="quantity_sold",
-    output_path="reports/quantity_sold_null_trend.png"
+    output_path=DEFAULT_OUTPUT_PATH
 ):
     monitoring = MonitoringHistory()
 

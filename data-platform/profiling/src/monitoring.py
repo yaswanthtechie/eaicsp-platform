@@ -1,20 +1,31 @@
 import json
 import os
 from datetime import datetime
+from pathlib import Path
 
 
 class MonitoringHistory:
 
-    def __init__(self, history_file="reports/history.json", max_batches=10):
-        self.history_file = history_file
+    def __init__(self, history_file=None, max_batches=10):
+        base_dir = Path(__file__).resolve().parent.parent
+
+        if history_file is None:
+            self.history_file = base_dir / "reports" / "history.json"
+        else:
+            self.history_file = Path(history_file)
+
         self.max_batches = max_batches
 
     def load_history(self):
         if not os.path.exists(self.history_file):
             return []
 
-        with open(self.history_file, "r") as file:
-            return json.load(file)
+        try:
+            with open(self.history_file, "r", encoding="utf-8") as file:
+                return json.load(file)
+        except (json.JSONDecodeError, OSError):
+            return []
+
 
     def save_batch(self, report, drift=None):
         history = self.load_history()
@@ -45,8 +56,12 @@ class MonitoringHistory:
             exist_ok=True
         )
 
-        with open(self.history_file, "w") as file:
+        temp_file = self.history_file.with_suffix(".tmp")
+
+        with open(temp_file, "w", encoding="utf-8") as file:
             json.dump(history, file, indent=4)
+
+        os.replace(temp_file, self.history_file)
 
         return history
 

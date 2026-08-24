@@ -1,5 +1,6 @@
 import yaml
 
+
 def suggest_rules(report, null_threshold=0.2):
     """
     Generate suggested data-quality rules from profiling results.
@@ -12,6 +13,7 @@ def suggest_rules(report, null_threshold=0.2):
 
     column_summary = report.get("column_summary", [])
     statistics = report.get("statistics", {})
+    outliers = report.get("outliers", {})
 
     for column in column_summary:
         name = column["column"]
@@ -28,22 +30,54 @@ def suggest_rules(report, null_threshold=0.2):
         # Suggest range rule for numeric columns
         if dtype.startswith(("int", "float")):
             stats = statistics.get(name, {})
+            outlier_info = outliers.get(name, {})
 
             min_value = stats.get("min")
             max_value = stats.get("max")
 
-            if min_value is not None and max_value is not None:
+            lower_limit = outlier_info.get("lower_limit")
+            upper_limit = outlier_info.get("upper_limit")
+
+            # Use IQR upper limit to exclude detected outliers.
+            if (
+                min_value is not None
+                and max_value is not None
+                and lower_limit is not None
+                and upper_limit is not None
+            ):
+                suggested_min = max(
+                    float(min_value),
+                    float(lower_limit)
+                )
+
+                suggested_max = min(
+                    float(max_value),
+                    float(upper_limit)
+                )
+
+            # Fallback to the original min/max if
+            # outlier information is unavailable.
+            elif min_value is not None and max_value is not None:
+                suggested_min = float(min_value)
+                suggested_max = float(max_value)
+
+            else:
+                suggested_min = None
+                suggested_max = None
+
+            if (
+                suggested_min is not None
+                and suggested_max is not None
+                and suggested_min <= suggested_max
+            ):
                 rules.append({
                     "column": name,
                     "rule": "range",
-                    "min": float(min_value),
-                    "max": float(max_value)
+                    "min": suggested_min,
+                    "max": suggested_max
                 })
 
     return {"rules": rules}
-
-
-
 
 
 def write_rules_yaml(
