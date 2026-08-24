@@ -14,7 +14,7 @@ from app.routes.compliance import (
 from app.services.sanctions_service import (
     load_all_sanctions,
 )
-
+from app.models.compliance_override import ComplianceOverride
 
 # =====================================================
 # APPLICATION LIFESPAN
