@@ -1,34 +1,33 @@
-from app.schemas.shipment import (
-    Carrier,
+import random
+import time
+
+from app.services.carriers.base import (
+    CarrierAdapter,
+    CarrierError,
     CarrierRate,
     TrackingInfo,
 )
-
-from app.services.carriers.base import (
-    BaseCarrier,
-    CarrierError,
-)
+from app.schemas.shipment import Carrier
 
 
-class FedExAdapter(BaseCarrier):
+class FedExAdapter(CarrierAdapter):
     """
     FedEx carrier adapter.
 
-    Provides:
+    Simulates:
+    - Network latency
+    - Temporary carrier failures
     - Shipping rate calculation
     - Tracking information
-
-    Retry and circuit-breaker handling are performed
-    by shipment_service.py.
     """
 
     BASE_PRICE = 950.0
     ESTIMATED_DAYS = 3
     RELIABILITY_SCORE = 0.92
 
-    # ========================================================
-    # GET RATE
-    # ========================================================
+    # R4 requirement:
+    # FedEx has a 30% temporary failure rate.
+    FAILURE_RATE = 0.30
 
     def get_rate(
         self,
@@ -39,62 +38,74 @@ class FedExAdapter(BaseCarrier):
         """
         Return FedEx shipping rate.
 
-        The method is deterministic so the carrier unit
-        tests do not randomly fail.
+        A small delay simulates network/API latency.
+
+        FedEx can simulate temporary API failures.
+
+        Retry and circuit-breaker handling are controlled
+        by shipment_service.py.
         """
 
-        # ----------------------------------------------------
+        # ====================================================
         # VALIDATE WEIGHT
-        # ----------------------------------------------------
+        # ====================================================
 
         if weight_kg <= 0:
             raise CarrierError(
                 "Invalid shipment weight"
             )
 
-        # ----------------------------------------------------
-        # VALIDATE ORIGIN
-        # ----------------------------------------------------
+        # ====================================================
+        # SIMULATE NETWORK LATENCY
+        # ====================================================
 
-        if not origin or not origin.strip():
+        time.sleep(
+            random.uniform(
+                0.05,
+                0.15,
+            )
+        )
+
+        # ====================================================
+        # SIMULATE FEDEX FAILURE
+        # ====================================================
+
+        if (
+            self.FAILURE_RATE > 0
+            and random.random() < self.FAILURE_RATE
+        ):
             raise CarrierError(
-                "Origin is required"
+                "FedEx API timeout"
             )
 
-        # ----------------------------------------------------
-        # VALIDATE DESTINATION
-        # ----------------------------------------------------
-
-        if not destination or not destination.strip():
-            raise CarrierError(
-                "Destination is required"
-            )
-
-        # ----------------------------------------------------
+        # ====================================================
         # CALCULATE PRICE
-        # ----------------------------------------------------
+        # ====================================================
 
         price = (
             self.BASE_PRICE
             + (weight_kg * 10)
         )
 
-        # ----------------------------------------------------
+        # ====================================================
         # RETURN RATE
-        # ----------------------------------------------------
+        # ====================================================
 
         return CarrierRate(
             carrier=Carrier.fedex,
             origin=origin,
             destination=destination,
             weight_kg=weight_kg,
-            price=round(price, 2),
+            price=round(
+                price,
+                2,
+            ),
             estimated_days=self.ESTIMATED_DAYS,
             reliability_score=self.RELIABILITY_SCORE,
         )
 
     # ========================================================
-    # GET TRACKING
+    # TRACKING
     # ========================================================
 
     def get_tracking(
@@ -105,14 +116,19 @@ class FedExAdapter(BaseCarrier):
         Return FedEx tracking information.
         """
 
-        if not tracking_id or not str(tracking_id).strip():
+        if (
+            not tracking_id
+            or not str(tracking_id).strip()
+        ):
             raise CarrierError(
                 "Tracking ID is required"
             )
 
         return TrackingInfo(
             carrier=Carrier.fedex,
-            tracking_number=str(tracking_id),
+            tracking_number=str(
+                tracking_id
+            ),
             status="in_transit",
             location="FedEx Hub",
             estimated_delivery=None,

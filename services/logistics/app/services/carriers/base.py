@@ -7,6 +7,8 @@ from tenacity import (
     wait_exponential,
 )
 
+from app.schemas.shipment import CarrierRate, TrackingInfo
+
 
 # ============================================================
 # CARRIER ERROR
@@ -54,12 +56,12 @@ def api_retry():
 
 
 # ============================================================
-# BASE CARRIER
+# CARRIER ADAPTER
 # ============================================================
 
-class BaseCarrier(ABC):
+class CarrierAdapter(ABC):
     """
-    Base class for all carrier adapters.
+    Base interface for all carrier adapters.
 
     Every carrier must implement:
 
@@ -73,7 +75,7 @@ class BaseCarrier(ABC):
         origin: str,
         destination: str,
         weight_kg: float,
-    ):
+    ) -> CarrierRate:
         """
         Return the shipping rate for the carrier.
         """
@@ -83,8 +85,18 @@ class BaseCarrier(ABC):
     def get_tracking(
         self,
         tracking_number: str,
-    ):
+    ) -> TrackingInfo:
         """
         Return tracking information for a shipment.
         """
         raise NotImplementedError
+
+
+# ============================================================
+# BACKWARD COMPATIBILITY
+# ============================================================
+
+# Some older code may still import BaseCarrier.
+# Keep this alias so existing carrier files continue to work.
+
+BaseCarrier = CarrierAdapter

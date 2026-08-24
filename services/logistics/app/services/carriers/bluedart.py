@@ -1,41 +1,26 @@
-from app.schemas.shipment import (
-    Carrier,
-    CarrierRate,
-    Status,
-    TrackingInfo,
-)
+import random
+import time
 
 from app.services.carriers.base import (
-    BaseCarrier,
+    CarrierAdapter,
     CarrierError,
+    CarrierRate,
+    TrackingInfo,
 )
+from app.schemas.shipment import Carrier
 
 
-# ============================================================
-# BLUEDART CARRIER
-# ============================================================
-
-class BlueDartAdapter(BaseCarrier):
+class BlueDartAdapter(CarrierAdapter):
     """
-    BlueDart carrier implementation.
+    BlueDart carrier adapter.
 
-    R4 features:
-    - Uses the common BaseCarrier interface.
-    - Retry is controlled by shipment_service.py.
-    - Local circuit breaker is controlled by
-      shipment_service.py.
-    - Dynamic reliability is calculated from carrier history.
+    Simulates network latency and provides
+    shipping quotes and tracking information.
     """
 
-    carrier = Carrier.bluedart
-
-    base_price = 750.0
-
-    estimated_days = 2
-
-    # --------------------------------------------------------
-    # GET RATE
-    # --------------------------------------------------------
+    BASE_PRICE = 750.0
+    ESTIMATED_DAYS = 2
+    RELIABILITY_SCORE = 0.90
 
     def get_rate(
         self,
@@ -46,45 +31,42 @@ class BlueDartAdapter(BaseCarrier):
         """
         Return BlueDart shipping rate.
 
-        Retry is intentionally NOT handled here.
-        shipment_service.py controls retry + circuit breaker.
+        A small delay simulates an external carrier API.
         """
 
         if weight_kg <= 0:
-            raise CarrierError(
-                "Invalid shipment weight"
-            )
+            raise CarrierError("Invalid shipment weight")
+
+        # Simulate network/API latency.
+        time.sleep(random.uniform(0.05, 0.15))
+
+        price = self.BASE_PRICE + (weight_kg * 10)
 
         return CarrierRate(
-            carrier=self.carrier,
+            carrier=Carrier.bluedart,
             origin=origin,
             destination=destination,
             weight_kg=weight_kg,
-            price=self.base_price,
-            estimated_days=self.estimated_days,
-
-            # Default/mock value only.
-            # shipment_service.py replaces this with the
-            # dynamically calculated reliability score.
-            reliability_score=0.90,
+            price=round(price, 2),
+            estimated_days=self.ESTIMATED_DAYS,
+            reliability_score=self.RELIABILITY_SCORE,
         )
-
-    # --------------------------------------------------------
-    # GET TRACKING
-    # --------------------------------------------------------
 
     def get_tracking(
         self,
-        tracking_number: str,
+        tracking_id: str,
     ) -> TrackingInfo:
         """
         Return BlueDart tracking information.
         """
 
+        if not tracking_id or not str(tracking_id).strip():
+            raise CarrierError("Tracking ID is required")
+
         return TrackingInfo(
-            tracking_number=tracking_number,
-            carrier=self.carrier,
-            status=Status.in_transit,
-            location="In Transit",
+            carrier=Carrier.bluedart,
+            tracking_number=str(tracking_id),
+            status="in_transit",
+            location="BlueDart Hub",
             estimated_delivery=None,
         )

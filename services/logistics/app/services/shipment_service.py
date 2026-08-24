@@ -216,15 +216,11 @@ def api_retry():
     """
     Compatibility helper for existing tests/imports.
 
-    IMPORTANT:
-
     The actual carrier call in this service does NOT use
     this decorator around the complete carrier operation.
 
     The circuit breaker must be checked before every retry
     attempt.
-
-    This helper is kept because older tests may import api_retry.
     """
 
     return retry(
@@ -256,11 +252,6 @@ class CircuitBreaker:
     HALF_OPEN:
         After the recovery timeout, exactly one trial
         request is allowed.
-
-    R4 configuration:
-
-        failure threshold = 3
-        recovery timeout = 30 seconds
     """
 
     FAILURE_THRESHOLD = 3
@@ -528,9 +519,6 @@ def get_shipment(
     Return a shipment if it exists.
 
     Returns None when not found.
-
-    This is important because the route layer
-    converts None into HTTP 404.
     """
 
     return shipments.get(
@@ -670,22 +658,8 @@ def _call_carrier_with_retry(
     """
     Call one carrier with retry + circuit breaker.
 
-    IMPORTANT R4 FIX:
-
-    The circuit breaker is checked BEFORE EVERY retry attempt.
-
-    Therefore:
-
-        Attempt 1 -> failure
-        Attempt 2 -> failure
-        Attempt 3 -> failure
-
-    opens the circuit.
-
-    Once the circuit opens, another shipment in the same
-    parallel batch does NOT continue calling the dead carrier.
-
-    This prevents the previous 60-invocation storm.
+    The circuit breaker is checked BEFORE EVERY retry
+    attempt.
     """
 
     adapter = CARRIERS[carrier]
@@ -723,7 +697,6 @@ def _call_carrier_with_retry(
 
             breaker.record_success()
 
-            # Always use current dynamic reliability.
             rate.reliability_score = (
                 get_reliability_score(
                     carrier
@@ -758,9 +731,6 @@ def _call_carrier_with_retry(
 
             # ------------------------------------------------
             # EXPONENTIAL BACKOFF
-            #
-            # 1 second
-            # 2 seconds
             # ------------------------------------------------
 
             delay = RETRY_DELAYS[
@@ -813,9 +783,7 @@ def get_quotes(
     """
     Get quotes from all available carriers.
 
-    If one carrier fails, other carriers continue.
-
-    Failed carriers are returned as warnings.
+    Synchronous version used by existing code/tests.
     """
 
     rates: list[CarrierRate] = []
@@ -828,10 +796,6 @@ def get_quotes(
         Carrier.ups: "UPS",
         Carrier.bluedart: "BlueDart",
     }
-
-    # --------------------------------------------------------
-    # QUERY ALL CARRIERS
-    # --------------------------------------------------------
 
     for carrier in Carrier:
 
@@ -859,10 +823,6 @@ def get_quotes(
                 f"{display_name} unavailable: {str(exc)}"
             )
 
-    # --------------------------------------------------------
-    # SORT BY PREFERENCE
-    # --------------------------------------------------------
-
     if preference == QuotePreference.cheapest:
 
         rates.sort(
@@ -882,10 +842,6 @@ def get_quotes(
             reverse=True,
         )
 
-    # --------------------------------------------------------
-    # RETURN
-    # --------------------------------------------------------
-
     return QuoteResponse(
         rates=rates,
         warnings=warnings,
@@ -900,17 +856,92 @@ async def _async_get_quotes(
     request: QuoteRequest,
 ) -> QuoteResponse:
     """
-    Run synchronous quote processing inside a worker thread.
+    Get quotes from all carriers concurrently.
 
-    This allows multiple shipment quotes to run concurrently.
+    Synchronous carrier calls are moved to worker
+    threads using asyncio.to_thread().
     """
 
-    return await asyncio.to_thread(
-        get_quotes,
-        request.origin,
-        request.destination,
-        request.weight_kg,
-        request.preference,
+    carrier_names = {
+        Carrier.dhl: "DHL",
+        Carrier.fedex: "FedEx",
+        Carrier.ups: "UPS",
+        Carrier.bluedart: "BlueDart",
+    }
+
+    async def call_one_carrier(
+        carrier: Carrier,
+    ) -> CarrierRate:
+
+        return await asyncio.to_thread(
+            _call_carrier_with_retry,
+            carrier,
+            request.origin,
+            request.destination,
+            request.weight_kg,
+        )
+
+    tasks = [
+        call_one_carrier(carrier)
+        for carrier in Carrier
+    ]
+
+    results = await asyncio.gather(
+        *tasks,
+        return_exceptions=True,
+    )
+
+    rates: list[CarrierRate] = []
+
+    warnings: list[str] = []
+
+    for carrier, result in zip(
+        Carrier,
+        results,
+    ):
+
+        if isinstance(
+            result,
+            Exception,
+        ):
+
+            display_name = carrier_names.get(
+                carrier,
+                carrier.value,
+            )
+
+            warnings.append(
+                f"{display_name} unavailable: {str(result)}"
+            )
+
+        else:
+
+            rates.append(
+                result
+            )
+
+    if request.preference == QuotePreference.cheapest:
+
+        rates.sort(
+            key=lambda rate: rate.price
+        )
+
+    elif request.preference == QuotePreference.fastest:
+
+        rates.sort(
+            key=lambda rate: rate.estimated_days
+        )
+
+    elif request.preference == QuotePreference.most_reliable:
+
+        rates.sort(
+            key=lambda rate: rate.reliability_score,
+            reverse=True,
+        )
+
+    return QuoteResponse(
+        rates=rates,
+        warnings=warnings,
     )
 
 
@@ -922,9 +953,9 @@ async def _sequential_bulk_quotes(
     requests: list[QuoteRequest],
 ) -> list[QuoteResponse]:
     """
-    Execute bulk quotes sequentially.
+    Execute shipment quotes sequentially.
 
-    Used only for optional benchmarking.
+    Used only for benchmarking.
     """
 
     results: list[QuoteResponse] = []
@@ -955,12 +986,12 @@ async def _parallel_bulk_quotes(
     R4 requirement:
 
         asyncio.gather()
+
+    Each shipment creates four concurrent carrier calls.
     """
 
     tasks = [
-        _async_get_quotes(
-            request
-        )
+        _async_get_quotes(request)
         for request in requests
     ]
 
@@ -984,14 +1015,14 @@ async def get_bulk_quotes(
 
         20 shipments
 
-    Normal request:
-
-        parallel execution only
-
     benchmark=true:
 
-        sequential execution is also measured
-        and speedup is calculated.
+        sequential execution is measured first,
+        followed by parallel execution.
+
+    Measuring sequential first prevents the
+    parallel benchmark from opening circuit breakers
+    before the sequential measurement.
     """
 
     # --------------------------------------------------------
@@ -1009,7 +1040,103 @@ async def get_bulk_quotes(
         )
 
     # --------------------------------------------------------
-    # PARALLEL EXECUTION
+    # BENCHMARK MODE
+    # --------------------------------------------------------
+
+    if benchmark:
+
+        # Reset circuit breakers before benchmark.
+        #
+        # This ensures the sequential and parallel
+        # measurements start from a clean state.
+        reset_all_circuit_breakers()
+
+        # ----------------------------------------------------
+        # SEQUENTIAL EXECUTION
+        # ----------------------------------------------------
+
+        sequential_start = time.perf_counter()
+
+        sequential_quotes = (
+            await _sequential_bulk_quotes(
+                requests
+            )
+        )
+
+        sequential_seconds = (
+            time.perf_counter()
+            - sequential_start
+        )
+
+        # ----------------------------------------------------
+        # RESET BEFORE PARALLEL RUN
+        # ----------------------------------------------------
+
+        reset_all_circuit_breakers()
+
+        # ----------------------------------------------------
+        # PARALLEL EXECUTION
+        # ----------------------------------------------------
+
+        parallel_start = time.perf_counter()
+
+        quotes = await _parallel_bulk_quotes(
+            requests
+        )
+
+        parallel_seconds = (
+            time.perf_counter()
+            - parallel_start
+        )
+
+        # ----------------------------------------------------
+        # SPEEDUP
+        # ----------------------------------------------------
+
+        if parallel_seconds > 0:
+
+            speedup = (
+                sequential_seconds
+                / parallel_seconds
+            )
+
+        else:
+
+            speedup = 0.0
+
+        performance = {
+            "shipment_count": len(requests),
+            "parallel_seconds": round(
+                parallel_seconds,
+                6,
+            ),
+            "sequential_seconds": round(
+                sequential_seconds,
+                6,
+            ),
+            "speedup": round(
+                speedup,
+                2,
+            ),
+        }
+
+        logger.info(
+            "R4 bulk quote benchmark: "
+            "shipments=%s sequential=%.4fs "
+            "parallel=%.4fs speedup=%.2fx",
+            len(requests),
+            sequential_seconds,
+            parallel_seconds,
+            speedup,
+        )
+
+        return {
+            "quotes": quotes,
+            "performance": performance,
+        }
+
+    # --------------------------------------------------------
+    # NORMAL MODE
     # --------------------------------------------------------
 
     parallel_start = time.perf_counter()
@@ -1023,10 +1150,6 @@ async def get_bulk_quotes(
         - parallel_start
     )
 
-    # --------------------------------------------------------
-    # PERFORMANCE RESULT
-    # --------------------------------------------------------
-
     performance = {
         "shipment_count": len(requests),
         "parallel_seconds": round(
@@ -1036,62 +1159,6 @@ async def get_bulk_quotes(
         "sequential_seconds": None,
         "speedup": None,
     }
-
-    # --------------------------------------------------------
-    # OPTIONAL BENCHMARK
-    # --------------------------------------------------------
-
-    if benchmark:
-
-        sequential_start = time.perf_counter()
-
-        await _sequential_bulk_quotes(
-            requests
-        )
-
-        sequential_seconds = (
-            time.perf_counter()
-            - sequential_start
-        )
-
-        if parallel_seconds > 0:
-
-            speedup = (
-                sequential_seconds
-                / parallel_seconds
-            )
-
-        else:
-
-            speedup = 0.0
-
-        performance[
-            "sequential_seconds"
-        ] = round(
-            sequential_seconds,
-            6,
-        )
-
-        performance[
-            "speedup"
-        ] = round(
-            speedup,
-            2,
-        )
-
-        logger.info(
-            "R4 bulk quote benchmark: "
-            "shipments=%s sequential=%.4fs "
-            "parallel=%.4fs speedup=%.2fx",
-            len(requests),
-            sequential_seconds,
-            parallel_seconds,
-            speedup,
-        )
-
-    # --------------------------------------------------------
-    # RETURN
-    # --------------------------------------------------------
 
     return {
         "quotes": quotes,
@@ -1339,9 +1406,36 @@ def explain_eta(
         )
     )
 
-    estimated_days = (
-        adapter.estimated_days
-    )
+    # --------------------------------------------------------
+    # GET ESTIMATED DAYS
+    # --------------------------------------------------------
+
+    try:
+
+        rate = _get_carrier_rate(
+            carrier=carrier,
+            origin=shipment.origin,
+            destination=shipment.destination,
+            weight_kg=shipment.weight_kg,
+        )
+
+        estimated_days = rate.estimated_days
+
+    except CarrierError:
+
+        estimated_days_by_carrier = {
+            Carrier.dhl: 2,
+            Carrier.fedex: 3,
+            Carrier.ups: 4,
+            Carrier.bluedart: 2,
+        }
+
+        estimated_days = (
+            estimated_days_by_carrier.get(
+                carrier,
+                0,
+            )
+        )
 
     # --------------------------------------------------------
     # RELIABILITY DESCRIPTION

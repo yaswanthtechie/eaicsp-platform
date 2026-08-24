@@ -10,11 +10,14 @@ from app.schemas.shipment import (
     Status,
 )
 
+from app.services.carriers.base import CarrierError
+
 from app.services.shipment_service import (
     shipments,
     shipment_events,
     carrier_history,
     CIRCUIT_BREAKERS,
+    CARRIERS,
     calculate_reliability_score,
     get_reliability_score,
     record_carrier_result,
@@ -102,6 +105,54 @@ async def test_r4_bulk_quote_benchmark():
             weight_kg=10,
             preference=QuotePreference.fastest,
         ),
+        QuoteRequest(
+            origin="Hyderabad",
+            destination="Bangalore",
+            weight_kg=10,
+            preference=QuotePreference.most_reliable,
+        ),
+        QuoteRequest(
+            origin="Hyderabad",
+            destination="Chennai",
+            weight_kg=10,
+            preference=QuotePreference.cheapest,
+        ),
+        QuoteRequest(
+            origin="Hyderabad",
+            destination="Mumbai",
+            weight_kg=10,
+            preference=QuotePreference.fastest,
+        ),
+        QuoteRequest(
+            origin="Hyderabad",
+            destination="Delhi",
+            weight_kg=10,
+            preference=QuotePreference.most_reliable,
+        ),
+        QuoteRequest(
+            origin="Hyderabad",
+            destination="Bangalore",
+            weight_kg=10,
+            preference=QuotePreference.cheapest,
+        ),
+        QuoteRequest(
+            origin="Hyderabad",
+            destination="Chennai",
+            weight_kg=10,
+            preference=QuotePreference.fastest,
+        ),
+        QuoteRequest(
+            origin="Hyderabad",
+            destination="Mumbai",
+            weight_kg=10,
+            preference=QuotePreference.most_reliable,
+        ),
+        QuoteRequest(
+            origin="Hyderabad",
+            destination="Delhi",
+            weight_kg=10,
+            preference=QuotePreference.cheapest,
+        ),
     ]
 
     result = await get_bulk_quotes(
@@ -114,19 +165,17 @@ async def test_r4_bulk_quote_benchmark():
 
     performance = result["performance"]
 
-    assert performance["shipment_count"] == 2
+    assert performance["shipment_count"] == 10
 
     assert performance["parallel_seconds"] >= 0
 
-    assert (
-        performance["sequential_seconds"]
-        is not None
-    )
+    assert performance["sequential_seconds"] is not None
 
-    assert (
-        performance["speedup"]
-        is not None
-    )
+    assert performance["speedup"] is not None
+
+    # Real latency is added to carrier adapters.
+    # Therefore parallel execution should be faster.
+    assert performance["speedup"] > 1
 
 
 # ============================================================
@@ -154,6 +203,190 @@ async def test_r4_bulk_quote_20_shipments():
     )
 
     assert len(result["quotes"]) == 20
+
+
+# ============================================================
+# R4 - 1
+# CONCURRENT CARRIER FAILURES
+# ============================================================
+
+@pytest.mark.asyncio
+async def test_r4_concurrent_carrier_failures(
+    monkeypatch,
+):
+    class FailingCarrier:
+        estimated_days = 3
+
+        def get_rate(
+            self,
+            origin,
+            destination,
+            weight_kg,
+        ):
+            raise CarrierError(
+                "Simulated carrier failure"
+            )
+
+    # Replace FedEx with a failing stub.
+    monkeypatch.setitem(
+        CARRIERS,
+        Carrier.fedex,
+        FailingCarrier(),
+    )
+
+    reset_all_circuit_breakers()
+
+    requests = [
+        QuoteRequest(
+            origin="Hyderabad",
+            destination="Mumbai",
+            weight_kg=10,
+            preference=QuotePreference.cheapest,
+        )
+        for _ in range(5)
+    ]
+
+    result = await get_bulk_quotes(
+        requests,
+        benchmark=False,
+    )
+
+    # Healthy carriers should still return quotes.
+    assert len(result["quotes"]) == 5
+
+    for quote_response in result["quotes"]:
+        carrier_names = {
+            rate.carrier
+            for rate in quote_response.rates
+        }
+
+        assert Carrier.dhl in carrier_names
+        assert Carrier.ups in carrier_names
+        assert Carrier.bluedart in carrier_names
+
+        # Failed carrier warning should be present.
+        assert any(
+            "FedEx unavailable" in warning
+            for warning in quote_response.warnings
+        )
+
+    # FedEx must open independently.
+    assert is_circuit_open(
+        Carrier.fedex
+    ) is True
+
+    # Healthy carriers should remain closed.
+    assert is_circuit_open(
+        Carrier.dhl
+    ) is False
+
+    assert is_circuit_open(
+        Carrier.ups
+    ) is False
+
+    assert is_circuit_open(
+        Carrier.bluedart
+    ) is False
+
+
+# ============================================================
+# R4 - 1
+# TWO CARRIERS DOWN AT THE SAME TIME
+# ============================================================
+
+@pytest.mark.asyncio
+async def test_r4_two_of_four_carriers_down(
+    monkeypatch,
+):
+    class FailingCarrier:
+        estimated_days = 3
+
+        def get_rate(
+            self,
+            origin,
+            destination,
+            weight_kg,
+        ):
+            raise CarrierError(
+                "Simulated carrier failure"
+            )
+
+    # FedEx and UPS are both unavailable.
+    monkeypatch.setitem(
+        CARRIERS,
+        Carrier.fedex,
+        FailingCarrier(),
+    )
+
+    monkeypatch.setitem(
+        CARRIERS,
+        Carrier.ups,
+        FailingCarrier(),
+    )
+
+    reset_all_circuit_breakers()
+
+    requests = [
+        QuoteRequest(
+            origin="Hyderabad",
+            destination="Mumbai",
+            weight_kg=10,
+            preference=QuotePreference.cheapest,
+        )
+        for _ in range(5)
+    ]
+
+    result = await get_bulk_quotes(
+        requests,
+        benchmark=False,
+    )
+
+    # All shipment quote responses should still be returned.
+    assert len(result["quotes"]) == 5
+
+    for quote_response in result["quotes"]:
+
+        carrier_names = {
+            rate.carrier
+            for rate in quote_response.rates
+        }
+
+        # Healthy carriers must still return quotes.
+        assert Carrier.dhl in carrier_names
+        assert Carrier.bluedart in carrier_names
+
+        # Failed carriers should not return rates.
+        assert Carrier.fedex not in carrier_names
+        assert Carrier.ups not in carrier_names
+
+        # Both failure warnings must exist.
+        assert any(
+            "FedEx unavailable" in warning
+            for warning in quote_response.warnings
+        )
+
+        assert any(
+            "UPS unavailable" in warning
+            for warning in quote_response.warnings
+        )
+
+    # Both breakers must open independently.
+    assert is_circuit_open(
+        Carrier.fedex
+    ) is True
+
+    assert is_circuit_open(
+        Carrier.ups
+    ) is True
+
+    # Healthy carriers must remain closed.
+    assert is_circuit_open(
+        Carrier.dhl
+    ) is False
+
+    assert is_circuit_open(
+        Carrier.bluedart
+    ) is False
 
 
 # ============================================================

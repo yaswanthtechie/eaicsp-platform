@@ -73,6 +73,8 @@ def create_new_shipment(
 ):
     """
     Create a new shipment.
+
+    Returns HTTP 200 when the shipment is created successfully.
     """
 
     if shipment_exists(data.shipment_id):
@@ -84,11 +86,17 @@ def create_new_shipment(
     try:
         return create_shipment(data)
 
-    except ValueError as exc:
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
+            detail="Invalid shipment data.",
+        ) from None
+
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to create shipment.",
+        ) from None
 
 
 # ============================================================
@@ -115,9 +123,14 @@ def get_all_shipments_route(
         ?status=cancelled
     """
 
-    return get_shipments(
-        shipment_status
-    )
+    try:
+        return get_shipments(shipment_status)
+
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to retrieve shipments.",
+        ) from None
 
 
 # ============================================================
@@ -134,7 +147,7 @@ async def shipment_bulk_quote(
         default=False,
         description=(
             "When true, also runs sequential quoting "
-            "and calculates speedup."
+            "and calculates performance."
         ),
     ),
 ):
@@ -152,11 +165,11 @@ async def shipment_bulk_quote(
             benchmark=benchmark,
         )
 
-    except ValueError as exc:
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
+            detail="Invalid bulk quote request.",
+        ) from None
 
     except Exception:
         raise HTTPException(
@@ -188,11 +201,11 @@ def shipment_quote(
             data.preference,
         )
 
-    except ValueError as exc:
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
+            detail="Invalid quote request.",
+        ) from None
 
     except Exception:
         raise HTTPException(
@@ -261,29 +274,23 @@ def track_shipment(
     """
 
     try:
-        shipment = get_shipment(
-            shipment_id
-        )
+        shipment = get_shipment(shipment_id)
+
     except ValueError:
         shipment = None
 
-    # IMPORTANT:
-    # Some service implementations return None
-    # instead of raising ValueError.
     if shipment is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Shipment not found",
+            detail="Shipment not found.",
         )
 
-    adapter = CARRIERS.get(
-        shipment.carrier
-    )
+    adapter = CARRIERS.get(shipment.carrier)
 
     if adapter is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Unsupported carrier",
+            detail="Unsupported carrier.",
         )
 
     try:
@@ -314,27 +321,24 @@ def shipment_history(
     """
 
     try:
-        shipment = get_shipment(
-            shipment_id
-        )
+        shipment = get_shipment(shipment_id)
+
     except ValueError:
         shipment = None
 
     if shipment is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Shipment not found",
+            detail="Shipment not found.",
         )
 
     try:
-        return get_shipment_history(
-            shipment_id
-        )
+        return get_shipment_history(shipment_id)
 
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Shipment not found",
+            detail="Shipment history not found.",
         ) from None
 
     except Exception:
@@ -364,27 +368,24 @@ def shipment_eta_explain(
     """
 
     try:
-        shipment = get_shipment(
-            shipment_id
-        )
+        shipment = get_shipment(shipment_id)
+
     except ValueError:
         shipment = None
 
     if shipment is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Shipment not found",
+            detail="Shipment not found.",
         )
 
     try:
-        return explain_eta(
-            shipment_id
-        )
+        return explain_eta(shipment_id)
 
-    except ValueError as exc:
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
+            detail="Unable to generate ETA explanation.",
         ) from None
 
     except Exception:
@@ -409,25 +410,15 @@ def get_one_shipment(
     """
 
     try:
-        shipment = get_shipment(
-            shipment_id
-        )
+        shipment = get_shipment(shipment_id)
+
     except ValueError:
         shipment = None
 
-    # IMPORTANT:
-    # Handle both:
-    #
-    #   get_shipment() -> None
-    #
-    # and:
-    #
-    #   get_shipment() -> ValueError
-    #
     if shipment is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Shipment not found",
+            detail="Shipment not found.",
         )
 
     return shipment
@@ -449,16 +440,15 @@ def update_existing_shipment(
     """
 
     try:
-        existing = get_shipment(
-            shipment_id
-        )
+        existing = get_shipment(shipment_id)
+
     except ValueError:
         existing = None
 
     if existing is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Shipment not found",
+            detail="Shipment not found.",
         )
 
     # ========================================================
@@ -468,10 +458,7 @@ def update_existing_shipment(
     if data.shipment_id != shipment_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "Shipment ID in body does not "
-                "match path ID"
-            ),
+            detail="Shipment ID does not match path ID.",
         )
 
     # ========================================================
@@ -484,11 +471,11 @@ def update_existing_shipment(
             data,
         )
 
-    except ValueError as exc:
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
+            detail="Invalid shipment update.",
+        ) from None
 
     except Exception:
         raise HTTPException(
@@ -511,18 +498,20 @@ def delete_existing_shipment(
     Delete a shipment by ID.
     """
 
-    # First check whether shipment exists.
+    # ========================================================
+    # CHECK EXISTENCE
+    # ========================================================
+
     try:
-        existing = get_shipment(
-            shipment_id
-        )
+        existing = get_shipment(shipment_id)
+
     except ValueError:
         existing = None
 
     if existing is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Shipment not found",
+            detail="Shipment not found.",
         )
 
     # ========================================================
@@ -530,22 +519,16 @@ def delete_existing_shipment(
     # ========================================================
 
     try:
-        result = delete_shipment(
-            shipment_id
-        )
-
-        # Some implementations return the deleted object,
-        # while others return None.
-        # Either is acceptable because deletion succeeded.
+        delete_shipment(shipment_id)
 
         return {
-            "message": "Shipment deleted successfully"
+            "message": "Shipment deleted successfully",
         }
 
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Shipment not found",
+            detail="Shipment not found.",
         ) from None
 
     except Exception:
