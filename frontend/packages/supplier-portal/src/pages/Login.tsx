@@ -1,11 +1,14 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { TOKEN_KEY } from "../constants/storage";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { saveTokens } from "../auth/tokenStorage";
+import { login } from "../api/auth";
 
 const Login = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const [email, setEmail] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);  
   const [password, setPassword] = useState("");
 
   const [emailError, setEmailError] = useState("");
@@ -32,15 +35,37 @@ const Login = () => {
     return valid;
   };
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
+const handleLogin = async (
+  e: React.FormEvent
+) => {
+  e.preventDefault();
 
-    if (!validate()) return;
+  if (!validate()) return;
 
-    localStorage.setItem(TOKEN_KEY, "dummy-token");
+  try {
+    const response = await login(
+      email,
+      password
+    );
+    console.log("Remember Me:", rememberMe);
 
-    navigate("/orders");
-  };
+    saveTokens(
+      response.access_token,
+      response.refresh_token,
+      rememberMe
+    );
+
+    const nextPage =
+      searchParams.get("next") || "/orders";
+
+    navigate(nextPage);
+
+  } catch {
+    setPasswordError(
+      "Invalid email or password"
+    );
+  }
+};
 
   return (
     <div className="login-page">
@@ -73,6 +98,15 @@ const Login = () => {
         {passwordError && (
           <p className="error">{passwordError}</p>
         )}
+<div className="remember-me">
+  <input
+    type="checkbox"
+    id="rememberMe"
+    checked={rememberMe}
+    onChange={(e) => setRememberMe(e.target.checked)}
+  />
+  <label htmlFor="rememberMe">Remember Me</label>
+</div>
 
         <button type="submit">
           Login

@@ -138,6 +138,7 @@ def generate_report():
 
     plt.savefig(REPORTS_DIR / "histogram_after.png")
     plt.close()
+    
 
 
 # BOXPLOT
@@ -170,3 +171,5 @@ def generate_report():
 
 if __name__ == "__main__":
     generate_report()
+
+

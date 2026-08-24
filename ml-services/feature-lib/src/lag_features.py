@@ -4,13 +4,24 @@ import pandas as pd
 def add_lag_features(
     df: pd.DataFrame,
     target_col: str,
-    lags=[1, 7, 30]
+    lags=None
 ):
     """
     Add lag features to the dataframe.
     """
 
     data = df.copy()
+
+    if target_col not in data.columns:
+        raise ValueError(f"Target column '{target_col}' not found in dataframe.")
+
+    if lags is None:
+        lags = [1,7,30]
+
+    if not all(isinstance(lag, int) and lag > 0 for lag in lags):
+        raise ValueError(
+            "All lag values must be positive integers."
+        )
 
     for lag in lags:
         data[f"{target_col}_lag_{lag}"] = (

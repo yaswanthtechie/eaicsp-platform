@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "data-validator"
+version = "1.0.0"
+description = "A configuration-driven data quality firewall."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "pandas",
+    "pydantic",
+    "pyyaml"
+]
+
+[project.scripts]
+# This is the magic line.
+# It maps the terminal command 'validate-data' to the 'main' function inside 'src/validate_cli.py'
+validate_data = "src.validate_cli:main"
+
+# for generating the synthetic data
+generate_messy_data = "src.make_messy_data:main"
+
+# for running the complete orchestrator pipeline
+run_pipeline = "src.main:main"
+
+# for running the  Performance at scale Generate a 100,000-row file
+perf_test = "src.perf_test:main"
+
+# for batch validating multiple files and folders
+validate_folder = "src.validate_folder:main"
+
+[tool.setuptools]
+packages = ["src"]

@@ -46,3 +46,10 @@ def should_promote(accuracy: float) -> bool:
 # Promotion metadata
 
 PROMOTED_BY = "ml-services"
+# R4 Canary
+CANARY_PERCENTAGE = 20
+
+
+
+# R4 Retraining
+DRIFT_THRESHOLD = 0.20
