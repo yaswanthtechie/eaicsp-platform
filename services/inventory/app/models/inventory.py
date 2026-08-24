@@ -1,4 +1,11 @@
-from sqlalchemy import Column, String, Integer, Float, PrimaryKeyConstraint
+from sqlalchemy import (
+    Column,
+    String,
+    Integer,
+    Float,
+    PrimaryKeyConstraint,
+    
+)
 
 from app.database import Base
 
@@ -9,43 +16,49 @@ class Inventory(Base):
 
     sku_id = Column(
         String,
-        nullable=False
+        nullable=False,
     )
 
     warehouse_id = Column(
         String,
-        nullable=False
+        nullable=False,
     )
 
     product_name = Column(
         String,
-        nullable=False
+        nullable=False,
     )
 
     quantity_on_hand = Column(
         Integer,
-        nullable=False
+        nullable=False,
     )
 
+    # Kept for R3/database compatibility.
+    # R4 calculates demand dynamically
+    # from SalesHistory.
     avg_daily_demand = Column(
         Float,
-        nullable=False
+        nullable=False,
+        default=0.0,
     )
 
     lead_time_days = Column(
         Integer,
-        nullable=False
+        nullable=False,
     )
 
     safety_stock = Column(
         Integer,
-        nullable=False
+        nullable=False,
     )
 
-
     __table_args__ = (
+
         PrimaryKeyConstraint(
             "sku_id",
-            "warehouse_id"
+            "warehouse_id",
         ),
+
+        
     )

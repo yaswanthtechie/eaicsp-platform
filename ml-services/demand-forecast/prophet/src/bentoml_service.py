@@ -30,7 +30,7 @@ class ForecastRequest(BaseModel):
     warehouse_id: str = Field(...)
 
     horizon_months: int = Field(
-        default=6,
+        default=6,   
         gt=0,
         description="Number of future months to forecast."
     )

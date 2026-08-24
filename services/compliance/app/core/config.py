@@ -33,6 +33,20 @@ UN_XML_PATH = DOWNLOAD_DIR / "un.xml"
 
 EU_XML_PATH = DOWNLOAD_DIR / "eu.xml"
 
+FIXTURE_DIR = DATA_DIR / "fixtures"
+
+OFAC_FIXTURE_PATH = (
+    FIXTURE_DIR / "ofac_sample.csv"
+)
+
+UN_FIXTURE_PATH = (
+    FIXTURE_DIR / "un_sample.xml"
+)
+
+EU_FIXTURE_PATH = (
+    FIXTURE_DIR / "eu_sample.xml"
+)
+
 SNAPSHOT_FILE = (
     SNAPSHOT_DIR
     / "previous_sanctions.json"
@@ -50,6 +64,11 @@ DATABASE_URL = os.getenv(
 SERVICE_NAME = os.getenv(
     "SERVICE_NAME",
     "compliance-service",
+)
+
+ENVIRONMENT = os.getenv(
+    "ENVIRONMENT",
+    "development",
 )
 
 MATCH_THRESHOLD = int(
@@ -85,3 +104,9 @@ EU_DOWNLOAD_URL = os.getenv(
     "",
 )
 
+
+
+USE_FIXTURES = os.getenv(
+    "USE_FIXTURES",
+    "false",
+).lower() == "true"

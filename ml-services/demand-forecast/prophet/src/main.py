@@ -539,6 +539,10 @@ def main():
             float(weights[1])
 
     }
+    log_model(
+        best_weights,
+        "Best_Ensemble"
+    )
 
 
 

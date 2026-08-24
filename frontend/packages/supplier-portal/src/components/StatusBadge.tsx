@@ -30,7 +30,7 @@ const StatusBadge = ({ status }: Props) => {
   const getTextColor = () => {
     switch (status) {
       case "sent":
-        return "#000000";
+        return colors.black;
 
       default:
         return colors.text;
