@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     # --------------------------------------------------
     # JWT Configuration
     # --------------------------------------------------
-    JWT_SECRET: str = "super-secret-key-change-in-production"
+    SECRET_KEY: str
     JWT_ALGORITHM: str = "HS256"
 
     # --------------------------------------------------
@@ -63,12 +63,14 @@ class Settings(BaseSettings):
     TRUSTED_PROXIES: list[str] = []
     RATE_LIMIT_WINDOW_SECONDS: int = 60
     ROLE_RATE_LIMITS: dict[str, int] = {
-        "admin": 200,
         "ceo": 200,
         "vp_operations": 200,
-        "manager": 100,
-        "user": 60,
-        "guest": 30,
+        "procurement_manager": 100,
+        "logistics_manager": 100,
+        "compliance_officer": 100,
+        "warehouse_manager": 100,
+        "analyst": 60,
+        "supplier": 60,
         "default": 60,
     }
 
@@ -86,8 +88,9 @@ class Settings(BaseSettings):
     # --------------------------------------------------
     # Circuit Breaker Configuration
     # --------------------------------------------------
-    CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = 5
-    CIRCUIT_BREAKER_RECOVERY_TIMEOUT: float = 10.0
+    CIRCUIT_BREAKER_FAILURE_RATE_THRESHOLD: float = 0.50
+    CIRCUIT_BREAKER_WINDOW_SECONDS: int = 60
+    CIRCUIT_BREAKER_RECOVERY_TIMEOUT: float = 30.0
 
     # --------------------------------------------------
     # Environment Configuration

@@ -4,12 +4,29 @@ Aggregated Health Dashboard route for the API Gateway.
 
 from fastapi import APIRouter
 
+from app.core.config import settings
 from app.services.metrics import metrics_collector
 
 router = APIRouter(
     prefix="",
     tags=["Dashboard"],
 )
+
+
+@router.get(
+    "/status",
+    summary="Gateway Operational Status",
+)
+async def get_gateway_status():
+    """
+    Return gateway operational status metadata without exposing any sensitive
+    configuration, credentials, or secret keys.
+    """
+    return {
+        "status": "healthy",
+        "version": settings.VERSION,
+        "app_name": settings.APP_NAME,
+    }
 
 
 @router.get(
