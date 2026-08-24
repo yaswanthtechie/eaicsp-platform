@@ -1,100 +1,92 @@
 import os
 import bentoml
 import numpy as np
+import pydantic
 import torch
-from pydantic import BaseModel, Field
-
-try:
-    from model import MultiStepLSTM
-    from data import load_scaler
-except ImportError:
-    from src.model import MultiStepLSTM
-    from src.data import load_scaler
-
-
-class ForecastRequest(BaseModel):
-    historical_demand: list[float] = Field(
-        ...,
-        min_length=30,
-        max_length=30,
-        description="Past 30 days of daily demand values."
-    )
+from config import (
+    CONFIDENCE_LEVEL,
+    HIDDEN_SIZE,
+    HORIZON,
+    LOOKBACK,
+    MC_SAMPLES,
+    MODEL_PATH,
+    NUM_LAYERS,
+    SCALER_PATH,
+)
+from data import load_scaler, validate_sequence
+from model import MultiStepLSTM
 
 
-class ForecastResponse(BaseModel):
-    mean_forecast: list[float] = Field(..., description="7-day demand point forecast (mean across MC passes).")
-    lower_bound_90: list[float] = Field(..., description="5th percentile (90% CI lower bound).")
-    upper_bound_90: list[float] = Field(..., description="95th percentile (90% CI upper bound).")
-    std_uncertainty: list[float] = Field(..., description="Standard deviation across MC passes in demand units.")
+class ForecastRequest(pydantic.BaseModel):
+    historical_demand: list[float]
+
+
+class ForecastResponse(pydantic.BaseModel):
+    mean_forecast: list[float]
+    lower_bound_90: list[float]
+    upper_bound_90: list[float]
+    std_uncertainty: list[float]
 
 
 @bentoml.service(
     name="DemandForecastService",
-    resources={"cpu": "2"}
+    resources={"cpu": "1"},
 )
 class DemandForecastService:
     def __init__(self):
-        self.lookback = 30
-        self.horizon = 7
-        self.mc_samples = 100
+        if not os.path.exists(MODEL_PATH):
+            raise FileNotFoundError(f"Model checkpoint missing at {MODEL_PATH}. Untrained weights rejected.")
 
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        model_path = os.path.join(base_dir, "output", "best_model.pt")
-        scaler_path = os.path.join(base_dir, "output", "scaler.pkl")
+        if not os.path.exists(SCALER_PATH):
+            raise FileNotFoundError(f"Scaler missing at {SCALER_PATH}.")
 
-        # The model was trained on MinMax-scaled data. Serving raw demand
-        # straight to it returns scaled-space numbers (~1.6 instead of ~148).
-        self.scaler = load_scaler(scaler_path)
-
-        self.model = MultiStepLSTM(1,64,2,7)
-        if os.path.exists(model_path):
-            self.model.load_state_dict(torch.load(model_path, map_location="cpu", weights_only=True))
+        self.scaler = load_scaler(SCALER_PATH)
+        self.model = MultiStepLSTM(1, HIDDEN_SIZE, NUM_LAYERS, HORIZON)
+        self.model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu", weights_only=True))
         self.model.eval()
+        self.model.enable_mc_dropout()
 
     @bentoml.api
     def predict(self, request: ForecastRequest) -> ForecastResponse:
-        raw_input = np.array(request.historical_demand, dtype=np.float64)
+        raw_vals = np.array(request.historical_demand, dtype=np.float64)
 
-        # Reject unusable input before it reaches the model.
-        if not np.isfinite(raw_input).all():
-            raise ValueError("historical_demand must contain only finite values (no NaN or Inf).")
+        # 1. Guardrail checks: NaN/Inf, length, and Out-of-Distribution validation
+        if not np.all(np.isfinite(raw_vals)):
+            raise ValueError("Input contains NaN or Inf.")
 
-        # Scale into the space the model was trained in
-        scaled_input = self.scaler.transform(raw_input.reshape(-1, 1)).flatten()
-        x_input = scaled_input.astype(np.float32).reshape(1, self.lookback, 1)
-        x_tensor = torch.tensor(x_input, dtype=torch.float32)
+        if len(raw_vals) != LOOKBACK:
+            raise ValueError(f"Expected {LOOKBACK} historical timesteps, got {len(raw_vals)}.")
 
-        self.model.enable_mc_dropout()
+        # Rejects raw inputs far outside training bounds
+        is_valid, err_msg = validate_sequence(raw_vals, self.scaler)
+        if not is_valid:
+            raise ValueError(f"Input rejected by guardrail: {err_msg}")
 
-        mc_predictions = []
+        # 2. Scale input into model space
+        scaled_input = self.scaler.transform(raw_vals.reshape(-1, 1)).reshape(1, LOOKBACK, 1)
+        x_tensor = torch.tensor(scaled_input, dtype=torch.float32)
+
+        # 3. Batched MC-Dropout passes
+        repeated = x_tensor.repeat(MC_SAMPLES, 1, 1)
         with torch.no_grad():
-            for _ in range(self.mc_samples):
-                preds = self.model(x_tensor).squeeze(0).cpu().numpy()
-                mc_predictions.append(preds)
+            preds = self.model(repeated).cpu().numpy()  # (100, 7)
 
-        mc_predictions = np.array(mc_predictions)  # Shape: (N, 7)
+        alpha = (1.0 - CONFIDENCE_LEVEL) / 2.0
+        lower_scaled = np.percentile(preds, alpha * 100, axis=0)
+        upper_scaled = np.percentile(preds, (1.0 - alpha) * 100, axis=0)
+        mean_scaled = np.mean(preds, axis=0)
+        std_scaled = np.std(preds, axis=0)
 
-        # Compute summary statistics in scaled space
-        mean_scaled = np.mean(mc_predictions, axis=0)
-        std_scaled = np.std(mc_predictions, axis=0)
-        lower_scaled = np.percentile(mc_predictions, 5, axis=0)
-        upper_scaled = np.percentile(mc_predictions, 95, axis=0)
-
-        def to_demand_units(values):
-            """Map a point in scaled space back to demand units."""
-            return self.scaler.inverse_transform(np.asarray(values).reshape(-1, 1)).flatten()
-
-        mean_forecast = to_demand_units(mean_scaled)
-        lower_bound = to_demand_units(lower_scaled)
-        upper_bound = to_demand_units(upper_scaled)
-
-        # Standard deviation is a width, so multiply by data span (max - min)
+        # 4. Inverse transform back to demand units
         scale_span = float(self.scaler.data_max_[0] - self.scaler.data_min_[0])
-        std_uncertainty = std_scaled * scale_span
+        mean_inv = self.scaler.inverse_transform(mean_scaled.reshape(1, -1))[0]
+        lower_inv = self.scaler.inverse_transform(lower_scaled.reshape(1, -1))[0]
+        upper_inv = self.scaler.inverse_transform(upper_scaled.reshape(1, -1))[0]
+        std_demand = std_scaled * scale_span
 
         return ForecastResponse(
-            mean_forecast=mean_forecast.tolist(),
-            lower_bound_90=lower_bound.tolist(),
-            upper_bound_90=upper_bound.tolist(),
-            std_uncertainty=std_uncertainty.tolist()
+            mean_forecast=mean_inv.tolist(),
+            lower_bound_90=lower_inv.tolist(),
+            upper_bound_90=upper_inv.tolist(),
+            std_uncertainty=std_demand.tolist(),
         )

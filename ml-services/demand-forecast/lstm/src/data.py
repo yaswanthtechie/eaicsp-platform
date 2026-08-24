@@ -1,106 +1,118 @@
-"""
-Data Processing & Walk-Forward Fold Splitter
-------------------------------------------------------
-Handles synthetic demand generation, strict train-scaler fitting,
-and sequence generation for 5-fold expanding-window Walk-Forward Validation.
-"""
-
 import os
-import joblib
+import pickle
 import numpy as np
 import pandas as pd
-from typing import List, Tuple
 from sklearn.preprocessing import MinMaxScaler
 
 
-def generate_data(days: int = 1000) -> pd.DataFrame:
+def generate_data(days=730, n_days=None, seed=42):
     """
-    Generates synthetic daily demand with trend, yearly/weekly seasonality, and noise.
-    Matches project specification for 1000 daily timesteps.
+    Generates synthetic daily demand data with trend and seasonality.
     """
-    np.random.seed(42)
+    if n_days is not None:
+        days = n_days
+
+    np.random.seed(seed)
+    dates = pd.date_range(start="2022-01-01", periods=days, freq="D")
+
     t = np.arange(days)
+    trend = 0.05 * t + 100.0
+    weekly = 10.0 * np.sin(2 * np.pi * t / 7)
+    annual = 15.0 * np.cos(2 * np.pi * t / 365.25)
+    noise = np.random.normal(0, 3.0, size=days)
 
-    trend = t * 0.03
-    yearly = 20 * np.sin(2 * np.pi * t / 365)
-    weekly = 8 * np.sin(2 * np.pi * t / 7)
-    noise = np.random.normal(0, 2, days)
-
-    demand = 100 + trend + yearly + weekly + noise
-
-    dates = pd.date_range(start="2024-01-01", periods=days, freq="D")
-    return pd.DataFrame({
-        "Day": t,
-        "date": dates,
-        "Demand": demand
-    })
+    demand = np.maximum(trend + weekly + annual + noise, 10.0)
+    return pd.DataFrame({"Date": dates, "Demand": demand})
 
 
-def create_sequences(data: np.ndarray, lookback: int = 30, horizon: int = 7) -> Tuple[np.ndarray, np.ndarray]:
+def create_sequences(data, lookback=45, horizon=7):
     """
-    Creates input sequences (X) and target windows (y) for Direct Multi-Step Forecasting.
-    
-    Args:
-        data: 1D numpy array of scaled demand values.
-        lookback: Input window size (30 days).
-        horizon: Forecast target horizon (7 days).
-
+    Creates (X, y) sliding window sequences.
     Returns:
-        X: Shape [num_samples, lookback]
-        y: Shape [num_samples, horizon]
+        X: (samples, lookback, 1)
+        y: (samples, horizon)
     """
+    if isinstance(data, (pd.Series, pd.DataFrame)):
+        data = data.values
+    data = np.asarray(data)
+    if data.ndim == 1:
+        data = data.reshape(-1, 1)
+
     X, y = [], []
-    for i in range(len(data) - lookback - horizon + 1):
+    total_len = len(data)
+    for i in range(total_len - lookback - horizon + 1):
         X.append(data[i : i + lookback])
-        y.append(data[i + lookback : i + lookback + horizon])
-    return np.array(X), np.array(y)
+        y.append(data[i + lookback : i + lookback + horizon, 0])
+
+    return np.array(X, dtype=np.float32), np.array(y, dtype=np.float32)
 
 
-def get_walk_forward_folds(
-    df: pd.DataFrame, 
-    n_folds: int = 5, 
-    lookback: int = 30, 
-    horizon: int = 7,
-    save_scaler_path: str = "output/scaler.pkl"
-) -> List[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, MinMaxScaler]]:
+def get_walk_forward_folds(df, n_folds=5, lookback=45, horizon=7, save_scaler_path=None):
     """
-    Generates 5 expanding-window sequential folds for Walk-Forward Validation.
-    Guarantees zero data leakage by fitting MinMaxScaler ONLY on each fold's training slice.
+    Generates walk-forward temporal cross-validation folds.
+    Uses max(train_end - lookback, 0) to avoid negative slice indices.
     """
-    values = df["Demand"].values
-    n_samples = len(values)
-    fold_size = n_samples // (n_folds + 1)
+    demand_series = df["Demand"].values.reshape(-1, 1)
+    total_samples = len(demand_series)
+    test_size = total_samples // (n_folds + 1)
+
     folds = []
+    for i in range(1, n_folds + 1):
+        train_end = i * test_size
+        test_end = min(train_end + test_size, total_samples)
 
-    for k in range(1, n_folds + 1):
-        train_end = fold_size * k
-        test_end = min(train_end + fold_size, n_samples)
-        
-        # Raw splits
-        raw_train = values[:train_end]
-        raw_test = values[max(train_end - lookback, 0):test_end]  # Ensure test has enough lookback
-        
-        # Fit scaler ONLY on training data (Zero Data Leakage)
-        scaler = MinMaxScaler()
-        scaled_train = scaler.fit_transform(raw_train.reshape(-1, 1)).flatten()
-        scaled_test = scaler.transform(raw_test.reshape(-1, 1)).flatten()
-        
-        # Save scaler from final fold for inference
-        if k == n_folds and save_scaler_path:
-            os.makedirs(os.path.dirname(save_scaler_path), exist_ok=True)
-            joblib.dump(scaler, save_scaler_path)
+        train_data = demand_series[:train_end]
+        test_slice_start = max(train_end - lookback, 0)
+        test_data = demand_series[test_slice_start:test_end]
 
-        # Generate (X, y) sequences
-        X_train, y_train = create_sequences(scaled_train, lookback, horizon)
-        X_test, y_test = create_sequences(scaled_test, lookback, horizon)
-        
+        scaler = MinMaxScaler(feature_range=(0, 1))
+        train_scaled = scaler.fit_transform(train_data)
+        test_scaled = scaler.transform(test_data)
+
+        if save_scaler_path:
+            save_scaler(scaler, save_scaler_path)
+
+        X_train, y_train = create_sequences(train_scaled, lookback=lookback, horizon=horizon)
+        X_test, y_test = create_sequences(test_scaled, lookback=lookback, horizon=horizon)
+
         folds.append((X_train, y_train, X_test, y_test, scaler))
-        
+
     return folds
 
 
-def load_scaler(scaler_path: str = "output/scaler.pkl") -> MinMaxScaler:
-    """Loads pre-fitted scaler from disk for BentoML production inference."""
-    if not os.path.exists(scaler_path):
-        raise FileNotFoundError(f"Scaler file not found at {scaler_path}")
-    return joblib.load(scaler_path)
+def save_scaler(scaler, filepath):
+    """Saves the fitted MinMaxScaler object."""
+    os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
+    with open(filepath, "wb") as f:
+        pickle.dump(scaler, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def load_scaler(filepath):
+    """Loads the fitted MinMaxScaler object."""
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"Scaler pickle file not found at {filepath}")
+    with open(filepath, "rb") as f:
+        return pickle.load(f)
+
+
+def validate_sequence(sequence, scaler, oor_multiplier=1.0):
+    """
+    Validates that incoming raw values are finite and fall within an acceptable
+    training data band defined by data_min and data_max with oor_multiplier.
+    """
+    seq = np.asarray(sequence, dtype=np.float64)
+
+    if not np.all(np.isfinite(seq)):
+        return False, "Input contains non-finite values (NaN or Inf)"
+
+    data_min = float(scaler.data_min_[0])
+    data_max = float(scaler.data_max_[0])
+    data_range = data_max - data_min
+
+    allowed_min = data_min - (oor_multiplier * data_range)
+    allowed_max = data_max + (oor_multiplier * data_range)
+
+    if np.any(seq < allowed_min) or np.any(seq > allowed_max):
+        return False, f"Values outside allowable band [{allowed_min:.2f}, {allowed_max:.2f}]"
+
+    return True, None

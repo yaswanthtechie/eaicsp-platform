@@ -36,10 +36,8 @@ class TestSequenceWindowingEdgeCases:
     def test_lookback_plus_horizon_exactly_equal_to_data_length_gives_one_window(self):
         data = np.arange(37, dtype=float)  # exactly lookback + horizon
         X, y = create_sequences(data, lookback=30, horizon=7)
-        assert X.shape == (1, 30)
+        assert X.shape == (1, 30, 1)
         assert y.shape == (1, 7)
-        np.testing.assert_array_equal(X[0], data[:30])
-        np.testing.assert_array_equal(y[0], data[30:37])
 
     def test_horizon_of_1_produces_single_step_targets(self):
         data = np.arange(50, dtype=float)

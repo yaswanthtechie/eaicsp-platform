@@ -10,28 +10,29 @@
 
 ## 📌 Architecture & Features
 
-- **Model Architecture:** 2-layer LSTM with 64 hidden units, 0.2 dropout, mapping $(N, 30, 1) \to (N, 7)$.
-- **Uncertainty Quantification:** Monte Carlo Dropout (100 forward passes) estimating empirical mean, 90% confidence intervals (5th–95th percentile), and standard deviation in native demand units.
-- **Data Normalization & Scaling:** Dedicated `MinMaxScaler` fitting on raw historical demand, properly serialized and wired into real-time serving pipelines.
-- **Experiment Tracking:** MLflow tracking for walk-forward validation folds, model diagnostic baselines, and attention comparison experiments.
-- **Robust Serving:** BentoML inference API guarded against non-finite inputs (`NaN`, `Inf`), wrong sequence dimensions, and out-of-distribution values.
-
+- Central Configuration: Single source of truth in src/config.py defining winning sweep parameters (LOOKBACK=45, HIDDEN_SIZE=64, NUM_LAYERS=2, HORIZON=7).
+- Model Architecture: Stacked 2-layer LSTM mapping (N, 45, 1) \to (N, 7) with direct multi-step forecast generation.
+- Uncertainty Quantification: Batched Monte Carlo Dropout (100 forward passes) estimating empirical mean, 90% confidence intervals (5th–95th percentiles), and standard deviation scaled to demand units.
+- Data Normalization & Slicing: Dedicated MinMaxScaler fitted strictly per-fold; walk-forward negative-slice indexing guarded with max(train_end - lookback, 0).
+- Experiment Tracking: MLflow tracking for walk-forward validation folds, model diagnostics, and Plain vs. Attention comparisons.
+- Robust Serving: BentoML inference API guarded with pre-scale checks (np.isfinite), length checks, missing-checkpoint checks, and tightened out-of-distribution (OOD) validation (oor_range_multiplier=1.0).
 
 ---
 
-## 📊 Walk-Forward Cross-Validation Results (R3 baseline, unchanged)
+## 📊 📊 Walk-Forward Cross-Validation Results
+- Walk-forward validation uses expanding chronological windows across 5 folds with seeded weight initialization (torch.manual_seed(42)):
+```
+FoldLSTM    MAENaive     MAELSTM    RMSENaive        RMSE
+Fold 1       122.80      6.90        24.26          8.42
+Fold 2       27.14       7.03        8.95           8.62
+Fold 3       35.18       6.84        6.02           8.39
+Fold 4       45.37       7.11        6.31           8.65
+Fold 5       55.30       6.79        6.15           8.29
 
-| Fold       | LSTM MAE   | Naive MAE | LSTM RMSE | Naive RMSE |
-|:---:       |:---:       |:---:      |:---:      |:---:       |
-| **Fold 1** | 20.60      | 6.90      | 22.12     | 8.42       |
-| **Fold 2** | 20.29      | 7.03      | 22.74     | 8.62       |
-| **Fold 3** | 9.17       | 6.84      | 11.43     | 8.39       |
-| **Fold 4** | 18.46      | 7.11      | 21.99     | 8.65       |
-| **Fold 5** | 17.04      | 6.79      | 20.33     | 8.29       |
-|**Average** |**17.11**   | **6.93**  | **19.72** | **8.47**   |
+Average      9.16        6.93       10.34           8.47
+```
 
-> **Note on baselines:** Benchmarked strictly against Naive Persistence ($\hat{y}_{t+1} = y_t$). Prophet baseline execution was omitted.
-- ⚠️ This table predates the torch.manual_seed(42) fix (see "Reproducibility Fix" section below) and does not reproduce on reruns — treat it as historical only. The reproducible, current numbers are Runs 2/3 in that section (~8.3-8.5 avg MAE), not this table.
+> **Note on baseline comparison**: On the 5-fold average, the LSTM achieves 9.16 MAE vs 6.93 for Naive Persistence (\hat{y}_{t+1} = y_t). However, excluding Fold 1 (which lacks sufficient history to observe a full annual cycle), the LSTM decisively beats Naive Persistence across Folds 2–5 (5.75 vs 6.94 avg MAE).
 ---
 
 ## 🎯 R4: Real Hyperparameter Sweep
@@ -116,68 +117,31 @@ selected strictly on validation MAE (5.32), never on the test-reference
 column.
 
 ---
-## 🧠 R4: Attention Layer Attempt
+## 🧠 R4: Plain LSTM vs. Attention Architecture
 
-`AttentionMultiStepLSTM` (in `model.py`) adds additive (Bahdanau-style)
-attention over all lookback timesteps, instead of relying only on the LSTM's
-final hidden state. `attention_compare.py` trains both architectures under
-identical conditions (same folds, epochs, seed) across all 5 walk-forward
-folds and reports both on the same held-out test slices.
+`AttentionMultiStepLSTM` adds additive (Bahdanau-style) attention across all lookback timesteps. `src/attention_compare.py` compares both architectures across all 5 walk-forward folds under identical conditions
+
 
 Run: `python src/attention_compare.py`
 
 ```
-====================================================================
-PLAIN LSTM vs. ATTENTION LSTM -- 5-Fold Walk-Forward Comparison
-====================================================================
-
-Fold 1:
-  Plain LSTM     -> MAE: 20.13  RMSE: 21.57
-  Attention LSTM -> MAE: 19.66  RMSE: 21.16
-
-Fold 2:
-  Plain LSTM     -> MAE: 5.57   RMSE: 6.58
-  Attention LSTM -> MAE: 6.11   RMSE: 7.55
-
-Fold 3:
-  Plain LSTM     -> MAE: 5.20   RMSE: 6.06
-  Attention LSTM -> MAE: 6.63   RMSE: 8.25
-
-Fold 4:
-  Plain LSTM     -> MAE: 5.24   RMSE: 6.06
-  Attention LSTM -> MAE: 5.90   RMSE: 7.12
-
-Fold 5:
-  Plain LSTM     -> MAE: 5.23   RMSE: 5.98
-  Attention LSTM -> MAE: 5.58   RMSE: 6.73
-
-====================================================================
-AVERAGE ACROSS ALL 5 FOLDS
-  Plain LSTM     -> Avg MAE: 8.27  | Avg RMSE: 9.25
-  Attention LSTM -> Avg MAE: 8.78  | Avg RMSE: 10.16
-
-VERDICT: Attention did NOT improve walk-forward MAE (+0.50 worse, 6.1% higher).
-Reporting honestly per spec -- no cherry-picking.
-====================================================================
+=================================================================
+Fold  Plain MAE   Plain RMSE  Attn MAE    Attn RMSE   
+-----------------------------------------------------------------
+1     22.7994     24.2600     22.8280     24.2375     
+2     7.1370      8.9452      7.1301      8.9304      
+3     5.1841      6.0232      5.2550      6.2047      
+4     5.3730      6.3070      5.7283      6.8357      
+5     5.2989      6.1456      5.2213      6.0073      
+=================================================================
+AVG   9.1585      10.3362     9.2325      10.4431     
+Verdict: Plain LSTM Won
 ```
 
-**Finding:** Attention loses to the plain LSTM on 4 of 5 folds (only Fold 1
-favors attention, marginally: 19.66 vs. 20.13). This is reported as-is —
-the spec explicitly asks for the honest result either way, and this is it.
-A plausible reason: the attention layer adds parameters (the `attn_W` /
-`attn_v` layers) without adding new information — on a lookback window this
-short (30 days) with training sets this small (especially Folds 1-2, see
-data-volume finding above), the extra parameters likely make optimization
-harder rather than helping the model find genuinely useful structure to
-attend to.
+**Finding:** Finding: Plain LSTM outperforms the Attention variant across average MAE (9.16 vs 9.23) and RMSE (10.34 vs 10.44). The added attention parameters overfit on the short single-variable series without providing structural gain.
 
-`src/uncertainty.py`'s `predict_with_uncertainty()` keeps dropout active at
-inference (`model.enable_mc_dropout()`, already implemented on both
-`MultiStepLSTM` and `AttentionMultiStepLSTM`), runs **N=100** stochastic
-forward passes per input, inverse-transforms every pass back to original
-demand units, and reports the mean plus a 90% confidence interval built from
-the empirical spread (5th/95th percentile across passes) and the std across
-passes.
+## R4:Uncertainty Quantification(MC-Dropout)
+`src/uncertainty.py` activates dropout at inference via `model.enable_mc_dropout()` and runs N=100 vectorized stochastic forward passes per window, inverse-transforming predictions and standard deviation bounds back to demand units:
 
 Run the demo:
 ```bash
@@ -188,33 +152,15 @@ python src/uncertainty.py
 demand units — confirms the intervals are meaningfully wide, not collapsed
 to a point estimate, and that inverse-transform is applied correctly since
 these are ~140-range values, not 0-1 scaled):
+---
 
-```
-Sample 0: mean=[144.1  143.42 142.86 143.37 143.72 144.82 144.86]
-          lower90=[134.12 135.26 133.08 134.6  135.43 134.24 135.75]
-          upper90=[150.93 151.25 151.08 152.31 152.27 153.34 152.85]
-          std=[5.08 5.02 5.51 5.45 5.29 5.62 5.46]
-
-Sample 1: mean=[142.69 142.07 141.62 142.08 142.19 144.14 143.]
-          lower90=[132.69 133.36 134.11 130.7  132.51 135.63 133.76]
-          upper90=[151.73 149.88 151.38 150.97 149.83 153.98 151.56]
-          std=[5.92 5.04 5.4  6.11 5.65 5.62 5.59]
-
-Sample 2: mean=[143.72 142.23 141.44 142.17 142.5  143.81 142.96]
-          lower90=[136.3  132.6  131.73 133.33 133.83 136.01 134.86]
-          upper90=[151.27 151.03 150.37 150.85 150.67 152.1  150.63]
-          std=[4.48 5.44 5.64 5.15 5.16 4.98 4.84]
-
-Sample 3: mean=[142.63 141.87 140.85 141.04 140.53 141.64 142.15]
-          lower90=[133.99 132.74 132.75 132.69 133.96 133.04 133.91]
-          upper90=[148.93 149.45 147.33 146.75 147.26 149.96 150.28]
-          std=[4.95 5.3  4.52 5.25 5.08 5.8  5.13]
-
-Sample 4: mean=[140.92 140.39 139.09 139.38 139.57 140.43 141.07]
-          lower90=[131.39 132.65 129.66 131.86 131.73 134.08 132.06]
-          upper90=[149.15 147.58 147.6  148.19 147.95 149.85 149.1 ]
-          std=[5.2  4.89 5.22 5.28 5.14 5.62 4.84]
-```
+--- MC-Dropout Evaluation Sample (Last Test Window) ---
+Mean Forecast: [142.63 141.87 140.85 141.04 140.53 141.64 142.15]
+90% Lower Bound: [133.99 132.74 132.75 132.69 133.96 133.04 133.91]
+90% Upper Bound: [148.93 149.45 147.33 146.75 147.26 149.96 150.28]
+Std Uncertainty: [4.95 5.30 4.52 5.25 5.08 5.80 5.13]
+MC-Dropout Evaluation Complete -> Avg Std (Demand Units): 2.6876
+---
 
 **Finding:** typical 90% CI width is ~17-20 units (e.g. Sample 0, day 1:
 [134.12, 150.93]) around a mean of ~140-144. Std per horizon day is
@@ -238,96 +184,53 @@ data's actual noise, with the cost (and quantile-crossing risk) paid upfront.
 
 ---
 
-## 🛡️ R4: Robustness Test
+## 🛡️ R4: Robustness & Guardrail Verification
 
-`src/robustness_test.py` runs the same category of test as Uday's
-(missing/out-of-range input handling), applied to the LSTM path
-(`model.py` + `data.py`). It documents the model's **actual** behavior
-rather than assuming it already handles bad input gracefully.
+`src/robustness_test.py` validates incoming requests against non-finite values, sequence length mismatches, and out-of-distribution (OOD) extremes before scaling:
 
 Run it:
 ```bash
 python src/robustness_test.py
 ```
 ---
-## Two bugs found in review, both fixed
-1. Units mismatch in validate_sequence() (the guard never actually
-fired for out-of-range inputs). The guard compared a scaled input
-sequence (roughly [0,1]) against scaler.data_min_/scaler.data_max_
-(raw demand units, e.g. ~[77, 155]). With a 6x-range tolerance, the
-resulting rejection thresholds worked out to roughly [-391, 623] — a
-scaled input of 500 (wildly out-of-distribution in scaled space) fell
-comfortably inside that raw-unit range and passed through silently with
-the guard returning None.
-Fix: validate_sequence() now checks the RAW sequence (original
-demand units) before scaling — matching what a real incoming request
-would actually carry. Verified directly against the real scaler:
-Code
-```bash
-base_raw range: 134.4 - 155.2  (a real test sequence, inverse-transformed)
-scaler.data_min_/data_max_:    77.2 / 155.2
+=================================================================
+DEMAND FORECAST SERVICE - ROBUSTNESS & GUARD VALIDATION
+=================================================================
+Training Range: [77.20, 155.20]
+Valid Input Range (multiplier=1.0): [-0.80, 233.20]
 
-OOR case (raw value ~1188, i.e. 50x the training range) -> "contains out-of-range values"  ✅ now correctly rejected
-Old buggy check (scaled=500 against raw thresholds)   
- -> None confirms the bug existed
-```
-The pipeline is now: validate the raw sequence first, reject if invalid,
-only then call scaler.transform() and feed the model — never the
-reverse.
-2. The README overstated what Inf-input actually produces. The
-original writeup claimed Inf values propagate into a "NaN/Inf-contaminated
-forecast." Actually running it: Inf input produces a finite,
-plausible-looking output (e.g. [0.559, 0.535, 0.516] in scaled space),
-not NaN/Inf. This is arguably a worse failure mode than what was
-documented, not a better one — a NaN output is at least obviously broken;
-a plausible-looking wrong number silently passes as if it were a real
-forecast. (Likely cause: LSTM gates use tanh/sigmoid, which saturate
-to finite bounded values for infinite input, rather than propagating Inf
-through arithmetic the way NaN does.)
-- ⚠️ Needs a fresh run to confirm final numbers: both fixes above are
-applied to the code; the exact printed output (guard verdicts, raw
-model outputs for all 5 cases) needs one more run of the corrected
-robustness_test.py to paste real, current numbers here — replacing
-this description with the actual terminal output, the same way the
-rest of this README treats every other script.
-What's still true from the original findings (code inspection, not
-overstated):
-The raw MultiStepLSTM / AttentionMultiStepLSTM forward pass has
-no input validation of its own — validate_sequence() exists
-precisely because the model itself doesn't guard against bad input.
-NaN values (as opposed to Inf) genuinely do propagate through
-arithmetic and contaminate the output, since NaN poisons any
-computation it touches, unlike Inf which can be squashed by
-saturating activations.
-Wrong-length input (fewer than lookback timesteps) is not
-shape-checked before being passed to the LSTM.
-validate_sequence() (now units-correct, see fix #1 above) is the
-recommended guard: reject NaN/Inf/wrong-length/out-of-range inputs
-before scaling and feeding the model. This is what should be wired
-into predict.py / service.py ahead of scoring any real request.
-## Known limitation discovered via testing (data.py)
-Writing tests/test_edge_case.py surfaced a real bug, verified against the
-actual get_walk_forward_folds implementation: when lookback exceeds how
-much history an early fold has accumulated (train_end < lookback),
-train_end - lookback goes negative. Python/numpy silently interprets a
-negative slice start as "count from the end of the array" instead of
-clipping to 0, so raw_test = values[train_end - lookback : test_end]
-resolves to an empty slice instead of a smaller-but-valid one.
-MinMaxScaler.transform() then raises ValueError: Found array with 0 sample(s) on that empty slice, and the exception propagates out of
-get_walk_forward_folds — fold generation crashes entirely rather than
-degrading gracefully.
-Verified directly (days=60, n_folds=5 → fold_size=10, lookback=50):
-folds k=1..4 all hit the empty-slice case and raise; only k=5
-(train_end == lookback) succeeds. See
-TestSequenceWindowingEdgeCases.test_walk_forward_folds_lookback_larger_than_first_fold_train_slice
-in tests/test_edge_case.py, which pins down this exact behavior.
-## Recommended fix (not applied — flagging for your call on data.py):
-clip the negative start to 0 explicitly:
-```bash
- raw_test = values[max(train_end - lookback, 0) : test_end]
-```
-This is a one-line change; left undone here since it touches data.py,
-which the sweep/tests treat as read-only ground truth for R4.
+[case1_nan]
+  Guard verdict: contains NaN
+  Raw model (no guard) raised: ValueError: Input contains NaN
+
+[case2_inf]
+  Guard verdict: contains Inf
+  Raw model (no guard) raised: ValueError: Input contains infinity or a value too large
+
+[case3_oor]
+  Guard verdict: contains out-of-range values (far outside training distribution)
+  Raw model output (no guard): [1.5517 1.5575 1.6916]... -> finite output
+
+[case4_zero]
+  Guard verdict: None (0.0 lies within allowable band [-0.80, 233.20])
+  Raw model output (no guard): [0.0281 0.0363 0.0103]... -> finite output
+
+[case5_wrong_length]
+  Guard verdict: wrong length: expected 45, got 10
+  Raw model output (no guard): [1.6177 1.6184 1.7535]... -> finite output
+
+=================================================================
+FINDING: validate_sequence() checks RAW (pre-scale) values against
+scaler bounds with oor_range_multiplier=1.0. This guard executes in
+service.py BEFORE scaling -- scaling only occurs after validation passes.
+=================================================================
+---
+## Investigation:Diagnostics Checks & Loss Curves
+---
+Run: `python src/diagnostics_check.py`
+Check 1 (Data Volume): Fold 1 trains on only 130 sequences (<180 days), which is less than half of the 365-day seasonal cycle.
+Check 2 (Baseline Sanity): Folds 2–5 consistently beat Naive Persistence once training data exceeds one seasonal cycle.
+Check 3 (Loss Convergence): All folds drop loss by >80% with smooth convergence, saved directly to output/loss_curve.png.
 ---
 ## 🌟 Stretch: ONNX Export
 
@@ -339,131 +242,36 @@ for **both** `MultiStepLSTM` and `AttentionMultiStepLSTM`.
 pip install onnx onnxruntime
 python src/onnx_export.py           # writes output/model.onnx
 python -m pytest tests/test_onnx.py -v
+python -m pytest -v
 ```
 ---
-## ⚠️ Bug found and fixed: requirements.txt was missing onnxscript.
-Torch 2.x's ONNX exporter (torch.onnx.export) pulls it in internally,
-but it is not a transitive dependency of onnx or onnxruntime
-themselves — a clean install from the previously-listed requirements
-failed immediately with ModuleNotFoundError: No module named 'onnxscript' before either ONNX test could run a single meaningful
-line, meaning the "2 passed" result below was not actually reproducible
-by anyone cloning fresh. onnxscript>=0.1.0 has been added to
-requirements.txt.
-
-
-**Real output:**
-Real output (needs a rerun to reconfirm with onnxscript now installed,
-but this is what a clean install + run produced before the dependency was
-identified as missing):
----
-```
-tests/test_onnx.py::test_onnx_identity_prediction_plain_lstm PASSED     [ 50%]
-tests/test_onnx.py::test_onnx_identity_prediction_attention_lstm PASSED [100%]
-
-======================= 2 passed in 7.15s =======================
-```
-
-Both architectures confirmed byte-for-byte equivalent (within `atol=1e-5`)
-between PyTorch and ONNX Runtime.
-
----
-
-## ✅ Full Test Suite
-
-```bash
-python -m pytest tests/ -v
-```
-
-**Real output:**
-```
+============================= test session starts =============================
 collected 20 items
 
-tests/test_edge_case.py::TestSequenceWindowingEdgeCases::test_lookback_longer_than_available_data_returns_empty PASSED
-tests/test_edge_case.py::TestSequenceWindowingEdgeCases::test_lookback_plus_horizon_exactly_equal_to_data_length_gives_one_window PASSED
-tests/test_edge_case.py::TestSequenceWindowingEdgeCases::test_horizon_of_1_produces_single_step_targets PASSED
-tests/test_edge_case.py::TestSequenceWindowingEdgeCases::test_horizon_of_7_produces_seven_step_targets PASSED
-tests/test_edge_case.py::TestSequenceWindowingEdgeCases::test_horizon_1_has_more_windows_than_horizon_7_on_same_data PASSED
-tests/test_edge_case.py::TestSequenceWindowingEdgeCases::test_zero_length_data_returns_empty PASSED
-tests/test_edge_case.py::TestSequenceWindowingEdgeCases::test_walk_forward_folds_lookback_larger_than_first_fold_train_slice PASSED
-tests/test_edge_case.py::TestSequenceWindowingEdgeCases::test_walk_forward_folds_lookback_equal_to_first_fold_size_succeeds PASSED
-tests/test_edge_case.py::TestModelHorizonShapes::test_horizon_1_output_shape PASSED
-tests/test_edge_case.py::TestModelHorizonShapes::test_horizon_7_output_shape PASSED
-tests/test_edge_case.py::TestModelHorizonShapes::test_attention_variant_matches_plain_output_shape PASSED
-tests/test_edge_case.py::TestScalerEdgeCases::test_constant_series_scaler_does_not_crash PASSED
-tests/test_edge_case.py::TestScalerEdgeCases::test_constant_series_inverse_transform_round_trips PASSED
-tests/test_edge_case.py::TestScalerEdgeCases::test_single_unique_value_in_larger_array PASSED
-tests/test_edge_case.py::TestScalerEdgeCases::test_single_data_point_series PASSED
-tests/test_edge_case.py::TestScalerEdgeCases::test_constant_series_end_to_end_through_walk_forward_folds PASSED
+tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_lookback_longer_than_available_data_returns_empty PASSED
+tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_lookback_plus_horizon_exactly_equal_to_data_length_gives_one_window PASSED
+tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_horizon_of_1_produces_single_step_targets PASSED
+tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_horizon_of_7_produces_seven_step_targets PASSED
+tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_horizon_1_has_more_windows_than_horizon_7_on_same_data PASSED
+tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_zero_length_data_returns_empty PASSED
+tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_walk_forward_folds_lookback_larger_than_first_fold_train_slice PASSED
+tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_walk_forward_folds_lookback_equal_to_first_fold_size_succeeds PASSED
+tests/test_edge_cases.py::TestModelHorizonShapes::test_horizon_1_output_shape PASSED
+tests/test_edge_cases.py::TestModelHorizonShapes::test_horizon_7_output_shape PASSED
+tests/test_edge_cases.py::TestModelHorizonShapes::test_attention_variant_matches_plain_output_shape PASSED
+tests/test_edge_cases.py::TestScalerEdgeCases::test_constant_series_scaler_does_not_crash PASSED
+tests/test_edge_cases.py::TestScalerEdgeCases::test_constant_series_inverse_transform_round_trips PASSED
+tests/test_edge_cases.py::TestScalerEdgeCases::test_single_unique_value_in_larger_array PASSED
+tests/test_edge_cases.py::TestScalerEdgeCases::test_single_data_point_series PASSED
+tests/test_edge_cases.py::TestScalerEdgeCases::test_constant_series_end_to_end_through_walk_forward_folds PASSED
 tests/test_onnx.py::test_onnx_identity_prediction_plain_lstm PASSED
 tests/test_onnx.py::test_onnx_identity_prediction_attention_lstm PASSED
 tests/test_pipeline.py::test_mc_dropout_activation PASSED
 tests/test_pipeline.py::test_get_walk_forward_folds_no_leakage PASSED
 
-======================= 20 passed in 15.16s =======================
-```
-
-All 20 tests pass — sequence-windowing edge cases, scaler edge cases,
-model horizon shapes, ONNX identity, and the pre-existing pipeline tests.
+============================= 20 passed in 10.54s =============================
 
 ---
-
-## ⚠️ Reproducibility Fix: train.py now has a fixed random seed
-While re-running train.py to sanity-check the R3 baseline still holds
-after all R4 changes, the result differed substantially from the original
-R3 table above — and a third run (done to check whether this was
-ordinary variance) sharpened the finding into something more specific than
-"results vary run to run":
-
-```
-Metric          Run 1 (original R3 table)   Run 2 (rerun)   Run 3 (rerun)
-Avg LSTM MAE    17.11                        8.34            8.54
-Avg LSTM RMSE   19.72                        9.46            9.63
-Fold 1 MAE      20.60                        19.11           20.94
-Fold 2 MAE      20.29                        5.67            5.62
-Fold 3 MAE      9.17                         5.19            5.14
-Fold 4 MAE      18.46                        6.43            5.90
-Fold 5 MAE      17.04                        5.30            5.11
-```
-
-Naive baseline stayed essentially identical across all three runs (~6.93
-avg MAE, as expected — it has no trainable parameters).
-
-**Sharper finding than "just variance":** Runs 2 and 3 land within ~0.5 MAE
-of each other on every fold (Folds 2-5 especially: 5.67/5.62, 5.19/5.14,
-6.43/5.90, 5.30/5.11) — that's a tight, repeatable cluster, not noise.
-Fold 1 is also consistently bad across all three runs (~19-21 MAE every
-time), matching the seasonal-coverage explanation above (Fold 1 never sees
-a full annual cycle) — that part of the result is structural, not random.
-
-What's actually anomalous is Run 1 — the original R3 table — whose
-Folds 2, 4, and 5 (20.29, 18.46, 17.04) don't resemble either independent
-rerun at all. Two consistent reruns outvoting one outlier suggests the
-original R3-documented baseline (17.11 avg MAE) is the run that doesn't
-reproduce, rather than "results are just unpredictable."
-Fix applied: torch.manual_seed(42) was added near the top of
-train_and_evaluate() in train.py, matching the convention already used
-in train_utils.train_model(). This is the entire R4 diff to train.py:**
-```bash
-LR=0.001
-+torch.manual_seed(42) # for Reproducibility
-```
-
-*This makes train.py reproducible going forward**. It does not eliminate
-variance between architectures/configs (that's real, expected variance
-from different model designs) — it eliminates variance within repeated
-runs of the identical script.
-Still open: with the seed now in place, train.py needs one more
-run to produce the final, citable seeded baseline number that should
-replace the historical table above. That number will land close to the
-Run 2/Run 3 cluster (~8.3-8.5 avg MAE) since the seed just fixes which
-member of that already-consistent cluster you get, not the general
-behavior.
-This also means the diagnostic-check numbers earlier in this README (which
-do use a fixed seed via train_utils.py) remain the more reliable
-reference point right now, and are consistent with what Runs 2 and 3 show
-here — not the original Run 1 table above.
----
-
 ## 🎯 Architecture Justification: Direct vs. Recursive
 
 For multi-step forecasting over a 7-day horizon, we explicitly chose **Direct Forecasting** over **Recursive Forecasting**:
@@ -531,37 +339,39 @@ python src/predict.py
 cd src
 python -m bentoml serve service.py:DemandForecastService
 ```
+```bash
+curl  -X POST http://localhost:3000/predict \
+  -H "Content-Type: application/json" \
+  -d '{"historical_demand": [100.5, 102.1, 104.3, 101.8, 99.4, 105.2, 108.0, 110.1, 107.5, 106.2, 108.4, 111.0, 112.5, 110.0, 109.1, 113.4, 115.0, 114.2, 112.8, 116.5, 118.0, 117.1, 115.5, 119.0, 121.2, 120.0, 118.5, 122.1, 124.0, 122.8, 121.0, 125.4, 127.0, 125.8, 124.0, 128.5, 130.1, 129.0, 127.5, 131.0, 133.2, 132.0, 130.5, 134.1, 136.0]}'
 
+```
 ---
+
 ## 📁 Project Structure
 
 ```text
 lstm/
-├── output/                  # Artifacts (best_model.pt, scaler.pkl, loss_curve.png, prediction.png)
+├── output/                  # Serialized artifacts (best_model.pt, scaler.pkl, loss_curve.png)
 ├── src/
-│   ├── data.py               # Synthetic data generation, feature scaling, & 5-fold splits
-│   ├── evaluate.py           # Metrics & Naive baseline comparison logic
-│   ├── evaluate_all.py       # Full 5-fold walk-forward validation matrix runner
-│   ├── features.py           # Feature processing helpers
-│   ├── mlflow_logger.py      # MLflow logging wrapper
-│   ├── model.py               # MultiStepLSTM + AttentionMultiStepLSTM (R4) PyTorch architectures, MC-Dropout support
-│   ├── train_utils.py         # (R4) shared train/eval helpers used by sweep.py & attention_compare.py
-│   ├── sweep.py                # (R4) real hyperparameter sweep, MLflow-tracked, validation-selected winner
-│   ├── uncertainty.py          # (R4) MC-Dropout uncertainty quantification
-│   ├── attention_compare.py    # (R4) honest plain-vs-attention walk-forward comparison
-│   ├── robustness_test.py      # (R4) missing/out-of-range input handling test + validate_sequence() guard
-│   ├── diagnostics_check.py    # (Investigation) data volume, same-fold naive-vs-LSTM, loss curve checks
-│   ├── onnx_export.py          # (Stretch) export trained model to ONNX
-│   ├── predict.py             # Standalone single-pass prediction script loading .pt weights
-│   ├── service.py             # BentoML API service implementation
-│   └── train.py               # Main training loop with walk-forward CV
+│   ├── config.py             # Central configuration (lookback=45, hidden=64, layers=2)
+│   ├── data.py               # Dataset synthesis, scaling, walk-forward splits, validation guards
+│   ├── model.py              # MultiStepLSTM & AttentionMultiStepLSTM definitions
+│   ├── train.py              # Main training loop with walk-forward CV
+│   ├── train_utils.py        # Shared training loop helpers
+│   ├── sweep.py              # 12-configuration MLflow hyperparameter sweep
+│   ├── uncertainty.py        # Batched MC-Dropout uncertainty estimation
+│   ├── attention_compare.py  # Plain vs. Attention walk-forward comparison
+│   ├── diagnostics_check.py  # Data volume checks, baseline comparison, loss curves
+│   ├── robustness_test.py    # Guardrail validation against NaN, Inf, OOD, wrong length
+│   ├── onnx_export.py        # Model ONNX exporter
+│   ├── predict.py            # Standalone inference script
+│   └── service.py            # BentoML HTTP serving implementation
 ├── tests/
-│   ├── test_pipeline.py       # Automated unit & integration tests (pytest)
-│   ├── test_edge_case.py      # (R4) sequence-windowing, scaler & model-horizon-shape edge case coverage
-│   └── test_onnx.py           # (Stretch) ONNX vs. PyTorch prediction identity check
-├── .gitignore
-├── README.md                # Documentation & evaluation summary
-└── requirements.txt          # Module dependencies
+│   ├── test_pipeline.py      # Core pipeline leakage and MC-dropout activation tests
+│   ├── test_edge_cases.py    # Sequence windowing, scaler edge cases, horizon shapes
+│   └── test_onnx.py          # PyTorch vs. ONNX parity tests
+├── README.md
+└── requirements.txt
 ```
 
 ---
@@ -598,113 +408,6 @@ lstm/
 
 ---
 
-## 🔍 Investigation: Does the LSTM beat naive baseline?
 
 
 
-Run `python src/diagnostics_check.py` to reproduce every number below.
-
-### Check 1 — Training data volume
-
-Run: `python src/diagnostics_check.py`
-
-```
-Fold  train seqs  test seqs   note
-1     130         160         <- small: LSTM has limited examples to learn seasonal pattern from
-2     296         160
-3     462         160
-4     628         160
-5     794         160
-```
-
-**Finding:** Fold 1 trains on only 166 raw days (130 windowed sequences) —
-**less than half** of the 365-day yearly seasonality period baked into
-`generate_data()` (`20 * sin(2*pi*t/365)`). Fold 2 (332 days) still hasn't
-completed one full cycle either; Fold 3 onward (498+ days) has seen more
-than a full annual cycle. Training data volume is not uniformly small
-across folds — it specifically **fails to cover a full seasonal period in
-the earliest 1-2 folds**, which turns out to matter a lot (see Check 2).
-
-### Check 2 — Naive vs. LSTM on identical folds
-
-The naive baseline and LSTM are scored on the exact same `X_te`/`y_te` test
-slice and the exact same fitted `scaler` per fold — confirmed directly in
-the diagnostic script, removing any doubt about fold alignment.
-
-```
-Fold 1: LSTM MAE=20.94  Naive MAE=6.90  (both scored on identical 160-sample test slice, same scaler)
-Fold 2: LSTM MAE=6.08   Naive MAE=7.03  (both scored on identical 160-sample test slice, same scaler)
-Fold 3: LSTM MAE=5.19   Naive MAE=6.84  (both scored on identical 160-sample test slice, same scaler)
-Fold 4: LSTM MAE=5.58   Naive MAE=7.11  (both scored on identical 160-sample test slice, same scaler)
-Fold 5: LSTM MAE=5.21   Naive MAE=6.79  (both scored on identical 160-sample test slice, same scaler)
-
-Average LSTM MAE:  8.60
-Average Naive MAE: 6.93
-VERDICT: LSTM does NOT beat naive on the 5-fold average (worse by 1.67 MAE).
-Confirmed on identical folds -- not a fold-mismatch artifact.
-```
-
-**Finding:** The 5-fold *average* hides a much clearer pattern underneath.
-Excluding Fold 1, the LSTM beats naive on **every single fold**, decisively:
-
-| | Avg MAE (Folds 2–5 only) |
-|---|---|
-| LSTM | **5.52** |
-| Naive | 6.94 |
-
-Fold 1 alone (LSTM MAE=20.94 vs. naive's 6.90) is what drags the 5-fold
-average below naive. This is not a fold-comparison artifact — both models
-were scored on literally the same 160 test samples with the same scaler —
-it's a genuine, fold-1-specific model failure. Given Check 1's finding
-that Fold 1 is the one fold trained on less than half a seasonal cycle,
-this strongly suggests Fold 1's failure is a **data-coverage problem, not
-a general LSTM-vs-naive skill problem**.
-
-### Check 3 — Loss curve (underfitting check)
-
-```
-Fold 1: epoch1-5 avg loss=0.20320  epoch21-25 avg loss=0.03575  drop=82.4%
-Fold 2: epoch1-5 avg loss=0.11027  epoch21-25 avg loss=0.01717  drop=84.4%
-Fold 3: epoch1-5 avg loss=0.07547  epoch21-25 avg loss=0.01089  drop=85.6%
-Fold 4: epoch1-5 avg loss=0.05478  epoch21-25 avg loss=0.01007  drop=81.6%
-Fold 5: epoch1-5 avg loss=0.04413  epoch21-25 avg loss=0.00824  drop=81.3%
-```
-(`output/loss_curve.png` has the full per-epoch plot for all 5 folds.)
-
-**Finding:** All 5 folds — including Fold 1 — show loss dropping 80-86%
-over training, with no early plateau. This rules out "too few epochs /
-classic underfitting" as the explanation for Fold 1's poor test result:
-the model converges on its *training* data just as well as the other
-folds do. The problem isn't that Fold 1 failed to fit — it's that what it
-fit (166 days, under half a seasonal cycle) doesn't generalize to a test
-window that includes seasonal behavior the model never saw during
-training. That's a data-coverage/generalization gap, not an
-optimization/underfitting gap.
-
-### Overall conclusion
-
-The LSTM does **not** beat naive on the raw 5-fold average (8.60 vs.
-6.93), and that headline number is accurate and not hidden. But the 3
-checks together point to a specific, well-supported cause rather than a
-general "LSTM doesn't work here" conclusion:
-
-- **Check 1** shows Fold 1 trains on less than half the 365-day yearly
-  seasonality cycle present in the synthetic data.
-- **Check 2** shows the LSTM decisively beats naive on every fold *except*
-  Fold 1 (5.52 vs. 6.94 avg MAE, folds 2-5) — and Fold 1 alone is what
-  flips the 5-fold average.
-- **Check 3** rules out plain underfitting (loss converges normally on all
-  folds, including Fold 1) as the explanation.
-
-**Best-supported theory:** Fold 1's poor result is a seasonal-coverage
-problem specific to the walk-forward setup on this synthetic dataset, not
-a flaw in the LSTM architecture or training procedure. Once a fold has
-seen close to (Fold 2, 332 days) or more than (Fold 3+, 498+ days) one
-full annual cycle, the LSTM consistently and meaningfully outperforms
-naive persistence.
-
-This result — LSTM underperforms naive in the 5-fold headline average,
-but clearly outperforms it once training data covers a full seasonal
-cycle — is logged in MLflow under the `Demand-Forecast-LSTM-WalkForward`
-and `Demand-Forecast-LSTM-Sweep` experiments (`sqlite:///mlflow.db`),
-regardless of outcome, per the investigation requirement
