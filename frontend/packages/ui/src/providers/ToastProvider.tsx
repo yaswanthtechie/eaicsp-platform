@@ -10,6 +10,7 @@ import {
   type ToastItem,
   type ShowToastOptions,
 } from "./ToastContext";
+import { colors, shadows } from "../theme/tokens";
 
 interface ToastProviderProps {
   children: ReactNode;
@@ -89,13 +90,12 @@ export function ToastProvider({
           <div
             key={toast.id}
             style={{
-              background: "white",
-              border: "1px solid #ddd",
+              background: colors.surface,
+              border: `1px solid ${colors.border}`,
               padding: "12px 16px",
               borderRadius: "8px",
               minWidth: "260px",
-              boxShadow:
-                "0 4px 10px rgba(0,0,0,0.12)",
+              boxShadow: shadows.md,
             }}
           >
             <strong>{toast.title}</strong>
