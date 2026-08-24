@@ -147,25 +147,55 @@ Run the demo:
 ```bash
 python src/uncertainty.py
 ```
+7-Day Forecast & Bounds (Demand Units):
+Day 1: Mean = 142.63 | 90% CI = [133.99, 148.93] | Std = 4.95
+Day 2: Mean = 141.87 | 90% CI = [132.74, 149.45] | Std = 5.30
+Day 3: Mean = 140.85 | 90% CI = [132.75, 147.33] | Std = 4.52
+Day 4: Mean = 141.04 | 90% CI = [132.69, 146.75] | Std = 5.25
+Day 5: Mean = 140.53 | 90% CI = [133.96, 147.26] | Std = 5.08
+Day 6: Mean = 141.64 | 90% CI = [133.04, 149.96] | Std = 5.80
+Day 7: Mean = 142.15 | 90% CI = [133.91, 150.28] | Std = 5.13
 
-**Real output** (5 samples, 100 MC-Dropout passes each, 90% CI, in original
-demand units — confirms the intervals are meaningfully wide, not collapsed
-to a point estimate, and that inverse-transform is applied correctly since
-these are ~140-range values, not 0-1 scaled):
+Average Empirical Uncertainty (Std): 5.15 demand units
 ---
 
 --- MC-Dropout Evaluation Sample (Last Test Window) ---
-Mean Forecast: [142.63 141.87 140.85 141.04 140.53 141.64 142.15]
-90% Lower Bound: [133.99 132.74 132.75 132.69 133.96 133.04 133.91]
-90% Upper Bound: [148.93 149.45 147.33 146.75 147.26 149.96 150.28]
-Std Uncertainty: [4.95 5.30 4.52 5.25 5.08 5.80 5.13]
-MC-Dropout Evaluation Complete -> Avg Std (Demand Units): 2.6876
+Mean Forecast: [150.27 150.29 152.11 152.12 150.3  151.68 150.51]
+90% Lower Bound: [141.1  141.05 144.75 144.04 141.61 142.9  143.86]
+90% Upper Bound: [158.8  158.12 160.62 160.21 158.37 158.54 156.49]
+Std Uncertainty: [5.84 5.6  5.   5.12 5.03 5.18 4.21]
+MC-Dropout Evaluation Complete -> Avg Std (Demand Units): 5.4029
 ---
 
 **Finding:** typical 90% CI width is ~17-20 units (e.g. Sample 0, day 1:
 [134.12, 150.93]) around a mean of ~140-144. Std per horizon day is
 consistently ~5-6. Intervals are stable across samples and don't collapse
 or blow up — the MC-Dropout mechanism is working as intended.
+
+## API Serving (BentoML)
+- EndPoint:`post/predict`
+- Sample Request Payload:
+```json
+{
+  "historical_demand": [
+    100.5, 102.1, 104.3, 101.8, 99.4, 105.2, 108.0, 110.1, 107.5, 106.2,
+    108.4, 111.0, 112.5, 110.0, 109.1, 113.4, 115.0, 114.2, 112.8, 116.5,
+    118.0, 117.1, 115.5, 119.0, 121.2, 120.0, 118.5, 122.1, 124.0, 122.8,
+    121.0, 125.4, 127.0, 125.8, 124.0, 128.5, 130.1, 129.0, 127.5, 131.0,
+    133.2, 132.0, 130.5, 134.1, 136.0
+  ]
+}
+```
+- sample Response
+```json
+{
+  "forecast": [142.63, 141.87, 140.85, 141.04, 140.53, 141.64, 142.15],
+  "lower_bound_90": [133.99, 132.74, 132.75, 132.69, 133.96, 133.04, 133.91],
+  "upper_bound_90": [148.93, 149.45, 147.33, 146.75, 147.26, 149.96, 150.28],
+  "std": [4.95, 5.30, 4.52, 5.25, 5.08, 5.80, 5.13],
+  "horizon_days": 7
+}
+```
 
 ### MC-Dropout vs. Uday's quantile-regression approach (conceptual comparison — his code untouched)
 
@@ -272,14 +302,25 @@ tests/test_pipeline.py::test_get_walk_forward_folds_no_leakage PASSED
 ============================= 20 passed in 10.54s =============================
 
 ---
-## 🎯 Architecture Justification: Direct vs. Recursive
+##  Demand Forecasting Service (PyTorch LSTM + MC-Dropout)
 
-For multi-step forecasting over a 7-day horizon, we explicitly chose **Direct Forecasting** over **Recursive Forecasting**:
-
-- **Recursive multi-step** — Predicts day 1, feeds that prediction back in as an input feature to predict day 2, and so on. This creates compounding error accumulation, where errors in early days severely degrade later predictions.
-- **Direct multi-step** — Outputs all 7 horizon days simultaneously in a single forward pass. While slightly increasing output-layer parameters, it completely eliminates error accumulation across time steps.
+Direct 7-day multi-step daily demand forecasting service using stacked LSTM architectures and Monte Carlo Dropout for uncertainty quantification.
 
 ---
+
+## 🚀 Architecture & Configuration
+
+The service uses the winning hyperparameter configuration identified from the MLflow validation sweep:
+
+* **Lookback Window:** 45 days
+* **Forecast Horizon:** 7 days (Direct multi-step)
+* **Hidden Size:** 64
+* **LSTM Layers:** 2
+* **Dropout:** 0.2
+* **Cross-Validation:** 5-Fold Walk-Forward Cross-Validation
+
+All parameters are centrally managed in `src/config.py`.
+
 
 ## 🚀 Getting Started
 

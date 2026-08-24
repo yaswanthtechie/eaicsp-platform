@@ -16,12 +16,8 @@ import mlflow
 from data import generate_data, get_walk_forward_folds
 from model import MultiStepLSTM
 from evaluate import calculate_metrics, predict_naive_baseline
+from config import LOOKBACK, HORIZON, HIDDEN_SIZE, NUM_LAYERS, DROPOUT, LR, EPOCHS, BATCH_SIZE
 
-LOOKBACK = 30
-HORIZON = 7
-EPOCHS = 25
-BATCH_SIZE = 32
-LR = 0.001
 torch.manual_seed(42)  # For reproducibility
 
 
@@ -39,6 +35,9 @@ def train_and_evaluate():
         mlflow.log_params({
             "lookback": LOOKBACK,
             "horizon": HORIZON,
+            "hidden_size": HIDDEN_SIZE,
+            "num_layers": NUM_LAYERS,
+            "dropout": DROPOUT,
             "epochs": EPOCHS,
             "batch_size": BATCH_SIZE,
             "learning_rate": LR,
@@ -50,9 +49,16 @@ def train_and_evaluate():
         print("="*70)
 
         for fold_idx, (X_tr, y_tr, X_te, y_te, scaler) in enumerate(folds, 1):
-            X_train_t = torch.tensor(X_tr, dtype=torch.float32).unsqueeze(-1)
+            # X_tr and X_te are already 3D (samples, lookback, 1) from data.py
+            X_train_t = torch.tensor(X_tr, dtype=torch.float32)
+            if X_train_t.ndim == 2:
+                X_train_t = X_train_t.unsqueeze(-1)
+
             y_train_t = torch.tensor(y_tr, dtype=torch.float32)
-            X_test_t = torch.tensor(X_te, dtype=torch.float32).unsqueeze(-1)
+
+            X_test_t = torch.tensor(X_te, dtype=torch.float32)
+            if X_test_t.ndim == 2:
+                X_test_t = X_test_t.unsqueeze(-1)
 
             # 1. Instantiate dataset FIRST
             dataset = TensorDataset(X_train_t, y_train_t)
@@ -60,7 +66,13 @@ def train_and_evaluate():
             # 2. Build DataLoader with shuffle=True for stochastic training
             loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
 
-            model = MultiStepLSTM(horizon=HORIZON)
+            model = MultiStepLSTM(
+                input_size=1,
+                hidden_size=HIDDEN_SIZE,
+                num_layers=NUM_LAYERS,
+                horizon=HORIZON,
+                dropout=DROPOUT
+            )
             criterion = nn.MSELoss()
             optimizer = optim.Adam(model.parameters(), lr=LR)
 

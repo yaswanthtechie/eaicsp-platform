@@ -3,6 +3,7 @@ import bentoml
 import numpy as np
 import pydantic
 import torch
+
 from config import (
     CONFIDENCE_LEVEL,
     HIDDEN_SIZE,
@@ -15,10 +16,6 @@ from config import (
 )
 from data import load_scaler, validate_sequence
 from model import MultiStepLSTM
-
-
-class ForecastRequest(pydantic.BaseModel):
-    historical_demand: list[float]
 
 
 class ForecastResponse(pydantic.BaseModel):
@@ -41,14 +38,19 @@ class DemandForecastService:
             raise FileNotFoundError(f"Scaler missing at {SCALER_PATH}.")
 
         self.scaler = load_scaler(SCALER_PATH)
-        self.model = MultiStepLSTM(1, HIDDEN_SIZE, NUM_LAYERS, HORIZON)
+        self.model = MultiStepLSTM(
+            input_size=1,
+            hidden_size=HIDDEN_SIZE,
+            num_layers=NUM_LAYERS,
+            horizon=HORIZON,
+        )
         self.model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu", weights_only=True))
         self.model.eval()
         self.model.enable_mc_dropout()
 
     @bentoml.api
-    def predict(self, request: ForecastRequest) -> ForecastResponse:
-        raw_vals = np.array(request.historical_demand, dtype=np.float64)
+    def predict(self, historical_demand: list[float]) -> ForecastResponse:
+        raw_vals = np.array(historical_demand, dtype=np.float64)
 
         # 1. Guardrail checks: NaN/Inf, length, and Out-of-Distribution validation
         if not np.all(np.isfinite(raw_vals)):
@@ -66,10 +68,10 @@ class DemandForecastService:
         scaled_input = self.scaler.transform(raw_vals.reshape(-1, 1)).reshape(1, LOOKBACK, 1)
         x_tensor = torch.tensor(scaled_input, dtype=torch.float32)
 
-        # 3. Batched MC-Dropout passes
+        # 3. Batched MC-Dropout passes (single batched tensor)
         repeated = x_tensor.repeat(MC_SAMPLES, 1, 1)
         with torch.no_grad():
-            preds = self.model(repeated).cpu().numpy()  # (100, 7)
+            preds = self.model(repeated).cpu().numpy()  # shape: (100, 7)
 
         alpha = (1.0 - CONFIDENCE_LEVEL) / 2.0
         lower_scaled = np.percentile(preds, alpha * 100, axis=0)
