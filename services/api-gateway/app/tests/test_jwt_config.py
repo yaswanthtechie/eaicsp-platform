@@ -32,7 +32,7 @@ class TestSecretKeyRequirement:
         monkeypatch.delenv("SECRET_KEY", raising=False)
 
         with pytest.raises(ValidationError) as excinfo:
-            Settings()
+            Settings(_env_file=None)
 
         errors = excinfo.value.errors()
         fields_missing = [err.get("loc") for err in errors]
@@ -44,11 +44,11 @@ class TestSecretKeyRequirement:
         """
         Settings instantiation succeeds normally when SECRET_KEY is set.
         """
-        monkeypatch.setenv("SECRET_KEY", "some-valid-test-secret")
+        monkeypatch.setenv("SECRET_KEY", "test-secret-key-configured-for-testing-32bytes")
         monkeypatch.setenv("JWT_ALGORITHM", "HS256")
 
-        fresh = Settings()
-        assert fresh.SECRET_KEY == "some-valid-test-secret"
+        fresh = Settings(_env_file=None)
+        assert fresh.SECRET_KEY == "test-secret-key-configured-for-testing-32bytes"
         assert fresh.JWT_ALGORITHM == "HS256"
 
 
@@ -82,7 +82,7 @@ class TestJwtSecretRoundTrip:
         This is the core security check: mismatched secrets → signature error.
         """
         payload = {"user_id": "u_999", "role": "admin"}
-        wrong_secret = "another-completely-different-secret-value"
+        wrong_secret = "another-completely-different-secret-value-32bytes"
 
         token = jwt.encode(payload, wrong_secret, algorithm=settings.JWT_ALGORITHM)
 
@@ -101,7 +101,7 @@ class TestJwtSecretRoundTrip:
         signs a token with its own SECRET_KEY value. When the gateway
         Settings.SECRET_KEY matches, the token verifies successfully.
         """
-        issuer_secret = "shared-secret-between-platform-and-gateway"
+        issuer_secret = "shared-secret-between-platform-and-gateway-32bytes"
 
         os.environ["SECRET_KEY"] = issuer_secret
         issuer_settings = Settings()
@@ -131,10 +131,10 @@ class TestJwtSecretRoundTrip:
         """
         old_secret = os.environ.get("SECRET_KEY")
         try:
-            os.environ["SECRET_KEY"] = "platform-issuer-secret-ABC"
+            os.environ["SECRET_KEY"] = "platform-issuer-secret-key-min-32-bytes-long-1234"
             issuer_settings = Settings()
 
-            os.environ["SECRET_KEY"] = "gateway-old-hardcoded-secret"
+            os.environ["SECRET_KEY"] = "gateway-verifier-secret-key-min-32-bytes-long-5678"
             gateway_settings = Settings()
 
             payload = {"sub": "should-not-verify"}
