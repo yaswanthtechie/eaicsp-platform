@@ -233,6 +233,19 @@ def test_audit_summary_api():
         list,
     )
 
+def test_bulk_screen_api_rejects_more_than_500_entities():
+    payload = {
+        "entity_names": [f"Entity {i}" for i in range(501)],
+        "entity_type": "supplier",
+        "country": "India",
+    }
+
+    response = client.post(
+    "/api/v1/compliance/screen-bulk",
+    json=payload,
+)
+
+    assert response.status_code == 422
 
 
 

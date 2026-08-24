@@ -136,24 +136,8 @@ def rescreen_entity(
         {},
     )
 
-    if not is_flagged:
-        return {
-            "entity_name": entity_name,
-            "previously_cleared": True,
-            "newly_flagged": False,
-            "screening_type": "RESCREEN",
-            "screening_run_id": screening_run_id,
-            "risk_score": risk_score,
-            "risk_factors": risk_factors,
-            "result": result,
-            "duration_ms": round(
-                duration_ms,
-                2,
-            ),
-        }
-
     result["screening_type"] = "RESCREEN"
-    result["newly_flagged"] = True
+    result["newly_flagged"] = is_flagged
     result["screening_run_id"] = screening_run_id
     result["risk_score"] = risk_score
     result["risk_factors"] = risk_factors
@@ -164,14 +148,14 @@ def rescreen_entity(
         result=result,
         duration_ms=duration_ms,
         screening_type="RESCREEN",
-        newly_flagged=True,
+        newly_flagged=is_flagged,
         screening_run_id=screening_run_id,
     )
 
     return {
         "entity_name": entity_name,
         "previously_cleared": True,
-        "newly_flagged": True,
+        "newly_flagged": is_flagged,
         "screening_type": "RESCREEN",
         "screening_run_id": screening_run_id,
         "risk_score": risk_score,
@@ -182,7 +166,6 @@ def rescreen_entity(
             2,
         ),
     }
-
 
 def rescreen_cleared_entities() -> dict[str, Any]:
     job_start = time.perf_counter()

@@ -178,7 +178,7 @@ def test_rescreen_entity_still_clean(monkeypatch):
             .all()
         )
 
-        assert len(audits) == 1
+        assert len(audits) == 2
 
     finally:
         db.close()

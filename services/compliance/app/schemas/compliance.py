@@ -123,14 +123,9 @@ class ComplianceResponse(BaseModel):
 class BulkComplianceRequest(BaseModel):
 
     entity_names: list[str] = Field(
-        ...,
-        min_length=1,
-        json_schema_extra={
-            "example": [
-                "HAMAS",
-                "OpenAI",
-            ],
-        },
+    ...,
+    min_length=1,
+    max_length=500,
     )
 
     entity_type: Literal[

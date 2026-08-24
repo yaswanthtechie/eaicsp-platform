@@ -1,6 +1,8 @@
 import pytest
 
+import os
 
+os.environ.setdefault("USE_FIXTURES", "true")
 
 from fastapi.testclient import TestClient
 
