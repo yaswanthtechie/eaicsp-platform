@@ -1,6 +1,6 @@
 from enum import Enum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class SensorReading(BaseModel):
@@ -51,9 +51,65 @@ class DetectWindowRequest(BaseModel):
     readings: list[SensorReading]
 
 
+class DetectAdaptiveRequest(BaseModel):
+    """
+    Request schema for POST /detect-adaptive.
+
+    Accepts either one sensor reading or multiple sensor
+    readings.
+
+    A single reading preserves compatibility with the
+    original adaptive API contract.
+
+    Multiple readings are processed sequentially through
+    the same stateful AdaptiveEngine.
+    """
+
+    model: ModelName
+    reading: SensorReading | None = None
+    readings: list[SensorReading] | None = None
+
+    @model_validator(mode="after")
+    def validate_reading_input(self):
+        """
+        Require exactly one adaptive input mode.
+
+        The API accepts either:
+
+            reading
+                OR
+            readings
+
+        but not neither and not both.
+        """
+
+        if (
+            self.reading is None
+            and self.readings is None
+        ):
+
+            raise ValueError(
+                "Either 'reading' or "
+                "'readings' must be provided."
+            )
+
+        if (
+            self.reading is not None
+            and self.readings is not None
+        ):
+
+            raise ValueError(
+                "Provide either 'reading' "
+                "or 'readings', not both."
+            )
+
+        return self
+
+
 __all__ = [
     "SensorReading",
+    "ModelName",
     "PredictionRequest",
     "DetectWindowRequest",
-    "ModelName",
+    "DetectAdaptiveRequest",
 ]

@@ -40,7 +40,9 @@ The project evolved from a basic training/evaluation/API implementation into a m
 
 # Project Overview
 
-The project uses synthetic warehouse/supply-chain sensor readings containing:
+The project uses synthetic supply-chain sensor readings to simulate warehouse monitoring.
+
+Each reading contains:
 
 - Temperature
 - Humidity
@@ -53,31 +55,31 @@ The project then evaluates those models against independently generated anomaly 
 The main anomaly-detection approaches are:
 
 - Isolation Forest
-- Local Outlier Factor
+- Local Outlier Factor (LOF)
 - One-Class SVM
 
 The system eventually evolved into two distinct paths:
 
 ```text
 OFFLINE / NON-STREAMING
-    │
-    ├── Data generation
-    ├── Training
-    ├── Evaluation
-    ├── Hyperparameter tuning
-    ├── Cost threshold tuning
-    ├── Adaptive-threshold validation
-    └── Final project workflow / reporting
+    |
+    +-- Data generation
+    +-- Training
+    +-- Evaluation
+    +-- Hyperparameter tuning
+    +-- Cost threshold tuning
+    +-- Adaptive-threshold validation
+    +-- Final project workflow / reporting
 ```
 
 and:
 
 ```text
 STREAMING / PLAYBACK
-    │
-    ├── Synthetic stream
-    ├── Rolling prediction history
-    └── Playback
+    |
+    +-- Synthetic stream
+    +-- Rolling prediction history
+    +-- Playback
 ```
 
 Streaming and playback are deliberately kept separate from the main orchestration workflow.
@@ -119,19 +121,20 @@ Streaming and playback are deliberately kept separate from the main orchestratio
 ```text
 ml-services/
 └── anomaly-detection/
-    │
+    |
     ├── app.py
     ├── schemas.py
     ├── README.md
     ├── requirements.txt
-    │
+    ├── pytest.ini
+    |
     ├── models/
     │   ├── background_sample.csv
     │   ├── isolation_forest_model.joblib
     │   ├── lof_model.joblib
     │   ├── one_class_svm_model.joblib
     │   └── model_metadata.json
-    │
+    |
     ├── output/
     │   ├── calibration_normal.csv
     │   ├── train_normal.csv
@@ -149,7 +152,7 @@ ml-services/
     │   ├── cost_threshold_primary_results.csv
     │   ├── cost_threshold_production_decision.csv
     │   └── cost_threshold_drift_report.csv
-    │
+    |
     ├── src/
     │   ├── adaptive_engine.py
     │   ├── adaptive_engine_manager.py
@@ -173,7 +176,7 @@ ml-services/
     │   ├── train.py
     │   ├── tuning.py
     │   └── tuning_utils.py
-    │
+    |
     └── tests/
         ├── conftest.py
         ├── test_adaptive_engine.py
@@ -226,7 +229,7 @@ Main dependencies include:
 - joblib
 - pytest
 - httpx
-- logging
+- requests
 
 ---
 
@@ -889,7 +892,7 @@ Separate state is maintained for each model.
 
 # Fixed vs Adaptive Results
 
-The fixed-vs-adaptive validation compares the same model under:
+The validated fixed-vs-adaptive lifecycle results compare the same model under:
 
 ```text
 fixed/calibration threshold
@@ -900,6 +903,8 @@ versus:
 ```text
 adaptive threshold
 ```
+
+These fixed-vs-adaptive results measure adaptive lifecycle behaviour and are separate from the production cost-threshold selection experiment.
 
 The validated continuous-lifecycle results are:
 
@@ -1006,7 +1011,7 @@ Regime changes    = 2
 Confirmations     = 1
 Acceptances       = 1
 Drift signals     = 1
-Alerts            = 1
+Alerts             = 1
 ```
 
 ---
@@ -1080,7 +1085,7 @@ This distinction prevents the adaptive engine from learning harmful behaviour as
 
 The underlying models did not expose scores with one common intuitive direction.
 
-This created a thresholding compatibility problem.
+Without normalization, one model could interpret a higher score as more normal while another could interpret it as more anomalous.
 
 Solution:
 
@@ -1259,13 +1264,29 @@ It maintains:
 
 Streaming is intended for demonstration and is not part of the offline model/threshold selection workflow.
 
+The playback simulator supports three selectable modes:
+
+```text
+1. Adaptive
+2. Window
+3. Both
+```
+
+Adaptive playback sends readings sequentially through the stateful `AdaptiveEngine`.
+
+Window playback uses the rolling-window stateless detection path.
+
+Both mode runs the two detection paths together for comparison.
+
+The adaptive playback therefore exercises the same adaptive engine that is exposed through `/detect-adaptive`, while the window path remains a separate stateless detection path.
+
 For production multi-process deployment, in-memory state should be replaced by a shared state/message infrastructure such as Redis, Kafka, MQTT, or another appropriate streaming architecture.
 
 ---
 
 # Retraining / Deployment Stretch Goal
 
-The original implementation also includes a deployment-oriented retraining workflow.
+The project also includes a deployment-oriented retraining workflow.
 
 The retraining system simulates:
 
@@ -1349,11 +1370,11 @@ Streaming workflow
 
 Streaming and playback are deliberately kept separate from the offline model-selection and threshold-tuning workflow.
 
+---
+
 # Testing
 
-The test suite evolved along with the project.
-
-The tests covered the base implementation:
+The current test suite covers:
 
 ```text
 test_api.py
@@ -1633,7 +1654,7 @@ This prevents accidental changes to the benchmark data from silently changing th
 
 ## `test_retrain.py`
 
-Tests the original rolling-window retraining/deployment workflow.
+Tests the rolling-window retraining/deployment workflow.
 
 It verifies:
 
@@ -1666,7 +1687,9 @@ and validates API-level error handling and response contracts.
 Latest full-suite execution:
 
 ```text
-462 passed, 3 warnings
+462 passed
+3 warnings
+0 failures
 ```
 
 The three warnings were `PendingDeprecationWarning` messages from the installed SHAP dependency.
@@ -1737,11 +1760,6 @@ The project standardized:
 
 ```text
 score = -model.score(features)
-```
-
-so:
-
-```text
 higher = more anomalous
 ```
 
@@ -1992,7 +2010,6 @@ Temporal detector
 
 Tests
     → prove each stage behaves as intended
-
 ```
 
 ---
@@ -2022,11 +2039,15 @@ FN                   = 0
 
 ## Fixed vs adaptive
 
-| Model | Fixed F1 | Adaptive F1 | Improvement | Fixed FPR | Adaptive FPR |
-|---|---:|---:|---:|---:|---:|
-| Isolation Forest | 0.2544 | 0.3141 | +0.0597 | 5.96% | 3.78% |
-| **LOF** | 0.1824 | **0.3735** | **+0.1911** | 9.77% | **2.62%** |
-| One-Class SVM | 0.1655 | 0.2787 | +0.1132 | 11.44% | 4.33% |
+The project evaluates the adaptive layer with **recall as the primary metric**, followed by precision and F1.
+
+The validated continuous-lifecycle results are:
+
+| Model | Fixed Recall | Adaptive Recall | Fixed F1 | Adaptive F1 | Δ F1 | Fixed FPR | Adaptive FPR |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Isolation Forest | 70.13% | 63.64% | 0.2544 | 0.3141 | **+0.0597** | 5.96% | **3.78%** |
+| **LOF** | 72.73% | 61.36% | 0.1824 | **0.3735** | **+0.1911** | 9.77% | **2.62%** |
+| One-Class SVM | 75.00% | 61.04% | 0.1655 | 0.2787 | **+0.1132** | 11.44% | **4.33%** |
 
 ## Test suite
 

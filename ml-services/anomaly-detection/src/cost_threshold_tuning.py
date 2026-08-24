@@ -1124,7 +1124,7 @@ def select_cost_optimal_threshold(
     """
     Select one production threshold.
 
-    Rule:
+    Production objective:
 
         1. Minimum total Expected Cost
         2. Highest aggregate Recall
@@ -1132,6 +1132,18 @@ def select_cost_optimal_threshold(
         4. Highest F1
         5. Lowest FP
         6. Lowest FN
+
+    Business costs:
+
+        FP = 2
+        FN = 500
+
+    Therefore Expected Cost is the PRIMARY selection
+    criterion. Recall, Precision, and F1 are only
+    tie-breakers.
+
+    This is the ONLY threshold selector used for
+    production deployment.
     """
 
     if primary_results.empty:
@@ -1170,18 +1182,33 @@ def select_cost_optimal_threshold(
 
 
 # ============================================================
-# Select F1-optimal production threshold
+# Select F1 diagnostic threshold
 # ============================================================
 
-def select_f1_optimal_threshold(
+def select_f1_diagnostic_threshold(
     primary_results,
 ):
     """
-    Select one threshold using F1.
+    Select one F1 diagnostic threshold.
 
-    Used only for comparison against the business-cost
-    threshold.
+    This is NOT a production selector.
+
+    It exists only to provide a diagnostic comparison between:
+
+        F1-oriented selection
+            versus
+        business-cost selection.
+
+    The returned threshold is never used as the
+    production threshold.
     """
+
+    if primary_results.empty:
+
+        raise RuntimeError(
+            "No primary threshold results "
+            "available for F1 diagnostic analysis."
+        )
 
     selected = (
         primary_results
@@ -1214,6 +1241,19 @@ def select_f1_optimal_threshold(
 def run_cost_threshold_tuning():
     """
     Run the complete R4.5 cost-based threshold analysis.
+
+    Production threshold selection is based on:
+
+        Expected Cost
+            ↓
+        Recall
+            ↓
+        Precision
+            ↓
+        F1
+
+    F1 threshold selection is reported only as a
+    diagnostic comparison.
     """
 
     print(
@@ -1236,6 +1276,52 @@ def run_cost_threshold_tuning():
 
     print(
         f"False-negative cost : {COST_FN}"
+    )
+
+    print()
+
+    print(
+        "Primary production objective:"
+    )
+
+    print(
+        "  Minimize expected business cost."
+    )
+
+    print()
+
+    print(
+        "Production selection priority:"
+    )
+
+    print(
+        "  1. Lowest Expected Cost"
+    )
+
+    print(
+        "  2. Highest Recall"
+    )
+
+    print(
+        "  3. Highest Precision"
+    )
+
+    print(
+        "  4. Highest F1"
+    )
+
+    print()
+
+    print(
+        "F1 threshold:"
+    )
+
+    print(
+        "  Diagnostic comparison only."
+    )
+
+    print(
+        "  NOT used for production selection."
     )
 
     print()
@@ -1353,8 +1439,8 @@ def run_cost_threshold_tuning():
             )
         )
 
-        f1_best = (
-            select_f1_optimal_threshold(
+        f1_diagnostic = (
+            select_f1_diagnostic_threshold(
                 primary_results
             )
         )
@@ -1378,42 +1464,42 @@ def run_cost_threshold_tuning():
         print()
 
         # ----------------------------------------------------
-        # F1 result.
+        # F1 diagnostic result.
         # ----------------------------------------------------
 
         print(
-            "  F1-optimal threshold:"
-            f" {f1_best['Threshold']:.8f}"
+            "  F1 diagnostic threshold:"
+            f" {f1_diagnostic['Threshold']:.8f}"
         )
 
         print(
             "    Precision:"
-            f" {f1_best['Precision']:.4f}"
+            f" {f1_diagnostic['Precision']:.4f}"
         )
 
         print(
             "    Recall:"
-            f" {f1_best['Recall']:.4f}"
+            f" {f1_diagnostic['Recall']:.4f}"
         )
 
         print(
             "    F1:"
-            f" {f1_best['F1']:.4f}"
+            f" {f1_diagnostic['F1']:.4f}"
         )
 
         print(
             "    FP:"
-            f" {int(f1_best['FP'])}"
+            f" {int(f1_diagnostic['FP'])}"
         )
 
         print(
             "    FN:"
-            f" {int(f1_best['FN'])}"
+            f" {int(f1_diagnostic['FN'])}"
         )
 
         print(
             "    Expected Cost:"
-            f" {f1_best['Expected Cost']:.0f}"
+            f" {f1_diagnostic['Expected Cost']:.0f}"
         )
 
         print()
@@ -1423,7 +1509,7 @@ def run_cost_threshold_tuning():
         # ----------------------------------------------------
 
         print(
-            "  COST-optimal threshold:"
+            "  COST-optimal production threshold:"
             f" {cost_best['Threshold']:.8f}"
         )
 
@@ -1462,20 +1548,20 @@ def run_cost_threshold_tuning():
         # ----------------------------------------------------
 
         cost_reduction = (
-            f1_best["Expected Cost"]
+            f1_diagnostic["Expected Cost"]
             -
             cost_best["Expected Cost"]
         )
 
         if (
-            f1_best["Expected Cost"]
+            f1_diagnostic["Expected Cost"]
             > 0
         ):
 
             cost_reduction_percent = (
                 cost_reduction
                 /
-                f1_best["Expected Cost"]
+                f1_diagnostic["Expected Cost"]
                 * 100.0
             )
 
@@ -1486,7 +1572,7 @@ def run_cost_threshold_tuning():
         print()
 
         print(
-            "  Cost reduction vs F1:"
+            "  Cost reduction vs F1 diagnostic:"
             f" {cost_reduction:.0f}"
             f" ({cost_reduction_percent:.2f}%)"
         )
@@ -1513,43 +1599,43 @@ def run_cost_threshold_tuning():
                         "Direction Agreement"
                     ],
 
-                "F1 Threshold":
-                    f1_best[
+                "F1 Diagnostic Threshold":
+                    f1_diagnostic[
                         "Threshold"
                     ],
 
-                "F1 Precision":
-                    f1_best[
+                "F1 Diagnostic Precision":
+                    f1_diagnostic[
                         "Precision"
                     ],
 
-                "F1 Recall":
-                    f1_best[
+                "F1 Diagnostic Recall":
+                    f1_diagnostic[
                         "Recall"
                     ],
 
-                "F1 Score":
-                    f1_best[
+                "F1 Diagnostic Score":
+                    f1_diagnostic[
                         "F1"
                     ],
 
-                "F1 TP":
-                    f1_best[
+                "F1 Diagnostic TP":
+                    f1_diagnostic[
                         "TP"
                     ],
 
-                "F1 FP":
-                    f1_best[
+                "F1 Diagnostic FP":
+                    f1_diagnostic[
                         "FP"
                     ],
 
-                "F1 FN":
-                    f1_best[
+                "F1 Diagnostic FN":
+                    f1_diagnostic[
                         "FN"
                     ],
 
-                "F1 Expected Cost":
-                    f1_best[
+                "F1 Diagnostic Expected Cost":
+                    f1_diagnostic[
                         "Expected Cost"
                     ],
 
@@ -1710,42 +1796,42 @@ def run_cost_threshold_tuning():
                     "Score Direction":
                         "higher_is_anomaly",
 
-                    "F1-optimal Threshold":
+                    "F1 Diagnostic Threshold":
                         drift_best[
                             "Threshold"
                         ],
 
-                    "F1 Precision":
+                    "F1 Diagnostic Precision":
                         drift_best[
                             "Precision"
                         ],
 
-                    "F1 Recall":
+                    "F1 Diagnostic Recall":
                         drift_best[
                             "Recall"
                         ],
 
-                    "F1 Score":
+                    "F1 Diagnostic Score":
                         drift_best[
                             "F1"
                         ],
 
-                    "F1 TP":
+                    "F1 Diagnostic TP":
                         drift_best[
                             "TP"
                         ],
 
-                    "F1 FP":
+                    "F1 Diagnostic FP":
                         drift_best[
                             "FP"
                         ],
 
-                    "F1 FN":
+                    "F1 Diagnostic FN":
                         drift_best[
                             "FN"
                         ],
 
-                    "F1 Expected Cost":
+                    "F1 Diagnostic Expected Cost":
                         drift_best[
                             "Expected Cost"
                         ],
@@ -1973,7 +2059,7 @@ def run_cost_threshold_tuning():
         )
 
         print(
-            "Cost reduction vs F1:"
+            "Cost reduction vs F1 diagnostic:"
             f" {row['Cost Reduction']:.0f}"
             f" ({row['Cost Reduction %']:.2f}%)"
         )
@@ -2053,6 +2139,20 @@ def run_cost_threshold_tuning():
 
     print(
         "  4. If still tied, maximize F1."
+    )
+
+    print()
+
+    print(
+        "F1 diagnostic:"
+    )
+
+    print(
+        "  Used only for comparison."
+    )
+
+    print(
+        "  It is NOT used to select the production threshold."
     )
 
     print()

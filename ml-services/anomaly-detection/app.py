@@ -3,6 +3,7 @@ import logging
 from fastapi import FastAPI, HTTPException
 
 from schemas import (
+    DetectAdaptiveRequest,
     DetectWindowRequest,
     PredictionRequest,
 )
@@ -223,14 +224,17 @@ async def detect_window(
 
 @app.post("/detect-adaptive")
 async def detect_adaptive(
-    request: PredictionRequest,
+    request: DetectAdaptiveRequest,
 ):
     """
     Stateful adaptive anomaly detection.
 
     Architecture:
 
-        SENSOR READING
+        SENSOR READINGS
+              |
+              v
+        SEQUENTIAL PROCESSING
               |
               v
         MODEL PREDICTION
@@ -262,7 +266,9 @@ async def detect_adaptive(
 
     The AdaptiveEngine owns the complete lifecycle.
 
-    This endpoint processes ONE reading at a time.
+    This endpoint accepts either one reading or multiple
+    readings and processes every reading sequentially through
+    the same stateful AdaptiveEngine.
 
     State is maintained by AdaptiveEngineManager,
     with one engine per model.
@@ -270,18 +276,139 @@ async def detect_adaptive(
 
     try:
 
-        features = sensor_features(
-            request.reading
-        )
+        # ----------------------------------------------------
+        # SINGLE READING
+        # ----------------------------------------------------
 
-        result = (
-            adaptive_engine_predict_with_explanation(
-                features,
-                request.model.value,
+        if request.reading is not None:
+
+            features = sensor_features(
+                request.reading
             )
-        )
 
-        return result
+            return (
+                adaptive_engine_predict_with_explanation(
+                    features,
+                    request.model.value,
+                )
+            )
+
+        # ----------------------------------------------------
+        # MULTIPLE READINGS
+        # ----------------------------------------------------
+
+        adaptive_results = []
+
+        anomalous_readings = []
+
+        for reading_index, reading in enumerate(
+            request.readings
+        ):
+
+            features = sensor_features(
+                reading
+            )
+
+            result = (
+                adaptive_engine_predict_with_explanation(
+                    features,
+                    request.model.value,
+                )
+            )
+
+            adaptive_result = {
+                "reading_id": (
+                    reading.reading_id
+                ),
+                "reading_index": (
+                    reading_index
+                ),
+                "is_anomaly": bool(
+                    result.get(
+                        "is_anomaly",
+                        False,
+                    )
+                ),
+                "score": result.get(
+                    "score"
+                ),
+                "adaptive_threshold": (
+                    result.get(
+                        "adaptive_threshold"
+                    )
+                ),
+                "state": result.get(
+                    "state"
+                ),
+                "regime_changed": bool(
+                    result.get(
+                        "regime_changed",
+                        False,
+                    )
+                ),
+                "regime_confirmed": bool(
+                    result.get(
+                        "regime_confirmed",
+                        False,
+                    )
+                ),
+                "temporal_drift": bool(
+                    result.get(
+                        "temporal_drift",
+                        False,
+                    )
+                ),
+                "adapted": bool(
+                    result.get(
+                        "adapted",
+                        False,
+                    )
+                ),
+                "alert": bool(
+                    result.get(
+                        "alert",
+                        False,
+                    )
+                ),
+                "reasons": result.get(
+                    "reasons",
+                    [],
+                ),
+            }
+
+            adaptive_results.append(
+                adaptive_result
+            )
+
+            if adaptive_result[
+                "is_anomaly"
+            ]:
+
+                anomalous_readings.append(
+                    adaptive_result
+                )
+
+        return {
+            "model": request.model.value,
+            "model_version": (
+                get_model_version()
+            ),
+            "window_size": len(
+                request.readings
+            ),
+            "processed_readings": len(
+                request.readings
+            ),
+            "total_anomalies": len(
+                anomalous_readings
+            ),
+            "anomalous_readings": (
+                anomalous_readings
+            ),
+            "adaptive_results": (
+                adaptive_results
+            ),
+        }
 
     except FileNotFoundError as exc:
 

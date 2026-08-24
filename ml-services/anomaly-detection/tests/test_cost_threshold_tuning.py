@@ -883,10 +883,10 @@ def test_cost_optimal_threshold_uses_precision_after_recall():
 
 # ============================================================
 # Test 19
-# F1 selector is independent from cost selector
+# F1 diagnostic selector
 # ============================================================
 
-def test_f1_optimal_threshold_selects_highest_f1():
+def test_f1_diagnostic_threshold_selects_highest_f1():
     primary_results = pd.DataFrame(
         [
             {
@@ -907,7 +907,7 @@ def test_f1_optimal_threshold_selects_highest_f1():
     )
 
     selected = (
-        ctt.select_f1_optimal_threshold(
+        ctt.select_f1_diagnostic_threshold(
             primary_results
         )
     )
