@@ -15,8 +15,7 @@ export const login = async (
     {
       method: "POST",
       headers: {
-        "Content-Type":
-          "application/x-www-form-urlencoded",
+        "Content-Type": "application/x-www-form-urlencoded",
       },
       body: formData,
     }
@@ -50,4 +49,25 @@ export const refreshToken = async (
   }
 
   return response.json();
+};
+
+export const revokeRefreshToken = async (
+  refreshToken: string
+) => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/auth/logout`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        refresh_token: refreshToken,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to revoke refresh token");
+  }
 };

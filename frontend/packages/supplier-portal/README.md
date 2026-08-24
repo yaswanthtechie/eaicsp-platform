@@ -1514,3 +1514,24 @@ JWT Authentication
 Vitest
 React Testing Library 
 ```
+## Round 4 Features
+
+- JWT Access Token Authentication
+- JWT Refresh Token Authentication
+- Remember Me with Local Storage / Session Storage
+- Protected Routes
+- Automatic Authorization Header
+- Silent Token Refresh
+- Token Expiry Detection
+- Logout and Token Cleanup
+- Apollo Cache Clear on Logout
+- Cursor-Based Pagination
+- Purchase Order Search and Filtering
+- Optimistic UI for Purchase Order Acknowledgement
+- Offline Action Queue
+- Offline Action Synchronization
+- Duplicate Offline Action Prevention
+- Offline Banner
+- Keyboard Accessibility
+- Purchase Order Notifications
+- Automated Unit and Component Testing
