@@ -5,4 +5,4 @@ python-dotenv
 pytest
 pyyaml
 pandera
-apache-airflow
+apache-airflow==2.10.5

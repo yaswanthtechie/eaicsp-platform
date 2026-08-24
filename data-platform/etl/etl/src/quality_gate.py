@@ -1,8 +1,17 @@
 from pathlib import Path
 import shutil
+
 from alert_service import write_alert
 from logging_config import logger
 import dead_letter
+
+
+# ---------------------------------------------------------------------------
+# Project-root paths
+# ---------------------------------------------------------------------------
+# Do not rely on the current working directory because Airflow tasks may run
+# with a different CWD. Anchor all data folders to the repository root.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def check_batch(df, batch_name):
@@ -39,7 +48,7 @@ def quality_gate(extracted_batches):
 
     validated_batches = []
 
-    rejected_folder = Path("data/rejected")
+    rejected_folder = PROJECT_ROOT / "data" / "rejected"
     rejected_folder.mkdir(parents=True, exist_ok=True)
 
     for batch in extracted_batches:
@@ -51,10 +60,14 @@ def quality_gate(extracted_batches):
 
         if not passed:
 
-            shutil.move(str(file_path), rejected_folder / file_path.name)
+            shutil.move(
+                str(file_path),
+                rejected_folder / file_path.name
+            )
 
             print(f"{file_path.name} rejected ({report['reason']})")
-            write_alert(          
+
+            write_alert(
                 pipeline="sales_etl",
                 severity="WARN",
                 message=report["reason"],
@@ -117,7 +130,10 @@ def check_batch_generic(df, batch_name, source_config):
         report["reason"] = f"negative {column}"
         return False, report
 
-    if row_count < source_config.min_rows or row_count > source_config.max_rows:
+    if (
+        row_count < source_config.min_rows
+        or row_count > source_config.max_rows
+    ):
         report["reason"] = "invalid row count"
         return False, report
 
@@ -132,14 +148,17 @@ def quality_gate_generic(extracted_batches, source_config):
 
     validated_batches = []
 
-    rejected_folder = Path("data/rejected")
+    rejected_folder = PROJECT_ROOT / "data" / "rejected"
     rejected_folder.mkdir(parents=True, exist_ok=True)
 
-    manual_review_folder = Path("data/needs_manual_review")
+    manual_review_folder = (
+        PROJECT_ROOT / "data" / "needs_manual_review"
+    )
     manual_review_folder.mkdir(parents=True, exist_ok=True)
 
     required_cols = [
-        col for col, rule in source_config.columns.items()
+        col
+        for col, rule in source_config.columns.items()
         if rule.get("required")
     ]
 
@@ -148,7 +167,11 @@ def quality_gate_generic(extracted_batches, source_config):
         file_path = batch["file_path"]
         df = batch["data"].copy()
 
-        passed, report = check_batch_generic(df, file_path.name, source_config)
+        passed, report = check_batch_generic(
+            df,
+            file_path.name,
+            source_config
+        )
 
         if not passed:
 
@@ -156,7 +179,10 @@ def quality_gate_generic(extracted_batches, source_config):
 
             if failure_count >= dead_letter.DEAD_LETTER_THRESHOLD:
 
-                shutil.move(str(file_path), manual_review_folder / file_path.name)
+                shutil.move(
+                    str(file_path),
+                    manual_review_folder / file_path.name
+                )
 
                 logger.error(
                     f"{file_path.name} failed quality gate "
@@ -178,7 +204,10 @@ def quality_gate_generic(extracted_batches, source_config):
 
             else:
 
-                shutil.move(str(file_path), rejected_folder / file_path.name)
+                shutil.move(
+                    str(file_path),
+                    rejected_folder / file_path.name
+                )
 
                 logger.warning(
                     f"{file_path.name} rejected ({report['reason']}), "

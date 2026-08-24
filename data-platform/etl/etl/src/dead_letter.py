@@ -11,7 +11,8 @@ is persisted to a small local JSON file rather than kept in memory.
 import json
 from pathlib import Path
 
-COUNTS_FILE = Path("data/.quality_failure_counts.json")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+COUNTS_FILE = PROJECT_ROOT / "data" / ".quality_failure_counts.json"
 
 DEAD_LETTER_THRESHOLD = 3
 

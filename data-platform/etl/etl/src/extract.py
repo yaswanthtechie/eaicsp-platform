@@ -5,6 +5,14 @@ from alert_service import write_alert
 from logging_config import logger
 
 
+# ---------------------------------------------------------------------------
+# Project-root path
+# ---------------------------------------------------------------------------
+# Airflow tasks may run with a different current working directory.
+# Resolve relative data paths from the project root instead.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
 def extract_data(
     last_processed_date=None,
     from_date=None,
@@ -14,6 +22,9 @@ def extract_data(
 ):
 
     batch_folder = Path(source_path)
+
+    if not batch_folder.is_absolute():
+        batch_folder = PROJECT_ROOT / batch_folder
 
     csv_files = sorted(batch_folder.glob("*.csv"))
 
@@ -29,10 +40,8 @@ def extract_data(
 
             df[date_column] = pd.to_datetime(df[date_column])
 
-
             if last_processed_date is not None:
                 df = df[df[date_column].dt.date >= last_processed_date]
-
 
             if from_date is not None and to_date is not None:
                 df = df[
