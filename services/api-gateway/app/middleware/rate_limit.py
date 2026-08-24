@@ -219,6 +219,12 @@ class PerUserRoleRateLimitMiddleware(BaseHTTPMiddleware):
                 },
             )
 
+        # Coordinate with SlowAPI: mark rate limiting complete for authenticated users
+        # so SlowAPI's default IP limiter does not throttle legitimate authenticated users
+        # (e.g. CEO/VP at 200 req/min) before their role quota is reached.
+        if user_id or role:
+            request.state._rate_limiting_complete = True
+
         response = await call_next(request)
         response.headers["X-RateLimit-Limit"] = str(limit_val)
         response.headers["X-RateLimit-Remaining"] = str(remaining_val)

@@ -61,6 +61,18 @@ def run_server(server: uvicorn.Server):
         loop.close()
 
 
+import socket
+
+from app.core.config import settings
+
+
+def find_free_port() -> int:
+    """Find an available ephemeral port on localhost."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
 # ----------------------------------------------------
 # Test Fixture
 # ----------------------------------------------------
@@ -68,14 +80,20 @@ def run_server(server: uvicorn.Server):
 @pytest.fixture(scope="module", autouse=True)
 def setup_dummy_services():
     """
-    Start dummy downstream services.
+    Start dummy downstream services on isolated ephemeral ports.
     """
+    inv_port = find_free_port()
+    ship_port = find_free_port()
+
+    original_routes = dict(settings.SERVICE_ROUTES)
+    settings.SERVICE_ROUTES["/api/v1/inventory"] = f"http://127.0.0.1:{inv_port}"
+    settings.SERVICE_ROUTES["/api/v1/shipments"] = f"http://127.0.0.1:{ship_port}"
 
     inventory_server = UvicornTestServer(
         config=uvicorn.Config(
             dummy_inventory,
             host="127.0.0.1",
-            port=8001,
+            port=inv_port,
             log_level="critical",
         )
     )
@@ -84,7 +102,7 @@ def setup_dummy_services():
         config=uvicorn.Config(
             dummy_shipments,
             host="127.0.0.1",
-            port=8002,
+            port=ship_port,
             log_level="critical",
         )
     )
@@ -107,13 +125,17 @@ def setup_dummy_services():
     # Give servers time to start
     time.sleep(1)
 
-    yield
+    try:
+        yield
+    finally:
+        inventory_server.should_exit = True
+        shipments_server.should_exit = True
 
-    inventory_server.should_exit = True
-    shipments_server.should_exit = True
+        inventory_thread.join(timeout=2)
+        shipments_thread.join(timeout=2)
 
-    inventory_thread.join(timeout=2)
-    shipments_thread.join(timeout=2)
+        settings.SERVICE_ROUTES.clear()
+        settings.SERVICE_ROUTES.update(original_routes)
 
 
 # ----------------------------------------------------

@@ -28,7 +28,7 @@ async def _ping_service(
     key = service_name.lower().replace(" ", "-")
     try:
         response = await client.get(f"{base_url}/health", timeout=3.0)
-        if response.status_code < 500:
+        if 200 <= response.status_code < 300:
             return key, "UP"
 
         logger.warning(

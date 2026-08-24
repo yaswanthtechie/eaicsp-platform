@@ -584,3 +584,80 @@ def test_24_extract_jwt_identity_all_cases():
         })
         assert extract_jwt_identity(req_sub_roles) == ("sub_user_42", "procurement_manager")
 
+
+def test_25_ceo_can_use_full_200_quota_without_slowapi_ip_blocking(client):
+    """
+    Regression Test:
+    Ensures that an authenticated CEO user can send >100 requests (e.g. 150 requests)
+    and successfully receive all 200 requests within the window without being blocked
+    by SlowAPI's default IP limiter at request 101.
+    """
+    token = create_token(user_id="exec_ceo_99", role="ceo")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    for i in range(1, 201):
+        resp = client.get("/", headers=headers)
+        assert resp.status_code == 200, f"Request {i} failed with status {resp.status_code}"
+        assert resp.headers["X-RateLimit-Limit"] == "200"
+
+    # Request 201 exceeds CEO's 200 quota
+    resp_over = client.get("/", headers=headers)
+    assert resp_over.status_code == 429
+    assert resp_over.headers["X-RateLimit-Remaining"] == "0"
+
+
+def test_26_vp_operations_can_use_full_200_quota(client):
+    """
+    Regression Test:
+    Ensures that an authenticated VP Operations user can utilize their full 200 quota.
+    """
+    token = create_token(user_id="exec_vp_99", role="vp_operations")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    for i in range(1, 201):
+        resp = client.get("/", headers=headers)
+        assert resp.status_code == 200, f"Request {i} failed with status {resp.status_code}"
+        assert resp.headers["X-RateLimit-Limit"] == "200"
+
+    # Request 201 exceeds VP's 200 quota
+    resp_over = client.get("/", headers=headers)
+    assert resp_over.status_code == 429
+
+
+def test_27_anonymous_remains_strictly_limited_to_default_quota(client):
+    """
+    Regression Test:
+    Ensures anonymous requests are restricted to the default 60 req/min quota.
+    """
+    for i in range(1, 61):
+        resp = client.get("/")
+        assert resp.status_code == 200, f"Request {i} failed with status {resp.status_code}"
+        assert resp.headers["X-RateLimit-Limit"] == "60"
+
+    # Request 61 must be rejected
+    resp_over = client.get("/")
+    assert resp_over.status_code == 429
+
+
+def test_28_invalid_jwt_limited_to_default_and_never_granted_privileged_quota(client):
+    """
+    Regression Test:
+    Ensures forged/invalid tokens signed with wrong secret are rejected,
+    limited to 60 req/min, and never receive the 200/min privileged quota.
+    """
+    fake_token = jwt.encode(
+        {"sub": "attacker", "user_id": "hacker_1", "role": "ceo"},
+        "wrong-secret-key-that-does-not-match-gateway",
+        algorithm="HS256",
+    )
+    headers = {"Authorization": f"Bearer {fake_token}"}
+
+    for i in range(1, 61):
+        resp = client.get("/", headers=headers)
+        assert resp.status_code == 200
+        assert resp.headers["X-RateLimit-Limit"] == "60"
+        assert resp.headers["X-RateLimit-Limit"] != "200"
+
+    # Request 61 must be blocked
+    resp_over = client.get("/", headers=headers)
+    assert resp_over.status_code == 429

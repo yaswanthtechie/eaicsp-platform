@@ -231,8 +231,8 @@ all known downstream services.
 `GET /health` pings all configured downstream services concurrently
 (`asyncio.gather`) by calling `<base_url>/health` with a 3-second timeout.
 
-- HTTP status < 500 -> `"UP"`
-- HTTP status >= 500 or any network/timeout error -> `"DOWN"`
+- HTTP status 2xx (200-299) -> `"UP"`
+- HTTP status 4xx, 5xx, or any network/timeout error -> `"DOWN"`
 - All checks run in parallel; a single service failure does not affect others.
 
 ### Structured Logging and Request IDs
