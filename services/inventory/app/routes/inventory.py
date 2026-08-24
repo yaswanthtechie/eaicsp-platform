@@ -33,6 +33,7 @@ from app.services.inventory_service import (
     bulk_update_inventory,
     what_if_simulation,
     inventory_response,
+    InventoryOperationError,
 )
 
 
@@ -53,18 +54,27 @@ def create_inventory_route(
     db: Session = Depends(get_db),
 ):
 
-    result = create_inventory(
-        db,
-        inventory
-    )
-
-    if result is None:
-        raise HTTPException(
-            status_code=409,
-            detail="SKU already exists in warehouse",
+    try:
+        result = create_inventory(
+            db,
+            inventory
         )
 
-    return result
+        return result
+
+    except InventoryOperationError as exc:
+        # Inventory already exists — conflict
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        )
+
+    except ValueError as exc:
+        # Validation / domain errors
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        )
 
 
 
