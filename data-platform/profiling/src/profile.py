@@ -2,6 +2,8 @@ import pandas as pd
 from pathlib import Path
 from src.outliers import find_outliers
 from src.compare import compare
+from src.trend import generate_null_rate_trend
+from src.anomaly import analyze_anomaly_correlation
 
 import re
 
@@ -66,12 +68,23 @@ def build_column_summary(df):
         null_count = df[col].isnull().sum()
         unique_count = df[col].nunique()
 
-        if pd.api.types.is_numeric_dtype(df[col]):
-            role = "Measure"
-        elif col.lower() == "id" or col.lower().endswith("_id"):
+        if col.lower() == "id":
             role = "ID"
+
+        elif col.lower().endswith("_id"):
+            unique_ratio = unique_count / len(df) if len(df) > 0 else 0
+
+            if unique_ratio >= 0.95:
+                role = "ID"
+            else:
+                role = "Foreign Key"
+
+        elif pd.api.types.is_numeric_dtype(df[col]):
+            role = "Measure"
+
         elif unique_count <= 50:
             role = "Category"
+
         else:
             role = "Text"
 
@@ -283,7 +296,8 @@ def profile(df):
         "pii_detection":[],
         "quality_score":{},
         "worst_issues":[],
-        "top_correlations":[],
+        "top_correlations": [],
+        "anomaly_correlation": {},
         "sparklines": {}
     }
 
@@ -338,6 +352,12 @@ def profile(df):
             "upper_limit": result["upper_limit"],
             "outlier_count": result["outlier_count"]
         }
+
+    # Anomaly Correlation
+    report["anomaly_correlation"] = analyze_anomaly_correlation(
+        df,
+        outlier_column="quantity_sold"
+    )
     # Data Quality Score
     report["quality_score"] = calculate_quality_score(df, report)
     report["worst_issues"] = find_worst_issues(df, report)
@@ -376,7 +396,10 @@ def generate_html(report=None, drift_report=None, report_path=None):
 
 
 
-
+    # Generate historical trend chart
+    trend_chart = generate_null_rate_trend(
+        column_name="quantity_sold"
+    )
 
     with open(report_path, "w", encoding="utf-8") as file:
         file.write(f"""
@@ -630,6 +653,52 @@ h1 {{
 </table>
 """)
 
+        # ANOMALY CORRELATION
+        anomaly = report.get("anomaly_correlation", {})
+
+        if anomaly.get("findings"):
+            file.write("""
+<h2>Anomaly Correlation</h2>
+
+<p><b>Outlier Column:</b> {}</p>
+<p><b>Outlier Rows:</b> {}</p>
+
+<table>
+<tr>
+<th>Related Column</th>
+<th>Issue</th>
+<th>Outlier Row Rate</th>
+<th>Normal Row Rate</th>
+<th>Likelihood</th>
+</tr>
+""".format(
+                anomaly["column"],
+                anomaly["outlier_rows"]
+            ))
+
+            for finding in anomaly["findings"]:
+                likelihood = finding["likelihood"]
+
+                likelihood_text = (
+                    f"{likelihood}x"
+                    if likelihood is not None
+                    else "N/A"
+                )
+
+                file.write(f"""
+<tr>
+<td>{finding['column']}</td>
+<td>{finding['issue']}</td>
+<td>{finding['outlier_row_rate']}%</td>
+<td>{finding['normal_row_rate']}%</td>
+<td>{likelihood_text}</td>
+</tr>
+""")
+
+            file.write("""
+</table>
+""")
+
 
         if drift_report is not None:
             file.write("""
@@ -785,7 +854,16 @@ h1 {{
         file.write("""
 </table>
 """)
+                # HISTORICAL NULL RATE TREND
+        if trend_chart is not None:
+            file.write(f"""
+<h2>Historical Null Rate Trend</h2>
 
+<p><b>Column:</b> quantity_sold</p>
+
+<img src="{Path(trend_chart).name}" alt="Quantity Sold Null Rate Trend"
+     style="max-width: 800px;">
+""")
 
 
 
