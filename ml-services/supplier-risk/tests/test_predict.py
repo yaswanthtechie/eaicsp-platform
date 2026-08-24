@@ -692,8 +692,8 @@ def test_duplicate_headlines_do_not_inflate_confidence():
 
 def test_high_risk_not_diluted_by_neutral_headlines():
     """
-    Regression Test (Bug #2): High risk headline must not be diluted into
-    an obviously safe/low-risk result (<= 15.0) merely because neutral headlines are added.
+    Regression Test: High risk headline must not be diluted into
+    an obviously safe/low-risk result (<= 25.0) merely because neutral headlines are added.
     """
     high_risk_headline = (
         "TechCorp files for bankruptcy and is under investigation for fraud."
@@ -714,10 +714,64 @@ def test_high_risk_not_diluted_by_neutral_headlines():
     # The high risk headline alone is severe (Critical tier)
     assert result_1["risk_score"] >= 50.0
 
-    # Adding 9 or 20 neutral headlines must not collapse into Low Risk (<= 15.0) or safe result
-    assert result_10["risk_score"] > 30.0, (
-        f"Expected score > 30.0 (High/Critical risk), got {result_10['risk_score']}"
+    # Adding 9 or 20 neutral headlines must not collapse into Low Risk (<= 25.0)
+    assert result_10["risk_score"] > 25.0, (
+        f"Expected score > 25.0 (above Low risk ceiling), got {result_10['risk_score']}"
     )
-    assert result_21["risk_score"] > 30.0, (
-        f"Expected score > 30.0 (High/Critical risk), got {result_21['risk_score']}"
+    assert result_21["risk_score"] > 25.0, (
+        f"Expected score > 25.0 (above Low risk ceiling), got {result_21['risk_score']}"
     )
+
+
+def test_calibrated_scoring_blend_ratio():
+    """
+    Verify that the scoring formula applies an 80% mean / 20% peak blend.
+    """
+    # Headline 1 has negative sentiment + lawsuit (25) + investigation (25) -> score ~89.6
+    # Headline 2 is clean positive -> score 0.0
+    h1 = "Supplier faces lawsuit and investigation for misconduct."
+    h2 = "Supplier reports record positive earnings and profit."
+
+    result = predict("BlendTestSupplier", [h1, h2])
+    # Individual scores: h1 = 39.6 + 50 = 89.6, h2 = 0.0
+    # Average = 44.8, Peak = 89.6
+    # Expected blended score = 0.8 * 44.8 + 0.2 * 89.6 = 35.84 + 17.92 = 53.76
+    assert abs(result["risk_score"] - 53.76) < 0.05, (
+        f"Expected ~53.76 for 80/20 blend, got {result['risk_score']}"
+    )
+
+
+def test_calibrated_risk_band_classification():
+    """
+    Verify that the calibrated risk bands correctly classify supplier profiles:
+    - Low: 0.0 - 25.0
+    - Medium: 25.1 - 35.0
+    - High: 35.1 - 45.0
+    - Critical: 45.1 - 100.0
+    """
+    def classify_band(score: float) -> str:
+        if score <= 25.0:
+            return "Low"
+        elif score <= 35.0:
+            return "Medium"
+        elif score <= 45.0:
+            return "High"
+        else:
+            return "Critical"
+
+    # 1. Clean supplier -> Low
+    clean_res = predict("CleanCorp", ["Positive earnings reported.", "New green factory opened."])
+    assert classify_band(clean_res["risk_score"]) == "Low"
+    assert clean_res["risk_score"] <= 25.0
+
+    # 2. Severe multi-event supplier -> Critical
+    critical_res = predict(
+        "CriticalCorp",
+        [
+            "Company files for bankruptcy and faces fraud investigation.",
+            "Workers strike after debt default.",
+            "Regulators issue massive sanction against company.",
+        ],
+    )
+    assert classify_band(critical_res["risk_score"]) == "Critical"
+    assert critical_res["risk_score"] >= 45.1

@@ -190,7 +190,7 @@ def predict(
     )
 
     blended_score = (
-        0.5 * average_score + 0.5 * peak_score
+        0.8 * average_score + 0.2 * peak_score
     )
 
     final_risk_score = min(
