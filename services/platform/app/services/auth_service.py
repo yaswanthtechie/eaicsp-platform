@@ -2,7 +2,6 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
-from app.services.audit_service import create_audit_log
 from app.core.password_validator import validate_password
 from app.core.security import (
     create_access_token,
@@ -10,13 +9,12 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-
-from app.core.security import hash_password
 from app.models.users import User
 import secrets
 from app.models.password_reset_tokens import PasswordResetToken
 from app.models.refresh_token import RefreshToken
 from app.schemas.auth import RegisterRequest
+from app.services.email_service import MockEmailService
 from app.models.failed_login_attempts import FailedLoginAttempt
 
 from app.services.audit_service import (
@@ -47,7 +45,8 @@ def save_refresh_token(
     )
 
     db.add(refresh)
-    db.commit()
+
+    return refresh
 
 
 def get_refresh_token(
@@ -82,7 +81,6 @@ def revoke_refresh_token(
         return False
 
     refresh.is_revoked = True
-    db.commit()
 
     return True
    
@@ -94,16 +92,15 @@ def revoke_refresh_token(
 def log_failed_login(
     db: Session,
     email: str,
-    ip_address: str
+    ip_address: str,
 ):
-    db.add(
-        FailedLoginAttempt(
-            email=email,
-            ip_address=ip_address,
-            attempted_at=datetime.now(timezone.utc),
-        )
+    failed_attempt = FailedLoginAttempt(
+        email=email.lower(),
+        ip_address=ip_address,
+        attempted_at=datetime.now(timezone.utc),
     )
 
+    db.add(failed_attempt)
     db.commit()
 
 
@@ -358,6 +355,20 @@ def login_user(
         details="Login Successful"
     )
     db.commit()
+
+    
+    # --------------------------------------------------------
+    # Clear previous failed login attempts
+    # --------------------------------------------------------
+
+    db.query(FailedLoginAttempt).filter(
+        FailedLoginAttempt.email == username,
+        FailedLoginAttempt.ip_address == client_ip,
+    ).delete(
+        synchronize_session=False,
+    )
+
+    db.commit()
     
     return {
         "access_token": access_token,
@@ -380,6 +391,21 @@ def request_password_reset(
     if user is None:
         return
 
+    
+    # --------------------------------------------------------
+    # Invalidate all previous unused reset tokens.
+    # --------------------------------------------------------
+
+    db.query(PasswordResetToken).filter(
+        PasswordResetToken.user_id == user.id,
+        PasswordResetToken.used.is_(False),
+    ).update(
+        {
+            PasswordResetToken.used: True,
+        },
+        synchronize_session=False,
+    )
+
     token = secrets.token_urlsafe(32)
 
     expires_at = (
@@ -398,10 +424,11 @@ def request_password_reset(
 
     db.commit()
 
-    print(
-        f"[MOCK EMAIL] Password reset token "
-        f"for {user.email}: {token}"
-    )
+
+    MockEmailService.send_password_reset_email(
+    email=user.email,
+    reset_token=token,
+)
 
 
 def reset_password(
@@ -428,15 +455,6 @@ def reset_password(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Password reset token already used",
         )
-
-    '''now = datetime.now(timezone.utc)
-
-    if reset_token.expires_at <= now:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Password reset token expired",
-        )'''
-
     now = datetime.utcnow()
 
     if reset_token.expires_at <= now:
@@ -480,4 +498,3 @@ def reset_password(
         details="Password reset completed",
     )
     db.commit()
-

@@ -1,371 +1,3 @@
-
-
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-
-from app.database import get_db
-
-from app.models.users import User
-from app.models.roles import Role as RoleModel
-from app.models.role_change_history import RoleChangeHistory
-
-from app.schemas.user import (
-    AdminCreateUserRequest,
-    ForceResetPasswordRequest,
-    RoleChangeHistoryResponse,
-    RoleChangeRequest,
-    UserResponse,
-)
-
-from app.core.dependencies import require_any_role
-from app.core.password_validator import validate_password
-from app.core.security import hash_password
-
-
-router = APIRouter(
-    prefix="/api/v1/admin",
-    tags=["Admin"]
-)
-
-
-# ============================================================
-# LIST USERS
-# ============================================================
-
-@router.get(
-    "/users",
-    response_model=list[UserResponse]
-)
-def list_users(
-    db: Session = Depends(get_db),
-    current_user=Depends(
-        require_any_role("ceo", "vp_operations")
-    )
-):
-    users = (
-        db.query(User)
-        .order_by(User.id)
-        .all()
-    )
-
-    return [
-        {
-            "user_id": user.id,
-            "email": user.email,
-            "full_name": user.full_name,
-            "role": user.role.name if user.role else None,
-            "is_active": user.is_active,
-        }
-        for user in users
-    ]
-
-
-# ============================================================
-# CREATE USER
-# ============================================================
-
-@router.post(
-    "/users",
-    response_model=UserResponse,
-    status_code=status.HTTP_201_CREATED
-)
-def create_user(
-    request: AdminCreateUserRequest,
-    db: Session = Depends(get_db),
-    current_user=Depends(
-        require_any_role("ceo", "vp_operations")
-    )
-):
-    email = request.email.lower()
-
-    existing = (
-        db.query(User)
-        .filter(User.email == email)
-        .first()
-    )
-
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User already exists"
-        )
-
-    # Password policy must be enforced
-    # before hashing.
-    validate_password(request.password)
-
-    role_id = None
-    role_name = None
-
-    if request.role is not None:
-
-        role = (
-            db.query(RoleModel)
-            .filter(
-                RoleModel.name == request.role.value
-            )
-            .first()
-        )
-
-        if role is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid role"
-            )
-
-        role_id = role.id
-        role_name = role.name
-
-    user = User(
-        email=email,
-        full_name=request.full_name,
-        password=hash_password(request.password),
-        role_id=role_id,
-        is_active=True,
-    )
-
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-
-    # If the admin created the user with a role,
-    # record that assignment.
-    if role_name is not None:
-
-        history = RoleChangeHistory(
-            user_id=user.id,
-            old_role=None,
-            new_role=role_name,
-            changed_by=current_user.id,
-        )
-
-        db.add(history)
-        db.commit()
-
-    return {
-        "user_id": user.id,
-        "email": user.email,
-        "full_name": user.full_name,
-        "role": user.role.name if user.role else None,
-        "is_active": user.is_active,
-    }
-
-
-# ============================================================
-# DEACTIVATE USER
-# ============================================================
-
-@router.patch(
-    "/users/{user_id}/deactivate",
-    response_model=UserResponse
-)
-def deactivate_user(
-    user_id: int,
-    db: Session = Depends(get_db),
-    current_user=Depends(
-        require_any_role("ceo", "vp_operations")
-    )
-):
-    user = (
-        db.query(User)
-        .filter(User.id == user_id)
-        .first()
-    )
-
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-
-    # Prevent an admin from accidentally
-    # deactivating their own account.
-    if user.id == current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="You cannot deactivate your own account"
-        )
-
-    user.is_active = False
-
-    db.commit()
-    db.refresh(user)
-
-    return {
-        "user_id": user.id,
-        "email": user.email,
-        "full_name": user.full_name,
-        "role": user.role.name if user.role else None,
-        "is_active": user.is_active,
-    }
-
-
-# ============================================================
-# CHANGE / ASSIGN ROLE
-# ============================================================
-
-@router.patch(
-    "/users/{user_id}/role",
-    response_model=UserResponse
-)
-def change_user_role(
-    user_id: int,
-    request: RoleChangeRequest,
-    db: Session = Depends(get_db),
-    current_user=Depends(
-        require_any_role("ceo", "vp_operations")
-    )
-):
-    user = (
-        db.query(User)
-        .filter(User.id == user_id)
-        .first()
-    )
-
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-
-    new_role = (
-        db.query(RoleModel)
-        .filter(
-            RoleModel.name == request.role.value
-        )
-        .first()
-    )
-
-    if new_role is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid role"
-        )
-
-    old_role = (
-        user.role.name
-        if user.role
-        else None
-    )
-
-    if old_role == new_role.name:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User already has this role"
-        )
-
-    user.role_id = new_role.id
-
-    history = RoleChangeHistory(
-        user_id=user.id,
-        old_role=old_role,
-        new_role=new_role.name,
-        changed_by=current_user.id,
-    )
-
-    db.add(history)
-    db.commit()
-    db.refresh(user)
-
-    return {
-        "user_id": user.id,
-        "email": user.email,
-        "full_name": user.full_name,
-        "role": user.role.name if user.role else None,
-        "is_active": user.is_active,
-    }
-
-
-# ============================================================
-# ROLE CHANGE HISTORY
-# ============================================================
-
-@router.get(
-    "/users/{user_id}/role-history",
-    response_model=list[RoleChangeHistoryResponse]
-)
-def role_change_history(
-    user_id: int,
-    db: Session = Depends(get_db),
-    current_user=Depends(
-        require_any_role("ceo", "vp_operations")
-    )
-):
-    user = (
-        db.query(User)
-        .filter(User.id == user_id)
-        .first()
-    )
-
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-
-    history = (
-        db.query(RoleChangeHistory)
-        .filter(
-            RoleChangeHistory.user_id == user_id
-        )
-        .order_by(
-            RoleChangeHistory.changed_at.desc()
-        )
-        .all()
-    )
-
-    return [
-        {
-            "id": item.id,
-            "user_id": item.user_id,
-            "old_role": item.old_role,
-            "new_role": item.new_role,
-            "changed_by": item.changed_by,
-            "changed_at": item.changed_at.isoformat(),
-        }
-        for item in history
-    ]
-
-
-# ============================================================
-# FORCE RESET PASSWORD
-# ============================================================
-
-@router.post(
-    "/users/{user_id}/force-reset-password"
-)
-def force_reset_password(
-    user_id: int,
-    request: ForceResetPasswordRequest,
-    db: Session = Depends(get_db),
-    current_user=Depends(
-        require_any_role("ceo", "vp_operations")
-    )
-):
-    user = (
-        db.query(User)
-        .filter(User.id == user_id)
-        .first()
-    )
-
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-
-    # Enforce the same password policy
-    # before hashing.
-    validate_password(request.new_password)
-
-    user.password = hash_password(
-        request.new_password
-    )
-
-    db.commit()
-
-    adminroutes
-    
 from fastapi import APIRouter, Depends, HTTPException, status,Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -390,6 +22,7 @@ from app.models.auth_audit_logs import AuthAuditLog
 from app.services.audit_service import (
     create_audit_log,
     TOKEN_REVOKED,
+    ROLE_CHANGED
 )
 from app.models.refresh_token import RefreshToken
 from app.schemas.auth import SessionResponse
@@ -723,7 +356,6 @@ def role_change_history(
 
 
 
-   
 # ============================================================
 # FORCE RESET PASSWORD
 # ============================================================
@@ -756,6 +388,17 @@ def force_reset_password(
         request.new_password
     )
 
+# Revoke all active sessions after force password reset
+    db.query(RefreshToken).filter(
+        RefreshToken.user_id == user.id,
+        RefreshToken.is_revoked.is_(False),
+    ).update(
+    {
+            RefreshToken.is_revoked: True
+    },
+    synchronize_session=False,
+)
+    
     db.commit()
 
     return {
@@ -900,6 +543,4 @@ def get_audit_logs(
         .limit(500)
         .all()
     )
-    return {
-        "message": "Password reset successfully"
-    }
+

@@ -10,7 +10,6 @@ from app.services.auth_service import (
     register_user,
     login_user,
     get_refresh_token,
-    revoke_refresh_token,
     save_refresh_token,
     request_password_reset,
     reset_password
@@ -88,7 +87,7 @@ def login(
         password=form_data.password,
         client_ip=get_client_ip(request)
     )
-
+# ============================================================
 # REFRESH TOKEN
 # ============================================================
 
@@ -218,6 +217,7 @@ def my_permissions(
 def logout(
     body: LogoutRequest,
     db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
     refresh = (
         db.query(RefreshToken)
@@ -230,6 +230,11 @@ def logout(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Refresh token not found",
         )
+    if refresh.user_id != current_user.id:
+        raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Cannot revoke another user's session",
+    )
 
     if refresh.is_revoked:
         raise HTTPException(
@@ -251,9 +256,9 @@ def logout(
     return {
         "message": "Logged out successfully"
     }
-
-
-
+# ============================================================
+# PASSWORD REQUEST
+# ============================================================
 @router.post("/password-reset/request")
 def password_reset_request(
     payload: PasswordResetRequest,
@@ -268,6 +273,9 @@ def password_reset_request(
         "message": "If the account exists, a password reset token has been sent."
     }
 
+# ============================================================
+# PASSWORD CONFIRM
+# ============================================================
 @router.post("/password-reset/reset")
 def password_reset_confirm(
     payload: PasswordResetConfirm,

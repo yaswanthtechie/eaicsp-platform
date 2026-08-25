@@ -141,7 +141,7 @@ The registration flow:
 
 The new user's `role_id` is initially `NULL`.
 
-Therefore, a newly registered user cannot successfully log in until an authorized administrator assigns a role.
+Registration behavior: Self-registration creates the account without a role. The account must be assigned a role by an authorized administrator before the user can log in. Until a role is assigned, login returns 401 User role is not assigned
 
 ---
 
@@ -826,6 +826,14 @@ Run:
 pytest -q
 ```
 
+- Authentication rate limiting
+
+Failed-login attempts are tracked per email/IP within the configured rate-limit window. A successful login clears the recent failed-login counter for that email/IP.
+
+- Self-registration
+
+Self-registration creates the account with no role. Users without an assigned role cannot authenticate. An administrator must assign a role before the account becomes usable for login. This is intentional RBAC behavior.
+
 Implemented tests cover:
 
 * Root endpoint
@@ -847,7 +855,5 @@ Implemented tests cover:
 * Admin user management
 * Per-session management
 * Role hierarchy edge cases
-
-
 
 

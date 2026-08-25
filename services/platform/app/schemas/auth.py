@@ -22,7 +22,7 @@ class RefreshRequest(BaseModel):
 
 class AccessTokenResponse(BaseModel):
     access_token: str
-    refreh_token:str
+    refresh_token:str
     token_type: str
 
 class PasswordResetRequest(BaseModel):
