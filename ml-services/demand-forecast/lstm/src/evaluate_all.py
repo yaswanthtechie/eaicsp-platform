@@ -12,11 +12,13 @@ import torch
 from data import generate_data, get_walk_forward_folds
 from model import MultiStepLSTM
 from evaluate import calculate_metrics, predict_naive_baseline
+from config import EPOCHS, LOOKBACK, HORIZON, HIDDEN_SIZE, LR, NUM_LAYERS, DROPOUT
+
 
 
 def run_full_comparison():
     df = generate_data(days=1000)
-    folds = get_walk_forward_folds(df, n_folds=5, lookback=30, horizon=7)
+    folds = get_walk_forward_folds(df, n_folds=5, lookback=LOOKBACK, horizon=HORIZON)
     results = []
 
     print("\n" + "="*80)
@@ -29,12 +31,16 @@ def run_full_comparison():
         y_tr_t = torch.tensor(y_tr, dtype=torch.float32)
         X_te_t = torch.tensor(X_te, dtype=torch.float32).unsqueeze(-1)
 
-        model = MultiStepLSTM(horizon=7)
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+        model = MultiStepLSTM(horizon=HORIZON
+                            , input_size=1,
+                            hidden_size=HIDDEN_SIZE,
+                            num_layers=NUM_LAYERS,
+                            dropout=DROPOUT)
+        optimizer = torch.optim.Adam(model.parameters(), lr=LR)
         criterion = torch.nn.MSELoss()
 
         model.train()
-        for _ in range(25):
+        for _ in range(EPOCHS):
             optimizer.zero_grad()
             out = model(X_tr_t)
             loss = criterion(out, y_tr_t)

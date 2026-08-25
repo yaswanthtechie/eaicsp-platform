@@ -1,14 +1,18 @@
 import os
 
-# Base directory of the repository root
+# Base directory
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
 
-# File Paths (Absolute)
+# File Paths
 MODEL_PATH = os.path.join(OUTPUT_DIR, "best_model.pt")
 SCALER_PATH = os.path.join(OUTPUT_DIR, "scaler.pkl")
+LOSS_CURVE_PATH = os.path.join(OUTPUT_DIR, "loss_curve.png")
 
-# Hyperparameters
+# Reproducibility
+RANDOM_SEED = 42
+
+# Winning Model Hyperparameters
 LOOKBACK = 45
 HORIZON = 7
 HIDDEN_SIZE = 64

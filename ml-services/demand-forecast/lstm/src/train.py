@@ -16,7 +16,7 @@ import mlflow
 from data import generate_data, get_walk_forward_folds
 from model import MultiStepLSTM
 from evaluate import calculate_metrics, predict_naive_baseline
-from config import LOOKBACK, HORIZON, HIDDEN_SIZE, NUM_LAYERS, DROPOUT, LR, EPOCHS, BATCH_SIZE
+from config import LOOKBACK, HORIZON, HIDDEN_SIZE, NUM_LAYERS, DROPOUT, LR, EPOCHS, BATCH_SIZE,SCALER_PATH
 
 torch.manual_seed(42)  # For reproducibility
 
@@ -26,7 +26,7 @@ def train_and_evaluate():
     mlflow.set_experiment("Demand-Forecast-LSTM-WalkForward")
 
     df = generate_data(days=1000)
-    folds = get_walk_forward_folds(df, n_folds=5, lookback=LOOKBACK, horizon=HORIZON)
+    folds = get_walk_forward_folds(df, n_folds=5, lookback=LOOKBACK, horizon=HORIZON, save_scaler_path=SCALER_PATH)
 
     lstm_fold_metrics = []
     naive_fold_metrics = []
