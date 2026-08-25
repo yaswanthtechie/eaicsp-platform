@@ -333,14 +333,13 @@ def role_change_history(
 
     history = (
         db.query(RoleChangeHistory)
-        .filter(
-            RoleChangeHistory.user_id == user_id
-        )
+        .filter(RoleChangeHistory.user_id == user_id)
         .order_by(
-            RoleChangeHistory.changed_at.desc()
-        )
-        .all()
+            RoleChangeHistory.changed_at.desc(),
+            RoleChangeHistory.id.desc(),
     )
+    .all()
+)
 
     return [
         {

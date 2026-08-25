@@ -141,7 +141,12 @@ The registration flow:
 
 The new user's `role_id` is initially `NULL`.
 
+- Known limitation:
 Registration behavior: Self-registration creates the account without a role. The account must be assigned a role by an authorized administrator before the user can log in. Until a role is assigned, login returns 401 User role is not assigned
+
+Because this lock only protects threads inside the same Python process
+
+- Known limitation: Login rate limiting currently uses an in-process threading.Lock, which is sufficient for the service's current single-process deployment. If the service is later deployed with multiple Uvicorn/Gunicorn workers or multiple replicas, the lock will not coordinate requests between processes. A database-level atomic counter or Redis-based INCR should then be used for distributed rate limiting.
 
 ---
 

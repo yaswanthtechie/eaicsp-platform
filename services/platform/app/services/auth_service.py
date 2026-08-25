@@ -16,7 +16,8 @@ from app.models.refresh_token import RefreshToken
 from app.schemas.auth import RegisterRequest
 from app.services.email_service import MockEmailService
 from app.models.failed_login_attempts import FailedLoginAttempt
-
+import threading
+from collections import defaultdict
 from app.services.audit_service import (
     LOGIN_SUCCESS,
     LOGIN_FAILED ,
@@ -166,6 +167,15 @@ def check_login_rate_limit(
             detail="Too many login attempts. Try again after 15 minutes.",
         )
 
+# module-level, one lock per (email, ip) bucket
+_rate_limit_locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
+_rate_limit_locks_guard = threading.Lock()
+
+def _get_bucket_lock(email: str, client_ip: str) -> threading.Lock:
+    key = f"{email}:{client_ip}"
+    with _rate_limit_locks_guard:
+        return _rate_limit_locks[key]
+
 # ============================================================
 # REGISTER
 # ============================================================
@@ -249,17 +259,42 @@ def login_user(
 ):
     username = username.lower()
 
-    check_login_rate_limit(
-        db=db,
-        email=username,
-        client_ip=client_ip,
-    )
+    lock = _get_bucket_lock(username, client_ip)
 
-    user= login(
-        db=db,
-        username=username,
-        password=password,
-    )
+    with lock:
+        check_login_rate_limit(
+            db=db,
+            email=username,
+            client_ip=client_ip,
+        )
+
+        user = login(
+            db=db,
+            username=username,
+            password=password,
+        )
+
+        if not user:
+            log_failed_login(
+                db=db,
+                email=username,
+                ip_address=client_ip,
+            )
+
+            create_audit_log(
+                db=db,
+                event_type=LOGIN_FAILED,
+                email=username,
+                ip_address=client_ip,
+                details="Invalid credentials",
+            )
+
+            db.commit()
+
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials",
+            )
    
     # --------------------------------------------------------
     # Wrong username OR wrong password
