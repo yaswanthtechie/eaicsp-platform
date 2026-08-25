@@ -20,6 +20,14 @@ Platform Service handles authentication and authorization for the Supply Chain M
 * Password policy validation
 * BCrypt password hashing
 * Database-backed users and roles
+* Admin user management
+* User activation/deactivation
+* Role assignment and role-change history
+* Per-session management
+* Session revocation
+* Admin force password reset
+* Authentication audit logging
+* Password reset flow with single-use expiring tokens
 ---
 ## Tech Stack
 
@@ -47,18 +55,25 @@ app/
 ├── schemas/
 │   ├── auth.py
 │   └── user.py
+│   └── admin.py
 ├── services/
 │   └── auth_service.py
+│   └── audit_service.py
+│   └── email_service.py
 ├── core/
 │   ├── config.py
 │   ├── security.py
 │   └── dependencies.py
 │   └── password_validator.py
 └── models/
+│   ├── auth_audit_logs.py
+│   ├── password_reset_tokens.py
 │   ├── failed_login_attempts.py
 │   ├── refresh_token.py
 │   ├── roles.py
 │   ├── users.py
+│   ├── role_change_history.py
+
 ```
 
 ## Roles
@@ -90,6 +105,7 @@ Current Tables
 * roles
 * refresh_token
 * failed_login_attempts
+* role_change_history
 
 ---
 Users and roles are stored in the database.
@@ -125,7 +141,12 @@ The registration flow:
 
 The new user's `role_id` is initially `NULL`.
 
-Therefore, a newly registered user cannot successfully log in until an authorized administrator assigns a role.
+- Known limitation:
+Registration behavior: Self-registration creates the account without a role. The account must be assigned a role by an authorized administrator before the user can log in. Until a role is assigned, login returns 401 User role is not assigned
+
+Because this lock only protects threads inside the same Python process
+
+- Known limitation: Login rate limiting currently uses an in-process threading.Lock, which is sufficient for the service's current single-process deployment. If the service is later deployed with multiple Uvicorn/Gunicorn workers or multiple replicas, the lock will not coordinate requests between processes. A database-level atomic counter or Redis-based INCR should then be used for distributed rate limiting.
 
 ---
 
@@ -268,6 +289,12 @@ Store hashed password
 The same password validator can be reused for future password reset functionality.
 
 ---
+# Force reseting a password 
+```
+POST /api/v1/admin/users/{user_id}/force-reset-password
+
+```
+Changing password as requirement which meants the password policy.
 
 # Login Rate Limiting
 
@@ -333,6 +360,250 @@ Returns the effective permissions for the logged-in user based on the user's rol
 
 ---
 
+# Admin User Management
+
+Administrative user management is available under:
+```
+/api/v1/admin
+```
+The following operations are implemented.
+# List Users
+```
+GET /api/v1/admin/users
+```
+
+Authorized roles:
+* ceo
+* vp_operations
+Returns users stored in the database.
+# Create User
+```
+POST /api/v1/admin/users
+```
+
+Example request:
+```json
+{
+    "email": "r4testuser@company.com",
+    "full_name": "R4 Test User",
+    "password": "TestUser@12345",
+    "role": "analyst"
+}
+```
+The administrator:
+* Checks whether the user already exists.
+* Validates the password.
+* Looks up the requested role.
+* Hashes the password.
+* Creates the user.
+* Assigns the role.
+* Records the initial role assignment in role-change history.
+
+# Deactivate User
+```
+PATCH /api/v1/admin/users/{user_id}/deactivate
+```
+
+Authorized roles:
+* ceo
+8 vp_operations
+A user can be deactivated by an authorized administrator.
+An administrator cannot deactivate their own account.
+# Change User Role
+```
+PATCH /api/v1/admin/users/{user_id}/role
+```
+
+Example request:
+```json
+{
+    "role": "analyst"
+}
+```
+
+* Role changes:
+- Update the user's role.
+- Record the previous role.
+- Record the new role.
+- Record the administrator who made the change.
+- Create an authentication audit log.
+# Role Change History
+```
+GET /api/v1/admin/users/{user_id}/role-history
+```
+
+Returns the role-change history for a user.
+Each history record contains:
+- History ID
+- User ID
+- Previous role
+- New role
+User who made the change
+Timestamp
+# Force Reset Password
+```
+POST /api/v1/admin/users/{user_id}/force-reset-password
+```
+
+Example request:
+``` json
+{
+    "new_password": "NewPassword@12345"
+}
+```
+
+The new password is validated against the password policy before hashing.
+Only authorized administrators can perform this operation.
+# Per-Session Management
+Refresh tokens represent individual user sessions and are stored in the database.
+* List Active Sessions
+```
+GET /api/v1/admin/users/{user_id}/sessions
+```
+
+Authorized roles:
+* ceo
+* vp_operations
+The endpoint returns active sessions with:
+- Session ID
+- User ID
+- Created timestamp
+- Expiration timestamp
+- Revocation status
+- Refresh tokens themselves are not exposed through the session-management API.
+Multiple Login Sessions
+- Multiple successful logins for the same user create separate refresh-token sessions.
+For example:
+```
+Login 1
+    ↓
+Session A
+
+Login 2
+    ↓
+Session B
+```
+
+Session A and Session B have different refresh tokens and can be managed independently.
+# Revoke Session
+```
+DELETE /api/v1/admin/users/{user_id}/sessions/{session_id}
+```
+
+- An administrator can revoke an individual session.
+- The refresh token associated with that session is marked as revoked.
+- A TOKEN_REVOKED authentication audit event is also recorded.
+Example response:
+``` json
+{
+    "message": "Session revoked successfully"
+}
+```
+
+# Revoked Session Protection
+After a session is revoked:
+```
+Refresh Token
+      ↓
+Database lookup
+      ↓
+is_revoked = True
+      ↓
+401 Unauthorized
+```
+The revoked refresh token cannot be used to create a new access token.
+
+# Role Hierarchy Edge Cases
+CEO receives all lower-level permissions defined by the hierarchy.
+ceo
+vp_operations
+procurement_manager
+logistics_manager
+warehouse_manager
+VP Operations
+VP Operations receives its own and lower-level permissions, but does not receive CEO permissions.
+vp_operations
+procurement_manager
+logistics_manager
+warehouse_manager
+CEO-only permissions are not inherited upward.
+Supplier
+Supplier only receives its explicitly configured supplier permission and cannot access administrator endpoints.
+This verifies that role hierarchy does not accidentally grant unrelated roles administrative permissions.
+
+# Password Reset Flow
+
+The password reset flow is implemented as:
+```
+Request Reset
+     ↓
+Generate secure random token
+     ↓
+Store token in database
+     ↓
+Mock email/log output
+     ↓
+Reset Password
+     ↓
+Validate token
+     ↓
+Validate expiration
+     ↓
+Validate password
+     ↓
+Hash password
+     ↓
+Mark token as used
+```
+
+# Request Password Reset
+```
+POST /api/v1/auth/request-password-reset
+```
+
+The system generates a secure random password-reset token for an existing user.
+The token is stored in the database with an expiration time.
+A mock email service is used for development/testing.
+The response does not reveal whether the supplied email exists.
+
+# Reset Password
+```
+POST /api/v1/auth/reset-password
+```
+
+The reset operation validates:
+Token exists.
+Token has not already been used.
+Token has not expired.
+User exists.
+New password satisfies the password policy.
+After successful reset:
+token.used = True
+The same password-reset token cannot be used again.
+
+# Authentication Audit Logging
+Authentication-sensitive actions are recorded using the audit service.
+Supported audit event types include:
+LOGIN_SUCCESS
+LOGIN_FAILED
+ROLE_CHANGED
+TOKEN_REVOKED
+Audit records can be accessed by authorized administrators through:
+```
+GET /api/v1/admin/audit-logs
+```
+
+Optional filters:
+user_id
+event_type
+The audit log records information such as:
+- Event type
+- User ID
+- Email
+- IP address
+- Details
+- Timestamp
+
 # Seeded Users
 
 Development and testing users are provided through:
@@ -369,46 +640,101 @@ Seeded users have roles assigned during the seeding process, allowing the authen
 ---
 
 # Authentication Flow
-
-```
 Seed Database
     |
     v
 Roles + Seeded Users
-     |
-     v
+    |
+    v
 Register / Login
-     |
-     v
+    |
+    v
 Validate User
-     |
-     v
+    |
+    v
 Validate Role
-     |
-     v
+    |
+    v
 Generate JWT
-     |
-     +------------------+
-     |                  |
-     v                  v
+    |
+    +------------------+
+    |                  |
+    v                  v
 Access Token       Refresh Token
-     |                  |
-     v                  v
+    |                  |
+    v                  v
 Protected API      Database Storage
-     |
-     v
-JWT Validation
-     |
-     v
-RBAC / Role Hierarchy
-     |
-     v
+    |                  |
+    v                  v
+JWT Validation     Token Validation
+    |                  |
+    v                  v
+RBAC / Hierarchy   Rotation / Revocation
+    |
+    v
 User Access
-```
-
-For a newly registered user:
-
-```
+Refresh Token Rotation
+The refresh-token flow is:
+Refresh Token A
+      |
+      v
+Validate Token A
+      |
+      v
+Revoke Token A
+      |
+      v
+Generate Token B
+      |
+      v
+Store Token B
+      |
+      v
+Return Access Token + Token B
+If an attacker attempts to replay Token A:
+Token A
+   ↓
+Already revoked
+   ↓
+401 Unauthorized
+This protects against refresh-token replay attacks.
+Password Reset Flow
+For a newly registered or existing user:
+Request Password Reset
+       |
+       v
+Generate secure token
+       |
+       v
+Store token + expiration
+       |
+       v
+Mock email
+       |
+       v
+Submit reset token
+       |
+       v
+Check token
+       |
+       +---- Invalid → 400
+       |
+       +---- Expired → 400
+       |
+       +---- Already used → 400
+       |
+       v
+Validate new password
+       |
+       v
+Hash password
+       |
+       v
+Mark token used
+       |
+       v
+Password changed
+Newly Registered User Flow
 Register
    |
    v
@@ -425,8 +751,6 @@ Admin assigns role
    |
    v
 User can login
-```
-
 ---
 
 # Setup
@@ -507,6 +831,14 @@ Run:
 pytest -q
 ```
 
+- Authentication rate limiting
+
+Failed-login attempts are tracked per email/IP within the configured rate-limit window. A successful login clears the recent failed-login counter for that email/IP.
+
+- Self-registration
+
+Self-registration creates the account with no role. Users without an assigned role cannot authenticate. An administrator must assign a role before the account becomes usable for login. This is intentional RBAC behavior.
+
 Implemented tests cover:
 
 * Root endpoint
@@ -524,3 +856,9 @@ Implemented tests cover:
 * CEO role hierarchy permissions
 * User registration
 * Password policy during registration
+* Role Hierarchy
+* Admin user management
+* Per-session management
+* Role hierarchy edge cases
+
+
