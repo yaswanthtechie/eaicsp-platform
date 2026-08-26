@@ -1,4 +1,3 @@
-
 import { colors } from "../theme/tokens";
 import "./Spinner.css";
 
@@ -17,19 +16,17 @@ export function Spinner({
       : 50;
 
   return (
-    <>
- 
-
-      <div
-        style={{
-          width: spinnerSize,
-          height: spinnerSize,
-          border: `4px solid ${colors.border}`,
-          borderTop: `4px solid ${colors.primary}`,
-          borderRadius: "50%",
-          animation: "spin 1s linear infinite",
-        }}
-      />
-    </>
+    <div
+      role="status"
+      aria-label="Loading"
+      style={{
+        width: spinnerSize,
+        height: spinnerSize,
+        border: `4px solid ${colors.border}`,
+        borderTop: `4px solid ${colors.primary}`,
+        borderRadius: "50%",
+        animation: "spin 1s linear infinite",
+      }}
+    />
   );
 }

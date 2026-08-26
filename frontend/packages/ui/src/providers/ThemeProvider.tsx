@@ -20,11 +20,16 @@ export function ThemeProvider({
   children,
 }: ThemeProviderProps) {
   const [theme, setTheme] = useState<Theme>(() => {
-    const savedTheme = localStorage.getItem(STORAGE_KEY);
+    if (typeof window === "undefined") {
+      return "light";
+    }
+
+    const savedTheme = window.localStorage.getItem(STORAGE_KEY);
 
     if (
       savedTheme === "light" ||
-      savedTheme === "dark"
+      savedTheme === "dark" ||
+      savedTheme === "high-contrast"
     ) {
       return savedTheme;
     }
@@ -33,20 +38,22 @@ export function ThemeProvider({
   });
 
   useEffect(() => {
-    document.documentElement.setAttribute(
-      "data-theme",
-      theme
-    );
-
-    localStorage.setItem(STORAGE_KEY, theme);
+    document.documentElement.setAttribute("data-theme", theme);
+    window.localStorage.setItem(STORAGE_KEY, theme);
   }, [theme]);
 
   const toggleTheme = useCallback(() => {
-    setTheme((previousTheme) =>
-      previousTheme === "light"
-        ? "dark"
-        : "light"
-    );
+    setTheme((previousTheme) => {
+      if (previousTheme === "light") {
+        return "dark";
+      }
+
+      if (previousTheme === "dark") {
+        return "high-contrast";
+      }
+
+      return "light";
+    });
   }, []);
 
   const value = useMemo(
@@ -55,7 +62,7 @@ export function ThemeProvider({
       toggleTheme,
       setTheme,
     }),
-    [theme, toggleTheme]
+    [theme, toggleTheme],
   );
 
   return (
