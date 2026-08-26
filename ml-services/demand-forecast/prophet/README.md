@@ -428,3 +428,76 @@ with the current evaluation results:
 MAPE = 2.19%
 RMSE = 11354.85
 ```
+Round 5 improves the demand forecasting pipeline with automated retraining, ensemble tuning, hierarchical reconciliation, and test coverage.
+
+## 1. Automated Retraining & Auto-Promotion
+
+Implemented in:
+
+`src/automated_retraining.py`
+
+- Yearly simulated retraining
+- 120-month training window
+- 12-month validation window
+- Prophet + XGBoost training
+- New model is compared with the existing promoted model
+- Better model is automatically promoted
+- Otherwise, the model is rejected
+- Multiple retraining cycles were executed to verify the promotion logic
+
+## 2. Ensemble Weight Auto-Tuning
+
+11 Prophet/XGBoost weight combinations are tested:
+
+```text
+0/100, 10/90, 20/80, 30/70, 40/60,
+50/50, 60/40, 70/30, 80/20, 90/10, 100/0
+Every combination is evaluated on validation data and logged in MLflow.
+3. Hierarchical Reconciliation
+
+Implemented 3-level hierarchy:
+
+SKU → Category → Region
+
+Forecasts remain sum-consistent across all levels.
+4. Test Coverage
+
+Tests cover:
+
+Missing values
+Negative demand
+Missing dates
+Duplicate dates
+Invalid horizon
+Invalid ensemble weights
+Prediction validation
+Service behaviour
+Hierarchical reconciliation
+RUNTESTS=python -m pytest -q
+. MLflow
+
+Experiment:
+
+R5_Automated_Retraining
+
+MLflow records:
+
+Retraining cycles
+All 11 ensemble combinations
+Validation MAPE/RMSE
+Promotion/rejection status
+Selected ensemble weights
+
+Start MLflow:
+
+python -m mlflow ui
+
+
+Definition of Done
+ Multiple retraining cycles executed
+ Auto-promotion verified
+ 11 ensemble weights automatically tested
+ All grid results logged
+ Best ensemble selected automatically
+ SKU → Category → Region reconciliation
+ Automated tests implemented

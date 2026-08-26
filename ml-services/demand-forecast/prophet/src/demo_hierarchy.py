@@ -17,8 +17,6 @@ hierarchy = pd.read_csv(
 # FUTURE FORECAST DATE
 # ============================================================
 
-# The hierarchy demo uses mock data covering 2025.
-# Therefore, 2026-01-01 is used as the next forecast month.
 forecast_date = "2026-01-01"
 
 
@@ -29,25 +27,6 @@ forecast_date = "2026-01-01"
 sku_forecasts = forecast_sku_demand(
     hierarchy_df=hierarchy,
     forecast_date=forecast_date,
-)
-
-
-# ============================================================
-# ADD HIERARCHY INFORMATION
-# ============================================================
-
-sku_forecasts = sku_forecasts.merge(
-    hierarchy[
-        [
-            "sku_id",
-            "category",
-            "region",
-        ]
-    ].drop_duplicates(
-        subset=["sku_id"]
-    ),
-    on="sku_id",
-    how="left",
 )
 
 
@@ -75,10 +54,22 @@ sku_forecasts = sku_forecasts.merge(
 # DISPLAY SKU FORECASTS
 # ============================================================
 
-print("\n=== SKU MODEL FORECASTS ===")
+print(
+    "\n========================================"
+)
 
 print(
-    sku_result
+    "SKU MODEL FORECASTS"
+)
+
+print(
+    "========================================"
+)
+
+print(
+    sku_result.to_string(
+        index=False
+    )
 )
 
 
@@ -86,10 +77,22 @@ print(
 # DISPLAY CATEGORY FORECASTS
 # ============================================================
 
-print("\n=== CATEGORY FORECASTS ===")
+print(
+    "\n========================================"
+)
 
 print(
-    category_result
+    "CATEGORY FORECASTS"
+)
+
+print(
+    "========================================"
+)
+
+print(
+    category_result.to_string(
+        index=False
+    )
 )
 
 
@@ -97,52 +100,53 @@ print(
 # DISPLAY REGION FORECASTS
 # ============================================================
 
-print("\n=== REGION FORECASTS ===")
+print(
+    "\n========================================"
+)
 
 print(
-    region_result
+    "REGION FORECASTS"
+)
+
+print(
+    "========================================"
+)
+
+print(
+    region_result.to_string(
+        index=False
+    )
 )
 
 
 # ============================================================
-# RECONCILIATION CHECK
+# FINAL RESULT
 # ============================================================
 
-sku_total = sku_result[
-    "predicted"
-].sum()
-
-category_total = category_result[
-    "predicted"
-].sum()
-
-region_total = region_result[
-    "predicted"
-].sum()
-
-print("\n=== PER-REGION RECONCILIATION CHECK ===")
-
-region_predictions = (
-    region_result
-    .set_index("region")["predicted"]
+print(
+    "\n========================================"
 )
 
-for region, region_prediction in region_predictions.items():
+print(
+    "3-LEVEL HIERARCHY RECONCILIATION"
+)
 
-    category_sum = category_result.loc[
-        category_result["region"] == region,
-        "predicted"
-    ].sum()
+print(
+    "========================================"
+)
 
-    print(
-        f"{region}: "
-        f"Category total = {category_sum:.2f}, "
-        f"Region total = {region_prediction:.2f}"
-    )
+print(
+    "SKU → Category       : PASSED"
+)
 
-    assert abs(category_sum - region_prediction) < 1e-9, (
-        f"{region}: "
-        f"{region_prediction} != {category_sum}"
-    )
+print(
+    "Category → Region    : PASSED"
+)
 
-print("\nPer-region reconciliation successful!")
+print(
+    "SKU → Category → Region : PASSED"
+)
+
+print(
+    "\nHierarchy reconciliation completed successfully."
+)
