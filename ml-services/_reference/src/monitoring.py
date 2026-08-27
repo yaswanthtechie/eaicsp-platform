@@ -1,24 +1,21 @@
+import json
 import sqlite3
-import statistics
-from datetime import datetime,timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
+from src.config import MONITORING_INPUT_LIMIT
 
 
-# Project root
 BASE_DIR = Path(__file__).resolve().parent.parent
-
-# Local monitoring database
 DB_PATH = BASE_DIR / "data" / "monitoring.db"
 
-# Make sure data directory exists
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 _DB_LOCK = Lock()
 
 
 def initialize_database() -> None:
-    """Create monitoring database and predictions table."""
+    """Create monitoring database and upgrade R4 database if required."""
 
     with _DB_LOCK:
         connection = sqlite3.connect(DB_PATH)
@@ -32,10 +29,29 @@ def initialize_database() -> None:
                     timestamp TEXT NOT NULL,
                     model_version TEXT NOT NULL,
                     latency_ms REAL NOT NULL,
-                    prediction TEXT NOT NULL
+                    prediction TEXT NOT NULL,
+                    input_features TEXT
                 )
                 """
             )
+
+            # Upgrade an existing R4 database.
+            columns = connection.execute(
+                "PRAGMA table_info(predictions)"
+            ).fetchall()
+
+            column_names = {
+                column[1]
+                for column in columns
+            }
+
+            if "input_features" not in column_names:
+                connection.execute(
+                    """
+                    ALTER TABLE predictions
+                    ADD COLUMN input_features TEXT
+                    """
+                )
 
             connection.commit()
 
@@ -48,8 +64,14 @@ def log_prediction(
     model_version: str,
     latency_ms: float,
     prediction: str,
+    input_features=None,
 ) -> None:
-    """Store one prediction monitoring record."""
+    """
+    Store one prediction monitoring record.
+
+    R5 additionally stores input features so that the
+    scheduler can calculate drift.
+    """
 
     with _DB_LOCK:
         connection = sqlite3.connect(DB_PATH)
@@ -62,9 +84,10 @@ def log_prediction(
                     timestamp,
                     model_version,
                     latency_ms,
-                    prediction
+                    prediction,
+                    input_features
                 )
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     request_id,
@@ -72,6 +95,9 @@ def log_prediction(
                     model_version,
                     latency_ms,
                     prediction,
+                    json.dumps(input_features)
+                    if input_features is not None
+                    else None,
                 ),
             )
 
@@ -81,77 +107,234 @@ def log_prediction(
             connection.close()
 
 
-def _percentile(values: list[float], percentile: float) -> float:
-    """Calculate percentile without requiring NumPy."""
+def _percentile(
+    values: list[float],
+    percentile: float,
+) -> float:
+    """Calculate percentile without NumPy."""
 
     if not values:
         return 0.0
 
     values = sorted(values)
 
-    index = (len(values) - 1) * percentile / 100
+    index = (
+        (len(values) - 1)
+        * percentile
+        / 100
+    )
 
     lower = int(index)
-    upper = min(lower + 1, len(values) - 1)
+
+    upper = min(
+        lower + 1,
+        len(values) - 1,
+    )
 
     weight = index - lower
 
     return (
         values[lower]
-        + (values[upper] - values[lower]) * weight
+        + (
+            values[upper]
+            - values[lower]
+        )
+        * weight
     )
 
 
 def get_summary() -> dict:
-    """Return real latency and request-volume metrics."""
+    """
+    Return aggregate and per-model metrics.
+
+    R5:
+        - request volume by model
+        - p50 latency by model
+        - p95 latency by model
+    """
 
     with _DB_LOCK:
         connection = sqlite3.connect(DB_PATH)
 
         try:
-            cursor = connection.execute(
+            rows = connection.execute(
                 """
                 SELECT
                     timestamp,
+                    model_version,
                     latency_ms
                 FROM predictions
                 ORDER BY timestamp ASC
                 """
-            )
-
-            rows = cursor.fetchall()
+            ).fetchall()
 
         finally:
             connection.close()
 
-    latencies = [
-        float(row[1])
+    all_latencies = [
+        float(row[2])
         for row in rows
     ]
 
-    p50 = _percentile(latencies, 50)
-    p95 = _percentile(latencies, 95)
-
+    # Aggregate volume by minute.
     volume_by_time = {}
 
-    for timestamp, _latency in rows:
+    for timestamp, _model_version, _latency in rows:
 
-        # Example: 2026-08-11T15:30
         minute = timestamp[:16]
 
         volume_by_time[minute] = (
-            volume_by_time.get(minute, 0) + 1
+            volume_by_time.get(
+                minute,
+                0,
+            )
+            + 1
         )
+
+    # --------------------------------------------------
+    # R5: Per-model metrics
+    # --------------------------------------------------
+
+    models = {}
+
+    for row in rows:
+
+        timestamp = row[0]
+        model_version = str(row[1])
+        latency = float(row[2])
+
+        if model_version not in models:
+            models[model_version] = {
+                "request_volume": 0,
+                "latencies": [],
+                "volume_over_time": {},
+            }
+
+        models[model_version]["request_volume"] += 1
+        models[model_version]["latencies"].append(
+            latency
+        )
+
+        minute = timestamp[:16]
+
+        models[model_version][
+            "volume_over_time"
+        ][minute] = (
+            models[model_version][
+                "volume_over_time"
+            ].get(minute, 0)
+            + 1
+        )
+
+    model_summary = {}
+
+    for model_version, data in models.items():
+
+        latencies = data["latencies"]
+
+        model_summary[model_version] = {
+            "request_volume": data[
+                "request_volume"
+            ],
+            "latency_ms": {
+                "p50": round(
+                    _percentile(
+                        latencies,
+                        50,
+                    ),
+                    2,
+                ),
+                "p95": round(
+                    _percentile(
+                        latencies,
+                        95,
+                    ),
+                    2,
+                ),
+            },
+            "volume_over_time": data[
+                "volume_over_time"
+            ],
+        }
 
     return {
         "request_volume": len(rows),
         "latency_ms": {
-            "p50": round(p50, 2),
-            "p95": round(p95, 2),
+            "p50": round(
+                _percentile(
+                    all_latencies,
+                    50,
+                ),
+                2,
+            ),
+            "p95": round(
+                _percentile(
+                    all_latencies,
+                    95,
+                ),
+                2,
+            ),
         },
         "volume_over_time": volume_by_time,
+        "models": model_summary,
     }
 
 
-# Initialize database when module is loaded
+def get_recent_inputs(
+    limit: int = MONITORING_INPUT_LIMIT,
+) -> list[list[float]]:
+    """
+    Return recent prediction inputs.
+
+    Used by R5 automated retraining.
+    """
+
+    with _DB_LOCK:
+        connection = sqlite3.connect(DB_PATH)
+
+        try:
+            rows = connection.execute(
+                """
+                SELECT input_features
+                FROM predictions
+                WHERE input_features IS NOT NULL
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+
+        finally:
+            connection.close()
+
+    inputs = []
+
+    for row in rows:
+
+        try:
+            features = json.loads(row[0])
+
+            if (
+                isinstance(features, list)
+                and len(features) == 4
+            ):
+                inputs.append(
+                    [
+                        float(value)
+                        for value in features
+                    ]
+                )
+
+        except (
+            json.JSONDecodeError,
+            TypeError,
+            ValueError,
+        ):
+            continue
+
+    inputs.reverse()
+
+    return inputs
+
+
 initialize_database()
