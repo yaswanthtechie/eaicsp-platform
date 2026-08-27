@@ -7,6 +7,9 @@ from src.splits import time_based_split
 import pandas as pd
 from src.metrics import confusion_matrix, precision_recall
 from src.splits import walk_forward_split
+import json
+import subprocess
+import sys
 
 
 
@@ -92,3 +95,48 @@ def test_walk_forward_split_too_little_data_raises():
 
 def test_mape_single_row():
     assert round(mape([100], [110]), 2) == 10.0
+
+def test_compare_cli_missing_file(tmp_path):
+    result = subprocess.run(
+        [sys.executable, "compare.py", "--results", "does_not_exist.json"],
+        capture_output=True, text=True
+    )
+    assert result.returncode != 0
+    assert "Error loading" in result.stdout
+
+
+def test_compare_cli_bad_json(tmp_path):
+    bad_file = tmp_path / "bad.json"
+    bad_file.write_text("{ this is not valid json")
+    result = subprocess.run(
+        [sys.executable, "compare.py", "--results", str(bad_file)],
+        capture_output=True, text=True
+    )
+    assert result.returncode != 0
+    assert "Error loading" in result.stdout
+
+
+def test_compare_cli_empty_json(tmp_path):
+    empty_file = tmp_path / "empty.json"
+    empty_file.write_text("{}")
+    result = subprocess.run(
+        [sys.executable, "compare.py", "--results", str(empty_file)],
+        capture_output=True, text=True
+    )
+    assert result.returncode != 0
+    assert "non-empty" in result.stdout
+
+
+def test_compare_cli_mismatched_metrics(tmp_path):
+    mismatched_file = tmp_path / "mismatched.json"
+    mismatched_file.write_text(json.dumps({
+        "naive": {"mape": 6.80, "rmse": 39955.47},
+        "prophet": {"mape": 3.20}
+    }))
+    result = subprocess.run(
+        [sys.executable, "compare.py", "--results", str(mismatched_file)],
+        capture_output=True, text=True
+    )
+    assert result.returncode == 0
+    assert "N/A" in result.stdout
+    assert "mape" in result.stdout
