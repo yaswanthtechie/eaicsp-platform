@@ -22,14 +22,37 @@
 ## 📊 📊 Walk-Forward Cross-Validation Results
 - Walk-forward validation uses expanding chronological windows across 5 folds with seeded weight initialization (torch.manual_seed(42)):
 ```
-FoldLSTM    MAENaive     MAELSTM    RMSENaive        RMSE
-Fold 1       122.80      6.90        24.26          8.42
-Fold 2       27.14       7.03        8.95           8.62
-Fold 3       35.18       6.84        6.02           8.39
-Fold 4       45.37       7.11        6.31           8.65
-Fold 5       55.30       6.79        6.15           8.29
+======================================================================
+STARTING 5-FOLD TIME-SERIES WALK-FORWARD VALIDATION
+======================================================================
 
-Average      9.16        6.93       10.34           8.47
+--- FOLD 1 RESULTS ---
+LSTM  -> MAE: 8.91 | RMSE: 10.76
+NAIVE -> MAE: 8.78 | RMSE: 10.74
+
+--- FOLD 2 RESULTS ---
+LSTM  -> MAE: 6.81 | RMSE: 7.91
+NAIVE -> MAE: 8.92 | RMSE: 10.97
+
+--- FOLD 3 RESULTS ---
+LSTM  -> MAE: 6.53 | RMSE: 7.62
+NAIVE -> MAE: 8.70 | RMSE: 10.68
+
+--- FOLD 4 RESULTS ---
+LSTM  -> MAE: 7.76 | RMSE: 9.44
+NAIVE -> MAE: 8.98 | RMSE: 10.98
+
+--- FOLD 5 RESULTS ---
+LSTM  -> MAE: 6.52 | RMSE: 7.56
+NAIVE -> MAE: 8.51 | RMSE: 10.48
+
+======================================================================
+AVERAGE METRICS ACROSS ALL 5 FOLDS
+LSTM Model  -> Avg MAE: 7.31 | Avg RMSE: 8.66
+Naive Model -> Avg MAE: 8.78 | Avg RMSE: 10.77
+======================================================================
+
+Saved PyTorch weights to output/best_model.pt
 ```
 
 > **Note on baseline comparison**: On the 5-fold average, the LSTM achieves 9.16 MAE vs 6.93 for Naive Persistence (\hat{y}_{t+1} = y_t). However, excluding Fold 1 (which lacks sufficient history to observe a full annual cycle), the LSTM decisively beats Naive Persistence across Folds 2–5 (5.75 vs 6.94 avg MAE).
@@ -186,7 +209,7 @@ or blow up — the MC-Dropout mechanism is working as intended.
   ]
 }
 ```
-- sample Response
+- sample Response (200 OK):
 ```json
 {
   "mean_forecast": [
