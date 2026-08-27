@@ -54,10 +54,14 @@ class AnalysisResponse(BaseModel):
 
 
 class AnalyzeRequest(BaseModel):
-    """Request body for supplier risk analysis."""
+    """Request body for supplier risk analysis and prediction."""
 
     supplier_name: str
     headlines: List[str]
+
+
+# Alias for ML prediction standard
+PredictRequest = AnalyzeRequest
 
 
 # ----------------------------------------------------
@@ -104,25 +108,35 @@ def health():
 
 
 # ----------------------------------------------------
-# Analyze Endpoint
-# POST with request body
+# Predict Endpoint (First-Class ML Serving)
+# POST /predict and aliases
 # ----------------------------------------------------
 
 @app.post(
+    "/predict",
+    response_model=AnalysisResponse,
+    summary="Predict supplier risk",
+)
+@app.post(
+    "/api/v1/supplier-risk/predict",
+    response_model=AnalysisResponse,
+    summary="Predict supplier risk (API Gateway alias)",
+)
+@app.post(
     "/api/v1/supplier-risk/analyze",
     response_model=AnalysisResponse,
+    summary="Analyze supplier risk (legacy alias)",
 )
-def analyze_headlines(request: AnalyzeRequest):
+def predict_endpoint(request: AnalyzeRequest):
     """
-    Analyze supplier risk for given headlines.
+    Predict supplier risk for given supplier headlines.
 
     Args:
-        request: Contains supplier_name and headlines.
+        request: Contains supplier_name and headlines list.
 
     Returns:
-        AnalysisResponse with risk scores and signals.
+        AnalysisResponse with risk scores, confidence, and detected signals.
     """
-
     try:
         summary = predict(
             supplier_name=request.supplier_name,
@@ -136,12 +150,13 @@ def analyze_headlines(request: AnalyzeRequest):
         }
 
     except Exception as exc:
-        logger.exception("Supplier risk analysis failed.")
+        logger.exception("Supplier risk prediction failed.")
 
         raise HTTPException(
             status_code=500,
             detail="Internal Server Error",
         ) from exc
+
 
 
 # ----------------------------------------------------

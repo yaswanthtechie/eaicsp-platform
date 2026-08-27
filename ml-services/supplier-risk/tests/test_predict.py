@@ -399,7 +399,8 @@ def test_load_headlines():
 
 def test_evaluation_dataset():
     """
-    Validate supplier_headlines.json dataset.
+    Validate supplier_headlines.json dataset contains 10 companies
+    with 12 headlines each (120 total).
     """
 
     dataset_path = (
@@ -415,12 +416,11 @@ def test_evaluation_dataset():
         dataset = json.load(file)
 
     assert isinstance(dataset, list)
-    assert len(dataset) == 96
+    assert len(dataset) == 120
 
     grouped = defaultdict(list)
 
     for item in dataset:
-
         assert "supplier" in item
         assert "headline" in item
 
@@ -428,7 +428,180 @@ def test_evaluation_dataset():
             item["headline"]
         )
 
-    assert len(grouped) == 8
+    assert len(grouped) == 10
 
     for supplier, headlines in grouped.items():
         assert len(headlines) == 12
+
+
+# ------------------------------------------------------------------
+# Round 5: Configuration-Driven Signal & Scoring Tests
+# ------------------------------------------------------------------
+
+from src.config import (
+    Settings,
+    DEFAULT_SIGNAL_WEIGHTS,
+    DEFAULT_NEGATIVE_SENTIMENT_PENALTY,
+    validate_numeric_weight,
+    validate_signal_weights,
+)
+
+
+def test_config_defaults():
+    """
+    Test that default settings match calibrated R4 baselines.
+    """
+    cfg = Settings()
+    assert cfg.negative_sentiment_penalty == DEFAULT_NEGATIVE_SENTIMENT_PENALTY
+    assert cfg.neutral_sentiment_penalty == 0.0
+    assert cfg.positive_sentiment_penalty == 0.0
+    assert cfg.max_risk_score == 100.0
+    assert cfg.confidence_divisor == 8.0
+    assert cfg.signal_weights["bankruptcy"] == 50
+    assert cfg.signal_weights["fraud"] == 40
+
+
+def test_config_validation_negative_weight_raises():
+    """
+    Test that negative weights raise ValueError.
+    """
+    with pytest.raises(ValueError, match="cannot be negative"):
+        validate_numeric_weight("test_weight", -5.0)
+
+    with pytest.raises(ValueError, match="cannot be negative"):
+        validate_signal_weights({"strike": -10})
+
+
+def test_config_validation_non_numeric_raises():
+    """
+    Test that non-numeric weights raise ValueError.
+    """
+    with pytest.raises(ValueError, match="must be numeric"):
+        validate_numeric_weight("test_weight", "not_a_number")
+
+    with pytest.raises(ValueError, match="must be numeric"):
+        validate_signal_weights({"strike": "heavy"})
+
+
+def test_configurable_weights_change_prediction():
+    """
+    Test that modifying signal weights dynamically in Settings
+    changes the final risk calculation without modifying code.
+    """
+    supplier = "DynamicTestSupplier"
+    headlines = ["The supplier announced a strike."]
+
+    # 1. Default config (strike weight = 25)
+    default_cfg = Settings()
+    res_default = predict(supplier, headlines, config=default_cfg)
+
+    # 2. Custom config with strike weight = 80
+    custom_weights = dict(DEFAULT_SIGNAL_WEIGHTS)
+    custom_weights["strike"] = 80
+    custom_cfg = Settings(signal_weights=custom_weights)
+    res_custom = predict(supplier, headlines, config=custom_cfg)
+
+    assert res_custom["risk_score"] > res_default["risk_score"]
+    assert res_custom["signals"][0]["weight"] == 80
+
+
+def test_configurable_sentiment_penalty_changes_prediction():
+    """
+    Test that changing the negative sentiment penalty changes the score.
+    """
+    supplier = "SentimentTestSupplier"
+    headlines = ["The company reported disappointing quarterly losses."]
+
+    # Low sentiment penalty
+    low_penalty_cfg = Settings(negative_sentiment_penalty=10.0)
+    res_low = predict(supplier, headlines, config=low_penalty_cfg)
+
+    # High sentiment penalty
+    high_penalty_cfg = Settings(negative_sentiment_penalty=90.0)
+    res_high = predict(supplier, headlines, config=high_penalty_cfg)
+
+    assert res_high["risk_score"] > res_low["risk_score"]
+
+
+# ------------------------------------------------------------------
+# Round 5: FastAPI /predict Endpoint Integration Tests
+# ------------------------------------------------------------------
+
+from fastapi.testclient import TestClient
+from src.analyze import app
+
+
+def test_fastapi_health_endpoint():
+    """
+    Test GET /health endpoint returns 200 and UP status.
+    """
+    client = TestClient(app)
+    response = client.get("/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "UP"
+    assert data["service"] == "supplier-risk"
+
+
+def test_fastapi_predict_endpoint_valid():
+    """
+    Test POST /predict endpoint returns 200 with full analysis response.
+    """
+    client = TestClient(app)
+    payload = {
+        "supplier_name": "TestSupplier",
+        "headlines": [
+            "TestSupplier files for bankruptcy after fraud scandal.",
+            "TestSupplier secures new technology partnership.",
+        ],
+    }
+
+    response = client.post("/predict", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+
+    assert "supplier_summary" in data
+    assert "TestSupplier" in data["supplier_summary"]
+
+    summary = data["supplier_summary"]["TestSupplier"]
+    assert summary["supplier"] == "TestSupplier"
+    assert "risk_score" in summary
+    assert "confidence" in summary
+    assert "sentiment_breakdown" in summary
+    assert "signals" in summary
+    assert "top_worst_3" in summary
+    assert len(summary["top_worst_3"]) <= 3
+
+
+def test_fastapi_predict_aliases():
+    """
+    Test that /api/v1/supplier-risk/predict and /api/v1/supplier-risk/analyze
+    work identically to /predict.
+    """
+    client = TestClient(app)
+    payload = {
+        "supplier_name": "AliasSupplier",
+        "headlines": ["AliasSupplier reports positive quarterly results."],
+    }
+
+    resp1 = client.post("/predict", json=payload)
+    resp2 = client.post("/api/v1/supplier-risk/predict", json=payload)
+    resp3 = client.post("/api/v1/supplier-risk/analyze", json=payload)
+
+    assert resp1.status_code == 200
+    assert resp2.status_code == 200
+    assert resp3.status_code == 200
+    assert resp1.json() == resp2.json() == resp3.json()
+
+
+def test_fastapi_predict_invalid_payload():
+    """
+    Test POST /predict with missing required fields returns 422.
+    """
+    client = TestClient(app)
+    invalid_payload = {
+        "invalid_field": "test",
+    }
+
+    response = client.post("/predict", json=invalid_payload)
+    assert response.status_code == 422

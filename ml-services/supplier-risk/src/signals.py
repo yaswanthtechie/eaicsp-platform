@@ -3,68 +3,46 @@ Keyword signal detection module for identifying
 financial, operational, and reputational risks.
 """
 
-from typing import Any, Dict, Final, List
+from typing import Any, Dict, List, Optional
+from src.config import DEFAULT_SIGNAL_WEIGHTS, get_settings
 
-# ------------------------------------------------------------------
-# Risk Signal Weights
-# ------------------------------------------------------------------
-
-SIGNAL_WEIGHTS: Final[Dict[str, int]] = {
-    # Financial Risks
-    "bankruptcy": 50,
-    "insolvency": 45,
-    "default": 40,
-    "restructuring": 20,
-    "layoff": 25,
-    "downgrade": 20,
-
-    # Operational Risks
-    "strike": 25,
-    "recall": 30,
-    "disruption": 20,
-    "shortage": 20,
-    "delays": 15,
-    "shutdown": 35,
-    "outage": 25,
-
-    # Reputational/Security Risks
-    "fraud": 40,
-    "investigation": 25,
-    "lawsuit": 25,
-    "sanction": 35,
-    "cyberattack": 35,
-}
+# Alias for backward-compatibility with tests / existing callers
+SIGNAL_WEIGHTS = DEFAULT_SIGNAL_WEIGHTS
 
 
-def detect_signals(text: str) -> List[Dict[str, Any]]:
+def detect_signals(
+    text: str,
+    weights: Optional[Dict[str, int]] = None,
+) -> List[Dict[str, Any]]:
     """
-    Detect predefined supplier risk keywords.
+    Detect supplier risk keywords using configurable weights.
 
     Args:
         text:
             Preprocessed lowercase text.
+        weights:
+            Optional dictionary of keyword-to-weight mappings.
+            If None, uses active configuration from settings.
 
     Returns:
-        A list of detected keyword signals.
+        A list of detected keyword signals with their weights.
 
     Example:
         [
             {
                 "keyword": "fraud",
-                "weight": 30
+                "weight": 40
             }
         ]
     """
-
     if not text or not text.strip():
         return []
 
+    active_weights = weights if weights is not None else get_settings().signal_weights
     detected_signals: List[Dict[str, Any]] = []
-
     words = set(text.lower().split())
 
-    for keyword, weight in SIGNAL_WEIGHTS.items():
-
+    for keyword, weight in active_weights.items():
         if keyword in words:
             detected_signals.append(
                 {
@@ -73,4 +51,4 @@ def detect_signals(text: str) -> List[Dict[str, Any]]:
                 }
             )
 
-    return detected_signals
+    return detected_signals

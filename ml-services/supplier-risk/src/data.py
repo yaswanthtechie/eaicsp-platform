@@ -133,7 +133,7 @@ def load_headlines() -> Dict[str, List[str]]:
     Load supplier news headlines grouped by supplier.
 
     Priority:
-        1. Load the 96-headline / 8-company Round 4 calibration
+        1. Load the 120-headline / 10-company Round 5 calibration
            dataset from ``supplier_headlines.json`` when available.
         2. Fall back to the smaller inline ``HEADLINES_DATA`` sample.
 
