@@ -1,4 +1,5 @@
 # Executive Dashboard
+
 ## Project Structure
 
 frontend/
@@ -9,74 +10,205 @@ frontend/
             │   ├── AlertsPanel.tsx
             │   ├── ForecastChart.tsx
             │   ├── InventoryHeatmap.tsx
-            │   └── InventoryTable.tsx
+            │   ├── InventoryTable.tsx
+            │   ├── AlertsPanel.test.tsx
+            │   ├── ForecastChart.test.tsx
+            │   ├── InventoryHeatmap.test.tsx
+            │   └── InventoryTable.test.tsx
+            │
             ├── hooks/
-            │   └── useWebSocket.ts
+            │   ├── useWebSocket.ts
+            │   └── useWebSocket.test.ts
+            │
             ├── mocks/
             │   ├── forecast.ts
             │   ├── inventory.ts
             │   └── wsServer.ts
+            │
             ├── types/
             │   └── forecast.ts
+            │
             ├── App.tsx
+            ├── main.tsx
             └── tokens.ts
-            
 
 
+# 1. What I Built
 
-## 1. I Built
+I built an **Executive Dashboard**  using react + TypeScript to give a quick view of sales forecasts, inventory, and important alerts.
 
-* Built a **Sales Forecast Chart** using **Recharts** with mock sales data.
-* Created an **Inventory Table** for the Executive Dashboard.
-* Added a filter to display only the products with **low stock**.
+The dashboard includes:
 
+* **Sales Forecast Chart** using Recharts.
+* **Inventory Table** with a low-stock filter.
+* **Inventory Heatmap** for inventory.
+* **Real-time Alert Panel** using WebSocket.
+* Loading, empty, and error states.
+* Automated tests for the main components and WebSocket hook.
 
-## 2. How to Run the Project
+# 2. Forecast Chart
 
-1. Open the project in **VS Code**.
-2. Open the terminal and run:
+The Forecast Chart shows sales forecast data using **Recharts**.
 
-npm run dev
+I added:
 
-3. Open the local development URL displayed in the terminal (for example, `http://localhost:5173`) in Chrome or any other web browser.
+* Start date selection.
+* End date selection.
+* Forecast data for the selected date range.
+* Reset button to return to the full chart.
 
-## 3. If I Had Another Day
+This allows an executive to focus on a specific period instead of viewing the entire forecast at once.
 
-If I had another day, I would add more mock sales data to the forecast chart. The current chart uses only a small dataset to demonstrate the functionality, and adding more data would make the chart more meaningful and realistic.
+# 3. Inventory Table
 
+The Inventory Table shows inventory details for each SKU. I used the shared Table and Badge components from the UI library.
 
-## 4. Challenges Faced
+It also has SKU search bar  and a low-stock filter so users can quickly find items that need attention.
 
-While implementing the **Loading**, **Empty**, and **Error** states, I initially got stuck because I was not familiar with handling these states. After understanding the concept, I was able to implement them and now feel comfortable working with these states.
+When no SKU matches the search, the empty state is passed correctly to the shared Table component. However, the empty-state styling currently comes from the shared UI component, so its background/color does not fully match the dashboard theme.
 
-I also faced some difficulty while creating the sales forecast chart using Recharts. I referred to the Recharts documentation and the examples provided to understand how the chart components work. After practicing, I was able to build the chart successfully and gained confidence in using Recharts.
+This is a shared UI styling issue, not an issue with the inventory search or filtering logic.
 
+# 4. Inventory Risk & Reorder Planning
 
-# Round - 2
-## Forecast Chart, WebSocket, and Alert Panel Integration
+I considered adding an Inventory Risk & Reorder Planning view to give executives more actionable information about stock.
 
-I worked on enhancing the forecast chart by adding a **date calendar option**, allowing executives to select custom **start and end dates** and view the forecast data for the selected date range and added **reset button** to get back  the full chart.
+The idea is to show:
 
-I implemented the **useWebSocket** hook to manage the WebSocket connection. It helps track whether the server is started and whether the client is connected or disconnected. The main socket communication happens through this hook, which receives data from the mock WebSocket server.
+Current stock
+Days remaining
+Reorder timing
+Recommended reorder quantity
 
-After that, I built the **Alert Panel**, where executives can see real-time alerts coming from the mock WebSocket server. Each alert contains a **type, message, and severity**. The main alert logic is defined in the mock WebSocket server, which sends alerts with different types and severity levels.Provide alerts to the executive.
+For example: SKU007 → 8 days remaining → reorder before stock out.
 
-Finally, I integrated all these components into **App.tsx**  with i used server these should connect both as the same port number(`ws://localhost:8080`) and connected the application flow through **main.tsx**, making the complete functionality visible on the executive dashboard.
+I did not implement this calculation because the current mock data does not include daily sales or average demand, which is required to calculate the remaining days accurately.
 
-# Run the project
-1. Open the project in **VS Code**.
-2. Open the terminal and run:
+This could be added later to help executives plan orders before a stock out instead of reacting only when stock is already low.
 
+# 5. WebSocket and Alerts
+
+I implemented a reusable `useWebSocket` hook to manage the WebSocket connection.
+
+The mock WebSocket server runs on:
+
+ws://localhost:8080
+
+The server sends fake alerts to simulate real-time inventory events.
+
+The WebSocket hook handles:
+
+* Connection status.
+* Receiving alerts.
+* Disconnection.
+* Automatic reconnection.
+* Exponential backoff.
+* Maximum retry attempts.
+
+The Alert Panel displays the received alerts with their:
+
+* Type
+* Message
+* Severity
+
+This allows executives to see important inventory events as they happen.
+
+# 6. Shared UI Components
+
+I also started using the shared UI components instead of creating separate versions inside the dashboard.
+
+I used components such as:
+
+* `Badge`
+* `Button`
+* `Table`
+* `AlertBanner`
+* `Spinner`
+
+This keeps the dashboard consistent with the rest of the application and makes the UI components reusable.
+
+# 7. Testing
+
+I added tests using **Vitest** and **React Testing Library**.
+
+Tests were added for:
+
+* `ForecastChart`
+* `InventoryTable`
+* `InventoryHeatmap`
+* `AlertsPanel`
+* `useWebSocket`
+
+The tests cover things such as:
+
+* Loading states.
+* Empty states.
+* Error states.
+* User interactions.
+* Date selection.
+* Reset functionality.
+* Inventory filtering.
+* WebSocket connection states.
+* Receiving alerts.
+* Reconnection.
+* Exponential backoff.
+
+## Test Cleanup
+
+While creating the tests, I faced an issue where the DOM from one test could affect another test.
+
+I fixed this by using `cleanup()` after every test so that each test starts with a fresh DOM.
+
+For example:
+
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
+
+This was especially useful for tests that use fake timers and WebSocket reconnection delays.
+
+# 8. Challenges Faced
+
+### Loading, Empty, and Error States
+
+Initially, I was not familiar with handling these states. After understanding the pattern, I implemented them across the required views.
+
+### Recharts
+
+I had some difficulty while creating the forecast chart with Recharts. I referred to the documentation and examples to understand how the chart components work and then implemented the chart successfully.
+
+### WebSocket Connection
+
+While working on the Alert Panel, the WebSocket was repeatedly switching between connected and disconnected states.
+
+I found that the connection logic was being triggered again because of unnecessary re-renders. I used `useCallback` to keep the connection function stable.
+
+After that, I added automatic reconnection with **exponential backoff** and tested the behavior with the mock WebSocket server.
+
+### Testing
+
+While writing the tests, previous DOM elements were sometimes affecting the next test. Using `cleanup()` after each test fixed the issue and kept the tests isolated.
+
+# 9. How to Run
+
+Open the project in VS Code and run:
+
+cd frontend/packages/dashboard
 npm install
+npm build
 npm run dev
 
+To run the test suite all in VS Code Terminal run:
 
-# Challenges  Faced
+npm test
 
-While working on the Alert Panel, I faced an issue where the panel was working correctly, but the WebSocket connection was repeatedly showing  **connected and disconnected** states on close with alerts are changing very fast.
-After researching the issue, I found that unnecessary re-renders were causing the connection logic to run again. I used **useCallback** to keep the function reference stable, which prevented unnecessary re-renders and resolved the connection issue.
 
-### Inventory Heatmap
+Open the local development URL shown in the terminal, for example:
 
-As a stretch goal, I implemented an Inventory Heatmap to provide a visual representation of inventory levels across warehouses and help executives quickly identify low-stock areas.
+http://localhost:5173
+
+The dashboard uses the mock WebSocket server:
+
+ws://localhost:8080
 
