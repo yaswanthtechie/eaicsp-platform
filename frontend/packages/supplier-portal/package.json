@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@apollo/client": "^3.14.1",
+    "@tanstack/react-virtual": "^3.14.10",
     "graphql": "^16.14.2",
     "jwt-decode": "^4.0.0",
     "react": "^19.2.7",

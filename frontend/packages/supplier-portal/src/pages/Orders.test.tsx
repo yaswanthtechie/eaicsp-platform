@@ -1,8 +1,9 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 
 import Orders from "./Orders";
+import { logout } from "../auth/logout";
 
 vi.mock("../hooks/usePurchaseOrders", () => ({
   usePurchaseOrders: vi.fn(),
@@ -30,7 +31,25 @@ vi.mock("../components/Loading", () => ({
   default: () => <div data-testid="loading">Loading</div>,
 }));
 
+vi.mock("@tanstack/react-virtual", () => ({
+  useVirtualizer: ({ count }: { count: number }) => ({
+    getTotalSize: () => count * 150,
+    getVirtualItems: () =>
+      Array.from({ length: count }, (_, index) => ({
+        index,
+        start: index * 150,
+        size: 150,
+        key: index,
+      })),
+  }),
+}));
+
 import { usePurchaseOrders } from "../hooks/usePurchaseOrders";
+const LocationDisplay = () => {
+  const location = useLocation();
+
+  return <div data-testid="location">{location.pathname}</div>;
+};
 
 const mockUsePurchaseOrders = vi.mocked(usePurchaseOrders);
 
@@ -297,4 +316,152 @@ it("filters purchase orders by status", () => {
     startDate: undefined,
     endDate: undefined,
   });
+});
+
+it("passes date filter values to usePurchaseOrders", () => {
+  mockUsePurchaseOrders.mockReturnValue({
+    data: {
+      purchaseOrders: {
+        edges: [],
+        pageInfo: {
+          hasNextPage: false,
+          endCursor: null,
+        },
+      },
+    },
+    loading: false,
+    error: undefined,
+    fetchMore: vi.fn(),
+    networkStatus: 7,
+  } as never);
+
+  render(
+    <MemoryRouter>
+      <Orders />
+    </MemoryRouter>
+  );
+
+  fireEvent.change(screen.getByLabelText("Start Date"), {
+    target: { value: "2026-08-01" },
+  });
+
+  fireEvent.change(screen.getByLabelText("End Date"), {
+    target: { value: "2026-08-31" },
+  });
+
+  expect(mockUsePurchaseOrders).toHaveBeenLastCalledWith({
+    first: 20,
+    after: null,
+    status: undefined,
+    poNumber: undefined,
+    minAmount: undefined,
+    maxAmount: undefined,
+    startDate: "2026-08-01",
+    endDate: "2026-08-31",
+  });
+});
+
+it("navigates to the new invoice page", () => {
+  mockUsePurchaseOrders.mockReturnValue({
+    data: {
+      purchaseOrders: {
+        edges: [],
+        pageInfo: {
+          hasNextPage: false,
+          endCursor: null,
+        },
+      },
+    },
+    loading: false,
+    error: undefined,
+    fetchMore: vi.fn(),
+    networkStatus: 7,
+  } as never);
+
+  render(
+    <MemoryRouter initialEntries={["/orders"]}>
+      <Orders />
+      <LocationDisplay />
+    </MemoryRouter>
+  );
+
+  fireEvent.click(
+    screen.getByRole("button", { name: "New Invoice" })
+  );
+
+  expect(screen.getByTestId("location")).toHaveTextContent(
+    "/invoices/new"
+  );
+});
+
+it("calls logout when the Logout button is clicked", () => {
+  mockUsePurchaseOrders.mockReturnValue({
+    data: {
+      purchaseOrders: {
+        edges: [],
+        pageInfo: {
+          hasNextPage: false,
+          endCursor: null,
+        },
+      },
+    },
+    loading: false,
+    error: undefined,
+    fetchMore: vi.fn(),
+    networkStatus: 7,
+  } as never);
+
+  render(
+    <MemoryRouter>
+      <Orders />
+    </MemoryRouter>
+  );
+
+  fireEvent.click(
+    screen.getByRole("button", { name: "Logout" })
+  );
+
+  expect(logout).toHaveBeenCalledTimes(1);
+});
+
+it("disables Load More while loading the next page", () => {
+  mockUsePurchaseOrders.mockReturnValue({
+    data: {
+      purchaseOrders: {
+        edges: [
+          {
+            cursor: "cursor-1",
+            node: {
+              po_number: "PO-1001",
+              supplier_id: "SUP-1",
+              status: "sent",
+              total_amount: 1000,
+              expected_delivery: "2026-08-30",
+              items: [],
+            },
+          },
+        ],
+        pageInfo: {
+          hasNextPage: true,
+          endCursor: "cursor-1",
+        },
+      },
+    },
+    loading: false,
+    error: undefined,
+    fetchMore: vi.fn(),
+    networkStatus: 3,
+  } as never);
+
+  render(
+    <MemoryRouter>
+      <Orders />
+    </MemoryRouter>
+  );
+
+  const loadMoreButton = screen.getByRole("button", {
+    name: "Loading...",
+  });
+
+  expect(loadMoreButton).toBeDisabled();
 });

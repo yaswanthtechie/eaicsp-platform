@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { NetworkStatus } from "@apollo/client";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 import POCard from "../components/POCard";
 import EmptyState from "../components/EmptyState";
@@ -23,6 +24,8 @@ const Orders = () => {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
+  const parentRef = useRef<HTMLDivElement>(null);
+
   const {
     data,
     loading,
@@ -43,6 +46,24 @@ const Orders = () => {
   const loadingMore =
     networkStatus === NetworkStatus.fetchMore;
 
+  const orders: PurchaseOrder[] =
+    data?.purchaseOrders?.edges?.map(
+      (edge: PurchaseOrderEdge) => edge.node
+    ) || [];
+
+  /*
+   * IMPORTANT:
+   * useVirtualizer must always be called before any
+   * conditional return so React sees the same hook
+   * order on every render.
+   */
+  const rowVirtualizer = useVirtualizer({
+    count: orders.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 150,
+    overscan: 5,
+  });
+
   if (loading && !data) {
     return <Loading />;
   }
@@ -50,11 +71,6 @@ const Orders = () => {
   if (error && !data) {
     return <ErrorState />;
   }
-
-  const orders: PurchaseOrder[] =
-    data?.purchaseOrders?.edges?.map(
-      (edge: PurchaseOrderEdge) => edge.node
-    ) || [];
 
   const handleLoadMore = () => {
     const endCursor =
@@ -111,17 +127,25 @@ const Orders = () => {
           onChange={(e) => setMaxAmount(e.target.value)}
         />
 
-        <input
-          type="date"
-          value={startDate}
-          onChange={(e) => setStartDate(e.target.value)}
-        />
+        <label>
+          Start Date
+          <input
+            type="date"
+            aria-label="Start Date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+          />
+        </label>
 
-        <input
-          type="date"
-          value={endDate}
-          onChange={(e) => setEndDate(e.target.value)}
-        />
+        <label>
+          End Date
+          <input
+            type="date"
+            aria-label="End Date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+          />
+        </label>
       </div>
 
       <div className="top-buttons">
@@ -162,12 +186,43 @@ const Orders = () => {
       {orders.length === 0 ? (
         <EmptyState />
       ) : (
-        orders.map((order) => (
-          <POCard
-            key={order.po_number}
-            order={order}
-          />
-        ))
+        <div
+          ref={parentRef}
+          style={{
+            height: "600px",
+            overflow: "auto",
+          }}
+        >
+          <div
+            style={{
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              width: "100%",
+              position: "relative",
+            }}
+          >
+            {rowVirtualizer
+              .getVirtualItems()
+              .map((virtualItem) => {
+                const order =
+                  orders[virtualItem.index];
+
+                return (
+                  <div
+                    key={order.po_number}
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      transform: `translateY(${virtualItem.start}px)`,
+                    }}
+                  >
+                    <POCard order={order} />
+                  </div>
+                );
+              })}
+          </div>
+        </div>
       )}
 
       {data?.purchaseOrders?.pageInfo?.hasNextPage && (

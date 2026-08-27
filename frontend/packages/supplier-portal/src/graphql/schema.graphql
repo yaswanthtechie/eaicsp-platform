@@ -1,0 +1,78 @@
+"""
+Supplier Portal GraphQL contract.
+
+This schema is the single source of truth for the GraphQL contract
+expected between the Supplier Portal frontend and the future backend.
+
+R5 is frontend-only and continues to use mocks. This schema is
+documentation-as-code and is not wired to a live backend.
+"""
+
+type Query {
+  purchaseOrders(
+    first: Int!
+    after: String
+    status: String
+    poNumber: String
+    minAmount: Int
+    maxAmount: Int
+    startDate: String
+    endDate: String
+  ): PurchaseOrderConnection!
+}
+
+type Mutation {
+  acknowledgePurchaseOrder(po_number: String!): PurchaseOrder!
+  submitInvoice(
+    invoiceNumber: String!
+    poReference: String!
+    amount: Int!
+    date: String!
+  ): Invoice!
+}
+
+type PurchaseOrderConnection {
+  edges: [PurchaseOrderEdge!]!
+  pageInfo: PageInfo!
+}
+
+type PurchaseOrderEdge {
+  cursor: String!
+  node: PurchaseOrder!
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  endCursor: String
+}
+
+type PurchaseOrder {
+  po_number: String!
+  supplier_id: String!
+  status: POStatus!
+  total_amount: Int!
+  expected_delivery: String!
+  items: [POItem!]!
+}
+
+type POItem {
+  sku: String!
+  product_name: String!
+  quantity: Int!
+  unit_price: Int!
+}
+
+type Invoice {
+  invoiceNumber: String!
+  poReference: String!
+  amount: Int!
+  date: String!
+}
+
+enum POStatus {
+  DRAFT
+  SENT
+  ACKNOWLEDGED
+  FULFILLED
+  CANCELLED
+}

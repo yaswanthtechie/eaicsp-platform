@@ -1535,3 +1535,99 @@ React Testing Library
 - Keyboard Accessibility
 - Purchase Order Notifications
 - Automated Unit and Component Testing
+
+##Round 5
+
+## 1. Round 5 Objective
+
+Round 5 focused on improving the Supplier Portal through:
+
+- Contract-first GraphQL schema
+- Expanded test coverage
+- Error Boundary
+- Purchase Order list virtualization
+- Accessibility improvements
+
+## 2. What I Implemented
+
+## 2.1 Contract-first GraphQL Schema
+
+Implemented and maintained the GraphQL schema as the frontend contract.
+
+- Added/updated `schema.graphql`
+- Kept GraphQL queries and types aligned with the schema
+- Used the connection-based Purchase Order structure
+- Supported pagination through `edges` and `pageInfo`
+
+## 2.2 Expanded Test Coverage
+
+Expanded automated test coverage across important application functionality.
+
+Tests cover:
+
+- Authentication and token storage
+- Login and protected navigation
+- Purchase Order rendering
+- Purchase Order pagination
+- Search and filters
+- Date filters
+- Logout
+- Acknowledge PO behavior
+- Offline queue
+- Offline synchronization
+- Invoice behavior
+- File upload validation
+- Status badge rendering
+- GraphQL/Apollo behavior
+- Error Boundary behavior
+
+## 2.3 Error Boundary
+
+Implemented an Error Boundary to prevent an unexpected React rendering error from breaking the complete application UI.
+
+The Error Boundary:
+
+- Catches render-time errors
+- Displays fallback UI
+- Prevents the application from showing a blank/broken screen
+- Has automated test coverage
+
+## 2.4 Purchase Order List Virtualization
+
+Implemented virtualization for the Purchase Order list using `@tanstack/react-virtual`.
+
+The Orders page:
+
+- Renders only the visible/nearby PO items
+- Uses a scrollable container
+- Calculates virtual item positions
+- Uses overscan for smoother scrolling
+
+## 2.5 Accessibility Improvements
+
+Improved accessibility of the invoice PDF upload flow.
+
+The file upload component now provides a dedicated:
+
+**Browse files**
+
+button.
+
+This provides a keyboard-accessible way to open the file picker instead of depending only on drag-and-drop.
+
+Also verified:
+
+- Button has `type="button"`
+- Button is accessible through keyboard interaction
+- PDF validation remains functional
+- File size validation remains functional
+- Preview and Remove actions remain functional
+
+## 3. Test Coverage
+
+## Final Test Result
+
+```text
+Test Files: 15 passed
+Tests:      77 passed
+Failed:     0

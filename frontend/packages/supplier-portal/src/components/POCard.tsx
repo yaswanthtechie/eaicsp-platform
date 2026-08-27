@@ -7,7 +7,6 @@ interface Props {
 }
 
 const POCard = ({ order }: Props) => {
-
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("en-IN", {
       style: "currency",
@@ -16,19 +15,14 @@ const POCard = ({ order }: Props) => {
   };
 
   return (
-    <div className="card">
-
+    <div className="card" data-testid="po-card">
       <div className="card-top">
-
         <h3>{order.po_number}</h3>
 
         <StatusBadge status={order.status} />
-
       </div>
 
-      <p>
-        Total : {formatCurrency(order.total_amount)}
-      </p>
+      <p>Total : {formatCurrency(order.total_amount)}</p>
 
       <p>
         Delivery :{" "}
@@ -36,9 +30,8 @@ const POCard = ({ order }: Props) => {
       </p>
 
       <Link to={`/orders/${order.po_number}`}>
-        <button>View Details</button>
+        <button type="button">View Details</button>
       </Link>
-
     </div>
   );
 };

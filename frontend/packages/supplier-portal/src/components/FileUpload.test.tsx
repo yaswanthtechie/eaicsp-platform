@@ -41,7 +41,13 @@ describe("FileUpload", () => {
     ).toBeInTheDocument();
 
     expect(
-      screen.getByText("or Click to Upload")
+      screen.getByText("or")
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByRole("button", {
+        name: "Browse files",
+      })
     ).toBeInTheDocument();
   });
 
@@ -182,5 +188,31 @@ describe("FileUpload", () => {
         "Only PDF files are allowed."
       )
     ).toBeInTheDocument();
+  });
+
+  it("provides a keyboard-accessible Browse files button", () => {
+    renderFileUpload();
+
+    const browseButton = screen.getByRole(
+      "button",
+      {
+        name: "Browse files",
+      }
+    );
+
+    expect(browseButton).toBeInTheDocument();
+
+    expect(browseButton).toHaveAttribute(
+      "type",
+      "button"
+    );
+
+    fireEvent.keyDown(browseButton, {
+      key: "Enter",
+    });
+
+    fireEvent.keyDown(browseButton, {
+      key: " ",
+    });
   });
 });
