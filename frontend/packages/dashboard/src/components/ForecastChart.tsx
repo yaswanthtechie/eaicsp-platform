@@ -11,23 +11,22 @@ import {
 } from "recharts";
 
 import { useEffect, useState } from "react";
+import { Button } from "../../../ui/src/components/Button";
+import { Spinner } from "../../../ui/src/components/Spinner";
 import { forecast } from "../mocks/forecast";
-import { colors } from "../tokens";
+import { colors, radius, space } from "../tokens";
 
 const chartData = forecast.map((item) => ({
   ...item,
   band: item.upper_bound - item.lower_bound,
 }));
 
-// "Today" is the last date we have an actual for;
-// everything after is forecast.
 const lastActualIndex = chartData.reduce(
   (last, item, index) =>
     item.actual !== undefined ? index : last,
   0
 );
 
-// Spec default: last 10 days + next 5 days.
 const defaultStart =
   chartData[Math.max(0, lastActualIndex - 9)].date;
 
@@ -61,66 +60,96 @@ export default function ForecastChart() {
 
   if (loading) {
     return (
-      <h2 style={{ color: colors.text }}>
-        Loading Sales Forecast Data....
-      </h2>
+      <div
+        style={{
+          minHeight: 350,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: space.sm,
+          color: colors.text,
+        }}
+      >
+        <Spinner size="md" />
+        <span>Loading Forecast Chart...</span>
+      </div>
     );
   }
 
   if (error) {
     return (
-      <div style={{ color: colors.text }}>
+      <div
+        style={{
+          color: colors.text,
+          textAlign: "center",
+        }}
+      >
         <p>Something went wrong.</p>
 
-        <button onClick={() => setError(false)}>
+        <Button
+          variant="danger"
+          size="sm"
+          onClick={() => setError(false)}
+        >
           Retry
-        </button>
+        </Button>
       </div>
     );
   }
 
   if (forecast.length === 0) {
     return (
-      <h2 style={{ color: colors.text }}>
-        No Forecast Data Available.
-      </h2>
+      <div
+        style={{
+          color: colors.text,
+          textAlign: "center",
+        }}
+      >
+        <h2>No Forecast Data Available.</h2>
+      </div>
     );
   }
 
   if (startDate > endDate) {
     return (
-      <div style={{ color: colors.text }}>
+      <div
+        style={{
+          color: colors.text,
+          textAlign: "center",
+        }}
+      >
         <h2 style={{ color: colors.danger }}>
           Start date must be on or before the end date.
         </h2>
 
-        <button
+        <Button
+          variant="secondary"
+          size="sm"
           onClick={resetDates}
-          style={{
-            padding: "7px 14px",
-            cursor: "pointer",
-          }}
         >
           Reset
-        </button>
+        </Button>
       </div>
     );
   }
 
   if (filteredData.length === 0) {
     return (
-      <div style={{ color: colors.text }}>
+      <div
+        style={{
+          color: colors.text,
+          textAlign: "center",
+        }}
+      >
         <h2>No forecast data in the selected range.</h2>
 
-        <button
+        <Button
+          variant="secondary"
+          size="sm"
           onClick={resetDates}
-          style={{
-            padding: "7px 14px",
-            cursor: "pointer",
-          }}
         >
           Reset
-        </button>
+        </Button>
       </div>
     );
   }
@@ -129,19 +158,29 @@ export default function ForecastChart() {
     <div
       style={{
         background: colors.surface,
-        padding: 20,
-        borderRadius: 10,
+        padding: space.md,
+        borderRadius: radius.md,
       }}
     >
       <div
         style={{
           display: "flex",
-          gap: 16,
-          marginBottom: 20,
+          gap: space.md,
+          marginBottom: space.sm,
           alignItems: "center",
           flexWrap: "wrap",
         }}
       >
+        <h2
+          style={{
+            color: colors.text,
+            textAlign: "left",
+            fontSize: space.lg,
+          }}
+        >
+          Sales Forecasting From : {startDate} to {endDate}
+        </h2>
+
         <label style={{ color: colors.text }}>
           Start Date:
           <input
@@ -149,7 +188,7 @@ export default function ForecastChart() {
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
             style={{
-              marginLeft: 8,
+              marginLeft: space.sm,
               padding: "6px 8px",
             }}
           />
@@ -162,33 +201,22 @@ export default function ForecastChart() {
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
             style={{
-              marginLeft: 8,
+              marginLeft: space.sm,
               padding: "6px 8px",
             }}
           />
         </label>
 
-        <button
+        <Button
+          variant="secondary"
+          size="sm"
           onClick={resetDates}
-          style={{
-            padding: "7px 14px",
-            cursor: "pointer",
-          }}
         >
           Reset
-        </button>
+        </Button>
       </div>
 
-      <h2
-        style={{
-          color: colors.text,
-          textAlign: "center",
-        }}
-      >
-        Sales Forecasting From : {startDate} to {endDate}
-      </h2>
-
-      <ResponsiveContainer width="100%" height={400}>
+      <ResponsiveContainer width="100%" height={350}>
         <ComposedChart data={filteredData}>
           <CartesianGrid
             stroke={colors.border}
