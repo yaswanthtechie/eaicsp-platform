@@ -493,6 +493,7 @@ Possible future improvements:
 # Author
 
 Built with **React + TypeScript** for the EAICSP platform.
+
 # R5 — Component Library Enhancements
 
 ## Overview
@@ -507,12 +508,12 @@ Storybook is configured as the reference environment for documenting and testing
 
 ### Features
 
-* Storybook v10.5.10
-* React + Vite integration
-* Component stories for the UI library
-* Autodocs enabled for component stories
-* Accessibility testing with `@storybook/addon-a11y`
-* Theme demonstrations through Storybook
+- Storybook v10.5.10
+- React + Vite integration
+- Component stories for the UI library
+- Autodocs enabled for component stories
+- Accessibility testing with `@storybook/addon-a11y`
+- Theme demonstrations through Storybook
 
 ### Run Storybook
 
@@ -544,19 +545,19 @@ A gauge-style visualization for displaying a value or progress toward a target.
 
 Both components:
 
-* Are implemented as reusable React components.
-* Use the existing chart infrastructure.
-* Support the library's design-token system.
-* Are included in the component test suite.
-* Are available for demonstration through Storybook.
+- Are implemented as reusable React components.
+- Use the existing chart infrastructure.
+- Support the library's design-token system.
+- Are included in the component test suite.
+- Are available for demonstration through Storybook.
 
 Existing chart primitives include:
 
-* Sparkline
-* Gauge
-* TrendLine
-* MiniBarChart
-* DonutChart
+- Sparkline
+- Gauge
+- TrendLine
+- MiniBarChart
+- DonutChart
 
 ---
 
@@ -566,9 +567,9 @@ A third theme was added in addition to the existing light and dark themes.
 
 ### Supported Themes
 
-* Light
-* Dark
-* High Contrast
+- Light
+- Dark
+- High Contrast
 
 The high-contrast theme is implemented using centralized CSS variables in:
 
@@ -604,11 +605,11 @@ data-theme="high-contrast"
 
 The high-contrast theme is demonstrated across multiple components, including:
 
-* Button
-* Badge
-* Card
-* Tabs
-* StatusIndicator
+- Button
+- Badge
+- Card
+- Tabs
+- StatusIndicator
 
 The components consume centralized design tokens instead of defining component-specific hardcoded colors.
 
@@ -630,26 +631,26 @@ A React Testing Library and Vitest-based test suite was expanded to cover the co
 
 The current test suite covers:
 
-* Button
-* Card
-* Badge
-* KpiCard
-* Spinner
-* AlertBanner
-* StatusIndicator
-* Table
-* Tabs
-* Input
-* Checkbox
-* Select
-* TextArea
-* Sparkline
-* Gauge
-* TrendLine
-* MiniBarChart
-* DonutChart
-* DataTable
-* Modal
+- Button
+- Card
+- Badge
+- KpiCard
+- Spinner
+- AlertBanner
+- StatusIndicator
+- Table
+- Tabs
+- Input
+- Checkbox
+- Select
+- TextArea
+- Sparkline
+- Gauge
+- TrendLine
+- MiniBarChart
+- DonutChart
+- DataTable
+- Modal
 
 ### Run Tests
 
@@ -694,13 +695,13 @@ Release date:
 
 The changelog records:
 
-* Storybook setup
-* Accessibility testing
-* Sparkline
-* Gauge
-* High-contrast theme
-* Centralized design tokens
-* Accessibility improvements
+- Storybook setup
+- Accessibility testing
+- Sparkline
+- Gauge
+- High-contrast theme
+- Centralized design tokens
+- Accessibility improvements
 
 Future breaking changes and important library changes should be recorded in the changelog before release.
 
@@ -754,8 +755,8 @@ Local: http://localhost:6006/
 
 # R5 Definition of Done
 
-| Requirement                                           | Status     |
-| ----------------------------------------------------- | ---------- |
+| Requirement                                           | Status      |
+| ----------------------------------------------------- | ----------- |
 | Storybook running                                     | ✅ Complete |
 | Accessibility addon configured                        | ✅ Complete |
 | Component stories available                           | ✅ Complete |
@@ -773,11 +774,11 @@ Local: http://localhost:6006/
 
 R5 implementation is complete and verified through:
 
-* Storybook
-* Accessibility testing setup
-* High-contrast theme demonstration
-* React Testing Library/Vitest tests
-* Production build
-* Versioned changelog
+- Storybook
+- Accessibility testing setup
+- High-contrast theme demonstration
+- React Testing Library/Vitest tests
+- Production build
+- Versioned changelog
 
 The UI component library is now documented, tested, themeable, and ready for continued versioned development.
