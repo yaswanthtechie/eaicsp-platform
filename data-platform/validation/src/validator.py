@@ -1,13 +1,29 @@
-import importlib
 import logging
 from typing import List, Dict, Any, Optional
 
+import time
 import pandas as pd
 import yaml
 from pydantic import BaseModel, Field, model_validator, ConfigDict
 
+import src.custom_rules as custom_rules
+
 logger = logging.getLogger(__name__)
 
+# The Explicit Registry: Only functions listed here can be executed.
+SAFE_FUNCTION_REGISTRY = {
+    "src.custom_rules.check_composite_unique": custom_rules.check_composite_unique,
+    "src.custom_rules.check_unparseable_dates": custom_rules.check_unparseable_dates,
+    "src.custom_rules.check_outliers": custom_rules.check_outliers,
+    "src.custom_rules.check_negatives": custom_rules.check_negatives,
+    "src.custom_rules.check_duplicate_rows": custom_rules.check_duplicate_rows,
+    "src.custom_rules.standardize_products": custom_rules.standardize_products,
+    "src.custom_rules.flag_negatives": custom_rules.flag_negatives,
+    "src.custom_rules.standardize_dates": custom_rules.standardize_dates,
+    "src.custom_rules.drop_duplicate_rows": custom_rules.drop_duplicate_rows,
+}
+class SecurityError(Exception):
+    pass
 
 class ValidationResult(BaseModel):
     config_version: str = 'unknown' # <-- Added version tracking
@@ -16,12 +32,22 @@ class ValidationResult(BaseModel):
     errors: List[Dict[str, Any]] = Field(default_factory=list)
     warnings: List[Dict[str, Any]] = Field(default_factory=list)
     sample_bad_rows: Dict[str, List[Dict[str, Any]]] = Field(default_factory=dict)
+    rule_timings: Dict[str, float] = Field(default_factory=dict)
 
     def __getitem__(self, item):
         """Allows dictionary-style access to the model's attributes (e.g., result['passed'])."""
         if hasattr(self, item):
             return getattr(self, item)
         raise KeyError(item)
+
+    @property
+    def slowest_rule(self) -> Optional[Dict[str, Any]]:  # <--- OPTIONAL HELPER
+        """Returns the single slowest rule evaluated and its duration."""
+        if not self.rule_timings:
+            return None
+        # slowest_name = max(self.rule_timings, key=self.rule_timings.get)
+        slowest_name = max(self.rule_timings, key=lambda k: self.rule_timings[k])
+        return {"rule": slowest_name, "duration_seconds": self.rule_timings[slowest_name]}
 
 
 class ConfigRule(BaseModel):
@@ -51,13 +77,12 @@ class ConfigRule(BaseModel):
 
     @staticmethod
     def _load_function(func_path: str):
-        """Dynamically loads a Python function from a string path (e.g., 'src.module.func')."""
-        try:
-            module_name, func_name = func_path.rsplit('.', 1)
-            module = importlib.import_module(module_name)
-            return getattr(module, func_name)
-        except Exception as e:
-            raise RuntimeError(f"Failed to load function {func_path}: {e}")
+        """Safely loads a function exclusively from the explicit registry."""
+        if func_path not in SAFE_FUNCTION_REGISTRY:
+            raise SecurityError(
+                f"FATAL: Function '{func_path}' is not in the safe registry. Execution denied."
+            )
+        return SAFE_FUNCTION_REGISTRY[func_path]
 
     def _execute_dynamic_function(self, df: pd.DataFrame) -> Any:
         """Helper to deduplicate dynamic function execution for custom/transform rules."""
@@ -133,6 +158,29 @@ class DataValidator:
     def __init__(self, rules: List[ConfigRule],  version: str = 'unknown'):
         self.rules = rules
         self.version = version
+        self._detect_conflicts()
+
+    def _detect_conflicts(self):
+        """Detects impossible rule combinations before execution."""
+        field_ranges = {}
+        for rule in self.rules:
+            if rule.type == "range" and rule.field:
+                min_val = rule.model_extra.get('min', float('-inf'))
+                max_val = rule.model_extra.get('max', float('inf'))
+
+                # 1. Catch Intra-rule conflicts (e.g., min: 10, max: 5)
+                if min_val > max_val:
+                    raise ValueError(
+                        f"Config Error: Rule '{rule.name}' is impossible. min ({min_val}) > max ({max_val}).")
+
+                # 2. Catch Inter-rule conflicts on the same field
+                if rule.field in field_ranges:
+                    prev_min, prev_max = field_ranges[rule.field]
+                    if min_val > prev_max or max_val < prev_min:
+                        raise ValueError(
+                            f"Config Error: Field '{rule.field}' has contradictory range rules (e.g., '{rule.name}').")
+
+                field_ranges[rule.field] = (min_val, max_val)
 
     @classmethod
     def from_config(cls, yaml_path: str) -> 'DataValidator':
@@ -167,7 +215,8 @@ class DataValidator:
                 config_version=getattr(self, 'version', 'unknown'),
                 passed=False,
                 total_rows_affected=0,
-                errors=[{"rule": "empty_dataframe", "field": None, "count": 1}]
+                errors = [{"rule": "empty_dataframe", "field": None, "count": 1}],
+                rule_timings = {}
             )
         self._validate_schema(df)
 
@@ -187,11 +236,14 @@ class DataValidator:
 
         # Dictionary to track boolean failure masks by rule name
         rule_failure_masks = {}
+        rule_timings = {}
 
         for rule in self.rules:
             # Skip evaluation for transform rules
             if rule.type == "transform":
                 continue
+            # --- START PROFILING TIMER ---
+            start_time = time.perf_counter()
 
             # --- Fail-Safe Implementation ---
             try:
@@ -215,6 +267,10 @@ class DataValidator:
             except Exception as e:
                 logger.error(f"FATAL ERROR: Rule '{rule.name}' crashed during validation: {e}. Skipping rule.")
                 continue
+            finally:
+                # --- RECORD RULE DURATION ---
+                duration = time.perf_counter() - start_time
+                rule_timings[rule.name] = round(duration, 6)
 
             bad_count = int(bad_mask.sum())
 
@@ -252,7 +308,8 @@ class DataValidator:
             total_rows_affected=len(affected_indices),
             errors=errors,
             warnings=warnings,
-            sample_bad_rows=sample_bad
+            sample_bad_rows=sample_bad,
+            rule_timings=rule_timings
         )
 
     def clean(self, df: pd.DataFrame, strict: bool = True, target_rules: Optional[List[str]] = None) -> pd.DataFrame:

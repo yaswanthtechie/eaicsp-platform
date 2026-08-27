@@ -114,6 +114,12 @@ def main():
     log_issues(report['errors'], "ERROR", report)
     log_issues(report['warnings'], "WARNING", report)
 
+    if hasattr(report, "rule_timings") and report.rule_timings:
+        logger.info("--- RULE TIMINGS (Slowest First) ---")
+        sorted_timings = sorted(report.rule_timings.items(), key=lambda x: x[1], reverse=True)
+        for rule_name, rule_duration in sorted_timings:
+            logger.info(f"  • {rule_name:30s} : {rule_duration:.6f}s")
+
     # 5. Clean the data
     logger.info(f"Executing cleaning sequence (Strict Mode: {args.strict})...")
     try:

@@ -33,3 +33,9 @@ validate_folder = "src.validate_folder:main"
 
 [tool.setuptools]
 packages = ["src"]
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "src/main.py",
+]

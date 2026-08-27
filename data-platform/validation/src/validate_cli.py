@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -30,10 +31,36 @@ ENCODING = "utf-8"
 
 # --- Logger Setup ---
 def setup_logger(log_level: str = DEFAULT_LOG_LEVEL) -> logging.Logger:
-    """Configures and returns a logger instance."""
+    """Configures and returns a logger instance with file and stream handlers."""
     numeric_level = getattr(logging, log_level.upper(), logging.INFO)
-    logging.basicConfig(level=numeric_level, format=DEFAULT_LOG_FORMAT)
-    return logging.getLogger(__name__)
+
+    # 1. Setup logs directory
+    log_dir = PROJECT_ROOT / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    # 2. Generate timestamped filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = log_dir / f"cli_validation_{timestamp}.log"
+
+    # 3. Configure handlers for both console and file
+    log_handlers = [
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(log_file, mode="w", encoding=ENCODING)
+    ]
+
+    # 4. Apply configuration
+    logging.basicConfig(
+        level=numeric_level,
+        format=DEFAULT_LOG_FORMAT,
+        handlers=log_handlers,
+        force=True  # Ensures basicConfig applies if already initialized elsewhere
+    )
+
+    # Renamed variable to avoid shadowing the global 'logger'
+    custom_logger = logging.getLogger(__name__)
+    custom_logger.info("File logging enabled. Writing to: %s", log_file)
+
+    return custom_logger
 
 
 logger = setup_logger(os.getenv("LOG_LEVEL", DEFAULT_LOG_LEVEL))
@@ -106,6 +133,12 @@ def main(cli_args: Optional[list[str]] = None) -> int:
         export_report(report, output_path)
     except (OSError, TypeError, ValueError, AttributeError):
         return EXIT_TOOL_ERROR
+
+    if hasattr(report, "rule_timings") and report.rule_timings:
+        logger.info("--- RULE TIMINGS (Slowest First) ---")
+        sorted_timings = sorted(report.rule_timings.items(), key=lambda x: x[1], reverse=True)
+        for rule_name, rule_duration in sorted_timings:
+            logger.info(f"  • {rule_name:30s} : {rule_duration:.6f}s")
 
     # 4. CI/CD Exit Codes
     passed = getattr(report, 'passed', False)

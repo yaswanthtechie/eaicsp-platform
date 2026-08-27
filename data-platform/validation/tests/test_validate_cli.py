@@ -33,13 +33,20 @@ def mock_report() -> MagicMock:
 def test_setup_logger(mock_basic_config):
     logger = validate_cli.setup_logger("DEBUG")
 
-    # 1. Verify basicConfig was called with the exact level and format expected
-    mock_basic_config.assert_called_once_with(
-        level=logging.DEBUG,
-        format=validate_cli.DEFAULT_LOG_FORMAT
-    )
+    # 1. Verify basicConfig was called exactly once
+    mock_basic_config.assert_called_once()
 
-    # 2. Verify the function returns the correct named logger
+    # 2. Extract the keyword arguments it was called with
+    call_kwargs = mock_basic_config.call_args.kwargs
+
+    # 3. Assert the specific configurations we expect
+    assert call_kwargs.get("level") == logging.DEBUG
+    assert call_kwargs.get("format") == validate_cli.DEFAULT_LOG_FORMAT
+    assert call_kwargs.get("force") is True
+    assert "handlers" in call_kwargs
+    assert len(call_kwargs["handlers"]) == 2  # Should contain StreamHandler and FileHandler
+
+    # 4. Verify the function returns the correct named logger
     assert logger.name == "src.validate_cli"
 
 
