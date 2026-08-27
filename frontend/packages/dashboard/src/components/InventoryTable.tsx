@@ -1,57 +1,118 @@
-import { useState,useEffect } from "react";
+import { useEffect, useState } from "react";
+import { Badge } from "../../../ui/src/components/Badge";
+import { Table } from "../../../ui/src/components/Table";
 import { inventory } from "../mocks/inventory";
-import { colors } from "../tokens";
+import { colors, space } from "../tokens";
 
 export default function InventoryTable() {
   const [showLowStock, setShowLowStock] = useState(false);
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    const timer = setTimeout(() =>{
+    const timer = setTimeout(() => {
       setLoading(false);
-    },1000);
-    return () =>clearTimeout(timer);
-  },[]);
+    }, 1000);
 
-  if(loading){
-    return <h2 style={{ color: colors.text}}>Loading Inventory Table...</h2>;
-  }
-  if(error){
-    return(
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (error) {
+    return (
       <div>
-        <h2>Something went wrong in table.</h2>
-        <button onClick={() => setError(false)}>Retry</button>
+        <h2 style={{ color: colors.text }}>
+          Something went wrong in table.
+        </h2>
+
+        <button onClick={() => setError(false)}>
+          Retry
+        </button>
       </div>
     );
   }
-  if(inventory.length == 0){
-    return <h2 style={{ color: colors.text}}>No Table data available.</h2>;
-  }
+
   const filteredInventory = inventory.filter((item) => {
     if (showLowStock) {
       return item.needs_reorder;
     }
+
     return true;
   });
+
+  const searchedInventory = filteredInventory.filter((item) =>
+    item.sku_id.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const columns = [
+    {
+      key: "sku_id" as keyof (typeof inventory)[number],
+      header: "SKU"
+    },
+    {
+      key: "product_name" as keyof (typeof inventory)[number],
+      header: "Product"
+    },
+    {
+      key: "warehouse_id" as keyof (typeof inventory)[number],
+      header: "Warehouse"
+    },
+    {
+      key: "quantity_on_hand" as keyof (typeof inventory)[number],
+      header: "Quantity"
+    },
+    {
+      key: "reorder_point" as keyof (typeof inventory)[number],
+      header: "Reorder Point",
+    },
+    {
+      key: "needs_reorder" as keyof (typeof inventory)[number],
+      header: "Status",
+      render: (item: (typeof inventory)[number]) =>
+        item.needs_reorder ? (
+          <Badge status="danger">Low Stock</Badge>
+        ) : (
+          <Badge status="success">In Stock</Badge>
+        ),
+    },
+  ];
 
   return (
     <div
       style={{
         background: colors.surface,
-        padding: 20,
+        padding: space.md,
         borderRadius: 10,
-        marginTop: 30,
+        marginTop: space.sm
       }}
     >
-      <h2 style={{ color: colors.text,textAlign:"center" }}>
+      <h2
+        style={{
+          color: colors.text,
+          marginTop: 0
+        }}
+      >
         Inventory Table
       </h2>
+
+      <input
+        type="text"
+        placeholder="Search SKU..."
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        style={{
+          padding: "8px",
+          marginBottom: space.sm,
+          textAlign:"left"
+        }}
+      />
+
       <label
         style={{
           color: colors.text,
-          display: "block",
-          marginBottom: 15,
+          display: "flex",
+          gap: space.sm,
+          marginBottom: space.md
         }}
       >
         <input
@@ -60,97 +121,18 @@ export default function InventoryTable() {
           onChange={(e) => setShowLowStock(e.target.checked)}
         />
 
-        {" "}Show only low stock
+        Show only low stock items
       </label>
 
-      <table
-        style={{
-          width: "100%",
-          borderCollapse: "collapse",
-        }}
-      >
-        <thead>
-          <tr
-            style={{
-              background: colors.primary,
-              color: "white",
-            }}
-          >
-            <th style={{ padding: 10 }}>sku_id</th>
-
-            <th style={{ padding: 10 }}>product_name</th>
-
-            <th style={{ padding: 10 }}>warehouse_id</th>
-
-            <th style={{ padding: 10 }}>quantity_on_hand</th>
-
-            <th style={{ padding: 10 }}>reorder_point</th>
-
-            <th style={{ padding: 10 }}>needs_reorder</th>
-          </tr>
-        </thead>
-
-        <tbody>
-          {filteredInventory.map((item) => (
-            <tr
-              key={item.sku_id}
-              style={{
-                borderBottom: `1px solid ${colors.border}`,
-                textAlign: "center",
-                color: colors.text,
-              }}
-            >
-              <td style={{ padding: 10 }}>
-                {item.sku_id}
-              </td>
-
-              <td style={{ padding: 10 }}>
-                {item.product_name}
-              </td>
-
-              <td style={{ padding: 10 }}>
-                {item.warehouse_id}
-              </td>
-
-              <td style={{ padding: 10 }}>
-                {item.quantity_on_hand}
-              </td>
-
-              <td style={{ padding: 10 }}>
-                {item.reorder_point}
-              </td>
-
-              <td style={{ padding: 5 }}>
-                {item.needs_reorder ? (
-                  <span
-                    style={{
-                      background: colors.danger,
-                      color: "white",
-                      padding: "5px 12px",
-                      borderRadius: "20px",
-                      fontSize: "14px",
-                    }}
-                  >
-                    Low Stock
-                  </span>
-                ) : (
-                  <span
-                    style={{
-                      background: colors.success,
-                      color: "white",
-                      padding: "5px 12px",
-                      borderRadius: "20px",
-                      fontSize: "14px",
-                    }}
-                  >
-                    In Stock
-                  </span>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div style={{ overflowX: "auto" }}>
+        <Table
+          columns={columns}
+          data={searchedInventory}
+          rowKey={(item) => item.sku_id}
+          loading={loading}
+          emptyMessage="SKU Number Not Available"
+        />
+      </div>
     </div>
   );
 }
