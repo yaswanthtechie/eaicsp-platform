@@ -72,3 +72,60 @@ python compare.py --results uday_results.json
 
 This keeps the evaluation logic completely decoupled from any one person's
 model code -- anyone can plug in their own predictions.
+
+
+## Round 3: Full Metrics Suite, Leaderboard, and Significance Testing
+
+### What's new this round
+
+- **`src/metrics.py`** — added `anomaly_metrics()`: recall, specificity, false positive
+  rate, and balanced accuracy, specifically for anomaly detection where the normal
+  class vastly outnumbers the anomaly class (plain accuracy is misleading there).
+- **`src/leaderboard.py`** — `generate_leaderboard()` and `print_leaderboard()`.
+  Ranks any number of models by a chosen metric, best first. Refuses to rank
+  and gives a clear error if any model is missing that metric, or if fewer
+  than 2 models are comparable -- it will never force a fake ranking across
+  incompatible metrics.
+- **`src/significance.py`** — `paired_significance_test()`. Runs a paired
+  t-test across matching folds (e.g., 5 walk-forward folds) for two models,
+  and reports whether one model's apparent improvement over another is
+  statistically real or could be explained by random noise.
+
+### Why this matters
+
+A single metric on a single split can be misleading (see the framework's own
+design: MAPE and RMSE can disagree, and one split can just be lucky). This
+round adds two more layers of honesty: the leaderboard refuses to compare
+apples to oranges, and the significance test refuses to call a small
+improvement "better" unless the data actually backs that up.
+
+### How to run the Round 3 demo
+
+```bash
+cd ml-services/eval-framework
+pip install scipy
+python run_leaderboard.py
+```
+
+This runs a 5-fold walk-forward comparison on the real retail sales dataset,
+prints a leaderboard, and reports whether the difference between the two
+result sets is statistically significant.
+
+**Known limitation:** no second real model is wired into eval-framework yet
+(explicitly out of scope through Round 2 and this round). The demo uses a
+"toy model" (a deliberately worse naive variant) purely to prove the
+leaderboard and significance-testing machinery work correctly on real
+project data -- not as a meaningful model comparison. When a real second
+model becomes available, swap it in using the same pattern.
+
+### Example: leaderboard refusing an invalid comparison
+
+```python
+from src.leaderboard import print_leaderboard
+
+results = {"naive": {"mape": 6.80}, "some_model": {"precision": 0.9}}
+print_leaderboard(results, "mape")
+# Cannot generate leaderboard: Cannot rank: metric 'mape' is missing for
+# model(s) ['some_model']. All models must report the same metric to be
+# ranked together.
+```

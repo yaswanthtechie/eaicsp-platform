@@ -10,6 +10,9 @@ from src.splits import walk_forward_split
 import json
 import subprocess
 import sys
+from src.metrics import anomaly_metrics
+from src.leaderboard import generate_leaderboard, print_leaderboard
+from src.significance import paired_significance_test
 
 
 
@@ -140,3 +143,95 @@ def test_compare_cli_mismatched_metrics(tmp_path):
     assert result.returncode == 0
     assert "N/A" in result.stdout
     assert "mape" in result.stdout
+
+
+def test_anomaly_metrics_basic():
+    y_true = [0,0,0,1,0,0,0,1,0,0]
+    y_pred = [0,0,0,1,0,0,1,0,0,0]
+    result = anomaly_metrics(y_true, y_pred)
+    assert result["recall"] == 0.5
+    assert result["specificity"] == 0.875
+    assert round(result["false_positive_rate"], 3) == 0.125
+    assert round(result["balanced_accuracy"], 4) == 0.6875
+
+
+
+def test_leaderboard_ranks_correctly():
+    results = {"naive": {"mape": 6.80}, "prophet": {"mape": 3.20}, "xgboost": {"mape": 4.50}}
+    ranked = generate_leaderboard(results, "mape", lower_is_better=True)
+    assert ranked[0][0] == "prophet"
+    assert ranked[-1][0] == "naive"
+
+
+def test_leaderboard_higher_is_better():
+    results = {"a": {"precision": 0.6}, "b": {"precision": 0.9}}
+    ranked = generate_leaderboard(results, "precision", lower_is_better=False)
+    assert ranked[0][0] == "b"
+
+
+def test_leaderboard_refuses_incompatible_metrics():
+    bad_results = {"naive": {"mape": 6.80}, "xgboost": {"precision": 0.9}}
+    try:
+        generate_leaderboard(bad_results, "mape")
+        assert False, "expected ValueError"
+    except ValueError as e:
+        assert "xgboost" in str(e)
+
+
+def test_leaderboard_empty_results_raises():
+    try:
+        generate_leaderboard({}, "mape")
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+
+
+def test_leaderboard_single_model_raises():
+    try:
+        generate_leaderboard({"only_one": {"mape": 5.0}}, "mape")
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+
+
+def test_significance_detects_real_difference():
+    scores_a = [3.1, 3.4, 2.9, 3.2, 3.0]
+    scores_b = [6.8, 7.1, 6.5, 6.9, 7.0]
+    result = paired_significance_test(scores_a, scores_b)
+    assert result["significant"] is True
+
+
+def test_significance_detects_no_difference():
+    scores_a = [5.1, 4.8, 5.5, 5.0, 4.9]
+    scores_b = [5.0, 5.2, 4.9, 5.1, 5.0]
+    result = paired_significance_test(scores_a, scores_b)
+    assert result["significant"] is False
+
+
+def test_significance_mismatched_lengths_raises():
+    try:
+        paired_significance_test([1, 2, 3], [1, 2])
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+
+
+def test_significance_too_few_folds_raises():
+    try:
+        paired_significance_test([1], [2])
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+
+def test_significance_zero_variance_handled():
+    result = paired_significance_test([5.0, 4.0, 6.0], [6.0, 5.0, 7.0])
+    assert result["significant"] is True
+    assert result["mean_difference"] == -1.0
+
+
+def test_leaderboard_rejects_non_numeric_value():
+    try:
+        generate_leaderboard({"a": {"mape": "high"}, "b": {"mape": 3.2}}, "mape")
+        assert False, "expected ValueError"
+    except ValueError as e:
+        assert "a" in str(e)

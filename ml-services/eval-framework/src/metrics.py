@@ -50,3 +50,25 @@ def precision_recall(y_true, y_pred) -> dict:
     f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
 
     return {"precision": precision, "recall": recall, "f1": f1}
+
+
+def anomaly_metrics(y_true, y_pred) -> dict:
+    """Anomaly-detection specific metrics, built on top of confusion_matrix.
+    Includes false positive rate and balanced accuracy -- both matter more than
+    plain precision/recall when anomalies are rare compared to normal points
+    (severe class imbalance), which is the typical real-world anomaly setting.
+    """
+    cm = confusion_matrix(y_true, y_pred)
+    tp, tn, fp, fn = cm["tp"], cm["tn"], cm["fp"], cm["fn"]
+
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+    fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
+    balanced_accuracy = (recall + specificity) / 2
+
+    return {
+        "recall": recall,
+        "specificity": specificity,
+        "false_positive_rate": fpr,
+        "balanced_accuracy": balanced_accuracy,
+    }
