@@ -307,6 +307,7 @@ def make_load_task(
     ):
 
         from etl.src.load import load_data_bulk_generic
+        from etl.src.reconciliation import reconcile_load
         from etl.src.transform import transform_data_generic
 
         ti = context["ti"]
@@ -369,6 +370,16 @@ def make_load_task(
                 run_id,
                 source_config,
             )
+        )
+
+        # R5 #4: automated reconciliation. Compares what the quality gate
+        # approved for load against what's actually in the table for this
+        # run_id - catches a silent partial load failure that schema/quality
+        # validation (which never looks at the database) structurally can't.
+        reconcile_load(
+            validated_batches,
+            source_config,
+            run_id,
         )
 
         rows_dropped_in_gate = sum(
@@ -579,6 +590,7 @@ def make_join_watermark_update(
 def log_run_task(**context):
 
     from etl.src.logger import finish_run
+    from etl.src.sla_monitor import check_run_duration_sla
 
     ti = context["ti"]
 
@@ -687,6 +699,11 @@ def log_run_task(**context):
         f"Pipeline run {run_id} finished "
         f"with status={overall_status}"
     )
+
+    # R5 #2: SLA monitoring. A run that succeeds but takes far longer than
+    # its own recent history hides a real problem just as much as an
+    # outright failure - check regardless of overall_status.
+    check_run_duration_sla(run_id)
 
 
 # ---------------------------------------------------------------------------
@@ -847,3 +864,4 @@ with DAG(
         ) >> log_run
 
     log_run >> archive_old_data
+    

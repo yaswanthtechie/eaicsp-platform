@@ -133,7 +133,7 @@ services:
       start_period: 30s
     restart: always
 
-  airflow-webserver:
+  airflow-webserver:`
     <<: *airflow-common
     command: webserver
     ports:
