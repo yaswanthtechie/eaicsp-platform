@@ -13,7 +13,47 @@ def compare(df_old, df_new):
 
     drift_report = {}
 
-    # Store drift information for every column
+    # -----------------------------
+    # Structural Compatibility
+    # -----------------------------
+    old_columns = set(df_old.columns)
+    new_columns = set(df_new.columns)
+
+    shared_columns = sorted(old_columns & new_columns)
+    only_in_old = sorted(old_columns - new_columns)
+    only_in_new = sorted(new_columns - old_columns)
+
+    compatible_types = []
+    incompatible_types = []
+
+    for col in shared_columns:
+        old_dtype = df_old[col].dtype
+        new_dtype = df_new[col].dtype
+
+        if old_dtype == new_dtype:
+            compatible_types.append({
+                "column": col,
+                "dtype": str(old_dtype)
+            })
+        else:
+            incompatible_types.append({
+                "column": col,
+                "old_dtype": str(old_dtype),
+                "new_dtype": str(new_dtype)
+            })
+
+    drift_report["schema_compatibility"] = {
+        "shared_columns": shared_columns,
+        "only_in_old": only_in_old,
+        "only_in_new": only_in_new,
+        "compatible_types": compatible_types,
+        "incompatible_types": incompatible_types
+    }
+
+    # -----------------------------
+    # Store drift information
+    # for every column
+    # -----------------------------
     column_drift = {}
 
     # -----------------------------
@@ -26,11 +66,9 @@ def compare(df_old, df_new):
     drift_report["old_shape"] = df_old.shape
     drift_report["new_shape"] = df_new.shape
 
-
     # -----------------------------
     # Initialize Column Drift
     # -----------------------------
-
     for col in df_old.columns:
         column_drift[col] = {
             "status": "no_drift",
@@ -54,7 +92,6 @@ def compare(df_old, df_new):
         }
 
     drift_report["new_columns"] = new_columns
-
 
     # -----------------------------
     # Data Type Comparison
@@ -95,9 +132,9 @@ def compare(df_old, df_new):
 
     drift_report["dtype_changes"] = dtype_changes
 
-
+    # -----------------------------
     # Null Percentage Comparison
-
+    # -----------------------------
     print("\nNull Percentage Changes")
 
     null_changes = []
@@ -119,7 +156,8 @@ def compare(df_old, df_new):
             new_null - old_null
         )
 
-        # Minor drift: 5 to less than 10 percentage points
+        # Minor drift:
+        # 5 to less than 10 percentage points
         if 5 <= null_difference < 10:
 
             print(
@@ -132,20 +170,24 @@ def compare(df_old, df_new):
                 "column": col,
                 "old": old_null,
                 "new": new_null,
-                "difference": round(null_difference, 2),
+                "difference": round(
+                    null_difference, 2
+                ),
                 "status": "minor_drift"
             })
 
-            # Don't downgrade an existing major drift
+            # Don't downgrade existing major drift
             if column_drift[col]["status"] != "major_drift":
                 column_drift[col]["status"] = "minor_drift"
 
             column_drift[col]["reasons"].append(
-                f"Null rate changed by {round(null_difference, 2)} percentage points"
+                f"Null rate changed by "
+                f"{round(null_difference, 2)} "
+                f"percentage points"
             )
 
-
-        # Major drift: 10 or more percentage points
+        # Major drift:
+        # 10 or more percentage points
         elif null_difference >= 10:
 
             print(
@@ -158,22 +200,25 @@ def compare(df_old, df_new):
                 "column": col,
                 "old": old_null,
                 "new": new_null,
-                "difference": round(null_difference, 2),
+                "difference": round(
+                    null_difference, 2
+                ),
                 "status": "major_drift"
             })
 
             column_drift[col]["status"] = "major_drift"
 
             column_drift[col]["reasons"].append(
-                f"Null rate changed by {round(null_difference, 2)} percentage points"
+                f"Null rate changed by "
+                f"{round(null_difference, 2)} "
+                f"percentage points"
             )
 
     drift_report["null_changes"] = null_changes
 
-
-
+    # -----------------------------
     # Numeric Mean Comparison
-
+    # -----------------------------
     print("\nNumeric Mean Changes")
 
     mean_changes = []
@@ -187,6 +232,14 @@ def compare(df_old, df_new):
         if col not in df_new.columns:
             continue
 
+        # If the column is no longer numeric
+        # in the new dataset, skip mean comparison.
+        # The datatype change is already reported.
+        if not pd.api.types.is_numeric_dtype(
+            df_new[col]
+        ):
+            continue
+
         old_mean = df_old[col].mean()
         new_mean = df_new[col].mean()
         old_std = df_old[col].std()
@@ -195,8 +248,8 @@ def compare(df_old, df_new):
             new_mean - old_mean
         )
 
-        # PDF requirement:
-        # mean shifted by more than 1 standard deviation
+        # Mean shifted by more than
+        # 1 standard deviation
         if (
             pd.notna(old_std)
             and old_std > 0
@@ -212,19 +265,23 @@ def compare(df_old, df_new):
                 "old_mean": round(old_mean, 2),
                 "new_mean": round(new_mean, 2),
                 "old_std": round(old_std, 2),
-                "difference": round(mean_difference, 2)
+                "difference": round(
+                    mean_difference, 2
+                )
             })
 
             column_drift[col]["status"] = "major_drift"
 
             column_drift[col]["reasons"].append(
-                "Mean shifted by more than 1 standard deviation"
+                "Mean shifted by more than "
+                "1 standard deviation"
             )
 
     drift_report["mean_changes"] = mean_changes
 
+    # -----------------------------
     # New Categorical Values
-
+    # -----------------------------
     print("\nNew Categorical Values")
 
     new_categories = {}
@@ -262,17 +319,16 @@ def compare(df_old, df_new):
 
             new_categories[col] = added_list
 
-            # Our grading rule:
             # 1-2 new categories = minor
             # 3+ new categories = major
-
             if len(added) <= 2:
 
                 if column_drift[col]["status"] != "major_drift":
                     column_drift[col]["status"] = "minor_drift"
 
                 column_drift[col]["reasons"].append(
-                    f"{len(added)} new categorical value(s)"
+                    f"{len(added)} new "
+                    f"categorical value(s)"
                 )
 
             else:
@@ -280,14 +336,15 @@ def compare(df_old, df_new):
                 column_drift[col]["status"] = "major_drift"
 
                 column_drift[col]["reasons"].append(
-                    f"{len(added)} new categorical values"
+                    f"{len(added)} new "
+                    f"categorical values"
                 )
 
     drift_report["new_categories"] = new_categories
 
-
+    # -----------------------------
     # Print Per-Column Drift
-
+    # -----------------------------
     print("\nColumn Drift Status")
 
     for col, details in column_drift.items():
@@ -301,9 +358,9 @@ def compare(df_old, df_new):
 
     drift_report["column_drift"] = column_drift
 
-
+    # -----------------------------
     # Overall Drift Decision
-
+    # -----------------------------
     print("\nOverall Drift")
 
     statuses = [
@@ -311,17 +368,20 @@ def compare(df_old, df_new):
         for details in column_drift.values()
     ]
 
-    # Any major column makes overall drift major
+    # Any major column makes
+    # overall drift major
     if "major_drift" in statuses:
 
         drift_status = "Major Drift"
 
-    # Otherwise, any minor column makes overall drift minor
+    # Otherwise, any minor column
+    # makes overall drift minor
     elif "minor_drift" in statuses:
 
         drift_status = "Minor Drift"
 
-    # Shape changed but columns themselves have no detected drift
+    # Shape changed but columns themselves
+    # have no detected drift
     elif df_old.shape != df_new.shape:
 
         drift_status = "Minor Drift"
@@ -333,6 +393,5 @@ def compare(df_old, df_new):
     print(drift_status)
 
     drift_report["status"] = drift_status
-
 
     return DriftReport(drift_report)
