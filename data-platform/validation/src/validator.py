@@ -182,6 +182,24 @@ class DataValidator:
 
                 field_ranges[rule.field] = (min_val, max_val)
 
+    @staticmethod
+    def filter_incremental(df: pd.DataFrame, watermark_col: str, current_watermark: Any) -> pd.DataFrame:
+        """Filters a DataFrame to only include rows strictly greater than the current watermark."""
+        if current_watermark is None or df.empty:
+            return df
+
+        if watermark_col not in df.columns:
+            raise ValueError(f"Incremental column '{watermark_col}' missing from DataFrame.")
+
+        # Dynamically cast watermark to match the DataFrame column type
+        col_type = df[watermark_col].dtype
+        if pd.api.types.is_numeric_dtype(col_type):
+            cast_watermark = type(df[watermark_col].iloc[0])(current_watermark)
+        else:
+            cast_watermark = str(current_watermark)
+
+        return df[df[watermark_col] > cast_watermark]
+
     @classmethod
     def from_config(cls, yaml_path: str) -> 'DataValidator':
         """Instantiates the validator directly from a YAML configuration file."""

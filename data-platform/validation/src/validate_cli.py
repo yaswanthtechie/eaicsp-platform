@@ -73,6 +73,11 @@ def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument("--file", type=Path, required=True, help="Path to input CSV")
     parser.add_argument("--config", type=Path, required=True, help="Path to YAML rules")
     parser.add_argument("--output", type=Path, required=True, help="Path for JSON report output")
+    # --- ADD INCREMENTAL ARGUMENTS ---
+    parser.add_argument("--incremental", action="store_true", help="Only process new rows since the last run.")
+    parser.add_argument("--watermark-col", type=str, default="transaction_id", help="Column for watermarking.")
+    parser.add_argument("--watermark-file", type=Path, default=PROJECT_ROOT / ".watermark_cli.json",
+                        help="Path to state tracking file.")
     return parser.parse_args(args)
 
 
@@ -116,6 +121,18 @@ def main(cli_args: Optional[list[str]] = None) -> int:
     # Load Data & Validate (Fixed broad exception)
     try:
         df = pd.read_csv(input_path)
+        # --- WATERMARK FILTERING ---
+        if args.incremental:
+            from src.watermark import WatermarkManager
+            wm = WatermarkManager(args.watermark_file)
+            current_watermark = wm.get_watermark()
+
+            df = DataValidator.filter_incremental(df, args.watermark_col, current_watermark)
+
+            if df.empty:
+                logger.info("Incremental Mode: No new data to process. Exiting cleanly.")
+                return EXIT_SUCCESS
+            logger.info(f"Incremental Mode: Identified {len(df)} new rows to validate.")
         validator = DataValidator.from_config(str(config_path))
 
         # Run validation
@@ -131,6 +148,12 @@ def main(cli_args: Optional[list[str]] = None) -> int:
     # 3. Export JSON Report (Fixed broad exception)
     try:
         export_report(report, output_path)
+        # --- WATERMARK SAVING ---
+        if args.incremental and not df.empty:
+            new_wm = df[args.watermark_col].max()
+            new_wm = new_wm.item() if hasattr(new_wm, 'item') else new_wm
+            wm.set_watermark(new_wm)
+            logger.info(f"Watermark updated to: {new_wm}")
     except (OSError, TypeError, ValueError, AttributeError):
         return EXIT_TOOL_ERROR
 

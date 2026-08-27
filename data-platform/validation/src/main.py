@@ -44,14 +44,14 @@ def log_issues(issues: List[Dict[str, Any]], severity_label: str, report: Dict[s
 
     for item in issues:
         log_func(f"{severity_label} -> Rule: {item['rule']} | Field: {item['field']} | Count: {item['count']}")
-        if item['rule'] in report['sample_bad_rows']:
+        if item['rule'] in report.get('sample_bad_rows', {}):
             logger.info(f"     -> Samples for '{item['rule']}':")
             for sample in report['sample_bad_rows'][item['rule']]:
                 logger.info(f"         Row {sample['row_index']}: [{sample['failed_value']}]")
 
 
 def main():
-    # Setup CLI Arguments to remove hardcoded paths
+    # Setup CLI Arguments
     parser = argparse.ArgumentParser(description="Run the Config-Driven Data Validation Pipeline.")
     parser.add_argument("--config", type=str, default=str(PROJECT_ROOT / "configs" / "sales_rules.yaml"),
                         help="Path to the YAML rules config.")
@@ -59,8 +59,17 @@ def main():
                         help="Path to input data.")
     parser.add_argument("--output", type=str, default=str(PROJECT_ROOT / "data" / "clean_sales.csv"),
                         help="Path to save cleaned data.")
-    parser.add_argument("--skip-generate", action="store_true", help="Skip auto-generating data and use existing input file.")
+    parser.add_argument("--skip-generate", action="store_true",
+                        help="Skip auto-generating data and use existing input file.")
     parser.add_argument("--no-strict", action="store_false", dest="strict", help="Disable strict cleaning mode.")
+
+    # Incremental Arguments
+    parser.add_argument("--incremental", action="store_true", help="Only process new rows since the last run.")
+    parser.add_argument("--watermark-col", type=str, default="id",
+                        help="Column to use for watermarking (e.g., 'date' or 'id').")
+    parser.add_argument("--watermark-file", type=str, default=str(PROJECT_ROOT / ".watermark.json"),
+                        help="Path to state tracking file.")
+
     args = parser.parse_args()
 
     config_path = Path(args.config)
@@ -92,6 +101,37 @@ def main():
         logger.error(f"FATAL ERROR: An unexpected error occurred while reading the data: {e}")
         return
 
+    # --- INCREMENTAL WATERMARK FILTERING ---
+    if args.incremental:
+        from src.watermark import WatermarkManager
+        wm = WatermarkManager(args.watermark_file)
+
+        if args.watermark_col not in df.columns:
+            logger.error(f"FATAL ERROR: Incremental column '{args.watermark_col}' missing from input data.")
+            return
+
+        current_watermark = wm.get_watermark()
+        if current_watermark is not None:
+            logger.info(f"Incremental Mode: Filtering rows where '{args.watermark_col}' > {current_watermark}")
+
+            # Dynamically cast watermark to match the DataFrame column type
+            col_type = df[args.watermark_col].dtype
+            if pd.api.types.is_numeric_dtype(col_type):
+                current_watermark = type(df[args.watermark_col].iloc[0])(current_watermark)
+            else:
+                current_watermark = str(current_watermark)
+
+            # Filter the dataframe
+            df = df[df[args.watermark_col] > current_watermark]
+
+            if df.empty:
+                logger.info("No new data to process. Pipeline halting cleanly.")
+                return
+
+            logger.info(f"Identified {len(df)} new rows to validate.")
+        else:
+            logger.info("No previous watermark found. Processing entire dataset (First run).")
+
     # 3. Initialize the config-driven Validator
     logger.info(f"Loading rules from {config_path.name}...")
     try:
@@ -108,12 +148,19 @@ def main():
         logger.error(f"FATAL ERROR: Validation crashed during execution: {e}")
         return
 
-    logger.info(f"Validation Passed: {report['passed']}")
-    logger.info(f"Total Rows Affected: {report['total_rows_affected']}")
+    logger.info(
+        f"Validation Passed: {getattr(report, 'passed', report.get('passed') if isinstance(report, dict) else False)}")
+    logger.info(
+        f"Total Rows Affected: {getattr(report, 'total_rows_affected', report.get('total_rows_affected') if isinstance(report, dict) else 0)}")
 
-    log_issues(report['errors'], "ERROR", report)
-    log_issues(report['warnings'], "WARNING", report)
+    if isinstance(report, dict):
+        log_issues(report.get('errors', []), "ERROR", report)
+        log_issues(report.get('warnings', []), "WARNING", report)
+    else:
+        log_issues(report.errors, "ERROR", report.model_dump() if hasattr(report, 'model_dump') else report.model_dump())
+        log_issues(report.warnings, "WARNING", report.model_dump() if hasattr(report, 'model_dump') else report.model_dump())
 
+    # --- RULE PERFORMANCE PROFILING ---
     if hasattr(report, "rule_timings") and report.rule_timings:
         logger.info("--- RULE TIMINGS (Slowest First) ---")
         sorted_timings = sorted(report.rule_timings.items(), key=lambda x: x[1], reverse=True)
@@ -129,11 +176,26 @@ def main():
         logger.error(f"FATAL ERROR: Cleaning crashed during execution: {e}")
         return
 
-    # 6. Save the file
+    # 6. Save the file and Update Watermark
     try:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        clean_df.to_csv(output_path, index=False)
-        logger.info(f"Successfully wrote sanitized dataset to {output_path}")
+
+        if args.incremental and output_path.exists():
+            # Append mode: Don't write headers again
+            clean_df.to_csv(output_path, mode='a', header=False, index=False)
+            logger.info(f"Incremental mode: Appended {len(clean_df)} sanitized rows to {output_path}")
+        else:
+            # Standard mode (or first run): Write completely new file
+            clean_df.to_csv(output_path, index=False)
+            logger.info(f"Successfully wrote sanitized dataset to {output_path}")
+
+        # Update the state file if validation and saving succeeded
+        if args.incremental:
+            new_watermark = df[args.watermark_col].max()
+            new_watermark = new_watermark.item() if hasattr(new_watermark, 'item') else new_watermark
+            wm.set_watermark(new_watermark)
+            logger.info(f"Watermark successfully updated to: {new_watermark}")
+
     except Exception as e:
         logger.error(f"FATAL ERROR: Failed to save cleaned data to {output_path}: {e}")
         return

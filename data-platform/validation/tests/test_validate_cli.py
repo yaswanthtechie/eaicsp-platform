@@ -171,3 +171,74 @@ def test_main_validation_passed_true(mock_export, mock_validator, mock_read, moc
 
     # Assert it returns Code 0 (Success)
     assert validate_cli.main(mock_args) == validate_cli.EXIT_SUCCESS
+
+# --- Tests for Incremental Watermarking ---
+
+def test_parse_args_incremental(mock_args):
+    """Verifies that the new incremental arguments are parsed correctly."""
+    args_with_inc = mock_args + ["--incremental", "--watermark-col", "test_id", "--watermark-file", "state.json"]
+    args = validate_cli.parse_args(args_with_inc)
+
+    assert args.incremental is True
+    assert args.watermark_col == "test_id"
+    assert args.watermark_file.name == "state.json"
+
+
+@patch("pathlib.Path.is_file", return_value=True)
+@patch("pandas.read_csv")
+@patch("src.validator.DataValidator.from_config")
+@patch("src.validate_cli.export_report")
+@patch("src.watermark.WatermarkManager")
+def test_main_incremental_updates_watermark(
+        mock_wm_class, mock_export, mock_validator, mock_read, mock_is_file, mock_args, mock_report
+):
+    """Verifies that processing new data in incremental mode correctly updates the watermark."""
+    # 1. Setup mock DataFrame with new rows
+    mock_df = pd.DataFrame({"transaction_id": [10, 20]})
+    mock_read.return_value = mock_df
+
+    # 2. Setup mocked WatermarkManager (Previous watermark was 5)
+    mock_wm_instance = MagicMock()
+    mock_wm_instance.get_watermark.return_value = 5
+    mock_wm_class.return_value = mock_wm_instance
+
+    # 3. Setup Validator
+    mock_instance = MagicMock()
+    mock_instance.validate.return_value = mock_report
+    mock_validator.return_value = mock_instance
+
+    # Run main with incremental arguments
+    args = mock_args + ["--incremental", "--watermark-col", "transaction_id"]
+    assert validate_cli.main(args) == validate_cli.EXIT_SUCCESS
+
+    # 4. Assert watermark was read and then updated to the new max (20)
+    mock_wm_instance.get_watermark.assert_called_once()
+    mock_wm_instance.set_watermark.assert_called_once_with(20)
+
+
+@patch("pathlib.Path.is_file", return_value=True)
+@patch("pandas.read_csv")
+@patch("src.validator.DataValidator.from_config")
+@patch("src.validate_cli.export_report")
+@patch("src.watermark.WatermarkManager")
+def test_main_incremental_no_new_data(
+        mock_wm_class, mock_export, mock_validator, mock_read, mock_is_file, mock_args
+):
+    """Verifies that the script exits early cleanly if no new incremental data is found."""
+    # 1. Setup mock DataFrame with old rows
+    mock_df = pd.DataFrame({"transaction_id": [1, 2]})
+    mock_read.return_value = mock_df
+
+    # 2. Setup mocked WatermarkManager (Previous watermark was 5 - higher than data)
+    mock_wm_instance = MagicMock()
+    mock_wm_instance.get_watermark.return_value = 5
+    mock_wm_class.return_value = mock_wm_instance
+
+    # Run main with incremental arguments
+    args = mock_args + ["--incremental", "--watermark-col", "transaction_id"]
+    assert validate_cli.main(args) == validate_cli.EXIT_SUCCESS
+
+    # 3. Assert validation, exporting, and saving were completely bypassed
+    mock_validator.assert_not_called()
+    mock_export.assert_not_called()
+    mock_wm_instance.set_watermark.assert_not_called()

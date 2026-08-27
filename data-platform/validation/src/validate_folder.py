@@ -59,7 +59,10 @@ def validate_folder(
         default_pattern: str = "*.csv",
         top_n_issues: int = 3,
         output_dir: str = "reports",
-        save_reports: bool = False
+        save_reports: bool = False,
+        incremental: bool = False,
+        watermark_col: str = "transaction_id",
+        watermark_dir: str = ".watermarks"
 ) -> Dict[str, Any]:
     folder = Path(folder_path)
 
@@ -109,10 +112,31 @@ def validate_folder(
         "most_common_issues": Counter()
     }
 
+    # --- Setup Watermark Directory if Incremental ---
+    if incremental:
+        from src.watermark import WatermarkManager
+        wm_dir = Path(watermark_dir)
+        wm_dir.mkdir(parents=True, exist_ok=True)
+
     for file_path, validator in validation_queue.items():
         logger.info("Validating %s...", file_path.name)
         try:
             df = pd.read_csv(file_path, memory_map=True)
+            # --- Incremental Filtering per file ---
+            wm = None
+            if incremental:
+                wm_file = wm_dir / f"{file_path.stem}_watermark.json"
+                wm = WatermarkManager(wm_file)
+                current_wm = wm.get_watermark()
+
+                df = DataValidator.filter_incremental(df, watermark_col, current_wm)
+
+                if df.empty:
+                    logger.info("   -> Skipped: No new incremental data.")
+                    summary["passed_files"] += 1
+                    continue
+                logger.info("   -> Validating %d new rows...", len(df))
+            # --- Validation ---
             report = validator.validate(df)
 
             passed = getattr(report, 'passed', False)
@@ -128,6 +152,7 @@ def validate_folder(
                 count = error.get("count", 1)
                 summary["most_common_issues"][rule] += count
 
+            # --- Export Report ---
             if save_reports:
                 # Wrap the entire dictionary in the sanitizer before dumping
                 file_report_data = sanitize_for_json({
@@ -143,6 +168,12 @@ def validate_folder(
                 with open(report_filename, 'w', encoding='utf-8') as f:
                     json.dump(file_report_data, f, indent=2)
                 logger.debug("Saved detailed report to %s", report_filename)
+
+            # --- Update File-Specific Watermark ---
+            if incremental and wm is not None and not df.empty:
+                new_wm = df[watermark_col].max()
+                new_wm = new_wm.item() if hasattr(new_wm, 'item') else new_wm
+                wm.set_watermark(new_wm)
 
         except pd.errors.EmptyDataError:
             logger.warning("Skipped empty file: %s", file_path.name)
@@ -179,6 +210,10 @@ def main():
     parser.add_argument("--save-reports", action="store_true",
                         help="Enable generating and saving detailed JSON reports.")
     parser.add_argument("--output-dir", type=str, default="reports", help="Directory to save detailed JSON reports.")
+    # --- INCREMENTAL ARGUMENTS ---
+    parser.add_argument("--incremental", action="store_true", help="Only process new rows since the last run.")
+    parser.add_argument("--watermark-col", type=str, default="transaction_id", help="Column for watermarking.")
+    parser.add_argument("--watermark-dir", type=str, default=".watermarks", help="Directory for state tracking files.")
 
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--config", type=str, help="Path to a single validation YAML configuration file.")
@@ -195,7 +230,10 @@ def main():
             default_pattern=args.pattern,
             top_n_issues=args.top_n,
             output_dir=args.output_dir,
-            save_reports=args.save_reports
+            save_reports=args.save_reports,
+            incremental=args.incremental,
+            watermark_col=args.watermark_col,
+            watermark_dir=args.watermark_dir
         )
     except Exception as e:
         logger.critical("Validation pipeline failed: %s", e)

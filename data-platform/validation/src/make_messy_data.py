@@ -63,6 +63,7 @@ def generate_messy_data(filepath: Path | str, config: Optional[MessyDataConfig] 
     prices = np.random.uniform(cfg.price_min, cfg.price_max, size=cfg.n_base).round(2).tolist() # type: ignore
 
     df = pd.DataFrame({
+        "transaction_id": range(1, cfg.n_base + 1),
         "date": dates,
         "sku_id": sku_col,
         "warehouse_id": warehouse_col,

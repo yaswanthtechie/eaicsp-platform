@@ -231,7 +231,10 @@ def test_main_success(mock_setup_logging, mock_validate_folder):
         default_pattern="*.csv",
         top_n_issues=3,
         output_dir="reports",
-        save_reports=True
+        save_reports=True,
+        incremental=False,
+        watermark_col="transaction_id",
+        watermark_dir=".watermarks"
     )
 
 
@@ -251,3 +254,71 @@ def test_main_system_exit_on_failure(mock_setup_logging, mock_validate_folder):
             validate_folder.main()
 
         assert exit_exc.value.code == 1
+
+# --- Tests for Incremental Watermarking in Batch Folder Mode ---
+
+@patch("src.validate_folder.pd.read_csv")
+@patch("src.validate_folder.DataValidator")
+@patch("src.watermark.WatermarkManager")
+def test_validate_folder_incremental_updates_watermark(mock_wm_class, mock_validator_class, mock_read_csv, temp_env):
+    """Verifies that incremental mode filters the data, validates, and sets the new watermark."""
+    # 1. Setup mock DataFrame with new rows
+    mock_df = pd.DataFrame({"transaction_id": [10, 20]})
+    mock_read_csv.return_value = mock_df
+
+    # 2. Setup mock Validator
+    mock_instance = MagicMock()
+    mock_instance.validate.return_value = MockReport(passed=True, total_rows_affected=0)
+    mock_validator_class.from_config.return_value = mock_instance
+
+    # 3. Setup Validator's filter_incremental to return the DataFrame
+    mock_validator_class.filter_incremental.return_value = mock_df
+
+    # 4. Setup mocked WatermarkManager
+    mock_wm_instance = MagicMock()
+    mock_wm_instance.get_watermark.return_value = 5
+    mock_wm_class.return_value = mock_wm_instance
+
+    summary = validate_folder.validate_folder(
+        folder_path=temp_env["data_dir"],
+        config_path=temp_env["config_file"],
+        incremental=True,
+        watermark_col="transaction_id"
+    )
+
+    assert summary["passed_files"] == 1
+    mock_wm_instance.get_watermark.assert_called_once()
+    mock_wm_instance.set_watermark.assert_called_once_with(20)
+
+
+@patch("src.validate_folder.pd.read_csv")
+@patch("src.validate_folder.DataValidator")
+@patch("src.watermark.WatermarkManager")
+def test_validate_folder_incremental_no_new_data(mock_wm_class, mock_validator_class, mock_read_csv, temp_env):
+    """Verifies that incremental mode correctly skips validation when no new rows are found."""
+    # 1. Setup mock DataFrame
+    mock_df = pd.DataFrame({"transaction_id": [1, 2]})
+    mock_read_csv.return_value = mock_df
+
+    mock_instance = MagicMock()
+    mock_validator_class.from_config.return_value = mock_instance
+
+    # 2. Simulate the filter returning an empty DataFrame (no new data)
+    mock_validator_class.filter_incremental.return_value = pd.DataFrame()
+
+    # 3. Setup mocked WatermarkManager
+    mock_wm_instance = MagicMock()
+    mock_wm_instance.get_watermark.return_value = 5
+    mock_wm_class.return_value = mock_wm_instance
+
+    summary = validate_folder.validate_folder(
+        folder_path=temp_env["data_dir"],
+        config_path=temp_env["config_file"],
+        incremental=True,
+        watermark_col="transaction_id"
+    )
+
+    # 4. Assert the file was skipped cleanly without executing validation or setting watermark
+    assert summary["passed_files"] == 1
+    mock_instance.validate.assert_not_called()
+    mock_wm_instance.set_watermark.assert_not_called()

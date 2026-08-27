@@ -673,3 +673,42 @@ def test_validation_result_slowest_rule_empty():
     """Verifies the fallback behavior when slowest_rule is called on an empty result."""
     res = ValidationResult(passed=True, total_rows_affected=0, rule_timings={})
     assert res.slowest_rule is None
+
+# --- INCREMENTAL WATERMARK TESTS ---
+
+def test_filter_incremental_no_watermark():
+    """Verifies that passing None as the watermark returns the original DataFrame unmodified."""
+    df = pd.DataFrame({"id": [1, 2, 3]})
+    result = DataValidator.filter_incremental(df, "id", None)
+    assert result.equals(df)
+
+
+def test_filter_incremental_empty_dataframe():
+    """Verifies that an empty DataFrame short-circuits and returns empty."""
+    df = pd.DataFrame(columns=["id"])
+    result = DataValidator.filter_incremental(df, "id", 10)
+    assert result.empty
+
+
+def test_filter_incremental_missing_column():
+    """Verifies that providing a missing watermark column raises a ValueError."""
+    df = pd.DataFrame({"other_col": [1, 2]})
+    with pytest.raises(ValueError, match="Incremental column 'missing_col' missing from DataFrame"):
+        DataValidator.filter_incremental(df, "missing_col", 1)
+
+
+def test_filter_incremental_numeric_casting():
+    """Verifies that numeric columns correctly cast the watermark and filter strictly greater values."""
+    df = pd.DataFrame({"id": [1, 2, 3, 4, 5]})
+    # Pass a string representation of an int to ensure casting works safely
+    result = DataValidator.filter_incremental(df, "id", "3")
+    assert len(result) == 2
+    assert result["id"].tolist() == [4, 5]
+
+
+def test_filter_incremental_string_casting():
+    """Verifies that string/date columns correctly evaluate greater-than logic."""
+    df = pd.DataFrame({"date": ["2024-01-01", "2024-01-02", "2024-01-03"]})
+    result = DataValidator.filter_incremental(df, "date", "2024-01-01")
+    assert len(result) == 2
+    assert result["date"].tolist() == ["2024-01-02", "2024-01-03"]
