@@ -1,6 +1,6 @@
 import pandas as pd
 import pytest
-from src.feature_usefulness import calculate_feature_correlations
+from src.feature_usefulness import calculate_feature_correlations,calculate_model_feature_importance,select_top_features
 
 
 def test_feature_correlations_returns_sorted_numeric_features():
@@ -36,8 +36,6 @@ def test_feature_correlations_rejects_missing_target():
             "quantity"
         )
 
-
-
 def test_feature_correlations_excludes_constant_features():
     df = pd.DataFrame({
         "sales": [10, 20, 30, 40, 50],
@@ -52,3 +50,100 @@ def test_feature_correlations_excludes_constant_features():
 
     assert "useful_feature" in result.index
     assert "constant_feature" not in result.index
+
+def test_model_feature_importance():
+    df = pd.DataFrame({
+        "feature_1": [1, 2, 3, 4, 5],
+        "feature_2": [5, 4, 3, 2, 1],
+        "target": [2, 4, 6, 8, 10]
+    })
+
+    result = calculate_model_feature_importance(
+        df,
+        target_col="target"
+    )
+
+    assert list(result.columns) == ["importance"]
+    assert set(result.index) == {"feature_1", "feature_2"}
+    assert (result["importance"] >= 0).all()
+
+
+def test_model_feature_importance_invalid_target():
+    df = pd.DataFrame({
+        "feature_1": [1, 2, 3],
+        "target": ["a", "b", "c"]
+    })
+
+    with pytest.raises(ValueError, match="must be numeric"):
+        calculate_model_feature_importance(
+            df,
+            target_col="target"
+        )
+
+
+def test_select_top_features_reduces_candidate_set():
+    df = pd.DataFrame({
+        "feature_1": [1, 2, 3, 4, 5],
+        "feature_2": [2, 4, 6, 8, 10],
+        "feature_3": [5, 4, 3, 2, 1],
+        "feature_4": [10, 10, 20, 20, 30],
+        "feature_5": [1, 5, 2, 8, 3],
+        "target": [2, 4, 6, 8, 10]
+    })
+
+    result = select_top_features(
+        df,
+        target_col="target",
+        n_features=3
+    )
+
+    assert len(result) == 3
+    assert "combined_score" in result.columns
+
+def test_select_top_features_invalid_n_features():
+    df = pd.DataFrame({
+        "feature_1": [1, 2, 3],
+        "target": [2, 4, 6]
+    })
+
+    with pytest.raises(
+        ValueError,
+        match="n_features must be greater than 0"
+    ):
+        select_top_features(
+            df,
+            target_col="target",
+            n_features=0
+        )
+
+def test_select_top_features_more_than_available():
+    df = pd.DataFrame({
+        "feature_1": [1, 2, 3, 4, 5],
+        "feature_2": [2, 4, 6, 8, 10],
+        "feature_3": [5, 4, 3, 2, 1],
+        "target": [2, 4, 6, 8, 10]
+    })
+
+    result = select_top_features(
+        df,
+        target_col="target",
+        n_features=10
+    )
+
+    assert len(result) == 3
+
+def test_model_feature_importance_all_nan_feature():
+    df = pd.DataFrame({
+        "feature_1": [1, 2, 3, 4, 5],
+        "feature_2": [float("nan")] * 5,
+        "target": [2, 4, 6, 8, 10]
+    })
+
+    with pytest.raises(
+        ValueError,
+        match="No valid rows available after removing NaN values"
+    ):
+        calculate_model_feature_importance(
+            df,
+            target_col="target"
+        )
