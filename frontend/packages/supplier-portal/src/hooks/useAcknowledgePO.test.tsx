@@ -1,14 +1,26 @@
 import { renderHook, act } from "@testing-library/react";
 import { MockedProvider } from "@apollo/client/testing";
+import { InMemoryCache } from "@apollo/client";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 import { useAcknowledgePO } from "./useAcknowledgePO";
 import { ACKNOWLEDGE_PO } from "../graphql/mutations";
+import { GET_PURCHASE_ORDERS } from "../graphql/queries";
 import { addOfflineAction } from "../utils/offlineQueue";
 
 vi.mock("../utils/offlineQueue", () => ({
   addOfflineAction: vi.fn(),
 }));
+
+type PurchaseOrdersCache = {
+  purchaseOrders: {
+    edges: Array<{
+      node: {
+        status: string;
+      };
+    }>;
+  };
+};
 
 const acknowledgeMock = {
   request: {
@@ -20,6 +32,7 @@ const acknowledgeMock = {
   result: {
     data: {
       acknowledgePurchaseOrder: {
+        __typename: "PurchaseOrder",
         po_number: "PO-1001",
         status: "ACKNOWLEDGED",
       },
@@ -42,9 +55,7 @@ describe("useAcknowledgePO", () => {
       () => useAcknowledgePO(),
       {
         wrapper: ({ children }) => (
-          <MockedProvider>
-            {children}
-          </MockedProvider>
+          <MockedProvider>{children}</MockedProvider>
         ),
       }
     );
@@ -93,6 +104,239 @@ describe("useAcknowledgePO", () => {
     expect(response).toEqual({
       queued: false,
     });
+
+    expect(addOfflineAction).not.toHaveBeenCalled();
+  });
+
+  it("updates the cache optimistically before the mutation resolves", async () => {
+    Object.defineProperty(navigator, "onLine", {
+      configurable: true,
+      value: true,
+    });
+
+    const mutationMock = {
+      request: {
+        query: ACKNOWLEDGE_PO,
+        variables: {
+          po_number: "PO-1001",
+        },
+      },
+      delay: 100,
+      result: {
+        data: {
+          acknowledgePurchaseOrder: {
+            __typename: "PurchaseOrder",
+            po_number: "PO-1001",
+            status: "ACKNOWLEDGED",
+          },
+        },
+      },
+    };
+
+    const cache = new InMemoryCache({
+      typePolicies: {
+        PurchaseOrder: {
+          keyFields: ["po_number"],
+        },
+      },
+    });
+
+    cache.writeQuery({
+      query: GET_PURCHASE_ORDERS,
+      variables: {
+        first: 20,
+        after: null,
+      },
+      data: {
+        purchaseOrders: {
+          __typename: "PurchaseOrderConnection",
+          edges: [
+            {
+              __typename: "PurchaseOrderEdge",
+              cursor: "cursor-1",
+              node: {
+                __typename: "PurchaseOrder",
+                po_number: "PO-1001",
+                supplier_id: "SUP-001",
+                status: "SENT",
+                total_amount: 1000,
+                expected_delivery: "2026-08-20",
+                items: [],
+              },
+            },
+          ],
+          pageInfo: {
+            __typename: "PageInfo",
+            hasNextPage: false,
+            endCursor: "cursor-1",
+          },
+        },
+      },
+    });
+
+    const { result } = renderHook(
+      () => useAcknowledgePO(),
+      {
+        wrapper: ({ children }) => (
+          <MockedProvider
+            mocks={[mutationMock]}
+            cache={cache}
+          >
+            {children}
+          </MockedProvider>
+        ),
+      }
+    );
+
+    let promise: Promise<{ queued: boolean }>;
+
+    act(() => {
+      promise = result.current.acknowledgePO("PO-1001");
+    });
+
+    const data = cache.readQuery<PurchaseOrdersCache>({
+      query: GET_PURCHASE_ORDERS,
+      variables: {
+        first: 20,
+        after: null,
+      },
+      optimistic: true,
+    });
+
+    expect(
+      data?.purchaseOrders?.edges?.[0]?.node.status
+    ).toBe("ACKNOWLEDGED");
+
+    await act(async () => {
+      await promise;
+    });
+
+    const finalData =
+      cache.readQuery<PurchaseOrdersCache>({
+        query: GET_PURCHASE_ORDERS,
+        variables: {
+          first: 20,
+          after: null,
+        },
+      });
+
+    expect(
+      finalData?.purchaseOrders?.edges?.[0]?.node.status
+    ).toBe("ACKNOWLEDGED");
+
+    expect(addOfflineAction).not.toHaveBeenCalled();
+  });
+
+  it("rolls back the optimistic status when the mutation fails", async () => {
+    Object.defineProperty(navigator, "onLine", {
+      configurable: true,
+      value: true,
+    });
+
+    const mutationMock = {
+      request: {
+        query: ACKNOWLEDGE_PO,
+        variables: {
+          po_number: "PO-1001",
+        },
+      },
+      delay: 100,
+      error: new Error("Failed to acknowledge purchase order"),
+    };
+
+    const cache = new InMemoryCache({
+      typePolicies: {
+        PurchaseOrder: {
+          keyFields: ["po_number"],
+        },
+      },
+    });
+
+    cache.writeQuery({
+      query: GET_PURCHASE_ORDERS,
+      variables: {
+        first: 20,
+        after: null,
+      },
+      data: {
+        purchaseOrders: {
+          __typename: "PurchaseOrderConnection",
+          edges: [
+            {
+              __typename: "PurchaseOrderEdge",
+              cursor: "cursor-1",
+              node: {
+                __typename: "PurchaseOrder",
+                po_number: "PO-1001",
+                supplier_id: "SUP-001",
+                status: "SENT",
+                total_amount: 1000,
+                expected_delivery: "2026-08-20",
+                items: [],
+              },
+            },
+          ],
+          pageInfo: {
+            __typename: "PageInfo",
+            hasNextPage: false,
+            endCursor: "cursor-1",
+          },
+        },
+      },
+    });
+
+    const { result } = renderHook(
+      () => useAcknowledgePO(),
+      {
+        wrapper: ({ children }) => (
+          <MockedProvider
+            mocks={[mutationMock]}
+            cache={cache}
+          >
+            {children}
+          </MockedProvider>
+        ),
+      }
+    );
+
+    let promise: Promise<{ queued: boolean }>;
+
+    act(() => {
+      promise = result.current.acknowledgePO("PO-1001");
+    });
+
+    const optimisticData =
+      cache.readQuery<PurchaseOrdersCache>({
+        query: GET_PURCHASE_ORDERS,
+        variables: {
+          first: 20,
+          after: null,
+        },
+        optimistic: true,
+      });
+
+    expect(
+      optimisticData?.purchaseOrders?.edges?.[0]?.node.status
+    ).toBe("ACKNOWLEDGED");
+
+    await act(async () => {
+      await expect(promise).rejects.toThrow(
+        "Failed to acknowledge purchase order"
+      );
+    });
+
+    const finalData =
+      cache.readQuery<PurchaseOrdersCache>({
+        query: GET_PURCHASE_ORDERS,
+        variables: {
+          first: 20,
+          after: null,
+        },
+      });
+
+    expect(
+      finalData?.purchaseOrders?.edges?.[0]?.node.status
+    ).toBe("SENT");
 
     expect(addOfflineAction).not.toHaveBeenCalled();
   });

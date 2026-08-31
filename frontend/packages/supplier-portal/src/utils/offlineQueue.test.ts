@@ -1,4 +1,3 @@
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -12,6 +11,8 @@ describe("offlineQueue", () => {
   beforeEach(() => {
     localStorage.clear();
 
+    vi.restoreAllMocks();
+
     vi.spyOn(crypto, "randomUUID").mockReturnValue(
       "11111111-1111-1111-1111-111111111111"
     );
@@ -19,7 +20,7 @@ describe("offlineQueue", () => {
     vi.spyOn(Date, "now").mockReturnValue(123456789);
   });
 
-  it("adds an offline action to the queue", () => {
+  it("adds an offline acknowledgement action to the queue", () => {
     const action = addOfflineAction({
       type: "ACKNOWLEDGE_PO",
       payload: {
@@ -43,7 +44,7 @@ describe("offlineQueue", () => {
     expect(getOfflineActions()).toEqual([]);
   });
 
-  it("stores multiple offline actions", () => {
+  it("persists multiple offline actions in insertion order", () => {
     vi.spyOn(crypto, "randomUUID")
       .mockReturnValueOnce(
         "11111111-1111-1111-1111-111111111111"
@@ -66,18 +67,27 @@ describe("offlineQueue", () => {
       },
     });
 
-    const actions = getOfflineActions();
-
-    expect(actions).toHaveLength(2);
-    expect(actions[0].id).toBe(
-      "11111111-1111-1111-1111-111111111111"
-    );
-    expect(actions[1].id).toBe(
-      "22222222-2222-2222-2222-222222222222"
-    );
+    expect(getOfflineActions()).toEqual([
+      {
+        id: "11111111-1111-1111-1111-111111111111",
+        type: "ACKNOWLEDGE_PO",
+        payload: {
+          po_number: "PO-1001",
+        },
+        createdAt: 123456789,
+      },
+      {
+        id: "22222222-2222-2222-2222-222222222222",
+        type: "SUBMIT_INVOICE",
+        payload: {
+          po_number: "PO-1002",
+        },
+        createdAt: 123456789,
+      },
+    ]);
   });
 
-  it("removes an offline action by id", () => {
+  it("removes only the requested offline action", () => {
     vi.spyOn(crypto, "randomUUID")
       .mockReturnValueOnce(
         "11111111-1111-1111-1111-111111111111"
@@ -104,12 +114,16 @@ describe("offlineQueue", () => {
       "11111111-1111-1111-1111-111111111111"
     );
 
-    const actions = getOfflineActions();
-
-    expect(actions).toHaveLength(1);
-    expect(actions[0].id).toBe(
-      "22222222-2222-2222-2222-222222222222"
-    );
+    expect(getOfflineActions()).toEqual([
+      {
+        id: "22222222-2222-2222-2222-222222222222",
+        type: "ACKNOWLEDGE_PO",
+        payload: {
+          po_number: "PO-1002",
+        },
+        createdAt: 123456789,
+      },
+    ]);
   });
 
   it("clears all offline actions", () => {
@@ -132,12 +146,55 @@ describe("offlineQueue", () => {
     expect(getOfflineActions()).toEqual([]);
   });
 
-  it("returns an empty queue when localStorage contains invalid JSON", () => {
+  it("handles invalid localStorage data safely", () => {
     localStorage.setItem(
       "supplierPortalOfflineQueue",
       "invalid-json"
     );
 
     expect(getOfflineActions()).toEqual([]);
+  });
+
+  it("handles missing localStorage data safely", () => {
+    expect(
+      localStorage.getItem("supplierPortalOfflineQueue")
+    ).toBeNull();
+
+    expect(getOfflineActions()).toEqual([]);
+  });
+
+  it("keeps only the latest duplicate action for the same PO", () => {
+    vi.spyOn(crypto, "randomUUID")
+      .mockReturnValueOnce(
+        "11111111-1111-1111-1111-111111111111"
+      )
+      .mockReturnValueOnce(
+        "22222222-2222-2222-2222-222222222222"
+      );
+
+    addOfflineAction({
+      type: "ACKNOWLEDGE_PO",
+      payload: {
+        po_number: "PO-1001",
+      },
+    });
+
+    addOfflineAction({
+      type: "ACKNOWLEDGE_PO",
+      payload: {
+        po_number: "PO-1001",
+      },
+    });
+
+    expect(getOfflineActions()).toEqual([
+      {
+        id: "22222222-2222-2222-2222-222222222222",
+        type: "ACKNOWLEDGE_PO",
+        payload: {
+          po_number: "PO-1001",
+        },
+        createdAt: 123456789,
+      },
+    ]);
   });
 });

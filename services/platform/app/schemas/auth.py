@@ -22,4 +22,19 @@ class RefreshRequest(BaseModel):
 
 class AccessTokenResponse(BaseModel):
     access_token: str
+    refresh_token:str
     token_type: str
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+class PasswordResetConfirm(BaseModel):
+    token: str
+    new_password: str
+
+class SessionResponse(BaseModel):
+    id: int
+    user_id: int
+    created_at: str
+    expires_at: str
+    is_revoked: bool

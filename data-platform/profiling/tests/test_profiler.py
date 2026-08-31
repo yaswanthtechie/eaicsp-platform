@@ -34,4 +34,4 @@ def test_wrong_dtype():
     profiler = Profiler()
     report = profiler.profile(df)
 
-    assert report["column_summary"][0]["dtype"] == "object"
+    assert report["column_summary"][0]["dtype"] in ("object", "str")

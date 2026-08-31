@@ -219,12 +219,8 @@ __marimo__/
 
 # .csv files
 data/*.csv
-# ML
-mlruns/
-*.pt
-*.pkl
-# OS
-.DS_Store
 
-# Data profiling generated output
-data-platform/profiling/output/
+# Node / React
+node_modules/
+*.log
+

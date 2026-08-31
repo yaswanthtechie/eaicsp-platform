@@ -31,7 +31,7 @@ def generate_report():
 
     print(f"Rows            : {len(df)}")
     print(f"Columns         : {len(df.columns)}")
-    print(f"Date Range      : {df['date'].min().date()}  →  {df['date'].max().date()}")
+    print(f"Date Range      : {df['date'].min().date()}  ->  {df['date'].max().date()}")
     print(f"Duplicate Rows  : {df.duplicated().sum()}")
 
     print("\nCOLUMN SUMMARY")

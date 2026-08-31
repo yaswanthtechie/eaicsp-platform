@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 
-np.random.seed(42)
+
 
 def make_sample_data():
     
@@ -32,7 +32,8 @@ def make_sample_data():
         "unit_price":unit_price
     })
     
-    missing_count=int(len(df)*0.03)
+    missing_fraction = np.random.uniform(0.01, 0.06)
+    missing_count = int(len(df) * missing_fraction)
     
     missing_rows=np.random.choice(df.index, size=missing_count, replace=False)
     

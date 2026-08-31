@@ -152,3 +152,28 @@ class MonitoringHistory:
             "column": column_name,
             "values": values
         }
+    
+
+    
+
+    def get_column_trend(self, column_name):
+        history = self.load_history()
+
+        if not history:
+            return {
+                "column": column_name,
+                "values": []
+                }
+
+        values = []
+
+        for batch in history:
+            null_rates = batch.get("null_rates", {})
+
+            if column_name in null_rates:
+                values.append(null_rates[column_name])
+
+        return {
+            "column": column_name,
+            "values": values
+        }

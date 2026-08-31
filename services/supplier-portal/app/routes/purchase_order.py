@@ -7,6 +7,8 @@ from app.schemas.purchase_order import (
     PurchaseOrderResponse,
     PurchaseOrderTransition,
     MessageResponse,
+    BulkPOSendRequest,
+    BulkPOSendResponse,
 )
 
 from app.services.purchase_order_service import (
@@ -18,6 +20,7 @@ from app.services.purchase_order_service import (
     acknowledge_purchase_order,
     transition_purchase_order,
     get_purchase_order_events,
+    bulk_send_purchase_orders,
 )
 
 router = APIRouter()
@@ -42,6 +45,7 @@ def get_po_events(po_number: str):
 
 
 # Create Purchase Order
+
 @router.post(
     "/purchase-orders",
     response_model=PurchaseOrderResponse,
@@ -54,12 +58,48 @@ def create_po(
         return create_purchase_order(purchase_order)
 
     except ValueError as e:
+        message = str(e)
+
+        # Duplicate PO → 409 Conflict
+        if "already exists" in message:
+            raise HTTPException(
+                status_code=409,
+                detail=message,
+            )
+
+        # Invalid business data → 400 Bad Request
         raise HTTPException(
-            status_code=409,
+            status_code=400,
+            detail=message,
+        )
+
+# ============================================================
+# BULK SEND PURCHASE ORDERS
+# ============================================================
+
+@router.post(
+    "/purchase-orders/bulk-send",
+    response_model=BulkPOSendResponse,
+)
+def bulk_send_po(
+    request: BulkPOSendRequest,
+):
+
+    try:
+
+        return bulk_send_purchase_orders(
+            request.po_numbers,
+            request.actor
+        )
+
+    except ValueError as e:
+
+        raise HTTPException(
+            status_code=400,
             detail=str(e),
         )
 
-
+    
 # Get All Purchase Orders
 @router.get(
     "/purchase-orders",
@@ -97,20 +137,25 @@ def update_po(
     po_number: str,
     purchase_order: PurchaseOrderUpdate,
 ):
-
-    updated_po = update_purchase_order(
-        po_number,
-        purchase_order,
-    )
-
-    if not updated_po:
-        raise HTTPException(
-            status_code=404,
-            detail="Purchase Order not found",
+    try:
+        updated_po = update_purchase_order(
+            po_number,
+            purchase_order,
         )
 
-    return updated_po
+        if not updated_po:
+            raise HTTPException(
+                status_code=404,
+                detail="Purchase Order not found",
+            )
 
+        return updated_po
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=str(e),
+        )
 
 # Delete Purchase Order
 @router.delete(

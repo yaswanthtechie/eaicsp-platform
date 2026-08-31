@@ -122,3 +122,11 @@ table {
   border-collapse: collapse;
   width: 100%;
 }
+/* ===========================
+   Keyboard Focus
+=========================== */
+
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
