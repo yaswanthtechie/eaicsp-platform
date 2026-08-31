@@ -48,7 +48,8 @@ config = {
   - Combines correlation and model-based importance after normalizing both signals.
   - Ranks features using the combined score.
   - Returns the top N most useful features requested by the caller.
-
+  - Random Forest feature importance is calculated from a single model fit on the available data.
+    Importance values are dataset-dependent and may be less stable on small datasets.
 - **Validation and Testing**
   - Includes validation for invalid configurations and feature parameters.
   - Includes tests for normal cases and edge cases such as
@@ -59,7 +60,7 @@ config = {
 
 The library was tested using the Prophet retail sales dataset.
 
-The complete test suite contains 31 passing tests.
+The complete test suite contains 37 passing tests.
 
 
 
@@ -90,6 +91,24 @@ The demo:
 - Selects the top 5 useful features using correlation and model-based importance.
 - Prints the generated features, feature correlations, model-based importance, and selected features.
 
+### Demo Output
+
+The demo identifies 15 candidate features and selects the top 5 features using the combined correlation and Random Forest importance score.
+
+Example output:
+
+```text
+Number of candidate features: 15
+Number of selected features: 5
+
+Top 5 selected features - config 1:
+quantity_sold_roll_mean_30
+quantity_sold_roll_mean_7
+quantity_sold_lag_7
+quantity_sold_lag_1
+quantity_sold_lag_30
+
+```
 ### Step 3
 
 Run the complete test suite.

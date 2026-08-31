@@ -1,6 +1,6 @@
 import pandas as pd
 import pytest
-
+from src.build_features import build_all_features
 from src.interaction_features import add_interaction_features
 
 
@@ -33,3 +33,17 @@ def test_interaction_features_reject_missing_feature():
 
     with pytest.raises(ValueError, match="is_holiday"):
         add_interaction_features(df)
+
+def test_build_all_features_includes_interaction_feature():
+    df = pd.DataFrame({
+        "date": pd.date_range("2026-01-01", periods=5),
+        "sales": [10, 20, 30, 40, 50]
+    })
+
+    result = build_all_features(
+        df,
+        date_col="date",
+        target_col="sales"
+    )
+
+    assert "day_of_week_x_is_holiday" in result.columns

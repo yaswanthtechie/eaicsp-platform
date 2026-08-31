@@ -81,24 +81,21 @@ def test_model_feature_importance_invalid_target():
         )
 
 
-def test_select_top_features_reduces_candidate_set():
+def test_select_top_features_selects_useful_feature_over_noise():
     df = pd.DataFrame({
-        "feature_1": [1, 2, 3, 4, 5],
-        "feature_2": [2, 4, 6, 8, 10],
-        "feature_3": [5, 4, 3, 2, 1],
-        "feature_4": [10, 10, 20, 20, 30],
-        "feature_5": [1, 5, 2, 8, 3],
-        "target": [2, 4, 6, 8, 10]
+        "useful_feature": [10, 20, 30, 40, 50],
+        "noise_feature": [73, 12, 91, 34, 6],
+        "target": [1, 2, 3, 4, 5]
     })
 
     result = select_top_features(
         df,
         target_col="target",
-        n_features=3
+        n_features=1
     )
 
-    assert len(result) == 3
-    assert "combined_score" in result.columns
+    assert "useful_feature" in result.index
+    assert "noise_feature" not in result.index
 
 def test_select_top_features_invalid_n_features():
     df = pd.DataFrame({
@@ -132,18 +129,34 @@ def test_select_top_features_more_than_available():
 
     assert len(result) == 3
 
-def test_model_feature_importance_all_nan_feature():
+def test_model_feature_importance_ignores_all_nan_feature():
     df = pd.DataFrame({
         "feature_1": [1, 2, 3, 4, 5],
         "feature_2": [float("nan")] * 5,
         "target": [2, 4, 6, 8, 10]
     })
 
+    result = calculate_model_feature_importance(
+        df,
+        target_col="target"
+    )
+
+    assert "feature_1" in result.index
+    assert "feature_2" not in result.index
+    assert (result["importance"] >= 0).all()
+
+def test_model_feature_importance_rejects_invalid_n_estimators():
+    df = pd.DataFrame({
+        "feature_1": [1, 2, 3, 4, 5],
+        "target": [2, 4, 6, 8, 10]
+    })
+
     with pytest.raises(
         ValueError,
-        match="No valid rows available after removing NaN values"
+        match="n_estimators must be greater than 0"
     ):
         calculate_model_feature_importance(
             df,
-            target_col="target"
+            target_col="target",
+            n_estimators=0
         )

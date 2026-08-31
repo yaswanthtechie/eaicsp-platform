@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import pytest
 from src.build_features import build_all_features
 from src.lag_features import add_lag_features
@@ -215,3 +216,57 @@ def test_tiny_dataset_does_not_crash():
     assert len(result) == 2
     assert "sales_lag_1" in result.columns
     assert "sales_roll_mean_7" in result.columns    
+
+
+def test_lag_features_accepts_numpy_integer():
+    df = pd.DataFrame({
+        "sales": [100, 200, 300]
+    })
+
+    result = add_lag_features(
+        df,
+        "sales",
+        lags=[np.int64(1)]
+    )
+
+    assert "sales_lag_1" in result.columns
+
+
+def test_lag_features_rejects_boolean_lag():
+    df = pd.DataFrame({
+        "sales": [100, 200, 300]
+    })
+
+    with pytest.raises(ValueError, match="positive integers"):
+        add_lag_features(
+            df,
+            "sales",
+            lags=[True]
+        )
+
+
+def test_rolling_features_accepts_numpy_integer():
+    df = pd.DataFrame({
+        "sales": [100, 200, 300]
+    })
+
+    result = add_rolling_features(
+        df,
+        "sales",
+        windows=[np.int64(1)]
+    )
+
+    assert "sales_roll_mean_1" in result.columns
+
+
+def test_rolling_features_rejects_boolean_window():
+    df = pd.DataFrame({
+        "sales": [100, 200, 300]
+    })
+
+    with pytest.raises(ValueError, match="positive integers"):
+        add_rolling_features(
+            df,
+            "sales",
+            windows=[True]
+        )

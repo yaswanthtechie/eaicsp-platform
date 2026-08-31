@@ -1,6 +1,7 @@
+import warnings
+
 import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
-
 
 def calculate_feature_correlations(
     df: pd.DataFrame,
@@ -40,8 +41,9 @@ def calculate_feature_correlations(
 
 def calculate_model_feature_importance(
     df: pd.DataFrame,
-    target_col: str
-    ) -> pd.DataFrame:
+    target_col: str,
+    n_estimators: int = 100
+) -> pd.DataFrame:
     """
     Calculate model-based feature importance using a Random Forest.
     """
@@ -57,13 +59,25 @@ def calculate_model_feature_importance(
         raise ValueError(
             f"Target column '{target_col}' must be numeric."
         )
-
+    if n_estimators <= 0:
+        raise ValueError(
+            "n_estimators must be greater than 0."
+        )
     numeric_data = data.select_dtypes(include="number")
 
     features = numeric_data.drop(columns=[target_col])
 
     if features.empty:
         raise ValueError("No numeric features available.")
+
+    all_nan_columns = features.columns[features.isna().all()].tolist()
+
+    if all_nan_columns:
+        warnings.warn(
+            f"Ignoring all-NaN features: {all_nan_columns}",
+            UserWarning
+        )
+        features = features.drop(columns=all_nan_columns)
 
     valid_data = pd.concat(
         [features, data[target_col]],
@@ -77,7 +91,7 @@ def calculate_model_feature_importance(
     y = valid_data[target_col]
 
     model = RandomForestRegressor(
-        n_estimators=100,
+        n_estimators=n_estimators,
         random_state=42
     )
 
