@@ -105,3 +105,17 @@ export const forecast: ForecastPoint[] = [
     upper_bound: 150,
   },
 ];
+
+
+export function loadForecast(shouldFail = false) {
+  return new Promise<typeof forecast>((resolve, reject) => {
+    setTimeout(() => {
+      if (shouldFail) {
+        reject(new Error("Failed to load forecast"));
+        return;
+      }
+
+      resolve(forecast);
+    }, 1000);
+  });
+}

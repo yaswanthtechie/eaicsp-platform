@@ -1,6 +1,7 @@
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import { describe, it, expect, vi, afterEach } from "vitest";
+import {cleanup, fireEvent, render,screen} from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
+
 import InventoryHeatmap from "./InventoryHeatmap";
 import { inventory } from "../mocks/inventory";
 
@@ -13,6 +14,7 @@ vi.mock("../../../ui/src/components/Badge", () => ({
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe("InventoryHeatmap", () => {
@@ -26,12 +28,30 @@ describe("InventoryHeatmap", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows warehouse names after loading", () => {
+  it("shows error state when inventory loading fails", async () => {
+    vi.useFakeTimers();
+
+    render(<InventoryHeatmap shouldFail />);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(
+      screen.getByText("Something went wrong in Heatmap Data.")
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByRole("button", { name: "Retry" })
+    ).toBeInTheDocument();
+  });
+
+  it("shows warehouse names after loading", async () => {
     vi.useFakeTimers();
 
     render(<InventoryHeatmap />);
 
-    act(() => {
+    await act(async () => {
       vi.advanceTimersByTime(1000);
     });
 
@@ -40,12 +60,12 @@ describe("InventoryHeatmap", () => {
     expect(screen.getByText("WH003")).toBeInTheDocument();
   });
 
-  it("shows inventory products after loading", () => {
+  it("shows inventory products after loading", async () => {
     vi.useFakeTimers();
 
     render(<InventoryHeatmap />);
 
-    act(() => {
+    await act(async () => {
       vi.advanceTimersByTime(1000);
     });
 
@@ -54,26 +74,34 @@ describe("InventoryHeatmap", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows correct stock status", () => {
+  it("shows correct stock status", async () => {
     vi.useFakeTimers();
 
     render(<InventoryHeatmap />);
 
-    act(() => {
+    await act(async () => {
       vi.advanceTimersByTime(1000);
     });
 
-    expect(screen.getAllByText("Low Stock").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Healthy").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Near Reorder").length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText("Low Stock").length
+    ).toBeGreaterThan(0);
+
+    expect(
+      screen.getAllByText("Healthy").length
+    ).toBeGreaterThan(0);
+
+    expect(
+      screen.getAllByText("Near Reorder").length
+    ).toBeGreaterThan(0);
   });
 
-  it("shows product details on hover", () => {
+  it("shows product details on hover", async () => {
     vi.useFakeTimers();
 
     render(<InventoryHeatmap />);
 
-    act(() => {
+    await act(async () => {
       vi.advanceTimersByTime(1000);
     });
 

@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { AlertBanner } from "../../../ui/src/components/AlertBanner";
-import { Button } from "../../../ui/src/components/Button";
 import { Spinner } from "../../../ui/src/components/Spinner";
 import { colors, radius, space } from "../tokens";
 import type { AlertMessage } from "../types/forecast";
-
 interface AlertsPanelProps {
   alerts: AlertMessage[];
   connected: boolean;
   isConnecting: boolean;
+  failed: boolean;
   onRemove: (id: string) => void;
 }
 
@@ -16,12 +15,10 @@ export default function AlertsPanel({
   alerts,
   connected,
   isConnecting,
+  failed,
   onRemove,
 }: AlertsPanelProps) {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
   const [fadingAlerts, setFadingAlerts] = useState<string[]>([]);
-
   const timers = useRef<
     Record<string, ReturnType<typeof setTimeout>>
   >({});
@@ -29,14 +26,6 @@ export default function AlertsPanel({
   const removeTimers = useRef<
     Record<string, ReturnType<typeof setTimeout>>
   >({});
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setLoading(false);
-    }, 1000);
-
-    return () => clearTimeout(timer);
-  }, []);
 
   useEffect(() => {
     alerts.forEach((alert) => {
@@ -112,7 +101,7 @@ export default function AlertsPanel({
     return new Date(timestamp).toLocaleTimeString("en-GB");
   };
 
-  if (loading) {
+  if (isConnecting) {
     return (
       <div
         style={{
@@ -121,7 +110,7 @@ export default function AlertsPanel({
           alignItems: "center",
           justifyContent: "center",
           gap: space.sm,
-          color: colors.text
+          color: colors.text,
         }}
       >
         <Spinner size="md" />
@@ -130,26 +119,22 @@ export default function AlertsPanel({
     );
   }
 
-  if (error) {
+  if (failed) {
     return (
       <div
         style={{
           background: colors.surface,
           padding: space.md,
-          borderRadius: radius.md
+          borderRadius: radius.md,
         }}
       >
         <h2 style={{ color: colors.text }}>
-          Something went wrong in the alerts.
+          Unable to connect to the alerts service.
         </h2>
 
-        <Button
-          variant="danger"
-          size="sm"
-          onClick={() => setError(false)}
-        >
-          Retry
-        </Button>
+        <p style={{ color: colors.textMuted }}>
+          Connection failed after multiple retry attempts.
+        </p>
       </div>
     );
   }
@@ -160,7 +145,7 @@ export default function AlertsPanel({
         style={{
           background: colors.surface,
           padding: space.md,
-          borderRadius: radius.md
+          borderRadius: radius.md,
         }}
       >
         <h2 style={{ color: colors.text }}>
@@ -175,7 +160,7 @@ export default function AlertsPanel({
       style={{
         background: colors.surface,
         padding: space.md,
-        borderRadius: radius.md
+        borderRadius: radius.md,
       }}
     >
       <div
@@ -183,7 +168,7 @@ export default function AlertsPanel({
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          marginBottom: space.sm
+          marginBottom: space.sm,
         }}
       >
         <h2 style={{ color: colors.text }}>
@@ -198,7 +183,7 @@ export default function AlertsPanel({
               ? colors.warning
               : connected
               ? colors.success
-              : colors.danger
+              : colors.danger,
           }}
         >
           {isConnecting
@@ -219,7 +204,7 @@ export default function AlertsPanel({
               opacity: isFading ? 0 : 1,
               transition: "opacity 0.5s ease",
               pointerEvents: isFading ? "none" : "auto",
-              marginBottom: space.sm
+              marginBottom: space.sm,
             }}
           >
             <AlertBanner

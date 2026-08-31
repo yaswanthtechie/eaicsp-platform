@@ -1,18 +1,5 @@
-import {
-  cleanup,
-  render,
-  screen,
-  act,
-} from "@testing-library/react";
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
-
+import {cleanup, render, screen, act,} from "@testing-library/react";
+import {afterEach, beforeEach, describe, expect, it, vi,} from "vitest";
 import AlertsPanel from "./AlertsPanel";
 import type { AlertMessage } from "../types/forecast";
 
@@ -48,6 +35,7 @@ describe("AlertsPanel", () => {
         alerts={[alert]}
         connected={true}
         isConnecting={false}
+        failed={false}
         onRemove={vi.fn()}
       />
     );
@@ -65,14 +53,13 @@ describe("AlertsPanel", () => {
         alerts={[alert]}
         connected={false}
         isConnecting={true}
+        failed={false}
         onRemove={vi.fn()}
       />
     );
 
-    finishLoading();
-
     expect(
-      screen.getByText("🟡 Connecting…")
+      screen.getByText("Loading Live Alerts...")
     ).toBeInTheDocument();
   });
 
@@ -82,6 +69,7 @@ describe("AlertsPanel", () => {
         alerts={[alert]}
         connected={false}
         isConnecting={false}
+        failed={false}
         onRemove={vi.fn()}
       />
     );
@@ -99,6 +87,7 @@ describe("AlertsPanel", () => {
         alerts={[]}
         connected={true}
         isConnecting={false}
+        failed={false}
         onRemove={vi.fn()}
       />
     );
@@ -116,6 +105,7 @@ describe("AlertsPanel", () => {
         alerts={[alert]}
         connected={true}
         isConnecting={false}
+        failed={false}
         onRemove={vi.fn()}
       />
     );
@@ -147,6 +137,7 @@ describe("AlertsPanel", () => {
         alerts={[alert]}
         connected={true}
         isConnecting={false}
+        failed={false}
         onRemove={onRemove}
       />
     );
@@ -172,3 +163,4 @@ describe("AlertsPanel", () => {
     expect(onRemove).toHaveBeenCalledWith("alert-1");
   });
 });
+

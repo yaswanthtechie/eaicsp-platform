@@ -1,21 +1,55 @@
 import { useEffect, useState } from "react";
 import { Badge } from "../../../ui/src/components/Badge";
 import { Spinner } from "../../../ui/src/components/Spinner";
-import { inventory } from "../mocks/inventory";
+import { loadInventory } from "../mocks/inventory";
 import { colors, radius, space } from "../tokens";
+interface InventoryHeatmapProps {
+  shouldFail?: boolean;
+}
 
-export default function InventoryHeatmap() {
+export default function InventoryHeatmap({
+  shouldFail = false,
+}: InventoryHeatmapProps) {
+  const [inventoryData, setInventoryData] = useState<
+    Awaited<ReturnType<typeof loadInventory>>
+  >([]);
+
   const [hovered, setHovered] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setLoading(false);
-    }, 1000);
+    let cancelled = false;
 
-    return () => clearTimeout(timer);
-  }, []);
+    const fetchData = async () => {
+      setLoading(true);
+      setError(false);
+
+      try {
+        const data = await loadInventory(shouldFail);
+
+        if (!cancelled) {
+          setInventoryData(data);
+        }
+      } catch {
+        if (!cancelled) {
+          setInventoryData([]);
+          setError(true);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [shouldFail, retryCount]);
 
   if (loading) {
     return (
@@ -37,34 +71,45 @@ export default function InventoryHeatmap() {
 
   if (error) {
     return (
-      <div style={{ color: colors.text }}>
+      <div
+        style={{
+          minHeight: 350,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: space.sm,
+          color: colors.text,
+          textAlign: "center",
+        }}
+      >
         <h2>Something went wrong in Heatmap Data.</h2>
 
-        <button onClick={() => setError(false)}>
+        <button onClick={() => setRetryCount((count) => count + 1)}>
           Retry
         </button>
       </div>
     );
   }
 
-  if (inventory.length === 0) {
+  if (inventoryData.length === 0) {
     return (
-      <h2 style={{ color: colors.text }}>
-        No Inventory Heatmap data available.
-      </h2>
+      <div style={{ color: colors.text }}>
+        <h2>No Inventory Heatmap data available.</h2>
+      </div>
     );
   }
 
   const getStatus = (quantity: number, reorder: number) => {
     if (quantity < reorder) {
-      return "danger";
+      return "danger" as const;
     }
 
     if (quantity < reorder * 1.5) {
-      return "warning";
+      return "warning" as const;
     }
 
-    return "success";
+    return "success" as const;
   };
 
   const getStatusLabel = (quantity: number, reorder: number) => {
@@ -78,8 +123,9 @@ export default function InventoryHeatmap() {
 
     return "Healthy";
   };
-
-  const warehouses = ["WH001", "WH002", "WH003"];
+  const warehouses = [
+    ...new Set(inventoryData.map((item) => item.warehouse_id)),
+  ];
 
   return (
     <div
@@ -109,7 +155,7 @@ export default function InventoryHeatmap() {
               {warehouse}
             </h3>
 
-            {inventory
+            {inventoryData
               .filter((item) => item.warehouse_id === warehouse)
               .map((item) => {
                 const status = getStatus(
@@ -158,15 +204,19 @@ export default function InventoryHeatmap() {
                         }}
                       >
                         <div>SKU: {item.sku_id}</div>
+
                         <div>
                           Warehouse: {item.warehouse_id}
                         </div>
+
                         <div>
                           Product: {item.product_name}
                         </div>
+
                         <div>
                           Quantity: {item.quantity_on_hand}
                         </div>
+
                         <div>
                           Reorder Point: {item.reorder_point}
                         </div>
@@ -181,3 +231,4 @@ export default function InventoryHeatmap() {
     </div>
   );
 }
+

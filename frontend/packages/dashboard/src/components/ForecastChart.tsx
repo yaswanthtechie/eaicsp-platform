@@ -13,50 +13,54 @@ import {
 import { useEffect, useState } from "react";
 import { Button } from "../../../ui/src/components/Button";
 import { Spinner } from "../../../ui/src/components/Spinner";
-import { forecast } from "../mocks/forecast";
+import { loadForecast } from "../mocks/forecast";
 import { colors, radius, space } from "../tokens";
+interface ForecastChartProps {
+  shouldFail?: boolean;
+}
 
-const chartData = forecast.map((item) => ({
-  ...item,
-  band: item.upper_bound - item.lower_bound,
-}));
+export default function ForecastChart({
+  shouldFail = false,
+}: ForecastChartProps) {
+  const [forecastData, setForecastData] = useState<
+    Awaited<ReturnType<typeof loadForecast>>
+  >([]);
 
-const lastActualIndex = chartData.reduce(
-  (last, item, index) =>
-    item.actual !== undefined ? index : last,
-  0
-);
-
-const defaultStart =
-  chartData[Math.max(0, lastActualIndex - 9)].date;
-
-const defaultEnd =
-  chartData[
-    Math.min(chartData.length - 1, lastActualIndex + 5)
-  ].date;
-
-export default function ForecastChart() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const [startDate, setStartDate] = useState(defaultStart);
-  const [endDate, setEndDate] = useState(defaultEnd);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setLoading(false);
-    }, 1000);
+    let cancelled = false;
 
-    return () => clearTimeout(timer);
-  }, []);
+    const fetchData = async () => {
+      setLoading(true);
+      setError(false);
 
-  const filteredData = chartData.filter(
-    (item) => item.date >= startDate && item.date <= endDate
-  );
+      try {
+        const data = await loadForecast(shouldFail);
 
-  const resetDates = () => {
-    setStartDate(chartData[0].date);
-    setEndDate(chartData[chartData.length - 1].date);
-  };
+        if (!cancelled) {
+          setForecastData(data);
+        }
+      } catch {
+        if (!cancelled) {
+          setForecastData([]);
+          setError(true);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [shouldFail, retryCount]);
 
   if (loading) {
     return (
@@ -80,6 +84,12 @@ export default function ForecastChart() {
     return (
       <div
         style={{
+          minHeight: 350,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: space.sm,
           color: colors.text,
           textAlign: "center",
         }}
@@ -89,7 +99,7 @@ export default function ForecastChart() {
         <Button
           variant="danger"
           size="sm"
-          onClick={() => setError(false)}
+          onClick={() => setRetryCount((count) => count + 1)}
         >
           Retry
         </Button>
@@ -97,10 +107,14 @@ export default function ForecastChart() {
     );
   }
 
-  if (forecast.length === 0) {
+  if (forecastData.length === 0) {
     return (
       <div
         style={{
+          minHeight: 350,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
           color: colors.text,
           textAlign: "center",
         }}
@@ -110,10 +124,59 @@ export default function ForecastChart() {
     );
   }
 
+  return <ForecastChartContent forecast={forecastData} />;
+}
+
+interface ForecastChartContentProps {
+  forecast: Awaited<ReturnType<typeof loadForecast>>;
+}
+
+function ForecastChartContent({
+  forecast,
+}: ForecastChartContentProps) {
+  const chartData = forecast.map((item) => ({
+    ...item,
+    band: item.upper_bound - item.lower_bound,
+  }));
+
+  const lastActualIndex = chartData.reduce(
+    (last, item, index) =>
+      item.actual !== undefined ? index : last,
+    0
+  );
+
+  const defaultStart =
+    chartData[Math.max(0, lastActualIndex - 9)].date;
+
+  const defaultEnd =
+    chartData[
+      Math.min(chartData.length - 1, lastActualIndex + 5)
+    ].date;
+
+  const [startDate, setStartDate] = useState(defaultStart);
+  const [endDate, setEndDate] = useState(defaultEnd);
+
+  const filteredData = chartData.filter(
+    (item) =>
+      item.date >= startDate &&
+      item.date <= endDate
+  );
+
+  const resetDates = () => {
+    setStartDate(chartData[0].date);
+    setEndDate(chartData[chartData.length - 1].date);
+  };
+
   if (startDate > endDate) {
     return (
       <div
         style={{
+          minHeight: 350,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: space.sm,
           color: colors.text,
           textAlign: "center",
         }}
@@ -137,6 +200,12 @@ export default function ForecastChart() {
     return (
       <div
         style={{
+          minHeight: 350,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: space.sm,
           color: colors.text,
           textAlign: "center",
         }}
@@ -266,7 +335,7 @@ export default function ForecastChart() {
             stroke={colors.success}
             strokeWidth={2}
             strokeDasharray="5 5"
-            dot={true}
+            dot
             name="Actual"
           />
         </ComposedChart>

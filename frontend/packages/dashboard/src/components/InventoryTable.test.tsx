@@ -1,77 +1,92 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { act } from "react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 
 import InventoryTable from "./InventoryTable";
 
 afterEach(() => {
   cleanup();
-  vi.useRealTimers();
 });
 
 describe("InventoryTable", () => {
-  it("shows the inventory after loading", () => {
-    vi.useFakeTimers();
-
+  it("shows the inventory after loading", async () => {
     render(<InventoryTable />);
 
-    act(() => {
-      vi.advanceTimersByTime(1000);
-    });
-
-    expect(screen.getByText("SKU001")).toBeInTheDocument();
+    await waitFor(
+      () => {
+        expect(screen.getByText("SKU001")).toBeInTheDocument();
+      },
+      { timeout: 2000 }
+    );
   });
 
-  it("searches inventory by SKU", () => {
-    vi.useFakeTimers();
-
+  it("searches inventory by SKU", async () => {
     render(<InventoryTable />);
 
-    act(() => {
-      vi.advanceTimersByTime(1000);
-    });
+    await waitFor(
+      () => {
+        expect(screen.getByText("SKU001")).toBeInTheDocument();
+      },
+      { timeout: 2000 }
+    );
 
     const searchInput =
       screen.getByPlaceholderText("Search SKU...");
 
     fireEvent.change(searchInput, {
-      target: { value: "SKU001" },
+      target: {
+        value: "SKU001",
+      },
     });
 
     expect(screen.getByText("SKU001")).toBeInTheDocument();
   });
 
-  it("filters low stock items", () => {
-    vi.useFakeTimers();
-
+  it("filters low stock items", async () => {
     render(<InventoryTable />);
 
-    act(() => {
-      vi.advanceTimersByTime(1000);
-    });
+    await waitFor(
+      () => {
+        expect(screen.getByText("SKU001")).toBeInTheDocument();
+      },
+      { timeout: 2000 }
+    );
 
     const checkbox = screen.getByRole("checkbox");
 
     fireEvent.click(checkbox);
 
     expect(checkbox).toBeChecked();
-    expect(screen.getAllByText("Low Stock").length).toBeGreaterThan(0);
+
+    await waitFor(() => {
+      expect(
+        screen.getAllByText("Low Stock").length
+      ).toBeGreaterThan(0);
+    });
   });
 
-  it("shows empty message when SKU is not found", () => {
-    vi.useFakeTimers();
-
+  it("shows empty message when SKU is not found", async () => {
     render(<InventoryTable />);
 
-    act(() => {
-      vi.advanceTimersByTime(1000);
-    });
+    await waitFor(
+      () => {
+        expect(screen.getByText("SKU001")).toBeInTheDocument();
+      },
+      { timeout: 2000 }
+    );
 
     const searchInput =
       screen.getByPlaceholderText("Search SKU...");
 
     fireEvent.change(searchInput, {
-      target: { value: "NOTFOUND" },
+      target: {
+        value: "NOTFOUND",
+      },
     });
 
     expect(

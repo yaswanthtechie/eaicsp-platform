@@ -12,7 +12,9 @@ function App() {
   const [alerts, setAlerts] = useState<AlertMessage[]>([]);
 
   useEffect(() => {
-    startMockWebSocketServer();
+    if (import.meta.env.DEV) {
+      startMockWebSocketServer();
+    }
   }, []);
 
   const handleMessage = useCallback((alert: AlertMessage) => {
@@ -20,12 +22,10 @@ function App() {
   }, []);
 
   const removeAlert = useCallback((id: string) => {
-    setAlerts((prev) =>
-      prev.filter((alert) => alert.id !== id)
-    );
+    setAlerts((prev) => prev.filter((alert) => alert.id !== id));
   }, []);
 
-  const { connected, isConnecting } = useWebSocket({
+  const { connected, isConnecting, failed } = useWebSocket({
     url: "ws://localhost:8080",
     onMessage: handleMessage,
     autoReconnect: true,
@@ -82,6 +82,7 @@ function App() {
             alerts={alerts}
             connected={connected}
             isConnecting={isConnecting}
+            failed={failed}
             onRemove={removeAlert}
           />
         </div>
@@ -124,3 +125,4 @@ function App() {
 }
 
 export default App;
+

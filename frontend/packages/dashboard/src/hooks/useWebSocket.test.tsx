@@ -1,34 +1,56 @@
-import { renderHook, act, waitFor } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { renderHook, act } from "@testing-library/react";
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeEach,
+  afterEach,
+} from "vitest";
 import { useWebSocket } from "./useWebSocket";
+interface MockSocket {
+  url: string;
+  onopen: (() => void) | null;
+  onmessage: ((event: { data: string }) => void) | null;
+  onerror: ((error: Event) => void) | null;
+  onclose: (() => void) | null;
+  close: ReturnType<typeof vi.fn>;
+}
 
 describe("useWebSocket", () => {
-  let socket: {
-    onopen: (() => void) | null;
-    onmessage: ((event: { data: string }) => void) | null;
-    onerror: ((error: Event) => void) | null;
-    onclose: (() => void) | null;
-    close: ReturnType<typeof vi.fn>;
-  };
+  let sockets: MockSocket[];
 
   beforeEach(() => {
-    socket = {
-      onopen: null,
-      onmessage: null,
-      onerror: null,
-      onclose: null,
-      close: vi.fn(),
-    };
+    vi.useFakeTimers();
 
-    vi.stubGlobal(
-      "WebSocket",
-      vi.fn(function () {
-        return socket;
-      }),
-    );
+    sockets = [];
+
+    class MockWebSocket {
+      url: string;
+
+      onopen: (() => void) | null = null;
+
+      onmessage: ((event: { data: string }) => void) | null = null;
+
+      onerror: ((error: Event) => void) | null = null;
+
+      onclose: (() => void) | null = null;
+
+      close = vi.fn();
+
+      constructor(url: string) {
+        this.url = url;
+
+        sockets.push(this);
+      }
+    }
+
+    vi.stubGlobal("WebSocket", MockWebSocket);
   });
 
   afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -40,31 +62,29 @@ describe("useWebSocket", () => {
       }),
     );
 
-    expect(WebSocket).toHaveBeenCalledWith(
-      "ws://localhost:8080",
+    expect(sockets).toHaveLength(1);
+    expect(sockets[0].url).toBe("ws://localhost:8080");
+  });
+
+  it("shows connected when socket opens", () => {
+    const { result } = renderHook(() =>
+      useWebSocket({
+        url: "ws://localhost:8080",
+        onMessage: vi.fn(),
+      }),
     );
-  });
 
-  it("shows connected when socket opens", async () => {
-  const onMessage = vi.fn();
+    expect(result.current.isConnecting).toBe(true);
+    expect(result.current.connected).toBe(false);
 
-  const { result } = renderHook(() =>
-    useWebSocket({
-      url: "ws://localhost:8080",
-      onMessage,
-    }),
-  );
+    act(() => {
+      sockets[0].onopen?.();
+    });
 
-  act(() => {
-    socket.onopen?.();
-  });
-
-  await waitFor(() => {
     expect(result.current.connected).toBe(true);
+    expect(result.current.isConnecting).toBe(false);
+    expect(result.current.failed).toBe(false);
   });
-
-  expect(result.current.isConnecting).toBe(false);
-});
 
   it("receives a valid message", () => {
     const onMessage = vi.fn();
@@ -85,7 +105,7 @@ describe("useWebSocket", () => {
     };
 
     act(() => {
-      socket.onmessage?.({
+      sockets[0].onmessage?.({
         data: JSON.stringify(alert),
       });
     });
@@ -106,7 +126,7 @@ describe("useWebSocket", () => {
     );
 
     act(() => {
-      socket.onmessage?.({
+      sockets[0].onmessage?.({
         data: "invalid json",
       });
     });
@@ -124,14 +144,17 @@ describe("useWebSocket", () => {
     );
 
     act(() => {
-      socket.onopen?.();
+      sockets[0].onopen?.();
     });
 
+    expect(result.current.connected).toBe(true);
+
     act(() => {
-      socket.onclose?.();
+      sockets[0].onclose?.();
     });
 
     expect(result.current.connected).toBe(false);
+    expect(result.current.isConnecting).toBe(false);
   });
 
   it("calls onError when socket has an error", () => {
@@ -148,10 +171,113 @@ describe("useWebSocket", () => {
     const error = new Event("error");
 
     act(() => {
-      socket.onerror?.(error);
+      sockets[0].onerror?.(error);
     });
 
     expect(onError).toHaveBeenCalledWith(error);
+  });
+
+  it("reconnects with exponential backoff", () => {
+    renderHook(() =>
+      useWebSocket({
+        url: "ws://localhost:8080",
+        onMessage: vi.fn(),
+        autoReconnect: true,
+        maxRetries: 3,
+      }),
+    );
+
+    expect(sockets).toHaveLength(1);
+    act(() => {
+      sockets[0].onclose?.();
+    });
+    act(() => {
+      vi.advanceTimersByTime(999);
+    });
+
+    expect(sockets).toHaveLength(1);
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+
+    expect(sockets).toHaveLength(2);
+    act(() => {
+      sockets[1].onclose?.();
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(1999);
+    });
+
+    expect(sockets).toHaveLength(2);
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+
+    expect(sockets).toHaveLength(3);
+
+    act(() => {
+      sockets[2].onclose?.();
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(3999);
+    });
+
+    expect(sockets).toHaveLength(3);
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+
+    expect(sockets).toHaveLength(4);
+  });
+
+  it("stops reconnecting after max retries", () => {
+    const { result } = renderHook(() =>
+      useWebSocket({
+        url: "ws://localhost:8080",
+        onMessage: vi.fn(),
+        autoReconnect: true,
+        maxRetries: 2,
+      }),
+    );
+
+    expect(sockets).toHaveLength(1);
+
+    act(() => {
+      sockets[0].onclose?.();
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(sockets).toHaveLength(2);
+
+    act(() => {
+      sockets[1].onclose?.();
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(sockets).toHaveLength(3);
+
+    act(() => {
+      sockets[2].onclose?.();
+    });
+
+    expect(result.current.failed).toBe(true);
+
+    act(() => {
+      vi.advanceTimersByTime(30000);
+    });
+
+    expect(sockets).toHaveLength(3);
   });
 
   it("closes socket when component unmounts", () => {
@@ -164,6 +290,6 @@ describe("useWebSocket", () => {
 
     unmount();
 
-    expect(socket.close).toHaveBeenCalled();
+    expect(sockets[0].close).toHaveBeenCalled();
   });
 });

@@ -1,38 +1,128 @@
 import { useEffect, useState } from "react";
 import { Badge } from "../../../ui/src/components/Badge";
+import { Button } from "../../../ui/src/components/Button";
+import { Spinner } from "../../../ui/src/components/Spinner";
 import { Table } from "../../../ui/src/components/Table";
-import { inventory } from "../mocks/inventory";
-import { colors, space } from "../tokens";
+import { loadInventory } from "../mocks/inventory";
+import { colors, radius, space } from "../tokens";
+interface InventoryTableProps {
+  shouldFail?: boolean;
+}
 
-export default function InventoryTable() {
+export default function InventoryTable({
+  shouldFail = false,
+}: InventoryTableProps) {
+  const [inventoryData, setInventoryData] = useState<
+    Awaited<ReturnType<typeof loadInventory>>
+  >([]);
+
   const [showLowStock, setShowLowStock] = useState(false);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setLoading(false);
-    }, 1000);
+    let cancelled = false;
 
-    return () => clearTimeout(timer);
-  }, []);
+    const fetchInventory = async () => {
+      setLoading(true);
+      setError(false);
 
-  if (error) {
+      try {
+        const data = await loadInventory(shouldFail);
+
+        if (!cancelled) {
+          setInventoryData(data);
+        }
+      } catch {
+        if (!cancelled) {
+          setInventoryData([]);
+          setError(true);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchInventory();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [shouldFail, retryCount]);
+
+  if (loading) {
     return (
-      <div>
-        <h2 style={{ color: colors.text }}>
-          Something went wrong in table.
-        </h2>
-
-        <button onClick={() => setError(false)}>
-          Retry
-        </button>
+      <div
+        style={{
+          minHeight: 350,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: space.sm,
+          color: colors.text,
+        }}
+      >
+        <Spinner size="md" />
+        <span>Loading Inventory Table...</span>
       </div>
     );
   }
 
-  const filteredInventory = inventory.filter((item) => {
+  if (error) {
+    return (
+      <div
+        style={{
+          minHeight: 350,
+          background: colors.surface,
+          padding: space.md,
+          borderRadius: radius.md,
+          color: colors.text,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: space.sm,
+          textAlign: "center",
+        }}
+      >
+        <h2>Something went wrong in table.</h2>
+
+        <Button
+          variant="danger"
+          size="sm"
+          onClick={() => setRetryCount((count) => count + 1)}
+        >
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
+  if (inventoryData.length === 0) {
+    return (
+      <div
+        style={{
+          minHeight: 350,
+          background: colors.surface,
+          padding: space.md,
+          borderRadius: radius.md,
+          color: colors.text,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          textAlign: "center",
+        }}
+      >
+        <h2>No Inventory Data Available.</h2>
+      </div>
+    );
+  }
+
+  const filteredInventory = inventoryData.filter((item) => {
     if (showLowStock) {
       return item.needs_reorder;
     }
@@ -46,29 +136,29 @@ export default function InventoryTable() {
 
   const columns = [
     {
-      key: "sku_id" as keyof (typeof inventory)[number],
-      header: "SKU"
+      key: "sku_id" as keyof (typeof inventoryData)[number],
+      header: "SKU",
     },
     {
-      key: "product_name" as keyof (typeof inventory)[number],
-      header: "Product"
+      key: "product_name" as keyof (typeof inventoryData)[number],
+      header: "Product",
     },
     {
-      key: "warehouse_id" as keyof (typeof inventory)[number],
-      header: "Warehouse"
+      key: "warehouse_id" as keyof (typeof inventoryData)[number],
+      header: "Warehouse",
     },
     {
-      key: "quantity_on_hand" as keyof (typeof inventory)[number],
-      header: "Quantity"
+      key: "quantity_on_hand" as keyof (typeof inventoryData)[number],
+      header: "Quantity",
     },
     {
-      key: "reorder_point" as keyof (typeof inventory)[number],
+      key: "reorder_point" as keyof (typeof inventoryData)[number],
       header: "Reorder Point",
     },
     {
-      key: "needs_reorder" as keyof (typeof inventory)[number],
+      key: "needs_reorder" as keyof (typeof inventoryData)[number],
       header: "Status",
-      render: (item: (typeof inventory)[number]) =>
+      render: (item: (typeof inventoryData)[number]) =>
         item.needs_reorder ? (
           <Badge status="danger">Low Stock</Badge>
         ) : (
@@ -82,14 +172,14 @@ export default function InventoryTable() {
       style={{
         background: colors.surface,
         padding: space.md,
-        borderRadius: 10,
-        marginTop: space.sm
+        borderRadius: radius.md,
+        marginTop: space.sm,
       }}
     >
       <h2
         style={{
           color: colors.text,
-          marginTop: 0
+          marginTop: 0,
         }}
       >
         Inventory Table
@@ -103,7 +193,7 @@ export default function InventoryTable() {
         style={{
           padding: "8px",
           marginBottom: space.sm,
-          textAlign:"left"
+          textAlign: "left",
         }}
       />
 
@@ -112,7 +202,7 @@ export default function InventoryTable() {
           color: colors.text,
           display: "flex",
           gap: space.sm,
-          marginBottom: space.md
+          marginBottom: space.md,
         }}
       >
         <input
@@ -129,7 +219,7 @@ export default function InventoryTable() {
           columns={columns}
           data={searchedInventory}
           rowKey={(item) => item.sku_id}
-          loading={loading}
+          loading={false}
           emptyMessage="SKU Number Not Available"
         />
       </div>

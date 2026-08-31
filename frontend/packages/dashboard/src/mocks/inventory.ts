@@ -1,3 +1,4 @@
+
 import type { InventoryItem } from "../types/forecast";
 
 export const inventory: InventoryItem[] = [
@@ -41,7 +42,6 @@ export const inventory: InventoryItem[] = [
     reorder_point: 30,
     needs_reorder: false,
   },
-
   {
     sku_id: "SKU006",
     product_name: "Milk",
@@ -82,7 +82,6 @@ export const inventory: InventoryItem[] = [
     reorder_point: 30,
     needs_reorder: false,
   },
-
   {
     sku_id: "SKU011",
     product_name: "Soap",
@@ -118,9 +117,31 @@ export const inventory: InventoryItem[] = [
   {
     sku_id: "SKU015",
     product_name: "Notebooks",
-    warehouse_id: "WH003",
+    warehouse_id: "WH004",
     quantity_on_hand: 90,
     reorder_point: 50,
     needs_reorder: false,
   },
+  {
+    sku_id: "SKU016",
+    product_name: "Pencils",
+    warehouse_id: "WH004",
+    quantity_on_hand: 30,
+    reorder_point: 50,
+    needs_reorder: true,
+  },
 ];
+
+export function loadInventory(shouldFail = false) {
+  return new Promise<typeof inventory>((resolve, reject) => {
+    setTimeout(() => {
+      if (shouldFail) {
+        reject(new Error("Failed to load inventory"));
+        return;
+      }
+
+      resolve(inventory);
+    }, 1000);
+  });
+}
+

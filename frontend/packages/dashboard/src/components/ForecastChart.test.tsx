@@ -1,18 +1,5 @@
-import {
-  render,
-  screen,
-  fireEvent,
-  act,
-  cleanup,
-} from "@testing-library/react";
-import {
-  describe,
-  expect,
-  it,
-  vi,
-  beforeEach,
-  afterEach,
-} from "vitest";
+import {render, screen, fireEvent, act, cleanup} from "@testing-library/react";
+import {describe, expect, it, vi, beforeEach, afterEach} from "vitest";
 import ForecastChart from "./ForecastChart";
 
 describe("ForecastChart", () => {
@@ -55,6 +42,20 @@ describe("ForecastChart", () => {
 
     expect(
       screen.getByRole("button", { name: "Reset" })
+    ).toBeInTheDocument();
+  });
+
+  it("shows error state when forecast loading fails", async () => {
+    render(<ForecastChart shouldFail />);
+
+    await finishLoading();
+
+    expect(
+      screen.getByText("Something went wrong.")
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByRole("button", { name: "Retry" })
     ).toBeInTheDocument();
   });
 
