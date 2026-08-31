@@ -1,93 +1,101 @@
+"""
+Multi-Step LSTM Architectures: Plain & Temporal Self-Attention
+"""
+
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
+
+class TemporalAttention(nn.Module):
+    """Calculates attention weights across LSTM sequence time steps."""
+
+    def __init__(self, hidden_size: int):
+        super().__init__()
+        self.attn = nn.Linear(hidden_size, 1, bias=False)
+
+    def forward(self, lstm_outputs: torch.Tensor):
+        scores = self.attn(lstm_outputs)
+        weights = F.softmax(scores, dim=1)
+        context = torch.sum(weights * lstm_outputs, dim=1)
+        return context, weights
 
 
 class MultiStepLSTM(nn.Module):
+    """Standard Multi-Step LSTM network with optional temporal attention."""
+
     def __init__(
         self,
-        input_size=1,
-        hidden_size=64,
-        num_layers=2,
-        horizon=7,
-        dropout=0.2,
-        dropout_rate=None,
+        input_size: int = 1,
+        hidden_size: int = 64,
+        num_layers: int = 2,
+        horizon: int = 7,
+        dropout: float = 0.2,
+        dropout_rate: float = None,
+        use_attention: bool = False,
+        **kwargs,
     ):
         super().__init__()
-        drop_val = dropout_rate if dropout_rate is not None else dropout
+        if dropout_rate is not None:
+            dropout = dropout_rate
+
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.horizon = horizon
+        self.use_attention = use_attention
 
         self.lstm = nn.LSTM(
             input_size=input_size,
             hidden_size=hidden_size,
             num_layers=num_layers,
             batch_first=True,
-            dropout=drop_val if num_layers > 1 else 0.0,
+            dropout=dropout if num_layers > 1 else 0.0,
         )
-        self.fc_dropout = nn.Dropout(drop_val)
+
+        if self.use_attention:
+            self.attention = TemporalAttention(hidden_size)
+
+        self.dropout = nn.Dropout(dropout)
         self.fc = nn.Linear(hidden_size, horizon)
 
-    def forward(self, x):
-        if x.ndim == 4 and x.shape[-1] == 1:
-            x = x.squeeze(-1)
-        elif x.ndim == 2:
-            x = x.unsqueeze(-1)
-
-        out, _ = self.lstm(x)
-        last_out = out[:, -1, :]
-        last_out = self.fc_dropout(last_out)
-        return self.fc(last_out)
-
     def enable_mc_dropout(self):
-        """Enables dropout layers during inference for Monte Carlo sampling."""
+        """Enables dropout layers during inference for Monte Carlo uncertainty sampling."""
         for m in self.modules():
             if isinstance(m, nn.Dropout):
                 m.train()
 
-
-class AttentionMultiStepLSTM(nn.Module):
-    def __init__(
-        self,
-        input_size=1,
-        hidden_size=64,
-        num_layers=2,
-        horizon=7,
-        dropout=0.2,
-        dropout_rate=None,
-    ):
-        super().__init__()
-        drop_val = dropout_rate if dropout_rate is not None else dropout
-        self.hidden_size = hidden_size
-        self.num_layers = num_layers
-        self.horizon = horizon
-
-        self.lstm = nn.LSTM(
-            input_size=input_size,
-            hidden_size=hidden_size,
-            num_layers=num_layers,
-            batch_first=True,
-            dropout=drop_val if num_layers > 1 else 0.0,
-        )
-        self.attn_W = nn.Linear(hidden_size, hidden_size)
-        self.attn_v = nn.Linear(hidden_size, 1, bias=False)
-        self.fc_dropout = nn.Dropout(drop_val)
-        self.fc = nn.Linear(hidden_size, horizon)
-
-    def forward(self, x):
-        if x.ndim == 4 and x.shape[-1] == 1:
-            x = x.squeeze(-1)
-        elif x.ndim == 2:
-            x = x.unsqueeze(-1)
-
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         lstm_out, _ = self.lstm(x)
-        u = torch.tanh(self.attn_W(lstm_out))
-        att_scores = torch.softmax(self.attn_v(u), dim=1)
-        context = torch.sum(att_scores * lstm_out, dim=1)
-        context = self.fc_dropout(context)
-        return self.fc(context)
 
-    def enable_mc_dropout(self):
-        for m in self.modules():
-            if isinstance(m, nn.Dropout):
-                m.train()
+        if self.use_attention:
+            context, _ = self.attention(lstm_out)
+        else:
+            context = lstm_out[:, -1, :]
+
+        out = self.fc(self.dropout(context))
+        return out
+
+
+class AttentionMultiStepLSTM(MultiStepLSTM):
+    """Attention-enabled Multi-Step LSTM variant."""
+
+    def __init__(
+        self,
+        input_size: int = 1,
+        hidden_size: int = 64,
+        num_layers: int = 2,
+        horizon: int = 7,
+        dropout: float = 0.2,
+        dropout_rate: float = None,
+        **kwargs,
+    ):
+        super().__init__(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            horizon=horizon,
+            dropout=dropout,
+            dropout_rate=dropout_rate,
+            use_attention=True,
+            **kwargs,
+        )

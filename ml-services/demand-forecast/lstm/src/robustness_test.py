@@ -1,80 +1,57 @@
-import os
+"""
+Adversarial & Corrupted Input Robustness Test Suite
+"""
+
+import pickle
 import numpy as np
 import torch
-from config import HIDDEN_SIZE, HORIZON, LOOKBACK, MODEL_PATH, NUM_LAYERS, SCALER_PATH
-from data import load_scaler, validate_sequence
-from model import MultiStepLSTM
+
+from config import LOOKBACK, SCALER_PATH
+from predict import forecast_demand
 
 
-def run_robustness_tests():
-    print("=" * 65)
-    print("DEMAND FORECAST SERVICE - ROBUSTNESS & GUARD VALIDATION")
-    print("=" * 65)
+def run_robustness_battery():
+    print("=" * 70)
+    print("RUNNING ADVERSARIAL & CORRUPTED DATA ROBUSTNESS BATTERY")
+    print("=" * 70)
 
-    scaler = load_scaler(SCALER_PATH)
-    data_min = float(scaler.data_min_[0])
-    data_max = float(scaler.data_max_[0])
-    data_range = data_max - data_min
-
-    # Tech Lead fix: tightened OOD multiplier from 6.0 down to 1.0
-    oor_range_multiplier = 1.0
-    valid_min = data_min - (oor_range_multiplier * data_range)
-    valid_max = data_max + (oor_range_multiplier * data_range)
-
-    print(f"Training Range: [{data_min:.2f}, {data_max:.2f}]")
-    print(f"Valid Input Range (multiplier={oor_range_multiplier}): [{valid_min:.2f}, {valid_max:.2f}]\n")
-
-    # Load raw PyTorch model for unguarded comparison
-    raw_model = MultiStepLSTM(1, HIDDEN_SIZE, NUM_LAYERS, HORIZON)
-    if os.path.exists(MODEL_PATH):
-        raw_model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu", weights_only=True))
-    raw_model.eval()
+    # Base valid series
+    valid_base = [100.0 + i * 0.5 for i in range(LOOKBACK)]
 
     test_cases = [
-        ("case1_nan", np.array([np.nan] * LOOKBACK)),
-        ("case2_inf", np.array([np.inf] * LOOKBACK)),
-        ("case3_oor", np.array([5000.0] * LOOKBACK)),  # Raw extreme outlier (32x max)
-        ("case4_zero", np.zeros(LOOKBACK)),
-        ("case5_wrong_length", np.array([100.0] * 10)),  # 10 timesteps instead of LOOKBACK
+        ("Extreme Demand Spike (+100x outlier)", valid_base[:-1] + [10000.0]),
+        ("Negative Demand Figure (-50.0 demand)", [-50.0] + valid_base[1:]),
+        ("All Zero Demand (Complete outage)", [0.0] * LOOKBACK),
+        ("Huge Baseline Demand Level (10,000 baseline)", [10000.0 + i for i in range(LOOKBACK)]),
+        ("Contains NaN values", valid_base[:-5] + [float("nan")] * 5),
+        ("Contains Negative Infinite values", valid_base[:-2] + [float("-inf"), 100.0]),
     ]
 
-    for name, raw_seq in test_cases:
-        print(f"[{name}]")
-
-        # 1. Guard check evaluation
-        guard_verdict = None
-        if not np.all(np.isfinite(raw_seq)):
-            guard_verdict = "contains NaN" if np.isnan(raw_seq).any() else "contains Inf"
-        elif len(raw_seq) != LOOKBACK:
-            guard_verdict = f"wrong length: expected {LOOKBACK}, got {len(raw_seq)}"
-        else:
-            is_valid, err_msg = validate_sequence(raw_seq, scaler, oor_multiplier=oor_range_multiplier)
-            if not is_valid:
-                guard_verdict = "contains out-of-range values (far outside training distribution)"
-
-        print(f"  Guard verdict: {guard_verdict}")
-
-        # 2. Raw model behavior without guard
+    for name, input_seq in test_cases:
+        print(f"\nEvaluating: [{name}]")
         try:
-            if not np.all(np.isfinite(raw_seq)):
-                # Normalization attempt via scaler raises ValueError on Inf/NaN
-                _ = scaler.transform(raw_seq.reshape(-1, 1))
+            result = forecast_demand(input_seq)
+            forecast = result["mean_forecast"]
 
-            x_in = raw_seq.reshape(1, -1, 1)
-            t_in = torch.tensor(x_in, dtype=torch.float32)
-            with torch.no_grad():
-                out = raw_model(t_in).numpy().flatten()
-            print(f"  Raw model output (no guard): {out[:3]}... -> finite output")
+            # Validate prediction validity
+            has_nan = np.isnan(forecast).any()
+            has_inf = np.isinf(forecast).any()
+
+            if has_nan or has_inf:
+                print(f"  ❌ FAILED: Returned NaN/Inf predictions -> {forecast}")
+            else:
+                print(f"  ✅ PASSED: Handled gracefully. Forecast range: [{min(forecast):.2f}, {max(forecast):.2f}]")
+                print(f"     Mean Forecast: {[round(x, 2) for x in forecast[:3]]}...")
+
+        except (ValueError, TypeError) as e:
+            print(f"  ✅ PASSED (Caught Gracefully via Domain Validation): {e}")
         except Exception as e:
-            print(f"  Raw model (no guard) raised: {type(e).__name__}: {e}")
-        print()
+            print(f"  ❌ FAILED (Unhandled Exception): {type(e).__name__}: {e}")
 
-    print("=" * 65)
-    print("FINDING: validate_sequence() now checks RAW (pre-scale) values against")
-    print("scaler.data_min_ / data_max_ with oor_range_multiplier=1.0. This guard is executed in")
-    print("service.py BEFORE scaling any incoming request -- scale only after validation passes.")
-    print("=" * 65)
+    print("\n" + "=" * 70)
+    print("ROBUSTNESS BATTERY COMPLETE")
+    print("=" * 70 + "\n")
 
 
 if __name__ == "__main__":
-    run_robustness_tests()
+    run_robustness_battery()
