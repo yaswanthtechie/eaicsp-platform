@@ -1,4 +1,9 @@
 import numpy as np
+# Metrics where a HIGHER value is better. Every other known metric (mape, rmse,
+# false_positive_rate, etc.) is treated as lower-is-better by default. This is
+# the single source of truth used by both report.py and leaderboard.py, so
+# adding a new metric here automatically fixes its winner-direction everywhere.
+HIGHER_IS_BETTER_METRICS = {"precision", "recall", "f1", "balanced_accuracy", "specificity"}
 
 
 def mape(actual, predicted) -> float:

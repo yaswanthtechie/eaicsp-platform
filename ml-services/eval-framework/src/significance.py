@@ -1,4 +1,5 @@
 from scipy import stats
+import numpy as np
 
 
 def paired_significance_test(scores_a: list, scores_b: list, alpha: float = 0.05) -> dict:
@@ -20,7 +21,8 @@ def paired_significance_test(scores_a: list, scores_b: list, alpha: float = 0.05
 
     diffs = [a - b for a, b in zip(scores_a, scores_b)]
 
-    if len(set(diffs)) == 1:
+    
+    if len(diffs) > 0 and np.allclose(diffs, diffs[0], atol=1e-9):
         # Every fold shows the identical difference -- zero variance, so a
         # t-test is numerically unstable (scipy warns "precision loss").
         # Treat a non-zero constant difference as trivially significant.

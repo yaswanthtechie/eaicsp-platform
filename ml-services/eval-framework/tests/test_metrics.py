@@ -13,6 +13,7 @@ import sys
 from src.metrics import anomaly_metrics
 from src.leaderboard import generate_leaderboard, print_leaderboard
 from src.significance import paired_significance_test
+EVAL_FRAMEWORK_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 
@@ -102,7 +103,7 @@ def test_mape_single_row():
 def test_compare_cli_missing_file(tmp_path):
     result = subprocess.run(
         [sys.executable, "compare.py", "--results", "does_not_exist.json"],
-        capture_output=True, text=True
+        capture_output=True, text=True, cwd=EVAL_FRAMEWORK_DIR
     )
     assert result.returncode != 0
     assert "Error loading" in result.stdout
@@ -113,7 +114,7 @@ def test_compare_cli_bad_json(tmp_path):
     bad_file.write_text("{ this is not valid json")
     result = subprocess.run(
         [sys.executable, "compare.py", "--results", str(bad_file)],
-        capture_output=True, text=True
+        capture_output=True, text=True, cwd=EVAL_FRAMEWORK_DIR
     )
     assert result.returncode != 0
     assert "Error loading" in result.stdout
@@ -124,7 +125,7 @@ def test_compare_cli_empty_json(tmp_path):
     empty_file.write_text("{}")
     result = subprocess.run(
         [sys.executable, "compare.py", "--results", str(empty_file)],
-        capture_output=True, text=True
+        capture_output=True, text=True, cwd=EVAL_FRAMEWORK_DIR
     )
     assert result.returncode != 0
     assert "non-empty" in result.stdout
@@ -138,7 +139,7 @@ def test_compare_cli_mismatched_metrics(tmp_path):
     }))
     result = subprocess.run(
         [sys.executable, "compare.py", "--results", str(mismatched_file)],
-        capture_output=True, text=True
+        capture_output=True, text=True, cwd=EVAL_FRAMEWORK_DIR
     )
     assert result.returncode == 0
     assert "N/A" in result.stdout

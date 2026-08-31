@@ -1,4 +1,5 @@
 import pandas as pd
+from prophet import Prophet
 from src.metrics import mape
 from src.splits import walk_forward_split
 from src.baseline import naive_forecast
@@ -13,28 +14,38 @@ df["date"] = pd.to_datetime(df["date"])
 folds = walk_forward_split(df, "date", n_splits=5)
 
 naive_mapes = []
-# "toy model" = naive shifted by 2 instead of 1, standing in for a second real model
-# for demonstration purposes, since no second model is wired into eval-framework yet
-toy_model_mapes = []
+prophet_mapes = []
 
-for train, test in folds:
+for i, (train, test) in enumerate(folds, start=1):
     actual = test["y"].tolist()
+
+    # Naive baseline
     naive_preds = naive_forecast(actual)
     naive_mapes.append(mape(actual, naive_preds))
 
-    shifted = [actual[0], actual[0]] + actual[:-2]
-    toy_model_mapes.append(mape(actual, shifted))
+    # Real Prophet fit, trained on this fold's train data only (no leakage)
+    prophet_train = train.rename(columns={"date": "ds", "y": "y"})[["ds", "y"]]
+    model = Prophet()
+    model.fit(prophet_train)
 
+    future = test.rename(columns={"date": "ds"})[["ds"]]
+    forecast = model.predict(future)
+    prophet_preds = forecast["yhat"].tolist()
+    prophet_mapes.append(mape(actual, prophet_preds))
+
+    print(f"Fold {i}: naive MAPE={naive_mapes[-1]:.2f}, prophet MAPE={prophet_mapes[-1]:.2f}")
+
+print()
 print("Naive MAPE per fold:", [round(x, 2) for x in naive_mapes])
-print("Toy model MAPE per fold:", [round(x, 2) for x in toy_model_mapes])
+print("Prophet MAPE per fold:", [round(x, 2) for x in prophet_mapes])
 print()
 
 results = {
     "naive": {"mape": sum(naive_mapes) / len(naive_mapes)},
-    "toy_model": {"mape": sum(toy_model_mapes) / len(toy_model_mapes)},
+    "prophet": {"mape": sum(prophet_mapes) / len(prophet_mapes)},
 }
 print_leaderboard(results, "mape", lower_is_better=True)
 print()
 
-sig_result = paired_significance_test(naive_mapes, toy_model_mapes)
+sig_result = paired_significance_test(naive_mapes, prophet_mapes)
 print(sig_result["interpretation"])
