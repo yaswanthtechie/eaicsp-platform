@@ -1,3 +1,17 @@
+"""
+Train Iris classifier.
+
+Workflow:
+
+1. Load data
+2. Train model
+3. Evaluate model
+4. Log metrics to MLflow
+5. Register model
+6. Assign staging alias
+7. Promote to production only if quality gate passes
+"""
+
 from sklearn.ensemble import RandomForestClassifier
 
 from src.config import (
@@ -6,6 +20,9 @@ from src.config import (
     RANDOM_STATE,
     N_ESTIMATORS,
     MAX_DEPTH,
+    PROMOTION_ACCURACY_THRESHOLD,
+    PROMOTED_BY,
+    should_promote,
 )
 
 from src.data import load_data
@@ -17,14 +34,15 @@ from src.mlflow_utils import (
     log_params,
     log_metrics,
     log_model,
+    set_tags,
+    assign_staging,
     promote_model,
 )
 
 
 def train():
     """
-    Train, evaluate, register,
-    and promote the model.
+    Complete training pipeline.
     """
 
     set_experiment(EXPERIMENT_NAME)
@@ -39,9 +57,12 @@ def train():
             random_state=RANDOM_STATE,
         )
 
-        model.fit(X_train, y_train)
+        model.fit(
+            X_train,
+            y_train,
+        )
 
-        accuracy, f1 = evaluate(
+        accuracy, precision, recall, f1 = evaluate(
             model,
             X_test,
             y_test,
@@ -49,6 +70,7 @@ def train():
 
         log_params(
             {
+                "algorithm": "RandomForestClassifier",
                 "n_estimators": N_ESTIMATORS,
                 "max_depth": MAX_DEPTH,
                 "random_state": RANDOM_STATE,
@@ -58,7 +80,17 @@ def train():
         log_metrics(
             {
                 "accuracy": accuracy,
+                "precision": precision,
+                "recall": recall,
                 "f1_score": f1,
+            }
+        )
+
+        set_tags(
+            {
+                "project": "iris_reference",
+                "framework": "scikit-learn",
+                "workflow": "staging_to_production",
             }
         )
 
@@ -68,17 +100,52 @@ def train():
             registered_model_name=MODEL_NAME,
         )
 
-        model_version = promote_model(MODEL_NAME)
+        # Assign latest registered model to staging
+        staging_version = assign_staging(MODEL_NAME)
 
+        # Promote only if the model meets the quality gate
+        production_version = None
+
+        if should_promote(accuracy):
+
+            production_version = promote_model(
+                model_name=MODEL_NAME,
+                from_alias="staging",
+                to_alias="production",
+            )
+
+            print(
+                f"\nModel passed the promotion gate "
+                f"(accuracy={accuracy:.4f} >= "
+                f"{PROMOTION_ACCURACY_THRESHOLD:.2f})"
+            )
+
+        else:
+
+            print(
+                f"\nModel remains in STAGING "
+                f"(accuracy={accuracy:.4f} < "
+                f"{PROMOTION_ACCURACY_THRESHOLD:.2f})"
+            )
+
+        print("\n" + "=" * 60)
+        print("TRAINING COMPLETED SUCCESSFULLY")
         print("=" * 60)
-        print("Training Completed Successfully")
-        print("=" * 60)
-        print(f"Model Name      : {MODEL_NAME}")
-        print(f"Model Version   : {model_version}")
-        print("Alias           : @production")
-        print(f"Accuracy        : {accuracy:.4f}")
-        print(f"F1 Score        : {f1:.4f}")
-        print(f"Model URI       : {model_info.model_uri}")
+
+        print(f"Model Name : {MODEL_NAME}")
+        print(f"Staging Version : {staging_version}")
+
+        if production_version is not None:
+            print(f"Production Version : {production_version}")
+        else:
+            print("Production Version : Not promoted")
+
+        print(f"Accuracy : {accuracy:.4f}")
+        print(f"Precision : {precision:.4f}")
+        print(f"Recall : {recall:.4f}")
+        print(f"F1 Score : {f1:.4f}")
+        print(f"Model URI : {model_info.model_uri}")
+
         print("=" * 60)
 
         return model

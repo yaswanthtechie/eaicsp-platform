@@ -1,27 +1,43 @@
-import numpy as np
+"""
+Load and prepare the Iris dataset.
+
+This module:
+- Loads the Iris dataset from scikit-learn
+- Splits the data into training and testing sets
+- Returns the train/test datasets for model training
+"""
+
 from sklearn.datasets import load_iris
 from sklearn.model_selection import train_test_split
 
-from src.config import TEST_SIZE, RANDOM_STATE
+from src.config import (
+    RANDOM_STATE,
+    TEST_SIZE,
+)
 
 
 def load_data():
-    """Load, validate, and split the Iris dataset."""
+    """
+    Load and split the Iris dataset.
 
+    Returns
+    -------
+    tuple
+        (
+            X_train,
+            X_test,
+            y_train,
+            y_test,
+        )
+    """
+
+    # Load dataset
     iris = load_iris()
+
     X = iris.data
     y = iris.target
 
-    # Basic validation
-    if X.shape[0] != len(y):
-        raise ValueError("Feature and target counts do not match.")
-
-    if np.isnan(X).any():
-        raise ValueError("Dataset contains missing values.")
-
-    if X.shape[1] != 4:
-        raise ValueError("Expected 4 input features.")
-
+    # Split dataset
     X_train, X_test, y_train, y_test = train_test_split(
         X,
         y,
@@ -30,4 +46,22 @@ def load_data():
         stratify=y,
     )
 
-    return X_train, X_test, y_train, y_test
+    return (
+        X_train,
+        X_test,
+        y_train,
+        y_test,
+    )
+
+
+if __name__ == "__main__":
+
+    X_train, X_test, y_train, y_test = load_data()
+
+    print("=" * 50)
+    print("Iris Dataset Loaded Successfully")
+    print("=" * 50)
+    print(f"Training Samples : {len(X_train)}")
+    print(f"Testing Samples  : {len(X_test)}")
+    print(f"Features         : {X_train.shape[1]}")
+    print("=" * 50)

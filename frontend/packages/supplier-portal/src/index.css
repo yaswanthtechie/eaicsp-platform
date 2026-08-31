@@ -4,7 +4,25 @@
   --primary: #3B82F6;
   --success: #10B981;
   --danger: #EF4444;
+  --text: #E6EAF2;
+  --text-muted: #8B95A8;
+
+  --text-on-primary: #ffffff;
+  --card-bg: #1d2436;
+  --item-bg: #222b40;
+
+  --border-light: #ddd;
+  --border-gray: #ccc;
+  --dropzone-border: #bdbdbd;
+  --dropzone-active: #2563eb;
+  --dropzone-active-bg: #eff6ff;
+  --input-border: gray;
+  --dropzone-bg: #fafafa;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Global                                                                     */
+/* -------------------------------------------------------------------------- */
 
 * {
   margin: 0;
@@ -14,26 +32,51 @@
 
 body {
   background: var(--bg);
-  color: white;
+  color: var(--text);
   font-family: Arial, Helvetica, sans-serif;
 }
 
 #root {
   width: 100%;
-  margin: 0 auto;
   max-width: 480px;
   min-height: 100vh;
+  margin: 0 auto;
   background: var(--surface);
 }
 
-.login-page {
-  padding: 24px;
+/* -------------------------------------------------------------------------- */
+/* Common form styles                                                         */
+/* -------------------------------------------------------------------------- */
+
+input,
+select {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
 }
 
-.login-page h1 {
-  text-align: center;
-  margin-top: 50px;
-  margin-bottom: 40px;
+button {
+  border: none;
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--primary);
+  color: var(--text-on-primary);
+  cursor: pointer;
+}
+
+button:hover {
+  opacity: 0.9;
+}
+
+/* Keyboard accessibility */
+input:focus-visible,
+select:focus-visible,
+button:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
 }
 
 label {
@@ -42,45 +85,36 @@ label {
   margin-bottom: 6px;
 }
 
-input {
-  width: 100%;
-  padding: 12px;
-  border-radius: 8px;
-  border: 1px solid gray;
-  background: var(--bg);
-  color: white;
-}
-
-button {
-  width: 100%;
-  margin-top: 30px;
-  padding: 14px;
-  border: none;
-  border-radius: 8px;
-  background: royalblue;
-  color: white;
-  cursor: pointer;
-}
-
-button:hover {
-  opacity: .9;
-}
-
 .error {
-  color: red;
-  font-size: 14px;
   margin-top: 5px;
+  color: var(--danger);
+  font-size: 14px;
 }
 
 .note {
   margin-top: 20px;
   text-align: center;
-  color: gray;
+  color: var(--text-muted);
   font-size: 14px;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Login page                                                                 */
+/* -------------------------------------------------------------------------- */
 
-/* orders page */
+.login-page {
+  padding: 24px;
+}
+
+.login-page h1 {
+  margin-top: 50px;
+  margin-bottom: 40px;
+  text-align: center;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Orders page                                                                */
+/* -------------------------------------------------------------------------- */
 
 .orders {
   padding: 20px;
@@ -90,14 +124,25 @@ button:hover {
   display: flex;
   gap: 10px;
   margin: 20px 0;
-  overflow: auto;
+  overflow-x: auto;
+}
+
+.tabs button {
+  flex: 0 0 auto;
+  width: auto;
+  margin-top: 0;
+  padding: 10px 16px;
+}
+
+.active-tab {
+  background: var(--primary);
 }
 
 .card {
-  background: #1d2436;
-  padding: 15px;
   margin-bottom: 15px;
+  padding: 15px;
   border-radius: 10px;
+  background: var(--card-bg);
 }
 
 .card-top {
@@ -110,64 +155,38 @@ button:hover {
   margin: 8px 0;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Search and filters                                                         */
+/* -------------------------------------------------------------------------- */
 
-/* order details page */
-
-.details {
-  padding: 20px;
+.search-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 20px 0;
 }
 
-.detail-card {
-  background: #1d2436;
-  padding: 15px;
-  border-radius: 10px;
-  margin-bottom: 20px;
+.search-filters input {
+  flex: 1 1 150px;
+  min-width: 150px;
+  padding: 8px;
+  border: 1px solid var(--border-gray);
+  border-radius: 6px;
 }
 
-.item-card {
-  background: #222b40;
-  padding: 15px;
-  margin-bottom: 15px;
-  border-radius: 10px;
-}
-
-.item-card p {
-  margin: 5px 0;
-}
-
-
-/* invoice page */
-
-.invoice-page {
-  padding: 20px;
-}
-
-.invoice-page input,
-.invoice-page select {
-  width: 100%;
-  padding: 12px;
-  margin-top: 8px;
-  margin-bottom: 15px;
-  background: var(--bg);
-  color: white;
-  border: 1px solid gray;
-  border-radius: 8px;
-}
-
-.file-box {
-  background: #222b40;
-  padding: 10px;
-  margin: 15px 0;
-  border-radius: 8px;
-}
-
-
-/* file upload */
+/* -------------------------------------------------------------------------- */
+/* Orders top buttons                                                         */
+/* -------------------------------------------------------------------------- */
 
 .top-buttons {
   display: flex;
   gap: 10px;
   margin: 15px 0;
+}
+
+.top-buttons button {
+  width: auto;
+  margin-top: 0;
 }
 
 .invoice-btn {
@@ -180,27 +199,96 @@ button:hover {
   background: var(--danger);
 }
 
-.active-tab {
-  background: var(--primary);
+.load-more-btn {
+  width: 100%;
+  margin-top: 10px;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Order details page                                                         */
+/* -------------------------------------------------------------------------- */
+
+.details {
+  padding: 20px;
+}
+
+.detail-card {
+  margin-bottom: 20px;
+  padding: 15px;
+  border-radius: 10px;
+  background: var(--card-bg);
+}
+
+.item-card {
+  margin-bottom: 15px;
+  padding: 15px;
+  border-radius: 10px;
+  background: var(--item-bg);
+}
+
+.item-card p {
+  margin: 5px 0;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Invoice page                                                               */
+/* -------------------------------------------------------------------------- */
+
+.invoice-page {
+  padding: 20px;
+}
+
+.invoice-page input,
+.invoice-page select {
+  width: 100%;
+  margin-top: 8px;
+  margin-bottom: 15px;
+  padding: 12px;
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.file-box {
+  margin: 15px 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--item-bg);
+}
+
+/* -------------------------------------------------------------------------- */
+/* File upload                                                                */
+/* -------------------------------------------------------------------------- */
 
 .drop-zone {
-  border: 2px dashed var(--primary);
-  border-radius: 10px;
-  padding: 30px;
+  padding: 25px;
+  border: 2px dashed var(--dropzone-border);
+  border-radius: 8px;
+  background: var(--dropzone-bg);
   text-align: center;
   cursor: pointer;
-  margin: 20px 0;
+  transition: 0.2s ease;
 }
 
 .drop-zone:hover {
-  background: #1d2436;
+  background: var(--card-bg);
+}
+
+.drop-zone.drag-active {
+  border-color: var(--dropzone-active);
+  background: var(--dropzone-active-bg);
 }
 
 .file-preview {
-  background: #222b40;
-  padding: 15px;
-  border-radius: 8px;
   margin-top: 15px;
+  padding: 12px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+}
+
+.file-preview button {
+  width: auto;
+  margin-top: 10px;
+  padding: 8px 12px;
 }

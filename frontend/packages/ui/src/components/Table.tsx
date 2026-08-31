@@ -1,5 +1,5 @@
 import React from "react";
-import { colors, space, radius } from "../tokens";
+import { colors, spacing, radius } from "../theme/tokens";
 import { Spinner } from "./Spinner";
 
 export interface Column<T> {
@@ -36,9 +36,9 @@ export function Table<T>({
       style={{
         width: "100%",
         borderCollapse: "collapse",
-        backgroundColor: colors.surface,
-        color: colors.text,
-        border: `1px solid ${colors.border}`,
+      backgroundColor: colors.white,
+color: colors.gray900,
+border: `1px solid ${colors.gray200}`,
         borderRadius: radius.md,
       }}
     >
@@ -49,7 +49,7 @@ export function Table<T>({
               key={String(column.key)}
               style={{
                 border: `1px solid ${colors.border}`,
-                padding: space.md,
+                padding: spacing.md,
                 textAlign: "left",
               }}
             >
@@ -67,7 +67,7 @@ export function Table<T>({
                 key={String(column.key)}
                 style={{
                   border: `1px solid ${colors.border}`,
-                  padding: space.md,
+                  padding: spacing.md,
                 }}
               >
                 {column.render

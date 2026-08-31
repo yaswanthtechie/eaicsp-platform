@@ -1,6 +1,11 @@
-﻿fastapi==0.138.0
-uvicorn==0.49.0
-pydantic==2.13.4
-RapidFuzz==3.14.5
-python-multipart==0.0.32
+fastapi>=0.115
+uvicorn
+sqlalchemy>=2.0
+python-dotenv
+rapidfuzz
+requests
+apscheduler
 pytest
+httpx
+xmltodict
+pydantic

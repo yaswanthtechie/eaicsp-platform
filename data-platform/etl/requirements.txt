@@ -3,4 +3,6 @@ sqlalchemy
 psycopg2-binary
 python-dotenv
 pytest
-apache-airflow
+pyyaml
+pandera
+apache-airflow==2.10.5
