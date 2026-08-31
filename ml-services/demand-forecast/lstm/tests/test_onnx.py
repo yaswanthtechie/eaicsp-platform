@@ -7,6 +7,7 @@ Requires onnx + onnxruntime:
 
 Run with: python -m pytest tests/test_onnx.py -v
 """
+import sys
 import os
 import warnings
 

@@ -64,7 +64,8 @@ def run_robustness_tests():
             t_in = torch.tensor(x_in, dtype=torch.float32)
             with torch.no_grad():
                 out = raw_model(t_in).numpy().flatten()
-            print(f"  Raw model output (no guard): {out[:3]}... -> finite output")
+                tag="finite output" if np.all(np.isfinite(out)) else "contains N0N/FINITE output (Nan/Inf)"
+            print(f"  Raw model output (no guard): {out[:3]}... -> {tag}")
         except Exception as e:
             print(f"  Raw model (no guard) raised: {type(e).__name__}: {e}")
         print()

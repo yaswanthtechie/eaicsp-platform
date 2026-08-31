@@ -5,12 +5,24 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from config import EPOCHS, HIDDEN_SIZE, HORIZON, LOOKBACK, LOSS_CURVE_PATH, NUM_LAYERS, OUTPUT_DIR, RANDOM_SEED
+from torch.utils.data import DataLoader, TensorDataset
+
+from config import (
+    BATCH_SIZE,
+    EPOCHS,
+    HIDDEN_SIZE,
+    HORIZON,
+    LOOKBACK,
+    LOSS_CURVE_PATH,
+    NUM_LAYERS,
+    OUTPUT_DIR,
+    RANDOM_SEED,
+)
 from data import generate_data, get_walk_forward_folds
 from model import MultiStepLSTM
 
 
-def train_and_track_loss(model, X_train, y_train, epochs=EPOCHS, lr=0.001):
+def train_and_track_loss(model, X_train, y_train, epochs=EPOCHS, lr=0.001, batch_size=BATCH_SIZE):
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
@@ -23,16 +35,21 @@ def train_and_track_loss(model, X_train, y_train, epochs=EPOCHS, lr=0.001):
 
     x_tensor = torch.tensor(X_train_3d, dtype=torch.float32)
     y_tensor = torch.tensor(y_train, dtype=torch.float32)
+    
+    loader = DataLoader(TensorDataset(x_tensor, y_tensor), batch_size=batch_size, shuffle=True)
 
     model.train()
     history = []
     for _ in range(epochs):
-        optimizer.zero_grad()
-        out = model(x_tensor)
-        loss = criterion(out, y_tensor)
-        loss.backward()
-        optimizer.step()
-        history.append(loss.item())
+        batch_losses = []
+        for batch_x, batch_y in loader:
+            optimizer.zero_grad()
+            out = model(batch_x)
+            loss = criterion(out, batch_y)
+            loss.backward()
+            optimizer.step()
+            batch_losses.append(loss.item())
+        history.append(float(np.mean(batch_losses)))
     return history
 
 
@@ -46,11 +63,13 @@ def run_diagnostics():
             "lookback": LOOKBACK,
             "horizon": HORIZON,
             "epochs": EPOCHS,
+            "batch_size": BATCH_SIZE,
             "n_folds": n_folds,
             "seed": RANDOM_SEED,
         })
 
-        df = generate_data()
+        # Dataset size set to 1000 days to match the entire pipeline
+        df = generate_data(days=1000)
         folds = get_walk_forward_folds(df, n_folds=n_folds, lookback=LOOKBACK, horizon=HORIZON)
 
         lstm_maes, lstm_rmses = [], []
@@ -70,7 +89,7 @@ def run_diagnostics():
 
             torch.manual_seed(RANDOM_SEED)
             model = MultiStepLSTM(1, HIDDEN_SIZE, NUM_LAYERS, HORIZON)
-            history = train_and_track_loss(model, X_tr, y_tr, epochs=EPOCHS)
+            history = train_and_track_loss(model, X_tr, y_tr, epochs=EPOCHS, batch_size=BATCH_SIZE)
             loss_histories.append(history)
 
             model.eval()

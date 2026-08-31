@@ -1,6 +1,5 @@
 """
--- Real hyperparameter sweep.
-
+-- Real hyperparameter sweep (Reproducible & MLflow Tracked)
 """
 
 import itertools
@@ -8,7 +7,8 @@ import os
 from typing import List, Dict
 
 import numpy as np
-
+import torch
+import mlflow
 import mlflow_logger as mlog
 from data import generate_data, get_walk_forward_folds
 from model import MultiStepLSTM
@@ -43,13 +43,17 @@ def run_sweep() -> List[Dict]:
 
     for cfg_idx, config in enumerate(grid, 1):
         lookback = config["lookback"]
+        hidden_size = config["hidden_size"]
+        num_layers = config["num_layers"]
+
         # Fold boundaries depend on lookback (create_sequences windows on it),
         # so folds must be rebuilt per-config rather than reused.
-        folds = get_walk_forward_folds(df, n_folds=5, lookback=lookback, horizon=HORIZON,
-                                        save_scaler_path=None)
+        folds = get_walk_forward_folds(
+            df, n_folds=5, lookback=lookback, horizon=HORIZON, save_scaler_path=None
+        )
 
-        run_name = f"sweep_h{config['hidden_size']}_l{config['num_layers']}_lb{lookback}"
-        mlog.start_experiment("Demand-Forecast-LSTM-Sweep")
+        run_name = f"sweep_h{hidden_size}_l{num_layers}_lb{lookback}"
+        mlog.start_experiment("Demand-Forecast-LSTM-Sweep", run_name=run_name)
         mlog.log_params({**config, "epochs": EPOCHS, "batch_size": BATCH_SIZE, "lr": LR})
 
         val_maes, val_rmses = [], []
@@ -62,7 +66,11 @@ def run_sweep() -> List[Dict]:
                 X_tr, y_tr, val_fraction=VAL_FRACTION
             )
 
-            model = build_model(MultiStepLSTM, config["hidden_size"], config["num_layers"], HORIZON)
+            # Set random seed BEFORE model initialization to guarantee identical initialization
+            torch.manual_seed(42)
+            np.random.seed(42)
+
+            model = build_model(MultiStepLSTM, hidden_size, num_layers, HORIZON)
             model = train_model(model, X_inner_tr, y_inner_tr, epochs=EPOCHS, batch_size=BATCH_SIZE, lr=LR)
 
             val_metrics = evaluate_scaled(model, X_val, y_val, scaler)
@@ -93,8 +101,8 @@ def run_sweep() -> List[Dict]:
         mlog.end_run()
 
         print(f"[{cfg_idx}/{len(grid)}] {run_name:30s} "
-            f"val_MAE={avg_val_mae:6.2f}  val_RMSE={avg_val_rmse:6.2f}  "
-            f"(test_MAE ref only={avg_test_mae_ref:6.2f})")
+              f"val_MAE={avg_val_mae:6.2f}  val_RMSE={avg_val_rmse:6.2f}  "
+              f"(test_MAE ref only={avg_test_mae_ref:6.2f})")
 
         results.append({
             **config,
@@ -123,10 +131,10 @@ def print_results_table(results: List[Dict], winner: Dict) -> None:
     for r in sorted(results, key=lambda r: r["avg_val_mae"]):
         marker = "  <-- WINNER (best val MAE)" if r["run_name"] == winner["run_name"] else ""
         print(f"{r['run_name']:30s} {r['hidden_size']:7d} {r['num_layers']:7d} {r['lookback']:9d} "
-            f"{r['avg_val_mae']:9.2f} {r['avg_val_rmse']:9.2f} {r['avg_test_mae_reference_only']:14.2f}{marker}")
+              f"{r['avg_val_mae']:9.2f} {r['avg_val_rmse']:9.2f} {r['avg_test_mae_reference_only']:14.2f}{marker}")
     print("=" * 100)
     print(f"\nWinner justified on VALIDATION data: {winner['run_name']} "
-        f"(avg_val_mae={winner['avg_val_mae']:.2f})")
+          f"(avg_val_mae={winner['avg_val_mae']:.2f})")
     print("Test MAE column is shown for reference only -- it was never used to pick the winner.\n")
 
 

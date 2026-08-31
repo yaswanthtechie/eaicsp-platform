@@ -2,7 +2,7 @@
 Standalone Prediction Script
 ------------------------------------------
 Loads saved PyTorch weights (.pt file) and scaler to predict a 7-day horizon 
-from a 30-day historical input array.
+from a 45-day historical input array.
 """
 
 import os
@@ -45,7 +45,7 @@ def predict_7_days(historical_data: np.ndarray) -> np.ndarray:
     model_path = os.path.join(BASE_DIR, "..", "output", "best_model.pt")
 
     if os.path.exists(model_path):
-        model.load_state_dict(torch.load(model_path, map_location=device))
+        model.load_state_dict(torch.load(model_path, map_location=device,weights_only=True))
         print(f"Loaded model weights from {model_path}")
     else:
         raise FileNotFoundError(f"Model file not found at {model_path}. Run train.py first!")

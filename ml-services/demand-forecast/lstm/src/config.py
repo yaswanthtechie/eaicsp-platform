@@ -15,12 +15,12 @@ RANDOM_SEED = 42
 # Winning Model Hyperparameters
 LOOKBACK = 45
 HORIZON = 7
-HIDDEN_SIZE = 64
-NUM_LAYERS = 2
+HIDDEN_SIZE = 32
+NUM_LAYERS = 1
 DROPOUT = 0.2
 
 # Training Parameters
-EPOCHS = 25
+EPOCHS = 35
 BATCH_SIZE = 32
 LR = 0.001
 

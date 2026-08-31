@@ -21,7 +21,7 @@ def compare_models():
             "seed": RANDOM_SEED,
         })
 
-        df = generate_data()
+        df = generate_data(1000)
         folds = get_walk_forward_folds(df, n_folds=n_folds, lookback=LOOKBACK, horizon=HORIZON)
 
         plain_maes, plain_rmses = [], []
