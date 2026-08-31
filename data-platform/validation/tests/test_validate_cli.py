@@ -29,9 +29,11 @@ def mock_report() -> MagicMock:
 
 # --- Tests for setup_logger ---
 
+@patch("logging.FileHandler")
 @patch("logging.basicConfig")
-def test_setup_logger(mock_basic_config):
-    logger = validate_cli.setup_logger("DEBUG")
+def test_setup_logger(mock_basic_config, mock_file_handler):
+    # Pass enable_file_logging=True to test the logic, but the mocked FileHandler prevents disk writes
+    logger = validate_cli.setup_logger("DEBUG", enable_file_logging=True)
 
     # 1. Verify basicConfig was called exactly once
     mock_basic_config.assert_called_once()
@@ -44,7 +46,7 @@ def test_setup_logger(mock_basic_config):
     assert call_kwargs.get("format") == validate_cli.DEFAULT_LOG_FORMAT
     assert call_kwargs.get("force") is True
     assert "handlers" in call_kwargs
-    assert len(call_kwargs["handlers"]) == 2  # Should contain StreamHandler and FileHandler
+    assert len(call_kwargs["handlers"]) == 2  # Should contain StreamHandler and our Mocked FileHandler
 
     # 4. Verify the function returns the correct named logger
     assert logger.name == "src.validate_cli"

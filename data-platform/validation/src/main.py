@@ -65,8 +65,8 @@ def main():
 
     # Incremental Arguments
     parser.add_argument("--incremental", action="store_true", help="Only process new rows since the last run.")
-    parser.add_argument("--watermark-col", type=str, default="id",
-                        help="Column to use for watermarking (e.g., 'date' or 'id').")
+    parser.add_argument("--watermark-col", type=str, default="transaction_id",
+                        help="Column to use for watermarking (e.g., 'date' or 'transaction_id').")
     parser.add_argument("--watermark-file", type=str, default=str(PROJECT_ROOT / ".watermark.json"),
                         help="Path to state tracking file.")
 
@@ -114,15 +114,8 @@ def main():
         if current_watermark is not None:
             logger.info(f"Incremental Mode: Filtering rows where '{args.watermark_col}' > {current_watermark}")
 
-            # Dynamically cast watermark to match the DataFrame column type
-            col_type = df[args.watermark_col].dtype
-            if pd.api.types.is_numeric_dtype(col_type):
-                current_watermark = type(df[args.watermark_col].iloc[0])(current_watermark)
-            else:
-                current_watermark = str(current_watermark)
-
-            # Filter the dataframe
-            df = df[df[args.watermark_col] > current_watermark]
+            # Filter using the centralized method
+            df = DataValidator.filter_incremental(df, args.watermark_col, current_watermark)
 
             if df.empty:
                 logger.info("No new data to process. Pipeline halting cleanly.")
@@ -181,17 +174,19 @@ def main():
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         if args.incremental and output_path.exists():
-            # Append mode: Don't write headers again
-            clean_df.to_csv(output_path, mode='a', header=False, index=False)
-            logger.info(f"Incremental mode: Appended {len(clean_df)} sanitized rows to {output_path}")
+            # Read existing data, append new clean data, and deduplicate
+            existing_df = pd.read_csv(output_path)
+            combined_df = pd.concat([existing_df, clean_df]).drop_duplicates(subset=[args.watermark_col], keep='last')
+            combined_df.to_csv(output_path, index=False)
+            logger.info(f"Incremental mode: Upserted {len(clean_df)} sanitized rows to {output_path}")
         else:
             # Standard mode (or first run): Write completely new file
             clean_df.to_csv(output_path, index=False)
             logger.info(f"Successfully wrote sanitized dataset to {output_path}")
 
         # Update the state file if validation and saving succeeded
-        if args.incremental:
-            new_watermark = df[args.watermark_col].max()
+        if args.incremental and not clean_df.empty:
+            new_watermark = clean_df[args.watermark_col].max()
             new_watermark = new_watermark.item() if hasattr(new_watermark, 'item') else new_watermark
             wm.set_watermark(new_watermark)
             logger.info(f"Watermark successfully updated to: {new_watermark}")

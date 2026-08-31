@@ -60,6 +60,14 @@ class ConfigRule(BaseModel):
     severity: str = "INFO"
     depends_on: Optional[List[str]] = Field(default_factory=list)  # <-- Added dependency tracking
 
+    @model_validator(mode='after')
+    def validate_function_path(self) -> 'ConfigRule':
+        if self.type in ['custom', 'transform']:
+            func_path = self.model_extra.get('function')
+            if func_path:
+                self._load_function(func_path)
+        return self
+
     @model_validator(mode='before')
     @classmethod
     def uppercase_severity(cls, values: Any) -> Any:
@@ -165,22 +173,35 @@ class DataValidator:
         field_ranges = {}
         for rule in self.rules:
             if rule.type == "range" and rule.field:
-                min_val = rule.model_extra.get('min', float('-inf'))
-                max_val = rule.model_extra.get('max', float('inf'))
+                min_val = rule.model_extra.get('min')
+                max_val = rule.model_extra.get('max')
+
+                # Helper to guard against comparing strings (dates) to None or differing types
+                def is_comparable(a, b):
+                    if a is None or b is None:
+                        return False
+                    return type(a) is type(b) or (isinstance(a, (int, float)) and isinstance(b, (int, float)))
 
                 # 1. Catch Intra-rule conflicts (e.g., min: 10, max: 5)
-                if min_val > max_val:
-                    raise ValueError(
-                        f"Config Error: Rule '{rule.name}' is impossible. min ({min_val}) > max ({max_val}).")
+                if is_comparable(min_val, max_val) and min_val > max_val:
+                    raise ValueError(f"Config Error: Rule '{rule.name}' is impossible.")
 
                 # 2. Catch Inter-rule conflicts on the same field
                 if rule.field in field_ranges:
                     prev_min, prev_max = field_ranges[rule.field]
-                    if min_val > prev_max or max_val < prev_min:
-                        raise ValueError(
-                            f"Config Error: Field '{rule.field}' has contradictory range rules (e.g., '{rule.name}').")
 
-                field_ranges[rule.field] = (min_val, max_val)
+                    # Safely calculate cumulative intersection
+                    cum_min = max(prev_min, min_val) if is_comparable(prev_min, min_val) else (
+                        min_val if min_val is not None else prev_min)
+                    cum_max = min(prev_max, max_val) if is_comparable(prev_max, max_val) else (
+                        max_val if max_val is not None else prev_max)
+
+                    if is_comparable(cum_min, cum_max) and cum_min >= cum_max:
+                        raise ValueError(f"Config Error: Field '{rule.field}' has contradictory range rules.")
+
+                    field_ranges[rule.field] = (cum_min, cum_max)
+                else:
+                    field_ranges[rule.field] = (min_val, max_val)
 
     @staticmethod
     def filter_incremental(df: pd.DataFrame, watermark_col: str, current_watermark: Any) -> pd.DataFrame:

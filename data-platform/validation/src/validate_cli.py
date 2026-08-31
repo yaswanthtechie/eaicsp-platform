@@ -30,40 +30,37 @@ ENCODING = "utf-8"
 
 
 # --- Logger Setup ---
-def setup_logger(log_level: str = DEFAULT_LOG_LEVEL) -> logging.Logger:
-    """Configures and returns a logger instance with file and stream handlers."""
+def setup_logger(log_level: str = DEFAULT_LOG_LEVEL, enable_file_logging: bool = False) -> logging.Logger:
+    """Configures and returns a logger instance with optional file logging."""
     numeric_level = getattr(logging, log_level.upper(), logging.INFO)
 
-    # 1. Setup logs directory
-    log_dir = PROJECT_ROOT / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
+    # 1. Always configure the console handler
+    log_handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
 
-    # 2. Generate timestamped filename
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = log_dir / f"cli_validation_{timestamp}.log"
+    # 2. Conditionally configure the file handler
+    if enable_file_logging:
+        log_dir = PROJECT_ROOT / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file = log_dir / f"cli_validation_{timestamp}.log"
+        log_handlers.append(logging.FileHandler(log_file, mode="w", encoding=ENCODING))
 
-    # 3. Configure handlers for both console and file
-    log_handlers = [
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(log_file, mode="w", encoding=ENCODING)
-    ]
-
-    # 4. Apply configuration
+    # 3. Apply configuration
     logging.basicConfig(
         level=numeric_level,
         format=DEFAULT_LOG_FORMAT,
         handlers=log_handlers,
-        force=True  # Ensures basicConfig applies if already initialized elsewhere
+        force=True
     )
 
-    # Renamed variable to avoid shadowing the global 'logger'
     custom_logger = logging.getLogger(__name__)
-    custom_logger.info("File logging enabled. Writing to: %s", log_file)
+    if enable_file_logging:
+        custom_logger.info("File logging enabled. Writing to: %s", log_file)
 
     return custom_logger
 
-
-logger = setup_logger(os.getenv("LOG_LEVEL", DEFAULT_LOG_LEVEL))
+# Define globally so all functions can reference 'logger'
+logger = logging.getLogger(__name__)
 
 
 # --- Core Functions ---
@@ -78,6 +75,7 @@ def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument("--watermark-col", type=str, default="transaction_id", help="Column for watermarking.")
     parser.add_argument("--watermark-file", type=Path, default=PROJECT_ROOT / ".watermark_cli.json",
                         help="Path to state tracking file.")
+    parser.add_argument("--log-to-file", action="store_true", help="Enable timestamped file logging.")
     return parser.parse_args(args)
 
 
@@ -103,6 +101,8 @@ def export_report(report: Any, output_path: Path) -> None:
 def main(cli_args: Optional[list[str]] = None) -> int:
     """Main execution flow. Returns an integer exit code."""
     args = parse_args(cli_args)
+    # Initialize the handlers when the script actually runs
+    setup_logger(os.getenv("LOG_LEVEL", DEFAULT_LOG_LEVEL), enable_file_logging=args.log_to_file)
 
     input_path: Path = args.file
     config_path: Path = args.config
@@ -150,6 +150,8 @@ def main(cli_args: Optional[list[str]] = None) -> int:
         export_report(report, output_path)
         # --- WATERMARK SAVING ---
         if args.incremental and not df.empty:
+            logger.warning(
+                "LIMITATION: Watermark advances past failed rows. Bad rows are not filtered from this check.")
             new_wm = df[args.watermark_col].max()
             new_wm = new_wm.item() if hasattr(new_wm, 'item') else new_wm
             wm.set_watermark(new_wm)
