@@ -1,97 +1,145 @@
 """
-Hyperparameter Sweep with MLflow Tracking
-----------------------------------------------------
-Sweeps across: hidden_size x num_layers x lookback
-Logs every hyperparameter combination to MLflow.
+-- Real hyperparameter sweep (Reproducible & MLflow Tracked)
 """
 
 import itertools
-import mlflow
-import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
+import os
+from typing import List, Dict
 
-from data import generate_data, create_sequences
+import numpy as np
+import torch
+import mlflow
+import mlflow_logger as mlog
+from data import generate_data, get_walk_forward_folds
 from model import MultiStepLSTM
-from evaluate import calculate_metrics
+from train_utils import train_model, evaluate_scaled, chronological_train_val_split, build_model
+
+HORIZON = 7
+EPOCHS = 25
+BATCH_SIZE = 32
+LR = 0.001
+VAL_FRACTION = 0.2
+SWEEP_FOLDS = (4, 5)  # 1-indexed, matches data.py's fold numbering (n_folds=5)
 
 HIDDEN_SIZES = [32, 64]
 NUM_LAYERS = [1, 2]
-LOOKBACKS = [14, 30]
-HORIZON = 7
-EPOCHS = 15
-BATCH_SIZE = 32
-LR = 0.001
+LOOKBACKS = [14, 30, 45]
 
 
-def run_sweep():
-    mlflow.set_tracking_uri("sqlite:///mlflow.db")
-    mlflow.set_experiment("LSTM_Hyperparameter_Sweep")
+def build_grid() -> List[Dict]:
+    grid = []
+    for hidden_size, num_layers, lookback in itertools.product(HIDDEN_SIZES, NUM_LAYERS, LOOKBACKS):
+        grid.append({"hidden_size": hidden_size, "num_layers": num_layers, "lookback": lookback})
+    return grid
 
+
+def run_sweep() -> List[Dict]:
     df = generate_data(days=1000)
-    values = df["Demand"].values
+    grid = build_grid()
+    print(f"Sweeping {len(grid)} configurations "
+        f"(hidden_size x num_layers x lookback), scored on folds {SWEEP_FOLDS}\n")
 
-    split_idx = int(len(values) * 0.8)
-    train_vals = values[:split_idx]
-    val_vals = values[split_idx:]
+    results = []
 
-    param_combinations = list(itertools.product(HIDDEN_SIZES, NUM_LAYERS, LOOKBACKS))
-    best_val_mae = float("inf")
-    best_params = None
+    for cfg_idx, config in enumerate(grid, 1):
+        lookback = config["lookback"]
+        hidden_size = config["hidden_size"]
+        num_layers = config["num_layers"]
 
-    for hidden_size, num_layers, lookback in param_combinations:
-        run_name = f"hs{hidden_size}_nl{num_layers}_lb{lookback}"
-        
-        with mlflow.start_run(run_name=run_name):
-            mlflow.log_params({
-                "hidden_size": hidden_size,
-                "num_layers": num_layers,
-                "lookback": lookback,
-                "horizon": HORIZON,
-                "batch_size": BATCH_SIZE,
-                "learning_rate": LR
+        # Fold boundaries depend on lookback (create_sequences windows on it),
+        # so folds must be rebuilt per-config rather than reused.
+        folds = get_walk_forward_folds(
+            df, n_folds=5, lookback=lookback, horizon=HORIZON, save_scaler_path=None
+        )
+
+        run_name = f"sweep_h{hidden_size}_l{num_layers}_lb{lookback}"
+        mlog.start_experiment("Demand-Forecast-LSTM-Sweep", run_name=run_name)
+        mlog.log_params({**config, "epochs": EPOCHS, "batch_size": BATCH_SIZE, "lr": LR})
+
+        val_maes, val_rmses = [], []
+        test_maes, test_rmses = [], []  # reference only -- NOT used for selection
+
+        for fold_num in SWEEP_FOLDS:
+            X_tr, y_tr, X_te, y_te, scaler = folds[fold_num - 1]
+
+            X_inner_tr, y_inner_tr, X_val, y_val = chronological_train_val_split(
+                X_tr, y_tr, val_fraction=VAL_FRACTION
+            )
+
+            # Set random seed BEFORE model initialization to guarantee identical initialization
+            torch.manual_seed(42)
+            np.random.seed(42)
+
+            model = build_model(MultiStepLSTM, hidden_size, num_layers, HORIZON)
+            model = train_model(model, X_inner_tr, y_inner_tr, epochs=EPOCHS, batch_size=BATCH_SIZE, lr=LR)
+
+            val_metrics = evaluate_scaled(model, X_val, y_val, scaler)
+            test_metrics = evaluate_scaled(model, X_te, y_te, scaler)  # reference only
+
+            val_maes.append(val_metrics["MAE"])
+            val_rmses.append(val_metrics["RMSE"])
+            test_maes.append(test_metrics["MAE"])
+            test_rmses.append(test_metrics["RMSE"])
+
+            mlog.log_metrics({
+                f"fold_{fold_num}_val_mae": val_metrics["MAE"],
+                f"fold_{fold_num}_val_rmse": val_metrics["RMSE"],
+                f"fold_{fold_num}_test_mae_reference_only": test_metrics["MAE"],
             })
 
-            X_tr, y_tr = create_sequences(train_vals, lookback, HORIZON)
-            X_va, y_va = create_sequences(val_vals, lookback, HORIZON)
+        avg_val_mae = float(np.mean(val_maes))
+        avg_val_rmse = float(np.mean(val_rmses))
+        avg_test_mae_ref = float(np.mean(test_maes))
+        avg_test_rmse_ref = float(np.mean(test_rmses))
 
-            X_tr_t = torch.tensor(X_tr, dtype=torch.float32).unsqueeze(-1)
-            y_tr_t = torch.tensor(y_tr, dtype=torch.float32)
-            X_va_t = torch.tensor(X_va, dtype=torch.float32).unsqueeze(-1)
+        mlog.log_metrics({
+            "avg_val_mae": avg_val_mae,
+            "avg_val_rmse": avg_val_rmse,
+            "avg_test_mae_reference_only": avg_test_mae_ref,
+            "avg_test_rmse_reference_only": avg_test_rmse_ref,
+        })
+        mlog.end_run()
 
-            dataset = TensorDataset(X_tr_t, y_tr_t)
-            loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
+        print(f"[{cfg_idx}/{len(grid)}] {run_name:30s} "
+              f"val_MAE={avg_val_mae:6.2f}  val_RMSE={avg_val_rmse:6.2f}  "
+              f"(test_MAE ref only={avg_test_mae_ref:6.2f})")
 
-            model = MultiStepLSTM(
-                hidden_size=hidden_size, 
-                num_layers=num_layers, 
-                horizon=HORIZON
-            )
-            criterion = nn.MSELoss()
-            optimizer = torch.optim.Adam(model.parameters(), lr=LR)
+        results.append({
+            **config,
+            "run_name": run_name,
+            "avg_val_mae": avg_val_mae,
+            "avg_val_rmse": avg_val_rmse,
+            "avg_test_mae_reference_only": avg_test_mae_ref,
+            "avg_test_rmse_reference_only": avg_test_rmse_ref,
+        })
 
-            model.train()
-            for epoch in range(EPOCHS):
-                for batch_x, batch_y in loader:
-                    optimizer.zero_grad()
-                    out = model(batch_x)
-                    loss = criterion(out, batch_y)
-                    loss.backward()
-                    optimizer.step()
+    return results
 
-            model.eval()
-            with torch.no_grad():
-                preds = model(X_va_t).numpy()
 
-            metrics = calculate_metrics(y_va, preds)
-            mlflow.log_metrics(metrics)
+def select_winner(results: List[Dict]) -> Dict:
+    """Winner = lowest avg_val_mae. Test metrics are never part of this comparison."""
+    return min(results, key=lambda r: r["avg_val_mae"])
 
-            if metrics["MAE"] < best_val_mae:
-                best_val_mae = metrics["MAE"]
-                best_params = {"hidden_size": hidden_size, "num_layers": num_layers, "lookback": lookback}
 
-    print(f"BEST COMBINATION: {best_params} with Val MAE: {best_val_mae:.2f}")
+def print_results_table(results: List[Dict], winner: Dict) -> None:
+    print("\n" + "=" * 100)
+    print("SWEEP RESULTS (sorted by validation MAE -- winner selection criterion)")
+    print("=" * 100)
+    header = f"{'run_name':30s} {'hidden':>7s} {'layers':>7s} {'lookback':>9s} {'val_MAE':>9s} {'val_RMSE':>9s} {'test_MAE(ref)':>14s}"
+    print(header)
+    print("-" * len(header))
+    for r in sorted(results, key=lambda r: r["avg_val_mae"]):
+        marker = "  <-- WINNER (best val MAE)" if r["run_name"] == winner["run_name"] else ""
+        print(f"{r['run_name']:30s} {r['hidden_size']:7d} {r['num_layers']:7d} {r['lookback']:9d} "
+              f"{r['avg_val_mae']:9.2f} {r['avg_val_rmse']:9.2f} {r['avg_test_mae_reference_only']:14.2f}{marker}")
+    print("=" * 100)
+    print(f"\nWinner justified on VALIDATION data: {winner['run_name']} "
+          f"(avg_val_mae={winner['avg_val_mae']:.2f})")
+    print("Test MAE column is shown for reference only -- it was never used to pick the winner.\n")
 
 
 if __name__ == "__main__":
-    run_sweep()
+    os.makedirs("output", exist_ok=True)
+    all_results = run_sweep()
+    best = select_winner(all_results)
+    print_results_table(all_results, best)

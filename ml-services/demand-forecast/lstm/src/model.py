@@ -1,24 +1,19 @@
-"""
-PyTorch LSTM Architecture
--------------------------------------
-Implements Direct Multi-Step Forecasting (outputs 7 days at once)
-and Monte Carlo Dropout (MC-Dropout) for uncertainty estimation.
-"""
-
 import torch
 import torch.nn as nn
 
 
 class MultiStepLSTM(nn.Module):
     def __init__(
-        self, 
-        input_size: int = 1, 
-        hidden_size: int = 64, 
-        num_layers: int = 2, 
-        horizon: int = 7, 
-        dropout_rate: float = 0.2
+        self,
+        input_size=1,
+        hidden_size=64,
+        num_layers=2,
+        horizon=7,
+        dropout=0.2,
+        dropout_rate=None,
     ):
-        super(MultiStepLSTM, self).__init__()
+        super().__init__()
+        drop_val = dropout_rate if dropout_rate is not None else dropout
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.horizon = horizon
@@ -28,20 +23,71 @@ class MultiStepLSTM(nn.Module):
             hidden_size=hidden_size,
             num_layers=num_layers,
             batch_first=True,
-            dropout=dropout_rate if num_layers > 1 else 0.0
+            dropout=drop_val if num_layers > 1 else 0.0,
         )
-        self.dropout = nn.Dropout(p=dropout_rate)
+        self.fc_dropout = nn.Dropout(drop_val)
         self.fc = nn.Linear(hidden_size, horizon)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x):
+        if x.ndim == 4 and x.shape[-1] == 1:
+            x = x.squeeze(-1)
+        elif x.ndim == 2:
+            x = x.unsqueeze(-1)
+
         out, _ = self.lstm(x)
-        out = out[:, -1, :]  # Take last hidden state
-        out = self.dropout(out)
-        predictions = self.fc(out)  # Shape: [batch_size, horizon]
-        return predictions
+        last_out = out[:, -1, :]
+        last_out = self.fc_dropout(last_out)
+        return self.fc(last_out)
 
     def enable_mc_dropout(self):
-        """Enables dropout layers during inference for Monte Carlo Dropout uncertainty estimation."""
-        for module in self.modules():
-            if isinstance(module, nn.Dropout):
-                module.train()
+        """Enables dropout layers during inference for Monte Carlo sampling."""
+        for m in self.modules():
+            if isinstance(m, nn.Dropout):
+                m.train()
+
+
+class AttentionMultiStepLSTM(nn.Module):
+    def __init__(
+        self,
+        input_size=1,
+        hidden_size=64,
+        num_layers=2,
+        horizon=7,
+        dropout=0.2,
+        dropout_rate=None,
+    ):
+        super().__init__()
+        drop_val = dropout_rate if dropout_rate is not None else dropout
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.horizon = horizon
+
+        self.lstm = nn.LSTM(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            batch_first=True,
+            dropout=drop_val if num_layers > 1 else 0.0,
+        )
+        self.attn_W = nn.Linear(hidden_size, hidden_size)
+        self.attn_v = nn.Linear(hidden_size, 1, bias=False)
+        self.fc_dropout = nn.Dropout(drop_val)
+        self.fc = nn.Linear(hidden_size, horizon)
+
+    def forward(self, x):
+        if x.ndim == 4 and x.shape[-1] == 1:
+            x = x.squeeze(-1)
+        elif x.ndim == 2:
+            x = x.unsqueeze(-1)
+
+        lstm_out, _ = self.lstm(x)
+        u = torch.tanh(self.attn_W(lstm_out))
+        att_scores = torch.softmax(self.attn_v(u), dim=1)
+        context = torch.sum(att_scores * lstm_out, dim=1)
+        context = self.fc_dropout(context)
+        return self.fc(context)
+
+    def enable_mc_dropout(self):
+        for m in self.modules():
+            if isinstance(m, nn.Dropout):
+                m.train()
