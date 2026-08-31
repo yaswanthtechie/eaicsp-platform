@@ -280,68 +280,143 @@ def compare(df_old, df_new):
     drift_report["mean_changes"] = mean_changes
 
     # -----------------------------
-    # New Categorical Values
+    # Categorical Drift Detail
     # -----------------------------
-    print("\nNew Categorical Values")
+    print("\nCategorical Drift Details")
 
-    new_categories = {}
+    categorical_drift = {}
 
     object_cols = [
         col
-        for col in df_old.select_dtypes(
-            include="object"
-        ).columns
+        for col in df_old.select_dtypes(include="object").columns
         if col != "date"
     ]
+
+    # Threshold for significant proportion change
+    PROPORTION_THRESHOLD = 0.10
 
     for col in object_cols:
 
         if col not in df_new.columns:
             continue
 
-        old_values = set(
-            df_old[col].dropna()
+        old_series = df_old[col].dropna()
+        new_series = df_new[col].dropna()
+
+        old_values = set(old_series)
+        new_values = set(new_series)
+
+        # -----------------------------
+        # Appeared categories
+        # -----------------------------
+        added = sorted(new_values - old_values)
+
+        # -----------------------------
+        # Disappeared categories
+        # -----------------------------
+        removed = sorted(old_values - new_values)
+
+        # -----------------------------
+        # Category proportion changes
+        # -----------------------------
+        old_proportions = old_series.value_counts(
+            normalize=True
         )
 
-        new_values = set(
-            df_new[col].dropna()
+        new_proportions = new_series.value_counts(
+            normalize=True
         )
 
-        added = new_values - old_values
+        all_categories = old_values | new_values
 
-        if added:
+        proportion_changes = []
 
-            added_list = list(added)
+        for category in sorted(all_categories):
 
-            print(
-                f"{col}: {added}"
+            old_percentage = (
+                old_proportions.get(category, 0) * 100
             )
 
-            new_categories[col] = added_list
+            new_percentage = (
+                new_proportions.get(category, 0) * 100
+            )
 
-            # 1-2 new categories = minor
-            # 3+ new categories = major
-            if len(added) <= 2:
+            difference = abs(
+                new_percentage - old_percentage
+            )
+
+            if difference >= PROPORTION_THRESHOLD * 100:
+
+                proportion_changes.append({
+                    "category": category,
+                    "old_percentage": round(
+                        old_percentage, 2
+                    ),
+                    "new_percentage": round(
+                        new_percentage, 2
+                    ),
+                    "difference": round(
+                        difference, 2
+                    )
+                })
+
+        # -----------------------------
+        # Store results
+        # -----------------------------
+        if added or removed or proportion_changes:
+
+            categorical_drift[col] = {
+                "appeared": added,
+                "disappeared": removed,
+                "proportion_changes": proportion_changes
+            }
+
+            print(f"\n{col}")
+
+            if added:
+                print(f"  Appeared: {added}")
+
+            if removed:
+                print(f"  Disappeared: {removed}")
+
+            if proportion_changes:
+                print("  Significant proportion changes:")
+
+                for change in proportion_changes:
+                    print(
+                        f"    {change['category']}: "
+                        f"{change['old_percentage']}% -> "
+                        f"{change['new_percentage']}%"
+                    )
+
+            # -----------------------------
+            # Update column drift status
+            # -----------------------------
+
+            # New or removed categories are meaningful drift
+            if added or removed:
+
+                if len(added) + len(removed) >= 3:
+                    column_drift[col]["status"] = "major_drift"
+
+                elif column_drift[col]["status"] != "major_drift":
+                    column_drift[col]["status"] = "minor_drift"
+
+                column_drift[col]["reasons"].append(
+                    "Categorical values appeared or disappeared"
+                )
+
+            # Significant proportion changes
+            if proportion_changes:
 
                 if column_drift[col]["status"] != "major_drift":
                     column_drift[col]["status"] = "minor_drift"
 
                 column_drift[col]["reasons"].append(
-                    f"{len(added)} new "
-                    f"categorical value(s)"
+                    "Significant categorical proportion change"
                 )
 
-            else:
-
-                column_drift[col]["status"] = "major_drift"
-
-                column_drift[col]["reasons"].append(
-                    f"{len(added)} new "
-                    f"categorical values"
-                )
-
-    drift_report["new_categories"] = new_categories
-
+    drift_report["categorical_drift"] = categorical_drift
     # -----------------------------
     # Print Per-Column Drift
     # -----------------------------

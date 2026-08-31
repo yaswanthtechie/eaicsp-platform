@@ -164,3 +164,83 @@ def test_structural_comparison_detects_incompatible_types():
         "old_dtype": "int64",
         "new_dtype": "object"
     }]
+
+
+# ---------------------------------
+# Round 5 - Categorical Drift Tests
+# ---------------------------------
+
+def test_categorical_drift_detects_appeared_category():
+
+    old_df = pd.DataFrame({
+        "warehouse_id": [
+            "WH1", "WH1", "WH2", "WH2"
+        ]
+    })
+
+    new_df = pd.DataFrame({
+        "warehouse_id": [
+            "WH1", "WH1", "WH2", "WH3"
+        ]
+    })
+
+    result = compare(old_df, new_df)
+
+    categorical = result["categorical_drift"]
+
+    assert "warehouse_id" in categorical
+    assert categorical["warehouse_id"]["appeared"] == ["WH3"]
+
+
+def test_categorical_drift_detects_disappeared_category():
+
+    old_df = pd.DataFrame({
+        "warehouse_id": [
+            "WH1", "WH2", "WH2", "WH3"
+        ]
+    })
+
+    new_df = pd.DataFrame({
+        "warehouse_id": [
+            "WH1", "WH2", "WH2", "WH1"
+        ]
+    })
+
+    result = compare(old_df, new_df)
+
+    categorical = result["categorical_drift"]
+
+    assert "warehouse_id" in categorical
+    assert categorical["warehouse_id"]["disappeared"] == ["WH3"]
+
+
+def test_categorical_drift_detects_proportion_change():
+
+    old_df = pd.DataFrame({
+        "warehouse_id": [
+            "WH1", "WH1", "WH1", "WH1",
+            "WH2", "WH2", "WH2", "WH2"
+        ]
+    })
+
+    new_df = pd.DataFrame({
+        "warehouse_id": [
+            "WH1", "WH1",
+            "WH2", "WH2", "WH2", "WH2",
+            "WH2", "WH2"
+        ]
+    })
+
+    result = compare(old_df, new_df)
+
+    categorical = result["categorical_drift"]
+
+    changes = categorical["warehouse_id"]["proportion_changes"]
+
+    changed_categories = [
+        item["category"]
+        for item in changes
+    ]
+
+    assert "WH1" in changed_categories
+    assert "WH2" in changed_categories

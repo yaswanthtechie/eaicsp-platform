@@ -1,15 +1,26 @@
+version: 1.0.0
 rules:
-- column: date
-  rule: not_null
-- column: sku_id
-  rule: not_null
-- column: warehouse_id
-  rule: not_null
-- column: quantity_sold
-  rule: range
+- name: date_not_null
+  field: date
+  type: not_null
+  severity: ERROR
+- name: sku_id_not_null
+  field: sku_id
+  type: not_null
+  severity: ERROR
+- name: warehouse_id_not_null
+  field: warehouse_id
+  type: not_null
+  severity: ERROR
+- name: quantity_sold_range
+  field: quantity_sold
+  type: range
   min: 1.0
   max: 153.5
-- column: unit_price
-  rule: range
+  severity: WARNING
+- name: unit_price_range
+  field: unit_price
+  type: range
   min: 100.0
   max: 1000.0
+  severity: WARNING
