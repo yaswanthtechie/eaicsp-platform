@@ -39,7 +39,6 @@ from app.services.inventory_service import (
     bulk_update_inventory,
     what_if_simulation,
     inventory_response,
-    InventoryOperationError,
 )
 
 from app.services.reorder_service import (
