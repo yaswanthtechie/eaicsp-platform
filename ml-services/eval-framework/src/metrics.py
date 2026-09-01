@@ -24,14 +24,27 @@ def rmse(actual, predicted) -> float:
 
 
 def confusion_matrix(y_true, y_pred) -> dict:
-    """Returns {tp, tn, fp, fn} for binary classification (labels 0/1 or False/True).
-    Raises ValueError on empty input rather than crashing with a confusing numpy error.
+    """Returns {tp, tn, fp, fn} for binary classification.
+    Requires labels to be exactly 0 (normal/negative) or 1 (anomaly/positive).
+    Common sklearn anomaly detectors (IsolationForest, LOF) output {-1, 1}
+    instead -- remap those to {0, 1} before calling this, or this function
+    will raise a clear error rather than silently miscounting.
     """
     y_true, y_pred = list(y_true), list(y_pred)
     if len(y_true) == 0 or len(y_pred) == 0:
         raise ValueError("confusion_matrix: y_true and y_pred must not be empty")
     if len(y_true) != len(y_pred):
         raise ValueError("confusion_matrix: y_true and y_pred must be the same length")
+
+    valid_labels = {0, 1}
+    invalid = [v for v in set(y_true) | set(y_pred) if v not in valid_labels]
+    if invalid:
+        raise ValueError(
+            f"confusion_matrix: labels must be 0 or 1, got unexpected value(s) {invalid}. "
+            f"If using sklearn-style anomaly labels ({{-1, 1}}), remap with "
+            f"e.g. [0 if v == 1 else 1 for v in labels] (1=normal->0, -1=anomaly->1) "
+            f"before calling this function."
+        )
 
     tp = sum(1 for t, p in zip(y_true, y_pred) if t == 1 and p == 1)
     tn = sum(1 for t, p in zip(y_true, y_pred) if t == 0 and p == 0)

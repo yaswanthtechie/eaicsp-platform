@@ -1,6 +1,4 @@
-pandas
-numpy
-scikit-learn
-scipy
-pytest
-prophet
+pandas==3.0.5
+numpy==2.5.1
+scipy==1.18.0
+pytest==9.1.1

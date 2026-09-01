@@ -1,3 +1,4 @@
+import math
 from .metrics import HIGHER_IS_BETTER_METRICS
 
 
@@ -8,8 +9,7 @@ def generate_leaderboard(results: dict, metric: str, lower_is_better: bool = Non
 
     Refuses to rank if:
     - the requested metric is missing from any model's results
-    - any model's value for that metric isn't numeric (bools are rejected too,
-      since Python treats True/False as ints, which would silently rank as 1/0)
+    - any model's value for that metric isn't numeric, is a bool, or is NaN
     - fewer than 2 models have that metric
 
     If lower_is_better is not explicitly given, it's inferred from the shared
@@ -36,7 +36,9 @@ def generate_leaderboard(results: dict, metric: str, lower_is_better: bool = Non
 
     non_numeric = [
         m for m, v in scored
-        if not isinstance(v, (int, float)) or isinstance(v, bool)
+        if not isinstance(v, (int, float))
+        or isinstance(v, bool)
+        or (isinstance(v, float) and math.isnan(v))
     ]
     if non_numeric:
         raise ValueError(

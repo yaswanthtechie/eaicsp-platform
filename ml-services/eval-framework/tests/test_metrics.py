@@ -236,3 +236,70 @@ def test_leaderboard_rejects_non_numeric_value():
         assert False, "expected ValueError"
     except ValueError as e:
         assert "a" in str(e)
+
+def test_anomaly_metrics_all_normal():
+    # No anomalies exist at all, and none predicted -- recall is trivially 0
+    # (nothing to catch), specificity should be perfect (correctly left everything alone)
+    y_true = [0, 0, 0, 0, 0]
+    y_pred = [0, 0, 0, 0, 0]
+    result = anomaly_metrics(y_true, y_pred)
+    assert result["recall"] == 0.0
+    assert result["specificity"] == 1.0
+    assert result["false_positive_rate"] == 0.0
+    assert result["balanced_accuracy"] == 0.5
+
+
+def test_anomaly_metrics_all_anomaly():
+    # Every point is a real anomaly, all correctly caught
+    y_true = [1, 1, 1, 1]
+    y_pred = [1, 1, 1, 1]
+    result = anomaly_metrics(y_true, y_pred)
+    assert result["recall"] == 1.0
+    # No normal points exist, so specificity's denominator (tn+fp) is 0 -> defaults to 0.0
+    assert result["specificity"] == 0.0
+    assert result["balanced_accuracy"] == 0.5
+
+
+def test_anomaly_metrics_all_correct():
+    y_true = [0, 1, 0, 1, 1]
+    y_pred = [0, 1, 0, 1, 1]
+    result = anomaly_metrics(y_true, y_pred)
+    assert result["recall"] == 1.0
+    assert result["specificity"] == 1.0
+    assert result["false_positive_rate"] == 0.0
+    assert result["balanced_accuracy"] == 1.0
+
+
+def test_anomaly_metrics_all_wrong():
+    y_true = [0, 1, 0, 1, 1]
+    y_pred = [1, 0, 1, 0, 0]
+    result = anomaly_metrics(y_true, y_pred)
+    assert result["recall"] == 0.0
+    assert result["specificity"] == 0.0
+    assert result["false_positive_rate"] == 1.0
+    assert result["balanced_accuracy"] == 0.0
+
+
+def test_anomaly_metrics_rejects_sklearn_style_labels():
+    # {-1, 1} is the sklearn IsolationForest/LOF convention -- must raise,
+    # not silently miscount
+    try:
+        anomaly_metrics([1, -1, 1, -1], [1, 1, -1, -1])
+        assert False, "expected ValueError"
+    except ValueError as e:
+        assert "-1" in str(e) or "unexpected value" in str(e)
+
+
+def test_confusion_matrix_rejects_sklearn_style_labels():
+    try:
+        confusion_matrix([1, -1], [1, -1])
+        assert False, "expected ValueError"
+    except ValueError as e:
+        assert "0 or 1" in str(e)
+
+def test_leaderboard_rejects_nan():
+    try:
+        generate_leaderboard({"a": {"mape": float("nan")}, "b": {"mape": 3.2}}, "mape")
+        assert False, "expected ValueError"
+    except ValueError as e:
+        assert "a" in str(e)
