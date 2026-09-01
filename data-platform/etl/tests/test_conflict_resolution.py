@@ -10,7 +10,8 @@ _dedupe_records() implements that rule: pass priority_key and the record
 with the higher priority value wins, regardless of list order.
 """
 
-from etl.src.load import _dedupe_records
+from pathlib import Path
+from etl.src.load import _dedupe_records, source_file_priority
 
 
 def test_no_priority_key_keeps_last_occurrence_unchanged():
@@ -87,17 +88,25 @@ def test_priority_key_preserves_distinct_records():
     assert len(result) == 3
 
 
-def test_priority_key_missing_defaults_to_zero():
-    """A record with no priority value at all (e.g. file.stat() failed) is
-    treated as lowest priority, not as an error."""
-
+def test_priority_key_missing_defaults_to_negative_infinity():
     records = [
-        {"date": "2024-01-01", "sku_id": "SKU1", "warehouse_id": "WH1", "quantity_sold": 5, "_p": -10.0},
-        {"date": "2024-01-01", "sku_id": "SKU1", "warehouse_id": "WH1", "quantity_sold": 99},  # no "_p" key
+        {"date": "2024-01-01", "sku_id": "SKU1", "warehouse_id": "WH1", "quantity_sold": 5, "_p": 1.0},
+        {"date": "2024-01-01", "sku_id": "SKU1", "warehouse_id": "WH1", "quantity_sold": 99},
     ]
-
     result = _dedupe_records(records, ["date", "sku_id", "warehouse_id"], priority_key="_p")
+    assert result[0]["quantity_sold"] == 5
 
-    assert len(result) == 1
-    # missing priority defaults to 0, which beats -10.0
+
+def test_missing_priority_uses_negative_infinity():
+    records = [
+        {"date":"2024-01-01", "sku_id":"S", "warehouse_id":"W", "quantity_sold":5, "_p": float("-inf")},
+        {"date":"2024-01-01", "sku_id":"S", "warehouse_id":"W", "quantity_sold":99},
+    ]
+    result = _dedupe_records(records, ["date", "sku_id", "warehouse_id"], priority_key="_p")
     assert result[0]["quantity_sold"] == 99
+
+
+def test_filename_priority_does_not_depend_on_filesystem_mtime():
+    old = source_file_priority(Path("sales_2024-01-01__v1_original.csv"))
+    new = source_file_priority(Path("sales_2024-01-01__v2_correction.csv"))
+    assert new > old

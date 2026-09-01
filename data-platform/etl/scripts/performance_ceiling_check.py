@@ -139,12 +139,13 @@ def main():
 
             results.append({
                 "rows": n, "elapsed": elapsed, "rows_per_sec": rows_per_sec,
-                "peak_mem_mb": peak_mem_mb, "status": "OK",
+                "peak_mem_mb": peak_mem_mb,
+                "status": ("SLOW / CEILING" if elapsed > MAX_ACCEPTABLE_SECONDS else "OK"),
             })
 
             if elapsed > MAX_ACCEPTABLE_SECONDS:
                 print(f"\n  >>> Exceeded MAX_ACCEPTABLE_SECONDS ({MAX_ACCEPTABLE_SECONDS}s). "
-                      f"Stopping here - this is the honest ceiling.")
+                      f"Stopping: this is the operational loader ceiling for this run.")
                 break
 
         except Exception as e:
@@ -171,14 +172,17 @@ def main():
         print(f"{r['rows']:>12,} | {elapsed_str:>10} | {rps_str:>12} | {mem_str:>9} | {r['status']}")
     print("=" * 70)
 
-    last_ok = [r for r in results if r["status"] == "OK"]
-    if last_ok:
-        ceiling = last_ok[-1]
-        print(f"\nHonest ceiling on this run: {ceiling['rows']:,} rows completed in "
-              f"{ceiling['elapsed']:.1f}s ({ceiling['rows_per_sec']:,.0f} rows/sec).")
-    failed = [r for r in results if r["status"] != "OK"]
-    if failed:
-        print(f"Broke at: {failed[0]['rows']:,} rows - {failed[0]['status']}")
+    acceptable = [r for r in results if r["status"] == "OK"]
+    if acceptable:
+        ceiling = acceptable[-1]
+        print(f"\nLargest tested size within {MAX_ACCEPTABLE_SECONDS}s: {ceiling['rows']:,} rows "
+              f"in {ceiling['elapsed']:.1f}s ({ceiling['rows_per_sec']:,.0f} rows/sec).")
+    boundary = [r for r in results if r["status"] == "SLOW / CEILING"]
+    if boundary:
+        print(f"Operational boundary: {boundary[0]['rows']:,} rows - {boundary[0]['elapsed']:.1f}s; "
+              "the benchmark stops here because the configured runtime threshold was exceeded.")
+    print("\nInvestigation note: this benchmark isolates bulk_upsert() and excludes sales history-copy overhead; "
+          "therefore the observed boundary is an application/loader benchmark result, not a PostgreSQL theoretical limit.")
 
 
 if __name__ == "__main__":

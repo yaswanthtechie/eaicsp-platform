@@ -5,14 +5,14 @@ Simulates the exact scenario in the spec: an original sales file and a
 same-day correction file, both claiming to update the same
 (date, sku_id, warehouse_id) row with different values, loaded in the same
 run. Proves the winner is decided by the explicit "latest file wins" rule
-(file modification time), not by whichever file bulk_upsert() happened to
+(filename version/timestamp priority), not by whichever file bulk_upsert() happened to
 process last.
 
 The test is deliberately adversarial: the ORIGINAL file is named so it
 sorts AFTER the correction file alphabetically (extract_data() globs and
 sorts filenames), so if the pipeline were still relying on accidental
 processing order, the ORIGINAL (stale) value would win. The correction
-file's mtime is set later, so the explicit rule must pick the correction's
+file's explicit filename priority is higher, so the explicit rule must pick the correction's
 value instead.
 
 Runs against a disposable scratch table so it never touches real sales_fact.
@@ -23,7 +23,6 @@ Usage:
 
 import os
 import sys
-import time
 from datetime import date
 from pathlib import Path
 
@@ -35,7 +34,7 @@ import pandas as pd
 from sqlalchemy import text
 
 from database import get_engine
-from load import bulk_upsert
+from load import bulk_upsert, source_file_priority
 
 
 TABLE = "sales_fact_conflict_check"
@@ -77,14 +76,14 @@ def main():
     # original LAST. A naive "just keep whatever record comes last in
     # processing order" dedupe (the old behavior, still the default when no
     # priority_key is given) would therefore incorrectly keep the STALE
-    # value. The correction file gets the NEWER mtime; the explicit
+    # value. The correction file gets the NEWER explicit filename priority; the explicit
     # "latest file wins" rule must override naive order and keep the
     # correction's value instead.
     tmp_dir = REPO_ROOT / "data" / "batches" / "_conflict_check_scratch"
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
-    correction_file = tmp_dir / "sales_2024-06-01_aaa_correction.csv"  # sorts FIRST, mtime NEWER
-    stale_file = tmp_dir / "sales_2024-06-01_zzz_original.csv"         # sorts LAST, mtime OLDER
+    correction_file = tmp_dir / "sales_2024-06-01__v2_aaa_correction.csv"  # sorts FIRST, explicit filename priority NEWER
+    stale_file = tmp_dir / "sales_2024-06-01__v1_zzz_original.csv"         # sorts LAST, explicit filename priority OLDER
 
     pd.DataFrame([{
         "date": "2024-06-01", "sku_id": "SKU777", "warehouse_id": "WH1",
@@ -96,9 +95,6 @@ def main():
         "quantity_sold": 5, "unit_price": 10.00,
     }]).to_csv(stale_file, index=False)
 
-    now = time.time()
-    os.utime(correction_file, (now, now))               # newest mtime
-    os.utime(stale_file, (now - 3600, now - 3600))       # 1 hour older
 
     files_in_process_order = sorted(tmp_dir.glob("*.csv"))
     print("Files, in the order extract_data() would process them (sorted by name):")
@@ -111,7 +107,7 @@ def main():
     records = []
     for f in files_in_process_order:
         df = pd.read_csv(f)
-        priority = f.stat().st_mtime
+        priority = source_file_priority(f)
         for record in df.to_dict(orient="records"):
             record["source_batch"] = f.name
             record["run_id"] = 999
@@ -151,7 +147,7 @@ def main():
     print("=" * 60)
     print(f"Loaded quantity_sold : {row.quantity_sold}")
     print(f"Winning source file  : {row.source_batch}")
-    print(f"Expected (newest mtime, the correction): 250 / {correction_file.name}")
+    print(f"Expected (newest explicit filename priority, the correction): 250 / {correction_file.name}")
 
     if row.quantity_sold == 250 and row.source_batch == correction_file.name:
         print("\nPASS: explicit 'latest file wins' rule was applied correctly,")

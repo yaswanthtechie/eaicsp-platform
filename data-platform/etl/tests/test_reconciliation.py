@@ -77,3 +77,29 @@ def test_evaluate_reconciliation_within_float_tolerance_matches():
         tolerance=0.01,
     )
     assert result["matched"] is True
+
+
+def test_stage_reconciliation_attributes_quality_gate_drop_without_calling_it_load_failure():
+    result = evaluate_reconciliation(
+        (100, 5000.0), (97, 4850.0), (97, 4850.0), (97, 4850.0)
+    )
+    assert result["matched"] is True
+    assert result["raw_to_approved_rows_dropped"] == 3
+    assert result["gate_to_transform_rows_dropped"] == 0
+    assert result["transform_to_landed_rows_dropped"] == 0
+
+
+def test_stage_reconciliation_catches_transform_drop():
+    result = evaluate_reconciliation(
+        (100, 5000.0), (100, 5000.0), (99, 4950.0), (99, 4950.0)
+    )
+    assert result["matched"] is False
+    assert result["gate_to_transform_rows_dropped"] == 1
+
+
+def test_stage_reconciliation_catches_load_drop():
+    result = evaluate_reconciliation(
+        (100, 5000.0), (100, 5000.0), (100, 5000.0), (99, 4950.0)
+    )
+    assert result["matched"] is False
+    assert result["transform_to_landed_rows_dropped"] == 1

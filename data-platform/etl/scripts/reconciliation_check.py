@@ -46,6 +46,10 @@ SOURCE_CONFIG = SimpleNamespace(
     name="sales",
     table="sales_fact",
     quality_check_column="quantity_sold",
+    columns={
+        "date": {}, "sku_id": {}, "warehouse_id": {},
+        "quantity_sold": {}, "unit_price": {},
+    },
 )
 
 
@@ -115,8 +119,8 @@ def main():
     batches_ok = make_batch(run_id_ok, n_rows=5)
     load_batch(engine, run_id_ok, batches_ok)
 
-    result_ok = reconcile_load(batches_ok, SOURCE_CONFIG, run_id_ok, engine=engine)
-    print(f"  expected_rows={result_ok['expected_rows']} actual_rows={result_ok['actual_rows']} "
+    result_ok = reconcile_load(batches_ok, batches_ok, batches_ok, SOURCE_CONFIG, run_id_ok, engine=engine)
+    print(f"  expected_rows={result_ok['raw_rows']} approved_rows={result_ok['approved_rows']} actual_rows={result_ok['actual_rows']} "
           f"matched={result_ok['matched']}")
 
     # --- Part 2: deliberately-injected mismatch -------------------------
@@ -135,10 +139,10 @@ def main():
     # Reconcile with the SAME expected values as what was originally sent to
     # load - reconcile_load has no way of knowing a row vanished afterwards
     # except by actually checking the table, which is the whole point.
-    result_bad = reconcile_load(batches_bad, SOURCE_CONFIG, run_id_bad, engine=engine)
+    result_bad = reconcile_load(batches_bad, batches_bad, batches_bad, SOURCE_CONFIG, run_id_bad, engine=engine)
     alert = latest_alert(engine, run_id_bad)
 
-    print(f"  expected_rows={result_bad['expected_rows']} actual_rows={result_bad['actual_rows']} "
+    print(f"  expected_rows={result_bad['raw_rows']} approved_rows={result_bad['approved_rows']} actual_rows={result_bad['actual_rows']} "
           f"matched={result_bad['matched']}")
 
     print("\n" + "=" * 60)

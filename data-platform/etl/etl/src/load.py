@@ -206,6 +206,27 @@ def _bulk_copy_sales_history(connection, chunk):
     connection.execute(text(sql), params)
 
 
+
+
+def source_file_priority(file_path):
+    """Return a deterministic file precedence tuple from the filename.
+
+    R5 rule: explicit version/timestamp metadata in the filename is the
+    precedence signal; filesystem mtime is deliberately not used because it
+    can change during copies, extraction, archival, or git checkout.
+
+    Supported forms include __v2 / _v2 and YYYY-MM-DD_HHMMSS or YYYYMMDDHHMMSS.
+    A correction marker is a documented tie-breaker for same-version files.
+    """
+    import re
+    name = file_path.name
+    version_match = re.search(r"(?:^|[_-])(?:v|version)[_-]?(\d+)(?:\D|$)", name, re.I)
+    version = int(version_match.group(1)) if version_match else 0
+    ts_match = re.search(r"(20\d{2})[-_](\d{2})[-_](\d{2})(?:[T_-]?(\d{2})(?:[_:-]?(\d{2})(?:[_:-]?(\d{2}))?)?)?", name)
+    timestamp = tuple(int(x or 0) for x in ts_match.groups()) if ts_match else (0, 0, 0, 0, 0, 0)
+    correction = 1 if re.search(r"(?:^|[_-])(correction|corrected|fix)(?:[_-]|\.)", name, re.I) else 0
+    return version, timestamp, correction, name
+
 def _dedupe_records(records, conflict_keys, priority_key=None):
     """Dedupe a list of record dicts by conflict_keys.
 
@@ -232,7 +253,7 @@ def _dedupe_records(records, conflict_keys, priority_key=None):
             deduped[key] = record
             continue
 
-        priority = record.get(priority_key, 0)
+        priority = record.get(priority_key, float("-inf"))
 
         if key not in deduped or priority >= priorities[key]:
             deduped[key] = record
@@ -338,7 +359,7 @@ def load_data_bulk_generic(validated_batches, run_id, source_config):
     R5 #1 - conflict resolution: if two files in the same run both touch the
     same (conflict_keys) row with different values (e.g. an original file
     plus a same-day correction), the winner is decided by an explicit rule -
-    latest file wins, by filesystem modification time - not by whichever
+    latest file wins, by explicit filename version/timestamp - not by whichever
     file happened to be processed last. Each record carries its source
     file's mtime as "_conflict_priority", consumed by bulk_upsert()'s
     priority_key and never sent to the database (it isn't in `all_columns`).
@@ -353,14 +374,7 @@ def load_data_bulk_generic(validated_batches, run_id, source_config):
     for batch in validated_batches:
         file_path = batch["file_path"]
         source_batch = file_path.name
-        try:
-            file_priority = file_path.stat().st_mtime
-        except OSError:
-            # File already moved/archived by the time we get here (shouldn't
-            # normally happen for the load task) - fall back to "no
-            # information", so it never wins a conflict over a file whose
-            # mtime we could read.
-            file_priority = float("-inf")
+        file_priority = source_file_priority(file_path)
 
         for record in batch["data"].to_dict(orient="records"):
             record["source_batch"] = source_batch

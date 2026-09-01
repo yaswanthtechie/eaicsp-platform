@@ -182,6 +182,11 @@ def make_extract_task(source_config, extract_task_id):
 
             return []
 
+        ti.xcom_push(
+            key="raw_batches",
+            value=_serialize_batches(extracted_batches),
+        )
+
         schema_valid = []
 
         for batch in extracted_batches:
@@ -324,6 +329,13 @@ def make_load_task(
             )
         )
 
+        raw_batches = _deserialize_batches(
+            ti.xcom_pull(
+                task_ids=extract_task_id,
+                key="raw_batches",
+            )
+        )
+
         if not validated_batches:
 
             ti.xcom_push(
@@ -348,6 +360,11 @@ def make_load_task(
 
             return
 
+        approved_batches = [
+            dict(batch, data=batch["data"].copy())
+            for batch in validated_batches
+        ]
+
         data_frames = [
             batch["data"]
             for batch in validated_batches
@@ -364,6 +381,11 @@ def make_load_task(
         ):
             batch["data"] = dataframe
 
+        transformed_batches = [
+            dict(batch, data=batch["data"].copy())
+            for batch in validated_batches
+        ]
+
         rows_inserted, rows_updated = (
             load_data_bulk_generic(
                 validated_batches,
@@ -377,7 +399,9 @@ def make_load_task(
         # run_id - catches a silent partial load failure that schema/quality
         # validation (which never looks at the database) structurally can't.
         reconcile_load(
-            validated_batches,
+            raw_batches,
+            approved_batches,
+            transformed_batches,
             source_config,
             run_id,
         )

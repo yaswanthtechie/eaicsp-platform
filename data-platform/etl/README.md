@@ -251,17 +251,6 @@ Alerts
 Pipeline failures are written into the etl_alerts table.
 
 
-
-
-
-
-
-
-
-
-
-
-
 Airflow
 
 The pipeline is orchestrated using Apache Airflow.
@@ -506,7 +495,7 @@ last. That's an accident of filenames, not a decision.
 Fix: _dedupe_records() and bulk_upsert() now take an optional
 priority_key. load_data_bulk_generic() tags every record with its source
 file's filesystem modification time (_conflict_priority) before loading,
-so the explicit rule is latest file wins, by mtime - not processing
+so the explicit rule is latest file wins, using explicit filename version/timestamp metadata - not processing
 order. Also fixed a real bug found while building this: dedup used to run
 per chunk, so two competing rows landing in different chunks (large
 batches) would still resolve by chunk order regardless of priority. Dedup
@@ -572,10 +561,7 @@ quantity_sold for sales, quantity_on_hand for inventory - already in
 pipeline_config.yaml, no new config needed) across the validated
 batches that were actually handed to the loader. reconcile_load() queries
 what's actually in the table for that run_id and compares; mismatch
-writes a CRITICAL alert. Deliberately compares against the validated
-(post-quality-gate) count, not the raw file count - the quality gate's own
-legitimate row drops are already expected and explained; reconciliation's
-job is to catch load-time failures, not re-litigate data quality. Wired
+writes a CRITICAL alert. Tracks raw source -> schema/quality-gate approved -> transformed -> landed counts and sums. Raw-to-gate drops are attributed to upstream validation/quality rules; unexpected gate-to-transform or transform-to-landed drops raise CRITICAL. The raw-vs-landed relationship is therefore visible without treating legitimate quality filtering as a load failure. Wired
 into the _load task, right after load_data_bulk_generic().
 
 Pure logic + tests: tests/test_reconciliation.py (7 tests, no DB needed)
@@ -649,4 +635,8 @@ Honest performance ceiling: 100,000 rows is the largest tested size that
 completed within the 120-second acceptable-runtime threshold. The 200,000-row
 load completed successfully but exceeded the threshold, taking 238.97 seconds
 at 837 rows/sec. The benchmark stopped at 200,000 rows and did not proceed to
-500,000 or 1,000,000 rows.
+500,000 or 1,000,000 row.
+
+R5 performance investigation note
+---------------------------------
+The 27 Aug 2026 benchmark reached 200,000 rows in 238.97s (837 rows/sec), crossing the 120s operational cutoff. This is a loader/application ceiling under the current implementation, not a PostgreSQL theoretical limit. The benchmark intentionally isolates bulk_upsert(), so it excludes the real sales_fact history-copy callback; production sales loads can therefore be slower. The next tuning target is the current SQLAlchemy multi-row parameterized INSERT/ON CONFLICT path and its 5,000-row chunks; a scale claim beyond 200K requires another measured run after tuning.

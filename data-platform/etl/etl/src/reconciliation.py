@@ -1,21 +1,6 @@
-"""
-R5 #4: Automated reconciliation.
+"""R5 #4: Automated source-to-target reconciliation."""
 
-Compares row count and the sum of a source's numeric "quantity" column
-between what the quality gate approved for load (the *validated* batches -
-i.e. the raw source file's rows minus whatever the quality gate legitimately
-and visibly dropped) and what's actually sitting in the target table for
-this run_id afterwards.
-
-This catches something schema/quality validation fundamentally can't: those
-checks run BEFORE load and never look at the database again, so a bug in
-the load step itself (a partial write, a silently-swallowed exception on
-one chunk, a connection dropped mid-transaction) would sail straight past
-them. Reconciliation is the one check that actually looks at what landed.
-
-Split into a pure function (evaluate_reconciliation) and a thin DB wrapper
-(reconcile_load), the same pattern as sla_monitor.py.
-"""
+import re
 
 from sqlalchemy import text
 
@@ -25,116 +10,144 @@ from logging_config import logger
 
 
 DEFAULT_TOLERANCE = 0.01
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _validate_configured_identifier(identifier, allowed):
+    """Validate config-derived SQL identifiers against an explicit allow-list."""
+    if not isinstance(identifier, str) or not _IDENTIFIER_RE.fullmatch(identifier):
+        raise ValueError(f"Unsafe SQL identifier: {identifier!r}")
+    if identifier not in allowed:
+        raise ValueError(f"Identifier {identifier!r} is not allowed for this source")
+    return identifier
+
+
+def compute_stats(batches, numeric_column):
+    """Return row count and numeric sum for batches at a pipeline stage."""
+    rows = 0
+    total = 0.0
+    has_numeric = False
+    for batch in batches or []:
+        df = batch["data"]
+        rows += len(df)
+        if numeric_column in df.columns:
+            has_numeric = True
+            total += float(df[numeric_column].sum())
+    return rows, (total if has_numeric else None)
 
 
 def compute_expected(validated_batches, numeric_column):
-    """Pure: row count and sum(numeric_column) across the validated batches
-    that were actually handed to the loader for this run. numeric_column
-    should be the source's `quality_check_column` (quantity_sold for sales,
-    quantity_on_hand for inventory) - already present in pipeline_config.yaml,
-    no new config needed."""
-
-    expected_rows = 0
-    expected_sum = 0.0
-
-    for batch in validated_batches:
-        df = batch["data"]
-        expected_rows += len(df)
-        if numeric_column in df.columns:
-            expected_sum += float(df[numeric_column].sum())
-
-    return expected_rows, expected_sum
+    """Backward-compatible alias for the gate-approved stage."""
+    rows, total = compute_stats(validated_batches, numeric_column)
+    return rows, (0.0 if total is None else total)
 
 
-def evaluate_reconciliation(
-    expected_rows,
-    expected_sum,
-    actual_rows,
-    actual_sum,
-    tolerance=DEFAULT_TOLERANCE,
-):
-    """Pure comparison, directly unit-testable without a database."""
+def evaluate_reconciliation(raw_stats=None, approved_stats=None, transformed_stats=None, actual_stats=None,
+                            tolerance=DEFAULT_TOLERANCE, *, expected_rows=None, expected_sum=None,
+                            actual_rows=None, actual_sum=None):
+    """Attribute differences across raw -> gate -> transform -> landed stages.
 
-    rows_match = expected_rows == actual_rows
-    sum_match = abs(expected_sum - actual_sum) <= tolerance
+    Legacy callers may still pass expected_rows/expected_sum/actual_rows/actual_sum;
+    those are treated as a gate-approved == transformed baseline.
+    """
+    if expected_rows is not None or expected_sum is not None:
+        raw_stats = approved_stats = transformed_stats = (
+            expected_rows or 0, expected_sum if expected_sum is not None else 0.0
+        )
+        actual_stats = (actual_rows or 0, actual_sum if actual_sum is not None else 0.0)
+
+    if any(x is None for x in (raw_stats, approved_stats, transformed_stats, actual_stats)):
+        raise TypeError("Provide stage statistics or the legacy expected/actual arguments")
+
+    raw_rows, raw_sum = raw_stats
+    approved_rows, approved_sum = approved_stats
+    transformed_rows, transformed_sum = transformed_stats
+    actual_rows, actual_sum = actual_stats
+
+    def match(a, b):
+        if a is None or b is None:
+            return None
+        return abs(a - b) <= tolerance
+
+    raw_to_approved_rows = raw_rows - approved_rows
+    raw_to_approved_sum = None if raw_sum is None or approved_sum is None else raw_sum - approved_sum
+    gate_to_transform_rows = approved_rows - transformed_rows
+    gate_to_transform_sum = None if approved_sum is None or transformed_sum is None else approved_sum - transformed_sum
+    transform_to_landed_rows = transformed_rows - actual_rows
+    transform_to_landed_sum = None if transformed_sum is None or actual_sum is None else transformed_sum - actual_sum
+
+    gate_transform_ok = gate_to_transform_rows == 0 and (match(approved_sum, transformed_sum) is not False)
+    load_ok = transform_to_landed_rows == 0 and (match(transformed_sum, actual_sum) is not False)
+    raw_landed_match = raw_rows == actual_rows and (match(raw_sum, actual_sum) is not False)
 
     return {
-        "matched": rows_match and sum_match,
-        "rows_match": rows_match,
-        "sum_match": sum_match,
-        "expected_rows": expected_rows,
-        "actual_rows": actual_rows,
-        "expected_sum": expected_sum,
-        "actual_sum": actual_sum,
+        "matched": gate_transform_ok and load_ok,
+        "raw_vs_landed_match": raw_landed_match,
+        "raw_rows": raw_rows, "raw_sum": raw_sum,
+        "approved_rows": approved_rows, "approved_sum": approved_sum,
+        "transformed_rows": transformed_rows, "transformed_sum": transformed_sum,
+        "actual_rows": actual_rows, "actual_sum": actual_sum,
+        "raw_to_approved_rows_dropped": raw_to_approved_rows,
+        "raw_to_approved_sum_delta": raw_to_approved_sum,
+        "gate_to_transform_rows_dropped": gate_to_transform_rows,
+        "gate_to_transform_sum_delta": gate_to_transform_sum,
+        "transform_to_landed_rows_dropped": transform_to_landed_rows,
+        "transform_to_landed_sum_delta": transform_to_landed_sum,
+        "rows_match": transform_to_landed_rows == 0,
+        "sum_match": match(transformed_sum, actual_sum) is not False,
     }
 
 
-def reconcile_load(
-    validated_batches,
-    source_config,
-    run_id,
-    engine=None,
-    tolerance=DEFAULT_TOLERANCE,
-):
-    """DB-backed reconciliation for one source's load, for one run: computes
-    what SHOULD be in the table (from the validated batches actually handed
-    to the loader) and queries what IS in the table for this run_id, then
-    compares. Writes a CRITICAL alert on mismatch - this is meant to catch
-    something the quality gate structurally cannot, so any mismatch here is
-    a load-time bug, not a data-quality issue.
+def reconcile_load(raw_batches, approved_batches, transformed_batches, source_config,
+                   run_id, engine=None, tolerance=DEFAULT_TOLERANCE):
+    """Reconcile raw source -> gate-approved -> transformed -> landed data.
 
-    numeric_column defaults to source_config.quality_check_column, since
-    that's already the "the one numeric column that matters for this
-    source" field the quality gate itself uses - no new config required.
+    Raw source statistics are captured before schema/quality filtering. This
+    makes legitimate upstream drops visible and attributable instead of
+    hiding them by using only post-gate batches as the expected baseline.
     """
-
     engine = engine or get_engine()
-    numeric_column = source_config.quality_check_column
+    numeric_column = _validate_configured_identifier(
+        source_config.quality_check_column,
+        set(source_config.columns.keys()),
+    )
+    table = _validate_configured_identifier(source_config.table, {source_config.table})
 
-    expected_rows, expected_sum = compute_expected(validated_batches, numeric_column)
+    raw_stats = compute_stats(raw_batches, numeric_column)
+    approved_stats = compute_stats(approved_batches, numeric_column)
+    transformed_stats = compute_stats(transformed_batches, numeric_column)
 
     query = text(f"""
-        SELECT COUNT(*) AS row_count, COALESCE(SUM({numeric_column}), 0) AS col_sum
-        FROM {source_config.table}
+        SELECT COUNT(*) AS row_count,
+               COALESCE(SUM({numeric_column}), 0) AS col_sum
+        FROM {table}
         WHERE run_id = :run_id
     """)
 
     with engine.connect() as connection:
         row = connection.execute(query, {"run_id": run_id}).fetchone()
 
-    actual_rows = row.row_count
-    actual_sum = float(row.col_sum)
-
+    actual_stats = (row.row_count, float(row.col_sum))
     result = evaluate_reconciliation(
-        expected_rows, expected_sum, actual_rows, actual_sum, tolerance=tolerance
+        raw_stats, approved_stats, transformed_stats, actual_stats,
+        tolerance=tolerance,
     )
 
     if not result["matched"]:
-
         message = (
-            f"[{source_config.name}] Reconciliation mismatch after load: "
-            f"expected {result['expected_rows']} rows / "
-            f"sum({numeric_column})={result['expected_sum']:.2f} "
-            f"(from the batches the quality gate approved), but "
-            f"{source_config.table} has {result['actual_rows']} rows / "
-            f"sum({numeric_column})={result['actual_sum']:.2f} for run_id={run_id}. "
-            f"This means rows the quality gate approved did not land correctly - "
-            f"a load-time failure, not a data-quality issue."
+            f"[{source_config.name}] Reconciliation mismatch for run_id={run_id}: "
+            f"raw={result['raw_rows']} rows, gate-approved={result['approved_rows']}, "
+            f"transformed={result['transformed_rows']}, landed={result['actual_rows']}. "
+            f"Gate->transform dropped {result['gate_to_transform_rows_dropped']} rows; "
+            f"transform->landed dropped {result['transform_to_landed_rows_dropped']} rows."
         )
-
         logger.error(f"[Reconciliation] {message}")
-
-        write_alert(
-            pipeline="sales_etl",
-            severity="CRITICAL",
-            message=message,
-            run_id=run_id,
-        )
-
+        write_alert(pipeline="sales_etl", severity="CRITICAL", message=message, run_id=run_id)
     else:
         logger.info(
-            f"[Reconciliation] [{source_config.name}] run_id={run_id} matched: "
-            f"{result['actual_rows']} rows, sum({numeric_column})={result['actual_sum']:.2f}"
+            f"[Reconciliation] [{source_config.name}] run_id={run_id}: "
+            f"raw={result['raw_rows']} -> approved={result['approved_rows']} -> "
+            f"transformed={result['transformed_rows']} -> landed={result['actual_rows']}"
         )
 
     return result
