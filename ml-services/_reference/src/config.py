@@ -86,7 +86,13 @@ DRIFT_THRESHOLD = 0.30
 # ==========================================================
 
 # How frequently the simulated scheduler checks for drift.
-RETRAINING_INTERVAL_SECONDS = 10
+# One hour is a safer default for production-like behavior.
+RETRAINING_INTERVAL_SECONDS = 3600
+
+# Scheduler is disabled by default.
+# Enable explicitly with:
+# ENABLE_RETRAINING_SCHEDULER=true
+ENABLE_RETRAINING_SCHEDULER = False
 
 # Minimum number of recent prediction inputs required
 # before checking for automated retraining.

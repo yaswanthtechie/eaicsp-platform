@@ -1551,1128 +1551,409 @@ Integration guidance for other pod models
 
 The canary and monitoring evidence is based on actual service verification rather than only describing how the implementation is intended to work.
 
-# Iris ML Reference Service — Round 5
-
-## Round 5 Overview
-
-Round 5 focused on making the Iris ML Reference Service more production-oriented.
-
-### Round 5 Tasks
-
-1. Per-model metrics breakdown
-2. Real automated retraining trigger
-3. Model rollback
-4. Test coverage including rollback
-5. Docker containerization
-
----
-
-# 1. Per-Model Metrics Breakdown
-
-## Requirement
-
-Extend `/metrics/summary` so that latency and request volume are available **per model**, instead of showing only aggregate service-level metrics.
-
-## What I Implemented
-
-The existing monitoring functionality was extended to track metrics by model version.
-
-The monitoring system now records:
-
-- Prediction request volume
-- Prediction latency
-- Model version
-- p50 latency
-- p95 latency
-- Volume over time
-- Per-model request volume
-- Per-model p50 latency
-- Per-model p95 latency
-
-## Files Used
-
-```text
-src/monitoring.py
-src/service.py
-
-Implementation
-
-The prediction service logs the selected model version along with prediction latency.
-
-The /metrics/summary endpoint then uses this information to calculate metrics for each model.
-
-Command Used
-
-To start the service:
-
-
-
-bentoml serve src.service:svc --host 0.0.0.0 --port 3000
-
-To check the metrics:
-
-
-
-Invoke-RestMethod http://localhost:3000/metrics/summary
-
-Output
-
-The metrics summary provides aggregate monitoring information and model-level information.
-
-Example structure:
-
-
-
-{
-  "request_volume": 100,
-  "latency_ms": {
-    "p50": 20.0,
-    "p95": 45.0
-  },
-  "models": {
-    "37": {
-      "request_volume": 80,
-      "latency_ms": {
-        "p50": 19.0,
-        "p95": 42.0
-      }
-    },
-    "38": {
-      "request_volume": 20,
-      "latency_ms": {
-        "p50": 23.0,
-        "p95": 51.0
-      }
-    }
-  }
-}
-
-Result
-
-Per-model monitoring was implemented so that model traffic and latency can be analyzed independently.
-
-Status: COMPLETED
-
-2. Real Automated Retraining Trigger
-
+Iris ML Reference Service — R5
+R5 Status
+Status: Ready for Review
+Round 5 adds production-focused MLOps capabilities to the Iris ML Reference Service, including model monitoring, automated retraining, promotion safeguards, rollback, testing, and Docker deployment.
 Requirement
-
-Retraining should not be only a checkable function.
-
-A scheduled process should:
-
-Check for drift
-
-Detect whether retraining is required
-
-Start retraining
-
-Train a new model
-
-Evaluate the model
-
-Assign it to staging
-
-Promote it to production if it passes the promotion gate
-
-A simple loop-based scheduler is sufficient.
-
-What I Implemented
-
-A scheduler was added to periodically check whether retraining is required.
-
-New File
-
-
-
-src/scheduler.py
-
-The existing retraining implementation was integrated with the scheduler.
-
-
-
-src/retraining.py
-
-Retraining Flow
-
-
-
-Scheduler
-    |
-    v
-Drift Check
-    |
-    v
-Drift Threshold Crossed?
-    |
-   Yes
-    |
-    v
-Start Retraining
-    |
-    v
-Train New Model
-    |
-    v
-Evaluate Model
-    |
-    v
-Promotion Gate
-    |
-    v
-Staging
-    |
-    v
-Production
-
-Drift Detection
-
-The retraining system compares recent input data against the training baseline.
-
-If the drift proxy crosses the configured threshold, retraining is triggered.
-
-The threshold is configured using:
-
-
-
-DRIFT_THRESHOLD
-
-Commands Used
-
-Run the test suite:
-
-
-
- python -m pytest tests -q
-
-Check the retraining endpoint:
-
-
-
-/retrain/check
-
-Trigger retraining:
-
-
-
-/retrain/trigger
-
-Actual Retraining Output
-
-The automated retraining produced the following output:
-
-
-
-============================================================
-
-Model passed the promotion gate (accuracy=0.9333 >= 0.85)
-
-============================================================
-
-TRAINING COMPLETED SUCCESSFULLY
-
-============================================================
-
-Model Name : iris_classifier
-
-Staging Version : 38
-
-Production Version : 38
-
-Accuracy : 0.9333
-
-Precision : 0.9333
-
-Recall : 0.9333
-
-F1 Score : 0.9333
-
-Model URI : models:/m-109b6ed725aa4b59877671d466dc8698
-
-============================================================
-
-The model passed the configured promotion gate:
-
-
-
-accuracy = 0.9333
-threshold = 0.85
-
-0.9333 >= 0.85
-
-Staging Output
-
-The model was assigned to staging:
-
-
-
-============================================================
-
-STAGING ASSIGNED
-
-============================================================
-
-Model Name : iris_classifier
-
-Version    : 38
-
-Alias      : @staging
-
-============================================================
-
-Production Promotion
-
-After passing the promotion gate, the model was promoted to production.
-
-Output:
-
-
-
-MODEL PROMOTED
-
-Model Name : iris_classifier
-
-Version    : 38
-
-From Alias : @staging
-
-To Alias   : @production
-
-Result
-
-The scheduled retraining flow was integrated with model training, evaluation, staging, and production promotion.
-
-Status: COMPLETED
-
-3. Model Rollback
-
-Requirement
-
-Simulate a newly promoted model performing worse in production.
-
-The system should detect the degradation and roll production back to the previous stable model.
-
-What I Implemented
-
-A rollback module was created.
-
-New File
-
-
-
-src/rollback.py
-
-The rollback logic compares the new model's performance with the previous production model.
-
-
-
-New Model Accuracy
-        |
-        v
-Previous Production Accuracy
-        |
-        v
-Rollback Evaluation
-        |
-        v
-Rollback Decision
-
-Rollback Scenario
-
-A degraded model was simulated with:
-
-
-
-New Model Accuracy      = 0.72
-Previous Model Accuracy = 0.92
-
-Since the new model performed worse than the previous production model, the rollback condition was triggered.
-
-Actual Output
-
-The service produced:
-
-
-
-2026-08-26T10:13:15+0000 [WARNING]
-R5 rollback evaluation:
-new_accuracy=0.72 previous_accuracy=0.92
-
-Then:
-
-
-
-2026-08-26T10:13:15+0000 [WARNING]
-R5 ROLLBACK TRIGGERED
-
-This confirms that the rollback condition was detected.
-
-Rollback Integration
-
-The service integrates rollback with MLflow:
-
-
-
-assign_staging
-promote_model
-rollback_model
-
-###rollback responds
-
-{
-  "status": "rolled_back",
-  "model_name": "iris_classifier",
-  "from_version": "38",
-  "to_version": "37",
-  "new_model_accuracy": 0.7,
-  "previous_model_accuracy": 0.92,
-  "current_production_version": "37"
-}
-
-This allows the previous production version to be restored through the model registry.
-
-Rollback Flow
-
-
-
-New Model
-    |
-    v
-Production
-    |
-    v
-Performance Degrades
-    |
-    v
-Rollback Evaluation
-    |
-    v
-Rollback Triggered
-    |
-    v
-Previous Production Model
-
-Result
-
-The rollback path was implemented and the degraded-model scenario successfully triggered the rollback logic.
-
-Status: COMPLETED
-
-4. Test Coverage Including Rollback
-
-Requirement
-
-The rollback path must have automated test coverage.
-
-What I Implemented
-
-A dedicated rollback test file was created.
-
-New File
-
-
-
-tests/test_rollback.py
-
-The test coverage includes:
-
-New model performing worse
-
-Previous production model
-
-Rollback decision
-
-Rollback trigger condition
-
-Non-rollback condition
-
-Previous model restoration
-
-Command Used
-
-
-
- python -m pytest tests -q
-
-Test Result
-
-The test suite was used to verify the Round 5 functionality, including the rollback path.
-
-The rollback test is included as:
-
-
-
-tests/test_rollback.py
-
-The overall test suite covers:
-
-
-
-Monitoring
-Canary Routing
-Retraining
-Drift Detection
-Automated Retraining
-Rollback
-Input Validation
-
-Result
-
-Rollback functionality has dedicated automated test coverage instead of relying only on manual verification.
-
-Status: COMPLETED
-
-5. Docker Containerization
-
-Requirement
-
-Containerize the ML service.
-
-The Round 4 Docker stretch goal became a core Round 5 requirement.
-
-What I Implemented
-
-A Dockerfile was created for the ML service.
-
-New File
-
-
-
-Dockerfile
-
-Dockerfile
-
-
-
-FROM python:3.12.4-slim
-
-WORKDIR /app
-
-COPY requirements.txt .
-
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY . .
-
-EXPOSE 3000
-
-CMD ["bentoml", "serve", "src.service", "--host", "0.0.0.0", "--port", "3000"]
-
-Docker Installation Check
-
-Docker was verified using:
-
-
-
-docker version
-
-Output
-
-
-
-Client:
- Version:           29.7.2
- API version:       1.55
- OS/Arch:           windows/amd64
- Context:           desktop-linux
-
-Server:
- Docker Desktop 4.88.1
-
- Engine:
- Version:           29.7.2
- API version:       1.55
- OS/Arch:           linux/amd64
-
-This confirmed that Docker Desktop and the Docker Engine were working.
-
-6. Docker Hello World Test
-
-Before building the ML application, Docker was tested with:
-
-
-
-docker run --rm hello-world
-
-Output
-
-
-
-Hello from Docker!
-
-This message shows that your installation appears to be working correctly.
-
-To generate this message, Docker took the following steps:
-
-1. The Docker client contacted the Docker daemon.
-2. The Docker daemon pulled the "hello-world" image from Docker Hub.
-3. The Docker daemon created a new container.
-4. The Docker daemon streamed the output to the terminal.
-
-Result
-
-Docker installation and container execution were verified successfully.
-
-Status: COMPLETED
-
-7. Docker Image Build
-
-Command Used
-
-
-
-docker build -t ml-reference .
-
-Build Result
-
-The Docker build completed successfully.
-
-Important build output:
-
-
-
-[+] Building 299.9s (11/11) FINISHED
-
-The build included:
-
-
-
-FROM python:3.12.4-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY . .
-
-The final image was created successfully:
-
-
-
-ml-reference:latest
-
-Result
-
-Docker image build completed successfully.
-
-Status: COMPLETED
-
-8. Docker Image Verification
-
-Command Used
-
-
-
-docker images
-
-Output
-
-
-
-IMAGE                 ID
-hello-world:latest    5dd0d3e6e255
-ml-reference:latest   a1c01aca3ead
-
-The ML service image was available locally:
-
-
-
-ml-reference:latest
-
-The image size was approximately:
-
-
-
-1.47GB
-
-Result
-
-The Docker image was successfully created and available locally.
-
-Status: COMPLETED
-
-9. Docker Container Run
-
-Command Used
-docker run --rm `                             
->>   -p 3000:3000 `
->>   --name ml-reference-container `
->>   --mount "type=bind,source=D:\ml-services\ml-reference,target=/D:/ml-services/ml-reference" `
->>   -e MLFLOW_TRACKING_URI="file:///app/mlruns" `
->>   --mount "type=bind,source=D:\ml-services\ml-reference\mlruns,target=/app/mlruns" `
->>   ml-reference:latest
-
-
-
-
-The container uses:
-
-
-
-Container Name : ml-reference-container
-Image          : ml-reference:latest
-Port           : 3000
-
-The BentoML service is configured to listen on:
-
-
-
-0.0.0.0:3000
-
-Container Check
-
-The running container can be checked using:
-
-
-
-docker ps
-
-Result
-
-The Docker image was successfully created and the container was started using the Round 5 Docker configuration.
-
-Status: COMPLETED
-
-10. Docker + MLflow Issue Identified During Testing
-
-During container testing, the BentoML service initially failed while loading the MLflow model.
-
-The error was:
-
-
-
-OSError: No such file or directory:
-'/D:/ml-services/ml-reference/mlruns/632050615874385519/models/m-849565551ba347668d4f863acf8d2a6b/artifacts/.'
-
-The reason was that the MLflow tracking URI pointed to the Windows local path:
-
-
-
-file:///D:/ml-services/ml-reference/mlruns
-
-while the Docker container runs Linux.
-
-The container therefore could not directly access the Windows MLflow artifact path.
-
-This was identified as a Docker/MLflow filesystem path issue rather than a Docker installation issue.
-
-11. MLflow Verification
-
-The MLflow tracking URI was checked using:
-
-
-
-python -c "import mlflow; print(mlflow.get_tracking_uri())"
-
-Output
-
-
-
-file:///D:/ml-services/ml-reference/mlruns
-
-This confirmed that MLflow was using the local mlruns directory.
-
-12. MLflow Registered Model Verification
-
-The registered models were checked using:
-
-
-
-python -c "import mlflow; from mlflow import MlflowClient; c=MlflowClient(); print(c.search_registered_models())"
-
-Output
-
-The registered model was:
-
-
-
-iris_classifier
-
-The model had:
-
-
-
-Production Alias : @production
-Staging Alias    : @staging
-
-A model version example was:
-
-
-
-Version : 33
-Accuracy : 0.9333333333333333
-
-The MLflow model registry was therefore working correctly from the local environment.
-
-13. BentoML Service
-
-The BentoML service is defined in:
-
-
-
-src/service.py
-
-The service provides:
-
-
-
-/predict
-/predict_batch
-/health
-/metrics/json
+Status
+Verification
+Per-model metrics
+✅ Complete
 /metrics/summary
-/retrain/check
+Automated retraining
+✅ Complete
+Drift-triggered pipeline
+Retraining scheduler safety
+✅ Complete
+Disabled by default
+Model evaluation gate
+✅ Complete
+should_promote()
+Model promotion
+✅ Complete
+MLflow production alias
+Model rollback
+✅ Complete
+Previous production restoration
+Rollback testing
+✅ Passed
+55 passed
+Docker deployment
+✅ Verified
+Container + health check
+Requirements cleanup
+✅ Complete
+Curated direct dependencies
+
+R5 Architecture
+┌──────────────────┐
+│   BentoML API    │
+└────────┬─────────┘
+│
+┌────────────────────┼────────────────────┐
+│                    │                    │
+▼                    ▼                    ▼
+Prediction             Metrics            Retraining
+│                    │                    │
+│                    │                    ▼
+│                    │              Drift Check
+│                    │                    │
+│                    │                    ▼
+│                    │              Train Candidate
+│                    │                    │
+│                    │                    ▼
+│                    │              Evaluate Model
+│                    │                    │
+│                    │                    ▼
+│                    │             Promotion Gate
+│                    │                    │
+▼                    ▼                    ▼
+MLflow Registry      Model Metrics        Production
+│
+▼
+Bad Model Check
+│
+▼
+Rollback
+│
+▼
+Previous Stable Model
+
+Per-Model Metrics
+The service exposes model-level operational metrics through:
+/metrics/summary
+Tracked information includes:
+Request volume
+Prediction latency
+p50 latency
+p95 latency
+Model version
+Model alias
+These metrics allow production and canary model behavior to be monitored independently.
+
+Automated Retraining
+The automated retraining workflow is:
+Scheduled Check
+↓
+Drift Detection
+↓
+Drift Threshold Reached
+↓
+Train Candidate Model
+↓
+Evaluate Candidate
+↓
+Promotion Gate
+↓
+Compare With Production
+↓
+Promote
+↓
+Reload Production Model
+Retraining is triggered when:
+retrain_needed = drift_score >= DRIFT_THRESHOLD
+Configuration:
+DRIFT_THRESHOLD = 0.30
+MIN_RETRAINING_SAMPLES = 5
+MONITORING_INPUT_LIMIT = 100
+Scheduler Safety
+The scheduler is disabled by default:
+ENABLE_RETRAINING_SCHEDULER = False
+It must be explicitly enabled:
+ENABLE_RETRAINING_SCHEDULER=true
+The configured interval is:
+RETRAINING_INTERVAL_SECONDS = 3600
+This avoids starting a rapid retraining thread during normal service construction and test execution.
+
+Model Evaluation and Promotion
+A retrained candidate is not promoted unconditionally.
+The minimum promotion accuracy is:
+PROMOTION_ACCURACY_THRESHOLD = 0.85
+The promotion decision uses:
+should_promote(accuracy)
+The candidate is evaluated before promotion and compared with the current production model.
+Train Candidate
+↓
+Evaluate Accuracy
+↓
+Accuracy >= 0.85?
+┌──┴──┐
+No    Yes
+↓      ↓
+Reject  Compare With Production
+↓
+Candidate Worse?
+┌──┴──┐
+Yes   No
+↓     ↓
+Reject  Promote
+↓
+Production
+This prevents a candidate that fails the configured quality threshold or performs worse than the production model from being automatically promoted.
+
+Model Rollback
+Rollback restores the previous stable production model when rollback conditions are met.
+Current Production
+↓
+Bad Model Detected
+↓
+Rollback
+↓
+Previous Production Version
+↓
+Restore Production Alias
+↓
+Reload Model
+Rollback uses the configured threshold:
+ROLLBACK_ACCURACY_THRESHOLD = 0.85
+The rollback decision is implemented by:
+should_rollback(
+new_model_accuracy,
+previous_model_accuracy
+)
+Rollback is required when:
+The new model accuracy is below the configured minimum.
+The new model is worse than the previous production model.
+The rollback implementation handles:
+Missing previous production version
+Current version equal to previous version
+Production alias restoration
+Rollback metadata/tags
+The rollback threshold is imported from configuration rather than duplicated as a hardcoded value.
+
+Rollback API
+The service provides:
+/rollback
+The endpoint evaluates the rollback condition and restores the previous production model when required.
+After rollback, the serving model is reloaded so subsequent predictions use the restored production version.
+
+Rollback Testing
+Rollback behavior is covered by automated tests.
+Run:
+python -m pytest tests -q
+Actual test result
+55 passed, 44 warnings in 15.65s
+The test suite includes endpoint-level rollback verification, including:
+test_rollback_endpoint_reloads_previous_model
+test_rollback_endpoint_does_not_rollback_when_model_is_good
+The warnings are dependency/deprecation warnings and did not cause test failures.
+
+Docker Deployment
+The service is packaged using BentoML and Docker.
+Build BentoML Service
+bentoml build
+Build Container
+bentoml containerize iris_service
+Run Container
+docker run -p 3000:3000 iris_service 
+    or 
+docker run --name ml-reference -p 3000:3000 --mount "type=bind,source=D:\ml-services\ml-reference\mlruns,target=/D:/ml-services/ml-reference/mlruns" ml-reference:latest
+The service is exposed on:
+http://localhost:3000
+
+Docker Runtime Verification
+The Docker container was actually started and verified.
+Container: ml-reference
+Image: ml-reference
+Port: 3000:3000
+The health endpoint returned:
+HTTP 200
+Observed response:
+{
+"status": "healthy",
+"model_version": "64",
+"prediction": "setosa",
+"canary_prediction": "setosa",
+"canary_model_version": "64",
+"canary_model_alias": "production"
+}
+This provides runtime evidence that the container starts successfully, loads the model, and serves predictions.
+
+Model Loading
+The inference implementation supports a bundled model in the Docker image at:
+/app/models/model.pkl
+When the bundled model exists, it is loaded using Joblib.
+For local development, the service can load the production model from the MLflow Registry using:
+models:/iris_classifier@production
+This keeps local MLflow registry behavior separate from the Docker model-loading path.
+
+Requirements
+The production dependency file has been cleaned from the previous large pip freeze output.
+Current direct dependencies:
+bentoml==1.4.22
+mlflow==3.4.0
+joblib==1.5.1
+numpy==2.3.2
+pydantic==2.11.7
+scikit-learn==1.7.1
+Testing can be maintained separately:
+-r requirements.txt
+pytest==8.4.1
+The production requirements intentionally avoid listing unrelated transitive packages as direct project dependencies.
+
+Configuration
+Setting
+Value
+Purpose
+MODEL_NAME
+iris_classifier
+MLflow model name
+MODEL_STAGE
+production
+Production model alias
+RANDOM_STATE
+42
+Reproducible training
+TEST_SIZE
+0.2
+Test split
+N_ESTIMATORS
+100
+Random Forest estimators
+MAX_DEPTH
+5
+Random Forest depth
+PROMOTION_ACCURACY_THRESHOLD
+0.85
+Promotion gate
+CANARY_PERCENTAGE
+20
+Canary traffic
+DRIFT_THRESHOLD
+0.30
+Retraining trigger
+RETRAINING_INTERVAL_SECONDS
+3600
+Scheduler interval
+ENABLE_RETRAINING_SCHEDULER
+False
+Safe default
+MIN_RETRAINING_SAMPLES
+5
+Minimum monitoring samples
+MONITORING_INPUT_LIMIT
+100
+Drift monitoring window
+ROLLBACK_ACCURACY_THRESHOLD
+0.85
+Rollback threshold
+
+Operational Considerations
+Scheduler
+The scheduler is disabled by default. This prevents service construction and test execution from unintentionally starting retraining workers.
+Enable it explicitly only when automated retraining is required:
+ENABLE_RETRAINING_SCHEDULER=true
+Training and Serving
+R5 integrates the training pipeline with the serving service to support automated retraining. As a result, the serving environment contains the dependencies required by the training workflow as well as inference.
+Model-Changing Endpoints
+The following endpoints modify model state:
 /retrain/trigger
 /rollback
+They are currently unauthenticated, consistent with the current reference-service authentication state.
+When role-based authorization such as require_role is integrated, these endpoints should be protected.
 
-The service integrates:
-
-
-
-Monitoring
-Canary Routing
-Retraining
-Scheduler
-Rollback
-MLflow
-
-14. Important Round 5 Files
-
-Created / Updated Files
-
-
-
-Dockerfile
-
-src/service.py
-src/scheduler.py
-src/rollback.py
-
-tests/test_rollback.py
-
-Existing Round 4 modules reused and integrated:
-
-
-
-src/monitoring.py
-src/canary.py
-src/retraining.py
-src/schemas.py
-src/mlflow_utils.py
-src/predict.py
-
-15. Round 5 Architecture
-
-
-
-                    Iris Data
-                       |
-                       v
-                Model Training
-                       |
-                       v
-                  Evaluation
-                       |
-                       v
-                Promotion Gate
-                       |
-                       v
-                    Staging
-                       |
-                       v
-                  Production
-                       |
-                       v
-               Prediction API
-                       |
-          +------------+------------+
-          |                         |
-          v                         v
-     Monitoring                Canary Routing
-          |
-          v
-    Per-Model Metrics
-          |
-          v
-      Drift Check
-          |
-          v
-       Scheduler
-          |
-          v
-   Automated Retraining
-          |
-          v
-      New Model
-          |
-          v
-       Evaluation
-          |
-          v
-      Promotion
-          |
-          v
-      Production
-          |
-          v
-   Model Performance
-          |
-          v
-     Rollback Check
-          |
-          v
-      Degradation?
-        /       \
-      No         Yes
-      |           |
-      |           v
-      |        Rollback
-      |           |
-      |           v
-      +----> Previous Model
-
-16. Round 5 Commands Summary
-
-Docker
-
-
-
-docker version
-
-
-
-docker run --rm hello-world
-
-
-
-docker build -t ml-reference .
-
-
-
-docker images
-
-
-
-docker run --rm -p 3000:3000 --name ml-reference-container ml-reference:latest
-
-
-
-docker ps
-
-Testing
-
-
-
+R5 Verification Evidence
+Automated Tests
+Command:
 python -m pytest tests -q
-
-MLflow
-
-
-
-python -c "import mlflow; print(mlflow.get_tracking_uri())"
-
-
-
-python -c "import mlflow; from mlflow import MlflowClient; c=MlflowClient(); print(c.search_registered_models())"
-
-Service
-
-
-
-bentoml serve src.service --host 0.0.0.0 --port 3000
-
-17. Round 5 Definition of Done
-
-RequirementStatusEvidence
-
-
-
-
-
-Per-model metrics
-
-Completed
-
-/metrics/summary
-
-Per-model latency
-
-Completed
-
-Monitoring data
-
-Per-model request volume
-
-Completed
-
-Monitoring data
-
-Automated retraining
-
-Completed
-
-src/scheduler.py
-
-Drift-based trigger
-
-Completed
-
-src/retraining.py
-
-Retraining integration
-
-Completed
-
-Training output
-
-Model promotion
-
-Completed
-
-MLflow @production
-
-Model rollback
-
-Completed
-
-src/rollback.py
-
-Rollback simulation
-
-Completed
-
-0.72 vs 0.92
-
-Rollback test
-
-Completed
-
-tests/test_rollback.py
-
-Dockerfile
-
-Completed
-
-Dockerfile
-
-Docker build
-
-Completed
-
-docker build
-
-Docker image
-
-Completed
-
-ml-reference:latest
-
-Docker container
-
-Completed
-
-docker run
-
-18. Round 5 Final Result
-
-Round 5 implemented the requested production-oriented ML lifecycle features.
-
-Completed
-
-
-
-Per-Model Monitoring
-        ↓
-Automated Retraining
-        ↓
-Model Evaluation
-        ↓
-MLflow Promotion
-        ↓
-Production Monitoring
-        ↓
-Model Degradation Detection
-        ↓
-Rollback
-        ↓
-Rollback Test Coverage
-        ↓
-Docker Containerization
-
-Key Results
-
-Retraining:
-
-
-
-Accuracy  : 0.9333
-Precision : 0.9333
-Recall    : 0.9333
-F1 Score  : 0.9333
-
-Promotion gate:
-
-
-
-0.9333 >= 0.85
-
-Rollback simulation:
-
-
-
-New Model Accuracy      : 0.72
-Previous Model Accuracy : 0.92
-
 Result:
-R5 ROLLBACK TRIGGERED
+55 passed, 44 warnings in 15.65s
+Docker
+Container:
+ml-reference
+Image:
+ml-reference
+Port:
+3000:3000
+Health:
+HTTP 200
+Production Model:
+64
+Prediction:
+setosa
 
-Docker:
+R5 Definition of Done
+DoD Item
+Result
+Per-model metrics implemented
+✅
+Automated retraining implemented
+✅
+Scheduler disabled by default
+✅
+Realistic scheduler interval configured
+✅
+Candidate evaluation before promotion
+✅
+Promotion threshold enforced
+✅
+Production comparison before promotion
+✅
+Model promotion implemented
+✅
+Rollback implementation
+✅
+Rollback edge cases handled
+✅
+Rollback endpoint tested
+✅
+Full test suite passing
+✅
+Docker image built
+✅
+Docker container started
+✅
+Docker health endpoint verified
+✅
+Production requirements curated
+✅
 
+R5 Final Workflow
+┌──────────────┐
+│   Monitor    │
+└──────┬───────┘
+↓
+┌──────────────┐
+│ Drift Check  │
+└──────┬───────┘
+↓
+Drift Threshold?
+/                         No         Yes
+↓           ↓
+Continue     Retrain
+↓
+Evaluate
+↓
+Promotion Gate
+↓
+Compare Production
+/                            Reject        Accept
+↓              ↓
+Stop         Production
+↓
+Bad Model?
+↓
+Rollback
+↓
+Stable Production
 
-
-Docker Version : 29.7.2
-Image          : ml-reference:latest
-Container      : ml-reference-container
-Port           : 3000
-
-19. Round 5 Status
-
-
-
-============================================================
-                 ROUND 5 STATUS
-============================================================
-
-Per-model metrics          : COMPLETED
-Automated retraining       : COMPLETED
-Model promotion            : COMPLETED
-Model rollback             : COMPLETED
-Rollback test coverage     : COMPLETED
-Dockerfile                 : COMPLETED
-Docker image build         : COMPLETED
-Docker container           : COMPLETED
-MLflow integration         : COMPLETED
-
-============================================================
-
-Round 5 focused on making the ML service more production-ready by adding model-level observability, automated retraining, safe model rollback, automated testing, and Docker-based deployment.
-
-
-
-
-### Important note
-
-I included the **actual outputs you provided**, especially:
-
-- Docker `hello-world` success
-- Docker `version`
-- Docker image build success
-- `docker images`
-- MLflow tracking URI
-- MLflow registered model
-- Retraining version **38**
-- Accuracy/precision/recall/F1 **0.9333**
-- Promotion gate **0.9333 >= 0.85**
-- Staging → Production output
-- Rollback evaluation **0.72 vs 0.92**
-- `R5 ROLLBACK TRIGGERED`
-
-I also kept the Docker/MLflow path issue documented honestly rather than claiming the container was completely
+Final Status
+R5 — Ready for Review
+The implementation has:
+Production-focused model metrics
+Safe automated retraining configuration
+Candidate evaluation before promotion
+Production comparison before promotion
+MLflow promotion and rollback
+Rollback endpoint coverage
+Passing automated test suite
+Live Docker container verification
+Curated production dependencies
+Evidence Summary
+Tests:       55 passed
+Docker:      Running
+Health:      HTTP 200
+Model:       Version 64
+Prediction:  setosa
+R5 implementation and verification are ready for review.

@@ -6,8 +6,10 @@ COPY requirements.txt .
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY src ./src
+COPY data ./data
+COPY mlruns ./mlruns
 
 EXPOSE 3000
 
-CMD ["bentoml", "serve", "src.service", "--host", "0.0.0.0", "--port", "3000"]
+CMD ["bentoml", "serve", "src.service:IrisService", "--host", "0.0.0.0", "--port", "3000"]

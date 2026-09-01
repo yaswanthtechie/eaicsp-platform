@@ -1,3 +1,4 @@
+
 """
 BentoML service for Iris classification.
 
@@ -16,9 +17,11 @@ R5:
 2. Automated scheduled retraining
 3. Model rollback
 4. Retraining and rollback integration
+5. Retraining promotion evaluation gate
 """
 
 import logging
+import os
 import time
 import uuid
 
@@ -27,6 +30,7 @@ import numpy as np
 
 from pydantic import BaseModel, Field, field_validator
 from sklearn.datasets import load_iris
+from sklearn.model_selection import train_test_split
 
 from src.monitoring import (
     get_summary,
@@ -55,13 +59,18 @@ from src.mlflow_utils import (
     promote_model,
     rollback_model,
 )
+
 from src.config import (
     MODEL_NAME,
     RETRAINING_INTERVAL_SECONDS,
     MIN_RETRAINING_SAMPLES,
     MONITORING_INPUT_LIMIT,
+    ENABLE_RETRAINING_SCHEDULER,
+    TEST_SIZE,
+    RANDOM_STATE,
+    PROMOTION_ACCURACY_THRESHOLD,
+    should_promote,
 )
-
 
 
 # ==========================================================
@@ -238,16 +247,39 @@ class IrisService:
         # R5 Retraining Scheduler
         # --------------------------------------------------
 
-        self.retraining_scheduler = RetrainingScheduler(
-            check_function=self._scheduled_retraining_check,
-            interval_seconds=RETRAINING_INTERVAL_SECONDS,
-        )
+        self.retraining_scheduler = None
 
-        self.retraining_scheduler.start()
+        scheduler_env = os.getenv("ENABLE_RETRAINING_SCHEDULER")
 
-        logger.info(
-            "R5 retraining scheduler started"
-        )
+        if scheduler_env is None:
+            scheduler_enabled = ENABLE_RETRAINING_SCHEDULER
+        else:
+            scheduler_enabled = scheduler_env.strip().lower() == "true"
+                    
+
+              
+        
+
+        if scheduler_enabled:
+
+            self.retraining_scheduler = RetrainingScheduler(
+                check_function=self._scheduled_retraining_check,
+                interval_seconds=RETRAINING_INTERVAL_SECONDS,
+            )
+
+            self.retraining_scheduler.start()
+
+            logger.info(
+                "R5 retraining scheduler started "
+                "(interval=%s seconds)",
+                RETRAINING_INTERVAL_SECONDS,
+            )
+
+        else:
+
+            logger.info(
+                "R5 retraining scheduler disabled"
+            )
 
         logger.info(
             "Loaded production model version: %s",
@@ -255,12 +287,31 @@ class IrisService:
         )
 
     # ======================================================
+    # Stop Method
+    # ======================================================
+
+    def stop(self):
+        """
+        Stop the R5 retraining scheduler if it is running.
+        """
+
+        if self.retraining_scheduler is not None:
+
+            self.retraining_scheduler.stop()
+
+            logger.info(
+                "R5 retraining scheduler stopped"
+            )
+
+    # ======================================================
     # Health Endpoint
     # ======================================================
+
     @bentoml.api
     def health(self) -> dict:
 
         try:
+
             sample = [
                 [5.1, 3.5, 1.4, 0.2]
             ]
@@ -300,13 +351,10 @@ class IrisService:
                     prediction
                 ],
 
-                # IMPORTANT:
-                # Existing R4 test requires this key
                 "canary_prediction": TARGET_NAMES[
                     canary_prediction
                 ],
 
-                # R5 information
                 "canary_model_version": str(
                     canary_version
                 ),
@@ -328,7 +376,6 @@ class IrisService:
                 "status": "unhealthy",
                 "error": str(exc),
             }
-    
 
     # ======================================================
     # Metrics Endpoint
@@ -756,6 +803,10 @@ class IrisService:
               ↓
            train()
               ↓
+        evaluate candidate
+              ↓
+        promotion gate
+              ↓
            staging
               ↓
           production
@@ -825,7 +876,11 @@ class IrisService:
 
         train
           ↓
-        MLflow register
+        evaluate candidate
+          ↓
+        promotion threshold
+          ↓
+        compare with production
           ↓
         staging
           ↓
@@ -847,17 +902,110 @@ class IrisService:
         )
 
         # --------------------------------------------
-        # Train
+        # Train candidate model
         # --------------------------------------------
 
         from src.train import train
 
-        model = train()
+        candidate_model = train()
 
         logger.info(
             "Training completed: %s",
-            type(model).__name__,
+            type(candidate_model).__name__,
         )
+
+        # --------------------------------------------
+        # Prepare evaluation dataset
+        # --------------------------------------------
+
+        iris = load_iris()
+
+        _, X_test, _, y_test = train_test_split(
+            iris.data,
+            iris.target,
+            test_size=TEST_SIZE,
+            random_state=RANDOM_STATE,
+            stratify=iris.target,
+        )
+
+        # --------------------------------------------
+        # Evaluate candidate model
+        # --------------------------------------------
+
+        candidate_accuracy = float(
+            candidate_model.score(
+                X_test,
+                y_test,
+            )
+        )
+
+        logger.warning(
+            "Candidate model accuracy: %.4f",
+            candidate_accuracy,
+        )
+
+        # --------------------------------------------
+        # Promotion threshold gate
+        # --------------------------------------------
+
+        if not should_promote(candidate_accuracy):
+
+            logger.warning(
+                "Candidate model rejected: "
+                "accuracy %.4f is below promotion "
+                "threshold %.4f",
+                candidate_accuracy,
+                PROMOTION_ACCURACY_THRESHOLD,
+            )
+
+            return {
+                "status": "rejected",
+                "reason": "promotion_threshold_not_met",
+                "candidate_accuracy": candidate_accuracy,
+                "promotion_threshold":
+                    PROMOTION_ACCURACY_THRESHOLD,
+            }
+
+        # --------------------------------------------
+        # Evaluate current production model
+        # --------------------------------------------
+
+        production_accuracy = float(
+            self.model.score(
+                X_test,
+                y_test,
+            )
+        )
+
+        logger.warning(
+            "Current production model accuracy: %.4f",
+            production_accuracy,
+        )
+
+        # --------------------------------------------
+        # Candidate must not be worse
+        # than current production
+        # --------------------------------------------
+
+        if candidate_accuracy < production_accuracy:
+
+            logger.warning(
+                "Candidate model rejected: "
+                "candidate accuracy %.4f is lower "
+                "than production accuracy %.4f",
+                candidate_accuracy,
+                production_accuracy,
+            )
+
+            return {
+                "status": "rejected",
+                "reason":
+                    "candidate_worse_than_production",
+                "candidate_accuracy":
+                    candidate_accuracy,
+                "production_accuracy":
+                    production_accuracy,
+            }
 
         # --------------------------------------------
         # Assign latest model to staging
@@ -920,9 +1068,15 @@ class IrisService:
             "=========================================="
         )
 
-        return str(
-            production_version
-        )
+        return {
+            "status": "promoted",
+            "production_version":
+                str(production_version),
+            "candidate_accuracy":
+                candidate_accuracy,
+            "production_accuracy":
+                production_accuracy,
+        }
 
     # ======================================================
     # R4/R5 Manual Retraining Trigger
@@ -940,9 +1094,33 @@ class IrisService:
 
         try:
 
-            new_version = (
+            result = (
                 self._run_retraining_pipeline()
             )
+
+            if isinstance(result, dict):
+
+                if result.get("status") == "rejected":
+
+                    return {
+                        "status":
+                            "retraining_rejected",
+
+                        "message":
+                            "Candidate model failed promotion gate",
+
+                        **result,
+                    }
+
+                return {
+                    "status":
+                        "retraining_completed",
+
+                    "message":
+                        "Model retraining and promotion completed",
+
+                    **result,
+                }
 
             return {
                 "status":
@@ -952,7 +1130,7 @@ class IrisService:
                     "Model retraining and promotion completed",
 
                 "new_model_version":
-                    str(new_version),
+                    str(result),
             }
 
         except Exception as exc:
@@ -969,14 +1147,17 @@ class IrisService:
                     str(exc),
             }
 
-    # ======================================================
+    
+
+            # ======================================================
     # R5 Rollback
     # ======================================================
 
     @bentoml.api(route="/rollback")
     def rollback(
         self,
-        request: RollbackRequest,
+        new_model_accuracy: float,
+        previous_model_accuracy: float,
     ) -> dict:
         """
         Roll back Production when the newly promoted
@@ -988,32 +1169,42 @@ class IrisService:
         Previous model  = 0.92
 
         Result:
-            Production → previous version
+            Production -> previous version
         """
 
         logger.warning(
             "R5 rollback evaluation: "
             "new_accuracy=%s previous_accuracy=%s",
-            request.new_model_accuracy,
-            request.previous_model_accuracy,
+            new_model_accuracy,
+            previous_model_accuracy,
         )
 
-        # --------------------------------------------
+        # --------------------------------------------------
+        # Validate accuracy values
+        # --------------------------------------------------
+
+        if not 0.0 <= new_model_accuracy <= 1.0:
+            raise ValueError(
+                "new_model_accuracy must be between 0.0 and 1.0"
+            )
+
+        if not 0.0 <= previous_model_accuracy <= 1.0:
+            raise ValueError(
+                "previous_model_accuracy must be between 0.0 and 1.0"
+            )
+
+        # --------------------------------------------------
         # Decide whether rollback is required
-        # --------------------------------------------
+        # --------------------------------------------------
 
         rollback_required = should_rollback(
-            new_model_accuracy=(
-                request.new_model_accuracy
-            ),
-            previous_model_accuracy=(
-                request.previous_model_accuracy
-            ),
+            new_model_accuracy=new_model_accuracy,
+            previous_model_accuracy=previous_model_accuracy,
         )
 
-        # --------------------------------------------
+        # --------------------------------------------------
         # New model is acceptable
-        # --------------------------------------------
+        # --------------------------------------------------
 
         if not rollback_required:
 
@@ -1022,27 +1213,22 @@ class IrisService:
             )
 
             return {
-                "status":
-                    "no_rollback",
-
-                "message":
-                    "New model performance is acceptable",
-
-                "new_model_accuracy":
-                    request.new_model_accuracy,
-
-                "previous_model_accuracy":
-                    request.previous_model_accuracy,
-
-                "current_production_version":
-                    str(
-                        self.model_version
-                    ),
+                "status": "no_rollback",
+                "message": (
+                    "New model performance is acceptable"
+                ),
+                "new_model_accuracy": new_model_accuracy,
+                "previous_model_accuracy": (
+                    previous_model_accuracy
+                ),
+                "current_production_version": str(
+                    self.model_version
+                ),
             }
 
-        # --------------------------------------------
-        # Rollback
-        # --------------------------------------------
+        # --------------------------------------------------
+        # Rollback required
+        # --------------------------------------------------
 
         logger.warning(
             "R5 ROLLBACK TRIGGERED"
@@ -1052,34 +1238,36 @@ class IrisService:
             MODEL_NAME
         )
 
-        # --------------------------------------------
-        # Reload Production Model
-        # --------------------------------------------
+        # --------------------------------------------------
+        # Reload production model
+        # --------------------------------------------------
 
         self.model, self.model_version = (
             load_model()
         )
 
-        # --------------------------------------------
-        # Reload Canary Models
-        # --------------------------------------------
+        # --------------------------------------------------
+        # Reload canary models
+        # --------------------------------------------------
 
         self.canary_models = (
             load_canary_models()
         )
 
-        result[
-            "new_model_accuracy"
-        ] = request.new_model_accuracy
+        # --------------------------------------------------
+        # Add evaluation information
+        # --------------------------------------------------
 
-        result[
-            "previous_model_accuracy"
-        ] = request.previous_model_accuracy
+        result["new_model_accuracy"] = (
+            new_model_accuracy
+        )
 
-        result[
-            "current_production_version"
-        ] = str(
-            self.model_version
+        result["previous_model_accuracy"] = (
+            previous_model_accuracy
+        )
+
+        result["current_production_version"] = (
+            str(self.model_version)
         )
 
         logger.warning(
@@ -1089,3 +1277,4 @@ class IrisService:
         )
 
         return result
+
