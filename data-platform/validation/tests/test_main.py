@@ -198,32 +198,6 @@ def test_log_issues_direct(mock_info, mock_error):
         mock_warning.assert_called_with("WARNING -> Rule: test_rule | Field: col_A | Count: 5")
 
 
-@patch("pathlib.Path.exists", return_value=True)
-@patch("src.main.argparse.ArgumentParser.parse_args")
-@patch("pandas.read_csv", return_value=pd.DataFrame({"id": [1]}))
-@patch("src.main.DataValidator.from_config")
-@patch("pandas.DataFrame.to_csv")
-def test_main_dict_report_branch(mock_to_csv, mock_validator, mock_read, mock_args, mock_exists):
-    """Hits the `if isinstance(report, dict):` branch when the report is a native dictionary."""
-    args = MagicMock(skip_generate=True, incremental=False)
-    mock_args.return_value = args
-
-    mock_instance = MagicMock()
-    # Return a raw dictionary instead of a ValidationResult object
-    mock_instance.validate.return_value = {
-        "passed": False,
-        "total_rows_affected": 1,
-        "errors": [{"rule": "r1", "field": "f1", "count": 1}],
-        "warnings": [{"rule": "r2", "field": "f2", "count": 1}],
-        "sample_bad_rows": {"r1": [{"row_index": 0, "failed_value": "bad"}]}
-    }
-    mock_instance.clean.return_value = pd.DataFrame({"id": [1]})
-    mock_validator.return_value = mock_instance
-
-    main.main()
-    mock_instance.validate.assert_called_once()
-
-
 def custom_exists_side_effect(self):
     """Helper to mock Path.exists(): config exists, but input data does not."""
     if "dummy_config" in str(self):

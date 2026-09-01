@@ -319,6 +319,7 @@ def test_validate_folder_incremental_no_new_data(mock_wm_class, mock_validator_c
     )
 
     # 4. Assert the file was skipped cleanly without executing validation or setting watermark
-    assert summary["passed_files"] == 1
+    assert summary["skipped_files"] == 1
+    assert summary["passed_files"] == 0
     mock_instance.validate.assert_not_called()
     mock_wm_instance.set_watermark.assert_not_called()

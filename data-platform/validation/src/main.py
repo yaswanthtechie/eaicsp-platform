@@ -141,17 +141,11 @@ def main():
         logger.error(f"FATAL ERROR: Validation crashed during execution: {e}")
         return
 
-    logger.info(
-        f"Validation Passed: {getattr(report, 'passed', report.get('passed') if isinstance(report, dict) else False)}")
-    logger.info(
-        f"Total Rows Affected: {getattr(report, 'total_rows_affected', report.get('total_rows_affected') if isinstance(report, dict) else 0)}")
+    logger.info(f"Validation Passed: {report.passed}")
+    logger.info(f"Total Rows Affected: {report.total_rows_affected}")
 
-    if isinstance(report, dict):
-        log_issues(report.get('errors', []), "ERROR", report)
-        log_issues(report.get('warnings', []), "WARNING", report)
-    else:
-        log_issues(report.errors, "ERROR", report.model_dump() if hasattr(report, 'model_dump') else report.model_dump())
-        log_issues(report.warnings, "WARNING", report.model_dump() if hasattr(report, 'model_dump') else report.model_dump())
+    log_issues(report.errors, "ERROR", report.model_dump())
+    log_issues(report.warnings, "WARNING", report.model_dump())
 
     # --- RULE PERFORMANCE PROFILING ---
     if hasattr(report, "rule_timings") and report.rule_timings:
@@ -174,9 +168,8 @@ def main():
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         if args.incremental and output_path.exists():
-            # Read existing data, append new clean data, and deduplicate
             existing_df = pd.read_csv(output_path)
-            combined_df = pd.concat([existing_df, clean_df]).drop_duplicates(subset=[args.watermark_col], keep='last')
+            combined_df = pd.concat([existing_df, clean_df]).drop_duplicates(keep='last')
             combined_df.to_csv(output_path, index=False)
             logger.info(f"Incremental mode: Upserted {len(clean_df)} sanitized rows to {output_path}")
         else:
@@ -185,9 +178,10 @@ def main():
             logger.info(f"Successfully wrote sanitized dataset to {output_path}")
 
         # Update the state file if validation and saving succeeded
-        if args.incremental and not clean_df.empty:
-            new_watermark = clean_df[args.watermark_col].max()
-            new_watermark = new_watermark.item() if hasattr(new_watermark, 'item') else new_watermark
+        if args.incremental and not df.empty:
+            logger.warning(
+                "LIMITATION: Watermark advances past failed rows. Bad rows are not filtered from this check.")
+            new_watermark = df[args.watermark_col].max()
             wm.set_watermark(new_watermark)
             logger.info(f"Watermark successfully updated to: {new_watermark}")
 

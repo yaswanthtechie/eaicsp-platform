@@ -108,6 +108,7 @@ def validate_folder(
         "total_files": len(validation_queue),
         "passed_files": 0,
         "failed_files": 0,
+        "skipped_files": 0,
         "total_rows_affected": 0,
         "most_common_issues": Counter()
     }
@@ -133,7 +134,7 @@ def validate_folder(
 
                 if df.empty:
                     logger.info("   -> Skipped: No new incremental data.")
-                    summary["passed_files"] += 1
+                    summary["skipped_files"] += 1
                     continue
                 logger.info("   -> Validating %d new rows...", len(df))
             # --- Validation ---
@@ -171,8 +172,9 @@ def validate_folder(
 
             # --- Update File-Specific Watermark ---
             if incremental and wm is not None and not df.empty:
+                logger.warning(
+                    "LIMITATION: Watermark advances past failed rows. Bad rows are not filtered from this check.")
                 new_wm = df[watermark_col].max()
-                new_wm = new_wm.item() if hasattr(new_wm, 'item') else new_wm
                 wm.set_watermark(new_wm)
 
         except pd.errors.EmptyDataError:

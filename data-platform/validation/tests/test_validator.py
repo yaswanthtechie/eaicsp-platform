@@ -647,6 +647,29 @@ def test_detect_conflicts_inter_rule():
         DataValidator([rule_1, rule_2])
 
 
+def test_detect_conflicts_exclusive_bounds():
+    """Verifies that boundary-touching exclusive ranges correctly trigger a conflict."""
+    rule_1 = ConfigRule(**{
+        "name": "r1",
+        "field": "qty",
+        "type": "range",
+        "min": 0,
+        "exclusive_min": True,
+        "severity": "ERROR"
+    })
+    rule_2 = ConfigRule(**{
+        "name": "r2",
+        "field": "qty",
+        "type": "range",
+        "max": 0,
+        "exclusive_max": True,
+        "severity": "ERROR"
+    })
+
+    with pytest.raises(ValueError, match="contradictory range rules"):
+        DataValidator([rule_1, rule_2])
+
+
 def test_validation_result_rule_timings():
     """Verifies that rule execution times are recorded and slowest_rule is calculated."""
     df = pd.DataFrame({"A": [1, 2, 3]})

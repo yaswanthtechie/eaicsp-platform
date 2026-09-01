@@ -153,7 +153,6 @@ def main(cli_args: Optional[list[str]] = None) -> int:
             logger.warning(
                 "LIMITATION: Watermark advances past failed rows. Bad rows are not filtered from this check.")
             new_wm = df[args.watermark_col].max()
-            new_wm = new_wm.item() if hasattr(new_wm, 'item') else new_wm
             wm.set_watermark(new_wm)
             logger.info(f"Watermark updated to: {new_wm}")
     except (OSError, TypeError, ValueError, AttributeError):

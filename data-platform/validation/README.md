@@ -531,3 +531,8 @@ validate_data --file data/messy_sales.csv --config configs/sales_rules.yaml --ou
 # Batch processing multiple files incrementally
 validate_folder --folder data/ --config configs/sales_rules.yaml --save-reports --output-dir reports/op --incremental --watermark-col "transaction_id"
 ```
+
+# Known Limitations
+* **Watermark Advancement:** The incremental pipeline advances the watermark based on the incoming dataset, *including rows that fail validation*. Failed rows are not automatically queued for reprocessing.
+* **Deduplication:** Incremental append mode deduplicates based on full-row identity. Updates to existing records require a genuine Primary Key configuration (currently unsupported).
+* **Date Sorting:** String-based watermark columns (like dates) are compared lexicographically. ISO-8601 (`YYYY-MM-DD`) works flawlessly; localized formats (`MM/DD/YYYY`) will filter incorrectly.

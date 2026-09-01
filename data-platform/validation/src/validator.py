@@ -22,6 +22,13 @@ SAFE_FUNCTION_REGISTRY = {
     "src.custom_rules.standardize_dates": custom_rules.standardize_dates,
     "src.custom_rules.drop_duplicate_rows": custom_rules.drop_duplicate_rows,
 }
+
+def is_comparable(a, b):
+    """Helper to guard against comparing strings to None or differing types."""
+    if a is None or b is None:
+        return False
+    return type(a) is type(b) or (isinstance(a, (int, float)) and isinstance(b, (int, float)))
+
 class SecurityError(Exception):
     pass
 
@@ -175,29 +182,24 @@ class DataValidator:
             if rule.type == "range" and rule.field:
                 min_val = rule.model_extra.get('min')
                 max_val = rule.model_extra.get('max')
+                exclusive_min = rule.model_extra.get('exclusive_min', False)
+                exclusive_max = rule.model_extra.get('exclusive_max', False)
 
-                # Helper to guard against comparing strings (dates) to None or differing types
-                def is_comparable(a, b):
-                    if a is None or b is None:
-                        return False
-                    return type(a) is type(b) or (isinstance(a, (int, float)) and isinstance(b, (int, float)))
-
-                # 1. Catch Intra-rule conflicts (e.g., min: 10, max: 5)
                 if is_comparable(min_val, max_val) and min_val > max_val:
                     raise ValueError(f"Config Error: Rule '{rule.name}' is impossible.")
 
-                # 2. Catch Inter-rule conflicts on the same field
                 if rule.field in field_ranges:
                     prev_min, prev_max = field_ranges[rule.field]
 
-                    # Safely calculate cumulative intersection
                     cum_min = max(prev_min, min_val) if is_comparable(prev_min, min_val) else (
                         min_val if min_val is not None else prev_min)
                     cum_max = min(prev_max, max_val) if is_comparable(prev_max, max_val) else (
                         max_val if max_val is not None else prev_max)
 
-                    if is_comparable(cum_min, cum_max) and cum_min >= cum_max:
-                        raise ValueError(f"Config Error: Field '{rule.field}' has contradictory range rules.")
+                    if is_comparable(cum_min, cum_max):
+                        # Strict inequality for overlap; equal is a conflict only if bounds are exclusive
+                        if cum_min > cum_max or (cum_min == cum_max and (exclusive_min or exclusive_max)):
+                            raise ValueError(f"Config Error: Field '{rule.field}' has contradictory range rules.")
 
                     field_ranges[rule.field] = (cum_min, cum_max)
                 else:

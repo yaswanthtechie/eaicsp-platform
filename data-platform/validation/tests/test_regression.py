@@ -20,7 +20,7 @@ def test_golden_regression():
 
     # 3. Assert specific, known outcomes
     assert report.passed is False
-    assert report.total_rows_affected == 103  # Update this to your known baseline
+    assert report.total_rows_affected == 103
 
     # Assert specific rules caught the exact right number of rows
     error_counts = {e['rule']: e['count'] for e in report.errors}
