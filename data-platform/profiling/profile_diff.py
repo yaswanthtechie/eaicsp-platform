@@ -173,10 +173,16 @@ def print_diff(changes):
     if changes["quality_score"]:
         score = changes["quality_score"]
 
-        print("\nQuality Score:")
+        change = score["change"]
+
+        if change is None:
+            change_text = "N/A"
+        else:
+            change_text = f"{change:+}"
+
         print(
             f"  {score['old']} -> {score['new']} "
-            f"({score['change']:+})"
+            f"({change_text})"
         )
 
     if changes["dataset_shape"]:

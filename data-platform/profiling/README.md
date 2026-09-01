@@ -23,7 +23,7 @@ The project includes dataset profiling, data quality scoring, outlier detection,
 * Significant categorical proportion-change detection
 * Numeric mean-shift detection
 * Automatic data-quality rule suggestions
-* Versioned `rules.yaml` generation
+* Versioned `suggested_rules.yaml` generation
 * Rule configuration validation
 * Batch monitoring and quality trend tracking
 * Quality-score drop alerts
@@ -141,7 +141,7 @@ Categorical columns are additionally checked for:
 * Disappeared categorical values
 * Significant category proportion changes
 
-A 10% proportion-change threshold is used for significant categorical changes.
+A 10 percentage-point proportion-change threshold is used for significant categorical changes.
 
 The report records the old percentage, new percentage, and difference for affected categories.
 
@@ -233,20 +233,31 @@ reports/performance_benchmark.csv
 Example observed results:
 
 ```text
-100,000 rows   -> 0.66 seconds
-250,000 rows   -> 1.37 seconds
-500,000 rows   -> 2.64 seconds
-750,000 rows   -> 6.73 seconds
-1,000,000 rows -> 10.05 seconds
+100,000  -> 0.53 seconds
+250,000  -> 1.28 seconds
+500,000  -> 2.43 seconds
+750,000  -> 3.73 seconds
+1,000,000 -> 4.57 seconds
 ```
 
-These measurements provide an observed performance baseline and show increasing execution time as dataset size grows.
+Each dataset size is profiled 3 times, and the average execution time is recorded.
+
+These measurements provide an observed performance baseline and show increasing execution time as dataset size grows. The benchmark does not establish a formal performance knee point or performance ceiling.
 
 Run the benchmark with:
 
 ```bash
 python benchmark.py
 ```
+# Limitations
+
+The current implementation has the following limitations:
+
+- The dataset comparison workflow does not currently include an inventory-shaped comparison demonstration.
+- The performance benchmark records observed timings but does not establish a formal performance knee point or performance ceiling.
+- The quality-alert logic has unit tests for synthetic scores and a real-data degraded-profile demonstration. The real-data demonstration profiles a clean dataset, injects missing values and outliers, re-profiles the degraded dataset, and verifies a CRITICAL alert.
+- The categorical drift threshold is 10 percentage points.
+
 
 # Stretch: Profile Snapshot Diff
 
@@ -335,8 +346,10 @@ profiling/
 │   ├── test_profile_diff.py
 │   └── test_rules_suggestions.py
 │
+├── pytest.ini
 ├── README.md
 └── requirements.txt
+
 ```
 
 # Running the Project
@@ -347,7 +360,7 @@ From the `profiling` directory:
 python -m src.main
 ```
 
-This generates the sample dataset, runs profiling and drift analysis, creates the HTML report, prints the data quality report, and generates the visualizations.
+This generates the sample dataset, runs profiling, generates suggested data-quality rules, saves the monitoring history, checks the quality alert, creates the HTML report, and generates the visualizations.
 
 # Using the Profiler API
 
@@ -381,8 +394,6 @@ drift = profiler.compare(old_df, new_df)
 
 print(drift)
 
-if drift.has_major_drift:
-    print("Major data drift detected")
 ```
 
 ## Monitor a New Batch
@@ -431,8 +442,7 @@ df = pd.read_csv("data/sales_data_new.csv")
 
 drift = profiler.compare(last_df, df)
 
-if drift.has_major_drift:
-    alert("Major data drift detected")
+print(drift)
 ```
 
 # Generated Reports
@@ -459,7 +469,7 @@ python -m pytest -q
 Current result:
 
 ```text
-41 passed
+54 passed
 ```
 
 The tests cover:

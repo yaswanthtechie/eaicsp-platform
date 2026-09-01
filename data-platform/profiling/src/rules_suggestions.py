@@ -24,7 +24,7 @@ def _build_rule_name(column_name, rule_type):
     return f"{column_name}_{rule_type}"
 
 
-def suggest_rules(report, null_threshold=0.2):
+def suggest_rules(report, null_threshold_percentage_points=0.2):
     """
     Generate data-quality rules from profiling results.
 
@@ -35,8 +35,10 @@ def suggest_rules(report, null_threshold=0.2):
     if not isinstance(report, dict):
         raise TypeError("report must be a dictionary")
 
-    if null_threshold < 0:
-        raise ValueError("null_threshold must be non-negative")
+    if null_threshold_percentage_points < 0:
+        raise ValueError(
+            "null_threshold_percentage_points must be non-negative"
+        )
 
     rules = []
 
@@ -53,7 +55,7 @@ def suggest_rules(report, null_threshold=0.2):
         # ---------------------------------
         # not_null rule
         # ---------------------------------
-        if null_percent <= null_threshold:
+        if null_percent <= null_threshold_percentage_points:
 
             rules.append({
                 "name": _build_rule_name(name, "not_null"),
@@ -212,7 +214,7 @@ def validate_rules_config(config):
 def write_rules_yaml(
     report,
     output_path="reports/suggested_rules.yaml",
-    null_threshold=0.2,
+    null_threshold_percentage_points=0.2,
 ):
     """
     Generate Tharun-compatible rules and write them to YAML.
@@ -223,7 +225,7 @@ def write_rules_yaml(
 
     rules_config = suggest_rules(
         report,
-        null_threshold=null_threshold,
+        null_threshold_percentage_points=null_threshold_percentage_points,
     )
 
     # Validate the Python representation first.

@@ -245,3 +245,55 @@ def test_quality_alert_requires_two_runs(tmp_path):
     assert alert["previous_score"] is None
     assert alert["current_score"] is None
     assert alert["drop"] is None
+
+
+def test_real_data_quality_alert_critical(tmp_path):
+    from src.monitoring import MonitoringHistory
+
+    history_file = tmp_path / "history.json"
+
+    monitoring = MonitoringHistory(
+        history_file=str(history_file),
+        max_batches=10
+    )
+
+    profiler = Profiler()
+
+    # Original clean dataset
+    original_df = pd.DataFrame({
+        "sku_id": [f"SKU{i:03d}" for i in range(100)],
+        "quantity_sold": [50] * 100,
+        "unit_price": [100.0] * 100
+    })
+
+    # Profile the original dataset
+    original_report = profiler.profile(original_df)
+
+    # Save the real profiling result
+    monitoring.save_batch(original_report)
+
+    # Degrade the dataset
+    degraded_df = original_df.copy()
+
+    # Inject missing values
+    degraded_df.loc[:19, "quantity_sold"] = None
+
+    # Inject outliers
+    degraded_df.loc[20:29, "quantity_sold"] = 99999
+
+    # Profile the degraded dataset
+    degraded_report = profiler.profile(degraded_df)
+
+    # Save the degraded real profiling result
+    monitoring.save_batch(degraded_report)
+
+    # Get alert from the real profiling scores
+    alert = monitoring.get_quality_alert()
+
+    assert original_report["quality_score"]["score"] == 100
+    assert degraded_report["quality_score"]["score"] == 70
+
+    assert alert["status"] == "CRITICAL"
+    assert alert["previous_score"] == 100
+    assert alert["current_score"] == 70
+    assert alert["drop"] == 30

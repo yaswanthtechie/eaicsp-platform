@@ -1,7 +1,9 @@
 import time
+import statistics
 import pandas as pd
 import numpy as np
 from pathlib import Path
+
 
 from src.profile import profile
 
@@ -36,22 +38,58 @@ def create_test_data(rows):
     })
 
 
-def benchmark(rows):
-    """Run the real profiling library and measure execution time."""
 
-    print(f"\nProfiling {rows:,} rows...")
+def benchmark(rows, runs=3):
+    """Run the real profiling library multiple times and return average time."""
+
+    timings = []
 
     df = create_test_data(rows)
 
-    start = time.perf_counter()
+    for _ in range(runs):
+        start = time.perf_counter()
 
-    profile(df)
+        profile(df)
 
-    elapsed = time.perf_counter() - start
+        elapsed = time.perf_counter() - start
+        timings.append(elapsed)
 
-    print(f"{rows:,} rows -> {elapsed:.2f} seconds")
+    average_time = statistics.mean(timings)
 
-    return elapsed
+    print(
+        f"{rows:,} rows -> "
+        f"average {average_time:.2f} seconds "
+        f"({runs} runs)"
+    )
+
+    return average_time
+
+def find_knee_point(results):
+    """Find the row size where profiling time increases most sharply."""
+
+    if len(results) < 2:
+        return None
+
+    growth_rates = []
+
+    for previous, current in zip(results, results[1:]):
+        row_growth = current["rows"] / previous["rows"]
+        time_growth = current["seconds"] / previous["seconds"]
+
+        slowdown_ratio = time_growth / row_growth
+
+        growth_rates.append({
+            "rows": current["rows"],
+            "slowdown_ratio": slowdown_ratio
+        })
+
+    knee = max(
+        growth_rates,
+        key=lambda item: item["slowdown_ratio"]
+    )
+
+    return knee["rows"]
+
 
 
 if __name__ == "__main__":
@@ -82,11 +120,25 @@ if __name__ == "__main__":
             f"{result['seconds']:.2f} seconds"
         )
 
-    # Save benchmark results
+    knee_point = find_knee_point(results)
+
+    print(
+        f"\nObserved knee point: "
+        f"{knee_point:,} rows"
+    )
+
     reports_dir = Path("reports")
     reports_dir.mkdir(exist_ok=True)
 
     benchmark_df = pd.DataFrame(results)
+
+benchmark_df["observed_knee_point"] = ""
+
+if knee_point is not None:
+    benchmark_df.loc[
+        benchmark_df["rows"] == knee_point,
+        "observed_knee_point"
+    ] = "YES"
 
     output_path = reports_dir / "performance_benchmark.csv"
     benchmark_df.to_csv(output_path, index=False)
