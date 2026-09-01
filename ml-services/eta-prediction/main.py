@@ -1,3 +1,5 @@
+import joblib
+
 from src.data import load_dataset
 from src.features import (
     build_eta_features,
@@ -24,7 +26,6 @@ from src.mlflow_tracking import (
     log_calibration_metadata,
     log_model,
 )
-import joblib
 
 
 def main():
@@ -93,12 +94,7 @@ def main():
         ].copy()
 
         # -----------------------------------------------------
-        # 10. Log model parameters
-        # -----------------------------------------------------
-        log_parameters()
-
-        # -----------------------------------------------------
-        # 11. Train and save model
+        # 10. Train and save model
         #
         # train_model() also creates the prediction
         # interval calibration artifact.
@@ -106,6 +102,16 @@ def main():
         model = train_model(
             X_train,
             y_train,
+        )
+
+        # -----------------------------------------------------
+        # 11. Log actual trained model parameters
+        #
+        # MLflow reads the parameters from the trained model
+        # instead of maintaining a separate hardcoded copy.
+        # -----------------------------------------------------
+        log_parameters(
+            model
         )
 
         # -----------------------------------------------------

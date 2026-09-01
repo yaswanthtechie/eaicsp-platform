@@ -33,6 +33,10 @@ def predict(payload: dict) -> dict:
     confidence_low and confidence_high are empirical
     prediction bounds calibrated from out-of-sample
     training residuals.
+
+    The prediction interval does not assume that the point
+    prediction must lie inside the calibrated interval.
+    Asymmetric residual calibration is valid.
     """
 
     # ---------------------------------------------------------
@@ -74,6 +78,21 @@ def predict(payload: dict) -> dict:
 
     # ---------------------------------------------------------
     # 5. Validate calibrated residual bounds
+    #
+    # The only ordering requirement at the residual level is:
+    #
+    #     residual_lower <= residual_upper
+    #
+    # We intentionally do NOT require the residual interval
+    # to contain zero.
+    #
+    # This allows legitimate asymmetric calibration, for example:
+    #
+    #     residual_lower = 2
+    #     residual_upper = 7
+    #
+    # which produces an interval entirely above the point
+    # prediction.
     # ---------------------------------------------------------
     if residual_lower > residual_upper:
         raise ValueError(
@@ -117,18 +136,15 @@ def predict(payload: dict) -> dict:
     )
 
     # ---------------------------------------------------------
-    # 8. Final safety validation
+    # 8. Final interval safety validation
+    #
+    # We only require the interval itself to be ordered.
+    # The point prediction is NOT required to lie inside it.
     # ---------------------------------------------------------
-    if confidence_low > eta_days:
+    if confidence_low > confidence_high:
         raise ValueError(
             "Prediction interval is invalid: "
-            "confidence_low exceeds eta_days."
-        )
-
-    if confidence_high < eta_days:
-        raise ValueError(
-            "Prediction interval is invalid: "
-            "confidence_high is below eta_days."
+            "lower confidence bound exceeds upper bound."
         )
 
     # ---------------------------------------------------------

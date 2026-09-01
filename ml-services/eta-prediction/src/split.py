@@ -5,6 +5,9 @@ import pandas as pd
 
 TARGET_COLUMN = "delivery_days"
 TIME_COLUMN = "order_purchase_timestamp"
+ESTIMATED_DELIVERY_COLUMN = (
+    "order_estimated_delivery_date"
+)
 
 
 @dataclass
@@ -23,9 +26,13 @@ def chronological_split(
     Split preprocessed ETA features chronologically.
 
     The original order_purchase_timestamp from the Olist orders
-    dataset is used only to establish temporal ordering.
+    dataset is used to establish temporal ordering.
 
-    The timestamp is not a model feature.
+    order_estimated_delivery_date is also carried into the
+    resulting train/test data for evaluation of Olist's existing
+    delivery-date estimate as a baseline.
+
+    Neither timestamp is a model feature.
 
     With test_size=0.20:
         - earliest 80% -> training
@@ -62,6 +69,7 @@ def chronological_split(
     required_orders = {
         "order_id",
         TIME_COLUMN,
+        ESTIMATED_DELIVERY_COLUMN,
     }
 
     missing_orders = (
@@ -76,12 +84,16 @@ def chronological_split(
         )
 
     # ---------------------------------------------------------
-    # 3. Extract original purchase timestamp
+    # 3. Extract original order timestamps
+    #
+    # These values are evaluation/split metadata only.
+    # They are never passed to the model.
     # ---------------------------------------------------------
     order_times = orders[
         [
             "order_id",
             TIME_COLUMN,
+            ESTIMATED_DELIVERY_COLUMN,
         ]
     ].copy()
 
@@ -90,20 +102,46 @@ def chronological_split(
         errors="coerce",
     )
 
-    if order_times[TIME_COLUMN].isna().any():
+    order_times[
+        ESTIMATED_DELIVERY_COLUMN
+    ] = pd.to_datetime(
+        order_times[
+            ESTIMATED_DELIVERY_COLUMN
+        ],
+        errors="coerce",
+    )
+
+    # Purchase timestamp is required because it determines
+    # the chronological split.
+    if order_times[
+        TIME_COLUMN
+    ].isna().any():
         raise ValueError(
             "Missing or invalid "
             "order_purchase_timestamp values."
         )
 
-    # Exactly one timestamp per order.
-    if order_times["order_id"].duplicated().any():
+    # Estimated delivery date is required for the Olist
+    # baseline. An invalid value means that the baseline
+    # cannot be calculated honestly for that order.
+    if order_times[
+        ESTIMATED_DELIVERY_COLUMN
+    ].isna().any():
+        raise ValueError(
+            "Missing or invalid "
+            "order_estimated_delivery_date values."
+        )
+
+    # Exactly one order record per order_id.
+    if order_times[
+        "order_id"
+    ].duplicated().any():
         raise ValueError(
             "Duplicate order_id values found in orders."
         )
 
     # ---------------------------------------------------------
-    # 4. Temporarily attach timestamp
+    # 4. Temporarily attach timestamps
     # ---------------------------------------------------------
     data = features.merge(
         order_times,

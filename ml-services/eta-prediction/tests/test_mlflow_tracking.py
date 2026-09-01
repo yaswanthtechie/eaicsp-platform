@@ -132,7 +132,7 @@ def test_mlflow_tracking_lifecycle(
         # -----------------------------------------------------
         # 6. Log model parameters
         # -----------------------------------------------------
-        log_parameters()
+        log_parameters(pipeline)
 
         # -----------------------------------------------------
         # 7. Verify parameters

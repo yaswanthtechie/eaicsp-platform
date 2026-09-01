@@ -309,6 +309,10 @@ def sample_model_data():
 
     The dataset contains only model features in X_train and
     keeps delivery_days separately as the target.
+
+    order_purchase_timestamp and
+    order_estimated_delivery_date are evaluation metadata
+    and are not model features.
     """
 
     X_train = pd.DataFrame(
@@ -457,6 +461,9 @@ def sample_model_data():
         [0, 2, 5, 7]
     ].copy()
 
+    # ---------------------------------------------------------
+    # Training evaluation metadata
+    # ---------------------------------------------------------
     train = X_train.copy()
 
     train[
@@ -478,6 +485,18 @@ def sample_model_data():
         freq="D",
     )
 
+    train[
+        "order_estimated_delivery_date"
+    ] = (
+        train[
+            "order_purchase_timestamp"
+        ]
+        + pd.Timedelta(days=10)
+    )
+
+    # ---------------------------------------------------------
+    # Test evaluation metadata
+    # ---------------------------------------------------------
     test = X_test.copy()
 
     test[
@@ -501,6 +520,18 @@ def sample_model_data():
         freq="D",
     )
 
+    test[
+        "order_estimated_delivery_date"
+    ] = (
+        test[
+            "order_purchase_timestamp"
+        ]
+        + pd.Timedelta(days=10)
+    )
+
+    # ---------------------------------------------------------
+    # Complete feature/evaluation dataset
+    # ---------------------------------------------------------
     features = pd.concat(
         [
             train,

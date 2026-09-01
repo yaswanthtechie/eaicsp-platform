@@ -22,7 +22,16 @@ def make_features(count=10):
 
 
 def make_orders(count=10):
-    """Create matching orders with chronological timestamps."""
+    """
+    Create matching orders with chronological purchase
+    timestamps and estimated delivery dates.
+    """
+
+    purchase_dates = pd.date_range(
+        "2018-01-01",
+        periods=count,
+        freq="D",
+    )
 
     return pd.DataFrame(
         {
@@ -30,10 +39,10 @@ def make_orders(count=10):
                 f"order_{i}"
                 for i in range(count)
             ],
-            "order_purchase_timestamp": pd.date_range(
-                "2018-01-01",
-                periods=count,
-                freq="D",
+            "order_purchase_timestamp": purchase_dates,
+            "order_estimated_delivery_date": (
+                purchase_dates
+                + pd.Timedelta(days=10)
             ),
         }
     )
@@ -199,6 +208,72 @@ def test_timestamp_is_available_only_for_split():
     )
 
 
+def test_estimated_delivery_date_is_available_for_baseline():
+    """
+    The Olist estimated delivery date must be carried into the
+    train/test split for baseline evaluation, but must not be
+    present in the original model feature dataset.
+    """
+
+    features = make_features()
+    orders = make_orders()
+
+    split = chronological_split(
+        features,
+        orders,
+    )
+
+    assert (
+        "order_estimated_delivery_date"
+        not in features.columns
+    )
+
+    assert (
+        "order_estimated_delivery_date"
+        in split.train.columns
+    )
+
+    assert (
+        "order_estimated_delivery_date"
+        in split.test.columns
+    )
+
+
+def test_estimated_delivery_date_is_preserved():
+    """
+    Verify the estimated delivery dates remain correctly matched
+    to their order IDs after the chronological split.
+    """
+
+    features = make_features()
+    orders = make_orders()
+
+    split = chronological_split(
+        features,
+        orders,
+    )
+
+    expected = orders.set_index(
+        "order_id"
+    )[
+        "order_estimated_delivery_date"
+    ]
+
+    for dataframe in (
+        split.train,
+        split.test,
+    ):
+        for _, row in dataframe.iterrows():
+            assert (
+                row[
+                    "order_estimated_delivery_date"
+                ]
+                == expected.loc[
+                    row["order_id"]
+                ]
+            )
+
+
 def test_missing_feature_column_raises_error():
     """Missing order_id in preprocessed features must be rejected."""
 
@@ -231,6 +306,30 @@ def test_missing_order_column_raises_error():
     orders = make_orders().drop(
         columns=[
             "order_purchase_timestamp"
+        ]
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Orders are missing",
+    ):
+        chronological_split(
+            features,
+            orders,
+        )
+
+
+def test_missing_estimated_delivery_column_raises_error():
+    """
+    Missing estimated delivery date must be rejected because
+    it is required for the Olist baseline evaluation.
+    """
+
+    features = make_features()
+
+    orders = make_orders().drop(
+        columns=[
+            "order_estimated_delivery_date"
         ]
     )
 
@@ -300,6 +399,35 @@ def test_invalid_timestamp_raises_error():
     orders.loc[
         0,
         "order_purchase_timestamp",
+    ] = "invalid-date"
+
+    with pytest.raises(
+        ValueError,
+        match="Missing or invalid",
+    ):
+        chronological_split(
+            features,
+            orders,
+        )
+
+
+def test_invalid_estimated_delivery_date_raises_error():
+    """Invalid estimated delivery dates must be rejected."""
+
+    features = make_features()
+    orders = make_orders()
+
+    orders[
+        "order_estimated_delivery_date"
+    ] = (
+        orders[
+            "order_estimated_delivery_date"
+        ].astype(object)
+    )
+
+    orders.loc[
+        0,
+        "order_estimated_delivery_date",
     ] = "invalid-date"
 
     with pytest.raises(

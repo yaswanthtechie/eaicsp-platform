@@ -310,9 +310,7 @@ def preprocess_features(features):
     if remaining_missing.any():
         raise ValueError(
             "Missing values remain after preprocessing: "
-            f"{remaining_missing[
-                remaining_missing > 0
-            ].to_dict()}"
+            f"{remaining_missing[remaining_missing > 0].to_dict()}"
         )
 
     # ---------------------------------------------------------

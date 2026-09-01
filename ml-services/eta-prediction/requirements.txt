@@ -1,7 +1,10 @@
-numpy
-pandas
-scikit-learn
-xgboost
-joblib
-mlflow
-pytest
+# ETA Prediction Service
+# Tested with Python 3.14.4
+
+numpy==2.4.6
+pandas==2.3.3
+scikit-learn==1.9.0
+xgboost==3.4.1
+joblib==1.5.3
+mlflow==3.15.2
+pytest==9.1.1

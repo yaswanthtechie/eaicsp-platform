@@ -3,27 +3,20 @@ import pytest
 
 from src.model_loader import (
     _calculate_distance,
+    _lookup_city_coordinates,
     _validate_payload,
     load_model,
-)
-from src.predict import (
-    predict,
     prepare_prediction_input,
 )
+from src.predict import predict
 
 
 def _valid_payload():
-    """Return a valid logistics-service prediction payload."""
+    """Return a valid city-based logistics-service payload."""
 
     return {
-        "origin": {
-            "lat": -23.5505,
-            "lng": -46.6333,
-        },
-        "destination": {
-            "lat": -22.9068,
-            "lng": -43.1729,
-        },
+        "origin": "sao paulo",
+        "destination": "rio de janeiro",
         "carrier": "proxy-carrier",
         "weight_kg": 2.5,
     }
@@ -39,34 +32,19 @@ def test_model_loader_and_prediction_lifecycle(
     pipeline, so this test works on a fresh clone.
     """
 
-    # ---------------------------------------------------------
-    # 1. Temporary trained model must exist
-    # ---------------------------------------------------------
     assert trained_model_path.exists()
 
-    # ---------------------------------------------------------
-    # 2. Load the trained model through model_loader
-    # ---------------------------------------------------------
     model = load_model()
 
     assert model is not None
     assert hasattr(model, "predict")
 
-    # ---------------------------------------------------------
-    # 3. Logistics-service payload
-    # ---------------------------------------------------------
     payload = _valid_payload()
 
-    # ---------------------------------------------------------
-    # 4. Convert service payload into model input
-    # ---------------------------------------------------------
     features = prepare_prediction_input(
         payload
     )
 
-    # ---------------------------------------------------------
-    # 5. Verify model-compatible input
-    # ---------------------------------------------------------
     assert len(features) == 1
 
     expected_columns = {
@@ -90,35 +68,42 @@ def test_model_loader_and_prediction_lifecycle(
         expected_columns
     )
 
-    # ---------------------------------------------------------
-    # 6. Carrier is accepted as a service-level proxy,
-    #    but is NOT a model feature.
-    # ---------------------------------------------------------
+    # Carrier is accepted at service level but is not
+    # a model feature.
     assert "carrier" not in features.columns
 
-    # ---------------------------------------------------------
-    # 7. Verify input mapping
-    # ---------------------------------------------------------
+    origin_lat, origin_lng = (
+        _lookup_city_coordinates(
+            payload["origin"]
+        )
+    )
+
+    destination_lat, destination_lng = (
+        _lookup_city_coordinates(
+            payload["destination"]
+        )
+    )
+
     row = features.iloc[0]
 
-    assert (
-        row["origin_lat"]
-        == payload["origin"]["lat"]
+    assert np.isclose(
+        row["origin_lat"],
+        origin_lat,
     )
 
-    assert (
-        row["origin_lng"]
-        == payload["origin"]["lng"]
+    assert np.isclose(
+        row["origin_lng"],
+        origin_lng,
     )
 
-    assert (
-        row["destination_lat"]
-        == payload["destination"]["lat"]
+    assert np.isclose(
+        row["destination_lat"],
+        destination_lat,
     )
 
-    assert (
-        row["destination_lng"]
-        == payload["destination"]["lng"]
+    assert np.isclose(
+        row["destination_lng"],
+        destination_lng,
     )
 
     assert (
@@ -126,31 +111,50 @@ def test_model_loader_and_prediction_lifecycle(
         == payload["weight_kg"]
     )
 
+    # Unavailable service-level features use documented
+    # inference defaults.
     assert (
         row["product_category_name"]
         == "unknown"
     )
 
-    # ---------------------------------------------------------
-    # 8. Distance must be calculated
-    # ---------------------------------------------------------
+    assert (
+        row["item_count"]
+        == 1
+    )
+
+    assert (
+        row["total_volume_cm3"]
+        == 0.0
+    )
+
+    assert (
+        row["total_freight_value"]
+        == 0.0
+    )
+
+    expected_distance = _calculate_distance(
+        origin_lat,
+        origin_lng,
+        destination_lat,
+        destination_lng,
+    )
+
+    assert np.isclose(
+        row["distance_km"],
+        expected_distance,
+    )
+
     assert row["distance_km"] > 0
 
     assert np.isfinite(
         row["distance_km"]
     )
 
-    # ---------------------------------------------------------
-    # 9. Loaded trained model must accept the
-    #    prepared prediction input.
-    # ---------------------------------------------------------
     prediction = model.predict(
         features
     )
 
-    # ---------------------------------------------------------
-    # 10. Verify raw model prediction
-    # ---------------------------------------------------------
     assert len(prediction) == 1
 
     assert np.isfinite(
@@ -170,43 +174,32 @@ def test_predict_returns_exact_contract(
 ):
     """
     Verify the public predict() function follows the exact
-    logistics-service contract required by Round 4.
+    city-based logistics-service contract required by Round 4.
 
     The prediction must contain:
         eta_days
         confidence_low
         confidence_high
+
+    The point prediction is not required to lie inside the
+    empirical prediction interval because calibration may be
+    asymmetric.
     """
 
-    # ---------------------------------------------------------
-    # 1. Temporary trained model must exist
-    # ---------------------------------------------------------
     assert trained_model_path.exists()
 
-    # ---------------------------------------------------------
-    # 2. Logistics-service payload
-    # ---------------------------------------------------------
     payload = _valid_payload()
 
-    # ---------------------------------------------------------
-    # 3. Call the public prediction contract
-    # ---------------------------------------------------------
     result = predict(
         payload
     )
 
-    # ---------------------------------------------------------
-    # 4. Exact output shape
-    # ---------------------------------------------------------
     assert set(result.keys()) == {
         "eta_days",
         "confidence_low",
         "confidence_high",
     }
 
-    # ---------------------------------------------------------
-    # 5. ETA must be a valid numeric value
-    # ---------------------------------------------------------
     assert isinstance(
         result["eta_days"],
         float,
@@ -218,9 +211,6 @@ def test_predict_returns_exact_contract(
 
     assert result["eta_days"] >= 0
 
-    # ---------------------------------------------------------
-    # 6. Confidence interval must be available
-    # ---------------------------------------------------------
     assert isinstance(
         result["confidence_low"],
         float,
@@ -239,27 +229,13 @@ def test_predict_returns_exact_contract(
         result["confidence_high"]
     )
 
-    # ---------------------------------------------------------
-    # 7. Confidence interval must be logically ordered
-    # ---------------------------------------------------------
-    assert (
-        result["confidence_low"]
-        <= result["eta_days"]
-    )
-
-    assert (
-        result["eta_days"]
-        <= result["confidence_high"]
-    )
-
+    # The interval itself must be ordered.
+    # ETA does not have to be inside it.
     assert (
         result["confidence_low"]
         <= result["confidence_high"]
     )
 
-    # ---------------------------------------------------------
-    # 8. Confidence interval must not be negative
-    # ---------------------------------------------------------
     assert (
         result["confidence_low"]
         >= 0
@@ -271,19 +247,85 @@ def test_predict_returns_exact_contract(
     )
 
 
+def test_asymmetric_prediction_interval_is_accepted(
+    monkeypatch,
+):
+    """
+    Verify that a legitimate asymmetric empirical prediction
+    interval is accepted even when the lower confidence bound
+    is above the point prediction.
+
+    Example:
+
+        ETA = 10
+        residual_lower = +2
+        residual_upper = +7
+
+        interval = [12, 17]
+
+    This is valid because empirical calibration does not
+    require the point prediction to lie inside the interval.
+    """
+
+    class DummyModel:
+        """Return a deterministic ETA prediction."""
+
+        def predict(self, features):
+            return np.array(
+                [10.0]
+            )
+
+    monkeypatch.setattr(
+        "src.predict.prepare_prediction_input",
+        lambda payload: None,
+    )
+
+    monkeypatch.setattr(
+        "src.predict.load_model",
+        lambda: DummyModel(),
+    )
+
+    monkeypatch.setattr(
+        "src.predict.load_prediction_interval",
+        lambda: {
+            "residual_lower": 2.0,
+            "residual_upper": 7.0,
+        },
+    )
+
+    result = predict(
+        _valid_payload()
+    )
+
+    assert result == {
+        "eta_days": 10.0,
+        "confidence_low": 12.0,
+        "confidence_high": 17.0,
+    }
+
+    # This is the exact reviewer scenario:
+    # the lower bound is above the point prediction.
+    assert (
+        result["confidence_low"]
+        > result["eta_days"]
+    )
+
+    # The interval itself remains valid.
+    assert (
+        result["confidence_low"]
+        <= result["confidence_high"]
+    )
+
+
 def test_prediction_payload_validation():
-    """Test required prediction payload validation."""
+    """Test required city-based prediction payload validation."""
 
     valid_payload = _valid_payload()
 
-    # Valid payload must pass.
     _validate_payload(
         valid_payload
     )
 
-    # ---------------------------------------------------------
-    # Missing required field
-    # ---------------------------------------------------------
     invalid_payload = valid_payload.copy()
 
     del invalid_payload["weight_kg"]
@@ -314,15 +356,18 @@ def test_negative_weight_is_rejected():
 
 
 def test_invalid_origin_is_rejected():
-    """Origin without latitude must be rejected."""
+    """Origin must be a non-empty city name."""
 
     payload = _valid_payload()
 
-    del payload["origin"]["lat"]
+    payload["origin"] = {
+        "lat": -23.5505,
+        "lng": -46.6333,
+    }
 
     with pytest.raises(
         ValueError,
-        match="origin must contain lat",
+        match="origin must be a city name",
     ):
         _validate_payload(
             payload
@@ -330,15 +375,50 @@ def test_invalid_origin_is_rejected():
 
 
 def test_invalid_destination_is_rejected():
-    """Destination without longitude must be rejected."""
+    """Destination must be a non-empty city name."""
 
     payload = _valid_payload()
 
-    del payload["destination"]["lng"]
+    payload["destination"] = {
+        "lat": -22.9068,
+        "lng": -43.1729,
+    }
 
     with pytest.raises(
         ValueError,
-        match="destination must contain lng",
+        match="destination must be a city name",
+    ):
+        _validate_payload(
+            payload
+        )
+
+
+def test_empty_origin_city_is_rejected():
+    """An empty origin city must be rejected."""
+
+    payload = _valid_payload()
+
+    payload["origin"] = "   "
+
+    with pytest.raises(
+        ValueError,
+        match="origin city name must not be empty",
+    ):
+        _validate_payload(
+            payload
+        )
+
+
+def test_empty_destination_city_is_rejected():
+    """An empty destination city must be rejected."""
+
+    payload = _valid_payload()
+
+    payload["destination"] = ""
+
+    with pytest.raises(
+        ValueError,
+        match="destination city name must not be empty",
     ):
         _validate_payload(
             payload
@@ -359,6 +439,102 @@ def test_non_numeric_weight_is_rejected():
         _validate_payload(
             payload
         )
+
+
+def test_infinite_weight_is_rejected():
+    """Infinite shipment weight must be rejected."""
+
+    payload = _valid_payload()
+
+    payload["weight_kg"] = float(
+        "inf"
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="weight_kg must be finite",
+    ):
+        _validate_payload(
+            payload
+        )
+
+
+def test_unknown_origin_city_is_rejected():
+    """Unknown origin city must be rejected."""
+
+    payload = _valid_payload()
+
+    payload["origin"] = (
+        "city_that_does_not_exist"
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="City not found in geolocation dataset",
+    ):
+        prepare_prediction_input(
+            payload
+        )
+
+
+def test_unknown_destination_city_is_rejected():
+    """Unknown destination city must be rejected."""
+
+    payload = _valid_payload()
+
+    payload["destination"] = (
+        "city_that_does_not_exist"
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="City not found in geolocation dataset",
+    ):
+        prepare_prediction_input(
+            payload
+        )
+
+
+def test_city_lookup_is_case_and_whitespace_insensitive():
+    """City lookup should normalize case and surrounding whitespace."""
+
+    normal_coordinates = (
+        _lookup_city_coordinates(
+            "sao paulo"
+        )
+    )
+
+    normalized_coordinates = (
+        _lookup_city_coordinates(
+            "  SAO PAULO  "
+        )
+    )
+
+    assert np.allclose(
+        normal_coordinates,
+        normalized_coordinates,
+    )
+
+
+def test_city_coordinates_are_valid():
+    """Resolved city coordinates must be geographically valid."""
+
+    latitude, longitude = (
+        _lookup_city_coordinates(
+            "sao paulo"
+        )
+    )
+
+    assert -90.0 <= latitude <= 90.0
+    assert -180.0 <= longitude <= 180.0
+
+    assert np.isfinite(
+        latitude
+    )
+
+    assert np.isfinite(
+        longitude
+    )
 
 
 def test_distance_calculation():
@@ -392,3 +568,63 @@ def test_same_location_has_zero_distance():
         distance,
         0.0,
     )
+
+
+def test_invalid_latitude_is_rejected():
+    """Latitude outside the valid geographic range must be rejected."""
+
+    with pytest.raises(
+        ValueError,
+        match="origin_lat must be between",
+    ):
+        _calculate_distance(
+            91.0,
+            -46.6333,
+            -22.9068,
+            -43.1729,
+        )
+
+
+def test_invalid_longitude_is_rejected():
+    """Longitude outside the valid geographic range must be rejected."""
+
+    with pytest.raises(
+        ValueError,
+        match="origin_lng must be between",
+    ):
+        _calculate_distance(
+            -23.5505,
+            181.0,
+            -22.9068,
+            -43.1729,
+        )
+
+
+def test_nan_coordinate_is_rejected():
+    """NaN coordinates must be rejected."""
+
+    with pytest.raises(
+        ValueError,
+        match="origin_lat must be finite",
+    ):
+        _calculate_distance(
+            float("nan"),
+            -46.6333,
+            -22.9068,
+            -43.1729,
+        )
+
+
+def test_infinite_coordinate_is_rejected():
+    """Infinite coordinates must be rejected."""
+
+    with pytest.raises(
+        ValueError,
+        match="destination_lng must be finite",
+    ):
+        _calculate_distance(
+            -23.5505,
+            -46.6333,
+            -22.9068,
+            float("inf"),
+        )

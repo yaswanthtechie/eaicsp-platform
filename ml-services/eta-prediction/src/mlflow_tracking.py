@@ -1,6 +1,8 @@
 import mlflow
 import mlflow.sklearn
 
+from .config import TEST_SIZE
+
 
 EXPERIMENT_NAME = "ETA Prediction"
 MODEL_NAME = "eta_pipeline"
@@ -20,42 +22,101 @@ def start_run():
     return mlflow.start_run()
 
 
-def log_parameters():
-    """Log the fixed ETA model and split parameters."""
+def log_parameters(model):
+    """
+    Log the actual trained model parameters.
+
+    The XGBoost configuration is sourced from the trained
+    pipeline rather than duplicated here. This ensures the
+    parameters recorded in MLflow always match the model
+    that was actually trained.
+    """
+
+    xgb_model = model["model"]
+
+    model_params = xgb_model.get_params()
 
     mlflow.log_params(
         {
-            "test_size": 0.20,
+            "test_size": TEST_SIZE,
             "model": "XGBRegressor",
-            "objective": "reg:squarederror",
-            "n_estimators": 500,
-            "learning_rate": 0.05,
-            "max_depth": 6,
-            "min_child_weight": 5,
-            "subsample": 0.8,
-            "colsample_bytree": 0.8,
-            "reg_alpha": 0.0,
-            "reg_lambda": 1.0,
-            "random_state": 42,
-            "n_jobs": -1,
+            "objective": model_params["objective"],
+            "n_estimators": model_params["n_estimators"],
+            "learning_rate": model_params["learning_rate"],
+            "max_depth": model_params["max_depth"],
+            "min_child_weight": model_params[
+                "min_child_weight"
+            ],
+            "subsample": model_params["subsample"],
+            "colsample_bytree": model_params[
+                "colsample_bytree"
+            ],
+            "reg_alpha": model_params["reg_alpha"],
+            "reg_lambda": model_params["reg_lambda"],
+            "random_state": model_params["random_state"],
+            "n_jobs": model_params["n_jobs"],
         }
     )
 
 
 def log_metrics(results):
-    """Log evaluation metrics returned by evaluate_model()."""
+    """
+    Log all evaluation metrics returned by evaluate_model().
+
+    Metrics include:
+        - XGBoost MAE/RMSE
+        - training-median baseline MAE/RMSE
+        - Olist estimated-delivery baseline MAE/RMSE
+        - improvement over training-median baseline
+        - improvement over Olist baseline
+    """
 
     mlflow.log_metrics(
         {
+            # -------------------------------------------------
+            # XGBoost
+            # -------------------------------------------------
             "mae": results["mae"],
             "rmse": results["rmse"],
-            "baseline_mae": results["baseline_mae"],
-            "baseline_rmse": results["baseline_rmse"],
+
+            # -------------------------------------------------
+            # Training-median baseline
+            # -------------------------------------------------
+            "baseline_mae": results[
+                "baseline_mae"
+            ],
+            "baseline_rmse": results[
+                "baseline_rmse"
+            ],
+
+            # -------------------------------------------------
+            # XGBoost improvement over training median
+            # -------------------------------------------------
             "mae_improvement": results[
                 "mae_improvement"
             ],
             "rmse_improvement": results[
                 "rmse_improvement"
+            ],
+
+            # -------------------------------------------------
+            # Olist estimated-delivery baseline
+            # -------------------------------------------------
+            "olist_baseline_mae": results[
+                "olist_baseline_mae"
+            ],
+            "olist_baseline_rmse": results[
+                "olist_baseline_rmse"
+            ],
+
+            # -------------------------------------------------
+            # XGBoost improvement over Olist baseline
+            # -------------------------------------------------
+            "olist_mae_improvement": results[
+                "olist_mae_improvement"
+            ],
+            "olist_rmse_improvement": results[
+                "olist_rmse_improvement"
             ],
         }
     )

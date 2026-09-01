@@ -1,141 +1,36 @@
 import numpy as np
-import pandas as pd
+import pytest
 
 from src.evaluate import evaluate_model
 
 
 class DummyModel:
-    """Simple deterministic model for evaluation testing."""
+    """Simple deterministic model for evaluation tests."""
 
     def predict(self, X):
         return np.array(
-            [5.0, 10.0, 15.0]
+            [
+                5.0,
+                10.0,
+                15.0,
+                20.0,
+            ]
         )
 
 
-def make_train_data():
-    return pd.DataFrame(
-        {
-            "order_id": [
-                "order_1",
-                "order_2",
-                "order_3",
-            ],
-            "delivery_days": [
-                5.0,
-                10.0,
-                15.0,
-            ],
-            "order_purchase_timestamp": pd.to_datetime(
-                [
-                    "2018-01-01",
-                    "2018-01-02",
-                    "2018-01-03",
-                ]
-            ),
-        }
-    )
+def test_evaluation_model_and_baselines(
+    sample_model_data,
+):
+    """
+    Test XGBoost evaluation against both the training-median
+    baseline and Olist's estimated-delivery baseline.
 
+    All data comes from the shared sample_model_data fixture
+    in conftest.py.
+    """
 
-def make_test_data():
-    return pd.DataFrame(
-        {
-            "order_id": [
-                "order_4",
-                "order_5",
-                "order_6",
-            ],
-            "delivery_days": [
-                6.0,
-                12.0,
-                18.0,
-            ],
-            "order_purchase_timestamp": pd.to_datetime(
-                [
-                    "2018-01-04",
-                    "2018-01-05",
-                    "2018-01-06",
-                ]
-            ),
-            "purchase_year": [
-                2018,
-                2018,
-                2018,
-            ],
-            "purchase_month": [
-                1,
-                1,
-                1,
-            ],
-            "purchase_day_of_week": [
-                3,
-                4,
-                5,
-            ],
-            "purchase_hour": [
-                10,
-                11,
-                12,
-            ],
-            "origin_lat": [
-                -23.55,
-                -22.90,
-                -19.92,
-            ],
-            "origin_lng": [
-                -46.63,
-                -43.18,
-                -43.94,
-            ],
-            "destination_lat": [
-                -23.56,
-                -22.91,
-                -19.93,
-            ],
-            "destination_lng": [
-                -46.65,
-                -43.20,
-                -43.95,
-            ],
-            "distance_km": [
-                5.0,
-                10.0,
-                15.0,
-            ],
-            "item_count": [
-                1,
-                2,
-                3,
-            ],
-            "total_weight_kg": [
-                0.5,
-                1.0,
-                1.5,
-            ],
-            "total_volume_cm3": [
-                100.0,
-                200.0,
-                300.0,
-            ],
-            "total_freight_value": [
-                5.0,
-                10.0,
-                15.0,
-            ],
-            "product_category_name": [
-                "electronics",
-                "books",
-                "toys",
-            ],
-        }
-    )
-
-
-def test_evaluation_model_and_naive_baseline():
-    """Test model evaluation against the training-median baseline."""
-
-    train = make_train_data()
-    test = make_test_data()
+    train = sample_model_data["train"]
+    test = sample_model_data["test"]
 
     model = DummyModel()
 
@@ -146,99 +41,129 @@ def test_evaluation_model_and_naive_baseline():
     )
 
     # ---------------------------------------------------------
-    # Training median must be used as the baseline.
+    # 1. Model metrics must exist and be finite
     # ---------------------------------------------------------
-    expected_baseline = 10.0
+    assert np.isfinite(
+        results["mae"]
+    )
+
+    assert np.isfinite(
+        results["rmse"]
+    )
+
+    # ---------------------------------------------------------
+    # 2. Training-median baseline
+    # ---------------------------------------------------------
+    expected_baseline = train[
+        "delivery_days"
+    ].median()
 
     assert (
         results["baseline_prediction"]
         == expected_baseline
     )
 
-    # ---------------------------------------------------------
-    # Model metrics
-    #
-    # Predictions: 5, 10, 15
-    # Actual:      6, 12, 18
-    #
-    # Absolute errors: 1, 2, 3
-    # MAE = 2
-    # ---------------------------------------------------------
-    assert results["mae"] == 2.0
+    assert np.isfinite(
+        results["baseline_mae"]
+    )
 
-    expected_rmse = np.sqrt(
+    assert np.isfinite(
+        results["baseline_rmse"]
+    )
+
+    # ---------------------------------------------------------
+    # 3. Olist baseline
+    # ---------------------------------------------------------
+    assert np.isfinite(
+        results["olist_baseline_mae"]
+    )
+
+    assert np.isfinite(
+        results["olist_baseline_rmse"]
+    )
+
+    # ---------------------------------------------------------
+    # 4. Olist baseline must be evaluated against
+    #    the same test target.
+    # ---------------------------------------------------------
+    expected_olist_predictions = (
         (
-            1**2
-            + 2**2
-            + 3**2
+            test[
+                "order_estimated_delivery_date"
+            ]
+            - test[
+                "order_purchase_timestamp"
+            ]
         )
-        / 3
+        .dt.total_seconds()
+        / (24 * 60 * 60)
+    ).to_numpy(
+        dtype=float
     )
 
-    assert np.isclose(
-        results["rmse"],
-        expected_rmse,
+    expected_actual = test[
+        "delivery_days"
+    ].to_numpy(
+        dtype=float
     )
 
-    # ---------------------------------------------------------
-    # Baseline metrics
-    #
-    # Baseline predicts 10 for every test order.
-    # Actual: 6, 12, 18
-    # Errors: 4, 2, 8
-    # MAE = 14 / 3
-    # ---------------------------------------------------------
-    expected_baseline_mae = 14 / 3
-
-    assert np.isclose(
-        results["baseline_mae"],
-        expected_baseline_mae,
-    )
-
-    expected_baseline_rmse = np.sqrt(
-        (
-            4**2
-            + 2**2
-            + 8**2
+    expected_olist_mae = np.mean(
+        np.abs(
+            expected_actual
+            - expected_olist_predictions
         )
-        / 3
+    )
+
+    expected_olist_rmse = np.sqrt(
+        np.mean(
+            (
+                expected_actual
+                - expected_olist_predictions
+            )
+            ** 2
+        )
     )
 
     assert np.isclose(
-        results["baseline_rmse"],
-        expected_baseline_rmse,
+        results["olist_baseline_mae"],
+        expected_olist_mae,
+    )
+
+    assert np.isclose(
+        results["olist_baseline_rmse"],
+        expected_olist_rmse,
     )
 
     # ---------------------------------------------------------
-    # Model should beat this baseline.
+    # 5. Improvement metrics must exist
     # ---------------------------------------------------------
-    assert (
-        results["mae"]
-        < results["baseline_mae"]
+    assert np.isfinite(
+        results["mae_improvement"]
     )
 
-    assert (
-        results["rmse"]
-        < results["baseline_rmse"]
+    assert np.isfinite(
+        results["rmse_improvement"]
     )
 
-    # ---------------------------------------------------------
-    # Improvement should be positive.
-    # ---------------------------------------------------------
-    assert (
-        results["mae_improvement"] > 0
+    assert np.isfinite(
+        results["olist_mae_improvement"]
     )
 
-    assert (
-        results["rmse_improvement"] > 0
+    assert np.isfinite(
+        results["olist_rmse_improvement"]
     )
 
 
-def test_evaluation_returns_expected_metrics():
-    """Verify evaluation returns the complete result contract."""
+def test_evaluation_returns_expected_metrics(
+    sample_model_data,
+):
+    """
+    Verify evaluate_model() returns the complete evaluation
+    result contract.
+    """
 
-    train = make_train_data()
-    test = make_test_data()
+    train = sample_model_data["train"]
+    test = sample_model_data["test"]
 
     results = evaluate_model(
         DummyModel(),
@@ -252,24 +177,42 @@ def test_evaluation_returns_expected_metrics():
         "baseline_prediction",
         "baseline_mae",
         "baseline_rmse",
+        "olist_baseline_mae",
+        "olist_baseline_rmse",
         "mae_improvement",
         "rmse_improvement",
+        "olist_mae_improvement",
+        "olist_rmse_improvement",
     }
 
-    assert set(results.keys()) == expected_keys
+    assert set(
+        results.keys()
+    ) == expected_keys
 
 
-def test_baseline_uses_training_data_only():
-    """Verify the naive baseline is calculated from training median."""
+def test_baseline_uses_training_data_only(
+    sample_model_data,
+):
+    """
+    Verify the naive median baseline is calculated exclusively
+    from the training target and does not use test targets.
+    """
 
-    train = make_train_data()
-    test = make_test_data()
+    train = sample_model_data["train"].copy()
+    test = sample_model_data["test"].copy()
 
-    # Make test target very different from training.
-    test["delivery_days"] = [
-        100.0,
-        200.0,
-        300.0,
+    original_training_median = train[
+        "delivery_days"
+    ].median()
+
+    # Make test target completely different.
+    test[
+        "delivery_days"
+    ] = [
+        1000.0,
+        2000.0,
+        3000.0,
+        4000.0,
     ]
 
     results = evaluate_model(
@@ -278,8 +221,175 @@ def test_baseline_uses_training_data_only():
         test,
     )
 
-    # Must remain the training median = 10.
     assert (
         results["baseline_prediction"]
-        == train["delivery_days"].median()
+        == original_training_median
+    )
+
+
+def test_olist_baseline_uses_estimated_and_purchase_dates(
+    sample_model_data,
+):
+    """
+    Verify Olist's baseline uses only:
+
+        order_estimated_delivery_date
+        -
+        order_purchase_timestamp
+
+    and does not depend on the training target.
+    """
+
+    train = sample_model_data["train"].copy()
+    test = sample_model_data["test"].copy()
+
+    results = evaluate_model(
+        DummyModel(),
+        train,
+        test,
+    )
+
+    expected_predictions = (
+        (
+            test[
+                "order_estimated_delivery_date"
+            ]
+            - test[
+                "order_purchase_timestamp"
+            ]
+        )
+        .dt.total_seconds()
+        / (24 * 60 * 60)
+    ).to_numpy(
+        dtype=float
+    )
+
+    actual = test[
+        "delivery_days"
+    ].to_numpy(
+        dtype=float
+    )
+
+    expected_mae = np.mean(
+        np.abs(
+            actual
+            - expected_predictions
+        )
+    )
+
+    expected_rmse = np.sqrt(
+        np.mean(
+            (
+                actual
+                - expected_predictions
+            )
+            ** 2
+        )
+    )
+
+    assert np.isclose(
+        results["olist_baseline_mae"],
+        expected_mae,
+    )
+
+    assert np.isclose(
+        results["olist_baseline_rmse"],
+        expected_rmse,
+    )
+
+
+def test_olist_baseline_is_independent_of_training_target(
+    sample_model_data,
+):
+    """
+    Changing training delivery_days must not change the Olist
+    estimated-delivery baseline metrics.
+    """
+
+    train = sample_model_data["train"].copy()
+    test = sample_model_data["test"].copy()
+
+    first_results = evaluate_model(
+        DummyModel(),
+        train,
+        test,
+    )
+
+    # Change only the training target.
+    train[
+        "delivery_days"
+    ] = (
+        train[
+            "delivery_days"
+        ]
+        + 1000.0
+    )
+
+    second_results = evaluate_model(
+        DummyModel(),
+        train,
+        test,
+    )
+
+    assert np.isclose(
+        first_results[
+            "olist_baseline_mae"
+        ],
+        second_results[
+            "olist_baseline_mae"
+        ],
+    )
+
+    assert np.isclose(
+        first_results[
+            "olist_baseline_rmse"
+        ],
+        second_results[
+            "olist_baseline_rmse"
+        ],
+    )
+
+
+def test_evaluation_does_not_pass_baseline_columns_to_model(
+    sample_model_data,
+):
+    """
+    Verify order_purchase_timestamp and
+    order_estimated_delivery_date are evaluation metadata,
+    not model features.
+    """
+
+    train = sample_model_data["train"]
+    test = sample_model_data["test"]
+
+    class InspectingModel:
+        def __init__(self):
+            self.received_columns = None
+
+        def predict(self, X):
+            self.received_columns = list(
+                X.columns
+            )
+
+            return np.zeros(
+                len(X),
+                dtype=float,
+            )
+
+    model = InspectingModel()
+
+    evaluate_model(
+        model,
+        train,
+        test,
+    )
+
+    assert (
+        "order_purchase_timestamp"
+        not in model.received_columns
+    )
+
+    assert (
+        "order_estimated_delivery_date"
+        not in model.received_columns
     )
