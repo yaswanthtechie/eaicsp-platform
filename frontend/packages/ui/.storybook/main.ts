@@ -6,6 +6,7 @@ const config: StorybookConfig = {
   ],
 
   addons: [
+    "@storybook/addon-docs",
     "@storybook/addon-a11y",
   ],
 
@@ -14,7 +15,9 @@ const config: StorybookConfig = {
     options: {},
   },
 
-  docs: {},
+  docs: {
+    defaultName: "Docs",
+  },
 };
 
 export default config;

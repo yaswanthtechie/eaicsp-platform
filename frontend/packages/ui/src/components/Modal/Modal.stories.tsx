@@ -16,6 +16,31 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
+function ModalWithState({
+  args,
+  footer,
+}: {
+  args: React.ComponentProps<typeof Modal>;
+  footer?: React.ReactNode;
+}) {
+  const [isOpen, setIsOpen] = useState(args.isOpen);
+
+  return (
+    <>
+      <Button onClick={() => setIsOpen(true)}>
+        Open Modal
+      </Button>
+
+      <Modal
+        {...args}
+        isOpen={isOpen}
+        onClose={() => setIsOpen(false)}
+        footer={footer}
+      />
+    </>
+  );
+}
+
 export const Default: Story = {
   args: {
     isOpen: true,
@@ -27,23 +52,7 @@ export const Default: Story = {
       </p>
     ),
   },
-  render: (args) => {
-    const [isOpen, setIsOpen] = useState(args.isOpen);
-
-    return (
-      <>
-        <Button onClick={() => setIsOpen(true)}>
-          Open Modal
-        </Button>
-
-        <Modal
-          {...args}
-          isOpen={isOpen}
-          onClose={() => setIsOpen(false)}
-        />
-      </>
-    );
-  },
+  render: (args) => <ModalWithState args={args} />,
 };
 
 export const WithFooter: Story = {
@@ -57,37 +66,23 @@ export const WithFooter: Story = {
       </p>
     ),
   },
-  render: (args) => {
-    const [isOpen, setIsOpen] = useState(args.isOpen);
+  render: (args) => (
+    <ModalWithState
+      args={args}
+      footer={
+        <>
+          <Button
+            variant="secondary"
+            onClick={() => {}}
+          >
+            Cancel
+          </Button>
 
-    return (
-      <>
-        <Button onClick={() => setIsOpen(true)}>
-          Open Modal
-        </Button>
-
-        <Modal
-          {...args}
-          isOpen={isOpen}
-          onClose={() => setIsOpen(false)}
-          footer={
-            <>
-              <Button
-                variant="secondary"
-                onClick={() => setIsOpen(false)}
-              >
-                Cancel
-              </Button>
-
-              <Button
-                onClick={() => setIsOpen(false)}
-              >
-                Confirm
-              </Button>
-            </>
-          }
-        />
-      </>
-    );
-  },
+          <Button onClick={() => {}}>
+            Confirm
+          </Button>
+        </>
+      }
+    />
+  ),
 };

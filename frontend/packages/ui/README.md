@@ -496,289 +496,33 @@ Built with **React + TypeScript** for the EAICSP platform.
 
 # R5 — Component Library Enhancements
 
-## Overview
+R5 extends the UI component library with Storybook documentation and accessibility testing, additional chart primitives, a high-contrast theme, broader component tests, and a versioned changelog.
 
-R5 focuses on making the UI component library production-ready by improving Storybook documentation, adding chart primitives, introducing a high-contrast theme, expanding component testing, and maintaining a versioned changelog.
+The Storybook setup provides the reference environment for the library's component stories, states, and variants. Storybook is configured with the React + Vite framework and the `@storybook/addon-a11y` addon. Component stories use Storybook autodocs where applicable, and the Storybook toolbar provides Light, Dark, and High Contrast theme options.
 
----
+The chart collection was extended with two additional reusable primitives: `<Sparkline>` and `<Gauge>`. Sparkline provides a compact trend visualization, while Gauge provides a value/progress visualization. Both are included alongside the existing chart components and use the library's design-token system for styling.
 
-## 1. Real Storybook Setup
+A third theme, High Contrast, was added alongside the existing Light and Dark themes. The high-contrast theme is defined through the centralized token variables in `src/theme/variables.css` and can be selected from Storybook. The theme was demonstrated across multiple components, including Button, Badge, Card, Tabs, and StatusIndicator, to verify that the components use the shared theme tokens.
 
-Storybook is configured as the reference environment for documenting and testing the UI component library.
+The component test suite was expanded using React Testing Library and Vitest. Tests cover the existing component library as well as the added chart primitives and key component behavior.
 
-### Features
+A versioned `CHANGELOG.md` was added to record library changes and provide a place for future breaking changes and releases.
 
-- Storybook v10.5.10
-- React + Vite integration
-- Component stories for the UI library
-- Autodocs enabled for component stories
-- Accessibility testing with `@storybook/addon-a11y`
-- Theme demonstrations through Storybook
+## Verification
 
-### Run Storybook
+The implementation was verified with TypeScript, ESLint, Vitest, and the production build.
 
-```bash
-npm run storybook
-```
-
-Storybook runs locally at:
-
-```text
-http://localhost:6006/
-```
-
-Storybook is used to demonstrate component states, variants, themes, and accessibility behavior.
-
----
-
-## 2. Chart Primitives
-
-Two additional chart primitives were added to the existing chart collection:
-
-### Sparkline
-
-A compact line chart intended for displaying trends in a small amount of space.
-
-### Gauge
-
-A gauge-style visualization for displaying a value or progress toward a target.
-
-Both components:
-
-- Are implemented as reusable React components.
-- Use the existing chart infrastructure.
-- Support the library's design-token system.
-- Are included in the component test suite.
-- Are available for demonstration through Storybook.
-
-Existing chart primitives include:
-
-- Sparkline
-- Gauge
-- TrendLine
-- MiniBarChart
-- DonutChart
-
----
-
-## 3. High-Contrast Theme
-
-A third theme was added in addition to the existing light and dark themes.
-
-### Supported Themes
-
-- Light
-- Dark
-- High Contrast
-
-The high-contrast theme is implemented using centralized CSS variables in:
-
-```text
-src/theme/variables.css
-```
-
-The theme is activated with:
-
-```html
-data-theme="high-contrast"
-```
-
-### High-Contrast Token Examples
-
-```css
-[data-theme="high-contrast"] {
-  --color-background: #000000;
-  --color-surface: #000000;
-  --color-text: #ffffff;
-  --color-text-secondary: #ffffff;
-  --color-border: #ffffff;
-
-  --color-primary: #ffff00;
-  --color-primary-hover: #ffffff;
-
-  --color-success: #00ff00;
-  --color-warning: #ffff00;
-  --color-danger: #ff0000;
-  --color-info: #00ffff;
-}
-```
-
-The high-contrast theme is demonstrated across multiple components, including:
-
-- Button
-- Badge
-- Card
-- Tabs
-- StatusIndicator
-
-The components consume centralized design tokens instead of defining component-specific hardcoded colors.
-
-### High-Contrast Story
-
-The theme demonstration is available in:
-
-```text
-src/components/ThemeDemo.stories.tsx
-```
-
----
-
-## 4. Component Test Suite
-
-A React Testing Library and Vitest-based test suite was expanded to cover the component library.
-
-### Test Coverage
-
-The current test suite covers:
-
-- Button
-- Card
-- Badge
-- KpiCard
-- Spinner
-- AlertBanner
-- StatusIndicator
-- Table
-- Tabs
-- Input
-- Checkbox
-- Select
-- TextArea
-- Sparkline
-- Gauge
-- TrendLine
-- MiniBarChart
-- DonutChart
-- DataTable
-- Modal
-
-### Run Tests
-
-Run the complete test suite with:
-
-```bash
+````bash
+npx tsc --noEmit
+npm run lint
 npm test
-```
+npm run build.
 
-Latest verification:
-
-```text
-Test Files  3 passed (3)
-Tests       24 passed (24)
-```
-
-All 24 tests are currently passing.
-
----
-
-## 5. Versioned Changelog
-
-A versioned changelog was added to make library changes visible to consumers.
-
-The changelog is located at:
+Component tests were expanded using Vitest and React Testing Library. The current verification passes with:
 
 ```text
-CHANGELOG.md
-```
-
-Current version:
-
-```text
-1.0.0
-```
-
-Release date:
-
-```text
-2026-08-26
-```
-
-The changelog records:
-
-- Storybook setup
-- Accessibility testing
-- Sparkline
-- Gauge
-- High-contrast theme
-- Centralized design tokens
-- Accessibility improvements
-
-Future breaking changes and important library changes should be recorded in the changelog before release.
-
----
-
-# R5 Verification
-
-The following commands were used to verify the implementation.
-
-## Run Tests
-
-```bash
-npm test
-```
-
-Result:
-
-```text
-Test Files  3 passed (3)
-Tests       24 passed (24)
-```
-
-## Production Build
-
-```bash
-npm run build
-```
-
-Result:
-
-```text
-✓ built
-```
-
-The Vite production build and TypeScript declaration build complete successfully with no TypeScript errors.
-
-## Start Storybook
-
-```bash
-npm run storybook
-```
-
-Result:
-
-```text
-Storybook ready!
-Local: http://localhost:6006/
-```
-
----
-
-# R5 Definition of Done
-
-| Requirement                                           | Status      |
-| ----------------------------------------------------- | ----------- |
-| Storybook running                                     | ✅ Complete |
-| Accessibility addon configured                        | ✅ Complete |
-| Component stories available                           | ✅ Complete |
-| Sparkline added                                       | ✅ Complete |
-| Gauge added                                           | ✅ Complete |
-| High-contrast theme added                             | ✅ Complete |
-| High-contrast theme demonstrated across 5+ components | ✅ Complete |
-| Component test suite implemented                      | ✅ Complete |
-| 24 tests passing                                      | ✅ Complete |
-| Versioned changelog created                           | ✅ Complete |
-| Changelog dated                                       | ✅ Complete |
-| Production build passing                              | ✅ Complete |
-
-## Final Status
-
-R5 implementation is complete and verified through:
-
-- Storybook
-- Accessibility testing setup
-- High-contrast theme demonstration
-- React Testing Library/Vitest tests
-- Production build
-- Versioned changelog
-
-The UI component library is now documented, tested, themeable, and ready for continued versioned development.
+Test Files: 3 passed
+Tests:      24 passed
+````
+     24 passed
+````

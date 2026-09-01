@@ -1,4 +1,3 @@
-import { colors } from "../theme/tokens";
 import "./Spinner.css";
 
 export interface SpinnerProps {
@@ -12,8 +11,8 @@ export function Spinner({
     size === "sm"
       ? 20
       : size === "md"
-      ? 35
-      : 50;
+        ? 35
+        : 50;
 
   return (
     <div
@@ -22,8 +21,8 @@ export function Spinner({
       style={{
         width: spinnerSize,
         height: spinnerSize,
-        border: `4px solid ${colors.border}`,
-        borderTop: `4px solid ${colors.primary}`,
+        border: "4px solid var(--color-border)",
+        borderTop: "4px solid var(--color-primary)",
         borderRadius: "50%",
         animation: "spin 1s linear infinite",
       }}
