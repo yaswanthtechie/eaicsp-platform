@@ -1631,3 +1631,10 @@ Also verified:
 Test Files: 15 passed
 Tests:      77 passed
 Failed:     0
+
+## Not Done 
+
+- The GraphQL schema is documentation-as-code for the target backend contract.
+- The schema has not yet been validated against Rashida's live GraphQL backend implementation.
+- Backend GraphQL integration is planned for a future round.
+- The Supplier Portal continues to use frontend mocks during Round 5.

@@ -33,18 +33,18 @@ export const useAcknowledgePO = () => {
      * Online:
      * Execute the GraphQL mutation with optimistic UI.
      */
-    await acknowledgePurchaseOrder({
-      variables: {
-        po_number: poNumber,
-      },
-      optimisticResponse: {
-        acknowledgePurchaseOrder: {
-          __typename: "PurchaseOrder",
-          po_number: poNumber,
-          status: "ACKNOWLEDGED",
-        },
-      },
-    });
+await acknowledgePurchaseOrder({
+  variables: {
+    poNumber,
+  },
+  optimisticResponse: {
+    acknowledgePurchaseOrder: {
+      __typename: "PurchaseOrder",
+      poNumber,
+      status: "ACKNOWLEDGED",
+    },
+  },
+});
 
     return {
       queued: false,

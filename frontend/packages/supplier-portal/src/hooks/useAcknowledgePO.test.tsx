@@ -26,14 +26,14 @@ const acknowledgeMock = {
   request: {
     query: ACKNOWLEDGE_PO,
     variables: {
-      po_number: "PO-1001",
+      poNumber: "PO-1001",
     },
   },
   result: {
     data: {
       acknowledgePurchaseOrder: {
         __typename: "PurchaseOrder",
-        po_number: "PO-1001",
+        poNumber: "PO-1001",
         status: "ACKNOWLEDGED",
       },
     },
@@ -51,14 +51,11 @@ describe("useAcknowledgePO", () => {
   });
 
   it("queues the acknowledgement when browser is offline", async () => {
-    const { result } = renderHook(
-      () => useAcknowledgePO(),
-      {
-        wrapper: ({ children }) => (
-          <MockedProvider>{children}</MockedProvider>
-        ),
-      }
-    );
+    const { result } = renderHook(() => useAcknowledgePO(), {
+      wrapper: ({ children }) => (
+        <MockedProvider>{children}</MockedProvider>
+      ),
+    });
 
     let response;
 
@@ -70,6 +67,8 @@ describe("useAcknowledgePO", () => {
       queued: true,
     });
 
+    // Offline queue intentionally keeps the existing
+    // application action payload format.
     expect(addOfflineAction).toHaveBeenCalledWith({
       type: "ACKNOWLEDGE_PO",
       payload: {
@@ -84,16 +83,13 @@ describe("useAcknowledgePO", () => {
       value: true,
     });
 
-    const { result } = renderHook(
-      () => useAcknowledgePO(),
-      {
-        wrapper: ({ children }) => (
-          <MockedProvider mocks={[acknowledgeMock]}>
-            {children}
-          </MockedProvider>
-        ),
-      }
-    );
+    const { result } = renderHook(() => useAcknowledgePO(), {
+      wrapper: ({ children }) => (
+        <MockedProvider mocks={[acknowledgeMock]}>
+          {children}
+        </MockedProvider>
+      ),
+    });
 
     let response;
 
@@ -118,7 +114,7 @@ describe("useAcknowledgePO", () => {
       request: {
         query: ACKNOWLEDGE_PO,
         variables: {
-          po_number: "PO-1001",
+          poNumber: "PO-1001",
         },
       },
       delay: 100,
@@ -126,7 +122,7 @@ describe("useAcknowledgePO", () => {
         data: {
           acknowledgePurchaseOrder: {
             __typename: "PurchaseOrder",
-            po_number: "PO-1001",
+            poNumber: "PO-1001",
             status: "ACKNOWLEDGED",
           },
         },
@@ -136,7 +132,7 @@ describe("useAcknowledgePO", () => {
     const cache = new InMemoryCache({
       typePolicies: {
         PurchaseOrder: {
-          keyFields: ["po_number"],
+          keyFields: ["poNumber"],
         },
       },
     });
@@ -156,11 +152,11 @@ describe("useAcknowledgePO", () => {
               cursor: "cursor-1",
               node: {
                 __typename: "PurchaseOrder",
-                po_number: "PO-1001",
-                supplier_id: "SUP-001",
+                poNumber: "PO-1001",
+                supplierId: "SUP-001",
                 status: "SENT",
-                total_amount: 1000,
-                expected_delivery: "2026-08-20",
+                totalAmount: 1000,
+                expectedDelivery: "2026-08-20",
                 items: [],
               },
             },
@@ -174,19 +170,16 @@ describe("useAcknowledgePO", () => {
       },
     });
 
-    const { result } = renderHook(
-      () => useAcknowledgePO(),
-      {
-        wrapper: ({ children }) => (
-          <MockedProvider
-            mocks={[mutationMock]}
-            cache={cache}
-          >
-            {children}
-          </MockedProvider>
-        ),
-      }
-    );
+    const { result } = renderHook(() => useAcknowledgePO(), {
+      wrapper: ({ children }) => (
+        <MockedProvider
+          mocks={[mutationMock]}
+          cache={cache}
+        >
+          {children}
+        </MockedProvider>
+      ),
+    });
 
     let promise: Promise<{ queued: boolean }>;
 
@@ -211,14 +204,13 @@ describe("useAcknowledgePO", () => {
       await promise;
     });
 
-    const finalData =
-      cache.readQuery<PurchaseOrdersCache>({
-        query: GET_PURCHASE_ORDERS,
-        variables: {
-          first: 20,
-          after: null,
-        },
-      });
+    const finalData = cache.readQuery<PurchaseOrdersCache>({
+      query: GET_PURCHASE_ORDERS,
+      variables: {
+        first: 20,
+        after: null,
+      },
+    });
 
     expect(
       finalData?.purchaseOrders?.edges?.[0]?.node.status
@@ -237,7 +229,7 @@ describe("useAcknowledgePO", () => {
       request: {
         query: ACKNOWLEDGE_PO,
         variables: {
-          po_number: "PO-1001",
+          poNumber: "PO-1001",
         },
       },
       delay: 100,
@@ -247,7 +239,7 @@ describe("useAcknowledgePO", () => {
     const cache = new InMemoryCache({
       typePolicies: {
         PurchaseOrder: {
-          keyFields: ["po_number"],
+          keyFields: ["poNumber"],
         },
       },
     });
@@ -267,11 +259,11 @@ describe("useAcknowledgePO", () => {
               cursor: "cursor-1",
               node: {
                 __typename: "PurchaseOrder",
-                po_number: "PO-1001",
-                supplier_id: "SUP-001",
+                poNumber: "PO-1001",
+                supplierId: "SUP-001",
                 status: "SENT",
-                total_amount: 1000,
-                expected_delivery: "2026-08-20",
+                totalAmount: 1000,
+                expectedDelivery: "2026-08-20",
                 items: [],
               },
             },
@@ -285,19 +277,16 @@ describe("useAcknowledgePO", () => {
       },
     });
 
-    const { result } = renderHook(
-      () => useAcknowledgePO(),
-      {
-        wrapper: ({ children }) => (
-          <MockedProvider
-            mocks={[mutationMock]}
-            cache={cache}
-          >
-            {children}
-          </MockedProvider>
-        ),
-      }
-    );
+    const { result } = renderHook(() => useAcknowledgePO(), {
+      wrapper: ({ children }) => (
+        <MockedProvider
+          mocks={[mutationMock]}
+          cache={cache}
+        >
+          {children}
+        </MockedProvider>
+      ),
+    });
 
     let promise: Promise<{ queued: boolean }>;
 
@@ -325,14 +314,13 @@ describe("useAcknowledgePO", () => {
       );
     });
 
-    const finalData =
-      cache.readQuery<PurchaseOrdersCache>({
-        query: GET_PURCHASE_ORDERS,
-        variables: {
-          first: 20,
-          after: null,
-        },
-      });
+    const finalData = cache.readQuery<PurchaseOrdersCache>({
+      query: GET_PURCHASE_ORDERS,
+      variables: {
+        first: 20,
+        after: null,
+      },
+    });
 
     expect(
       finalData?.purchaseOrders?.edges?.[0]?.node.status

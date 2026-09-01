@@ -188,6 +188,8 @@ const Orders = () => {
       ) : (
         <div
           ref={parentRef}
+          role="list"
+          aria-label="Purchase orders"
           style={{
             height: "600px",
             overflow: "auto",
@@ -209,6 +211,7 @@ const Orders = () => {
                 return (
                   <div
                     key={order.po_number}
+                    role="listitem"
                     style={{
                       position: "absolute",
                       top: 0,
