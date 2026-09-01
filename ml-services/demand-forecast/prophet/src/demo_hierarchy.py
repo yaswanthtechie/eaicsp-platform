@@ -1,7 +1,10 @@
 import pandas as pd
 
 from src.sku_forecast import forecast_sku_demand
-from src.hierarchy import bottom_up_reconcile
+from src.hierarchy import (
+    bottom_up_reconcile,
+    verify_reconciliation,
+)
 
 
 # ============================================================
@@ -120,7 +123,7 @@ print(
 
 
 # ============================================================
-# FINAL RESULT
+# VERIFY 3-LEVEL RECONCILIATION
 # ============================================================
 
 print(
@@ -135,18 +138,38 @@ print(
     "========================================"
 )
 
-print(
-    "SKU → Category       : PASSED"
-)
 
-print(
-    "Category → Region    : PASSED"
-)
+try:
 
-print(
-    "SKU → Category → Region : PASSED"
-)
+    verify_reconciliation(
+        sku_result,
+        category_result,
+        region_result,
+    )
 
-print(
-    "\nHierarchy reconciliation completed successfully."
-)
+    print(
+        "SKU → Category → Region : PASSED"
+    )
+
+    print(
+        "\nHierarchy reconciliation "
+        "verified successfully."
+    )
+
+except AssertionError as exc:
+
+    print(
+        "SKU → Category → Region : FAILED"
+    )
+
+    print(
+        "\nHierarchy reconciliation "
+        "verification failed."
+    )
+
+    print(
+        "Reason:",
+        exc,
+    )
+
+    raise

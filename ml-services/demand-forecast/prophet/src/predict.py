@@ -24,16 +24,30 @@ PROMOTED_DIR = (
     PROJECT_ROOT / "models" / "promoted"
 )
 
-PROPHET_MODEL_PATH = (
+# R5 promoted artifacts
+PROMOTED_PROPHET_MODEL_PATH = (
     PROMOTED_DIR / "prophet_model.json"
 )
 
-XGB_MODEL_PATH = (
+PROMOTED_XGB_MODEL_PATH = (
     PROMOTED_DIR / "xgb_model.pkl"
 )
 
-ENSEMBLE_WEIGHTS_PATH = (
+PROMOTED_WEIGHTS_PATH = (
     PROMOTED_DIR / "ensemble_weights.json"
+)
+
+# Legacy / fallback artifacts
+FALLBACK_PROPHET_MODEL_PATH = (
+    PROJECT_ROOT / "output" / "prophet_model.json"
+)
+
+FALLBACK_XGB_MODEL_PATH = (
+    PROJECT_ROOT / "models" / "xgb_model.pkl"
+)
+
+FALLBACK_WEIGHTS_PATH = (
+    PROJECT_ROOT / "models" / "best_weights.json"
 )
 
 
@@ -46,6 +60,9 @@ def validate_prediction_history(
 ) -> None:
     """
     Validate historical data before forecasting.
+
+    Raises ValueError with a clear message when
+    the input data is invalid.
     """
 
     required_columns = ["ds", "y"]
@@ -55,7 +72,9 @@ def validate_prediction_history(
     # --------------------------------------------------------
 
     for column in required_columns:
+
         if column not in history.columns:
+
             raise ValueError(
                 f"Invalid input: missing required column "
                 f"'{column}'."
@@ -66,6 +85,7 @@ def validate_prediction_history(
     # --------------------------------------------------------
 
     if history.empty:
+
         raise ValueError(
             "Invalid input: history data is empty."
         )
@@ -75,6 +95,7 @@ def validate_prediction_history(
     # --------------------------------------------------------
 
     if history["ds"].isna().any():
+
         raise ValueError(
             "Invalid input: missing dates found."
         )
@@ -84,6 +105,7 @@ def validate_prediction_history(
     # --------------------------------------------------------
 
     if history["y"].isna().any():
+
         raise ValueError(
             "Invalid input: missing demand values found."
         )
@@ -95,6 +117,7 @@ def validate_prediction_history(
     if not pd.api.types.is_numeric_dtype(
         history["y"]
     ):
+
         raise ValueError(
             "Invalid input: demand values must be numeric."
         )
@@ -104,6 +127,7 @@ def validate_prediction_history(
     # --------------------------------------------------------
 
     if (history["y"] < 0).any():
+
         raise ValueError(
             "Invalid input: negative demand values found."
         )
@@ -113,6 +137,7 @@ def validate_prediction_history(
     # --------------------------------------------------------
 
     if history["ds"].duplicated().any():
+
         raise ValueError(
             "Invalid input: duplicate dates found."
         )
@@ -127,6 +152,7 @@ def validate_prediction_history(
             and math.isfinite(float(value))
         )
     ).all():
+
         raise ValueError(
             "Invalid input: demand contains "
             "infinite values."
@@ -148,42 +174,75 @@ def validate_horizon(
         horizon_months,
         int,
     ):
+
         raise ValueError(
             "horizon_months must be an integer."
         )
 
     if horizon_months <= 0:
+
         raise ValueError(
             "horizon_months must be greater than 0."
         )
 
     if horizon_months > 120:
+
         raise ValueError(
             "horizon_months cannot exceed 120."
         )
 
 
 # ============================================================
-# LOAD PROMOTED PROPHET MODEL
+# LOAD PROPHET MODEL
 # ============================================================
 
-def load_promoted_prophet_model():
+def load_prophet_model():
     """
-    Load the currently promoted Prophet model.
+    Load Prophet model.
 
-    File:
-        models/promoted/prophet_model.json
+    Priority:
+
+        1. models/promoted/prophet_model.json
+        2. output/prophet_model.json
+
+    The promoted model is preferred for production.
+    The output model is used as a fallback so that
+    clean checkouts and tests do not fail when promoted
+    artifacts are not committed.
     """
 
-    if not PROPHET_MODEL_PATH.exists():
+    if PROMOTED_PROPHET_MODEL_PATH.exists():
+
+        model_path = PROMOTED_PROPHET_MODEL_PATH
+
+        print(
+            "\nUsing promoted Prophet model:"
+        )
+
+    elif FALLBACK_PROPHET_MODEL_PATH.exists():
+
+        model_path = FALLBACK_PROPHET_MODEL_PATH
+
+        print(
+            "\nPromoted Prophet model not found."
+        )
+
+        print(
+            "Using fallback Prophet model:"
+        )
+
+    else:
+
         raise FileNotFoundError(
-            "Promoted Prophet model not found: "
-            f"{PROPHET_MODEL_PATH}"
+            "No Prophet model found. Checked:\n"
+            f"- {PROMOTED_PROPHET_MODEL_PATH}\n"
+            f"- {FALLBACK_PROPHET_MODEL_PATH}"
         )
 
     try:
+
         with open(
-            PROPHET_MODEL_PATH,
+            model_path,
             "r",
             encoding="utf-8",
         ) as file:
@@ -195,118 +254,178 @@ def load_promoted_prophet_model():
         )
 
     except Exception as exc:
+
         raise RuntimeError(
-            "Failed to load promoted Prophet model: "
-            f"{PROPHET_MODEL_PATH}"
+            "Failed to load Prophet model: "
+            f"{model_path}"
         ) from exc
 
     return model
 
 
 # ============================================================
-# LOAD PROMOTED XGBOOST PACKAGE
+# LOAD XGBOOST MODEL
 # ============================================================
 
-def load_promoted_xgb_package():
+def load_xgb_package():
     """
-    Load the promoted XGBoost package.
+    Load XGBoost model.
 
-    The R5 retraining pipeline stores:
+    Priority:
+
+        1. models/promoted/xgb_model.pkl
+        2. models/xgb_model.pkl
+
+    R5 promoted artifact is expected to be a dictionary:
 
         {
             "model": XGBRegressor,
-            "features": FEATURES,
-            "residual_std": residual_std
+            "features": [...],
+            "residual_std": ...
         }
 
-    File:
-        models/promoted/xgb_model.pkl
+    The fallback artifact may be the older raw XGBoost
+    model. In that case it is wrapped into a compatible
+    package.
     """
 
-    if not XGB_MODEL_PATH.exists():
+    if PROMOTED_XGB_MODEL_PATH.exists():
+
+        model_path = PROMOTED_XGB_MODEL_PATH
+
+        print(
+            "Using promoted XGBoost model:"
+        )
+
+    elif FALLBACK_XGB_MODEL_PATH.exists():
+
+        model_path = FALLBACK_XGB_MODEL_PATH
+
+        print(
+            "Promoted XGBoost model not found."
+        )
+
+        print(
+            "Using fallback XGBoost model:"
+        )
+
+    else:
+
         raise FileNotFoundError(
-            "Promoted XGBoost model not found: "
-            f"{XGB_MODEL_PATH}"
+            "No XGBoost model found. Checked:\n"
+            f"- {PROMOTED_XGB_MODEL_PATH}\n"
+            f"- {FALLBACK_XGB_MODEL_PATH}"
         )
 
     try:
+
         with open(
-            XGB_MODEL_PATH,
+            model_path,
             "rb",
         ) as file:
 
             package = pickle.load(file)
 
     except Exception as exc:
+
         raise RuntimeError(
-            "Failed to load promoted XGBoost model: "
-            f"{XGB_MODEL_PATH}"
+            "Failed to load XGBoost model: "
+            f"{model_path}"
         ) from exc
 
     # --------------------------------------------------------
-    # Validate package
+    # R5 promoted package
     # --------------------------------------------------------
 
-    if not isinstance(
+    if isinstance(
         package,
         dict,
     ):
-        raise ValueError(
-            "Invalid promoted XGBoost artifact. "
-            "Expected a dictionary package."
-        )
 
-    if "model" not in package:
-        raise ValueError(
-            "Invalid promoted XGBoost artifact: "
-            "missing 'model'."
-        )
+        if "model" not in package:
 
-    if "features" not in package:
-        raise ValueError(
-            "Invalid promoted XGBoost artifact: "
-            "missing 'features'."
-        )
+            raise ValueError(
+                "Invalid XGBoost artifact: "
+                "missing 'model'."
+            )
 
-    if "residual_std" not in package:
-        raise ValueError(
-            "Invalid promoted XGBoost artifact: "
-            "missing 'residual_std'."
-        )
+        if "features" not in package:
 
-    return package
+            raise ValueError(
+                "Invalid XGBoost artifact: "
+                "missing 'features'."
+            )
+
+        if "residual_std" not in package:
+
+            raise ValueError(
+                "Invalid XGBoost artifact: "
+                "missing 'residual_std'."
+            )
+
+        return package
+
+    # --------------------------------------------------------
+    # Legacy raw XGBoost model
+    # --------------------------------------------------------
+
+    print(
+        "Legacy raw XGBoost model detected."
+    )
+
+    return {
+        "model": package,
+        "features": None,
+        "residual_std": 0.0,
+    }
 
 
 # ============================================================
-# LOAD PROMOTED ENSEMBLE WEIGHTS
+# LOAD ENSEMBLE WEIGHTS
 # ============================================================
 
-def load_promoted_ensemble_weights():
+def load_ensemble_weights():
     """
-    Load ensemble weights selected by R5
-    automated retraining.
+    Load ensemble weights.
 
-    File:
+    Priority:
 
-        models/promoted/ensemble_weights.json
-
-    Example:
-
-        {
-            "prophet_weight": 0.3,
-            "xgb_weight": 0.7
-        }
+        1. models/promoted/ensemble_weights.json
+        2. models/best_weights.json
     """
 
-    if not ENSEMBLE_WEIGHTS_PATH.exists():
+    if PROMOTED_WEIGHTS_PATH.exists():
+
+        weights_path = PROMOTED_WEIGHTS_PATH
+
+        print(
+            "Using promoted ensemble weights:"
+        )
+
+    elif FALLBACK_WEIGHTS_PATH.exists():
+
+        weights_path = FALLBACK_WEIGHTS_PATH
+
+        print(
+            "Promoted ensemble weights not found."
+        )
+
+        print(
+            "Using fallback ensemble weights:"
+        )
+
+    else:
+
         raise FileNotFoundError(
-            "Promoted ensemble weights not found: "
-            f"{ENSEMBLE_WEIGHTS_PATH}"
+            "No ensemble weights found. Checked:\n"
+            f"- {PROMOTED_WEIGHTS_PATH}\n"
+            f"- {FALLBACK_WEIGHTS_PATH}"
         )
 
     try:
+
         with open(
-            ENSEMBLE_WEIGHTS_PATH,
+            weights_path,
             "r",
             encoding="utf-8",
         ) as file:
@@ -314,9 +433,10 @@ def load_promoted_ensemble_weights():
             weights = json.load(file)
 
     except json.JSONDecodeError as exc:
+
         raise ValueError(
-            "Invalid JSON in promoted ensemble weights: "
-            f"{ENSEMBLE_WEIGHTS_PATH}"
+            "Invalid JSON in ensemble weights: "
+            f"{weights_path}"
         ) from exc
 
     # --------------------------------------------------------
@@ -324,14 +444,16 @@ def load_promoted_ensemble_weights():
     # --------------------------------------------------------
 
     if "prophet_weight" not in weights:
+
         raise ValueError(
-            "Promoted weights missing "
+            "Ensemble weights missing "
             "'prophet_weight'."
         )
 
     if "xgb_weight" not in weights:
+
         raise ValueError(
-            "Promoted weights missing "
+            "Ensemble weights missing "
             "'xgb_weight'."
         )
 
@@ -340,6 +462,7 @@ def load_promoted_ensemble_weights():
     # --------------------------------------------------------
 
     try:
+
         prophet_weight = float(
             weights["prophet_weight"]
         )
@@ -354,7 +477,7 @@ def load_promoted_ensemble_weights():
     ) as exc:
 
         raise ValueError(
-            "Promoted ensemble weights must be numeric."
+            "Ensemble weights must be numeric."
         ) from exc
 
     # --------------------------------------------------------
@@ -364,6 +487,7 @@ def load_promoted_ensemble_weights():
     if not math.isfinite(
         prophet_weight
     ):
+
         raise ValueError(
             "Prophet weight must be finite."
         )
@@ -371,20 +495,23 @@ def load_promoted_ensemble_weights():
     if not math.isfinite(
         xgb_weight
     ):
+
         raise ValueError(
             "XGBoost weight must be finite."
         )
 
     # --------------------------------------------------------
-    # Negative weights
+    # Negative values
     # --------------------------------------------------------
 
     if prophet_weight < 0:
+
         raise ValueError(
             "Prophet weight cannot be negative."
         )
 
     if xgb_weight < 0:
+
         raise ValueError(
             "XGBoost weight cannot be negative."
         )
@@ -399,6 +526,7 @@ def load_promoted_ensemble_weights():
         rel_tol=1e-9,
         abs_tol=1e-9,
     ):
+
         raise ValueError(
             "Ensemble weights must sum to 1. "
             f"Received: "
@@ -422,20 +550,18 @@ def predict(
 ) -> dict:
     """
     Predict future MONTHLY demand using the
-    currently promoted Prophet + XGBoost ensemble.
+    currently available Prophet + XGBoost ensemble.
 
-    Promoted artifacts:
+    Model priority:
 
-        models/promoted/
-            prophet_model.json
-            xgb_model.pkl
-            ensemble_weights.json
+        Promoted R5 models
+                ↓
+        Legacy fallback models
 
-    The prediction service does NOT use:
-
-        models/best_weights.json
-        output/prophet_model.json
-        models/xgb_model.pkl
+    IMPORTANT:
+    Input history is validated BEFORE model loading.
+    This guarantees that invalid input raises the expected
+    ValueError even when promoted model artifacts are absent.
     """
 
     # ========================================================
@@ -447,59 +573,7 @@ def predict(
     )
 
     # ========================================================
-    # 2. Load Promoted Prophet
-    # ========================================================
-
-    prophet_model = (
-        load_promoted_prophet_model()
-    )
-
-    # ========================================================
-    # 3. Load Promoted XGBoost Package
-    # ========================================================
-
-    # IMPORTANT:
-    #
-    # R5 saves the COMPLETE XGBoost package:
-    #
-    # {
-    #     "model": XGBRegressor,
-    #     "features": [...],
-    #     "residual_std": ...
-    # }
-    #
-    # predict_future_xgboost() expects this
-    # complete dictionary package.
-    #
-    # DO NOT extract xgb_package["model"] here.
-
-    xgb_package = (
-        load_promoted_xgb_package()
-    )
-
-    # ========================================================
-    # 4. Load Promoted Ensemble Weights
-    # ========================================================
-
-    (
-        prophet_weight,
-        xgb_weight,
-    ) = load_promoted_ensemble_weights()
-
-    print(
-        "\nUsing promoted ensemble:"
-    )
-
-    print(
-        f"Prophet weight : {prophet_weight}"
-    )
-
-    print(
-        f"XGBoost weight : {xgb_weight}"
-    )
-
-    # ========================================================
-    # 5. Load History
+    # 2. Load History
     # ========================================================
 
     if history_df is None:
@@ -518,16 +592,18 @@ def predict(
         history = history_df.copy()
 
     # ========================================================
-    # 6. Convert Date
+    # 3. Convert Date
     # ========================================================
 
-    history["ds"] = pd.to_datetime(
-        history["ds"],
-        errors="coerce",
-    )
+    if "ds" in history.columns:
+
+        history["ds"] = pd.to_datetime(
+            history["ds"],
+            errors="coerce",
+        )
 
     # ========================================================
-    # 7. Validate History
+    # 4. Validate History BEFORE Models
     # ========================================================
 
     validate_prediction_history(
@@ -535,7 +611,7 @@ def predict(
     )
 
     # ========================================================
-    # 8. Sort History
+    # 5. Sort History
     # ========================================================
 
     history = (
@@ -545,7 +621,44 @@ def predict(
     )
 
     # ========================================================
-    # 9. Prophet Future Forecast
+    # 6. Load Prophet
+    # ========================================================
+
+    prophet_model = (
+        load_prophet_model()
+    )
+
+    # ========================================================
+    # 7. Load XGBoost
+    # ========================================================
+
+    xgb_package = (
+        load_xgb_package()
+    )
+
+    # ========================================================
+    # 8. Load Ensemble Weights
+    # ========================================================
+
+    (
+        prophet_weight,
+        xgb_weight,
+    ) = load_ensemble_weights()
+
+    print(
+        "\nUsing ensemble:"
+    )
+
+    print(
+        f"Prophet weight : {prophet_weight}"
+    )
+
+    print(
+        f"XGBoost weight : {xgb_weight}"
+    )
+
+    # ========================================================
+    # 9. Prophet Forecast
     # ========================================================
 
     future = (
@@ -568,11 +681,8 @@ def predict(
     )
 
     # ========================================================
-    # 10. XGBoost Future Forecast
+    # 10. XGBoost Forecast
     # ========================================================
-
-    # IMPORTANT:
-    # Pass the COMPLETE package, not only the raw model.
 
     xgb_future = (
         predict_future_xgboost(
@@ -583,10 +693,11 @@ def predict(
     )
 
     # ========================================================
-    # 11. Validate Forecast Length
+    # 11. Forecast Length Validation
     # ========================================================
 
     if len(prophet_future) != horizon_months:
+
         raise ValueError(
             "Prophet forecast length mismatch. "
             f"Expected {horizon_months}, "
@@ -594,6 +705,7 @@ def predict(
         )
 
     if len(xgb_future) != horizon_months:
+
         raise ValueError(
             "XGBoost forecast length mismatch. "
             f"Expected {horizon_months}, "
@@ -619,7 +731,7 @@ def predict(
         )
 
         # ----------------------------------------------------
-        # Ensemble Prediction
+        # Ensemble prediction
         # ----------------------------------------------------
 
         prediction = weighted_ensemble(
@@ -630,7 +742,7 @@ def predict(
         )
 
         # ----------------------------------------------------
-        # Ensemble Prediction Interval
+        # Prediction interval
         # ----------------------------------------------------
 
         lower, upper = ensemble_interval(
@@ -659,12 +771,13 @@ def predict(
         )
 
         # ----------------------------------------------------
-        # Finite Validation
+        # Finite validation
         # ----------------------------------------------------
 
         if not math.isfinite(
             prediction
         ):
+
             raise ValueError(
                 "Predicted value is not finite."
             )
@@ -672,6 +785,7 @@ def predict(
         if not math.isfinite(
             lower
         ):
+
             raise ValueError(
                 "Lower prediction bound is not finite."
             )
@@ -679,15 +793,17 @@ def predict(
         if not math.isfinite(
             upper
         ):
+
             raise ValueError(
                 "Upper prediction bound is not finite."
             )
 
         # ----------------------------------------------------
-        # Interval Validation
+        # Interval validation
         # ----------------------------------------------------
 
         if lower > upper:
+
             raise ValueError(
                 "Prediction interval invalid: "
                 "lower bound is greater than upper bound."
@@ -698,6 +814,7 @@ def predict(
             <= prediction
             <= upper
         ):
+
             raise ValueError(
                 "Prediction interval sanity check failed: "
                 "lower <= predicted <= upper "
@@ -705,7 +822,7 @@ def predict(
             )
 
         # ----------------------------------------------------
-        # Add Forecast
+        # Add forecast
         # ----------------------------------------------------
 
         forecast.append(

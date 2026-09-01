@@ -39,26 +39,6 @@ MODEL_VERSION = "R5"
 # ============================================================
 # R5 ENSEMBLE WEIGHT GRID
 # ============================================================
-#
-# Grid search tests multiple combinations.
-#
-# Prophet + XGBoost = 1.0
-#
-# 0.0 / 1.0
-# 0.1 / 0.9
-# 0.2 / 0.8
-# 0.3 / 0.7
-# 0.4 / 0.6
-# 0.5 / 0.5
-# 0.6 / 0.4
-# 0.7 / 0.3
-# 0.8 / 0.2
-# 0.9 / 0.1
-# 1.0 / 0.0
-#
-# Every combination is evaluated on validation data
-# and logged as a nested MLflow run.
-# ============================================================
 
 WEIGHT_GRID = [
     (0.0, 1.0),
@@ -109,7 +89,6 @@ XGB_PARAMS = {
 # ============================================================
 
 def prepare_data():
-
     df = load_sales_data()
 
     df = df.rename(
@@ -162,12 +141,12 @@ def prepare_data():
         "Date range:",
         df["ds"].min(),
         "to",
-        df["ds"].max()
+        df["ds"].max(),
     )
 
     print(
         "Total rows:",
-        len(df)
+        len(df),
     )
 
     return df
@@ -178,15 +157,14 @@ def prepare_data():
 # ============================================================
 
 def calculate_mape(actual, predicted):
-
     actual = np.asarray(
         actual,
-        dtype=float
+        dtype=float,
     )
 
     predicted = np.asarray(
         predicted,
-        dtype=float
+        dtype=float,
     )
 
     mask = actual != 0
@@ -213,7 +191,6 @@ def calculate_mape(actual, predicted):
 # ============================================================
 
 def train_prophet_model(train_df):
-
     model = Prophet(
         yearly_seasonality=True,
         weekly_seasonality=True,
@@ -232,7 +209,6 @@ def train_prophet_model(train_df):
 # ============================================================
 
 def train_xgb_model(train_df):
-
     feature_df = create_features(
         train_df.copy(),
         drop_missing=True,
@@ -253,10 +229,14 @@ def train_xgb_model(train_df):
 
     model.fit(
         X_train,
-        y_train
+        y_train,
     )
 
-    # Training residuals
+    # --------------------------------------------------------
+    # Residual standard deviation is calculated ONLY from
+    # training predictions.
+    # --------------------------------------------------------
+
     train_predictions = model.predict(
         X_train
     )
@@ -282,7 +262,6 @@ def predict_xgb_validation(
     train_df,
     validation_df,
 ):
-
     combined = pd.concat(
         [
             train_df,
@@ -320,7 +299,6 @@ def predict_xgb_validation(
             "features for all validation dates."
         )
 
-    # Explicit date ordering
     validation_features = (
         validation_features
         .sort_values("ds")
@@ -355,7 +333,6 @@ def create_ensemble_prediction(
     prophet_weight,
     xgb_weight,
 ):
-
     if prophet_weight < 0 or xgb_weight < 0:
         raise ValueError(
             "Ensemble weights cannot be negative."
@@ -373,8 +350,7 @@ def create_ensemble_prediction(
 
     return (
         prophet_weight * prophet_prediction
-        +
-        xgb_weight * xgb_prediction
+        + xgb_weight * xgb_prediction
     )
 
 
@@ -389,7 +365,6 @@ def evaluate_weight_combination(
     prophet_weight,
     xgb_weight,
 ):
-
     ensemble_prediction = (
         create_ensemble_prediction(
             prophet_prediction,
@@ -427,14 +402,13 @@ def evaluate_weight_combination(
 # ============================================================
 
 def select_best_result(results):
-
     if not results:
         raise ValueError(
             "No ensemble weight combinations were evaluated."
         )
 
-    # Primary metric = MAPE
-    # Secondary metric = RMSE
+    # Primary metric: MAPE
+    # Secondary metric: RMSE
 
     return min(
         results,
@@ -454,7 +428,6 @@ def train_and_tune(
     validation_df,
     yearly_run,
 ):
-
     print(
         "\n----------------------------------------"
     )
@@ -539,9 +512,8 @@ def train_and_tune(
         xgb_weight,
     ) in enumerate(
         WEIGHT_GRID,
-        start=1
+        start=1,
     ):
-
         print(
             "\n----------------------------------------"
         )
@@ -568,9 +540,9 @@ def train_and_tune(
 
         results.append(result)
 
-        # ====================================================
-        # EVERY GRID COMBINATION -> MLflow
-        # ====================================================
+        # ----------------------------------------------------
+        # Every grid combination is logged in MLflow
+        # ----------------------------------------------------
 
         with mlflow.start_run(
             run_name=(
@@ -580,56 +552,57 @@ def train_and_tune(
             ),
             nested=True,
         ):
+            mlflow.log_params(
+                {
+                    "search_type":
+                        "ensemble_weight_grid",
 
-            mlflow.log_params({
+                    "prophet_weight":
+                        prophet_weight,
 
-                "search_type":
-                    "ensemble_weight_grid",
+                    "xgb_weight":
+                        xgb_weight,
 
-                "prophet_weight":
-                    prophet_weight,
+                    "training_start":
+                        train_df["ds"]
+                        .min()
+                        .strftime("%Y-%m-%d"),
 
-                "xgb_weight":
-                    xgb_weight,
+                    "training_end":
+                        train_df["ds"]
+                        .max()
+                        .strftime("%Y-%m-%d"),
 
-                "training_start":
-                    train_df["ds"]
-                    .min()
-                    .strftime("%Y-%m-%d"),
+                    "validation_start":
+                        validation_df["ds"]
+                        .min()
+                        .strftime("%Y-%m-%d"),
 
-                "training_end":
-                    train_df["ds"]
-                    .max()
-                    .strftime("%Y-%m-%d"),
+                    "validation_end":
+                        validation_df["ds"]
+                        .max()
+                        .strftime("%Y-%m-%d"),
+                }
+            )
 
-                "validation_start":
-                    validation_df["ds"]
-                    .min()
-                    .strftime("%Y-%m-%d"),
+            mlflow.log_metrics(
+                {
+                    "validation_mape":
+                        result["mape"],
 
-                "validation_end":
-                    validation_df["ds"]
-                    .max()
-                    .strftime("%Y-%m-%d"),
-            })
-
-            mlflow.log_metrics({
-
-                "validation_mape":
-                    result["mape"],
-
-                "validation_rmse":
-                    result["rmse"],
-            })
+                    "validation_rmse":
+                        result["rmse"],
+                }
+            )
 
             mlflow.set_tag(
                 "run_type",
-                "grid_search"
+                "grid_search",
             )
 
             mlflow.set_tag(
                 "parent_retraining_run",
-                yearly_run.info.run_id
+                yearly_run.info.run_id,
             )
 
         print(
@@ -662,12 +635,12 @@ def train_and_tune(
 
     print(
         "Prophet weight:",
-        best_result["prophet_weight"]
+        best_result["prophet_weight"],
     )
 
     print(
         "XGBoost weight:",
-        best_result["xgb_weight"]
+        best_result["xgb_weight"],
     )
 
     print(
@@ -715,15 +688,24 @@ def is_better_model(
     old_mape,
     old_rmse,
 ):
+    """
+    Decide whether a candidate model should replace
+    the currently promoted model.
 
+    Priority:
+        1. Lower MAPE
+        2. Lower RMSE when MAPE is tied
+    """
+
+    # No existing baseline.
     if old_mape == float("inf"):
         return True
 
-    # Primary metric = MAPE
+    # Primary metric.
     if new_mape < old_mape:
         return True
 
-    # MAPE tie -> RMSE
+    # Secondary metric for MAPE ties.
     if math.isclose(
         new_mape,
         old_mape,
@@ -740,7 +722,6 @@ def is_better_model(
 # ============================================================
 
 def load_existing_baseline():
-
     metadata_path = os.path.join(
         PROMOTED_DIR,
         "model_metadata.json",
@@ -749,7 +730,6 @@ def load_existing_baseline():
     if not os.path.exists(
         metadata_path
     ):
-
         print(
             "\nNo previous promoted model found."
         )
@@ -764,15 +744,11 @@ def load_existing_baseline():
         )
 
     try:
-
         with open(
             metadata_path,
             "r",
         ) as file:
-
-            metadata = json.load(
-                file
-            )
+            metadata = json.load(file)
 
         old_mape = float(
             metadata.get(
@@ -808,7 +784,6 @@ def load_existing_baseline():
         return old_mape, old_rmse
 
     except Exception as exc:
-
         print(
             "\nWARNING: Could not read "
             "previous promoted metadata."
@@ -816,7 +791,7 @@ def load_existing_baseline():
 
         print(
             "Reason:",
-            exc
+            exc,
         )
 
         print(
@@ -834,7 +809,6 @@ def load_existing_baseline():
 # ============================================================
 
 def promote_model(candidate):
-
     os.makedirs(
         PROMOTED_DIR,
         exist_ok=True,
@@ -853,7 +827,6 @@ def promote_model(candidate):
         prophet_path,
         "w",
     ) as file:
-
         file.write(
             model_to_json(
                 candidate["prophet_model"]
@@ -884,7 +857,6 @@ def promote_model(candidate):
         xgb_path,
         "wb",
     ) as file:
-
         pickle.dump(
             xgb_package,
             file,
@@ -911,7 +883,6 @@ def promote_model(candidate):
         weights_path,
         "w",
     ) as file:
-
         json.dump(
             weights,
             file,
@@ -928,7 +899,6 @@ def promote_model(candidate):
     )
 
     metadata = {
-
         "model_version":
             MODEL_VERSION,
 
@@ -952,7 +922,6 @@ def promote_model(candidate):
         metadata_path,
         "w",
     ) as file:
-
         json.dump(
             metadata,
             file,
@@ -965,17 +934,17 @@ def promote_model(candidate):
 
     print(
         "Saved:",
-        PROMOTED_DIR
+        PROMOTED_DIR,
     )
 
     print(
         "Selected Prophet weight:",
-        candidate["prophet_weight"]
+        candidate["prophet_weight"],
     )
 
     print(
         "Selected XGBoost weight:",
-        candidate["xgb_weight"]
+        candidate["xgb_weight"],
     )
 
 
@@ -989,7 +958,6 @@ def retrain_once(
     old_mape,
     old_rmse,
 ):
-
     # ========================================================
     # DATA AVAILABLE UNTIL TRIGGER DATE
     # ========================================================
@@ -1000,12 +968,10 @@ def retrain_once(
 
     required_rows = (
         WINDOW_MONTHS
-        +
-        VALIDATION_MONTHS
+        + VALIDATION_MONTHS
     )
 
     if len(available) < required_rows:
-
         print(
             f"\n{trigger_date.strftime('%Y-%m-%d')}: "
             "Not enough data. SKIP."
@@ -1039,7 +1005,7 @@ def retrain_once(
 
     print(
         "YEARLY RETRAINING:",
-        trigger_date.strftime("%Y-%m-%d")
+        trigger_date.strftime("%Y-%m-%d"),
     )
 
     print(
@@ -1078,8 +1044,7 @@ def retrain_once(
 
     run_name = (
         "yearly_retrain_"
-        +
-        trigger_date.strftime("%Y")
+        + trigger_date.strftime("%Y")
     )
 
     with mlflow.start_run(
@@ -1099,107 +1064,110 @@ def retrain_once(
         # PARAMETERS
         # ====================================================
 
-        mlflow.log_params({
+        mlflow.log_params(
+            {
+                "model_version":
+                    MODEL_VERSION,
 
-            "model_version":
-                MODEL_VERSION,
+                "window_months":
+                    WINDOW_MONTHS,
 
-            "window_months":
-                WINDOW_MONTHS,
+                "validation_months":
+                    VALIDATION_MONTHS,
 
-            "validation_months":
-                VALIDATION_MONTHS,
+                "data_frequency":
+                    DATA_FREQUENCY,
 
-            "data_frequency":
-                DATA_FREQUENCY,
+                "retrain_frequency":
+                    "yearly",
 
-            "retrain_frequency":
-                "yearly",
+                "grid_combinations":
+                    len(WEIGHT_GRID),
 
-            "grid_combinations":
-                len(WEIGHT_GRID),
+                "selected_prophet_weight":
+                    candidate["prophet_weight"],
 
-            "selected_prophet_weight":
-                candidate["prophet_weight"],
+                "selected_xgb_weight":
+                    candidate["xgb_weight"],
 
-            "selected_xgb_weight":
-                candidate["xgb_weight"],
+                "training_start":
+                    train_df["ds"]
+                    .min()
+                    .strftime("%Y-%m-%d"),
 
-            "training_start":
-                train_df["ds"]
-                .min()
-                .strftime("%Y-%m-%d"),
+                "training_end":
+                    train_df["ds"]
+                    .max()
+                    .strftime("%Y-%m-%d"),
 
-            "training_end":
-                train_df["ds"]
-                .max()
-                .strftime("%Y-%m-%d"),
+                "validation_start":
+                    validation_df["ds"]
+                    .min()
+                    .strftime("%Y-%m-%d"),
 
-            "validation_start":
-                validation_df["ds"]
-                .min()
-                .strftime("%Y-%m-%d"),
-
-            "validation_end":
-                validation_df["ds"]
-                .max()
-                .strftime("%Y-%m-%d"),
-        })
+                "validation_end":
+                    validation_df["ds"]
+                    .max()
+                    .strftime("%Y-%m-%d"),
+            }
+        )
 
         # ====================================================
         # METRICS
         # ====================================================
 
-        mlflow.log_metrics({
+        mlflow.log_metrics(
+            {
+                "new_mape":
+                    new_mape,
 
-            "new_mape":
-                new_mape,
+                "new_rmse":
+                    new_rmse,
 
-            "new_rmse":
-                new_rmse,
+                "old_mape":
+                    (
+                        old_mape
+                        if old_mape != float("inf")
+                        else new_mape
+                    ),
 
-            "old_mape":
-                (
-                    old_mape
-                    if old_mape != float("inf")
-                    else new_mape
-                ),
-
-            "old_rmse":
-                (
-                    old_rmse
-                    if old_rmse != float("inf")
-                    else new_rmse
-                ),
-        })
+                "old_rmse":
+                    (
+                        old_rmse
+                        if old_rmse != float("inf")
+                        else new_rmse
+                    ),
+            }
+        )
 
         # ====================================================
         # GRID SEARCH SUMMARY
         # ====================================================
 
-        grid_df = pd.DataFrame([
-            {
-                "prophet_weight":
-                    result["prophet_weight"],
+        grid_df = pd.DataFrame(
+            [
+                {
+                    "prophet_weight":
+                        result["prophet_weight"],
 
-                "xgb_weight":
-                    result["xgb_weight"],
+                    "xgb_weight":
+                        result["xgb_weight"],
 
-                "mape":
-                    result["mape"],
+                    "mape":
+                        result["mape"],
 
-                "rmse":
-                    result["rmse"],
-            }
-            for result in candidate["grid_results"]
-        ])
+                    "rmse":
+                        result["rmse"],
+                }
+                for result in candidate["grid_results"]
+            ]
+        )
 
         os.makedirs(
             PROMOTED_DIR,
             exist_ok=True,
         )
 
-        # Unique file for this retraining cycle
         grid_filename = (
             f"grid_search_results_"
             f"{trigger_date.strftime('%Y')}.csv"
@@ -1235,7 +1203,7 @@ def retrain_once(
         )
 
         # ====================================================
-        # AUTO PROMOTION
+        # SINGLE AUTO-PROMOTION DECISION
         # ====================================================
 
         better = is_better_model(
@@ -1246,7 +1214,6 @@ def retrain_once(
         )
 
         if better:
-
             promote_model(
                 candidate
             )
@@ -1266,7 +1233,6 @@ def retrain_once(
             )
 
             if old_mape != float("inf"):
-
                 print(
                     f"Old MAPE: {old_mape:.4f}%"
                 )
@@ -1274,9 +1240,7 @@ def retrain_once(
                 print(
                     f"Old RMSE: {old_rmse:.4f}"
                 )
-
             else:
-
                 print(
                     "Old MAPE: NONE"
                 )
@@ -1299,44 +1263,45 @@ def retrain_once(
 
             return new_mape, new_rmse
 
-        else:
+        # ====================================================
+        # REJECT
+        # ====================================================
 
-            mlflow.set_tag(
-                "promotion_status",
-                "rejected",
-            )
+        mlflow.set_tag(
+            "promotion_status",
+            "rejected",
+        )
 
-            mlflow.set_tag(
-                "grid_search_status",
-                "winner_rejected",
-            )
+        mlflow.set_tag(
+            "grid_search_status",
+            "winner_rejected",
+        )
 
-            print(
-                "\nSTATUS: REJECTED"
-            )
+        print(
+            "\nSTATUS: REJECTED"
+        )
 
-            print(
-                f"Old MAPE: {old_mape:.4f}%"
-            )
+        print(
+            f"Old MAPE: {old_mape:.4f}%"
+        )
 
-            print(
-                f"New MAPE: {new_mape:.4f}%"
-            )
+        print(
+            f"New MAPE: {new_mape:.4f}%"
+        )
 
-            print(
-                f"Old RMSE: {old_rmse:.4f}"
-            )
+        print(
+            f"Old RMSE: {old_rmse:.4f}"
+        )
 
-            print(
-                f"New RMSE: {new_rmse:.4f}"
-            )
+        print(
+            f"New RMSE: {new_rmse:.4f}"
+        )
 
-            print(
-                "Auto-promotion decision: REJECT"
-            )
+        print(
+            "Auto-promotion decision: REJECT"
+        )
 
-            # Keep existing promoted model
-            return old_mape, old_rmse
+        return old_mape, old_rmse
 
 
 # ============================================================
@@ -1344,7 +1309,6 @@ def retrain_once(
 # ============================================================
 
 def run_retraining():
-
     print(
         "\n========================================"
     )
@@ -1361,12 +1325,10 @@ def run_retraining():
 
     required_rows = (
         WINDOW_MONTHS
-        +
-        VALIDATION_MONTHS
+        + VALIDATION_MONTHS
     )
 
     if len(data) < required_rows:
-
         raise ValueError(
             f"Need at least {required_rows} rows, "
             f"but dataset contains {len(data)} rows."
@@ -1401,23 +1363,23 @@ def run_retraining():
     print(
         "Training window:",
         WINDOW_MONTHS,
-        "months"
+        "months",
     )
 
     print(
         "Validation window:",
         VALIDATION_MONTHS,
-        "months"
+        "months",
     )
 
     print(
         "Total yearly cycles:",
-        len(yearly_dates)
+        len(yearly_dates),
     )
 
     print(
         "Grid combinations:",
-        len(WEIGHT_GRID)
+        len(WEIGHT_GRID),
     )
 
     # ========================================================
@@ -1449,26 +1411,27 @@ def run_retraining():
             )
         )
 
-        # Check whether promotion happened
-        promoted = (
-            new_mape < old_mape
-            or (
-                math.isclose(
-                    new_mape,
-                    old_mape,
-                    rel_tol=1e-6,
-                    abs_tol=1e-6,
-                )
-                and new_rmse < old_rmse
-            )
+        # ----------------------------------------------------
+        # IMPORTANT:
+        # Do NOT duplicate the promotion criteria here.
+        #
+        # retrain_once() already makes the actual decision
+        # using is_better_model().
+        #
+        # We only classify the result here using the SAME
+        # shared decision function.
+        # ----------------------------------------------------
+
+        promoted = is_better_model(
+            new_mape,
+            new_rmse,
+            old_mape,
+            old_rmse,
         )
 
         if promoted:
-
             promoted_count += 1
-
         else:
-
             rejected_count += 1
 
         best_mape = new_mape
@@ -1510,7 +1473,7 @@ def run_retraining():
 
         print(
             "Promoted model directory:",
-            PROMOTED_DIR
+            PROMOTED_DIR,
         )
 
     else:
@@ -1525,5 +1488,4 @@ def run_retraining():
 # ============================================================
 
 if __name__ == "__main__":
-
     run_retraining()
