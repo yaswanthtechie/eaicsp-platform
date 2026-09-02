@@ -466,6 +466,23 @@ Example yearly runs include:
 `yearly_retrain_2015`
 
 `yearly_retrain_2016`
+### Promoted Baseline
+
+The existing promoted model used as the baseline for the R5 retraining
+simulation has the following metadata:
+
+| Metric | Value |
+|---|---:|
+| Model Version | R5 |
+| Status | Promoted |
+| MAPE | 1.1935% |
+| RMSE | 6062.6163 |
+| Prophet Weight | 0.7 |
+| XGBoost Weight | 0.3 |
+
+This same promoted baseline is used for comparison across yearly
+retraining cycles. A candidate model is promoted only when it outperforms
+this currently promoted baseline according to the promotion criteria.
 
 The pipeline therefore demonstrates that the auto-promotion decision logic
 is actually executed across retraining cycles rather than only being implemented
