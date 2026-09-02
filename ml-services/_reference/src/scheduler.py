@@ -2,6 +2,8 @@ import logging
 import threading
 from typing import Callable
 
+from src.config import RETRAINING_INTERVAL_SECONDS
+
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +13,7 @@ class RetrainingScheduler:
     def __init__(
         self,
         check_function: Callable,
-        interval_seconds: int = 10,
+        interval_seconds=RETRAINING_INTERVAL_SECONDS,
     ):
 
         if interval_seconds <= 0:

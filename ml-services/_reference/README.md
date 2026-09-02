@@ -1663,7 +1663,7 @@ ENABLE_RETRAINING_SCHEDULER = False
 It must be explicitly enabled:
 ENABLE_RETRAINING_SCHEDULER=true
 The configured interval is:
-RETRAINING_INTERVAL_SECONDS = 3600
+RETRAINING_INTERVAL_SECONDS = 60 for checking  
 This avoids starting a rapid retraining thread during normal service construction and test execution.
 
 Model Evaluation and Promotion
@@ -1824,7 +1824,7 @@ DRIFT_THRESHOLD
 0.30
 Retraining trigger
 RETRAINING_INTERVAL_SECONDS
-3600
+60
 Scheduler interval
 ENABLE_RETRAINING_SCHEDULER
 False
