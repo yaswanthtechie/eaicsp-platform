@@ -11,32 +11,23 @@ def predict(payload: dict) -> dict:
 
     Input:
         {
-            "origin": {
-                "lat": ...,
-                "lng": ...
-            },
-            "destination": {
-                "lat": ...,
-                "lng": ...
-            },
-            "carrier": ...,
-            "weight_kg": ...
+          "origin": "sao paulo",           # city name (str)
+          "destination": "rio de janeiro", # city name (str)
+          "carrier": "<any string>",       # accepted for contract
+                                           # compatibility; NOT a model
+                                           # feature (Olist has no carrier)
+          "weight_kg": 2.5                 # float, >= 0
         }
+
+    City names are resolved to representative coordinates from the Olist
+    geolocation dataset. Unknown or empty city names raise ValueError.
 
     Output:
-        {
-            "eta_days": ...,
-            "confidence_low": ...,
-            "confidence_high": ...
-        }
+        {"eta_days": 5.2, "confidence_low": 4.1, "confidence_high": 7.3}
 
-    confidence_low and confidence_high are empirical
-    prediction bounds calibrated from out-of-sample
-    training residuals.
-
-    The prediction interval does not assume that the point
-    prediction must lie inside the calibrated interval.
-    Asymmetric residual calibration is valid.
+    confidence_low / confidence_high are empirical bounds from out-of-sample
+    training residuals; the point prediction is not required to lie inside
+    the interval (asymmetric calibration is valid).
     """
 
     # ---------------------------------------------------------

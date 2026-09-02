@@ -510,6 +510,10 @@ Latest chronological test-set evaluation:
 | Naive median baseline | 4.9522 days | 6.3640 days |
 | Olist estimated-delivery baseline | 13.1327 days | 15.9160 days |
 
+This MAE is measured with all 14 training features. predict() only receives 6; the rest use fixed inference defaults, so served accuracy is lower , see
+
+**Important Train/Serving Limitation** below.
+
 Improvement over Naive Median Baseline:
 
 ```text

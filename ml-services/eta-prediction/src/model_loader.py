@@ -35,7 +35,7 @@ DEFAULT_INFERENCE_VALUES = {
 }
 
 
-GELOCATION_FILENAME = ("olist_geolocation_dataset.csv")
+GEOLOCATION_FILENAME = ("olist_geolocation_dataset.csv")
 
 
 def load_model():
@@ -128,7 +128,7 @@ def _load_city_coordinates():
     if _city_coordinates is not None:
         return _city_coordinates
 
-    geolocation_path = (RAW_DATA_DIR / GELOCATION_FILENAME)
+    geolocation_path = (RAW_DATA_DIR / GEOLOCATION_FILENAME)
 
     if not geolocation_path.exists():
         raise FileNotFoundError(

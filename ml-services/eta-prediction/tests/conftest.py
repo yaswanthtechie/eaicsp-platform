@@ -1,6 +1,7 @@
 import pandas as pd
 import pytest
 
+from src import model_loader
 
 @pytest.fixture
 def sample_orders():
@@ -257,6 +258,36 @@ def sample_geolocation():
 
 
 @pytest.fixture
+def patch_city_coordinates(monkeypatch,sample_geolocation):
+    """
+    Point model_loader's city-coordinate lookup at the synthetic
+    geolocation fixture so predict() tests don't need the real
+    Olist geolocation CSV on disk.
+    """
+
+    coords = (
+        sample_geolocation
+        .assign(
+            city_normalized=lambda d:
+                d["geolocation_city"]
+                .str.strip()
+                .str.lower()
+        )
+        .groupby("city_normalized")
+        .agg(
+            latitude=("geolocation_lat", "mean"),
+            longitude=("geolocation_lng", "mean"),
+        )
+    )
+
+    monkeypatch.setattr(model_loader,"_city_coordinates",coords)
+
+    yield coords
+
+    monkeypatch.setattr(model_loader,"_city_coordinates",None)
+
+
+@pytest.fixture
 def sample_category_translation():
     """Minimal category translation dataset."""
 
@@ -450,9 +481,6 @@ def sample_model_data():
         name="delivery_days",
     )
 
-    # ---------------------------------------------------------
-    # Evaluation dataset
-    # ---------------------------------------------------------
     X_test = X_train.iloc[
         [0, 2, 5, 7]
     ].copy()
@@ -461,9 +489,6 @@ def sample_model_data():
         [0, 2, 5, 7]
     ].copy()
 
-    # ---------------------------------------------------------
-    # Training evaluation metadata
-    # ---------------------------------------------------------
     train = X_train.copy()
 
     train[
@@ -494,9 +519,6 @@ def sample_model_data():
         + pd.Timedelta(days=10)
     )
 
-    # ---------------------------------------------------------
-    # Test evaluation metadata
-    # ---------------------------------------------------------
     test = X_test.copy()
 
     test[
@@ -529,9 +551,6 @@ def sample_model_data():
         + pd.Timedelta(days=10)
     )
 
-    # ---------------------------------------------------------
-    # Complete feature/evaluation dataset
-    # ---------------------------------------------------------
     features = pd.concat(
         [
             train,
@@ -576,9 +595,6 @@ def trained_model_path(
     from src import train
     from src.train import train_model
 
-    # ---------------------------------------------------------
-    # 1. Get reusable model training data
-    # ---------------------------------------------------------
     X_train = sample_model_data[
         "X_train"
     ]
@@ -587,25 +603,16 @@ def trained_model_path(
         "y_train"
     ]
 
-    # ---------------------------------------------------------
-    # 2. Temporary production model path
-    # ---------------------------------------------------------
     model_path = (
         tmp_path
         / "eta_pipeline.joblib"
     )
 
-    # ---------------------------------------------------------
-    # 3. Temporary calibration path
-    # ---------------------------------------------------------
     calibration_path = (
         tmp_path
         / "eta_prediction_interval.joblib"
     )
 
-    # ---------------------------------------------------------
-    # 4. Redirect training module paths
-    # ---------------------------------------------------------
     monkeypatch.setattr(
         train,
         "MODEL_PATH",
@@ -618,9 +625,6 @@ def trained_model_path(
         calibration_path,
     )
 
-    # ---------------------------------------------------------
-    # 5. Redirect model-loader paths
-    # ---------------------------------------------------------
     monkeypatch.setattr(
         model_loader,
         "MODEL_PATH",
@@ -633,34 +637,18 @@ def trained_model_path(
         calibration_path,
     )
 
-    # ---------------------------------------------------------
-    # 6. Clear lazy-loaded caches
-    # ---------------------------------------------------------
     model_loader._model = None
     model_loader._prediction_interval = None
 
-    # ---------------------------------------------------------
-    # 7. Train temporary model
-    # ---------------------------------------------------------
     train_model(
         X_train,
         y_train,
     )
 
-    # ---------------------------------------------------------
-    # 8. Verify both artifacts exist
-    # ---------------------------------------------------------
     assert model_path.exists()
-
     assert calibration_path.exists()
 
-    # ---------------------------------------------------------
-    # 9. Return production model path
-    # ---------------------------------------------------------
     yield model_path
 
-    # ---------------------------------------------------------
-    # 10. Clean loader state
-    # ---------------------------------------------------------
     model_loader._model = None
     model_loader._prediction_interval = None

@@ -15,8 +15,8 @@ def _valid_payload():
     """Return a valid city-based logistics-service payload."""
 
     return {
-        "origin": "sao paulo",
-        "destination": "rio de janeiro",
+        "origin": "city_a",
+        "destination": "city_b",
         "carrier": "proxy-carrier",
         "weight_kg": 2.5,
     }
@@ -24,12 +24,15 @@ def _valid_payload():
 
 def test_model_loader_and_prediction_lifecycle(
     trained_model_path,
+    patch_city_coordinates,
 ):
     """
     Test the complete model-loader and prediction lifecycle.
 
     The trained_model_path fixture creates a temporary trained
-    pipeline, so this test works on a fresh clone.
+    pipeline, while patch_city_coordinates supplies synthetic
+    city coordinates so the test does not depend on the real
+    Olist geolocation CSV.
     """
 
     assert trained_model_path.exists()
@@ -111,8 +114,6 @@ def test_model_loader_and_prediction_lifecycle(
         == payload["weight_kg"]
     )
 
-    # Unavailable service-level features use documented
-    # inference defaults.
     assert (
         row["product_category_name"]
         == "unknown"
@@ -171,6 +172,7 @@ def test_model_loader_and_prediction_lifecycle(
 
 def test_predict_returns_exact_contract(
     trained_model_path,
+    patch_city_coordinates,
 ):
     """
     Verify the public predict() function follows the exact
@@ -229,8 +231,6 @@ def test_predict_returns_exact_contract(
         result["confidence_high"]
     )
 
-    # The interval itself must be ordered.
-    # ETA does not have to be inside it.
     assert (
         result["confidence_low"]
         <= result["confidence_high"]
@@ -254,17 +254,6 @@ def test_asymmetric_prediction_interval_is_accepted(
     Verify that a legitimate asymmetric empirical prediction
     interval is accepted even when the lower confidence bound
     is above the point prediction.
-
-    Example:
-
-        ETA = 10
-        residual_lower = +2
-        residual_upper = +7
-
-        interval = [12, 17]
-
-    This is valid because empirical calibration does not
-    require the point prediction to lie inside the interval.
     """
 
     class DummyModel:
@@ -303,14 +292,11 @@ def test_asymmetric_prediction_interval_is_accepted(
         "confidence_high": 17.0,
     }
 
-    # This is the exact reviewer scenario:
-    # the lower bound is above the point prediction.
     assert (
         result["confidence_low"]
         > result["eta_days"]
     )
 
-    # The interval itself remains valid.
     assert (
         result["confidence_low"]
         <= result["confidence_high"]
@@ -459,7 +445,9 @@ def test_infinite_weight_is_rejected():
         )
 
 
-def test_unknown_origin_city_is_rejected():
+def test_unknown_origin_city_is_rejected(
+    patch_city_coordinates,
+):
     """Unknown origin city must be rejected."""
 
     payload = _valid_payload()
@@ -477,7 +465,9 @@ def test_unknown_origin_city_is_rejected():
         )
 
 
-def test_unknown_destination_city_is_rejected():
+def test_unknown_destination_city_is_rejected(
+    patch_city_coordinates,
+):
     """Unknown destination city must be rejected."""
 
     payload = _valid_payload()
@@ -495,18 +485,20 @@ def test_unknown_destination_city_is_rejected():
         )
 
 
-def test_city_lookup_is_case_and_whitespace_insensitive():
+def test_city_lookup_is_case_and_whitespace_insensitive(
+    patch_city_coordinates,
+):
     """City lookup should normalize case and surrounding whitespace."""
 
     normal_coordinates = (
         _lookup_city_coordinates(
-            "sao paulo"
+            "city_a"
         )
     )
 
     normalized_coordinates = (
         _lookup_city_coordinates(
-            "  SAO PAULO  "
+            "  CITY_A  "
         )
     )
 
@@ -516,12 +508,14 @@ def test_city_lookup_is_case_and_whitespace_insensitive():
     )
 
 
-def test_city_coordinates_are_valid():
+def test_city_coordinates_are_valid(
+    patch_city_coordinates,
+):
     """Resolved city coordinates must be geographically valid."""
 
     latitude, longitude = (
         _lookup_city_coordinates(
-            "sao paulo"
+            "city_a"
         )
     )
 
