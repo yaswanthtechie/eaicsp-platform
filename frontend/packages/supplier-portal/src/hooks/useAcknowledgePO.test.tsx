@@ -69,12 +69,12 @@ describe("useAcknowledgePO", () => {
 
     // Offline queue intentionally keeps the existing
     // application action payload format.
-    expect(addOfflineAction).toHaveBeenCalledWith({
-      type: "ACKNOWLEDGE_PO",
-      payload: {
-        po_number: "PO-1001",
-      },
-    });
+expect(addOfflineAction).toHaveBeenCalledWith({
+  type: "ACKNOWLEDGE_PO",
+  payload: {
+    poNumber: "PO-1001",
+  },
+});
   });
 
   it("executes the GraphQL mutation when browser is online", async () => {

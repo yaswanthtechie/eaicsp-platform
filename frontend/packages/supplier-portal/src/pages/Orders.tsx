@@ -8,16 +8,20 @@ import EmptyState from "../components/EmptyState";
 import ErrorState from "../components/ErrorState";
 import Loading from "../components/Loading";
 import { logout } from "../auth/logout";
-import type { PurchaseOrder } from "../types/po";
-import { usePurchaseOrders } from "../hooks/usePurchaseOrders";
 
+import type { POStatus, PurchaseOrder } from "../types/po";
 import type { PurchaseOrderEdge } from "../types/graphql";
+
+import { usePurchaseOrders } from "../hooks/usePurchaseOrders";
 import { ORDERS_PER_PAGE } from "../constants/pagination";
+
+type OrderFilter = "All" | POStatus;
 
 const Orders = () => {
   const navigate = useNavigate();
 
-  const [filter, setFilter] = useState("All");
+  const [filter, setFilter] =
+    useState<OrderFilter>("All");
   const [poNumber, setPoNumber] = useState("");
   const [minAmount, setMinAmount] = useState("");
   const [maxAmount, setMaxAmount] = useState("");
@@ -26,22 +30,22 @@ const Orders = () => {
 
   const parentRef = useRef<HTMLDivElement>(null);
 
-  const {
-    data,
-    loading,
-    error,
-    fetchMore,
-    networkStatus,
-  } = usePurchaseOrders({
-    first: ORDERS_PER_PAGE,
-    after: null,
-    status: filter === "All" ? undefined : filter.toLowerCase(),
-    poNumber: poNumber || undefined,
-    minAmount: minAmount ? Number(minAmount) : undefined,
-    maxAmount: maxAmount ? Number(maxAmount) : undefined,
-    startDate: startDate || undefined,
-    endDate: endDate || undefined,
-  });
+  const { data, loading, error, fetchMore, networkStatus } =
+    usePurchaseOrders({
+      first: ORDERS_PER_PAGE,
+      after: null,
+      status:
+        filter === "All" ? undefined : filter,
+      poNumber: poNumber || undefined,
+      minAmount: minAmount
+        ? Number(minAmount)
+        : undefined,
+      maxAmount: maxAmount
+        ? Number(maxAmount)
+        : undefined,
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
+    });
 
   const loadingMore =
     networkStatus === NetworkStatus.fetchMore;
@@ -52,10 +56,9 @@ const Orders = () => {
     ) || [];
 
   /*
-   * IMPORTANT:
-   * useVirtualizer must always be called before any
-   * conditional return so React sees the same hook
-   * order on every render.
+   * useVirtualizer must always be called before
+   * conditional returns so React sees the same
+   * hook order on every render.
    */
   const rowVirtualizer = useVirtualizer({
     count: orders.length,
@@ -85,9 +88,7 @@ const Orders = () => {
         first: ORDERS_PER_PAGE,
         after: endCursor,
         status:
-          filter === "All"
-            ? undefined
-            : filter.toLowerCase(),
+          filter === "All" ? undefined : filter,
         poNumber: poNumber || undefined,
         minAmount: minAmount
           ? Number(minAmount)
@@ -101,6 +102,22 @@ const Orders = () => {
     });
   };
 
+  const tabs: Array<{
+    label: string;
+    value: OrderFilter;
+  }> = [
+    { label: "All", value: "All" },
+    { label: "Sent", value: "SENT" },
+    {
+      label: "Acknowledged",
+      value: "ACKNOWLEDGED",
+    },
+    {
+      label: "Fulfilled",
+      value: "FULFILLED",
+    },
+  ];
+
   return (
     <div className="orders">
       <h1>Purchase Orders</h1>
@@ -110,21 +127,27 @@ const Orders = () => {
           type="text"
           placeholder="Search PO Number"
           value={poNumber}
-          onChange={(e) => setPoNumber(e.target.value)}
+          onChange={(e) =>
+            setPoNumber(e.target.value)
+          }
         />
 
         <input
           type="number"
           placeholder="Min Amount"
           value={minAmount}
-          onChange={(e) => setMinAmount(e.target.value)}
+          onChange={(e) =>
+            setMinAmount(e.target.value)
+          }
         />
 
         <input
           type="number"
           placeholder="Max Amount"
           value={maxAmount}
-          onChange={(e) => setMaxAmount(e.target.value)}
+          onChange={(e) =>
+            setMaxAmount(e.target.value)
+          }
         />
 
         <label>
@@ -133,7 +156,9 @@ const Orders = () => {
             type="date"
             aria-label="Start Date"
             value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
+            onChange={(e) =>
+              setStartDate(e.target.value)
+            }
           />
         </label>
 
@@ -143,7 +168,9 @@ const Orders = () => {
             type="date"
             aria-label="End Date"
             value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
+            onChange={(e) =>
+              setEndDate(e.target.value)
+            }
           />
         </label>
       </div>
@@ -151,7 +178,9 @@ const Orders = () => {
       <div className="top-buttons">
         <button
           className="invoice-btn"
-          onClick={() => navigate("/invoices/new")}
+          onClick={() =>
+            navigate("/invoices/new")
+          }
         >
           New Invoice
         </button>
@@ -165,20 +194,19 @@ const Orders = () => {
       </div>
 
       <div className="tabs">
-        {[
-          "All",
-          "Sent",
-          "Acknowledged",
-          "Fulfilled",
-        ].map((tab) => (
+        {tabs.map((tab) => (
           <button
-            key={tab}
+            key={tab.value}
             className={
-              filter === tab ? "active-tab" : ""
+              filter === tab.value
+                ? "active-tab"
+                : ""
             }
-            onClick={() => setFilter(tab)}
+            onClick={() =>
+              setFilter(tab.value)
+            }
           >
-            {tab}
+            {tab.label}
           </button>
         ))}
       </div>
@@ -210,7 +238,7 @@ const Orders = () => {
 
                 return (
                   <div
-                    key={order.po_number}
+                    key={order.poNumber}
                     role="listitem"
                     style={{
                       position: "absolute",
@@ -228,7 +256,8 @@ const Orders = () => {
         </div>
       )}
 
-      {data?.purchaseOrders?.pageInfo?.hasNextPage && (
+      {data?.purchaseOrders?.pageInfo
+        ?.hasNextPage && (
         <button
           className="load-more-btn"
           onClick={handleLoadMore}

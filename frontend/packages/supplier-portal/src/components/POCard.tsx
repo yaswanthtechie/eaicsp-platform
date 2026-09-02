@@ -17,19 +17,19 @@ const POCard = ({ order }: Props) => {
   return (
     <div className="card" data-testid="po-card">
       <div className="card-top">
-        <h3>{order.po_number}</h3>
+        <h3>{order.poNumber}</h3>
 
         <StatusBadge status={order.status} />
       </div>
 
-      <p>Total : {formatCurrency(order.total_amount)}</p>
+      <p>Total : {formatCurrency(order.totalAmount)}</p>
 
       <p>
         Delivery :{" "}
-        {new Date(order.expected_delivery).toLocaleDateString("en-IN")}
+        {new Date(order.expectedDelivery).toLocaleDateString("en-IN")}
       </p>
 
-      <Link to={`/orders/${order.po_number}`}>
+      <Link to={`/orders/${order.poNumber}`}>
         <button type="button">View Details</button>
       </Link>
     </div>

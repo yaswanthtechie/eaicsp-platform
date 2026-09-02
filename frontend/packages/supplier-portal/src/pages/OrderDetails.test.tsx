@@ -43,14 +43,14 @@ describe("OrderDetails", () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-mockUseAcknowledgePO.mockReturnValue({
-  acknowledgePO: vi.fn(),
-  loading: false,
-  called: false,
-  client: {} as never,
-  reset: vi.fn(),
-  acknowledgePurchaseOrder: vi.fn(),
-} as never);
+    mockUseAcknowledgePO.mockReturnValue({
+      acknowledgePO: vi.fn(),
+      loading: false,
+      called: false,
+      client: {} as never,
+      reset: vi.fn(),
+      acknowledgePurchaseOrder: vi.fn(),
+    } as never);
 
     mockUseOrderDetails.mockReturnValue({
       data: {
@@ -59,23 +59,23 @@ mockUseAcknowledgePO.mockReturnValue({
             {
               cursor: "cursor-1",
               node: {
-                po_number: "PO-1001",
-                supplier_id: "SUP-1",
-                status: "sent",
-                total_amount: 1500,
-                expected_delivery: "2026-08-30",
+                poNumber: "PO-1001",
+                supplierId: "SUP-1",
+                status: "SENT",
+                totalAmount: 1500,
+                expectedDelivery: "2026-08-30",
                 items: [
                   {
                     sku: "SKU-001",
-                    product_name: "Laptop",
+                    productName: "Laptop",
                     quantity: 2,
-                    unit_price: 500,
+                    unitPrice: 500,
                   },
                   {
                     sku: "SKU-002",
-                    product_name: "Mouse",
+                    productName: "Mouse",
                     quantity: 1,
-                    unit_price: 500,
+                    unitPrice: 500,
                   },
                 ],
               },
@@ -111,6 +111,7 @@ mockUseAcknowledgePO.mockReturnValue({
     ).toBeInTheDocument();
 
     expect(screen.getByText("PO-1001")).toBeInTheDocument();
+
     expect(screen.getByText("SUP-1")).toBeInTheDocument();
 
     expect(
@@ -119,17 +120,35 @@ mockUseAcknowledgePO.mockReturnValue({
 
     expect(
       screen.getByTestId("status-badge")
-    ).toHaveTextContent("sent");
+    ).toHaveTextContent("SENT");
 
-    expect(screen.getByText("Laptop")).toBeInTheDocument();
-    expect(screen.getByText("Mouse")).toBeInTheDocument();
+    expect(
+      screen.getByText("Laptop")
+    ).toBeInTheDocument();
 
-    expect(screen.getByText("SKU-001")).toBeInTheDocument();
-    expect(screen.getByText("SKU-002")).toBeInTheDocument();
+    expect(
+      screen.getByText("Mouse")
+    ).toBeInTheDocument();
 
-    expect(screen.getAllByText("Quantity:")).toHaveLength(2);
-    expect(screen.getByText("2")).toBeInTheDocument();
-    expect(screen.getByText("1")).toBeInTheDocument();
+    expect(
+      screen.getByText("SKU-001")
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByText("SKU-002")
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getAllByText("Quantity:")
+    ).toHaveLength(2);
+
+    expect(
+      screen.getByText("2")
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByText("1")
+    ).toBeInTheDocument();
 
     expect(
       screen.getByRole("heading", {

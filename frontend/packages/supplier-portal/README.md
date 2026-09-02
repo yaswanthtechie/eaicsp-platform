@@ -510,8 +510,7 @@ The cache helps:
 
 When a supplier acknowledges a Purchase Order, the UI updates immediately before the backend response is received.
 
-Apollo Client uses an optimistic response in `useAcknowledgePO.ts` to update the normalized `PurchaseOrder` cache immediately. The Purchase Order is normalized using `po_number` as its cache key.
-
+Apollo Client uses an optimistic response in `useAcknowledgePO.ts` to update the normalized `PurchaseOrder` cache immediately.The Purchase Order is normalized using `poNumber` as its cache key.
 ```text
 User clicks Acknowledge
         ↓
@@ -1033,10 +1032,8 @@ The current test suite covers:
 
 Current test result:
 
-```text
-Test Files: 8 passed
-Tests:      44 passed
-```
+Test Files: 16 passed
+Tests:      78 passed
 
 All current automated tests are passing.
 
@@ -1396,7 +1393,7 @@ PWA functionality can provide:
 * File Upload Tests
 * Status Badge Tests
 * Acknowledge PO Tests
-* 44/44 Tests Passing
+* 16 Test Files / 78 Tests Passing
 
 ## UI
 
@@ -1536,74 +1533,79 @@ React Testing Library
 - Purchase Order Notifications
 - Automated Unit and Component Testing
 
-##Round 5
+## Round 5
 
 ## 1. Round 5 Objective
 
 Round 5 focused on improving the Supplier Portal through:
 
-- Contract-first GraphQL schema
-- Expanded test coverage
-- Error Boundary
-- Purchase Order list virtualization
-- Accessibility improvements
+* Contract-first GraphQL schema
+* Expanded test coverage
+* Error Boundary
+* Purchase Order list virtualization
+* Accessibility improvements
 
 ## 2. What I Implemented
 
-## 2.1 Contract-first GraphQL Schema
+### 2.1 Contract-first GraphQL Schema
 
-Implemented and maintained the GraphQL schema as the frontend contract.
+Implemented and maintained `schema.graphql` as the frontend GraphQL contract.
 
-- Added/updated `schema.graphql`
-- Kept GraphQL queries and types aligned with the schema
-- Used the connection-based Purchase Order structure
-- Supported pagination through `edges` and `pageInfo`
+* Added/updated `src/graphql/schema.graphql`
+* Kept GraphQL queries and TypeScript types aligned with the schema
+* Standardized Purchase Order fields using camelCase
+* Standardized Purchase Order status values using the `POStatus` enum
+* Used the connection-based Purchase Order structure
+* Supported pagination through `edges` and `pageInfo`
+* Configured Apollo cache normalization using `poNumber`
+* Updated GraphQL tests to use the real `GET_PURCHASE_ORDERS` query and Apollo cache configuration
 
-## 2.2 Expanded Test Coverage
+### 2.2 Expanded Test Coverage
 
 Expanded automated test coverage across important application functionality.
 
 Tests cover:
 
-- Authentication and token storage
-- Login and protected navigation
-- Purchase Order rendering
-- Purchase Order pagination
-- Search and filters
-- Date filters
-- Logout
-- Acknowledge PO behavior
-- Offline queue
-- Offline synchronization
-- Invoice behavior
-- File upload validation
-- Status badge rendering
-- GraphQL/Apollo behavior
-- Error Boundary behavior
+* Authentication and token storage
+* Login and protected navigation
+* Purchase Order rendering
+* Purchase Order pagination
+* Search and filters
+* Date filters
+* Logout
+* Acknowledge PO behavior
+* Offline queue
+* Offline synchronization
+* Invoice behavior
+* File upload validation
+* Status badge rendering
+* GraphQL/Apollo behavior
+* Error Boundary behavior
 
-## 2.3 Error Boundary
+### 2.3 Error Boundary
 
 Implemented an Error Boundary to prevent an unexpected React rendering error from breaking the complete application UI.
 
 The Error Boundary:
 
-- Catches render-time errors
-- Displays fallback UI
-- Prevents the application from showing a blank/broken screen
-- Has automated test coverage
+* Catches render-time errors
+* Displays fallback UI
+* Prevents the application from showing a blank/broken screen
+* Has automated test coverage
 
-## 2.4 Purchase Order List Virtualization
+### 2.4 Purchase Order List Virtualization
 
 Implemented virtualization for the Purchase Order list using `@tanstack/react-virtual`.
 
 The Orders page:
 
-- Renders only the visible/nearby PO items
-- Uses a scrollable container
-- Calculates virtual item positions
-- Uses overscan for smoother scrolling
+* Renders only the visible/nearby PO items
+* Uses a scrollable container
+* Calculates virtual item positions
+* Uses overscan for smoother scrolling
+* Uses `poNumber` as the stable row key
 
-## 2.5 Accessibility Improvements
+### 2.5 Accessibility Improvements
 
 Improved accessibility of the invoice PDF upload flow.
 
@@ -1617,24 +1619,27 @@ This provides a keyboard-accessible way to open the file picker instead of depen
 
 Also verified:
 
-- Button has `type="button"`
-- Button is accessible through keyboard interaction
-- PDF validation remains functional
-- File size validation remains functional
-- Preview and Remove actions remain functional
+* Button has `type="button"`
+* Button activation triggers the file picker
+* PDF validation remains functional
+* File size validation remains functional
+* Preview and Remove actions remain functional
 
 ## 3. Test Coverage
 
-## Final Test Result
+### Final Test Result
 
 ```text
-Test Files: 15 passed
-Tests:      77 passed
+Test Files: 16 passed
+Tests:      78 passed
 Failed:     0
+```
 
-## Not Done 
+The production build also completes successfully with TypeScript compilation and Vite production bundling.
 
-- The GraphQL schema is documentation-as-code for the target backend contract.
-- The schema has not yet been validated against Rashida's live GraphQL backend implementation.
-- Backend GraphQL integration is planned for a future round.
-- The Supplier Portal continues to use frontend mocks during Round 5.
+## Not Done
+
+* The GraphQL schema is documentation-as-code for the target backend contract.
+* The schema has not yet been validated against Rashida's live GraphQL backend implementation.
+* Backend GraphQL integration is planned for a future round.
+* The Supplier Portal continues to use frontend mocks during Round 5.

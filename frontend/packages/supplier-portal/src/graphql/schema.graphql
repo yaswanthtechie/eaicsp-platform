@@ -18,17 +18,18 @@ Divergences from the current REST implementation:
 """
 
 type Query {
-  purchaseOrders(
-    first: Int!
-    after: String
-    status: String
-    poNumber: String
-    minAmount: Int
-    maxAmount: Int
-    startDate: String
-    endDate: String
-  ): PurchaseOrderConnection!
+purchaseOrders(
+first: Int!
+after: String
+status: POStatus
+poNumber: String
+minAmount: Int
+maxAmount: Int
+startDate: String
+endDate: String
+): PurchaseOrderConnection!
 }
+
 
 type Mutation {
   acknowledgePurchaseOrder(poNumber: String!): PurchaseOrder!

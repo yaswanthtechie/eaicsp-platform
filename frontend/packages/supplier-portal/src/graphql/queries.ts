@@ -4,7 +4,7 @@ export const GET_PURCHASE_ORDERS = gql`
   query GetPurchaseOrders(
     $first: Int!
     $after: String
-    $status: String
+    $status: POStatus
     $poNumber: String
     $minAmount: Int
     $maxAmount: Int

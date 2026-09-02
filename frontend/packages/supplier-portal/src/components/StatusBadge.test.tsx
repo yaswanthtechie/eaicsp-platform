@@ -5,7 +5,7 @@ import StatusBadge from "./StatusBadge";
 
 describe("StatusBadge", () => {
   it("renders SENT status", () => {
-    render(<StatusBadge status="sent" />);
+    render(<StatusBadge status="SENT" />);
 
     expect(
       screen.getByText("SENT")
@@ -14,7 +14,7 @@ describe("StatusBadge", () => {
 
   it("renders ACKNOWLEDGED status", () => {
     render(
-      <StatusBadge status="acknowledged" />
+      <StatusBadge status="ACKNOWLEDGED" />
     );
 
     expect(
@@ -24,7 +24,7 @@ describe("StatusBadge", () => {
 
   it("renders FULFILLED status", () => {
     render(
-      <StatusBadge status="fulfilled" />
+      <StatusBadge status="FULFILLED" />
     );
 
     expect(
@@ -34,7 +34,7 @@ describe("StatusBadge", () => {
 
   it("renders CANCELLED status", () => {
     render(
-      <StatusBadge status="cancelled" />
+      <StatusBadge status="CANCELLED" />
     );
 
     expect(
@@ -44,7 +44,7 @@ describe("StatusBadge", () => {
 
   it("renders DRAFT status", () => {
     render(
-      <StatusBadge status="draft" />
+      <StatusBadge status="DRAFT" />
     );
 
     expect(
@@ -53,7 +53,7 @@ describe("StatusBadge", () => {
   });
 
   it("applies the correct color for SENT status", () => {
-    render(<StatusBadge status="sent" />);
+    render(<StatusBadge status="SENT" />);
 
     const badge = screen.getByText("SENT");
 
@@ -65,7 +65,7 @@ describe("StatusBadge", () => {
 
   it("applies the correct color for ACKNOWLEDGED status", () => {
     render(
-      <StatusBadge status="acknowledged" />
+      <StatusBadge status="ACKNOWLEDGED" />
     );
 
     const badge =
@@ -79,7 +79,7 @@ describe("StatusBadge", () => {
 
   it("applies the correct color for FULFILLED status", () => {
     render(
-      <StatusBadge status="fulfilled" />
+      <StatusBadge status="FULFILLED" />
     );
 
     const badge =
@@ -93,7 +93,7 @@ describe("StatusBadge", () => {
 
   it("applies the correct color for CANCELLED status", () => {
     render(
-      <StatusBadge status="cancelled" />
+      <StatusBadge status="CANCELLED" />
     );
 
     const badge =
@@ -107,7 +107,7 @@ describe("StatusBadge", () => {
 
   it("renders the status in uppercase", () => {
     render(
-      <StatusBadge status="acknowledged" />
+      <StatusBadge status="ACKNOWLEDGED" />
     );
 
     expect(

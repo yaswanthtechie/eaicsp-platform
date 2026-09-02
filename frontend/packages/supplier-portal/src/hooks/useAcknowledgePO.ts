@@ -20,7 +20,7 @@ export const useAcknowledgePO = () => {
       addOfflineAction({
         type: "ACKNOWLEDGE_PO",
         payload: {
-          po_number: poNumber,
+          poNumber,
         },
       });
 
@@ -33,18 +33,18 @@ export const useAcknowledgePO = () => {
      * Online:
      * Execute the GraphQL mutation with optimistic UI.
      */
-await acknowledgePurchaseOrder({
-  variables: {
-    poNumber,
-  },
-  optimisticResponse: {
-    acknowledgePurchaseOrder: {
-      __typename: "PurchaseOrder",
-      poNumber,
-      status: "ACKNOWLEDGED",
-    },
-  },
-});
+    await acknowledgePurchaseOrder({
+      variables: {
+        poNumber,
+      },
+      optimisticResponse: {
+        acknowledgePurchaseOrder: {
+          __typename: "PurchaseOrder",
+          poNumber,
+          status: "ACKNOWLEDGED",
+        },
+      },
+    });
 
     return {
       queued: false,

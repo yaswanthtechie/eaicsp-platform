@@ -14,8 +14,8 @@ vi.mock("../auth/logout", () => ({
 }));
 
 vi.mock("../components/POCard", () => ({
-  default: ({ order }: { order: { po_number: string } }) => (
-    <div data-testid="po-card">{order.po_number}</div>
+  default: ({ order }: { order: { poNumber: string } }) => (
+    <div data-testid="po-card">{order.poNumber}</div>
   ),
 }));
 
@@ -30,13 +30,13 @@ vi.mock("../components/ErrorState", () => ({
 vi.mock("../components/Loading", () => ({
   default: () => <div data-testid="loading">Loading</div>,
 }));
+
 /*
  * jsdom does not provide real layout or scroll measurements.
  * Therefore, this mock returns all items so the Orders component
  * can be tested deterministically. Actual viewport windowing
  * behavior is provided by @tanstack/react-virtual in the browser.
  */
-
 vi.mock("@tanstack/react-virtual", () => ({
   useVirtualizer: ({ count }: { count: number }) => ({
     getTotalSize: () => count * 150,
@@ -73,11 +73,11 @@ describe("Orders", () => {
             {
               cursor: "cursor-1",
               node: {
-                po_number: "PO-1001",
-                supplier_id: "SUP-1",
-                status: "sent",
-                total_amount: 1000,
-                expected_delivery: "2026-08-30",
+                poNumber: "PO-1001",
+                supplierId: "SUP-1",
+                status: "SENT",
+                totalAmount: 1000,
+                expectedDelivery: "2026-08-30",
                 items: [],
               },
             },
@@ -176,11 +176,11 @@ describe("Orders", () => {
             {
               cursor: "cursor-1",
               node: {
-                po_number: "PO-1001",
-                supplier_id: "SUP-1",
-                status: "sent",
-                total_amount: 1000,
-                expected_delivery: "2026-08-30",
+                poNumber: "PO-1001",
+                supplierId: "SUP-1",
+                status: "SENT",
+                totalAmount: 1000,
+                expectedDelivery: "2026-08-30",
                 items: [],
               },
             },
@@ -247,9 +247,7 @@ describe("Orders", () => {
     );
 
     const poInput = screen.getByPlaceholderText("Search PO Number");
-
     const minAmountInput = screen.getByPlaceholderText("Min Amount");
-
     const maxAmountInput = screen.getByPlaceholderText("Max Amount");
 
     fireEvent.change(poInput, {
@@ -308,7 +306,7 @@ describe("Orders", () => {
     expect(mockUsePurchaseOrders).toHaveBeenLastCalledWith({
       first: 20,
       after: null,
-      status: "acknowledged",
+      status: "ACKNOWLEDGED",
       poNumber: undefined,
       minAmount: undefined,
       maxAmount: undefined,
@@ -431,11 +429,11 @@ describe("Orders", () => {
             {
               cursor: "cursor-1",
               node: {
-                po_number: "PO-1001",
-                supplier_id: "SUP-1",
-                status: "sent",
-                total_amount: 1000,
-                expected_delivery: "2026-08-30",
+                poNumber: "PO-1001",
+                supplierId: "SUP-1",
+                status: "SENT",
+                totalAmount: 1000,
+                expectedDelivery: "2026-08-30",
                 items: [],
               },
             },
@@ -465,4 +463,3 @@ describe("Orders", () => {
     expect(loadMoreButton).toBeDisabled();
   });
 });
-

@@ -198,10 +198,10 @@ const Invoice = () => {
 
             {acknowledgedPOs.map((po) => (
               <option
-                key={po.po_number}
-                value={po.po_number}
+                key={po.poNumber}
+                value={po.poNumber}
               >
-                {po.po_number}
+                {po.poNumber}
               </option>
             ))}
           </select>
