@@ -4,7 +4,9 @@ from fastapi import (
     File,
     HTTPException,
     UploadFile,
+    status
 )
+from app.core.auth import require_roles
 
 from sqlalchemy.orm import Session
 
@@ -38,7 +40,7 @@ from app.services.inventory_service import (
     bulk_upload_csv,
     bulk_update_inventory,
     what_if_simulation,
-    inventory_response,
+    inventory_response, 
 )
 
 from app.services.reorder_service import (
@@ -285,6 +287,12 @@ import time
 def bulk_upload_route(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    auth=Depends(
+            require_roles(
+                "warehouse_manager",
+                "procurement_manager",
+            )
+    ),
 ):
     start_time = time.perf_counter()
 
@@ -312,13 +320,16 @@ def bulk_upload_route(
             detail=str(exc),
         )
 
-@router.post(
-    "/bulk-update",
-    response_model=list[InventoryResponse],
-)
+@router.put("/bulk-update")
 def bulk_update_route(
     updates: list[BulkUpdateItem],
     db: Session = Depends(get_db),
+    auth=Depends(
+        require_roles(
+            "warehouse_manager",
+            "procurement_manager",
+        )
+    ),
 ):
     try:
         result = bulk_update_inventory(
@@ -336,18 +347,22 @@ def bulk_update_route(
 
     except ValueError as exc:
         raise HTTPException(
-            status_code=409,
+            status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
         )
-
-
 @router.post(
     "/what-if",
     response_model=WhatIfResponse,
 )
-def what_if_route(
+async def what_if_route(
     request: WhatIfRequest,
     db: Session = Depends(get_db),
+    auth=Depends(
+        require_roles(
+            "ceo",
+            "vp_operations",
+        )
+    ),
 ):
     try:
         return what_if_simulation(
