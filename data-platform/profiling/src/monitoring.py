@@ -98,6 +98,39 @@ class MonitoringHistory:
             "trend": trend
         }
 
+    def get_quality_alert(self):
+        """
+        Check whether the quality score dropped by more than
+        10 points between the two most recent runs.
+        """
+
+        history = self.load_history()
+
+        if len(history) < 2:
+            return {
+                "status": "NO_DATA",
+                "previous_score": None,
+                "current_score": None,
+                "drop": None,
+            }
+
+        previous_score = history[-2]["quality_score"]
+        current_score = history[-1]["quality_score"]
+
+        drop = previous_score - current_score
+
+        if drop > 10:
+            status = "CRITICAL"
+        else:
+            status = "OK"
+
+        return {
+            "status": status,
+            "previous_score": previous_score,
+            "current_score": current_score,
+            "drop": drop,
+        }
+
     def get_column_trend(self, column_name):
         history = self.load_history()
 

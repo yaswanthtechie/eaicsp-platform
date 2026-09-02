@@ -31,6 +31,15 @@ def main():
     monitoring = MonitoringHistory()
     monitoring.save_batch(report)
 
+    # Check quality alert based on recent monitoring history
+    quality_alert = monitoring.get_quality_alert()
+
+    print(
+        f"QUALITY ALERT: "
+        f"{quality_alert['status']} - "
+        f"Score drop: {quality_alert['drop']}"
+    )
+
     # Scheduled quality check mock
     quality_check = check_quality_threshold(
         report,
