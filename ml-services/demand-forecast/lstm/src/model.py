@@ -59,10 +59,20 @@ class MultiStepLSTM(nn.Module):
         self.fc = nn.Linear(hidden_size, horizon)
 
     def enable_mc_dropout(self):
-        """Enables dropout layers during inference for Monte Carlo uncertainty sampling."""
+        """
+        Enables Monte Carlo Dropout during inference.
+        
+        Explicitly activates standard nn.Dropout layers and enables the internal 
+        recurrent layer dropout inside nn.LSTM (active when num_layers > 1).
+        """
+        self.eval()
         for m in self.modules():
             if isinstance(m, nn.Dropout):
                 m.train()
+
+        # PyTorch cuDNN LSTM applies inter-layer dropout only when training=True
+        if self.num_layers > 1:
+            self.lstm.train()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         lstm_out, _ = self.lstm(x)

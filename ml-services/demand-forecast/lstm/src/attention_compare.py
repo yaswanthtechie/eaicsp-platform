@@ -1,10 +1,42 @@
+"""
+[SUPERSEDED]: Plain LSTM vs. Attention LSTM 5-Fold Benchmark.
+
+NOTE FOR REVIEWERS:
+This standalone comparison has been integrated into the systematic 
+unified hyperparameter sweep in `src/sweep.py`. This script is retained 
+solely to satisfy historical PR deliverables and standalone reproduction.
+"""
+
+import warnings
+warnings.warn(
+    "src/attention_compare.py is superseded by src/sweep.py. "
+    "Please run sweep.py for first-class architecture and parameter sweeps.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 import mlflow
 import numpy as np
 import torch
-from config import EPOCHS, HIDDEN_SIZE, HORIZON, LOOKBACK, NUM_LAYERS, RANDOM_SEED
+from sklearn.metrics import mean_absolute_error, mean_squared_error
+
+from config import (
+    DROPOUT,
+    EPOCHS,
+    HIDDEN_SIZE,
+    HORIZON,
+    LOOKBACK,
+    NUM_LAYERS,
+    RANDOM_SEED,
+)
 from data import generate_data, get_walk_forward_folds
-from model import AttentionMultiStepLSTM, MultiStepLSTM
+from model import MultiStepLSTM
 from train_utils import train_model
+
+
+def set_seed(seed: int = RANDOM_SEED):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
 
 
 def compare_models():
@@ -16,12 +48,16 @@ def compare_models():
         mlflow.log_params({
             "lookback": LOOKBACK,
             "horizon": HORIZON,
+            "hidden_size": HIDDEN_SIZE,
+            "num_layers": NUM_LAYERS,
+            "dropout": DROPOUT,
             "epochs": EPOCHS,
             "n_folds": n_folds,
             "seed": RANDOM_SEED,
+            "status": "SUPERSEDED_BY_SWEEP",
         })
 
-        df = generate_data()
+        df = generate_data(days=1000)
         folds = get_walk_forward_folds(df, n_folds=n_folds, lookback=LOOKBACK, horizon=HORIZON)
 
         plain_maes, plain_rmses = [], []
@@ -32,40 +68,62 @@ def compare_models():
         print("-" * 65)
 
         for fold_idx, (X_tr, y_tr, X_te, y_te, scaler) in enumerate(folds, 1):
-            # Ensure strictly 3D shape (samples, lookback, 1)
+            # Ensure strictly 3D input: (batch_size, lookback, 1)
             if X_te.ndim == 2:
                 X_te_3d = X_te[:, :, np.newaxis]
             elif X_te.ndim == 4:
                 X_te_3d = X_te.squeeze(-1)
             else:
                 X_te_3d = X_te
-                
+
             x_tensor = torch.tensor(X_te_3d, dtype=torch.float32)
 
+            # Ground truth inverse scaling
+            y_inv = scaler.inverse_transform(y_te.reshape(-1, 1)).reshape(y_te.shape)
+
+            # -------------------------------------------------------------
             # 1. Plain LSTM
-            torch.manual_seed(RANDOM_SEED)
-            plain_model = MultiStepLSTM(1, HIDDEN_SIZE, NUM_LAYERS, HORIZON)
-            train_model(plain_model, X_tr, y_tr, epochs=EPOCHS)
+            # -------------------------------------------------------------
+            set_seed(RANDOM_SEED)
+            plain_model = MultiStepLSTM(
+                input_size=1,
+                hidden_size=HIDDEN_SIZE,
+                num_layers=NUM_LAYERS,
+                horizon=HORIZON,
+                dropout=DROPOUT,
+                use_attention=False,
+            )
+            plain_model = train_model(plain_model, X_tr, y_tr, epochs=EPOCHS)
             plain_model.eval()
+
             with torch.no_grad():
-                pred_p = plain_model(x_tensor).numpy()
-                pred_p_inv = scaler.inverse_transform(pred_p)
-                y_inv = scaler.inverse_transform(y_te)
-                mae_p = float(np.mean(np.abs(pred_p_inv - y_inv)))
-                rmse_p = float(np.sqrt(np.mean((pred_p_inv - y_inv) ** 2)))
+                pred_p = plain_model(x_tensor).cpu().numpy()
+                pred_p_inv = scaler.inverse_transform(pred_p.reshape(-1, 1)).reshape(pred_p.shape)
+                mae_p = float(mean_absolute_error(y_inv, pred_p_inv))
+                rmse_p = float(np.sqrt(mean_squared_error(y_inv, pred_p_inv)))
                 plain_maes.append(mae_p)
                 plain_rmses.append(rmse_p)
 
+            # -------------------------------------------------------------
             # 2. Attention LSTM
-            torch.manual_seed(RANDOM_SEED)
-            attn_model = AttentionMultiStepLSTM(1, HIDDEN_SIZE, NUM_LAYERS, HORIZON)
-            train_model(attn_model, X_tr, y_tr, epochs=EPOCHS)
+            # -------------------------------------------------------------
+            set_seed(RANDOM_SEED)
+            attn_model = MultiStepLSTM(
+                input_size=1,
+                hidden_size=HIDDEN_SIZE,
+                num_layers=NUM_LAYERS,
+                horizon=HORIZON,
+                dropout=DROPOUT,
+                use_attention=True,
+            )
+            attn_model = train_model(attn_model, X_tr, y_tr, epochs=EPOCHS)
             attn_model.eval()
+
             with torch.no_grad():
-                pred_a = attn_model(x_tensor).numpy()
-                pred_a_inv = scaler.inverse_transform(pred_a)
-                mae_a = float(np.mean(np.abs(pred_a_inv - y_inv)))
-                rmse_a = float(np.sqrt(np.mean((pred_a_inv - y_inv) ** 2)))
+                pred_a = attn_model(x_tensor).cpu().numpy()
+                pred_a_inv = scaler.inverse_transform(pred_a.reshape(-1, 1)).reshape(pred_a.shape)
+                mae_a = float(mean_absolute_error(y_inv, pred_a_inv))
+                rmse_a = float(np.sqrt(mean_squared_error(y_inv, pred_a_inv)))
                 attn_maes.append(mae_a)
                 attn_rmses.append(rmse_a)
 

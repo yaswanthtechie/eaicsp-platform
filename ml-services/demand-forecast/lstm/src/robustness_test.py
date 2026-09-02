@@ -2,20 +2,32 @@
 Adversarial & Corrupted Input Robustness Test Suite
 """
 
-import pickle
+import os
+import sys
 import numpy as np
 import torch
 
-from config import LOOKBACK, SCALER_PATH
+from config import LOOKBACK, MODEL_PATH, SCALER_PATH
 from predict import forecast_demand
 
 
 def run_robustness_battery():
+    # Pre-flight check: ensure required pipeline artifacts exist
+    missing_artifacts = [
+        path for path in [SCALER_PATH, MODEL_PATH] if not os.path.exists(path)
+    ]
+    if missing_artifacts:
+        print("[ERROR]: Missing required artifacts:")
+        for path in missing_artifacts:
+            print(f"  - {path}")
+        print("Please run `python src/train.py` to generate model and scaler artifacts first.")
+        sys.exit(1)
+
     print("=" * 70)
     print("RUNNING ADVERSARIAL & CORRUPTED DATA ROBUSTNESS BATTERY")
     print("=" * 70)
 
-    # Base valid series
+    # Base valid sequence
     valid_base = [100.0 + i * 0.5 for i in range(LOOKBACK)]
 
     test_cases = [
@@ -33,20 +45,24 @@ def run_robustness_battery():
             result = forecast_demand(input_seq)
             forecast = result["mean_forecast"]
 
-            # Validate prediction validity
-            has_nan = np.isnan(forecast).any()
-            has_inf = np.isinf(forecast).any()
+            forecast_arr = np.array(forecast, dtype=np.float32)
+            has_nan = np.isnan(forecast_arr).any()
+            has_inf = np.isinf(forecast_arr).any()
+            has_negative = (forecast_arr < 0.0).any()
 
             if has_nan or has_inf:
-                print(f"  ❌ FAILED: Returned NaN/Inf predictions -> {forecast}")
+                print(f"  [FAILED]: Returned NaN/Inf predictions -> {forecast}")
+            elif has_negative:
+                print(f"  [FAILED]: Returned negative demand predictions -> {forecast}")
             else:
-                print(f"  ✅ PASSED: Handled gracefully. Forecast range: [{min(forecast):.2f}, {max(forecast):.2f}]")
+                tag = "finite non-negative output"
+                print(f"  [PASSED]: Handled gracefully ({tag}). Forecast range: [{min(forecast):.2f}, {max(forecast):.2f}]")
                 print(f"     Mean Forecast: {[round(x, 2) for x in forecast[:3]]}...")
 
         except (ValueError, TypeError) as e:
-            print(f"  ✅ PASSED (Caught Gracefully via Domain Validation): {e}")
+            print(f"  [PASSED] (Caught Gracefully via Domain Validation): {e}")
         except Exception as e:
-            print(f"  ❌ FAILED (Unhandled Exception): {type(e).__name__}: {e}")
+            print(f"  [FAILED] (Unhandled Exception): {type(e).__name__}: {e}")
 
     print("\n" + "=" * 70)
     print("ROBUSTNESS BATTERY COMPLETE")

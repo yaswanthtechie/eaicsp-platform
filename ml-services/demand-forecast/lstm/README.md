@@ -23,112 +23,115 @@ STARTING 5-FOLD TIME-SERIES WALK-FORWARD VALIDATION
 ======================================================================
 
 --- FOLD 1 RESULTS ---
-LSTM  -> MAE: 8.91 | RMSE: 10.76
+LSTM  -> MAE: 7.85 | RMSE: 9.44
 NAIVE -> MAE: 8.78 | RMSE: 10.74
 
 --- FOLD 2 RESULTS ---
-LSTM  -> MAE: 6.81 | RMSE: 7.91
+LSTM  -> MAE: 6.81 | RMSE: 8.03
 NAIVE -> MAE: 8.92 | RMSE: 10.97
 
 --- FOLD 3 RESULTS ---
-LSTM  -> MAE: 6.53 | RMSE: 7.62
+LSTM  -> MAE: 6.65 | RMSE: 7.76
 NAIVE -> MAE: 8.70 | RMSE: 10.68
 
 --- FOLD 4 RESULTS ---
-LSTM  -> MAE: 7.76 | RMSE: 9.44
+LSTM  -> MAE: 6.56 | RMSE: 7.92
 NAIVE -> MAE: 8.98 | RMSE: 10.98
 
 --- FOLD 5 RESULTS ---
-LSTM  -> MAE: 6.52 | RMSE: 7.56
+LSTM  -> MAE: 6.20 | RMSE: 7.25
 NAIVE -> MAE: 8.51 | RMSE: 10.48
 
 ======================================================================
 AVERAGE METRICS ACROSS ALL 5 FOLDS
-LSTM Model  -> Avg MAE: 7.31 | Avg RMSE: 8.66
+LSTM Model  -> Avg MAE: 6.81 | Avg RMSE: 8.08
 Naive Model -> Avg MAE: 8.78 | Avg RMSE: 10.77
 ======================================================================
 
 Saved PyTorch weights to output/best_model.pt
+
 ```
 
-> **Note on baseline comparison**: On the 5-fold average, the LSTM achieves 9.16 MAE vs 6.93 for Naive Persistence (\hat{y}_{t+1} = y_t). However, excluding Fold 1 (which lacks sufficient history to observe a full annual cycle), the LSTM decisively beats Naive Persistence across Folds 2–5 (5.75 vs 6.94 avg MAE).
+- The trained Multi-Step LSTM achieves an average MAE of 6.81 versus 8.78 for the naive baseline (a 22.4% error reduction). Weights are persisted to output/best_model.pt.
 ---
 
 ## 🎯 R4: Real Hyperparameter Sweep
-
-- Hyperparameter configuration are evaluated systematically across walk-forward fold with temporal attention included directly in the search space as a first-class entry (logged to MLflow):
+-Systematic Hyperparameter Sweep
+Evaluated across inner chronological validation folds (val_fraction=0.2) with fixed random seeds (seed=42) to strictly prevent test data leakage:
 
 ### Sweep results table
 
 Run: `python src/sweep.py`
 
 ```
-TARTING SYSTEMATIC HYPERPARAMETER SWEEP (32 Configurations)
-=====================================================================================
-[01/32] PLAIN     | Hidden: 32 | Layers: 1 | LR: 0.001 | MAE: 5.60 | RMSE: 6.79
-[02/32] ATTENTION | Hidden: 32 | Layers: 1 | LR: 0.001 | MAE: 8.46 | RMSE: 10.34
-[03/32] PLAIN     | Hidden: 32 | Layers: 1 | LR: 0.005 | MAE: 4.03 | RMSE: 5.00
-[04/32] ATTENTION | Hidden: 32 | Layers: 1 | LR: 0.005 | MAE: 8.40 | RMSE: 10.24
-[05/32] PLAIN     | Hidden: 32 | Layers: 1 | LR: 0.001 | MAE: 5.63 | RMSE: 6.79
-[06/32] ATTENTION | Hidden: 32 | Layers: 1 | LR: 0.001 | MAE: 8.61 | RMSE: 10.44
-[07/32] PLAIN     | Hidden: 32 | Layers: 1 | LR: 0.005 | MAE: 3.77 | RMSE: 4.67
-[08/32] ATTENTION | Hidden: 32 | Layers: 1 | LR: 0.005 | MAE: 8.57 | RMSE: 10.52
-[09/32] PLAIN     | Hidden: 32 | Layers: 2 | LR: 0.001 | MAE: 6.22 | RMSE: 7.63
-[10/32] ATTENTION | Hidden: 32 | Layers: 2 | LR: 0.001 | MAE: 8.62 | RMSE: 10.59
-[11/32] PLAIN     | Hidden: 32 | Layers: 2 | LR: 0.005 | MAE: 4.58 | RMSE: 5.56
-[12/32] ATTENTION | Hidden: 32 | Layers: 2 | LR: 0.005 | MAE: 8.85 | RMSE: 10.73
-[13/32] PLAIN     | Hidden: 32 | Layers: 2 | LR: 0.001 | MAE: 7.07 | RMSE: 8.46
-[14/32] ATTENTION | Hidden: 32 | Layers: 2 | LR: 0.001 | MAE: 8.83 | RMSE: 10.83
-[15/32] PLAIN     | Hidden: 32 | Layers: 2 | LR: 0.005 | MAE: 4.20 | RMSE: 5.19
-[16/32] ATTENTION | Hidden: 32 | Layers: 2 | LR: 0.005 | MAE: 8.36 | RMSE: 10.23
-[17/32] PLAIN     | Hidden: 64 | Layers: 1 | LR: 0.001 | MAE: 5.04 | RMSE: 6.12
-[18/32] ATTENTION | Hidden: 64 | Layers: 1 | LR: 0.001 | MAE: 8.27 | RMSE: 10.11
-[19/32] PLAIN     | Hidden: 64 | Layers: 1 | LR: 0.005 | MAE: 3.71 | RMSE: 4.62
-[20/32] ATTENTION | Hidden: 64 | Layers: 1 | LR: 0.005 | MAE: 8.04 | RMSE: 9.78
-[21/32] PLAIN     | Hidden: 64 | Layers: 1 | LR: 0.001 | MAE: 5.13 | RMSE: 6.22
-[22/32] ATTENTION | Hidden: 64 | Layers: 1 | LR: 0.001 | MAE: 8.80 | RMSE: 10.76
-[23/32] PLAIN     | Hidden: 64 | Layers: 1 | LR: 0.005 | MAE: 3.78 | RMSE: 4.70
-[24/32] ATTENTION | Hidden: 64 | Layers: 1 | LR: 0.005 | MAE: 8.26 | RMSE: 9.99
-[25/32] PLAIN     | Hidden: 64 | Layers: 2 | LR: 0.001 | MAE: 4.93 | RMSE: 6.09
-[26/32] ATTENTION | Hidden: 64 | Layers: 2 | LR: 0.001 | MAE: 9.03 | RMSE: 10.99
-[27/32] PLAIN     | Hidden: 64 | Layers: 2 | LR: 0.005 | MAE: 3.59 | RMSE: 4.51
-[28/32] ATTENTION | Hidden: 64 | Layers: 2 | LR: 0.005 | MAE: 7.53 | RMSE: 9.18
-[29/32] PLAIN     | Hidden: 64 | Layers: 2 | LR: 0.001 | MAE: 5.43 | RMSE: 6.51
-[30/32] ATTENTION | Hidden: 64 | Layers: 2 | LR: 0.001 | MAE: 8.76 | RMSE: 10.76
-[31/32] PLAIN     | Hidden: 64 | Layers: 2 | LR: 0.005 | MAE: 3.87 | RMSE: 4.81
-[32/32] ATTENTION | Hidden: 64 | Layers: 2 | LR: 0.005 | MAE: 8.79 | RMSE: 10.69
+===============================================================================================
+STARTING SYSTEMATIC HYPERPARAMETER SWEEP (32 Configurations)
+===============================================================================================
+[01/32] PLAIN     | Hidden: 32 | Layers: 1 | LR: 0.001 | Val MAE: 6.70 | (Test MAE Ref: 6.87)
+[02/32] ATTENTION | Hidden: 32 | Layers: 1 | LR: 0.001 | Val MAE: 8.61 | (Test MAE Ref: 8.13)
+[03/32] PLAIN     | Hidden: 32 | Layers: 1 | LR: 0.005 | Val MAE: 4.09 | (Test MAE Ref: 5.05)
+[04/32] ATTENTION | Hidden: 32 | Layers: 1 | LR: 0.005 | Val MAE: 8.22 | (Test MAE Ref: 8.11)
+[05/32] PLAIN     | Hidden: 32 | Layers: 1 | LR: 0.001 | Val MAE: 6.97 | (Test MAE Ref: 7.00)
+[06/32] ATTENTION | Hidden: 32 | Layers: 1 | LR: 0.001 | Val MAE: 8.46 | (Test MAE Ref: 8.02)
+[07/32] PLAIN     | Hidden: 32 | Layers: 1 | LR: 0.005 | Val MAE: 4.36 | (Test MAE Ref: 4.96)
+[08/32] ATTENTION | Hidden: 32 | Layers: 1 | LR: 0.005 | Val MAE: 8.51 | (Test MAE Ref: 7.98)
+[09/32] PLAIN     | Hidden: 32 | Layers: 2 | LR: 0.001 | Val MAE: 6.27 | (Test MAE Ref: 6.88)
+[10/32] ATTENTION | Hidden: 32 | Layers: 2 | LR: 0.001 | Val MAE: 9.20 | (Test MAE Ref: 8.67)
+[11/32] PLAIN     | Hidden: 32 | Layers: 2 | LR: 0.005 | Val MAE: 3.59 | (Test MAE Ref: 4.43)
+[12/32] ATTENTION | Hidden: 32 | Layers: 2 | LR: 0.005 | Val MAE: 8.47 | (Test MAE Ref: 9.91)
+[13/32] PLAIN     | Hidden: 32 | Layers: 2 | LR: 0.001 | Val MAE: 6.45 | (Test MAE Ref: 6.95)
+[14/32] ATTENTION | Hidden: 32 | Layers: 2 | LR: 0.001 | Val MAE: 9.08 | (Test MAE Ref: 8.70)
+[15/32] PLAIN     | Hidden: 32 | Layers: 2 | LR: 0.005 | Val MAE: 3.82 | (Test MAE Ref: 4.12)
+[16/32] ATTENTION | Hidden: 32 | Layers: 2 | LR: 0.005 | Val MAE: 8.50 | (Test MAE Ref: 9.60)
+[17/32] PLAIN     | Hidden: 64 | Layers: 1 | LR: 0.001 | Val MAE: 5.60 | (Test MAE Ref: 5.49)
+[18/32] ATTENTION | Hidden: 64 | Layers: 1 | LR: 0.001 | Val MAE: 10.00 | (Test MAE Ref: 8.21)
+[19/32] PLAIN     | Hidden: 64 | Layers: 1 | LR: 0.005 | Val MAE: 3.94 | (Test MAE Ref: 3.38)
+[20/32] ATTENTION | Hidden: 64 | Layers: 1 | LR: 0.005 | Val MAE: 9.15 | (Test MAE Ref: 8.88)
+[21/32] PLAIN     | Hidden: 64 | Layers: 1 | LR: 0.001 | Val MAE: 5.78 | (Test MAE Ref: 5.49)
+[22/32] ATTENTION | Hidden: 64 | Layers: 1 | LR: 0.001 | Val MAE: 10.03 | (Test MAE Ref: 8.04)
+[23/32] PLAIN     | Hidden: 64 | Layers: 1 | LR: 0.005 | Val MAE: 4.36 | (Test MAE Ref: 3.53)
+[24/32] ATTENTION | Hidden: 64 | Layers: 1 | LR: 0.005 | Val MAE: 8.85 | (Test MAE Ref: 8.78)
+[25/32] PLAIN     | Hidden: 64 | Layers: 2 | LR: 0.001 | Val MAE: 6.24 | (Test MAE Ref: 5.78)
+[26/32] ATTENTION | Hidden: 64 | Layers: 2 | LR: 0.001 | Val MAE: 8.43 | (Test MAE Ref: 8.20)
+[27/32] PLAIN     | Hidden: 64 | Layers: 2 | LR: 0.005 | Val MAE: 4.52 | (Test MAE Ref: 3.81)
+[28/32] ATTENTION | Hidden: 64 | Layers: 2 | LR: 0.005 | Val MAE: 8.86 | (Test MAE Ref: 8.62)
+[29/32] PLAIN     | Hidden: 64 | Layers: 2 | LR: 0.001 | Val MAE: 6.25 | (Test MAE Ref: 5.94)
+[30/32] ATTENTION | Hidden: 64 | Layers: 2 | LR: 0.001 | Val MAE: 9.14 | (Test MAE Ref: 8.25)
+[31/32] PLAIN     | Hidden: 64 | Layers: 2 | LR: 0.005 | Val MAE: 4.11 | (Test MAE Ref: 3.82)
+[32/32] ATTENTION | Hidden: 64 | Layers: 2 | LR: 0.005 | Val MAE: 8.82 | (Test MAE Ref: 8.69)
 
-=====================================================================================
-TOP 5 PERFORMING CONFIGURATIONS (FIRST-CLASS COMPARISON)
-=====================================================================================
-Rank  Attention  Hidden   Layers   Dropout   LR       Avg MAE    Avg RMSE  
--------------------------------------------------------------------------------------
-1     False      64       2        0.1       0.005    3.59       4.51      
-2     False      64       1        0.1       0.005    3.71       4.62      
-3     False      32       1        0.2       0.005    3.77       4.67      
-4     False      64       1        0.2       0.005    3.78       4.70      
-5     False      64       2        0.2       0.005    3.87       4.81      
-=====================================================================================
+===============================================================================================
+SWEEP RESULTS (Ranked by Validation MAE -- Test MAE shown for reference only)
+===============================================================================================
+Rank  Architecture Hidden   Layers   Dropout   LR       Val MAE    Test MAE(Ref) 
+-----------------------------------------------------------------------------------------------
+1     Plain        32       2        0.1       0.005    3.59       4.43           <-- WINNER
+2     Plain        32       2        0.2       0.005    3.82       4.12          
+3     Plain        64       1        0.1       0.005    3.94       3.38          
+4     Plain        32       1        0.1       0.005    4.09       5.05          
+5     Plain        64       2        0.2       0.005    4.11       3.82          
+==========================================================================
 ```
-
+- The sweep winner (Plain, hidden_size=32, num_layers=2, dropout=0.1, lr=0.005) is directly synchronized into src/config.py.
 ---
 ## 🌟 Production ONNX Export & Export & Strict Numerical Parity
 ```bash
 python src/onnx_export.py
 
-- Exported graph with dynamic batching dimensions and verified output parity between eager PyTorch and ONNX Runtime outside PyTorch
 ```
-[PARITY CHECK] Max Absolute Difference: 2.38418579e-07
+- The model is exported to ONNX (opset_version=18) with dynamic batch dimensioning. Parity is evaluated by executing both runtimes against the identical trained checkpoint
+```text
+
+[PARITY CHECK] Max Absolute Difference: 1.19209290e-07
 [VERIFIED] ONNX Runtime output identically matches PyTorch output.
 
 ```
-```
+
 ---
 
 ## 🧠 R4: Plain LSTM vs. Attention Architecture
 
-`AttentionMultiStepLSTM` adds additive (Bahdanau-style) attention across all lookback timesteps. `src/attention_compare.py` compares both architectures across all 5 walk-forward folds under identical conditions
-
+- Sequence-attention mechanism benchmarked against the standard LSTM across walk-forward folds
 
 Run: `python src/attention_compare.py`
 
@@ -136,49 +139,57 @@ Run: `python src/attention_compare.py`
 =================================================================
 Fold  Plain MAE   Plain RMSE  Attn MAE    Attn RMSE   
 -----------------------------------------------------------------
-1     22.7994     24.2600     22.8280     24.2375     
-2     7.1370      8.9452      7.1301      8.9304      
-3     5.1841      6.0232      5.2550      6.2047      
-4     5.3730      6.3070      5.7283      6.8357      
-5     5.2989      6.1456      5.2213      6.0073      
+1     7.6645      9.1841      10.0530     12.1546     
+2     6.5406      7.7083      13.2590     15.4017     
+3     6.3265      7.3777      7.2995      8.8101      
+4     6.6438      8.0128      8.3340      10.0245     
+5     6.1601      7.1519      7.2081      8.7891      
 =================================================================
-AVG   9.1585      10.3362     9.2325      10.4431     
+AVG   6.6671      7.8870      9.2307      11.0360     
 Verdict: Plain LSTM Won
 ```
 
-**Finding:** Finding: Plain LSTM outperforms the Attention variant across average MAE (9.16 vs 9.23) and RMSE (10.34 vs 10.44). The added attention parameters overfit on the short single-variable series without providing structural gain.
 
-## Uncertainty Quantification(MC-Dropout)
-- Empirical uncertainty intervals derived from 100 stochastic forward passes with active dropout at inference:
+## Standalone Inference Demo 
+Run the demo:
+```bash
+python src/uncertainty.py
+```
+```text
+============================================================
+RUNNING STANDALONE DEMAND PREDICTION DEMO
+============================================================
+Input Sequence Length : 45 days
+Horizon Forecast      : 7 days
+
+Mean Forecast (7-Day) : [135.62, 135.26, 136.38, 136.48, 136.15, 136.22, 135.82]
+Lower Bound (90% CI)  : [125.58, 126.66, 125.53, 127.95, 130.25, 128.95, 128.34]
+Upper Bound (90% CI)  : [142.49, 141.7, 143.76, 143.1, 142.37, 143.38, 142.65]
+============================================================
+```
+##  Uncertainty Estimation: Monte Carlo Dropout vs. Quantile Regression
+- Uncertainty intervals are estimated dynamically via Monte Carlo Dropout (N=50 forward passes) during inference:
+```text
+Dimension | Monte Carlo Dropout | Quantile Regression |
+Loss Function | Standard MSE Loss (\mathcal{L}_{MSE}) | Pinball Loss per quantile (\mathcal{L}_q) |
+Output Flexibility | Full empirical distribution; arbitrary percentiles (q_{5}, q_{95})|Hardcoded discrete quantiles determined at train time |
+Architecture | Single-head standard network | Multi-head output layer |
+Inference Overhead | N x times stochastic forward passes | Single deterministic forward pass |
+```
 
 Run the demo:
 ```bash
 python src/uncertainty.py
 ```
-7-Day Forecast & Bounds (Demand Units):
-Day 1: Mean = 142.63 | 90% CI = [133.99, 148.93] | Std = 4.95
-Day 2: Mean = 141.87 | 90% CI = [132.74, 149.45] | Std = 5.30
-Day 3: Mean = 140.85 | 90% CI = [132.75, 147.33] | Std = 4.52
-Day 4: Mean = 141.04 | 90% CI = [132.69, 146.75] | Std = 5.25
-Day 5: Mean = 140.53 | 90% CI = [133.96, 147.26] | Std = 5.08
-Day 6: Mean = 141.64 | 90% CI = [133.04, 149.96] | Std = 5.80
-Day 7: Mean = 142.15 | 90% CI = [133.91, 150.28] | Std = 5.13
-
-Average Empirical Uncertainty (Std): 5.15 demand units
+--- 
+MC-Dropout Evaluation Sample (Last Test Window) ---
+Mean Forecast: [150.97 153.08 154.63 152.26 149.84 148.69 149.84]
+90% Lower Bound: [136.45 142.36 140.36 140.37 137.47 136.57 137.77]
+90% Upper Bound: [161.71 162.64 166.1  162.62 159.24 158.87 159.94]
+Std Uncertainty: [7.17 6.79 7.89 6.83 6.5  6.73 6.9 ]
+MC-Dropout Evaluation Complete -> Avg Std (Demand Units): 6.9870
 ---
 
---- MC-Dropout Evaluation Sample (Last Test Window) ---
-Mean Forecast: [150.27 150.29 152.11 152.12 150.3  151.68 150.51]
-90% Lower Bound: [141.1  141.05 144.75 144.04 141.61 142.9  143.86]
-90% Upper Bound: [158.8  158.12 160.62 160.21 158.37 158.54 156.49]
-Std Uncertainty: [5.84 5.6  5.   5.12 5.03 5.18 4.21]
-MC-Dropout Evaluation Complete -> Avg Std (Demand Units): 5.4029
----
-
-**Finding:** typical 90% CI width is ~17-20 units (e.g. Sample 0, day 1:
-[134.12, 150.93]) around a mean of ~140-144. Std per horizon day is
-consistently ~5-6. Intervals are stable across samples and don't collapse
-or blow up — the MC-Dropout mechanism is working as intended.
 
 ## API Serving (BentoML)
 - EndPoint:`post/predict`
@@ -254,52 +265,47 @@ data's actual noise, with the cost (and quantile-crossing risk) paid upfront.
 ---
 
 ## 🛡️ Adversarial Robustness & Guardrail Verification
-
-
-The inference pipeline sanitizes corrupted inputs across edge cases before tensor transformations:
-
-* **Extreme Value Spikes:** Large outliers (+100x baseline) are scaled without numerical explosion or gradient failures.
-* **Negative Figures:** Negative demand values are clipped strictly to `0.0` to preserve physical demand bounds.
-* **Corrupted / NaN Inputs:** Missing and non-finite values are repaired via linear interpolation across valid sequence indices.
-* **Complete Zero Demand:** Handled gracefully without division-by-zero errors in normalization.
-* **Sequence Length Violations:** Input arrays differing from `LOOKBACK=45` are rejected with descriptive `ValueError` exceptions before model entry.
+- Robustness & Adversarial Testing
+`src/predict.py`  executes input sanitization (NaN/Inf interpolation, non-negative bounding, and outlier winsorization):
 ---
 Run it:
 ```bash
 python src/robustness_test.py
 ```
----
+```text
 ======================================================================
 RUNNING ADVERSARIAL & CORRUPTED DATA ROBUSTNESS BATTERY
 ======================================================================
 
 Evaluating: [Extreme Demand Spike (+100x outlier)]
-  ✅ PASSED: Handled gracefully. Forecast range: [140.25, 170.32]
-     Mean Forecast: [143.39, 140.25, 144.29]...
+  [PASSED]: Handled gracefully (finite non-negative output). Forecast range: [135.86, 224.65]
+     Mean Forecast: [193.17, 157.35, 135.86]...
 
 Evaluating: [Negative Demand Figure (-50.0 demand)]
-  ✅ PASSED: Handled gracefully. Forecast range: [119.60, 121.87]
-     Mean Forecast: [119.6, 120.45, 120.85]...
+  [PASSED]: Handled gracefully (finite non-negative output). Forecast range: [121.96, 122.91]
+     Mean Forecast: [122.24, 121.96, 122.47]...
 
 Evaluating: [All Zero Demand (Complete outage)]
-  ✅ PASSED: Handled gracefully. Forecast range: [40.99, 64.13]
-     Mean Forecast: [64.13, 53.66, 57.62]...
+  [PASSED]: Handled gracefully (finite non-negative output). Forecast range: [52.58, 73.67]
+     Mean Forecast: [62.5, 73.67, 73.32]...
 
 Evaluating: [Huge Baseline Demand Level (10,000 baseline)]
-  ✅ PASSED: Handled gracefully. Forecast range: [188.34, 231.50]
-     Mean Forecast: [193.42, 188.34, 196.99]...
+  [PASSED]: Handled gracefully (finite non-negative output). Forecast range: [153.44, 255.24]
+     Mean Forecast: [216.54, 175.03, 153.44]...
 
 Evaluating: [Contains NaN values]
-  ✅ PASSED: Handled gracefully. Forecast range: [119.10, 121.07]
-     Mean Forecast: [119.1, 119.9, 120.26]...
+  [PASSED]: Handled gracefully (finite non-negative output). Forecast range: [121.20, 121.91]
+     Mean Forecast: [121.22, 121.35, 121.91]...
 
 Evaluating: [Contains Negative Infinite values]
-  ✅ PASSED: Handled gracefully. Forecast range: [118.53, 119.52]
-     Mean Forecast: [118.54, 119.17, 119.52]...
+  [PASSED]: Handled gracefully (finite non-negative output). Forecast range: [116.36, 122.40]
+     Mean Forecast: [118.57, 120.9, 122.4]...
 
 ======================================================================
 ROBUSTNESS BATTERY COMPLETE
 ======================================================================
+```
+
 
 ## Investigation:Diagnostics Checks & Loss Curves
 ---
@@ -316,31 +322,46 @@ python -m pytest tests/test_onnx.py -v
 python -m pytest -v
 ```
 ---
-============================= test session starts =============================
-collected 20 items
+```text
+============================================== test session starts ===============================================
+platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0 -- C:\Users\katravath akash\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.12_qbz5n2kfra8p0\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\katravath akash\OneDrive\Desktop\lstm_forecast\eaicsp-platform\ml-services\demand-forecast\lstm
+configfile: pytest.ini
+testpaths: tests
+plugins: anyio-4.13.0
+collected 26 items                                                                                                
 
-tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_lookback_longer_than_available_data_returns_empty PASSED
-tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_lookback_plus_horizon_exactly_equal_to_data_length_gives_one_window PASSED
-tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_horizon_of_1_produces_single_step_targets PASSED
-tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_horizon_of_7_produces_seven_step_targets PASSED
-tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_horizon_1_has_more_windows_than_horizon_7_on_same_data PASSED
-tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_zero_length_data_returns_empty PASSED
-tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_walk_forward_folds_lookback_larger_than_first_fold_train_slice PASSED
-tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_walk_forward_folds_lookback_equal_to_first_fold_size_succeeds PASSED
-tests/test_edge_cases.py::TestModelHorizonShapes::test_horizon_1_output_shape PASSED
-tests/test_edge_cases.py::TestModelHorizonShapes::test_horizon_7_output_shape PASSED
-tests/test_edge_cases.py::TestModelHorizonShapes::test_attention_variant_matches_plain_output_shape PASSED
-tests/test_edge_cases.py::TestScalerEdgeCases::test_constant_series_scaler_does_not_crash PASSED
-tests/test_edge_cases.py::TestScalerEdgeCases::test_constant_series_inverse_transform_round_trips PASSED
-tests/test_edge_cases.py::TestScalerEdgeCases::test_single_unique_value_in_larger_array PASSED
-tests/test_edge_cases.py::TestScalerEdgeCases::test_single_data_point_series PASSED
-tests/test_edge_cases.py::TestScalerEdgeCases::test_constant_series_end_to_end_through_walk_forward_folds PASSED
-tests/test_onnx.py::test_onnx_identity_prediction_plain_lstm PASSED
-tests/test_onnx.py::test_onnx_identity_prediction_attention_lstm PASSED
-tests/test_pipeline.py::test_mc_dropout_activation PASSED
-tests/test_pipeline.py::test_get_walk_forward_folds_no_leakage PASSED
+tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_lookback_longer_than_available_data_returns_empty PASSED [  3%]
+tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_lookback_plus_horizon_exactly_equal_to_data_length_gives_one_window PASSED [  7%]
+tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_horizon_of_1_produces_single_step_targets PASSED [ 11%]
+tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_horizon_of_7_produces_seven_step_targets PASSED [ 15%]
+tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_horizon_1_has_more_windows_than_horizon_7_on_same_data PASSED [ 19%]
+tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_zero_length_data_returns_empty PASSED        [ 23%]
+tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_walk_forward_folds_lookback_larger_than_first_fold_train_slice PASSED [ 26%]
+tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_walk_forward_folds_lookback_equal_to_first_fold_size_succeeds PASSED [ 30%]
+tests/test_edge_cases.py::TestModelHorizonShapes::test_horizon_1_output_shape PASSED                        [ 34%]
+tests/test_edge_cases.py::TestModelHorizonShapes::test_horizon_7_output_shape PASSED                        [ 38%]
+tests/test_edge_cases.py::TestModelHorizonShapes::test_attention_variant_matches_plain_output_shape PASSED  [ 42%]
+tests/test_edge_cases.py::TestScalerEdgeCases::test_constant_series_scaler_does_not_crash PASSED            [ 46%]
+tests/test_edge_cases.py::TestScalerEdgeCases::test_constant_series_inverse_transform_round_trips PASSED    [ 50%]
+tests/test_edge_cases.py::TestScalerEdgeCases::test_single_unique_value_in_larger_array PASSED              [ 53%]
+tests/test_edge_cases.py::TestScalerEdgeCases::test_single_data_point_series PASSED                         [ 57%]
+tests/test_edge_cases.py::TestScalerEdgeCases::test_constant_series_end_to_end_through_walk_forward_folds PASSED [61%]
+tests/test_onnx.py::test_onnx_identity_prediction_plain_lstm PASSED                                         [ 65%]
+tests/test_onnx.py::test_onnx_identity_prediction_attention_lstm PASSED                                     [ 69%]
+tests/test_pipeline.py::test_mc_dropout_activation PASSED                                                   [ 73%]
+tests/test_pipeline.py::test_get_walk_forward_folds_no_leakage PASSED                                       [ 76%]
+tests/test_round5_coverage.py::test_onnx_export_and_strict_parity PASSED                                    [ 80%]
+tests/test_round5_coverage.py::test_adversarial_input_handling[corrupted_input0] PASSED                     [ 84%]
+tests/test_round5_coverage.py::test_adversarial_input_handling[corrupted_input1] PASSED                     [ 88%]
+tests/test_round5_coverage.py::test_adversarial_input_handling[corrupted_input2] PASSED                     [ 92%]
+tests/test_round5_coverage.py::test_adversarial_input_handling[corrupted_input3] PASSED                     [ 96%]
+tests/test_round5_coverage.py::test_invalid_sequence_length_rejection PASSED                                [100%]
 
-============================= 20 passed in 10.54s =============================
+=============================================== 26 passed in 5.15s ===============================================
+
+```
 
 ---
 ##  Demand Forecasting Service (PyTorch LSTM + MC-Dropout)
@@ -349,18 +370,6 @@ Direct 7-day multi-step daily demand forecasting service using stacked LSTM arch
 
 ---
 
-## 🚀 Architecture & Configuration
-
-The service uses the winning hyperparameter configuration identified from the MLflow validation sweep:
-
-* **Lookback Window:** 45 days
-* **Forecast Horizon:** 7 days (Direct multi-step)
-* **Hidden Size:** 64
-* **LSTM Layers:** 2
-* **Dropout:** 0.2
-* **Cross-Validation:** 5-Fold Walk-Forward Cross-Validation
-
-All parameters are centrally managed in `src/config.py`.
 
 
 ## 🚀 Getting Started
@@ -418,7 +427,7 @@ python src/predict.py
 
 **Launch BentoML production service**
 ```bash
-cd src
+
 python -m bentoml serve service.py:DemandForecastService
 ```
 ```bash
@@ -431,40 +440,33 @@ curl  -X POST http://localhost:3001/predict \
 ## 📁 Project Structure
 
 ```text
-lstm/
-├── output/
-│   ├── best_model.pt             # Serialized winning PyTorch weights
-│   ├── best_model.onnx           # Exported ONNX model artifact
-│   ├── model.onnx                # Standalone ONNX runtime deployment model
-│   ├── scaler.pkl                # Serialized MinMaxScaler
-│   ├── loss_curve.png            # Training loss convergence visualization
-│   └── prediction.png            # Forecast vs actual evaluation plot
+ml-services/demand-forecast/lstm/
 ├── src/
-│   ├── config.py                 # Central configuration (LOOKBACK=45, HORIZON=7, HIDDEN=64)
-│   ├── data.py                   # Data synthesis, MinMaxScaler per fold, walk-forward splits
-│   ├── model.py                  # MultiStepLSTM & AttentionMultiStepLSTM architectures
-│   ├── train.py                  # Main training loop with walk-forward CV & checkpointing
-│   ├── train_utils.py            # Shared training loop and evaluation helpers
-│   ├── evaluate.py               # Single model evaluation utilities
-│   ├── evaluate_all.py           # 5-fold comparative matrix (LSTM vs Naive baseline)
-│   ├── features.py               # Time-series feature engineering helpers
-│   ├── mlflow_logger.py          # MLflow metric tracking and run logging wrapper
-│   ├── sweep.py                  # Systematic hyperparameter sweep (Plain vs Attention)
-│   ├── uncertainty.py            # Monte Carlo Dropout (MC-Dropout) sampling
-│   ├── attention_compare.py      # Plain vs Attention walk-forward comparison
-│   ├── diagnostics_check.py      # Data volume checks, baseline checks, and loss curves
-│   ├── robustness_test.py        # Adversarial & corrupted input battery
-│   ├── onnx_export.py            # ONNX export with strict numerical parity verification
-│   ├── predict.py                # Inference pipeline with input sanitization
-│   └── service.py                # BentoML HTTP serving implementation
+│   ├── config.py              # Central pipeline hyperparameters & constants
+│   ├── data.py                # Walk-forward fold generator & sequence builder
+│   ├── model.py               # MultiStepLSTM with Additive Attention & MC-Dropout
+│   ├── train.py               # Walk-forward training & model persistence
+│   ├── train_utils.py         # Chronological inner train/val split utilities
+│   ├── evaluate_all.py        # Independent 5-fold baseline evaluation
+│   ├── attention_compare.py   # [Superseded] Historical Attention vs Plain benchmark
+│   ├── diagnostics_check.py   # Training loss curves & convergence diagnostics
+│   ├── uncertainty.py         # Monte Carlo Dropout uncertainty sampling demo
+│   ├── robustness_test.py     # Adversarial & corrupted input robustness battery
+│   ├── predict.py             # Inference pipeline with MC-Dropout CI bounds
+│   ├── service.py             # FastAPI serving endpoint definitions
+│   └── mlflow_logger.py       # MLflow experiment lifecycle manager
 ├── tests/
-│   ├── test_pipeline.py          # Pipeline leakage and MC-dropout activation tests
-│   ├── test_edge_cases.py        # Sequence windowing, scaler edge cases, horizon shapes
-│   ├── test_onnx.py              # PyTorch vs ONNX numerical parity tests
-│   └── test_round5_coverage.py   # Adversarial corrupted inputs and rejection tests
-
-├── README.md
-└── requirements.txt
+│   ├── test_pipeline.py       # Sequence generation & target leakage tests
+│   ├── test_edge_cases.py     # Dimension checks & scaler boundary tests
+│   ├── test_onnx.py           # PyTorch vs. ONNX Runtime parity verification
+│   └── test_round5_coverage.py# Adversarial input handling & full coverage suite
+├── output/
+│   ├── best_model.pt          # Force-tracked PyTorch weights
+│   ├── scaler.pkl             # Force-tracked fitted standard scaler
+│   ├── best_model.onnx        # Force-tracked exported ONNX computation graph
+│   └── loss_curve.png         # Walk-forward fold loss curves
+├── sweep.py                   # Systematic leak-free hyperparameter grid search
+└── README.md
 ```
 
 ---

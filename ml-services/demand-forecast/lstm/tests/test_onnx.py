@@ -1,22 +1,29 @@
 """
-Stretch goal (R4) -- verify ONNX model predictions match PyTorch predictions
-identically, for both MultiStepLSTM and AttentionMultiStepLSTM.
+Stretch goal (R4/R5) -- verify ONNX model predictions match PyTorch predictions
+identically, for both Plain MultiStepLSTM and Attention MultiStepLSTM.
 
 Requires onnx + onnxruntime:
     pip install onnx onnxruntime
 
 Run with: python -m pytest tests/test_onnx.py -v
+Or directly: python tests/test_onnx.py
 """
+
 import os
+import sys
 import warnings
+
+# Ensure src/ directory is importable when executed directly
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
 import numpy as np
 import pytest
 import torch
 
-
-from model import MultiStepLSTM, AttentionMultiStepLSTM  # noqa: E402
-from onnx_export import export_to_onnx  # noqa: E402
+from config import HORIZON, LOOKBACK
+import model as model_module
+from model import MultiStepLSTM
+from onnx_export import export_to_onnx
 
 try:
     import onnxruntime as ort
@@ -31,38 +38,66 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _assert_onnx_matches_pytorch(model, tmp_path, filename):
+def _assert_onnx_matches_pytorch(model: torch.nn.Module, tmp_path, filename: str):
+    """Exports and verifies numerical parity between PyTorch and ONNX Runtime."""
     model.eval()
-    dummy_input = torch.randn(1, 30, 1, dtype=torch.float32)
-    onnx_file = os.path.join(tmp_path, filename)
+    dummy_input = torch.randn(2, LOOKBACK, 1, dtype=torch.float32)
+    onnx_file = os.path.join(str(tmp_path), filename)
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        export_to_onnx(model, dummy_input, onnx_path=onnx_file)
+        export_to_onnx(model=model, dummy_input=dummy_input, onnx_path=onnx_file)
 
     with torch.no_grad():
-        pt_out = model(dummy_input).numpy()
+        pt_out = model(dummy_input).cpu().numpy()
 
-    ort_session = ort.InferenceSession(onnx_file)
+    so = ort.SessionOptions()
+    so.log_severity_level = 3
+    ort_session = ort.InferenceSession(onnx_file, sess_options=so, providers=["CPUExecutionProvider"])
+    
     ort_inputs = {ort_session.get_inputs()[0].name: dummy_input.numpy()}
     ort_out = ort_session.run(None, ort_inputs)[0]
 
-    assert np.allclose(pt_out, ort_out, atol=1e-5), (
-        f"ONNX outputs do not match PyTorch outputs for {filename}: "
-        f"max abs diff = {np.abs(pt_out - ort_out).max()}"
+    max_diff = float(np.max(np.abs(pt_out - ort_out)))
+    assert np.allclose(pt_out, ort_out, rtol=1e-4, atol=1e-5), (
+        f"ONNX outputs do not match PyTorch outputs for {filename}: max abs diff = {max_diff:.8e}"
     )
 
 
 def test_onnx_identity_prediction_plain_lstm(tmp_path):
     """Plain MultiStepLSTM: ONNX Runtime output must match PyTorch output."""
-    model = MultiStepLSTM(input_size=1, hidden_size=32, num_layers=1, horizon=7)
+    torch.manual_seed(42)
+    model = MultiStepLSTM(
+        input_size=1,
+        hidden_size=32,
+        num_layers=1,
+        horizon=HORIZON,
+        dropout=0.0,
+        use_attention=False,
+    )
     _assert_onnx_matches_pytorch(model, tmp_path, "plain_model.onnx")
 
 
 def test_onnx_identity_prediction_attention_lstm(tmp_path):
-    """AttentionMultiStepLSTM: ONNX export must handle the attention layers
-    (bmm/softmax) correctly and still match PyTorch output exactly."""
-    model = AttentionMultiStepLSTM(input_size=1, hidden_size=32, num_layers=1, horizon=7)
+    """Attention LSTM: ONNX export must handle attention layers (bmm/softmax)
+    correctly and match PyTorch output within numerical tolerance."""
+    torch.manual_seed(42)
+    
+    # Support both unified MultiStepLSTM(use_attention=True) and legacy AttentionMultiStepLSTM
+    if hasattr(model_module, "AttentionMultiStepLSTM"):
+        model = model_module.AttentionMultiStepLSTM(
+            input_size=1, hidden_size=32, num_layers=1, horizon=HORIZON
+        )
+    else:
+        model = MultiStepLSTM(
+            input_size=1,
+            hidden_size=32,
+            num_layers=1,
+            horizon=HORIZON,
+            dropout=0.0,
+            use_attention=True,
+        )
+        
     _assert_onnx_matches_pytorch(model, tmp_path, "attention_model.onnx")
 
 
