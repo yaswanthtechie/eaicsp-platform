@@ -9,6 +9,7 @@ from fastapi import (
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.dependency import require_roles
 
 from app.schemas.compliance import (
     ComplianceRequest,
@@ -152,8 +153,8 @@ def audit_history(
 )
 def audit_summary(
     db: Session = Depends(get_db),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
-
     return get_audit_summary(db)
 
 
@@ -164,6 +165,7 @@ def audit_summary(
 def add_override(
     request: OverrideCreateRequest,
     db: Session = Depends(get_db),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
 
 
@@ -188,6 +190,7 @@ def read_override(
     matched_name: str = Query(...),
     source: str = Query(...),
     db: Session = Depends(get_db),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
 
 
@@ -214,6 +217,7 @@ def read_override(
 )
 def read_all_overrides(
     db: Session = Depends(get_db),
+    
 ):
 
     return get_all_overrides(db)
@@ -228,6 +232,7 @@ def remove_override(
     matched_name: str = Query(...),
     source: str = Query(...),
     db: Session = Depends(get_db),
+    
 ):
 
 

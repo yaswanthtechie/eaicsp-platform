@@ -8,6 +8,11 @@ from app.services.risk_score_service import (
     parse_date,
 )
 
+from app.core.config import (
+    CONFIDENCE_WEIGHT,
+    SOURCE_WEIGHT,
+    RECENCY_WEIGHT,
+)
 
 
 def test_parse_date_iso_format():
@@ -162,16 +167,12 @@ def test_recency_score_future_date():
 
 def test_recency_score_missing_date():
     score = calculate_recency_score(None)
-
-    assert score == 0.0
+    assert score == 50.0
 
 
 def test_recency_score_invalid_date():
-    score = calculate_recency_score(
-        "not-a-date"
-    )
-
-    assert score == 0.0
+    score = calculate_recency_score("not-a-date")
+    assert score == 50.0
 
 
 def test_recency_score_is_between_zero_and_hundred():
@@ -275,12 +276,12 @@ def test_zero_match_has_zero_risk():
     )
 
     assert (
-        result["risk_factors"]
-        ["recency"]
-        == 0
-    )
+    result["risk_factors"]
+    ["recency"]
+    == 50.0
+)
 
-    assert result["risk_score"] == 0
+    assert result["risk_score"] == 10
 
 
 def test_match_confidence_is_limited_to_hundred():
@@ -772,3 +773,17 @@ def test_overall_supplier_risk_is_float():
         float,
     )
 
+def test_risk_score_uses_configured_weights():
+    result = calculate_risk_score(
+        match_score=100,
+        matched_sources=["OFAC", "UN", "EU"],
+        listed_date=None,
+    )
+
+    expected = round(
+        100 * CONFIDENCE_WEIGHT
+        + 100 * SOURCE_WEIGHT
+        + 50 * RECENCY_WEIGHT
+    )
+
+    assert result["risk_score"] == expected

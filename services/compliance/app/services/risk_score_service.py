@@ -1,11 +1,16 @@
+
 from datetime import date, datetime
+
+from app.core.config import (
+    CONFIDENCE_WEIGHT,
+    SOURCE_WEIGHT,
+    RECENCY_WEIGHT,
+    SANCTIONS_WEIGHT,
+    COUNTRY_RISK_WEIGHT,
+)
 
 
 TOTAL_SOURCES = 3
-
-CONFIDENCE_WEIGHT = 0.50
-SOURCE_WEIGHT = 0.30
-RECENCY_WEIGHT = 0.20
 
 
 COUNTRY_RISK_INDEX = {
@@ -28,7 +33,6 @@ COUNTRY_RISK_INDEX = {
 def parse_date(
     value: str | None,
 ) -> date | None:
-    
 
     if not value:
         return None
@@ -73,15 +77,13 @@ def calculate_recency_score(
 
     parsed_date = parse_date(listed_date)
 
-
     if parsed_date is None:
-        return 0.0
+        return 50.0
 
     today = date.today()
 
     age_days = (today - parsed_date).days
 
-   
     if age_days < 0:
         age_days = 0
 
@@ -108,7 +110,7 @@ def calculate_risk_score(
     matched_sources: list[str],
     listed_date: str | None,
 ) -> dict:
-   
+
     confidence_score = max(
         0.0,
         min(
@@ -139,12 +141,11 @@ def calculate_risk_score(
         ),
     )
 
-    recency_score = (
-        calculate_recency_score(
-            listed_date
-        )
+    recency_score = calculate_recency_score(
+        listed_date
     )
 
+    # Config-driven weighted risk calculation
     weighted_score = (
         confidence_score
         * CONFIDENCE_WEIGHT
@@ -190,7 +191,6 @@ def calculate_risk_score(
 def calculate_country_risk(
     country: str | None,
 ) -> float:
-   
 
     if not country:
         return 50.0
@@ -222,7 +222,7 @@ def calculate_overall_supplier_risk(
     sanctions_score: float,
     country_risk_score: float,
 ) -> float:
-  
+
     sanctions_score = max(
         0.0,
         min(
@@ -239,9 +239,12 @@ def calculate_overall_supplier_risk(
         ),
     )
 
+    # Config-driven overall supplier risk calculation
     overall_score = (
-        sanctions_score * 0.80
-        + country_risk_score * 0.20
+        sanctions_score
+        * SANCTIONS_WEIGHT
+        + country_risk_score
+        * COUNTRY_RISK_WEIGHT
     )
 
     return round(

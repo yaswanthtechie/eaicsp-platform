@@ -2,10 +2,11 @@ import pytest
 
 import os
 
+
 os.environ.setdefault("USE_FIXTURES", "true")
 
 from fastapi.testclient import TestClient
-
+from app.core.dependency import verify_token
 from app.main import app
 from app.services import sanctions_service
 
@@ -72,3 +73,23 @@ def client():
     with TestClient(app) as test_client:
 
         yield test_client
+
+
+
+
+@pytest.fixture
+def mock_compliance_officer_auth():
+
+    async def mock_verify_token():
+        return {
+            "valid": True,
+            "role": "compliance_officer",
+            "user_id": 1,
+            "email": "test@example.com",
+        }
+
+    app.dependency_overrides[verify_token] = mock_verify_token
+
+    yield
+
+    app.dependency_overrides.pop(verify_token, None)
