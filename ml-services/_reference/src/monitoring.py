@@ -164,7 +164,8 @@ def get_summary() -> dict:
                     model_version,
                     latency_ms
                 FROM predictions
-                ORDER BY timestamp ASC
+                ORDER BY timestamp DESC
+                limit 1000
                 """
             ).fetchall()
 

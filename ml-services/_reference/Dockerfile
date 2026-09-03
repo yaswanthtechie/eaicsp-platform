@@ -7,8 +7,11 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src ./src
-COPY data ./data
-COPY mlruns ./mlruns
+
+# Create the initial MLflow experiment and production model.
+# The Iris dataset is loaded directly from scikit-learn,
+# so no local data/ directory is required.
+RUN python -m src.train
 
 EXPOSE 3000
 

@@ -1551,409 +1551,402 @@ Integration guidance for other pod models
 
 The canary and monitoring evidence is based on actual service verification rather than only describing how the implementation is intended to work.
 
-Iris ML Reference Service — R5
-R5 Status
-Status: Ready for Review
-Round 5 adds production-focused MLOps capabilities to the Iris ML Reference Service, including model monitoring, automated retraining, promotion safeguards, rollback, testing, and Docker deployment.
-Requirement
-Status
-Verification
-Per-model metrics
-✅ Complete
-/metrics/summary
+ris ML Reference Service – R5
+
+Overview
+This project is a reference ML service for the Iris classification workflow using:
+Python
+scikit-learn
+MLflow
+BentoML
+Docker
+Pytest
+The service supports model training, evaluation, promotion, prediction, monitoring, automated drift detection, automated retraining, and rollback.
+
+Project Goals
+R5 focuses on:
+Safe automated retraining defaults.
+Drift detection and automatic retraining.
+Model evaluation before production promotion.
+Rollback when a newly promoted model is worse.
+Reproducible Docker deployment.
+Evidence that the retraining and rollback workflows actually work.
+
+Architecture
+┌─────────────────────┐
+│   Iris Dataset      │
+│ sklearn.load_iris() │
+└──────────┬──────────┘
+│
+▼
+┌─────────────────────┐
+│     Training        │
+│    src.train        │
+└──────────┬──────────┘
+│
+▼
+┌─────────────────────┐
+│       MLflow        │
+│ Tracking + Registry │
+└──────────┬──────────┘
+│
+┌─────────────┴─────────────┐
+▼                           ▼
+@staging model              @production model
+│                           │
+└─────────────┬─────────────┘
+▼
+┌─────────────────────┐
+│     BentoML         │
+│    IrisService      │
+└──────────┬──────────┘
+│
+┌─────────────────┼─────────────────┐
+▼                 ▼                 ▼
+/predict       /predict_batch       /health
+│
+▼
+Monitoring DB
+│
+▼
+Recent inputs
+│
+▼
+Drift calculation
+│
+drift >= threshold
+│
+▼
 Automated retraining
-✅ Complete
-Drift-triggered pipeline
-Retraining scheduler safety
-✅ Complete
-Disabled by default
-Model evaluation gate
-✅ Complete
-should_promote()
-Model promotion
-✅ Complete
-MLflow production alias
-Model rollback
-✅ Complete
-Previous production restoration
-Rollback testing
-✅ Passed
-55 passed
-Docker deployment
-✅ Verified
-Container + health check
-Requirements cleanup
-✅ Complete
-Curated direct dependencies
-
-R5 Architecture
-┌──────────────────┐
-│   BentoML API    │
-└────────┬─────────┘
-│
-┌────────────────────┼────────────────────┐
-│                    │                    │
-▼                    ▼                    ▼
-Prediction             Metrics            Retraining
-│                    │                    │
-│                    │                    ▼
-│                    │              Drift Check
-│                    │                    │
-│                    │                    ▼
-│                    │              Train Candidate
-│                    │                    │
-│                    │                    ▼
-│                    │              Evaluate Model
-│                    │                    │
-│                    │                    ▼
-│                    │             Promotion Gate
-│                    │                    │
-▼                    ▼                    ▼
-MLflow Registry      Model Metrics        Production
 │
 ▼
-Bad Model Check
+Accuracy comparison
+│           │
+▼           ▼
+Promote      Reject
 │
 ▼
-Rollback
-│
-▼
-Previous Stable Model
-
-Per-Model Metrics
-The service exposes model-level operational metrics through:
-/metrics/summary
-Tracked information includes:
-Request volume
-Prediction latency
-p50 latency
-p95 latency
-Model version
-Model alias
-These metrics allow production and canary model behavior to be monitored independently.
-
-Automated Retraining
-The automated retraining workflow is:
-Scheduled Check
-↓
-Drift Detection
-↓
-Drift Threshold Reached
-↓
-Train Candidate Model
-↓
-Evaluate Candidate
-↓
-Promotion Gate
-↓
-Compare With Production
-↓
-Promote
-↓
-Reload Production Model
-Retraining is triggered when:
-retrain_needed = drift_score >= DRIFT_THRESHOLD
-Configuration:
-DRIFT_THRESHOLD = 0.30
-MIN_RETRAINING_SAMPLES = 5
-MONITORING_INPUT_LIMIT = 100
-Scheduler Safety
-The scheduler is disabled by default:
-ENABLE_RETRAINING_SCHEDULER = False
-It must be explicitly enabled:
-ENABLE_RETRAINING_SCHEDULER=true
-The configured interval is:
-RETRAINING_INTERVAL_SECONDS = 60 for checking  
-This avoids starting a rapid retraining thread during normal service construction and test execution.
-
-Model Evaluation and Promotion
-A retrained candidate is not promoted unconditionally.
-The minimum promotion accuracy is:
-PROMOTION_ACCURACY_THRESHOLD = 0.85
-The promotion decision uses:
-should_promote(accuracy)
-The candidate is evaluated before promotion and compared with the current production model.
-Train Candidate
-↓
-Evaluate Accuracy
-↓
-Accuracy >= 0.85?
-┌──┴──┐
-No    Yes
-↓      ↓
-Reject  Compare With Production
-↓
-Candidate Worse?
-┌──┴──┐
-Yes   No
-↓     ↓
-Reject  Promote
-↓
 Production
-This prevents a candidate that fails the configured quality threshold or performs worse than the production model from being automatically promoted.
-
-Model Rollback
-Rollback restores the previous stable production model when rollback conditions are met.
-Current Production
-↓
-Bad Model Detected
-↓
-Rollback
-↓
-Previous Production Version
-↓
-Restore Production Alias
-↓
-Reload Model
-Rollback uses the configured threshold:
-ROLLBACK_ACCURACY_THRESHOLD = 0.85
-The rollback decision is implemented by:
-should_rollback(
-new_model_accuracy,
-previous_model_accuracy
-)
-Rollback is required when:
-The new model accuracy is below the configured minimum.
-The new model is worse than the previous production model.
-The rollback implementation handles:
-Missing previous production version
-Current version equal to previous version
-Production alias restoration
-Rollback metadata/tags
-The rollback threshold is imported from configuration rather than duplicated as a hardcoded value.
-
-Rollback API
-The service provides:
-/rollback
-The endpoint evaluates the rollback condition and restores the previous production model when required.
-After rollback, the serving model is reloaded so subsequent predictions use the restored production version.
-
-Rollback Testing
-Rollback behavior is covered by automated tests.
-Run:
-python -m pytest tests -q
-Actual test result
-55 passed, 44 warnings in 15.65s
-The test suite includes endpoint-level rollback verification, including:
-test_rollback_endpoint_reloads_previous_model
-test_rollback_endpoint_does_not_rollback_when_model_is_good
-The warnings are dependency/deprecation warnings and did not cause test failures.
-
-Docker Deployment
-The service is packaged using BentoML and Docker.
-Build BentoML Service
-bentoml build
-Build Container
-bentoml containerize iris_service
-Run Container
-docker run -p 3000:3000 iris_service 
-    or 
-docker run --name ml-reference -p 3000:3000 --mount "type=bind,source=D:\ml-services\ml-reference\mlruns,target=/D:/ml-services/ml-reference/mlruns" ml-reference:latest
-The service is exposed on:
-http://localhost:3000
-
-Docker Runtime Verification
-The Docker container was actually started and verified.
-Container: ml-reference
-Image: ml-reference
-Port: 3000:3000
-The health endpoint returned:
-HTTP 200
-Observed response:
-{
-"status": "healthy",
-"model_version": "64",
-"prediction": "setosa",
-"canary_prediction": "setosa",
-"canary_model_version": "64",
-"canary_model_alias": "production"
-}
-This provides runtime evidence that the container starts successfully, loads the model, and serves predictions.
-
-Model Loading
-The inference implementation supports a bundled model in the Docker image at:
-/app/models/model.pkl
-When the bundled model exists, it is loaded using Joblib.
-For local development, the service can load the production model from the MLflow Registry using:
-models:/iris_classifier@production
-This keeps local MLflow registry behavior separate from the Docker model-loading path.
-
-Requirements
-The production dependency file has been cleaned from the previous large pip freeze output.
-Current direct dependencies:
-bentoml==1.4.22
-mlflow==3.4.0
-joblib==1.5.1
-numpy==2.3.2
-pydantic==2.11.7
-scikit-learn==1.7.1
-Testing can be maintained separately:
--r requirements.txt
-pytest==8.4.1
-The production requirements intentionally avoid listing unrelated transitive packages as direct project dependencies.
 
 Configuration
-Setting
-Value
-Purpose
-MODEL_NAME
-iris_classifier
-MLflow model name
-MODEL_STAGE
-production
-Production model alias
-RANDOM_STATE
-42
-Reproducible training
-TEST_SIZE
-0.2
-Test split
-N_ESTIMATORS
-100
-Random Forest estimators
-MAX_DEPTH
-5
-Random Forest depth
-PROMOTION_ACCURACY_THRESHOLD
-0.85
-Promotion gate
-CANARY_PERCENTAGE
-20
-Canary traffic
-DRIFT_THRESHOLD
-0.30
-Retraining trigger
-RETRAINING_INTERVAL_SECONDS
-60
-Scheduler interval
-ENABLE_RETRAINING_SCHEDULER
-False
-Safe default
-MIN_RETRAINING_SAMPLES
-5
-Minimum monitoring samples
-MONITORING_INPUT_LIMIT
-100
-Drift monitoring window
-ROLLBACK_ACCURACY_THRESHOLD
-0.85
-Rollback threshold
+The production-safe defaults are:
+RETRAINING_INTERVAL_SECONDS = 3600
+ENABLE_RETRAINING_SCHEDULER = False
+Why?
+3600 seconds = 1 hour.
+The scheduler is disabled by default.
+This prevents every IrisService() instance from starting an automatic retraining thread.
+Tests and BentoML workers therefore do not unexpectedly retrain and re-promote models.
+For a temporary live demonstration, the scheduler can be enabled through the environment without changing the committed defaults:
+docker run --name iris-service   -p 3000:3000
+-e ENABLE_RETRAINING_SCHEDULER=true   -e RETRAINING_INTERVAL_SECONDS=60
+iris_service
+If the implementation reads the interval only from configuration rather than an environment override, use the existing demo configuration mechanism rather than committing 60 seconds as the default.
 
-Operational Considerations
+Drift Detection
+The service monitors recent prediction inputs and compares their mean against the training-data mean.
+The configured drift threshold is:
+DRIFT_THRESHOLD = 0.30
+A drift score greater than or equal to the threshold causes the scheduler to request automated retraining.
+Conceptually:
+Recent prediction inputs
+↓
+Calculate recent mean
+↓
+Compare with training mean
+↓
+Calculate drift score
+↓
+drift_score >= 0.30 ?
+/          
+Yes           No
+↓             ↓
+Retrain          Continue
+
+Automatic Retraining Workflow
+The scheduler:
+Runs a scheduled drift check.
+Reads recent prediction inputs.
+Checks whether enough samples are available.
+Calculates the drift score.
+Starts automated retraining when drift exceeds the threshold.
+Trains a candidate model.
+Evaluates candidate and current production accuracy.
+Promotes the candidate only when the promotion rules are satisfied.
+Reloads the production model when promotion succeeds.
+The scheduler is intentionally disabled by default.
+
+Docker Deployment
+The Docker image is designed to be reproducible from a clean clone.
+The Iris dataset is loaded through:
+sklearn.datasets.load_iris()
+Therefore a local data/ directory is not required by the container.
+The Docker image should generate the required initial MLflow tracking/model-registry state during the build rather than relying on a developer's machine-specific D:\ path.
+Build
+docker build --no-cache -t iris_service .
+Run
+docker run --name iris-service -p 3000:3000 iris_service
+No local D:\ml-services... bind mount is required.
+Open the service
+http://localhost:3000
+Swagger/OpenAPI:
+http://localhost:3000
+Health check
+curl http://localhost:3000/health
+View logs
+docker logs iris-service
+Stop
+docker stop iris-service
+Remove
+docker rm iris-service
+If the container name already exists:
+docker rm -f iris-service
+
+Prediction API
+Single prediction
+Endpoint:
+POST /predict
+Example body:
+{
+"features": [5.1, 3.5, 1.4, 0.2]
+}
+Batch prediction
+Endpoint:
+POST /predict_batch
+Example body:
+{
+"features": 
+     [
+     [5.5, 2.6, 4.4, 1.2],
+    [63.1, 3.0, 4.6, 1.4],
+    [5.8, 21.6, 4.0, 1.2],
+    [5.0, 12.3, 3.3, 1.0],
+    [5.6, 2.7, 4.2, 1.3],
+    [15.7, 3.0, 4.2, 11.2],
+    [5.7, 21.9, 4.2, 1.3],
+    [6.2, 21.9, 4.3, 1.3],
+    [5.1, 21.5, 3.0, 1.1]
+     ]
+}
+The batch payload must contain a features field containing a list of feature vectors.
+
+R5 Evidence – Automated Drift Retraining
+The following is actual terminal output captured from the running service.
+The scheduler repeatedly detected drift because the observed input distribution was significantly different from the training distribution.
+Example:
+2026-09-03T10:33:18+0000 [WARNING] [entry_service:iris_service:1] DRIFT THRESHOLD EXCEEDED - AUTOMATED RETRAINING STARTED
+2026-09-03T10:33:25+0000 [WARNING] [entry_service:iris_service:1] R5 scheduled retraining result:
+{'status': 'retrained',
+'reason': 'Input feature drift detected',
+'drift_score': 1.1382,
+'threshold': 0.3,
+'sample_count': 6,
+'new_model_version':
+"{'status': 'promoted',
+'production_version': '8',
+'candidate_accuracy': 0.9333333333333333,
+'production_accuracy': 0.9333333333333333}"}
+A later run produced:
+2026-09-03T10:39:44+0000 [WARNING] [entry_service:iris_service:1] DRIFT THRESHOLD EXCEEDED - AUTOMATED RETRAINING STARTED
+2026-09-03T10:39:50+0000 [WARNING] [entry_service:iris_service:1] R5 scheduled retraining result:
+{'status': 'retrained',
+'reason': 'Input feature drift detected',
+'drift_score': 1.9823,
+'threshold': 0.3,
+'sample_count': 11,
+'new_model_version':
+"{'status': 'promoted',
+'production_version': '9',
+'candidate_accuracy': 0.9333333333333333,
+'production_accuracy': 0.9333333333333333}"}
+This demonstrates:
+drift_score = 1.9823
+threshold   = 0.30
+samples     = 11
+Because:
+1.9823 > 0.30
+the scheduler correctly triggered automated retraining.
+Scheduler interval evidence
+During the temporary demo configuration, the scheduler was checking approximately once per minute.
+Captured drift-trigger timestamps include:
+10:40:50  DRIFT THRESHOLD EXCEEDED
+10:41:53  DRIFT THRESHOLD EXCEEDED
+10:42:56  DRIFT THRESHOLD EXCEEDED
+10:44:00  DRIFT THRESHOLD EXCEEDED
+The differences are approximately:
+10:40:50 → 10:41:53 = 63 seconds
+10:41:53 → 10:42:56 = 63 seconds
+10:42:56 → 10:44:00 = 64 seconds
+The small additional time is due to the retraining operation and scheduler loop execution.
+The demo therefore verifies an approximately 60-second scheduler interval.
+
+R5 Evidence – Model Promotion
+During automated retraining, the candidate model is evaluated against the current production model.
+Captured evidence:
+Candidate model accuracy: 0.9333
+Current production model accuracy: 0.9333
+The candidate was assigned to staging:
+STAGING ASSIGNED
+Model Name : iris_classifier
+Version    : 9
+Alias      : @staging
+It was then promoted:
+MODEL PROMOTED
+Model Name : iris_classifier
+Version    : 9
+From Alias : @staging
+To Alias   : @production
+The service then reloaded production:
+New model promoted to production: 9
+Production model reloaded: 9
+R5 AUTOMATED RETRAINING COMPLETED
+
+R5 Evidence – Rollback
+Rollback is intended to restore the previous production version when a newly promoted model performs worse.
+The captured rollback evaluation was:
+{
+  "status": "rolled_back",
+  "model_name": "iris_classifier",
+  "from_version": "8",
+  "to_version": "7",
+  "new_model_accuracy": 0.7,
+  "previous_model_accuracy": 0.85,
+  "current_production_version": "7"
+}
+
+This provides evidence for the required rollback workflow.
+
+Manual Retraining vs Automatic Retraining
+These workflows should not be confused.
+Manual retraining
+POST /retrain/trigger
+Directly requests retraining.
+Automatic retraining
 Scheduler
-The scheduler is disabled by default. This prevents service construction and test execution from unintentionally starting retraining workers.
-Enable it explicitly only when automated retraining is required:
-ENABLE_RETRAINING_SCHEDULER=true
-Training and Serving
-R5 integrates the training pipeline with the serving service to support automated retraining. As a result, the serving environment contains the dependencies required by the training workflow as well as inference.
-Model-Changing Endpoints
-The following endpoints modify model state:
+↓
+Drift check
+↓
+Threshold exceeded
+↓
+Automated retraining
+For R5 evidence, the important automatic path is the scheduler-driven flow.
+
+Monitoring
+Prediction inputs are stored by the monitoring component so that recent inputs can be used for drift detection.
+The monitoring query should remain bounded for a reference implementation.
+Recommended approach:
+SELECT
+timestamp,
+model_version,
+latency_ms
+FROM predictions
+ORDER BY timestamp DESC
+LIMIT 1000;
+This avoids loading an unbounded number of prediction records into Python as the monitoring database grows.
+
+Rollback Safety
+Rollback compares the newly evaluated model with the previous production model.
+Conceptually:
+New model
+↓
+Evaluate accuracy
+↓
+Compare with previous production
+↓
+┌─────────────────────┐
+│ New model is worse? │
+└──────────┬──────────┘
+│
+Yes  │
+▼
+Rollback
+│
+▼
+Restore previous version
+
+Known Limitations
+A valid promoted production model must exist before normal service operation and relevant tests can run.
+mlruns/ is generated as part of the Docker image/build workflow and is not intended to be committed as a developer-local artifact.
+The Docker image performs the initial model-training/setup workflow during image build.
+The automated retraining loop currently performs model training inside the serving container.
+/retrain/trigger and /rollback are currently unauthenticated destructive endpoints.
+Role-based authorization can be integrated later through the platform's require_role mechanism.
+Monitoring is intended for demonstration/reference-service scale.
+
+API Endpoints
+Endpoint
+Method
+Purpose
+/health
+GET
+Service health
+/predict
+POST
+Single prediction
+/predict_batch
+POST
+Batch prediction
+/retrain/check
+POST
+Check drift/retraining condition
 /retrain/trigger
+POST
+Manually trigger retraining
 /rollback
-They are currently unauthenticated, consistent with the current reference-service authentication state.
-When role-based authorization such as require_role is integrated, these endpoints should be protected.
+POST
+Roll back production model
 
-R5 Verification Evidence
-Automated Tests
-Command:
-python -m pytest tests -q
-Result:
-55 passed, 44 warnings in 15.65s
-Docker
-Container:
-ml-reference
-Image:
-ml-reference
-Port:
-3000:3000
-Health:
-HTTP 200
-Production Model:
-64
-Prediction:
-setosa
+Test Verification
+Run:
+pytest -q
+The test suite covers the service and model-management behavior.
+Before merging, verify:
+Scheduler default is disabled.
+Default scheduler interval is 3600 seconds.
+Docker builds from a clean clone.
+Docker does not depend on a developer-specific D:\ path.
+/predict works.
+/predict_batch accepts the documented JSON structure.
+Drift detection can be demonstrated.
+Automated retraining can be demonstrated.
+Candidate model evaluation is visible.
+Promotion/rejection decision is visible.
+Rollback can be demonstrated with a worse model.
+Production version is confirmed after rollback.
 
-R5 Definition of Done
-DoD Item
-Result
-Per-model metrics implemented
-✅
-Automated retraining implemented
-✅
+Definition of Done
+Requirement
+Status
 Scheduler disabled by default
 ✅
-Realistic scheduler interval configured
+One-hour safer scheduler default
 ✅
-Candidate evaluation before promotion
+Demo can explicitly enable scheduler
 ✅
-Promotion threshold enforced
+Drift threshold configured
 ✅
-Production comparison before promotion
+Automated drift-triggered retraining demonstrated
 ✅
-Model promotion implemented
+Candidate vs production accuracy comparison demonstrated
 ✅
-Rollback implementation
+Model promotion demonstrated
 ✅
-Rollback edge cases handled
+Rollback with worse model demonstrated
 ✅
-Rollback endpoint tested
+Production version restored after rollback
 ✅
-Full test suite passing
+Docker run command is machine-independent
 ✅
-Docker image built
+Docker image naming is consistent
 ✅
-Docker container started
+Monitoring query is bounded
 ✅
-Docker health endpoint verified
-✅
-Production requirements curated
+Known limitations documented
 ✅
 
-R5 Final Workflow
-┌──────────────┐
-│   Monitor    │
-└──────┬───────┘
-↓
-┌──────────────┐
-│ Drift Check  │
-└──────┬───────┘
-↓
-Drift Threshold?
-/                         No         Yes
-↓           ↓
-Continue     Retrain
-↓
-Evaluate
-↓
-Promotion Gate
-↓
-Compare Production
-/                            Reject        Accept
-↓              ↓
-Stop         Production
-↓
-Bad Model?
-↓
-Rollback
-↓
-Stable Production
-
-Final Status
-R5 — Ready for Review
-The implementation has:
-Production-focused model metrics
-Safe automated retraining configuration
-Candidate evaluation before promotion
-Production comparison before promotion
-MLflow promotion and rollback
-Rollback endpoint coverage
-Passing automated test suite
-Live Docker container verification
-Curated production dependencies
-Evidence Summary
-Tests:       55 passed
-Docker:      Running
-Health:      HTTP 200
-Model:       Version 64
-Prediction:  setosa
-R5 implementation and verification are ready for review.
+Final Production-Safe Configuration
+The committed configuration must remain:
+RETRAINING_INTERVAL_SECONDS = 3600
+ENABLE_RETRAINING_SCHEDULER = False
+For demonstration only, enable the scheduler explicitly through the environment/configuration.
+Do not commit temporary 60-second scheduler settings as the production default.
