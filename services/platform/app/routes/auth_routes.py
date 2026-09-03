@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter , HTTPException,Depends, Request,status
+from typing import Optional
+from fastapi import APIRouter , HTTPException,Depends, Request,status, Header
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError
 from app.core.config import TRUST_PROXY
@@ -27,7 +28,7 @@ from app.schemas.auth import (
     RegisterRequest,
     PasswordResetRequest,
     PasswordResetConfirm,
-   
+    TokenVerifyResponse,
 )
 
 from app.core.security import (
@@ -291,3 +292,93 @@ def password_reset_confirm(
         "message": "Password has been reset successfully."
     }
 
+
+# ============================================================
+# TOKEN VERIFY
+# ============================================================
+@router.post(
+    "/verify",
+    response_model=TokenVerifyResponse
+)
+def verify_token(
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired authentication token"
+        )
+
+    parts = authorization.strip().split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired authentication token"
+        )
+
+    token = parts[1]
+
+    try:
+        payload = decode_token(token)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired authentication token"
+        )
+
+    if not isinstance(payload, dict) or payload.get("type") != "access":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired authentication token"
+        )
+
+    user_id = payload.get("user_id")
+    email = payload.get("sub")
+
+    if not user_id or not email:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired authentication token"
+        )
+
+    try:
+        user_id = int(user_id)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired authentication token"
+        )
+
+    user = (
+        db.query(User)
+        .filter(User.id == user_id)
+        .first()
+    )
+
+    if user is None or not user.email or user.email.lower() != str(email).lower():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired authentication token"
+        )
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired authentication token"
+        )
+
+    if user.role is None or not getattr(user.role, "name", None):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired authentication token"
+        )
+
+    return {
+        "valid": True,
+        "user_id": user.id,
+        "email": user.email,
+        "full_name": user.full_name,
+        "role": user.role.name,
+        "is_active": user.is_active,
+    }

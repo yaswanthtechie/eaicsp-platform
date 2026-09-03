@@ -8,6 +8,7 @@ from fastapi import (
 
 from sqlalchemy.orm import Session
 
+from app.core.auth import require_roles
 from app.database import get_db
 from app.models.inventory import Inventory
 
@@ -39,7 +40,6 @@ from app.services.inventory_service import (
     bulk_update_inventory,
     what_if_simulation,
     inventory_response,
-    InventoryOperationError,
 )
 
 from app.services.reorder_service import (
@@ -286,6 +286,12 @@ import time
 def bulk_upload_route(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    user=Depends(
+        require_roles(
+            "warehouse_manager",
+            "procurement_manager"
+        )
+    ),
 ):
     start_time = time.perf_counter()
 
@@ -320,6 +326,12 @@ def bulk_upload_route(
 def bulk_update_route(
     updates: list[BulkUpdateItem],
     db: Session = Depends(get_db),
+    user=Depends(
+        require_roles(
+            "warehouse_manager",
+            "procurement_manager"
+        )
+    ),
 ):
     try:
         result = bulk_update_inventory(
@@ -349,6 +361,12 @@ def bulk_update_route(
 def what_if_route(
     request: WhatIfRequest,
     db: Session = Depends(get_db),
+    user=Depends(
+        require_roles(
+            "ceo",
+            "vp_operations"
+        )
+    ),
 ):
     try:
         return what_if_simulation(

@@ -492,7 +492,7 @@ def test_simulate(client):
 # WHAT-IF +30%
 # =========================================================
 
-def test_what_if(client):
+def test_what_if(client, auth_ceo):
 
     seed_sales_history(
         "WHAT1",
@@ -564,7 +564,7 @@ def test_delete_inventory(client):
 # BULK UPDATE ROLLBACK
 # =========================================================
 
-def test_bulk_update_failure(client):
+def test_bulk_update_failure(client, auth_warehouse_manager):
 
     seed_sales_history(
         "BULK1",
@@ -616,7 +616,7 @@ def test_bulk_update_failure(client):
 # 1000 ITEM BULK UPDATE
 # =========================================================
 
-def test_bulk_update_1000_items(client):
+def test_bulk_update_1000_items(client, auth_warehouse_manager):
 
     db = TestingSessionLocal()
 
@@ -1211,7 +1211,7 @@ def test_concurrent_decrement_does_not_lose_updates(
 # CSV MISSING COLUMNS
 # =========================================================
 
-def test_csv_rejects_missing_columns(client):
+def test_csv_rejects_missing_columns(client, auth_warehouse_manager):
 
     csv_content = (
         "sku_id,product_name,warehouse_id\n"
@@ -1236,7 +1236,7 @@ def test_csv_rejects_missing_columns(client):
 # CSV NEGATIVE QUANTITY
 # =========================================================
 
-def test_csv_rejects_negative_quantity(client):
+def test_csv_rejects_negative_quantity(client, auth_warehouse_manager):
 
     csv_content = (
         "sku_id,product_name,warehouse_id,"
