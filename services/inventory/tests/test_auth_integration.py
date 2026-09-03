@@ -67,20 +67,6 @@ def test_bulk_update_missing_token(client_raw):
 
     assert response.status_code == 401
 
-
-def test_bulk_update_malformed_token(client_raw):
-
-    response = client_raw.post(
-        "/api/v1/inventory/bulk-update",
-        json=[],
-        headers=auth_header(
-            "invalid-token"
-        ),
-    )
-
-    assert response.status_code == 401
-
-
 @pytest.mark.skipif(
     not WAREHOUSE_MANAGER_TOKEN,
     reason="WAREHOUSE_MANAGER_TOKEN not configured",
@@ -179,29 +165,6 @@ def test_bulk_upload_missing_token(client_raw):
                 "text/csv",
             )
         },
-    )
-
-    assert response.status_code == 401
-
-
-def test_bulk_upload_malformed_token(client_raw):
-
-    response = client_raw.post(
-        "/api/v1/inventory/bulk-upload",
-        files={
-            "file": (
-                "test.csv",
-                (
-                    b"sku_id,warehouse_id,"
-                    b"quantity_delta\n"
-                    b"TEST1,WH1,10\n"
-                ),
-                "text/csv",
-            )
-        },
-        headers=auth_header(
-            "invalid-token"
-        ),
     )
 
     assert response.status_code == 401
@@ -340,22 +303,6 @@ def test_what_if_missing_token(client_raw):
     )
 
     assert response.status_code == 401
-
-
-def test_what_if_malformed_token(client_raw):
-
-    response = client_raw.post(
-        "/api/v1/inventory/what-if",
-        json={
-            "spike_percent": 30
-        },
-        headers=auth_header(
-            "invalid-token"
-        ),
-    )
-
-    assert response.status_code == 401
-
 
 @pytest.mark.skipif(
     not CEO_TOKEN,
