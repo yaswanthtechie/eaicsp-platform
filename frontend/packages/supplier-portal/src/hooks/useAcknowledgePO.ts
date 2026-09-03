@@ -20,7 +20,7 @@ export const useAcknowledgePO = () => {
       addOfflineAction({
         type: "ACKNOWLEDGE_PO",
         payload: {
-          po_number: poNumber,
+          poNumber,
         },
       });
 
@@ -35,12 +35,12 @@ export const useAcknowledgePO = () => {
      */
     await acknowledgePurchaseOrder({
       variables: {
-        po_number: poNumber,
+        poNumber,
       },
       optimisticResponse: {
         acknowledgePurchaseOrder: {
           __typename: "PurchaseOrder",
-          po_number: poNumber,
+          poNumber,
           status: "ACKNOWLEDGED",
         },
       },
