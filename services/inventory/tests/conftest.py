@@ -14,6 +14,7 @@ from app.database import (
     get_db,
 )
 
+from app.core.auth import verify_token
 from app.core.config import settings
 
 from app.models.sales_history import (
@@ -53,6 +54,69 @@ def override_get_db():
 app.dependency_overrides[
     get_db
 ] = override_get_db
+
+
+@pytest.fixture(autouse=True)
+def clean_dependency_overrides():
+    yield
+    app.dependency_overrides.pop(verify_token, None)
+
+
+@pytest.fixture
+def auth_ceo():
+    app.dependency_overrides[verify_token] = lambda: {
+        "user_id": "test-ceo",
+        "username": "ceo_user",
+        "role": "ceo",
+        "valid": True,
+    }
+    try:
+        yield
+    finally:
+        app.dependency_overrides.pop(verify_token, None)
+
+
+@pytest.fixture
+def auth_vp_operations():
+    app.dependency_overrides[verify_token] = lambda: {
+        "user_id": "test-vp-ops",
+        "username": "vp_ops_user",
+        "role": "vp_operations",
+        "valid": True,
+    }
+    try:
+        yield
+    finally:
+        app.dependency_overrides.pop(verify_token, None)
+
+
+@pytest.fixture
+def auth_warehouse_manager():
+    app.dependency_overrides[verify_token] = lambda: {
+        "user_id": "test-wh-manager",
+        "username": "wh_manager_user",
+        "role": "warehouse_manager",
+        "valid": True,
+    }
+    try:
+        yield
+    finally:
+        app.dependency_overrides.pop(verify_token, None)
+
+
+@pytest.fixture
+def auth_procurement_manager():
+    app.dependency_overrides[verify_token] = lambda: {
+        "user_id": "test-procurement-manager",
+        "username": "procurement_manager_user",
+        "role": "procurement_manager",
+        "valid": True,
+    }
+    try:
+        yield
+    finally:
+        app.dependency_overrides.pop(verify_token, None)
+
 
 @pytest.fixture
 def client():
