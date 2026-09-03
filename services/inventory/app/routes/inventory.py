@@ -40,7 +40,7 @@ from app.services.inventory_service import (
     bulk_upload_csv,
     bulk_update_inventory,
     what_if_simulation,
-    inventory_response, 
+    inventory_response,
 )
 
 from app.services.reorder_service import (
@@ -320,7 +320,7 @@ def bulk_upload_route(
             detail=str(exc),
         )
 
-@router.put("/bulk-update")
+@router.post("/bulk-update")
 def bulk_update_route(
     updates: list[BulkUpdateItem],
     db: Session = Depends(get_db),

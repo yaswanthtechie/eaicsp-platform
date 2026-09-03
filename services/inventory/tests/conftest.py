@@ -125,3 +125,87 @@ def seed_sales_history(
 
     finally:
         db.close()
+from app.core.auth import verify_token
+
+def _as_user(role: str):
+    async def _override():
+        return {"valid": True, "role": role, "user_id": 1}
+    return _override
+
+
+@pytest.fixture
+def client():
+    """For tests that aren't about auth  give them a role that just works."""
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[verify_token] = _as_user("warehouse_manager")
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
+
+
+from app.core.auth import verify_token
+
+
+def _as_user(role: str):
+    async def _override():
+        return {
+            "valid": True,
+            "role": role,
+            "user_id": 1,
+        }
+
+    return _override
+
+
+@pytest.fixture
+def client():
+    """For tests that are not about authentication."""
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[verify_token] = _as_user(
+        "warehouse_manager"
+    )
+
+    with TestClient(app) as c:
+        yield c
+
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def client_raw():
+    """For authentication tests. Uses real verify_token."""
+    app.dependency_overrides[get_db] = override_get_db
+
+    with TestClient(app) as c:
+        yield c
+
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def client_ceo():
+    """For tests that need a CEO user."""
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[verify_token] = _as_user(
+        "ceo"
+    )
+
+    with TestClient(app) as c:
+        yield c
+
+    app.dependency_overrides.clear()
+
+
+
+@pytest.fixture
+def client_warehouse_manager():
+    """For tests that need a warehouse manager user."""
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[verify_token] = _as_user(
+        "warehouse_manager"
+    )
+
+    with TestClient(app) as c:
+        yield c
+
+    app.dependency_overrides.clear()
