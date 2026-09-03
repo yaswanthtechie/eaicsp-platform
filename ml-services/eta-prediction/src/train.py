@@ -215,6 +215,11 @@ def train_model(X_train, y_train):
     # ---------------------------------------------------------
     # 10. Save production model
     # ---------------------------------------------------------
+    # Ensure the artifact directory exists — train_model() can be called
+    # directly (tests, notebooks, other scripts) without going through
+    # main.py's ensure_directories().
+    MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+
     joblib.dump(
         pipeline,
         MODEL_PATH,
