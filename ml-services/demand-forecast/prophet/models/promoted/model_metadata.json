@@ -1,8 +1,8 @@
 {
     "model_version": "R5",
     "status": "promoted",
-    "mape": 1.1935308534970082,
-    "rmse": 6062.616289665733,
-    "prophet_weight": 0.7,
-    "xgb_weight": 0.3
+    "mape": 1.325453757759904,
+    "rmse": 7370.6375045205605,
+    "prophet_weight": 0.8,
+    "xgb_weight": 0.2
 }

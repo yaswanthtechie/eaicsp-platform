@@ -457,3 +457,24 @@ def test_multiple_retraining_cycles_execute(monkeypatch):
 
     # Confirm at least two distinct cycles.
     assert len(set(executed_cycles)) >= 2
+def test_rejected_cycle_does_not_advance_baseline(monkeypatch):
+    #A rejected candidate must not become the next cycle's baseline#
+    dates = pd.date_range("2003-01-01", periods=156, freq="MS")
+    data = pd.DataFrame({"ds": dates, "y": range(100, 256)})
+
+    seen_baselines = []
+
+    monkeypatch.setattr(retraining, "prepare_data", lambda: data)
+    monkeypatch.setattr(retraining, "load_existing_baseline", lambda: (5.0, 500.0))
+
+    # Every candidate is worse than the 5.0 promoted baseline.
+    def fake_retrain_once(data, trigger_date, old_mape, old_rmse):
+        seen_baselines.append(old_mape)
+        return 9.0, 900.0
+
+    monkeypatch.setattr(retraining, "retrain_once", fake_retrain_once)
+    retraining.run_retraining()
+
+    # Every cycle must have compared against the ORIGINAL baseline (5.0),
+    # never against the previous rejected candidate (9.0).
+    assert set(seen_baselines) == {5.0}, seen_baselines

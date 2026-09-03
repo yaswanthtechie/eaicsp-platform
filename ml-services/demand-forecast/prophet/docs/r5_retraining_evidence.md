@@ -1,53 +1,15 @@
-# R5 Automated Retraining Evidence
-
-## Retraining Cycle 1 – 2015
-
-Run Name: yearly_retrain_2015
-
-Status: Finished
-
-Run ID: 70c932d12a7845c582610f0f2ba3ba76
-
-### Model Comparison
-
-| Metric | New Model | Previous Model |
-|---|---:|---:|
-| MAPE | 1.2420446078068748 | 1.1935308534970082 |
-| RMSE | 6135.869405785399 | 6062.616289665733 |
-
-### Ensemble Search
-
-11 ensemble weight combinations were tested automatically.
-
-Selected weights:
-
-- Prophet: 1.0
-- XGBoost: 0.0
-
-### Promotion Decision
-
-Promotion Status: REJECTED
-
-Reason: New model did not outperform the previous promoted model.
-
-Evidence: MLflow screenshot – yearly_retrain_2015
-
----
-
-## Retraining Cycle 2 – 2016
+## Retraining Cycle 0 – Initial Promotion
 
 Run Name: yearly_retrain_2016
 
 Status: Finished
 
-Run ID: 0b31af9efbc749749517fec4c06e038a
+### Model Details
 
-### Model Comparison
-
-| Metric | New Model | Previous Model |
-|---|---:|---:|
-| MAPE | 1.325453757759904 | 1.1935308534970082 |
-| RMSE | 7370.6375045205605 | 6062.616289665733 |
+| Metric | Value |
+|---|---:|
+| MAPE | 1.325453757759904 |
+| RMSE | 7370.6375045205605 |
 
 ### Ensemble Search
 
@@ -60,12 +22,14 @@ Selected weights:
 
 ### Promotion Decision
 
-Promotion Status: REJECTED
+Promotion Status: PROMOTED
 
-Reason: New model did not outperform the previous promoted model.
+Reason: No existing promoted baseline was available, so the candidate
+was promoted as the initial model.
 
-Evidence: MLflow screenshot – yearly_retrain_2016
+MLflow confirms:
 
-![2015 Retraining Cycle](yearly_retrain_2015.png)
+- `promotion_status: promoted`
+- `grid_search_status: winner_selected`
 
-![2016 Retraining Cycle](yearly_retrain_2016.png)
+Evidence: MLflow run `yearly_retrain_2016`

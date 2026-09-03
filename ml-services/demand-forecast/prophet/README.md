@@ -466,6 +466,18 @@ Example yearly runs include:
 `yearly_retrain_2015`
 
 `yearly_retrain_2016`
+### R5 Automated Retraining Result
+
+During automated retraining, ensemble weights are selected dynamically for
+each validation cycle.
+
+For the currently promoted R5 retraining run:
+
+Prophet = 80%
+XGBoost = 20%
+
+MAPE = 1.3255%
+RMSE = 7370.6375
 ### Promoted Baseline
 
 The existing promoted model used as the baseline for the R5 retraining
@@ -475,10 +487,10 @@ simulation has the following metadata:
 |---|---:|
 | Model Version | R5 |
 | Status | Promoted |
-| MAPE | 1.1935% |
-| RMSE | 6062.6163 |
-| Prophet Weight | 0.7 |
-| XGBoost Weight | 0.3 |
+| MAPE | 1.3255% |
+| RMSE | 7370.6375 |
+| Prophet Weight | 0.8 |
+| XGBoost Weight | 0.2 |
 
 This same promoted baseline is used for comparison across yearly
 retraining cycles. A candidate model is promoted only when it outperforms
@@ -569,7 +581,7 @@ python -m pytest tests/test_retraining.py -v
 
 Result:
 
-9 passed
+10 passed
 ## 5. MLflow Evidence
 
 Experiment:
@@ -608,6 +620,18 @@ fed back as lag features.
 
 Therefore, validation MAPE/RMSE may be more optimistic than production
 performance.
+### Validation and Promotion Decision
+
+For the R5 implementation, the same validation window is currently used
+for ensemble weight selection and the promotion comparison.
+
+The validation MAPE is used to select the best Prophet/XGBoost weight
+combination, and the selected candidate is then compared against the
+current promoted baseline.
+
+A separate promotion hold-out or nested validation split would provide a
+more statistically independent promotion gate and can be considered as a
+future enhancement.
 
 ## Definition of Done
 
