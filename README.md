@@ -20,6 +20,32 @@ Enterprise AI-Powered Supply Chain Platform.
 2. `git checkout -b yourname/your-service`
 3. Work in your assigned folder only
 4. Push, open PR, wait for review
+
+---
+
+# Round 5 — Authentication & API Gateway
+
+## Authentication Flow
+
+Round 5 implements centralized authentication and role-based authorization across the API Gateway, Platform, and Inventory services.
+
+### Service Connections
+
+```text
+Client
+  |
+  v
+API Gateway :8000
+  |
+  +----> Platform Auth :8005
+  |
+  +----> Inventory :8001
+             |
+             +----> Platform Auth :8005
+```
+
+---
+
 ﻿# UI Library
 
 ## Overview
