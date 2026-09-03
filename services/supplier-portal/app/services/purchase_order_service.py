@@ -268,6 +268,8 @@ def transition_purchase_order(
 
     # Create audit event
     event = {
+        "po_number": po_number,
+        "supplier_id": purchase_order["supplier_id"],
         "actor": actor,
         "from_status": current_state,
         "to_status": target_state,

@@ -1,15 +1,10 @@
 import pytest
-from fastapi.testclient import TestClient
 
-from app.main import app
 from app.services.purchase_order_service import (
     purchase_orders,
     po_events,
 )
 from app.services.invoice_service import invoices
-
-
-client = TestClient(app)
 
 
 # ============================================================
@@ -30,6 +25,7 @@ def setup_function():
 # ============================================================
 
 def create_sample_po(
+    client,
     po_number="PO1001",
     supplier_id="SUP001",
 ):
@@ -41,6 +37,10 @@ def create_sample_po(
         Mouse:   10 × 500  = 5000
         ----------------------------
         Total              = 55000
+
+    PO creation is an internal procurement operation,
+    therefore this helper should normally receive
+    procurement_client.
     """
 
     response = client.post(
@@ -73,9 +73,11 @@ def create_sample_po(
     return response
 
 
-def send_po(po_number="PO1001"):
+def send_po(client, po_number="PO1001"):
     """
     draft -> sent
+
+    Uses the authenticated procurement manager.
     """
 
     return client.post(
@@ -87,9 +89,11 @@ def send_po(po_number="PO1001"):
     )
 
 
-def acknowledge_po(po_number="PO1001"):
+def acknowledge_po(client, po_number="PO1001"):
     """
     sent -> acknowledged
+
+    Uses the authenticated supplier.
     """
 
     return client.post(
@@ -97,9 +101,11 @@ def acknowledge_po(po_number="PO1001"):
     )
 
 
-def fulfill_po(po_number="PO1001"):
+def fulfill_po(client, po_number="PO1001"):
     """
     acknowledged -> fulfilled
+
+    Uses the authenticated procurement manager.
     """
 
     return client.post(
@@ -111,13 +117,27 @@ def fulfill_po(po_number="PO1001"):
     )
 
 
+def cancel_po(client, po_number="PO1001", actor="siri"):
+    """
+    Move PO to cancelled state.
+    """
+
+    return client.post(
+        f"/api/v1/purchase-orders/{po_number}/transition",
+        json={
+            "actor": actor,
+            "target_state": "cancelled",
+        },
+    )
+
+
 # ============================================================
 # CREATE / READ / UPDATE / DELETE
 # ============================================================
 
-def test_create_purchase_order():
+def test_create_purchase_order(procurement_client):
 
-    response = create_sample_po()
+    response = create_sample_po(procurement_client)
 
     body = response.json()
 
@@ -130,15 +150,15 @@ def test_create_purchase_order():
     assert body["history"] == []
 
 
-def test_duplicate_purchase_order():
+def test_duplicate_purchase_order(procurement_client):
+
     # First PO creation should succeed
-    response = create_sample_po()
+    response = create_sample_po(procurement_client)
 
     assert response.status_code == 201
 
-    # Second creation with the same PO number
-    # should be rejected as a duplicate
-    response = client.post(
+    # Second creation with same PO number
+    response = procurement_client.post(
         "/api/v1/purchase-orders",
         json={
             "po_number": "PO1001",
@@ -168,9 +188,11 @@ def test_duplicate_purchase_order():
     body = response.json()
 
     assert "already exists" in body["detail"]
-def test_create_purchase_order_wrong_total():
 
-    response = client.post(
+
+def test_create_purchase_order_wrong_total(procurement_client):
+
+    response = procurement_client.post(
         "/api/v1/purchase-orders",
         json={
             "po_number": "PO1002",
@@ -197,11 +219,11 @@ def test_create_purchase_order_wrong_total():
     )
 
 
-def test_get_all_purchase_orders():
+def test_get_all_purchase_orders(procurement_client):
 
-    create_sample_po()
+    create_sample_po(procurement_client)
 
-    response = client.get(
+    response = procurement_client.get(
         "/api/v1/purchase-orders"
     )
 
@@ -213,11 +235,14 @@ def test_get_all_purchase_orders():
     assert body[0]["po_number"] == "PO1001"
 
 
-def test_get_purchase_order_by_id():
+def test_get_purchase_order_by_id(
+    procurement_client,
+    supplier_client,
+):
 
-    create_sample_po()
+    create_sample_po(procurement_client)
 
-    response = client.get(
+    response = supplier_client.get(
         "/api/v1/purchase-orders/PO1001"
     )
 
@@ -228,9 +253,9 @@ def test_get_purchase_order_by_id():
     assert body["po_number"] == "PO1001"
 
 
-def test_get_purchase_order_not_found():
+def test_get_purchase_order_not_found(supplier_client):
 
-    response = client.get(
+    response = supplier_client.get(
         "/api/v1/purchase-orders/PO9999"
     )
 
@@ -242,11 +267,11 @@ def test_get_purchase_order_not_found():
     )
 
 
-def test_update_purchase_order():
+def test_update_purchase_order(procurement_client):
 
-    create_sample_po()
+    create_sample_po(procurement_client)
 
-    response = client.put(
+    response = procurement_client.put(
         "/api/v1/purchase-orders/PO1001",
         json={
             "total_amount": 55000,
@@ -261,11 +286,14 @@ def test_update_purchase_order():
     assert body["total_amount"] == 55000
 
 
-def test_delete_purchase_order():
+def test_delete_purchase_order(
+    procurement_client,
+    supplier_client,
+):
 
-    create_sample_po()
+    create_sample_po(procurement_client)
 
-    response = client.delete(
+    response = procurement_client.delete(
         "/api/v1/purchase-orders/PO1001"
     )
 
@@ -276,7 +304,7 @@ def test_delete_purchase_order():
         in response.json()["message"]
     )
 
-    response = client.get(
+    response = supplier_client.get(
         "/api/v1/purchase-orders/PO1001"
     )
 
@@ -287,11 +315,11 @@ def test_delete_purchase_order():
 # LEGAL STATE TRANSITIONS
 # ============================================================
 
-def test_draft_to_sent():
+def test_draft_to_sent(procurement_client):
 
-    create_sample_po()
+    create_sample_po(procurement_client)
 
-    response = send_po()
+    response = send_po(procurement_client)
 
     assert response.status_code == 200
 
@@ -309,15 +337,18 @@ def test_draft_to_sent():
     assert "timestamp" in event
 
 
-def test_sent_to_acknowledged():
+def test_sent_to_acknowledged(
+    procurement_client,
+    supplier_client,
+):
 
-    create_sample_po()
+    create_sample_po(procurement_client)
 
-    response = send_po()
+    response = send_po(procurement_client)
 
     assert response.status_code == 200
 
-    response = acknowledge_po()
+    response = acknowledge_po(supplier_client)
 
     assert response.status_code == 200
 
@@ -335,19 +366,24 @@ def test_sent_to_acknowledged():
     assert "timestamp" in event
 
 
-def test_acknowledged_to_fulfilled():
+def test_acknowledged_to_fulfilled(
+    procurement_client,
+    supplier_client,
+):
 
-    create_sample_po()
+    create_sample_po(procurement_client)
 
-    send_response = send_po()
+    send_response = send_po(procurement_client)
 
     assert send_response.status_code == 200
 
-    acknowledge_response = acknowledge_po()
+    acknowledge_response = acknowledge_po(
+        supplier_client
+    )
 
     assert acknowledge_response.status_code == 200
 
-    response = fulfill_po()
+    response = fulfill_po(procurement_client)
 
     assert response.status_code == 200
 
@@ -365,20 +401,16 @@ def test_acknowledged_to_fulfilled():
 
     assert "timestamp" in event
 
-    # Fulfillment should record actual delivery date.
     assert body["actual_delivery_date"] is not None
 
 
-def test_draft_to_cancelled():
+def test_draft_to_cancelled(procurement_client):
 
-    create_sample_po()
+    create_sample_po(procurement_client)
 
-    response = client.post(
-        "/api/v1/purchase-orders/PO1001/transition",
-        json={
-            "actor": "siri",
-            "target_state": "cancelled",
-        },
+    response = cancel_po(
+        procurement_client,
+        actor="siri",
     )
 
     assert response.status_code == 200
@@ -396,20 +428,17 @@ def test_draft_to_cancelled():
     assert event["actor"] == "siri"
 
 
-def test_sent_to_cancelled():
+def test_sent_to_cancelled(procurement_client):
 
-    create_sample_po()
+    create_sample_po(procurement_client)
 
-    response = send_po()
+    response = send_po(procurement_client)
 
     assert response.status_code == 200
 
-    response = client.post(
-        "/api/v1/purchase-orders/PO1001/transition",
-        json={
-            "actor": "siri",
-            "target_state": "cancelled",
-        },
+    response = cancel_po(
+        procurement_client,
+        actor="siri",
     )
 
     assert response.status_code == 200
@@ -426,24 +455,26 @@ def test_sent_to_cancelled():
     assert event["to_status"] == "cancelled"
 
 
-def test_acknowledged_to_cancelled():
+def test_acknowledged_to_cancelled(
+    procurement_client,
+    supplier_client,
+):
 
-    create_sample_po()
+    create_sample_po(procurement_client)
 
-    send_response = send_po()
+    send_response = send_po(procurement_client)
 
     assert send_response.status_code == 200
 
-    acknowledge_response = acknowledge_po()
+    acknowledge_response = acknowledge_po(
+        supplier_client
+    )
 
     assert acknowledge_response.status_code == 200
 
-    response = client.post(
-        "/api/v1/purchase-orders/PO1001/transition",
-        json={
-            "actor": "siri",
-            "target_state": "cancelled",
-        },
+    response = cancel_po(
+        procurement_client,
+        actor="siri",
     )
 
     assert response.status_code == 200
@@ -465,7 +496,7 @@ def test_acknowledged_to_cancelled():
 # ============================================================
 
 @pytest.mark.parametrize(
-    "from_state, target_state",
+    "from_state,target_state",
     [
         ("draft", "acknowledged"),
         ("draft", "fulfilled"),
@@ -488,6 +519,8 @@ def test_acknowledged_to_cancelled():
     ],
 )
 def test_illegal_purchase_order_transitions(
+    procurement_client,
+    supplier_client,
     from_state,
     target_state,
 ):
@@ -496,43 +529,60 @@ def test_illegal_purchase_order_transitions(
     is rejected with HTTP 400.
     """
 
-    create_sample_po()
+    create_sample_po(procurement_client)
 
-    # Move PO to the required starting state.
+    # --------------------------------------------------------
+    # Move PO to required starting state
+    # --------------------------------------------------------
+
     if from_state == "sent":
-        response = send_po()
+
+        response = send_po(procurement_client)
+
         assert response.status_code == 200
 
     elif from_state == "acknowledged":
-        response = send_po()
+
+        response = send_po(procurement_client)
+
         assert response.status_code == 200
 
-        response = acknowledge_po()
-        assert response.status_code == 200
-
-    elif from_state == "fulfilled":
-        response = send_po()
-        assert response.status_code == 200
-
-        response = acknowledge_po()
-        assert response.status_code == 200
-
-        response = fulfill_po()
-        assert response.status_code == 200
-
-    elif from_state == "cancelled":
-        response = client.post(
-            "/api/v1/purchase-orders/PO1001/transition",
-            json={
-                "actor": "siri",
-                "target_state": "cancelled",
-            },
+        response = acknowledge_po(
+            supplier_client
         )
 
         assert response.status_code == 200
 
-    # Attempt illegal transition.
-    response = client.post(
+    elif from_state == "fulfilled":
+
+        response = send_po(procurement_client)
+
+        assert response.status_code == 200
+
+        response = acknowledge_po(
+            supplier_client
+        )
+
+        assert response.status_code == 200
+
+        response = fulfill_po(procurement_client)
+
+        assert response.status_code == 200
+
+    elif from_state == "cancelled":
+
+        response = cancel_po(
+            procurement_client,
+            actor="siri",
+        )
+
+        assert response.status_code == 200
+
+    # --------------------------------------------------------
+    # Attempt illegal transition
+    # --------------------------------------------------------
+
+    response = procurement_client.post(
         "/api/v1/purchase-orders/PO1001/transition",
         json={
             "actor": "tester",
@@ -554,11 +604,16 @@ def test_illegal_purchase_order_transitions(
 # ACKNOWLEDGE ENDPOINT
 # ============================================================
 
-def test_acknowledge_without_sent_status():
+def test_acknowledge_without_sent_status(
+    procurement_client,
+    supplier_client,
+):
 
-    create_sample_po()
+    create_sample_po(procurement_client)
 
-    response = acknowledge_po()
+    response = acknowledge_po(
+        supplier_client
+    )
 
     assert response.status_code == 400
 
@@ -568,15 +623,22 @@ def test_acknowledge_without_sent_status():
     )
 
 
-def test_acknowledge_fulfilled_po():
+def test_acknowledge_fulfilled_po(
+    procurement_client,
+    supplier_client,
+):
 
-    create_sample_po()
+    create_sample_po(procurement_client)
 
-    send_po()
-    acknowledge_po()
-    fulfill_po()
+    send_po(procurement_client)
 
-    response = acknowledge_po()
+    acknowledge_po(supplier_client)
+
+    fulfill_po(procurement_client)
+
+    response = acknowledge_po(
+        supplier_client
+    )
 
     assert response.status_code == 400
 
@@ -590,9 +652,11 @@ def test_acknowledge_fulfilled_po():
 # MISSING PO TRANSITIONS
 # ============================================================
 
-def test_transition_purchase_order_not_found():
+def test_transition_purchase_order_not_found(
+    procurement_client,
+):
 
-    response = client.post(
+    response = procurement_client.post(
         "/api/v1/purchase-orders/PO9999/transition",
         json={
             "actor": "tester",
@@ -608,9 +672,11 @@ def test_transition_purchase_order_not_found():
     )
 
 
-def test_acknowledge_purchase_order_not_found():
+def test_acknowledge_purchase_order_not_found(
+    supplier_client,
+):
 
-    response = client.post(
+    response = supplier_client.post(
         "/api/v1/purchase-orders/PO9999/acknowledge"
     )
 
@@ -626,11 +692,14 @@ def test_acknowledge_purchase_order_not_found():
 # EVENT / HISTORY TESTS
 # ============================================================
 
-def test_purchase_order_events_empty():
+def test_purchase_order_events_empty(
+    procurement_client,
+    supplier_client,
+):
 
-    create_sample_po()
+    create_sample_po(procurement_client)
 
-    response = client.get(
+    response = supplier_client.get(
         "/api/v1/purchase-orders/PO1001/events"
     )
 
@@ -639,14 +708,18 @@ def test_purchase_order_events_empty():
     assert response.json() == []
 
 
-def test_purchase_order_events():
+def test_purchase_order_events(
+    procurement_client,
+    supplier_client,
+):
 
-    create_sample_po()
+    create_sample_po(procurement_client)
 
-    send_po()
-    acknowledge_po()
+    send_po(procurement_client)
 
-    response = client.get(
+    acknowledge_po(supplier_client)
+
+    response = supplier_client.get(
         "/api/v1/purchase-orders/PO1001/events"
     )
 
@@ -665,9 +738,11 @@ def test_purchase_order_events():
     assert body[1]["to_status"] == "acknowledged"
 
 
-def test_purchase_order_events_not_found():
+def test_purchase_order_events_not_found(
+    supplier_client,
+):
 
-    response = client.get(
+    response = supplier_client.get(
         "/api/v1/purchase-orders/PO9999/events"
     )
 
@@ -679,28 +754,33 @@ def test_purchase_order_events_not_found():
     )
 
 
-def test_history_is_preserved_after_delete():
+def test_history_is_preserved_after_delete(
+    procurement_client,
+    supplier_client,
+):
 
-    create_sample_po()
+    create_sample_po(procurement_client)
 
-    send_po()
-    acknowledge_po()
+    send_po(procurement_client)
 
-    response = client.delete(
+    acknowledge_po(supplier_client)
+
+    # Delete using internal procurement role
+    response = procurement_client.delete(
         "/api/v1/purchase-orders/PO1001"
     )
 
     assert response.status_code == 200
 
     # PO itself is deleted.
-    response = client.get(
+    response = supplier_client.get(
         "/api/v1/purchase-orders/PO1001"
     )
 
     assert response.status_code == 404
 
     # Audit events remain.
-    response = client.get(
+    response = supplier_client.get(
         "/api/v1/purchase-orders/PO1001/events"
     )
 
@@ -715,13 +795,26 @@ def test_history_is_preserved_after_delete():
 # BULK SEND
 # ============================================================
 
-def test_bulk_send_purchase_orders():
+def test_bulk_send_purchase_orders(
+    procurement_client,
+):
 
-    create_sample_po("PO1001")
-    create_sample_po("PO1002")
-    create_sample_po("PO1003")
+    create_sample_po(
+        procurement_client,
+        "PO1001",
+    )
 
-    response = client.post(
+    create_sample_po(
+        procurement_client,
+        "PO1002",
+    )
+
+    create_sample_po(
+        procurement_client,
+        "PO1003",
+    )
+
+    response = procurement_client.post(
         "/api/v1/purchase-orders/bulk-send",
         json={
             "po_numbers": [
@@ -743,36 +836,45 @@ def test_bulk_send_purchase_orders():
 
     results = body["results"]
 
-    # PO1001 -> draft -> sent
+    # PO1001
     assert results[0]["po_number"] == "PO1001"
     assert results[0]["success"] is True
     assert results[0]["status"] == "sent"
     assert results[0]["error"] is None
 
-    # PO1002 -> draft -> sent
+    # PO1002
     assert results[1]["po_number"] == "PO1002"
     assert results[1]["success"] is True
     assert results[1]["status"] == "sent"
     assert results[1]["error"] is None
 
-    # PO9999 -> does not exist
+    # PO9999
     assert results[2]["po_number"] == "PO9999"
     assert results[2]["success"] is False
     assert results[2]["status"] is None
     assert results[2]["error"] == "Purchase Order not found"
 
 
-def test_bulk_send_only_draft_can_be_sent():
+def test_bulk_send_only_draft_can_be_sent(
+    procurement_client,
+):
 
-    create_sample_po("PO1001")
-    create_sample_po("PO1002")
+    create_sample_po(
+        procurement_client,
+        "PO1001",
+    )
+
+    create_sample_po(
+        procurement_client,
+        "PO1002",
+    )
 
     # --------------------------------------------------------
-    # First send PO1001 normally:
+    # First send PO1001 normally
     # draft -> sent
     # --------------------------------------------------------
 
-    response = client.post(
+    response = procurement_client.post(
         "/api/v1/purchase-orders/PO1001/transition",
         json={
             "actor": "harish",
@@ -783,13 +885,13 @@ def test_bulk_send_only_draft_can_be_sent():
     assert response.status_code == 200
 
     # --------------------------------------------------------
-    # Now bulk-send both POs.
+    # Bulk send both
     #
-    # PO1001 = already sent -> should FAIL
-    # PO1002 = still draft  -> should SUCCEED
+    # PO1001 = already sent -> FAIL
+    # PO1002 = draft -> SUCCESS
     # --------------------------------------------------------
 
-    response = client.post(
+    response = procurement_client.post(
         "/api/v1/purchase-orders/bulk-send",
         json={
             "po_numbers": [
@@ -812,7 +914,6 @@ def test_bulk_send_only_draft_can_be_sent():
 
     # --------------------------------------------------------
     # PO1001
-    # Already sent -> sent is NOT a valid transition
     # --------------------------------------------------------
 
     assert results[0]["po_number"] == "PO1001"
@@ -822,7 +923,6 @@ def test_bulk_send_only_draft_can_be_sent():
 
     # --------------------------------------------------------
     # PO1002
-    # draft -> sent is valid
     # --------------------------------------------------------
 
     assert results[1]["po_number"] == "PO1002"

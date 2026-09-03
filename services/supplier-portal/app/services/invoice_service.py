@@ -1640,7 +1640,6 @@ def find_orphaned_invoice_files(
         # -----------------------------------------------------
 
         for file_path in supplier_directory.iterdir():
-
             if not file_path.is_file():
                 continue
 

@@ -1,4 +1,9 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.core.auth import (
+    require_roles,
+    verify_token,
+)
 
 from app.schemas.purchase_order import (
     PurchaseOrderCreate,
@@ -23,15 +28,126 @@ from app.services.purchase_order_service import (
     bulk_send_purchase_orders,
 )
 
+
 router = APIRouter()
 
 
-# Get Purchase Order Events
-@router.get(
-    "/purchase-orders/{po_number}/events",
-    response_model=list[PurchaseOrderHistory],
-)
-def get_po_events(po_number: str):
+# ============================================================
+# SUPPLIER PURCHASE ORDER ACCESS
+# ============================================================
+
+def require_supplier_po_access(
+    po_number: str,
+    user=Depends(verify_token),
+):
+    """
+    Authenticate the supplier and verify that the supplier
+    owns the requested Purchase Order.
+
+    Rules:
+        1. User must have the supplier role.
+        2. Authenticated user must have a supplier_id.
+        3. Authenticated supplier_id must match the PO supplier_id.
+
+    This prevents Supplier A from accessing Supplier B's PO.
+    """
+
+    # --------------------------------------------------------
+    # 1. Role check
+    # --------------------------------------------------------
+
+    if user.get("role") != "supplier":
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: supplier access required",
+        )
+
+    # --------------------------------------------------------
+    # 2. Get supplier identity
+    # --------------------------------------------------------
+
+    authenticated_supplier_id = user.get("supplier_id")
+
+    if not authenticated_supplier_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Supplier identity is missing",
+        )
+
+    # --------------------------------------------------------
+    # 3. Find Purchase Order
+    # --------------------------------------------------------
+
+    purchase_order = get_purchase_order_by_id(po_number)
+
+    if not purchase_order:
+        raise HTTPException(
+            status_code=404,
+            detail="Purchase Order not found",
+        )
+
+    # --------------------------------------------------------
+    # 4. Supplier scoping check
+    # --------------------------------------------------------
+
+    if (
+        authenticated_supplier_id
+        != purchase_order["supplier_id"]
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Forbidden: supplier does not own "
+                "this Purchase Order"
+            ),
+        )
+
+    return user, purchase_order
+
+
+def require_supplier_po_event_access(
+    po_number: str,
+    user=Depends(verify_token),
+):
+    """
+    Authorize access to Purchase Order audit history.
+
+    Event history remains available even after the Purchase
+    Order itself has been deleted.
+
+    Rules:
+        1. User must have the supplier role.
+        2. User must have a supplier_id.
+        3. If PO exists, verify ownership using the PO.
+        4. If PO was deleted, verify ownership using the
+           supplier_id stored in the historical events.
+    """
+
+    # --------------------------------------------------------
+    # 1. Role check
+    # --------------------------------------------------------
+
+    if user.get("role") != "supplier":
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: supplier access required",
+        )
+
+    # --------------------------------------------------------
+    # 2. Get authenticated supplier identity
+    # --------------------------------------------------------
+
+    authenticated_supplier_id = user.get("supplier_id")
+
+    if not authenticated_supplier_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Supplier identity is missing",
+        )
+
+    # --------------------------------------------------------
+    # 3. Get preserved event history
+    # --------------------------------------------------------
 
     events = get_purchase_order_events(po_number)
 
@@ -41,10 +157,86 @@ def get_po_events(po_number: str):
             detail="Purchase Order not found",
         )
 
+    # --------------------------------------------------------
+    # 4. If PO still exists, use current PO ownership
+    # --------------------------------------------------------
+
+    purchase_order = get_purchase_order_by_id(po_number)
+
+    if purchase_order:
+
+        if (
+            authenticated_supplier_id
+            != purchase_order["supplier_id"]
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Forbidden: supplier does not own "
+                    "this Purchase Order"
+                ),
+            )
+
+        return user, events
+
+    # --------------------------------------------------------
+    # 5. PO was deleted
+    #
+    # Use preserved audit events to verify ownership.
+    # --------------------------------------------------------
+
+    if not events:
+        raise HTTPException(
+            status_code=404,
+            detail="Purchase Order not found",
+        )
+
+    event_supplier_ids = {
+        event.get("supplier_id")
+        for event in events
+    }
+
+    if authenticated_supplier_id not in event_supplier_ids:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Forbidden: supplier does not own "
+                "this Purchase Order history"
+            ),
+        )
+
+    return user, events
+
+
+# ============================================================
+# GET PURCHASE ORDER EVENTS
+# Supplier-facing endpoint
+# Requires: supplier role + supplier_id scoping
+# ============================================================
+
+@router.get(
+    "/purchase-orders/{po_number}/events",
+    response_model=list[PurchaseOrderHistory],
+)
+def get_po_events(
+    access=Depends(require_supplier_po_event_access),
+):
+    """
+    Get Purchase Order audit events.
+
+    Historical events remain accessible to the owning
+    supplier even after the Purchase Order is deleted.
+    """
+
+    user, events = access
+
     return events
 
 
-# Create Purchase Order
+
+# ============================================================
+# CREATE PURCHASE ORDER
+# ============================================================
 
 @router.post(
     "/purchase-orders",
@@ -73,8 +265,10 @@ def create_po(
             detail=message,
         )
 
+
 # ============================================================
 # BULK SEND PURCHASE ORDERS
+# Requires: procurement_manager
 # ============================================================
 
 @router.post(
@@ -83,24 +277,37 @@ def create_po(
 )
 def bulk_send_po(
     request: BulkPOSendRequest,
+    user=Depends(
+        require_roles("procurement_manager")
+    ),
 ):
-
     try:
+        # verify_token() returns the user dictionary
+        # from Rahul's Platform Service.
+        actor = user.get("email")
+
+        if not actor:
+            raise HTTPException(
+                status_code=500,
+                detail="Authenticated user identity is missing",
+            )
 
         return bulk_send_purchase_orders(
             request.po_numbers,
-            request.actor
+            actor,
         )
 
     except ValueError as e:
-
         raise HTTPException(
             status_code=400,
             detail=str(e),
         )
 
-    
-# Get All Purchase Orders
+
+# ============================================================
+# GET ALL PURCHASE ORDERS
+# ============================================================
+
 @router.get(
     "/purchase-orders",
     response_model=list[PurchaseOrderResponse],
@@ -110,25 +317,29 @@ def list_purchase_orders():
     return get_all_purchase_orders()
 
 
-# Get Purchase Order by PO Number
+# ============================================================
+# GET PURCHASE ORDER BY PO NUMBER
+# Supplier-facing endpoint
+# Requires: supplier role + supplier_id scoping
+# ============================================================
+
 @router.get(
     "/purchase-orders/{po_number}",
     response_model=PurchaseOrderResponse,
 )
-def get_purchase_order(po_number: str):
+def get_purchase_order(
+    access=Depends(require_supplier_po_access),
+):
 
-    purchase_order = get_purchase_order_by_id(po_number)
-
-    if not purchase_order:
-        raise HTTPException(
-            status_code=404,
-            detail="Purchase Order not found",
-        )
+    user, purchase_order = access
 
     return purchase_order
 
 
-# Update Purchase Order
+# ============================================================
+# UPDATE PURCHASE ORDER
+# ============================================================
+
 @router.put(
     "/purchase-orders/{po_number}",
     response_model=PurchaseOrderResponse,
@@ -157,7 +368,11 @@ def update_po(
             detail=str(e),
         )
 
-# Delete Purchase Order
+
+# ============================================================
+# DELETE PURCHASE ORDER
+# ============================================================
+
 @router.delete(
     "/purchase-orders/{po_number}",
     response_model=MessageResponse,
@@ -180,12 +395,23 @@ def delete_po(po_number: str):
     }
 
 
-# Acknowledge Purchase Order
+# ============================================================
+# ACKNOWLEDGE PURCHASE ORDER
+# Supplier-facing endpoint
+# Requires: supplier role + supplier_id scoping
+# ============================================================
+
 @router.post(
     "/purchase-orders/{po_number}/acknowledge",
     response_model=PurchaseOrderResponse,
 )
-def acknowledge_po(po_number: str):
+def acknowledge_po(
+    access=Depends(require_supplier_po_access),
+):
+
+    user, purchase_order = access
+
+    po_number = purchase_order["po_number"]
 
     try:
 
@@ -209,7 +435,10 @@ def acknowledge_po(po_number: str):
         )
 
 
-# Transition Purchase Order
+# ============================================================
+# TRANSITION PURCHASE ORDER
+# ============================================================
+
 @router.post(
     "/purchase-orders/{po_number}/transition",
     response_model=PurchaseOrderResponse,
@@ -241,3 +470,4 @@ def transition_po(
             status_code=400,
             detail=str(e),
         )
+
