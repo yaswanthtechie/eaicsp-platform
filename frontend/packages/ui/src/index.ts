@@ -27,6 +27,9 @@ export { Toast } from "./components/Toast";
 export { TrendLine } from "./components/charts/TrendLine";
 export { MiniBarChart } from "./components/charts/MiniBarChart";
 export { DonutChart } from "./components/charts/DonutChart";
+export { Sparkline } from "./components/charts/Sparkline";
+export { Gauge } from "./components/charts/Gauge";
+
 
 // Forms
 export {

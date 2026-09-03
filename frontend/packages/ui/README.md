@@ -493,3 +493,36 @@ Possible future improvements:
 # Author
 
 Built with **React + TypeScript** for the EAICSP platform.
+
+# R5 — Component Library Enhancements
+
+R5 extends the UI component library with Storybook documentation and accessibility testing, additional chart primitives, a high-contrast theme, broader component tests, and a versioned changelog.
+
+The Storybook setup provides the reference environment for the library's component stories, states, and variants. Storybook is configured with the React + Vite framework and the `@storybook/addon-a11y` addon. Component stories use Storybook autodocs where applicable, and the Storybook toolbar provides Light, Dark, and High Contrast theme options.
+
+The chart collection was extended with two additional reusable primitives: `<Sparkline>` and `<Gauge>`. Sparkline provides a compact trend visualization, while Gauge provides a value/progress visualization. Both are included alongside the existing chart components and use the library's design-token system for styling.
+
+A third theme, High Contrast, was added alongside the existing Light and Dark themes. The high-contrast theme is defined through the centralized token variables in `src/theme/variables.css` and can be selected from Storybook. The theme was demonstrated across multiple components, including Button, Badge, Card, Tabs, and StatusIndicator, to verify that the components use the shared theme tokens.
+
+The component test suite was expanded using React Testing Library and Vitest. Tests cover the existing component library as well as the added chart primitives and key component behavior.
+
+A versioned `CHANGELOG.md` was added to record library changes and provide a place for future breaking changes and releases.
+
+## Verification
+
+The implementation was verified with TypeScript, ESLint, Vitest, and the production build.
+
+````bash
+npx tsc --noEmit
+npm run lint
+npm test
+npm run build.
+
+Component tests were expanded using Vitest and React Testing Library. The current verification passes with:
+
+```text
+Test Files: 3 passed
+Tests:      24 passed
+````
+     24 passed
+````
