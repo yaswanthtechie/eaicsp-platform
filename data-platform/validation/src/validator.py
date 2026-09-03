@@ -189,21 +189,40 @@ class DataValidator:
                     raise ValueError(f"Config Error: Rule '{rule.name}' is impossible.")
 
                 if rule.field in field_ranges:
-                    prev_min, prev_max = field_ranges[rule.field]
+                    prev_min, prev_max, prev_excl_min, prev_excl_max = field_ranges[rule.field]
 
-                    cum_min = max(prev_min, min_val) if is_comparable(prev_min, min_val) else (
-                        min_val if min_val is not None else prev_min)
-                    cum_max = min(prev_max, max_val) if is_comparable(prev_max, max_val) else (
-                        max_val if max_val is not None else prev_max)
+                    # Accumulate minimums and carry forward strictness on matching bounds
+                    if is_comparable(prev_min, min_val):
+                        if min_val > prev_min:
+                            cum_min, cum_excl_min = min_val, exclusive_min
+                        elif min_val == prev_min:
+                            cum_min, cum_excl_min = min_val, prev_excl_min or exclusive_min
+                        else:
+                            cum_min, cum_excl_min = prev_min, prev_excl_min
+                    else:
+                        cum_min = min_val if min_val is not None else prev_min
+                        cum_excl_min = exclusive_min if min_val is not None else prev_excl_min
 
+                    # Accumulate maximums
+                    if is_comparable(prev_max, max_val):
+                        if max_val < prev_max:
+                            cum_max, cum_excl_max = max_val, exclusive_max
+                        elif max_val == prev_max:
+                            cum_max, cum_excl_max = max_val, prev_excl_max or exclusive_max
+                        else:
+                            cum_max, cum_excl_max = prev_max, prev_excl_max
+                    else:
+                        cum_max = max_val if max_val is not None else prev_max
+                        cum_excl_max = exclusive_max if max_val is not None else prev_excl_max
+
+                    # Evaluate contradiction using accumulated flags
                     if is_comparable(cum_min, cum_max):
-                        # Strict inequality for overlap; equal is a conflict only if bounds are exclusive
-                        if cum_min > cum_max or (cum_min == cum_max and (exclusive_min or exclusive_max)):
+                        if cum_min > cum_max or (cum_min == cum_max and (cum_excl_min or cum_excl_max)):
                             raise ValueError(f"Config Error: Field '{rule.field}' has contradictory range rules.")
 
-                    field_ranges[rule.field] = (cum_min, cum_max)
+                    field_ranges[rule.field] = (cum_min, cum_max, cum_excl_min, cum_excl_max)
                 else:
-                    field_ranges[rule.field] = (min_val, max_val)
+                    field_ranges[rule.field] = (min_val, max_val, exclusive_min, exclusive_max)
 
     @staticmethod
     def filter_incremental(df: pd.DataFrame, watermark_col: str, current_watermark: Any) -> pd.DataFrame:

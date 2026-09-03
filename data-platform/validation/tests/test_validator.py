@@ -733,3 +733,54 @@ def test_filter_incremental_string_casting():
     result = DataValidator.filter_incremental(df, "date", "2024-01-01")
     assert len(result) == 2
     assert result["date"].tolist() == ["2024-01-02", "2024-01-03"]
+
+
+def test_detect_conflicts_valid_overlapping_ranges():
+    """Hits the branches where new bounds are wider than previous bounds (min < prev_min, max > prev_max)."""
+    rule_1 = ConfigRule(**{"name": "r1", "field": "qty", "type": "range", "min": 10, "max": 20, "severity": "ERROR"})
+    rule_2 = ConfigRule(**{"name": "r2", "field": "qty", "type": "range", "min": 5, "max": 25, "severity": "ERROR"})
+
+    # Validation should pass without raising a ValueError because the intersection is still valid (10 to 20).
+    validator = DataValidator([rule_1, rule_2])
+    assert len(validator.rules) == 2
+
+
+def test_detect_conflicts_matching_bounds_carry_strictness():
+    """Hits the `elif min_val == prev_min:` and `elif max_val == prev_max:` branches."""
+    rule_1 = ConfigRule(**{
+        "name": "r1", "field": "qty", "type": "range",
+        "min": 10, "max": 20,
+        "exclusive_min": False, "exclusive_max": False, "severity": "ERROR"
+    })
+    rule_2 = ConfigRule(**{
+        "name": "r2", "field": "qty", "type": "range",
+        "min": 10, "max": 20,
+        "exclusive_min": True, "exclusive_max": True, "severity": "ERROR"
+    })
+
+    # Should not raise an error. Internally, the inclusive bounds become exclusive.
+    validator = DataValidator([rule_1, rule_2])
+    assert len(validator.rules) == 2
+
+
+def test_detect_conflicts_non_comparable_bounds():
+    """Hits the branches where one rule lacks a boundary (None) and another provides it."""
+    # min is None, max is 50
+    rule_1 = ConfigRule(**{"name": "r1", "field": "qty", "type": "range", "max": 50, "severity": "ERROR"})
+    # min is 10, max is None
+    rule_2 = ConfigRule(**{"name": "r2", "field": "qty", "type": "range", "min": 10, "severity": "ERROR"})
+
+    # Should evaluate successfully to a combined range of 10 to 50.
+    validator = DataValidator([rule_1, rule_2])
+    assert len(validator.rules) == 2
+
+
+def test_detect_conflicts_non_comparable_contradiction():
+    """Tests that missing bounds combined with contradictory bounds correctly trigger an error."""
+    # min is None, max is 5
+    rule_1 = ConfigRule(**{"name": "r1", "field": "qty", "type": "range", "max": 5, "severity": "ERROR"})
+    # min is 10, max is None
+    rule_2 = ConfigRule(**{"name": "r2", "field": "qty", "type": "range", "min": 10, "severity": "ERROR"})
+
+    with pytest.raises(ValueError, match="contradictory range rules"):
+        DataValidator([rule_1, rule_2])

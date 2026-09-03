@@ -22,6 +22,8 @@ class WatermarkManager:
 
     def set_watermark(self, value: Any) -> None:
         """Saves the new highest value after a successful pipeline run."""
+        # Safely extract Python natives from NumPy scalars (e.g., int64, float64)
+        value = value.item() if hasattr(value, 'item') else value
         self.filepath.parent.mkdir(parents=True, exist_ok=True)
         with open(self.filepath, 'w') as f:
             json.dump({"last_watermark": value}, f, indent=2)

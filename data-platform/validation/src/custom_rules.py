@@ -5,20 +5,13 @@ from typing import Optional, Literal
 # VALIDATION RULES (type: custom)
 # ==========================================
 
-def check_unparseable_dates(
-    df: pd.DataFrame,
-    *,  # <--- Forces all following arguments to be passed as keywords
-    field: str,
-    iso_format: str = '%Y-%m-%d',
-    mixed_format: str = 'mixed',
-    **kwargs
-) -> pd.Series:
-    """Checks for dates that cannot be parsed using provided formats."""
-    iso_dates = pd.to_datetime(df[field], format=iso_format, errors='coerce')
-    mixed_dates = pd.to_datetime(df[field], format=mixed_format, dayfirst=True, errors='coerce')
-    combined_dates = iso_dates.fillna(mixed_dates)
+def check_unparseable_dates(df: pd.DataFrame, *, field: str, **kwargs) -> pd.Series:
+    """Flags dates that failed standard parsing and remained as malformed strings."""
+    # Matches valid YYYY-MM-DD format
+    valid_format = df[field].astype(str).str.match(r'^\d{4}-\d{2}-\d{2}$')
 
-    return combined_dates.isna() & df[field].notna()
+    # Flags rows that are NOT the valid format AND are NOT genuinely missing
+    return ~valid_format & df[field].notna()
 
 
 def check_outliers(
@@ -107,16 +100,16 @@ def flag_negatives(df: pd.DataFrame, *, field: str = 'quantity_sold', **kwargs) 
 
 
 def standardize_dates(df: pd.DataFrame, *, field: str = 'order_date', **kwargs) -> pd.DataFrame:
-    """Unifies various date string formats into a standard YYYY-MM-DD format."""
+    """Unifies date string formats; preserves original bad strings for validation."""
     df_c = df.copy()
     if field in df_c.columns:
+        original = df_c[field]
         # Try strict ISO parsing first
-        iso_dates = pd.to_datetime(df_c[field], format='%Y-%m-%d', errors='coerce')
-        # Parse remaining messy dates
-        mixed_dates = pd.to_datetime(df_c[field], format='mixed', dayfirst=True, errors='coerce')
+        iso_dates = pd.to_datetime(original, format='%Y-%m-%d', errors='coerce')
+        mixed_dates = pd.to_datetime(original, format='mixed', dayfirst=True, errors='coerce')
 
-        # Combine and format to string
-        df_c[field] = iso_dates.fillna(mixed_dates).dt.strftime('%Y-%m-%d')
+        # Format valid dates to string, but fill unparseable ones with the original messy string
+        df_c[field] = iso_dates.fillna(mixed_dates).dt.strftime('%Y-%m-%d').fillna(original)
     return df_c
 
 
