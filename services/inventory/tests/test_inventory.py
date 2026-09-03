@@ -1,13 +1,14 @@
 import threading
 import time
 from datetime import date
-
+import httpx
 import pytest
 
 from app.models.inventory import Inventory
 from app.models.sales_history import SalesHistory
 from app.services.abc_service import classify_skus
 
+from tests.test_auth_integration import auth_header
 from tests.conftest import (
     TestingSessionLocal,
     seed_sales_history,
@@ -492,7 +493,7 @@ def test_simulate(client):
 # WHAT-IF +30%
 # =========================================================
 
-def test_what_if(client):
+def test_what_if(client_ceo):
 
     seed_sales_history(
         "WHAT1",
@@ -500,7 +501,7 @@ def test_what_if(client):
         daily_quantity=5,
     )
 
-    response = client.post(
+    response = client_ceo.post(
         "/api/v1/inventory/",
         json=create_payload(
             "WHAT1",
@@ -510,7 +511,7 @@ def test_what_if(client):
 
     assert response.status_code == 201
 
-    response = client.post(
+    response = client_ceo.post(
         "/api/v1/inventory/what-if",
         json={
             "spike_percent": 30,
@@ -564,7 +565,7 @@ def test_delete_inventory(client):
 # BULK UPDATE ROLLBACK
 # =========================================================
 
-def test_bulk_update_failure(client):
+def test_bulk_update_failure(client_warehouse_manager):
 
     seed_sales_history(
         "BULK1",
@@ -572,7 +573,7 @@ def test_bulk_update_failure(client):
         daily_quantity=5,
     )
 
-    response = client.post(
+    response = client_warehouse_manager.post(
         "/api/v1/inventory/",
         json=create_payload(
             "BULK1",
@@ -583,7 +584,7 @@ def test_bulk_update_failure(client):
 
     assert response.status_code == 201
 
-    response = client.post(
+    response = client_warehouse_manager.post(
         "/api/v1/inventory/bulk-update",
         json=[
             {
@@ -601,7 +602,7 @@ def test_bulk_update_failure(client):
 
     assert response.status_code == 409
 
-    response = client.get(
+    response = client_warehouse_manager.get(
         "/api/v1/inventory/BULK1/WH1"
     )
 
@@ -616,7 +617,7 @@ def test_bulk_update_failure(client):
 # 1000 ITEM BULK UPDATE
 # =========================================================
 
-def test_bulk_update_1000_items(client):
+def test_bulk_update_1000_items(client_warehouse_manager):
 
     db = TestingSessionLocal()
 
@@ -655,7 +656,7 @@ def test_bulk_update_1000_items(client):
 
     start = time.perf_counter()
 
-    response = client.post(
+    response = client_warehouse_manager.post(
         "/api/v1/inventory/bulk-update",
         json=updates,
     )
@@ -1256,3 +1257,54 @@ def test_csv_rejects_negative_quantity(client):
     )
 
     assert response.status_code == 400
+
+class _FakeResponse:
+    def __init__(self, status_code, payload=None):
+        self.status_code = status_code
+        self._payload = payload or {}
+
+    def json(self):
+        return self._payload
+
+
+@pytest.fixture
+def fake_platform(monkeypatch):
+    def _install(status_code=200, payload=None, exc=None):
+        async def _fake_post(self, url, **kwargs):
+            if exc:
+                raise exc
+            return _FakeResponse(status_code, payload)
+        monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
+    return _install
+
+def test_invalid_token_returns_401(client_raw, fake_platform):
+    fake_platform(status_code=401)
+    r = client_raw.post("/api/v1/inventory/what-if",
+                        json={"spike_percent": 30},
+                        headers=auth_header("bad-token"))
+    assert r.status_code == 401
+
+
+def test_wrong_role_returns_403(client_raw, fake_platform):
+    fake_platform(200, {"valid": True, "role": "analyst"})
+    r = client_raw.post("/api/v1/inventory/what-if",
+                        json={"spike_percent": 30},
+                        headers=auth_header("t"))
+    assert r.status_code == 403
+
+
+def test_correct_role_succeeds(client_raw, fake_platform):
+    fake_platform(200, {"valid": True, "role": "ceo"})
+    r = client_raw.post("/api/v1/inventory/what-if",
+                        json={"spike_percent": 30},
+                        headers=auth_header("t"))
+    assert r.status_code not in (401, 403)
+
+
+def test_timeout_returns_503(client_raw, fake_platform):
+    fake_platform(exc=httpx.TimeoutException("slow"))
+    r = client_raw.post("/api/v1/inventory/what-if",
+                        json={"spike_percent": 30},
+                        headers=auth_header("t"))
+    assert r.status_code == 503
+    assert "timed out" in r.json()["detail"].lower()
