@@ -446,3 +446,93 @@ rules:
 - **Sequential Execution:** The validation engine processes rules top-to-bottom as they appear in the YAML file. Parent rules must be defined before the rules that depend on them.
 - **Missing Dependencies:** If a rule specifies a dependency that has not been executed yet (or does not exist), the engine will gracefully log a WARNING and evaluate the rule normally without suppression.
 - **Cleaning Phase:** Dependencies are fully respected during the clean() phase as well. If a row is targeted for removal by a parent rule, it will not be double-counted or redundantly processed by dependent rules.
+
+
+# 1. Secure Custom Rule Registry
+
+- Security is paramount when allowing configuration-driven code execution. 
+- To prevent malicious actors from injecting arbitrary system commands via the YAML configuration, the dynamic import engine is locked behind a strict allow-list.
+
+## How It Works:
+- The pipeline does not blindly use `eval()` or `importlib` on the string provided in the `function` key.
+- All user-defined functions must be explicitly mapped in the `SAFE_FUNCTION_REGISTRY` inside `src/validator.py`.
+- **Provable Safety:** If a configuration file attempts to load an unregistered or malicious function (e.g., `os.system`), the validator immediately raises a `SecurityError` and halts execution before any data is processed.
+
+# 2. Rule Conflict Detection
+
+- To prevent wasted compute cycles on validation checks that can never pass, the engine evaluates the logical integrity of your YAML configuration at load time.
+
+## How It Works:
+- When the `DataValidator` initializes, it maps out the boundaries of all numerical constraints (like `range` rules).
+- **Intra-rule Conflicts:** If a single rule is impossible (e.g., `min: 100`, `max: 10`), it immediately raises a `ValueError`.
+- **Inter-rule Conflicts:** If two separate rules mathematically contradict each other on the same field (e.g., one requires `quantity > 0` and another requires `quantity < -1`), the engine detects the overlap and aborts pipeline startup.
+
+# 3. The Golden Regression Suite
+
+- As custom rules evolve, there is a risk that tweaking a Python function might accidentally alter its baseline behavior (a regression). 
+- To prevent this, the project includes a fixed "Golden Regression" suite.
+
+## How It Works:
+- A static, "known messy" dataset (`data/messy_sales_500.csv`) is paired with a strictly controlled test script (`tests/test_regression.py`).
+- The test asserts exact, hardcoded expectations—down to the specific number of rows each rule is expected to flag.
+- Executing `pytest` automatically runs this suite, acting as a strict safety net when refactoring code. If a rule's logic breaks, the regression test fails instantly.
+
+# 4. Performance Profiling Per Rule
+
+When a pipeline runs slowly, aggregate execution times are not enough to find the bottleneck. The validation engine tracks and logs the exact execution duration of every individual rule down to the microsecond.
+
+## How It Works:
+- High-resolution timers wrap the evaluation logic for each rule.
+- The `ValidationResult` object now includes a `rule_timings` dictionary and a `slowest_rule` property.
+- When executing via `main.py` or `perf_test.py`, the CLI automatically prints a sorted performance breakdown so data engineers can target the exact rule that needs optimization.
+
+```text
+--- RULE TIMINGS (Slowest First) ---
+  • unparseable_dates              : 0.114520s
+  • composite_pk_unique            : 0.082140s
+  • sku_format                     : 0.045230s
+  • unit_price_valid               : 0.002130s
+```
+# 5. Incremental Validation (Watermarking)
+- For large datasets, re-validating the entire historical file every day is inefficient. 
+- The incremental validation feature allows the pipeline to process only the newly arrived rows (the delta).
+
+## How It Works:
+- **State Tracking:** The engine requires a monotonic identifier, such as a sequential transaction_id or an updated_at timestamp.
+- **Pre-Filtering:** Upon execution, the pipeline reads the previous high-water mark from a hidden state file (e.g., .watermark.json). It strictly filters the incoming data (df = df[df['id'] > last_watermark]) before validation begins.
+- **Append Mode:** If validation passes, the engine intelligently appends the new rows to the existing output file (skipping headers) and updates the local state file to the new maximum ID.
+
+## CLI Arguments:
+- --incremental: Enables the watermarking engine.
+- --watermark-col: Defines the column to track (e.g., transaction_id).
+
+### without pyproject.toml config:
+```commandline
+# Standard incremental run
+python -m src.main --incremental --watermark-col "transaction_id"
+
+# validate_cli run
+python -m src.validate_cli --file data/messy_sales.csv --config configs/sales_rules.yaml --output reports/cli_report.json --incremental --watermark-col "transaction_id"
+
+# Batch processing multiple files incrementally
+python -m src.validate_folder --folder data/ --config configs/sales_rules.yaml --save-reports --output-dir reports/ --incremental --watermark-col "transaction_id"
+```
+
+### with pyproject.toml config:
+```commandline
+pip install -e .
+
+# Standard incremental run
+run_pipeline --incremental --watermark-col ""transaction_id"
+
+# validate_cli run
+validate_data --file data/messy_sales.csv --config configs/sales_rules.yaml --output reports/cli_report.json --incremental --watermark-col "transaction_id"
+
+# Batch processing multiple files incrementally
+validate_folder --folder data/ --config configs/sales_rules.yaml --save-reports --output-dir reports/op --incremental --watermark-col "transaction_id"
+```
+
+# Known Limitations
+* **Watermark Advancement:** The incremental pipeline advances the watermark based on the incoming dataset, *including rows that fail validation*. Failed rows are not automatically queued for reprocessing.
+* **Deduplication:** Incremental append mode deduplicates based on full-row identity. Updates to existing records require a genuine Primary Key configuration (currently unsupported).
+* **Date Sorting:** String-based watermark columns (like dates) are compared lexicographically. ISO-8601 (`YYYY-MM-DD`) works flawlessly; localized formats (`MM/DD/YYYY`) will filter incorrectly.
