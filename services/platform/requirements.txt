@@ -1,4 +1,4 @@
-﻿bcrypt==4.0.1
+bcrypt==4.0.1
 email-validator==2.3.0
 fastapi==0.139.2
 passlib==1.7.4
@@ -9,6 +9,6 @@ python-multipart==0.0.32
 uvicorn==0.51.0
 SQLAlchemy==2.0.51
 
-#test deps
+# test deps
 httpx==0.27.2
 pytest==8.3.3

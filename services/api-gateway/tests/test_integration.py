@@ -189,3 +189,4 @@ def test_503_fallback_unavailable_downstream():
         assert response.json() == {
             "error": "Compliance service unavailable"
         }
+

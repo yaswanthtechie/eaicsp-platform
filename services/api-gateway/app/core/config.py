@@ -33,7 +33,7 @@ class Settings(BaseSettings):
         "/api/v1/supplier-risk": "http://localhost:8006",
     }
 
-    # Explicit human-readable service name overrides (optional)
+    # Explicit human-readable service name overrides
     SERVICE_NAMES: dict[str, str] = {
         "/api/v1/inventory": "Inventory Service",
         "/api/v1/shipments": "Shipments Service",
@@ -48,7 +48,9 @@ class Settings(BaseSettings):
     # --------------------------------------------------
 
     TIMEOUT_SECONDS: int = 5
-    # MAX_RETRIES: number of retries to attempt on retryable failures (e.g. 2 → original + 2 retries)
+
+    # Number of retries to attempt on retryable failures.
+    # Example: MAX_RETRIES=2 means original request + 2 retries.
     MAX_RETRIES: int = 2
 
     # --------------------------------------------------
@@ -60,8 +62,11 @@ class Settings(BaseSettings):
     # --------------------------------------------------
     # Rate Limiting Configuration
     # --------------------------------------------------
+
     TRUSTED_PROXIES: list[str] = []
+
     RATE_LIMIT_WINDOW_SECONDS: int = 60
+
     ROLE_RATE_LIMITS: dict[str, int] = {
         "ceo": 200,
         "vp_operations": 200,
@@ -78,11 +83,20 @@ class Settings(BaseSettings):
         """
         Return the rate limit quota for a given role name.
         """
+
         if not role:
             return self.ROLE_RATE_LIMITS.get("default", 60)
-        normalized = str(role).lower().strip().replace(" ", "_")
+
+        normalized = (
+            str(role)
+            .lower()
+            .strip()
+            .replace(" ", "_")
+        )
+
         return self.ROLE_RATE_LIMITS.get(
-            normalized, self.ROLE_RATE_LIMITS.get("default", 60)
+            normalized,
+            self.ROLE_RATE_LIMITS.get("default", 60),
         )
 
     # --------------------------------------------------
@@ -91,6 +105,7 @@ class Settings(BaseSettings):
     CIRCUIT_BREAKER_FAILURE_RATE_THRESHOLD: float = 0.50
     CIRCUIT_BREAKER_WINDOW_SECONDS: int = 60
     CIRCUIT_BREAKER_RECOVERY_TIMEOUT: float = 30.0
+    CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = 5
 
     # --------------------------------------------------
     # Environment Configuration
@@ -102,5 +117,8 @@ class Settings(BaseSettings):
     )
 
 
-# Singleton settings instance
+# --------------------------------------------------
+# Singleton Settings Instance
+# --------------------------------------------------
+
 settings = Settings()

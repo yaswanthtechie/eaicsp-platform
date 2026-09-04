@@ -3,62 +3,42 @@ Keyword signal detection module for identifying
 financial, operational, and reputational risks.
 """
 
-from typing import Any, Dict, Final, List
+from typing import Any, Dict, List, Optional, Set
+from src.config import DEFAULT_SIGNAL_WEIGHTS, get_settings
 
-# ------------------------------------------------------------------
-# Risk Signal Weights
-# ------------------------------------------------------------------
-
-SIGNAL_WEIGHTS: Final[Dict[str, int]] = {
-    # Financial Risks
-    "bankruptcy": 50,
-    "insolvency": 45,
-    "default": 40,
-    "restructuring": 20,
-    "layoff": 25,
-    "downgrade": 20,
-
-    # Operational Risks
-    "strike": 25,
-    "recall": 30,
-    "disruption": 20,
-    "shortage": 20,
-    "delays": 15,
-    "shutdown": 35,
-    "outage": 25,
-
-    # Reputational/Security Risks
-    "fraud": 40,
-    "investigation": 25,
-    "lawsuit": 25,
-    "sanction": 35,
-    "cyberattack": 35,
-}
+# Alias for backward-compatibility with tests / existing callers
+SIGNAL_WEIGHTS = DEFAULT_SIGNAL_WEIGHTS
 
 
-def detect_signals(text: str) -> List[Dict[str, Any]]:
+def detect_signals(
+    text: str,
+    weights: Optional[Dict[str, int]] = None,
+) -> List[Dict[str, Any]]:
     """
-    Detect predefined supplier risk keywords.
+    Detect supplier risk keywords using configurable weights.
 
     Args:
         text:
             Preprocessed lowercase text.
+        weights:
+            Optional dictionary of keyword-to-weight mappings.
+            If None, uses active configuration from settings.
 
     Returns:
-        A list of detected keyword signals.
+        A list of detected keyword signals with their weights.
 
     Example:
         [
             {
                 "keyword": "fraud",
-                "weight": 30
+                "weight": 40
             }
         ]
     """
-
     if not text or not text.strip():
         return []
 
+    active_weights = weights if weights is not None else get_settings().signal_weights
     detected_signals: List[Dict[str, Any]] = []
 
     # Mitigation stems and clause boundaries
@@ -73,23 +53,59 @@ def detect_signals(text: str) -> List[Dict[str, Any]]:
                 return True
         return False
 
+    # Known inflection variants for standard signal keywords
+    keyword_variants: Dict[str, Set[str]] = {
+        "bankruptcy": {"bankruptcy", "bankruptcies", "bankrupt"},
+        "insolvency": {"insolvency", "insolvent", "insolvencies"},
+        "default": {"default", "defaults", "defaulted", "defaulting"},
+        "restructuring": {"restructure", "restructures", "restructuring", "restructured"},
+        "layoff": {"layoff", "layoffs"},
+        "downgrade": {"downgrade", "downgrades", "downgraded", "downgrading"},
+        "strike": {"strike", "strikes", "striking"},
+        "recall": {"recall", "recalls", "recalled", "recalling"},
+        "disruption": {"disrupt", "disrupts", "disruption", "disruptions", "disrupted", "disrupting"},
+        "shortage": {"shortage", "shortages"},
+        "delays": {"delay", "delays", "delayed", "delaying"},
+        "shutdown": {"shutdown", "shutdowns"},
+        "outage": {"outage", "outages"},
+        "fraud": {"fraud", "frauds", "fraudulent", "fraudulence"},
+        "investigation": {"investigate", "investigates", "investigation", "investigations", "investigated", "investigating"},
+        "lawsuit": {"lawsuit", "lawsuits"},
+        "sanction": {"sanction", "sanctions", "sanctioned", "sanctioning"},
+        "cyberattack": {"cyberattack", "cyberattacks"},
+    }
+
     def match_keyword(w: str, kw: str) -> bool:
+        # Exact match
+        if w == kw:
+            return True
+
+        # Predefined inflections
+        if kw in keyword_variants and w in keyword_variants[kw]:
+            return True
+
+        # Algorithmic inflection matching for custom/dynamic keywords
+        # Prevent substring false positives by requiring full token match against inflected forms
         base = kw.rstrip('s')
-        if w == base or w == kw:
+        if len(base) >= 4 and (w == base or w == kw):
             return True
-        allowed_suffixes = ['s', 'es', 'ed', 'ing']
-        for suffix in allowed_suffixes:
-            if w == base + suffix:
-                return True
-            if base.endswith('e') and w == base[:-1] + suffix:
-                return True
-        if kw == 'fraud' and w == 'fraudulent':
+
+        # Regular suffix inflections on non-trivial base
+        if len(base) >= 4:
+            allowed_suffixes = ('s', 'es', 'ed', 'ing')
+            for suffix in allowed_suffixes:
+                if w == base + suffix:
+                    return True
+                if base.endswith('e') and w == base[:-1] + suffix:
+                    return True
+
+        # y -> ies
+        if kw.endswith('y') and len(kw) >= 4 and w == kw[:-1] + 'ies':
             return True
-        if kw == 'bankruptcy' and w == 'bankruptcies':
-            return True
+
         return False
 
-    for keyword, weight in SIGNAL_WEIGHTS.items():
+    for keyword, weight in active_weights.items():
         keyword_detected_unmitigated = False
 
         for idx, word in enumerate(words):
@@ -125,7 +141,7 @@ def detect_signals(text: str) -> List[Dict[str, Any]]:
                             continue
 
                         # Mitigation binds to the nearest risk keyword; do not cross intervening keywords
-                        if any(any(match_keyword(words[j], kw) for kw in SIGNAL_WEIGHTS) for j in range(span_start + 1, span_end)):
+                        if any(any(match_keyword(words[j], kw) for kw in active_weights) for j in range(span_start + 1, span_end)):
                             continue
 
                         is_mitigated = True
@@ -144,4 +160,3 @@ def detect_signals(text: str) -> List[Dict[str, Any]]:
             )
 
     return detected_signals
-

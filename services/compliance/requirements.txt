@@ -3,6 +3,7 @@ uvicorn
 sqlalchemy>=2.0
 python-dotenv
 rapidfuzz
+python-multipart>=0.0.32
 requests
 apscheduler
 pytest
