@@ -552,42 +552,42 @@ def test_fastapi_health_endpoint():
     """
     Test GET /health endpoint returns 200 and UP status.
     """
-    client = TestClient(app)
-    response = client.get("/health")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "UP"
-    assert data["service"] == "supplier-risk"
+    with TestClient(app) as client:
+        response = client.get("/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "UP"
+        assert data["service"] == "supplier-risk"
 
 
 def test_fastapi_predict_endpoint_valid():
     """
     Test POST /predict endpoint returns 200 with full analysis response.
     """
-    client = TestClient(app)
-    payload = {
-        "supplier_name": "TestSupplier",
-        "headlines": [
-            "TestSupplier files for bankruptcy after fraud scandal.",
-            "TestSupplier secures new technology partnership.",
-        ],
-    }
+    with TestClient(app) as client:
+        payload = {
+            "supplier_name": "TestSupplier",
+            "headlines": [
+                "TestSupplier files for bankruptcy after fraud scandal.",
+                "TestSupplier secures new technology partnership.",
+            ],
+        }
 
-    response = client.post("/predict", json=payload)
-    assert response.status_code == 200
-    data = response.json()
+        response = client.post("/predict", json=payload)
+        assert response.status_code == 200
+        data = response.json()
 
-    assert "supplier_summary" in data
-    assert "TestSupplier" in data["supplier_summary"]
+        assert "supplier_summary" in data
+        assert "TestSupplier" in data["supplier_summary"]
 
-    summary = data["supplier_summary"]["TestSupplier"]
-    assert summary["supplier"] == "TestSupplier"
-    assert "risk_score" in summary
-    assert "confidence" in summary
-    assert "sentiment_breakdown" in summary
-    assert "signals" in summary
-    assert "top_worst_3" in summary
-    assert len(summary["top_worst_3"]) <= 3
+        summary = data["supplier_summary"]["TestSupplier"]
+        assert summary["supplier"] == "TestSupplier"
+        assert "risk_score" in summary
+        assert "confidence" in summary
+        assert "sentiment_breakdown" in summary
+        assert "signals" in summary
+        assert "top_worst_3" in summary
+        assert len(summary["top_worst_3"]) <= 3
 
 
 def test_fastapi_predict_aliases():
@@ -595,33 +595,33 @@ def test_fastapi_predict_aliases():
     Test that /api/v1/supplier-risk/predict and /api/v1/supplier-risk/analyze
     work identically to /predict.
     """
-    client = TestClient(app)
-    payload = {
-        "supplier_name": "AliasSupplier",
-        "headlines": ["AliasSupplier reports positive quarterly results."],
-    }
+    with TestClient(app) as client:
+        payload = {
+            "supplier_name": "AliasSupplier",
+            "headlines": ["AliasSupplier reports positive quarterly results."],
+        }
 
-    resp1 = client.post("/predict", json=payload)
-    resp2 = client.post("/api/v1/supplier-risk/predict", json=payload)
-    resp3 = client.post("/api/v1/supplier-risk/analyze", json=payload)
+        resp1 = client.post("/predict", json=payload)
+        resp2 = client.post("/api/v1/supplier-risk/predict", json=payload)
+        resp3 = client.post("/api/v1/supplier-risk/analyze", json=payload)
 
-    assert resp1.status_code == 200
-    assert resp2.status_code == 200
-    assert resp3.status_code == 200
-    assert resp1.json() == resp2.json() == resp3.json()
+        assert resp1.status_code == 200
+        assert resp2.status_code == 200
+        assert resp3.status_code == 200
+        assert resp1.json() == resp2.json() == resp3.json()
 
 
 def test_fastapi_predict_invalid_payload():
     """
     Test POST /predict with missing required fields returns 422.
     """
-    client = TestClient(app)
-    invalid_payload = {
-        "invalid_field": "test",
-    }
+    with TestClient(app) as client:
+        invalid_payload = {
+            "invalid_field": "test",
+        }
 
-    response = client.post("/predict", json=invalid_payload)
-    assert response.status_code == 422
+        response = client.post("/predict", json=invalid_payload)
+        assert response.status_code == 422
 
 
 def test_real_dataset_relative_scoring_monotonic_check():
@@ -894,14 +894,16 @@ def test_high_risk_not_diluted_by_neutral_headlines():
 
 def test_calibrated_scoring_blend_ratio():
     """
-    Verify that the scoring formula applies an 80% mean / 20% peak blend.
+    Verify that the scoring formula applies an 80% mean / 20% peak blend
+    when the 'blend' aggregation strategy is configured.
     """
     # Headline 1 has negative sentiment + lawsuit (25) + investigation (25) -> score ~89.6
     # Headline 2 is clean positive -> score 0.0
     h1 = "Supplier faces lawsuit and investigation for misconduct."
     h2 = "Supplier reports record positive earnings and profit."
 
-    result = predict("BlendTestSupplier", [h1, h2])
+    blend_cfg = Settings(aggregation_strategy="blend")
+    result = predict("BlendTestSupplier", [h1, h2], config=blend_cfg)
     # Individual scores: h1 = 39.6 + 50 = 89.6, h2 = 0.0
     # Average = 44.8, Peak = 89.6
     # Expected blended score = 0.8 * 44.8 + 0.2 * 89.6 = 35.84 + 17.92 = 53.76
@@ -944,3 +946,180 @@ def test_calibrated_risk_band_classification():
     )
     assert classify_band(critical_res["risk_score"]) == "Critical"
     assert critical_res["risk_score"] >= 45.1
+
+
+# ------------------------------------------------------------------
+# PR Review Regression & Enhancement Tests
+# ------------------------------------------------------------------
+
+def test_catastrophic_headline_anti_dilution_with_neutral_padding():
+    """
+    Test that 1 severe catastrophic headline is not diluted away when
+    9 or 99 neutral headlines are added under top_k_mean and max strategies.
+    """
+    catastrophic_headline = "Company files for bankruptcy amid severe financial distress."
+    neutral_9 = [f"Company opens office branch {i} in local area." for i in range(9)]
+    neutral_99 = [f"Company opens office branch {i} in local area." for i in range(99)]
+
+    # Default strategy (top_k_mean)
+    res_1 = predict("SevereCorp", [catastrophic_headline])
+    res_10 = predict("SevereCorp", [catastrophic_headline] + neutral_9)
+    res_100 = predict("SevereCorp", [catastrophic_headline] + neutral_99)
+
+    # Catastrophic headline is severe (bankruptcy = 50 + negative sentiment penalty)
+    assert res_1["risk_score"] >= 50.0
+    # Adding 9 neutral headlines must NOT dilute the score
+    assert res_10["risk_score"] == res_1["risk_score"]
+    # Adding 99 neutral headlines must NOT dilute the score
+    assert res_100["risk_score"] == res_1["risk_score"]
+
+    # Test under 'max' strategy as well
+    max_cfg = Settings(aggregation_strategy="max")
+    res_max_1 = predict("SevereCorp", [catastrophic_headline], config=max_cfg)
+    res_max_100 = predict("SevereCorp", [catastrophic_headline] + neutral_99, config=max_cfg)
+    assert res_max_100["risk_score"] == res_max_1["risk_score"]
+
+
+def test_configurable_aggregation_strategies():
+    """
+    Test that Settings supports configurable aggregation strategies (top_k_mean, max, blend, mean)
+    and validates invalid inputs.
+    """
+    h1 = "Company files for bankruptcy."  # high risk
+    h2 = "Company faces lawsuit."          # moderate risk
+    h3 = "Company signs clean contract."   # zero risk
+
+    cfg_topk = Settings(aggregation_strategy="top_k_mean", aggregation_top_k=2)
+    cfg_max = Settings(aggregation_strategy="max")
+    cfg_mean = Settings(aggregation_strategy="mean")
+    cfg_blend = Settings(aggregation_strategy="blend")
+
+    score_topk = predict("TestCorp", [h1, h2, h3], config=cfg_topk)["risk_score"]
+    score_max = predict("TestCorp", [h1, h2, h3], config=cfg_max)["risk_score"]
+    score_mean = predict("TestCorp", [h1, h2, h3], config=cfg_mean)["risk_score"]
+    score_blend = predict("TestCorp", [h1, h2, h3], config=cfg_blend)["risk_score"]
+
+    # Max must be >= top_k mean >= unweighted mean
+    assert score_max >= score_topk
+    assert score_topk >= score_mean
+    assert score_max >= score_blend
+
+    # Invalid strategy raises ValueError
+    with pytest.raises(ValueError, match="Invalid aggregation strategy"):
+        Settings(aggregation_strategy="unsupported_strategy")
+
+    # Invalid top_k raises ValueError
+    with pytest.raises(ValueError, match="Aggregation top_k must be greater than zero"):
+        Settings(aggregation_top_k=0)
+
+
+def test_confidence_reflects_signal_agreement_not_just_volume():
+    """
+    Test that two datasets with the same headline count (N=10) have substantially
+    different confidence when their signals differ (agreement vs noise).
+    """
+    # Dataset A: 10 headlines with strong, consistent negative risk signals
+    consistent_headlines = [
+        f"Company faces bankruptcy, lawsuit and fraud investigation part {i}."
+        for i in range(10)
+    ]
+
+    # Dataset B: 10 headlines with mostly neutral noise and only 1 minor signal
+    sparse_headlines = [
+        "Company experienced a minor delay in shipment."
+    ] + [
+        f"Company announces routine administrative update {i}."
+        for i in range(9)
+    ]
+
+    res_a = predict("ConsistentSupplier", consistent_headlines)
+    res_b = predict("SparseSupplier", sparse_headlines)
+
+    # Both have exactly 10 headlines
+    assert len(consistent_headlines) == len(sparse_headlines) == 10
+
+    # Confidence for consistent risk must be substantially higher than sparse/noisy signals
+    assert res_a["confidence"] > res_b["confidence"]
+    assert (res_a["confidence"] - res_b["confidence"]) > 0.3
+
+
+def test_confidence_neutral_padding_does_not_inflate():
+    """
+    Test that adding neutral padding to a single risk headline does not
+    artificially inflate confidence.
+    """
+    single_risk = ["Company files for bankruptcy and faces fraud investigation."]
+    padded_with_neutral = single_risk + [
+        f"Company opens office location {i}." for i in range(9)
+    ]
+
+    res_single = predict("SupplierX", single_risk)
+    res_padded = predict("SupplierX", padded_with_neutral)
+
+    # Padded dataset with neutral headlines should NOT have higher confidence
+    # for the risk assessment than the pure signal
+    assert res_padded["confidence"] <= res_single["confidence"]
+
+
+def test_keyword_stemming_and_inflections():
+    """
+    Test that signals.py correctly detects plurals, tenses, and inflected forms:
+    - shortage / shortages
+    - layoff / layoffs
+    - delay / delays / delayed
+    - lawsuit / lawsuits
+    - default / defaults (with loan/debt context)
+    """
+    s_shortage = detect_signals(clean_text("The factory suffered component shortage."))
+    s_shortages = detect_signals(clean_text("The factory suffered component shortages."))
+    assert any(s["keyword"] == "shortage" for s in s_shortage)
+    assert any(s["keyword"] == "shortage" for s in s_shortages)
+
+    s_layoff = detect_signals(clean_text("Company announced a major layoff."))
+    s_layoffs = detect_signals(clean_text("Company announced major layoffs."))
+    assert any(s["keyword"] == "layoff" for s in s_layoff)
+    assert any(s["keyword"] == "layoff" for s in s_layoffs)
+
+    s_delay = detect_signals(clean_text("Production delay reported."))
+    s_delays = detect_signals(clean_text("Production delays reported."))
+    s_delayed = detect_signals(clean_text("Shipment was delayed by a week."))
+    assert any(s["keyword"] == "delays" for s in s_delay)
+    assert any(s["keyword"] == "delays" for s in s_delays)
+    assert any(s["keyword"] == "delays" for s in s_delayed)
+
+    s_lawsuits = detect_signals(clean_text("Company faces multiple lawsuits."))
+    assert any(s["keyword"] == "lawsuit" for s in s_lawsuits)
+
+    s_defaults = detect_signals(clean_text("Borrower defaults on bank loan debt."))
+    assert any(s["keyword"] == "default" for s in s_defaults)
+
+
+def test_keyword_boundary_false_positives_prevented():
+    """
+    Test that substrings do not trigger false-positive keyword matches:
+    'short' must not trigger 'shortage', 'lay' must not trigger 'layoff', etc.
+    """
+    assert len(detect_signals(clean_text("A short visit to headquarters."))) == 0
+    assert len(detect_signals(clean_text("Workers lay the foundation stone."))) == 0
+    assert len(detect_signals(clean_text("International law conference held."))) == 0
+    assert len(detect_signals(clean_text("Power turned out fine after review."))) == 0
+    assert len(detect_signals(clean_text("Cat video goes viral on platform."))) == 0
+    assert len(detect_signals(clean_text("Walking down the street."))) == 0
+
+
+def test_basf_headlines_detect_shortages_and_layoffs():
+    """
+    Verify that BASF headlines from supplier_headlines.json detect
+    'shortage' and 'layoff' correctly.
+    """
+    h_shortages = clean_text("BASF struggles with raw-material shortages for specialty plastics.")
+    h_layoffs = clean_text("BASF implements restructuring plan leading to potential layoffs.")
+
+    signals_shortages = detect_signals(h_shortages)
+    keywords_shortages = [s["keyword"] for s in signals_shortages]
+    assert "shortage" in keywords_shortages
+
+    signals_layoffs = detect_signals(h_layoffs)
+    keywords_layoffs = [s["keyword"] for s in signals_layoffs]
+    assert "layoff" in keywords_layoffs
+    assert "restructuring" in keywords_layoffs

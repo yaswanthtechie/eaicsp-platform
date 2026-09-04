@@ -3,7 +3,7 @@ Keyword signal detection module for identifying
 financial, operational, and reputational risks.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 from src.config import DEFAULT_SIGNAL_WEIGHTS, get_settings
 
 # Alias for backward-compatibility with tests / existing callers
@@ -53,20 +53,56 @@ def detect_signals(
                 return True
         return False
 
+    # Known inflection variants for standard signal keywords
+    keyword_variants: Dict[str, Set[str]] = {
+        "bankruptcy": {"bankruptcy", "bankruptcies", "bankrupt"},
+        "insolvency": {"insolvency", "insolvent", "insolvencies"},
+        "default": {"default", "defaults", "defaulted", "defaulting"},
+        "restructuring": {"restructure", "restructures", "restructuring", "restructured"},
+        "layoff": {"layoff", "layoffs"},
+        "downgrade": {"downgrade", "downgrades", "downgraded", "downgrading"},
+        "strike": {"strike", "strikes", "striking"},
+        "recall": {"recall", "recalls", "recalled", "recalling"},
+        "disruption": {"disrupt", "disrupts", "disruption", "disruptions", "disrupted", "disrupting"},
+        "shortage": {"shortage", "shortages"},
+        "delays": {"delay", "delays", "delayed", "delaying"},
+        "shutdown": {"shutdown", "shutdowns"},
+        "outage": {"outage", "outages"},
+        "fraud": {"fraud", "frauds", "fraudulent", "fraudulence"},
+        "investigation": {"investigate", "investigates", "investigation", "investigations", "investigated", "investigating"},
+        "lawsuit": {"lawsuit", "lawsuits"},
+        "sanction": {"sanction", "sanctions", "sanctioned", "sanctioning"},
+        "cyberattack": {"cyberattack", "cyberattacks"},
+    }
+
     def match_keyword(w: str, kw: str) -> bool:
+        # Exact match
+        if w == kw:
+            return True
+
+        # Predefined inflections
+        if kw in keyword_variants and w in keyword_variants[kw]:
+            return True
+
+        # Algorithmic inflection matching for custom/dynamic keywords
+        # Prevent substring false positives by requiring full token match against inflected forms
         base = kw.rstrip('s')
-        if w == base or w == kw:
+        if len(base) >= 4 and (w == base or w == kw):
             return True
-        allowed_suffixes = ['s', 'es', 'ed', 'ing']
-        for suffix in allowed_suffixes:
-            if w == base + suffix:
-                return True
-            if base.endswith('e') and w == base[:-1] + suffix:
-                return True
-        if kw == 'fraud' and w == 'fraudulent':
+
+        # Regular suffix inflections on non-trivial base
+        if len(base) >= 4:
+            allowed_suffixes = ('s', 'es', 'ed', 'ing')
+            for suffix in allowed_suffixes:
+                if w == base + suffix:
+                    return True
+                if base.endswith('e') and w == base[:-1] + suffix:
+                    return True
+
+        # y -> ies
+        if kw.endswith('y') and len(kw) >= 4 and w == kw[:-1] + 'ies':
             return True
-        if kw == 'bankruptcy' and w == 'bankruptcies':
-            return True
+
         return False
 
     for keyword, weight in active_weights.items():

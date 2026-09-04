@@ -8,7 +8,8 @@ configuration conventions and supports environment variable overrides.
 
 import json
 import os
-from typing import Any, Dict, Final
+from functools import lru_cache
+from typing import Any, Dict, Final, Optional, Set
 
 
 # ------------------------------------------------------------------
@@ -30,6 +31,15 @@ DEFAULT_NEUTRAL_SENTIMENT_PENALTY: Final[float] = 0.0
 DEFAULT_POSITIVE_SENTIMENT_PENALTY: Final[float] = 0.0
 DEFAULT_MAX_RISK_SCORE: Final[float] = 100.0
 DEFAULT_CONFIDENCE_DIVISOR: Final[float] = 8.0
+DEFAULT_AGGREGATION_STRATEGY: Final[str] = "top_k_mean"
+DEFAULT_AGGREGATION_TOP_K: Final[int] = 3
+
+ALLOWED_AGGREGATION_STRATEGIES: Final[Set[str]] = {
+    "top_k_mean",
+    "max",
+    "blend",
+    "mean",
+}
 
 DEFAULT_SIGNAL_WEIGHTS: Final[Dict[str, int]] = {
     # Financial Risks
@@ -92,6 +102,37 @@ def validate_signal_weights(weights: Dict[str, Any]) -> Dict[str, int]:
     return validated
 
 
+def validate_aggregation_strategy(strategy: Any) -> str:
+    """
+    Validate that the aggregation strategy is supported.
+    """
+    if not isinstance(strategy, str):
+        raise ValueError(
+            f"Aggregation strategy must be a string, got {type(strategy).__name__}: {strategy}"
+        )
+    strat_lower = strategy.strip().lower()
+    if strat_lower not in ALLOWED_AGGREGATION_STRATEGIES:
+        raise ValueError(
+            f"Invalid aggregation strategy '{strategy}'. "
+            f"Allowed strategies: {sorted(ALLOWED_AGGREGATION_STRATEGIES)}"
+        )
+    return strat_lower
+
+
+def validate_aggregation_top_k(top_k: Any) -> int:
+    """
+    Validate that aggregation top_k is a positive integer.
+    """
+    if not isinstance(top_k, int) or isinstance(top_k, bool):
+        try:
+            top_k = int(top_k)
+        except (ValueError, TypeError):
+            raise ValueError(f"Aggregation top_k must be an integer, got {top_k}")
+    if top_k <= 0:
+        raise ValueError(f"Aggregation top_k must be greater than zero, got {top_k}")
+    return top_k
+
+
 # ------------------------------------------------------------------
 # Configuration Settings Class
 # ------------------------------------------------------------------
@@ -110,6 +151,8 @@ class Settings:
         signal_weights: Dict[str, int] | None = None,
         max_risk_score: float | None = None,
         confidence_divisor: float | None = None,
+        aggregation_strategy: str | None = None,
+        aggregation_top_k: int | None = None,
     ) -> None:
         # 1. Negative sentiment penalty
         if negative_sentiment_penalty is not None:
@@ -190,11 +233,34 @@ class Settings:
             else:
                 self.signal_weights = dict(DEFAULT_SIGNAL_WEIGHTS)
 
+        # 7. Risk score aggregation strategy
+        if aggregation_strategy is not None:
+            self.aggregation_strategy = validate_aggregation_strategy(aggregation_strategy)
+        else:
+            raw_strat = os.getenv("AGGREGATION_STRATEGY")
+            self.aggregation_strategy = (
+                validate_aggregation_strategy(raw_strat)
+                if raw_strat is not None
+                else DEFAULT_AGGREGATION_STRATEGY
+            )
 
-# Global active settings instance
-settings = Settings()
+        # 8. Aggregation top-k
+        if aggregation_top_k is not None:
+            self.aggregation_top_k = validate_aggregation_top_k(aggregation_top_k)
+        else:
+            raw_top_k = os.getenv("AGGREGATION_TOP_K")
+            self.aggregation_top_k = (
+                validate_aggregation_top_k(int(raw_top_k))
+                if raw_top_k is not None
+                else DEFAULT_AGGREGATION_TOP_K
+            )
 
 
+@lru_cache
 def get_settings() -> Settings:
-    """Get the active configuration settings."""
-    return settings
+    """Get the active configuration settings (cached)."""
+    return Settings()
+
+
+# Global active settings instance (retained for backward compatibility)
+settings = get_settings()

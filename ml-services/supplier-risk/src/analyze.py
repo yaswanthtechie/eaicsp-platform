@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Dict, List
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from src.data import load_headlines
 from src.predict import predict
@@ -56,8 +56,41 @@ class AnalysisResponse(BaseModel):
 class AnalyzeRequest(BaseModel):
     """Request body for supplier risk analysis and prediction."""
 
-    supplier_name: str
-    headlines: List[str]
+    supplier_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+        description="Supplier name to evaluate (1 to 200 characters)",
+    )
+    headlines: List[str] = Field(
+        ...,
+        max_length=50,
+        description="List of news headlines (maximum 50 items)",
+    )
+
+    @field_validator("supplier_name")
+    @classmethod
+    def validate_supplier_name(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("supplier_name cannot be blank or whitespace-only")
+        if len(stripped) > 200:
+            raise ValueError("supplier_name cannot exceed 200 characters")
+        return stripped
+
+    @field_validator("headlines")
+    @classmethod
+    def validate_headlines(cls, value: List[str]) -> List[str]:
+        if len(value) > 50:
+            raise ValueError("headlines list cannot exceed 50 items")
+        validated = []
+        for idx, item in enumerate(value):
+            if not isinstance(item, str):
+                raise ValueError(f"Headline at index {idx} must be a string")
+            if len(item) > 2000:
+                raise ValueError(f"Headline at index {idx} exceeds maximum length of 2000 characters")
+            validated.append(item)
+        return validated
 
 
 # Alias for ML prediction standard

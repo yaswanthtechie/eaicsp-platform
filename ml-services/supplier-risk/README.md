@@ -124,7 +124,9 @@ The scoring engine is **configuration-driven** via `src/config.py`. All paramete
 | **Neutral Penalty** | `NEUTRAL_SENTIMENT_PENALTY` | `0.0` | Penalty for neutral headlines |
 | **Positive Penalty** | `POSITIVE_SENTIMENT_PENALTY` | `0.0` | Penalty for positive headlines |
 | **Max Risk Score** | `MAX_RISK_SCORE` | `100.0` | Maximum cap on final risk score |
-| **Confidence Divisor**| `CONFIDENCE_DIVISOR` | `8.0` | Saturation divisor in $1 - e^{-n/8}$ |
+| **Confidence Divisor**| `CONFIDENCE_DIVISOR` | `8.0` | Saturation divisor in evidence confidence formula |
+| **Aggregation Strategy**| `AGGREGATION_STRATEGY` | `"top_k_mean"` | Anti-dilution strategy: `top_k_mean`, `max`, `blend`, or `mean` |
+| **Aggregation Top-K**  | `AGGREGATION_TOP_K` | `3` | Top risk-bearing headlines to average under `top_k_mean` |
 | **Signal Weights JSON**| `SIGNAL_WEIGHTS_JSON` | *Default dict* | JSON map of custom keyword weights |
 
 ### Default Signal Weights Table
@@ -215,8 +217,8 @@ POST /predict
   "supplier_summary": {
     "Apex Logistics": {
       "supplier": "Apex Logistics",
-      "risk_score": 75.33,
-      "confidence": 0.3127,
+      "risk_score": 100.0,
+      "confidence": 0.3096,
       "sentiment_breakdown": {
         "positive": 0,
         "neutral": 0,
@@ -224,12 +226,12 @@ POST /predict
       },
       "signals": [
         {
-          "keyword": "downgrade",
-          "weight": 20
-        },
-        {
           "keyword": "insolvency",
           "weight": 45
+        },
+        {
+          "keyword": "downgrade",
+          "weight": 20
         },
         {
           "keyword": "fraud",
@@ -240,49 +242,34 @@ POST /predict
           "weight": 25
         },
         {
-          "keyword": "restructuring",
-          "weight": 20
-        },
-        {
           "keyword": "default",
           "weight": 40
+        },
+        {
+          "keyword": "restructuring",
+          "weight": 20
         }
       ],
       "top_worst_3": [
         {
           "headline": "Analysts issue major downgrade on Apex Logistics amid insolvency fears.",
           "sentiment": "negative",
-          "score": 103.54,
+          "score": 103.62,
           "signals": [
-            {
-              "keyword": "downgrade",
-              "weight": 20
-            },
             {
               "keyword": "insolvency",
               "weight": 45
-            }
-          ]
-        },
-        {
-          "headline": "Apex Logistics files for emergency restructuring following severe debt default.",
-          "sentiment": "negative",
-          "score": 98.71,
-          "signals": [
-            {
-              "keyword": "restructuring",
-              "weight": 20
             },
             {
-              "keyword": "default",
-              "weight": 40
+              "keyword": "downgrade",
+              "weight": 20
             }
           ]
         },
         {
           "headline": "Regulators launch fraud investigation into Apex Logistics accounting practices.",
           "sentiment": "negative",
-          "score": 97.88,
+          "score": 101.0,
           "signals": [
             {
               "keyword": "fraud",
@@ -291,6 +278,21 @@ POST /predict
             {
               "keyword": "investigation",
               "weight": 25
+            }
+          ]
+        },
+        {
+          "headline": "Apex Logistics files for emergency restructuring following severe debt default.",
+          "sentiment": "negative",
+          "score": 98.68,
+          "signals": [
+            {
+              "keyword": "default",
+              "weight": 40
+            },
+            {
+              "keyword": "restructuring",
+              "weight": 20
             }
           ]
         }
@@ -302,27 +304,32 @@ POST /predict
 
 ---
 
-# Calibrated Scoring & Blend Architecture
+# Risk Scoring & Anti-Dilution Architecture
 
 ## Scoring Pipeline
 
 The scoring pipeline operates as follows:
-`sentiment` + `risk signals` → `headline score` → `80% mean + 20% peak blend` → `0–100 risk score`
+`sentiment` + `risk signals` → `headline score` → `configurable aggregation (top_k_mean / max / blend / mean)` → `0–100 risk score`
 
 1. **Individual Headline Scoring**:
    $$\text{headline\_score} = (\text{penalty} \times \text{confidence}) + \sum_{k \in \text{detected}} \text{weight}(k)$$
 
-2. **Peak / Mean Blending**:
-   ```python
-   final_risk_score = min(cfg.max_risk_score, 0.80 * average_score + 0.20 * peak_score)
-   ```
-   - **Average Score (80% weight)**: Captures the supplier's volume-weighted baseline behavior across the news corpus.
-   - **Peak Score (20% weight)**: Acts as a severity floor / shock-absorber so catastrophic acute events (e.g., bankruptcy or fraud) cannot be completely diluted by high volumes of routine neutral/positive news.
+2. **Configurable Risk Aggregation (Anti-Dilution)**:
+   The service provides configurable aggregation strategies to prevent catastrophic risk signals from being diluted by neutral news:
+   - **`top_k_mean` (default, $K=3$)**: Averages the top-$K$ risk-bearing headline scores ($s_i > 0$). Severe acute events (such as bankruptcy, fraud, or lawsuits) maintain their true severity even when surrounded by 10, 50, or 100 neutral routine headlines.
+   - **`max`**: Evaluates supplier risk by the single worst-case headline score ($\text{peak\_score}$).
+   - **`blend`**: Backward-compatible $0.80 \times \text{average\_score} + 0.20 \times \text{peak\_score}$.
+   - **`mean`**: Unweighted arithmetic average of all unique headline scores.
 
-3. **Evidence Confidence (Saturation Curve)**:
-   $$\text{confidence} = 1.0 - e^{-\frac{n}{\text{DIVISOR}}}$$
-   - Monotonically non-decreasing from $0.0$ to approaching $1.0$.
-   - Divisor $8$ ensures $12$ headlines yields $\approx 0.78$ confidence.
+   Final score is capped at `cfg.max_risk_score` (default $100.0$).
+
+3. **Signal-Aware Evidence Confidence**:
+   Confidence reflects evidence characteristics rather than solely headline volume:
+   - **Meaningful Signal Proportion ($p_{\text{signal}}$)**: Ratio of risk-bearing headlines to total headlines.
+   - **Signal Agreement & Dispersion**: Consistency of headline scores ($1.0 - \text{dispersion}$).
+   - **Signal Strength**: Severity of the peak detected risk signal.
+   - **Evidence Volume**: Evaluated over meaningful risk signals, ensuring neutral padding cannot artificially inflate confidence.
+   - Bounded strictly within $[0.0, 1.0]$. Zero headlines yields $0.0$.
 
 ---
 

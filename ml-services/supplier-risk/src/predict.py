@@ -13,37 +13,119 @@ from src.signals import detect_signals
 
 
 def _calculate_confidence(
-    num_headlines: int,
+    evidence: Any,
     divisor: float = 8.0,
 ) -> float:
     """
-    Calculate a volume-based evidence strength (confidence) score.
+    Calculate confidence based on signal agreement, proportion of meaningful signals,
+    score dispersion, and evidence strength.
 
-    Uses an exponential saturation curve that increases smoothly
-    with headline count and asymptotically approaches 1.0.
-
-    Formula: confidence = 1 - exp(-n / divisor)
-
-    Key properties:
-    - n = 0  → 0.00 (no evidence)
-    - n = 1  → 0.12 (very low)
-    - n = 2  → 0.22 (low)
-    - n = 5  → 0.46 (moderate)
-    - n = 10 → 0.71 (high)
-    - n = 20 → 0.92 (very high)
-    - n → ∞  → ~1.0 (approaches full confidence)
-
-    The divisor 8 is chosen so that the typical dataset size of
-    12 headlines/company yields ~0.78 confidence (substantial but
-    not absolute), matching the calibrated dataset.
+    If an integer is passed (backward compatibility), falls back to volume saturation.
+    If a list of processed headlines is passed, evaluates:
+    - Proportion of meaningful risk-bearing headlines (signal vs noise)
+    - Agreement / consistency of headline risk scores (low dispersion -> higher confidence)
+    - Signal strength (magnitude of peak risk detected)
+    - Saturated evidence volume based on meaningful signal count so neutral padding
+      cannot artificially inflate confidence.
     """
-    if num_headlines <= 0:
-        return 0.0
     safe_divisor = divisor if divisor > 0 else 8.0
-    return round(
-        1.0 - math.exp(-num_headlines / safe_divisor),
-        4,
-    )
+
+    if isinstance(evidence, (int, float)):
+        if evidence <= 0:
+            return 0.0
+        return round(1.0 - math.exp(-float(evidence) / safe_divisor), 4)
+
+    if not isinstance(evidence, list) or not evidence:
+        return 0.0
+
+    processed_headlines = evidence
+    num_headlines = len(processed_headlines)
+    if num_headlines == 0:
+        return 0.0
+
+    # Identify risk-bearing / meaningful headlines
+    risk_headlines = [
+        item for item in processed_headlines
+        if item.get("score", 0.0) > 0 or len(item.get("signals", [])) > 0 or item.get("sentiment") == "negative"
+    ]
+    num_risk = len(risk_headlines)
+
+    if num_risk > 0:
+        signal_proportion = num_risk / num_headlines
+        volume_factor = 1.0 - math.exp(-num_risk / safe_divisor)
+
+        scores = [item.get("score", 0.0) for item in risk_headlines]
+        if len(scores) <= 1:
+            agreement = 1.0
+        else:
+            mean_score = sum(scores) / len(scores)
+            variance = sum((s - mean_score) ** 2 for s in scores) / len(scores)
+            std_dev = math.sqrt(variance)
+            dispersion = min(1.0, std_dev / 50.0)
+            agreement = max(0.0, 1.0 - dispersion)
+
+        peak_score = max(scores)
+        strength = min(1.0, peak_score / 100.0)
+
+        raw_conf = volume_factor * (
+            0.35 + 0.25 * signal_proportion + 0.25 * agreement + 0.15 * strength
+        )
+    else:
+        # All headlines are neutral/clean: confidence reflects certainty in the clean assessment
+        volume_factor = 1.0 - math.exp(-num_headlines / safe_divisor)
+        raw_conf = volume_factor * 0.5
+
+    return round(min(1.0, max(0.0, raw_conf)), 4)
+
+
+def _aggregate_risk_score(
+    processed_headlines: List[Dict[str, Any]],
+    config: Settings,
+) -> float:
+    """
+    Aggregate headline risk scores into a final supplier risk score
+    based on the configured aggregation strategy.
+
+    Supported strategies:
+    - "top_k_mean" (default): Anti-dilution strategy that averages the top-k
+      risk-bearing headline scores. If a catastrophic headline is present,
+      adding neutral headlines will not dilute it away.
+    - "max": Uses the worst-case (maximum) headline risk score.
+    - "blend": Backward-compatible 80% average / 20% peak blend.
+    - "mean": Backward-compatible unweighted mean of all headlines.
+    """
+    if not processed_headlines:
+        return 0.0
+
+    strategy = config.aggregation_strategy
+    top_k = config.aggregation_top_k
+    scores = [item["score"] for item in processed_headlines]
+
+    if strategy == "max":
+        raw_score = max(scores)
+
+    elif strategy == "blend":
+        peak_score = max(scores)
+        average_score = sum(scores) / len(scores)
+        raw_score = 0.8 * average_score + 0.2 * peak_score
+
+    elif strategy == "mean":
+        raw_score = sum(scores) / len(scores)
+
+    elif strategy == "top_k_mean":
+        sorted_scores = sorted(scores, reverse=True)
+        top_k_scores = sorted_scores[:top_k]
+        risk_bearing = [s for s in top_k_scores if s > 0]
+        if risk_bearing:
+            raw_score = sum(risk_bearing) / len(risk_bearing)
+        else:
+            raw_score = 0.0
+    else:
+        sorted_scores = sorted(scores, reverse=True)[:top_k]
+        risk_bearing = [s for s in sorted_scores if s > 0]
+        raw_score = (sum(risk_bearing) / len(risk_bearing)) if risk_bearing else 0.0
+
+    return min(config.max_risk_score, max(0.0, raw_score))
 
 
 def _empty_response(supplier_name: str) -> Dict[str, Any]:
@@ -185,22 +267,9 @@ def predict(
     # ----------------------------------------
     # Final Risk Score
     # ----------------------------------------
-    peak_score = min(
-        cfg.max_risk_score,
-        max(item["score"] for item in processed_headlines),
-    )
-
-    average_score = (
-        total_headline_score / len(processed_headlines)
-    )
-
-    blended_score = (
-        0.8 * average_score + 0.2 * peak_score
-    )
-
-    final_risk_score = min(
-        cfg.max_risk_score,
-        blended_score,
+    final_risk_score = _aggregate_risk_score(
+        processed_headlines,
+        config=cfg,
     )
 
     # ----------------------------------------
@@ -225,7 +294,7 @@ def predict(
     # Confidence / Evidence Strength
     # ----------------------------------------
     confidence = _calculate_confidence(
-        len(processed_headlines),
+        processed_headlines,
         divisor=cfg.confidence_divisor,
     )
 
