@@ -19,6 +19,9 @@ from app.services.audit_service import (
     create_audit_log,
 )
 from app.models.refresh_token import RefreshToken
+
+from app.core.service_auth import verify_service_api_key
+
 from app.schemas.auth import (
     TokenResponse,  
     RefreshRequest,
@@ -39,6 +42,7 @@ from app.core.dependencies import(
     get_current_user,
     ROLE_HIERARCHY
 )
+import logging
 router = APIRouter(
     prefix="/api/v1/auth",
     tags=["Authentication"]
@@ -291,3 +295,41 @@ def password_reset_confirm(
         "message": "Password has been reset successfully."
     }
 
+# ============================================================
+# VERIFY
+# ============================================================
+
+logger = logging.getLogger("platform.request")
+
+@router.post("/verify")
+def verify_access_token(
+    current_user: User = Depends(get_current_user),
+):
+    response_data = {
+        "valid":True,
+        "user_id": current_user.id,
+        "email": current_user.email,
+        "full_name": current_user.full_name,
+        "role": current_user.role.name if current_user.role else None,
+        "is_active": current_user.is_active,
+    }
+
+    logger.info(
+        "Token verified | user_id=%s | role=%s | endpoint=/api/v1/auth/verify | response=%s",
+        current_user.id,
+        current_user.role.name if current_user.role else None,
+        response_data,
+    )
+
+    return response_data
+
+
+@router.post("/service-verify")
+def service_verify(
+    service=Depends(verify_service_api_key),
+):
+    return {
+        "authenticated": True,
+        "service": service["service"],
+        "auth_type": service["auth_type"],
+    }
