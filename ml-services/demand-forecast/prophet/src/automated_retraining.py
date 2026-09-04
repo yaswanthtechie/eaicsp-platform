@@ -1429,15 +1429,15 @@ def run_retraining():
             old_rmse,
         )
 
-    if promoted:
-        promoted_count += 1
-        # Only a promoted candidate becomes the new comparison baseline.
-        # A rejected one must not the next cycle still has to beat the
-        # model that's actually on disk.
-        best_mape = new_mape
-        best_rmse = new_rmse
-    else:
-        rejected_count += 1
+        if promoted:
+            promoted_count += 1
+            # Only a promoted candidate becomes the new comparison baseline.
+            # A rejected one must not the next cycle still has to beat the
+            # model that's actually on disk.
+            best_mape = new_mape
+            best_rmse = new_rmse
+        else:
+            rejected_count += 1
 
     # ========================================================
     # FINAL SUMMARY
