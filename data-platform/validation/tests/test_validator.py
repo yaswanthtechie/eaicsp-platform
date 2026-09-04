@@ -250,11 +250,14 @@ def test_custom_rule_with_kwargs():
     assert mask.tolist() == [False, True, False]
 
 
+# def test_custom_rule_missing_function():
+#     df = pd.DataFrame({"col": ["PASS"]})
+#     rule = ConfigRule(**{"name": "bad_rule", "field": "col", "type": "custom"})
+#     with pytest.raises(ValueError, match="missing 'function' path"):
+#         rule.evaluate(df)
 def test_custom_rule_missing_function():
-    df = pd.DataFrame({"col": ["PASS"]})
-    rule = ConfigRule(**{"name": "bad_rule", "field": "col", "type": "custom"})
-    with pytest.raises(ValueError, match="missing 'function' path"):
-        rule.evaluate(df)
+    with pytest.raises(ValidationError, match="no 'function' path"):
+        ConfigRule(**{"name": "bad_rule", "field": "col", "type": "custom"})
 
 
 def test_custom_rule_bad_import():
@@ -297,11 +300,14 @@ def test_transform_rule_with_kwargs():
     assert clean_df.at[0, "col"] == "mixedcase"
 
 
+# def test_transform_rule_missing_function():
+#     df = pd.DataFrame({"col": ["pass"]})
+#     rule = ConfigRule(**{"name": "bad_transform", "type": "transform"})
+#     with pytest.raises(ValueError, match="missing 'function' path"):
+#         rule.apply_transform(df)
 def test_transform_rule_missing_function():
-    df = pd.DataFrame({"col": ["pass"]})
-    rule = ConfigRule(**{"name": "bad_transform", "type": "transform"})
-    with pytest.raises(ValueError, match="missing 'function' path"):
-        rule.apply_transform(df)
+    with pytest.raises(ValidationError, match="no 'function' path"):
+        ConfigRule(**{"name": "bad_transform", "type": "transform"})
 
 
 def test_transform_rule_bad_import():
@@ -456,32 +462,49 @@ def test_failsafe_validate_skips_crashing_rule(caplog):
 
     report = validator.validate(df)
 
-    assert report.passed is True
-    assert "FATAL ERROR: Rule 'crash_eval' crashed during validation" in caplog.text
+    assert report.passed is False
+    assert len(report.skipped_rules) == 1
+    assert "crashed and DID NOT RUN" in caplog.text
 
 
+# def test_failsafe_clean_skips_crashing_rules(caplog):
+#     """Hits the except Exception blocks in validator.clean() for both evaluation and transforms."""
+#     df = pd.DataFrame({"A": [1]})
+#     r1 = ConfigRule(**{
+#         "name": "crash_eval",
+#         "type": "custom",
+#         "severity": "ERROR",
+#         "function": "tests.test_validator.crashing_custom_rule"
+#     })
+#     r2 = ConfigRule(**{
+#         "name": "crash_transform",
+#         "type": "transform",
+#         "severity": "INFO",
+#         "function": "tests.test_validator.crashing_transform_rule"
+#     })
+#
+#     validator = DataValidator([r1, r2])
+#     clean_df = validator.clean(df, strict=True)
+#
+#     assert len(clean_df) == 1
+#     assert "FATAL ERROR: Transform rule 'crash_transform' crashed" in caplog.text
+#     assert "FATAL ERROR: Rule 'crash_eval' crashed during cleaning" in caplog.text
 def test_failsafe_clean_skips_crashing_rules(caplog):
-    """Hits the except Exception blocks in validator.clean() for both evaluation and transforms."""
     df = pd.DataFrame({"A": [1]})
-    r1 = ConfigRule(**{
-        "name": "crash_eval",
-        "type": "custom",
-        "severity": "ERROR",
-        "function": "tests.test_validator.crashing_custom_rule"
-    })
-    r2 = ConfigRule(**{
-        "name": "crash_transform",
-        "type": "transform",
-        "severity": "INFO",
-        "function": "tests.test_validator.crashing_transform_rule"
-    })
+    r1 = ConfigRule(**{"name": "crash_eval", "type": "custom", "severity": "ERROR",
+                       "function": "tests.test_validator.crashing_custom_rule"})
+    r2 = ConfigRule(**{"name": "crash_transform", "type": "transform", "severity": "INFO",
+                       "function": "tests.test_validator.crashing_transform_rule"})
 
-    validator = DataValidator([r1, r2])
-    clean_df = validator.clean(df, strict=True)
+    # Default: refuse to hand back data we failed to filter.
+    with pytest.raises(RuntimeError, match="Cleaning aborted"):
+        DataValidator([r1, r2]).clean(df, strict=True)
 
+    # Explicit opt-in still returns the partially-cleaned frame.
+    clean_df = DataValidator([r1, r2], allow_rule_failures=True).clean(df, strict=True)
     assert len(clean_df) == 1
     assert "FATAL ERROR: Transform rule 'crash_transform' crashed" in caplog.text
-    assert "FATAL ERROR: Rule 'crash_eval' crashed during cleaning" in caplog.text
+    assert "crash_eval" in caplog.text and "DID NOT RUN" in caplog.text
 
 
 # --- RECENT FEATURE TESTS (Dependencies & Transforms) ---
@@ -532,25 +555,36 @@ def test_rule_dependencies_suppression():
     assert clean_df.index[0] == 2
 
 
-def test_rule_dependency_not_found_logs_warning(caplog):
+# def test_rule_dependency_not_found_logs_warning(caplog):
+#     """Hits the branch where a rule depends on a rule that hasn't executed/doesn't exist."""
+#     df = pd.DataFrame({"A": [1]})
+#     rule = ConfigRule(**{
+#         "name": "rule_b",
+#         "field": "A",
+#         "type": "not_null",
+#         "depends_on": ["missing_rule"]
+#     })
+#     validator = DataValidator([rule])
+#
+#     # Hits the warning branch in validate()
+#     validator.validate(df)
+#     assert "Dependency 'missing_rule' for rule 'rule_b' not found or not executed yet." in caplog.text
+#
+#     # Hits the warning branch in clean()
+#     caplog.clear()
+#     validator.clean(df)
+#     assert "Dependency 'missing_rule' for rule 'rule_b' not found/executed." in caplog.text
+def test_rule_dependency_not_found_rejected_at_load():
     """Hits the branch where a rule depends on a rule that hasn't executed/doesn't exist."""
-    df = pd.DataFrame({"A": [1]})
     rule = ConfigRule(**{
         "name": "rule_b",
         "field": "A",
         "type": "not_null",
         "depends_on": ["missing_rule"]
     })
-    validator = DataValidator([rule])
 
-    # Hits the warning branch in validate()
-    validator.validate(df)
-    assert "Dependency 'missing_rule' for rule 'rule_b' not found or not executed yet." in caplog.text
-
-    # Hits the warning branch in clean()
-    caplog.clear()
-    validator.clean(df)
-    assert "Dependency 'missing_rule' for rule 'rule_b' not found/executed." in caplog.text
+    with pytest.raises(ValueError, match="not defined in this config"):
+        DataValidator([rule])
 
 
 def test_validate_evaluates_transformed_working_copy():
@@ -784,3 +818,100 @@ def test_detect_conflicts_non_comparable_contradiction():
 
     with pytest.raises(ValueError, match="contradictory range rules"):
         DataValidator([rule_1, rule_2])
+
+
+def test_crashed_rule_is_reported_and_fails_the_run():
+    """A rule that raises must NOT be silently skipped while passed stays True."""
+    def boom(df, **kwargs):
+        raise RuntimeError("rule blew up")
+
+    SAFE_FUNCTION_REGISTRY["src.custom_rules.boom"] = boom
+    try:
+        rule = ConfigRule(name="boom_rule", field="q", type="custom",
+                          function="src.custom_rules.boom", severity="ERROR")
+        result = DataValidator([rule]).validate(pd.DataFrame({"q": [1, 2, 3]}))
+
+        assert result.passed is False, "A rule that never ran must not report passed=True"
+        assert len(result.skipped_rules) == 1
+        assert result.skipped_rules[0]["rule"] == "boom_rule"
+        assert "rule blew up" in result.skipped_rules[0]["reason"]
+    finally:
+        SAFE_FUNCTION_REGISTRY.pop("src.custom_rules.boom", None)
+
+
+def test_clean_aborts_when_a_rule_did_not_run():
+    """clean() must never hand back data it failed to filter."""
+    def boom(df, **kwargs):
+        raise RuntimeError("rule blew up")
+
+    SAFE_FUNCTION_REGISTRY["src.custom_rules.boom"] = boom
+    try:
+        rule = ConfigRule(name="boom_rule", field="q", type="custom",
+                          function="src.custom_rules.boom", severity="ERROR")
+        with pytest.raises(RuntimeError, match="Cleaning aborted"):
+            DataValidator([rule]).clean(pd.DataFrame({"q": [1, 2, 3]}))
+    finally:
+        SAFE_FUNCTION_REGISTRY.pop("src.custom_rules.boom", None)
+
+
+def test_custom_rule_without_function_key_rejected_at_load():
+    with pytest.raises(ValueError, match="no 'function' path"):
+        ConfigRule(name="typo_rule", field="q", type="custom")
+
+
+def test_depends_on_unknown_rule_rejected_at_load():
+    a = ConfigRule(name="range_rule", field="q", type="range", min=0,
+                   depends_on=["does_not_exist"])
+    with pytest.raises(ValueError, match="not defined in this config"):
+        DataValidator([a])
+
+
+def test_depends_on_forward_reference_rejected_at_load():
+    """Suppression silently no-ops if the dependency runs later -- reject it."""
+    dependent = ConfigRule(name="date_in_range", field="q", type="range", min=0,
+                           depends_on=["parse_check"])
+    dependency = ConfigRule(name="parse_check", field="q", type="not_null")
+    with pytest.raises(ValueError, match="declared later"):
+        DataValidator([dependent, dependency])
+    DataValidator([dependency, dependent])   # correct order is accepted
+
+
+def test_circular_dependency_rejected_at_load():
+    a = ConfigRule(name="A", field="q", type="not_null", depends_on=["B"])
+    b = ConfigRule(name="B", field="q", type="not_null", depends_on=["A"])
+    with pytest.raises(ValueError):
+        DataValidator([a, b])
+
+
+def test_duplicate_rule_names_rejected_at_load():
+    a = ConfigRule(name="same", field="q", type="not_null")
+    b = ConfigRule(name="same", field="q", type="range", min=0)
+    with pytest.raises(ValueError, match="duplicate rule names"):
+        DataValidator([a, b])
+
+
+def test_crashed_rule_can_be_tolerated_explicitly(caplog):
+    """Verifies that allow_rule_failures=True permits validation and cleaning to pass despite crashed rules."""
+    df = pd.DataFrame({"A": [1, 2]})
+    rule = ConfigRule(**{
+        "name": "crash_eval",
+        "type": "custom",
+        "severity": "ERROR",
+        "function": "tests.test_validator.crashing_custom_rule"
+    })
+
+    # Initialize with the explicit opt-out flag
+    validator = DataValidator([rule], allow_rule_failures=True)
+
+    # 1. Validation should pass despite the unexecuted rule
+    report = validator.validate(df)
+    assert report.passed is True
+    assert len(report.skipped_rules) == 1
+    assert report.skipped_rules[0]["rule"] == "crash_eval"
+
+    # 2. Cleaning should return the data without raising a RuntimeError
+    clean_df = validator.clean(df, strict=True)
+
+    # The dataframe remains untouched because the rule crashed before flagging rows
+    assert len(clean_df) == 2
+    assert "crashed and DID NOT RUN during cleaning" in caplog.text

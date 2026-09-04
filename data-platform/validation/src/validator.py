@@ -40,6 +40,7 @@ class ValidationResult(BaseModel):
     warnings: List[Dict[str, Any]] = Field(default_factory=list)
     sample_bad_rows: Dict[str, List[Dict[str, Any]]] = Field(default_factory=dict)
     rule_timings: Dict[str, float] = Field(default_factory=dict)
+    skipped_rules: List[Dict[str, Any]] = Field(default_factory=list)
 
     def __getitem__(self, item):
         """Allows dictionary-style access to the model's attributes (e.g., result['passed'])."""
@@ -70,9 +71,13 @@ class ConfigRule(BaseModel):
     @model_validator(mode='after')
     def validate_function_path(self) -> 'ConfigRule':
         if self.type in ['custom', 'transform']:
-            func_path = self.model_extra.get('function')
-            if func_path:
-                self._load_function(func_path)
+            func_path = (self.model_extra or {}).get('function')
+            if not func_path:
+                raise ValueError(
+                    f"Rule '{self.name}' has type '{self.type}' but no 'function' path. "
+                    f"Add a 'function:' key naming an entry in SAFE_FUNCTION_REGISTRY."
+                )
+            self._load_function(func_path)
         return self
 
     @model_validator(mode='before')
@@ -170,10 +175,41 @@ class ConfigRule(BaseModel):
 
 
 class DataValidator:
-    def __init__(self, rules: List[ConfigRule],  version: str = 'unknown'):
+    def __init__(self, rules: List[ConfigRule],  version: str = 'unknown', allow_rule_failures: bool = False):
         self.rules = rules
         self.version = version
+        self.allow_rule_failures = allow_rule_failures
+        self._validate_dependencies()
         self._detect_conflicts()
+
+    def _validate_dependencies(self):
+        """Rejects duplicate names, unknown deps, self-deps and forward references.
+
+        Requiring every dependency to be declared *before* the rule that uses it
+        makes cycles impossible and matches what validate()/clean() assume at runtime.
+        """
+        names = [r.name for r in self.rules]
+        duplicates = sorted({n for n in names if names.count(n) > 1})
+        if duplicates:
+            raise ValueError(f"Config Error: duplicate rule names: {duplicates}")
+
+        known = set(names)
+        declared = set()
+        for rule in self.rules:
+            for dep in (rule.depends_on or []):
+                if dep == rule.name:
+                    raise ValueError(f"Config Error: rule '{rule.name}' depends on itself.")
+                if dep not in known:
+                    raise ValueError(
+                        f"Config Error: rule '{rule.name}' depends on '{dep}', "
+                        f"which is not defined in this config."
+                    )
+                if dep not in declared:
+                    raise ValueError(
+                        f"Config Error: rule '{rule.name}' depends on '{dep}', which is "
+                        f"declared later. Move '{dep}' above '{rule.name}' in the config."
+                    )
+            declared.add(rule.name)
 
     def _detect_conflicts(self):
         """Detects impossible rule combinations before execution."""
@@ -243,7 +279,7 @@ class DataValidator:
         return df[df[watermark_col] > cast_watermark]
 
     @classmethod
-    def from_config(cls, yaml_path: str) -> 'DataValidator':
+    def from_config(cls, yaml_path: str, allow_rule_failures: bool = False) -> 'DataValidator':
         """Instantiates the validator directly from a YAML configuration file."""
         try:
             with open(yaml_path, 'r') as f:
@@ -256,7 +292,7 @@ class DataValidator:
             version = data.get('version', 'unknown')
             rules_data = data.get('rules', [])
             rules = [ConfigRule(**r) for r in rules_data]
-            return cls(rules, version)
+            return cls(rules, version, allow_rule_failures=allow_rule_failures)
         
         except (FileNotFoundError, yaml.YAMLError) as e:
             raise ValueError(f"Config parse failed: {e}")
@@ -291,6 +327,7 @@ class DataValidator:
 
         errors = []
         warnings = []
+        skipped = []
         sample_bad = {}
         affected_indices = set()
 
@@ -325,7 +362,13 @@ class DataValidator:
                 # 3. Store the final evaluated mask for future dependencies
                 rule_failure_masks[rule.name] = bad_mask
             except Exception as e:
-                logger.error(f"FATAL ERROR: Rule '{rule.name}' crashed during validation: {e}. Skipping rule.")
+                logger.error(
+                    f"Rule '{rule.name}' crashed and DID NOT RUN: {type(e).__name__}: {e}")
+                skipped.append({
+                    "rule": rule.name,
+                    "field": rule.field,
+                    "reason": f"{type(e).__name__}: {e}",
+                })
                 continue
             finally:
                 # --- RECORD RULE DURATION ---
@@ -361,7 +404,7 @@ class DataValidator:
                     warnings.append(report_item)
                     affected_indices.update(bad_rows.index.tolist())
 
-        passed = len(errors) == 0
+        passed = len(errors) == 0 and (self.allow_rule_failures or not skipped)
         return ValidationResult(
             config_version=self.version,  # Injected natively
             passed=passed,
@@ -369,7 +412,9 @@ class DataValidator:
             errors=errors,
             warnings=warnings,
             sample_bad_rows=sample_bad,
-            rule_timings=rule_timings
+            rule_timings=rule_timings,
+            skipped_rules=skipped
+
         )
 
     def clean(self, df: pd.DataFrame, strict: bool = True, target_rules: Optional[List[str]] = None) -> pd.DataFrame:
@@ -391,6 +436,7 @@ class DataValidator:
 
         # 2. Second Pass: Filter rows
         drop_indices = set()
+        skipped = []
         # NEW: Track failures to support rule dependencies during cleaning
         rule_failure_masks = {}
         for rule in self.rules:
@@ -419,8 +465,18 @@ class DataValidator:
                 elif not strict and target_rules and rule.name in target_rules:
                     drop_indices.update(df_clean[mask].index.tolist())
             except Exception as e:
-                logger.error(f"FATAL ERROR: Rule '{rule.name}' crashed during cleaning: {e}. Skipping rule.")
+                logger.error(
+                    f"Rule '{rule.name}' crashed and DID NOT RUN during cleaning: "
+                    f"{type(e).__name__}: {e}")
+                skipped.append(rule.name)
                 continue
+
+        if skipped and not self.allow_rule_failures:
+            raise RuntimeError(
+                f"Cleaning aborted: {len(skipped)} rule(s) failed to execute, so their bad "
+                f"rows were NOT removed: {skipped}. Fix the rule, or construct the validator "
+                f"with allow_rule_failures=True to accept partially-cleaned data."
+            )
 
         if drop_indices:
             df_clean = df_clean.drop(index=list(drop_indices))
