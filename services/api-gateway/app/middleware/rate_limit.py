@@ -1,9 +1,18 @@
 """
 Per-user and per-role rate limiting middleware for the API Gateway.
+
+Architecture & Responsibilities:
+- `rate_limit.py` (this file): Implements `PerUserRoleRateLimitMiddleware`
+  which extracts and validates JWT tokens from the `Authorization: Bearer <token>`
+  header using `settings.SECRET_KEY` and `settings.JWT_ALGORITHM`. It tracks
+  per-authenticated-user (`user:<user_id>`) and per-role (`role:<role>`) request
+  quotas using `InMemoryRateLimiter`, falling back to IP-based rate limiting
+  (`ip:<client_ip>`) with default quota when no valid token is present.
+- `ratelimit.py`: Configures the global SlowAPI IP rate limiter (e.g., 100/min)
+  and provides `get_real_ip()`, which validates `X-Forwarded-For` against
+  `settings.TRUSTED_PROXIES` to prevent rate limit spoofing.
 """
 
-import base64
-import json
 import logging
 import threading
 import time
@@ -21,6 +30,8 @@ except ImportError:
     jwt = None  # type: ignore
 
 logger = logging.getLogger("api_gateway.rate_limit")
+
+_load_test_mode_warned = False
 
 
 # ---------------------------------------------------------------------------
@@ -77,8 +88,10 @@ class InMemoryRateLimiter:
 
     def reset(self):
         """Reset all rate limit buckets."""
+        global _load_test_mode_warned
         with self._lock:
             self._buckets.clear()
+            _load_test_mode_warned = False
 
 
 # Global singleton rate limiter instance
@@ -107,30 +120,19 @@ def extract_jwt_identity(
     if not token:
         return None, None
 
-    payload = None
+    if jwt is None:
+        logger.warning("PyJWT is not available; cannot verify JWT token signature")
+        return None, None
 
-    if jwt is not None:
-        try:
-            payload = jwt.decode(
-                token,
-                settings.JWT_SECRET,
-                algorithms=[settings.JWT_ALGORITHM],
-            )
-        except (jwt.PyJWTError, ValueError, TypeError, AttributeError) as exc:
-            logger.debug("Failed to decode JWT via PyJWT: %s", exc)
-            return None, None
-    else:
-        # Fallback to base64url payload decoding ONLY if PyJWT package is not installed
-        try:
-            parts = token.split(".")
-            if len(parts) >= 2:
-                payload_b64 = parts[1]
-                payload_b64 += "=" * (-len(payload_b64) % 4)
-                payload_bytes = base64.urlsafe_b64decode(payload_b64)
-                payload = json.loads(payload_bytes)
-        except (json.JSONDecodeError, ValueError, TypeError, AttributeError) as exc:
-            logger.debug("Failed to base64 decode JWT token: %s", exc)
-            return None, None
+    try:
+        payload = jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.JWT_ALGORITHM],
+        )
+    except (jwt.PyJWTError, ValueError, TypeError, AttributeError) as exc:
+        logger.debug("Failed to decode JWT via PyJWT: %s", exc)
+        return None, None
 
     if not isinstance(payload, dict):
         return None, None
@@ -166,8 +168,16 @@ class PerUserRoleRateLimitMiddleware(BaseHTTPMiddleware):
         request: Request,
         call_next,
     ) -> Response:
+        global _load_test_mode_warned
         if getattr(settings, "LOAD_TEST_MODE", False):
+            if not _load_test_mode_warned:
+                logger.warning(
+                    "LOAD_TEST_MODE is enabled: per-user/per-role rate limiting is bypassed"
+                )
+                _load_test_mode_warned = True
             return await call_next(request)
+
+        _load_test_mode_warned = False
 
         client_ip = get_real_ip(request)
         user_id, role = extract_jwt_identity(request)
@@ -175,7 +185,7 @@ class PerUserRoleRateLimitMiddleware(BaseHTTPMiddleware):
         # Resolve rate limit key and quota
         if user_id:
             identity_key = f"user:{user_id}"
-            limit = settings.get_role_rate_limit(role if role else "user")
+            limit = settings.get_role_rate_limit(role)
         elif role:
             identity_key = f"role:{role}"
             limit = settings.get_role_rate_limit(role)
@@ -208,6 +218,12 @@ class PerUserRoleRateLimitMiddleware(BaseHTTPMiddleware):
                     "X-RateLimit-Remaining": "0",
                 },
             )
+
+        # Coordinate with SlowAPI: mark rate limiting complete for authenticated users
+        # so SlowAPI's default IP limiter does not throttle legitimate authenticated users
+        # (e.g. CEO/VP at 200 req/min) before their role quota is reached.
+        if user_id or role:
+            request.state._rate_limiting_complete = True
 
         response = await call_next(request)
         response.headers["X-RateLimit-Limit"] = str(limit_val)

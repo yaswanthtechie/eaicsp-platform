@@ -7,21 +7,41 @@ The **Supplier Risk** service is an independent Machine Learning microservice bu
 The service combines:
 - **FinBERT Sentiment Analysis** (`ProsusAI/finbert`)
 - **Config-Driven Keyword Risk Detection** (Financial, Operational, Reputational)
-- **Calibrated Risk Scoring & Evidence Confidence Calculation**
+- **Calibrated Risk Scoring & Evidence Confidence Calculation** (80% Mean / 20% Peak Blend)
+- **Anti-Dilution Architecture** (protecting acute risks from high-volume neutral dilution)
 - **REST API Serving** via FastAPI (`/predict`, `/health`, `/api/v1/supplier-risk/*`)
 - **Automated Unit & Integration Testing** with Pytest
-- **10-Company Calibration & Benchmark Dataset**
+- **10-Company Calibration & Benchmark Dataset** (120 headlines)
 
 ---
 
 # Features
 
-- **FinBERT Sentiment Analysis**: Domain-adapted financial sentiment classification (`positive`, `neutral`, `negative`).
-- **Configurable Signal Weights**: Weights and penalties driven by `src/config.py` and environment variables without changing source code.
-- **Evidence Confidence Metric**: Saturating confidence score ($1 - e^{-n/8}$) reflecting headline observation volume.
-- **REST API Serving**: FastAPI `/predict` endpoint for direct ML predictions without authentication requirements.
-- **10-Company Benchmark Dataset**: 120 curated headlines spanning low, medium, and high risk suppliers.
-- **Automated Unit Testing**: Complete test suite covering preprocessing, scoring, configuration overrides, schema validation, and HTTP endpoints.
+- FinBERT Sentiment Analysis for financial news domain
+- Supplier Risk Prediction with configurable scoring parameters
+- Financial Risk Detection (bankruptcy, insolvency, default, layoff, etc.)
+- Operational Risk Detection (strike, recall, disruption, shortage, etc.)
+- Reputational & Security Risk Detection (fraud, investigation, lawsuit, cyberattack, etc.)
+- Context Disambiguation & NLP Mitigation Detection
+- Evidence Confidence Scoring using exponential saturation
+- 80/20 Calibrated Mean/Peak Risk Blending
+- REST API using FastAPI with full request/response schemas
+- Automatic Model Loading with startup lifespan management
+- Comprehensive Unit & Integration Test Suite with Pytest
+- 10-Company Benchmark Dataset Evaluation
+
+---
+
+# Risk Score Interpretation
+
+The risk score (0-100) is calculated based on keyword severity, FinBERT sentiment analysis, and 80/20 peak/mean blending. These bands provide actionable operational guidelines for procurement teams:
+
+| Score Range | Risk Level | Interpretation & Recommended Procurement Action |
+| :--- | :--- | :--- |
+| **0.0 - 25.0** | **Low** | Routine operational updates, clean or positive news, and minimal risk signals. Continue normal procurement operations (e.g., Siemens at 9.39, BASF at 17.29). |
+| **25.1 - 35.0** | **Medium** | Predominantly stable operations with isolated disruptions or minor friction. Standard supplier monitoring, verify resilience plans (e.g., TSMC at 20.75, Foxconn at 28.23, Maersk at 28.27, Intel at 33.19, Boeing at 34.96). |
+| **35.1 - 45.0** | **High** | Significant operational, supply chain, legal, labor, or restructuring disruptions across multiple headlines. Review supplier contracts, monitor lead times, establish secondary supplier contingencies (e.g., Nissan at 37.54, Tesla at 40.80). |
+| **45.1 - 100.0** | **Critical** | Severe structural, legal, or terminal risks; persistent negative sentiment (>65% of volume), massive recalls, lawsuits, layoffs, investigations. Immediate procurement intervention and risk committee escalation (e.g., Apex Logistics at 67.73). |
 
 ---
 
@@ -34,12 +54,12 @@ supplier-risk/
 │   ├── __init__.py
 │   ├── analyze.py                 # FastAPI application and /predict endpoint
 │   ├── config.py                  # Config-driven weights, penalties, and validation
-│   ├── data.py                    # Dataset loading and fallback handling
+│   ├── data.py                    # Dataset loading, validation, and fallback handling
 │   ├── evaluate.py                # Batch evaluation runner across benchmark dataset
-│   ├── predict.py                 # Core scoring orchestration and confidence logic
+│   ├── predict.py                 # Core scoring orchestration, blend, and confidence logic
 │   ├── preprocess.py              # Text normalization and cleaning
 │   ├── sentiment.py              # FinBERT pipeline integration
-│   ├── signals.py                # Keyword signal detection logic
+│   ├── signals.py                # Keyword signal detection, mitigation, and context logic
 │   └── supplier_headlines.json   # 10-company benchmark dataset (120 headlines)
 │
 ├── tests/
@@ -282,19 +302,27 @@ POST /predict
 
 ---
 
-# Scoring Calculation
+# Calibrated Scoring & Blend Architecture
 
-1. **Text Preprocessing**: Raw headline is cleaned (lowercased, punctuation stripped, whitespace normalized).
-2. **Sentiment Analysis**: Raw text evaluated via FinBERT $\rightarrow$ `label` and `confidence`.
-3. **Sentiment Penalty**:
-   $$\text{penalty} = \begin{cases} \text{NEGATIVE\_PENALTY} \times \text{confidence} & \text{if negative} \\ \text{NEUTRAL\_PENALTY} \times \text{confidence} & \text{if neutral} \\ \text{POSITIVE\_PENALTY} \times \text{confidence} & \text{if positive} \end{cases}$$
-4. **Keyword Signals**: All matching keyword weights summed for the headline:
-   $$\text{signal\_score} = \sum_{k \in \text{detected}} \text{weight}(k)$$
-5. **Headline Score**: $\text{headline\_score} = \text{penalty} + \text{signal\_score}$
-6. **Final Risk Score**:
-   $$\text{risk\_score} = \min\left(\text{MAX\_RISK\_SCORE}, \frac{1}{N} \sum_{i=1}^{N} \text{headline\_score}_i\right)$$
-7. **Evidence Confidence**:
-   $$\text{confidence} = 1.0 - e^{-\frac{N}{\text{DIVISOR}}}$$
+## Scoring Pipeline
+
+The scoring pipeline operates as follows:
+`sentiment` + `risk signals` → `headline score` → `80% mean + 20% peak blend` → `0–100 risk score`
+
+1. **Individual Headline Scoring**:
+   $$\text{headline\_score} = (\text{penalty} \times \text{confidence}) + \sum_{k \in \text{detected}} \text{weight}(k)$$
+
+2. **Peak / Mean Blending**:
+   ```python
+   final_risk_score = min(cfg.max_risk_score, 0.80 * average_score + 0.20 * peak_score)
+   ```
+   - **Average Score (80% weight)**: Captures the supplier's volume-weighted baseline behavior across the news corpus.
+   - **Peak Score (20% weight)**: Acts as a severity floor / shock-absorber so catastrophic acute events (e.g., bankruptcy or fraud) cannot be completely diluted by high volumes of routine neutral/positive news.
+
+3. **Evidence Confidence (Saturation Curve)**:
+   $$\text{confidence} = 1.0 - e^{-\frac{n}{\text{DIVISOR}}}$$
+   - Monotonically non-decreasing from $0.0$ to approaching $1.0$.
+   - Divisor $8$ ensures $12$ headlines yields $\approx 0.78$ confidence.
 
 ---
 
@@ -354,17 +382,46 @@ The dataset is located in `src/supplier_headlines.json` and contains **120 reali
 
 # Running Tests & Evaluation
 
+### Run Batch Evaluation:
+
+```bash
+python -m src.evaluate
+```
+
+The script prints:
+- Supplier Name
+- Risk Score & Confidence
+- Sentiment Breakdown
+- Detected Signals
+- Top 3 Highest Risk Headlines
+
 ### Run Test Suite:
 
 ```bash
 python -m pytest ml-services/supplier-risk/tests -v
 ```
 
-### Run Batch Evaluation:
+The test suite validates:
+- Text preprocessing and punctuation boundary isolation
+- Keyword detection, mitigation windows, and variant stemming
+- Sentiment pipeline integration
+- Calibrated 80/20 peak/mean score blending
+- Calibrated risk band classification (Low, Medium, High, Critical)
+- Response schema validation and API endpoints (`/predict`, `/health`, aliases)
+- Configuration defaults, overrides, and input validation
+- Duplicate headline handling and anti-dilution guarantees
 
-```bash
-python -m src.evaluate
+---
+
+# Model
+
+The service uses the Hugging Face FinBERT model:
+
 ```
+ProsusAI/finbert
+```
+
+The model is loaded once during application startup lifespan and reused for all prediction requests.
 
 ---
 

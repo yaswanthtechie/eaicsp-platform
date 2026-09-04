@@ -130,6 +130,7 @@ def health():
 def predict_endpoint(request: AnalyzeRequest):
     """
     Predict supplier risk for given supplier headlines.
+    Empty headlines are ignored and do not contribute to risk score or confidence.
 
     Args:
         request: Contains supplier_name and headlines list.
@@ -137,6 +138,11 @@ def predict_endpoint(request: AnalyzeRequest):
     Returns:
         AnalysisResponse with risk scores, confidence, and detected signals.
     """
+    if not request.supplier_name or not request.supplier_name.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="supplier_name cannot be blank"
+        )
     try:
         summary = predict(
             supplier_name=request.supplier_name,
@@ -208,7 +214,7 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(
-        "analyze:app",
+        "src.analyze:app",
         host="0.0.0.0",
         port=8006,
         reload=True,

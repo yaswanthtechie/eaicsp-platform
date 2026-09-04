@@ -23,6 +23,19 @@ def _calculate_confidence(
     with headline count and asymptotically approaches 1.0.
 
     Formula: confidence = 1 - exp(-n / divisor)
+
+    Key properties:
+    - n = 0  → 0.00 (no evidence)
+    - n = 1  → 0.12 (very low)
+    - n = 2  → 0.22 (low)
+    - n = 5  → 0.46 (moderate)
+    - n = 10 → 0.71 (high)
+    - n = 20 → 0.92 (very high)
+    - n → ∞  → ~1.0 (approaches full confidence)
+
+    The divisor 8 is chosen so that the typical dataset size of
+    12 headlines/company yields ~0.78 confidence (substantial but
+    not absolute), matching the calibrated dataset.
     """
     if num_headlines <= 0:
         return 0.0
@@ -82,6 +95,23 @@ def predict(
     if not headlines:
         return _empty_response(supplier_name)
 
+    # ----------------------------------------
+    # Deduplicate Headlines (case & whitespace insensitive)
+    # ----------------------------------------
+    seen_headlines = set()
+    unique_headlines: List[str] = []
+
+    for headline in headlines:
+        if not headline or not headline.strip():
+            continue
+        normalized = headline.strip().lower()
+        if normalized not in seen_headlines:
+            seen_headlines.add(normalized)
+            unique_headlines.append(headline.strip())
+
+    if not unique_headlines:
+        return _empty_response(supplier_name)
+
     sentiment_breakdown = {
         "positive": 0,
         "neutral": 0,
@@ -93,11 +123,7 @@ def predict(
 
     total_headline_score = 0.0
 
-    for headline in headlines:
-        # Skip empty headlines
-        if not headline or not headline.strip():
-            continue
-
+    for headline in unique_headlines:
         # -------------------------
         # Sentiment Analysis
         # -------------------------
@@ -159,8 +185,23 @@ def predict(
     # ----------------------------------------
     # Final Risk Score
     # ----------------------------------------
-    average_score = total_headline_score / len(processed_headlines)
-    final_risk_score = min(cfg.max_risk_score, average_score)
+    peak_score = min(
+        cfg.max_risk_score,
+        max(item["score"] for item in processed_headlines),
+    )
+
+    average_score = (
+        total_headline_score / len(processed_headlines)
+    )
+
+    blended_score = (
+        0.8 * average_score + 0.2 * peak_score
+    )
+
+    final_risk_score = min(
+        cfg.max_risk_score,
+        blended_score,
+    )
 
     # ----------------------------------------
     # Top 3 Highest Risk Headlines
@@ -198,4 +239,4 @@ def predict(
         "sentiment_breakdown": sentiment_breakdown,
         "signals": list(unique_signals.values()),
         "top_worst_3": top_worst_3,
-    }
+    }

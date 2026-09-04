@@ -1,18 +1,43 @@
-
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter , HTTPException,Depends, Request,status
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError
-
 from app.core.config import TRUST_PROXY
-from app.services.auth_service import login_user,users
+from sqlalchemy.orm import Session
+from app.database import get_db
+from app.models.users import User
+from app.services.auth_service import (
+    register_user,
+    login_user,
+    get_refresh_token,
+    save_refresh_token,
+    request_password_reset,
+    reset_password
+)
+from app.services.audit_service import (
+    TOKEN_REVOKED ,
+    create_audit_log,
+)
+from app.models.refresh_token import RefreshToken
 from app.schemas.auth import (
-    TokenResponse,
+    TokenResponse,  
     RefreshRequest,
     AccessTokenResponse,
+    LogoutRequest,
+    RegisterRequest,
+    PasswordResetRequest,
+    PasswordResetConfirm,
+   
 )
+
 from app.core.security import (
     create_access_token,
-    decode_token,
+    create_refresh_token,
+    decode_token
+)
+from app.core.dependencies import(
+    get_current_user,
+    ROLE_HIERARCHY
 )
 router = APIRouter(
     prefix="/api/v1/auth",
@@ -28,59 +53,241 @@ def get_client_ip(request: Request) -> str:
             return forwarded.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
 
+
+# ============================================================
+# REGISTER
+# ============================================================
+
+@router.post("/register")
+def register(
+    request: RegisterRequest,
+    db: Session = Depends(get_db)
+):
+    return register_user(
+        db=db,
+        request=request
+    )
+
+# ============================================================
+# LOGIN
+# ============================================================
+
 @router.post(
 "/login",
 response_model=TokenResponse
 )
 def login(
     request: Request,
-    form_data: OAuth2PasswordRequestForm = Depends()
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db)
 ):
     return login_user(
+        db=db,
         username=form_data.username,
         password=form_data.password,
         client_ip=get_client_ip(request)
     )
-
+# ============================================================
+# REFRESH TOKEN
+# ============================================================
 
 @router.post(
-"/refresh",
-response_model=AccessTokenResponse
+    "/refresh",
+    response_model=AccessTokenResponse
 )
-
-def refresh_token(body: RefreshRequest):
+def refresh_token(
+    body: RefreshRequest,
+    db: Session = Depends(get_db)
+):
     try:
         payload = decode_token(body.refresh_token)
+
     except JWTError:
-       raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid or expired refresh token"
-    )
-    if  payload.get("type") != "refresh":
         raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid refresh token"
-    )
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token"
+        )
 
-    user = users.get(payload.get("sub"))
-
-    if user is None or not user["is_active"]:
+    if payload.get("type") != "refresh":
         raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid user"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token"
+        )
+
+    refresh = get_refresh_token(
+        db=db,
+        token=body.refresh_token
     )
 
+    if refresh is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or revoked refresh token"
+        )
+
+    user = (
+        db.query(User)
+        .filter(
+            User.id == refresh.user_id
+        )
+        .first()
+    )
+
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid user"
+        )
+
+    if user.role is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid user"
+        )
     new_access_token = create_access_token(
-        {
-            "sub": user["email"],
-            "user_id": user["user_id"],
-            "role": user["role"].value
-        }
+    {
+        "sub": user.email,
+        "user_id": user.id,
+        "role": user.role.name
+    }
+    )
+
+    new_refresh_token = create_refresh_token(
+    {
+        "sub": user.email,
+        "user_id": user.id,
+    }
 )
+
+    new_refresh_expires_at = (
+    datetime.now(timezone.utc)
+    + timedelta(days=7)
+)
+
+# Revoke the old refresh token.
+    refresh.is_revoked = True
+
+# Save the new refresh token.
+    save_refresh_token(
+    db=db,
+    user_id=user.id,
+    token=new_refresh_token,
+    expires_at=new_refresh_expires_at,
+)
+
+    db.commit()
 
     return {
     "access_token": new_access_token,
-    "token_type": "bearer"
-}
+    "refresh_token": new_refresh_token,
+    "token_type": "bearer",
+}   
 
+# ============================================================
+# PERMISSIONS
+# ============================================================
+@router.get("/me/permissions")
+def my_permissions(
+    user=Depends(get_current_user)
+):
+    if user.role is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User role has not been assigned"
+        )
+
+    role = user.role.name
+
+    return {
+        "role": role,
+        "permissions": sorted(
+            list(
+                ROLE_HIERARCHY.get(
+                    role,
+                    {role}
+                )
+            )
+        )
+    }
+
+# ============================================================
+# LOGOUT 
+# ============================================================
+@router.post("/logout")
+def logout(
+    body: LogoutRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    refresh = (
+        db.query(RefreshToken)
+        .filter(RefreshToken.token == body.refresh_token)
+        .first()
+    )
+
+    if refresh is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Refresh token not found",
+        )
+    if refresh.user_id != current_user.id:
+        raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Cannot revoke another user's session",
+    )
+
+    if refresh.is_revoked:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Refresh token already revoked",
+        )
+
+    refresh.is_revoked = True
+
+    create_audit_log(
+        db=db,
+        event_type=TOKEN_REVOKED,
+        user_id=refresh.user_id,
+        details="Refresh token revoked during logout",
+    )
+
+    db.commit()
+
+    return {
+        "message": "Logged out successfully"
+    }
+# ============================================================
+# PASSWORD REQUEST
+# ============================================================
+@router.post("/password-reset/request")
+def password_reset_request(
+    payload: PasswordResetRequest,
+    db: Session = Depends(get_db),
+):
+    request_password_reset(
+        db=db,
+        email=payload.email,
+    )
+
+    return {
+        "message": "If the account exists, a password reset token has been sent."
+    }
+
+# ============================================================
+# PASSWORD CONFIRM
+# ============================================================
+@router.post("/password-reset/reset")
+def password_reset_confirm(
+    payload: PasswordResetConfirm,
+    db: Session = Depends(get_db),
+):
+    reset_password(
+        db=db,
+        token=payload.token,
+        new_password=payload.new_password,
+    )
+
+    return {
+        "message": "Password has been reset successfully."
+    }
 

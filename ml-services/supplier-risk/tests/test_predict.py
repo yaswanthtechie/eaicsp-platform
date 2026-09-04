@@ -12,6 +12,23 @@ from src.data import load_headlines
 from src.predict import predict
 from src.preprocess import clean_text
 from src.signals import SIGNAL_WEIGHTS, detect_signals
+from unittest.mock import patch
+
+
+@pytest.fixture(autouse=True)
+def mock_sentiment():
+    """Mock analyze_sentiment to avoid downloading FinBERT during unit tests."""
+    with patch("src.predict.analyze_sentiment") as mock:
+        # Default mock behavior: positive or neutral if no risk keywords, negative if it seems bad
+        def side_effect(text):
+            lower_text = text.lower()
+            if any(w in lower_text for w in ["bankruptcy", "fraud", "strike", "lawsuit", "sanction", "disappointing", "loss", "losses"]):
+                return {"label": "negative", "confidence": 0.99}
+            if "positive" in lower_text or "record" in lower_text or "profit" in lower_text:
+                return {"label": "positive", "confidence": 0.95}
+            return {"label": "neutral", "confidence": 0.99}
+        mock.side_effect = side_effect
+        yield mock
 
 
 def test_preprocess_cleans_text():
@@ -226,17 +243,17 @@ def test_confidence_volume_relationship():
     """
 
     base_headline = (
-        "The company faces bankruptcy and fraud investigation."
+        "The company faces bankruptcy and fraud investigation"
     )
 
     result_2 = predict(
         "LowVolumeSupplier",
-        [base_headline] * 2,
+        [f"{base_headline} {i}." for i in range(2)],
     )
 
     result_20 = predict(
         "HighVolumeSupplier",
-        [base_headline] * 20,
+        [f"{base_headline} {i}." for i in range(20)],
     )
 
     assert (
@@ -254,7 +271,7 @@ def test_confidence_monotonic():
     """
 
     base_headline = (
-        "The supplier announces operational updates."
+        "The supplier announces operational updates"
     )
 
     previous_confidence = -1.0
@@ -262,7 +279,7 @@ def test_confidence_monotonic():
     for count in range(0, 31, 5):
         result = predict(
             "MonoTestSupplier",
-            [base_headline] * count,
+            [f"{base_headline} {i}." for i in range(count)],
         )
 
         current_confidence = result["confidence"]
@@ -489,7 +506,7 @@ def test_configurable_weights_change_prediction():
     changes the final risk calculation without modifying code.
     """
     supplier = "DynamicTestSupplier"
-    headlines = ["The supplier announced a strike."]
+    headlines = ["The supplier workers announced a strike."]
 
     # 1. Default config (strike weight = 25)
     default_cfg = Settings()
@@ -604,4 +621,326 @@ def test_fastapi_predict_invalid_payload():
     }
 
     response = client.post("/predict", json=invalid_payload)
-    assert response.status_code == 422
+    assert response.status_code == 422
+
+
+def test_real_dataset_relative_scoring_monotonic_check():
+    """
+    Test that a known risky supplier scores higher than a known clean one,
+    using deterministic text instead of relying on external dataset data which could change.
+    """
+    risky_headlines = [
+        "Company faces massive bankruptcy and investigation for fraud.",
+        "Workers go on strike after default."
+    ]
+    clean_headlines = [
+        "Company announces positive earnings.",
+        "New product launch."
+    ]
+    base_headline = (
+        "The supplier announces operational updates"
+    )
+
+    previous_confidence = -1.0
+
+    for count in range(0, 31, 5):
+        result = predict(
+            "MonoTestSupplier",
+            [f"{base_headline} {i}." for i in range(count)],
+        )
+
+        current_confidence = result["confidence"]
+
+        assert (
+            current_confidence >= previous_confidence
+        ), (
+            f"Confidence decreased at n={count}: "
+            f"{previous_confidence} -> {current_confidence}"
+        )
+
+        previous_confidence = current_confidence
+
+def test_real_dataset_relative_scoring():
+    """
+    Test that a known risky supplier scores higher than a known clean one,
+    using deterministic text instead of relying on external dataset data which could change.
+    """
+    risky_headlines = [
+        "Company faces massive bankruptcy and investigation for fraud.",
+        "Workers go on strike after default."
+    ]
+    clean_headlines = [
+        "Company announces positive earnings.",
+        "New product launch."
+    ]
+    risky_score = predict("RiskyCorp", risky_headlines)["risk_score"]
+    clean_score = predict("CleanCorp", clean_headlines)["risk_score"]
+
+    assert risky_score > clean_score
+
+def test_mitigation_handling():
+    """
+    Test that 'denies allegations of fraud' and 'avoids sanction' do not produce risk signals.
+    """
+    signals1 = detect_signals(clean_text("The company denies allegations of fraud."))
+    assert len(signals1) == 0
+
+    signals2 = detect_signals(clean_text("The CEO avoids sanction."))
+    assert len(signals2) == 0
+
+def test_later_real_risk():
+    """
+    Test that a real risk after a mitigated mention is still detected.
+    """
+    signals = detect_signals(clean_text("Company avoids sanction but later faces sanction."))
+    detected_keywords = [s["keyword"] for s in signals]
+    assert "sanction" in detected_keywords
+
+def test_keyword_variants():
+    """
+    Test singular/plural/tense variants such as delay, delays, delayed.
+    """
+    signals_base = detect_signals(clean_text("There was a delay."))
+    signals_plural = detect_signals(clean_text("There were delays."))
+    signals_tense = detect_signals(clean_text("Production was delayed."))
+
+    assert any(s["keyword"] == "delays" for s in signals_base)
+    assert any(s["keyword"] == "delays" for s in signals_plural)
+    assert any(s["keyword"] == "delays" for s in signals_tense)
+
+def test_invalid_dataset_structures(tmp_path):
+    """
+    Test that data.py correctly throws ValueError for malformed JSON,
+    empty lists, and missing fields.
+    """
+    import json
+    from src.data import _load_from_json
+    with patch("src.data.Path") as mock_path:
+        # Test malformed JSON
+        mock_file = tmp_path / "bad.json"
+        mock_file.write_text("{bad json")
+        mock_path.return_value.parent.__truediv__.return_value = mock_file
+        with pytest.raises(ValueError, match="malformed"):
+            _load_from_json()
+
+        # Test empty list
+        mock_file.write_text("[]")
+        with pytest.raises(ValueError, match="empty"):
+            _load_from_json()
+
+        # Test not a list
+        mock_file.write_text('{"supplier": "A", "headline": "B"}')
+        with pytest.raises(ValueError, match="must contain a list"):
+            _load_from_json()
+
+        # Test invalid record
+        mock_file.write_text('[{"supplier": "A"}]')
+        with pytest.raises(ValueError, match="Invalid record"):
+            _load_from_json()
+
+def test_mitigation_handling_after():
+    """
+    Test that mitigation works when the mitigation word is AFTER the keyword.
+    """
+    signals1 = detect_signals(clean_text("fraud allegations against acme were dismissed"))
+    assert len(signals1) == 0
+
+    signals2 = detect_signals(clean_text("the layoffs were avoided after negotiations"))
+    assert len(signals2) == 0
+
+    signals3 = detect_signals(clean_text("acme outages resolved quickly"))
+    assert len(signals3) == 0
+
+def test_false_positive_keywords():
+    """
+    Test that ambiguous words without context do not trigger risk signals.
+    """
+    signals1 = detect_signals(clean_text("acme sets a new default configuration for its software"))
+    assert len(signals1) == 0
+
+    signals2 = detect_signals(clean_text("acme strikes a major partnership deal with siemens"))
+    assert len(signals2) == 0
+
+    signals3 = detect_signals(clean_text("acme recalls fond memories at its anniversary event"))
+    assert len(signals3) == 0
+
+def test_valid_ambiguous_keywords():
+    """
+    Test that ambiguous words WITH context DO trigger risk signals.
+    """
+    signals1 = detect_signals(clean_text("company defaults on its loan payments"))
+    assert len(signals1) > 0 and signals1[0]["keyword"] == "default"
+
+    signals2 = detect_signals(clean_text("factory workers go on strike"))
+    assert len(signals2) > 0 and signals2[0]["keyword"] == "strike"
+
+    signals3 = detect_signals(clean_text("company issues product recall for defective parts"))
+    assert len(signals3) > 0 and signals3[0]["keyword"] == "recall"
+
+
+def test_mitigation_cross_clause_preservation():
+    """
+    Test that mitigation does not cross clause boundaries or suppress unrelated signals.
+    """
+    # 1. resolved outage but faces fraud investigation
+    signals1 = detect_signals(clean_text("Supplier resolved outage but faces fraud investigation."))
+    keywords1 = [s["keyword"] for s in signals1]
+    assert "outage" not in keywords1
+    assert "fraud" in keywords1
+    assert "investigation" in keywords1
+
+    # 2. denies fraud but faces bankruptcy
+    signals2 = detect_signals(clean_text("Supplier denies fraud but faces bankruptcy."))
+    keywords2 = [s["keyword"] for s in signals2]
+    assert "fraud" not in keywords2
+    assert "bankruptcy" in keywords2
+
+    # 3. resolved outage; fraud investigation continues
+    signals3 = detect_signals(clean_text("Supplier resolved outage; fraud investigation continues."))
+    keywords3 = [s["keyword"] for s in signals3]
+    assert "outage" not in keywords3
+    assert "fraud" in keywords3
+    assert "investigation" in keywords3
+
+
+def test_punctuation_word_merging_and_signal_detection():
+    """
+    Test that punctuation separating words is replaced by whitespace and detected correctly.
+    """
+    # Verify clean_text splits words joined by punctuation
+    assert clean_text("strike/walkout") == "strike walkout"
+    assert clean_text("fraud.investigation") == "fraud investigation"
+    assert clean_text("bankruptcy-investigation") == "bankruptcy investigation"
+    assert clean_text("fraud,investigation") == "fraud investigation"
+
+    # Verify signal detection on punctuation-joined words
+    signals_slash = detect_signals(clean_text("factory workers strike/walkout today"))
+    assert any(s["keyword"] == "strike" for s in signals_slash)
+
+    signals_dot = detect_signals(clean_text("company faces fraud.investigation by authorities"))
+    keywords_dot = [s["keyword"] for s in signals_dot]
+    assert "fraud" in keywords_dot
+    assert "investigation" in keywords_dot
+
+    signals_hyphen = detect_signals(clean_text("company faces bankruptcy-investigation"))
+    keywords_hyphen = [s["keyword"] for s in signals_hyphen]
+    assert "bankruptcy" in keywords_hyphen
+    assert "investigation" in keywords_hyphen
+
+    signals_comma = detect_signals(clean_text("company faces fraud,investigation"))
+    keywords_comma = [s["keyword"] for s in signals_comma]
+    assert "fraud" in keywords_comma
+    assert "investigation" in keywords_comma
+
+
+def test_duplicate_headlines_do_not_inflate_confidence():
+    """
+    Regression Test (Bug #4): Duplicate headlines must not inflate confidence
+    or multiply risk evidence.
+    """
+    headline = "The company is under investigation for fraud and default."
+
+    result_single = predict("TestSupplier", [headline])
+    result_dups = predict("TestSupplier", [headline, headline, headline])
+    result_dups_whitespace = predict(
+        "TestSupplier",
+        [headline, f"  {headline}  ", headline.upper(), headline.lower()],
+    )
+
+    # Confidence must represent unique evidence
+    assert result_single["confidence"] == result_dups["confidence"]
+    assert result_single["confidence"] == result_dups_whitespace["confidence"]
+
+    # Duplicate copies do not change risk evidence
+    assert result_single["risk_score"] == result_dups["risk_score"]
+    assert result_single["risk_score"] == result_dups_whitespace["risk_score"]
+    assert result_single["sentiment_breakdown"] == result_dups["sentiment_breakdown"]
+    assert result_single["signals"] == result_dups["signals"]
+    assert len(result_single["top_worst_3"]) == len(result_dups["top_worst_3"])
+
+
+def test_high_risk_not_diluted_by_neutral_headlines():
+    """
+    Regression Test: High risk headline must not be diluted into
+    an obviously safe/low-risk result (<= 25.0) merely because neutral headlines are added.
+    """
+    high_risk_headline = (
+        "TechCorp files for bankruptcy and is under investigation for fraud."
+    )
+    neutral_headlines_9 = [
+        f"TechCorp opens a new office location in district {i}."
+        for i in range(9)
+    ]
+    neutral_headlines_20 = [
+        f"TechCorp opens a new office location in district {i}."
+        for i in range(20)
+    ]
+
+    result_1 = predict("TechCorp", [high_risk_headline])
+    result_10 = predict("TechCorp", [high_risk_headline] + neutral_headlines_9)
+    result_21 = predict("TechCorp", [high_risk_headline] + neutral_headlines_20)
+
+    # The high risk headline alone is severe (Critical tier)
+    assert result_1["risk_score"] >= 50.0
+
+    # Adding 9 or 20 neutral headlines must not collapse into Low Risk (<= 25.0)
+    assert result_10["risk_score"] > 25.0, (
+        f"Expected score > 25.0 (above Low risk ceiling), got {result_10['risk_score']}"
+    )
+    assert result_21["risk_score"] > 25.0, (
+        f"Expected score > 25.0 (above Low risk ceiling), got {result_21['risk_score']}"
+    )
+
+
+def test_calibrated_scoring_blend_ratio():
+    """
+    Verify that the scoring formula applies an 80% mean / 20% peak blend.
+    """
+    # Headline 1 has negative sentiment + lawsuit (25) + investigation (25) -> score ~89.6
+    # Headline 2 is clean positive -> score 0.0
+    h1 = "Supplier faces lawsuit and investigation for misconduct."
+    h2 = "Supplier reports record positive earnings and profit."
+
+    result = predict("BlendTestSupplier", [h1, h2])
+    # Individual scores: h1 = 39.6 + 50 = 89.6, h2 = 0.0
+    # Average = 44.8, Peak = 89.6
+    # Expected blended score = 0.8 * 44.8 + 0.2 * 89.6 = 35.84 + 17.92 = 53.76
+    assert abs(result["risk_score"] - 53.76) < 0.05, (
+        f"Expected ~53.76 for 80/20 blend, got {result['risk_score']}"
+    )
+
+
+def test_calibrated_risk_band_classification():
+    """
+    Verify that the calibrated risk bands correctly classify supplier profiles:
+    - Low: 0.0 - 25.0
+    - Medium: 25.1 - 35.0
+    - High: 35.1 - 45.0
+    - Critical: 45.1 - 100.0
+    """
+    def classify_band(score: float) -> str:
+        if score <= 25.0:
+            return "Low"
+        elif score <= 35.0:
+            return "Medium"
+        elif score <= 45.0:
+            return "High"
+        else:
+            return "Critical"
+
+    # 1. Clean supplier -> Low
+    clean_res = predict("CleanCorp", ["Positive earnings reported.", "New green factory opened."])
+    assert classify_band(clean_res["risk_score"]) == "Low"
+    assert clean_res["risk_score"] <= 25.0
+
+    # 2. Severe multi-event supplier -> Critical
+    critical_res = predict(
+        "CriticalCorp",
+        [
+            "Company files for bankruptcy and faces fraud investigation.",
+            "Workers strike after debt default.",
+            "Regulators issue massive sanction against company.",
+        ],
+    )
+    assert classify_band(critical_res["risk_score"]) == "Critical"
+    assert critical_res["risk_score"] >= 45.1

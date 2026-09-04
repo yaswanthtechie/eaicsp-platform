@@ -121,23 +121,26 @@ Two rate limiting layers work in combination:
 
 **Per-role quotas (requests per `RATE_LIMIT_WINDOW_SECONDS`):**
 
-| Role            | Requests |
-|-----------------|----------|
-| `admin`         | 200      |
-| `ceo`           | 200      |
-| `vp_operations` | 200      |
-| `manager`       | 100      |
-| `user`          | 60       |
-| `guest`         | 30       |
-| `default`       | 60       |
+| Role                  | Requests | Category / Purpose                       |
+|-----------------------|----------|------------------------------------------|
+| `ceo`                 | 200      | Executive tier                           |
+| `vp_operations`       | 200      | Executive tier                           |
+| `procurement_manager` | 100      | Operations & Management tier             |
+| `logistics_manager`   | 100      | Operations & Management tier             |
+| `compliance_officer`  | 100      | Operations & Management tier             |
+| `warehouse_manager`   | 100      | Operations & Management tier             |
+| `analyst`             | 60       | Operational & Analytical tier            |
+| `supplier`            | 60       | External partner tier                    |
+| `default`             | 60       | Unauthenticated fallback / unknown role  |
 
+Roles match the platform source of truth (`services/platform/app/schemas/user.py:Role`).
 Roles are normalised to lowercase with spaces replaced by `_` before lookup.
-Unknown roles fall back to the `default` quota.
+Unknown or missing roles fall back to the `default` quota (60 req/min).
 
 **JWT identity extraction:**
 
 The middleware reads the `Authorization: Bearer <token>` header and decodes the
-JWT using the server-side secret (`JWT_SECRET`) and algorithm (`JWT_ALGORITHM`)
+JWT using the server-side secret (`SECRET_KEY`) and algorithm (`JWT_ALGORITHM`)
 via PyJWT. Claims `user_id` / `sub` (user identity) and `role` / `roles`
 (quota tier) are extracted only after **signature validation succeeds**.
 
@@ -192,12 +195,13 @@ thread-safe per-service state machine:
 
 | State         | Behaviour                                                                      |
 |---------------|--------------------------------------------------------------------------------|
-| **CLOSED**    | Requests pass through. Failure counter increments on each 5xx/timeout.        |
-| **OPEN**      | Requests are rejected immediately (fail-fast). After `CIRCUIT_BREAKER_RECOVERY_TIMEOUT` seconds, transitions to HALF-OPEN. |
-| **HALF-OPEN** | One trial request is allowed. Success -> CLOSED; failure -> OPEN again.       |
+| **CLOSED**    | Requests pass through. Failures and total requests tracked in a rolling 60s window. |
+| **OPEN**      | Requests are rejected immediately (fail-fast with HTTP 503). After `CIRCUIT_BREAKER_RECOVERY_TIMEOUT` (30s), transitions to HALF-OPEN. |
+| **HALF-OPEN** | One trial request is allowed. Success -> CLOSED (window reset); failure -> OPEN again (30s). |
 
-Trip condition: `CIRCUIT_BREAKER_FAILURE_THRESHOLD` consecutive failures
-(default 5) transitions CLOSED to OPEN.
+**Trip condition**: When request failure rate within the rolling 60-second window
+exceeds 50% (`failure_rate > 0.50`), the breaker transitions CLOSED to OPEN.
+A service with <= 50% failure rate (e.g. 40%) will not trip.
 
 ### In-Memory Cache
 
@@ -227,8 +231,8 @@ all known downstream services.
 `GET /health` pings all configured downstream services concurrently
 (`asyncio.gather`) by calling `<base_url>/health` with a 3-second timeout.
 
-- HTTP status < 500 -> `"UP"`
-- HTTP status >= 500 or any network/timeout error -> `"DOWN"`
+- HTTP status 2xx (200-299) -> `"UP"`
+- HTTP status 4xx, 5xx, or any network/timeout error -> `"DOWN"`
 - All checks run in parallel; a single service failure does not affect others.
 
 ### Structured Logging and Request IDs
@@ -258,7 +262,8 @@ request_id=<id> method=<METHOD> path=<path> status=<code> duration=<ms>ms ip=<ip
 
 | Method | Path                      | Description                                  |
 |--------|---------------------------|----------------------------------------------|
-| GET    | `/`                       | Gateway status (name, status, version)       |
+| GET    | `/`                       | Gateway root status (message, status, version)|
+| GET    | `/gateway/status`         | Gateway operational status (no secrets)      |
 | GET    | `/health`                 | Health status of all downstream services     |
 | GET    | `/gateway/dashboard`      | Aggregated metrics for all services          |
 | GET    | `/api/v1/openapi.json`    | OpenAPI schema                               |
@@ -287,23 +292,25 @@ Copy `.env.example` to `.env` and adjust values for your environment.
 All settings are loaded by `pydantic-settings` from `.env` or real environment
 variables. Unknown variables are silently ignored.
 
-| Variable                            | Default                  | Description                                            |
-|-------------------------------------|--------------------------|--------------------------------------------------------|
-| `APP_NAME`                          | `API Gateway`            | Application name shown in OpenAPI docs                 |
-| `VERSION`                           | `1.0.0`                  | Application version                                    |
-| `DEBUG`                             | `False`                  | Enable debug mode                                      |
-| `LOAD_TEST_MODE`                    | `False`                  | Bypass per-user/role rate limiter (server-side only)   |
-| `TIMEOUT_SECONDS`                   | `5`                      | Downstream HTTP request timeout in seconds             |
-| `MAX_RETRIES`                       | `2`                      | Number of retries for safe methods on failure          |
-| `JWT_SECRET`                        | *(change in production)* | Secret key for JWT signature verification              |
-| `JWT_ALGORITHM`                     | `HS256`                  | JWT signing algorithm                                  |
-| `TRUSTED_PROXIES`                   | `[]`                     | Trusted proxy IPs for X-Forwarded-For resolution       |
-| `RATE_LIMIT_WINDOW_SECONDS`         | `60`                     | Fixed window size for per-user/role rate limiter       |
-| `CIRCUIT_BREAKER_FAILURE_THRESHOLD` | `5`                      | Consecutive failures before circuit breaker trips OPEN |
-| `CIRCUIT_BREAKER_RECOVERY_TIMEOUT`  | `10.0`                   | Seconds in OPEN before transitioning to HALF-OPEN      |
+| Variable                                | Default                  | Description                                            |
+|-----------------------------------------|--------------------------|--------------------------------------------------------|
+| `APP_NAME`                              | `API Gateway`            | Application name shown in OpenAPI docs                 |
+| `VERSION`                               | `1.0.0`                  | Application version                                    |
+| `DEBUG`                                 | `False`                  | Enable debug mode                                      |
+| `LOAD_TEST_MODE`                        | `False`                  | Bypass per-user/role rate limiter (server-side only)   |
+| `TIMEOUT_SECONDS`                       | `5`                      | Downstream HTTP request timeout in seconds             |
+| `MAX_RETRIES`                           | `2`                      | Number of retries for safe methods on failure          |
+| `SECRET_KEY`                            | **(REQUIRED)**           | Secret key for JWT signature verification — must match the platform token issuer exactly |
+| `JWT_ALGORITHM`                         | `HS256`                  | JWT signing algorithm                                  |
+| `TRUSTED_PROXIES`                       | `[]`                     | Trusted proxy IPs for X-Forwarded-For resolution       |
+| `RATE_LIMIT_WINDOW_SECONDS`             | `60`                     | Fixed window size for per-user/role rate limiter       |
+| `CIRCUIT_BREAKER_FAILURE_RATE_THRESHOLD`| `0.50`                   | Failure rate threshold (>50%) before breaker trips OPEN|
+| `CIRCUIT_BREAKER_WINDOW_SECONDS`        | `60`                     | Rolling time window in seconds for failure rate        |
+| `CIRCUIT_BREAKER_RECOVERY_TIMEOUT`      | `30.0`                   | Seconds in OPEN before transitioning to HALF-OPEN      |
 
-> **Security**: Never commit a real `JWT_SECRET` or credentials to version control.
+> **Security**: Never commit a real `SECRET_KEY` or credentials to version control.
 > Use environment-specific secrets management in production.
+> `SECRET_KEY` is **required** — the gateway will fail to start if it is not set.
 
 ---
 
@@ -323,7 +330,7 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-# Edit .env -- at minimum set a strong JWT_SECRET
+# Edit .env -- at minimum set SECRET_KEY to match the platform token issuer
 ```
 
 **Windows (PowerShell)**
@@ -334,7 +341,7 @@ python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 Copy-Item .env.example .env
-# Edit .env -- at minimum set a strong JWT_SECRET
+# Edit .env -- at minimum set SECRET_KEY to match the platform token issuer
 ```
 
 ---
@@ -395,6 +402,25 @@ python -m pytest -v
 | `websockets`        | WebSocket transport support for uvicorn    |
 | `pytest`            | Test framework                             |
 | `pytest-asyncio`    | Async test support                         |
+
+---
+
+## Known Limitations
+
+1. **In-Memory Rate Limiter Scope**:
+   `InMemoryRateLimiter` maintains rate limit counters in the local memory of a single API Gateway process. In a multi-replica or clustered deployment, rate limit state is not shared across instances; a distributed store (e.g. Redis) should be used for clustered rate limiting.
+
+2. **In-Memory Circuit Breaker Scope**:
+   Circuit breaker state (CLOSED / OPEN / HALF-OPEN) is tracked per gateway instance. A downstream service outage trips the breaker independently for each gateway worker.
+
+3. **Trusted Proxy Single-Hop Forwarding**:
+   `get_real_ip()` trusts `X-Forwarded-For` only when the immediate peer IP matches `TRUSTED_PROXIES`. Multi-hop chained proxy setups require explicit CIDR / list configuration.
+
+4. **Unauthenticated Request Fallback**:
+   Requests without a valid JWT or with an invalid/expired token fall back to IP-based rate limiting using the default unauthenticated quota (60 req/min). They do not receive privileged role quotas.
+
+5. **`LOAD_TEST_MODE` Server-Side Bypass**:
+   `LOAD_TEST_MODE` disables rate limiting for performance testing. It is strictly a server-side setting and logs a warning on activation. It must remain `False` in production environments.
 
 ---
 

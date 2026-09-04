@@ -91,6 +91,40 @@ def test_health_endpoint_service_down(mock_get, client):
     assert data["auth"] == "DOWN"
 
 
+@pytest.mark.parametrize(
+    "status_code,expected_status",
+    [
+        (200, "UP"),
+        (201, "UP"),
+        (204, "UP"),
+        (400, "DOWN"),
+        (401, "DOWN"),
+        (403, "DOWN"),
+        (404, "DOWN"),
+        (500, "DOWN"),
+        (502, "DOWN"),
+        (503, "DOWN"),
+        (504, "DOWN"),
+    ],
+)
+@patch("httpx.AsyncClient.get", new_callable=AsyncMock)
+def test_health_endpoint_status_code_boundaries(mock_get, client, status_code, expected_status):
+    """
+    Verify health check boundary: only 2xx responses are UP; 4xx and 5xx are DOWN.
+    """
+    mock_get.return_value = httpx.Response(
+        status_code=status_code,
+        request=httpx.Request("GET", "http://test"),
+    )
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    data = response.json()
+    for svc_status in data.values():
+        assert svc_status == expected_status
+
+
 @patch("httpx.AsyncClient.send", new_callable=AsyncMock)
 def test_reverse_proxy_success(mock_send, client):
     # build a response with bytes content and content-type header

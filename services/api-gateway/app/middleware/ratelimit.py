@@ -1,5 +1,13 @@
 """
-Global rate limiter configuration for the API Gateway.
+Global SlowAPI rate limiter configuration and real IP extraction for the API Gateway.
+
+Architecture & Responsibilities:
+- `ratelimit.py` (this file): Configures the global SlowAPI IP rate limiter
+  (default 100/min per client IP) and provides `get_real_ip()`, which safely
+  evaluates `X-Forwarded-For` only when the direct connection peer is listed
+  in `settings.TRUSTED_PROXIES` to prevent spoofing.
+- `rate_limit.py`: Implements `PerUserRoleRateLimitMiddleware` for JWT-authenticated
+  per-user and per-role rate limiting quotas based on validated claims.
 """
 
 from fastapi import Request

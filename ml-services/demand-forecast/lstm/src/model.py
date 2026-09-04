@@ -2,70 +2,92 @@ import torch
 import torch.nn as nn
 
 
-class DemandLSTM(nn.Module):
-    """
-    LSTM Model for Multi-Step Demand Forecasting.
-    
-    Args:
-        input_size (int): Number of input features per time step (default: 1).
-        hidden_size (int): Number of hidden units in LSTM layers (default: 64).
-        num_layers (int): Number of stacked LSTM layers (default: 2).
-        horizon (int): Number of output time steps to forecast (default: 7).
-        dropout (float): Dropout probability between LSTM layers & FC layer (default: 0.2).
-    """
-
+class MultiStepLSTM(nn.Module):
     def __init__(
         self,
-        input_size: int = 1,
-        hidden_size: int = 64,
-        num_layers: int = 2,
-        horizon: int = 7,
-        dropout: float = 0.2,
+        input_size=1,
+        hidden_size=64,
+        num_layers=2,
+        horizon=7,
+        dropout=0.2,
+        dropout_rate=None,
     ):
         super().__init__()
-
-        # PyTorch emits a warning if dropout > 0 when num_layers == 1
-        lstm_dropout = dropout if num_layers > 1 else 0.0
+        drop_val = dropout_rate if dropout_rate is not None else dropout
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.horizon = horizon
 
         self.lstm = nn.LSTM(
             input_size=input_size,
             hidden_size=hidden_size,
             num_layers=num_layers,
             batch_first=True,
-            dropout=lstm_dropout,
+            dropout=drop_val if num_layers > 1 else 0.0,
         )
-
-        self.dropout = nn.Dropout(dropout)
+        self.fc_dropout = nn.Dropout(drop_val)
         self.fc = nn.Linear(hidden_size, horizon)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass.
-        
-        Input shape:  (batch_size, sequence_length, input_size)
-        Output shape: (batch_size, horizon)
-        """
-        # out shape: (batch_size, seq_len, hidden_size)
+    def forward(self, x):
+        if x.ndim == 4 and x.shape[-1] == 1:
+            x = x.squeeze(-1)
+        elif x.ndim == 2:
+            x = x.unsqueeze(-1)
+
         out, _ = self.lstm(x)
+        last_out = out[:, -1, :]
+        last_out = self.fc_dropout(last_out)
+        return self.fc(last_out)
 
-        # Extract output of the last time step: (batch_size, hidden_size)
-        out = out[:, -1, :]
-
-        # Apply dropout before dense layer
-        out = self.dropout(out)
-
-        # Map to forecast horizon: (batch_size, horizon)
-        out = self.fc(out)
-
-        return out
+    def enable_mc_dropout(self):
+        """Enables dropout layers during inference for Monte Carlo sampling."""
+        for m in self.modules():
+            if isinstance(m, nn.Dropout):
+                m.train()
 
 
-if __name__ == "__main__":
-    # Quick sanity check / shape testing
-    model = DemandLSTM(input_size=1, hidden_size=64, num_layers=2, horizon=7)
-    dummy_input = torch.randn(32, 30, 1)  # Batch=32, Lookback=30, Features=1
-    output = model(dummy_input)
-    
-    print(f"Model architecture verified!")
-    print(f"Input shape : {dummy_input.shape}")
-    print(f"Output shape: {output.shape} (Expected: [32, 7])")
+class AttentionMultiStepLSTM(nn.Module):
+    def __init__(
+        self,
+        input_size=1,
+        hidden_size=64,
+        num_layers=2,
+        horizon=7,
+        dropout=0.2,
+        dropout_rate=None,
+    ):
+        super().__init__()
+        drop_val = dropout_rate if dropout_rate is not None else dropout
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.horizon = horizon
+
+        self.lstm = nn.LSTM(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            batch_first=True,
+            dropout=drop_val if num_layers > 1 else 0.0,
+        )
+        self.attn_W = nn.Linear(hidden_size, hidden_size)
+        self.attn_v = nn.Linear(hidden_size, 1, bias=False)
+        self.fc_dropout = nn.Dropout(drop_val)
+        self.fc = nn.Linear(hidden_size, horizon)
+
+    def forward(self, x):
+        if x.ndim == 4 and x.shape[-1] == 1:
+            x = x.squeeze(-1)
+        elif x.ndim == 2:
+            x = x.unsqueeze(-1)
+
+        lstm_out, _ = self.lstm(x)
+        u = torch.tanh(self.attn_W(lstm_out))
+        att_scores = torch.softmax(self.attn_v(u), dim=1)
+        context = torch.sum(att_scores * lstm_out, dim=1)
+        context = self.fc_dropout(context)
+        return self.fc(context)
+
+    def enable_mc_dropout(self):
+        for m in self.modules():
+            if isinstance(m, nn.Dropout):
+                m.train()
