@@ -2,6 +2,7 @@ import os
 import pickle
 import math
 import json
+os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
 
 import mlflow
 import mlflow.prophet
