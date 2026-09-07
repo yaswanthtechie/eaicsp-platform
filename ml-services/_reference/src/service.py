@@ -249,16 +249,21 @@ class IrisService:
 
         self.retraining_scheduler = None
 
-        scheduler_env = os.getenv("ENABLE_RETRAINING_SCHEDULER")
+        scheduler_env = os.getenv(
+            "ENABLE_RETRAINING_SCHEDULER"
+        )
 
         if scheduler_env is None:
-            scheduler_enabled = ENABLE_RETRAINING_SCHEDULER
-        else:
-            scheduler_enabled = scheduler_env.strip().lower() == "true"
-                    
 
-              
-        
+            scheduler_enabled = (
+                ENABLE_RETRAINING_SCHEDULER
+            )
+
+        else:
+
+            scheduler_enabled = (
+                scheduler_env.strip().lower() == "true"
+            )
 
         if scheduler_enabled:
 
@@ -510,9 +515,7 @@ class IrisService:
             # ------------------------------------------------
 
             self.total_predictions += 1
-
             self.total_single_predictions += 1
-
             self.total_single_latency += latency
 
             # ------------------------------------------------
@@ -1147,17 +1150,14 @@ class IrisService:
                     str(exc),
             }
 
-    
-
-            # ======================================================
+    # ======================================================
     # R5 Rollback
     # ======================================================
 
     @bentoml.api(route="/rollback")
     def rollback(
         self,
-        new_model_accuracy: float,
-        previous_model_accuracy: float,
+        request: RollbackRequest,
     ) -> dict:
         """
         Roll back Production when the newly promoted
@@ -1172,26 +1172,17 @@ class IrisService:
             Production -> previous version
         """
 
+        new_model_accuracy = request.new_model_accuracy
+        previous_model_accuracy = (
+            request.previous_model_accuracy
+        )
+
         logger.warning(
             "R5 rollback evaluation: "
             "new_accuracy=%s previous_accuracy=%s",
             new_model_accuracy,
             previous_model_accuracy,
         )
-
-        # --------------------------------------------------
-        # Validate accuracy values
-        # --------------------------------------------------
-
-        if not 0.0 <= new_model_accuracy <= 1.0:
-            raise ValueError(
-                "new_model_accuracy must be between 0.0 and 1.0"
-            )
-
-        if not 0.0 <= previous_model_accuracy <= 1.0:
-            raise ValueError(
-                "previous_model_accuracy must be between 0.0 and 1.0"
-            )
 
         # --------------------------------------------------
         # Decide whether rollback is required
@@ -1217,13 +1208,12 @@ class IrisService:
                 "message": (
                     "New model performance is acceptable"
                 ),
-                "new_model_accuracy": new_model_accuracy,
-                "previous_model_accuracy": (
-                    previous_model_accuracy
-                ),
-                "current_production_version": str(
-                    self.model_version
-                ),
+                "new_model_accuracy":
+                    new_model_accuracy,
+                "previous_model_accuracy":
+                    previous_model_accuracy,
+                "current_production_version":
+                    str(self.model_version),
             }
 
         # --------------------------------------------------

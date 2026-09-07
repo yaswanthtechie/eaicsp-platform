@@ -1,8 +1,10 @@
+
 import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
+
 from src.config import MONITORING_INPUT_LIMIT
 
 
@@ -148,15 +150,39 @@ def get_summary() -> dict:
     Return aggregate and per-model metrics.
 
     R5:
+        - total request volume
         - request volume by model
-        - p50 latency by model
-        - p95 latency by model
+        - p50 latency
+        - p95 latency
+        - volume over time
+
+    Total request volume is calculated from all
+    prediction records.
+
+    Detailed latency and time-series metrics use
+    only the latest 1000 records.
     """
 
     with _DB_LOCK:
         connection = sqlite3.connect(DB_PATH)
 
         try:
+            # --------------------------------------------------
+            # Total request volume
+            # --------------------------------------------------
+            # Count all records instead of using len(rows).
+            # This prevents request volume from being capped
+            # at the 1000-row detailed metrics window.
+            total_request_volume = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM predictions
+                """
+            ).fetchone()[0]
+
+            # --------------------------------------------------
+            # Recent records for detailed metrics
+            # --------------------------------------------------
             rows = connection.execute(
                 """
                 SELECT
@@ -165,19 +191,26 @@ def get_summary() -> dict:
                     latency_ms
                 FROM predictions
                 ORDER BY timestamp DESC
-                limit 1000
+                LIMIT 1000
                 """
             ).fetchall()
 
         finally:
             connection.close()
 
+    # --------------------------------------------------
+    # Aggregate latency metrics
+    # --------------------------------------------------
+
     all_latencies = [
         float(row[2])
         for row in rows
     ]
 
-    # Aggregate volume by minute.
+    # --------------------------------------------------
+    # Aggregate volume by minute
+    # --------------------------------------------------
+
     volume_by_time = {}
 
     for timestamp, _model_version, _latency in rows:
@@ -212,6 +245,7 @@ def get_summary() -> dict:
             }
 
         models[model_version]["request_volume"] += 1
+
         models[model_version]["latencies"].append(
             latency
         )
@@ -223,9 +257,16 @@ def get_summary() -> dict:
         ][minute] = (
             models[model_version][
                 "volume_over_time"
-            ].get(minute, 0)
+            ].get(
+                minute,
+                0,
+            )
             + 1
         )
+
+    # --------------------------------------------------
+    # Build per-model summary
+    # --------------------------------------------------
 
     model_summary = {}
 
@@ -258,8 +299,18 @@ def get_summary() -> dict:
             ],
         }
 
+    # --------------------------------------------------
+    # Final monitoring response
+    # --------------------------------------------------
+
     return {
-        "request_volume": len(rows),
+        # IMPORTANT:
+        # Use total_request_volume instead of len(rows).
+        #
+        # total_request_volume = ALL database records
+        # len(rows) = maximum 1000 recent records
+        "request_volume": total_request_volume,
+
         "latency_ms": {
             "p50": round(
                 _percentile(
@@ -276,7 +327,9 @@ def get_summary() -> dict:
                 2,
             ),
         },
+
         "volume_over_time": volume_by_time,
+
         "models": model_summary,
     }
 
@@ -339,3 +392,4 @@ def get_recent_inputs(
 
 
 initialize_database()
+

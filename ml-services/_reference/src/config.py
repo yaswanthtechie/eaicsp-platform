@@ -1,3 +1,4 @@
+
 """
 Configuration settings for the Iris ML project.
 """
@@ -87,13 +88,14 @@ DRIFT_THRESHOLD = 0.30
 
 # How frequently the simulated scheduler checks for drift.
 # One hour is a safer default for production-like behavior.
-RETRAINING_INTERVAL_SECONDS = 3600  #Temporarily using for check 60sec automated retraining check for testingS
+RETRAINING_INTERVAL_SECONDS = 3600
 
 
 # Scheduler is disabled by default.
 # Enable explicitly with:
 # ENABLE_RETRAINING_SCHEDULER=true
 ENABLE_RETRAINING_SCHEDULER = False
+
 
 # Minimum number of recent prediction inputs required
 # before checking for automated retraining.
@@ -110,3 +112,4 @@ MONITORING_INPUT_LIMIT = 100
 # If the newly promoted model performs below this accuracy,
 # rollback should be triggered.
 ROLLBACK_ACCURACY_THRESHOLD = 0.85
+

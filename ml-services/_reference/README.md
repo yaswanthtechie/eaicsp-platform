@@ -1551,402 +1551,519 @@ Integration guidance for other pod models
 
 The canary and monitoring evidence is based on actual service verification rather than only describing how the implementation is intended to work.
 
-ris ML Reference Service – R5
+R5 Evidence Document – Iris Service
 
-Overview
-This project is a reference ML service for the Iris classification workflow using:
-Python
-scikit-learn
-MLflow
-BentoML
-Docker
-Pytest
-The service supports model training, evaluation, promotion, prediction, monitoring, automated drift detection, automated retraining, and rollback.
+Purpose: This document lists the evidence to capture for the R5 MLOps, retraining, rollback, testing, Docker, and metrics requirements.
 
-Project Goals
-R5 focuses on:
-Safe automated retraining defaults.
-Drift detection and automatic retraining.
-Model evaluation before production promotion.
-Rollback when a newly promoted model is worse.
-Reproducible Docker deployment.
-Evidence that the retraining and rollback workflows actually work.
+1. Rollback Test Collection on a Clean Clone
 
-Architecture
-┌─────────────────────┐
-│   Iris Dataset      │
-│ sklearn.load_iris() │
-└──────────┬──────────┘
-│
-▼
-┌─────────────────────┐
-│     Training        │
-│    src.train        │
-└──────────┬──────────┘
-│
-▼
-┌─────────────────────┐
-│       MLflow        │
-│ Tracking + Registry │
-└──────────┬──────────┘
-│
-┌─────────────┴─────────────┐
-▼                           ▼
-@staging model              @production model
-│                           │
-└─────────────┬─────────────┘
-▼
-┌─────────────────────┐
-│     BentoML         │
-│    IrisService      │
-└──────────┬──────────┘
-│
-┌─────────────────┼─────────────────┐
-▼                 ▼                 ▼
-/predict       /predict_batch       /health
-│
-▼
-Monitoring DB
-│
-▼
-Recent inputs
-│
-▼
-Drift calculation
-│
-drift >= threshold
-│
-▼
-Automated retraining
-│
-▼
-Accuracy comparison
-│           │
-▼           ▼
-Promote      Reject
-│
-▼
-Production
+pytest -q tests/test_rollback.py
 
-Configuration
-The production-safe defaults are:
+Expected result: 8 tests passed.
+
+Run after deleting or renaming the local mlruns/ directory to prove the tests do not require a live MLflow Production model.
+
+2. Service Test Collection Without MLflow
+
+pytest -q tests/test_service.py
+
+Capture successful test collection and execution without requiring a Production model.
+
+3. Safe Scheduler Configuration
+
 RETRAINING_INTERVAL_SECONDS = 3600
+
 ENABLE_RETRAINING_SCHEDULER = False
-Why?
-3600 seconds = 1 hour.
-The scheduler is disabled by default.
-This prevents every IrisService() instance from starting an automatic retraining thread.
-Tests and BentoML workers therefore do not unexpectedly retrain and re-promote models.
-For a temporary live demonstration, the scheduler can be enabled through the environment without changing the committed defaults:
-docker run --name iris-service   -p 3000:3000
--e ENABLE_RETRAINING_SCHEDULER=true   -e RETRAINING_INTERVAL_SECONDS=60
-iris_service
-If the implementation reads the interval only from configuration rather than an environment override, use the existing demo configuration mechanism rather than committing 60 seconds as the default.
 
-Drift Detection
-The service monitors recent prediction inputs and compares their mean against the training-data mean.
-The configured drift threshold is:
-DRIFT_THRESHOLD = 0.30
-A drift score greater than or equal to the threshold causes the scheduler to request automated retraining.
-Conceptually:
-Recent prediction inputs
-↓
-Calculate recent mean
-↓
-Compare with training mean
-↓
-Calculate drift score
-↓
-drift_score >= 0.30 ?
-/          
-Yes           No
-↓             ↓
-Retrain          Continue
+Capture the committed configuration showing safe defaults.
 
-Automatic Retraining Workflow
-The scheduler:
-Runs a scheduled drift check.
-Reads recent prediction inputs.
-Checks whether enough samples are available.
-Calculates the drift score.
-Starts automated retraining when drift exceeds the threshold.
-Trains a candidate model.
-Evaluates candidate and current production accuracy.
-Promotes the candidate only when the promotion rules are satisfied.
-Reloads the production model when promotion succeeds.
-The scheduler is intentionally disabled by default.
+4. Docker Build Verification
 
-Docker Deployment
-The Docker image is designed to be reproducible from a clean clone.
-The Iris dataset is loaded through:
-sklearn.datasets.load_iris()
-Therefore a local data/ directory is not required by the container.
-The Docker image should generate the required initial MLflow tracking/model-registry state during the build rather than relying on a developer's machine-specific D:\ path.
-Build
 docker build --no-cache -t iris_service .
-Run
-docker run --name iris-service -p 3000:3000 iris_service
-No local D:\ml-services... bind mount is required.
-Open the service
-http://localhost:3000
-Swagger/OpenAPI:
-http://localhost:3000
-Health check
-curl http://localhost:3000/health
-View logs
-docker logs iris-service
-Stop
-docker stop iris-service
-Remove
-docker rm iris-service
-If the container name already exists:
-docker rm -f iris-service
 
-Prediction API
-Single prediction
-Endpoint:
-POST /predict
-Example body:
-{
-"features": [5.1, 3.5, 1.4, 0.2]
-}
-Batch prediction
-Endpoint:
-POST /predict_batch
-Example body:
-{
-"features": 
-     [
-     [5.5, 2.6, 4.4, 1.2],
-    [63.1, 3.0, 4.6, 1.4],
-    [5.8, 21.6, 4.0, 1.2],
-    [5.0, 12.3, 3.3, 1.0],
-    [5.6, 2.7, 4.2, 1.3],
-    [15.7, 3.0, 4.2, 11.2],
-    [5.7, 21.9, 4.2, 1.3],
-    [6.2, 21.9, 4.3, 1.3],
-    [5.1, 21.5, 3.0, 1.1]
-     ]
-}
-The batch payload must contain a features field containing a list of feature vectors.
+Capture successful Docker build output.
 
-R5 Evidence – Automated Drift Retraining
-The following is actual terminal output captured from the running service.
-The scheduler repeatedly detected drift because the observed input distribution was significantly different from the training distribution.
+This proves the image builds without the previous D:\ mount dependency.
+
+5. Clean Container Startup
+
+docker run --name iris-service -p 3000:3000 -e ENABLE_RETRAINING_SCHEDULER=true -e RETRAINING_INTERVAL_SECONDS=60 iris_service
+
+In a second terminal: docker logs -f iris-service
+
+Capture startup output through the message: SCHEDULER STARTED.
+
+6. Automated Retraining Trigger Demo
+
+Capture logs showing the scheduler check running.
+
+Show the drift/trigger condition being detected.
+
+Show retraining starting, candidate evaluation, and promotion/rejection.
+
+This is one of the two main graded live demonstrations.
+
+7. Retraining Candidate vs Production Accuracy
+
+If MLflow logging is implemented, capture the model-version tags:
+
+retrain_candidate_accuracy
+
+retrain_production_accuracy
+
+8. Rollback Endpoint Validation – Invalid Input
+
+Send an accuracy value outside 0.0–1.0.
+
+Capture HTTP 422 response.
+
+This proves RollbackRequest/Pydantic validation is active.
+
+9. Rollback End-to-End Demo
+
+curl -X POST localhost:3000/rollback -H "Content-Type: application/json" -d "{\"new_model_accuracy\": 0.70, \"previous_model_accuracy\": 0.92}"
+
+Capture the actual rollback response.
+
+This is the second main graded live demonstration.
+
+10. Production Version Before Rollback
+
+Show the current MLflow Production model/version before calling /rollback.
+
+Example: Production version: 3
+
+Use the actual version from your environment.
+
+11. Production Version After Rollback
+
+Show the MLflow Production model/version after calling /rollback.
+
+Example: Production version: 2
+
+The important evidence is that the Production alias visibly moved back to the previous version.
+
+12. Metrics Summary – Aggregate and Per-Model
+
+curl http://localhost:3000/metrics/summary
+
+Capture aggregate volume, latency, p50, p95, and per-model volume/latency.
+
+13. Metrics JSON Endpoint
+
+curl http://localhost:3000/metrics/json
+
+Capture runtime counters including totals, average latency, and errors.
+
+14. Full Test Suite
+
+pytest -q
+
+Capture the final overall test result after all fixes.
+
+15. README / Documentation Evidence
+
+Capture the updated Known Limitations section.
+
+Capture the API Endpoints table including /metrics/json and /metrics/summary.
+
+Capture the retraining limitation explaining that drifted prediction inputs trigger detection but are not used as training data.
+
+Priority Evidence for Grading
+
+Rollback tests: 8 passed on a clean environment.
+
+Docker build succeeds.
+
+Container starts and logs SCHEDULER STARTED.
+
+Retraining trigger actually fires in the scheduler logs.
+
+Production version is shown before rollback.
+
+POST /rollback returns the rollback result.
+
+Production version is shown after rollback and visibly moves to the previous version.
+
+Evidence Capture Notes
+
+Use real terminal output or screenshots from your environment. Do not use manually typed or simulated output. For the rollback demonstration, capture the Production version before and after the API call so the model alias movement is directly visible.
+
+
+
+"""Terminal output"""
+
+ docker build --no-cache -t iris_service .                      
+[+] Building 284.4s (12/12) FINISHED                                                                                                                    docker:desktop-linux
+ => [internal] load build definition from Dockerfile                                                                                                                    0.1s
+ => => transferring dockerfile: 477B                                                                                                                                    0.0s
+ => [internal] load metadata for docker.io/library/python:3.12.4-slim                                                                                                   3.0s
+ => [auth] library/python:pull token for registry-1.docker.io                                                                                                           0.0s
+ => [internal] load .dockerignore                                                                                                                                       0.0s
+ => => transferring context: 125B                                                                                                                                       0.0s
+ => [1/6] FROM docker.io/library/python:3.12.4-slim@sha256:a3e58f9399353be051735f09be0316bfdeab571a5c6a24fd78b92df85bcb2d85                                             0.0s
+ => => resolve docker.io/library/python:3.12.4-slim@sha256:a3e58f9399353be051735f09be0316bfdeab571a5c6a24fd78b92df85bcb2d85                                             0.0s
+ => [internal] load build context                                                                                                                                       0.0s
+ => => transferring context: 1.62kB                                                                                                                                     0.0s
+ => CACHED [2/6] WORKDIR /app                                                                                                                                           0.0s
+ => [3/6] COPY requirements.txt .                                                                                                                                       0.0s
+ => [4/6] RUN pip install --no-cache-dir -r requirements.txt                                                                                                          215.7s
+ => [5/6] COPY src ./src                                                                                                                                                0.7s 
+ => [6/6] RUN python -m src.train                                                                                                                                      10.2s 
+ => exporting to image                                                                                                                                                 53.9s 
+ => => exporting layers                                                                                                                                                39.1s 
+ => => exporting manifest sha256:2feff37e17e85f5ca6b87610871556716eb2eb58358748e0d53a096ccc7b39bf                                                                       0.0s 
+ => => exporting config sha256:fe069042b1b2541c2df6ec2d48f632f00500636e6ecd2f242f95d977c98ce64f                                                                         0.0s 
+ => => exporting attestation manifest sha256:d4491ae6247ca54fbdc6ec3becdfc3a653d6b162f79ea28cdcf66d2c71b00a41                                                           0.0s
+ => => exporting manifest list sha256:68aada6ef44339e3bae14d13d6f488287d2f7701a7a6c8f2d39030f881c9095d                                                                  0.0s
+ => => naming to docker.io/library/iris_service:latest                                                                                                                  0.0s
+ => => unpacking to docker.io/library/iris_service:latest                                                                                                              14.5s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/j9307mul368clif21jzg8xvrb
+(.venv) PS D:\ml-services\ml-reference> docker run --name iris-service -p 3000:3000 iris_service:latest
+
+What's next:
+    Debug this container error with Gordon → docker ai "help me fix this container error"
+docker: Error response from daemon: Conflict. The container name "/iris-service" is already in use by container "a48ce9432d6baebd2f462fa94e04cf0a4ef61debd91056b0d259baeae2593737". You have to remove (or rename) that container to be able to reuse that name.
+
+Run 'docker run --help' for more information
+(.venv) PS D:\ml-services\ml-reference> docker rm -f iris-service                                      
+iris-service
+(.venv) PS D:\ml-services\ml-reference> docker run --name iris-service -p 3000:3000 iris_service:latest
+2026-09-07T12:19:50+0000 [INFO] [cli] Starting production HTTP BentoServer from "src.service:IrisService" listening on http://localhost:3000 (Press CTRL+C to quit)
+2026-09-07T12:19:54+0000 [INFO] [entry_service:iris_service:1] Service iris_service initialized
+2026-09-07T12:21:16+0000 [INFO] [entry_service:iris_service:1] 172.17.0.1:37464 (scheme=http,method=GET,path=/,type=,length=) (status=200,type=text/html; charset=utf-8,length=2945) 84.044ms (trace=555c32616d5dcae79bcd4d726b2afa71,span=b671996bcc7782de,sampled=0,service.name=iris_service)
+2026-09-07T12:21:16+0000 [INFO] [entry_service:iris_service:1] 172.17.0.1:37472 (scheme=http,method=GET,path=/static_content/index.css,type=,length=) (status=200,type=text/css; charset=utf-8,length=1127) 41.672ms (trace=f306b6bdca7af061d993f07e89e861b6,span=28d09a19b178fe4f,sampled=0,service.name=iris_service)
+2026-09-07T12:21:16+0000 [INFO] [entry_service:iris_service:1] 172.17.0.1:37464 (scheme=http,method=GET,path=/static_content/swagger-ui.css,type=,length=) (status=200,type=text/css; charset=utf-8,length=152059) 106.345ms (trace=6cf2422aa8afb09b071c575b1860c510,span=ae390b04eb9c1c79,sampled=0,service.name=iris_service)
+2026-09-07T12:21:16+0000 [INFO] [entry_service:iris_service:1] 172.17.0.1:37476 (scheme=http,method=GET,path=/static_content/swagger-initializer.js,type=,length=) (status=200,type=text/javascript; charset=utf-8,length=331) 86.939ms (trace=7346b1447892243d52258d908118e080,span=bb1b7845417ab661,sampled=0,service.name=iris_service)
+2026-09-07T12:21:16+0000 [INFO] [entry_service:iris_service:1] 172.17.0.1:37488 (scheme=http,method=GET,path=/static_content/swagger-ui-standalone-preset.js,type=,length=) (status=200,type=text/javascript; charset=utf-8,length=230777) 144.028ms (trace=c079c3b3b24c6d9496bea644a42ad3b0,span=8782ad85d5d5251b,sampled=0,service.name=iris_service)
+2026-09-07T12:21:16+0000 [INFO] [entry_service:iris_service:1] 172.17.0.1:37498 (scheme=http,method=GET,path=/static_content/swagger-ui-bundle.js,type=,length=) (status=200,type=text/javascript; charset=utf-8,length=1415333) 186.998ms (trace=a037576050d94541b9572ad211cf7d9a,span=b082ddd79824097b,sampled=0,service.name=iris_service)
+2026-09-07T12:21:17+0000 [INFO] [entry_service:iris_service:1] 172.17.0.1:37498 (scheme=http,method=GET,path=/docs.json,type=,length=) (status=200,type=application/json,length=14178) 163.627ms (trace=e92ea70f7bbcbd4bc314c1f7c75059c2,span=d1a034afaeab8e20,sampled=0,service.name=iris_service)
+2026-09-07T12:21:41+0000 [INFO] [entry_service:iris_service:1] 172.17.0.1:47152 (scheme=http,method=POST,path=/health,type=application/json,length=2) (status=200,type=application/json,length=184) 40.716ms (trace=61d4648ed257c53803331214f1adeda2,span=d4190ec65add231e,sampled=0,service.name=iris_service)
+2026-09-07T12:22:49+0000 [INFO] [entry_service:iris_service:1] 172.17.0.1:33718 (scheme=http,method=POST,path=/predict,type=application/json,length=89) (status=200,type=application/json,length=143) 28.571ms (trace=4618012064fff6231e0ce9a874212920,span=fa452b40d9de3fb8,sampled=0,service.name=iris_service)
+2026-09-07T12:23:59+0000 [INFO] [entry_service:iris_service:1] 172.17.0.1:56566 (scheme=http,method=POST,path=/predict_batch,type=application/json,length=229) (status=200,type=application/json,length=1404) 118.604ms (trace=a2da8722a9266bbf1529c99bd684581c,span=c12c739fbc427336,sampled=0,service.name=iris_service)
+2026-09-07T12:24:37+0000 [INFO] [entry_service:iris_service:1] 172.17.0.1:50702 (scheme=http,method=POST,path=/retrain/check,type=application/json,length=239) (status=200,type=application/json,length=126) 20.704ms (trace=c0281e2e4b8ac11174763a979034c4d4,span=101a778c7fe911bf,sampled=0,service.name=iris_service)
+2026-09-07T12:24:54+0000 [WARNING] [entry_service:iris_service:1] DRIFT THRESHOLD EXCEEDED - AUTOMATED RETRAINING STARTED
+2026-09-07T12:24:54+0000 [WARNING] [entry_service:iris_service:1] ==========================================
+2026-09-07T12:24:54+0000 [WARNING] [entry_service:iris_service:1] R5 AUTOMATED RETRAINING STARTED
+2026-09-07T12:24:54+0000 [WARNING] [entry_service:iris_service:1] ==========================================
+2026/09/07 12:24:55 WARNING mlflow.utils.git_utils: Failed to import Git (the Git executable is probably not on your PATH), so Git SHA is not available. Error: Failed to initialize: Bad git executable.
+The git executable must be specified in one of the following ways:
+    - be included in your $PATH
+    - be set via $GIT_PYTHON_GIT_EXECUTABLE
+    - explicitly set via git.refresh(<full-path-to-git-executable>)
+
+All git commands will error until this is rectified.
+
+This initial message can be silenced or aggravated in the future by setting the
+$GIT_PYTHON_REFRESH environment variable. Use one of the following values:
+    - quiet|q|silence|s|silent|none|n|0: for no message or exception
+    - warn|w|warning|log|l|1: for a warning message (logging level CRITICAL, displayed by default)
+    - error|e|exception|raise|r|2: for a raised exception
+
 Example:
-2026-09-03T10:33:18+0000 [WARNING] [entry_service:iris_service:1] DRIFT THRESHOLD EXCEEDED - AUTOMATED RETRAINING STARTED
-2026-09-03T10:33:25+0000 [WARNING] [entry_service:iris_service:1] R5 scheduled retraining result:
-{'status': 'retrained',
-'reason': 'Input feature drift detected',
-'drift_score': 1.1382,
-'threshold': 0.3,
-'sample_count': 6,
-'new_model_version':
-"{'status': 'promoted',
-'production_version': '8',
-'candidate_accuracy': 0.9333333333333333,
-'production_accuracy': 0.9333333333333333}"}
-A later run produced:
-2026-09-03T10:39:44+0000 [WARNING] [entry_service:iris_service:1] DRIFT THRESHOLD EXCEEDED - AUTOMATED RETRAINING STARTED
-2026-09-03T10:39:50+0000 [WARNING] [entry_service:iris_service:1] R5 scheduled retraining result:
-{'status': 'retrained',
-'reason': 'Input feature drift detected',
-'drift_score': 1.9823,
-'threshold': 0.3,
-'sample_count': 11,
-'new_model_version':
-"{'status': 'promoted',
-'production_version': '9',
-'candidate_accuracy': 0.9333333333333333,
-'production_accuracy': 0.9333333333333333}"}
-This demonstrates:
-drift_score = 1.9823
-threshold   = 0.30
-samples     = 11
-Because:
-1.9823 > 0.30
-the scheduler correctly triggered automated retraining.
-Scheduler interval evidence
-During the temporary demo configuration, the scheduler was checking approximately once per minute.
-Captured drift-trigger timestamps include:
-10:40:50  DRIFT THRESHOLD EXCEEDED
-10:41:53  DRIFT THRESHOLD EXCEEDED
-10:42:56  DRIFT THRESHOLD EXCEEDED
-10:44:00  DRIFT THRESHOLD EXCEEDED
-The differences are approximately:
-10:40:50 → 10:41:53 = 63 seconds
-10:41:53 → 10:42:56 = 63 seconds
-10:42:56 → 10:44:00 = 64 seconds
-The small additional time is due to the retraining operation and scheduler loop execution.
-The demo therefore verifies an approximately 60-second scheduler interval.
+    export GIT_PYTHON_REFRESH=quiet
 
-R5 Evidence – Model Promotion
-During automated retraining, the candidate model is evaluated against the current production model.
-Captured evidence:
-Candidate model accuracy: 0.9333
-Current production model accuracy: 0.9333
-The candidate was assigned to staging:
+2026/09/07 12:24:55 WARNING mlflow.models.model: `artifact_path` is deprecated. Please use `name` instead.
+2026/09/07 12:25:04 WARNING mlflow.models.model: Model logged without a signature and input example. Please set `input_example` parameter when logging the model to auto infer the model signature.
+Registered model 'iris_classifier' already exists. Creating a new version of this model...
+Created version '2' of model 'iris_classifier'.
+============================================================
 STAGING ASSIGNED
+============================================================
 Model Name : iris_classifier
-Version    : 9
+Version    : 2
 Alias      : @staging
-It was then promoted:
+============================================================
+============================================================
 MODEL PROMOTED
+============================================================
 Model Name : iris_classifier
-Version    : 9
+Version    : 2
 From Alias : @staging
 To Alias   : @production
-The service then reloaded production:
-New model promoted to production: 9
-Production model reloaded: 9
-R5 AUTOMATED RETRAINING COMPLETED
+Previous Production : 1
+============================================================
 
-R5 Evidence – Rollback
-Rollback is intended to restore the previous production version when a newly promoted model performs worse.
-The captured rollback evaluation was:
+Model passed the promotion gate (accuracy=0.9333 >= 0.85)
+
+============================================================
+TRAINING COMPLETED SUCCESSFULLY
+============================================================
+Model Name : iris_classifier
+Staging Version : 2
+Production Version : 2
+Accuracy : 0.9333
+Precision : 0.9333
+Recall : 0.9333
+F1 Score : 0.9333
+Model URI : models:/m-a305711b246148b9b1ef1e32ee13b650
+============================================================
+2026-09-07T12:25:04+0000 [WARNING] [entry_service:iris_service:1] Candidate model accuracy: 0.9333
+2026-09-07T12:25:04+0000 [WARNING] [entry_service:iris_service:1] Current production model accuracy: 0.9333
+============================================================
+STAGING ASSIGNED
+============================================================
+Model Name : iris_classifier
+Version    : 2
+Alias      : @staging
+============================================================
+============================================================
+MODEL PROMOTED
+============================================================
+Model Name : iris_classifier
+Version    : 2
+From Alias : @staging
+To Alias   : @production
+============================================================
+2026-09-07T12:25:04+0000 [WARNING] [entry_service:iris_service:1] New model promoted to production: 2
+2026-09-07T12:25:04+0000 [WARNING] [entry_service:iris_service:1] Production model reloaded: 2
+2026-09-07T12:25:04+0000 [WARNING] [entry_service:iris_service:1] ==========================================
+2026-09-07T12:25:04+0000 [WARNING] [entry_service:iris_service:1] R5 AUTOMATED RETRAINING COMPLETED
+2026-09-07T12:25:04+0000 [WARNING] [entry_service:iris_service:1] ==========================================
+2026-09-07T12:25:04+0000 [WARNING] [entry_service:iris_service:1] AUTOMATED RETRAINING COMPLETED - VERSION {'status': 'promoted', 'production_version': '2', 'candidate_accuracy': 0.9333333333333333, 'production_accuracy': 0.9333333333333333} PROMOTED
+2026-09-07T12:25:04+0000 [WARNING] [entry_service:iris_service:1] R5 scheduled retraining result: {'status': 'retrained', 'reason': 'Input feature drift detected', 'drift_score': 0.071, 'threshold': 0.05, 'sample_count': 8, 'new_model_version': "{'status': 'promoted', 'production_version': '2', 'candidate_accuracy': 0.9333333333333333, 'production_accuracy': 0.9333333333333333}"}
+2026-09-07T12:26:04+0000 [WARNING] [entry_service:iris_service:1] DRIFT THRESHOLD EXCEEDED - AUTOMATED RETRAINING STARTED
+2026-09-07T12:26:04+0000 [WARNING] [entry_service:iris_service:1] ==========================================
+2026-09-07T12:26:04+0000 [WARNING] [entry_service:iris_service:1] R5 AUTOMATED RETRAINING STARTED
+2026-09-07T12:26:04+0000 [WARNING] [entry_service:iris_service:1] ==========================================
+2026/09/07 12:26:04 WARNING mlflow.models.model: `artifact_path` is deprecated. Please use `name` instead.
+2026/09/07 12:26:07 WARNING mlflow.models.model: Model logged without a signature and input example. Please set `input_example` parameter when logging the model to auto infer the model signature.
+Registered model 'iris_classifier' already exists. Creating a new version of this model...
+Created version '3' of model 'iris_classifier'.
+============================================================
+STAGING ASSIGNED
+============================================================
+Model Name : iris_classifier
+Version    : 3
+Alias      : @staging
+============================================================
+============================================================
+MODEL PROMOTED
+============================================================
+Model Name : iris_classifier
+Version    : 3
+From Alias : @staging
+To Alias   : @production
+Previous Production : 2
+============================================================
+
+Model passed the promotion gate (accuracy=0.9333 >= 0.85)
+
+============================================================
+TRAINING COMPLETED SUCCESSFULLY
+============================================================
+Model Name : iris_classifier
+Staging Version : 3
+Production Version : 3
+Accuracy : 0.9333
+Precision : 0.9333
+Recall : 0.9333
+F1 Score : 0.9333
+Model URI : models:/m-67381727b2164a1d849e5f8c4c08c30b
+============================================================
+2026-09-07T12:26:07+0000 [WARNING] [entry_service:iris_service:1] Candidate model accuracy: 0.9333
+2026-09-07T12:26:07+0000 [WARNING] [entry_service:iris_service:1] Current production model accuracy: 0.9333
+============================================================
+STAGING ASSIGNED
+============================================================
+Model Name : iris_classifier
+Version    : 3
+Alias      : @staging
+============================================================
+============================================================
+MODEL PROMOTED
+============================================================
+Model Name : iris_classifier
+Version    : 3
+From Alias : @staging
+To Alias   : @production
+============================================================
+2026-09-07T12:26:07+0000 [WARNING] [entry_service:iris_service:1] New model promoted to production: 3
+2026-09-07T12:26:08+0000 [WARNING] [entry_service:iris_service:1] Production model reloaded: 3
+2026-09-07T12:26:08+0000 [WARNING] [entry_service:iris_service:1] ==========================================
+2026-09-07T12:26:08+0000 [WARNING] [entry_service:iris_service:1] R5 AUTOMATED RETRAINING COMPLETED
+2026-09-07T12:26:08+0000 [WARNING] [entry_service:iris_service:1] ==========================================
+2026-09-07T12:26:08+0000 [WARNING] [entry_service:iris_service:1] AUTOMATED RETRAINING COMPLETED - VERSION {'status': 'promoted', 'production_version': '3', 'candidate_accuracy': 0.9333333333333333, 'production_accuracy': 0.9333333333333333} PROMOTED
+2026-09-07T12:26:08+0000 [WARNING] [entry_service:iris_service:1] R5 scheduled retraining result: {'status': 'retrained', 'reason': 'Input feature drift detected', 'drift_score': 0.071, 'threshold': 0.05, 'sample_count': 8, 'new_model_version': "{'status': 'promoted', 'production_version': '3', 'candidate_accuracy': 0.9333333333333333, 'production_accuracy': 0.9333333333333333}"}
+2026-09-07T12:27:08+0000 [WARNING] [entry_service:iris_service:1] DRIFT THRESHOLD EXCEEDED - AUTOMATED RETRAINING STARTED
+2026-09-07T12:27:08+0000 [WARNING] [entry_service:iris_service:1] ==========================================
+2026-09-07T12:27:08+0000 [WARNING] [entry_service:iris_service:1] R5 AUTOMATED RETRAINING STARTED
+2026-09-07T12:27:08+0000 [WARNING] [entry_service:iris_service:1] ==========================================
+2026/09/07 12:27:08 WARNING mlflow.models.model: `artifact_path` is deprecated. Please use `name` instead.
+2026/09/07 12:27:13 WARNING mlflow.models.model: Model logged without a signature and input example. Please set `input_example` parameter when logging the model to auto infer the model signature.
+Registered model 'iris_classifier' already exists. Creating a new version of this model...
+Created version '4' of model 'iris_classifier'.
+============================================================
+STAGING ASSIGNED
+============================================================
+Model Name : iris_classifier
+Version    : 4
+Alias      : @staging
+============================================================
+============================================================
+MODEL PROMOTED
+============================================================
+Model Name : iris_classifier
+Version    : 4
+From Alias : @staging
+To Alias   : @production
+Previous Production : 3
+============================================================
+
+Model passed the promotion gate (accuracy=0.9333 >= 0.85)
+
+============================================================
+TRAINING COMPLETED SUCCESSFULLY
+============================================================
+Model Name : iris_classifier
+Staging Version : 4
+Production Version : 4
+Accuracy : 0.9333
+Precision : 0.9333
+Recall : 0.9333
+F1 Score : 0.9333
+Model URI : models:/m-bd8323980bee4f949b64196648efbe92
+============================================================
+2026-09-07T12:27:14+0000 [WARNING] [entry_service:iris_service:1] Candidate model accuracy: 0.9333
+2026-09-07T12:27:14+0000 [WARNING] [entry_service:iris_service:1] Current production model accuracy: 0.9333
+============================================================
+STAGING ASSIGNED
+============================================================
+Model Name : iris_classifier
+Version    : 4
+Alias      : @staging
+============================================================
+============================================================
+MODEL PROMOTED
+============================================================
+Model Name : iris_classifier
+Version    : 4
+From Alias : @staging
+To Alias   : @production
+============================================================
+2026-09-07T12:27:14+0000 [WARNING] [entry_service:iris_service:1] New model promoted to production: 4
+2026-09-07T12:27:14+0000 [WARNING] [entry_service:iris_service:1] Production model reloaded: 4
+2026-09-07T12:27:14+0000 [WARNING] [entry_service:iris_service:1] ==========================================
+2026-09-07T12:27:14+0000 [WARNING] [entry_service:iris_service:1] R5 AUTOMATED RETRAINING COMPLETED
+2026-09-07T12:27:14+0000 [WARNING] [entry_service:iris_service:1] ==========================================
+2026-09-07T12:27:14+0000 [WARNING] [entry_service:iris_service:1] AUTOMATED RETRAINING COMPLETED - VERSION {'status': 'promoted', 'production_version': '4', 'candidate_accuracy': 0.9333333333333333, 'production_accuracy': 0.9333333333333333} PROMOTED
+2026-09-07T12:27:14+0000 [WARNING] [entry_service:iris_service:1] R5 scheduled retraining result: {'status': 'retrained', 'reason': 'Input feature drift detected', 'drift_score': 0.071, 'threshold': 0.05, 'sample_count': 8, 'new_model_version': "{'status': 'promoted', 'production_version': '4', 'candidate_accuracy': 0.9333333333333333, 'production_accuracy': 0.9333333333333333}"}
+2026-09-07T12:28:14+0000 [WARNING] [entry_service:iris_service:1] DRIFT THRESHOLD EXCEEDED - AUTOMATED RETRAINING STARTED
+2026-09-07T12:28:14+0000 [WARNING] [entry_service:iris_service:1] ==========================================
+2026-09-07T12:28:14+0000 [WARNING] [entry_service:iris_service:1] R5 AUTOMATED RETRAINING STARTED
+2026-09-07T12:28:14+0000 [WARNING] [entry_service:iris_service:1] ==========================================
+2026/09/07 12:28:14 WARNING mlflow.models.model: `artifact_path` is deprecated. Please use `name` instead.
+2026/09/07 12:28:17 WARNING mlflow.models.model: Model logged without a signature and input example. Please set `input_example` parameter when logging the model to auto infer the model signature.
+Registered model 'iris_classifier' already exists. Creating a new version of this model...
+Created version '5' of model 'iris_classifier'.
+============================================================
+STAGING ASSIGNED
+============================================================
+Model Name : iris_classifier
+Version    : 5
+Alias      : @staging
+============================================================
+============================================================
+MODEL PROMOTED
+============================================================
+Model Name : iris_classifier
+Version    : 5
+From Alias : @staging
+To Alias   : @production
+Previous Production : 4
+============================================================
+
+Model passed the promotion gate (accuracy=0.9333 >= 0.85)
+
+============================================================
+TRAINING COMPLETED SUCCESSFULLY
+============================================================
+Model Name : iris_classifier
+Staging Version : 5
+Production Version : 5
+Accuracy : 0.9333
+Precision : 0.9333
+Recall : 0.9333
+F1 Score : 0.9333
+Model URI : models:/m-7bddd321c4b54828800a4d0f6808da67
+============================================================
+2026-09-07T12:28:17+0000 [WARNING] [entry_service:iris_service:1] Candidate model accuracy: 0.9333
+2026-09-07T12:28:17+0000 [WARNING] [entry_service:iris_service:1] Current production model accuracy: 0.9333
+============================================================
+STAGING ASSIGNED
+============================================================
+Model Name : iris_classifier
+Version    : 5
+Alias      : @staging
+============================================================
+============================================================
+MODEL PROMOTED
+============================================================
+Model Name : iris_classifier
+Version    : 5
+From Alias : @staging
+To Alias   : @production
+============================================================
+2026-09-07T12:28:18+0000 [WARNING] [entry_service:iris_service:1] New model promoted to production: 5
+2026-09-07T12:28:18+0000 [WARNING] [entry_service:iris_service:1] Production model reloaded: 5
+2026-09-07T12:28:18+0000 [WARNING] [entry_service:iris_service:1] ==========================================
+2026-09-07T12:28:18+0000 [WARNING] [entry_service:iris_service:1] R5 AUTOMATED RETRAINING COMPLETED
+2026-09-07T12:28:18+0000 [WARNING] [entry_service:iris_service:1] ==========================================
+2026-09-07T12:28:18+0000 [WARNING] [entry_service:iris_service:1] AUTOMATED RETRAINING COMPLETED - VERSION {'status': 'promoted', 'production_version': '5', 'candidate_accuracy': 0.9333333333333333, 'production_accuracy': 0.9333333333333333} PROMOTED
+2026-09-07T12:28:18+0000 [WARNING] [entry_service:iris_service:1] R5 scheduled retraining result: {'status': 'retrained', 'reason': 'Input feature drift detected', 'drift_score': 0.071, 'threshold': 0.05, 'sample_count': 8, 'new_model_version': "{'status': 'promoted', 'production_version': '5', 'candidate_accuracy': 0.9333333333333333, 'production_accuracy': 0.9333333333333333}"}
+2026-09-07T12:28:24+0000 [WARNING] [entry_service:iris_service:1] R5 rollback evaluation: new_accuracy=0.74 previous_accuracy=0.93 (trace=914f2aed811175465c97a6e56d813a2b,span=d425521cd0c189ab,sampled=0,service.name=iris_service)
+2026-09-07T12:28:24+0000 [WARNING] [entry_service:iris_service:1] R5 ROLLBACK TRIGGERED (trace=914f2aed811175465c97a6e56d813a2b,span=d425521cd0c189ab,sampled=0,service.name=iris_service)
+============================================================
+MODEL ROLLBACK COMPLETED
+============================================================
+Model Name       : iris_classifier
+Failed Version   : 5
+Restored Version : 4
+============================================================
+2026-09-07T12:28:24+0000 [WARNING] [entry_service:iris_service:1] R5 rollback completed. Production version=4 (trace=914f2aed811175465c97a6e56d813a2b,span=d425521cd0c189ab,sampled=0,service.name=iris_service)
+2026-09-07T12:28:24+0000 [INFO] [entry_service:iris_service:1] 172.17.0.1:36956 (scheme=http,method=POST,path=/rollback,type=application/json,length=90) (status=200,type=application/json,length=194) 180.586ms (trace=914f2aed811175465c97a6e56d813a2b,span=d425521cd0c189ab,sampled=0,service.name=iris_service)
+
+/metrics/json
 {
-  "status": "rolled_back",
-  "model_name": "iris_classifier",
-  "from_version": "8",
-  "to_version": "7",
-  "new_model_accuracy": 0.7,
-  "previous_model_accuracy": 0.85,
-  "current_production_version": "7"
+  "total_predictions": 16,
+  "total_batches": 2,
+  "average_prediction_latency_ms": 26.5,
+  "average_batch_latency_ms": 122.44,
+  "error_count": 0,
+  "model_version": "5"
 }
-
-This provides evidence for the required rollback workflow.
-
-Manual Retraining vs Automatic Retraining
-These workflows should not be confused.
-Manual retraining
-POST /retrain/trigger
-Directly requests retraining.
-Automatic retraining
-Scheduler
-↓
-Drift check
-↓
-Threshold exceeded
-↓
-Automated retraining
-For R5 evidence, the important automatic path is the scheduler-driven flow.
-
-Monitoring
-Prediction inputs are stored by the monitoring component so that recent inputs can be used for drift detection.
-The monitoring query should remain bounded for a reference implementation.
-Recommended approach:
-SELECT
-timestamp,
-model_version,
-latency_ms
-FROM predictions
-ORDER BY timestamp DESC
-LIMIT 1000;
-This avoids loading an unbounded number of prediction records into Python as the monitoring database grows.
-
-Rollback Safety
-Rollback compares the newly evaluated model with the previous production model.
-Conceptually:
-New model
-↓
-Evaluate accuracy
-↓
-Compare with previous production
-↓
-┌─────────────────────┐
-│ New model is worse? │
-└──────────┬──────────┘
-│
-Yes  │
-▼
-Rollback
-│
-▼
-Restore previous version
-
-Known Limitations
-A valid promoted production model must exist before normal service operation and relevant tests can run.
-mlruns/ is generated as part of the Docker image/build workflow and is not intended to be committed as a developer-local artifact.
-The Docker image performs the initial model-training/setup workflow during image build.
-The automated retraining loop currently performs model training inside the serving container.
-/retrain/trigger and /rollback are currently unauthenticated destructive endpoints.
-Role-based authorization can be integrated later through the platform's require_role mechanism.
-Monitoring is intended for demonstration/reference-service scale.
-
-API Endpoints
-Endpoint
-Method
-Purpose
-/health
-GET
-Service health
-/predict
-POST
-Single prediction
-/predict_batch
-POST
-Batch prediction
-/retrain/check
-POST
-Check drift/retraining condition
-/retrain/trigger
-POST
-Manually trigger retraining
-/rollback
-POST
-Roll back production model
-
-Test Verification
-Run:
-pytest -q
-The test suite covers the service and model-management behavior.
-Before merging, verify:
-Scheduler default is disabled.
-Default scheduler interval is 3600 seconds.
-Docker builds from a clean clone.
-Docker does not depend on a developer-specific D:\ path.
-/predict works.
-/predict_batch accepts the documented JSON structure.
-Drift detection can be demonstrated.
-Automated retraining can be demonstrated.
-Candidate model evaluation is visible.
-Promotion/rejection decision is visible.
-Rollback can be demonstrated with a worse model.
-Production version is confirmed after rollback.
-
-Definition of Done
-Requirement
-Status
-Scheduler disabled by default
-✅
-One-hour safer scheduler default
-✅
-Demo can explicitly enable scheduler
-✅
-Drift threshold configured
-✅
-Automated drift-triggered retraining demonstrated
-✅
-Candidate vs production accuracy comparison demonstrated
-✅
-Model promotion demonstrated
-✅
-Rollback with worse model demonstrated
-✅
-Production version restored after rollback
-✅
-Docker run command is machine-independent
-✅
-Docker image naming is consistent
-✅
-Monitoring query is bounded
-✅
-Known limitations documented
-✅
-
-Final Production-Safe Configuration
-The committed configuration must remain:
-RETRAINING_INTERVAL_SECONDS = 3600
-ENABLE_RETRAINING_SCHEDULER = False
-For demonstration only, enable the scheduler explicitly through the environment/configuration.
-Do not commit temporary 60-second scheduler settings as the production default.
+/metrics/summary
+{
+  "request_volume": 16,
+  "latency_ms": {
+    "p50": 7.94,
+    "p95": 16.82
+  },
+  "volume_over_time": {
+    "2026-09-07T12:42": 8,
+    "2026-09-07T12:39": 8
+  },
+  "models": {
+    "1": {
+      "request_volume": 8,
+      "latency_ms": {
+        "p50": 7.94,
+        "p95": 20.98
+      },
+      "volume_over_time": {
+        "2026-09-07T12:39": 8
+      }
+    },
+    "3": {
+      "request_volume": 8,
+      "latency_ms": {
+        "p50": 9.08,
+        "p95": 13.01
+      },
+      "volume_over_time": {
+        "2026-09-07T12:42": 8
+      }
+    }
+  }
+}
