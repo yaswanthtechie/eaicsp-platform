@@ -236,6 +236,7 @@ def get_po_events(
 
 # ============================================================
 # CREATE PURCHASE ORDER
+# Requires: procurement_manager
 # ============================================================
 
 @router.post(
@@ -245,26 +246,49 @@ def get_po_events(
 )
 def create_po(
     purchase_order: PurchaseOrderCreate,
+    user=Depends(
+        require_roles("procurement_manager")
+    ),
 ):
+    """
+    Create a new Purchase Order.
+
+    Authorization:
+        - procurement_manager → allowed
+        - supplier → forbidden
+        - all other roles → forbidden
+
+    Authentication and role validation are handled by
+    require_roles(), which calls the Platform Service
+    authentication flow.
+    """
+
     try:
-        return create_purchase_order(purchase_order)
+        return create_purchase_order(
+            purchase_order
+        )
 
     except ValueError as e:
         message = str(e)
 
+        # ----------------------------------------------------
         # Duplicate PO → 409 Conflict
+        # ----------------------------------------------------
+
         if "already exists" in message:
             raise HTTPException(
                 status_code=409,
                 detail=message,
             )
 
+        # ----------------------------------------------------
         # Invalid business data → 400 Bad Request
+        # ----------------------------------------------------
+
         raise HTTPException(
             status_code=400,
             detail=message,
         )
-
 
 # ============================================================
 # BULK SEND PURCHASE ORDERS
@@ -312,7 +336,50 @@ def bulk_send_po(
     "/purchase-orders",
     response_model=list[PurchaseOrderResponse],
 )
-def list_purchase_orders():
+def list_purchase_orders(
+    user=Depends(verify_token),
+):
+    """
+    Get Purchase Orders.
+
+    Supplier:
+        Returns only Purchase Orders belonging to the
+        authenticated supplier.
+
+    Internal users:
+        Returns all Purchase Orders.
+
+    Supplier scoping rule:
+        A supplier can only see POs where the PO supplier_id
+        matches the supplier_id from the authenticated token.
+    """
+
+    # --------------------------------------------------------
+    # Supplier users are strictly scoped to their own POs
+    # --------------------------------------------------------
+
+    if user.get("role") == "supplier":
+
+        authenticated_supplier_id = user.get("supplier_id")
+
+        if not authenticated_supplier_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Supplier identity is missing",
+            )
+
+        purchase_orders = get_all_purchase_orders()
+
+        return [
+            purchase_order
+            for purchase_order in purchase_orders
+            if purchase_order.get("supplier_id")
+            == authenticated_supplier_id
+        ]
+
+    # --------------------------------------------------------
+    # Internal users can view all Purchase Orders
+    # --------------------------------------------------------
 
     return get_all_purchase_orders()
 
@@ -338,6 +405,16 @@ def get_purchase_order(
 
 # ============================================================
 # UPDATE PURCHASE ORDER
+# Requires authentication + role-based authorization
+#
+# Supplier:
+#   Can update only their own Purchase Orders.
+#
+# Procurement Manager:
+#   Can update any Purchase Order.
+#
+# Other roles:
+#   Forbidden.
 # ============================================================
 
 @router.put(
@@ -347,7 +424,83 @@ def get_purchase_order(
 def update_po(
     po_number: str,
     purchase_order: PurchaseOrderUpdate,
+    user=Depends(verify_token),
 ):
+    """
+    Update a Purchase Order.
+
+    Authorization rules:
+
+    1. User must be authenticated.
+    2. Supplier users can update only their own PO.
+    3. Procurement managers can update any PO.
+    4. All other roles are forbidden.
+
+    Supplier ownership is determined using the supplier_id
+    returned by the authenticated Platform Service token.
+    """
+
+    # --------------------------------------------------------
+    # Get requested Purchase Order
+    # --------------------------------------------------------
+
+    existing_po = get_purchase_order_by_id(po_number)
+
+    if not existing_po:
+        raise HTTPException(
+            status_code=404,
+            detail="Purchase Order not found",
+        )
+
+    user_role = user.get("role")
+
+    # --------------------------------------------------------
+    # Supplier authorization + supplier scoping
+    # --------------------------------------------------------
+
+    if user_role == "supplier":
+
+        authenticated_supplier_id = user.get("supplier_id")
+
+        if not authenticated_supplier_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Supplier identity is missing",
+            )
+
+        if (
+            authenticated_supplier_id
+            != existing_po.get("supplier_id")
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Forbidden: supplier does not own "
+                    "this Purchase Order"
+                ),
+            )
+
+    # --------------------------------------------------------
+    # Procurement manager can update any PO
+    # --------------------------------------------------------
+
+    elif user_role == "procurement_manager":
+        pass
+
+    # --------------------------------------------------------
+    # All other roles are forbidden
+    # --------------------------------------------------------
+
+    else:
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: insufficient permissions",
+        )
+
+    # --------------------------------------------------------
+    # Perform update
+    # --------------------------------------------------------
+
     try:
         updated_po = update_purchase_order(
             po_number,
@@ -371,13 +524,102 @@ def update_po(
 
 # ============================================================
 # DELETE PURCHASE ORDER
+# Requires authentication + role-based authorization
+#
+# Supplier:
+#   Can delete only their own Purchase Orders.
+#
+# Procurement Manager:
+#   Can delete any Purchase Order.
+#
+# Other roles:
+#   Forbidden.
 # ============================================================
 
 @router.delete(
     "/purchase-orders/{po_number}",
     response_model=MessageResponse,
 )
-def delete_po(po_number: str):
+def delete_po(
+    po_number: str,
+    user=Depends(verify_token),
+):
+    """
+    Delete a Purchase Order.
+
+    Authorization rules:
+
+    1. User must be authenticated.
+    2. Supplier users can delete only their own PO.
+    3. Procurement managers can delete any PO.
+    4. All other roles are forbidden.
+
+    Supplier ownership is determined using the supplier_id
+    returned by the authenticated Platform Service token.
+    """
+
+    # --------------------------------------------------------
+    # Get requested Purchase Order
+    # --------------------------------------------------------
+
+    existing_po = get_purchase_order_by_id(po_number)
+
+    if not existing_po:
+        raise HTTPException(
+            status_code=404,
+            detail="Purchase Order not found",
+        )
+
+    user_role = user.get("role")
+
+    # --------------------------------------------------------
+    # Supplier authorization + supplier scoping
+    # --------------------------------------------------------
+
+    if user_role == "supplier":
+
+        authenticated_supplier_id = user.get("supplier_id")
+
+        # Supplier token must contain supplier identity
+        if not authenticated_supplier_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Supplier identity is missing",
+            )
+
+        # Supplier can delete only their own PO
+        if (
+            authenticated_supplier_id
+            != existing_po.get("supplier_id")
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Forbidden: supplier does not own "
+                    "this Purchase Order"
+                ),
+            )
+
+    # --------------------------------------------------------
+    # Procurement manager can delete any PO
+    # --------------------------------------------------------
+
+    elif user_role == "procurement_manager":
+        pass
+
+    # --------------------------------------------------------
+    # All other roles are forbidden
+    # --------------------------------------------------------
+
+    else:
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: insufficient permissions",
+        )
+
+    # --------------------------------------------------------
+    # Perform deletion
+    # --------------------------------------------------------
 
     deleted = delete_purchase_order(po_number)
 
@@ -393,7 +635,6 @@ def delete_po(po_number: str):
             "deleted successfully."
         )
     }
-
 
 # ============================================================
 # ACKNOWLEDGE PURCHASE ORDER
@@ -434,9 +675,13 @@ def acknowledge_po(
             detail=str(e),
         )
 
-
+ 
 # ============================================================
 # TRANSITION PURCHASE ORDER
+# Requires: procurement_manager
+#
+# The transition actor is taken from the authenticated user,
+# not from the request body.
 # ============================================================
 
 @router.post(
@@ -446,15 +691,49 @@ def acknowledge_po(
 def transition_po(
     po_number: str,
     transition: PurchaseOrderTransition,
+    user=Depends(
+        require_roles("procurement_manager")
+    ),
 ):
+    """
+    Transition a Purchase Order to another lifecycle state.
+
+    Authorization:
+        - procurement_manager → allowed
+        - supplier → forbidden
+        - all other roles → forbidden
+
+    The authenticated user's email is used as the transition
+    actor. The client cannot impersonate another actor by
+    supplying a different actor value in the request body.
+    """
+
+    # --------------------------------------------------------
+    # Get authenticated actor
+    # --------------------------------------------------------
+
+    actor = user.get("email")
+
+    if not actor:
+        raise HTTPException(
+            status_code=500,
+            detail="Authenticated user identity is missing",
+        )
+
+    # --------------------------------------------------------
+    # Perform Purchase Order transition
+    # --------------------------------------------------------
 
     try:
-
         purchase_order = transition_purchase_order(
             po_number,
-            transition.actor,
+            actor,
             transition.target_state,
         )
+
+        # ----------------------------------------------------
+        # Purchase Order not found
+        # ----------------------------------------------------
 
         if not purchase_order:
             raise HTTPException(
@@ -465,9 +744,7 @@ def transition_po(
         return purchase_order
 
     except ValueError as e:
-
         raise HTTPException(
             status_code=400,
             detail=str(e),
         )
-

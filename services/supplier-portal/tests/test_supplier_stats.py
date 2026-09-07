@@ -5,6 +5,7 @@ from pydantic import ValidationError
 import pytest
 
 from app.main import app
+from app.core.auth import verify_token
 from app.services.purchase_order_service import purchase_orders
 from app.services.invoice_service import invoices
 from app.schemas.supplier_stats import (
@@ -20,6 +21,7 @@ client = TestClient(app)
 # TEST SETUP
 # ============================================================
 
+
 def setup_function():
     """
     Clear in-memory stores before every test.
@@ -29,8 +31,75 @@ def setup_function():
 
 
 # ============================================================
+# SAMPLE AUTHENTICATED USERS
+# ============================================================
+
+
+SUPPLIER_1_USER = {
+    "valid": True,
+    "user_id": 8,
+    "email": "supplier@company.com",
+    "full_name": "Supplier User",
+    "role": "supplier",
+    "supplier_id": "SUP001",
+    "is_active": True,
+}
+
+
+SUPPLIER_2_USER = {
+    "valid": True,
+    "user_id": 9,
+    "email": "supplier2@company.com",
+    "full_name": "Supplier Two",
+    "role": "supplier",
+    "supplier_id": "SUP002",
+    "is_active": True,
+}
+
+
+PROCUREMENT_USER = {
+    "valid": True,
+    "user_id": 4,
+    "email": "procurementmanager@company.com",
+    "full_name": "Procurement Manager",
+    "role": "procurement_manager",
+    "supplier_id": None,
+    "is_active": True,
+}
+
+
+COMPLIANCE_USER = {
+    "valid": True,
+    "user_id": 6,
+    "email": "compliance@company.com",
+    "full_name": "Compliance Officer",
+    "role": "compliance_officer",
+    "supplier_id": None,
+    "is_active": True,
+}
+
+
+# ============================================================
+# AUTHENTICATION HELPER
+# ============================================================
+
+
+def authenticate_as(user):
+    """
+    Override the real Platform authentication dependency
+    for supplier stats/scorecard tests.
+    """
+
+    async def mock_verify_token():
+        return user
+
+    app.dependency_overrides[verify_token] = mock_verify_token
+
+
+# ============================================================
 # SAMPLE DATA
 # ============================================================
+
 
 def create_sample_data():
     """
@@ -81,6 +150,7 @@ def create_sample_data():
 # ============================================================
 # SUPPLIER STATS
 # ============================================================
+
 
 def test_supplier_stats():
     """
@@ -160,6 +230,7 @@ def test_supplier_stats_supplier_exists_through_invoice():
 # STATS - ALL POs ON TIME
 # ============================================================
 
+
 def test_supplier_stats_all_pos_on_time():
     purchase_orders["PO1001"] = {
         "po_number": "PO1001",
@@ -195,6 +266,7 @@ def test_supplier_stats_all_pos_on_time():
 # STATS - NO PO ON TIME
 # ============================================================
 
+
 def test_supplier_stats_no_po_on_time():
     purchase_orders["PO1001"] = {
         "po_number": "PO1001",
@@ -229,6 +301,7 @@ def test_supplier_stats_no_po_on_time():
 # ============================================================
 # STATS - MIXED ON-TIME / LATE
 # ============================================================
+
 
 def test_supplier_stats_mixed_delivery():
     purchase_orders["PO1001"] = {
@@ -276,6 +349,7 @@ def test_supplier_stats_mixed_delivery():
 # STATS - UNFULFILLED PO INCLUDED IN TOTAL
 # ============================================================
 
+
 def test_supplier_stats_unfulfilled_po_in_total():
     create_sample_data()
 
@@ -294,6 +368,7 @@ def test_supplier_stats_unfulfilled_po_in_total():
 # ============================================================
 # STATS - DELIVERY ON EXPECTED DATE
 # ============================================================
+
 
 def test_delivery_on_expected_date_is_on_time():
     purchase_orders["PO1001"] = {
@@ -319,6 +394,7 @@ def test_delivery_on_expected_date_is_on_time():
 # ============================================================
 # STATS - MISSING DELIVERY DATE
 # ============================================================
+
 
 def test_supplier_stats_missing_delivery_date():
     purchase_orders["PO1001"] = {
@@ -346,6 +422,7 @@ def test_supplier_stats_missing_delivery_date():
 # SCORECARD - BASIC
 # ============================================================
 
+
 def test_supplier_scorecard():
     create_sample_data()
 
@@ -359,18 +436,10 @@ def test_supplier_scorecard():
 
     assert body["supplier_id"] == "SUP001"
 
-    # --------------------------------------------------------
-    # Delivery
-    # --------------------------------------------------------
-
     assert (
         body["scorecard"]["on_time_delivery_percentage"]
         == 50.0
     )
-
-    # --------------------------------------------------------
-    # Invoice
-    # --------------------------------------------------------
 
     assert (
         body["scorecard"]["dispute_rate_percentage"]
@@ -382,10 +451,6 @@ def test_supplier_scorecard():
         == 100.0
     )
 
-    # --------------------------------------------------------
-    # Overall score
-    # --------------------------------------------------------
-
     # 50 * 0.40 = 20
     # 100 * 0.40 = 40
     # 100 * 0.20 = 20
@@ -396,6 +461,7 @@ def test_supplier_scorecard():
 # ============================================================
 # SCORECARD - RATING AND PERFORMANCE STATUS
 # ============================================================
+
 
 def test_supplier_scorecard_rating_and_status():
     create_sample_data()
@@ -422,6 +488,7 @@ def test_supplier_scorecard_rating_and_status():
 # SCORECARD - SCORE BREAKDOWN
 # ============================================================
 
+
 def test_supplier_scorecard_score_breakdown():
     create_sample_data()
 
@@ -434,10 +501,6 @@ def test_supplier_scorecard_score_breakdown():
     body = response.json()
 
     breakdown = body["score_breakdown"]
-
-    # --------------------------------------------------------
-    # Delivery
-    # --------------------------------------------------------
 
     assert (
         breakdown["on_time_delivery"]["score"]
@@ -454,10 +517,6 @@ def test_supplier_scorecard_score_breakdown():
         == 20.0
     )
 
-    # --------------------------------------------------------
-    # Invoice accuracy
-    # --------------------------------------------------------
-
     assert (
         breakdown["invoice_accuracy"]["score"]
         == 100.0
@@ -472,10 +531,6 @@ def test_supplier_scorecard_score_breakdown():
         breakdown["invoice_accuracy"]["weighted_score"]
         == 40.0
     )
-
-    # --------------------------------------------------------
-    # Dispute performance
-    # --------------------------------------------------------
 
     assert (
         breakdown["dispute_performance"]["score"]
@@ -497,6 +552,7 @@ def test_supplier_scorecard_score_breakdown():
 # SCORECARD - DETAILS
 # ============================================================
 
+
 def test_supplier_scorecard_details():
     create_sample_data()
 
@@ -507,10 +563,6 @@ def test_supplier_scorecard_details():
     assert response.status_code == 200
 
     body = response.json()
-
-    # ========================================================
-    # PURCHASE ORDER DETAILS
-    # ========================================================
 
     po_details = body["details"]["purchase_orders"]
 
@@ -525,10 +577,6 @@ def test_supplier_scorecard_details():
     assert po_details["late_percentage"] == 0.0
     assert po_details["fulfillment_rate"] == 50.0
     assert po_details["average_delay_days"] == 0.0
-
-    # ========================================================
-    # INVOICE DETAILS
-    # ========================================================
 
     invoice_details = body["details"]["invoices"]
 
@@ -554,6 +602,7 @@ def test_supplier_scorecard_details():
 # ============================================================
 # SCORECARD - LATE DELIVERY
 # ============================================================
+
 
 def test_supplier_scorecard_late_delivery():
     purchase_orders["PO1001"] = {
@@ -590,6 +639,7 @@ def test_supplier_scorecard_late_delivery():
 # ============================================================
 # SCORECARD - MIXED DELIVERY
 # ============================================================
+
 
 def test_supplier_scorecard_mixed_delivery():
     purchase_orders["PO1001"] = {
@@ -637,6 +687,7 @@ def test_supplier_scorecard_mixed_delivery():
 # SCORECARD - CANCELLED PO
 # ============================================================
 
+
 def test_supplier_scorecard_cancelled_po():
     purchase_orders["PO1001"] = {
         "po_number": "PO1001",
@@ -670,6 +721,7 @@ def test_supplier_scorecard_cancelled_po():
 # ============================================================
 # SCORECARD - DISPUTED INVOICE
 # ============================================================
+
 
 def test_supplier_scorecard_disputed_invoice():
     create_sample_data()
@@ -707,6 +759,7 @@ def test_supplier_scorecard_disputed_invoice():
 # ============================================================
 # SCORECARD - APPROVED / REJECTED / PENDING INVOICES
 # ============================================================
+
 
 def test_supplier_scorecard_invoice_status_counts():
     create_sample_data()
@@ -761,6 +814,7 @@ def test_supplier_scorecard_invoice_status_counts():
 # SCORECARD - SUPPLIER NOT FOUND
 # ============================================================
 
+
 def test_supplier_scorecard_supplier_not_found():
     response = client.get(
         "/api/v1/suppliers/SUP999/scorecard"
@@ -776,6 +830,7 @@ def test_supplier_scorecard_supplier_not_found():
 # ============================================================
 # SCORECARD - SUPPLIER EXISTS THROUGH INVOICE
 # ============================================================
+
 
 def test_scorecard_supplier_exists_through_invoice():
     invoices["INV1001"] = {
@@ -817,6 +872,7 @@ def test_scorecard_supplier_exists_through_invoice():
 # SCORECARD - AVERAGE INVOICE CYCLE TIME
 # ============================================================
 
+
 def test_supplier_scorecard_average_invoice_cycle_time():
     create_sample_data()
 
@@ -856,6 +912,7 @@ def test_supplier_scorecard_average_invoice_cycle_time():
 # SCHEMA - SUPPLIER STATS
 # ============================================================
 
+
 def test_supplier_stats_schema():
     data = {
         "supplier_id": "SUP001",
@@ -875,6 +932,7 @@ def test_supplier_stats_schema():
 # ============================================================
 # SCHEMA - INVALID STATS VALUES
 # ============================================================
+
 
 @pytest.mark.parametrize(
     "field,value",
@@ -905,6 +963,7 @@ def test_supplier_stats_schema_validation(
 # ============================================================
 # SCHEMA - SCORECARD RESPONSE
 # ============================================================
+
 
 def test_supplier_scorecard_schema():
     data = {
@@ -1002,66 +1061,83 @@ def test_supplier_scorecard_schema():
     )
 
     assert (
-        model.score_breakdown.on_time_delivery.weighted_score
+        model.score_breakdown
+        .on_time_delivery
+        .weighted_score
         == 20.0
     )
 
     assert (
-        model.score_breakdown.invoice_accuracy.weighted_score
+        model.score_breakdown
+        .invoice_accuracy
+        .weighted_score
         == 40.0
     )
 
     assert (
-        model.score_breakdown.dispute_performance.weighted_score
+        model.score_breakdown
+        .dispute_performance
+        .weighted_score
         == 20.0
     )
 
     assert (
-        model.details.purchase_orders.pending
+        model.details
+        .purchase_orders
+        .pending
         == 1
     )
 
     assert (
-        model.details.purchase_orders.cancelled
+        model.details
+        .purchase_orders
+        .cancelled
         == 0
     )
 
     assert (
-        model.details.purchase_orders.fulfillment_rate
+        model.details
+        .purchase_orders
+        .fulfillment_rate
         == 50.0
     )
 
     assert (
-        model.details.invoices.pending
+        model.details
+        .invoices
+        .pending
         == 1
     )
 
     assert (
-        model.details.invoices.accuracy_percentage
+        model.details
+        .invoices
+        .accuracy_percentage
         == 100.0
     )
 
     assert (
-        model.details.invoices.average_cycle_time_days
+        model.details
+        .invoices
+        .average_cycle_time_days
         == 3.0
     )
+
 
 # ============================================================
 # SCHEMA - SCORECARD INVALID PERCENTAGE
 # ============================================================
+
 
 @pytest.mark.parametrize(
     "field,value",
     [
         ("on_time_delivery_percentage", -1),
         ("on_time_delivery_percentage", 101),
-
         ("dispute_rate_percentage", -1),
         ("dispute_rate_percentage", 101),
-
         ("invoice_accuracy_percentage", -1),
         ("invoice_accuracy_percentage", 101),
-
         ("overall_score", -1),
         ("overall_score", 101),
     ],
@@ -1101,3 +1177,402 @@ def test_scorecard_schema_percentage_validation(
 
     with pytest.raises(ValidationError):
         SupplierScorecard(**data)
+
+
+# ============================================================
+# R5 - SUPPLIER AUTHENTICATION & SUPPLIER SCOPING
+# ============================================================
+
+
+def test_r5_supplier_can_access_own_stats():
+    """
+    R5:
+    Supplier SUP001 can access its own statistics.
+    """
+
+    purchase_orders["PO-SUP001-001"] = {
+        "po_number": "PO-SUP001-001",
+        "supplier_id": "SUP001",
+        "status": "fulfilled",
+        "created_at": "2026-08-01T10:00:00",
+        "expected_delivery": date(2026, 8, 10),
+        "actual_delivery_date": date(2026, 8, 9),
+    }
+
+    authenticate_as(SUPPLIER_1_USER)
+
+    try:
+        response = client.get(
+            "/api/v1/suppliers/SUP001/stats"
+        )
+
+        assert response.status_code == 200
+
+        body = response.json()
+
+        assert body["supplier_id"] == "SUP001"
+
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_r5_supplier_cannot_access_other_supplier_stats():
+    """
+    R5:
+    Supplier SUP001 cannot access SUP002 statistics.
+    """
+
+    purchase_orders["PO-SUP002-001"] = {
+        "po_number": "PO-SUP002-001",
+        "supplier_id": "SUP002",
+        "status": "fulfilled",
+        "created_at": "2026-08-01T10:00:00",
+        "expected_delivery": date(2026, 8, 10),
+        "actual_delivery_date": date(2026, 8, 9),
+    }
+
+    authenticate_as(SUPPLIER_1_USER)
+
+    try:
+        response = client.get(
+            "/api/v1/suppliers/SUP002/stats"
+        )
+
+        assert response.status_code == 403
+
+        assert response.json()["detail"] == (
+            "You are not authorized to access this supplier"
+        )
+
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_r5_supplier_can_access_own_scorecard():
+    """
+    R5:
+    Supplier SUP001 can access its own scorecard.
+    """
+
+    purchase_orders["PO-SUP001-001"] = {
+        "po_number": "PO-SUP001-001",
+        "supplier_id": "SUP001",
+        "status": "fulfilled",
+        "created_at": "2026-08-01T10:00:00",
+        "expected_delivery": date(2026, 8, 10),
+        "actual_delivery_date": date(2026, 8, 9),
+    }
+
+    authenticate_as(SUPPLIER_1_USER)
+
+    try:
+        response = client.get(
+            "/api/v1/suppliers/SUP001/scorecard"
+        )
+
+        assert response.status_code == 200
+
+        body = response.json()
+
+        assert body["supplier_id"] == "SUP001"
+
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_r5_supplier_cannot_access_other_supplier_scorecard():
+    """
+    R5:
+    Supplier SUP001 cannot access SUP002 scorecard.
+    """
+
+    purchase_orders["PO-SUP002-001"] = {
+        "po_number": "PO-SUP002-001",
+        "supplier_id": "SUP002",
+        "status": "fulfilled",
+        "created_at": "2026-08-01T10:00:00",
+        "expected_delivery": date(2026, 8, 10),
+        "actual_delivery_date": date(2026, 8, 9),
+    }
+
+    authenticate_as(SUPPLIER_1_USER)
+
+    try:
+        response = client.get(
+            "/api/v1/suppliers/SUP002/scorecard"
+        )
+
+        assert response.status_code == 403
+
+        assert response.json()["detail"] == (
+            "You are not authorized to access this supplier"
+        )
+
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_r5_supplier_2_can_access_own_stats():
+    """
+    R5:
+    Supplier SUP002 can access its own statistics.
+    """
+
+    purchase_orders["PO-SUP002-001"] = {
+        "po_number": "PO-SUP002-001",
+        "supplier_id": "SUP002",
+        "status": "fulfilled",
+        "created_at": "2026-08-01T10:00:00",
+        "expected_delivery": date(2026, 8, 10),
+        "actual_delivery_date": date(2026, 8, 10),
+    }
+
+    authenticate_as(SUPPLIER_2_USER)
+
+    try:
+        response = client.get(
+            "/api/v1/suppliers/SUP002/stats"
+        )
+
+        assert response.status_code == 200
+
+        body = response.json()
+
+        assert body["supplier_id"] == "SUP002"
+
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_r5_supplier_2_cannot_access_supplier_1_stats():
+    """
+    R5:
+    Supplier SUP002 cannot access SUP001 statistics.
+    """
+
+    purchase_orders["PO-SUP001-001"] = {
+        "po_number": "PO-SUP001-001",
+        "supplier_id": "SUP001",
+        "status": "fulfilled",
+        "created_at": "2026-08-01T10:00:00",
+        "expected_delivery": date(2026, 8, 10),
+        "actual_delivery_date": date(2026, 8, 9),
+    }
+
+    authenticate_as(SUPPLIER_2_USER)
+
+    try:
+        response = client.get(
+            "/api/v1/suppliers/SUP001/stats"
+        )
+
+        assert response.status_code == 403
+
+        assert response.json()["detail"] == (
+            "You are not authorized to access this supplier"
+        )
+
+    finally:
+        app.dependency_overrides.clear()
+
+# ============================================================
+# R5 - ADDITIONAL AUTHORIZATION / EDGE CASE TESTS
+# ============================================================
+
+
+def test_r5_supplier_missing_supplier_id_cannot_access_stats():
+    """
+    R5:
+    A supplier token without supplier_id must not access
+    supplier statistics.
+    """
+
+    supplier_without_id = {
+        "valid": True,
+        "user_id": 10,
+        "email": "supplier-no-id@company.com",
+        "full_name": "Supplier Without ID",
+        "role": "supplier",
+        "supplier_id": None,
+        "is_active": True,
+    }
+
+    purchase_orders["PO-NOID-001"] = {
+        "po_number": "PO-NOID-001",
+        "supplier_id": "SUP001",
+        "status": "fulfilled",
+        "created_at": "2026-08-01T10:00:00",
+        "expected_delivery": date(2026, 8, 10),
+        "actual_delivery_date": date(2026, 8, 9),
+    }
+
+    authenticate_as(supplier_without_id)
+
+    try:
+        response = client.get(
+            "/api/v1/suppliers/SUP001/stats"
+        )
+
+        assert response.status_code == 403
+
+        assert response.json()["detail"] == (
+            "Supplier identity is missing"
+        )
+
+    finally:
+        app.dependency_overrides.clear()
+
+def test_r5_supplier_missing_supplier_id_cannot_access_scorecard():
+    """
+    R5:
+    A supplier token without supplier_id must not access
+    supplier scorecard.
+    """
+
+    supplier_without_id = {
+        "valid": True,
+        "user_id": 10,
+        "email": "supplier-no-id@company.com",
+        "full_name": "Supplier Without ID",
+        "role": "supplier",
+        "supplier_id": None,
+        "is_active": True,
+    }
+
+    purchase_orders["PO-NOID-002"] = {
+        "po_number": "PO-NOID-002",
+        "supplier_id": "SUP001",
+        "status": "fulfilled",
+        "created_at": "2026-08-01T10:00:00",
+        "expected_delivery": date(2026, 8, 10),
+        "actual_delivery_date": date(2026, 8, 9),
+    }
+
+    authenticate_as(supplier_without_id)
+
+    try:
+        response = client.get(
+            "/api/v1/suppliers/SUP001/scorecard"
+        )
+
+        assert response.status_code == 403
+
+        assert response.json()["detail"] == (
+            "Supplier identity is missing"
+        )
+
+    finally:
+        app.dependency_overrides.clear()
+
+def test_r5_supplier_unknown_supplier_stats_returns_404():
+    """
+    R5:
+    A supplier requesting a completely unknown supplier
+    must receive 404.
+    """
+
+    authenticate_as(SUPPLIER_1_USER)
+
+    try:
+        response = client.get(
+            "/api/v1/suppliers/SUP999/stats"
+        )
+
+        assert response.status_code == 404
+
+        assert response.json()["detail"] == (
+            "Supplier 'SUP999' not found."
+        )
+
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_r5_supplier_unknown_supplier_scorecard_returns_404():
+    """
+    R5:
+    A supplier requesting a completely unknown supplier
+    scorecard must receive 404.
+    """
+
+    authenticate_as(SUPPLIER_1_USER)
+
+    try:
+        response = client.get(
+            "/api/v1/suppliers/SUP999/scorecard"
+        )
+
+        assert response.status_code == 404
+
+        assert response.json()["detail"] == (
+            "Supplier 'SUP999' not found."
+        )
+
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_r5_internal_role_can_access_other_supplier_stats():
+    """
+    R5:
+    Internal authorized roles are not restricted by
+    supplier ownership scoping.
+    """
+
+    purchase_orders["PO-SUP002-001"] = {
+        "po_number": "PO-SUP002-001",
+        "supplier_id": "SUP002",
+        "status": "fulfilled",
+        "created_at": "2026-08-01T10:00:00",
+        "expected_delivery": date(2026, 8, 10),
+        "actual_delivery_date": date(2026, 8, 9),
+    }
+
+    authenticate_as(PROCUREMENT_USER)
+
+    try:
+        response = client.get(
+            "/api/v1/suppliers/SUP002/stats"
+        )
+
+        assert response.status_code == 200
+
+        body = response.json()
+
+        assert body["supplier_id"] == "SUP002"
+
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_r5_internal_role_can_access_other_supplier_scorecard():
+    """
+    R5:
+    Internal authorized roles can access another
+    supplier's scorecard.
+    """
+
+    purchase_orders["PO-SUP002-001"] = {
+        "po_number": "PO-SUP002-001",
+        "supplier_id": "SUP002",
+        "status": "fulfilled",
+        "created_at": "2026-08-01T10:00:00",
+        "expected_delivery": date(2026, 8, 10),
+        "actual_delivery_date": date(2026, 8, 9),
+    }
+
+    authenticate_as(PROCUREMENT_USER)
+
+    try:
+        response = client.get(
+            "/api/v1/suppliers/SUP002/scorecard"
+        )
+
+        assert response.status_code == 200
+
+        body = response.json()
+
+        assert body["supplier_id"] == "SUP002"
+
+    finally:
+        app.dependency_overrides.clear()

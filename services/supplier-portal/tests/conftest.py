@@ -1,5 +1,7 @@
 import pytest
 
+from fastapi.testclient import TestClient
+
 from app.main import app
 from app.core.auth import verify_token
 
@@ -11,6 +13,28 @@ SUPPLIER_USER = {
     "full_name": "Supplier User",
     "role": "supplier",
     "supplier_id": "SUP001",
+    "is_active": True,
+}
+
+
+SUPPLIER_B_USER = {
+    "valid": True,
+    "user_id": 99,
+    "role": "supplier",
+    "supplier_id": "SUP002",
+    "email": "supplierb@example.com",
+    "full_name": "Supplier B",
+    "is_active": True,
+}
+
+
+SUPPLIER_NO_ID_USER = {
+    "valid": True,
+    "user_id": 100,
+    "email": "supplier-no-id@example.com",
+    "full_name": "Supplier Without ID",
+    "role": "supplier",
+    "supplier_id": None,
     "is_active": True,
 }
 
@@ -37,77 +61,114 @@ COMPLIANCE_USER = {
 }
 
 
+class AuthenticatedTestClient(TestClient):
+    """
+    TestClient that applies its own authentication user
+    immediately before every request.
+
+    This prevents different role-specific clients from
+    overwriting each other's authentication state.
+    """
+
+    def __init__(self, app, user):
+        self.test_user = user
+        super().__init__(app)
+
+    def request(self, *args, **kwargs):
+        async def mock_verify_token():
+            return self.test_user
+
+        app.dependency_overrides[verify_token] = (
+            mock_verify_token
+        )
+
+        return super().request(*args, **kwargs)
+
+
 @pytest.fixture(autouse=True)
 def mock_authentication():
     """
-    Automatically authenticate tests as SUP001 supplier.
+    Default authentication for tests that do not explicitly
+    request a role-specific client.
 
-    This is required because test_invoices.py creates
-    TestClient(app) directly instead of using a client fixture.
+    Default user = SUP001 supplier.
     """
 
     async def mock_verify_token():
         return SUPPLIER_USER
 
-    app.dependency_overrides[verify_token] = mock_verify_token
+    app.dependency_overrides[verify_token] = (
+        mock_verify_token
+    )
 
     yield
 
-    app.dependency_overrides.clear()
+    app.dependency_overrides.pop(
+        verify_token,
+        None,
+    )
 
 
 @pytest.fixture
 def supplier_client():
     """
-    Authenticated supplier client.
+    TestClient authenticated as supplier SUP001.
     """
 
-    async def mock_verify_token():
-        return SUPPLIER_USER
-
-    app.dependency_overrides[verify_token] = mock_verify_token
-
-    from fastapi.testclient import TestClient
-
-    with TestClient(app) as test_client:
+    with AuthenticatedTestClient(
+        app,
+        SUPPLIER_USER,
+    ) as test_client:
         yield test_client
 
-    app.dependency_overrides.clear()
+
+@pytest.fixture
+def supplier_b_client():
+    """
+    TestClient authenticated as supplier SUP002.
+    """
+
+    with AuthenticatedTestClient(
+        app,
+        SUPPLIER_B_USER,
+    ) as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def supplier_no_id_client():
+    """
+    TestClient authenticated as supplier without supplier_id.
+    """
+
+    with AuthenticatedTestClient(
+        app,
+        SUPPLIER_NO_ID_USER,
+    ) as test_client:
+        yield test_client
 
 
 @pytest.fixture
 def procurement_client():
     """
-    Authenticated procurement manager client.
+    TestClient authenticated as procurement manager.
     """
 
-    async def mock_verify_token():
-        return PROCUREMENT_USER
-
-    app.dependency_overrides[verify_token] = mock_verify_token
-
-    from fastapi.testclient import TestClient
-
-    with TestClient(app) as test_client:
+    with AuthenticatedTestClient(
+        app,
+        PROCUREMENT_USER,
+    ) as test_client:
         yield test_client
-
-    app.dependency_overrides.clear()
 
 
 @pytest.fixture
 def compliance_client():
     """
-    Authenticated compliance officer client.
+    TestClient authenticated as compliance officer.
     """
 
-    async def mock_verify_token():
-        return COMPLIANCE_USER
-
-    app.dependency_overrides[verify_token] = mock_verify_token
-
-    from fastapi.testclient import TestClient
-
-    with TestClient(app) as test_client:
+    with AuthenticatedTestClient(
+        app,
+        COMPLIANCE_USER,
+    ) as test_client:
         yield test_client
-
-    app.dependency_overrides.clear()

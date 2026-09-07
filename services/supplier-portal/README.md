@@ -249,10 +249,9 @@ Supplier Portal Authorization
 The current dependency versions are maintained in `requirements.txt`.
 
 ---
-
 # 5. Project Structure
 
-The project follows this structure:
+The Supplier Portal Service follows a layered FastAPI architecture separating application configuration, authentication, API routes, validation schemas, business logic, and automated tests.
 
 ```text
 supplier-portal/
@@ -283,6 +282,7 @@ supplier-portal/
 │   ├── conftest.py
 │   ├── test_purchase_order.py
 │   ├── test_invoices.py
+│   ├── test_auth.py
 │   └── test_supplier_stats.py
 │
 ├── uploads/
@@ -298,9 +298,10 @@ supplier-portal/
 
 Responsible for:
 
-* Creating the FastAPI application
-* Registering routers
+* Creating and configuring the FastAPI application
+* Registering application routers
 * Defining the root endpoint
+* Initializing the application entry point
 
 ### Core Layer
 
@@ -308,99 +309,163 @@ Responsible for:
 
 Responsible for:
 
-* Bearer-token handling
-* Authentication with Platform Service
-* Role authorization
+* Bearer-token extraction and handling
+* Authentication with the Platform Service
+* Role-based authorization
+* Authenticated user identity propagation
 * Supplier identity propagation
-* Request ID handling
+* Supplier-level access control
+* Request ID generation and propagation
+* Authentication error handling
 
 `app/core/config.py`
 
 Responsible for:
 
-* Environment configuration
-* Platform authentication URL
+* Environment-based configuration
+* Platform authentication service URL
 * Upload directory configuration
+* Application configuration values
 
 ### Routes
 
-Responsible for:
+The route layer is responsible for:
 
-* HTTP endpoints
-* Request handling
+* Defining HTTP endpoints
+* Processing incoming requests
 * Dependency injection
-* HTTP response codes
-* Calling service functions
+* Authentication and authorization dependencies
+* Supplier ownership and scoping checks
+* HTTP status-code handling
+* Calling the appropriate service-layer functions
 
 ### Schemas
 
-Responsible for:
+The schema layer is responsible for:
 
 * Request validation
 * Response validation
 * Field constraints
 * Regex validation
-* Percentage boundaries
+* Percentage and numeric boundaries
+* API data-model definitions
 
 ### Services
 
-Responsible for:
+The service layer is responsible for:
 
 * Business rules
-* State machines
-* Validation
-* Calculations
-* Document handling
+* Purchase-order lifecycle state transitions
+* Invoice lifecycle state transitions
+* Business validation
+* Supplier performance calculations
 * Supplier scorecard calculations
+* Invoice and purchase-order processing
+* Document handling
 
----
+### Tests
+
+The `tests/` directory contains automated test coverage for:
+
+* Purchase-order APIs and lifecycle operations
+* Invoice APIs and lifecycle operations
+* Authentication and Platform Service integration
+* Role-based authorization
+* Supplier-level data scoping
+* Cross-supplier access rejection
+* Supplier statistics
+* Supplier scorecards
+* Validation and business rules
+
+### R5 Authentication and Supplier Scoping
+
+Round 5 extends the application with authentication, role-based authorization, and supplier-level data isolation across supplier-facing endpoints.
+
+The route layer obtains the authenticated user through the Platform Service authentication dependency and applies the appropriate access-control rules before returning protected resources.
+
+The primary R5 security principle is:
+
+```text
+A valid supplier token does not provide unrestricted supplier access.
+
+The authenticated supplier must own the requested resource.
+```
+
+For example:
+
+```text
+Supplier A
+supplier_id = SUP001
+       │
+       │ requests
+       ▼
+Supplier B resource
+supplier_id = SUP002
+       │
+       ▼
+HTTP 403 Forbidden
+```
+
+Supplier users are therefore restricted to resources belonging to their authenticated `supplier_id`.
+
+Internal authorized roles may access supplier data according to their assigned permissions and role-based access rules.
+
+Supplier identities without a valid `supplier_id` are rejected from supplier-scoped operations with `HTTP 403 Forbidden`.
+
+Unknown supplier resources return `HTTP 404 Not Found`, while authenticated suppliers attempting to access another supplier's existing resource return `HTTP 403 Forbidden`.
+
+This separation ensures that authentication establishes **who the caller is**, while supplier scoping determines **which supplier data the caller is authorized to access**.
 
 # 6. Authentication and Authorization
 
 The Supplier Portal uses the **Platform Service as the authentication provider**.
 
-The Supplier Portal does not locally decode or validate JWT tokens.
+The Supplier Portal does not locally decode or validate JWT tokens. Instead, it forwards the received Bearer token to the Platform Service for validation.
 
-Instead, it sends the received Bearer token to:
+The authentication endpoint used by the Supplier Portal is:
 
 ```http
 POST /api/v1/auth/verify
 ```
 
-on the Platform Service.
-
 ## Authentication Flow
 
 ```text
 Client
-  │
-  │ Authorization: Bearer <token>
-  ▼
+   │
+   │ Authorization: Bearer <token>
+   ▼
 Supplier Portal
-  │
-  │ Verify token
-  ▼
+   │
+   │ Verify token with Platform Service
+   ▼
 Platform Service
-  │
-  ├── valid
-  ├── user_id
-  ├── email
-  ├── full_name
-  ├── role
-  ├── supplier_id
-  └── is_active
-  │
-  ▼
+   │
+   ├── valid
+   ├── user_id
+   ├── email
+   ├── full_name
+   ├── role
+   ├── supplier_id
+   └── is_active
+   │
+   ▼
 Supplier Portal
-  │
-  ▼
-Role / Supplier Authorization
-  │
-  ▼
-Endpoint
+   │
+   ▼
+Authentication
+   │
+   ▼
+Role Authorization
+   │
+   ▼
+Supplier Ownership Check
+   │
+   ▼
+Endpoint / Resource
 ```
 
-The authentication request also sends:
+The authentication request also includes the following headers:
 
 ```text
 X-Caller-Service
@@ -408,79 +473,138 @@ X-Caller-Endpoint
 X-Request-ID
 ```
 
-If the client does not provide `X-Request-ID`, the Supplier Portal generates one.
+If the client does not provide an `X-Request-ID`, the Supplier Portal generates a request ID before calling the Platform Service.
 
 ## Authentication Configuration
 
-The Platform Service URL is configured using:
+The Platform Service URL is configured using the following environment variable:
 
 ```text
 PLATFORM_AUTH_URL
 ```
 
-Default:
+The default development value is:
 
 ```text
 http://127.0.0.1:8005
 ```
 
+### Starting the Platform Service
+
+The Platform Service can be started locally using:
+
+```powershell
+python -m uvicorn app.main:app --reload --port 8005
+```
+
+The Supplier Portal can then communicate with the Platform Service using the configured `PLATFORM_AUTH_URL`.
+
 ## Authentication Errors
 
-The Supplier Portal handles:
+The Supplier Portal handles authentication and authorization failures as follows:
 
-| Situation                          | Response |
-| ---------------------------------- | -------- |
-| Missing token                      | 401      |
-| Invalid token                      | 401      |
-| Expired token                      | 401      |
-| Missing user role                  | 401      |
-| Unauthorized role                  | 403      |
-| Authentication timeout             | 503      |
-| Authentication service unavailable | 503      |
-| Invalid authentication response    | 503      |
-
----
+| Situation                            | Response |
+| ------------------------------------ | -------: |
+| Missing token                        |      401 |
+| Invalid token                        |      401 |
+| Expired token                        |      401 |
+| Missing user role                    |      401 |
+| Unauthorized role                    |      403 |
+| Supplier identity missing            |      403 |
+| Supplier resource ownership mismatch |      403 |
+| Authentication timeout               |      503 |
+| Authentication service unavailable   |      503 |
+| Invalid authentication response      |      503 |
 
 ## Supplier Scoping
 
-Supplier-facing endpoints enforce supplier ownership.
+Supplier-facing endpoints enforce **supplier ownership** in addition to authentication.
+
+A valid supplier token identifies the authenticated supplier through the `supplier_id` returned by the Platform Service.
 
 For example:
 
 ```text
-Authenticated Supplier:
-SUP001
-```
-
-Trying to access:
-
-```text
-SUP002
-```
-
-is rejected.
-
-```text
-Supplier Token
-     │
-     ▼
+Authenticated Supplier
+        │
+        ▼
 supplier_id = SUP001
-     │
-     ▼
+        │
+        ▼
 Requested Resource
 supplier_id = SUP002
-     │
-     ▼
-HTTP 403
+        │
+        ▼
+HTTP 403 Forbidden
 ```
 
-This prevents one supplier from accessing another supplier's Purchase Orders, invoices, documents, or supplier performance information.
+A supplier authenticated as `SUP001` cannot access a resource owned by `SUP002`.
 
----
+This prevents one supplier from accessing another supplier's:
+
+* Purchase Orders
+* Purchase Order events
+* Invoices
+* Invoice documents
+* Supplier statistics
+* Supplier scorecards
+
+A supplier user without a valid `supplier_id` is also rejected from supplier-scoped resources:
+
+```text
+Supplier Role
+     │
+     ▼
+supplier_id missing
+     │
+     ▼
+HTTP 403 Forbidden
+```
+
+## Supplier List Filtering
+
+Collection endpoints are also protected by authentication and supplier-level filtering.
+
+The following endpoints require authentication:
+
+```http
+GET /api/v1/purchase-orders
+GET /api/v1/invoices
+```
+
+When the authenticated user has the `supplier` role, the Supplier Portal returns only records belonging to that supplier.
+
+Internal authorized users can access the broader collection according to their assigned role.
+
+### Purchase Order List Scoping
+
+```text
+Supplier SUP001
+      │
+      ▼
+GET /api/v1/purchase-orders
+      │
+      ▼
+Only SUP001 Purchase Orders
+```
+
+### Invoice List Scoping
+
+```text
+Supplier SUP001
+      │
+      ▼
+GET /api/v1/invoices
+      │
+      ▼
+Only SUP001 Invoices
+```
+
+This ensures that authenticated supplier users cannot retrieve another supplier's records through collection endpoints.
 
 ## Role-Based Authorization
 
-The service supports role-based authorization through:
+The Supplier Portal supports role-based authorization through:
 
 ```python
 require_roles(...)
@@ -494,13 +618,67 @@ compliance_officer
 supplier
 ```
 
-Examples:
+Examples of role-based restrictions include:
 
-* Bulk PO sending requires `procurement_manager`
+* Purchase Order creation requires `procurement_manager`
+* Purchase Order transition requires `procurement_manager`
+* Bulk Purchase Order sending requires `procurement_manager`
 * Invoice adjustment requires `compliance_officer`
 * Supplier-specific resources require the authenticated supplier to own the resource
+* Supplier collection endpoints return only the authenticated supplier's resources
 
----
+Role authorization and supplier ownership are **separate security checks**.
+
+```text
+Authentication
+      │
+      ▼
+Role Authorization
+      │
+      ▼
+Supplier Ownership
+      │
+      ▼
+Resource Access
+```
+
+A valid token therefore does not automatically grant access to every resource.
+
+## Round 5 Security Requirement
+
+The primary Round 5 security requirement is:
+
+```text
+A valid supplier token does not provide unrestricted supplier access.
+```
+
+The authenticated supplier must own the requested supplier-scoped resource.
+
+Examples:
+
+```text
+SUP001 token → SUP001 PO         → Allowed
+SUP001 token → SUP002 PO         → 403 Forbidden
+
+SUP001 token → SUP001 Invoice    → Allowed
+SUP001 token → SUP002 Invoice    → 403 Forbidden
+
+SUP001 token → SUP001 Scorecard  → Allowed
+SUP001 token → SUP002 Scorecard  → 403 Forbidden
+```
+
+The same ownership principle applies to supplier-scoped Purchase Order events, invoice documents, statistics, and other supplier resources.
+
+Supplier-level authorization is enforced at the API layer and covered by automated Round 5 tests, including:
+
+* Supplier cannot view another supplier's Purchase Order
+* Supplier cannot acknowledge another supplier's Purchase Order
+* Supplier cannot view another supplier's Invoice
+* Supplier cannot access another supplier's Scorecard
+* Supplier cannot access another supplier's Statistics
+* Supplier token without `supplier_id` is rejected
+* Supplier collection endpoints return only the authenticated supplier's resources
+
 
 # 7. Purchase Order Management
 
@@ -512,13 +690,21 @@ A Purchase Order contains:
 
 ```text
 po_number
+
 supplier_id
+
 items
+
 total_amount
+
 status
+
 created_at
+
 expected_delivery
+
 actual_delivery_date
+
 history
 ```
 
@@ -538,6 +724,7 @@ draft
              └─────────────┘
                 ▲   ▲   ▲
                 │   │   │
+
 Draft ───────► Sent ───────► Acknowledged ───────► Fulfilled
 ```
 
@@ -555,6 +742,7 @@ Terminal states:
 
 ```text
 fulfilled
+
 cancelled
 ```
 
@@ -570,6 +758,12 @@ Endpoint:
 POST /api/v1/purchase-orders
 ```
 
+Authorization:
+
+```text
+procurement_manager
+```
+
 The service validates:
 
 * PO number
@@ -582,6 +776,109 @@ The service validates:
 * Duplicate PO number
 
 The calculated item total must match the submitted `total_amount`.
+
+---
+
+## PO List
+
+Endpoint:
+
+```http
+GET /api/v1/purchase-orders
+```
+
+The endpoint requires authentication.
+
+For supplier users, the response is filtered using the authenticated `supplier_id`.
+
+```text
+Supplier SUP001
+      │
+      ▼
+Authenticated request
+      │
+      ▼
+Filter supplier_id = SUP001
+      │
+      ▼
+Only SUP001 Purchase Orders
+```
+
+Internal authorized users can access the broader Purchase Order collection according to their role.
+
+---
+
+## Get PO
+
+Endpoint:
+
+```http
+GET /api/v1/purchase-orders/{po_number}
+```
+
+The endpoint is supplier-scoped.
+
+The authenticated supplier must own the Purchase Order.
+
+A supplier attempting to access another supplier's Purchase Order receives:
+
+```text
+403 Forbidden
+```
+
+---
+
+## PO Update
+
+Endpoint:
+
+```http
+PUT /api/v1/purchase-orders/{po_number}
+```
+
+Authorization:
+
+```text
+procurement_manager
+```
+
+or:
+
+```text
+supplier
+```
+
+with ownership of the requested Purchase Order.
+
+A supplier cannot update another supplier's Purchase Order.
+
+---
+
+## PO Delete
+
+Endpoint:
+
+```http
+DELETE /api/v1/purchase-orders/{po_number}
+```
+
+Authorization:
+
+```text
+procurement_manager
+```
+
+or:
+
+```text
+supplier
+```
+
+with ownership of the requested Purchase Order.
+
+Supplier ownership is checked before the Purchase Order is deleted.
+
+Historical PO events remain retained after deletion.
 
 ---
 
@@ -601,9 +898,17 @@ The acknowledgement performs:
 
 ```text
 sent
+
   │
   ▼
+
 acknowledged
+```
+
+A supplier attempting to acknowledge another supplier's Purchase Order is rejected with:
+
+```text
+403 Forbidden
 ```
 
 ---
@@ -614,6 +919,12 @@ Endpoint:
 
 ```http
 POST /api/v1/purchase-orders/{po_number}/transition
+```
+
+Authorization:
+
+```text
+procurement_manager
 ```
 
 Example:
@@ -669,7 +980,9 @@ Therefore:
 
 ```text
 PO1001 → Success
+
 PO1002 → Success
+
 PO9999 → Failure
 ```
 
@@ -679,8 +992,11 @@ The response contains:
 
 ```text
 total
+
 successful
+
 failed
+
 results
 ```
 
@@ -692,10 +1008,15 @@ Every successful state transition creates an event containing:
 
 ```text
 po_number
+
 supplier_id
+
 actor
+
 from_status
+
 to_status
+
 timestamp
 ```
 
@@ -717,7 +1038,9 @@ Endpoint:
 GET /api/v1/purchase-orders/{po_number}/events
 ```
 
-The endpoint returns the Purchase Order's transition history.
+The endpoint is supplier-scoped.
+
+The authenticated supplier must own the Purchase Order.
 
 Historical events are intentionally retained when a Purchase Order is deleted.
 
@@ -725,11 +1048,15 @@ Therefore:
 
 ```text
 Delete PO
+
    │
    ▼
+
 PO record removed
+
    │
    ▼
+
 Historical events retained
 ```
 
@@ -761,7 +1088,9 @@ Therefore:
 
 ```text
 Before expected date → On time
+
 Expected date        → On time
+
 After expected date  → Late
 ```
 
@@ -781,14 +1110,23 @@ An invoice contains:
 
 ```text
 invoice_number
+
 supplier_id
+
 items
+
 amount
+
 invoice_date
+
 status
+
 dispute
+
 adjustment
+
 document_url
+
 history
 ```
 
@@ -846,19 +1184,86 @@ Endpoint:
 POST /api/v1/invoices
 ```
 
+The endpoint requires authentication.
+
+For supplier users, the authenticated `supplier_id` must match the invoice supplier.
+
 The service validates:
 
 ```text
 Invoice number
+
 Supplier ID
+
 Purchase Order
+
 Purchase Order supplier
+
 Purchase Order status
+
 Invoice items
+
 Invoice quantities
+
 Invoice unit prices
+
 Invoice amount
+
 Duplicate invoice
+```
+
+---
+
+## Invoice List
+
+Endpoint:
+
+```http
+GET /api/v1/invoices
+```
+
+The endpoint requires authentication.
+
+For supplier users, only invoices belonging to the authenticated supplier are returned.
+
+For internal authorized users, the broader invoice collection can be returned according to the user's role.
+
+Example:
+
+```text
+Supplier SUP001
+
+      │
+      ▼
+
+GET /api/v1/invoices
+
+      │
+      ▼
+
+Only SUP001 invoices
+```
+
+A supplier cannot use the collection endpoint to discover another supplier's invoices.
+
+---
+
+## Get Invoice
+
+Endpoint:
+
+```http
+GET /api/v1/invoices/{supplier_id}/{invoice_number}
+```
+
+The endpoint is supplier-scoped.
+
+The authenticated supplier must own the requested invoice.
+
+A supplier attempting to access another supplier's invoice receives:
+
+```text
+403 Forbidden
 ```
 
 ---
@@ -869,6 +1274,7 @@ An invoice can only reference a PO whose status is:
 
 ```text
 acknowledged
+
 fulfilled
 ```
 
@@ -876,6 +1282,7 @@ Invoices cannot be created against:
 
 ```text
 draft
+
 sent
 ```
 
@@ -883,19 +1290,30 @@ Therefore:
 
 ```text
 Draft
+
   │
+
   └── Invoice rejected
+
 
 Sent
+
   │
+
   └── Invoice rejected
 
+
 Acknowledged
+
   │
+
   └── Invoice allowed
 
+
 Fulfilled
+
   │
+
   └── Invoice allowed
 ```
 
@@ -909,12 +1327,15 @@ For example:
 
 ```text
 PO supplier = SUP001
+
 Invoice supplier = SUP002
 ```
 
 is rejected.
 
 This prevents invoices from being associated with another supplier's Purchase Order.
+
+R5 additionally ensures that the authenticated supplier identity must match the supplier being acted upon.
 
 ---
 
@@ -949,11 +1370,14 @@ Supplier-specific directories are used:
 
 ```text
 uploads/
+
 ├── SUP001/
+
 │   ├── INV1001.pdf
 │   └── INV1002.pdf
 │
 └── SUP002/
+
     └── INV2001.pdf
 ```
 
@@ -970,6 +1394,8 @@ POST /api/v1/invoices/{supplier_id}/{invoice_number}/document
 The endpoint is supplier-scoped.
 
 The authenticated supplier must own the invoice.
+
+A supplier cannot upload a document to another supplier's invoice.
 
 ---
 
@@ -989,7 +1415,9 @@ Other types such as:
 
 ```text
 image/png
+
 text/plain
+
 application/json
 ```
 
@@ -1029,6 +1457,7 @@ Example:
 
 ```text
 document_path:
+
 SUP001/INV1001.pdf
 ```
 
@@ -1044,11 +1473,16 @@ Therefore:
 
 ```text
 document_path
+
      │
+
      └── Internal filesystem reference
 
+
 document_url
+
      │
+
      └── Public API reference
 ```
 
@@ -1094,24 +1528,38 @@ Endpoint:
 GET /api/v1/invoices/{supplier_id}/{invoice_number}/document
 ```
 
+The endpoint is supplier-scoped.
+
+The authenticated supplier must own the invoice.
+
 The service performs:
 
 ```text
 Find invoice
+
      │
      ▼
+
 Check document_path
+
      │
      ▼
+
 Resolve safe filesystem path
+
      │
      ▼
+
 Check path is inside uploads/
+
      │
      ▼
+
 Check file exists
+
      │
      ▼
+
 Return FileResponse
 ```
 
@@ -1139,9 +1587,13 @@ The dispute information records details such as:
 
 ```text
 reason
+
 actor_id
+
 actor_name
+
 role
+
 timestamp
 ```
 
@@ -1173,11 +1625,17 @@ The adjustment records audit information including:
 
 ```text
 actor
+
 reason
+
 timestamp
+
 old amount
+
 new amount
+
 old items
+
 new items
 ```
 
@@ -1185,8 +1643,11 @@ The invoice then moves:
 
 ```text
 disputed
+
     │
+
     ▼
+
 adjusted
 ```
 
@@ -1212,6 +1673,10 @@ Endpoint:
 POST /api/v1/invoices/{supplier_id}/{invoice_number}/transition
 ```
 
+The endpoint is supplier-scoped.
+
+The authenticated supplier must own the invoice.
+
 The service validates:
 
 1. Invoice exists
@@ -1235,14 +1700,67 @@ Supplier statistics are available through:
 GET /api/v1/suppliers/{supplier_id}/stats
 ```
 
+The endpoint requires authentication.
+
+For supplier users, the authenticated `supplier_id` must match the requested `supplier_id`.
+
 The endpoint provides:
 
 ```text
 supplier_id
+
 po_count
+
 on_time_percentage
+
 average_invoice_cycle_time
 ```
+
+---
+
+## Supplier-Level Access Control
+
+Supplier statistics are protected by supplier ownership.
+
+Example:
+
+```text
+Authenticated supplier:
+
+SUP001
+```
+
+Request:
+
+```text
+/suppliers/SUP001/stats
+```
+
+Result:
+
+```text
+Allowed
+```
+
+Request:
+
+```text
+/suppliers/SUP002/stats
+```
+
+Result:
+
+```text
+403 Forbidden
+```
+
+A supplier user without a `supplier_id` receives:
+
+```text
+403 Forbidden
+```
+
+Internal authorized users can access supplier statistics for other suppliers according to their role.
 
 ---
 
@@ -1258,9 +1776,13 @@ This includes:
 
 ```text
 draft
+
 sent
+
 acknowledged
+
 fulfilled
+
 cancelled
 ```
 
@@ -1272,6 +1794,7 @@ The implemented business rule is:
 
 ```text
 on-time percentage =
+
 (on-time POs / total supplier POs) × 100
 ```
 
@@ -1285,6 +1808,7 @@ Example:
 
 ```text
 Total POs = 3
+
 On-time POs = 2
 
 On-time percentage = 66.67%
@@ -1310,6 +1834,7 @@ Example:
 
 ```text
 PO created:   August 1
+
 Invoice date: August 4
 
 Cycle time = 3 days
@@ -1327,9 +1852,13 @@ The statistics service supports:
 
 ```text
 date
+
 datetime
+
 ISO date string
+
 ISO datetime string
+
 ISO datetime with Z
 ```
 
@@ -1357,6 +1886,28 @@ Example:
 }
 ```
 
+### R5 404 vs 403 Behavior
+
+For supplier statistics and scorecards, the service first determines whether the supplier exists.
+
+Therefore:
+
+```text
+Known supplier + wrong supplier token
+        ↓
+403 Forbidden
+```
+
+while:
+
+```text
+Unknown supplier
+        ↓
+404 Not Found
+```
+
+This distinction is intentional.
+
 ---
 
 # 11. Supplier Performance Scorecard
@@ -1369,17 +1920,31 @@ Endpoint:
 GET /api/v1/suppliers/{supplier_id}/scorecard
 ```
 
+The endpoint requires authentication.
+
+Supplier users can access only their own scorecard.
+
+Internal authorized users can access supplier scorecards according to their role.
+
 The scorecard contains:
 
 ```text
 On-time delivery
+
 Invoice accuracy
+
 Dispute rate
+
 Dispute performance
+
 Overall score
+
 Rating
+
 Performance status
+
 Detailed PO metrics
+
 Detailed invoice metrics
 ```
 
@@ -1461,7 +2026,9 @@ The overall score is calculated using:
 
 ```text
 40% → On-time delivery
+
 40% → Invoice accuracy
+
 20% → Dispute performance
 ```
 
@@ -1469,8 +2036,11 @@ Formula:
 
 ```text
 overall score =
+
     (on-time delivery × 0.40)
+
   + (invoice accuracy × 0.40)
+
   + (dispute performance × 0.20)
 ```
 
@@ -1478,7 +2048,9 @@ Example:
 
 ```text
 On-time delivery     = 75
+
 Invoice accuracy     = 80
+
 Dispute performance  = 90
 ```
 
@@ -1486,7 +2058,9 @@ Calculation:
 
 ```text
 (75 × 0.40)
+
 + (80 × 0.40)
+
 + (90 × 0.20)
 
 = 30 + 32 + 18
@@ -1525,14 +2099,23 @@ The scorecard also provides detailed Purchase Order metrics:
 
 ```text
 total
+
 fulfilled
+
 on_time
+
 late
+
 pending
+
 cancelled
+
 on_time_percentage
+
 late_percentage
+
 fulfillment_rate
+
 average_delay_days
 ```
 
@@ -1540,15 +2123,25 @@ Invoice metrics include:
 
 ```text
 total
+
 accurate
+
 inaccurate
+
 disputed
+
 approved
+
 rejected
+
 pending
+
 accuracy_percentage
+
 dispute_rate_percentage
+
 approval_rate_percentage
+
 average_cycle_time_days
 ```
 
@@ -1562,14 +2155,23 @@ For example:
 
 ```text
 submitted
+
     │
+
     ▼
+
 disputed
+
     │
+
     ▼
+
 adjusted
+
     │
+
     ▼
+
 approved
 ```
 
@@ -1587,7 +2189,9 @@ The scorecard checks:
 
 ```text
 Supplier exists in PO store
+
         OR
+
 Supplier exists in Invoice store
 ```
 
@@ -1599,29 +2203,83 @@ This allows invoice-only suppliers to receive a scorecard instead of incorrectly
 
 All application APIs use the `/api/v1` prefix.
 
+Protected application endpoints authenticate users through the Platform Service authentication provider.
+
+Supplier-facing endpoints additionally enforce **supplier-level ownership and data scoping**.
+
+Authentication, role authorization, and supplier ownership are enforced independently according to the endpoint's access-control requirements.
+
+---
+
 ## Root
 
-| Method | Endpoint | Description            |
-| ------ | -------- | ---------------------- |
-| GET    | `/`      | Service health/message |
+| Method | Endpoint | Authentication / Role | Description            |
+| ------ | -------- | --------------------- | ---------------------- |
+| GET    | `/`      | Public                | Service health/message |
 
 ---
 
 ## Purchase Order APIs
 
-| Method | Endpoint                                          | Authentication / Role                            | Description        |
-| ------ | ------------------------------------------------- | ------------------------------------------------ | ------------------ |
-| POST   | `/api/v1/purchase-orders`                         | Current implementation: no route auth dependency | Create PO          |
-| GET    | `/api/v1/purchase-orders`                         | Current implementation: no route auth dependency | List all POs       |
-| GET    | `/api/v1/purchase-orders/{po_number}`             | Supplier scoped                                  | Get PO             |
-| PUT    | `/api/v1/purchase-orders/{po_number}`             | Current implementation: no route auth dependency | Update PO          |
-| DELETE | `/api/v1/purchase-orders/{po_number}`             | Current implementation: no route auth dependency | Delete PO          |
-| POST   | `/api/v1/purchase-orders/{po_number}/acknowledge` | Supplier scoped                                  | Acknowledge PO     |
-| POST   | `/api/v1/purchase-orders/{po_number}/transition`  | Current implementation: no route auth dependency | Transition PO      |
-| GET    | `/api/v1/purchase-orders/{po_number}/events`      | Supplier scoped                                  | Retrieve PO events |
-| POST   | `/api/v1/purchase-orders/bulk-send`               | `procurement_manager`                            | Bulk send POs      |
+| Method | Endpoint                                          | Authentication / Role                                | Description                    |
+| ------ | ------------------------------------------------- | ---------------------------------------------------- | ------------------------------ |
+| POST   | `/api/v1/purchase-orders`                         | `procurement_manager`                                | Create Purchase Order          |
+| GET    | `/api/v1/purchase-orders`                         | Authenticated; supplier users see only their own POs | List Purchase Orders           |
+| GET    | `/api/v1/purchase-orders/{po_number}`             | Authenticated; supplier ownership enforced           | Get Purchase Order             |
+| PUT    | `/api/v1/purchase-orders/{po_number}`             | `procurement_manager` or owning supplier             | Update Purchase Order          |
+| DELETE | `/api/v1/purchase-orders/{po_number}`             | `procurement_manager` or owning supplier             | Delete Purchase Order          |
+| POST   | `/api/v1/purchase-orders/{po_number}/acknowledge` | Owning supplier                                      | Acknowledge Purchase Order     |
+| POST   | `/api/v1/purchase-orders/{po_number}/transition`  | `procurement_manager`                                | Transition Purchase Order      |
+| GET    | `/api/v1/purchase-orders/{po_number}/events`      | Authenticated; supplier ownership enforced           | Retrieve Purchase Order events |
+| POST   | `/api/v1/purchase-orders/bulk-send`               | `procurement_manager`                                | Bulk send Purchase Orders      |
 
-> **Note:** Authentication is implemented centrally, but not every current PO route has an authentication dependency attached. The table intentionally reflects the current implementation rather than claiming broader protection than the code currently provides.
+### Purchase Order Supplier Scoping
+
+For supplier users, the following Purchase Order endpoints require the authenticated supplier to own the requested Purchase Order:
+
+```text
+GET    /api/v1/purchase-orders/{po_number}
+PUT    /api/v1/purchase-orders/{po_number}
+DELETE /api/v1/purchase-orders/{po_number}
+POST   /api/v1/purchase-orders/{po_number}/acknowledge
+GET    /api/v1/purchase-orders/{po_number}/events
+```
+
+Example:
+
+```text
+Authenticated Supplier
+        │
+        ▼
+supplier_id = SUP001
+        │
+        ▼
+Requested Purchase Order
+supplier_id = SUP002
+        │
+        ▼
+HTTP 403 Forbidden
+```
+
+The Purchase Order collection endpoint is also supplier-scoped:
+
+```http
+GET /api/v1/purchase-orders
+```
+
+For supplier users, only Purchase Orders belonging to the authenticated supplier are returned.
+
+```text
+Supplier SUP001
+      │
+      ▼
+GET /api/v1/purchase-orders
+      │
+      ▼
+Only SUP001 Purchase Orders
+```
+
+Internal authenticated users access the collection according to their assigned role permissions.
 
 ---
 
@@ -1629,31 +2287,123 @@ All application APIs use the `/api/v1` prefix.
 
 | Method | Endpoint                                                     | Authentication / Role                                       | Description             |
 | ------ | ------------------------------------------------------------ | ----------------------------------------------------------- | ----------------------- |
-| GET    | `/api/v1/invoices`                                           | Current implementation: no route auth dependency            | List invoices           |
+| GET    | `/api/v1/invoices`                                           | Authenticated; supplier users see only their own invoices   | List invoices           |
 | POST   | `/api/v1/invoices`                                           | Authenticated; supplier identity enforced for supplier role | Create invoice          |
-| GET    | `/api/v1/invoices/{supplier_id}/{invoice_number}`            | Supplier scoped                                             | Get invoice             |
-| POST   | `/api/v1/invoices/{supplier_id}/{invoice_number}/transition` | Supplier scoped                                             | Transition invoice      |
+| GET    | `/api/v1/invoices/{supplier_id}/{invoice_number}`            | Authenticated; supplier ownership enforced                  | Get invoice             |
+| POST   | `/api/v1/invoices/{supplier_id}/{invoice_number}/transition` | Authenticated; supplier ownership enforced                  | Transition invoice      |
 | POST   | `/api/v1/invoices/{supplier_id}/{invoice_number}/adjust`     | `compliance_officer`                                        | Adjust disputed invoice |
-| POST   | `/api/v1/invoices/{supplier_id}/{invoice_number}/document`   | Supplier scoped                                             | Upload PDF              |
-| GET    | `/api/v1/invoices/{supplier_id}/{invoice_number}/document`   | Supplier scoped                                             | Download PDF            |
+| POST   | `/api/v1/invoices/{supplier_id}/{invoice_number}/document`   | Authenticated; supplier ownership enforced                  | Upload invoice PDF      |
+| GET    | `/api/v1/invoices/{supplier_id}/{invoice_number}/document`   | Authenticated; supplier ownership enforced                  | Download invoice PDF    |
+
+### Invoice Collection Scoping
+
+The invoice collection endpoint requires authentication:
+
+```http
+GET /api/v1/invoices
+```
+
+For supplier users:
+
+```text
+Supplier SUP001
+      │
+      ▼
+GET /api/v1/invoices
+      │
+      ▼
+Only SUP001 invoices
+```
+
+The API filters the returned collection using the authenticated supplier's `supplier_id`.
+
+Therefore, a valid supplier token cannot be used to retrieve invoices belonging to another supplier.
+
+Internal authenticated users can access the broader invoice collection according to their assigned role permissions.
 
 ---
 
 ## Supplier Statistics APIs
 
-| Method | Endpoint                                    | Authentication / Scope             | Description                     |
-| ------ | ------------------------------------------- | ---------------------------------- | ------------------------------- |
-| GET    | `/api/v1/suppliers/{supplier_id}/stats`     | Supplier-scoped for supplier users | Supplier operational statistics |
-| GET    | `/api/v1/suppliers/{supplier_id}/scorecard` | Supplier-scoped for supplier users | Supplier performance scorecard  |
+| Method | Endpoint                                    | Authentication / Scope                                         | Description                     |
+| ------ | ------------------------------------------- | -------------------------------------------------------------- | ------------------------------- |
+| GET    | `/api/v1/suppliers/{supplier_id}/stats`     | Authenticated; supplier users restricted to their own supplier | Supplier operational statistics |
+| GET    | `/api/v1/suppliers/{supplier_id}/scorecard` | Authenticated; supplier users restricted to their own supplier | Supplier performance scorecard  |
+
+For supplier users, the authenticated `supplier_id` must match the requested `supplier_id`.
+
+```text
+Authenticated supplier_id
+        │
+        ▼
+Requested supplier_id
+        │
+        ├── Same
+        │     │
+        │     ▼
+        │   Allowed
+        │
+        └── Different
+              │
+              ▼
+        403 Forbidden
+```
+
+### Supplier Not Found Behavior
+
+If the requested supplier does not exist, the API returns:
+
+```text
+404 Not Found
+```
+
+If the supplier exists but the authenticated supplier does not own that supplier's data, the API returns:
+
+```text
+403 Forbidden
+```
+
+The distinction is intentional:
+
+```text
+Unknown supplier
+      │
+      ▼
+404 Not Found
+
+
+Existing supplier
++
+Wrong supplier ownership
+      │
+      ▼
+403 Forbidden
+```
+
+Internal authenticated users may access supplier statistics and scorecards according to their assigned role permissions.
+
+Supplier users without a valid `supplier_id` are rejected from supplier-scoped statistics and scorecard access:
+
+```text
+Supplier role
+      │
+      ▼
+supplier_id missing
+      │
+      ▼
+403 Forbidden
+```
 
 ---
 
 ## Maintenance APIs
 
-| Method | Endpoint                                     | Description                 |
-| ------ | -------------------------------------------- | --------------------------- |
-| GET    | `/api/v1/maintenance/orphaned-invoice-files` | Find orphaned invoice PDFs  |
-| DELETE | `/api/v1/maintenance/orphaned-invoice-files` | Purge orphaned invoice PDFs |
+Maintenance endpoints perform administrative operations on invoice files and must not be exposed as anonymous endpoints.
+
+| Method | Endpoint                                     | Authentication / Role | Description                 |
+| ------ | -------------------------------------------- | --------------------- | --------------------------- |
+| GET    | `/api/v1/maintenance/orphaned-invoice-files` | `compliance_officer`  | Find orphaned invoice PDFs  |
+| DELETE | `/api/v1/maintenance/orphaned-invoice-files` | `compliance_officer`  | Purge orphaned invoice PDFs |
 
 Optional query parameter:
 
@@ -1667,7 +2417,162 @@ Default:
 1
 ```
 
+These endpoints are administrative operations and therefore require authenticated authorization.
+
+They must not be accessible to:
+
+* Anonymous users
+* Supplier users
+* Unauthorized internal roles
+
+The intended access model is:
+
+```text
+Authenticated User
+       │
+       ▼
+compliance_officer role?
+       │
+   ┌───┴───┐
+   │       │
+  Yes      No
+   │       │
+   ▼       ▼
+Allowed   403 Forbidden
+```
+
 ---
+
+## R5 API Security Summary
+
+The final Round 5 protected API model is:
+
+| Resource                  | Supplier Access | Internal Role Access             |
+| ------------------------- | --------------- | -------------------------------- |
+| Own PO                    | Allowed         | According to role                |
+| Other supplier PO         | `403 Forbidden` | According to role                |
+| Own invoice               | Allowed         | According to role                |
+| Other supplier invoice    | `403 Forbidden` | According to role                |
+| Own invoice document      | Allowed         | According to role                |
+| Other supplier document   | `403 Forbidden` | According to role                |
+| Own statistics            | Allowed         | According to role                |
+| Other supplier statistics | `403 Forbidden` | According to role                |
+| Own scorecard             | Allowed         | According to role                |
+| Other supplier scorecard  | `403 Forbidden` | According to role                |
+| Missing supplier identity | `403 Forbidden` | Not applicable to internal roles |
+
+The R5 security model therefore provides:
+
+```text
+Authentication
+      +
+Role Authorization
+      +
+Supplier Data Isolation
+```
+
+A successful token verification alone is **not sufficient** for supplier access.
+
+The authenticated supplier identity must also match the supplier that owns the requested supplier-scoped resource.
+
+---
+
+## R5 Security Principle
+
+The most important security property of the Supplier Portal is:
+
+```text
+Valid authentication ≠ unrestricted authorization
+```
+
+Authentication establishes:
+
+```text
+Who is the user?
+```
+
+Authorization establishes:
+
+```text
+What role does the user have?
+```
+
+Supplier scoping establishes:
+
+```text
+Which supplier's data can this supplier access?
+```
+
+The complete access-control sequence is:
+
+```text
+Bearer Token
+      │
+      ▼
+Platform Service Verification
+      │
+      ▼
+Authenticated User
+      │
+      ▼
+Role Authorization
+      │
+      ▼
+Supplier Ownership Check
+      │
+      ▼
+Resource Access
+```
+
+For supplier users, the ownership check verifies that the authenticated `supplier_id` matches the supplier associated with the requested resource.
+
+For internal authorized users, access is determined by the user's assigned role and the authorization rules implemented for the endpoint.
+
+This security model prevents cross-supplier data access while preserving authorized access for internal platform roles.
+
+---
+
+## Round 5 Definition of Done
+
+The Supplier Portal R5 authorization requirement is satisfied when:
+
+```text
+Valid supplier authentication
+        │
+        ▼
+Correct supplier identity
+        │
+        ▼
+Correct resource ownership
+        │
+        ▼
+Resource access allowed
+```
+
+Cross-supplier access must be rejected:
+
+```text
+SUP001 token
+      │
+      ▼
+SUP002 resource
+      │
+      ▼
+403 Forbidden
+```
+
+The R5 implementation is covered by automated tests for:
+
+* Cross-supplier Purchase Order access
+* Cross-supplier Purchase Order acknowledgement
+* Cross-supplier invoice access
+* Cross-supplier invoice document access
+* Cross-supplier supplier statistics access
+* Cross-supplier supplier scorecard access
+* Supplier users without `supplier_id`
+* Supplier Purchase Order list filtering
+* Supplier invoice list filtering
+* Internal-role access to authorized resources
 
 # 13. HTTP Response Codes
 
@@ -1859,12 +2764,24 @@ Maintenance endpoints
 ```
 
 ---
-
 # 18. Testing
 
-The project uses **Pytest** for automated testing.
+The Supplier Portal uses **Pytest** for automated testing.
 
-Run the complete test suite:
+The test suite covers:
+
+* Core business logic
+* Purchase Order lifecycle
+* Invoice lifecycle
+* Supplier statistics and scorecards
+* Authentication
+* Role-based authorization
+* Supplier-level resource ownership
+* Collection-level supplier filtering
+* Document security
+* Round 5 supplier-scoping requirements
+
+Run the complete test suite with:
 
 ```powershell
 python -m pytest -v
@@ -1874,21 +2791,23 @@ python -m pytest -v
 
 ## Purchase Order Tests
 
+Run the Purchase Order test suite:
+
 ```powershell
 python -m pytest tests/test_purchase_order.py -v
 ```
 
-Tests cover:
+The Purchase Order tests cover:
 
 * PO creation
 * PO retrieval
 * PO listing
 * PO update
 * PO deletion
-* Duplicate PO
+* Duplicate PO handling
 * PO acknowledgement
-* Legal transitions
-* Illegal transitions
+* Legal state transitions
+* Illegal state transitions
 * Cancellation
 * Terminal states
 * Transition history
@@ -1898,28 +2817,68 @@ Tests cover:
 * Delivery tracking
 * Bulk PO sending
 
+### R5 Authorization and Supplier-Scoping Tests
+
+The Round 5 Purchase Order tests additionally validate:
+
+* Supplier can access its own Purchase Order
+* Supplier cannot access another supplier's Purchase Order
+* Supplier can acknowledge its own Purchase Order
+* Supplier cannot acknowledge another supplier's Purchase Order
+* Supplier can view its own Purchase Order events
+* Supplier cannot view another supplier's Purchase Order events
+* Supplier can view only its own Purchase Orders through the PO list endpoint
+* Supplier cannot retrieve another supplier's Purchase Orders through the PO list endpoint
+* Supplier can update its own Purchase Order
+* Supplier cannot update another supplier's Purchase Order
+* Supplier can delete its own Purchase Order
+* Supplier cannot delete another supplier's Purchase Order
+* Supplier cannot perform procurement-manager-only PO transitions
+* Supplier cannot perform procurement-manager-only bulk PO sending
+* Unauthorized roles are rejected
+* Supplier ownership is validated using the authenticated `supplier_id`
+
+The PO scoping rule is:
+
+```text
+Authenticated Supplier
+        │
+        ▼
+supplier_id = SUP001
+        │
+        ▼
+Requested PO
+        │
+        ├── supplier_id = SUP001 → Allowed
+        │
+        └── supplier_id = SUP002 → 403 Forbidden
+```
+
 ---
 
 ## Invoice Tests
+
+Run the Invoice test suite:
 
 ```powershell
 python -m pytest tests/test_invoices.py -v
 ```
 
-Tests cover:
+The Invoice tests cover:
 
 * Valid invoice creation
 * Invoice retrieval
-* Duplicate invoice
+* Invoice listing
+* Duplicate invoice protection
 * Invalid invoice number
 * Invalid supplier ID
-* Missing PO
-* Invalid PO status
-* PO supplier mismatch
+* Missing Purchase Order
+* Invalid Purchase Order status
+* Purchase Order supplier mismatch
 * Invoice item validation
 * Quantity validation
 * Unit-price tolerance
-* Amount validation
+* Invoice amount validation
 * Partial invoicing
 * Invoice transitions
 * Disputes
@@ -1932,25 +2891,72 @@ Tests cover:
 * Missing document handling
 * Path traversal protection
 * Supplier scoping
-* Compliance-officer adjustment
+* Compliance-officer authorization
+
+### R5 Authorization and Supplier-Scoping Tests
+
+The Round 5 Invoice tests additionally validate:
+
+* Supplier can access its own invoice
+* Supplier cannot access another supplier's invoice
+* Supplier can view only its own invoices through the invoice list endpoint
+* Supplier cannot retrieve another supplier's invoices through the invoice list endpoint
+* Supplier cannot transition another supplier's invoice
+* Supplier cannot upload a document for another supplier's invoice
+* Supplier cannot download another supplier's invoice document
+* Supplier cannot create an invoice for another supplier
+* Supplier cannot perform compliance-only invoice adjustment
+* Compliance officer can perform authorized invoice adjustment
+* Authenticated supplier identity is matched against invoice `supplier_id`
+* Supplier ownership is enforced for supplier-facing invoice endpoints
+
+The invoice scoping rule is:
+
+```text
+Authenticated Supplier
+        │
+        ▼
+supplier_id = SUP001
+        │
+        ▼
+Requested Invoice
+        │
+        ├── supplier_id = SUP001 → Allowed
+        │
+        └── supplier_id = SUP002 → 403 Forbidden
+```
+
+The invoice collection endpoint is also tested for supplier-level filtering.
+
+```text
+Supplier SUP001
+       │
+       ▼
+GET /api/v1/invoices
+       │
+       ▼
+Only SUP001 invoices returned
+```
 
 ---
 
 ## Supplier Statistics and Scorecard Tests
 
+Run the Supplier Statistics and Scorecard test suite:
+
 ```powershell
 python -m pytest tests/test_supplier_stats.py -v
 ```
 
-Tests cover:
+The tests cover:
 
 * Supplier statistics
 * Supplier not found
-* PO count
+* Purchase Order count
 * On-time delivery
 * Late delivery
 * Mixed delivery performance
-* Unfulfilled POs
+* Unfulfilled Purchase Orders
 * Delivery exactly on expected date
 * Missing delivery date
 * Average invoice cycle time
@@ -1968,29 +2974,337 @@ Tests cover:
 * Schema validation
 * Percentage boundaries
 
+### R5 Authorization and Supplier-Scoping Tests
+
+The Round 5 tests validate:
+
+* Supplier can access its own statistics
+* Supplier cannot access another supplier's statistics
+* Supplier can access its own scorecard
+* Supplier cannot access another supplier's scorecard
+* Second supplier can access its own statistics
+* Second supplier cannot access another supplier's statistics
+* Supplier token without `supplier_id` is rejected
+* Unknown supplier statistics request returns `404`
+* Unknown supplier scorecard request returns `404`
+* Authorized internal roles can access other suppliers' statistics
+* Authorized internal roles can access other suppliers' scorecards
+* Supplier ownership is validated using authenticated `supplier_id`
+
+The expected behavior is:
+
+```text
+Known supplier
++
+Matching supplier_id
+        │
+        ▼
+Allowed
+
+
+Known supplier
++
+Different supplier_id
+        │
+        ▼
+403 Forbidden
+
+
+Supplier role
++
+Missing supplier_id
+        │
+        ▼
+403 Forbidden
+
+
+Unknown supplier
+        │
+        ▼
+404 Not Found
+```
+
+The distinction between `403` and `404` is intentional.
+
+A known supplier requested by the wrong authenticated supplier results in `403 Forbidden`, while a supplier that does not exist results in `404 Not Found`.
+
+---
+
+## Authentication and Authorization Tests
+
+If the authentication test module is present in the project, run:
+
+```powershell
+python -m pytest tests/test_auth.py -v
+```
+
+The authentication and authorization tests validate the authentication path between the Supplier Portal and Platform Service.
+
+Tests cover:
+
+* Valid access-token verification
+* Missing authentication token
+* Invalid authentication token
+* Expired authentication token
+* Authentication service unavailable
+* Authentication service timeout
+* Unexpected authentication-service response
+* Invalid authentication-service JSON response
+* Authentication response with `valid = false`
+* Missing `user_id` from authentication response
+* Missing user role
+* Supplier identity returned by Platform Service
+* `supplier_id` propagation
+* `X-Request-ID` generation and forwarding
+* Allowed role authorization
+* Unauthorized role rejection
+* Procurement-manager role authorization
+* Role-based access control
+* Authentication failure handling
+
+The authentication flow is:
+
+```text
+Client
+   │
+   │ Bearer Token
+   ▼
+Supplier Portal
+   │
+   │ POST /api/v1/auth/verify
+   ▼
+Platform Service
+   │
+   ▼
+Authenticated User
+   │
+   ├── user_id
+   ├── email
+   ├── full_name
+   ├── role
+   ├── supplier_id
+   └── is_active
+   │
+   ▼
+Supplier Portal Authorization
+```
+
+Authentication establishes the identity of the caller.
+
+Authorization then determines whether the caller's role and supplier identity allow access to the requested resource.
+
+---
+
+## R5 Supplier-Scoping Validation
+
+Round 5 specifically validates that **authentication alone does not provide unrestricted supplier access**.
+
+The core security rule is:
+
+```text
+A valid supplier token does not provide unrestricted supplier access.
+
+The authenticated supplier must own the requested resource.
+```
+
+### Own Resource
+
+```text
+Supplier A Token
+       │
+       │ supplier_id = SUP001
+       ▼
+Requested Resource
+       │
+       │ supplier_id = SUP001
+       ▼
+Access Allowed
+```
+
+### Other Supplier Resource
+
+```text
+Supplier A Token
+       │
+       │ supplier_id = SUP001
+       ▼
+Requested Resource
+       │
+       │ supplier_id = SUP002
+       ▼
+403 Forbidden
+```
+
+The R5 test suite validates supplier ownership across:
+
+```text
+Purchase Orders
+PO Acknowledgement
+PO Events
+PO Updates
+PO Deletions
+Purchase Order Listing
+
+Invoices
+Invoice Listing
+Invoice Transitions
+Invoice Documents
+
+Supplier Statistics
+Supplier Scorecards
+```
+
+It also validates the expected authorization responses:
+
+```text
+Supplier without supplier_id → 403 Forbidden
+
+Supplier accessing another supplier's resource
+                              → 403 Forbidden
+
+Unauthorized role             → 403 Forbidden
+
+Missing token                 → 401 Unauthorized
+
+Invalid token                 → 401 Unauthorized
+
+Authentication service failure
+                              → 503 Service Unavailable
+```
+
+---
+
+## R5 Supplier-Scoping Matrix
+
+The expected access behavior is:
+
+| Request                                            | Expected Result           |
+| -------------------------------------------------- | ------------------------- |
+| Supplier → Own PO                                  | Allowed                   |
+| Supplier → Other supplier PO                       | `403 Forbidden`           |
+| Supplier → Own invoice                             | Allowed                   |
+| Supplier → Other supplier invoice                  | `403 Forbidden`           |
+| Supplier → Own invoice document                    | Allowed                   |
+| Supplier → Other supplier document                 | `403 Forbidden`           |
+| Supplier → Own statistics                          | Allowed                   |
+| Supplier → Other supplier statistics               | `403 Forbidden`           |
+| Supplier → Own scorecard                           | Allowed                   |
+| Supplier → Other supplier scorecard                | `403 Forbidden`           |
+| Supplier without `supplier_id` → Supplier resource | `403 Forbidden`           |
+| Internal authorized role → Other supplier data     | Allowed according to role |
+
+The R5 test suite therefore validates both:
+
+```text
+Resource-Level Ownership
+            +
+Collection-Level Filtering
+```
+
 ---
 
 ## Authentication Test Configuration
 
-The test suite uses authentication dependency overrides so business logic can be tested without requiring the real Platform Service for every test.
+The test suite uses authentication dependency overrides for isolated authorization and business-logic testing.
 
-The test configuration provides different identities such as:
+This allows individual tests to simulate different authenticated identities without requiring the real Platform Service for every unit or API test.
+
+Test identities include:
 
 ```text
 Supplier SUP001
+
 Supplier SUP002
-Supplier SUP123
+
+Procurement Manager
+
 Compliance Officer
+
+Supplier without supplier_id
 ```
 
-This allows supplier-scoping behaviour to be tested, including:
+These identities allow the test suite to validate:
 
 ```text
-Supplier A → Supplier A resource = Allowed
-Supplier A → Supplier B resource = Forbidden
+Supplier A → Supplier A resource
+            → Allowed
+
+Supplier A → Supplier B resource
+            → 403 Forbidden
+
+Supplier without supplier_id
+            → Supplier resource
+            → 403 Forbidden
+
+Supplier → Compliance-only endpoint
+         → 403 Forbidden
+
+Supplier → Procurement-only endpoint
+         → 403 Forbidden
+
+Compliance Officer
+         → Authorized invoice adjustment
+         → Allowed
+
+Procurement Manager
+         → Authorized Purchase Order operation
+         → Allowed
 ```
 
+Multiple supplier identities are used so cross-supplier access can be tested explicitly.
+
 ---
+
+## R5 Test Coverage Summary
+
+The Round 5 test strategy validates four separate security layers:
+
+```text
+Authentication
+      │
+      ▼
+Role-Based Authorization
+      │
+      ▼
+Supplier Ownership / Scoping
+      │
+      ▼
+Collection-Level Filtering
+```
+
+This is combined with the existing business-rule and validation test coverage:
+
+```text
+Authentication
+       +
+Authorization
+       +
+Supplier Scoping
+       +
+Collection Filtering
+       +
+Business Rules
+       +
+Input Validation
+       +
+Document Security
+```
+
+The R5 tests therefore verify the key requirement:
+
+```text
+A supplier can access only resources belonging
+to its authenticated supplier_id.
+```
+
+Cross-supplier access is explicitly tested and must return:
+
+```text
+HTTP 403 Forbidden
+```
+
+for existing resources owned by another supplier.
+
 
 # 19. Business Rules
 
@@ -2004,7 +3318,9 @@ Legal lifecycle:
 
 ```text
 draft → sent
+
 sent → acknowledged
+
 acknowledged → fulfilled
 ```
 
@@ -2012,7 +3328,9 @@ Cancellation is allowed from:
 
 ```text
 draft
+
 sent
+
 acknowledged
 ```
 
@@ -2020,6 +3338,34 @@ Invalid transitions return:
 
 ```text
 400 Bad Request
+```
+
+### Purchase Order Authorization Rules
+
+Purchase Order creation is restricted to:
+
+```text
+procurement_manager
+```
+
+Supplier users may operate on Purchase Orders only when the requested Purchase Order belongs to their authenticated `supplier_id`.
+
+Therefore:
+
+```text
+Supplier SUP001 → PO SUP001 = Allowed
+
+Supplier SUP001 → PO SUP002 = 403 Forbidden
+```
+
+PO collection access is also supplier-scoped:
+
+```text
+Supplier SUP001 → GET /purchase-orders
+
+                ↓
+
+Only SUP001 Purchase Orders returned
 ```
 
 ---
@@ -2032,7 +3378,9 @@ The PO must be:
 
 ```text
 acknowledged
+
 OR
+
 fulfilled
 ```
 
@@ -2042,6 +3390,38 @@ Duplicate invoices are prevented using:
 
 ```text
 supplier_id + invoice_number
+```
+
+### Invoice Authorization Rules
+
+Supplier users must be authenticated before accessing supplier-facing invoice resources.
+
+For supplier users:
+
+```text
+Authenticated supplier_id
+        =
+Invoice supplier_id
+```
+
+must be true.
+
+If they do not match:
+
+```text
+403 Forbidden
+```
+
+Invoice collection access is also filtered by supplier:
+
+```text
+Supplier SUP001
+      │
+      ▼
+GET /api/v1/invoices
+      │
+      ▼
+Only SUP001 invoices returned
 ```
 
 ---
@@ -2064,10 +3444,13 @@ For a PO amount of `1000`:
 
 ```text
 950  → Accepted
+
 1000 → Accepted
+
 1050 → Accepted
 
 949  → Rejected
+
 1051 → Rejected
 ```
 
@@ -2081,8 +3464,11 @@ Invoices in the following states are counted when determining already-invoiced q
 
 ```text
 submitted
+
 disputed
+
 adjusted
+
 approved
 ```
 
@@ -2092,7 +3478,9 @@ approved
 
 ```text
 on-time POs
+
 ---------------- × 100
+
 total supplier POs
 ```
 
@@ -2110,7 +3498,9 @@ Unfulfilled POs remain in the denominator.
 
 ```text
 disputed invoices
+
 ------------------ × 100
+
 total invoices
 ```
 
@@ -2122,7 +3512,9 @@ Historical dispute information is retained through the invoice's dispute data.
 
 ```text
 accurate invoices
+
 ------------------ × 100
+
 total invoices
 ```
 
@@ -2130,6 +3522,7 @@ Current implementation:
 
 ```text
 dispute is None     → Accurate
+
 dispute is not None → Inaccurate
 ```
 
@@ -2139,7 +3532,9 @@ dispute is not None → Inaccurate
 
 ```text
 40% → On-time delivery
+
 40% → Invoice accuracy
+
 20% → Dispute performance
 ```
 
@@ -2148,6 +3543,24 @@ Where:
 ```text
 dispute performance = 100 - dispute rate
 ```
+
+---
+
+## Supplier Access-Control Rule
+
+Supplier-level authorization is applied in addition to authentication.
+
+The security rule is:
+
+```text
+Authentication
+      +
+Role Authorization
+      +
+Supplier Ownership
+```
+
+A valid token alone does not authorize a supplier to access another supplier's resources.
 
 ---
 
@@ -2162,13 +3575,49 @@ The service implements several security controls.
 * Authentication timeout handling
 * Authentication-service failure handling
 * Request ID propagation
+* Authentication response validation
 
 ## Authorization
 
 * Role-based authorization
 * Supplier ownership validation
+* Supplier-level collection filtering
 * Compliance-officer authorization for invoice adjustment
+* Procurement-manager authorization for PO creation
+* Procurement-manager authorization for PO transition
 * Procurement-manager authorization for bulk PO sending
+* Supplier identity validation using authenticated `supplier_id`
+
+## Supplier Data Isolation
+
+R5 introduces explicit supplier-level data isolation.
+
+Supplier users can access only resources belonging to their authenticated supplier.
+
+Protected resource categories include:
+
+* Purchase Orders
+* Purchase Order events
+* Invoices
+* Invoice documents
+* Supplier statistics
+* Supplier scorecards
+
+Cross-supplier access is rejected with:
+
+```text
+403 Forbidden
+```
+
+A supplier without a valid `supplier_id` is also rejected from supplier-scoped resources:
+
+```text
+403 Forbidden
+```
+
+Collection endpoints are filtered so that suppliers do not receive other suppliers' records.
+
+---
 
 ## Input Validation
 
@@ -2242,14 +3691,23 @@ Because business data is stored in memory:
 
 ```text
 Application running
+
       │
+
       ▼
+
 PO / Invoice data exists
+
       │
+
       ▼
+
 Application restart
+
       │
+
       ▼
+
 In-memory data cleared
 ```
 
@@ -2265,160 +3723,490 @@ The complete business workflow is:
 
 ```text
                          Procurement
+
                               │
+
                               ▼
+
                      Create Purchase Order
+
                               │
+
                               ▼
+
                            Draft
+
                               │
+
                               ▼
+
                             Sent
+
                               │
+
                               ▼
+
+                    Supplier Authentication
+
+                              │
+
+                              ▼
+
+                    Supplier Ownership Check
+
+                              │
+
+                              ▼
+
                     Supplier Acknowledgement
+
                               │
+
                               ▼
+
                         Acknowledged
+
                               │
+
                               ▼
+
                           Fulfilled
+
                               │
+
                               ▼
+
                        Create Invoice
+
                               │
-                 ┌────────────┼────────────┐
-                 │            │            │
-                 ▼            ▼            ▼
-             Validate PO  Validate Items  Validate Amount
-                 │            │            │
-                 └────────────┼────────────┘
+
+                ┌─────────────┼─────────────┐
+
+                │             │             │
+
+                ▼             ▼             ▼
+
+          Validate PO   Validate Items   Validate Amount
+
+                │             │             │
+
+                └─────────────┼─────────────┘
+
                               ▼
-                       Invoice Submitted
+
+                      Invoice Submitted
+
                               │
+
                     ┌─────────┴─────────┐
+
                     │                   │
+
                     ▼                   ▼
+
                 Approved            Disputed
+
                                         │
+
                               ┌─────────┼─────────┐
+
                               │         │         │
+
                               ▼         ▼         ▼
-                           Approved  Rejected  Adjusted
-                                                   │
-                                             ┌─────┴─────┐
-                                             ▼           ▼
-                                         Approved    Rejected
-                             
+
+                          Approved  Rejected  Adjusted
+
+                                                  │
+
+                                            ┌─────┴─────┐
+
+                                            ▼           ▼
+
+                                        Approved    Rejected
+
                               │
+
                               ▼
+
                          Upload PDF
+
                               │
-                     ┌────────┴────────┐
-                     ▼                 ▼
-              Validate Content    Validate Signature
-                     │                 │
-                     └────────┬────────┘
-                              ▼
-                        Store PDF
-                              │
-                              ▼
-                   Supplier Statistics
-                              │
+
                     ┌─────────┴─────────┐
+
                     ▼                   ▼
-               PO Metrics          Invoice Metrics
+
+              Validate Content    Validate Signature
+
                     │                   │
+
                     └─────────┬─────────┘
+
                               ▼
+
+                         Store PDF
+
+                              │
+
+                              ▼
+
+                    Supplier Statistics
+
+                              │
+
+                    ┌─────────┴─────────┐
+
+                    ▼                   ▼
+
+                PO Metrics        Invoice Metrics
+
+                    │                   │
+
+                    └─────────┬─────────┘
+
+                              ▼
+
                     Supplier Scorecard
+```
+
+R5 authorization applies to the supplier-facing portions of this workflow.
+
+For example:
+
+```text
+Supplier SUP001
+
+      │
+      ▼
+Authenticated through Platform Service
+
+      │
+      ▼
+supplier_id = SUP001
+
+      │
+      ▼
+Requested resource supplier_id = SUP001
+
+      │
+      ▼
+Allowed
+```
+
+Whereas:
+
+```text
+Supplier SUP001
+
+      │
+      ▼
+Requested resource supplier_id = SUP002
+
+      │
+      ▼
+403 Forbidden
 ```
 
 ---
 
 # 23. Current Implementation Status
 
-| Module                              | Status                                   |
-| ----------------------------------- | ---------------------------------------- |
-| Purchase Order CRUD                 | Complete                                 |
-| PO State Machine                    | Complete                                 |
-| PO Acknowledgement                  | Complete                                 |
-| PO Cancellation                     | Complete                                 |
-| PO Audit Events                     | Complete                                 |
-| PO Delivery Tracking                | Complete                                 |
-| Bulk PO Send                        | Complete                                 |
-| Invoice Creation                    | Complete                                 |
-| Invoice Validation                  | Complete                                 |
-| Invoice Duplicate Protection        | Complete                                 |
-| Invoice Tolerance                   | Complete                                 |
-| Invoice State Machine               | Complete                                 |
-| Invoice Disputes                    | Complete                                 |
-| Invoice Adjustments                 | Complete                                 |
-| PDF Upload                          | Complete                                 |
-| PDF Download                        | Complete                                 |
-| PDF Signature Validation            | Complete                                 |
-| File Size Validation                | Complete                                 |
-| Path Traversal Protection           | Complete                                 |
-| Supplier Statistics                 | Complete                                 |
-| Supplier Scorecard                  | Complete                                 |
-| Supplier Scoping                    | Implemented on supplier-facing endpoints |
-| Platform Authentication Integration | Implemented                              |
-| Automated Tests                     | Implemented                              |
-| Swagger Documentation               | Available                                |
+| Module                               | Status    |
+| ------------------------------------ | --------- |
+| Purchase Order CRUD                  | Complete  |
+| PO State Machine                     | Complete  |
+| PO Acknowledgement                   | Complete  |
+| PO Cancellation                      | Complete  |
+| PO Audit Events                      | Complete  |
+| PO Delivery Tracking                 | Complete  |
+| Bulk PO Send                         | Complete  |
+| Invoice Creation                     | Complete  |
+| Invoice Validation                   | Complete  |
+| Invoice Duplicate Protection         | Complete  |
+| Invoice Tolerance                    | Complete  |
+| Invoice State Machine                | Complete  |
+| Invoice Disputes                     | Complete  |
+| Invoice Adjustments                  | Complete  |
+| PDF Upload                           | Complete  |
+| PDF Download                         | Complete  |
+| PDF Signature Validation             | Complete  |
+| File Size Validation                 | Complete  |
+| Path Traversal Protection            | Complete  |
+| Supplier Statistics                  | Complete  |
+| Supplier Scorecard                   | Complete  |
+| Supplier Authentication              | Complete  |
+| Supplier Scoping                     | Complete  |
+| Supplier Collection Filtering        | Complete  |
+| Role-Based Authorization             | Complete  |
+| Cross-Supplier Access Protection     | Complete  |
+| Missing Supplier Identity Protection | Complete  |
+| Platform Authentication Integration  | Complete  |
+| Automated Tests                      | Complete  |
+| R5 Supplier-Scoping Tests            | Complete  |
+| Swagger Documentation                | Available |
 
----
+### R5 Completion Status
+
+Round 5 supplier authentication, role authorization, and supplier-level data-scoping requirements have been implemented and covered by automated tests.
+
+The implemented security model ensures:
+
+```text
+Valid supplier token
+        ≠
+Unrestricted supplier access
+```
+
+Instead, access follows this sequence:
+
+```text
+Valid Token
+     │
+     ▼
+Platform Service Verification
+     │
+     ▼
+Authenticated Identity
+     │
+     ▼
+Role Check
+     │
+     ▼
+supplier_id Ownership Check
+     │
+     ▼
+Resource Access
+```
+
+For supplier users, the authenticated `supplier_id` must match the supplier associated with the requested resource.
+
+Cross-supplier access attempts are rejected with:
+
+```text
+403 Forbidden
+```
+
+Supplier users without a valid `supplier_id` are rejected from supplier-scoped resources with:
+
+```text
+403 Forbidden
+```
+
+Supplier collection endpoints are also protected by authentication and return only records belonging to the authenticated supplier.
+
+Internal authorized users can access supplier data according to their assigned role permissions.
+
+Unknown supplier resources return:
+
+```text
+404 Not Found
+```
+
+while an authenticated supplier attempting to access an existing resource belonging to another supplier receives:
+
+```text
+403 Forbidden
+```
+
+This distinction is intentional and provides clear separation between resource existence and supplier authorization.
+
+The implemented R5 security controls satisfy the supplier data-isolation requirement.
+
 
 # 24. Known Limitations
 
-The current implementation is primarily intended for the current development phase.
+The current implementation is primarily designed for the current development and testing phase.
+
+The core Round 5 authentication, role-based authorization, and supplier-level data-scoping requirements have been implemented and tested.
+
+The following limitations remain relevant for production deployment.
+
+---
 
 ## In-Memory Business Storage
 
-Purchase Orders, invoices, and events are stored in Python dictionaries.
+Purchase Orders, invoices, and related business events are currently stored in Python in-memory data structures.
 
-This means application restarts clear business data.
+As a result, application restarts clear the stored business data.
+
+```text
+Application Restart
+       │
+       ▼
+In-Memory Data Cleared
+       │
+       ▼
+Purchase Orders / Invoices / Events Lost
+```
+
+This storage model is suitable for development and automated testing but is not suitable for durable production business data.
+
+A production deployment should use persistent database storage.
 
 ---
 
 ## Local File Storage
 
-Invoice PDFs are stored locally under:
+Invoice PDF documents are currently stored locally under:
 
 ```text
 uploads/
 ```
 
-Production deployments should use durable object storage.
+Local file storage is suitable for the current development environment but does not provide the durability, scalability, and availability expected from production deployments.
+
+A production implementation should use durable object or document storage.
+
+Recommended production capabilities include:
+
+* Durable document storage
+* Appropriate access controls
+* Backup and recovery
+* Encryption at rest
+* Retention management
+* Scalable storage
 
 ---
 
 ## Authentication Dependency
 
-Authentication depends on the Platform Service being available at the configured URL.
+Authentication depends on the Platform Service being available at the configured authentication URL.
 
-If the Platform Service is unavailable, authenticated endpoints can return:
+The Supplier Portal sends authentication requests to the Platform Service for token verification.
+
+If the Platform Service is unavailable or authentication verification times out, protected endpoints can return:
 
 ```text
 503 Service Unavailable
 ```
 
----
+This dependency is intentional because the Platform Service is the centralized authentication provider for the microservice architecture.
 
-## Route-Level Authentication Coverage
-
-Authentication infrastructure is implemented, but not every currently exposed route has an authentication dependency.
-
-Before production deployment, all sensitive administrative and maintenance endpoints should be reviewed and protected appropriately.
+Production deployments should therefore provide appropriate service availability, monitoring, timeout handling, and operational recovery mechanisms for the Platform Service.
 
 ---
 
-## Maintenance Endpoint Authorization
+## Administrative and Maintenance Endpoint Hardening
 
-The orphan-file maintenance endpoints currently do not have a role dependency attached.
+Core supplier-facing authentication, role-based authorization, and supplier-level data scoping are implemented as part of Round 5.
 
-For production use, these endpoints should be restricted to an appropriate administrative/service role.
+Supplier-facing resources are protected using:
+
+```text
+Authentication
+      +
+Role Authorization
+      +
+Supplier Ownership
+```
+
+The following supplier-facing areas are protected by the R5 security model:
+
+* Purchase Orders
+* Purchase Order events
+* Invoices
+* Invoice documents
+* Supplier statistics
+* Supplier scorecards
+* Supplier collection endpoints
+
+Supplier users can access only resources belonging to their authenticated `supplier_id`.
+
+Administrative maintenance operations require separate administrative authorization and should remain restricted from supplier users and anonymous callers.
+
+In particular, the orphan-file maintenance endpoints:
+
+```text
+GET    /api/v1/maintenance/orphaned-invoice-files
+DELETE /api/v1/maintenance/orphaned-invoice-files
+```
+
+should be restricted to the designated administrative role, such as:
+
+```text
+compliance_officer
+```
+
+before production deployment if the current route implementation does not already enforce that restriction.
+
+These operations should never be exposed as anonymous endpoints because they inspect or modify server-side invoice files.
 
 ---
+
+## Production Persistence
+
+The current in-memory storage and local-file storage model is suitable for development and testing but is not sufficient for durable production operation.
+
+A production implementation should introduce:
+
+* Persistent database storage
+* Transaction management
+* Database-backed Purchase Order records
+* Database-backed invoice records
+* Persistent event and audit history
+* Durable supplier records
+* Durable document/object storage
+* Backup and recovery procedures
+
+The production persistence architecture should preserve the existing authorization model so that moving from in-memory storage to persistent storage does not weaken supplier-level data isolation.
+
+---
+
+## Production Operational Hardening
+
+Before production deployment, the service should additionally be evaluated for:
+
+* Centralized logging and monitoring
+* Health and readiness checks
+* Database connection management
+* Distributed request tracing
+* Secure secret management
+* TLS configuration
+* Rate limiting where appropriate
+* Backup and recovery procedures
+* File-storage lifecycle management
+* Authentication-service availability monitoring
+
+These are production-readiness considerations and do not change the implemented Round 5 supplier-scoping security model.
+
+---
+
+## R5 Security Status
+
+The following Round 5 security requirements are implemented:
+
+```text
+Platform Service Authentication
+            │
+            ▼
+Role-Based Authorization
+            │
+            ▼
+Supplier Ownership Validation
+            │
+            ▼
+Collection-Level Supplier Filtering
+            │
+            ▼
+Protected Resource Access
+```
+
+The key R5 security requirement is therefore satisfied:
+
+```text
+A valid supplier token does not provide unrestricted supplier access.
+```
+
+A supplier authenticated as `SUP001` cannot access supplier-scoped resources belonging to `SUP002`.
+
+Cross-supplier access is rejected with:
+
+```text
+403 Forbidden
+```
+
+The remaining limitations described in this section are primarily related to **production persistence, durable file storage, service availability, and administrative operational hardening**, rather than the core R5 supplier-scoping requirement.
+
 
 # 25. Future Enhancements
 
@@ -2449,10 +4237,12 @@ The following improvements can be introduced in the next development phase.
 
 ## Security
 
-* Full route-level RBAC
+* Further administrative RBAC hardening
 * Administrative authorization for maintenance APIs
 * Token rotation
 * Centralized security policies
+* Production-grade service-to-service authentication
+* Security audit logging
 
 ## Infrastructure
 
@@ -2487,25 +4277,45 @@ The Supplier Portal Service provides a complete backend workflow for:
 
 ```text
 Purchase Order
+
       ↓
+
 PO Lifecycle
+
       ↓
+
 Supplier Acknowledgement
+
       ↓
+
 PO Fulfilment
+
       ↓
+
 Invoice Creation
+
       ↓
+
 Invoice Validation
+
       ↓
+
 Invoice Dispute / Adjustment
+
       ↓
+
 Invoice Approval / Rejection
+
       ↓
+
 Invoice PDF Management
+
       ↓
+
 Supplier Statistics
+
       ↓
+
 Supplier Performance Scorecard
 ```
 
@@ -2513,16 +4323,105 @@ The service combines:
 
 ```text
 FastAPI
+
 Pydantic
+
 Role-Based Authorization
+
 Supplier Scoping
+
 Business Validation
+
 State Machines
+
 Audit Events
+
 PDF Security
+
 Supplier KPIs
+
 Performance Scoring
+
 Automated Testing
+
+Centralized Authentication
 ```
 
-The current implementation is suitable for the next development stage, where persistent storage, production-grade infrastructure, complete route-level authorization, object storage, observability, and deployment automation can be introduced.
+### Round 5 Security Implementation
+
+The R5 implementation adds authentication integration and supplier-level data isolation.
+
+The final security model is:
+
+```text
+                    Client
+                      │
+                      ▼
+                Bearer Token
+                      │
+                      ▼
+              Supplier Portal
+                      │
+                      ▼
+        Platform Service Verification
+                      │
+                      ▼
+             Authenticated User
+                      │
+             ┌────────┴────────┐
+             ▼                 ▼
+            Role          supplier_id
+             │                 │
+             ▼                 ▼
+      Role Authorization  Ownership Check
+             │                 │
+             └────────┬────────┘
+                      ▼
+               Resource Access
+```
+
+The most important R5 security property is:
+
+```text
+A valid supplier token does not provide unrestricted supplier access.
+```
+
+The authenticated supplier must own the requested resource.
+
+For example:
+
+```text
+SUP001 token → SUP001 resource → Allowed
+
+SUP001 token → SUP002 resource → 403 Forbidden
+```
+
+This supplier-level isolation is enforced across:
+
+```text
+Purchase Orders
+
+PO Events
+
+Invoices
+
+Invoice Documents
+
+Supplier Statistics
+
+Supplier Scorecards
+```
+
+Collection endpoints are also protected so that supplier users receive only their own records.
+
+The implementation additionally validates missing supplier identity:
+
+```text
+Supplier role + missing supplier_id
+             ↓
+403 Forbidden
+```
+
+Internal authorized roles continue to access supplier data according to their assigned permissions.
+
+The current implementation is suitable for the next development stage, where persistent storage, production-grade infrastructure, durable object storage, remaining administrative/maintenance authorization hardening, observability, and deployment automation can be introduced.

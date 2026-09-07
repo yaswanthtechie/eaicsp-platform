@@ -100,15 +100,50 @@ def verify_supplier_invoice_access(
     "/invoices",
     response_model=list[InvoiceResponse],
 )
-def get_invoices():
+def get_invoices(
+    user=Depends(verify_token),
+):
     """
-    Get all invoices.
+    Get invoices.
 
-    Possible responses:
-        200 - Invoices returned successfully
+    Supplier:
+        Can see only invoices belonging to the authenticated
+        supplier_id.
+
+    Internal authenticated users:
+        Can see all invoices.
     """
 
-    return get_all_invoices()
+    all_invoices = get_all_invoices()
+
+    # --------------------------------------------------------
+    # Supplier scoping
+    # --------------------------------------------------------
+
+    if user.get("role") == "supplier":
+
+        authenticated_supplier_id = user.get(
+            "supplier_id"
+        )
+
+        if not authenticated_supplier_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Supplier identity is missing",
+            )
+
+        return [
+            invoice
+            for invoice in all_invoices
+            if invoice.get("supplier_id")
+            == authenticated_supplier_id
+        ]
+
+    # --------------------------------------------------------
+    # Internal users
+    # --------------------------------------------------------
+
+    return all_invoices
 
 
 # ============================================================
@@ -451,6 +486,7 @@ def download_invoice_document(
 
 # ============================================================
 # FIND ORPHANED INVOICE FILES
+# Requires: compliance_officer
 # ============================================================
 
 @router.get(
@@ -466,46 +502,39 @@ def find_orphaned_files(
             "of days are considered orphaned."
         ),
     ),
+    user=Depends(
+        require_roles("compliance_officer")
+    ),
 ):
     """
-    Find invoice files that have remained incomplete
-    beyond the specified age threshold.
+    Find orphaned invoice files.
 
-    Terminal invoice states:
-        approved
-        rejected
+    Requires:
+        compliance_officer
 
-    Non-terminal states:
-        submitted
-        disputed
-        adjusted
+    This is a global maintenance operation and therefore
+    must never be available to suppliers.
     """
 
     try:
-
-        orphaned_files = (
-            find_orphaned_invoice_files(
-                older_than_days=older_than_days,
-            )
+        orphaned_files = find_orphaned_invoice_files(
+            older_than_days=older_than_days,
         )
 
         return {
-            "total": len(
-                orphaned_files
-            ),
+            "total": len(orphaned_files),
             "orphaned_files": orphaned_files,
         }
 
     except ValueError as e:
-
         raise HTTPException(
             status_code=400,
             detail=str(e),
         )
 
-
 # ============================================================
 # PURGE ORPHANED INVOICE FILES
+# Requires: compliance_officer
 # ============================================================
 
 @router.delete(
@@ -521,22 +550,27 @@ def purge_orphaned_files(
             "of days can be deleted."
         ),
     ),
+    user=Depends(
+        require_roles("compliance_officer")
+    ),
 ):
     """
-    Delete invoice files that have remained incomplete
-    beyond the specified age threshold.
+    Permanently delete orphaned invoice files.
+
+    Requires:
+        compliance_officer
+
+    Suppliers and other roles must not be allowed to
+    perform this destructive maintenance operation.
     """
 
     try:
-
         return purge_orphaned_invoice_files(
             older_than_days=older_than_days,
         )
 
     except ValueError as e:
-
         raise HTTPException(
             status_code=400,
             detail=str(e),
         )
-
