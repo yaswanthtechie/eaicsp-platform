@@ -315,10 +315,9 @@ def verify_access_token(
     }
 
     logger.info(
-        "Token verified | user_id=%s | role=%s | endpoint=/api/v1/auth/verify | response=%s",
+        "Token verified | user_id=%s | role=%s | endpoint=/api/v1/auth/verify ",
         current_user.id,
         current_user.role.name if current_user.role else None,
-        response_data,
     )
 
     return response_data
