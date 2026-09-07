@@ -1,4 +1,3 @@
-
 from datetime import date, datetime
 
 from app.core.config import (
@@ -7,27 +6,12 @@ from app.core.config import (
     RECENCY_WEIGHT,
     SANCTIONS_WEIGHT,
     COUNTRY_RISK_WEIGHT,
+    COUNTRY_RISK_INDEX,
+    UNKNOWN_COUNTRY_RISK,
 )
 
 
 TOTAL_SOURCES = 3
-
-
-COUNTRY_RISK_INDEX = {
-    "INDIA": 30,
-    "USA": 20,
-    "UNITED STATES": 20,
-    "UK": 20,
-    "UNITED KINGDOM": 20,
-    "GERMANY": 20,
-    "FRANCE": 25,
-    "CANADA": 20,
-    "AUSTRALIA": 20,
-    "JAPAN": 20,
-    "RUSSIA": 70,
-    "IRAN": 90,
-    "NORTH KOREA": 100,
-}
 
 
 def parse_date(
@@ -193,18 +177,18 @@ def calculate_country_risk(
 ) -> float:
 
     if not country:
-        return 50.0
+        return UNKNOWN_COUNTRY_RISK
 
     normalized_country = (
         country.strip().upper()
     )
 
     if not normalized_country:
-        return 50.0
+        return UNKNOWN_COUNTRY_RISK
 
     score = COUNTRY_RISK_INDEX.get(
         normalized_country,
-        50.0,
+        UNKNOWN_COUNTRY_RISK,
     )
 
     return float(

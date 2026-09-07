@@ -85,6 +85,9 @@ DEDUPE_THRESHOLD = int(
     )
 )
 
+
+
+
 CONFIDENCE_WEIGHT = float(
     os.getenv(
         "CONFIDENCE_WEIGHT",
@@ -120,8 +123,31 @@ COUNTRY_RISK_WEIGHT = float(
     )
 )
 
-PLATFORM_SERVICE_URL = os.getenv(
-    "PLATFORM_SERVICE_URL",
+UNKNOWN_COUNTRY_RISK = float(
+    os.getenv(
+        "UNKNOWN_COUNTRY_RISK",
+        "50.0",
+    )
+)
+
+COUNTRY_RISK_INDEX = {
+    "INDIA": 30,
+    "USA": 20,
+    "UNITED STATES": 20,
+    "UK": 20,
+    "UNITED KINGDOM": 20,
+    "GERMANY": 20,
+    "FRANCE": 25,
+    "CANADA": 20,
+    "AUSTRALIA": 20,
+    "JAPAN": 20,
+    "RUSSIA": 70,
+    "IRAN": 90,
+    "NORTH KOREA": 100,
+}
+
+PLATFORM_AUTH_URL = os.getenv(
+    "PLATFORM_AUTH_URL",
     "http://127.0.0.1:8005",
 )
 

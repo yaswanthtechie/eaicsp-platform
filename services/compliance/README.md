@@ -2,21 +2,22 @@
 
 This project is a **Compliance Screening Service** developed using **FastAPI**.
 
-The main purpose of this service is to check supplier or customer names against different sanctions lists such as **OFAC, UN, and EU**.
+The main purpose of this service is to check supplier or customer names against sanctions lists such as **OFAC, UN, and EU**.
 
-Along with screening, the service also handles:
+The service also provides:
 
 * Exact and fuzzy name matching
 * Risk score calculation
-* Country risk
-* Audit history
+* Country risk assessment
+* Audit history and analytics
 * False-positive overrides
 * Bulk screening
 * Re-screening of previously cleared entities
 * Sanctions data refresh
 * Scheduled re-screening
+* JWT authentication and role-based authorization
 
-The service runs on **FastAPI** and stores audit information in **SQLite using SQLAlchemy**.
+The service uses **SQLite with SQLAlchemy** to store audit information.
 
 ---
 
@@ -26,13 +27,15 @@ The service runs on **FastAPI** and stores audit information in **SQLite using S
 
 The service checks entity names against three sanctions sources:
 
-* OFAC
-* UN
-* EU
+```text
+OFAC
+UN
+EU
+```
 
-The matching process first normalizes the name and then checks for an exact match. If an exact match is not found, fuzzy matching is performed using **RapidFuzz WRatio**.
+The matching process first normalizes the entity name and performs an exact match. If an exact match is not found, fuzzy matching is performed using **RapidFuzz WRatio**.
 
-The screening process is basically:
+The screening flow is:
 
 ```text
 Request
@@ -49,7 +52,9 @@ Find matching sanctions lists
    ↓
 Calculate confidence
    ↓
-Calculate risk score
+Calculate sanctions risk score
+   ↓
+Calculate country/overall supplier risk
    ↓
 Check override
    ↓
@@ -58,17 +63,17 @@ Save audit record
 Return response
 ```
 
-The matching threshold can be changed through configuration.
+The matching threshold is configurable through the environment.
 
 Current value:
 
-```text
+```env
 MATCH_THRESHOLD=90
 ```
 
 ---
 
-### 2. Sanctions Data
+## 2. Sanctions Data
 
 The service supports sanctions data from:
 
@@ -78,12 +83,13 @@ UN
 EU
 ```
 
-The data can either come from local fixture files or from the configured live download URLs.
+Sanctions data can be loaded either from local fixture files or from configured live download URLs.
 
-For local testing, the fixture files are stored in:
+For local testing, fixture files are stored in:
 
 ```text
 app/data/fixtures/
+
 ├── ofac_sample.csv
 ├── un_sample.xml
 └── eu_sample.xml
@@ -91,11 +97,11 @@ app/data/fixtures/
 
 ---
 
-### 3. Sanctions Data Refresh
+## 3. Sanctions Data Refresh
 
 Before a re-screening run, the service can refresh the sanctions data.
 
-The flow is:
+The refresh flow is:
 
 ```text
 Download OFAC
@@ -113,15 +119,17 @@ Build indexes
 Ready for screening
 ```
 
-The download URLs are configured through the `.env` file, so they do not need to be hardcoded in the application.
+The download URLs are configured through the `.env` file rather than being hardcoded in the application.
 
 ---
 
 ## 4. Risk Score
 
-Instead of only returning `flagged` or `clean`, the service calculates a **risk score from 0 to 100**.
+The service calculates a **sanctions risk score from 0 to 100** instead of returning only `flagged` or `clean`.
 
-The current configuration is:
+### Sanctions Risk Score
+
+The sanctions risk score uses three factors:
 
 | Risk Factor      | Weight |
 | ---------------- | -----: |
@@ -137,13 +145,14 @@ SOURCE_WEIGHT=0.30
 RECENCY_WEIGHT=0.20
 ```
 
-The calculation uses:
+The calculation is:
 
 ```text
-Risk Score =
+Sanctions Risk Score =
+
     Match Confidence × 50%
   + Source Coverage × 30%
-  + Recency × 20%
+  + Listing Recency × 20%
 ```
 
 For example:
@@ -156,7 +165,30 @@ Recency          = 50
 Risk score ≈ 70
 ```
 
-This means two entities can both be flagged but still have different risk scores.
+Therefore, two entities can both be flagged while having different risk scores.
+
+### Overall Supplier Risk
+
+The service can also combine the sanctions risk score with the country risk score.
+
+The current configuration is:
+
+```env
+SANCTIONS_WEIGHT=0.80
+COUNTRY_RISK_WEIGHT=0.20
+UNKNOWN_COUNTRY_RISK=50.0
+```
+
+The overall supplier risk is calculated as:
+
+```text
+Overall Supplier Risk =
+
+    Sanctions Risk × 80%
+  + Country Risk × 20%
+```
+
+Both the sanctions risk weights and the overall supplier risk weights are configurable through environment variables.
 
 ---
 
@@ -164,36 +196,39 @@ This means two entities can both be flagged but still have different risk scores
 
 The screening result can also contain country-related risk information.
 
-The response can include:
+The response and audit record can include:
 
+* Country
 * Country risk score
-* Overall supplier risk
 * Risk-factor details
+* Overall supplier risk
 
-These values can also be stored in the audit database along with the screening result.
+Country risk can be combined with the sanctions risk score to produce the overall supplier risk.
 
 ---
 
 ## 6. Audit
 
-Every screening result can be stored in the audit database.
+Each screening request is recorded in the audit database.
 
-The database currently uses:
+The service currently uses:
 
 ```text
 SQLite
 SQLAlchemy
 ```
 
-Audit information includes things such as:
+Audit information can include:
 
 * Entity name
+* Entity type
 * Country
 * Match status
 * Matched name
 * Matched sanctions lists
 * Match score
-* Risk score
+* Confidence
+* Sanctions risk score
 * Risk factors
 * Country risk score
 * Overall supplier risk
@@ -215,7 +250,7 @@ RESCREEN
 
 ## 7. Audit Summary
 
-The service also provides an audit summary endpoint.
+The service provides an audit summary endpoint for compliance analytics.
 
 It can return information such as:
 
@@ -229,7 +264,7 @@ It can return information such as:
 * Frequently flagged entities
 * Country-level statistics
 
-The audit summary endpoint is protected and requires the:
+The endpoint is protected and requires the:
 
 ```text
 compliance_officer
@@ -237,15 +272,21 @@ compliance_officer
 
 role.
 
+Endpoint:
+
+```text
+GET /api/v1/compliance/audit/summary
+```
+
 ---
 
 ## 8. False-Positive Override
 
-Sometimes a fuzzy match may identify an entity that is actually not the sanctioned entity.
+Fuzzy matching can sometimes identify an entity that is not actually the sanctioned entity.
 
-For this reason, the service supports **false-positive overrides**.
+To handle approved false positives, the service supports **false-positive overrides**.
 
-An approved override can prevent the same known false positive from continuing to be treated as a sanctions match.
+An approved override can prevent a known false positive from continuing to be treated as a sanctions match.
 
 Override information includes:
 
@@ -256,7 +297,18 @@ Override information includes:
 * Reviewed by
 * Created timestamp
 
-The override creation and lookup endpoints are protected using the `compliance_officer` role.
+The override endpoints require the `compliance_officer` role.
+
+Available endpoints:
+
+```text
+POST   /api/v1/compliance/override
+GET    /api/v1/compliance/override
+GET    /api/v1/compliance/overrides
+DELETE /api/v1/compliance/override
+```
+
+The delete operation is also protected because removing an override can change a compliance screening outcome.
 
 ---
 
@@ -269,7 +321,7 @@ The basic process is:
 ```text
 Find latest audit result
         ↓
-Check whether entity is currently clean
+Identify previously cleared entities
         ↓
 Refresh sanctions data
         ↓
@@ -282,7 +334,7 @@ Compare the new result
 Save RESCREEN audit
 ```
 
-An important part of the implementation is that the service looks at the **latest audit result** for an entity.
+The implementation uses the **latest audit result** for an entity when deciding whether it should be re-screened.
 
 For example:
 
@@ -292,9 +344,9 @@ ABC COMPANY → clean
 ABC COMPANY → matched
 ```
 
-The entity is considered **matched**, because the latest result is matched.
+The entity is currently matched because its latest result is matched.
 
-It should not be selected as a previously-cleared entity.
+Therefore, it should not be selected as a previously-cleared entity.
 
 Another example:
 
@@ -305,15 +357,12 @@ ABC COMPANY → clean
 
 The latest result is clean, so the entity can be selected for re-screening.
 
----
-
-## 10. Newly Flagged Entity
+### Newly Flagged Entity
 
 An entity is considered newly flagged when:
 
 ```text
 Previous latest result = clean
-
 Current re-screening result = matched
 ```
 
@@ -324,15 +373,67 @@ screening_type = RESCREEN
 newly_flagged = true
 ```
 
-If the entity is still clean after re-screening, it is recorded as still clean.
+If the entity remains clean after re-screening, the result is recorded as still clean.
+
+---
+
+## 10. Scheduled Re-Screening Job
+
+A scheduled re-screening job is provided using **APScheduler**.
+
+The current development/test configuration uses a 30-second interval to simulate a nightly re-screening process.
+
+The scheduled job:
+
+1. Runs inside the Compliance Service process.
+2. Refreshes the sanctions data.
+3. Re-screens previously cleared entities.
+4. Stores the new results in the audit database.
+5. Identifies newly flagged entities.
+
+### Scheduled Job Authentication
+
+The nightly re-screening job runs **in-process through APScheduler**.
+
+It directly calls:
+
+```python
+nightly_rescreen_job()
+```
+
+from the service layer.
+
+It does **not** make an HTTP request to the Compliance API.
+
+Therefore:
+
+* It does not call the Compliance API endpoints.
+* It does not pass through `verify_token`.
+* It does not use a JWT.
+* It does not require a separate credential.
+* It is treated as a trusted internal process because it runs inside the Compliance Service itself.
+
+This is an intentional design decision for the current architecture.
+
+If the scheduled job is moved to a separate worker, container, or external cron service in the future, it will need its own authenticated identity before calling protected APIs.
+
+Possible approaches include:
+
+```text
+Service account registered in Platform Service
+```
+
+or, if introduced by the platform architecture:
+
+```text
+API key
+```
 
 ---
 
 ## 11. Scheduler
 
-A scheduler is included for testing the re-screening process.
-
-The current setup uses a **30-second interval** as a mock/simulated nightly scheduler.
+The current scheduler configuration uses a short interval for development and testing:
 
 ```python
 scheduler.add_job(
@@ -343,17 +444,19 @@ scheduler.add_job(
     max_instances=1,
     replace_existing=True,
 )
+```
 
+`max_instances=1` prevents multiple re-screening jobs from running simultaneously.
 
-`max_instances=1` is used so that two re-screening jobs do not run at the same time.
+The current 30-second interval is only a simulation of a nightly job.
 
-For production, this should be changed to a proper daily/nightly schedule.
+For production, the scheduler should use an appropriate daily/nightly schedule.
 
+---
 
+## 12. Authentication and Authorization
 
-## 12. Authentication
-
-The Compliance Service is integrated with the **Platform Service** for authentication.
+The Compliance Service is integrated with the **Platform Service** for authentication and authorization.
 
 The Platform Service is responsible for:
 
@@ -362,9 +465,7 @@ The Platform Service is responsible for:
 * Token verification
 * User roles
 
-The Compliance Service sends the access token to the Platform Service for verification.
-
-The flow is:
+The authentication flow is:
 
 ```text
 Client
@@ -373,14 +474,14 @@ Compliance API
   ↓
 Send JWT to Platform Service
   ↓
-Verify token
+Platform verifies token
   ↓
-Check user role
+Compliance checks user role
   ↓
 Allow / Reject request
 ```
 
-The Platform Service is currently running on:
+The Platform Service currently runs on:
 
 ```text
 http://127.0.0.1:8005
@@ -389,28 +490,69 @@ http://127.0.0.1:8005
 The Compliance Service uses:
 
 ```env
-PLATFORM_SERVICE_URL=http://127.0.0.1:8005
+PLATFORM_AUTH_URL=http://127.0.0.1:8005
 ```
 
-The following endpoints currently require the `compliance_officer` role:
+### Required Role
+
+Protected Compliance API endpoints require:
 
 ```text
-GET  /api/v1/compliance/audit/summary
-POST /api/v1/compliance/override
-GET  /api/v1/compliance/override
+compliance_officer
 ```
 
-If the token is missing, the service returns `401`.
+### Protected Endpoints
 
-If the token is valid but the user does not have the required role, the service returns `403`.
+All current Compliance API endpoints require authentication and the `compliance_officer` role:
+
+```text
+POST   /api/v1/compliance/screen
+POST   /api/v1/compliance/screen-bulk
+
+GET    /api/v1/compliance/audit
+GET    /api/v1/compliance/audit/summary
+
+POST   /api/v1/compliance/override
+GET    /api/v1/compliance/override
+GET    /api/v1/compliance/overrides
+DELETE /api/v1/compliance/override
+```
+
+### Authentication Responses
+
+If the authentication token is missing:
+
+```text
+401 Unauthorized
+```
+
+If the token is invalid or expired:
+
+```text
+401 Unauthorized
+```
+
+If the token is valid but the user does not have the required role:
+
+```text
+403 Forbidden
+```
+
+If the Platform Service is unavailable or times out:
+
+```text
+503 Service Unavailable
+```
+
+The Compliance Service sends the JWT to the Platform Service for verification and includes request tracing information.
 
 ---
 
-## 13. Request Logging
+## 13. Authentication Request Logging
 
-The Platform Service also logs authentication requests coming from the Compliance Service.
+The Compliance Service sends request metadata to the Platform Service when requesting token verification.
 
-The request information includes:
+The request information can include:
 
 ```text
 Caller service
@@ -432,44 +574,44 @@ X-Caller-Endpoint
 X-Request-ID
 ```
 
-This makes it easier to trace authentication requests between the two services.
+This makes it easier to trace authentication requests between the Compliance Service and Platform Service.
 
 ---
 
 ## 14. Fixture Data
 
-For normal automated tests, the project uses local fixture data.
+Normal automated tests use local fixture data.
 
 This makes the tests:
 
 * Faster
 * Stable
-* Independent of the internet
+* Independent of external internet access
 * Easier to reproduce
 
-Fixture mode can be enabled in PowerShell using:
+Fixture mode can be enabled in PowerShell:
 
 ```powershell
 $env:USE_FIXTURES="true"
 ```
 
-Check the value:
+To check the value:
 
 ```powershell
 $env:USE_FIXTURES
 ```
 
-Expected:
+Expected value:
 
 ```text
 true
 ```
 
-
+---
 
 ## 15. Live Sanctions Download Test
 
-There is also a separate integration test for checking the live sanctions download.
+A separate integration test is available for checking live sanctions downloads.
 
 The test is marked with:
 
@@ -477,56 +619,52 @@ The test is marked with:
 @pytest.mark.integration
 ```
 
-To run it:
+To run the integration test:
 
 ```powershell
 $env:USE_FIXTURES="false"
+pytest -m integration -v -s
 ```
 
-Then:
-
-run:
-pytest -m integration -v -s
-
-
-The live test checks downloading:
+The live test checks the configured downloads for:
 
 ```text
-ofac.csv
-un.xml
-eu.xml
+OFAC
+UN
+EU
 ```
 
-
+Live download tests depend on the external sanctions providers being available.
 
 ---
 
 ## 16. Bulk Screening
 
-The service supports screening multiple entities in one request.
+The service supports screening multiple entities in a single request.
 
 Bulk screening is also tested for performance.
 
 The current performance test screens **500 entities** using the committed fixture dataset.
 
-The test can be run using:
+Run the performance test with:
 
 ```powershell
 pytest tests/test_sanctions.py::test_bulk_screen_500_entities -s -v
 ```
 
-The performance test has a limit of:
+The performance target is:
 
 ```text
 < 100 ms
 ```
 
-The measured result in the current test run was approximately:
+The latest local test run completed in approximately:
 
 ```text
 26.35 ms
 ```
 
+Actual performance can vary depending on the machine, Python environment, dataset, and system load.
 
 ---
 
@@ -551,22 +689,29 @@ HTTPX
 python-jose
 ```
 
+---
 
 # Installation
 
-Create a virtual environment:
+## 1. Create a Virtual Environment
 
-```bash
+```powershell
 python -m venv venv
 ```
-activate environment:
+
+## 2. Activate the Virtual Environment
+
+```powershell
 .\venv\Scripts\Activate.ps1
+```
 
-Install the dependencies:
+## 3. Install Dependencies
 
+```powershell
 pip install -r requirements.txt
+```
 
-
+---
 
 # Configuration
 
@@ -586,16 +731,42 @@ CONFIDENCE_WEIGHT=0.50
 SOURCE_WEIGHT=0.30
 RECENCY_WEIGHT=0.20
 
-PLATFORM_SERVICE_URL=http://127.0.0.1:8005
+SANCTIONS_WEIGHT=0.80
+COUNTRY_RISK_WEIGHT=0.20
+UNKNOWN_COUNTRY_RISK=50.0
+
+PLATFORM_AUTH_URL=http://127.0.0.1:8005
 
 OFAC_DOWNLOAD_URL=https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/SDN.CSV
 
 UN_DOWNLOAD_URL=https://scsanctions.un.org/resources/xml/en/consolidated.xml
 
-EU_DOWNLOAD_URL=https://webgate.ec.europa.eu/fsd/fsf/public/files/xmlFullSanctionsList_1_1/content?token=n002gggg
+EU_DOWNLOAD_URL=
 ```
 
-URLs in `.env` should be written directly. Do not add Markdown formatting such as `[]` or `()` around them.
+### EU Download URL
+
+The EU sanctions source may require a configured access token depending on the source endpoint.
+
+Do not commit access tokens or other credentials to the repository.
+
+If an EU download URL requires a token, configure the complete URL locally in `.env`:
+
+```env
+EU_DOWNLOAD_URL=<your-configured-eu-download-url>
+```
+
+Keep `.env` out of source control.
+
+### URL Formatting
+
+URLs inside `.env` files should be written directly.
+
+Do not add Markdown formatting such as:
+
+```text
+[URL](URL)
+```
 
 ---
 
@@ -607,38 +778,37 @@ Start the FastAPI server:
 python -m uvicorn app.main:app --reload
 ```
 
-The application will be available at:
+The Compliance Service will be available at:
 
 ```text
 http://127.0.0.1:8000
 ```
 
-Swagger documentation:
+Swagger API documentation:
 
 ```text
 http://127.0.0.1:8000/docs
 ```
 
-
-The Platform Service should be running separately on:
+The Platform Service should also be running separately on:
 
 ```text
 http://127.0.0.1:8005
 ```
 
-when testing the protected endpoints.
+when testing protected endpoints.
 
 ---
 
 # Running the Scheduler
 
-Run:
+Run the scheduler with:
 
 ```powershell
 python -m app.jobs.scheduler
 ```
 
-Example:
+Example output:
 
 ```text
 Rescreen scheduler started...
@@ -663,6 +833,8 @@ Re-screen completed:
 1 still clean
 ```
 
+The exact output depends on the available sanctions data and current audit records.
+
 ---
 
 # Database
@@ -681,7 +853,7 @@ compliance.db
 
 The audit table stores both initial screening and re-screening results.
 
-For example, the audit table can be checked using Python:
+For example, the audit table can be inspected using Python:
 
 ```python
 import sqlite3
@@ -711,56 +883,43 @@ connection.close()
 
 # Testing
 
-The test suite covers:
-
-* API endpoints
-* Exact matching
-* Fuzzy matching
-* Name normalization
-* OFAC matching
-* UN matching
-* EU matching
-* Cross-source matching
-* Deduplication
-* Risk scoring
-* Configurable risk weights
-* Country risk
-* Audit records
-* Audit summary
-* False-positive overrides
-* Authentication
-* Role authorization
-* Bulk screening
-* Re-screening
-* Sanctions refresh
-* Scheduler behavior
-* Live sanctions downloads
-
-Run all tests:
+## Run All Tests
 
 ```powershell
-pytest -q
+pytest -v
 ```
 
-Run the authentication tests:
+
+## Run Authentication Tests
 
 ```powershell
 pytest -q tests/test_auth_integration.py
 ```
 
-Run the risk configuration tests:
+Authentication coverage includes:
+
+```text
+Missing token              → 401
+Invalid token              → 401
+Compliance officer         → Success
+Wrong role                 → 403
+Authentication timeout     → 503
+Authentication unavailable → 503
+```
+
+## Run Risk Configuration Tests
 
 ```powershell
 pytest -q tests/test_risk_config.py
 ```
 
-Run the live download test:
+## Run Live Download Tests
 
 ```powershell
 pytest -m integration -v -s
 ```
 
-Collect tests without running them:
+## Collect Tests Without Running
 
 ```powershell
 pytest --collect-only -q
@@ -768,27 +927,27 @@ pytest --collect-only -q
 
 ---
 
-
-
 # Known Limitations
 
 ### 1. External Sanctions Sources
 
 OFAC, UN, and EU data are downloaded from external sources.
 
-If a source is unavailable or changes its format, the refresh process may fail.
+If an external source is unavailable or changes its format, the refresh process may fail.
 
-The EU source may also require the correct access token or configuration.
+The EU source may also require the correct URL or access-token configuration.
+
+Credentials or tokens should be configured locally and should not be committed to the repository.
 
 ### 2. SQLite
 
 SQLite is currently used for development and testing.
 
-For a production deployment, a production database and proper migration process should be used.
+For production deployment, a production-grade database and proper migration process should be used.
 
 ### 3. Scheduler
 
-The current scheduler uses a short 30-second interval for development/testing.
+The current scheduler uses a short 30-second interval for development and testing.
 
 A proper nightly schedule should be used in production.
 
@@ -796,7 +955,7 @@ A proper nightly schedule should be used in production.
 
 Re-screening depends on existing audit records.
 
-If there are no previously cleared entities, the job will correctly report that there are no entities to re-screen.
+If there are no previously cleared entities, the job correctly reports that there are no entities to re-screen.
 
 ### 5. Fuzzy Matching
 
@@ -808,11 +967,17 @@ The matching threshold and false-positive override mechanism are therefore impor
 
 Risk scoring depends on the information available in the sanctions data.
 
-If listing dates or other metadata are missing, the corresponding risk factor may use a neutral/default value.
+If listing dates or other metadata are missing, the corresponding risk factor may use a neutral or default value.
 
 ### 7. Database Schema Changes
 
 If the audit model is changed by adding or removing columns, the existing SQLite database may need to be recreated or migrated.
+
+### 8. Scheduled Job Authentication
+
+The current scheduled re-screening job is an internal in-process operation and therefore does not use JWT authentication.
+
+If the job is moved outside the Compliance Service and starts calling protected HTTP endpoints, an explicit service identity and authentication mechanism will be required.
 
 ---
 
@@ -822,24 +987,57 @@ The Compliance Screening Service currently supports:
 
 ```text
 ✓ OFAC screening
+
 ✓ UN screening
+
 ✓ EU screening
+
 ✓ Exact matching
+
 ✓ Fuzzy matching using RapidFuzz
+
 ✓ Deduplication
-✓ Weighted risk scoring
+
+✓ Weighted sanctions risk scoring
+
+✓ Configurable risk weights
+
 ✓ Country risk
+
+✓ Overall supplier risk
+
 ✓ Audit history
+
 ✓ Audit analytics
+
 ✓ False-positive overrides
+
 ✓ Bulk screening
+
 ✓ Re-screening
+
+✓ Newly flagged detection
+
 ✓ Sanctions data refresh
+
 ✓ Scheduled re-screening
+
 ✓ Fixture-based testing
+
 ✓ Live download testing
+
 ✓ JWT authentication integration
+
+✓ Platform Service token verification
+
 ✓ Role-based authorization
+
+✓ Protected compliance endpoints
+
 ✓ Authentication request logging
+
 ✓ 500-entity performance testing
+
+✓ Authentication timeout/unavailable handling
+```
 
