@@ -46,5 +46,5 @@ class VerifyResponse(BaseModel):
     email: EmailStr
     full_name: str
     role: Optional[str] = None
-    supplier_id: Optional[int] = None
+    supplier_id: Optional[str] = None
     is_active: bool
