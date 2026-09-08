@@ -1,9 +1,14 @@
 from fastapi import FastAPI
 
+from app.middleware.logging import log_requests
+
 from app.routes.auth_routes import router as auth_router
 from app.routes.user_routes import router as user_router
 from app.routes.admin_routes import router as admin_router
+
+
 from app.database import Base, engine
+
 from app.models.users import User
 from app.models.roles import Role
 from app.models.refresh_token import RefreshToken
@@ -14,6 +19,8 @@ from app.models.password_reset_tokens import PasswordResetToken
 
 
 app = FastAPI()
+
+app.middleware("http")(log_requests)
 
 app.include_router(admin_router)
 app.include_router(auth_router)
@@ -27,3 +34,4 @@ def root():
     return {
         "message": "Platform Service is running"
     }
+
