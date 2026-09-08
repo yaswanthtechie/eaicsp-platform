@@ -40,3 +40,4 @@ source = ["src"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+addopts = "--cov=src --cov-report=term-missing --cov-fail-under=100"

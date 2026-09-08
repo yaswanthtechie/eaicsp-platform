@@ -9,12 +9,13 @@ from typing import Any, Optional
 
 import pandas as pd
 
-from src.validator import DataValidator
-
 # --- PATH RESOLUTION ---
-# Ensure the script can be invoked directly by path (e.g., python src/validate_cli.py)
+# Must run BEFORE any `from src...` import: running this file directly puts
+# src/ on sys.path[0], not the project root, so `import src` fails otherwise.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.validator import DataValidator
 
 # --- Configuration Constants ---
 EXIT_SUCCESS = 0

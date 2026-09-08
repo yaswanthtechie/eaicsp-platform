@@ -10,6 +10,11 @@ from datetime import datetime
 
 import pandas as pd
 
+# --- PATH RESOLUTION ---
+# Must run BEFORE any `from src...` import (see validate_cli.py).
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
 from src.validator import DataValidator
 
 logger = logging.getLogger(__name__)

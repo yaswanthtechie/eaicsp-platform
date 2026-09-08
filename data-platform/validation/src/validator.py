@@ -212,7 +212,14 @@ class DataValidator:
             declared.add(rule.name)
 
     def _detect_conflicts(self):
-        """Detects impossible rule combinations before execution."""
+        """Detects impossible *numeric range* combinations before execution.
+
+            Accumulates the tightest min/max across every range rule on a field and
+            rejects contradictory bounds at config-load time.
+
+            Not covered yet: cross-type conflicts (e.g. not_null + an unsatisfiable
+            regex, or unique + a custom duplicate-check on the same field).
+        """
         field_ranges = {}
         for rule in self.rules:
             if rule.type == "range" and rule.field:

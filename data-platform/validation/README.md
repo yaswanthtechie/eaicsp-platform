@@ -534,5 +534,7 @@ validate_folder --folder data/ --config configs/sales_rules.yaml --save-reports 
 
 # Known Limitations
 * **Watermark Advancement:** The incremental pipeline advances the watermark based on the incoming dataset, *including rows that fail validation*. Failed rows are not automatically queued for reprocessing.
-* **Deduplication:** Incremental append mode deduplicates based on full-row identity. Updates to existing records require a genuine Primary Key configuration (currently unsupported).
 * **Date Sorting:** String-based watermark columns (like dates) are compared lexicographically. ISO-8601 (`YYYY-MM-DD`) works flawlessly; localized formats (`MM/DD/YYYY`) will filter incorrectly.
+* **Incremental Write Amplification:** Append mode rewrites the entire output file each run (read_csv → concat → drop_duplicates → to_csv), which is O(total rows) per run rather than O(new rows). This is deliberate: the drop_duplicates pass makes the pipeline crash-safe if a run dies between writing data and writing the watermark. A plain to_csv(mode='a') would be cheaper but would double-write rows on a mid-run failure.
+* **Deduplication:** Incremental append mode deduplicates based on full-row identity. Updates to existing records require a genuine Primary Key configuration (currently unsupported).
+* **Conflict Detection Boundaries:** The _detect_conflicts method only catches impossible range vs range bounds. Contradictions between not_null + strict regex, or unique + custom duplicate checks on the same field currently pass through undetected.
