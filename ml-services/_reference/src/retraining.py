@@ -1,10 +1,14 @@
-# src/retraining.py
+from typing import List, Dict, Callable
+import logging
 
-from typing import List, Dict
 import numpy as np
+
 from src.config import DRIFT_THRESHOLD
 
-# Mean values of the Iris training dataset
+
+logger = logging.getLogger(__name__)
+
+
 TRAINING_MEAN = np.array([
     5.8433,
     3.0573,
@@ -13,24 +17,25 @@ TRAINING_MEAN = np.array([
 ])
 
 
-
-
 def calculate_drift(
     recent_inputs: List[List[float]],
     training_mean: np.ndarray = TRAINING_MEAN,
 ) -> float:
-    """
-    Compare the mean of recent prediction inputs
-    with the training-data mean.
-    """
 
     if not recent_inputs:
-        raise ValueError("recent_inputs cannot be empty")
+        raise ValueError(
+            "recent_inputs cannot be empty"
+        )
 
-    data = np.array(recent_inputs, dtype=float)
+    data = np.array(
+        recent_inputs,
+        dtype=float,
+    )
 
     if data.ndim != 2:
-        raise ValueError("recent_inputs must be a list of feature lists")
+        raise ValueError(
+            "recent_inputs must be a list of feature lists"
+        )
 
     if data.shape[1] != len(training_mean):
         raise ValueError(
@@ -38,18 +43,21 @@ def calculate_drift(
             f"got {data.shape[1]}"
         )
 
-    # Calculate mean of recent prediction inputs
-    recent_mean = np.mean(data, axis=0)
+    recent_mean = np.mean(
+        data,
+        axis=0,
+    )
 
-    # Calculate relative drift for each feature
-    drift_values = np.abs(
-        recent_mean - training_mean
-    ) / np.abs(training_mean)
+    drift_values = (
+        np.abs(
+            recent_mean - training_mean
+        )
+        / np.abs(training_mean)
+    )
 
-    # Average drift across all features
-    drift_score = float(np.mean(drift_values))
-
-    return drift_score
+    return float(
+        np.mean(drift_values)
+    )
 
 
 def check_retraining_needed(
@@ -57,10 +65,6 @@ def check_retraining_needed(
     training_mean: np.ndarray = TRAINING_MEAN,
     threshold: float = DRIFT_THRESHOLD,
 ) -> Dict:
-    """
-    Check whether recent prediction inputs have
-    significantly drifted from the training data.
-    """
 
     drift_score = calculate_drift(
         recent_inputs,
@@ -85,20 +89,84 @@ def check_retraining_needed(
     return {
         "retrain_needed": retrain_needed,
         "reason": reason,
-        "drift_score": round(drift_score, 4),
+        "drift_score": round(
+            drift_score,
+            4,
+        ),
         "threshold": threshold,
         "sample_count": len(recent_inputs),
     }
 
 
-def manual_retrain_trigger() -> Dict:
+def automated_retrain(
+    recent_inputs: List[List[float]],
+    retrain_callback: Callable,
+) -> Dict:
     """
-    Simulate a manual retraining trigger.
+    R5 automated retraining.
 
-    This does not actually train a new model.
+    Drift
+       ↓
+    threshold crossed
+       ↓
+    train
+       ↓
+    register
+       ↓
+    staging
+       ↓
+    production
     """
+
+    result = check_retraining_needed(
+        recent_inputs
+    )
+
+    logger.info(
+        "Drift check result: %s",
+        result,
+    )
+
+    if not result["retrain_needed"]:
+
+        return {
+            "status": "skipped",
+            "reason": result["reason"],
+            "drift_score": result["drift_score"],
+            "threshold": result["threshold"],
+            "sample_count": result["sample_count"],
+        }
+
+    logger.warning(
+        "DRIFT THRESHOLD EXCEEDED - "
+        "AUTOMATED RETRAINING STARTED"
+    )
+
+    new_version = retrain_callback()
+
+    logger.warning(
+        "AUTOMATED RETRAINING COMPLETED - "
+        "VERSION %s PROMOTED",
+        new_version,
+    )
+
+    return {
+        "status": "retrained",
+        "reason": result["reason"],
+        "drift_score": result["drift_score"],
+        "threshold": result["threshold"],
+        "sample_count": result["sample_count"],
+        "new_model_version": str(
+            new_version
+        ),
+    }
+
+
+def manual_retrain_trigger() -> Dict:
 
     return {
         "status": "retraining_triggered",
-        "message": "Model retraining has been manually triggered",
+        "message": (
+            "Model retraining has been manually triggered"
+        ),
     }

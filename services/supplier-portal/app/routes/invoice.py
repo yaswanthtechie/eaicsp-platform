@@ -4,7 +4,14 @@ from fastapi import (
     UploadFile,
     File,
     Query,
+    Depends,
 )
+
+from app.core.auth import (
+    require_roles,
+    verify_token,
+)
+
 from fastapi.responses import FileResponse
 
 from app.schemas.invoice import (
@@ -32,6 +39,72 @@ router = APIRouter()
 
 
 # ============================================================
+# SUPPLIER INVOICE SCOPING
+# ============================================================
+
+def verify_supplier_invoice_access(
+    supplier_only: bool = False,
+):
+    """
+    Verify invoice access.
+
+    supplier_only=False:
+        Suppliers can access only their own invoices.
+        Internal roles can read any invoice.
+
+    supplier_only=True:
+        Only the owning supplier can perform the action.
+    """
+
+    def dependency(
+        supplier_id: str,
+        user=Depends(verify_token),
+    ):
+        # ----------------------------------------------------
+        # 1. Supplier role check
+        # ----------------------------------------------------
+
+        if user.get("role") == "supplier":
+            authenticated_supplier_id = user.get("supplier_id")
+
+            if not authenticated_supplier_id:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Supplier identity is missing",
+                )
+
+        # ----------------------------------------------------
+        # 2. Supplier-only action
+        # ----------------------------------------------------
+
+        elif supplier_only:
+            raise HTTPException(
+                status_code=403,
+                detail="Forbidden: supplier access required",
+            )
+
+        # ----------------------------------------------------
+        # 3. Supplier scoping check
+        # ----------------------------------------------------
+
+        if (
+            user.get("role") == "supplier"
+            and user["supplier_id"] != supplier_id
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Forbidden: supplier does not own "
+                    "this invoice"
+                ),
+            )
+
+        return user
+
+    return dependency
+
+
+# ============================================================
 # GET ALL INVOICES
 # ============================================================
 
@@ -39,21 +112,56 @@ router = APIRouter()
     "/invoices",
     response_model=list[InvoiceResponse],
 )
-def get_invoices():
+def get_invoices(
+    user=Depends(verify_token),
+):
     """
-    Get all invoices.
+    Get invoices.
 
-    Possible responses:
-        200 - Invoices returned successfully
+    Supplier:
+        Can see only invoices belonging to the authenticated
+        supplier_id.
+
+    Internal authenticated users:
+        Can see all invoices.
     """
 
-    return get_all_invoices()
+    all_invoices = get_all_invoices()
+
+    # --------------------------------------------------------
+    # Supplier scoping
+    # --------------------------------------------------------
+
+    if user.get("role") == "supplier":
+
+        authenticated_supplier_id = user.get(
+            "supplier_id"
+        )
+
+        if not authenticated_supplier_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Supplier identity is missing",
+            )
+
+        return [
+            invoice
+            for invoice in all_invoices
+            if invoice.get("supplier_id")
+            == authenticated_supplier_id
+        ]
+
+    # --------------------------------------------------------
+    # Internal users
+    # --------------------------------------------------------
+
+    return all_invoices
 
 
 # ============================================================
 # GET INVOICE BY NUMBER
+# Supplier-facing endpoint
 # ============================================================
-
 
 @router.get(
     "/invoices/{supplier_id}/{invoice_number}",
@@ -62,6 +170,7 @@ def get_invoices():
 def get_invoice(
     supplier_id: str,
     invoice_number: str,
+    user=Depends(verify_supplier_invoice_access()),
 ):
     try:
         return get_invoice_by_number(
@@ -75,9 +184,10 @@ def get_invoice(
             detail=str(exc),
         )
 
-    
+
 # ============================================================
 # CREATE / SUBMIT INVOICE
+# Supplier-facing endpoint
 # ============================================================
 
 @router.post(
@@ -87,13 +197,42 @@ def get_invoice(
 )
 def submit_invoice(
     invoice: InvoiceCreate,
+    user=Depends(verify_token),
 ):
     """
     Create / submit a new invoice.
 
     New invoices always start in:
         submitted
+
+    Supplier users must submit an invoice using
+    their own supplier_id.
     """
+
+    # --------------------------------------------------------
+    # Supplier scoping
+    # --------------------------------------------------------
+
+    if user.get("role") == "supplier":
+
+        authenticated_supplier_id = user.get(
+            "supplier_id"
+        )
+
+        if not authenticated_supplier_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Supplier identity is missing",
+            )
+
+        if authenticated_supplier_id != invoice.supplier_id:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Forbidden: supplier does not own "
+                    "this invoice"
+                ),
+            )
 
     try:
         return create_invoice(invoice)
@@ -129,7 +268,9 @@ def submit_invoice(
 
 # ============================================================
 # TRANSITION INVOICE
+# Supplier-facing endpoint
 # ============================================================
+
 @router.post(
     "/invoices/{supplier_id}/{invoice_number}/transition",
     response_model=InvoiceResponse,
@@ -138,6 +279,9 @@ def transition_invoice_status(
     supplier_id: str,
     invoice_number: str,
     transition: InvoiceTransition,
+    user=Depends(
+       verify_supplier_invoice_access(supplier_only=True)
+    ),
 ):
     """
     Change invoice status using the invoice state machine.
@@ -159,7 +303,10 @@ def transition_invoice_status(
         lower_message = message.lower()
 
         # Invoice does not exist
-        if "invoice" in lower_message and "not found" in lower_message:
+        if (
+            "invoice" in lower_message
+            and "not found" in lower_message
+        ):
             raise HTTPException(
                 status_code=404,
                 detail="Invoice not found.",
@@ -171,8 +318,10 @@ def transition_invoice_status(
             detail=message,
         )
 
+
 # ============================================================
 # ADJUST INVOICE
+# Requires: compliance_officer
 # ============================================================
 
 @router.post(
@@ -183,9 +332,15 @@ def adjust_invoice_endpoint(
     supplier_id: str,
     invoice_number: str,
     adjustment: InvoiceAdjustment,
+    user=Depends(
+        require_roles("compliance_officer")
+    ),
 ):
     """
     Adjust a disputed invoice.
+
+    Requires:
+        compliance_officer
 
     Flow:
 
@@ -226,6 +381,7 @@ def adjust_invoice_endpoint(
 
 # ============================================================
 # UPLOAD INVOICE DOCUMENT
+# Supplier-facing endpoint
 # ============================================================
 
 @router.post(
@@ -236,6 +392,9 @@ def upload_document(
     supplier_id: str,
     invoice_number: str,
     file: UploadFile = File(...),
+    user=Depends(
+       verify_supplier_invoice_access(supplier_only=True)
+    ),
 ):
     """
     Upload a PDF document for an existing invoice.
@@ -253,7 +412,10 @@ def upload_document(
         lower_message = message.lower()
 
         # Invoice does not exist
-        if "invoice" in lower_message and "not found" in lower_message:
+        if (
+            "invoice" in lower_message
+            and "not found" in lower_message
+        ):
             raise HTTPException(
                 status_code=404,
                 detail="Invoice not found.",
@@ -265,15 +427,19 @@ def upload_document(
             detail=message,
         )
 
+
 # ============================================================
 # DOWNLOAD INVOICE DOCUMENT
+# Supplier-facing endpoint
 # ============================================================
+
 @router.get(
     "/invoices/{supplier_id}/{invoice_number}/document",
 )
 def download_invoice_document(
     supplier_id: str,
     invoice_number: str,
+    user=Depends(verify_supplier_invoice_access()),
 ):
     """
     Download the PDF document attached to an invoice.
@@ -316,7 +482,10 @@ def download_invoice_document(
         # ----------------------------------------------------
         # 3. Invoice itself does not exist
         # ----------------------------------------------------
-        if "invoice" in lower_message and "not found" in lower_message:
+        if (
+            "invoice" in lower_message
+            and "not found" in lower_message
+        ):
             raise HTTPException(
                 status_code=404,
                 detail="Invoice not found.",
@@ -329,9 +498,11 @@ def download_invoice_document(
             status_code=400,
             detail=message,
         )
-    
+
+
 # ============================================================
 # FIND ORPHANED INVOICE FILES
+# Requires: compliance_officer
 # ============================================================
 
 @router.get(
@@ -347,46 +518,39 @@ def find_orphaned_files(
             "of days are considered orphaned."
         ),
     ),
+    user=Depends(
+        require_roles("compliance_officer")
+    ),
 ):
     """
-    Find invoice files that have remained incomplete
-    beyond the specified age threshold.
+    Find orphaned invoice files.
 
-    Terminal invoice states:
-        approved
-        rejected
+    Requires:
+        compliance_officer
 
-    Non-terminal states:
-        submitted
-        disputed
-        adjusted
+    This is a global maintenance operation and therefore
+    must never be available to suppliers.
     """
 
     try:
-
-        orphaned_files = (
-            find_orphaned_invoice_files(
-                older_than_days=older_than_days,
-            )
+        orphaned_files = find_orphaned_invoice_files(
+            older_than_days=older_than_days,
         )
 
         return {
-            "total": len(
-                orphaned_files
-            ),
+            "total": len(orphaned_files),
             "orphaned_files": orphaned_files,
         }
 
     except ValueError as e:
-
         raise HTTPException(
             status_code=400,
             detail=str(e),
         )
 
-
 # ============================================================
 # PURGE ORPHANED INVOICE FILES
+# Requires: compliance_officer
 # ============================================================
 
 @router.delete(
@@ -402,20 +566,26 @@ def purge_orphaned_files(
             "of days can be deleted."
         ),
     ),
+    user=Depends(
+        require_roles("compliance_officer")
+    ),
 ):
     """
-    Delete invoice files that have remained incomplete
-    beyond the specified age threshold.
+    Permanently delete orphaned invoice files.
+
+    Requires:
+        compliance_officer
+
+    Suppliers and other roles must not be allowed to
+    perform this destructive maintenance operation.
     """
 
     try:
-
         return purge_orphaned_invoice_files(
             older_than_days=older_than_days,
         )
 
     except ValueError as e:
-
         raise HTTPException(
             status_code=400,
             detail=str(e),

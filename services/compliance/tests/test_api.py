@@ -1,5 +1,6 @@
-
+import httpx
 from fastapi.testclient import TestClient
+from unittest.mock import AsyncMock, MagicMock
 
 from app.main import app
 
@@ -9,7 +10,7 @@ client = TestClient(app)
 
 
 
-def test_screen_api_clean_entity():
+def test_screen_api_clean_entity(mock_compliance_officer_auth):
     response = client.post(
         "/api/v1/compliance/screen",
         json={
@@ -33,7 +34,7 @@ def test_screen_api_clean_entity():
     assert data["override_applied"] is False
 
 
-def test_screen_api_sanctioned_entity():
+def test_screen_api_sanctioned_entity(mock_compliance_officer_auth):
     response = client.post(
         "/api/v1/compliance/screen",
         json={
@@ -56,7 +57,7 @@ def test_screen_api_sanctioned_entity():
 
 
 
-def test_screen_api_invalid_entity_type():
+def test_screen_api_invalid_entity_type(mock_compliance_officer_auth):
     response = client.post(
         "/api/v1/compliance/screen",
         json={
@@ -73,7 +74,7 @@ def test_screen_api_invalid_entity_type():
     assert data["detail"][0]["loc"][-1] == "entity_type"
 
 
-def test_screen_api_empty_entity_name():
+def test_screen_api_empty_entity_name(mock_compliance_officer_auth):
     response = client.post(
         "/api/v1/compliance/screen",
         json={
@@ -90,7 +91,7 @@ def test_screen_api_empty_entity_name():
     assert data["detail"][0]["loc"][-1] == "entity_name"
 
 
-def test_screen_api_blank_entity_name():
+def test_screen_api_blank_entity_name(mock_compliance_officer_auth):
     response = client.post(
         "/api/v1/compliance/screen",
         json={
@@ -107,7 +108,7 @@ def test_screen_api_blank_entity_name():
     assert data["detail"][0]["loc"][-1] == "entity_name"
 
 
-def test_screen_api_missing_entity_name():
+def test_screen_api_missing_entity_name(mock_compliance_officer_auth):
     response = client.post(
         "/api/v1/compliance/screen",
         json={
@@ -119,7 +120,7 @@ def test_screen_api_missing_entity_name():
     assert response.status_code == 422
 
 
-def test_screen_api_missing_entity_type():
+def test_screen_api_missing_entity_type(mock_compliance_officer_auth):
     response = client.post(
         "/api/v1/compliance/screen",
         json={
@@ -131,7 +132,7 @@ def test_screen_api_missing_entity_type():
     assert response.status_code == 422
 
 
-def test_bulk_screen_api():
+def test_bulk_screen_api(mock_compliance_officer_auth):
     response = client.post(
         "/api/v1/compliance/screen-bulk",
         json={
@@ -160,7 +161,7 @@ def test_bulk_screen_api():
     assert data["results"][0]["is_flagged"] is True
 
 
-def test_bulk_screen_api_empty_list():
+def test_bulk_screen_api_empty_list(mock_compliance_officer_auth):
     response = client.post(
         "/api/v1/compliance/screen-bulk",
         json={
@@ -177,7 +178,7 @@ def test_bulk_screen_api_empty_list():
     assert data["detail"][0]["loc"][-1] == "entity_names"
 
 
-def test_bulk_screen_api_invalid_entity_type():
+def test_bulk_screen_api_invalid_entity_type(mock_compliance_officer_auth):
     response = client.post(
         "/api/v1/compliance/screen-bulk",
         json={
@@ -196,7 +197,7 @@ def test_bulk_screen_api_invalid_entity_type():
 
 
 
-def test_audit_history_api():
+def test_audit_history_api(mock_compliance_officer_auth):
     response = client.get(
         "/api/v1/compliance/audit",
         params={"entity_name": "HAMAS"},
@@ -209,7 +210,7 @@ def test_audit_history_api():
     assert isinstance(data, list)
 
 
-def test_audit_summary_api():
+def test_audit_summary_api(mock_compliance_officer_auth):
     response = client.get(
         "/api/v1/compliance/audit/summary"
     )
@@ -233,7 +234,7 @@ def test_audit_summary_api():
         list,
     )
 
-def test_bulk_screen_api_rejects_more_than_500_entities():
+def test_bulk_screen_api_rejects_more_than_500_entities(mock_compliance_officer_auth):
     payload = {
         "entity_names": [f"Entity {i}" for i in range(501)],
         "entity_type": "supplier",
@@ -249,7 +250,7 @@ def test_bulk_screen_api_rejects_more_than_500_entities():
 
 
 
-def test_create_override_api():
+def test_create_override_api(mock_compliance_officer_auth):
     response = client.post(
         "/api/v1/compliance/override",
         json={
@@ -274,7 +275,7 @@ def test_create_override_api():
     assert "created_at" in data
 
 
-def test_create_override_api_missing_reason():
+def test_create_override_api_missing_reason(mock_compliance_officer_auth):
     response = client.post(
         "/api/v1/compliance/override",
         json={
@@ -288,7 +289,7 @@ def test_create_override_api_missing_reason():
     assert response.status_code == 422
 
 
-def test_create_override_api_blank_entity_name():
+def test_create_override_api_blank_entity_name(mock_compliance_officer_auth):
     response = client.post(
         "/api/v1/compliance/override",
         json={
@@ -305,7 +306,7 @@ def test_create_override_api_blank_entity_name():
 
 
 
-def test_read_override_api():
+def test_read_override_api(mock_compliance_officer_auth):
     
     create_response = client.post(
         "/api/v1/compliance/override",
@@ -340,7 +341,7 @@ def test_read_override_api():
 
 
 
-def test_read_all_overrides_api():
+def test_read_all_overrides_api(mock_compliance_officer_auth):
     response = client.get(
         "/api/v1/compliance/overrides"
     )
@@ -353,7 +354,7 @@ def test_read_all_overrides_api():
 
 
 
-def test_remove_override_api():
+def test_remove_override_api(mock_compliance_officer_auth):
     
     create_response = client.post(
         "/api/v1/compliance/override",
@@ -388,7 +389,7 @@ def test_remove_override_api():
     assert data["source"] == "OFAC"
 
 
-def test_remove_nonexistent_override_api():
+def test_remove_nonexistent_override_api(mock_compliance_officer_auth):
     response = client.delete(
         "/api/v1/compliance/override",
         params={
@@ -403,7 +404,7 @@ def test_remove_nonexistent_override_api():
 
 
 
-def test_override_affects_screening_api():
+def test_override_affects_screening_api(mock_compliance_officer_auth):
     
     create_response = client.post(
         "/api/v1/compliance/override",
@@ -455,7 +456,7 @@ def test_override_affects_screening_api():
     assert delete_response.status_code == 200
 
 
-def test_removed_override_no_longer_applies():
+def test_removed_override_no_longer_applies(mock_compliance_officer_auth):
     
     client.delete(
         "/api/v1/compliance/override",

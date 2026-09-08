@@ -36,6 +36,8 @@ class MessyDataConfig:
     frac_missing_date: float = 0.012
     frac_exact_duplicates: float = 0.031
     frac_missing_price: float = 0.02
+    # new code: for adding anomaly unparseable_date
+    frac_unparseable_date: float = 0.01  # Added for 1% unparseable dates
 
 
 def _inject_anomaly(df: pd.DataFrame, column: str, fraction: float, replacement: Any) -> pd.Index:
@@ -63,6 +65,7 @@ def generate_messy_data(filepath: Path | str, config: Optional[MessyDataConfig] 
     prices = np.random.uniform(cfg.price_min, cfg.price_max, size=cfg.n_base).round(2).tolist() # type: ignore
 
     df = pd.DataFrame({
+        "transaction_id": range(1, cfg.n_base + 1),
         "date": dates,
         "sku_id": sku_col,
         "warehouse_id": warehouse_col,
@@ -92,6 +95,8 @@ def generate_messy_data(filepath: Path | str, config: Optional[MessyDataConfig] 
     ]
 
     _inject_anomaly(df, "date", cfg.frac_missing_date, np.nan)
+    # new code: for adding anomaly unparseable_date
+    _inject_anomaly(df, "date", cfg.frac_unparseable_date, "NOT_A_DATE")  # Injecting the unparseable dates
 
     # --- 3. Duplicates & Shuffling ---
     dup_count = int(len(df) * cfg.frac_exact_duplicates)
