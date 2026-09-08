@@ -3,6 +3,7 @@ import uuid
 import httpx
 import pytest
 
+pytestmark = pytest.mark.integration
 
 BASE_URL = os.getenv(
     "PLATFORM_SERVICE_URL",
@@ -76,12 +77,11 @@ def verify_request(token, service="inventory-service"):
 
 
 # ============================================================
-# R5-1: REAL HTTP LOGIN / INTEGRATION CONTRACT
+# REAL HTTP LOGIN / INTEGRATION CONTRACT
 # ============================================================
 
 def test_real_http_login():
     """
-    R5:
     Proves documented login contract works through real HTTP.
     """
 
@@ -94,12 +94,11 @@ def test_real_http_login():
 
 
 # ============================================================
-# R5-2: DEDICATED SERVICE-TO-SERVICE /VERIFY ENDPOINT
+# DEDICATED SERVICE-TO-SERVICE /VERIFY ENDPOINT
 # ============================================================
 
 def test_verify_valid_token():
     """
-    R5:
     POST /api/v1/auth/verify accepts a valid JWT and
     returns authenticated user information and role.
     """
@@ -121,7 +120,6 @@ def test_verify_valid_token():
 
 def test_verify_warehouse_manager_role():
     """
-    R5:
     Verify returns the correct role for another dependent user.
     """
 
@@ -158,7 +156,7 @@ def test_verify_vp_operations_role():
 
 
 # ============================================================
-# R5-3: CONSISTENT 401 ERROR RESPONSES
+# CONSISTENT 401 ERROR RESPONSES
 # ============================================================
 
 def test_verify_missing_token():
@@ -226,14 +224,32 @@ def test_verify_tampered_token():
 
     assert list(data.keys()) == ["detail"]
 
+def test_verify_rejects_refresh_token():
+    """
+    A refresh token must NOT be accepted as an access token.
+    Refresh tokens live 7 days; access tokens live 15 minutes.
+    """
+    user = TEST_USERS["supplier"]
+    login_response = httpx.post(
+        LOGIN_URL,
+        data={
+            "username": user["email"],
+            "password": user["password"],
+        },
+        timeout=10,
+    )
+    assert login_response.status_code == 200, login_response.text
+    refresh_token = login_response.json()["refresh_token"]
+    response = verify_request(refresh_token)
+    assert response.status_code == 401
+    assert list(response.json().keys()) == ["detail"]
 
 # ============================================================
-# R5-4: 403 FOR VALID TOKEN + WRONG ROLE
+# 403 FOR VALID TOKEN + WRONG ROLE
 # ============================================================
 
 def test_valid_token_wrong_role_returns_403():
     """
-    R5:
     Authentication succeeds, but authorization fails.
     Therefore response must be 403, not 401.
     """
@@ -262,12 +278,11 @@ def test_valid_token_wrong_role_returns_403():
 
 
 # ============================================================
-# R5-5: SERVICE CALLER IDENTIFICATION / REQUEST LOGGING
+# SERVICE CALLER IDENTIFICATION / REQUEST LOGGING
 # ============================================================
 
 def test_caller_service_header_accepted():
     """
-    R5:
     Dependent services identify themselves through
     X-Caller-Service.
     """
@@ -310,12 +325,11 @@ def test_request_id_header_accepted():
 
 
 # ============================================================
-# R5-6: CONCURRENT SERVICE LOAD
+# CONCURRENT SERVICE LOAD
 # ============================================================
 
 def test_five_services_can_call_verify_concurrently():
     """
-    R5:
     Simulate 5 dependent services calling /verify at the
     same time.
     """
@@ -374,7 +388,6 @@ def test_five_services_can_call_verify_concurrently():
 
 def test_twenty_concurrent_verify_requests():
     """
-    R5:
     Higher concurrent load against /verify.
     """
 
@@ -410,12 +423,12 @@ def test_twenty_concurrent_verify_requests():
 
 
 # ============================================================
-# R5-7: END-TO-END CONTRACT
+# END-TO-END CONTRACT
 # ============================================================
 
 def test_complete_r5_authentication_flow():
     """
-    R5 end-to-end:
+    end-to-end:
 
     1. Service/user logs in
     2. Receives JWT

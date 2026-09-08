@@ -976,6 +976,7 @@ Example:
 
 ```json
 {
+  "valid":true,
   "user_id": 123,
   "email": "supplier@company.com",
   "full_name": "Supplier User",
@@ -1037,7 +1038,7 @@ Example:
 
 ```json
 {
-  "detail": "Insufficient permissions"
+  "detail": "Forbidden: insufficient permissions"
 }
 ```
 
@@ -1503,7 +1504,7 @@ Concept:
 ```text
 Inventory Service
        |
-       | X-Service-API-Key
+       | X-API-Key
        v
 Platform Service
        |
@@ -1514,7 +1515,7 @@ Validate service credential
 Example:
 
 ```http
-X-Service-API-Key: <service-api-key>
+X-API-Key: <api-key>
 ```
 
 This is intended for machine-to-machine communication where forwarding a user JWT is not appropriate.
@@ -1631,6 +1632,7 @@ Platform Service
        v
 200 OK
 {
+  "valid":true,
   "user_id": 123,
   "email": "...",
   "full_name": "...",
@@ -1665,6 +1667,78 @@ User can login
 This is intentional RBAC behavior.
 
 ---
+
+## Service-to-Service Authentication
+
+The Platform Service supports API-key authentication for trusted service-to-service communication.
+
+This is intended for **service-to-service calls**, not for normal user login.
+
+### Endpoint
+
+```text
+POST /api/v1/auth/service-verify
+```
+
+### Authentication
+
+The requesting service must provide its API key using the authentication header expected by `verify_service_api_key`.
+
+Example:
+
+```bash
+curl -X POST http://127.0.0.1:8005/api/v1/auth/service-verify \
+  -H "X-API-Key: <SERVICE_API_KEY>"
+```
+
+### Successful Response
+
+```json
+{
+  "authenticated": true,
+  "service": "inventory-service",
+  "auth_type": "api_key"
+}
+```
+
+The response confirms that:
+
+* The service API key is valid.
+* The requesting service has been identified.
+* The authentication method is API key authentication.
+
+### When to Use
+
+API-key authentication is intended for trusted internal service-to-service communication where there is no end-user context.
+
+Example:
+
+```text
+Inventory Service
+       |
+       | X-API-Key
+       ▼
+Platform Service
+       |
+       | Validate API key
+       ▼
+Authenticated Service
+```
+
+For requests made on behalf of a logged-in user, use JWT authentication and the normal token verification flow instead.
+
+### Authentication Comparison
+
+| Use case                          | Authentication                |
+| --------------------------------- | ----------------------------- |
+| User login                        | JWT                           |
+| User accessing protected APIs     | Access JWT                    |
+| Refreshing user session           | Refresh token                 |
+| Service-to-service authentication | API key                       |
+| Service token verification        | `/api/v1/auth/verify`         |
+| Service API-key verification      | `/api/v1/auth/service-verify` |
+
+
 
 # Setup
 
@@ -1754,25 +1828,36 @@ http://127.0.0.1:8005/docs
 
 # Testing
 
-Run the complete test suite:
+The Platform Service has two types of tests:
 
+Unit tests — run without requiring the Platform Service to be running.
+Integration tests — make real HTTP requests to the running Platform Service on port 8005.
+Run the default test suite
 ```bash
 pytest -q
 ```
 
-Run authentication tests:
+The default test command excludes integration tests, so the Platform Service does not need to be running.
 
+Run integration tests
+
+First start the Platform Service:
+
+uvicorn app.main:app --host 0.0.0.0 --port 8005
+
+Then, in another terminal, run:
 ```bash
-pytest -q tests/test_auth.py
+pytest -m integration -q
 ```
 
-Run R5 real integration tests:
+Integration tests use real HTTP calls against:
 
+http://127.0.0.1:8005
+Run all tests
+
+To run both the normal test suite and integration tests:
 ```bash
-pytest -q tests/test_integration.py
-```
-
-Remember that `test_integration.py` requires the Platform Service to already be running on port `8005`.
+pytest -m "" -q
 
 ---
 
@@ -1808,7 +1893,7 @@ Implemented tests cover:
 * Password reset
 * Authentication audit logging
 
-R5 integration tests additionally cover:
+Integration tests additionally cover:
 
 * Real HTTP login
 * Real HTTP `/auth/verify`
@@ -1848,11 +1933,8 @@ For service-to-service authentication, dependent services should primarily handl
 401 → Authentication failed
 403 → Authenticated but not authorized
 429 → Rate limited
-5xx → Platform/service availability problem
+503 → Platform/service availability problem
 ```
-
---
-
 
 # Reference
 
@@ -1918,3 +2000,19 @@ Integration Testing
 
 The dedicated `/api/v1/auth/verify` endpoint provides a lightweight contract for backend services to validate user tokens and retrieve the authenticated user's role without depending on browser-oriented authentication endpoints.
 
+# Known Limitations
+
+- No dependent service currently imports `require_role` /
+`get_current_user`
+from this service. The dependency works; the integration hasn't landed
+yet.
+- The API-key path (`/api/v1/auth/service-verify`,
+`app/core/service_auth.py`)
+is a sketch: no tests, no adopters, header name not finalised.
+- Concurrency is SQLite-backed. The integration suite exercises 20
+concurrent
+verifications, which is well below what a shared database would need to
+handle.
+- Request logging captures caller/request-id/method/path/status, but
+nothing
+currently tests that those values are actually recorded.
