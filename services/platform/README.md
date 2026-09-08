@@ -981,6 +981,7 @@ Example:
   "email": "supplier@company.com",
   "full_name": "Supplier User",
   "role": "supplier",
+  "supplier_id":"101",
   "is_active": true
 }
 ```
@@ -1637,6 +1638,7 @@ Platform Service
   "email": "...",
   "full_name": "...",
   "role": "supplier",
+  "supplier_id": "101",
   "is_active": true
 }
 ```

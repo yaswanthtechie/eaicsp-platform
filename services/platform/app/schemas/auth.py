@@ -1,4 +1,5 @@
 from pydantic import BaseModel,EmailStr
+from typing import Optional
 
 class RegisterRequest(BaseModel):
     full_name:str
@@ -38,3 +39,12 @@ class SessionResponse(BaseModel):
     created_at: str
     expires_at: str
     is_revoked: bool
+
+class VerifyResponse(BaseModel):
+    valid: bool
+    user_id: int
+    email: EmailStr
+    full_name: str
+    role: Optional[str] = None
+    supplier_id: Optional[int] = None
+    is_active: bool

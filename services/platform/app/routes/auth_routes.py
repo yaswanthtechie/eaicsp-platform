@@ -21,7 +21,7 @@ from app.services.audit_service import (
 from app.models.refresh_token import RefreshToken
 
 from app.core.service_auth import verify_service_api_key
-
+from app.schemas.auth import VerifyResponse
 from app.schemas.auth import (
     TokenResponse,  
     RefreshRequest,
@@ -301,7 +301,10 @@ def password_reset_confirm(
 
 logger = logging.getLogger("platform.request")
 
-@router.post("/verify")
+@router.post(
+    "/verify",
+    response_model=VerifyResponse,
+)
 def verify_access_token(
     current_user: User = Depends(get_current_user),
 ):
@@ -311,6 +314,7 @@ def verify_access_token(
         "email": current_user.email,
         "full_name": current_user.full_name,
         "role": current_user.role.name if current_user.role else None,
+        "supplier_id": current_user.supplier_id,
         "is_active": current_user.is_active,
     }
 
@@ -321,7 +325,6 @@ def verify_access_token(
     )
 
     return response_data
-
 
 @router.post("/service-verify")
 def service_verify(
