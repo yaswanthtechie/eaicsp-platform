@@ -43,53 +43,65 @@ router = APIRouter()
 # ============================================================
 
 def verify_supplier_invoice_access(
-    supplier_id: str,
-    user=Depends(verify_token),
+    supplier_only: bool = False,
 ):
     """
-    Verify that the authenticated supplier owns the invoice.
+    Verify invoice access.
 
-    Supplier role alone is not sufficient.
-    The supplier_id from the authenticated user must match
-    the supplier_id in the URL.
+    supplier_only=False:
+        Suppliers can access only their own invoices.
+        Internal roles can read any invoice.
+
+    supplier_only=True:
+        Only the owning supplier can perform the action.
     """
 
-    # --------------------------------------------------------
-    # 1. Supplier role check
-    # --------------------------------------------------------
+    def dependency(
+        supplier_id: str,
+        user=Depends(verify_token),
+    ):
+        # ----------------------------------------------------
+        # 1. Supplier role check
+        # ----------------------------------------------------
 
-    if user.get("role") != "supplier":
-        raise HTTPException(
-            status_code=403,
-            detail="Forbidden: supplier access required",
-        )
+        if user.get("role") == "supplier":
+            authenticated_supplier_id = user.get("supplier_id")
 
-    # --------------------------------------------------------
-    # 2. Get supplier_id from authenticated user
-    # --------------------------------------------------------
+            if not authenticated_supplier_id:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Supplier identity is missing",
+                )
 
-    authenticated_supplier_id = user.get("supplier_id")
+        # ----------------------------------------------------
+        # 2. Supplier-only action
+        # ----------------------------------------------------
 
-    if not authenticated_supplier_id:
-        raise HTTPException(
-            status_code=403,
-            detail="Supplier identity is missing",
-        )
+        elif supplier_only:
+            raise HTTPException(
+                status_code=403,
+                detail="Forbidden: supplier access required",
+            )
 
-    # --------------------------------------------------------
-    # 3. Supplier scoping check
-    # --------------------------------------------------------
+        # ----------------------------------------------------
+        # 3. Supplier scoping check
+        # ----------------------------------------------------
 
-    if authenticated_supplier_id != supplier_id:
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                "Forbidden: supplier does not own "
-                "this invoice"
-            ),
-        )
+        if (
+            user.get("role") == "supplier"
+            and user["supplier_id"] != supplier_id
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Forbidden: supplier does not own "
+                    "this invoice"
+                ),
+            )
 
-    return user
+        return user
+
+    return dependency
 
 
 # ============================================================
@@ -158,7 +170,7 @@ def get_invoices(
 def get_invoice(
     supplier_id: str,
     invoice_number: str,
-    user=Depends(verify_supplier_invoice_access),
+    user=Depends(verify_supplier_invoice_access()),
 ):
     try:
         return get_invoice_by_number(
@@ -267,7 +279,9 @@ def transition_invoice_status(
     supplier_id: str,
     invoice_number: str,
     transition: InvoiceTransition,
-    user=Depends(verify_supplier_invoice_access),
+    user=Depends(
+       verify_supplier_invoice_access(supplier_only=True)
+    ),
 ):
     """
     Change invoice status using the invoice state machine.
@@ -378,7 +392,9 @@ def upload_document(
     supplier_id: str,
     invoice_number: str,
     file: UploadFile = File(...),
-    user=Depends(verify_supplier_invoice_access),
+    user=Depends(
+       verify_supplier_invoice_access(supplier_only=True)
+    ),
 ):
     """
     Upload a PDF document for an existing invoice.
@@ -423,7 +439,7 @@ def upload_document(
 def download_invoice_document(
     supplier_id: str,
     invoice_number: str,
-    user=Depends(verify_supplier_invoice_access),
+    user=Depends(verify_supplier_invoice_access()),
 ):
     """
     Download the PDF document attached to an invoice.

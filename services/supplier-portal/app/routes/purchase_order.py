@@ -36,117 +36,88 @@ router = APIRouter()
 # SUPPLIER PURCHASE ORDER ACCESS
 # ============================================================
 
-def require_supplier_po_access(
-    po_number: str,
-    user=Depends(verify_token),
-):
+def require_po_access(supplier_only: bool = False):
     """
-    Authenticate the supplier and verify that the supplier
-    owns the requested Purchase Order.
+    Purchase Order access guard.
 
-    Rules:
-        1. User must have the supplier role.
-        2. Authenticated user must have a supplier_id.
-        3. Authenticated supplier_id must match the PO supplier_id.
+    supplier_only=False:
+        Suppliers can access only their own POs.
+        Internal roles can access any PO.
 
-    This prevents Supplier A from accessing Supplier B's PO.
+    supplier_only=True:
+        Only the owning supplier can perform the action.
+        Internal roles are not allowed.
     """
 
-    # --------------------------------------------------------
-    # 1. Role check
-    # --------------------------------------------------------
-
-    if user.get("role") != "supplier":
-        raise HTTPException(
-            status_code=403,
-            detail="Forbidden: supplier access required",
-        )
-
-    # --------------------------------------------------------
-    # 2. Get supplier identity
-    # --------------------------------------------------------
-
-    authenticated_supplier_id = user.get("supplier_id")
-
-    if not authenticated_supplier_id:
-        raise HTTPException(
-            status_code=403,
-            detail="Supplier identity is missing",
-        )
-
-    # --------------------------------------------------------
-    # 3. Find Purchase Order
-    # --------------------------------------------------------
-
-    purchase_order = get_purchase_order_by_id(po_number)
-
-    if not purchase_order:
-        raise HTTPException(
-            status_code=404,
-            detail="Purchase Order not found",
-        )
-
-    # --------------------------------------------------------
-    # 4. Supplier scoping check
-    # --------------------------------------------------------
-
-    if (
-        authenticated_supplier_id
-        != purchase_order["supplier_id"]
+    def dependency(
+        po_number: str,
+        user=Depends(verify_token),
     ):
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                "Forbidden: supplier does not own "
-                "this Purchase Order"
-            ),
-        )
+        # 1. Supplier access
+        if user.get("role") == "supplier":
+            authenticated_supplier_id = user.get("supplier_id")
 
-    return user, purchase_order
+            if not authenticated_supplier_id:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Supplier identity is missing",
+                )
+
+        # 2. Supplier-only action
+        elif supplier_only:
+            raise HTTPException(
+                status_code=403,
+                detail="Forbidden: supplier access required",
+            )
+
+        # 3. Find Purchase Order
+        purchase_order = get_purchase_order_by_id(po_number)
+
+        if not purchase_order:
+            raise HTTPException(
+                status_code=404,
+                detail="Purchase Order not found",
+            )
+
+        # 4. Supplier scoping
+        if (
+            user.get("role") == "supplier"
+            and user["supplier_id"]
+            != purchase_order["supplier_id"]
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Forbidden: supplier does not own "
+                    "this Purchase Order"
+                ),
+            )
+
+        return user, purchase_order
+
+    return dependency
 
 
-def require_supplier_po_event_access(
+def require_po_event_access(
     po_number: str,
     user=Depends(verify_token),
 ):
     """
     Authorize access to Purchase Order audit history.
 
-    Event history remains available even after the Purchase
-    Order itself has been deleted.
-
-    Rules:
-        1. User must have the supplier role.
-        2. User must have a supplier_id.
-        3. If PO exists, verify ownership using the PO.
-        4. If PO was deleted, verify ownership using the
-           supplier_id stored in the historical events.
+    Internal users can view any PO event history.
+    Suppliers can view only their own PO event history.
+    Event history remains available even after the PO is deleted.
     """
 
     # --------------------------------------------------------
-    # 1. Role check
-    # --------------------------------------------------------
-
-    if user.get("role") != "supplier":
-        raise HTTPException(
-            status_code=403,
-            detail="Forbidden: supplier access required",
-        )
-
-    # --------------------------------------------------------
-    # 2. Get authenticated supplier identity
+    # 1. Get authenticated supplier identity
     # --------------------------------------------------------
 
     authenticated_supplier_id = user.get("supplier_id")
 
-    if not authenticated_supplier_id:
-        raise HTTPException(
-            status_code=403,
-            detail="Supplier identity is missing",
-        )
-
     # --------------------------------------------------------
-    # 3. Get preserved event history
+    # 2. Get preserved event history
     # --------------------------------------------------------
 
     events = get_purchase_order_events(po_number)
@@ -158,7 +129,7 @@ def require_supplier_po_event_access(
         )
 
     # --------------------------------------------------------
-    # 4. If PO still exists, use current PO ownership
+    # 3. If PO still exists, use current PO ownership
     # --------------------------------------------------------
 
     purchase_order = get_purchase_order_by_id(po_number)
@@ -166,7 +137,8 @@ def require_supplier_po_event_access(
     if purchase_order:
 
         if (
-            authenticated_supplier_id
+            user.get("role") == "supplier"
+            and authenticated_supplier_id
             != purchase_order["supplier_id"]
         ):
             raise HTTPException(
@@ -180,9 +152,10 @@ def require_supplier_po_event_access(
         return user, events
 
     # --------------------------------------------------------
-    # 5. PO was deleted
+    # 4. PO was deleted
     #
-    # Use preserved audit events to verify ownership.
+    # Use preserved audit events to verify supplier ownership.
+    # Internal users can still view the history.
     # --------------------------------------------------------
 
     if not events:
@@ -196,7 +169,10 @@ def require_supplier_po_event_access(
         for event in events
     }
 
-    if authenticated_supplier_id not in event_supplier_ids:
+    if (
+        user.get("role") == "supplier"
+        and authenticated_supplier_id not in event_supplier_ids
+    ):
         raise HTTPException(
             status_code=403,
             detail=(
@@ -219,7 +195,8 @@ def require_supplier_po_event_access(
     response_model=list[PurchaseOrderHistory],
 )
 def get_po_events(
-    access=Depends(require_supplier_po_event_access),
+    po_number: str,
+    access=Depends(require_po_event_access),
 ):
     """
     Get Purchase Order audit events.
@@ -231,8 +208,6 @@ def get_po_events(
     user, events = access
 
     return events
-
-
 
 # ============================================================
 # CREATE PURCHASE ORDER
@@ -395,7 +370,7 @@ def list_purchase_orders(
     response_model=PurchaseOrderResponse,
 )
 def get_purchase_order(
-    access=Depends(require_supplier_po_access),
+    access=Depends(require_po_access()),
 ):
 
     user, purchase_order = access
@@ -647,7 +622,9 @@ def delete_po(
     response_model=PurchaseOrderResponse,
 )
 def acknowledge_po(
-    access=Depends(require_supplier_po_access),
+    access=Depends(
+    require_po_access(supplier_only=True)
+),
 ):
 
     user, purchase_order = access

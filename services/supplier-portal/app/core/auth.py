@@ -253,6 +253,13 @@ async def verify_token(
             detail="User role is not assigned",
         )
 
+    if user_role == "supplier" and not supplier_id:
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Supplier identity could not be resolved",
+        )
+
     # ========================================================
     # 12. STORE AUTHENTICATED USER IN REQUEST STATE
     # ========================================================

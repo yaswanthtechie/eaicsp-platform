@@ -923,3 +923,61 @@ async def test_verify_token_procurement_manager_has_no_supplier_id(
     assert result["role"] == "procurement_manager"
     assert result["user_id"] == 4
     assert result["supplier_id"] is None
+
+# ============================================================
+# 18. SUPPLIER WITHOUT SUPPLIER ID
+# ============================================================
+
+@pytest.mark.asyncio
+async def test_verify_token_supplier_without_supplier_id_is_rejected(
+    monkeypatch,
+):
+    """
+    A supplier-role authentication response without supplier_id
+    must be rejected at the authentication boundary.
+    """
+
+    fake_response = FakeResponse(
+        status_code=200,
+        json_data={
+            "valid": True,
+            "user_id": 42,
+            "email": "unmapped-supplier@example.com",
+            "full_name": "Unmapped Supplier",
+            "role": "supplier",
+            "is_active": True,
+            # supplier_id intentionally omitted
+        },
+    )
+
+    def fake_async_client(*args, **kwargs):
+        return FakeAsyncClient(
+            response=fake_response,
+        )
+
+    monkeypatch.setattr(
+        auth.httpx,
+        "AsyncClient",
+        fake_async_client,
+    )
+
+    request = create_request()
+
+    credentials = HTTPAuthorizationCredentials(
+        scheme="Bearer",
+        credentials="supplier-token",
+    )
+
+    with pytest.raises(auth.HTTPException) as exc_info:
+
+        await auth.verify_token(
+            request=request,
+            credentials=credentials,
+        )
+
+    assert exc_info.value.status_code == 403
+
+    assert exc_info.value.detail == (
+        "Supplier identity could not be resolved"
+    )
+
