@@ -22,6 +22,7 @@ def mock_report() -> MagicMock:
     report.passed = True
     report.total_rows_affected = 0
     report.model_dump.return_value = {"status": "success"}
+    report.rule_timings = {}  # Default to empty to avoid breaking older tests
     # Remove dict method to force model_dump usage by default
     del report.dict
     return report
@@ -60,6 +61,16 @@ def test_parse_args_success(mock_args):
     assert args.file.name == "dummy.csv"
     assert args.config.name == "dummy.yaml"
     assert args.output.name == "dummy.json"
+    assert args.profile is None
+    assert args.list_profiles is False
+
+
+def test_parse_args_profiles(mock_args):
+    """Verifies that the new profile arguments are parsed correctly."""
+    args_with_profiles = mock_args + ["--profile", "strict", "--list-profiles"]
+    args = validate_cli.parse_args(args_with_profiles)
+    assert args.profile == "strict"
+    assert args.list_profiles is True
 
 
 def test_parse_args_missing_required():
@@ -111,15 +122,35 @@ def test_export_report_os_error(mock_mkdir, mock_report):
 # --- Tests for main() execution flow ---
 
 @patch("pathlib.Path.is_file")
-def test_main_input_not_file(mock_is_file, mock_args):
-    mock_is_file.side_effect = [False, True]
+def test_main_config_not_file(mock_is_file, mock_args):
+    # Fails on the first check (config file)
+    mock_is_file.side_effect = [False]
     assert validate_cli.main(mock_args) == validate_cli.EXIT_TOOL_ERROR
 
 
 @patch("pathlib.Path.is_file")
-def test_main_config_not_file(mock_is_file, mock_args):
+def test_main_input_not_file(mock_is_file, mock_args):
+    # Passes config check, fails input check
     mock_is_file.side_effect = [True, False]
     assert validate_cli.main(mock_args) == validate_cli.EXIT_TOOL_ERROR
+
+
+@patch("pathlib.Path.is_file", return_value=True)
+@patch("src.validator.DataValidator.list_profiles", return_value=["default", "strict"])
+def test_main_list_profiles_found(mock_list, mock_is_file, mock_args):
+    """Hits the early exit when --list-profiles is requested and profiles are found."""
+    args = mock_args + ["--list-profiles"]
+    assert validate_cli.main(args) == validate_cli.EXIT_SUCCESS
+    mock_list.assert_called_once_with("dummy.yaml")
+
+
+@patch("pathlib.Path.is_file", return_value=True)
+@patch("src.validator.DataValidator.list_profiles", return_value=[])
+def test_main_list_profiles_not_found(mock_list, mock_is_file, mock_args):
+    """Hits the early exit when --list-profiles is requested but no profiles exist."""
+    args = mock_args + ["--list-profiles"]
+    assert validate_cli.main(args) == validate_cli.EXIT_SUCCESS
+    mock_list.assert_called_once_with("dummy.yaml")
 
 
 @patch("pathlib.Path.is_file", return_value=True)
@@ -166,13 +197,42 @@ def test_main_validation_passed_false(mock_export, mock_validator, mock_read, mo
 @patch("pandas.read_csv", return_value=pd.DataFrame())
 @patch("src.validator.DataValidator.from_config")
 @patch("src.validate_cli.export_report")
-def test_main_validation_passed_true(mock_export, mock_validator, mock_read, mock_is_file, mock_args, mock_report):
+def test_main_validation_passed_true_with_profile(mock_export, mock_validator, mock_read, mock_is_file, mock_args,
+                                                  mock_report):
+    """Verifies a successful run and ensures the profile flag is passed to the validator."""
     mock_instance = MagicMock()
     mock_instance.validate.return_value = mock_report
     mock_validator.return_value = mock_instance
 
+    args = mock_args + ["--profile", "strict"]
+
     # Assert it returns Code 0 (Success)
-    assert validate_cli.main(mock_args) == validate_cli.EXIT_SUCCESS
+    assert validate_cli.main(args) == validate_cli.EXIT_SUCCESS
+
+    # Assert validator initialized with the profile name
+    mock_validator.assert_called_once()
+    assert mock_validator.call_args.kwargs.get("profile_name") == "strict"
+
+
+@patch("pathlib.Path.is_file", return_value=True)
+@patch("pandas.read_csv", return_value=pd.DataFrame())
+@patch("src.validator.DataValidator.from_config")
+@patch("src.validate_cli.export_report")
+@patch("src.validate_cli.logger.info")
+def test_main_rule_timings_logging(mock_info, mock_export, mock_validator, mock_read, mock_is_file, mock_args,
+                                   mock_report):
+    """Verifies that rule timings are correctly logged if present in the report."""
+    mock_report.rule_timings = {"rule_1": 0.5, "rule_2": 1.2}
+
+    mock_instance = MagicMock()
+    mock_instance.validate.return_value = mock_report
+    mock_validator.return_value = mock_instance
+
+    validate_cli.main(mock_args)
+
+    # Verify the specific logger output indicating rule timings logic was hit
+    mock_info.assert_any_call("--- RULE TIMINGS (Slowest First) ---")
+
 
 # --- Tests for Incremental Watermarking ---
 

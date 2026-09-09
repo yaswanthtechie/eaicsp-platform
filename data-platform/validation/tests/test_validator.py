@@ -250,11 +250,6 @@ def test_custom_rule_with_kwargs():
     assert mask.tolist() == [False, True, False]
 
 
-# def test_custom_rule_missing_function():
-#     df = pd.DataFrame({"col": ["PASS"]})
-#     rule = ConfigRule(**{"name": "bad_rule", "field": "col", "type": "custom"})
-#     with pytest.raises(ValueError, match="missing 'function' path"):
-#         rule.evaluate(df)
 def test_custom_rule_missing_function():
     with pytest.raises(ValidationError, match="no 'function' path"):
         ConfigRule(**{"name": "bad_rule", "field": "col", "type": "custom"})
@@ -300,11 +295,6 @@ def test_transform_rule_with_kwargs():
     assert clean_df.at[0, "col"] == "mixedcase"
 
 
-# def test_transform_rule_missing_function():
-#     df = pd.DataFrame({"col": ["pass"]})
-#     rule = ConfigRule(**{"name": "bad_transform", "type": "transform"})
-#     with pytest.raises(ValueError, match="missing 'function' path"):
-#         rule.apply_transform(df)
 def test_transform_rule_missing_function():
     with pytest.raises(ValidationError, match="no 'function' path"):
         ConfigRule(**{"name": "bad_transform", "type": "transform"})
@@ -407,12 +397,12 @@ def test_validation_result_dict_access():
 
 
 def test_from_config_empty_or_missing_rules(tmp_path):
-    """Hits data.get('rules', []) fallback and verifies 'YAML file is completely empty' exception."""
-    # 1. Valid YAML structure without 'rules' key
+    """Verifies that missing 'profiles'/'rules' or empty files raise exceptions."""
+    # 1. Valid YAML structure without 'rules' or 'profiles' key
     no_rules = tmp_path / "no_rules.yaml"
     no_rules.write_text("some_other_key: value")
-    val1 = DataValidator.from_config(str(no_rules))
-    assert len(val1.rules) == 0
+    with pytest.raises(ValueError, match="YAML config must contain a 'profiles' or 'rules' key"):
+        DataValidator.from_config(str(no_rules))
 
     # 2. Completely empty YAML file
     empty_yaml = tmp_path / "empty.yaml"
@@ -467,28 +457,6 @@ def test_failsafe_validate_skips_crashing_rule(caplog):
     assert "crashed and DID NOT RUN" in caplog.text
 
 
-# def test_failsafe_clean_skips_crashing_rules(caplog):
-#     """Hits the except Exception blocks in validator.clean() for both evaluation and transforms."""
-#     df = pd.DataFrame({"A": [1]})
-#     r1 = ConfigRule(**{
-#         "name": "crash_eval",
-#         "type": "custom",
-#         "severity": "ERROR",
-#         "function": "tests.test_validator.crashing_custom_rule"
-#     })
-#     r2 = ConfigRule(**{
-#         "name": "crash_transform",
-#         "type": "transform",
-#         "severity": "INFO",
-#         "function": "tests.test_validator.crashing_transform_rule"
-#     })
-#
-#     validator = DataValidator([r1, r2])
-#     clean_df = validator.clean(df, strict=True)
-#
-#     assert len(clean_df) == 1
-#     assert "FATAL ERROR: Transform rule 'crash_transform' crashed" in caplog.text
-#     assert "FATAL ERROR: Rule 'crash_eval' crashed during cleaning" in caplog.text
 def test_failsafe_clean_skips_crashing_rules(caplog):
     df = pd.DataFrame({"A": [1]})
     r1 = ConfigRule(**{"name": "crash_eval", "type": "custom", "severity": "ERROR",
@@ -555,25 +523,6 @@ def test_rule_dependencies_suppression():
     assert clean_df.index[0] == 2
 
 
-# def test_rule_dependency_not_found_logs_warning(caplog):
-#     """Hits the branch where a rule depends on a rule that hasn't executed/doesn't exist."""
-#     df = pd.DataFrame({"A": [1]})
-#     rule = ConfigRule(**{
-#         "name": "rule_b",
-#         "field": "A",
-#         "type": "not_null",
-#         "depends_on": ["missing_rule"]
-#     })
-#     validator = DataValidator([rule])
-#
-#     # Hits the warning branch in validate()
-#     validator.validate(df)
-#     assert "Dependency 'missing_rule' for rule 'rule_b' not found or not executed yet." in caplog.text
-#
-#     # Hits the warning branch in clean()
-#     caplog.clear()
-#     validator.clean(df)
-#     assert "Dependency 'missing_rule' for rule 'rule_b' not found/executed." in caplog.text
 def test_rule_dependency_not_found_rejected_at_load():
     """Hits the branch where a rule depends on a rule that hasn't executed/doesn't exist."""
     rule = ConfigRule(**{
@@ -915,3 +864,219 @@ def test_crashed_rule_can_be_tolerated_explicitly(caplog):
     # The dataframe remains untouched because the rule crashed before flagging rows
     assert len(clean_df) == 2
     assert "crashed and DID NOT RUN during cleaning" in caplog.text
+
+
+# --- PROFILES SPECIFIC TESTS ---
+
+def test_from_config_profiles_default_fallback(tmp_path):
+    """Verifies falling back to 'default' profile when none is passed."""
+    yaml_file = tmp_path / "profiles.yaml"
+    yaml_file.write_text("""
+profiles:
+  default:
+    rules:
+      - name: r1
+        field: col
+        type: not_null
+""")
+    val = DataValidator.from_config(str(yaml_file))
+    assert len(val.rules) == 1
+    assert val.rules[0].name == "r1"
+
+
+def test_from_config_profiles_no_default_raises(tmp_path):
+    """Verifies error raised when no profile passed and 'default' is not present."""
+    yaml_file = tmp_path / "profiles.yaml"
+    yaml_file.write_text("""
+profiles:
+  strict:
+    rules:
+      - name: r1
+        field: col
+        type: not_null
+""")
+    with pytest.raises(ValueError, match="No profile specified and no 'default' profile found."):
+        DataValidator.from_config(str(yaml_file))
+
+
+def test_from_config_profiles_not_found(tmp_path):
+    """Verifies error when requested profile doesn't exist."""
+    yaml_file = tmp_path / "profiles.yaml"
+    yaml_file.write_text("""
+profiles:
+  default:
+    rules: []
+""")
+    with pytest.raises(ValueError, match="Profile 'missing_profile' not found."):
+        DataValidator.from_config(str(yaml_file), profile_name="missing_profile")
+
+
+def test_from_config_profiles_inheritance(tmp_path):
+    """Verifies profile inheritance works and cleanly overrides inherited rules."""
+    yaml_file = tmp_path / "profiles.yaml"
+    yaml_file.write_text("""
+profiles:
+  base:
+    rules:
+      - name: r1
+        field: col
+        type: not_null
+      - name: r2
+        field: qty
+        type: range
+        min: 0
+  strict:
+    inherits: base
+    rules:
+      - name: r2
+        field: qty
+        type: range
+        min: 10
+""")
+    val = DataValidator.from_config(str(yaml_file), profile_name="strict")
+    assert len(val.rules) == 2
+    rule_names = {r.name: r for r in val.rules}
+    assert "r1" in rule_names
+    assert "r2" in rule_names
+    assert rule_names["r2"].model_extra["min"] == 10
+
+
+def test_from_config_profiles_parent_not_found(tmp_path):
+    """Verifies inheritance raises error if parent profile is absent."""
+    yaml_file = tmp_path / "profiles.yaml"
+    yaml_file.write_text("""
+profiles:
+  strict:
+    inherits: missing_base
+    rules: []
+""")
+    with pytest.raises(ValueError, match="Parent profile 'missing_base' not found."):
+        DataValidator.from_config(str(yaml_file), profile_name="strict")
+
+
+def test_list_profiles_success(tmp_path):
+    """Verifies list_profiles correctly returns the profile keys."""
+    yaml_file = tmp_path / "profiles.yaml"
+    yaml_file.write_text("""
+profiles:
+  default: {}
+  strict: {}
+""")
+    profiles = DataValidator.list_profiles(str(yaml_file))
+    assert profiles == ["default", "strict"]
+
+
+def test_list_profiles_no_profiles_key(tmp_path):
+    """Verifies list_profiles returns empty list when no profiles key exists."""
+    yaml_file = tmp_path / "profiles.yaml"
+    yaml_file.write_text("rules: []")
+    profiles = DataValidator.list_profiles(str(yaml_file))
+    assert profiles == []
+
+
+def test_list_profiles_error():
+    """Verifies list_profiles safely returns empty list if parsing fails."""
+    profiles = DataValidator.list_profiles("non_existent_file.yaml")
+    assert profiles == []
+
+
+def test_conditional_rule_evaluation():
+    """Verifies that conditional rules only flag rows matching the condition."""
+    df = pd.DataFrame({
+        "country": ["US", "US", "CA"],
+        "zip": ["12345", "BAD", "123"]
+    })
+    rule = ConfigRule(**{
+        "name": "us_zip",
+        "type": "conditional",
+        "condition_field": "country",
+        "condition_value": "US",
+        "field": "zip",
+        "target_type": "regex",
+        "pattern": "^[0-9]{5}$"
+    })
+    mask = rule.evaluate(df)
+    # Row 0: US, valid zip -> False
+    # Row 1: US, bad zip -> True (Fails rule)
+    # Row 2: CA, bad zip -> False (Ignored because country != US)
+    assert mask.tolist() == [False, True, False]
+
+
+def test_conditional_rule_missing_keys():
+    """Verifies missing conditional configurations raise errors."""
+    rule = ConfigRule(**{
+        "name": "bad_cond",
+        "type": "conditional",
+        "field": "zip"
+    })
+    with pytest.raises(ValueError, match="missing conditional keys"):
+        rule.evaluate(pd.DataFrame({"zip": ["12345"]}))
+
+
+def test_conditional_rule_missing_condition_field_in_df():
+    """Verifies missing condition fields in the DataFrame raise errors."""
+    df = pd.DataFrame({"zip": ["12345"]})  # 'country' is missing
+    rule = ConfigRule(**{
+        "name": "cond",
+        "type": "conditional",
+        "condition_field": "country",
+        "condition_value": "US",
+        "field": "zip",
+        "target_type": "not_null"
+    })
+    with pytest.raises(ValueError, match="Condition field 'country' missing from DataFrame"):
+        rule.evaluate(df)
+
+
+def test_per_rule_threshold_rejection():
+    """Verifies that exceeding a rule's max_fail_pct rejects the batch."""
+    df = pd.DataFrame({"qty": [1, -1, -2, -3]})  # 3 out of 4 fail (75%)
+    rule = ConfigRule(**{
+        "name": "qty_rule",
+        "field": "qty",
+        "type": "range",
+        "min": 0,
+        "max_fail_pct": 0.50  # 50% max allowed
+    })
+    val = DataValidator([rule])
+    report = val.validate(df)
+
+    assert report.batch_rejected is True
+    assert report.passed is False
+    assert len(report.rejection_reasons) == 1
+    assert "failed 75.0% of rows" in report.rejection_reasons[0]
+
+
+def test_global_threshold_rejection():
+    """Verifies that exceeding the global max_fail_pct rejects the batch."""
+    df = pd.DataFrame({"qty": [1, -1, 1, 1]})  # 1 out of 4 fail (25%)
+    rule = ConfigRule(**{
+        "name": "qty_rule",
+        "field": "qty",
+        "type": "range",
+        "min": 0,
+        "severity": "ERROR"  # <-- FIX: Explicitly set severity so affected_indices updates
+    })
+    val = DataValidator([rule], global_max_fail_pct=0.20)  # 20% global max
+    report = val.validate(df)
+
+    assert report.batch_rejected is True
+    assert report.passed is False
+    assert len(report.rejection_reasons) == 1
+    assert "Global failure rate 25.0% exceeds threshold" in report.rejection_reasons[0]
+
+
+def test_clean_aborts_on_rejected_batch():
+    """Verifies that clean() refuses to process a batch that breached thresholds."""
+    df = pd.DataFrame({"qty": [-1, -1]})  # 100% failure rate
+    rule = ConfigRule(**{
+        "name": "qty_rule",
+        "field": "qty",
+        "type": "range",
+        "min": 0,
+        "max_fail_pct": 0.10
+    })
+    val = DataValidator([rule])
+
+    with pytest.raises(RuntimeError, match="Refusing to clean: Batch exceeded failure thresholds"):
+        val.clean(df)

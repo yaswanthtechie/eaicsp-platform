@@ -91,12 +91,14 @@ def test_load_validator(mock_validator_class):
     mock_validator_class.from_config.return_value = mock_instance
     cache = {}
 
-    res1 = validate_folder._load_validator("config1.yaml", cache)
+    res1 = validate_folder._load_validator("config1.yaml", "strict", cache)
     assert res1 == mock_instance
 
-    res2 = validate_folder._load_validator("config1.yaml", cache)
+    res2 = validate_folder._load_validator("config1.yaml", "strict", cache)
     assert res2 == mock_instance
     assert mock_validator_class.from_config.call_count == 1
+    # Check that profile_name was passed correctly on initialization
+    mock_validator_class.from_config.assert_called_with("config1.yaml", profile_name="strict")
 
 
 def test_validate_folder_invalid_folder():
@@ -186,6 +188,32 @@ def test_validate_folder_mapping_with_reports(mock_validator_class, mock_read_cs
 
 @patch("src.validate_folder.pd.read_csv")
 @patch("src.validate_folder.DataValidator")
+def test_validate_folder_hybrid_mapping(mock_validator_class, mock_read_csv, temp_env):
+    """Verifies hybrid mapping correctly parses dictionaries, overrides profiles, and skips bad configs."""
+    mock_read_csv.return_value = MagicMock()
+    mock_instance = MagicMock()
+    mock_instance.validate.return_value = MockReport(passed=True, total_rows_affected=10)
+    mock_validator_class.from_config.return_value = mock_instance
+
+    mapping_file = temp_env["root"] / "hybrid_map.json"
+    hybrid_data = {
+        "*.csv": {"config": str(temp_env["config_file"]), "profile": "strict"},
+        "missing_config/*.csv": {"profile": "strict"}  # Hits the `if not cfg_path` continue block
+    }
+    mapping_file.write_text(json.dumps(hybrid_data))
+
+    summary = validate_folder.validate_folder(
+        folder_path=temp_env["data_dir"],
+        mapping_path=mapping_file,
+        profile_name="default"  # This should be overridden by 'strict' in the dictionary mapping
+    )
+
+    assert summary["passed_files"] == 1
+    mock_validator_class.from_config.assert_called_with(str(temp_env["config_file"]), profile_name="strict")
+
+
+@patch("src.validate_folder.pd.read_csv")
+@patch("src.validate_folder.DataValidator")
 def test_validate_folder_empty_csv_error(mock_validator_class, mock_read_csv, temp_env):
     mock_read_csv.side_effect = pd.errors.EmptyDataError("No columns to parse")
 
@@ -224,10 +252,12 @@ def test_main_success(mock_setup_logging, mock_validate_folder):
         validate_folder.main()
 
     mock_setup_logging.assert_called_once()
+    # Updated to include profile_name=None as requested by the pipeline
     mock_validate_folder.assert_called_once_with(
         folder_path="/dummy/folder",
         config_path="/dummy/config.yaml",
         mapping_path=None,
+        profile_name=None,
         default_pattern="*.csv",
         top_n_issues=3,
         output_dir="reports",
@@ -254,6 +284,7 @@ def test_main_system_exit_on_failure(mock_setup_logging, mock_validate_folder):
             validate_folder.main()
 
         assert exit_exc.value.code == 1
+
 
 # --- Tests for Incremental Watermarking in Batch Folder Mode ---
 
@@ -323,3 +354,75 @@ def test_validate_folder_incremental_no_new_data(mock_wm_class, mock_validator_c
     assert summary["passed_files"] == 0
     mock_instance.validate.assert_not_called()
     mock_wm_instance.set_watermark.assert_not_called()
+
+
+# --- Tests for Profile Interception in CLI ---
+
+@patch("src.validate_folder.DataValidator.list_profiles", return_value=["default", "strict"])
+@patch("src.validate_folder.setup_logging")
+def test_main_list_profiles_config(mock_setup_logging, mock_list_profiles):
+    """Verifies the --list-profiles flag works for a single config and exits early."""
+    test_args = [
+        "validate_folder.py",
+        "--folder", "/dummy",
+        "--config", "/dummy/config.yaml",
+        "--list-profiles"
+    ]
+    with patch.object(sys, 'argv', test_args):
+        validate_folder.main()
+
+    mock_list_profiles.assert_called_once_with("/dummy/config.yaml")
+
+
+@patch("src.validate_folder.DataValidator.list_profiles", return_value=[])
+@patch("src.validate_folder.setup_logging")
+def test_main_list_profiles_config_empty(mock_setup_logging, mock_list_profiles):
+    """Verifies empty list_profiles return correctly hits the fallback branch."""
+    test_args = [
+        "validate_folder.py",
+        "--folder", "/dummy",
+        "--config", "/dummy/config.yaml",
+        "--list-profiles"
+    ]
+    with patch.object(sys, 'argv', test_args):
+        validate_folder.main()
+
+    mock_list_profiles.assert_called_once_with("/dummy/config.yaml")
+
+
+@patch("src.validate_folder.DataValidator.list_profiles", return_value=["strict"])
+@patch("src.validate_folder.setup_logging")
+def test_main_list_profiles_mapping_success(mock_setup_logging, mock_list_profiles, temp_env):
+    """Verifies the --list-profiles flag reads mapping files and parses configs from both strings and dicts."""
+    mapping_file = temp_env["root"] / "map.json"
+    mapping_file.write_text(json.dumps({
+        "*.csv": "cfg1.yaml",
+        "*.tsv": {"config": "cfg2.yaml"},
+        "duplicate_test": "cfg1.yaml"  # Ensures sets are keeping duplicate calls away
+    }))
+
+    test_args = [
+        "validate_folder.py",
+        "--folder", "/dummy",
+        "--mapping", str(mapping_file),
+        "--list-profiles"
+    ]
+    with patch.object(sys, 'argv', test_args):
+        validate_folder.main()
+
+    # Should only be called 2 times since cfg1.yaml is deduplicated
+    assert mock_list_profiles.call_count == 2
+
+
+@patch("src.validate_folder.setup_logging")
+def test_main_list_profiles_mapping_error(mock_setup_logging):
+    """Verifies mapping read errors during --list-profiles are caught and safely ignored."""
+    test_args = [
+        "validate_folder.py",
+        "--folder", "/dummy",
+        "--mapping", "non_existent_map.json",
+        "--list-profiles"
+    ]
+    with patch.object(sys, 'argv', test_args):
+        # This shouldn't throw an unhandled exception, it should hit the `except Exception:` block and exit safely.
+        validate_folder.main()

@@ -63,6 +63,12 @@ def main():
                         help="Skip auto-generating data and use existing input file.")
     parser.add_argument("--no-strict", action="store_false", dest="strict", help="Disable strict cleaning mode.")
 
+    # --- PROFILE ARGUMENTS ---
+    parser.add_argument("--profile", type=str, default=None,
+                        help="Named validation profile to execute (e.g., 'strict').")
+    parser.add_argument("--list-profiles", action="store_true",
+                        help="List available profiles in the config and exit.")
+
     # Incremental Arguments
     parser.add_argument("--incremental", action="store_true", help="Only process new rows since the last run.")
     parser.add_argument("--watermark-col", type=str, default="transaction_id",
@@ -80,6 +86,15 @@ def main():
 
     if not config_path.exists():
         logger.error(f"FATAL ERROR: Config file not found at {config_path}")
+        return
+
+    # --- INTERCEPT: LIST PROFILES ---
+    if getattr(args, 'list_profiles', False):
+        profiles = DataValidator.list_profiles(str(config_path))
+        if profiles:
+            logger.info(f"Available profiles in {config_path.name}: {', '.join(profiles)}")
+        else:
+            logger.warning(f"No profiles found in {config_path.name}.")
         return
 
     # 1. Simulate the client data (Auto-generate by default unless skipped)
@@ -128,7 +143,8 @@ def main():
     # 3. Initialize the config-driven Validator
     logger.info(f"Loading rules from {config_path.name}...")
     try:
-        dv = DataValidator.from_config(str(config_path))
+        # Pass the profile down to the validator
+        dv = DataValidator.from_config(str(config_path), profile_name=args.profile)
     except Exception as e:
         logger.error(f"FATAL ERROR: Failed to initialize validator: {e}")
         return
