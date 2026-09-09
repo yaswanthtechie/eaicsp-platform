@@ -266,93 +266,138 @@ def assign_staging(
 # ==========================================================
 # Production Promotion
 # ==========================================================
-
 def promote_model(
     model_name: str,
     from_alias: str = "staging",
     to_alias: str = "production",
 ):
     """
-    Promote model between aliases.
+    Promote a model version from one alias to another.
 
-    Example:
-
-    @staging
-        |
-        |
-        v
-    @production
+    Records the previous target-alias version before
+    changing the target alias and adds promotion metadata.
     """
 
+    # --------------------------------------------------
     # Get source model version
-    version = client.get_model_version_by_alias(
+    # --------------------------------------------------
+
+    source_version = client.get_model_version_by_alias(
         model_name,
         from_alias,
     )
 
-    # Guard against missing source alias
-    if version is None:
+    if source_version is None:
         raise RuntimeError(
             f"No version found for alias '{from_alias}' "
-            f"on registered model '{model_name}'. "
-            "Assign a staging version (assign_staging) "
-            "or register a model first."
+            f"on registered model '{model_name}'."
         )
 
-    # Get existing production version
-    old_production = get_model_version_by_alias(
-        model_name,
-        to_alias,
-    )
+    new_version = str(source_version.version)
 
-    # Promote model using alias helper
+    # --------------------------------------------------
+    # Get current target alias version
+    # --------------------------------------------------
+    #
+    # Do not use get_model_version_by_alias() here because
+    # tests/mock clients may configure the underlying MLflow
+    # client directly.
+    # --------------------------------------------------
+
+    target_version = None
+
+    try:
+        current_target = client.get_model_version_by_alias(
+            model_name,
+            to_alias,
+        )
+
+        if current_target is not None:
+            target_version = str(current_target.version)
+
+    except Exception:
+        target_version = None
+
+    # --------------------------------------------------
+    # Prevent assigning the same version to the same alias
+    # --------------------------------------------------
+
+    if (
+        target_version is not None
+        and new_version == target_version
+        and from_alias == to_alias
+    ):
+        raise RuntimeError(
+            f"Version {new_version} is already "
+            f"the current {to_alias} version."
+        )
+
+    # --------------------------------------------------
+    # Save previous target version
+    # --------------------------------------------------
+
+    if (
+        target_version is not None
+        and new_version != target_version
+    ):
+        client.set_model_version_tag(
+            name=model_name,
+            version=new_version,
+            key=f"previous_{to_alias}_version",
+            value=target_version,
+        )
+
+    # --------------------------------------------------
+    # Set target alias
+    # --------------------------------------------------
+
     _set_alias(
         model_name,
         to_alias,
-        version.version,
+        new_version,
     )
 
-    # Record promotion metadata
+    # --------------------------------------------------
+    # Promotion metadata
+    # --------------------------------------------------
+
     client.set_model_version_tag(
         name=model_name,
-        version=version.version,
+        version=new_version,
         key="promoted_by",
         value=PROMOTED_BY,
     )
 
     client.set_model_version_tag(
         name=model_name,
-        version=version.version,
+        version=new_version,
         key="promotion_time",
         value=datetime.now(timezone.utc).isoformat(),
     )
 
-    # Store previous production version
-    if old_production:
-        client.set_model_version_tag(
-            name=model_name,
-            version=version.version,
-            key="previous_production_version",
-            value=str(old_production),
-        )
+    # --------------------------------------------------
+    # Output
+    # --------------------------------------------------
 
     print("=" * 60)
     print("MODEL PROMOTED")
     print("=" * 60)
 
-    print(f"Model Name      : {model_name}")
-    print(f"Version         : {version.version}")
-    print(f"From Alias      : @{from_alias}")
-    print(f"To Alias        : @{to_alias}")
+    print(f"Model Name : {model_name}")
+    print(f"Version    : {new_version}")
+    print(f"From Alias : @{from_alias}")
+    print(f"To Alias   : @{to_alias}")
 
-    if old_production:
+    if target_version and target_version != new_version:
         print(
-            f"Old Production : {old_production}"
+            f"Previous {to_alias.capitalize()} : "
+            f"{target_version}"
         )
 
     print("=" * 60)
 
-    return version.version
+    return new_version
+
 
 
 # ==========================================================
@@ -423,4 +468,95 @@ def current_production(
     )
 
     return version
+# ==========================================================
+# Rollback Info
+# ==========================================================
 
+def rollback_model(
+    model_name: str,
+):
+    """
+    Roll Production back to the previous production version.
+    """
+
+    current_version = get_model_version_by_alias(
+        model_name,
+        "production",
+    )
+
+    if current_version is None:
+        raise RuntimeError(
+            f"No production version found for {model_name}"
+        )
+
+    current_version = str(
+        current_version
+    )
+
+    current = client.get_model_version(
+        name=model_name,
+        version=current_version,
+    )
+
+    previous_version = current.tags.get(
+        "previous_production_version"
+    )
+
+    if not previous_version:
+        raise RuntimeError(
+            "No previous production version "
+            f"recorded for model {model_name}"
+        )
+
+    previous_version = str(
+        previous_version
+    )
+
+    if previous_version == current_version:
+        raise RuntimeError(
+            "Previous production version cannot "
+            "be the current production version"
+        )
+
+    # Restore previous Production alias.
+    _set_alias(
+        model_name,
+        "production",
+        previous_version,
+    )
+
+    # Record rollback information.
+    client.set_model_version_tag(
+        name=model_name,
+        version=current_version,
+        key="rollback_status",
+        value="rolled_back",
+    )
+
+    client.set_model_version_tag(
+        name=model_name,
+        version=current_version,
+        key="rollback_to_version",
+        value=previous_version,
+    )
+
+    print("=" * 60)
+    print("MODEL ROLLBACK COMPLETED")
+    print("=" * 60)
+    print(
+        f"Model Name       : {model_name}"
+    )
+    print(
+        f"Failed Version   : {current_version}"
+    )
+    print(
+        f"Restored Version : {previous_version}"
+    )
+    print("=" * 60)
+
+    return {
+        "status": "rolled_back",
+        "model_name": model_name,
+        "from_version": current_version,
+        "to_version": previous_version,
+    }

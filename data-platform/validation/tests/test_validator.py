@@ -2,7 +2,7 @@ import pytest
 import pandas as pd
 import yaml
 from pydantic import ValidationError
-from src.validator import ConfigRule, DataValidator
+from src.validator import ConfigRule, DataValidator, ValidationResult, SecurityError, SAFE_FUNCTION_REGISTRY
 
 
 # --- FIXTURES ---
@@ -122,8 +122,6 @@ def test_empty_dataframe(mock_yaml_config):
 
 def test_rule_evaluate_empty_dataframe():
     """Directly hits the df.empty early exit inside ConfigRule.evaluate()."""
-    from src.validator import ConfigRule
-
     # Create an entirely empty dataframe with the required column
     df = pd.DataFrame(columns=["col"])
 
@@ -136,6 +134,7 @@ def test_rule_evaluate_empty_dataframe():
     # Verify the fallback return statement executed properly
     assert mask.empty is True
     assert mask.dtype == bool
+
 
 def test_all_null_column():
     df = pd.DataFrame({"A": [None, None]})
@@ -214,6 +213,16 @@ def crashing_transform_rule(df: pd.DataFrame, **kwargs) -> pd.DataFrame:
     raise ValueError("Simulated crash during transformation")
 
 
+# Inject all dummy test functions into the safe registry so the tests are allowed to run them
+SAFE_FUNCTION_REGISTRY.update({
+    "tests.test_validator.dummy_custom_rule": dummy_custom_rule,
+    "tests.test_validator.dummy_transform_rule": dummy_transform_rule,
+    "tests.test_validator.dummy_custom_rule_no_field": dummy_custom_rule_no_field,
+    "tests.test_validator.dummy_transform_no_field": dummy_transform_no_field,
+    "tests.test_validator.crashing_custom_rule": crashing_custom_rule,
+    "tests.test_validator.crashing_transform_rule": crashing_transform_rule,
+})
+
 # --- ENGINE TESTS ---
 
 def test_rule_custom():
@@ -241,26 +250,30 @@ def test_custom_rule_with_kwargs():
     assert mask.tolist() == [False, True, False]
 
 
+# def test_custom_rule_missing_function():
+#     df = pd.DataFrame({"col": ["PASS"]})
+#     rule = ConfigRule(**{"name": "bad_rule", "field": "col", "type": "custom"})
+#     with pytest.raises(ValueError, match="missing 'function' path"):
+#         rule.evaluate(df)
 def test_custom_rule_missing_function():
-    df = pd.DataFrame({"col": ["PASS"]})
-    rule = ConfigRule(**{"name": "bad_rule", "field": "col", "type": "custom"})
-    with pytest.raises(ValueError, match="missing 'function' path"):
-        rule.evaluate(df)
+    with pytest.raises(ValidationError, match="no 'function' path"):
+        ConfigRule(**{"name": "bad_rule", "field": "col", "type": "custom"})
 
 
 def test_custom_rule_bad_import():
-    df = pd.DataFrame({"col": ["PASS"]})
-    rule = ConfigRule(**{
-        "name": "bad_rule",
-        "field": "col",
-        "type": "custom",
-        "function": "fake_module.fake_function"
-    })
-    with pytest.raises(RuntimeError, match="Failed to load function"):
-        rule.evaluate(df)
+    with pytest.raises(SecurityError, match="not in the safe registry"):
+        ConfigRule(**{
+            "name": "bad_rule",
+            "field": "col",
+            "type": "custom",
+            "function": "fake_module.fake_function"
+        })
 
 
 def test_rule_transform_evaluation():
+    # 'dummy' is not in SAFE_FUNCTION_REGISTRY, so mock it for this test
+    SAFE_FUNCTION_REGISTRY["dummy"] = lambda df: pd.Series([False, False])
+
     df = pd.DataFrame({"col": ["pass", "pass"]})
     rule = ConfigRule(**{
         "name": "t1",
@@ -270,6 +283,8 @@ def test_rule_transform_evaluation():
     })
     mask = rule.evaluate(df)
     assert mask.all() == False
+    # Clean up registry
+    del SAFE_FUNCTION_REGISTRY["dummy"]
 
 
 def test_transform_rule_with_kwargs():
@@ -285,22 +300,23 @@ def test_transform_rule_with_kwargs():
     assert clean_df.at[0, "col"] == "mixedcase"
 
 
+# def test_transform_rule_missing_function():
+#     df = pd.DataFrame({"col": ["pass"]})
+#     rule = ConfigRule(**{"name": "bad_transform", "type": "transform"})
+#     with pytest.raises(ValueError, match="missing 'function' path"):
+#         rule.apply_transform(df)
 def test_transform_rule_missing_function():
-    df = pd.DataFrame({"col": ["pass"]})
-    rule = ConfigRule(**{"name": "bad_transform", "type": "transform"})
-    with pytest.raises(ValueError, match="missing 'function' path"):
-        rule.apply_transform(df)
+    with pytest.raises(ValidationError, match="no 'function' path"):
+        ConfigRule(**{"name": "bad_transform", "type": "transform"})
 
 
 def test_transform_rule_bad_import():
-    df = pd.DataFrame({"col": ["pass"]})
-    rule = ConfigRule(**{
-        "name": "bad_transform",
-        "type": "transform",
-        "function": "fake_module.fake_function"
-    })
-    with pytest.raises(RuntimeError, match="Failed to load function"):
-        rule.apply_transform(df)
+    with pytest.raises(SecurityError, match="not in the safe registry"):
+        ConfigRule(**{
+            "name": "bad_transform",
+            "type": "transform",
+            "function": "fake_module.fake_function"
+        })
 
 
 def test_apply_transform_fallback():
@@ -381,7 +397,6 @@ def test_missing_field_for_field_bound_rule():
 
 def test_validation_result_dict_access():
     """Hits ValidationResult.__getitem__ and verifies attribute/dict parity."""
-    from src.validator import ValidationResult
     res = ValidationResult(passed=True, total_rows_affected=10)
 
     assert res["passed"] is True
@@ -393,15 +408,13 @@ def test_validation_result_dict_access():
 
 def test_from_config_empty_or_missing_rules(tmp_path):
     """Hits data.get('rules', []) fallback and verifies 'YAML file is completely empty' exception."""
-    from src.validator import DataValidator
-
     # 1. Valid YAML structure without 'rules' key
     no_rules = tmp_path / "no_rules.yaml"
     no_rules.write_text("some_other_key: value")
     val1 = DataValidator.from_config(str(no_rules))
     assert len(val1.rules) == 0
 
-    # 2. Completely empty YAML file (triggers `if data is None: raise ValueError("YAML file is completely empty.")`)
+    # 2. Completely empty YAML file
     empty_yaml = tmp_path / "empty.yaml"
     empty_yaml.write_text("")
     with pytest.raises(ValueError, match="YAML file is completely empty"):
@@ -410,7 +423,6 @@ def test_from_config_empty_or_missing_rules(tmp_path):
 
 def test_evaluate_and_transform_without_field():
     """Hits branches in evaluate(), apply_transform(), and validate() where rule.field is None."""
-    from src.validator import ConfigRule, DataValidator
     df = pd.DataFrame({"A": [1, 2]})
 
     rule_custom = ConfigRule(**{
@@ -450,38 +462,55 @@ def test_failsafe_validate_skips_crashing_rule(caplog):
 
     report = validator.validate(df)
 
-    assert report.passed is True
-    assert "FATAL ERROR: Rule 'crash_eval' crashed during validation" in caplog.text
+    assert report.passed is False
+    assert len(report.skipped_rules) == 1
+    assert "crashed and DID NOT RUN" in caplog.text
 
 
+# def test_failsafe_clean_skips_crashing_rules(caplog):
+#     """Hits the except Exception blocks in validator.clean() for both evaluation and transforms."""
+#     df = pd.DataFrame({"A": [1]})
+#     r1 = ConfigRule(**{
+#         "name": "crash_eval",
+#         "type": "custom",
+#         "severity": "ERROR",
+#         "function": "tests.test_validator.crashing_custom_rule"
+#     })
+#     r2 = ConfigRule(**{
+#         "name": "crash_transform",
+#         "type": "transform",
+#         "severity": "INFO",
+#         "function": "tests.test_validator.crashing_transform_rule"
+#     })
+#
+#     validator = DataValidator([r1, r2])
+#     clean_df = validator.clean(df, strict=True)
+#
+#     assert len(clean_df) == 1
+#     assert "FATAL ERROR: Transform rule 'crash_transform' crashed" in caplog.text
+#     assert "FATAL ERROR: Rule 'crash_eval' crashed during cleaning" in caplog.text
 def test_failsafe_clean_skips_crashing_rules(caplog):
-    """Hits the except Exception blocks in validator.clean() for both evaluation and transforms."""
     df = pd.DataFrame({"A": [1]})
-    r1 = ConfigRule(**{
-        "name": "crash_eval",
-        "type": "custom",
-        "severity": "ERROR",
-        "function": "tests.test_validator.crashing_custom_rule"
-    })
-    r2 = ConfigRule(**{
-        "name": "crash_transform",
-        "type": "transform",
-        "severity": "INFO",
-        "function": "tests.test_validator.crashing_transform_rule"
-    })
+    r1 = ConfigRule(**{"name": "crash_eval", "type": "custom", "severity": "ERROR",
+                       "function": "tests.test_validator.crashing_custom_rule"})
+    r2 = ConfigRule(**{"name": "crash_transform", "type": "transform", "severity": "INFO",
+                       "function": "tests.test_validator.crashing_transform_rule"})
 
-    validator = DataValidator([r1, r2])
-    clean_df = validator.clean(df, strict=True)
+    # Default: refuse to hand back data we failed to filter.
+    with pytest.raises(RuntimeError, match="Cleaning aborted"):
+        DataValidator([r1, r2]).clean(df, strict=True)
 
+    # Explicit opt-in still returns the partially-cleaned frame.
+    clean_df = DataValidator([r1, r2], allow_rule_failures=True).clean(df, strict=True)
     assert len(clean_df) == 1
     assert "FATAL ERROR: Transform rule 'crash_transform' crashed" in caplog.text
-    assert "FATAL ERROR: Rule 'crash_eval' crashed during cleaning" in caplog.text
+    assert "crash_eval" in caplog.text and "DID NOT RUN" in caplog.text
+
 
 # --- RECENT FEATURE TESTS (Dependencies & Transforms) ---
 
 def test_validation_result_config_version():
     """Verifies that the new config_version attribute is available and defaults to 'unknown'."""
-    from src.validator import ValidationResult
     res = ValidationResult(passed=True, total_rows_affected=0)
     assert res.config_version == 'unknown'
 
@@ -498,8 +527,6 @@ def test_rule_dependencies_suppression():
         "severity": "ERROR"
     })
 
-    # Range rule mathematically fails on Nulls too, but we want to explicitly
-    # suppress it because rule_a already caught it.
     rule_b = ConfigRule(**{
         "name": "rule_b",
         "field": "qty",
@@ -521,7 +548,6 @@ def test_rule_dependencies_suppression():
     assert warn_counts.get("rule_b") == 1  # Flags Row 1 ONLY (Row 0 is suppressed)
 
     # 2. Test strict cleaning suppression
-    # We set strict=False but target both rules to see what indices get dropped
     clean_df = validator.clean(df, strict=False, target_rules=["rule_a", "rule_b"])
 
     # Row 0 and Row 1 should be dropped. Row 2 remains.
@@ -529,32 +555,42 @@ def test_rule_dependencies_suppression():
     assert clean_df.index[0] == 2
 
 
-def test_rule_dependency_not_found_logs_warning(caplog):
+# def test_rule_dependency_not_found_logs_warning(caplog):
+#     """Hits the branch where a rule depends on a rule that hasn't executed/doesn't exist."""
+#     df = pd.DataFrame({"A": [1]})
+#     rule = ConfigRule(**{
+#         "name": "rule_b",
+#         "field": "A",
+#         "type": "not_null",
+#         "depends_on": ["missing_rule"]
+#     })
+#     validator = DataValidator([rule])
+#
+#     # Hits the warning branch in validate()
+#     validator.validate(df)
+#     assert "Dependency 'missing_rule' for rule 'rule_b' not found or not executed yet." in caplog.text
+#
+#     # Hits the warning branch in clean()
+#     caplog.clear()
+#     validator.clean(df)
+#     assert "Dependency 'missing_rule' for rule 'rule_b' not found/executed." in caplog.text
+def test_rule_dependency_not_found_rejected_at_load():
     """Hits the branch where a rule depends on a rule that hasn't executed/doesn't exist."""
-    df = pd.DataFrame({"A": [1]})
     rule = ConfigRule(**{
         "name": "rule_b",
         "field": "A",
         "type": "not_null",
         "depends_on": ["missing_rule"]
     })
-    validator = DataValidator([rule])
 
-    # Hits the warning branch in validate()
-    validator.validate(df)
-    assert "Dependency 'missing_rule' for rule 'rule_b' not found or not executed yet." in caplog.text
-
-    # Hits the warning branch in clean()
-    caplog.clear()
-    validator.clean(df)
-    assert "Dependency 'missing_rule' for rule 'rule_b' not found/executed." in caplog.text
+    with pytest.raises(ValueError, match="not defined in this config"):
+        DataValidator([rule])
 
 
 def test_validate_evaluates_transformed_working_copy():
     """Proves that validate() runs rules against the df_working copy, not raw df."""
     df = pd.DataFrame({"col": ["mixedCase"]})
 
-    # Transform makes the string lowercase -> "mixedcase"
     t_rule = ConfigRule(**{
         "name": "t1",
         "type": "transform",
@@ -563,8 +599,6 @@ def test_validate_evaluates_transformed_working_copy():
         "severity": "INFO"
     })
 
-    # Regex explicitly expects lowercase only.
-    # If evaluate() runs on the raw df, it fails. If it runs on df_working, it passes.
     v_rule = ConfigRule(**{
         "name": "v1",
         "field": "col",
@@ -576,7 +610,6 @@ def test_validate_evaluates_transformed_working_copy():
     validator = DataValidator([t_rule, v_rule])
     report = validator.validate(df)
 
-    # Assert validation passes because the regex evaluated the transformed lowercase data
     assert report.passed is True
 
 
@@ -595,3 +628,290 @@ def test_failsafe_validate_skips_crashing_transform_setup(caplog):
 
     assert report.passed is True
     assert "FATAL ERROR: Transform 'crash_setup' crashed during validation setup" in caplog.text
+
+
+# --- LATEST UPDATES TESTS (Security, Conflicts, Profiling) ---
+
+def test_security_registry_blocks_unknown_function():
+    """Verifies that an unregistered function cannot be executed."""
+    with pytest.raises(SecurityError, match="not in the safe registry"):
+        ConfigRule(**{
+            "name": "malicious_rule",
+            "field": "col",
+            "type": "custom",
+            "function": "os.system"  # Not in SAFE_FUNCTION_REGISTRY
+        })
+
+
+def test_detect_conflicts_intra_rule():
+    """Verifies that a rule with impossible constraints (min > max) fails at load time."""
+    rule = ConfigRule(**{
+        "name": "impossible_range",
+        "field": "qty",
+        "type": "range",
+        "min": 100,
+        "max": 10,
+        "severity": "ERROR"
+    })
+
+    with pytest.raises(ValueError, match="is impossible."):
+        DataValidator([rule])
+
+
+def test_detect_conflicts_inter_rule():
+    """Verifies that multiple rules contradicting each other on the same field fail at load time."""
+    rule_1 = ConfigRule(**{
+        "name": "range_low",
+        "field": "qty",
+        "type": "range",
+        "min": 0,
+        "max": 50,
+        "severity": "ERROR"
+    })
+    rule_2 = ConfigRule(**{
+        "name": "range_high",
+        "field": "qty",
+        "type": "range",
+        "min": 100,
+        "max": 200,
+        "severity": "ERROR"
+    })
+
+    with pytest.raises(ValueError, match="contradictory range rules"):
+        DataValidator([rule_1, rule_2])
+
+
+def test_detect_conflicts_exclusive_bounds():
+    """Verifies that boundary-touching exclusive ranges correctly trigger a conflict."""
+    rule_1 = ConfigRule(**{
+        "name": "r1",
+        "field": "qty",
+        "type": "range",
+        "min": 0,
+        "exclusive_min": True,
+        "severity": "ERROR"
+    })
+    rule_2 = ConfigRule(**{
+        "name": "r2",
+        "field": "qty",
+        "type": "range",
+        "max": 0,
+        "exclusive_max": True,
+        "severity": "ERROR"
+    })
+
+    with pytest.raises(ValueError, match="contradictory range rules"):
+        DataValidator([rule_1, rule_2])
+
+
+def test_validation_result_rule_timings():
+    """Verifies that rule execution times are recorded and slowest_rule is calculated."""
+    df = pd.DataFrame({"A": [1, 2, 3]})
+    rule = ConfigRule(**{"name": "speed_test_rule", "field": "A", "type": "not_null"})
+
+    validator = DataValidator([rule])
+    report = validator.validate(df)
+
+    # 1. Assert timings dictionary is populated
+    assert "speed_test_rule" in report.rule_timings
+    assert isinstance(report.rule_timings["speed_test_rule"], float)
+
+    # 2. Assert slowest_rule property works
+    slowest = report.slowest_rule
+    assert slowest is not None
+    assert slowest["rule"] == "speed_test_rule"
+    assert "duration_seconds" in slowest
+    assert slowest["duration_seconds"] >= 0.0
+
+
+def test_validation_result_slowest_rule_empty():
+    """Verifies the fallback behavior when slowest_rule is called on an empty result."""
+    res = ValidationResult(passed=True, total_rows_affected=0, rule_timings={})
+    assert res.slowest_rule is None
+
+# --- INCREMENTAL WATERMARK TESTS ---
+
+def test_filter_incremental_no_watermark():
+    """Verifies that passing None as the watermark returns the original DataFrame unmodified."""
+    df = pd.DataFrame({"id": [1, 2, 3]})
+    result = DataValidator.filter_incremental(df, "id", None)
+    assert result.equals(df)
+
+
+def test_filter_incremental_empty_dataframe():
+    """Verifies that an empty DataFrame short-circuits and returns empty."""
+    df = pd.DataFrame(columns=["id"])
+    result = DataValidator.filter_incremental(df, "id", 10)
+    assert result.empty
+
+
+def test_filter_incremental_missing_column():
+    """Verifies that providing a missing watermark column raises a ValueError."""
+    df = pd.DataFrame({"other_col": [1, 2]})
+    with pytest.raises(ValueError, match="Incremental column 'missing_col' missing from DataFrame"):
+        DataValidator.filter_incremental(df, "missing_col", 1)
+
+
+def test_filter_incremental_numeric_casting():
+    """Verifies that numeric columns correctly cast the watermark and filter strictly greater values."""
+    df = pd.DataFrame({"id": [1, 2, 3, 4, 5]})
+    # Pass a string representation of an int to ensure casting works safely
+    result = DataValidator.filter_incremental(df, "id", "3")
+    assert len(result) == 2
+    assert result["id"].tolist() == [4, 5]
+
+
+def test_filter_incremental_string_casting():
+    """Verifies that string/date columns correctly evaluate greater-than logic."""
+    df = pd.DataFrame({"date": ["2024-01-01", "2024-01-02", "2024-01-03"]})
+    result = DataValidator.filter_incremental(df, "date", "2024-01-01")
+    assert len(result) == 2
+    assert result["date"].tolist() == ["2024-01-02", "2024-01-03"]
+
+
+def test_detect_conflicts_valid_overlapping_ranges():
+    """Hits the branches where new bounds are wider than previous bounds (min < prev_min, max > prev_max)."""
+    rule_1 = ConfigRule(**{"name": "r1", "field": "qty", "type": "range", "min": 10, "max": 20, "severity": "ERROR"})
+    rule_2 = ConfigRule(**{"name": "r2", "field": "qty", "type": "range", "min": 5, "max": 25, "severity": "ERROR"})
+
+    # Validation should pass without raising a ValueError because the intersection is still valid (10 to 20).
+    validator = DataValidator([rule_1, rule_2])
+    assert len(validator.rules) == 2
+
+
+def test_detect_conflicts_matching_bounds_carry_strictness():
+    """Hits the `elif min_val == prev_min:` and `elif max_val == prev_max:` branches."""
+    rule_1 = ConfigRule(**{
+        "name": "r1", "field": "qty", "type": "range",
+        "min": 10, "max": 20,
+        "exclusive_min": False, "exclusive_max": False, "severity": "ERROR"
+    })
+    rule_2 = ConfigRule(**{
+        "name": "r2", "field": "qty", "type": "range",
+        "min": 10, "max": 20,
+        "exclusive_min": True, "exclusive_max": True, "severity": "ERROR"
+    })
+
+    # Should not raise an error. Internally, the inclusive bounds become exclusive.
+    validator = DataValidator([rule_1, rule_2])
+    assert len(validator.rules) == 2
+
+
+def test_detect_conflicts_non_comparable_bounds():
+    """Hits the branches where one rule lacks a boundary (None) and another provides it."""
+    # min is None, max is 50
+    rule_1 = ConfigRule(**{"name": "r1", "field": "qty", "type": "range", "max": 50, "severity": "ERROR"})
+    # min is 10, max is None
+    rule_2 = ConfigRule(**{"name": "r2", "field": "qty", "type": "range", "min": 10, "severity": "ERROR"})
+
+    # Should evaluate successfully to a combined range of 10 to 50.
+    validator = DataValidator([rule_1, rule_2])
+    assert len(validator.rules) == 2
+
+
+def test_detect_conflicts_non_comparable_contradiction():
+    """Tests that missing bounds combined with contradictory bounds correctly trigger an error."""
+    # min is None, max is 5
+    rule_1 = ConfigRule(**{"name": "r1", "field": "qty", "type": "range", "max": 5, "severity": "ERROR"})
+    # min is 10, max is None
+    rule_2 = ConfigRule(**{"name": "r2", "field": "qty", "type": "range", "min": 10, "severity": "ERROR"})
+
+    with pytest.raises(ValueError, match="contradictory range rules"):
+        DataValidator([rule_1, rule_2])
+
+
+def test_crashed_rule_is_reported_and_fails_the_run():
+    """A rule that raises must NOT be silently skipped while passed stays True."""
+    def boom(df, **kwargs):
+        raise RuntimeError("rule blew up")
+
+    SAFE_FUNCTION_REGISTRY["src.custom_rules.boom"] = boom
+    try:
+        rule = ConfigRule(name="boom_rule", field="q", type="custom",
+                          function="src.custom_rules.boom", severity="ERROR")
+        result = DataValidator([rule]).validate(pd.DataFrame({"q": [1, 2, 3]}))
+
+        assert result.passed is False, "A rule that never ran must not report passed=True"
+        assert len(result.skipped_rules) == 1
+        assert result.skipped_rules[0]["rule"] == "boom_rule"
+        assert "rule blew up" in result.skipped_rules[0]["reason"]
+    finally:
+        SAFE_FUNCTION_REGISTRY.pop("src.custom_rules.boom", None)
+
+
+def test_clean_aborts_when_a_rule_did_not_run():
+    """clean() must never hand back data it failed to filter."""
+    def boom(df, **kwargs):
+        raise RuntimeError("rule blew up")
+
+    SAFE_FUNCTION_REGISTRY["src.custom_rules.boom"] = boom
+    try:
+        rule = ConfigRule(name="boom_rule", field="q", type="custom",
+                          function="src.custom_rules.boom", severity="ERROR")
+        with pytest.raises(RuntimeError, match="Cleaning aborted"):
+            DataValidator([rule]).clean(pd.DataFrame({"q": [1, 2, 3]}))
+    finally:
+        SAFE_FUNCTION_REGISTRY.pop("src.custom_rules.boom", None)
+
+
+def test_custom_rule_without_function_key_rejected_at_load():
+    with pytest.raises(ValueError, match="no 'function' path"):
+        ConfigRule(name="typo_rule", field="q", type="custom")
+
+
+def test_depends_on_unknown_rule_rejected_at_load():
+    a = ConfigRule(name="range_rule", field="q", type="range", min=0,
+                   depends_on=["does_not_exist"])
+    with pytest.raises(ValueError, match="not defined in this config"):
+        DataValidator([a])
+
+
+def test_depends_on_forward_reference_rejected_at_load():
+    """Suppression silently no-ops if the dependency runs later -- reject it."""
+    dependent = ConfigRule(name="date_in_range", field="q", type="range", min=0,
+                           depends_on=["parse_check"])
+    dependency = ConfigRule(name="parse_check", field="q", type="not_null")
+    with pytest.raises(ValueError, match="declared later"):
+        DataValidator([dependent, dependency])
+    DataValidator([dependency, dependent])   # correct order is accepted
+
+
+def test_circular_dependency_rejected_at_load():
+    a = ConfigRule(name="A", field="q", type="not_null", depends_on=["B"])
+    b = ConfigRule(name="B", field="q", type="not_null", depends_on=["A"])
+    with pytest.raises(ValueError):
+        DataValidator([a, b])
+
+
+def test_duplicate_rule_names_rejected_at_load():
+    a = ConfigRule(name="same", field="q", type="not_null")
+    b = ConfigRule(name="same", field="q", type="range", min=0)
+    with pytest.raises(ValueError, match="duplicate rule names"):
+        DataValidator([a, b])
+
+
+def test_crashed_rule_can_be_tolerated_explicitly(caplog):
+    """Verifies that allow_rule_failures=True permits validation and cleaning to pass despite crashed rules."""
+    df = pd.DataFrame({"A": [1, 2]})
+    rule = ConfigRule(**{
+        "name": "crash_eval",
+        "type": "custom",
+        "severity": "ERROR",
+        "function": "tests.test_validator.crashing_custom_rule"
+    })
+
+    # Initialize with the explicit opt-out flag
+    validator = DataValidator([rule], allow_rule_failures=True)
+
+    # 1. Validation should pass despite the unexecuted rule
+    report = validator.validate(df)
+    assert report.passed is True
+    assert len(report.skipped_rules) == 1
+    assert report.skipped_rules[0]["rule"] == "crash_eval"
+
+    # 2. Cleaning should return the data without raising a RuntimeError
+    clean_df = validator.clean(df, strict=True)
+
+    # The dataframe remains untouched because the rule crashed before flagging rows
+    assert len(clean_df) == 2
+    assert "crashed and DID NOT RUN during cleaning" in caplog.text

@@ -224,3 +224,5 @@ data/*.csv
 node_modules/
 *.log
 
+# Data profiling generated reports
+data-platform/profiling/reports/

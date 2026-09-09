@@ -16,6 +16,12 @@ mock_custom_rules = ModuleType('src.custom_rules')
 # Mock Validation Rules
 mock_custom_rules.check_composite_unique = lambda df, subset, **kwargs: df.duplicated(subset=subset, keep=False)
 mock_custom_rules.check_unparseable_dates = lambda df, field, **kwargs: df[field] == "NOT_A_DATE"
+mock_custom_rules.check_outliers = lambda *args, **kwargs: None
+mock_custom_rules.check_negatives = lambda *args, **kwargs: None
+mock_custom_rules.check_duplicate_rows = lambda *args, **kwargs: None
+mock_custom_rules.standardize_products = lambda *args, **kwargs: None
+mock_custom_rules.standardize_dates = lambda *args, **kwargs: None
+mock_custom_rules.drop_duplicate_rows = lambda *args, **kwargs: None
 
 
 # Mock Transformation Rules
@@ -30,7 +36,15 @@ mock_custom_rules.flag_negatives = mock_flag_negatives
 # Register the mock module
 sys.modules['src.custom_rules'] = mock_custom_rules
 
-from src.validator import DataValidator
+from src.validator import DataValidator, SAFE_FUNCTION_REGISTRY
+
+# --- SECURITY REGISTRY PATCH ---
+# Inject the mock functions into the safe registry so the test is allowed to execute them
+SAFE_FUNCTION_REGISTRY.update({
+    "src.custom_rules.check_composite_unique": mock_custom_rules.check_composite_unique,
+    "src.custom_rules.check_unparseable_dates": mock_custom_rules.check_unparseable_dates,
+    "src.custom_rules.flag_negatives": mock_custom_rules.flag_negatives
+})
 
 # ---------------------------------------------------------
 # TEST DATA CONFIGURATION

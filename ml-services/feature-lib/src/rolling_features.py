@@ -1,10 +1,11 @@
 import pandas as pd
+from numbers import Integral
 
 
 def add_rolling_features(
     df: pd.DataFrame,
     target_col: str,
-    windows= None
+    windows=None
 ):
     """
     Add rolling mean and rolling standard deviation features.
@@ -13,15 +14,20 @@ def add_rolling_features(
     data = df.copy()
 
     if target_col not in data.columns:
-            raise ValueError(f"Target column '{target_col}' not found in dataframe.")
+        raise ValueError(f"Target column '{target_col}' not found in dataframe.")
 
     if windows is None:
         windows=[7,30]
 
-    if not all(isinstance(window, int) and window > 0 for window in windows):
-            raise ValueError(
-                "All Rolling window values must be positive integers."
-            )
+    if not all(
+        isinstance(window, Integral)
+        and not isinstance(window, bool)
+        and window > 0
+        for window in windows
+    ):
+        raise ValueError(
+            "All Rolling window values must be positive integers."
+        )
 
     for window in windows:
 

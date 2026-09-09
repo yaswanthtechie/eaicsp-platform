@@ -1,4 +1,5 @@
 import pandas as pd
+from numbers import Integral
 
 
 def add_lag_features(
@@ -18,7 +19,12 @@ def add_lag_features(
     if lags is None:
         lags = [1,7,30]
 
-    if not all(isinstance(lag, int) and lag > 0 for lag in lags):
+    if not all(
+        isinstance(lag, Integral)
+        and not isinstance(lag, bool)
+        and lag > 0
+        for lag in lags
+    ):
         raise ValueError(
             "All lag values must be positive integers."
         )

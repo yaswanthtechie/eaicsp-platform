@@ -30,7 +30,7 @@ from sqlalchemy import text
 from database import get_engine
 from load import bulk_upsert
 
-
+ 
 N_ROWS = 10_000
 CHUNK_SIZE = 5_000
 
