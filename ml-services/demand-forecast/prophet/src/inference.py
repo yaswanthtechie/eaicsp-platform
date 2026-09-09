@@ -15,7 +15,13 @@ FEATURES = [
     "rolling_mean_7",
     "rolling_mean_30",
     "rolling_std_7",
+
+    # External regressors
     "is_holiday",
+    "promotion",
+    "weather_index",
+
+    # Calendar features
     "day_of_week",
     "month",
     "quarter",
@@ -81,21 +87,34 @@ def create_features(df, drop_missing=True):
         .std()
     )
 
-    # Holiday Feature
+    
 
-    df["is_holiday"] = (
+    # External Regressors
 
-        df[DATE_COLUMN]
-        .dt.month
-        .isin([11, 12])
+    # Create holiday feature only if not already available
+    if "is_holiday" not in df.columns:
 
-        |
+        df["is_holiday"] = (
+            df[DATE_COLUMN]
+            .dt.month
+            .isin([11, 12])
+            |
+            df[DATE_COLUMN]
+            .dt.day
+            .isin([1, 25])
+        ).astype(int)
 
-        df[DATE_COLUMN]
-        .dt.day
-        .isin([1, 25])
 
-    ).astype(int)
+        # Default promotion feature if missing
+        if "promotion" not in df.columns:
+
+            df["promotion"] = 0
+
+
+        # Default weather feature if missing
+        if "weather_index" not in df.columns:
+
+            df["weather_index"] = 0.0
 
     # Calendar Features
 
@@ -250,12 +269,11 @@ def predict_future_xgboost(
             [
                 history,
                 pd.DataFrame({
-                    "ds": [
-                        next_date
-                    ],
-                    "y": [
-                        np.nan
-                    ]
+                    "ds": [next_date],
+                    "y": [np.nan],
+                    "is_holiday": [0],
+                    "promotion": [0],
+                    "weather_index": [0.0]
                 })
             ],
             ignore_index=True

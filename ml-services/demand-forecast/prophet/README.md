@@ -1,535 +1,364 @@
-# Demand Forecasting using Prophet + XGBoost + Ensemble
+Demand Forecasting Service
+Project Overview
 
-## Project Overview
+This project implements a production-oriented demand forecasting system using a hybrid ensemble of:
 
-This project forecasts future demand using two forecasting models:
+Prophet
+XGBoost
+Ensemble forecasting
+Prediction intervals
+Hierarchical reconciliation
+External regressors
+Forecast accuracy monitoring
+Scenario forecasting
+Automated retraining with guardrails
+MLflow experiment tracking
+BentoML model serving
 
-- Prophet
-- XGBoost
+The project progressively evolves through five milestones.
 
-Both models are trained using the same time-based train/test split and evaluated using identical metrics.
+Complete System Architecture
 
-Finally, a weighted ensemble combines predictions from both models to improve forecasting performance.
+                     DATA
+                       │
+                       ▼
+                Data Validation
+                       │
+                       ▼
+               Feature Engineering
+                       │
+          ┌────────────┴────────────┐
+          ▼                         ▼
+      Prophet                    XGBoost
+          │                         │
+          │                  Lag Features
+          │                  Rolling Features
+          │                         │
+          └────────────┬────────────┘
+                       ▼
+                    Ensemble
+                       │
+                       ▼
+             Prediction Intervals
+                       │
+                       ▼
+          Hierarchical Forecasting
+                       │
+                       ▼
+           SKU → Category → Region
+                       │
+                       ▼
+                Reconciliation
+                       │
+          ┌────────────┴────────────┐
+          ▼                         ▼
+       MLflow                    BentoML
+      Tracking                    API
+                       │
+                       ▼
+              Accuracy Monitoring
+                       │
+                       ▼
+              Scenario Forecasting
+                       │
+                       ▼
+           Automated Retraining
+                       │
+                       ▼
+              Guardrail Promotion
+Technology Stack
+Technology	Purpose
+Python	Core programming language
+Prophet	Time series forecasting
+XGBoost	Machine learning forecasting
+Pandas	Data processing
+NumPy	Numerical operations
+Scikit-learn	Model evaluation
+MLflow	Experiment tracking
+BentoML	Model serving
+Pytest	Testing
 
----
+Dataset
 
-## Features
-
-- Prophet forecasting
-- XGBoost forecasting
-- Feature engineering
-    - Lag features
-    - Rolling mean
-    - Rolling standard deviation
-    - Calendar features
-    - Holiday flags
-- Weighted ensemble
-- Prediction intervals
-- MLflow experiment tracking
-- BentoML REST API
-
----
-
-## Dataset
-
-Public retail sales dataset
-
-Columns:
-
-- date
-- quantity_sold
-
----
-
-## Models
-
-### Prophet
-
-Uses yearly and weekly seasonality.
-
-Advantages
-
-- Captures trend automatically
-- Produces prediction intervals
-- Easy to train
-
----
-
-### XGBoost
-
-Uses engineered features
-
-- lag_1
-- lag_7
-- lag_30
-- rolling_mean_7
-- rolling_mean_30
-- rolling_std_7
-- day_of_week
-- month
-- quarter
-- year
-- holiday flag
-
-Prediction intervals are created using residual standard deviation.
-
----
-
-## Ensemble
-
-Three weight combinations were evaluated.
-
-- 0.5 / 0.5
-- 0.4 / 0.6
-- 0.3 / 0.7
-
-The best combination is selected based only on test RMSE.
-
-The selected weights are stored in:
-
-models/best_weights.json
-
-The BentoML API always serves the best ensemble model.
-
-
-## Evaluation
-
-Metrics used
-
-- RMSE
-- MAPE
+The project uses retail sales data containing monthly sales observations.
 
 Example:
 
-| Model | RMSE | MAPE |
-|------|------|------|
-| Prophet | 17378.02 | 3.46% |
-| XGBoost | 12299.57 | 2.24% |
-| Ensemble (0.3/0.7) | 11354.85 | 2.19% |
-
-Replace the values above with your actual results.
-
----
-
-
-
-The ensemble model selects the best weighted combination using test data.
-
----
-
-## Running
-
-### Train
-
-First-time setup and execution:
-
-```bash
-pip install -r requirements.txt
-python -m src.main
-pytest -q
-
-Serve
-
-```bash
-bentoml serve src/bentoml_service.py:ForecastService
-```
-
----
-
-## MLflow
-
-```bash
-mlflow ui
-```
-
----
-
-## BentoML API
-
-POST
-
-```
-/predict
-```
-
-Example Request
-
-```json
-{
-    "sku_id":"SKU001",
-    "warehouse_id":"WH001",
-    "horizon_days":30
-}
-```
-
-Response
-
-```json
-{
-    "forecast":[...],
-    "model_version":"1.0",
-    "latency_ms":12.4
-}
-```
-
-## Hierarchical Forecasting
-```text
-SKU total      : 56203.90
-Category total : 56203.90
-Region total   : 56203.90
-```
-
-This confirms that the hierarchy is consistent at both the overall and per-region levels.
-
----
-
-# XGBoost Feature Importance and Sanity Check
-
-XGBoost feature importance was extracted after training to understand which features contributed most to the model.
-
-The highest feature importance was observed for:
-
-```text
-rolling_mean_30 = 43.96%
-rolling_mean_7  = 30.30%
-year            = 13.20%
-```
-
-These features are reasonable for demand forecasting because recent demand history and long-term trends are expected to influence future demand.
-
-No single random or irrelevant feature dominated the model.
-
-Calendar features such as `day_of_week` and `is_holiday` had very low importance. This is reasonable because the current dataset contains monthly demand data rather than daily demand data.
-
-The `is_holiday` feature had zero importance, indicating that it did not contribute to the current model.
-
-### Conclusion
-
-The feature importance distribution was considered reasonable for the current monthly demand dataset, and no obvious random-feature dominance was observed.
-
----
-
-
-
-## Automated Retraining
-
-R4 also includes a simulated automated retraining workflow.
-
-The original design considered weekly retraining. However, running hundreds of weekly historical cycles on the full dataset was computationally expensive and resulted in repeated model training when no new monthly data was available.
-
-Therefore, for this local demonstration, retraining is simulated on a **yearly schedule** to reduce execution time while still demonstrating the complete retraining workflow.
-
-For each retraining cycle:
-
-1. A training window is selected from the available historical data.
-2. A separate validation period is kept aside.
-3. Prophet and XGBoost are retrained.
-4. Their ensemble prediction is evaluated on the held-out validation set.
-5. The result is logged as a new MLflow run.
-6. The new model is compared with the currently promoted model.
-7. **MAPE is used as the primary promotion metric, with RMSE used as a tie-breaker when MAPE values are effectively equal.**
-
-The actual promotion policy is therefore:
-
-```text
-Primary metric : MAPE
-Tie-breaker    : RMSE
-```
-
-
----
-
-## Robustness Testing
-
-R4 includes robustness tests for invalid and unexpected input data.
-
-The prediction pipeline was tested with cases including:
-
-* Missing demand values
-* Negative demand values
-* Missing dates
-* Duplicate dates
-* Non-numeric demand values
-* Empty history
-* Invalid forecast horizon
-* Extreme demand values
-
-The expected behavior is a clear validation error or safe handling instead of an unhandled exception.
-
-All robustness tests passed successfully.
-
----
-
-## Ensemble Test Coverage
-
-Additional tests were added for the Prophet + XGBoost ensemble.
-
-The tests cover:
-
-* Valid ensemble weights
-* Prophet weight equal to zero
-* XGBoost weight equal to zero
-* Valid combinations of weights
-* Weights that do not sum to one
-* Negative weights
-* Weighted ensemble prediction
-* Prediction interval validity
-
-The prediction interval is also checked to ensure:
-
-```text
-lower <= predicted <= upper
-```
-
-The complete test suite currently passes with:
-
-```text
-26 passed
-```
-
----
-
-## Seasonal Naive Baseline
-
-As a stretch goal, a seasonal-naive baseline was added as an additional reference model.
-
-The seasonal-naive method predicts each future month using the demand from the same month in the previous year.
-
-For example:
-
-```text
-2015-01 -> 2016-01
-2015-02 -> 2016-02
-2015-03 -> 2016-03
-```
-
-This baseline is **not used for serving**. It is included only as a simple reference point for model comparison.
-
-The seasonal-naive implementation also includes validation for:
-
-* Empty data
-* Insufficient history
-* Invalid forecast horizons
-* Missing demand values
-
-All seasonal-naive tests passed successfully.
-
----
-
-## R4 Test Summary
-
-The complete test suite was executed locally.
-
-Result:
-
-```text
-26 passed
-```
-
-No test failures were observed.
-
-The test suite covers:
-
-* Ensemble behavior
-* Feature generation
-* Hierarchical reconciliation
-* Per-region reconciliation
-* Robustness handling
-* Seasonal-naive forecasting
-* Existing prediction service
-
-The project intentionally uses local/mock data and does not require shared infrastructure for the R4 implementation.
-
----
-
-# Model Comparison
-
-The current model evaluation produced the following results:
-
-| Model          |      MAPE |         RMSE |
-| -------------- | --------: | -----------: |
-| Seasonal Naive |     3.06% |     15492.76 |
-| Prophet        |     3.46% |     17378.02 |
-| XGBoost        |     2.24% |     12299.57 |
-| **Ensemble**   | **2.19%** | **11354.85** |
-
-The ensemble uses the following weights:
-
-```text
-Prophet = 0.3
-XGBoost = 0.7
-```
-
-The tested ensemble combinations were:
-
-| Prophet Weight | XGBoost Weight |      MAPE |         RMSE |
-| -------------: | -------------: | --------: | -----------: |
-|            0.5 |            0.5 |     2.28% |     12091.61 |
-|            0.4 |            0.6 |     2.22% |     11591.07 |
-|        **0.3** |        **0.7** | **2.19%** | **11354.85** |
-
-Among the tested combinations, **0.3 Prophet + 0.7 XGBoost produced the best result**.
-
-### Comparison Finding
-
-The Seasonal Naive baseline provides a useful reference point, but in the current evaluation:
-
-* XGBoost performs better than Seasonal Naive.
-* The Ensemble performs better than XGBoost.
-* Prophet performs worse than the other three models.
-
-The Ensemble achieved the best MAPE and RMSE among the evaluated models:
-
-```text
-Ensemble MAPE = 2.19%
-Ensemble RMSE = 11354.85
-```
-
-Therefore, the current results support using the **Prophet + XGBoost ensemble with 30% Prophet and 70% XGBoost** as the best-performing configuration among the tested models.
-
----
-
-## Final R4 Result
-
-The R4 implementation now demonstrates:
-
-```text
-SKU-level forecasting
+date	quantity_sold
+1992-01-01	146376
+1992-02-01	147079
+1992-03-01	159336
+
+Dataset statistics:
+
+Total Rows: 293
+Training Rows: 276
+Testing Rows: 17
+
+The dataset frequency is monthly.
+
+Frequency: MS
+Project Structure
+prophet/
+│
+├── src/
+│   ├── __init__.py
+│   ├── accuracy_monitor.py
+│   ├── automated_retraining.py
+│   ├── bentoml_service.py
+│   ├── data.py
+│   ├── demo_accuracy_monitor.py
+│   ├── demo_hierarchy.py
+│   ├── ensemble.py
+│   ├── evaluate.py
+│   ├── external_regressors.py
+│   ├── feature_importance.py
+│   ├── hierarchy.py
+│   ├── inference.py
+│   ├── main.py
+│   ├── mlflow_utils.py
+│   ├── predict.py
+│   ├── scenario_forecasting.py
+│   ├── seasonal_naive.py
+│   ├── sku_forecast.py
+│   ├── train_prophet.py
+│   └── train_xgboost.py
+│
+├── models/
+│   └── promoted/
+│       ├── prophet_model.json
+│       ├── xgb_model.pkl
+│       ├── ensemble_weights.json
+│       └── model_metadata.json
+│
+├── output/
+│   ├── forecast.png
+│   └── prophet_model.json
+│
+├── tests/
+│
+├── mlruns/
+├── mlflow.db
+├── README.md
+└── requirements.txt
+Milestone 1 – Production Forecasting Pipeline
+Objective
+
+Build a complete production-shaped forecasting pipeline instead of a simple:
+
+Dataset
+   ↓
+Model
+   ↓
+Prediction
+
+The system should support validation, multiple models, ensemble forecasting, uncertainty estimation, hierarchy reconciliation, model promotion, API serving, and experiment tracking.
+
+Milestone 1 Flow
+Raw Retail Data
         ↓
-Hierarchical forecasting
+Data Validation
+        ↓
+Feature Engineering
+        ↓
+Prophet Training
+        +
+XGBoost Training
+        ↓
+Model Evaluation
+        ↓
+Ensemble Forecasting
+        ↓
+Prediction Intervals
         ↓
 SKU → Category → Region
         ↓
-Per-region reconciliation
+Bottom-Up Reconciliation
         ↓
-XGBoost feature importance
+Promoted Models
         ↓
-Prophet + XGBoost ensemble
+BentoML API
         ↓
-Seasonal Naive baseline
-        ↓
-Robustness testing
-        ↓
-Automated retraining simulation
-        ↓
-MLflow experiment tracking
-        ↓
-Model promotion logic
-```
+MLflow Tracking
+1. Data Validation
 
-The final selected ensemble uses:
+The dataset is validated before model training.
 
-```text
-Prophet = 30%
-XGBoost = 70%
-```
+Checks include:
 
-with the current evaluation results:
+Required columns
+Missing values
+Duplicate dates
+Negative sales values
+Empty datasets
+Date sorting
 
-```text
-MAPE = 2.19%
-RMSE = 11354.85
-```
-# Round 5 – Demand Forecasting Enhancements
+Example:
 
-Round 5 improves the demand forecasting pipeline with automated retraining,
-ensemble weight tuning, hierarchical reconciliation, and expanded test coverage.
+required_columns = ["date", "quantity_sold"]
 
-## 1. Automated Retraining & Auto-Promotion
+Validation ensures invalid data does not enter the forecasting pipeline.
 
-Implemented in:
+2. Prophet Model
 
-`src/automated_retraining.py`
+Prophet is used to learn:
 
-- Yearly simulated retraining
-- 120-month training window
-- 12-month validation window
-- Prophet + XGBoost candidate models
-- Candidate model is compared against the previously promoted baseline
-- Better candidate is automatically promoted
-- Worse candidate is rejected
-- Promotion/rejection decisions are recorded in MLflow
+Long-term trends
+Yearly seasonality
+Time-series patterns
 
-### Retraining Evidence
+Training module:
 
-The R5 retraining pipeline was executed across multiple yearly cycles.
+src/train_prophet.py
 
-Evidence includes:
+Example configuration:
 
-- MLflow yearly retraining runs
-- Grid-search results for retraining cycles
-- Retraining cycle screenshots
-- Promoted model metadata
+Prophet(
+    yearly_seasonality=True,
+    weekly_seasonality=True,
+    daily_seasonality=False
+)
+3. XGBoost Model
 
-Example yearly runs include:
+XGBoost uses engineered time-series features.
 
-`yearly_retrain_2015`
+Training module:
 
-`yearly_retrain_2016`
-### R5 Automated Retraining Result
+src/train_xgboost.py
 
-During automated retraining, ensemble weights are selected dynamically for
-each validation cycle.
+Features include:
 
-For the currently promoted R5 retraining run:
+lag_1
+lag_7
+lag_30
 
-Prophet = 80%
-XGBoost = 20%
+rolling_mean_7
+rolling_mean_30
+rolling_std_7
 
-MAPE = 1.3255%
-RMSE = 7370.6375
-### Promoted Baseline
+day_of_week
+month
+quarter
+year
 
-The existing promoted model used as the baseline for the R5 retraining
-simulation has the following metadata:
+Example concept:
 
-| Metric | Value |
-|---|---:|
-| Model Version | R5 |
-| Status | Promoted |
-| MAPE | 1.3255% |
-| RMSE | 7370.6375 |
-| Prophet Weight | 0.8 |
-| XGBoost Weight | 0.2 |
+Previous Sales
+      +
+Rolling Average
+      +
+Season Information
+      ↓
+XGBoost
+      ↓
+Forecast
+4. Ensemble Forecasting
 
-This same promoted baseline is used for comparison across yearly
-retraining cycles. A candidate model is promoted only when it outperforms
-this currently promoted baseline according to the promotion criteria.
+Prophet and XGBoost predictions are combined.
 
-The pipeline therefore demonstrates that the auto-promotion decision logic
-is actually executed across retraining cycles rather than only being implemented
-in code.
+Formula:
 
----
+Final Forecast
 
-## 2. Ensemble Weight Auto-Tuning
+=
+(Prophet Prediction × Prophet Weight)
 
-The pipeline evaluates 11 Prophet/XGBoost weight combinations:
++
 
-0/100
-10/90
-20/80
-30/70
-40/60
-50/50
-60/40
-70/30
-80/20
-90/10
-100/0
-Every combination is evaluated on validation data.
+(XGBoost Prediction × XGBoost Weight)
 
-The winning combination is selected using:
+Example:
 
-Validation MAPE as the primary metric
-Validation RMSE as the secondary tie-breaker
+Prophet Prediction = 100
 
-Each grid-search combination is logged as a nested MLflow run.
+XGBoost Prediction = 120
 
-Grid-search result CSV files are generated for retraining cycles.
-## 3. Hierarchical Reconciliation
+Prophet Weight = 0.3
 
-Implemented 3-level hierarchy:
+XGBoost Weight = 0.7
+
+Final forecast:
+
+(100 × 0.3) + (120 × 0.7)
+
+The ensemble reduces dependence on a single model.
+
+5. Model Evaluation
+
+Models are evaluated using:
+
+MAPE
+
+Mean Absolute Percentage Error.
+
+Measures percentage forecasting error.
+
+RMSE
+
+Root Mean Squared Error.
+
+Penalizes large prediction errors.
+
+Example evaluation:
+
+Prophet RMSE : 18135.57
+XGBoost RMSE : 13903.20
+Best Ensemble RMSE : 12309.01
+
+The ensemble outperformed both individual models.
+
+6. Ensemble Weight Search
+
+The system evaluates multiple combinations.
+
+0.0 / 1.0
+0.1 / 0.9
+0.2 / 0.8
+0.3 / 0.7
+0.4 / 0.6
+0.5 / 0.5
+0.6 / 0.4
+0.7 / 0.3
+0.8 / 0.2
+0.9 / 0.1
+1.0 / 0.0
+
+Example current evaluation result:
+
+Best Ensemble Weights
+
+Prophet Weight: 0.3
+XGBoost Weight: 0.7
+
+Best evaluation:
+
+MAPE: 2.45%
+RMSE: 12309.01
+7. Prediction Intervals
+
+The system provides uncertainty ranges.
+
+Example:
+
+{
+    "date": "2026-01-01",
+    "predicted": 1000,
+    "lower": 900,
+    "upper": 1100
+}
+
+Meaning:
+
+Expected Forecast: 1000
+
+Possible Lower Range: 900
+Possible Upper Range: 1100
+
+This is more useful than providing only a single prediction.
+
+8. Hierarchical Forecasting
+
+The hierarchy is:
 
 SKU
  ↓
@@ -537,144 +366,1160 @@ Category
  ↓
 Region
 
-Bottom-up reconciliation aggregates:
+Example:
 
-SKU forecasts → Category forecasts
-Category forecasts → Region forecasts
+SKU A = 100
+SKU B = 200
 
-The reconciliation validation confirms that forecast totals remain
-sum-consistent across all three levels.
+Category = 300
 
-The implementation also validates:
+Multiple categories aggregate into a region.
 
-Missing hierarchy columns
-Empty hierarchy data
-Missing SKU/category/region mappings
-Invalid SKU-to-category/region mappings
-Missing forecast values
-SKU → Category consistency
-Category → Region consistency
-Global total consistency
-  ## 4. Test Coverage
+Category A = 300
+Category B = 500
 
-R5 includes dedicated tests for the new retraining and reconciliation behaviour.
+Region = 800
+9. Bottom-Up Reconciliation
 
-The following areas are covered:
+The system verifies:
 
-Better model promotion
-Worse model rejection
-MAPE tie-breaking using RMSE
-All 11 ensemble weight combinations
-Grid-search winner selection
-Grid-search RMSE tie-breaker
-SKU → Category → Region reconciliation
-Reconciliation across multiple regions
-Reconciliation failure path
+Sum of SKU Forecasts
+        =
+Category Forecast
 
-Retraining-specific test file:
+And:
 
-tests/test_retraining.py
+Sum of Category Forecasts
+        =
+Region Forecast
 
-Test execution:
+Flow:
 
-python -m pytest tests/test_retraining.py -v
+SKU Forecast
+    ↓
+Bottom-Up Aggregation
+    ↓
+Category Forecast
+    ↓
+Bottom-Up Aggregation
+    ↓
+Region Forecast
+    ↓
+Reconciliation Verification
 
-Result:
+Implementation:
 
-10 passed
-## 5. MLflow Evidence
+src/hierarchy.py
+src/demo_hierarchy.py
+10. Promoted Model Bundle
+
+Production models are stored in:
+
+models/promoted/
+
+Files:
+
+prophet_model.json
+xgb_model.pkl
+ensemble_weights.json
+model_metadata.json
+
+The inference system loads promoted models rather than temporary training models.
+
+Flow:
+
+Promoted Prophet
+       +
+Promoted XGBoost
+       +
+Promoted Ensemble Weights
+       ↓
+Production Forecast
+11. BentoML API
+
+BentoML exposes the forecasting system as an API.
+
+Implementation:
+
+src/bentoml_service.py
+
+Example request:
+
+{
+    "sku_id": "SKU001",
+    "warehouse_id": "WH001",
+    "horizon_months": 6
+}
+
+Flow:
+
+Client Request
+       ↓
+BentoML
+       ↓
+predict.py
+       ↓
+Load Promoted Models
+       ↓
+Prophet + XGBoost
+       ↓
+Ensemble
+       ↓
+Prediction Interval
+       ↓
+API Response
+
+Example response:
+
+{
+    "forecast": [
+        {
+            "date": "2026-01-01",
+            "predicted": 383919,
+            "lower": 379000,
+            "upper": 388000
+        }
+    ]
+}
+Important Note
+
+The API currently accepts:
+
+sku_id
+warehouse_id
+
+However, the current dataset is aggregate-level retail data and does not contain real SKU-level or warehouse-level observations.
+
+Therefore, these fields are currently API interface placeholders and are not used for true SKU-specific forecasting.
+
+Milestone 1 Conclusion
+
+Milestone 1 implements the complete production forecasting architecture.
+
+Retail Data
+    ↓
+Data Validation
+    ↓
+Prophet
+    +
+XGBoost Feature Engineering
+    ↓
+Prophet + XGBoost Ensemble
+    ↓
+Prediction Intervals
+    ↓
+SKU → Category → Region Reconciliation
+    ↓
+Promoted Model Bundle
+    ↓
+BentoML API
+    ↓
+MLflow Tracking
+
+Status:
+
+Milestone 1: COMPLETED
+Milestone 2 – External Regressors
+Objective
+
+Improve forecasting by incorporating external factors.
+
+External features added:
+
+is_holiday
+promotion
+weather_index
+Milestone 2 Flow
+Historical Sales
+       +
+External Factors
+       ↓
+Feature Engineering
+       ↓
+Prophet + Regressors
+       +
+XGBoost + Regressors
+       ↓
+Ensemble Forecast
+1. Holiday Feature
+is_holiday
+
+Represents whether a date is associated with a holiday period.
+
+Example:
+
+Normal Month → 0
+Holiday Month → 1
+2. Promotion Feature
+promotion
+
+Represents promotional activity.
+
+Example dataset:
+
+Date	Sales	Promotion
+1992-01	146376	0
+1992-02	147079	0
+1992-03	159336	1
+1992-04	163669	0
+1992-06	168663	1
+
+Meaning:
+
+0 = No promotion
+1 = Promotion active
+
+The promotion feature allows the model to learn whether sales tend to change during promotional periods.
+
+3. Weather Index
+
+A mock weather index was added.
+
+weather_index
+
+This demonstrates how external weather data can be integrated into the forecasting system.
+
+Prophet External Regressors
+
+Prophet receives:
+
+model.add_regressor("is_holiday")
+model.add_regressor("promotion")
+model.add_regressor("weather_index")
+
+Training output:
+
+External regressors added to Prophet:
+
+- is_holiday
+- promotion
+- weather_index
+XGBoost External Features
+
+The same external information can be included in feature engineering.
+
+This allows XGBoost to combine:
+
+Lag Features
++
+Rolling Statistics
++
+Calendar Features
++
+External Regressors
+Accuracy Comparison
+
+The purpose was to compare:
+
+Without External Regressors
+            VS
+With External Regressors
+
+Metrics:
+
+MAPE
+RMSE
+Result
+
+The external regressors were successfully integrated into Prophet and XGBoost.
+
+However, on the current dataset, the regressors did not improve forecast accuracy.
+
+Recorded conclusion:
+
+The current mock external regressors did not improve Prophet accuracy.
+
+Previous comparison:
+
+The ensemble RMSE increased from 11400.81 to 12309.01.
+
+Therefore, no artificial improvement claim is made.
+
+Milestone 2 Conclusion
+
+External regressors were technically integrated successfully.
+
+Holiday Feature        ✓
+Promotion Feature      ✓
+Weather Index          ✓
+Prophet Integration    ✓
+XGBoost Integration    ✓
+Accuracy Comparison    ✓
+
+The current dataset did not show accuracy improvement.
+
+
+
+
+Milestone 3 – Forecast Accuracy Monitoring
+Objective
+
+Monitor forecast quality after predictions are generated.
+
+The requirement is:
+
+Track predicted values against actual values
+as actual sales arrive.
+Milestone 3 Flow
+Forecast Generated
+       ↓
+Predicted Values Stored
+       ↓
+Actual Sales Arrive
+       ↓
+Predicted vs Actual Comparison
+       ↓
+Error Calculation
+       ↓
+Rolling MAPE
+       ↓
+Threshold Check
+       ↓
+Alert Generation
+Monitoring Metrics
+
+The monitoring system calculates:
+
+MAPE
+RMSE
+Rolling MAPE
+Predicted vs Actual
+
+Example:
+
+Date	Predicted	Actual
+Jan	1000	1100
+Feb	1200	1150
+
+The system calculates the difference between prediction and actual sales.
+
+Rolling MAPE
+
+Rolling MAPE helps detect whether forecasting performance is degrading over time.
+
+Example:
+
+Overall MAPE: 2.45%
+Latest Rolling MAPE: 1.72%
+Alert System
+
+The monitoring system checks forecast quality against a threshold.
+
+Example output:
+
+========== ALERT STATUS ==========
+
+HEALTHY: Forecast accuracy is within the acceptable threshold.
+
+If accuracy degrades beyond the configured threshold, an alert can be generated.
+
+Current Monitoring Status
+
+Implemented:
+
+✓ Predicted vs Actual comparison
+✓ MAPE calculation
+✓ RMSE calculation
+✓ Rolling MAPE
+✓ Accuracy degradation detection
+✓ Alert generation
+✓ Demo execution
+
+Implementation files:
+
+src/accuracy_monitor.py
+src/demo_accuracy_monitor.py
+Milestone 3 Conclusion
+
+The monitoring module simulates the production lifecycle where actual values arrive after predictions.
+
+Forecast
+   ↓
+Actual Data Arrival
+   ↓
+Error Measurement
+   ↓
+Rolling Accuracy Monitoring
+   ↓
+Alert
+
+Status:
+
+Milestone 3: COMPLETED
+Milestone 4 – Scenario Forecasting
+Objective
+
+Allow users to simulate future business conditions and observe how forecasts change.
+
+Instead of only asking:
+
+What will sales be?
+
+Scenario forecasting allows:
+
+What will sales be if promotion happens?
+
+or:
+
+What happens if external conditions change?
+Scenario Conditions
+
+Scenario conditions are manually modified future assumptions.
+
+Example:
+
+Baseline:
+promotion = 0
+
+Scenario:
+
+promotion = 1
+
+The model generates forecasts for both conditions.
+
+Baseline Forecast
+
+Baseline means:
+
+Normal expected future conditions.
+
+Example:
+
+promotion = 0
+
+The model predicts sales without additional promotional changes.
+
+Promotion Scenario
+
+Example:
+
+promotion = 1
+
+The scenario forecasting system changes the promotion value for the selected future date.
+
+The model then predicts again.
+
+Scenario Forecasting Flow
+Future Dates
+      │
+      ├───────────────┐
+      ▼               ▼
+Baseline Conditions   Scenario Conditions
+      │               │
+      ▼               ▼
+Baseline Forecast     Scenario Forecast
+      │               │
+      └───────┬───────┘
+              ▼
+       Compare Forecasts
+              ▼
+      Difference Analysis
+Example Output
+========== BASELINE VS PROMOTION SCENARIO ==========
+
+Example:
+
+Date	Baseline	Scenario	Difference
+2015-01	421945	        421945	                0
+2015-12	516108	        526534	                10425
+Why December Changed
+
+The scenario configuration selected December for the promotion simulation.
+
+For that future date:
+
+Baseline:
+promotion = normal value
+
+Scenario:
+
+promotion = increased scenario value
+
+The model therefore produced a different prediction.
+
+Example:
+
+Baseline Forecast: 516108.85
+
+Scenario Forecast: 526534.15
+
+Difference: 10425.30
+
+Percentage change:
+
+2.02%
+Scenario Summary
+
+Example execution:
+
+Baseline Forecast Total: 7786164.21
+
+Scenario Forecast Total: 7796589.51
+
+Forecast Difference: 10425.30
+Important Clarification
+
+The scenario forecast is not the actual dataset value.
+
+There are three different values:
+
+Actual Dataset Value
+
+The real historical sales recorded in the dataset.
+
+Example:
+
+Actual sales = 386935
+Baseline Forecast
+
+The model's normal prediction.
+
+Example:
+
+421945.77
+Scenario Forecast
+
+The prediction after modifying future scenario conditions.
+
+Example:
+
+526534.15
+
+So:
+
+Actual Value
+     ≠
+Baseline Forecast
+     ≠
+Scenario Forecast
+Milestone 4 Implementation
+
+File:
+
+src/scenario_forecasting.py
+
+The module:
+
+Creates baseline future conditions
+          ↓
+Creates modified scenario conditions
+          ↓
+Runs forecasting for both
+          ↓
+Compares results
+          ↓
+Calculates forecast difference
+Milestone 4 Conclusion
+
+Scenario forecasting enables business users to ask:
+
+What if a promotion happens?
+
+and compare:
+
+Normal Forecast
+        VS
+Promotion Forecast
+
+Status:
+
+Milestone 4: COMPLETED
+Milestone 5 – Automated Retraining with Guardrails
+Objective
+
+Automatically retrain forecasting models using new historical data.
+
+However, retraining alone is not enough.
+
+A newly trained model should only replace the production model if it performs better on held-out validation data.
+
+The system follows:
+
+Retrain
+   ↓
+Validate
+   ↓
+Compare With Current Production Model
+   ↓
+Promote Only If Better
+Why Guardrails Are Required
+
+Without guardrails:
+
+New Data
+   ↓
+Retrain
+   ↓
+Automatically Replace Production Model
+
+This is risky.
+
+The new model may perform worse.
+
+With guardrails:
+
+New Data
+   ↓
+Retrain Candidate
+   ↓
+Evaluate on Held-Out Validation Data
+   ↓
+Compare With Production Model
+   ↓
+Better?
+   │
+ ┌─┴──────┐
+Yes       No
+ │         │
+Promote   Reject
+Sliding Window Retraining
+
+The system uses:
+
+WINDOW_MONTHS = 120
+
+VALIDATION_MONTHS = 12
+
+Meaning:
+
+120 Months
+Training Data
+       +
+12 Months
+Validation Data
+
+Total:
+
+132 Months
+Sliding Window Concept
+
+Example:
+
+|--------------------------|------------|
+       Training              Validation
+       120 months            12 months
+
+Next retraining cycle:
+
+       Window moves forward
+              ↓
+
+|--------------------------|------------|
+       Training              Validation
+       120 months            12 months
+
+Only the latest available historical window is used.
+
+Important Guardrail
+
+The promotion decision is made using:
+
+Held-Out Validation Data
+
+Not training data.
+
+This prevents a model from being promoted simply because it fits the training data well.
+
+Automated Retraining Frequency
+
+Current configuration:
+
+RETRAIN_FREQUENCY = "YS"
+
+Meaning:
+
+Yearly Retraining
+
+The simulation performs yearly retraining cycles across historical data.
+
+R5 Retraining Flow
+Historical Data
+       ↓
+Select Latest Sliding Window
+       ↓
+120 Month Training Window
+       +
+12 Month Validation Window
+       ↓
+Train Prophet
+       +
+Train XGBoost
+       ↓
+Generate Validation Predictions
+       ↓
+Ensemble Weight Grid Search
+       ↓
+Select Best Candidate
+       ↓
+Compare With Production Baseline
+       ↓
+Promote / Reject
+       ↓
+Log Everything in MLflow
+Ensemble Weight Auto-Tuning
+
+Milestone 5 evaluates 11 combinations.
+
+Prophet    XGBoost
+
+0.0        1.0
+0.1        0.9
+0.2        0.8
+0.3        0.7
+0.4        0.6
+0.5        0.5
+0.6        0.4
+0.7        0.3
+0.8        0.2
+0.9        0.1
+1.0        0.0
+
+Configuration:
+
+WEIGHT_GRID = [
+    (0.0, 1.0),
+    (0.1, 0.9),
+    (0.2, 0.8),
+    (0.3, 0.7),
+    (0.4, 0.6),
+    (0.5, 0.5),
+    (0.6, 0.4),
+    (0.7, 0.3),
+    (0.8, 0.2),
+    (0.9, 0.1),
+    (1.0, 0.0),
+]
+Weight Selection
+
+Each combination is evaluated on validation data.
+
+Metrics:
+
+Validation MAPE
+Validation RMSE
+
+Selection priority:
+
+1. Lower MAPE
+2. Lower RMSE if MAPE is tied
+Grid Search Flow
+Prophet Prediction
+        +
+XGBoost Prediction
+        │
+        ▼
+  11 Weight Combinations
+        │
+        ▼
+Validation Evaluation
+        │
+        ▼
+MAPE + RMSE Comparison
+        │
+        ▼
+Best Weight Selected
+MLflow Logging
+
+Every retraining cycle is logged in MLflow.
 
 Experiment:
 
 R5_Automated_Retraining
 
-MLflow records:
+Parent runs:
 
-Yearly retraining cycles
-All 11 ensemble combinations
-Validation MAPE/RMSE
-Selected ensemble weights
-Promotion/rejection status
-Training and validation date ranges
-Grid-search results
+yearly_retrain_2003
+yearly_retrain_2004
+yearly_retrain_2005
+...
 
-Start MLflow UI with:
+Each grid search combination is logged as a nested run.
 
-python -m mlflow ui
+MLflow Logged Parameters
 
+Example:
 
-## R5 Pipeline Note
+retrain_frequency
+grid_combinations
+selected_prophet_weight
+selected_xgb_weight
+training_start
+training_end
+validation_start
+validation_end
 
-`src/automated_retraining.py` is the primary R5 retraining pipeline.
+Example:
 
-`src/main.py` is retained as a legacy/reference pipeline from earlier rounds.
-It is not used by the R5 automated retraining and auto-promotion flow.
+retrain_frequency: yearly
 
-## XGBoost Validation Limitation
+grid_combinations: 11
 
-The XGBoost validation forecast currently uses historical/ground-truth lag
-features for the validation period (teacher forcing).
+selected_prophet_weight: 0.8
 
-Production forecasting is recursive, where previous XGBoost predictions are
-fed back as lag features.
+selected_xgb_weight: 0.2
+MLflow Tags
 
-Therefore, validation MAPE/RMSE may be more optimistic than production
-performance.
-### Validation and Promotion Decision
+The system logs promotion status.
 
-For the R5 implementation, the same validation window is currently used
-for ensemble weight selection and the promotion comparison.
+Example promoted run:
 
-The validation MAPE is used to select the best Prophet/XGBoost weight
-combination, and the selected candidate is then compared against the
-current promoted baseline.
+promotion_status: promoted
 
-A separate promotion hold-out or nested validation split would provide a
-more statistically independent promotion gate and can be considered as a
-future enhancement.
+grid_search_status: winner_selected
 
-## Definition of Done
+Example rejected run:
 
-- [x] Automated yearly retraining implemented
-  - 120-month training window
-  - 12-month validation window
-  - Yearly retraining trigger
+promotion_status: rejected
 
-- [x] Auto-promotion decision logic implemented and executed
-  - Candidate compared with promoted baseline
-  - Better candidate promoted
-  - Worse candidate rejected
-  - Promotion/rejection status recorded in MLflow
+grid_search_status: winner_rejected
+Example MLflow Evidence
 
-- [x] Multiple retraining cycles executed
-  - Yearly retraining cycles executed using available historical data
-  - MLflow contains yearly retraining runs
-  - Retraining/grid-search evidence captured
+A successful retraining run showed:
 
-- [x] 11 ensemble weight combinations evaluated
-  - Prophet/XGBoost weights from 0.0/1.0 through 1.0/0.0
-  - 0.1 increments
-  - Every combination logged as a nested MLflow run
-  - Grid-search CSV generated
+Run Name:
 
-- [x] Best ensemble selected automatically
-  - MAPE is the primary metric
-  - RMSE is the secondary tie-breaker
+yearly_retrain_2003
 
-- [x] SKU → Category → Region reconciliation
-  - Three hierarchy levels implemented
-  - Multiple regions supported
-  - Sum consistency verified
+Parameters:
 
-- [x] R5 retraining and reconciliation tests
-  - `tests/test_retraining.py`
-  - Promotion/rejection tests
-  - Grid-search tests
-  - 3-level reconciliation tests
-  - Reconciliation failure-path test
+retrain_frequency: yearly
 
-- [x] Existing regression/robustness tests maintained
-  - Forecasting validation
-  - Invalid input handling
-  - Ensemble validation
-  - Service behaviour
+grid_combinations: 11
+
+selected_prophet_weight: 0.8
+
+selected_xgb_weight: 0.2
+
+Training range:
+
+1992-02-01
+to
+2002-01-01
+
+Validation range:
+
+2002-02-01
+to
+2003-01-01
+
+Promotion status:
+
+promoted
+
+Grid search status:
+
+winner_selected
+
+This provides evidence that the automated retraining pipeline executed successfully.
+
+Promotion Decision
+
+The production guardrail function:
+
+is_better_model(
+    new_mape,
+    new_rmse,
+    old_mape,
+    old_rmse
+)
+
+Decision logic:
+
+If no production model exists
+        ↓
+Promote first candidate
+
+Otherwise:
+
+New MAPE < Old MAPE
+        ↓
+Promote
+
+If MAPE is tied:
+
+New RMSE < Old RMSE
+        ↓
+Promote
+
+Otherwise:
+
+Reject
+Promotion Logic
+Candidate Model
+       │
+       ▼
+Validation MAPE / RMSE
+       │
+       ▼
+Current Production MAPE / RMSE
+       │
+       ▼
+Is Candidate Better?
+       │
+   ┌───┴────┐
+   │        │
+  YES       NO
+   │        │
+Promote    Reject
+Promoted Model Storage
+
+When a candidate wins, the following files are updated:
+
+models/promoted/
+
+prophet_model.json
+
+xgb_model.pkl
+
+ensemble_weights.json
+
+model_metadata.json
+Model Metadata
+
+Example:
+
+{
+    "model_version": "R5",
+    "status": "promoted",
+    "mape": 1.1935,
+    "rmse": 6062.6163,
+    "prophet_weight": 0.8,
+    "xgb_weight": 0.2
+}
+Retraining Simulation Result
+
+Final simulation output:
+
+========================================
+R5 RETRAINING SIMULATION COMPLETE
+========================================
+
+Promoted cycles: 3
+
+Rejected cycles: 11
+
+Best MAPE: 1.1935%
+
+Best RMSE: 6062.6163
+
+Promoted model directory:
+models/promoted
+
+This demonstrates that the promotion guardrail is working.
+
+Meaning of the Result
+Total Retraining Cycles = 14
+
+Out of these:
+
+3 models were better than the current production model
+
+Therefore:
+
+PROMOTED = 3
+
+And:
+
+11 models were not better
+
+Therefore:
+
+REJECTED = 11
+
+This proves the system does not automatically replace the production model every time retraining happens.
+
+Why This Is Important
+
+Bad automated retraining:
+
+Retrain Every Year
+       ↓
+Always Replace Model
+
+Current implementation:
+
+Retrain Every Year
+       ↓
+Evaluate on Validation Data
+       ↓
+Compare With Incumbent
+       ↓
+Only Promote If Better
+
+This is the main guardrail implemented in Milestone 5.
+
+Milestone 5 Components
+
+Implemented:
+
+✓ Sliding-window retraining
+✓ 120-month training window
+✓ 12-month held-out validation window
+✓ Yearly retraining simulation
+✓ Prophet retraining
+✓ XGBoost retraining
+✓ Training-only residual calculation
+✓ Ensemble weight grid search
+✓ 11 weight combinations
+✓ Validation-based winner selection
+✓ Incumbent model comparison
+✓ Auto-promotion
+✓ Model rejection
+✓ Promoted model storage
+✓ MLflow parent runs
+✓ MLflow nested grid-search runs
+✓ Promotion status logging
+✓ Grid search artifact logging
+✓ Multiple retraining cycles demonstrated
+Milestone 5 Conclusion
+
+The automated retraining system successfully implements production guardrails.
+
+New Historical Data
+       ↓
+Sliding Window
+       ↓
+Candidate Model Training
+       ↓
+Held-Out Validation
+       ↓
+Grid Search
+       ↓
+Best Candidate
+       ↓
+Compare With Incumbent
+       │
+   ┌───┴──────┐
+   ▼          ▼
+PROMOTE      REJECT
+
+Most importantly:
+
+The model is never promoted based on training accuracy.
+
+Promotion decisions are made using held-out validation data.
+
+Status:
+
+Milestone 5: COMPLETED
+Final Milestone Status
+Milestone	Feature	Status
+Milestone 1	Production Forecasting Pipeline	Completed
+Milestone 2	External Regressors	Completed
+Milestone 3	Forecast Accuracy Monitoring	Completed
+Milestone 4	Scenario Forecasting	Completed
+Milestone 5	Automated Retraining with Guardrails	Completed
+Complete Final Pipeline
+                         RETAIL DATA
+                             │
+                             ▼
+                      DATA VALIDATION
+                             │
+                             ▼
+                     FEATURE ENGINEERING
+                             │
+                ┌────────────┴────────────┐
+                ▼                         ▼
+             PROPHET                   XGBOOST
+                │                         │
+                │                         │
+                └────────────┬────────────┘
+                             ▼
+                         ENSEMBLE
+                             │
+                             ▼
+                  PREDICTION INTERVALS
+                             │
+                             ▼
+                 HIERARCHICAL FORECASTING
+                             │
+                             ▼
+                   SKU → CATEGORY → REGION
+                             │
+                             ▼
+                      RECONCILIATION
+                             │
+                             ▼
+                      MODEL PROMOTION
+                             │
+                             ▼
+                        BENTOML API
+                             │
+                             ▼
+                     MLFLOW TRACKING
+                             │
+                             ▼
+                  FORECAST ACCURACY MONITORING
+                             │
+                             ▼
+                     SCENARIO FORECASTING
+                             │
+                             ▼
+                    AUTOMATED RETRAINING
+                             │
+                             ▼
+                  VALIDATION-BASED GUARDRAILS
+                             │
+                  ┌──────────┴──────────┐
+                  ▼                     ▼
+               PROMOTE                REJECT
+Running the Main Pipeline
+python -m src.main
+Running Automated Retraining
+python -m src.automated_retraining
+Running Tests
+python -m pytest -q
+MLflow UI
+
+Start MLflow:
+
+mlflow ui
+
+Open:
+
+http://127.0.0.1:5000
+
+Experiment:
+
+R5_Automated_Retraining
+Final Project Outcome
+
+The project evolved from a basic forecasting model into a production-oriented demand forecasting system.
+
+Initial architecture:
+
+Dataset
+   ↓
+Model
+   ↓
+Prediction
+
+Final architecture:
+
+Dataset
+   ↓
+Validation
+   ↓
+Feature Engineering
+   ↓
+Prophet + XGBoost
+   ↓
+Ensemble Optimization
+   ↓
+Prediction Intervals
+   ↓
+Hierarchical Reconciliation
+   ↓
+Promoted Model Storage
+   ↓
+API Serving
+   ↓
+MLflow Tracking
+   ↓
+Accuracy Monitoring
+   ↓
+Scenario Forecasting
+   ↓
+Automated Retraining
+   ↓
+Validation Guardrails
