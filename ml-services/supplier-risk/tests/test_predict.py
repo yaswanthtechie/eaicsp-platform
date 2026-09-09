@@ -952,6 +952,35 @@ def test_calibrated_risk_band_classification():
 # PR Review Regression & Enhancement Tests
 # ------------------------------------------------------------------
 
+
+def test_keyword_detection_with_punctuation():
+    """
+    Regression test for PR review:
+    Risk keywords must be detected even when punctuation
+    is attached directly to the keyword.
+    """
+
+    test_cases = [
+        ("Supplier files for bankruptcy.", "bankruptcy"),
+        ("Acme faces bankruptcy, report says.", "bankruptcy"),
+        ("Regulator opens investigation, sources say.", "investigation"),
+        ("Firm hit with lawsuit; shares fall.", "lawsuit"),
+        ('"Bankruptcy" filing confirmed.', "bankruptcy"),
+    ]
+
+    for headline, expected_keyword in test_cases:
+        signals = detect_signals(headline)
+        detected_keywords = [
+            signal["keyword"]
+            for signal in signals
+        ]
+
+        assert expected_keyword in detected_keywords, (
+            f"Expected '{expected_keyword}' to be detected in: "
+            f"'{headline}'. Detected: {detected_keywords}"
+        )
+
+
 def test_catastrophic_headline_anti_dilution_with_neutral_padding():
     """
     Test that 1 severe catastrophic headline is not diluted away when

@@ -3,6 +3,7 @@ Keyword signal detection module for identifying
 financial, operational, and reputational risks.
 """
 
+import re
 from typing import Any, Dict, List, Optional, Set
 from src.config import DEFAULT_SIGNAL_WEIGHTS, get_settings
 
@@ -45,7 +46,7 @@ def detect_signals(
     mitigation_stems = {"deni", "deny", "avoid", "clear", "resolv", "dismiss"}
     clause_boundaries = {"but", "however", "although", "yet", "while", "though", "nevertheless"}
 
-    words = text.lower().split()
+    words = re.findall(r"[a-z0-9-]+", text.lower())
 
     def is_mitigating_word(w: str) -> bool:
         for stem in mitigation_stems:

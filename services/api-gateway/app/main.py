@@ -2,17 +2,8 @@
 Main FastAPI application for the API Gateway.
 """
 
-import sys
 from contextlib import asynccontextmanager
-from pathlib import Path
 
-# Add the parent directory (eaicsp-platform) to sys.path
-sys.path.insert(
-    0,
-    str(Path(__file__).parent.parent.parent),
-)  # pyright: ignore [missing-import]
-
-# pyrefly: ignore [missing-import]
 import httpx
 from fastapi import FastAPI
 
@@ -28,7 +19,6 @@ from app.middleware.ratelimit import (
 from app.middleware.request_id import RequestIDMiddleware
 from app.routes import dashboard, gateway, health, v2
 from app.schemas.responses import RootResponse
-
 
 # --------------------------------------------------
 # Application Lifespan
@@ -63,7 +53,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-
 # --------------------------------------------------
 # Global Rate Limiter
 # --------------------------------------------------
@@ -75,7 +64,6 @@ app.add_exception_handler(
     _rate_limit_exceeded_handler,
 )
 
-
 # --------------------------------------------------
 # Middlewares
 # --------------------------------------------------
@@ -84,7 +72,6 @@ app.add_middleware(LoggingMiddleware)
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(PerUserRoleRateLimitMiddleware)
 app.add_middleware(RequestIDMiddleware)
-
 
 # --------------------------------------------------
 # Health Routes
@@ -95,7 +82,6 @@ app.include_router(
     prefix="/health",
     tags=["Health"],
 )
-
 
 # --------------------------------------------------
 # Root Endpoint
@@ -133,7 +119,7 @@ app.include_router(
 
 
 # --------------------------------------------------
-# API v2 Routes
+# API v2 Routes (Stub)
 # --------------------------------------------------
 
 app.include_router(v2.router)
