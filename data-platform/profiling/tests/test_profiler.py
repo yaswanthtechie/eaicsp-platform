@@ -35,3 +35,25 @@ def test_wrong_dtype():
     report = profiler.profile(df)
 
     assert report["column_summary"][0]["dtype"] in ("object", "str")
+
+def test_profiler_discovers_relationships():
+    left = pd.DataFrame({
+        "sku_id": [f"SKU{i:03d}" for i in range(1, 12)]
+    })
+
+    right = pd.DataFrame({
+        "product_code": [f"SKU{i:03d}" for i in range(1, 12)]
+    })
+
+    profiler = Profiler()
+
+    result = profiler.discover_relationships(
+        left,
+        right
+    )
+
+    assert len(result) == 1
+    assert result[0]["left_column"] == "sku_id"
+    assert result[0]["right_column"] == "product_code"
+    assert result[0]["overlap_percentage"] == 100.0
+    assert result[0]["classification"] == "likely_join_key"

@@ -4,6 +4,7 @@ import numpy as np
 from src.profile import profile, ProfileReport
 from src.compare import compare, DriftReport
 from src.monitoring import MonitoringHistory
+from src.relationships import discover_relationships as discover_relationships_between
 
 class Profiler:
 
@@ -16,6 +17,16 @@ class Profiler:
         drift_report = compare(df_old, df_new)
         drift_report = self._make_json_serializable(drift_report)
         return DriftReport(drift_report)
+
+
+    def discover_relationships(self, df_left, df_right):
+        relationships = discover_relationships_between(
+            df_left,
+            df_right
+        )
+
+        return self._make_json_serializable(relationships)
+
 
     def monitor(self, df, previous_df=None):
         # Profile current batch
