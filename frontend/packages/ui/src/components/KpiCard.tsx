@@ -1,29 +1,25 @@
+import { colors, spacing, radius } from "../theme/tokens";
 
-import { colors, space, radius } from "../tokens";
-
-type KpiCardProps = {
+export interface KpiCardProps {
   label: string;
-  value: string;
+  value: string | number;
   delta?: number;
-};
+}
 
 export function KpiCard({
   label,
   value,
   delta,
 }: KpiCardProps) {
-
-
   const deltaColor =
-  delta === undefined
-    ? colors.textMuted
-    : delta < 0
-      ? colors.danger
-      : colors.success;
+    delta === undefined
+      ? colors.gray500
+      : delta >= 0
+      ? colors.success
+      : colors.danger;
 
-  const arrow = delta === undefined ? "" : delta >= 0 ? "▲" : "▼";
-  
-  
+  const arrow =
+    delta === undefined ? "" : delta >= 0 ? "▲" : "▼";
 
   return (
     <div
@@ -31,15 +27,15 @@ export function KpiCard({
         backgroundColor: colors.surface,
         border: `1px solid ${colors.border}`,
         borderRadius: radius.md,
-        padding: space.md,
+        padding: spacing.md,
         width: "100%",
-        maxWidth: 250,
+        maxWidth: "250px",
       }}
     >
       <p
         style={{
           margin: 0,
-          color: colors.textMuted,
+          color: colors.gray500,
           fontSize: 14,
         }}
       >
@@ -48,23 +44,24 @@ export function KpiCard({
 
       <h2
         style={{
-          margin: `${space.sm}px 0`,
+          margin: `${spacing.sm} 0`,
           color: colors.text,
         }}
       >
         {value}
       </h2>
+
       {delta !== undefined && (
-  <p
-    style={{
-      margin: 0,
-      color: deltaColor,
-      fontWeight: "bold",
-    }}
-  >
-     {arrow} {delta >= 0 ? `+${delta}%` : `${delta}%`}
-  </p>
-)}
+        <p
+          style={{
+            margin: 0,
+            color: deltaColor,
+            fontWeight: 600,
+          }}
+        >
+          {arrow} {delta >= 0 ? `+${delta}%` : `${delta}%`}
+        </p>
+      )}
     </div>
   );
 }

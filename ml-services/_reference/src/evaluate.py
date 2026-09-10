@@ -1,13 +1,70 @@
-from sklearn.metrics import accuracy_score
-from sklearn.metrics import f1_score
+"""
+Model evaluation utilities.
+
+This module evaluates a trained classification model using
+common classification metrics.
+
+Metrics:
+- Accuracy
+- Precision (Weighted)
+- Recall (Weighted)
+- F1 Score (Weighted)
+"""
+
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+)
 
 
 def evaluate(model, X_test, y_test):
+    """
+    Evaluate a trained classification model.
 
-    prediction = model.predict(X_test)
+    Returns
+    -------
+    tuple
+        (
+            accuracy,
+            precision,
+            recall,
+            f1,
+        )
+    """
 
-    accuracy = accuracy_score(y_test, prediction)
+    predictions = model.predict(X_test)
 
-    f1 = f1_score(y_test, prediction, average="weighted")
+    accuracy = accuracy_score(
+        y_test,
+        predictions,
+    )
 
-    return accuracy, f1
+    precision = precision_score(
+        y_test,
+        predictions,
+        average="weighted",
+        zero_division=0,
+    )
+
+    recall = recall_score(
+        y_test,
+        predictions,
+        average="weighted",
+        zero_division=0,
+    )
+
+    f1 = f1_score(
+        y_test,
+        predictions,
+        average="weighted",
+        zero_division=0,
+    )
+
+    return (
+        accuracy,
+        precision,
+        recall,
+        f1,
+    )

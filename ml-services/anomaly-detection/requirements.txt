@@ -7,5 +7,5 @@ matplotlib
 fastapi
 uvicorn
 pytest
-httpx2
-logging
+httpx
+requests

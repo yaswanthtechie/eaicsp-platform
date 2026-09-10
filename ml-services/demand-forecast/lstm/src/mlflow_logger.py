@@ -3,7 +3,7 @@ import mlflow
 import mlflow.pytorch
 
 
-def start_experiment(experiment_name="LSTM_7_Day_Forecasting"):
+def start_experiment(experiment_name="LSTM_7_Day_Forecasting",run_name=None):
     """
     Sets the active experiment and starts an MLflow run using a local SQLite database.
     """
@@ -12,7 +12,7 @@ def start_experiment(experiment_name="LSTM_7_Day_Forecasting"):
 
     mlflow.set_tracking_uri("sqlite:///mlflow.db")
     mlflow.set_experiment(experiment_name)
-    mlflow.start_run()
+    mlflow.start_run(run_name=run_name)
 
 
 def log_params(params):
