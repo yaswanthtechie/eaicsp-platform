@@ -67,8 +67,7 @@ describe("useAcknowledgePO", () => {
       queued: true,
     });
 
-    // Offline queue intentionally keeps the existing
-    // application action payload format.
+  // Offline acknowledgement uses the poNumber payload contract.
 expect(addOfflineAction).toHaveBeenCalledWith({
   type: "ACKNOWLEDGE_PO",
   payload: {
