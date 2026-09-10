@@ -1643,3 +1643,21 @@ The production build also completes successfully with TypeScript compilation and
 * The schema has not yet been validated against Rashida's live GraphQL backend implementation.
 * Backend GraphQL integration is planned for a future round.
 * The Supplier Portal continues to use frontend mocks during Round 5.
+## Offline Actions and Synchronization
+
+The Supplier Portal supports offline actions for Purchase Order acknowledgement and invoice submission.
+
+### Purchase Order Acknowledgement
+
+When a supplier acknowledges a Purchase Order while offline:
+
+1. The acknowledgement is stored in the browser's local storage queue.
+2. The queued action uses the following payload format:
+
+```ts
+{
+  type: "ACKNOWLEDGE_PO",
+  payload: {
+    poNumber: "PO-1001"
+  }
+}
