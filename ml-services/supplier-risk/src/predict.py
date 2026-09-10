@@ -87,11 +87,11 @@ def _aggregate_risk_score(
     based on the configured aggregation strategy.
 
     Supported strategies:
-    - "top_k_mean" (default): Anti-dilution strategy that averages the top-k
+    - "blend" (default): Backward-compatible 80% average / 20% peak blend.
+    - "top_k_mean": Anti-dilution strategy that averages the top-k
       risk-bearing headline scores. If a catastrophic headline is present,
       adding neutral headlines will not dilute it away.
     - "max": Uses the worst-case (maximum) headline risk score.
-    - "blend": Backward-compatible 80% average / 20% peak blend.
     - "mean": Backward-compatible unweighted mean of all headlines.
     """
     if not processed_headlines:

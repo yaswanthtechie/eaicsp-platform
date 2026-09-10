@@ -7,7 +7,7 @@ The **Supplier Risk** service is an independent Machine Learning microservice bu
 The service combines:
 - **FinBERT Sentiment Analysis** (`ProsusAI/finbert`)
 - **Config-Driven Keyword Risk Detection** (Financial, Operational, Reputational)
-- **Calibrated Risk Scoring & Evidence Confidence Calculation** (`top_k_mean` anti-dilution aggregation by default; `max`, `blend`, and `mean` supported as alternatives)
+- **Calibrated Risk Scoring & Evidence Confidence Calculation** (`blend` 80/20 aggregation by default; `top_k_mean`, `max`, and `mean` supported as alternatives)
 - **Anti-Dilution Architecture** (protecting acute risks from high-volume neutral dilution)
 - **REST API Serving** via FastAPI (`/predict`, `/health`, `/api/v1/supplier-risk/*`)
 - **Automated Unit & Integration Testing** with Pytest
@@ -24,7 +24,7 @@ The service combines:
 - Reputational & Security Risk Detection (fraud, investigation, lawsuit, cyberattack, etc.)
 - Context Disambiguation & NLP Mitigation Detection
 - Evidence Confidence Scoring using exponential saturation
-- Configurable Risk Score Aggregation (`top_k_mean` default averaging top-K risk-bearing headlines; `max`, `blend`, and `mean` supported; `blend` is not the default)
+- Configurable Risk Score Aggregation (`blend` default applying 80% average / 20% peak weighting; `top_k_mean`, `max`, and `mean` supported as configurable alternatives)
 - REST API using FastAPI with full request/response schemas
 - Automatic Model Loading with startup lifespan management
 - Comprehensive Unit & Integration Test Suite with Pytest
@@ -34,7 +34,7 @@ The service combines:
 
 # Risk Score Interpretation
 
-The risk score (0-100) is calculated based on keyword severity, FinBERT sentiment analysis, and configurable aggregation. By default, `top_k_mean` is the aggregation strategy, which averages the top $K$ risk-bearing headline scores (where $K$ is configurable via `AGGREGATION_TOP_K`, defaulting to 3). Alternative strategies (`max`, `blend`, and `mean`) are supported, but `blend` is not the default. These bands provide actionable operational guidelines for procurement teams:
+The risk score (0-100) is calculated based on keyword severity, FinBERT sentiment analysis, and configurable aggregation. By default, `blend` is the aggregation strategy, combining 80% average headline score and 20% peak headline score to provide a calibrated, discriminating risk spread. Alternative strategies (`top_k_mean`, `max`, and `mean`) are supported via configuration. These bands provide actionable operational guidelines for procurement teams:
 
 | Score Range | Risk Level | Interpretation & Recommended Procurement Action |
 | :--- | :--- | :--- |
@@ -125,7 +125,7 @@ The scoring engine is **configuration-driven** via `src/config.py`. All paramete
 | **Positive Penalty** | `POSITIVE_SENTIMENT_PENALTY` | `0.0` | Penalty for positive headlines |
 | **Max Risk Score** | `MAX_RISK_SCORE` | `100.0` | Maximum cap on final risk score |
 | **Confidence Divisor**| `CONFIDENCE_DIVISOR` | `8.0` | Saturation divisor in evidence confidence formula |
-| **Aggregation Strategy**| `AGGREGATION_STRATEGY` | `"top_k_mean"` | Anti-dilution strategy: `top_k_mean`, `max`, `blend`, or `mean` |
+| **Aggregation Strategy**| `AGGREGATION_STRATEGY` | `"blend"` | Aggregation strategy: `blend` (default), `top_k_mean`, `max`, or `mean` |
 | **Aggregation Top-K**  | `AGGREGATION_TOP_K` | `3` | Top risk-bearing headlines to average under `top_k_mean` |
 | **Signal Weights JSON**| `SIGNAL_WEIGHTS_JSON` | *Default dict* | JSON map of custom keyword weights |
 
@@ -309,16 +309,16 @@ POST /predict
 ## Scoring Pipeline
 
 The scoring pipeline operates as follows:
-`sentiment` + `risk signals` → `headline score` → `configurable aggregation (top_k_mean / max / blend / mean)` → `0–100 risk score`
+`sentiment` + `risk signals` → `headline score` → `configurable aggregation (blend / top_k_mean / max / mean)` → `0–100 risk score`
 
 1. **Individual Headline Scoring**:
    $$\text{headline\_score} = (\text{penalty} \times \text{confidence}) + \sum_{k \in \text{detected}} \text{weight}(k)$$
 
-2. **Configurable Risk Aggregation (Anti-Dilution)**:
-   The service provides configurable aggregation strategies to prevent catastrophic risk signals from being diluted by neutral news:
-   - **`top_k_mean` (default, $K=3$)**: Averages the top-$K$ risk-bearing headline scores ($s_i > 0$). Severe acute events (such as bankruptcy, fraud, or lawsuits) maintain their true severity even when surrounded by 10, 50, or 100 neutral routine headlines.
+2. **Configurable Risk Aggregation**:
+   The service provides configurable aggregation strategies to translate headline-level scores into an overall supplier risk score:
+   - **`blend` (default)**: Calibrated $0.80 \times \text{average\_score} + 0.20 \times \text{peak\_score}$. Combines the overall average risk posture across all headlines with a 20% weighting on the worst-case acute event, ensuring a discriminating spread across diverse supplier profiles.
+   - **`top_k_mean` ($K=3$)**: Anti-dilution strategy that averages the top-$K$ risk-bearing headline scores ($s_i > 0$). Severe acute events (such as bankruptcy, fraud, or lawsuits) maintain their severity even when surrounded by numerous neutral headlines.
    - **`max`**: Evaluates supplier risk by the single worst-case headline score ($\text{peak\_score}$).
-   - **`blend`**: Backward-compatible $0.80 \times \text{average\_score} + 0.20 \times \text{peak\_score}$.
    - **`mean`**: Unweighted arithmetic average of all unique headline scores.
 
    Final score is capped at `cfg.max_risk_score` (default $100.0$).
@@ -352,26 +352,27 @@ The dataset is located in `src/supplier_headlines.json` and contains **120 reali
 
 | Supplier | Headlines | Positive | Neutral | Negative | Final Risk Score | Evidence Confidence | Risk Tier |
 |----------|-----------|----------|---------|----------|------------------|---------------------|-----------|
-| Boeing | 12 | 5 | 1 | 6 | 68.35 | 0.4878 | High |
-| Intel | 12 | 3 | 3 | 6 | 70.16 | 0.4504 | High |
-| Tesla | 12 | 4 | 0 | 8 | 70.15 | 0.5263 | High |
-| Nissan | 12 | 5 | 0 | 7 | 65.01 | 0.5049 | High |
-| Foxconn | 12 | 4 | 4 | 4 | 61.68 | 0.3330 | High |
-| TSMC | 12 | 7 | 1 | 4 | 65.13 | 0.2977 | High |
-| Maersk | 12 | 5 | 1 | 6 | 69.95 | 0.4541 | High |
-| BASF | 12 | 8 | 0 | 4 | 60.30 | 0.3314 | High |
-| Siemens | 12 | 8 | 2 | 2 | 56.33 | 0.1587 | High |
-| Apex Logistics | 12 | 1 | 1 | 10 | 100.00 | 0.6643 | Critical |
+| Boeing | 12 | 5 | 1 | 6 | 40.83 | 0.4878 | High |
+| Intel | 12 | 3 | 3 | 6 | 42.30 | 0.4504 | High |
+| Tesla | 12 | 4 | 0 | 8 | 48.37 | 0.5263 | Critical |
+| Nissan | 12 | 5 | 0 | 7 | 43.72 | 0.5049 | High |
+| Foxconn | 12 | 4 | 4 | 4 | 30.24 | 0.3330 | Medium |
+| TSMC | 12 | 7 | 1 | 4 | 31.30 | 0.2977 | Medium |
+| Maersk | 12 | 5 | 1 | 6 | 42.65 | 0.4541 | High |
+| BASF | 12 | 8 | 0 | 4 | 32.09 | 0.3314 | Medium |
+| Siemens | 12 | 8 | 2 | 2 | 19.27 | 0.1587 | Low |
+| Apex Logistics | 12 | 1 | 1 | 10 | 74.91 | 0.6643 | Critical |
 
 ---
 
 # Human Sanity Check
 
 ### Scoring Context & Aggregation Behavior
-- The current `top_k_mean` default produces generally high scores across the evaluation benchmark because it averages the top 3 risk-bearing headline scores rather than diluting them across all headlines.
-- Risk interpretation should therefore be based on the current R5 scoring method, not the old Round 4 80/20 blend results.
+- The default `blend` strategy (80% average, 20% peak) produces a highly discriminating, calibrated distribution across the real 10-company benchmark dataset, spanning all four operational risk tiers (Low, Medium, High, and Critical).
+- Siemens scores in the **Low** risk tier (19.27) reflecting its predominantly positive news profile, while distressed suppliers such as Tesla (48.37) and Apex Logistics (74.91) are appropriately escalated to **Critical**.
+- `top_k_mean`, `max`, and `mean` remain fully supported as configurable alternative strategies via environment variables or runtime settings.
 
-### Highest Risk Supplier: Apex Logistics (Score: 100.00, Evidence Confidence: 0.6643)
+### Highest Risk Supplier: Apex Logistics (Score: 74.91, Evidence Confidence: 0.6643)
 - **Underlying Signals**: `strike` (25), `cyberattack` (35), `default` (40), `restructuring` (20), `fraud` (40), `investigation` (25), `lawsuit` (25), `recall` (30), `insolvency` (45), `downgrade` (20), `shutdown` (35), `delays` (15), `layoff` (25), `bankruptcy` (50).
 - **Sentiment Breakdown**: 10 Negative, 1 Neutral, 1 Positive.
 - **Evidence Confidence**: **0.6643** (highest evidence confidence among these suppliers).
@@ -379,9 +380,9 @@ The dataset is located in `src/supplier_headlines.json` and contains **120 reali
   1. *"Analysts issue major downgrade on Apex Logistics amid insolvency fears."*
   2. *"Regulators launch fraud investigation into Apex Logistics accounting practices."*
   3. *"Apex Logistics files for emergency restructuring following severe debt default."*
-- **Human Rationale**: Apex Logistics has the highest risk score at **100.00** and also the highest evidence confidence among these suppliers at **0.6643**. The company suffers from multiple catastrophic financial signals (debt default, insolvency, bankruptcy), operational shutdowns, and fraud investigations, with 10 out of 12 headlines negative. A human evaluator would immediately classify Apex Logistics as Critical risk.
+- **Human Rationale**: Apex Logistics has the highest risk score at **74.91** and also the highest evidence confidence among these suppliers at **0.6643**. The company suffers from multiple catastrophic financial signals (debt default, insolvency, bankruptcy), operational shutdowns, and fraud investigations, with 10 out of 12 headlines negative. A human evaluator would immediately classify Apex Logistics as Critical risk.
 
-### Lowest Risk Supplier: Siemens (Score: 56.33, Evidence Confidence: 0.1587)
+### Lowest Risk Supplier: Siemens (Score: 19.27, Evidence Confidence: 0.1587)
 - **Underlying Signals**: `delays` (15), `shortage` (20).
 - **Sentiment Breakdown**: 8 Positive, 2 Neutral, 2 Negative.
 - **Evidence Confidence**: **0.1587** (lowest evidence confidence among these suppliers).
@@ -389,7 +390,7 @@ The dataset is located in `src/supplier_headlines.json` and contains **120 reali
   1. *"Siemens faces temporary component shortage for specialized circuit breakers."*
   2. *"Supply chain delays cause minor shipment backlog for Siemens medical devices."*
   3. *"Siemens reports robust revenue growth driven by industrial automation orders."*
-- **Human Rationale**: Siemens has the lowest current risk score at **56.33** and lowest evidence confidence at **0.1587**. Negative events are limited to minor transient supply issues (circuit breaker shortage and medical device shipping delays), with 8 of 12 headlines positive. Because the default `top_k_mean` averages the top 3 risk-bearing headlines, Siemens scores 56.33, but its lowest evidence confidence (0.1587) clearly reflects that risk signals are sparse and isolated.
+- **Human Rationale**: Siemens has the lowest risk score at **19.27** (placing it squarely in the Low tier) and lowest evidence confidence at **0.1587**. Negative events are limited to minor transient supply issues (circuit breaker shortage and medical device shipping delays), with 8 of 12 headlines positive. Under the default `blend` strategy, Siemens appropriately reflects a healthy operational posture rather than being artificially escalated into Critical.
 
 ---
 
@@ -418,7 +419,7 @@ The test suite validates:
 - Text preprocessing and punctuation boundary isolation
 - Keyword detection, mitigation windows, and variant stemming
 - Sentiment pipeline integration
-- Configurable risk score aggregation (`top_k_mean` default, `max`, `blend`, `mean`)
+- Configurable risk score aggregation (`blend` default, `top_k_mean`, `max`, `mean`)
 - Calibrated risk band classification (Low, Medium, High, Critical)
 - Response schema validation and API endpoints (`/predict`, `/health`, aliases)
 - Configuration defaults, overrides, and input validation
