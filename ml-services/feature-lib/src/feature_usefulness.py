@@ -1,7 +1,10 @@
+import numbers
 import warnings
 
 import pandas as pd
+from scipy.stats import pearsonr
 from sklearn.ensemble import RandomForestRegressor
+
 
 def calculate_feature_correlations(
     df: pd.DataFrame,
@@ -38,6 +41,78 @@ def calculate_feature_correlations(
     return correlations.rename("correlation").to_frame()
 
 
+def calculate_feature_significance(
+    df: pd.DataFrame,
+    target_col: str,
+    significance_level: float = 0.05
+) -> pd.DataFrame:
+    """
+    Calculate Pearson correlation, p-value, and statistical significance
+    for each numeric feature against the target.
+
+    Features with fewer than 3 valid observations are skipped because
+    statistical significance cannot be reliably calculated.
+    """
+
+    if target_col not in df.columns:
+        raise ValueError(
+            f"Target column '{target_col}' not found."
+        )
+
+    if not pd.api.types.is_numeric_dtype(df[target_col]):
+        raise ValueError(
+            "Target column must be numeric."
+        )
+
+    if not 0 < significance_level < 1:
+        raise ValueError(
+            "significance_level must be between 0 and 1."
+        )
+
+    numeric_df = df.select_dtypes(include="number").copy()
+    numeric_df = numeric_df.drop(
+        columns=[target_col],
+        errors="ignore"
+    )
+
+    results = []
+
+    for feature in numeric_df.columns:
+        pair = df[[feature, target_col]].dropna()
+
+        if len(pair) < 3:
+            continue
+
+        correlation, p_value = pearsonr(
+            pair[feature],
+            pair[target_col]
+        )
+
+        results.append(
+            {
+                "feature": feature,
+                "correlation": correlation,
+                "p_value": p_value,
+                "is_significant": p_value < significance_level,
+            }
+        )
+
+    if not results:
+        return pd.DataFrame(
+            columns=[
+                "feature",
+                "correlation",
+                "p_value",
+                "is_significant",
+            ]
+        )
+
+    return (
+        pd.DataFrame(results)
+        .sort_values("p_value", ascending=True)
+        .reset_index(drop=True)
+    )
+
 
 def calculate_model_feature_importance(
     df: pd.DataFrame,
@@ -59,10 +134,12 @@ def calculate_model_feature_importance(
         raise ValueError(
             f"Target column '{target_col}' must be numeric."
         )
+
     if n_estimators <= 0:
         raise ValueError(
             "n_estimators must be greater than 0."
         )
+
     numeric_data = data.select_dtypes(include="number")
 
     features = numeric_data.drop(columns=[target_col])
@@ -70,7 +147,9 @@ def calculate_model_feature_importance(
     if features.empty:
         raise ValueError("No numeric features available.")
 
-    all_nan_columns = features.columns[features.isna().all()].tolist()
+    all_nan_columns = features.columns[
+        features.isna().all()
+    ].tolist()
 
     if all_nan_columns:
         warnings.warn(
@@ -79,13 +158,20 @@ def calculate_model_feature_importance(
         )
         features = features.drop(columns=all_nan_columns)
 
+    if features.empty:
+        raise ValueError(
+            "No valid features available after removing all-NaN features."
+        )
+
     valid_data = pd.concat(
         [features, data[target_col]],
         axis=1
     ).dropna()
 
     if valid_data.empty:
-        raise ValueError("No valid rows available after removing NaN values.")
+        raise ValueError(
+            "No valid rows available after removing NaN values."
+        )
 
     X = valid_data.drop(columns=[target_col])
     y = valid_data[target_col]
@@ -109,37 +195,89 @@ def calculate_model_feature_importance(
 
 
 def select_top_features(
-    df: pd.DataFrame,
-    target_col: str,
-    n_features: int
-) -> pd.DataFrame:
+    df,
+    target_col,
+    n_features=5,
+    significance_level=0.05,
+):
     """
-    Select the top features using correlation and
-    model-based feature importance.
+    Select the top features using correlation and model-based importance,
+    with statistical significance as supporting evidence.
+
+    Correlation and model importance are combined into the feature score.
+    Statistical significance is reported and significant features are
+    prioritized when ranking.
     """
+
+    if not isinstance(n_features, numbers.Integral) or isinstance(
+        n_features, bool
+    ):
+        raise ValueError(
+            "n_features must be greater than 0."
+        )
 
     if n_features <= 0:
-        raise ValueError("n_features must be greater than 0.")
+        raise ValueError(
+            "n_features must be greater than 0."
+        )
 
-    correlations = calculate_feature_correlations(
-        df,
-        target_col
+    if not 0 < significance_level < 1:
+        raise ValueError(
+            "significance_level must be between 0 and 1."
+        )
+
+    correlations = (
+        calculate_feature_correlations(
+            df,
+            target_col
+        )
+        .reset_index()
+        .rename(columns={"index": "feature"})
     )
 
-    importance = calculate_model_feature_importance(
+    importance = (
+        calculate_model_feature_importance(
+            df,
+            target_col
+        )
+        .reset_index()
+        .rename(columns={"index": "feature"})
+    )
+
+    significance = calculate_feature_significance(
         df,
-        target_col
+        target_col,
+        significance_level
     )
 
     scores = pd.DataFrame({
-        "correlation": correlations["correlation"].abs(),
-        "importance": importance["importance"]
-    }).dropna()
+        "feature": correlations["feature"],
+        "correlation": correlations["correlation"].abs()
+    }).merge(
+        importance[
+            ["feature", "importance"]
+        ],
+        on="feature",
+        how="inner"
+    ).merge(
+        significance[
+            ["feature", "p_value", "is_significant"]
+        ],
+        on="feature",
+        how="left"
+    )
 
     if scores.empty:
-        raise ValueError("No valid features available for selection.")
+        raise ValueError(
+            "No valid features available for selection."
+        )
 
-    # Normalize both signals to 0-1.
+    scores["is_significant"] = (
+        scores["is_significant"]
+        .fillna(False)
+        .astype(bool)
+    )
+
     for column in ["correlation", "importance"]:
         minimum = scores[column].min()
         maximum = scores[column].max()
@@ -158,8 +296,8 @@ def select_top_features(
     ) / 2
 
     scores = scores.sort_values(
-        "combined_score",
-        ascending=False
-    )
+        ["is_significant", "combined_score"],
+        ascending=[False, False]
+    ).reset_index(drop=True)
 
-    return scores.head(n_features)
+    return scores.head(n_features).set_index("feature")
