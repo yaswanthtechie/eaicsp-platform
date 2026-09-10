@@ -5,6 +5,7 @@ import pandas as pd
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any
+from src.drift import ReportComparator
 
 # ---------------------------------------------------------
 # PATH RESOLUTION & MODULE FIX
@@ -162,6 +163,16 @@ def main():
 
     log_issues(report.errors, "ERROR", report.model_dump())
     log_issues(report.warnings, "WARNING", report.model_dump())
+
+    # --- NEW: DRIFT DETECTION ---
+    logger.info("Evaluating historical drift...")
+    comparator = ReportComparator()
+    drift_alerts = comparator.evaluate_drift(report, dv)
+
+    for alert in drift_alerts:
+        logger.warning(alert)
+
+    comparator.save_report(report)
 
     # --- RULE PERFORMANCE PROFILING ---
     if hasattr(report, "rule_timings") and report.rule_timings:

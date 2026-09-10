@@ -46,6 +46,7 @@ class ValidationResult(BaseModel):
     sample_bad_rows: Dict[str, List[Dict[str, Any]]] = Field(default_factory=dict)
     rule_timings: Dict[str, float] = Field(default_factory=dict)
     skipped_rules: List[Dict[str, Any]] = Field(default_factory=list)
+    total_rows: int = 0  # NEW: Required to calculate failure rates
 
     def __getitem__(self, item):
         """Allows dictionary-style access to the model's attributes (e.g., result['passed'])."""
@@ -71,6 +72,8 @@ class ConfigRule(BaseModel):
     severity: str = "INFO"
     depends_on: Optional[List[str]] = Field(default_factory=list)
     max_fail_pct: Optional[float] = None  # <-- NEW: Per-rule threshold
+    drift_abs_min: Optional[float] = None  # NEW: Per-rule absolute threshold
+    drift_rel_min: Optional[float] = None  # NEW: Per-rule relative threshold
 
     @model_validator(mode='after')
     def validate_function_path(self) -> 'ConfigRule':
@@ -199,13 +202,16 @@ class ConfigRule(BaseModel):
 
 class DataValidator:
     def __init__(self, rules: List[ConfigRule], version: str = 'unknown',
-                 allow_rule_failures: bool = False, global_max_fail_pct: Optional[float] = None):
+                 allow_rule_failures: bool = False, global_max_fail_pct: Optional[float] = None,
+                 global_drift_abs_min: float = 0.01, global_drift_rel_min: float = 0.50):
         self.rules = rules
         self.version = version
         self.allow_rule_failures = allow_rule_failures
         self.global_max_fail_pct = global_max_fail_pct
         self._validate_dependencies()
         self._detect_conflicts()
+        self.global_drift_abs_min = global_drift_abs_min
+        self.global_drift_rel_min = global_drift_rel_min
 
     def _validate_dependencies(self):
         """
@@ -360,6 +366,10 @@ class DataValidator:
             # Retrieve global threshold, respecting inheritance
             global_max_fail_pct = target_profile.get('global_max_fail_pct')
 
+            # Retrieve global drift thresholds, respecting inheritance
+            global_drift_abs_min = target_profile.get('global_drift_abs_min')
+            global_drift_rel_min = target_profile.get('global_drift_rel_min')
+
             if 'inherits' in target_profile:
                 parent = target_profile['inherits']
                 if parent not in profiles:
@@ -371,11 +381,23 @@ class DataValidator:
                 for r in profiles[parent].get('rules', []):
                     raw_rules[r['name']] = r
 
+                if global_drift_abs_min is None:
+                    global_drift_abs_min = profiles[parent].get('global_drift_abs_min')
+
+                if global_drift_rel_min is None:
+                    global_drift_rel_min = profiles[parent].get('global_drift_rel_min')
+
+            # Fallbacks if not specified
+            abs_min = 0.01 if global_drift_abs_min is None else global_drift_abs_min
+            rel_min = 0.50 if global_drift_rel_min is None else global_drift_rel_min
+
             for r in target_profile.get('rules', []):
                 raw_rules[r['name']] = r
 
             rules = [ConfigRule(**r) for r in raw_rules.values()]
-            return cls(rules, version, allow_rule_failures=allow_rule_failures, global_max_fail_pct=global_max_fail_pct)
+            return cls(rules, version, allow_rule_failures=allow_rule_failures,
+                       global_max_fail_pct=global_max_fail_pct,
+                       global_drift_abs_min=abs_min, global_drift_rel_min=rel_min)
 
         except (FileNotFoundError, yaml.YAMLError) as e:
             raise ValueError(f"Config parse failed: {e}")
@@ -512,6 +534,7 @@ class DataValidator:
             passed=passed,
             batch_rejected=batch_rejected,
             rejection_reasons=rejection_reasons,
+            total_rows=total_rows,
             total_rows_affected=len(affected_indices),
             errors=errors,
             warnings=warnings,

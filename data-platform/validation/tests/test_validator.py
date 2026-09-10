@@ -1080,3 +1080,30 @@ def test_clean_aborts_on_rejected_batch():
 
     with pytest.raises(RuntimeError, match="Refusing to clean: Batch exceeded failure thresholds"):
         val.clean(df)
+
+
+def test_from_config_drift_inheritance(tmp_path):
+    """Verifies that global drift thresholds correctly inherit from parent profiles."""
+    yaml_file = tmp_path / "profiles.yaml"
+    yaml_file.write_text("""
+profiles:
+  base:
+    global_drift_abs_min: 0.05
+    global_drift_rel_min: 0.75
+    rules:
+      - name: r1
+        field: col
+        type: not_null
+  strict:
+    inherits: base
+    rules: []
+""")
+    val = DataValidator.from_config(str(yaml_file), profile_name="strict")
+    assert val.global_drift_abs_min == 0.05
+    assert val.global_drift_rel_min == 0.75
+
+def test_validation_result_total_rows(sample_df, mock_yaml_config):
+    """Verifies the newly added total_rows attribute is properly calculated."""
+    validator = DataValidator.from_config(mock_yaml_config)
+    report = validator.validate(sample_df)
+    assert report.total_rows == 4  # sample_df has 4 rows
