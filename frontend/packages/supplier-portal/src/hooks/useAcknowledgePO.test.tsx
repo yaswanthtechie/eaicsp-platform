@@ -67,13 +67,12 @@ describe("useAcknowledgePO", () => {
       queued: true,
     });
 
-  // Offline acknowledgement uses the poNumber payload contract.
-expect(addOfflineAction).toHaveBeenCalledWith({
-  type: "ACKNOWLEDGE_PO",
-  payload: {
-    poNumber: "PO-1001",
-  },
-});
+    expect(addOfflineAction).toHaveBeenCalledWith({
+      type: "ACKNOWLEDGE_PO",
+      payload: {
+        poNumber: "PO-1001",
+      },
+    });
   });
 
   it("executes the GraphQL mutation when browser is online", async () => {
