@@ -276,9 +276,36 @@ def test_api_post_trend_invalid_date():
         assert response.status_code == 422
 
 
+def test_api_get_trend_extended_benchmark_suppliers():
+    """Verify GET trend returns valid points and evidence for all 5 extended benchmark suppliers."""
+    extended_suppliers = [
+        "Northvolt",
+        "ASML",
+        "Glencore",
+        "Lockheed Martin",
+        "Evergreen Marine",
+    ]
+    with TestClient(app) as client:
+        for supplier in extended_suppliers:
+            response = client.get(f"/api/v1/supplier-risk/trend/{supplier}")
+            assert response.status_code == 200, f"Failed for {supplier}: {response.text}"
+            data = response.json()
+
+            assert data["supplier"] == supplier
+            assert "risk_trend" in data
+            assert len(data["risk_trend"]) > 0, f"Expected trend points for {supplier}"
+            assert data["overall_confidence"] > 0.0, f"Expected non-zero confidence for {supplier}"
+            assert len(data["top_evidence"]) > 0, f"Expected top evidence for {supplier}"
+
+            # Verify points are strictly chronological
+            dates = [p["date"] for p in data["risk_trend"]]
+            assert dates == sorted(dates), f"Dates out of order for {supplier}"
+
+
 # ------------------------------------------------------------------
 # 5. Backward Compatibility Verification
 # ------------------------------------------------------------------
+
 
 def test_predict_endpoint_response_contract_unchanged():
     """Verify POST /predict returns exactly the original schema fields."""

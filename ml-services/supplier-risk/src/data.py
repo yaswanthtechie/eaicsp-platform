@@ -359,3 +359,23 @@ def load_15_company_trend_dataset(
     target_path = json_path or (Path(__file__).parent / "supplier_trend_headlines_15.json")
     return load_trend_headlines(target_path)
 
+
+def load_active_trend_headlines() -> Dict[str, List[Dict[str, str]]]:
+    """
+    Load date-aware supplier news headlines with fallback hierarchy:
+        1. 15-company benchmark trend dataset (supplier_trend_headlines_15.json) when available.
+        2. Fall back to the 10-company baseline trend dataset (supplier_trend_headlines.json).
+        3. Fall back to inline sample (TREND_HEADLINES_DATA).
+
+    Returns:
+        Dict[str, List[Dict[str, str]]]:
+            Dictionary where key is supplier name and value is list of date-aware records.
+    """
+    h15 = Path(__file__).parent / "supplier_trend_headlines_15.json"
+    if h15.exists():
+        data_15 = load_15_company_trend_dataset(h15)
+        if data_15:
+            return data_15
+    return load_trend_headlines()
+
+

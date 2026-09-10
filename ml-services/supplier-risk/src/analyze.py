@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from src.config import get_settings
-from src.data import load_headlines, load_trend_headlines
+from src.data import load_headlines, load_trend_headlines, load_active_trend_headlines
 from src.predict import predict
 from src.sentiment import init_model
 from src.trend import calculate_supplier_trend
@@ -368,7 +368,7 @@ def get_supplier_risk_trend(supplier_name: str):
             detail="supplier_name cannot be blank",
         )
 
-    trend_data = load_trend_headlines()
+    trend_data = load_active_trend_headlines()
     records = trend_data.get(stripped, [])
 
     if not records:
