@@ -1,0 +1,902 @@
+[
+  {
+    "supplier": "Boeing",
+    "date": "2026-01-05",
+    "headline": "Boeing faces new lawsuit over alleged safety violations in 737 MAX production."
+  },
+  {
+    "supplier": "Boeing",
+    "date": "2026-01-12",
+    "headline": "Boeing machinists go on strike demanding better wages and benefits."
+  },
+  {
+    "supplier": "Boeing",
+    "date": "2026-01-19",
+    "headline": "Aviation regulator announces investigation into Boeing manufacturing processes."
+  },
+  {
+    "supplier": "Boeing",
+    "date": "2026-01-26",
+    "headline": "Boeing reports positive earnings for the third quarter amidst delivery delays."
+  },
+  {
+    "supplier": "Boeing",
+    "date": "2026-02-02",
+    "headline": "Major airline cancels Boeing orders due to ongoing production disruption."
+  },
+  {
+    "supplier": "Boeing",
+    "date": "2026-02-09",
+    "headline": "Boeing announces a recall of certain aircraft parts due to manufacturing defects."
+  },
+  {
+    "supplier": "Boeing",
+    "date": "2026-02-16",
+    "headline": "Boeing secures a massive partnership with a major international airline."
+  },
+  {
+    "supplier": "Boeing",
+    "date": "2026-02-23",
+    "headline": "FAA threatens sanction against Boeing if safety protocols are not met."
+  },
+  {
+    "supplier": "Boeing",
+    "date": "2026-03-02",
+    "headline": "Boeing restructuring plan aims to streamline commercial airplane division."
+  },
+  {
+    "supplier": "Boeing",
+    "date": "2026-03-09",
+    "headline": "Boeing expands its engineering facility in South Carolina."
+  },
+  {
+    "supplier": "Boeing",
+    "date": "2026-03-16",
+    "headline": "Boeing announces successful delivery of 50 new aircraft ahead of schedule."
+  },
+  {
+    "supplier": "Boeing",
+    "date": "2026-03-23",
+    "headline": "Boeing opens a new state-of-the-art research facility in Seattle."
+  },
+  {
+    "supplier": "Intel",
+    "date": "2026-01-05",
+    "headline": "Intel announces a $20 billion expansion of its chip manufacturing plants in Ohio."
+  },
+  {
+    "supplier": "Intel",
+    "date": "2026-01-12",
+    "headline": "Intel reports better-than-expected positive earnings for Q2."
+  },
+  {
+    "supplier": "Intel",
+    "date": "2026-01-19",
+    "headline": "Intel faces a new lawsuit over alleged patent infringement."
+  },
+  {
+    "supplier": "Intel",
+    "date": "2026-01-26",
+    "headline": "Intel announces massive layoff affecting 15% of its global workforce."
+  },
+  {
+    "supplier": "Intel",
+    "date": "2026-02-02",
+    "headline": "Intel secures a strategic partnership with Microsoft to produce custom chips."
+  },
+  {
+    "supplier": "Intel",
+    "date": "2026-02-09",
+    "headline": "Supply chain disruption causes delays in Intel's latest processor launch."
+  },
+  {
+    "supplier": "Intel",
+    "date": "2026-02-16",
+    "headline": "Intel hit with a downgrade by analysts following lowered revenue forecasts."
+  },
+  {
+    "supplier": "Intel",
+    "date": "2026-02-23",
+    "headline": "Intel unveils its next-generation AI processors."
+  },
+  {
+    "supplier": "Intel",
+    "date": "2026-03-02",
+    "headline": "Intel under investigation by antitrust regulators in the EU."
+  },
+  {
+    "supplier": "Intel",
+    "date": "2026-03-09",
+    "headline": "Intel announces plans for corporate restructuring to focus on foundry business."
+  },
+  {
+    "supplier": "Intel",
+    "date": "2026-03-16",
+    "headline": "Intel secures major government grant for domestic chip production."
+  },
+  {
+    "supplier": "Intel",
+    "date": "2026-03-23",
+    "headline": "Intel faces unexpected raw-material shortage delaying new fab construction."
+  },
+  {
+    "supplier": "Tesla",
+    "date": "2026-01-05",
+    "headline": "Tesla announces a major recall of 2 million vehicles over autopilot software issues."
+  },
+  {
+    "supplier": "Tesla",
+    "date": "2026-01-12",
+    "headline": "Tesla faces a class-action lawsuit from investors over self-driving claims."
+  },
+  {
+    "supplier": "Tesla",
+    "date": "2026-01-19",
+    "headline": "Tesla reports a surprise drop in quarterly vehicle deliveries."
+  },
+  {
+    "supplier": "Tesla",
+    "date": "2026-01-26",
+    "headline": "Tesla announces another round of layoff affecting its sales teams globally."
+  },
+  {
+    "supplier": "Tesla",
+    "date": "2026-02-02",
+    "headline": "Tesla expands its Gigafactory operations in Texas and Berlin."
+  },
+  {
+    "supplier": "Tesla",
+    "date": "2026-02-09",
+    "headline": "Tesla secures a new partnership for lithium supply in Australia."
+  },
+  {
+    "supplier": "Tesla",
+    "date": "2026-02-16",
+    "headline": "Tesla stock suffers a downgrade amid concerns over increasing competition."
+  },
+  {
+    "supplier": "Tesla",
+    "date": "2026-02-23",
+    "headline": "Regulators open an investigation into Tesla over battery fire incidents."
+  },
+  {
+    "supplier": "Tesla",
+    "date": "2026-03-02",
+    "headline": "Tesla reports record positive earnings driven by strong Model Y sales."
+  },
+  {
+    "supplier": "Tesla",
+    "date": "2026-03-09",
+    "headline": "Tesla faces production disruption in Shanghai due to supply chain shortage."
+  },
+  {
+    "supplier": "Tesla",
+    "date": "2026-03-16",
+    "headline": "Tesla reaches milestone of 5 million vehicles produced globally."
+  },
+  {
+    "supplier": "Tesla",
+    "date": "2026-03-23",
+    "headline": "Tesla experiences minor supply disruption due to port closure."
+  },
+  {
+    "supplier": "Nissan",
+    "date": "2026-01-05",
+    "headline": "Nissan announces a sweeping restructuring plan to cut costs and improve margins."
+  },
+  {
+    "supplier": "Nissan",
+    "date": "2026-01-12",
+    "headline": "Nissan faces a massive recall affecting over 1 million vehicles globally."
+  },
+  {
+    "supplier": "Nissan",
+    "date": "2026-01-19",
+    "headline": "Nissan reports positive earnings and raises its full-year profit outlook."
+  },
+  {
+    "supplier": "Nissan",
+    "date": "2026-01-26",
+    "headline": "Nissan announces a new EV partnership with Honda to share technology."
+  },
+  {
+    "supplier": "Nissan",
+    "date": "2026-02-02",
+    "headline": "Nissan hit by supply chain disruption leading to temporary factory closures."
+  },
+  {
+    "supplier": "Nissan",
+    "date": "2026-02-09",
+    "headline": "Nissan faces a lawsuit from former executives over wrongful termination."
+  },
+  {
+    "supplier": "Nissan",
+    "date": "2026-02-16",
+    "headline": "Nissan announces a small layoff at its North American manufacturing plant."
+  },
+  {
+    "supplier": "Nissan",
+    "date": "2026-02-23",
+    "headline": "Analysts issue a downgrade on Nissan stock citing slow EV transition."
+  },
+  {
+    "supplier": "Nissan",
+    "date": "2026-03-02",
+    "headline": "Nissan faces a parts shortage affecting production of its flagship models."
+  },
+  {
+    "supplier": "Nissan",
+    "date": "2026-03-09",
+    "headline": "Regulators conclude investigation into Nissan's past financial reporting issues."
+  },
+  {
+    "supplier": "Nissan",
+    "date": "2026-03-16",
+    "headline": "Nissan launches new EV model to positive reviews and strong pre-orders."
+  },
+  {
+    "supplier": "Nissan",
+    "date": "2026-03-23",
+    "headline": "Nissan expands battery manufacturing capacity in Europe."
+  },
+  {
+    "supplier": "Foxconn",
+    "date": "2026-01-05",
+    "headline": "Foxconn faces severe production disruption at its main iPhone plant."
+  },
+  {
+    "supplier": "Foxconn",
+    "date": "2026-01-12",
+    "headline": "Foxconn workers go on strike protesting working conditions and bonuses."
+  },
+  {
+    "supplier": "Foxconn",
+    "date": "2026-01-19",
+    "headline": "Foxconn announces a massive expansion of its manufacturing footprint in India."
+  },
+  {
+    "supplier": "Foxconn",
+    "date": "2026-01-26",
+    "headline": "Foxconn reports strong positive earnings driven by robust smartphone demand."
+  },
+  {
+    "supplier": "Foxconn",
+    "date": "2026-02-02",
+    "headline": "Foxconn faces an investigation by local authorities over labor practices."
+  },
+  {
+    "supplier": "Foxconn",
+    "date": "2026-02-09",
+    "headline": "Foxconn hit by a component shortage affecting assembly lines."
+  },
+  {
+    "supplier": "Foxconn",
+    "date": "2026-02-16",
+    "headline": "Foxconn announces a new partnership to manufacture electric vehicles."
+  },
+  {
+    "supplier": "Foxconn",
+    "date": "2026-02-23",
+    "headline": "Foxconn plans corporate restructuring to diversify away from consumer electronics."
+  },
+  {
+    "supplier": "Foxconn",
+    "date": "2026-03-02",
+    "headline": "Foxconn denies allegations of fraud in its recent financial disclosures."
+  },
+  {
+    "supplier": "Foxconn",
+    "date": "2026-03-09",
+    "headline": "Foxconn avoids sanction from trade regulators following compliance audits."
+  },
+  {
+    "supplier": "Foxconn",
+    "date": "2026-03-16",
+    "headline": "Foxconn reports zero downtime during peak production season."
+  },
+  {
+    "supplier": "Foxconn",
+    "date": "2026-03-23",
+    "headline": "Foxconn passes comprehensive international labor audit with top marks."
+  },
+  {
+    "supplier": "TSMC",
+    "date": "2026-01-05",
+    "headline": "TSMC announces plans for a massive capacity expansion in Arizona."
+  },
+  {
+    "supplier": "TSMC",
+    "date": "2026-01-12",
+    "headline": "TSMC reports record revenue driven by strong AI chip demand."
+  },
+  {
+    "supplier": "TSMC",
+    "date": "2026-01-19",
+    "headline": "TSMC faces temporary production shutdown after minor earthquake."
+  },
+  {
+    "supplier": "TSMC",
+    "date": "2026-01-26",
+    "headline": "TSMC secures long-term supply contracts with key technology partners."
+  },
+  {
+    "supplier": "TSMC",
+    "date": "2026-02-02",
+    "headline": "Water shortage threatens TSMC manufacturing operations in Taiwan."
+  },
+  {
+    "supplier": "TSMC",
+    "date": "2026-02-09",
+    "headline": "TSMC successfully implements new advanced packaging technology."
+  },
+  {
+    "supplier": "TSMC",
+    "date": "2026-02-16",
+    "headline": "TSMC hit by unexpected power outage at a major fabrication plant."
+  },
+  {
+    "supplier": "TSMC",
+    "date": "2026-02-23",
+    "headline": "TSMC to receive substantial subsidies for new overseas semiconductor facilities."
+  },
+  {
+    "supplier": "TSMC",
+    "date": "2026-03-02",
+    "headline": "TSMC workers demand better benefits leading to minor labor disputes."
+  },
+  {
+    "supplier": "TSMC",
+    "date": "2026-03-09",
+    "headline": "TSMC partners with local universities to boost engineering talent pipeline."
+  },
+  {
+    "supplier": "TSMC",
+    "date": "2026-03-16",
+    "headline": "Global logistics bottleneck delays TSMC equipment deliveries."
+  },
+  {
+    "supplier": "TSMC",
+    "date": "2026-03-23",
+    "headline": "TSMC maintains stable production despite global economic headwinds."
+  },
+  {
+    "supplier": "Maersk",
+    "date": "2026-01-05",
+    "headline": "Maersk reports strong financial results amid stable global freight rates."
+  },
+  {
+    "supplier": "Maersk",
+    "date": "2026-01-12",
+    "headline": "Maersk faces severe shipment delays due to ongoing Red Sea crisis."
+  },
+  {
+    "supplier": "Maersk",
+    "date": "2026-01-19",
+    "headline": "Maersk launches new fleet of green methanol-powered container ships."
+  },
+  {
+    "supplier": "Maersk",
+    "date": "2026-01-26",
+    "headline": "Maersk warehouse workers threaten strike over wage negotiations."
+  },
+  {
+    "supplier": "Maersk",
+    "date": "2026-02-02",
+    "headline": "Maersk successfully navigates supply chain disruption with alternative routes."
+  },
+  {
+    "supplier": "Maersk",
+    "date": "2026-02-09",
+    "headline": "Maersk hit by cyberattack disrupting booking and tracking systems."
+  },
+  {
+    "supplier": "Maersk",
+    "date": "2026-02-16",
+    "headline": "Maersk signs strategic partnership with major global retailer."
+  },
+  {
+    "supplier": "Maersk",
+    "date": "2026-02-23",
+    "headline": "Maersk warns of potential volume drop due to looming economic recession."
+  },
+  {
+    "supplier": "Maersk",
+    "date": "2026-03-02",
+    "headline": "Maersk opens massive new automated logistics hub in Europe."
+  },
+  {
+    "supplier": "Maersk",
+    "date": "2026-03-09",
+    "headline": "Port congestion causes minor delays for Maersk transatlantic routes."
+  },
+  {
+    "supplier": "Maersk",
+    "date": "2026-03-16",
+    "headline": "Maersk container ship runs aground, halting traffic in key canal."
+  },
+  {
+    "supplier": "Maersk",
+    "date": "2026-03-23",
+    "headline": "Maersk completes acquisition of e-commerce fulfillment provider."
+  },
+  {
+    "supplier": "BASF",
+    "date": "2026-01-05",
+    "headline": "BASF announces breakthrough in sustainable battery materials."
+  },
+  {
+    "supplier": "BASF",
+    "date": "2026-01-12",
+    "headline": "BASF faces regulatory scrutiny over chemical emissions at European plant."
+  },
+  {
+    "supplier": "BASF",
+    "date": "2026-01-19",
+    "headline": "BASF inaugurates state-of-the-art production complex in China."
+  },
+  {
+    "supplier": "BASF",
+    "date": "2026-01-26",
+    "headline": "BASF declares force majeure after explosion at key manufacturing site."
+  },
+  {
+    "supplier": "BASF",
+    "date": "2026-02-02",
+    "headline": "BASF reports solid earnings growth in agricultural solutions division."
+  },
+  {
+    "supplier": "BASF",
+    "date": "2026-02-09",
+    "headline": "BASF struggles with raw-material shortages for specialty plastics."
+  },
+  {
+    "supplier": "BASF",
+    "date": "2026-02-16",
+    "headline": "BASF signs long-term renewable energy contract to power operations."
+  },
+  {
+    "supplier": "BASF",
+    "date": "2026-02-23",
+    "headline": "BASF faces lawsuit from local residents over alleged water contamination."
+  },
+  {
+    "supplier": "BASF",
+    "date": "2026-03-02",
+    "headline": "BASF expands automotive coatings capacity to meet rising demand."
+  },
+  {
+    "supplier": "BASF",
+    "date": "2026-03-09",
+    "headline": "BASF implements restructuring plan leading to potential layoffs."
+  },
+  {
+    "supplier": "BASF",
+    "date": "2026-03-16",
+    "headline": "BASF successfully passes environmental compliance audits across all sites."
+  },
+  {
+    "supplier": "BASF",
+    "date": "2026-03-23",
+    "headline": "BASF supply chain disruption resolved, production returns to normal."
+  },
+  {
+    "supplier": "Siemens",
+    "date": "2026-01-05",
+    "headline": "Siemens reports robust revenue growth driven by industrial automation orders."
+  },
+  {
+    "supplier": "Siemens",
+    "date": "2026-01-12",
+    "headline": "Siemens announces major contract to build smart electrical grid infrastructure."
+  },
+  {
+    "supplier": "Siemens",
+    "date": "2026-01-19",
+    "headline": "Siemens expands production facility in Germany for renewable power transformers."
+  },
+  {
+    "supplier": "Siemens",
+    "date": "2026-01-26",
+    "headline": "Siemens secures multi-billion dollar railway electrification deal."
+  },
+  {
+    "supplier": "Siemens",
+    "date": "2026-02-02",
+    "headline": "Siemens unveils next-generation energy management platform for factories."
+  },
+  {
+    "supplier": "Siemens",
+    "date": "2026-02-09",
+    "headline": "Siemens partners with tech leaders to implement AI-driven predictive maintenance."
+  },
+  {
+    "supplier": "Siemens",
+    "date": "2026-02-16",
+    "headline": "Siemens reports successful delivery of advanced gas turbines ahead of schedule."
+  },
+  {
+    "supplier": "Siemens",
+    "date": "2026-02-23",
+    "headline": "Siemens achieves record order backlog across digital industries division."
+  },
+  {
+    "supplier": "Siemens",
+    "date": "2026-03-02",
+    "headline": "Supply chain delays cause minor shipment backlog for Siemens medical devices."
+  },
+  {
+    "supplier": "Siemens",
+    "date": "2026-03-09",
+    "headline": "Siemens faces temporary component shortage for specialized circuit breakers."
+  },
+  {
+    "supplier": "Siemens",
+    "date": "2026-03-16",
+    "headline": "Siemens resolves supplier dispute, stabilizing European production."
+  },
+  {
+    "supplier": "Siemens",
+    "date": "2026-03-23",
+    "headline": "Siemens receives top environmental and sustainability rating from industry auditors."
+  },
+  {
+    "supplier": "Apex Logistics",
+    "date": "2026-01-05",
+    "headline": "Apex Logistics workers declare indefinite strike over unfair wage deductions."
+  },
+  {
+    "supplier": "Apex Logistics",
+    "date": "2026-01-12",
+    "headline": "Apex Logistics hit by major ransomware cyberattack locking down shipping ports."
+  },
+  {
+    "supplier": "Apex Logistics",
+    "date": "2026-01-19",
+    "headline": "Apex Logistics files for emergency restructuring following severe debt default."
+  },
+  {
+    "supplier": "Apex Logistics",
+    "date": "2026-01-26",
+    "headline": "Regulators launch fraud investigation into Apex Logistics accounting practices."
+  },
+  {
+    "supplier": "Apex Logistics",
+    "date": "2026-02-02",
+    "headline": "Apex Logistics faces massive lawsuit from cargo clients over lost shipments."
+  },
+  {
+    "supplier": "Apex Logistics",
+    "date": "2026-02-09",
+    "headline": "Fleet-wide vehicle safety recall grounds dozens of Apex Logistics freight trucks."
+  },
+  {
+    "supplier": "Apex Logistics",
+    "date": "2026-02-16",
+    "headline": "Analysts issue major downgrade on Apex Logistics amid insolvency fears."
+  },
+  {
+    "supplier": "Apex Logistics",
+    "date": "2026-02-23",
+    "headline": "Apex Logistics declares force majeure and warehouse shutdown due to cash crisis."
+  },
+  {
+    "supplier": "Apex Logistics",
+    "date": "2026-03-02",
+    "headline": "Widespread shipment delays trigger contract cancellations for Apex Logistics."
+  },
+  {
+    "supplier": "Apex Logistics",
+    "date": "2026-03-09",
+    "headline": "Apex Logistics secures temporary bridge loan from distressed asset investors."
+  },
+  {
+    "supplier": "Apex Logistics",
+    "date": "2026-03-16",
+    "headline": "Apex Logistics announces massive layoff cutting 30% of administrative staff."
+  },
+  {
+    "supplier": "Apex Logistics",
+    "date": "2026-03-23",
+    "headline": "Apex Logistics appoints interim management to oversee bankruptcy proceedings."
+  },
+  {
+    "supplier": "ASML",
+    "date": "2026-01-05",
+    "headline": "ASML reports strong surge in extreme ultraviolet lithography machine bookings."
+  },
+  {
+    "supplier": "ASML",
+    "date": "2026-01-12",
+    "headline": "ASML expands fabrication and cleanroom capacity in Veldhoven headquarters."
+  },
+  {
+    "supplier": "ASML",
+    "date": "2026-01-19",
+    "headline": "ASML secures multi-billion euro long-term equipment orders from top chipmakers."
+  },
+  {
+    "supplier": "ASML",
+    "date": "2026-01-26",
+    "headline": "ASML unveils next-generation High-NA EUV system delivering breakthrough precision."
+  },
+  {
+    "supplier": "ASML",
+    "date": "2026-02-02",
+    "headline": "ASML reports record quarterly net profit exceeding analyst expectations."
+  },
+  {
+    "supplier": "ASML",
+    "date": "2026-02-09",
+    "headline": "Export restrictions to certain overseas markets cause minor shipment delays for ASML."
+  },
+  {
+    "supplier": "ASML",
+    "date": "2026-02-16",
+    "headline": "ASML faces localized component shortage for specialized optical lens assemblies."
+  },
+  {
+    "supplier": "ASML",
+    "date": "2026-02-23",
+    "headline": "ASML partners with leading research institutes to develop sub-2nm chip tooling."
+  },
+  {
+    "supplier": "ASML",
+    "date": "2026-03-02",
+    "headline": "ASML achieves flawless operational uptime across global customer support hubs."
+  },
+  {
+    "supplier": "ASML",
+    "date": "2026-03-09",
+    "headline": "Supply chain disruption temporarily affects ASML spare parts logistics in Asia."
+  },
+  {
+    "supplier": "ASML",
+    "date": "2026-03-16",
+    "headline": "ASML receives top corporate governance and sustainability recognition in Europe."
+  },
+  {
+    "supplier": "ASML",
+    "date": "2026-03-23",
+    "headline": "ASML opens new advanced technology training center to train semiconductor engineers."
+  },
+  {
+    "supplier": "Glencore",
+    "date": "2026-01-05",
+    "headline": "Glencore workers declare strike at key South American copper mining complex."
+  },
+  {
+    "supplier": "Glencore",
+    "date": "2026-01-12",
+    "headline": "International anti-corruption authorities expand investigation into Glencore commodity dealings."
+  },
+  {
+    "supplier": "Glencore",
+    "date": "2026-01-19",
+    "headline": "Glencore faces severe lawsuit from local communities over environmental contamination."
+  },
+  {
+    "supplier": "Glencore",
+    "date": "2026-01-26",
+    "headline": "Power outage forces temporary shutdown of Glencore zinc smelting operations."
+  },
+  {
+    "supplier": "Glencore",
+    "date": "2026-02-02",
+    "headline": "Glencore hit with credit rating downgrade following heavy debt obligations."
+  },
+  {
+    "supplier": "Glencore",
+    "date": "2026-02-09",
+    "headline": "Glencore reports production disruption across African cobalt facilities due to logistics bottlenecks."
+  },
+  {
+    "supplier": "Glencore",
+    "date": "2026-02-16",
+    "headline": "Commodity price volatility triggers corporate restructuring discussions at Glencore."
+  },
+  {
+    "supplier": "Glencore",
+    "date": "2026-02-23",
+    "headline": "Glencore announces layoff of 800 contractors to cut operational expenditure."
+  },
+  {
+    "supplier": "Glencore",
+    "date": "2026-03-02",
+    "headline": "Trade regulators threaten sanction against Glencore over market manipulation concerns."
+  },
+  {
+    "supplier": "Glencore",
+    "date": "2026-03-09",
+    "headline": "Glencore signs supply agreement with electric vehicle battery manufacturers."
+  },
+  {
+    "supplier": "Glencore",
+    "date": "2026-03-16",
+    "headline": "Glencore reports positive earnings growth in industrial energy trading unit."
+  },
+  {
+    "supplier": "Glencore",
+    "date": "2026-03-23",
+    "headline": "Severe equipment breakdown causes export delays at Glencore coal shipping terminal."
+  },
+  {
+    "supplier": "Lockheed Martin",
+    "date": "2026-01-05",
+    "headline": "Lockheed Martin secures $7.8 billion Pentagon contract for advanced fighter jets."
+  },
+  {
+    "supplier": "Lockheed Martin",
+    "date": "2026-01-12",
+    "headline": "Lockheed Martin reports robust positive earnings driven by aerospace program deliveries."
+  },
+  {
+    "supplier": "Lockheed Martin",
+    "date": "2026-01-19",
+    "headline": "Lockheed Martin opens state-of-the-art missile defense manufacturing center in Alabama."
+  },
+  {
+    "supplier": "Lockheed Martin",
+    "date": "2026-01-26",
+    "headline": "Lockheed Martin partners with international allies on next-generation radar systems."
+  },
+  {
+    "supplier": "Lockheed Martin",
+    "date": "2026-02-02",
+    "headline": "Lockheed Martin achieves milestone with successful test flight of hypersonic vehicle."
+  },
+  {
+    "supplier": "Lockheed Martin",
+    "date": "2026-02-09",
+    "headline": "Critical titanium component shortage causes minor delivery delays for Lockheed Martin."
+  },
+  {
+    "supplier": "Lockheed Martin",
+    "date": "2026-02-16",
+    "headline": "Lockheed Martin expands engineering apprentice program to address skilled labor demand."
+  },
+  {
+    "supplier": "Lockheed Martin",
+    "date": "2026-02-23",
+    "headline": "Defense logistics bottleneck causes minor assembly disruption at Lockheed Martin facility."
+  },
+  {
+    "supplier": "Lockheed Martin",
+    "date": "2026-03-02",
+    "headline": "Lockheed Martin reports record defense backlog exceeding $150 billion."
+  },
+  {
+    "supplier": "Lockheed Martin",
+    "date": "2026-03-09",
+    "headline": "Subcontractor quality defect prompts voluntary recall of specialized aerospace fasteners."
+  },
+  {
+    "supplier": "Lockheed Martin",
+    "date": "2026-03-16",
+    "headline": "Lockheed Martin unveils solar-powered satellite platform for defense communications."
+  },
+  {
+    "supplier": "Lockheed Martin",
+    "date": "2026-03-23",
+    "headline": "Lockheed Martin receives highest defense industrial security rating from government auditors."
+  },
+  {
+    "supplier": "Evergreen Marine",
+    "date": "2026-01-05",
+    "headline": "Port workers strike strands Evergreen Marine container vessels at major West Coast terminals."
+  },
+  {
+    "supplier": "Evergreen Marine",
+    "date": "2026-01-12",
+    "headline": "Evergreen Marine container ship suffers rudder failure, causing severe transit disruption in canal."
+  },
+  {
+    "supplier": "Evergreen Marine",
+    "date": "2026-01-19",
+    "headline": "Evergreen Marine hit with cargo damage lawsuit following heavy storm incident at sea."
+  },
+  {
+    "supplier": "Evergreen Marine",
+    "date": "2026-01-26",
+    "headline": "Global container shortage and port congestion trigger widespread shipping delays for Evergreen Marine."
+  },
+  {
+    "supplier": "Evergreen Marine",
+    "date": "2026-02-02",
+    "headline": "Evergreen Marine reports sharp drop in quarterly net profit amidst slumping freight rates."
+  },
+  {
+    "supplier": "Evergreen Marine",
+    "date": "2026-02-09",
+    "headline": "Cybersecurity team detects cyberattack attempt against Evergreen Marine digital booking platform."
+  },
+  {
+    "supplier": "Evergreen Marine",
+    "date": "2026-02-16",
+    "headline": "Maritime safety regulators launch investigation into Evergreen Marine vessel maintenance logs."
+  },
+  {
+    "supplier": "Evergreen Marine",
+    "date": "2026-02-23",
+    "headline": "Evergreen Marine orders 16 dual-fuel methanol container ships to modernize green fleet."
+  },
+  {
+    "supplier": "Evergreen Marine",
+    "date": "2026-03-02",
+    "headline": "Evergreen Marine signs strategic alliance with Asian terminal operators to optimize berths."
+  },
+  {
+    "supplier": "Evergreen Marine",
+    "date": "2026-03-09",
+    "headline": "Evergreen Marine announces corporate restructuring to cut redundant regional agency costs."
+  },
+  {
+    "supplier": "Evergreen Marine",
+    "date": "2026-03-16",
+    "headline": "Analysts issue downgrade on Evergreen Marine stock citing carrier overcapacity."
+  },
+  {
+    "supplier": "Evergreen Marine",
+    "date": "2026-03-23",
+    "headline": "Evergreen Marine opens new automated container yard to expedite cargo handling."
+  },
+  {
+    "supplier": "Northvolt",
+    "date": "2026-01-05",
+    "headline": "Northvolt declares emergency warehouse shutdown and halts battery cell production line."
+  },
+  {
+    "supplier": "Northvolt",
+    "date": "2026-01-12",
+    "headline": "Northvolt faces imminent insolvency threat after anchor automotive customer cancels multi-billion euro contract."
+  },
+  {
+    "supplier": "Northvolt",
+    "date": "2026-01-19",
+    "headline": "Northvolt workers stage wildcat strike protesting delayed bonus payments and hazardous conditions."
+  },
+  {
+    "supplier": "Northvolt",
+    "date": "2026-01-26",
+    "headline": "Major European automotive alliance pulls financing, leaving Northvolt facing potential bankruptcy."
+  },
+  {
+    "supplier": "Northvolt",
+    "date": "2026-02-02",
+    "headline": "Environmental regulators launch fraud investigation into Northvolt raw material recycling disclosures."
+  },
+  {
+    "supplier": "Northvolt",
+    "date": "2026-02-09",
+    "headline": "Northvolt initiates massive layoff terminating 25% of workforce across Swedish gigafactory."
+  },
+  {
+    "supplier": "Northvolt",
+    "date": "2026-02-16",
+    "headline": "Rating agencies issue deep downgrade on Northvolt credit status to distressed territory."
+  },
+  {
+    "supplier": "Northvolt",
+    "date": "2026-02-23",
+    "headline": "Critical cathode material shortage leads to indefinite production delays at Northvolt plants."
+  },
+  {
+    "supplier": "Northvolt",
+    "date": "2026-03-02",
+    "headline": "Northvolt enters urgent debt restructuring discussions with international creditors to avoid default."
+  },
+  {
+    "supplier": "Northvolt",
+    "date": "2026-03-09",
+    "headline": "Catastrophic machinery fire causes severe disruption and damages battery testing laboratory."
+  },
+  {
+    "supplier": "Northvolt",
+    "date": "2026-03-16",
+    "headline": "Equipment suppliers file lawsuit against Northvolt for unpaid manufacturing machinery invoices."
+  },
+  {
+    "supplier": "Northvolt",
+    "date": "2026-03-23",
+    "headline": "Northvolt seeks government bailout loan package as private capital dries up completely."
+  }
+]

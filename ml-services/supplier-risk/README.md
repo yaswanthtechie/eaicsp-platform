@@ -192,7 +192,52 @@ GET /health
 
 ---
 
-### 2. Predict Supplier Risk
+### 2. Inspect Active Configuration
+
+```http
+GET /api/v1/supplier-risk/config
+```
+
+Retrieve active server-side risk scoring configuration parameters, sentiment penalties, aggregation rules, recency decay half-life, and keyword signal weights.
+
+**Response:**
+```json
+{
+  "model_name": "ProsusAI/finbert",
+  "negative_sentiment_penalty": 40.0,
+  "neutral_sentiment_penalty": 0.0,
+  "positive_sentiment_penalty": 0.0,
+  "max_risk_score": 100.0,
+  "confidence_divisor": 8.0,
+  "aggregation_strategy": "top_k_mean",
+  "aggregation_top_k": 3,
+  "recency_half_life_days": 30.0,
+  "signal_weights": {
+    "bankruptcy": 50,
+    "insolvency": 45,
+    "default": 40,
+    "restructuring": 20,
+    "layoff": 25,
+    "downgrade": 20,
+    "strike": 25,
+    "recall": 30,
+    "disruption": 20,
+    "shortage": 20,
+    "delays": 15,
+    "shutdown": 35,
+    "outage": 25,
+    "fraud": 40,
+    "investigation": 25,
+    "lawsuit": 25,
+    "sanction": 35,
+    "cyberattack": 35
+  }
+}
+```
+
+---
+
+### 3. Predict Supplier Risk
 
 ```http
 POST /predict
@@ -304,6 +349,173 @@ POST /predict
 
 ---
 
+### 3. Get Supplier Risk Trend (Milestone 1)
+
+Retrieve chronologically ordered risk trend points for a supplier over time.
+
+```http
+GET /api/v1/supplier-risk/trend/{supplier_name}
+```
+
+**Example Request:**
+```http
+GET /api/v1/supplier-risk/trend/Tesla
+```
+
+**Example Response (200 OK):**
+```json
+{
+  "supplier": "Tesla",
+  "overall_confidence": 0.4468,
+  "top_evidence": [
+    {
+      "headline": "Tesla announces a major recall of 2 million vehicles over autopilot software issues.",
+      "sentiment": "negative",
+      "score": 69.6,
+      "signals": [
+        {
+          "keyword": "recall",
+          "weight": 30
+        }
+      ]
+    },
+    {
+      "headline": "Tesla faces a class-action lawsuit from investors over self-driving claims.",
+      "sentiment": "negative",
+      "score": 64.6,
+      "signals": [
+        {
+          "keyword": "lawsuit",
+          "weight": 25
+        }
+      ]
+    }
+  ],
+  "risk_trend": [
+    {
+      "date": "2026-01-05",
+      "risk_score": 69.6,
+      "confidence": 0.4468,
+      "headline_count": 1,
+      "evidence": [
+        {
+          "headline": "Tesla announces a major recall of 2 million vehicles over autopilot software issues.",
+          "sentiment": "negative",
+          "score": 69.6,
+          "signals": [
+            {
+              "keyword": "recall",
+              "weight": 30
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-03-02",
+      "risk_score": 0.0,
+      "confidence": 0.0588,
+      "headline_count": 1,
+      "evidence": [
+        {
+          "headline": "Tesla reports record positive earnings driven by strong Model Y sales.",
+          "sentiment": "positive",
+          "score": 0.0,
+          "signals": []
+        }
+      ]
+    }
+  ]
+}
+```
+
+*Note: If the supplier is unknown or has no recorded headlines, the endpoint returns a `200 OK` with an empty `risk_trend: []`, `top_evidence: []`, and `overall_confidence: 0.0`.*
+
+---
+
+### 4. Dynamic Risk Trend Analysis (Milestone 1 & 2)
+
+Calculate risk trend dynamically for user-provided date-aware articles. Dates are strictly validated to ISO format (`YYYY-MM-DD`). Articles on the same date are aggregated together into a single chronological trend point with supporting evidence.
+
+```http
+POST /api/v1/supplier-risk/trend
+```
+
+**Request Body:**
+```json
+{
+  "supplier_name": "Tesla",
+  "articles": [
+    {
+      "date": "2026-02-15",
+      "headline": "Tesla faces supply disruption in Shanghai."
+    },
+    {
+      "date": "2026-01-10",
+      "headline": "Tesla reports record positive earnings."
+    }
+  ]
+}
+```
+
+**Example Response (200 OK):**
+```json
+{
+  "supplier": "Tesla",
+  "overall_confidence": 0.4468,
+  "top_evidence": [
+    {
+      "headline": "Tesla faces supply disruption in Shanghai.",
+      "sentiment": "negative",
+      "score": 59.6,
+      "signals": [
+        {
+          "keyword": "disruption",
+          "weight": 20
+        }
+      ]
+    }
+  ],
+  "risk_trend": [
+    {
+      "date": "2026-01-10",
+      "risk_score": 0.0,
+      "confidence": 0.0588,
+      "headline_count": 1,
+      "evidence": [
+        {
+          "headline": "Tesla reports record positive earnings.",
+          "sentiment": "positive",
+          "score": 0.0,
+          "signals": []
+        }
+      ]
+    },
+    {
+      "date": "2026-02-15",
+      "risk_score": 59.6,
+      "confidence": 0.4468,
+      "headline_count": 1,
+      "evidence": [
+        {
+          "headline": "Tesla faces supply disruption in Shanghai.",
+          "sentiment": "negative",
+          "score": 59.6,
+          "signals": [
+            {
+              "keyword": "disruption",
+              "weight": 20
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+---
+
 # Risk Scoring & Anti-Dilution Architecture
 
 ## Scoring Pipeline
@@ -333,9 +545,9 @@ The scoring pipeline operates as follows:
 
 ---
 
-# 10-Company Benchmark Dataset
+# 15-Company Benchmark Dataset & Evaluation
 
-The dataset is located in `src/supplier_headlines.json` and contains **120 realistic headlines across 10 global suppliers** (12 headlines per supplier):
+The benchmark dataset is located in `src/supplier_headlines_15.json` and contains **180 realistic headlines across 15 global suppliers** across aerospace, semiconductors, automotive, electronics, logistics, energy, defense, and chemicals:
 
 1. **Boeing** (Aerospace & Defense)
 2. **Intel** (Semiconductors)
@@ -347,21 +559,42 @@ The dataset is located in `src/supplier_headlines.json` and contains **120 reali
 8. **BASF** (Chemicals)
 9. **Siemens** (Industrial Automation & Infrastructure)
 10. **Apex Logistics** (Freight & Supply Chain Services)
+11. **ASML** (Semiconductor Lithography)
+12. **Glencore** (Natural Resources & Mining)
+13. **Lockheed Martin** (Defense & Aerospace)
+14. **Evergreen Marine** (Container Shipping)
+15. **Northvolt** (EV Battery Cell Manufacturing)
 
-### Evaluation Benchmark Results
+### Evaluation Benchmark Results (Standalone `src.evaluate`)
 
-| Supplier | Headlines | Sentiment (Pos / Neu / Neg) | Final Risk Score | Evidence Confidence | Risk Tier |
-| :--- | :---: | :---: | :---: | :---: | :--- |
-| **Siemens** | 12 | 8 / 2 / 2 | **9.39** | 0.7769 | **Low Risk** |
-| **BASF** | 12 | 8 / 0 / 4 | **17.29** | 0.7769 | **Low Risk** |
-| **TSMC** | 12 | 7 / 1 / 4 | **20.75** | 0.7769 | **Low-Medium Risk** |
-| **Foxconn** | 12 | 4 / 4 / 4 | **28.23** | 0.7769 | **Medium Risk** |
-| **Maersk** | 12 | 5 / 1 / 6 | **28.27** | 0.7769 | **Medium Risk** |
-| **Intel** | 12 | 3 / 3 / 6 | **33.19** | 0.7769 | **Medium Risk** |
-| **Boeing** | 12 | 5 / 1 / 6 | **34.96** | 0.7769 | **Medium Risk** |
-| **Nissan** | 12 | 5 / 0 / 7 | **37.54** | 0.7769 | **Medium-High Risk** |
-| **Tesla** | 12 | 4 / 0 / 8 | **40.80** | 0.7769 | **Medium-High Risk** |
-| **Apex Logistics** | 12 | 1 / 1 / 10 | **67.73** | 0.7769 | **High Risk** |
+| Supplier | Headlines | Score | Conf | Top Signals | Human Expected Tier | Model Tier | Match Status |
+| :--- | :---: | :---: | :---: | :--- | :---: | :---: | :---: |
+| **Siemens** | 12 | 56.33 | 0.1587 | `delays`, `shortage` | **Low** | High | `MISMATCH` |
+| **ASML** | 12 | 56.52 | 0.2307 | `delays`, `shortage`, `disruption` | **Low** | High | `MISMATCH` |
+| **Lockheed Martin** | 12 | 56.98 | 0.2809 | `shortage`, `delays`, `disruption` | **Low** | High | `MISMATCH` |
+| **BASF** | 12 | 60.30 | 0.3314 | `shortage`, `lawsuit`, `restructuring` | **Low** | Critical | `MISMATCH` |
+| **Foxconn** | 12 | 61.68 | 0.3330 | `disruption`, `strike`, `investigation` | **Medium** | Critical | `MISMATCH` |
+| **Nissan** | 12 | 65.01 | 0.5049 | `restructuring`, `recall`, `disruption` | **Medium** | Critical | `MISMATCH` |
+| **TSMC** | 12 | 65.13 | 0.2977 | `shutdown`, `shortage`, `outage` | **Low** | Critical | `MISMATCH` |
+| **Boeing** | 12 | 68.35 | 0.4878 | `lawsuit`, `investigation`, `delays` | **Medium** | Critical | `MISMATCH` |
+| **Evergreen Marine** | 12 | 69.36 | 0.5747 | `strike`, `disruption`, `lawsuit` | **Medium** | Critical | `MISMATCH` |
+| **Maersk** | 12 | 69.95 | 0.4541 | `delays`, `strike`, `disruption` | **Medium** | Critical | `MISMATCH` |
+| **Tesla** | 12 | 70.15 | 0.5263 | `recall`, `lawsuit`, `layoff` | **High** | Critical | `MISMATCH` |
+| **Intel** | 12 | 70.16 | 0.4504 | `lawsuit`, `layoff`, `disruption` | **Medium** | Critical | `MISMATCH` |
+| **Glencore** | 12 | 78.33 | 0.6375 | `strike`, `investigation`, `lawsuit` | **High** | Critical | `MISMATCH` |
+| **Northvolt** | 12 | 90.47 | 0.6883 | `shutdown`, `insolvency`, `strike` | **Critical** | Critical | `MATCH` |
+| **Apex Logistics** | 12 | 100.00 | 0.6643 | `strike`, `cyberattack`, `default` | **Critical** | Critical | `MATCH` |
+
+### Distribution Summary & Root Cause Analysis
+
+- **Total Evaluated**: 15 suppliers
+- **Min Score**: 56.33 (Siemens)
+- **Max Score**: 100.00 (Apex Logistics)
+- **Score Spread**: 43.67 *(Target >= 50.0: BELOW BENCHMARK TARGET)*
+- **Mean Score**: 69.25
+- **Standard Deviation**: 11.93 *(Target >= 12.0: BELOW BENCHMARK TARGET)*
+- **Human Matches**: 2 / 15 (13.3%)
+- **Root Cause**: The active configuration utilizes `top_k_mean` (k=3) aggregation with a `negative_sentiment_penalty` of 40.0. When suppliers have 3 or more negative headlines, their overall risk score is calculated exclusively from the top 3 worst events, causing scores to saturate above 55.0 points even when 8–9 headlines are overwhelmingly positive. Per strict user governance rules, weights and algorithms were **not** artificially altered to force synthetic compliance with the statistical targets.
 
 ---
 
@@ -417,6 +650,9 @@ The test suite validates:
 - Response schema validation and API endpoints (`/predict`, `/health`, aliases)
 - Configuration defaults, overrides, and input validation
 - Duplicate headline handling and anti-dilution guarantees
+- Date validation (ISO YYYY-MM-DD enforcement, invalid date rejection)
+- Entity-level risk trend aggregation and chronological ordering
+- Trend API endpoints (`GET /api/v1/supplier-risk/trend/{supplier_name}`, `POST /api/v1/supplier-risk/trend`)
 
 ---
 
