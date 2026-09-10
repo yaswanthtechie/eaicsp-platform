@@ -24,7 +24,7 @@ describe("offlineQueue", () => {
     const action = addOfflineAction({
       type: "ACKNOWLEDGE_PO",
       payload: {
-        po_number: "PO-1001",
+        poNumber: "PO-1001",
       },
     });
 
@@ -32,7 +32,7 @@ describe("offlineQueue", () => {
       id: "11111111-1111-1111-1111-111111111111",
       type: "ACKNOWLEDGE_PO",
       payload: {
-        po_number: "PO-1001",
+        poNumber: "PO-1001",
       },
       createdAt: 123456789,
     });
@@ -56,14 +56,17 @@ describe("offlineQueue", () => {
     addOfflineAction({
       type: "ACKNOWLEDGE_PO",
       payload: {
-        po_number: "PO-1001",
+        poNumber: "PO-1001",
       },
     });
 
     addOfflineAction({
       type: "SUBMIT_INVOICE",
       payload: {
-        po_number: "PO-1002",
+        invoiceNumber: "INV-1002",
+        poReference: "PO-1002",
+        amount: 1000,
+        date: "2026-09-10",
       },
     });
 
@@ -72,7 +75,7 @@ describe("offlineQueue", () => {
         id: "11111111-1111-1111-1111-111111111111",
         type: "ACKNOWLEDGE_PO",
         payload: {
-          po_number: "PO-1001",
+          poNumber: "PO-1001",
         },
         createdAt: 123456789,
       },
@@ -80,7 +83,10 @@ describe("offlineQueue", () => {
         id: "22222222-2222-2222-2222-222222222222",
         type: "SUBMIT_INVOICE",
         payload: {
-          po_number: "PO-1002",
+          invoiceNumber: "INV-1002",
+          poReference: "PO-1002",
+          amount: 1000,
+          date: "2026-09-10",
         },
         createdAt: 123456789,
       },
@@ -99,14 +105,14 @@ describe("offlineQueue", () => {
     addOfflineAction({
       type: "ACKNOWLEDGE_PO",
       payload: {
-        po_number: "PO-1001",
+        poNumber: "PO-1001",
       },
     });
 
     addOfflineAction({
       type: "ACKNOWLEDGE_PO",
       payload: {
-        po_number: "PO-1002",
+        poNumber: "PO-1002",
       },
     });
 
@@ -119,7 +125,7 @@ describe("offlineQueue", () => {
         id: "22222222-2222-2222-2222-222222222222",
         type: "ACKNOWLEDGE_PO",
         payload: {
-          po_number: "PO-1002",
+          poNumber: "PO-1002",
         },
         createdAt: 123456789,
       },
@@ -130,14 +136,17 @@ describe("offlineQueue", () => {
     addOfflineAction({
       type: "ACKNOWLEDGE_PO",
       payload: {
-        po_number: "PO-1001",
+        poNumber: "PO-1001",
       },
     });
 
     addOfflineAction({
       type: "SUBMIT_INVOICE",
       payload: {
-        po_number: "PO-1002",
+        invoiceNumber: "INV-1002",
+        poReference: "PO-1002",
+        amount: 1000,
+        date: "2026-09-10",
       },
     });
 
@@ -163,7 +172,7 @@ describe("offlineQueue", () => {
     expect(getOfflineActions()).toEqual([]);
   });
 
-  it("keeps only the latest duplicate action for the same PO", () => {
+  it("keeps only the latest duplicate acknowledgement for the same PO", () => {
     vi.spyOn(crypto, "randomUUID")
       .mockReturnValueOnce(
         "11111111-1111-1111-1111-111111111111"
@@ -175,14 +184,14 @@ describe("offlineQueue", () => {
     addOfflineAction({
       type: "ACKNOWLEDGE_PO",
       payload: {
-        po_number: "PO-1001",
+        poNumber: "PO-1001",
       },
     });
 
     addOfflineAction({
       type: "ACKNOWLEDGE_PO",
       payload: {
-        po_number: "PO-1001",
+        poNumber: "PO-1001",
       },
     });
 
@@ -191,10 +200,76 @@ describe("offlineQueue", () => {
         id: "22222222-2222-2222-2222-222222222222",
         type: "ACKNOWLEDGE_PO",
         payload: {
-          po_number: "PO-1001",
+          poNumber: "PO-1001",
         },
         createdAt: 123456789,
       },
+    ]);
+  });
+
+  it("keeps acknowledgements for different POs", () => {
+    vi.spyOn(crypto, "randomUUID")
+      .mockReturnValueOnce(
+        "11111111-1111-1111-1111-111111111111"
+      )
+      .mockReturnValueOnce(
+        "22222222-2222-2222-2222-222222222222"
+      );
+
+    addOfflineAction({
+      type: "ACKNOWLEDGE_PO",
+      payload: {
+        poNumber: "PO-A",
+      },
+    });
+
+    addOfflineAction({
+      type: "ACKNOWLEDGE_PO",
+      payload: {
+        poNumber: "PO-B",
+      },
+    });
+
+    expect(getOfflineActions()).toHaveLength(2);
+
+    expect(getOfflineActions().map((action) => action.payload.poNumber)).toEqual([
+      "PO-A",
+      "PO-B",
+    ]);
+  });
+
+  it("does not deduplicate invoice submissions", () => {
+    vi.spyOn(crypto, "randomUUID")
+      .mockReturnValueOnce(
+        "11111111-1111-1111-1111-111111111111"
+      )
+      .mockReturnValueOnce(
+        "22222222-2222-2222-2222-222222222222"
+      );
+
+    const firstInvoice = addOfflineAction({
+      type: "SUBMIT_INVOICE",
+      payload: {
+        invoiceNumber: "INV-1001",
+        poReference: "PO-1001",
+        amount: 1000,
+        date: "2026-09-10",
+      },
+    });
+
+    const secondInvoice = addOfflineAction({
+      type: "SUBMIT_INVOICE",
+      payload: {
+        invoiceNumber: "INV-1002",
+        poReference: "PO-1001",
+        amount: 2000,
+        date: "2026-09-10",
+      },
+    });
+
+    expect(getOfflineActions()).toEqual([
+      firstInvoice,
+      secondInvoice,
     ]);
   });
 });
