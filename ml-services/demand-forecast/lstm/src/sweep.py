@@ -34,6 +34,8 @@ def run_systematic_sweep():
     mlflow.set_tracking_uri("sqlite:///mlflow.db")
     mlflow.set_experiment("Demand-Forecast-R5-Systematic-Sweep")
 
+
+def run_sweep() -> List[Dict]:
     df = generate_data(days=1000)
     folds = get_walk_forward_folds(df, n_folds=N_FOLDS, lookback=LOOKBACK, horizon=HORIZON)
 

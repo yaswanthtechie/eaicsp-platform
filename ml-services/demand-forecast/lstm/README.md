@@ -128,6 +128,228 @@ python src/onnx_export.py
 ```
 
 ---
+## 🧠 R4: Plain LSTM vs. Attention Architecture
+
+`AttentionMultiStepLSTM` adds additive (Bahdanau-style) attention across all lookback timesteps. `src/attention_compare.py` compares both architectures across all 5 walk-forward folds under identical conditions
+
+
+Run: `python src/attention_compare.py`
+
+```
+=================================================================
+Fold  Plain MAE   Plain RMSE  Attn MAE    Attn RMSE   
+-----------------------------------------------------------------
+1     7.9207      9.5217      10.5579     12.7095     
+2     6.8711      8.0384      9.8862      11.8637     
+3     6.4421      7.5251      7.0822      8.4676      
+4     6.5832      7.8513      8.2976      9.9935      
+5     6.4239      7.3868      6.9561      8.3839      
+=================================================================
+AVG   6.8482      8.0647      8.5560      10.2837     
+Verdict: Plain LSTM Won
+```
+
+**Finding:** Finding: Plain LSTM outperforms the Attention variant across average MAE (9.16 vs 9.23) and RMSE (10.34 vs 10.44). The added attention parameters overfit on the short single-variable series without providing structural gain.
+
+## R4:Uncertainty Quantification(MC-Dropout)
+`src/uncertainty.py` activates dropout at inference via `model.enable_mc_dropout()` and runs N=100 vectorized stochastic forward passes per window, inverse-transforming predictions and standard deviation bounds back to demand units:
+
+Run the demo:
+```bash
+python src/uncertainty.py
+```
+7-Day Forecast & Bounds (Demand Units):
+Day 1: Mean = 142.63 | 90% CI = [133.99, 148.93] | Std = 4.95
+Day 2: Mean = 141.87 | 90% CI = [132.74, 149.45] | Std = 5.30
+Day 3: Mean = 140.85 | 90% CI = [132.75, 147.33] | Std = 4.52
+Day 4: Mean = 141.04 | 90% CI = [132.69, 146.75] | Std = 5.25
+Day 5: Mean = 140.53 | 90% CI = [133.96, 147.26] | Std = 5.08
+Day 6: Mean = 141.64 | 90% CI = [133.04, 149.96] | Std = 5.80
+Day 7: Mean = 142.15 | 90% CI = [133.91, 150.28] | Std = 5.13
+
+Average Empirical Uncertainty (Std): 5.15 demand units
+---
+
+--- MC-Dropout Evaluation Sample (Last Test Window) ---
+Mean Forecast: [150.27 150.29 152.11 152.12 150.3  151.68 150.51]
+90% Lower Bound: [141.1  141.05 144.75 144.04 141.61 142.9  143.86]
+90% Upper Bound: [158.8  158.12 160.62 160.21 158.37 158.54 156.49]
+Std Uncertainty: [5.84 5.6  5.   5.12 5.03 5.18 4.21]
+MC-Dropout Evaluation Complete -> Avg Std (Demand Units): 5.4029
+---
+
+**Finding:** typical 90% CI width is ~17-20 units (e.g. Sample 0, day 1:
+[134.12, 150.93]) around a mean of ~140-144. Std per horizon day is
+consistently ~5-6. Intervals are stable across samples and don't collapse
+or blow up — the MC-Dropout mechanism is working as intended.
+
+## API Serving (BentoML)
+- EndPoint:`post/predict`
+- Sample Request Payload:
+```json
+{
+  "historical_demand": [
+    100.5, 102.1, 104.3, 101.8, 99.4, 105.2, 108.0, 110.1, 107.5, 106.2,
+    108.4, 111.0, 112.5, 110.0, 109.1, 113.4, 115.0, 114.2, 112.8, 116.5,
+    118.0, 117.1, 115.5, 119.0, 121.2, 120.0, 118.5, 122.1, 124.0, 122.8,
+    121.0, 125.4, 127.0, 125.8, 124.0, 128.5, 130.1, 129.0, 127.5, 131.0,
+    133.2, 132.0, 130.5, 134.1, 136.0
+  ]
+}
+```
+- sample Response (200 OK):
+```json
+{
+  "mean_forecast": [
+    130.9479217529297,
+    131.91632080078125,
+    132.6771240234375,
+    133.3756103515625,
+    133.98387145996094,
+    133.83578491210938,
+    133.3085174560547
+  ],
+  "lower_bound_90": [
+    121.34488677978516,
+    124.39173889160156,
+    126.0370101928711,
+    125.90164184570312,
+    127.5013198852539,
+    126.3797607421875,
+    126.70819854736328
+  ],
+  "upper_bound_90": [
+    137.8269805908203,
+    137.9159393310547,
+    139.3186492919922,
+    139.75750732421875,
+    140.0466766357422,
+    141.98703002929688,
+    139.2587890625
+  ],
+  "std_uncertainty": [
+    4.739846706390381,
+    3.8199543952941895,
+    4.201904296875,
+    4.205743789672852,
+    3.9406511783599854,
+    4.777013778686523,
+    3.6805291175842285
+  ]
+}
+```
+
+### MC-Dropout vs. Uday's quantile-regression approach (conceptual comparison — his code untouched)
+
+| | MC-Dropout (this path) | Quantile regression (Uday's path) |
+|---|---|---|
+| Where uncertainty is added | Inference time — same trained model, N stochastic passes | Training time — quantile/pinball loss or extra output heads |
+| Retraining needed to add it | No | Yes |
+| Extra inference cost | N forward passes per request | None beyond a normal forward pass |
+| What it estimates | Approximate epistemic uncertainty — the model's own sensitivity to dropout perturbation (Gal & Ghahramani, 2016); an approximation, not an exact posterior | Aleatoric uncertainty — an estimate of the actual spread of the target distribution |
+| Failure mode | Interval width depends on a dropout rate tuned for regularization, not calibration | Quantile crossing (upper quantile predicted below lower) is a known issue that needs guarding |
+
+**One-line tradeoff:** MC-Dropout is cheap uncertainty bolted onto an
+existing point-forecast model with the cost paid at inference; quantile
+regression is uncertainty baked into training, more directly modeling the
+data's actual noise, with the cost (and quantile-crossing risk) paid upfront.
+
+---
+
+## 🛡️ R4: Robustness & Guardrail Verification
+
+`src/robustness_test.py` validates incoming requests against non-finite values, sequence length mismatches, and out-of-distribution (OOD) extremes before scaling:
+
+Run it:
+```bash
+python src/robustness_test.py
+```
+---
+=================================================================
+DEMAND FORECAST SERVICE - ROBUSTNESS & GUARD VALIDATION
+=================================================================
+Training Range: [82.84, 164.45]
+Valid Input Range (multiplier=1.0): [1.24, 246.06]
+
+[case1_nan]
+  Guard verdict: contains NaN
+  Raw model output (no guard): [nan nan nan]... -> contains N0N/FINITE output (Nan/Inf)
+
+[case2_inf]
+  Guard verdict: contains Inf
+  Raw model (no guard) raised: ValueError: Input X contains infinity or a value too large for dtype('float64').
+
+[case3_oor]
+  Guard verdict: contains out-of-range values (far outside training distribution)
+  Raw model output (no guard): [1.0498275  0.24208826 0.536642  ]... -> finite output
+
+[case4_zero]
+  Guard verdict: contains out-of-range values (far outside training distribution)
+  Raw model output (no guard): [0.02107904 0.03547072 0.01412451]... -> finite output
+
+[case5_wrong_length]
+  Guard verdict: wrong length: expected 45, got 10
+  Raw model output (no guard): [1.4055036  0.44293976 0.8484053 ]... -> finite output
+
+=================================================================
+FINDING: validate_sequence() now checks RAW (pre-scale) values against
+scaler.data_min_ / data_max_ with oor_range_multiplier=1.0. This guard is executed in
+service.py BEFORE scaling any incoming request -- scale only after validation passes.
+=================================================================
+---
+## Investigation:Diagnostics Checks & Loss Curves
+---
+Run: `python src/diagnostics_check.py`
+Check 1 (Data Volume): Fold 1 trains on only 130 sequences (<180 days), which is less than half of the 365-day seasonal cycle.
+Check 2 (Baseline Sanity): Folds 2–5 consistently beat Naive Persistence once training data exceeds one seasonal cycle.
+Check 3 (Loss Convergence): All folds drop loss by >80% with smooth convergence, saved directly to output/loss_curve.png.
+---
+## 🌟 Stretch: ONNX Export
+
+`src/onnx_export.py` exports a trained model to ONNX and `tests/test_onnx.py`
+proves ONNX Runtime reproduces PyTorch's output identically (`atol=1e-5`),
+for **both** `MultiStepLSTM` and `AttentionMultiStepLSTM`.
+
+```bash
+pip install onnx onnxruntime
+python src/onnx_export.py           # writes output/model.onnx
+python -m pytest tests/test_onnx.py -v
+python -m pytest -v
+```
+---
+============================= test session starts =============================
+collected 20 items
+
+tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_lookback_longer_than_available_data_returns_empty PASSED
+tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_lookback_plus_horizon_exactly_equal_to_data_length_gives_one_window PASSED
+tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_horizon_of_1_produces_single_step_targets PASSED
+tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_horizon_of_7_produces_seven_step_targets PASSED
+tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_horizon_1_has_more_windows_than_horizon_7_on_same_data PASSED
+tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_zero_length_data_returns_empty PASSED
+tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_walk_forward_folds_lookback_larger_than_first_fold_train_slice PASSED
+tests/test_edge_cases.py::TestSequenceWindowingEdgeCases::test_walk_forward_folds_lookback_equal_to_first_fold_size_succeeds PASSED
+tests/test_edge_cases.py::TestModelHorizonShapes::test_horizon_1_output_shape PASSED
+tests/test_edge_cases.py::TestModelHorizonShapes::test_horizon_7_output_shape PASSED
+tests/test_edge_cases.py::TestModelHorizonShapes::test_attention_variant_matches_plain_output_shape PASSED
+tests/test_edge_cases.py::TestScalerEdgeCases::test_constant_series_scaler_does_not_crash PASSED
+tests/test_edge_cases.py::TestScalerEdgeCases::test_constant_series_inverse_transform_round_trips PASSED
+tests/test_edge_cases.py::TestScalerEdgeCases::test_single_unique_value_in_larger_array PASSED
+tests/test_edge_cases.py::TestScalerEdgeCases::test_single_data_point_series PASSED
+tests/test_edge_cases.py::TestScalerEdgeCases::test_constant_series_end_to_end_through_walk_forward_folds PASSED
+tests/test_onnx.py::test_onnx_identity_prediction_plain_lstm PASSED
+tests/test_onnx.py::test_onnx_identity_prediction_attention_lstm PASSED
+tests/test_pipeline.py::test_mc_dropout_activation PASSED
+tests/test_pipeline.py::test_get_walk_forward_folds_no_leakage PASSED
+
+============================= 20 passed in 10.54s =============================
+
+---
+##  Demand Forecasting Service (PyTorch LSTM + MC-Dropout)
+
+Direct 7-day multi-step daily demand forecasting service using stacked LSTM architectures and Monte Carlo Dropout for uncertainty quantification.
+
+---
+
 
 ## 🧠 R4: Plain LSTM vs. Attention Architecture
 

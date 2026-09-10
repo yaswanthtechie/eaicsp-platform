@@ -1,100 +1,100 @@
 import { useNavigate, useParams } from "react-router-dom";
-import { useMutation, useQuery } from "@apollo/client";
+import { toast } from "react-toastify";
 
-import { GET_PURCHASE_ORDERS } from "../graphql/queries";
-import { ACKNOWLEDGE_PO } from "../graphql/mutations";
+import { useAcknowledgePO } from "../hooks/useAcknowledgePO";
+import { useOrderDetails } from "../hooks/useOrderDetails";
 
 import StatusBadge from "../components/StatusBadge";
 import Loading from "../components/Loading";
 import ErrorState from "../components/ErrorState";
 
 import type { PurchaseOrder } from "../types/po";
-import { toast } from "react-toastify";
+import type { PurchaseOrderEdge } from "../types/graphql";
+
+import { formatCurrency } from "../utils/formatCurrency";
+import { formatDate } from "../utils/formatDate";
 
 const OrderDetails = () => {
   const { poNumber } = useParams();
   const navigate = useNavigate();
 
-  const { data, loading, error } = useQuery(GET_PURCHASE_ORDERS);
+  const { data, loading, error } = useOrderDetails();
 
-  const [acknowledgePurchaseOrder] = useMutation(ACKNOWLEDGE_PO);
+  const { acknowledgePO } = useAcknowledgePO();
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-    }).format(amount);
-  };
+  // Prevent polling from replacing the page with a loader
+ if (loading && !data) {
+  return <Loading />;
+}
 
-  if (loading) return <Loading />;
+if (error && !data) {
+  return <ErrorState />;
+}
 
-  if (error) return <ErrorState />;
-
-  const orders: PurchaseOrder[] = data?.purchaseOrders || [];
+  const orders: PurchaseOrder[] =
+    data?.purchaseOrders?.edges?.map(
+      (edge: PurchaseOrderEdge) => edge.node
+    ) || [];
 
   const order = orders.find(
     (po) => po.po_number === poNumber
   );
 
+  // Empty state
   if (!order) {
     return (
       <div style={{ padding: "20px" }}>
         <h2>Purchase Order Not Found</h2>
 
-        <button onClick={() => navigate("/orders")}>
-          Back
+        <p>
+          The requested Purchase Order is not available.
+        </p>
+
+        <button
+          className="back-btn"
+          onClick={() => navigate("/orders")}
+        >
+          Back to Orders
         </button>
       </div>
     );
   }
 
   const total = order.items.reduce(
-    (sum, item) => sum + item.quantity * item.unit_price,
+    (sum, item) =>
+      sum + item.quantity * item.unit_price,
     0
   );
 
-  const acknowledgePO = async () => {
+  // Button click handler
+  const handleAcknowledge = async () => {
+    if (!poNumber) {
+      toast.error("Purchase Order number is missing");
+      return;
+    }
+
     try {
-      await acknowledgePurchaseOrder({
-        variables: {
-          po_number: poNumber,
-        },
+      const result = await acknowledgePO(poNumber);
 
-        optimisticResponse: {
-          acknowledgePurchaseOrder: {
-            __typename: "PurchaseOrder",
-            ...order,
-            status: "acknowledged",
-          },
-        },
+      if (result.queued) {
+        toast.success(
+          "Purchase Order queued. It will sync when you're online."
+        );
 
-        update(cache, { data }) {
-          const existing = cache.readQuery<{
-            purchaseOrders: PurchaseOrder[];
-          }>({
-            query: GET_PURCHASE_ORDERS,
-          });
+        navigate("/orders");
+        return;
+      }
 
-          if (!existing) return;
-
-          cache.writeQuery({
-            query: GET_PURCHASE_ORDERS,
-            data: {
-              purchaseOrders: existing.purchaseOrders.map((po) =>
-                po.po_number === poNumber
-                  ? data?.acknowledgePurchaseOrder ?? po
-                  : po
-              ),
-            },
-          });
-        },
-      });
-
-      toast.success("Purchase Order Acknowledged Successfully");
+      toast.success(
+        "Purchase Order Acknowledged Successfully"
+      );
 
       navigate("/orders");
     } catch (err) {
-      toast.error("Failed to acknowledge Purchase Order");
+      toast.error(
+        "Failed to acknowledge Purchase Order"
+      );
+
       console.error(err);
     }
   };
@@ -105,16 +105,18 @@ const OrderDetails = () => {
 
       <div className="detail-card">
         <p>
-          <strong>PO Number :</strong> {order.po_number}
+          <strong>PO Number:</strong>{" "}
+          {order.po_number}
         </p>
 
         <p>
-          <strong>Supplier :</strong> {order.supplier_id}
+          <strong>Supplier:</strong>{" "}
+          {order.supplier_id}
         </p>
 
         <p>
-          <strong>Expected Delivery :</strong>{" "}
-          {new Date(order.expected_delivery).toLocaleDateString("en-IN")}
+          <strong>Expected Delivery:</strong>{" "}
+          {formatDate(order.expected_delivery)}
         </p>
 
         <div style={{ margin: "15px 0" }}>
@@ -124,41 +126,54 @@ const OrderDetails = () => {
 
       <h3>Items</h3>
 
-      {order.items.map((item) => (
-        <div
-          key={item.sku}
-          className="item-card"
-        >
-          <h4>{item.product_name}</h4>
-
+      {order.items.length === 0 ? (
+        <div style={{ padding: "20px 0" }}>
           <p>
-            <strong>SKU :</strong> {item.sku}
-          </p>
-
-          <p>
-            <strong>Quantity :</strong> {item.quantity}
-          </p>
-
-          <p>
-            <strong>Unit Price :</strong>{" "}
-            {formatCurrency(item.unit_price)}
-          </p>
-
-          <p>
-            <strong>Subtotal :</strong>{" "}
-            {formatCurrency(item.quantity * item.unit_price)}
+            No items are available for this
+            Purchase Order.
           </p>
         </div>
-      ))}
+      ) : (
+        order.items.map((item) => (
+          <div
+            key={item.sku}
+            className="item-card"
+          >
+            <h4>{item.product_name}</h4>
+
+            <p>
+              <strong>SKU:</strong>{" "}
+              {item.sku}
+            </p>
+
+            <p>
+              <strong>Quantity:</strong>{" "}
+              {item.quantity}
+            </p>
+
+            <p>
+              <strong>Unit Price:</strong>{" "}
+              {formatCurrency(item.unit_price)}
+            </p>
+
+            <p>
+              <strong>Subtotal:</strong>{" "}
+              {formatCurrency(
+                item.quantity * item.unit_price
+              )}
+            </p>
+          </div>
+        ))
+      )}
 
       <h2>
-        Total : {formatCurrency(total)}
+        Total: {formatCurrency(total)}
       </h2>
 
       {order.status === "sent" && (
         <button
           className="acknowledge-btn"
-          onClick={acknowledgePO}
+          onClick={handleAcknowledge}
         >
           Acknowledge
         </button>

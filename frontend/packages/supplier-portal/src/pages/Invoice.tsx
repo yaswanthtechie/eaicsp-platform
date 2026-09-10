@@ -1,42 +1,65 @@
 import { useState } from "react";
-import { useMutation, useQuery } from "@apollo/client";
 import { toast } from "react-toastify";
 
-import { GET_PURCHASE_ORDERS } from "../graphql/queries";
-import { SUBMIT_INVOICE } from "../graphql/mutations";
+import { useInvoice } from "../hooks/useInvoice";
 
 import Loading from "../components/Loading";
 import ErrorState from "../components/ErrorState";
 import FileUpload from "../components/FileUpload";
 
-import type { PurchaseOrder } from "../types/po";
+import { colors } from "../tokens";
 
 const Invoice = () => {
-  const { data, loading, error } = useQuery(GET_PURCHASE_ORDERS);
+  const {
+    submitInvoiceWithOfflineSupport,
+    acknowledgedPOs,
+    loading,
+    error,
+    data,
+  } = useInvoice();
 
-  const [submitInvoice] = useMutation(SUBMIT_INVOICE);
+  const [invoiceNumber, setInvoiceNumber] =
+    useState("");
 
-  const [invoiceNumber, setInvoiceNumber] = useState("");
-  const [poReference, setPoReference] = useState("");
-  const [amount, setAmount] = useState("");
-  const [date, setDate] = useState("");
+  const [poReference, setPoReference] =
+    useState("");
 
-  const [file, setFile] = useState<File | null>(null);
+  const [amount, setAmount] =
+    useState("");
 
-  const [formError, setFormError] = useState("");
-  const [fileError, setFileError] = useState("");
+  const [date, setDate] =
+    useState("");
 
-  if (loading) return <Loading />;
+  const [file, setFile] =
+    useState<File | null>(null);
 
-  if (error) return <ErrorState />;
+  const [formError, setFormError] =
+    useState("");
 
-  const orders = data?.purchaseOrders || [];
+  const [fileError, setFileError] =
+    useState("");
 
-  const acknowledgedPOs = orders.filter(
-    (po: PurchaseOrder) => po.status === "acknowledged"
-  );
+  const [isSubmitting, setIsSubmitting] =
+    useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  // Only show the full-page loader when
+  // there is no previous data.
+  //
+  // Because usePurchaseOrders polls, loading
+  // can become true again every few seconds.
+  // This prevents the form from disappearing
+  // while the supplier is typing.
+  if (loading && !data) {
+    return <Loading />;
+  }
+
+  if (error) {
+    return <ErrorState />;
+  }
+
+  const handleSubmit = async (
+    e: React.FormEvent
+  ) => {
     e.preventDefault();
 
     setFormError("");
@@ -48,13 +71,19 @@ const Invoice = () => {
       !date ||
       !file
     ) {
-      setFormError("Please fill all fields.");
+      setFormError(
+        "Please fill all fields."
+      );
       return;
     }
 
     const invoiceRegex = /^INV\d+$/i;
 
-    if (!invoiceRegex.test(invoiceNumber.trim())) {
+    if (
+      !invoiceRegex.test(
+        invoiceNumber.trim()
+      )
+    ) {
       setFormError(
         "Invoice number must be like INV001."
       );
@@ -78,19 +107,26 @@ const Invoice = () => {
       return;
     }
 
-    try {
-      await submitInvoice({
-        variables: {
-          invoiceNumber,
-          poReference,
-          amount: Number(amount),
-          date,
-        },
-      });
+    setIsSubmitting(true);
 
-      toast.success(
-        "Invoice Submitted Successfully!"
-      );
+    try {
+      const result =
+        await submitInvoiceWithOfflineSupport(
+          invoiceNumber.trim(),
+          poReference,
+          Number(amount),
+          date
+        );
+
+      if (result.queued) {
+        toast.info(
+          "Invoice queued. It will be submitted when you are back online."
+        );
+      } else {
+        toast.success(
+          "Invoice Submitted Successfully!"
+        );
+      }
 
       setInvoiceNumber("");
       setPoReference("");
@@ -100,26 +136,29 @@ const Invoice = () => {
 
       setFormError("");
       setFileError("");
-
     } catch (err) {
       console.error(err);
 
       setFormError(
         "Failed to submit invoice."
       );
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   return (
     <div className="invoice-page">
-
       <h2>Create Invoice</h2>
 
       <form onSubmit={handleSubmit}>
-
-        <label>Invoice Number</label>
+        {/* Invoice Number */}
+        <label htmlFor="invoiceNumber">
+          Invoice Number
+        </label>
 
         <input
+          id="invoiceNumber"
           type="text"
           placeholder="INV001"
           value={invoiceNumber}
@@ -128,33 +167,53 @@ const Invoice = () => {
           }
         />
 
-        <label>Purchase Order</label>
+        {/* Purchase Order */}
+        <label htmlFor="poReference">
+          Purchase Order
+        </label>
 
-        <select
-          value={poReference}
-          onChange={(e) =>
-            setPoReference(e.target.value)
-          }
-        >
-          <option value="">
-            Select Purchase Order
-          </option>
+        {acknowledgedPOs.length === 0 ? (
+          <div
+            style={{
+              marginTop: "8px",
+              marginBottom: "15px",
+            }}
+          >
+            <p>
+              No acknowledged Purchase Orders
+              are available for invoicing.
+            </p>
+          </div>
+        ) : (
+          <select
+            id="poReference"
+            value={poReference}
+            onChange={(e) =>
+              setPoReference(e.target.value)
+            }
+          >
+            <option value="">
+              Select Purchase Order
+            </option>
 
-          {acknowledgedPOs.map(
-            (po: PurchaseOrder) => (
+            {acknowledgedPOs.map((po) => (
               <option
                 key={po.po_number}
                 value={po.po_number}
               >
                 {po.po_number}
               </option>
-            )
-          )}
-        </select>
+            ))}
+          </select>
+        )}
 
-        <label>Invoice Amount</label>
+        {/* Invoice Amount */}
+        <label htmlFor="amount">
+          Invoice Amount
+        </label>
 
         <input
+          id="amount"
           type="number"
           value={amount}
           onChange={(e) =>
@@ -162,9 +221,13 @@ const Invoice = () => {
           }
         />
 
-        <label>Invoice Date</label>
+        {/* Invoice Date */}
+        <label htmlFor="date">
+          Invoice Date
+        </label>
 
         <input
+          id="date"
           type="date"
           value={date}
           onChange={(e) =>
@@ -172,6 +235,7 @@ const Invoice = () => {
           }
         />
 
+        {/* PDF File */}
         <FileUpload
           file={file}
           setFile={setFile}
@@ -179,10 +243,11 @@ const Invoice = () => {
           setError={setFileError}
         />
 
+        {/* File Error */}
         {fileError && (
           <p
             style={{
-              color: "red",
+              color: colors.danger,
               marginTop: "10px",
             }}
           >
@@ -190,10 +255,11 @@ const Invoice = () => {
           </p>
         )}
 
+        {/* Form Error */}
         {formError && (
           <p
             style={{
-              color: "red",
+              color: colors.danger,
               marginTop: "10px",
             }}
           >
@@ -201,15 +267,22 @@ const Invoice = () => {
           </p>
         )}
 
+        {/* Submit */}
         <button
           type="submit"
-          style={{ marginTop: "20px" }}
+          disabled={
+            isSubmitting ||
+            acknowledgedPOs.length === 0
+          }
+          style={{
+            marginTop: "20px",
+          }}
         >
-          Submit Invoice
+          {isSubmitting
+            ? "Submitting..."
+            : "Submit Invoice"}
         </button>
-
       </form>
-
     </div>
   );
 };

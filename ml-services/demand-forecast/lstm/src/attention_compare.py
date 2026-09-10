@@ -62,13 +62,9 @@ def compare_models():
 
         plain_maes, plain_rmses = [], []
         attn_maes, attn_rmses = [], []
-
-        print("\n" + "=" * 65)
-        print(f"{'Fold':<6}{'Plain MAE':<12}{'Plain RMSE':<12}{'Attn MAE':<12}{'Attn RMSE':<12}")
-        print("-" * 65)
-
-        for fold_idx, (X_tr, y_tr, X_te, y_te, scaler) in enumerate(folds, 1):
-            # Ensure strictly 3D input: (batch_size, lookback, 1)
+=======
+            # Ensure strictly 3D shape (samples, lookback, 1)
+>>>>>>> origin/main
             if X_te.ndim == 2:
                 X_te_3d = X_te[:, :, np.newaxis]
             elif X_te.ndim == 4:
