@@ -7,7 +7,7 @@ The **Supplier Risk** service is an independent Machine Learning microservice bu
 The service combines:
 - **FinBERT Sentiment Analysis** (`ProsusAI/finbert`)
 - **Config-Driven Keyword Risk Detection** (Financial, Operational, Reputational)
-- **Calibrated Risk Scoring & Evidence Confidence Calculation** (80% Mean / 20% Peak Blend)
+- **Calibrated Risk Scoring & Evidence Confidence Calculation** (`top_k_mean` anti-dilution aggregation by default; `max`, `blend`, and `mean` supported as alternatives)
 - **Anti-Dilution Architecture** (protecting acute risks from high-volume neutral dilution)
 - **REST API Serving** via FastAPI (`/predict`, `/health`, `/api/v1/supplier-risk/*`)
 - **Automated Unit & Integration Testing** with Pytest
@@ -24,7 +24,7 @@ The service combines:
 - Reputational & Security Risk Detection (fraud, investigation, lawsuit, cyberattack, etc.)
 - Context Disambiguation & NLP Mitigation Detection
 - Evidence Confidence Scoring using exponential saturation
-- 80/20 Calibrated Mean/Peak Risk Blending
+- Configurable Risk Score Aggregation (`top_k_mean` default averaging top-K risk-bearing headlines; `max`, `blend`, and `mean` supported; `blend` is not the default)
 - REST API using FastAPI with full request/response schemas
 - Automatic Model Loading with startup lifespan management
 - Comprehensive Unit & Integration Test Suite with Pytest
@@ -34,14 +34,14 @@ The service combines:
 
 # Risk Score Interpretation
 
-The risk score (0-100) is calculated based on keyword severity, FinBERT sentiment analysis, and 80/20 peak/mean blending. These bands provide actionable operational guidelines for procurement teams:
+The risk score (0-100) is calculated based on keyword severity, FinBERT sentiment analysis, and configurable aggregation. By default, `top_k_mean` is the aggregation strategy, which averages the top $K$ risk-bearing headline scores (where $K$ is configurable via `AGGREGATION_TOP_K`, defaulting to 3). Alternative strategies (`max`, `blend`, and `mean`) are supported, but `blend` is not the default. These bands provide actionable operational guidelines for procurement teams:
 
 | Score Range | Risk Level | Interpretation & Recommended Procurement Action |
 | :--- | :--- | :--- |
-| **0.0 - 25.0** | **Low** | Routine operational updates, clean or positive news, and minimal risk signals. Continue normal procurement operations (e.g., Siemens at 9.39, BASF at 17.29). |
-| **25.1 - 35.0** | **Medium** | Predominantly stable operations with isolated disruptions or minor friction. Standard supplier monitoring, verify resilience plans (e.g., TSMC at 20.75, Foxconn at 28.23, Maersk at 28.27, Intel at 33.19, Boeing at 34.96). |
-| **35.1 - 45.0** | **High** | Significant operational, supply chain, legal, labor, or restructuring disruptions across multiple headlines. Review supplier contracts, monitor lead times, establish secondary supplier contingencies (e.g., Nissan at 37.54, Tesla at 40.80). |
-| **45.1 - 100.0** | **Critical** | Severe structural, legal, or terminal risks; persistent negative sentiment (>65% of volume), massive recalls, lawsuits, layoffs, investigations. Immediate procurement intervention and risk committee escalation (e.g., Apex Logistics at 67.73). |
+| **0.0 - 25.0** | **Low** | Routine operational updates, clean or positive news, and minimal risk signals. Continue normal procurement operations. |
+| **25.1 - 35.0** | **Medium** | Predominantly stable operations with isolated disruptions or minor friction. Standard supplier monitoring, verify resilience plans. |
+| **35.1 - 45.0** | **High** | Significant operational, supply chain, legal, labor, or restructuring disruptions across multiple headlines. Review supplier contracts, monitor lead times, establish secondary supplier contingencies. |
+| **45.1 - 100.0** | **Critical** | Severe structural, legal, or terminal risks; persistent negative sentiment (>65% of volume), massive recalls, lawsuits, layoffs, investigations. Immediate procurement intervention and risk committee escalation. |
 
 ---
 
@@ -56,7 +56,7 @@ supplier-risk/
 │   ├── config.py                  # Config-driven weights, penalties, and validation
 │   ├── data.py                    # Dataset loading, validation, and fallback handling
 │   ├── evaluate.py                # Batch evaluation runner across benchmark dataset
-│   ├── predict.py                 # Core scoring orchestration, blend, and confidence logic
+│   ├── predict.py                 # Core scoring orchestration, aggregation, and confidence logic
 │   ├── preprocess.py              # Text normalization and cleaning
 │   ├── sentiment.py              # FinBERT pipeline integration
 │   ├── signals.py                # Keyword signal detection, mitigation, and context logic
@@ -350,40 +350,46 @@ The dataset is located in `src/supplier_headlines.json` and contains **120 reali
 
 ### Evaluation Benchmark Results
 
-| Supplier | Headlines | Sentiment (Pos / Neu / Neg) | Final Risk Score | Evidence Confidence | Risk Tier |
-| :--- | :---: | :---: | :---: | :---: | :--- |
-| **Siemens** | 12 | 8 / 2 / 2 | **9.39** | 0.7769 | **Low Risk** |
-| **BASF** | 12 | 8 / 0 / 4 | **17.29** | 0.7769 | **Low Risk** |
-| **TSMC** | 12 | 7 / 1 / 4 | **20.75** | 0.7769 | **Low-Medium Risk** |
-| **Foxconn** | 12 | 4 / 4 / 4 | **28.23** | 0.7769 | **Medium Risk** |
-| **Maersk** | 12 | 5 / 1 / 6 | **28.27** | 0.7769 | **Medium Risk** |
-| **Intel** | 12 | 3 / 3 / 6 | **33.19** | 0.7769 | **Medium Risk** |
-| **Boeing** | 12 | 5 / 1 / 6 | **34.96** | 0.7769 | **Medium Risk** |
-| **Nissan** | 12 | 5 / 0 / 7 | **37.54** | 0.7769 | **Medium-High Risk** |
-| **Tesla** | 12 | 4 / 0 / 8 | **40.80** | 0.7769 | **Medium-High Risk** |
-| **Apex Logistics** | 12 | 1 / 1 / 10 | **67.73** | 0.7769 | **High Risk** |
+| Supplier | Headlines | Positive | Neutral | Negative | Final Risk Score | Evidence Confidence | Risk Tier |
+|----------|-----------|----------|---------|----------|------------------|---------------------|-----------|
+| Boeing | 12 | 5 | 1 | 6 | 68.35 | 0.4878 | High |
+| Intel | 12 | 3 | 3 | 6 | 70.16 | 0.4504 | High |
+| Tesla | 12 | 4 | 0 | 8 | 70.15 | 0.5263 | High |
+| Nissan | 12 | 5 | 0 | 7 | 65.01 | 0.5049 | High |
+| Foxconn | 12 | 4 | 4 | 4 | 61.68 | 0.3330 | High |
+| TSMC | 12 | 7 | 1 | 4 | 65.13 | 0.2977 | High |
+| Maersk | 12 | 5 | 1 | 6 | 69.95 | 0.4541 | High |
+| BASF | 12 | 8 | 0 | 4 | 60.30 | 0.3314 | High |
+| Siemens | 12 | 8 | 2 | 2 | 56.33 | 0.1587 | High |
+| Apex Logistics | 12 | 1 | 1 | 10 | 100.00 | 0.6643 | Critical |
 
 ---
 
 # Human Sanity Check
 
-### Highest Risk Supplier: Apex Logistics (Score: 67.73)
-- **Underlying Signals**: `bankruptcy` (50), `insolvency` (45), `default` (40), `fraud` (40), `cyberattack` (35), `shutdown` (35), `recall` (30), `strike` (25), `layoff` (25), `investigation` (25), `lawsuit` (25).
+### Scoring Context & Aggregation Behavior
+- The current `top_k_mean` default produces generally high scores across the evaluation benchmark because it averages the top 3 risk-bearing headline scores rather than diluting them across all headlines.
+- Risk interpretation should therefore be based on the current R5 scoring method, not the old Round 4 80/20 blend results.
+
+### Highest Risk Supplier: Apex Logistics (Score: 100.00, Evidence Confidence: 0.6643)
+- **Underlying Signals**: `strike` (25), `cyberattack` (35), `default` (40), `restructuring` (20), `fraud` (40), `investigation` (25), `lawsuit` (25), `recall` (30), `insolvency` (45), `downgrade` (20), `shutdown` (35), `delays` (15), `layoff` (25), `bankruptcy` (50).
 - **Sentiment Breakdown**: 10 Negative, 1 Neutral, 1 Positive.
-- **Top Risk Headlines**:
+- **Evidence Confidence**: **0.6643** (highest evidence confidence among these suppliers).
+- **Top 3 Highest Risk Headlines**:
   1. *"Analysts issue major downgrade on Apex Logistics amid insolvency fears."*
   2. *"Regulators launch fraud investigation into Apex Logistics accounting practices."*
   3. *"Apex Logistics files for emergency restructuring following severe debt default."*
-- **Human Rationale**: The high score (67.73) accurately reflects critical distress. The company suffers simultaneous operational paralysis (strike, ransomware cyberattack, port shutdown), reputational crises (fraud investigation, client lawsuits), and catastrophic financial failure (debt default, insolvency, bankruptcy proceedings). A human evaluator reviewing these events would immediately classify this supplier as high risk.
+- **Human Rationale**: Apex Logistics has the highest risk score at **100.00** and also the highest evidence confidence among these suppliers at **0.6643**. The company suffers from multiple catastrophic financial signals (debt default, insolvency, bankruptcy), operational shutdowns, and fraud investigations, with 10 out of 12 headlines negative. A human evaluator would immediately classify Apex Logistics as Critical risk.
 
-### Lowest Risk Supplier: Siemens (Score: 9.39)
-- **Underlying Signals**: `shortage` (20), `delays` (15) — no severe financial or reputational triggers.
+### Lowest Risk Supplier: Siemens (Score: 56.33, Evidence Confidence: 0.1587)
+- **Underlying Signals**: `delays` (15), `shortage` (20).
 - **Sentiment Breakdown**: 8 Positive, 2 Neutral, 2 Negative.
-- **Top Headlines**:
-  1. *"Siemens reports robust revenue growth driven by industrial automation orders."*
-  2. *"Siemens secures multi-billion dollar railway electrification deal."*
-  3. *"Siemens receives top environmental and sustainability rating from industry auditors."*
-- **Human Rationale**: The low score (9.39) accurately captures an operationally healthy, financially strong supplier. Negative events are limited to minor transient supply bottlenecks (circuit breaker shortage and medical device shipping delays) that were quickly managed, while the majority of news reflects record order backlog, new infrastructure contracts, and positive earnings. A human procurement officer would confidently consider this supplier low risk.
+- **Evidence Confidence**: **0.1587** (lowest evidence confidence among these suppliers).
+- **Top 3 Highest Risk Headlines**:
+  1. *"Siemens faces temporary component shortage for specialized circuit breakers."*
+  2. *"Supply chain delays cause minor shipment backlog for Siemens medical devices."*
+  3. *"Siemens reports robust revenue growth driven by industrial automation orders."*
+- **Human Rationale**: Siemens has the lowest current risk score at **56.33** and lowest evidence confidence at **0.1587**. Negative events are limited to minor transient supply issues (circuit breaker shortage and medical device shipping delays), with 8 of 12 headlines positive. Because the default `top_k_mean` averages the top 3 risk-bearing headlines, Siemens scores 56.33, but its lowest evidence confidence (0.1587) clearly reflects that risk signals are sparse and isolated.
 
 ---
 
@@ -412,7 +418,7 @@ The test suite validates:
 - Text preprocessing and punctuation boundary isolation
 - Keyword detection, mitigation windows, and variant stemming
 - Sentiment pipeline integration
-- Calibrated 80/20 peak/mean score blending
+- Configurable risk score aggregation (`top_k_mean` default, `max`, `blend`, `mean`)
 - Calibrated risk band classification (Low, Medium, High, Critical)
 - Response schema validation and API endpoints (`/predict`, `/health`, aliases)
 - Configuration defaults, overrides, and input validation
