@@ -42,6 +42,12 @@ const alerts: Omit<AlertMessage, "id" | "timestamp">[] = [
     severity: "info",
     message: "Forecast model updated successfully",
   },
+
+  {
+    type: "low-stock",
+    severity: "error",
+    message: "SKU004 (Cooking Oil) quantity below threshold",
+  }
 ];
 
 let serverStarted = false;

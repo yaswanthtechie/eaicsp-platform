@@ -1,27 +1,61 @@
-import importlib
 import logging
-from typing import Any, Dict, List, Optional
+from typing import List, Dict, Any, Optional
 
+import time
 import pandas as pd
 import yaml
-from pydantic import BaseModel, ConfigDict, model_validator, Field
+from pydantic import BaseModel, Field, model_validator, ConfigDict
 
-# Initialize the logger for this module
+import src.custom_rules as custom_rules
+
 logger = logging.getLogger(__name__)
 
+# The Explicit Registry: Only functions listed here can be executed.
+SAFE_FUNCTION_REGISTRY = {
+    "src.custom_rules.check_composite_unique": custom_rules.check_composite_unique,
+    "src.custom_rules.check_unparseable_dates": custom_rules.check_unparseable_dates,
+    "src.custom_rules.check_outliers": custom_rules.check_outliers,
+    "src.custom_rules.check_negatives": custom_rules.check_negatives,
+    "src.custom_rules.check_duplicate_rows": custom_rules.check_duplicate_rows,
+    "src.custom_rules.standardize_products": custom_rules.standardize_products,
+    "src.custom_rules.flag_negatives": custom_rules.flag_negatives,
+    "src.custom_rules.standardize_dates": custom_rules.standardize_dates,
+    "src.custom_rules.drop_duplicate_rows": custom_rules.drop_duplicate_rows,
+}
+
+def is_comparable(a, b):
+    """Helper to guard against comparing strings to None or differing types."""
+    if a is None or b is None:
+        return False
+    return type(a) is type(b) or (isinstance(a, (int, float)) and isinstance(b, (int, float)))
+
+class SecurityError(Exception):
+    pass
 
 class ValidationResult(BaseModel):
+    config_version: str = 'unknown' # <-- Added version tracking
     passed: bool
     total_rows_affected: int
     errors: List[Dict[str, Any]] = Field(default_factory=list)
     warnings: List[Dict[str, Any]] = Field(default_factory=list)
     sample_bad_rows: Dict[str, List[Dict[str, Any]]] = Field(default_factory=dict)
+    rule_timings: Dict[str, float] = Field(default_factory=dict)
+    skipped_rules: List[Dict[str, Any]] = Field(default_factory=list)
 
     def __getitem__(self, item):
         """Allows dictionary-style access to the model's attributes (e.g., result['passed'])."""
         if hasattr(self, item):
             return getattr(self, item)
         raise KeyError(item)
+
+    @property
+    def slowest_rule(self) -> Optional[Dict[str, Any]]:  # <--- OPTIONAL HELPER
+        """Returns the single slowest rule evaluated and its duration."""
+        if not self.rule_timings:
+            return None
+        # slowest_name = max(self.rule_timings, key=self.rule_timings.get)
+        slowest_name = max(self.rule_timings, key=lambda k: self.rule_timings[k])
+        return {"rule": slowest_name, "duration_seconds": self.rule_timings[slowest_name]}
 
 
 class ConfigRule(BaseModel):
@@ -32,6 +66,19 @@ class ConfigRule(BaseModel):
     field: Optional[str] = None
     type: str
     severity: str = "INFO"
+    depends_on: Optional[List[str]] = Field(default_factory=list)  # <-- Added dependency tracking
+
+    @model_validator(mode='after')
+    def validate_function_path(self) -> 'ConfigRule':
+        if self.type in ['custom', 'transform']:
+            func_path = (self.model_extra or {}).get('function')
+            if not func_path:
+                raise ValueError(
+                    f"Rule '{self.name}' has type '{self.type}' but no 'function' path. "
+                    f"Add a 'function:' key naming an entry in SAFE_FUNCTION_REGISTRY."
+                )
+            self._load_function(func_path)
+        return self
 
     @model_validator(mode='before')
     @classmethod
@@ -48,24 +95,41 @@ class ConfigRule(BaseModel):
             raise ValueError(f"Rule '{self.name}' requires a 'field' to be specified.")
         return self
 
-    def _load_function(self, func_path: str):
-        """Dynamically loads a Python function from a string path (e.g., 'src.module.func')."""
-        try:
-            module_name, func_name = func_path.rsplit('.', 1)
-            module = importlib.import_module(module_name)
-            return getattr(module, func_name)
-        except Exception as e:
-            raise RuntimeError(f"Failed to load function {func_path}: {e}")
+    @staticmethod
+    def _load_function(func_path: str):
+        """Safely loads a function exclusively from the explicit registry."""
+        if func_path not in SAFE_FUNCTION_REGISTRY:
+            raise SecurityError(
+                f"FATAL: Function '{func_path}' is not in the safe registry. Execution denied."
+            )
+        return SAFE_FUNCTION_REGISTRY[func_path]
+
+    def _execute_dynamic_function(self, df: pd.DataFrame) -> Any:
+        """Helper to deduplicate dynamic function execution for custom/transform rules."""
+        func_path = self.model_extra.get('function')
+        if not func_path:
+            raise ValueError(f"Rule '{self.name}' missing 'function' path.")
+
+        func = self._load_function(func_path)
+
+        kwargs = (self.model_extra or {}).copy()
+        kwargs.pop('function', None)
+
+        if self.field:
+            return func(df, field=self.field, **kwargs)
+        return func(df, **kwargs)
 
     def evaluate(self, df: pd.DataFrame) -> pd.Series:
         """Returns a boolean mask where True indicates a row FAILED the rule."""
         if df.empty:
             return pd.Series(dtype=bool, index=df.index)
 
+        # Fail-fast if the target field is entirely missing from the dataframe
+        if self.field and self.field not in df.columns:
+            raise ValueError(f"Target field '{self.field}' missing from DataFrame.")
+
         # Standard missing value check
         if self.type == "not_null":
-            if self.field not in df.columns:
-                return pd.Series([True] * len(df), index=df.index)
             return df[self.field].isna()
 
         # Standard range check
@@ -91,20 +155,8 @@ class ConfigRule(BaseModel):
 
         # Dynamic Custom Evaluation (Returns boolean mask)
         elif self.type == "custom":
-            func_path = self.model_extra.get('function')
-            if not func_path:
-                raise ValueError(f"Custom rule '{self.name}' missing 'function' path.")
-
-            func = self._load_function(func_path)
-
-            # Pass all extra YAML keys as kwargs to the custom function
-            kwargs = self.model_extra.copy()
-            kwargs.pop('function', None)
-
-            if self.field:
-                return func(df, field=self.field, **kwargs)
-            else:
-                return func(df, **kwargs)
+            # Fix: Replaced duplicated code with helper
+            return self._execute_dynamic_function(df)
 
         # Transform rules do not evaluate failures; they return an empty mask
         elif self.type == "transform":
@@ -118,68 +170,222 @@ class ConfigRule(BaseModel):
         if self.type != "transform":
             return df
 
-        func_path = self.model_extra.get('function')
-        if not func_path:
-            raise ValueError(f"Transform rule '{self.name}' missing 'function' path.")
-
-        func = self._load_function(func_path)
-
-        # Pass all extra YAML keys as kwargs to the transform function
-        kwargs = self.model_extra.copy()
-        kwargs.pop('function', None)
-
-        if self.field:
-            return func(df, field=self.field, **kwargs)
-        else:
-            return func(df, **kwargs)
+        # Fix: Replaced duplicated code with helper
+        return self._execute_dynamic_function(df)
 
 
 class DataValidator:
-    def __init__(self, rules: List[ConfigRule]):
+    def __init__(self, rules: List[ConfigRule],  version: str = 'unknown', allow_rule_failures: bool = False):
         self.rules = rules
+        self.version = version
+        self.allow_rule_failures = allow_rule_failures
+        self._validate_dependencies()
+        self._detect_conflicts()
+
+    def _validate_dependencies(self):
+        """Rejects duplicate names, unknown deps, self-deps and forward references.
+
+        Requiring every dependency to be declared *before* the rule that uses it
+        makes cycles impossible and matches what validate()/clean() assume at runtime.
+        """
+        names = [r.name for r in self.rules]
+        duplicates = sorted({n for n in names if names.count(n) > 1})
+        if duplicates:
+            raise ValueError(f"Config Error: duplicate rule names: {duplicates}")
+
+        known = set(names)
+        declared = set()
+        for rule in self.rules:
+            for dep in (rule.depends_on or []):
+                if dep == rule.name:
+                    raise ValueError(f"Config Error: rule '{rule.name}' depends on itself.")
+                if dep not in known:
+                    raise ValueError(
+                        f"Config Error: rule '{rule.name}' depends on '{dep}', "
+                        f"which is not defined in this config."
+                    )
+                if dep not in declared:
+                    raise ValueError(
+                        f"Config Error: rule '{rule.name}' depends on '{dep}', which is "
+                        f"declared later. Move '{dep}' above '{rule.name}' in the config."
+                    )
+            declared.add(rule.name)
+
+    def _detect_conflicts(self):
+        """Detects impossible *numeric range* combinations before execution.
+
+            Accumulates the tightest min/max across every range rule on a field and
+            rejects contradictory bounds at config-load time.
+
+            Not covered yet: cross-type conflicts (e.g. not_null + an unsatisfiable
+            regex, or unique + a custom duplicate-check on the same field).
+        """
+        field_ranges = {}
+        for rule in self.rules:
+            if rule.type == "range" and rule.field:
+                min_val = rule.model_extra.get('min')
+                max_val = rule.model_extra.get('max')
+                exclusive_min = rule.model_extra.get('exclusive_min', False)
+                exclusive_max = rule.model_extra.get('exclusive_max', False)
+
+                if is_comparable(min_val, max_val) and min_val > max_val:
+                    raise ValueError(f"Config Error: Rule '{rule.name}' is impossible.")
+
+                if rule.field in field_ranges:
+                    prev_min, prev_max, prev_excl_min, prev_excl_max = field_ranges[rule.field]
+
+                    # Accumulate minimums and carry forward strictness on matching bounds
+                    if is_comparable(prev_min, min_val):
+                        if min_val > prev_min:
+                            cum_min, cum_excl_min = min_val, exclusive_min
+                        elif min_val == prev_min:
+                            cum_min, cum_excl_min = min_val, prev_excl_min or exclusive_min
+                        else:
+                            cum_min, cum_excl_min = prev_min, prev_excl_min
+                    else:
+                        cum_min = min_val if min_val is not None else prev_min
+                        cum_excl_min = exclusive_min if min_val is not None else prev_excl_min
+
+                    # Accumulate maximums
+                    if is_comparable(prev_max, max_val):
+                        if max_val < prev_max:
+                            cum_max, cum_excl_max = max_val, exclusive_max
+                        elif max_val == prev_max:
+                            cum_max, cum_excl_max = max_val, prev_excl_max or exclusive_max
+                        else:
+                            cum_max, cum_excl_max = prev_max, prev_excl_max
+                    else:
+                        cum_max = max_val if max_val is not None else prev_max
+                        cum_excl_max = exclusive_max if max_val is not None else prev_excl_max
+
+                    # Evaluate contradiction using accumulated flags
+                    if is_comparable(cum_min, cum_max):
+                        if cum_min > cum_max or (cum_min == cum_max and (cum_excl_min or cum_excl_max)):
+                            raise ValueError(f"Config Error: Field '{rule.field}' has contradictory range rules.")
+
+                    field_ranges[rule.field] = (cum_min, cum_max, cum_excl_min, cum_excl_max)
+                else:
+                    field_ranges[rule.field] = (min_val, max_val, exclusive_min, exclusive_max)
+
+    @staticmethod
+    def filter_incremental(df: pd.DataFrame, watermark_col: str, current_watermark: Any) -> pd.DataFrame:
+        """Filters a DataFrame to only include rows strictly greater than the current watermark."""
+        if current_watermark is None or df.empty:
+            return df
+
+        if watermark_col not in df.columns:
+            raise ValueError(f"Incremental column '{watermark_col}' missing from DataFrame.")
+
+        # Dynamically cast watermark to match the DataFrame column type
+        col_type = df[watermark_col].dtype
+        if pd.api.types.is_numeric_dtype(col_type):
+            cast_watermark = type(df[watermark_col].iloc[0])(current_watermark)
+        else:
+            cast_watermark = str(current_watermark)
+
+        return df[df[watermark_col] > cast_watermark]
 
     @classmethod
-    def from_config(cls, yaml_path: str) -> 'DataValidator':
+    def from_config(cls, yaml_path: str, allow_rule_failures: bool = False) -> 'DataValidator':
         """Instantiates the validator directly from a YAML configuration file."""
         try:
             with open(yaml_path, 'r') as f:
                 data = yaml.safe_load(f)
 
-            # Edge Case Fix: Prevent NoneType exceptions on empty files
             if data is None:
                 raise ValueError("YAML file is completely empty.")
 
+            # Extract version directly here
+            version = data.get('version', 'unknown')
             rules_data = data.get('rules', [])
             rules = [ConfigRule(**r) for r in rules_data]
-            return cls(rules)
-
+            return cls(rules, version, allow_rule_failures=allow_rule_failures)
+        
         except (FileNotFoundError, yaml.YAMLError) as e:
             raise ValueError(f"Config parse failed: {e}")
-        # Note: Pydantic ValidationErrors bubble up natively without being caught here.
+
+    def _validate_schema(self, df: pd.DataFrame):
+        """Ensures all fields required by the rules exist in the DataFrame before execution."""
+        required_fields = {str(rule.field) for rule in self.rules if rule.field}
+        missing_fields = required_fields - set(df.columns)
+        if missing_fields:
+            raise ValueError(f"Pipeline failed to start. Missing required columns: {', '.join(missing_fields)}")
 
     def validate(self, df: pd.DataFrame) -> ValidationResult:
         """Executes the validation pipeline and generates a report."""
+        if df.empty:
+            return ValidationResult(
+                config_version=getattr(self, 'version', 'unknown'),
+                passed=False,
+                total_rows_affected=0,
+                errors = [{"rule": "empty_dataframe", "field": None, "count": 1}],
+                rule_timings = {}
+            )
+        self._validate_schema(df)
+
+        # NEW: Apply transforms to a working copy so validation rules evaluate clean data
+        df_working = df.copy()
+        for rule in self.rules:
+            if rule.type == "transform":
+                try:
+                    df_working = rule.apply_transform(df_working)
+                except Exception as e:
+                    logger.error(f"FATAL ERROR: Transform '{rule.name}' crashed during validation setup: {e}")
+
         errors = []
         warnings = []
+        skipped = []
         sample_bad = {}
         affected_indices = set()
+
+        # Dictionary to track boolean failure masks by rule name
+        rule_failure_masks = {}
+        rule_timings = {}
 
         for rule in self.rules:
             # Skip evaluation for transform rules
             if rule.type == "transform":
                 continue
+            # --- START PROFILING TIMER ---
+            start_time = time.perf_counter()
 
             # --- Fail-Safe Implementation ---
             try:
-                bad_mask = rule.evaluate(df)
+                # IMPORTANT: Evaluate against df_working, not the raw df
+                # 1. Evaluate the rule independently
+                bad_mask = rule.evaluate(df_working)
+                # bad_mask = rule.evaluate(df)
+
+                # 2. Suppress failures if a dependency already failed this row
+                if rule.depends_on:
+                    for dep_name in rule.depends_on:
+                        if dep_name in rule_failure_masks:
+                            # Flips the dependency's True (failed) to False (ignore)
+                            bad_mask = bad_mask & ~rule_failure_masks[dep_name]
+                        else:
+                            logger.warning(
+                                f"Dependency '{dep_name}' for rule '{rule.name}' not found or not executed yet.")
+
+                # 3. Store the final evaluated mask for future dependencies
+                rule_failure_masks[rule.name] = bad_mask
             except Exception as e:
-                logger.error(f"FATAL ERROR: Rule '{rule.name}' crashed during validation: {e}. Skipping rule.")
+                logger.error(
+                    f"Rule '{rule.name}' crashed and DID NOT RUN: {type(e).__name__}: {e}")
+                skipped.append({
+                    "rule": rule.name,
+                    "field": rule.field,
+                    "reason": f"{type(e).__name__}: {e}",
+                })
                 continue
+            finally:
+                # --- RECORD RULE DURATION ---
+                duration = time.perf_counter() - start_time
+                rule_timings[rule.name] = round(duration, 6)
 
             bad_count = int(bad_mask.sum())
 
             if bad_count > 0:
-                bad_rows = df[bad_mask]
+                bad_rows = df_working[bad_mask]
                 sample = []
 
                 # Gather samples for debugging
@@ -204,23 +410,25 @@ class DataValidator:
                 elif rule.severity == "WARNING":
                     warnings.append(report_item)
                     affected_indices.update(bad_rows.index.tolist())
-                # Note: INFO severity records issues but does not count them as "affected rows"
 
-        passed = len(errors) == 0
+        passed = len(errors) == 0 and (self.allow_rule_failures or not skipped)
         return ValidationResult(
+            config_version=self.version,  # Injected natively
             passed=passed,
             total_rows_affected=len(affected_indices),
             errors=errors,
             warnings=warnings,
-            sample_bad_rows=sample_bad
+            sample_bad_rows=sample_bad,
+            rule_timings=rule_timings,
+            skipped_rules=skipped
+
         )
 
     def clean(self, df: pd.DataFrame, strict: bool = True, target_rules: Optional[List[str]] = None) -> pd.DataFrame:
         """
         Cleans the dataset by applying transforms and removing invalid rows.
-        If strict=True, all rows with ERRORs are dropped.
-        If strict=False, only rows failing 'target_rules' are dropped.
         """
+        self._validate_schema(df)
         df_clean = df.copy()
 
         # 1. First Pass: Apply Transforms
@@ -235,21 +443,47 @@ class DataValidator:
 
         # 2. Second Pass: Filter rows
         drop_indices = set()
+        skipped = []
+        # NEW: Track failures to support rule dependencies during cleaning
+        rule_failure_masks = {}
         for rule in self.rules:
             if rule.type == "transform":
                 continue
 
             # --- Fail-Safe Implementation for Cleaning ---
             try:
+                # 1. Evaluate the rule independently (Must evaluate all to maintain dependency chain)
+                mask = rule.evaluate(df_clean)
+
+                # 2. Suppress failures if a dependency already failed this row
+                if rule.depends_on:
+                    for dep_name in rule.depends_on:
+                        if dep_name in rule_failure_masks:
+                            mask = mask & ~rule_failure_masks[dep_name]
+                        else:
+                            logger.warning(f"Dependency '{dep_name}' for rule '{rule.name}' not found/executed.")
+
+                # 3. Store the final evaluated mask for future dependencies
+                rule_failure_masks[rule.name] = mask
+
+                # 4. Filter the rows based on strictness settings using the correctly suppressed mask
                 if strict and rule.severity == "ERROR":
-                    mask = rule.evaluate(df_clean)
                     drop_indices.update(df_clean[mask].index.tolist())
                 elif not strict and target_rules and rule.name in target_rules:
-                    mask = rule.evaluate(df_clean)
                     drop_indices.update(df_clean[mask].index.tolist())
             except Exception as e:
-                logger.error(f"FATAL ERROR: Rule '{rule.name}' crashed during cleaning: {e}. Skipping rule.")
+                logger.error(
+                    f"Rule '{rule.name}' crashed and DID NOT RUN during cleaning: "
+                    f"{type(e).__name__}: {e}")
+                skipped.append(rule.name)
                 continue
+
+        if skipped and not self.allow_rule_failures:
+            raise RuntimeError(
+                f"Cleaning aborted: {len(skipped)} rule(s) failed to execute, so their bad "
+                f"rows were NOT removed: {skipped}. Fix the rule, or construct the validator "
+                f"with allow_rule_failures=True to accept partially-cleaned data."
+            )
 
         if drop_indices:
             df_clean = df_clean.drop(index=list(drop_indices))

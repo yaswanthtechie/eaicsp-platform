@@ -33,6 +33,20 @@ UN_XML_PATH = DOWNLOAD_DIR / "un.xml"
 
 EU_XML_PATH = DOWNLOAD_DIR / "eu.xml"
 
+FIXTURE_DIR = DATA_DIR / "fixtures"
+
+OFAC_FIXTURE_PATH = (
+    FIXTURE_DIR / "ofac_sample.csv"
+)
+
+UN_FIXTURE_PATH = (
+    FIXTURE_DIR / "un_sample.xml"
+)
+
+EU_FIXTURE_PATH = (
+    FIXTURE_DIR / "eu_sample.xml"
+)
+
 SNAPSHOT_FILE = (
     SNAPSHOT_DIR
     / "previous_sanctions.json"
@@ -52,6 +66,11 @@ SERVICE_NAME = os.getenv(
     "compliance-service",
 )
 
+ENVIRONMENT = os.getenv(
+    "ENVIRONMENT",
+    "development",
+)
+
 MATCH_THRESHOLD = int(
     os.getenv(
         "MATCH_THRESHOLD",
@@ -66,6 +85,71 @@ DEDUPE_THRESHOLD = int(
     )
 )
 
+
+
+
+CONFIDENCE_WEIGHT = float(
+    os.getenv(
+        "CONFIDENCE_WEIGHT",
+        "0.50",
+    )
+)
+
+SOURCE_WEIGHT = float(
+    os.getenv(
+        "SOURCE_WEIGHT",
+        "0.30",
+    )
+)
+
+RECENCY_WEIGHT = float(
+    os.getenv(
+        "RECENCY_WEIGHT",
+        "0.20",
+    )
+)
+
+SANCTIONS_WEIGHT = float(
+    os.getenv(
+        "SANCTIONS_WEIGHT",
+        "0.80",
+    )
+)
+
+COUNTRY_RISK_WEIGHT = float(
+    os.getenv(
+        "COUNTRY_RISK_WEIGHT",
+        "0.20",
+    )
+)
+
+UNKNOWN_COUNTRY_RISK = float(
+    os.getenv(
+        "UNKNOWN_COUNTRY_RISK",
+        "50.0",
+    )
+)
+
+COUNTRY_RISK_INDEX = {
+    "INDIA": 30,
+    "USA": 20,
+    "UNITED STATES": 20,
+    "UK": 20,
+    "UNITED KINGDOM": 20,
+    "GERMANY": 20,
+    "FRANCE": 25,
+    "CANADA": 20,
+    "AUSTRALIA": 20,
+    "JAPAN": 20,
+    "RUSSIA": 70,
+    "IRAN": 90,
+    "NORTH KOREA": 100,
+}
+
+PLATFORM_AUTH_URL = os.getenv(
+    "PLATFORM_AUTH_URL",
+    "http://127.0.0.1:8005",
+)
 
 
 OFAC_DOWNLOAD_URL = os.getenv(
@@ -85,3 +169,9 @@ EU_DOWNLOAD_URL = os.getenv(
     "",
 )
 
+
+
+USE_FIXTURES = os.getenv(
+    "USE_FIXTURES",
+    "false",
+).lower() == "true"

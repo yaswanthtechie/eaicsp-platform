@@ -155,7 +155,14 @@ POST /api/v1/purchase-orders/draft
 * `warehouse_manager`
 * `procurement_manager`
 
----
+| Situation                                  |                  Response |
+| ------------------------------------------ | ------------------------: |
+| Authorization header missing               |        `401 Unauthorized` |
+| Invalid/expired token                      |        `401 Unauthorized` |
+| User authenticated but role is not allowed |           `403 Forbidden` |
+| Auth service times out                     | `503 Service Unavailable` |
+| Auth service is unavailable                | `503 Service Unavailable` |
+| Unexpected auth-service response           | `503 Service Unavailable` |
 
 # 4. Milestone 3 — Inventory Valuation
 
@@ -168,7 +175,7 @@ Inventory valuation supports:
 
 FIFO consumes the oldest cost layers first.
 
-Example:
+may have different permissions depending on the endpoint.
 
 ```text
 50 units × ₹10
@@ -466,7 +473,7 @@ The goal is:
 
 The README test count should be updated only from the actual final `pytest -v` output.
 
----
+Inventory authentication depends on Rahul's Platform/Auth Service.
 
 # 12. Running the Service
 

@@ -44,14 +44,14 @@ def log_issues(issues: List[Dict[str, Any]], severity_label: str, report: Dict[s
 
     for item in issues:
         log_func(f"{severity_label} -> Rule: {item['rule']} | Field: {item['field']} | Count: {item['count']}")
-        if item['rule'] in report['sample_bad_rows']:
+        if item['rule'] in report.get('sample_bad_rows', {}):
             logger.info(f"     -> Samples for '{item['rule']}':")
             for sample in report['sample_bad_rows'][item['rule']]:
                 logger.info(f"         Row {sample['row_index']}: [{sample['failed_value']}]")
 
 
 def main():
-    # Setup CLI Arguments to remove hardcoded paths
+    # Setup CLI Arguments
     parser = argparse.ArgumentParser(description="Run the Config-Driven Data Validation Pipeline.")
     parser.add_argument("--config", type=str, default=str(PROJECT_ROOT / "configs" / "sales_rules.yaml"),
                         help="Path to the YAML rules config.")
@@ -59,8 +59,17 @@ def main():
                         help="Path to input data.")
     parser.add_argument("--output", type=str, default=str(PROJECT_ROOT / "data" / "clean_sales.csv"),
                         help="Path to save cleaned data.")
-    parser.add_argument("--skip-generate", action="store_true", help="Skip auto-generating data and use existing input file.")
+    parser.add_argument("--skip-generate", action="store_true",
+                        help="Skip auto-generating data and use existing input file.")
     parser.add_argument("--no-strict", action="store_false", dest="strict", help="Disable strict cleaning mode.")
+
+    # Incremental Arguments
+    parser.add_argument("--incremental", action="store_true", help="Only process new rows since the last run.")
+    parser.add_argument("--watermark-col", type=str, default="transaction_id",
+                        help="Column to use for watermarking (e.g., 'date' or 'transaction_id').")
+    parser.add_argument("--watermark-file", type=str, default=str(PROJECT_ROOT / ".watermark.json"),
+                        help="Path to state tracking file.")
+
     args = parser.parse_args()
 
     config_path = Path(args.config)
@@ -92,6 +101,30 @@ def main():
         logger.error(f"FATAL ERROR: An unexpected error occurred while reading the data: {e}")
         return
 
+    # --- INCREMENTAL WATERMARK FILTERING ---
+    if args.incremental:
+        from src.watermark import WatermarkManager
+        wm = WatermarkManager(args.watermark_file)
+
+        if args.watermark_col not in df.columns:
+            logger.error(f"FATAL ERROR: Incremental column '{args.watermark_col}' missing from input data.")
+            return
+
+        current_watermark = wm.get_watermark()
+        if current_watermark is not None:
+            logger.info(f"Incremental Mode: Filtering rows where '{args.watermark_col}' > {current_watermark}")
+
+            # Filter using the centralized method
+            df = DataValidator.filter_incremental(df, args.watermark_col, current_watermark)
+
+            if df.empty:
+                logger.info("No new data to process. Pipeline halting cleanly.")
+                return
+
+            logger.info(f"Identified {len(df)} new rows to validate.")
+        else:
+            logger.info("No previous watermark found. Processing entire dataset (First run).")
+
     # 3. Initialize the config-driven Validator
     logger.info(f"Loading rules from {config_path.name}...")
     try:
@@ -108,11 +141,18 @@ def main():
         logger.error(f"FATAL ERROR: Validation crashed during execution: {e}")
         return
 
-    logger.info(f"Validation Passed: {report['passed']}")
-    logger.info(f"Total Rows Affected: {report['total_rows_affected']}")
+    logger.info(f"Validation Passed: {report.passed}")
+    logger.info(f"Total Rows Affected: {report.total_rows_affected}")
 
-    log_issues(report['errors'], "ERROR", report)
-    log_issues(report['warnings'], "WARNING", report)
+    log_issues(report.errors, "ERROR", report.model_dump())
+    log_issues(report.warnings, "WARNING", report.model_dump())
+
+    # --- RULE PERFORMANCE PROFILING ---
+    if hasattr(report, "rule_timings") and report.rule_timings:
+        logger.info("--- RULE TIMINGS (Slowest First) ---")
+        sorted_timings = sorted(report.rule_timings.items(), key=lambda x: x[1], reverse=True)
+        for rule_name, rule_duration in sorted_timings:
+            logger.info(f"  • {rule_name:30s} : {rule_duration:.6f}s")
 
     # 5. Clean the data
     logger.info(f"Executing cleaning sequence (Strict Mode: {args.strict})...")
@@ -123,11 +163,28 @@ def main():
         logger.error(f"FATAL ERROR: Cleaning crashed during execution: {e}")
         return
 
-    # 6. Save the file
+    # 6. Save the file and Update Watermark
     try:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        clean_df.to_csv(output_path, index=False)
-        logger.info(f"Successfully wrote sanitized dataset to {output_path}")
+
+        if args.incremental and output_path.exists():
+            existing_df = pd.read_csv(output_path)
+            combined_df = pd.concat([existing_df, clean_df]).drop_duplicates(keep='last')
+            combined_df.to_csv(output_path, index=False)
+            logger.info(f"Incremental mode: Upserted {len(clean_df)} sanitized rows to {output_path}")
+        else:
+            # Standard mode (or first run): Write completely new file
+            clean_df.to_csv(output_path, index=False)
+            logger.info(f"Successfully wrote sanitized dataset to {output_path}")
+
+        # Update the state file if validation and saving succeeded
+        if args.incremental and not df.empty:
+            logger.warning(
+                "LIMITATION: Watermark advances past failed rows. Bad rows are not filtered from this check.")
+            new_watermark = df[args.watermark_col].max()
+            wm.set_watermark(new_watermark)
+            logger.info(f"Watermark successfully updated to: {new_watermark}")
+
     except Exception as e:
         logger.error(f"FATAL ERROR: Failed to save cleaned data to {output_path}: {e}")
         return

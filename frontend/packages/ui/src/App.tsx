@@ -15,9 +15,8 @@ import { AlertBanner } from "./components/AlertBanner";
 import { DataTable } from "./components/DataTable";
 import { StatusIndicator } from "./components/StatusIndicator";
 import { Table } from "./components/Table";
-
-
-
+import { TrendLine } from "./components/charts/TrendLine";
+import { MiniBarChart } from "./components/charts/MiniBarChart";
 
 type Inventory = {
   product: string;
@@ -25,24 +24,45 @@ type Inventory = {
   status: string;
 };
 
-const inventoryData: Inventory[] = [
-  {
-    product: "Steel Rod",
-    stock: 120,
-    status: "In Stock",
-  },
-  {
-    product: "Cement",
-    stock: 15,
-    status: "Low Stock",
-  },
-  {
-    product: "Bricks",
-    stock: 0,
-    status: "Out of Stock",
-  },
+const productNames = [
+  "Samsung Galaxy S24",
+  "Apple iPhone 15",
+  "Sony WH-1000XM5 Headphones",
+  "Dell Inspiron 15 Laptop",
+  "HP Pavilion Laptop",
+  "Logitech MX Master 3S",
+  "Apple AirPods Pro",
+  "JBL Flip 6 Speaker",
+  "Canon EOS R50 Camera",
+  "Amazon Echo Dot",
+  "Kindle Paperwhite",
+  "Samsung 55-inch Smart TV",
+  "LG 27-inch Monitor",
+  "Anker Power Bank",
+  "Nike Air Max Shoes",
 ];
 
+const salesData = [
+  { month: "Jan", sales: 120 },
+  { month: "Feb", sales: 150 },
+  { month: "Mar", sales: 180 },
+  { month: "Apr", sales: 160 },
+  { month: "May", sales: 210 },
+];
+
+const inventoryData: Inventory[] = Array.from(
+  { length: 50 },
+  (_, index) => ({
+    product: `${productNames[index % productNames.length]} - ${index + 1}`,
+    stock: (index * 17) % 200,
+    status:
+      index % 3 === 0
+        ? "In Stock"
+        : index % 3 === 1
+          ? "Low Stock"
+          : "Out of Stock",
+  })
+);
 
 const tableColumns: TableColumn<Inventory>[] = [
   {
@@ -62,8 +82,8 @@ const tableColumns: TableColumn<Inventory>[] = [
           row.status === "In Stock"
             ? "success"
             : row.status === "Low Stock"
-            ? "warning"
-            : "danger"
+              ? "warning"
+              : "danger"
         }
       >
         {row.status}
@@ -95,31 +115,20 @@ const tabs: TabItem[] = [
   {
     value: "overview",
     label: "Overview",
-    content: (
-      <p>
-        Welcome to the dashboard overview.
-      </p>
-    ),
+    content: <p>Welcome to the dashboard overview.</p>,
   },
   {
     value: "products",
     label: "Products",
-    content: (
-      <p>
-        Manage all your products here.
-      </p>
-    ),
+    content: <p>Manage all your products here.</p>,
   },
   {
     value: "settings",
     label: "Settings",
-    content: (
-      <p>
-        Configure your application settings.
-      </p>
-    ),
+    content: <p>Configure your application settings.</p>,
   },
 ];
+
 const kpis = [
   {
     label: "Revenue",
@@ -143,8 +152,8 @@ const kpis = [
   },
 ];
 
-
 function App() {
+  const [performanceTest, setPerformanceTest] = useState(0);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showToast, setShowToast] = useState(false);
 
@@ -159,24 +168,29 @@ function App() {
     >
       <h1>UI Component Library Documentation</h1>
 
-<p>
-  A reusable React + TypeScript component library built for dashboard
-  applications. Each section below contains a live example, supported variants,
-  and usage guidance.
-</p>
+      <p>
+        A reusable React + TypeScript component library built for dashboard
+        applications. Each section below contains a live example, supported
+        variants, and usage guidance.
+      </p>
 
-<hr />
+      <hr />
 
-      {/* Buttons */}
-
+      {/* Button */}
       <h2>Button</h2>
 
-<p>
-  A reusable button component used for user actions. It supports different
-  variants, sizes, loading, and disabled states.
-</p>
+      <p>
+        A reusable button component used for user actions. It supports
+        different variants, sizes, loading, and disabled states.
+      </p>
 
-      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+      <div
+        style={{
+          display: "flex",
+          gap: "10px",
+          flexWrap: "wrap",
+        }}
+      >
         <Button
           variant="primary"
           size="sm"
@@ -219,144 +233,124 @@ function App() {
           Disabled
         </Button>
       </div>
+
       {/* Card */}
+      <h2>Card</h2>
 
-<h2>Card</h2>
+      <p>
+        A reusable container for grouping related content.
+      </p>
 
-<p>
-  A reusable container for grouping related content.
-</p>
+      <Card
+        title="Inventory Summary"
+        actions={
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => alert("View Details")}
+          >
+            View
+          </Button>
+        }
+      >
+        <p>
+          This card displays reusable content with a title, actions, and body.
+        </p>
+      </Card>
 
-<Card
-  title="Inventory Summary"
-  actions={
-    <Button
-      variant="primary"
-      size="sm"
-      onClick={() => alert("View Details")}
-    >
-      View
-    </Button>
-  }
->
-  <p>
-    This card displays reusable content with a title, actions, and body.
-  </p>
-</Card>
-<h2>Status Indicator</h2>
+      {/* Status Indicator */}
+      <h2>Status Indicator</h2>
 
-<p>
-  Shows the current status using a colored badge.
-</p>
+      <p>
+        Shows the current status using a colored indicator.
+      </p>
 
-<div
-  style={{
-    display: "flex",
-    gap: "12px",
-    flexWrap: "wrap",
-  }}
->
-  <StatusIndicator
-    status="online"
-    label="Online"
-  />
+      <div
+        style={{
+          display: "flex",
+          gap: "12px",
+          flexWrap: "wrap",
+        }}
+      >
+        <StatusIndicator status="online" label="Online" />
+        <StatusIndicator status="pending" label="Pending" />
+        <StatusIndicator status="offline" label="Offline" />
+        <StatusIndicator status="success" label="Completed" />
+        <StatusIndicator status="warning" label="Warning" />
+        <StatusIndicator status="error" label="Failed" />
+      </div>
 
-  <StatusIndicator
-    status="pending"
-    label="Pending"
-  />
-
-  <StatusIndicator
-    status="offline"
-    label="Offline"
-  />
-
-  <StatusIndicator
-    status="success"
-    label="Completed"
-  />
-
-  <StatusIndicator
-    status="warning"
-    label="Warning"
-  />
-
-  <StatusIndicator
-    status="error"
-    label="Failed"
-  />
-</div>
-
-      {/* Badges */}
-
+      {/* Badge */}
       <h2>Badge</h2>
 
-<p>
-  Displays status labels such as success, warning, danger, and neutral.
-</p>
+      <p>
+        Displays status labels such as success, warning, danger, and neutral.
+      </p>
 
-      <div style={{ display: "flex", gap: "10px" }}>
+      <div
+        style={{
+          display: "flex",
+          gap: "10px",
+        }}
+      >
         <Badge status="success">Success</Badge>
         <Badge status="warning">Warning</Badge>
         <Badge status="danger">Danger</Badge>
         <Badge status="neutral">Neutral</Badge>
       </div>
 
-      {/* KPI Card
-{/* KPI Cards */}
+      {/* KPI Card */}
+      <h2>KPI Card</h2>
 
-<h2>KPI Card</h2>
+      <p>
+        Displays a single key performance indicator with an optional
+        percentage change.
+      </p>
 
-<p>
-  Displays a single key performance indicator with an optional percentage change.
-</p>
+      <div
+        style={{
+          display: "flex",
+          gap: "20px",
+          flexWrap: "wrap",
+        }}
+      >
+        <KpiCard
+          label="Forecast Accuracy"
+          value="92.4%"
+          delta={2.1}
+        />
 
-<div
-  style={{
-    display: "flex",
-    gap: "20px",
-    flexWrap: "wrap",
-  }}
->
-  <KpiCard
-    label="Forecast Accuracy"
-    value="92.4%"
-    delta={2.1}
-  />
+        <KpiCard
+          label="Revenue"
+          value="₹5.2M"
+          delta={5.4}
+        />
 
-  <KpiCard
-    label="Revenue"
-    value="₹5.2M"
-    delta={5.4}
-  />
+        <KpiCard
+          label="Inventory"
+          value="120"
+          delta={-3.5}
+        />
+      </div>
 
-  <KpiCard
-    label="Inventory"
-    value="120"
-    delta={-3.5}
-  />
-</div>
-{/* KPI Grid */}
-<h2>KPI Grid</h2>
+      {/* KPI Grid */}
+      <h2>KPI Grid</h2>
 
-<p>
-  Arranges multiple KPI cards in a responsive grid layout.
-</p>
+      <p>
+        Arranges multiple KPI cards in a responsive grid layout.
+      </p>
 
-
-<KpiGrid
-  items={kpis}
-  columns={2}
-/>
-
+      <KpiGrid
+        items={kpis}
+        columns={2}
+      />
 
       {/* Modal */}
-
       <h2>Modal</h2>
 
-<p>
-  Displays content in an accessible dialog window.
-</p>
+      <p>
+        Displays content in an accessible dialog window.
+      </p>
 
       <Button
         variant="primary"
@@ -403,135 +397,182 @@ function App() {
           </Button>
         </div>
       </Modal>
+
       {/* Tabs */}
- <h2>Tabs</h2>
+      <h2>Tabs</h2>
 
-<p>
-  Organizes content into multiple tab panels.
-</p>
+      <p>
+        Organizes content into multiple tab panels.
+      </p>
 
-<Tabs items={tabs} />
-{/* Toast */}
- <h2>Toast</h2>
+      <Tabs items={tabs} />
 
-<p>
-  Displays temporary notification messages.
-</p>
+      {/* Toast */}
+      <h2>Toast</h2>
 
-<Button
-  variant="primary"
-  size="md"
-  onClick={() => setShowToast(true)}
->
-  Show Toast
-</Button>
+      <p>
+        Displays temporary notification messages.
+      </p>
 
-{showToast && (
-  <Toast
-    id={1}
-    title="Product Saved Successfully!"
-    description="The product has been saved successfully."
-    variant="success"
-    onClose={() => setShowToast(false)}
-  />
-)}
-{/* Spinner */}
+      <Button
+        variant="primary"
+        size="md"
+        onClick={() => setShowToast(true)}
+      >
+        Show Toast
+      </Button>
 
-<h2>Spinner</h2>
+      {showToast && (
+        <Toast
+          id={1}
+          title="Product Saved Successfully!"
+          description="The product has been saved successfully."
+          variant="success"
+          onClose={() => setShowToast(false)}
+        />
+      )}
 
-<p>
-  Indicates loading or processing state.
-</p>
+      {/* Spinner */}
+      <h2>Spinner</h2>
 
-<div
-  style={{
-    display: "flex",
-    gap: "30px",
-    alignItems: "center",
-  }}
->
-  <div>
-    <p>Small</p>
-    <Spinner size="sm" />
-  </div>
+      <p>
+        Indicates loading or processing state.
+      </p>
 
-  <div>
-    <p>Medium</p>
-    <Spinner size="md" />
-  </div>
+      <div
+        style={{
+          display: "flex",
+          gap: "30px",
+          alignItems: "center",
+        }}
+      >
+        <div>
+          <p>Small</p>
+          <Spinner size="sm" />
+        </div>
 
-  <div>
-    <p>Large</p>
-    <Spinner size="lg" />
-  </div>
-</div>
-<h2>Alert Banner</h2>
+        <div>
+          <p>Medium</p>
+          <Spinner size="md" />
+        </div>
 
-<p>
-  Highlights important messages and optional actions.
-</p>
+        <div>
+          <p>Large</p>
+          <Spinner size="lg" />
+        </div>
+      </div>
 
-<AlertBanner
-  type="warning"
-  title="Inventory Running Low"
-  message="Some products are below the minimum stock level."
-  actionLabel="View Inventory"
-  onAction={() => alert("Opening Inventory")}
-/>
+      {/* Alert Banner */}
+      <h2>Alert Banner</h2>
 
-<div style={{ height: 16 }} />
+      <p>
+        Highlights important messages and optional actions.
+      </p>
 
-<AlertBanner
-  type="success"
-  title="Backup Completed"
-  message="Today's backup completed successfully."
-/>
+      <AlertBanner
+        type="warning"
+        title="Inventory Running Low"
+        message="Some products are below the minimum stock level."
+        actionLabel="View Inventory"
+        onAction={() => alert("Opening Inventory")}
+      />
 
-<div style={{ height: 16 }} />
+      <div style={{ height: 16 }} />
 
-<AlertBanner
-  type="danger"
-  title="Server Offline"
-  message="The reporting server is currently unavailable."
-/>
+      <AlertBanner
+        type="success"
+        title="Backup Completed"
+        message="Today's backup completed successfully."
+      />
 
-<div style={{ height: 16 }} />
+      <div style={{ height: 16 }} />
 
-<AlertBanner
-  type="info"
-  title="New Update Available"
-  message="Version 2.0 is ready to install."
-  actionLabel="Update"
-  onAction={() => alert("Updating...")}
-/>
+      <AlertBanner
+        type="danger"
+        title="Server Offline"
+        message="The reporting server is currently unavailable."
+      />
+
+      <div style={{ height: 16 }} />
+
+      <AlertBanner
+        type="info"
+        title="New Update Available"
+        message="Version 2.0 is ready to install."
+        actionLabel="Update"
+        onAction={() => alert("Updating...")}
+      />
 
       {/* Table */}
-
       <h2>Table</h2>
 
-<p>
-  Displays tabular data with customizable columns.
-</p>
+      <p>
+        Displays tabular data with customizable columns.
+      </p>
 
-  <Table
-  columns={tableColumns}
-  data={inventoryData}
-  rowKey={(row) => row.product}
-  loading={false}
-  emptyMessage="Inventory is empty"
-/>
-<h2>Data Table</h2>
+      <Table
+        columns={tableColumns}
+        data={inventoryData}
+        rowKey={(row) => row.product}
+        loading={false}
+        emptyMessage="Inventory is empty"
+      />
 
-<p>
-  Extends the table with sorting, filtering, pagination, and row selection.
-</p>
+      {/* Data Table */}
+      <h2>Data Table</h2>
+
+      <p>
+        Extends the table with sorting, filtering, pagination, and row
+        selection.
+      </p>
+<Button
+  variant="secondary"
+  size="sm"
+  onClick={() => setPerformanceTest((value) => value + 1)}
+>
+  Test Re-render: {performanceTest}
+</Button>
 
 <DataTable
   columns={dataTableColumns}
   data={inventoryData}
   rowKey={(row) => row.product}
+  selectableRows
+/>
+
+      {/* Data Visualization */}
+      <h2>Data Visualization</h2>
+
+      <p>
+        Reusable charts for displaying trends and comparing data.
+      </p>
+
+      {/* Trend Line */}
+      <h3>Trend Line</h3>
+
+      <p>
+        Shows how sales change over time.
+      </p>
+
+      <TrendLine
+        data={salesData}
+        xKey="month"
+        yKey="sales"
+      />
+      <h3>Mini Bar Chart</h3>
+
+<p>
+  Displays sales values using compact bars for easy comparison.
+</p>
+
+<MiniBarChart
+  data={salesData}
+  xKey="month"
+  yKey="sales"
 />
     </div>
+       
+    
   );
 }
 

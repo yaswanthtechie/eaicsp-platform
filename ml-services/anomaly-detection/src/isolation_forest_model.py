@@ -13,8 +13,8 @@ class IsolationForestModel:
     def __init__(
         self,
         contamination=0.004,
-        n_estimators=100,
-        max_samples="auto",
+        n_estimators=500,
+        max_samples=1.0,
         random_state=42,
     ):
         self.model = IsolationForest(

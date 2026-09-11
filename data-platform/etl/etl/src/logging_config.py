@@ -1,10 +1,8 @@
 import logging
 from pathlib import Path
 
-from config import LOG_DIR
-
-log_folder = LOG_DIR
-log_folder.mkdir(parents=True, exist_ok=True)
+log_folder = Path("logs")
+log_folder.mkdir(exist_ok=True)
 
 logger = logging.getLogger("sales_etl")
 logger.setLevel(logging.INFO)

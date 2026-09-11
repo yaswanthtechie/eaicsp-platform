@@ -3,4 +3,6 @@ uvicorn==0.51.0
 pydantic==2.13.4
 python-multipart==0.0.32
 pytest==9.1.1
+pytest-asyncio==1.2.0
 httpx==0.28.1
+pydantic-settings==2.15.0

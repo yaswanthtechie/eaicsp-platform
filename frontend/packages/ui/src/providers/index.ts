@@ -1,10 +1,5 @@
-export { ThemeProvider, ThemeContext } from "./ThemeProvider";
-export { ToastProvider, ToastContext } from "./ToastProvider";
+export { ThemeProvider } from "./ThemeProvider";
+export { ThemeContext } from "./ThemeContext";
 
-export type { Theme } from "./ThemeProvider";
-
-export type {
-  ToastItem,
-  ToastVariant,
-  ToastContextValue,
-} from "./ToastProvider";
+export { ToastProvider } from "./ToastProvider";
+export { ToastContext } from "./ToastContext";
