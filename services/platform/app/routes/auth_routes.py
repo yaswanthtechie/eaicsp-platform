@@ -19,7 +19,8 @@ from app.services.audit_service import (
     create_audit_log,
 )
 from app.models.refresh_token import RefreshToken
-
+from app.core.token_cache import token_cache
+from app.core.permissions import ROLE_PERMISSIONS
 from app.core.service_auth import verify_service_api_key
 from app.schemas.auth import VerifyResponse
 from app.schemas.auth import (
@@ -40,7 +41,9 @@ from app.core.security import (
 )
 from app.core.dependencies import(
     get_current_user,
-    ROLE_HIERARCHY
+    ROLE_HIERARCHY,
+    oauth2_scheme,
+    require_permission
 )
 import logging
 router = APIRouter(
@@ -190,6 +193,7 @@ def refresh_token(
 # ============================================================
 # PERMISSIONS
 # ============================================================
+
 @router.get("/me/permissions")
 def my_permissions(
     user=Depends(get_current_user)
@@ -202,16 +206,11 @@ def my_permissions(
 
     role = user.role.name
 
+    permissions = ROLE_PERMISSIONS.get(role, set())
+
     return {
         "role": role,
-        "permissions": sorted(
-            list(
-                ROLE_HIERARCHY.get(
-                    role,
-                    {role}
-                )
-            )
-        )
+        "permissions": sorted(list(permissions)),
     }
 
 # ============================================================
@@ -294,37 +293,11 @@ def password_reset_confirm(
     return {
         "message": "Password has been reset successfully."
     }
-
 # ============================================================
-# VERIFY
+# SERVICE-VERIFY
 # ============================================================
 
 logger = logging.getLogger("platform.request")
-
-@router.post(
-    "/verify",
-    response_model=VerifyResponse,
-)
-def verify_access_token(
-    current_user: User = Depends(get_current_user),
-):
-    response_data = {
-        "valid":True,
-        "user_id": current_user.id,
-        "email": current_user.email,
-        "full_name": current_user.full_name,
-        "role": current_user.role.name if current_user.role else None,
-        "supplier_id": current_user.supplier_id,
-        "is_active": current_user.is_active,
-    }
-
-    logger.info(
-        "Token verified | user_id=%s | role=%s | endpoint=/api/v1/auth/verify ",
-        current_user.id,
-        current_user.role.name if current_user.role else None,
-    )
-
-    return response_data
 
 @router.post("/service-verify")
 def service_verify(
@@ -335,3 +308,65 @@ def service_verify(
         "service": service["service"],
         "auth_type": service["auth_type"],
     }
+
+# ============================================================
+# VERIFY
+# ============================================================
+
+@router.post(
+    "/verify",
+    response_model=VerifyResponse,
+)
+def verify_access_token(
+    current_user: User = Depends(get_current_user),
+    token: str = Depends(oauth2_scheme),
+):
+    cached_response = token_cache.get(token)
+
+    if cached_response is not None:
+        logger.info(
+            "Token verification cache HIT | endpoint=/api/v1/auth/verify"
+        )
+        return cached_response
+
+    response_data = {
+        "valid": True,
+        "user_id": current_user.id,
+        "email": current_user.email,
+        "full_name": current_user.full_name,
+        "role": current_user.role.name if current_user.role else None,
+        "supplier_id": current_user.supplier_id,
+        "is_active": current_user.is_active,
+    }
+
+    token_cache.set(token, response_data)
+
+    logger.info(
+        "Token verification cache MISS | user_id=%s | role=%s | endpoint=/api/v1/auth/verify",
+        current_user.id,
+        current_user.role.name if current_user.role else None,
+    )
+
+    return response_data
+
+# ============================================================
+# TESTING
+# ============================================================
+@router.get(
+    "/inventory-test",
+    dependencies=[
+        Depends(require_permission("inventory:write"))
+    ]
+)
+def inventory_test(user=Depends(get_current_user)):
+    return {
+        "message": "Inventory write permission granted",
+        "user": {
+            "user_id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role.name if user.role else None,
+            "is_active": user.is_active,
+        }
+    }
+
