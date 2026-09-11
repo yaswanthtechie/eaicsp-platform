@@ -339,3 +339,10 @@ In the next round, I will work on the UI using the available **UI component libr
 
 The functionality and dashboard logic are already implemented, so the next focus will be on improving the user experience and making the dashboard look more professional.
 
+### Git Change Summary of files
+
+This round contains **44 changed files**, with **9,071 additions and 683 deletions**. The large number of changes is mainly because the previous Round 3 implementation used shared UI components, which were removed and replaced with simpler local UI implementations.
+
+New files were also added for the Round 4 dashboard features and testing. Existing components were updated to support URL-based filters, KPI drill-down, cross-filtering, WebSocket updates, loading/error handling, visualization changes, and performance requirements.
+
+Therefore, the additions and deletions include both the removal of the previous shared UI implementation and the new logic required for the  Combined Round 4+5+6 functionality.
