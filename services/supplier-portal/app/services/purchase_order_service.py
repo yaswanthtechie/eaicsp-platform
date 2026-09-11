@@ -6,6 +6,12 @@ from app.schemas.purchase_order import (
     PurchaseOrderStatus,
 )
 
+from app.services.po_p2p_state_machine import (
+    P2PState,
+    initialize_p2p_state,
+    remove_p2p_state,
+)
+
 # In-memory po storage
 purchase_orders = {}
 
@@ -181,30 +187,45 @@ def update_purchase_order(
 
     return existing_po
 
+#delete purchase order and remove p2p state
+
 def delete_purchase_order(po_number: str):
     if po_number not in purchase_orders:
         return False
 
     del purchase_orders[po_number]
 
+    remove_p2p_state(po_number)
+
     return True
 
 
 def acknowledge_purchase_order(po_number: str):
     """
-    Acknowledge an existing Purchase Order
-    using the state machine.
+    Acknowledge an existing Purchase Order.
+
+    Once the PO reaches acknowledged status, the shared
+    P2P workflow starts from the acknowledged stage.
     """
 
-    return transition_purchase_order(
+    purchase_order = transition_purchase_order(
         po_number,
         "supplier",
         PurchaseOrderStatus.acknowledged,
     )
 
+    if purchase_order is None:
+        return None
+
+    initialize_p2p_state(
+        po_number,
+        P2PState.acknowledged,
+    )
+
+    return purchase_order
+
+
 # valid transitions and history tracking
-
-
 
 VALID_TRANSITIONS = {
     PurchaseOrderStatus.draft: [

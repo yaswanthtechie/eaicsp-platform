@@ -1292,8 +1292,15 @@ def test_supplier_cannot_transition_purchase_order(
     purchase_orders["PO3003"] = {
         "po_number": "PO3003",
         "supplier_id": "SUP001",
-        "items": [],
-        "total_amount": 0,
+        "items": [
+        {
+            "item_code": "ITEM001",
+            "description": "Test Item",
+            "quantity": 1,
+            "unit_price": 7000,
+       }
+    ],
+        "total_amount": 7000,
         "status": "draft",
         "created_at": "2026-07-23T10:00:00",
         "expected_delivery": "2026-07-30",
@@ -1837,3 +1844,161 @@ def test_procurement_manager_can_delete_any_supplier_po(
     assert response.status_code == 200
 
     assert "PO3017" not in purchase_orders
+
+def test_supplier_without_supplier_id_cannot_get_po(
+    procurement_client,
+    supplier_no_id_client,
+):
+    purchase_orders["PO3018"] = {
+        "po_number": "PO3018",
+        "supplier_id": "SUP001",
+        "items": [],
+        "total_amount": 5000,
+        "status": "draft",
+        "created_at": "2026-07-23T10:00:00",
+        "expected_delivery": "2026-07-30",
+        "actual_delivery_date": None,
+        "history": [],
+    }
+
+    response = supplier_no_id_client.get(
+        "/api/v1/purchase-orders/PO3018"
+    )
+
+    assert response.status_code == 403
+
+def test_supplier_without_supplier_id_cannot_acknowledge_po(
+    procurement_client,
+    supplier_no_id_client,
+):
+    purchase_orders["PO3019"] = {
+        "po_number": "PO3019",
+        "supplier_id": "SUP001",
+        "items": [],
+        "total_amount": 5000,
+        "status": "sent",
+        "created_at": "2026-07-23T10:00:00",
+        "expected_delivery": "2026-07-30",
+        "actual_delivery_date": None,
+        "history": [],
+    }
+
+    response = supplier_no_id_client.post(
+        "/api/v1/purchase-orders/PO3019/acknowledge"
+    )
+
+    assert response.status_code == 403
+
+def test_supplier_without_supplier_id_cannot_view_po_events(
+    procurement_client,
+    supplier_no_id_client,
+):
+    purchase_orders["PO3020"] = {
+        "po_number": "PO3020",
+        "supplier_id": "SUP001",
+        "items": [],
+        "total_amount": 5000,
+        "status": "draft",
+        "created_at": "2026-07-23T10:00:00",
+        "expected_delivery": "2026-07-30",
+        "actual_delivery_date": None,
+        "history": [],
+    }
+
+    response = supplier_no_id_client.get(
+        "/api/v1/purchase-orders/PO3020/events"
+    )
+
+    assert response.status_code == 403
+
+def test_procurement_manager_can_view_any_supplier_po(
+    procurement_client,
+):
+    purchase_orders["PO3021"] = {
+        "po_number": "PO3021",
+        "supplier_id": "SUP002",
+        "items": [],
+        "total_amount": 7000,
+        "status": "draft",
+        "created_at": "2026-07-23T10:00:00",
+        "expected_delivery": "2026-07-30",
+        "actual_delivery_date": None,
+        "history": [],
+    }
+
+    response = procurement_client.get(
+        "/api/v1/purchase-orders/PO3021"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["supplier_id"] == "SUP002"
+
+def test_procurement_manager_can_update_any_supplier_po(
+    procurement_client,
+):
+    purchase_orders["PO3022"] = {
+        "po_number": "PO3022",
+        "supplier_id": "SUP002",
+        "items": [
+        {
+            "item_code": "ITEM001",
+            "description": "Test Item",
+            "quantity": 1,
+            "unit_price": 7000,
+       }
+   ],
+        "status": "draft",
+        "created_at": "2026-07-23T10:00:00",
+        "total_amount": 7000,
+        "expected_delivery": "2026-07-30",
+        "actual_delivery_date": None,
+        "history": [],
+    }
+
+    response = procurement_client.put(
+        "/api/v1/purchase-orders/PO3022",
+        json={"total_amount": 7000},
+    )
+
+    assert response.status_code == 200
+
+def test_procurement_manager_can_list_all_purchase_orders(
+    procurement_client,
+):
+    purchase_orders["PO3023"] = {
+        "po_number": "PO3023",
+        "supplier_id": "SUP001",
+        "items": [],
+        "total_amount": 5000,
+        "status": "draft",
+        "created_at": "2026-07-23T10:00:00",
+        "expected_delivery": "2026-07-30",
+        "actual_delivery_date": None,
+        "history": [],
+    }
+
+    purchase_orders["PO3024"] = {
+        "po_number": "PO3024",
+        "supplier_id": "SUP002",
+        "items": [],
+        "total_amount": 7000,
+        "status": "draft",
+        "created_at": "2026-07-23T10:00:00",
+        "expected_delivery": "2026-07-23",
+        "actual_delivery_date": None,
+        "history": [],
+    }
+
+    response = procurement_client.get(
+        "/api/v1/purchase-orders"
+    )
+
+    assert response.status_code == 200
+
+    po_numbers = {
+        po["po_number"]
+        for po in response.json()
+    }
+
+    assert "PO3023" in po_numbers
+    assert "PO3024" in po_numbers

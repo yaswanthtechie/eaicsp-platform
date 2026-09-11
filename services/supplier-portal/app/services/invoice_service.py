@@ -14,6 +14,11 @@ from app.schemas.invoice import (
     InvoiceStatus,
     InvoiceAdjustment,
 )
+from app.services.po_p2p_state_machine import (
+    P2PState,
+    get_p2p_state,
+    transition_p2p,
+)
 
 
 TOLERANCE = 0.05
@@ -375,18 +380,116 @@ def _validate_invoice_line_item(
         "invoice_unit_price": invoice_unit_price,
     }
 
+def _get_unique_invoice_po_numbers(invoice: InvoiceCreate) -> list[str]:
+    """
+    Return unique Purchase Orders referenced by the invoice,
+    preserving the original order.
+    """
+    return list(
+        dict.fromkeys(
+            item.po_number
+            for item in invoice.items
+        )
+    )
+
+def _validate_p2p_invoice_state(
+    invoice: InvoiceCreate,
+) -> list[str]:
+    """
+    Validate that every Purchase Order referenced by the invoice
+    is eligible for invoice creation.
+
+    Validation order:
+
+    1. PO must exist.
+    2. PO business status must be acknowledged or fulfilled.
+    3. P2P state must be initialized.
+    4. P2P state must be 'received'.
+
+    Returns the unique PO numbers so they can be transitioned
+    atomically after all invoice validations succeed.
+    """
+
+    po_numbers = _get_unique_invoice_po_numbers(invoice)
+
+    for po_number in po_numbers:
+
+        # ----------------------------------------------------
+        # 1. Purchase Order must exist.
+        # ----------------------------------------------------
+
+        if po_number not in purchase_orders:
+            raise ValueError(
+                f"Purchase Order '{po_number}' not found."
+            )
+
+        purchase_order = purchase_orders[po_number]
+
+        # ----------------------------------------------------
+        # 2. PO business status must allow invoicing.
+        #
+        # Draft and sent POs cannot be invoiced.
+        # ----------------------------------------------------
+
+        po_status = purchase_order["status"]
+
+        if po_status not in (
+            PurchaseOrderStatus.acknowledged,
+            PurchaseOrderStatus.fulfilled,
+        ):
+            raise ValueError(
+                f"Purchase Order '{po_number}' "
+                f"has status '{po_status.value}' "
+                f"and cannot be invoiced."
+            )
+
+        # ----------------------------------------------------
+        # 3. P2P state must be initialized.
+        # ----------------------------------------------------
+
+        current_state = get_p2p_state(po_number)
+
+        if current_state is None:
+            raise ValueError(
+                f"P2P workflow state is not initialized "
+                f"for Purchase Order '{po_number}'."
+            )
+
+        # ----------------------------------------------------
+        # 4. Goods receipt must be completed.
+        #
+        # Invoice creation is allowed only when the
+        # shared P2P workflow reaches 'received'.
+        # ----------------------------------------------------
+
+        if current_state != P2PState.received:
+            raise ValueError(
+                f"Purchase Order '{po_number}' cannot be invoiced "
+                f"from P2P state '{current_state.value}'. "
+                f"Invoice creation requires P2P state 'received'."
+            )
+
+    return po_numbers
+
 def create_invoice(invoice: InvoiceCreate):
     """
-    Create an invoice with line-item-level reconciliation.
+    Create and submit an invoice.
 
-    Supports:
+    P2P workflow requirement:
 
-    - Multiple Purchase Orders in one invoice
-    - Partial invoicing
-    - Multiple items from the same PO
-    - Quantity validation
-    - Unit-price tolerance validation
-    - Duplicate invoice protection
+        acknowledged
+            ↓
+        shipped
+            ↓
+        received
+            ↓
+        invoiced
+
+    Invoice creation is allowed only when EVERY Purchase Order
+    referenced by the invoice is in P2PState.received.
+
+    All validations are completed before any invoice data or
+    P2P state is modified.
     """
 
     # ---------------------------------------------------------
@@ -422,7 +525,7 @@ def create_invoice(invoice: InvoiceCreate):
         )
 
     # ---------------------------------------------------------
-    # 4. Validate invoice contains at least one item
+    # 4. Validate invoice contains items
     # ---------------------------------------------------------
 
     if not invoice.items:
@@ -432,7 +535,6 @@ def create_invoice(invoice: InvoiceCreate):
 
     # ---------------------------------------------------------
     # 5. Prevent duplicate PO/item lines
-    #    inside the same invoice
     # ---------------------------------------------------------
 
     seen_items = set()
@@ -456,7 +558,23 @@ def create_invoice(invoice: InvoiceCreate):
         seen_items.add(key)
 
     # ---------------------------------------------------------
-    # 6. Validate every invoice line
+    # 6. Validate ALL P2P states FIRST
+    #
+    # Every PO must already be in:
+    #
+    #     received
+    #
+    # before an invoice can be created.
+    #
+    # This is deliberately done before storing the invoice.
+    # ---------------------------------------------------------
+
+    po_numbers = _validate_p2p_invoice_state(
+        invoice
+    )
+
+    # ---------------------------------------------------------
+    # 7. Validate every invoice line
     # ---------------------------------------------------------
 
     for invoice_item in invoice.items:
@@ -464,7 +582,7 @@ def create_invoice(invoice: InvoiceCreate):
         po_number = invoice_item.po_number
 
         # -----------------------------------------------------
-        # 6.1 Validate PO exists
+        # 7.1 Validate PO exists
         # -----------------------------------------------------
 
         if po_number not in purchase_orders:
@@ -475,7 +593,7 @@ def create_invoice(invoice: InvoiceCreate):
         purchase_order = purchase_orders[po_number]
 
         # -----------------------------------------------------
-        # 6.2 Validate invoice supplier matches PO supplier
+        # 7.2 Validate invoice supplier matches PO supplier
         # -----------------------------------------------------
 
         if (
@@ -491,7 +609,7 @@ def create_invoice(invoice: InvoiceCreate):
             )
 
         # -----------------------------------------------------
-        # 6.3 Validate line item against PO
+        # 7.3 Validate line item
         # -----------------------------------------------------
 
         item_data = invoice_item.model_dump()
@@ -502,7 +620,7 @@ def create_invoice(invoice: InvoiceCreate):
         )
 
     # ---------------------------------------------------------
-    # 7. Calculate expected invoice amount
+    # 8. Calculate expected invoice amount
     # ---------------------------------------------------------
 
     calculated_amount = 0.0
@@ -520,7 +638,7 @@ def create_invoice(invoice: InvoiceCreate):
     )
 
     # ---------------------------------------------------------
-    # 8. Normalize submitted amount
+    # 9. Normalize submitted amount
     # ---------------------------------------------------------
 
     submitted_amount = round(
@@ -529,7 +647,7 @@ def create_invoice(invoice: InvoiceCreate):
     )
 
     # ---------------------------------------------------------
-    # 9. Validate invoice amount
+    # 10. Validate invoice amount
     # ---------------------------------------------------------
 
     if submitted_amount != calculated_amount:
@@ -541,7 +659,7 @@ def create_invoice(invoice: InvoiceCreate):
         )
 
     # ---------------------------------------------------------
-    # 10. Prepare invoice data
+    # 11. Prepare invoice data
     # ---------------------------------------------------------
 
     invoice_data = invoice.model_dump()
@@ -551,26 +669,73 @@ def create_invoice(invoice: InvoiceCreate):
     invoice_data["document_url"] = None
     invoice_data["document_path"] = None
 
-    invoice_data["status"] = (
-        InvoiceStatus.submitted
-    )
+    # New invoice always starts as submitted.
+    invoice_data["status"] = InvoiceStatus.submitted
 
     invoice_data["dispute"] = None
-
     invoice_data["history"] = []
 
     # ---------------------------------------------------------
-    # 11. Store invoice using supplier-scoped key
+    # 12. Store invoice
     # ---------------------------------------------------------
 
     invoices[invoice_key] = invoice_data
 
     # ---------------------------------------------------------
-    # 12. Return created invoice
+    # 13. Advance P2P state
+    #
+    #     received → invoiced
+    #
+    # At this point ALL validations have already succeeded.
+    # ---------------------------------------------------------
+
+    transitioned_po_numbers = []
+
+    try:
+
+        for po_number in po_numbers:
+
+            transition_p2p(
+                po_number,
+                P2PState.invoiced,
+            )
+
+            transitioned_po_numbers.append(
+                po_number
+            )
+
+    except ValueError:
+
+        # -----------------------------------------------------
+        # Roll back invoice creation
+        # -----------------------------------------------------
+
+        invoices.pop(
+            invoice_key,
+            None,
+        )
+
+        # -----------------------------------------------------
+        # Roll back any P2P transitions that already happened.
+        #
+        # In-memory implementation: restore received state.
+        # -----------------------------------------------------
+
+        from app.services.po_p2p_state_machine import p2p_states
+
+        for po_number in transitioned_po_numbers:
+
+            p2p_states[po_number] = (
+                P2PState.received
+            )
+
+        raise
+
+    # ---------------------------------------------------------
+    # 14. Return invoice
     # ---------------------------------------------------------
 
     return invoices[invoice_key]
-
 
 
 # ---------------------------------------------------------
@@ -908,6 +1073,9 @@ def adjust_invoice(
     supplier_id: str,
     invoice_number: str,
     adjustment: InvoiceAdjustment,
+    actor_id: str,
+    actor_name: str,
+    role: str,
 ):
     """
     Adjust a disputed invoice.
@@ -926,7 +1094,10 @@ def adjust_invoice(
             ↓
         transition endpoint
             ↓
-        approved
+        approved / rejected
+
+    Audit identity is taken from the authenticated
+    Platform user and is NOT accepted from the request body.
 
     This endpoint changes the actual invoice data.
     """
@@ -962,7 +1133,26 @@ def adjust_invoice(
         )
 
     # ========================================================
-    # 4. Build supplier-scoped invoice key
+    # 4. Validate authenticated audit identity
+    # ========================================================
+
+    if actor_id is None or not str(actor_id).strip():
+        raise ValueError(
+            "Authenticated user ID is required."
+        )
+
+    if not actor_name or not actor_name.strip():
+        raise ValueError(
+            "Authenticated user name is required."
+        )
+
+    if not role or not role.strip():
+        raise ValueError(
+            "Authenticated user role is required."
+        )
+
+    # ========================================================
+    # 5. Build supplier-scoped invoice key
     # ========================================================
 
     invoice_key = _get_invoice_key(
@@ -971,7 +1161,7 @@ def adjust_invoice(
     )
 
     # ========================================================
-    # 5. Check invoice exists for this supplier
+    # 6. Check invoice exists for this supplier
     # ========================================================
 
     if invoice_key not in invoices:
@@ -984,7 +1174,7 @@ def adjust_invoice(
     invoice = invoices[invoice_key]
 
     # ========================================================
-    # 6. Only disputed invoices can be adjusted
+    # 7. Only disputed invoices can be adjusted
     # ========================================================
 
     current_status = invoice["status"]
@@ -1000,7 +1190,7 @@ def adjust_invoice(
         )
 
     # ========================================================
-    # 7. Validate adjustment reason
+    # 8. Validate adjustment reason
     # ========================================================
 
     if (
@@ -1012,7 +1202,7 @@ def adjust_invoice(
         )
 
     # ========================================================
-    # 8. Validate adjusted items
+    # 9. Validate adjusted items
     # ========================================================
 
     if not adjustment.items:
@@ -1021,7 +1211,7 @@ def adjust_invoice(
         )
 
     # ========================================================
-    # 9. Prevent duplicate PO/item lines
+    # 10. Prevent duplicate PO/item lines
     # ========================================================
 
     seen_items = set()
@@ -1043,7 +1233,7 @@ def adjust_invoice(
         seen_items.add(key)
 
     # ========================================================
-    # 10. Validate adjusted items
+    # 11. Validate adjusted items
     #
     # Exclude current invoice from existing quantity
     # calculation because its old quantities are being replaced.
@@ -1056,7 +1246,7 @@ def adjust_invoice(
         item_data = item.model_dump()
 
         # ----------------------------------------------------
-        # 10.1 Validate PO exists
+        # 11.1 Validate PO exists
         # ----------------------------------------------------
 
         po_number = item_data["po_number"]
@@ -1069,7 +1259,7 @@ def adjust_invoice(
         purchase_order = purchase_orders[po_number]
 
         # ----------------------------------------------------
-        # 10.2 Validate PO belongs to supplier
+        # 11.2 Validate PO belongs to supplier
         # ----------------------------------------------------
 
         if (
@@ -1083,7 +1273,7 @@ def adjust_invoice(
             )
 
         # ----------------------------------------------------
-        # 10.3 Validate invoice line
+        # 11.3 Validate invoice line
         # ----------------------------------------------------
 
         _validate_invoice_line_item(
@@ -1095,7 +1285,7 @@ def adjust_invoice(
         adjusted_items.append(item_data)
 
     # ========================================================
-    # 11. Calculate new invoice amount
+    # 12. Calculate new invoice amount
     # ========================================================
 
     calculated_amount = 0.0
@@ -1113,7 +1303,7 @@ def adjust_invoice(
     )
 
     # ========================================================
-    # 12. Store old values for audit
+    # 13. Store old values for audit
     # ========================================================
 
     old_amount = invoice["amount"]
@@ -1124,7 +1314,7 @@ def adjust_invoice(
     ]
 
     # ========================================================
-    # 13. Generate UTC timestamp
+    # 14. Generate UTC timestamp
     # ========================================================
 
     timestamp = (
@@ -1134,13 +1324,17 @@ def adjust_invoice(
     )
 
     # ========================================================
-    # 14. Store adjustment audit information
+    # 15. Store adjustment audit information
+    #
+    # IMPORTANT:
+    # actor information comes from the authenticated
+    # Platform user, not from the request body.
     # ========================================================
 
     invoice["adjustment"] = {
-        "actor_id": adjustment.actor_id,
-        "actor_name": adjustment.actor_name,
-        "role": adjustment.role,
+        "actor_id": str(actor_id),
+        "actor_name": actor_name,
+        "role": role,
         "reason": adjustment.reason,
         "timestamp": timestamp,
         "old_amount": old_amount,
@@ -1150,14 +1344,14 @@ def adjust_invoice(
     }
 
     # ========================================================
-    # 15. Update invoice data
+    # 16. Update invoice data
     # ========================================================
 
     invoice["items"] = adjusted_items
     invoice["amount"] = calculated_amount
 
     # ========================================================
-    # 16. Change status through state machine
+    # 17. Change status through invoice state machine
     #
     # disputed -> adjusted
     # ========================================================
@@ -1165,15 +1359,15 @@ def adjust_invoice(
     transition_invoice(
         supplier_id=supplier_id,
         invoice_number=invoice_number,
-        actor_id=adjustment.actor_id,
-        actor_name=adjustment.actor_name,
-        role=adjustment.role,
+        actor_id=str(actor_id),
+        actor_name=actor_name,
+        role=role,
         target_state=InvoiceStatus.adjusted,
         reason=adjustment.reason,
     )
 
     # ========================================================
-    # 17. Include complete supplier-scoped history
+    # 18. Include complete supplier-scoped history
     # ========================================================
 
     invoice["history"] = list(
@@ -1184,13 +1378,13 @@ def adjust_invoice(
     )
 
     # ========================================================
-    # 18. Save using supplier-scoped key
+    # 19. Save using supplier-scoped key
     # ========================================================
 
     invoices[invoice_key] = invoice
 
     # ========================================================
-    # 19. Return updated invoice
+    # 20. Return updated invoice
     # ========================================================
 
     return invoice

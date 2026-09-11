@@ -126,14 +126,9 @@ class InvoiceAdjustment(BaseModel):
     """
     Request used to adjust a disputed invoice.
 
-    This changes the actual invoice data and moves:
-
-        disputed -> adjusted
+    Authentication/audit information is taken from
+    the authenticated Platform user.
     """
-
-    actor_id: str
-    actor_name: str
-    role: str
 
     items: List[InvoiceLineItem] = Field(
         min_length=1
@@ -144,9 +139,6 @@ class InvoiceAdjustment(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "actor_id": "usr_002",
-                "actor_name": "Rahul",
-                "role": "manager",
                 "items": [
                     {
                         "po_number": "PO1001",
@@ -239,13 +231,13 @@ class InvoiceResponse(BaseModel):
 # ============================================================
 
 class InvoiceTransition(BaseModel):
+    """
+    Request used to change invoice status.
+
+    Audit identity comes from the authenticated user.
+    """
 
     target_state: InvoiceStatus
-
-    actor_id: str
-    actor_name: str
-    role: str
-
     reason: str | None = None
 
 

@@ -8,6 +8,7 @@ from app.main import app
 from app.core.auth import verify_token
 from app.services.purchase_order_service import purchase_orders
 from app.services.invoice_service import invoices
+from app.services.goods_receipt_service import goods_receipts
 from app.schemas.supplier_stats import (
     SupplierStatsResponse,
     SupplierScorecard,
@@ -28,6 +29,10 @@ def setup_function():
     """
     purchase_orders.clear()
     invoices.clear()
+    goods_receipts.clear()
+    app.dependency_overrides.clear()
+
+    authenticate_as(SUPPLIER_1_USER)
 
 
 # ============================================================
@@ -144,6 +149,19 @@ def create_sample_data():
         "invoice_date": "2026-07-23",
         "status": "approved",
         "dispute": None,
+    }
+
+    goods_receipts["GR1001"] = {
+        "receipt_id": "GR1001",
+        "po_number": "PO1001",
+        "supplier_id": "SUP001",
+        "receipt_date": date(2026, 7, 27),
+        "warehouse": "WH001",
+        "received_by": "Warehouse User",
+        "items": [],
+        "status": "received",
+        "created_at": "2026-07-27T10:00:00",
+        "created_by": "warehouse@company.com",
     }
 
 
@@ -577,6 +595,8 @@ def test_supplier_scorecard_details():
     assert po_details["late_percentage"] == 0.0
     assert po_details["fulfillment_rate"] == 50.0
     assert po_details["average_delay_days"] == 0.0
+    assert (po_details["average_fulfillment_time_days"] == 7.0
+)
 
     invoice_details = body["details"]["invoices"]
 
@@ -964,7 +984,6 @@ def test_supplier_stats_schema_validation(
 # SCHEMA - SCORECARD RESPONSE
 # ============================================================
 
-
 def test_supplier_scorecard_schema():
     data = {
         "supplier_id": "SUP001",
@@ -1008,6 +1027,7 @@ def test_supplier_scorecard_schema():
                 "late_percentage": 0.0,
                 "fulfillment_rate": 50.0,
                 "average_delay_days": 0.0,
+                "average_fulfillment_time_days": 8.0,
             },
 
             "invoices": {
@@ -1024,6 +1044,16 @@ def test_supplier_scorecard_schema():
                 "average_cycle_time_days": 3.0,
             },
         },
+
+        "trend": [
+            {
+                "period": "2026-07",
+                "on_time_percentage": 50.0,
+                "dispute_rate_percentage": 0.0,
+                "invoice_accuracy_percentage": 100.0,
+                "average_fulfillment_time_days": 8.0,
+            }
+        ],
     }
 
     model = SupplierScorecard(**data)
@@ -1104,6 +1134,13 @@ def test_supplier_scorecard_schema():
 
     assert (
         model.details
+        .purchase_orders
+        .average_fulfillment_time_days
+        == 8.0
+    )
+
+    assert (
+        model.details
         .invoices
         .pending
         == 1
@@ -1121,6 +1158,33 @@ def test_supplier_scorecard_schema():
         .invoices
         .average_cycle_time_days
         == 3.0
+    )
+
+    assert len(model.trend) == 1
+
+    assert (
+        model.trend[0].period
+        == "2026-07"
+    )
+
+    assert (
+        model.trend[0].on_time_percentage
+        == 50.0
+    )
+
+    assert (
+        model.trend[0].dispute_rate_percentage
+        == 0.0
+    )
+
+    assert (
+        model.trend[0].invoice_accuracy_percentage
+        == 100.0
+    )
+
+    assert (
+        model.trend[0].average_fulfillment_time_days
+        == 8.0
     )
 
 
@@ -1576,3 +1640,207 @@ def test_r5_internal_role_can_access_other_supplier_scorecard():
 
     finally:
         app.dependency_overrides.clear()
+
+
+def test_supplier_scorecard_average_fulfillment_time():
+    """
+    Milestone 4:
+    Average fulfillment time is calculated from
+    PO creation date to Goods Receipt date.
+    """
+
+    create_sample_data()
+
+    response = client.get(
+        "/api/v1/suppliers/SUP001/scorecard"
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    po_details = body["details"]["purchase_orders"]
+
+    # PO1001:
+    # Jul 20 -> Jul 27 = 7 days
+    assert (
+        po_details["average_fulfillment_time_days"]
+        == 7.0
+    )
+
+def test_supplier_scorecard_trend():
+    """
+    Milestone 4:
+    Supplier performance is trended by PO creation month.
+    """
+
+    create_sample_data()
+
+    # --------------------------------------------------------
+    # Second fulfilled PO in July
+    # --------------------------------------------------------
+
+    purchase_orders["PO1003"] = {
+        "po_number": "PO1003",
+        "supplier_id": "SUP001",
+        "status": "fulfilled",
+        "created_at": "2026-07-25T10:00:00",
+        "expected_delivery": date(2026, 8, 2),
+        "actual_delivery_date": date(2026, 8, 1),
+    }
+
+    goods_receipts["GR1003"] = {
+        "receipt_id": "GR1003",
+        "po_number": "PO1003",
+        "supplier_id": "SUP001",
+        "receipt_date": date(2026, 7, 31),
+        "warehouse": "WH001",
+        "received_by": "Warehouse User",
+        "items": [],
+        "status": "received",
+        "created_at": "2026-07-31T10:00:00",
+        "created_by": "warehouse@company.com",
+    }
+
+    # --------------------------------------------------------
+    # July invoice with dispute
+    # --------------------------------------------------------
+
+    invoices["INV1002"] = {
+        "invoice_number": "INV1002",
+        "po_number": "PO1003",
+        "supplier_id": "SUP001",
+        "invoice_date": "2026-07-30",
+        "status": "approved",
+        "dispute": {
+            "reason": "Incorrect price"
+        },
+    }
+
+    response = client.get(
+        "/api/v1/suppliers/SUP001/scorecard"
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    trend = body["trend"]
+
+    assert len(trend) == 1
+
+    july = trend[0]
+
+    assert july["period"] == "2026-07"
+
+    # July has:
+    # PO1001 fulfilled/on-time
+    # PO1003 fulfilled/on-time
+    #
+    # 2 / 2 = 100%
+    assert july["on_time_percentage"] == 100.0
+
+    # July invoices:
+    # INV1001 -> no dispute
+    # INV1002 -> disputed
+    #
+    # 1 / 2 = 50%
+    assert july["dispute_rate_percentage"] == 50.0
+
+    # 1 accurate / 2 total = 50%
+    assert july["invoice_accuracy_percentage"] == 50.0
+
+    # PO1001:
+    # Jul 20 -> Jul 27 = 7 days
+    #
+    # PO1003:
+    # Jul 25 -> Jul 31 = 6 days
+    #
+    # Average = 6.5 days
+    assert (
+        july["average_fulfillment_time_days"]
+        == 6.5
+    )
+
+def test_supplier_scorecard_trend_multiple_months():
+    """
+    Milestone 4:
+    Supplier performance trend contains multiple
+    monthly periods when supplier activity spans
+    multiple months.
+    """
+
+    create_sample_data()
+
+    # --------------------------------------------------------
+    # August PO
+    # --------------------------------------------------------
+
+    purchase_orders["PO2001"] = {
+        "po_number": "PO2001",
+        "supplier_id": "SUP001",
+        "status": "fulfilled",
+        "created_at": "2026-08-05T10:00:00",
+        "expected_delivery": date(2026, 8, 15),
+        "actual_delivery_date": date(2026, 8, 18),
+    }
+
+    goods_receipts["GR2001"] = {
+        "receipt_id": "GR2001",
+        "po_number": "PO2001",
+        "supplier_id": "SUP001",
+        "receipt_date": date(2026, 8, 20),
+        "warehouse": "WH001",
+        "received_by": "Warehouse User",
+        "items": [],
+        "status": "received",
+        "created_at": "2026-08-20T10:00:00",
+        "created_by": "warehouse@company.com",
+    }
+
+    invoices["INV2001"] = {
+        "invoice_number": "INV2001",
+        "po_number": "PO2001",
+        "supplier_id": "SUP001",
+        "invoice_date": "2026-08-21",
+        "status": "submitted",
+        "dispute": None,
+    }
+
+    response = client.get(
+        "/api/v1/suppliers/SUP001/scorecard"
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    trend = body["trend"]
+
+    assert len(trend) == 2
+
+    # Trend is sorted chronologically.
+    assert trend[0]["period"] == "2026-07"
+    assert trend[1]["period"] == "2026-08"
+
+    # July data exists.
+    assert (
+        trend[0]["average_fulfillment_time_days"]
+        == 7.0
+    )
+
+    # August:
+    # Aug 5 -> Aug 20 = 15 days
+    assert (
+        trend[1]["average_fulfillment_time_days"]
+        == 15.0
+    )
+
+    # August delivery was late.
+    assert trend[1]["on_time_percentage"] == 0.0
+
+    # August invoice has no dispute.
+    assert trend[1]["dispute_rate_percentage"] == 0.0
+
+    assert trend[1]["invoice_accuracy_percentage"] == 100.0
+

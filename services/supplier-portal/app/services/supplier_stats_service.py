@@ -2,6 +2,7 @@ from datetime import date, datetime
 
 from app.services.purchase_order_service import purchase_orders
 from app.services.invoice_service import invoices
+from app.services.goods_receipt_service import goods_receipts
 
 
 # ============================================================
@@ -88,12 +89,12 @@ def get_supplier_stats(supplier_id: str):
         invoice
         for invoice in invoices.values()
         if invoice.get("supplier_id") == supplier_id
-   ]
+    ]
 
     if not supplier_purchase_orders and not supplier_invoices:
         raise ValueError(
-          f"Supplier '{supplier_id}' not found."
-    )
+            f"Supplier '{supplier_id}' not found."
+        )
 
     # --------------------------------------------------------
     # Total purchase orders
@@ -277,6 +278,395 @@ def get_supplier_stats(supplier_id: str):
 
 
 # ============================================================
+# MILESTONE 4 - AVERAGE FULFILLMENT TIME
+# ============================================================
+
+def _calculate_average_fulfillment_time(
+    supplier_pos,
+):
+    """
+    Calculate average supplier fulfillment time.
+
+    Fulfillment time:
+        PO created_at -> Goods Receipt receipt_date
+
+    Only POs having both dates are included.
+    Invalid or negative durations are ignored.
+    """
+
+    fulfillment_times = []
+
+    for po in supplier_pos:
+
+        po_number = po.get("po_number")
+
+        created_at = po.get(
+            "created_at"
+        )
+
+        if (
+            po_number is None
+            or created_at is None
+        ):
+            continue
+
+        try:
+            created_date = _to_date(
+                created_at
+            )
+
+        except ValueError:
+            continue
+
+        if created_date is None:
+            continue
+
+        # ----------------------------------------------------
+        # Find goods receipt for this PO
+        # ----------------------------------------------------
+
+        po_receipts = [
+            receipt
+            for receipt in goods_receipts.values()
+            if receipt.get("po_number") == po_number
+            and receipt.get("supplier_id")
+            == po.get("supplier_id")
+        ]
+
+        if not po_receipts:
+            continue
+
+        # A PO should normally have one goods receipt.
+        # If multiple receipts exist, use the earliest
+        # receipt date as the fulfillment completion date.
+        receipt_dates = []
+
+        for receipt in po_receipts:
+
+            receipt_date = receipt.get(
+                "receipt_date"
+            )
+
+            if receipt_date is None:
+                continue
+
+            try:
+                receipt_date = _to_date(
+                    receipt_date
+                )
+            except ValueError:
+                continue
+
+            if receipt_date is not None:
+                receipt_dates.append(
+                    receipt_date
+                )
+
+        if not receipt_dates:
+            continue
+
+        fulfillment_date = min(
+            receipt_dates
+        )
+
+        fulfillment_days = (
+            fulfillment_date - created_date
+        ).days
+
+        # Ignore invalid negative durations.
+        if fulfillment_days >= 0:
+            fulfillment_times.append(
+                fulfillment_days
+            )
+
+    if fulfillment_times:
+        return round(
+            sum(fulfillment_times)
+            / len(fulfillment_times),
+            2,
+        )
+
+    return 0.0
+
+# ============================================================
+# MILESTONE 4 - SUPPLIER PERFORMANCE TREND
+# ============================================================
+
+def _calculate_supplier_trend(
+    supplier_id: str,
+    supplier_pos,
+    supplier_invoices,
+):
+    """
+    Calculate monthly supplier performance trend.
+
+    Trend period:
+        PO creation month (YYYY-MM)
+
+    Metrics:
+        - On-time delivery percentage
+        - Invoice dispute rate
+        - Invoice accuracy percentage
+        - Average fulfillment time
+
+    Monthly on-time percentage is calculated using
+    fulfilled POs as the denominator.
+
+    Existing overall scorecard calculation logic is preserved.
+    """
+
+    # --------------------------------------------------------
+    # Group supplier POs by creation month
+    # --------------------------------------------------------
+
+    monthly_pos = {}
+
+    for po in supplier_pos:
+
+        created_at = po.get(
+            "created_at"
+        )
+
+        if created_at is None:
+            continue
+
+        try:
+
+            created_date = _to_date(
+                created_at
+            )
+
+        except ValueError:
+
+            continue
+
+        if created_date is None:
+            continue
+
+        period = created_date.strftime(
+            "%Y-%m"
+        )
+
+        monthly_pos.setdefault(
+            period,
+            []
+        ).append(po)
+
+    # --------------------------------------------------------
+    # Group invoices by the month of their
+    # associated PO creation date.
+    # --------------------------------------------------------
+
+    monthly_invoices = {}
+
+    for invoice in supplier_invoices:
+
+        po_number = invoice.get(
+            "po_number"
+        )
+
+        purchase_order = purchase_orders.get(
+            po_number
+        )
+
+        if purchase_order is None:
+            continue
+
+        created_at = purchase_order.get(
+            "created_at"
+        )
+
+        if created_at is None:
+            continue
+
+        try:
+
+            created_date = _to_date(
+                created_at
+            )
+
+        except ValueError:
+
+            continue
+
+        if created_date is None:
+            continue
+
+        period = created_date.strftime(
+            "%Y-%m"
+        )
+
+        monthly_invoices.setdefault(
+            period,
+            []
+        ).append(invoice)
+
+    # --------------------------------------------------------
+    # Include months appearing in either POs or invoices.
+    # --------------------------------------------------------
+
+    periods = sorted(
+        set(monthly_pos.keys())
+        | set(monthly_invoices.keys())
+    )
+
+    trend = []
+
+    for period in periods:
+
+        period_pos = monthly_pos.get(
+            period,
+            []
+        )
+
+        period_invoices = monthly_invoices.get(
+            period,
+            []
+        )
+
+        # ====================================================
+        # MONTHLY ON-TIME DELIVERY
+        # ====================================================
+
+        fulfilled_pos = [
+            po
+            for po in period_pos
+            if po.get("status") == "fulfilled"
+        ]
+
+        on_time_count = 0
+
+        for po in fulfilled_pos:
+
+            expected_delivery = _to_date(
+                po.get("expected_delivery")
+            )
+
+            actual_delivery = _to_date(
+                po.get("actual_delivery_date")
+            )
+
+            if (
+                expected_delivery is None
+                or actual_delivery is None
+            ):
+                continue
+
+            if actual_delivery <= expected_delivery:
+
+                on_time_count += 1
+
+        # ----------------------------------------------------
+        # Monthly trend denominator:
+        #
+        # on-time fulfilled POs / fulfilled POs
+        #
+        # Example:
+        # 2 fulfilled POs
+        # 2 on-time POs
+        # = 100%
+        #
+        # Pending/acknowledged/cancelled POs are not included
+        # in this monthly on-time percentage.
+        # ----------------------------------------------------
+
+        if fulfilled_pos:
+
+            on_time_percentage = round(
+                (
+                    on_time_count
+                    / len(fulfilled_pos)
+                )
+                * 100,
+                2,
+            )
+
+        else:
+
+            on_time_percentage = 0.0
+
+        # ====================================================
+        # MONTHLY INVOICE METRICS
+        # ====================================================
+
+        total_invoice_count = len(
+            period_invoices
+        )
+
+        disputed_invoice_count = sum(
+            1
+            for invoice in period_invoices
+            if invoice.get("dispute") is not None
+        )
+
+        accurate_invoice_count = sum(
+            1
+            for invoice in period_invoices
+            if invoice.get("dispute") is None
+        )
+
+        if total_invoice_count > 0:
+
+            dispute_rate_percentage = round(
+                (
+                    disputed_invoice_count
+                    / total_invoice_count
+                )
+                * 100,
+                2,
+            )
+
+            invoice_accuracy_percentage = round(
+                (
+                    accurate_invoice_count
+                    / total_invoice_count
+                )
+                * 100,
+                2,
+            )
+
+        else:
+
+            dispute_rate_percentage = 0.0
+
+            invoice_accuracy_percentage = 0.0
+
+        # ====================================================
+        # MONTHLY FULFILLMENT TIME
+        # ====================================================
+
+        average_fulfillment_time_days = (
+            _calculate_average_fulfillment_time(
+                period_pos
+            )
+        )
+
+        # ====================================================
+        # MONTHLY TREND RECORD
+        # ====================================================
+
+        trend.append(
+            {
+                "period": period,
+
+                "on_time_percentage":
+                    on_time_percentage,
+
+                "dispute_rate_percentage":
+                    dispute_rate_percentage,
+
+                "invoice_accuracy_percentage":
+                    invoice_accuracy_percentage,
+
+                "average_fulfillment_time_days":
+                    average_fulfillment_time_days,
+            }
+        )
+
+    return trend
+
+
+# ============================================================
 # SUPPLIER SCORECARD
 # ============================================================
 
@@ -297,6 +687,7 @@ def calculate_supplier_scorecard(
         - Late delivery percentage
         - Fulfillment rate
         - Average delay days
+        - Average fulfillment time
 
     Invoice metrics:
         - Total invoices
@@ -318,7 +709,7 @@ def calculate_supplier_scorecard(
         Dispute performance    = 20%
 
     All calculations use the current in-memory
-    purchase order and invoice stores.
+    purchase order, invoice and goods receipt stores.
     """
 
     # ========================================================
@@ -349,6 +740,7 @@ def calculate_supplier_scorecard(
         not supplier_pos
         and not supplier_invoices
     ):
+
         raise ValueError(
             f"Supplier '{supplier_id}' not found."
         )
@@ -413,6 +805,7 @@ def calculate_supplier_scorecard(
     # Keep the existing behavior:
     # fulfilled POs that are not counted as on-time
     # are treated as late.
+
     late_po_count = (
         fulfilled_po_count
         - on_time_po_count
@@ -422,8 +815,19 @@ def calculate_supplier_scorecard(
     # ON-TIME DELIVERY %
     # ========================================================
 
-    # Preserve the existing scorecard calculation:
-    # on-time POs / total supplier POs.
+    # Preserve the existing overall scorecard calculation:
+    #
+    # on-time POs / total supplier POs
+    #
+    # IMPORTANT:
+    # This is intentionally different from the monthly trend.
+    #
+    # Overall scorecard:
+    #     on-time / total supplier POs
+    #
+    # Monthly trend:
+    #     on-time / fulfilled POs
+
     if len(supplier_pos) > 0:
 
         on_time_percentage = round(
@@ -525,6 +929,17 @@ def calculate_supplier_scorecard(
         average_delay_days = 0.0
 
     # ========================================================
+    # MILESTONE 4
+    # AVERAGE FULFILLMENT TIME
+    # ========================================================
+
+    average_fulfillment_time_days = (
+        _calculate_average_fulfillment_time(
+            supplier_pos
+        )
+    )
+
+    # ========================================================
     # INVOICE METRICS
     # ========================================================
 
@@ -585,6 +1000,7 @@ def calculate_supplier_scorecard(
 
     # Any invoice which is not approved or rejected
     # is considered pending.
+
     pending_invoice_count = (
         total_invoice_count
         - approved_invoice_count
@@ -688,7 +1104,8 @@ def calculate_supplier_scorecard(
             continue
 
         cycle_days = (
-            invoice_date - created_date
+            invoice_date
+            - created_date
         ).days
 
         if cycle_days >= 0:
@@ -714,6 +1131,7 @@ def calculate_supplier_scorecard(
     # ========================================================
 
     # Lower dispute rate = better performance.
+
     dispute_performance = round(
         100
         - dispute_rate_percentage,
@@ -802,6 +1220,17 @@ def calculate_supplier_scorecard(
         performance_status = "Critical"
 
     # ========================================================
+    # MILESTONE 4
+    # PERFORMANCE TREND
+    # ========================================================
+
+    trend = _calculate_supplier_trend(
+        supplier_id=supplier_id,
+        supplier_pos=supplier_pos,
+        supplier_invoices=supplier_invoices,
+    )
+
+    # ========================================================
     # RESPONSE
     # ========================================================
 
@@ -809,7 +1238,7 @@ def calculate_supplier_scorecard(
         "supplier_id": supplier_id,
 
         "scorecard": {
-            # Existing fields
+
             "on_time_delivery_percentage":
                 on_time_percentage,
 
@@ -822,7 +1251,6 @@ def calculate_supplier_scorecard(
             "overall_score":
                 overall_score,
 
-            # New fields
             "rating":
                 rating,
 
@@ -831,7 +1259,9 @@ def calculate_supplier_scorecard(
         },
 
         "score_breakdown": {
+
             "on_time_delivery": {
+
                 "score":
                     on_time_percentage,
 
@@ -843,6 +1273,7 @@ def calculate_supplier_scorecard(
             },
 
             "invoice_accuracy": {
+
                 "score":
                     invoice_accuracy_percentage,
 
@@ -854,6 +1285,7 @@ def calculate_supplier_scorecard(
             },
 
             "dispute_performance": {
+
                 "score":
                     dispute_performance,
 
@@ -866,8 +1298,9 @@ def calculate_supplier_scorecard(
         },
 
         "details": {
+
             "purchase_orders": {
-                # Existing fields
+
                 "total":
                     len(supplier_pos),
 
@@ -880,7 +1313,6 @@ def calculate_supplier_scorecard(
                 "late":
                     late_po_count,
 
-                # New fields
                 "pending":
                     pending_po_count,
 
@@ -898,10 +1330,13 @@ def calculate_supplier_scorecard(
 
                 "average_delay_days":
                     average_delay_days,
+
+                "average_fulfillment_time_days":
+                    average_fulfillment_time_days,
             },
 
             "invoices": {
-                # Existing fields
+
                 "total":
                     total_invoice_count,
 
@@ -914,7 +1349,6 @@ def calculate_supplier_scorecard(
                 "inaccurate":
                     inaccurate_invoice_count,
 
-                # New fields
                 "approved":
                     approved_invoice_count,
 
@@ -937,4 +1371,8 @@ def calculate_supplier_scorecard(
                     average_cycle_time_days,
             },
         },
+
+        "trend":
+            trend,
     }
+

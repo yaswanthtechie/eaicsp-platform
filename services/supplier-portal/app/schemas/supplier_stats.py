@@ -26,19 +26,9 @@ class SupplierStatsResponse(BaseModel):
 # SCORECARD BREAKDOWN
 # ============================================================
 
-
 class SupplierScorecardBreakdownItem(BaseModel):
     """
     Represents one component of the overall supplier score.
-
-    score:
-        Raw performance score for this component.
-
-    weight_percentage:
-        Weight assigned to this component in the overall score.
-
-    weighted_score:
-        Contribution of this component to the final overall score.
     """
 
     score: float = Field(
@@ -73,10 +63,7 @@ class SupplierScorecardBreakdown(BaseModel):
 # SCORECARD SUMMARY
 # ============================================================
 
-
 class SupplierScorecardMetrics(BaseModel):
-
-    # Existing metrics
 
     on_time_delivery_percentage: float = Field(
         ge=0,
@@ -98,8 +85,6 @@ class SupplierScorecardMetrics(BaseModel):
         le=100,
     )
 
-    # New scorecard classification fields
-
     rating: str = Field(
         min_length=1,
     )
@@ -113,10 +98,7 @@ class SupplierScorecardMetrics(BaseModel):
 # PURCHASE ORDER DETAILS
 # ============================================================
 
-
 class SupplierScorecardPurchaseOrders(BaseModel):
-
-    # Existing fields
 
     total: int = Field(
         ge=0
@@ -134,8 +116,6 @@ class SupplierScorecardPurchaseOrders(BaseModel):
         ge=0
     )
 
-    # New fields
-
     pending: int = Field(
         ge=0
     )
@@ -143,8 +123,6 @@ class SupplierScorecardPurchaseOrders(BaseModel):
     cancelled: int = Field(
         ge=0
     )
-
-    # Calculated delivery metrics
 
     on_time_percentage: float = Field(
         ge=0,
@@ -165,15 +143,18 @@ class SupplierScorecardPurchaseOrders(BaseModel):
         ge=0
     )
 
+    # NEW:
+    # Average time from PO creation to goods receipt.
+    average_fulfillment_time_days: float = Field(
+        ge=0
+    )
+
 
 # ============================================================
 # INVOICE DETAILS
 # ============================================================
 
-
 class SupplierScorecardInvoices(BaseModel):
-
-    # Existing fields
 
     total: int = Field(
         ge=0
@@ -191,8 +172,6 @@ class SupplierScorecardInvoices(BaseModel):
         ge=0
     )
 
-    # New invoice status fields
-
     approved: int = Field(
         ge=0
     )
@@ -204,8 +183,6 @@ class SupplierScorecardInvoices(BaseModel):
     pending: int = Field(
         ge=0
     )
-
-    # Calculated invoice metrics
 
     accuracy_percentage: float = Field(
         ge=0,
@@ -231,7 +208,6 @@ class SupplierScorecardInvoices(BaseModel):
 # SCORECARD DETAILS
 # ============================================================
 
-
 class SupplierScorecardDetails(BaseModel):
 
     purchase_orders: SupplierScorecardPurchaseOrders
@@ -240,9 +216,56 @@ class SupplierScorecardDetails(BaseModel):
 
 
 # ============================================================
-# FINAL SCORECARD RESPONSE
+# SCORECARD TREND
 # ============================================================
 
+class SupplierScorecardTrendItem(BaseModel):
+    """
+    Represents supplier performance for one time period.
+
+    period:
+        Monthly period in YYYY-MM format.
+
+    on_time_percentage:
+        Percentage of purchase orders delivered on time.
+
+    dispute_rate_percentage:
+        Percentage of invoices that were disputed.
+
+    invoice_accuracy_percentage:
+        Percentage of invoices without disputes.
+
+    average_fulfillment_time_days:
+        Average time from PO creation to goods receipt.
+    """
+
+    period: str = Field(
+        min_length=1
+    )
+
+    on_time_percentage: float = Field(
+        ge=0,
+        le=100,
+    )
+
+    dispute_rate_percentage: float = Field(
+        ge=0,
+        le=100,
+    )
+
+    invoice_accuracy_percentage: float = Field(
+        ge=0,
+        le=100,
+    )
+
+    average_fulfillment_time_days: float = Field(
+        ge=0
+    )
+
+
+# ============================================================
+# FINAL SCORECARD RESPONSE
+# ============================================================
 
 class SupplierScorecard(BaseModel):
 
@@ -253,3 +276,7 @@ class SupplierScorecard(BaseModel):
     score_breakdown: SupplierScorecardBreakdown
 
     details: SupplierScorecardDetails
+
+    # NEW:
+    # Historical performance grouped by month.
+    trend: list[SupplierScorecardTrendItem]
