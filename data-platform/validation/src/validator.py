@@ -69,6 +69,7 @@ class ConfigRule(BaseModel):
     model_config = ConfigDict(extra='allow')
 
     name: str
+    description: Optional[str] = None
     field: Optional[str] = None
     type: str
     severity: str = "INFO"
