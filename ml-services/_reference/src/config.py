@@ -113,3 +113,15 @@ MONITORING_INPUT_LIMIT = 100
 # rollback should be triggered.
 ROLLBACK_ACCURACY_THRESHOLD = 0.85
 
+
+MODEL_BACKEND = "stub"
+
+# ==========================================================
+# MILESTONE 3 MULTI-MODEL RETRAINING
+# ==========================================================
+
+MULTIMODEL_RETRAINING_INTERVAL_SECONDS = 3600
+
+ENABLE_MULTIMODEL_RETRAINING_SCHEDULER = False
+
+MULTIMODEL_DRIFT_THRESHOLD = 0.15
