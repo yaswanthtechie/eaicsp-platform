@@ -60,6 +60,7 @@ def setup_logger(log_level: str = DEFAULT_LOG_LEVEL, enable_file_logging: bool =
 
     return custom_logger
 
+
 # Define globally so all functions can reference 'logger'
 logger = logging.getLogger(__name__)
 
@@ -71,12 +72,21 @@ def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument("--file", type=Path, required=True, help="Path to input CSV")
     parser.add_argument("--config", type=Path, required=True, help="Path to YAML rules")
     parser.add_argument("--output", type=Path, required=True, help="Path for JSON report output")
-    # --- ADD INCREMENTAL ARGUMENTS ---
+
+    # --- PROFILE ARGUMENTS ---
+    parser.add_argument("--profile", type=str, default=None,
+                        help="Named validation profile to execute (e.g., 'strict').")
+    parser.add_argument("--list-profiles", action="store_true", help="List available profiles in the config and exit.")
+
+    # --- INCREMENTAL ARGUMENTS ---
     parser.add_argument("--incremental", action="store_true", help="Only process new rows since the last run.")
     parser.add_argument("--watermark-col", type=str, default="transaction_id", help="Column for watermarking.")
     parser.add_argument("--watermark-file", type=Path, default=PROJECT_ROOT / ".watermark_cli.json",
                         help="Path to state tracking file.")
     parser.add_argument("--log-to-file", action="store_true", help="Enable timestamped file logging.")
+    parser.add_argument("--chunk-size", type=int, default=None,
+                        help="Enable streaming execution. Specify number of rows per chunk (e.g., 500000).")
+
     return parser.parse_args(args)
 
 
@@ -110,14 +120,22 @@ def main(cli_args: Optional[list[str]] = None) -> int:
     output_path: Path = args.output
 
     # Validate file existence strictly as files, not just paths
-    if not input_path.is_file():
-        logger.error("Input file does not exist or is not a file: %s", input_path)
-        return EXIT_TOOL_ERROR
-
     if not config_path.is_file():
         logger.error("Config file does not exist or is not a file: %s", config_path)
         return EXIT_TOOL_ERROR
 
+    # --- INTERCEPT: LIST PROFILES ---
+    if getattr(args, 'list_profiles', False):
+        profiles = DataValidator.list_profiles(str(config_path))
+        if profiles:
+            logger.info(f"Available profiles in {config_path.name}: {', '.join(profiles)}")
+        else:
+            logger.warning(f"No profiles found in {config_path.name}.")
+        return EXIT_SUCCESS
+
+    if not input_path.is_file():
+        logger.error("Input file does not exist or is not a file: %s", input_path)
+        return EXIT_TOOL_ERROR
 
     # Load Data & Validate (Fixed broad exception)
     try:
@@ -134,10 +152,19 @@ def main(cli_args: Optional[list[str]] = None) -> int:
                 logger.info("Incremental Mode: No new data to process. Exiting cleanly.")
                 return EXIT_SUCCESS
             logger.info(f"Incremental Mode: Identified {len(df)} new rows to validate.")
-        validator = DataValidator.from_config(str(config_path))
+
+        # Load validator with profile support
+        validator = DataValidator.from_config(str(config_path), profile_name=args.profile)
 
         # Run validation
-        report = validator.validate(df)
+        if args.chunk_size:
+            # Drop into the streaming engine
+            report = validator.validate_stream(str(input_path), chunksize=args.chunk_size)
+        else:
+            # Fully backward compatible in-memory execution
+            df = pd.read_csv(input_path)
+            # ... existing incremental logic ...
+            report = validator.validate(df)
 
     except (pd.errors.EmptyDataError, pd.errors.ParserError, ValueError, OSError) as e:
         logger.exception("Validation execution failed: %s", e)

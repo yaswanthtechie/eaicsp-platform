@@ -11,7 +11,9 @@ from src.custom_rules import (
     standardize_products,
     flag_negatives,
     standardize_dates,
-    drop_duplicate_rows
+    drop_duplicate_rows,
+    check_composite_unique,
+    check_composite_unique_stream  # Ensure this is imported!
 )
 
 
@@ -96,6 +98,32 @@ def test_check_duplicate_rows(sample_df):
     assert list(result) == expected
 
 
+def test_check_composite_unique():
+    """Test that duplicated rows based on a subset of columns are flagged."""
+    df = pd.DataFrame({
+        'A': [1, 1, 2, 3],
+        'B': [1, 1, 2, 4],
+        'C': ['x', 'y', 'z', 'w']  # Different values, but ignored by subset
+    })
+
+    # Rows 0 and 1 have the same ['A', 'B'] combo
+    result = check_composite_unique(df, subset=['A', 'B'], keep=False)
+    assert list(result) == [True, True, False, False]
+
+
+def test_check_composite_unique_stream():
+    """Test both branches of the streaming bypass function."""
+    # Branch 1: The streaming mask exists (Standard Stream Execution)
+    df_stream = pd.DataFrame({'_global_dup_mask': [True, False, True]})
+    result_stream = check_composite_unique_stream(df_stream)
+    assert list(result_stream) == [True, False, True]
+
+    # Branch 2: Fallback when accidentally called without streaming
+    df_fallback = pd.DataFrame({'A': [1, 2, 3]})
+    result_fallback = check_composite_unique_stream(df_fallback)
+    assert list(result_fallback) == [False, False, False]
+
+
 # ==========================================
 # TRANSFORMATION TESTS
 # ==========================================
@@ -129,7 +157,7 @@ def test_standardize_dates(sample_df):
     assert dates[0] == '2026-07-31'  # Kept valid ISO
     assert dates[1] == '2026-08-15'  # Parsed mixed/dayfirst properly
     assert dates[2] == 'NOT_A_DATE'  # Preserved invalid string for validation
-    assert pd.isna(dates[3])         # Handled Nulls properly
+    assert pd.isna(dates[3])  # Handled Nulls properly
 
 
 def test_drop_duplicate_rows(sample_df):

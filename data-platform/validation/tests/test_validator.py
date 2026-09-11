@@ -213,15 +213,33 @@ def crashing_transform_rule(df: pd.DataFrame, **kwargs) -> pd.DataFrame:
     raise ValueError("Simulated crash during transformation")
 
 
-# Inject all dummy test functions into the safe registry so the tests are allowed to run them
-SAFE_FUNCTION_REGISTRY.update({
-    "tests.test_validator.dummy_custom_rule": dummy_custom_rule,
-    "tests.test_validator.dummy_transform_rule": dummy_transform_rule,
-    "tests.test_validator.dummy_custom_rule_no_field": dummy_custom_rule_no_field,
-    "tests.test_validator.dummy_transform_no_field": dummy_transform_no_field,
-    "tests.test_validator.crashing_custom_rule": crashing_custom_rule,
-    "tests.test_validator.crashing_transform_rule": crashing_transform_rule,
-})
+def dummy_check_composite_unique(df: pd.DataFrame, **kwargs) -> pd.Series:
+    """Mock for Pass 1 streaming tests."""
+    return pd.Series([False] * len(df), index=df.index)
+
+
+def dummy_check_composite_unique_stream(df: pd.DataFrame, **kwargs) -> pd.Series:
+    """Mock for Pass 2 streaming tests to read injected state."""
+    return df.get('_global_dup_mask', pd.Series([False] * len(df), index=df.index))
+
+
+@pytest.fixture(autouse=True)
+def inject_test_registry_functions():
+    """
+    Runs before every test in this file.
+    Re-injects the dummy functions because conftest.py wipes the registry clean.
+    """
+    SAFE_FUNCTION_REGISTRY.update({
+        "tests.test_validator.dummy_custom_rule": dummy_custom_rule,
+        "tests.test_validator.dummy_transform_rule": dummy_transform_rule,
+        "tests.test_validator.dummy_custom_rule_no_field": dummy_custom_rule_no_field,
+        "tests.test_validator.dummy_transform_no_field": dummy_transform_no_field,
+        "tests.test_validator.crashing_custom_rule": crashing_custom_rule,
+        "tests.test_validator.crashing_transform_rule": crashing_transform_rule,
+        "src.custom_rules.check_composite_unique": dummy_check_composite_unique,
+        "src.custom_rules.check_composite_unique_stream": dummy_check_composite_unique_stream,
+    })
+
 
 # --- ENGINE TESTS ---
 
@@ -250,11 +268,6 @@ def test_custom_rule_with_kwargs():
     assert mask.tolist() == [False, True, False]
 
 
-# def test_custom_rule_missing_function():
-#     df = pd.DataFrame({"col": ["PASS"]})
-#     rule = ConfigRule(**{"name": "bad_rule", "field": "col", "type": "custom"})
-#     with pytest.raises(ValueError, match="missing 'function' path"):
-#         rule.evaluate(df)
 def test_custom_rule_missing_function():
     with pytest.raises(ValidationError, match="no 'function' path"):
         ConfigRule(**{"name": "bad_rule", "field": "col", "type": "custom"})
@@ -300,11 +313,6 @@ def test_transform_rule_with_kwargs():
     assert clean_df.at[0, "col"] == "mixedcase"
 
 
-# def test_transform_rule_missing_function():
-#     df = pd.DataFrame({"col": ["pass"]})
-#     rule = ConfigRule(**{"name": "bad_transform", "type": "transform"})
-#     with pytest.raises(ValueError, match="missing 'function' path"):
-#         rule.apply_transform(df)
 def test_transform_rule_missing_function():
     with pytest.raises(ValidationError, match="no 'function' path"):
         ConfigRule(**{"name": "bad_transform", "type": "transform"})
@@ -346,8 +354,6 @@ def test_clean_applies_transforms():
     assert clean_df.at[0, "col"] == "LOWER"
     assert clean_df.at[2, "col"] == "MIXEDCASE"
 
-
-# --- 100% COVERAGE EDGE CASE TESTS ---
 
 def test_from_config_yaml_error(tmp_path):
     bad_yaml = tmp_path / "bad_syntax.yaml"
@@ -407,12 +413,12 @@ def test_validation_result_dict_access():
 
 
 def test_from_config_empty_or_missing_rules(tmp_path):
-    """Hits data.get('rules', []) fallback and verifies 'YAML file is completely empty' exception."""
-    # 1. Valid YAML structure without 'rules' key
+    """Verifies that missing 'profiles'/'rules' or empty files raise exceptions."""
+    # 1. Valid YAML structure without 'rules' or 'profiles' key
     no_rules = tmp_path / "no_rules.yaml"
     no_rules.write_text("some_other_key: value")
-    val1 = DataValidator.from_config(str(no_rules))
-    assert len(val1.rules) == 0
+    with pytest.raises(ValueError, match="YAML config must contain a 'profiles' or 'rules' key"):
+        DataValidator.from_config(str(no_rules))
 
     # 2. Completely empty YAML file
     empty_yaml = tmp_path / "empty.yaml"
@@ -467,28 +473,6 @@ def test_failsafe_validate_skips_crashing_rule(caplog):
     assert "crashed and DID NOT RUN" in caplog.text
 
 
-# def test_failsafe_clean_skips_crashing_rules(caplog):
-#     """Hits the except Exception blocks in validator.clean() for both evaluation and transforms."""
-#     df = pd.DataFrame({"A": [1]})
-#     r1 = ConfigRule(**{
-#         "name": "crash_eval",
-#         "type": "custom",
-#         "severity": "ERROR",
-#         "function": "tests.test_validator.crashing_custom_rule"
-#     })
-#     r2 = ConfigRule(**{
-#         "name": "crash_transform",
-#         "type": "transform",
-#         "severity": "INFO",
-#         "function": "tests.test_validator.crashing_transform_rule"
-#     })
-#
-#     validator = DataValidator([r1, r2])
-#     clean_df = validator.clean(df, strict=True)
-#
-#     assert len(clean_df) == 1
-#     assert "FATAL ERROR: Transform rule 'crash_transform' crashed" in caplog.text
-#     assert "FATAL ERROR: Rule 'crash_eval' crashed during cleaning" in caplog.text
 def test_failsafe_clean_skips_crashing_rules(caplog):
     df = pd.DataFrame({"A": [1]})
     r1 = ConfigRule(**{"name": "crash_eval", "type": "custom", "severity": "ERROR",
@@ -555,25 +539,6 @@ def test_rule_dependencies_suppression():
     assert clean_df.index[0] == 2
 
 
-# def test_rule_dependency_not_found_logs_warning(caplog):
-#     """Hits the branch where a rule depends on a rule that hasn't executed/doesn't exist."""
-#     df = pd.DataFrame({"A": [1]})
-#     rule = ConfigRule(**{
-#         "name": "rule_b",
-#         "field": "A",
-#         "type": "not_null",
-#         "depends_on": ["missing_rule"]
-#     })
-#     validator = DataValidator([rule])
-#
-#     # Hits the warning branch in validate()
-#     validator.validate(df)
-#     assert "Dependency 'missing_rule' for rule 'rule_b' not found or not executed yet." in caplog.text
-#
-#     # Hits the warning branch in clean()
-#     caplog.clear()
-#     validator.clean(df)
-#     assert "Dependency 'missing_rule' for rule 'rule_b' not found/executed." in caplog.text
 def test_rule_dependency_not_found_rejected_at_load():
     """Hits the branch where a rule depends on a rule that hasn't executed/doesn't exist."""
     rule = ConfigRule(**{
@@ -729,6 +694,7 @@ def test_validation_result_slowest_rule_empty():
     res = ValidationResult(passed=True, total_rows_affected=0, rule_timings={})
     assert res.slowest_rule is None
 
+
 # --- INCREMENTAL WATERMARK TESTS ---
 
 def test_filter_incremental_no_watermark():
@@ -822,6 +788,7 @@ def test_detect_conflicts_non_comparable_contradiction():
 
 def test_crashed_rule_is_reported_and_fails_the_run():
     """A rule that raises must NOT be silently skipped while passed stays True."""
+
     def boom(df, **kwargs):
         raise RuntimeError("rule blew up")
 
@@ -841,6 +808,7 @@ def test_crashed_rule_is_reported_and_fails_the_run():
 
 def test_clean_aborts_when_a_rule_did_not_run():
     """clean() must never hand back data it failed to filter."""
+
     def boom(df, **kwargs):
         raise RuntimeError("rule blew up")
 
@@ -873,7 +841,7 @@ def test_depends_on_forward_reference_rejected_at_load():
     dependency = ConfigRule(name="parse_check", field="q", type="not_null")
     with pytest.raises(ValueError, match="declared later"):
         DataValidator([dependent, dependency])
-    DataValidator([dependency, dependent])   # correct order is accepted
+    DataValidator([dependency, dependent])  # correct order is accepted
 
 
 def test_circular_dependency_rejected_at_load():
@@ -915,3 +883,334 @@ def test_crashed_rule_can_be_tolerated_explicitly(caplog):
     # The dataframe remains untouched because the rule crashed before flagging rows
     assert len(clean_df) == 2
     assert "crashed and DID NOT RUN during cleaning" in caplog.text
+
+
+# --- PROFILES SPECIFIC TESTS ---
+
+def test_from_config_profiles_default_fallback(tmp_path):
+    """Verifies falling back to 'default' profile when none is passed."""
+    yaml_file = tmp_path / "profiles.yaml"
+    yaml_file.write_text("""
+profiles:
+  default:
+    rules:
+      - name: r1
+        field: col
+        type: not_null
+""")
+    val = DataValidator.from_config(str(yaml_file))
+    assert len(val.rules) == 1
+    assert val.rules[0].name == "r1"
+
+
+def test_from_config_profiles_no_default_raises(tmp_path):
+    """Verifies error raised when no profile passed and 'default' is not present."""
+    yaml_file = tmp_path / "profiles.yaml"
+    yaml_file.write_text("""
+profiles:
+  strict:
+    rules:
+      - name: r1
+        field: col
+        type: not_null
+""")
+    with pytest.raises(ValueError, match="No profile specified and no 'default' profile found."):
+        DataValidator.from_config(str(yaml_file))
+
+
+def test_from_config_profiles_not_found(tmp_path):
+    """Verifies error when requested profile doesn't exist."""
+    yaml_file = tmp_path / "profiles.yaml"
+    yaml_file.write_text("""
+profiles:
+  default:
+    rules: []
+""")
+    with pytest.raises(ValueError, match="Profile 'missing_profile' not found."):
+        DataValidator.from_config(str(yaml_file), profile_name="missing_profile")
+
+
+def test_from_config_profiles_inheritance(tmp_path):
+    """Verifies profile inheritance works and cleanly overrides inherited rules."""
+    yaml_file = tmp_path / "profiles.yaml"
+    yaml_file.write_text("""
+profiles:
+  base:
+    rules:
+      - name: r1
+        field: col
+        type: not_null
+      - name: r2
+        field: qty
+        type: range
+        min: 0
+  strict:
+    inherits: base
+    rules:
+      - name: r2
+        field: qty
+        type: range
+        min: 10
+""")
+    val = DataValidator.from_config(str(yaml_file), profile_name="strict")
+    assert len(val.rules) == 2
+    rule_names = {r.name: r for r in val.rules}
+    assert "r1" in rule_names
+    assert "r2" in rule_names
+    assert rule_names["r2"].model_extra["min"] == 10
+
+
+def test_from_config_profiles_parent_not_found(tmp_path):
+    """Verifies inheritance raises error if parent profile is absent."""
+    yaml_file = tmp_path / "profiles.yaml"
+    yaml_file.write_text("""
+profiles:
+  strict:
+    inherits: missing_base
+    rules: []
+""")
+    with pytest.raises(ValueError, match="Parent profile 'missing_base' not found."):
+        DataValidator.from_config(str(yaml_file), profile_name="strict")
+
+
+def test_list_profiles_success(tmp_path):
+    """Verifies list_profiles correctly returns the profile keys."""
+    yaml_file = tmp_path / "profiles.yaml"
+    yaml_file.write_text("""
+profiles:
+  default: {}
+  strict: {}
+""")
+    profiles = DataValidator.list_profiles(str(yaml_file))
+    assert profiles == ["default", "strict"]
+
+
+def test_list_profiles_no_profiles_key(tmp_path):
+    """Verifies list_profiles returns empty list when no profiles key exists."""
+    yaml_file = tmp_path / "profiles.yaml"
+    yaml_file.write_text("rules: []")
+    profiles = DataValidator.list_profiles(str(yaml_file))
+    assert profiles == []
+
+
+def test_list_profiles_error():
+    """Verifies list_profiles safely returns empty list if parsing fails."""
+    profiles = DataValidator.list_profiles("non_existent_file.yaml")
+    assert profiles == []
+
+
+def test_conditional_rule_evaluation():
+    """Verifies that conditional rules only flag rows matching the condition."""
+    df = pd.DataFrame({
+        "country": ["US", "US", "CA"],
+        "zip": ["12345", "BAD", "123"]
+    })
+    rule = ConfigRule(**{
+        "name": "us_zip",
+        "type": "conditional",
+        "condition_field": "country",
+        "condition_value": "US",
+        "field": "zip",
+        "target_type": "regex",
+        "pattern": "^[0-9]{5}$"
+    })
+    mask = rule.evaluate(df)
+    # Row 0: US, valid zip -> False
+    # Row 1: US, bad zip -> True (Fails rule)
+    # Row 2: CA, bad zip -> False (Ignored because country != US)
+    assert mask.tolist() == [False, True, False]
+
+
+def test_conditional_rule_missing_keys():
+    """Verifies missing conditional configurations raise errors."""
+    rule = ConfigRule(**{
+        "name": "bad_cond",
+        "type": "conditional",
+        "field": "zip"
+    })
+    with pytest.raises(ValueError, match="missing conditional keys"):
+        rule.evaluate(pd.DataFrame({"zip": ["12345"]}))
+
+
+def test_conditional_rule_missing_condition_field_in_df():
+    """Verifies missing condition fields in the DataFrame raise errors."""
+    df = pd.DataFrame({"zip": ["12345"]})  # 'country' is missing
+    rule = ConfigRule(**{
+        "name": "cond",
+        "type": "conditional",
+        "condition_field": "country",
+        "condition_value": "US",
+        "field": "zip",
+        "target_type": "not_null"
+    })
+    with pytest.raises(ValueError, match="Condition field 'country' missing from DataFrame"):
+        rule.evaluate(df)
+
+
+def test_per_rule_threshold_rejection():
+    """Verifies that exceeding a rule's max_fail_pct rejects the batch."""
+    df = pd.DataFrame({"qty": [1, -1, -2, -3]})  # 3 out of 4 fail (75%)
+    rule = ConfigRule(**{
+        "name": "qty_rule",
+        "field": "qty",
+        "type": "range",
+        "min": 0,
+        "max_fail_pct": 0.50  # 50% max allowed
+    })
+    val = DataValidator([rule])
+    report = val.validate(df)
+
+    assert report.batch_rejected is True
+    assert report.passed is False
+    assert len(report.rejection_reasons) == 1
+    assert "failed 75.0% of rows" in report.rejection_reasons[0]
+
+
+def test_global_threshold_rejection():
+    """Verifies that exceeding the global max_fail_pct rejects the batch."""
+    df = pd.DataFrame({"qty": [1, -1, 1, 1]})  # 1 out of 4 fail (25%)
+    rule = ConfigRule(**{
+        "name": "qty_rule",
+        "field": "qty",
+        "type": "range",
+        "min": 0,
+        "severity": "ERROR"
+    })
+    val = DataValidator([rule], global_max_fail_pct=0.20)  # 20% global max
+    report = val.validate(df)
+
+    assert report.batch_rejected is True
+    assert report.passed is False
+    assert len(report.rejection_reasons) == 1
+    assert "Global failure rate 25.0% exceeds threshold" in report.rejection_reasons[0]
+
+
+def test_clean_aborts_on_rejected_batch():
+    """Verifies that clean() refuses to process a batch that breached thresholds."""
+    df = pd.DataFrame({"qty": [-1, -1]})  # 100% failure rate
+    rule = ConfigRule(**{
+        "name": "qty_rule",
+        "field": "qty",
+        "type": "range",
+        "min": 0,
+        "max_fail_pct": 0.10
+    })
+    val = DataValidator([rule])
+
+    with pytest.raises(RuntimeError, match="Refusing to clean: Batch exceeded failure thresholds"):
+        val.clean(df)
+
+
+def test_from_config_drift_inheritance(tmp_path):
+    """Verifies that global drift thresholds correctly inherit from parent profiles."""
+    yaml_file = tmp_path / "profiles.yaml"
+    yaml_file.write_text("""
+profiles:
+  base:
+    global_drift_abs_min: 0.05
+    global_drift_rel_min: 0.75
+    rules:
+      - name: r1
+        field: col
+        type: not_null
+  strict:
+    inherits: base
+    rules: []
+""")
+    val = DataValidator.from_config(str(yaml_file), profile_name="strict")
+    assert val.global_drift_abs_min == 0.05
+    assert val.global_drift_rel_min == 0.75
+
+
+def test_validation_result_total_rows(sample_df, mock_yaml_config):
+    """Verifies the newly added total_rows attribute is properly calculated."""
+    validator = DataValidator.from_config(mock_yaml_config)
+    report = validator.validate(sample_df)
+    assert report.total_rows == 4
+
+
+# --- STREAMING ENGINE TESTS ---
+
+def test_validate_stream_basic(tmp_path):
+    """Verifies standard rules evaluate correctly in chunked streaming mode."""
+    df = pd.DataFrame({"A": [1, 2, -1, -2, 5, -3]})
+    csv_path = tmp_path / "stream_basic.csv"
+    df.to_csv(csv_path, index=False)
+
+    r1 = ConfigRule(**{"name": "r1", "field": "A", "type": "range", "min": 0, "severity": "ERROR"})
+    r2 = ConfigRule(**{"name": "r2", "field": "A", "type": "range", "min": 0, "severity": "WARNING"})
+    val = DataValidator([r1, r2])
+
+    report = val.validate_stream(str(csv_path), chunksize=2)
+    assert report.passed is False
+    assert report.total_rows == 6
+    assert report.total_rows_affected == 3
+
+    # Verify samples offset logic properly tracks global line index
+    assert len(report.sample_bad_rows['r1']) == 3
+    indices = [s['row_index'] for s in report.sample_bad_rows['r1']]
+    assert indices == [2, 3, 5]
+
+
+def test_validate_stream_composite_and_thresholds(tmp_path):
+    """Verifies Pass 1/Pass 2 composite logic and global threshold rejection."""
+    df = pd.DataFrame({
+        "A": [1, 1, 1, 2, 3, 4],
+        "B": [1, 1, 1, 2, 3, 4]
+    })
+    csv_path = tmp_path / "stream_comp.csv"
+    df.to_csv(csv_path, index=False)
+
+    rule = ConfigRule(**{
+        "name": "composite_pk_unique",
+        "type": "custom",
+        "function": "src.custom_rules.check_composite_unique",
+        "subset": ["A", "B"],
+        "severity": "ERROR"
+    })
+
+    # 3 duplicates out of 6 rows equals a 50% failure rate
+    val = DataValidator([rule], global_max_fail_pct=0.20)
+    report = val.validate_stream(str(csv_path), chunksize=2)
+
+    assert report.batch_rejected is True
+    assert len(report.rejection_reasons) == 1
+    assert "exceeds threshold" in report.rejection_reasons[0]
+    assert report.errors[0]["count"] == 3
+
+
+def test_validate_stream_composite_missing_columns(tmp_path):
+    """Verifies robust handling when streaming chunks are missing the composite subset columns."""
+    df = pd.DataFrame({"A": [1, 2, 3]})  # Missing 'B'
+    csv_path = tmp_path / "stream_missing_cols.csv"
+    df.to_csv(csv_path, index=False)
+
+    rule = ConfigRule(**{
+        "name": "composite_pk_unique",
+        "type": "custom",
+        "function": "src.custom_rules.check_composite_unique",
+        "subset": ["A", "B"],
+        "severity": "ERROR"
+    })
+
+    val = DataValidator([rule])
+    report = val.validate_stream(str(csv_path), chunksize=2)
+
+    # It should fall back to _global_dup_mask = False and pass cleanly
+    assert report.passed is True
+    assert report.total_rows_affected == 0
+
+
+def test_validate_stream_sample_cap(tmp_path):
+    """Verifies that sample_bad_rows strictly caps at 5 even across chunks."""
+    df = pd.DataFrame({"A": [-1, -2, -3, -4, -5, -6, -7, -8, -9, -10]})
+    csv_path = tmp_path / "stream_cap.csv"
+    df.to_csv(csv_path, index=False)
+
+    r1 = ConfigRule(**{"name": "r1", "field": "A", "type": "range", "min": 0, "severity": "ERROR"})
+    val = DataValidator([r1])
+
+    report = val.validate_stream(str(csv_path), chunksize=3)
+
+    assert report.errors[0]["count"] == 10
+    assert len(report.sample_bad_rows['r1']) == 5  # Strictly capped at 5
