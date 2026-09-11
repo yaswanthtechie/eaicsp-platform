@@ -640,3 +640,14 @@ at 837 rows/sec. The benchmark stopped at 200,000 rows and did not proceed to
 R5 performance investigation note
 ---------------------------------
 The 27 Aug 2026 benchmark reached 200,000 rows in 238.97s (837 rows/sec), crossing the 120s operational cutoff. This is a loader/application ceiling under the current implementation, not a PostgreSQL theoretical limit. The benchmark intentionally isolates bulk_upsert(), so it excludes the real sales_fact history-copy callback; production sales loads can therefore be slower. The next tuning target is the current SQLAlchemy multi-row parameterized INSERT/ON CONFLICT path and its 5,000-row chunks; a scale claim beyond 200K requires another measured run after tuning.
+
+
+## Combined Round 6 + 7 + 8 (ETL)
+
+- **Milestone 1:** `shipments_fact` is configured with `depends_on: inventory`; the DAG builds explicit dependency edges, enforcing `sales -> inventory -> shipments`.
+- **Milestone 2:** schema evolution uses **quarantine + alert**. Unexpected source columns are rejected and moved to `data/quarantine/` instead of being silently ignored.
+- **Milestone 3:** `GET /pipeline/status` in `etl/src/status_api.py` exposes health, last/recent runs, row counts, watermarks, recent alerts, and latest reconciliation state. Run with `uvicorn etl.src.status_api:app --host 0.0.0.0 --port 8000`.
+- **Milestone 4:** `sales_fact` is range-partitioned by month for fresh database initialization, with a default partition for dates outside the provisioned monthly ranges. Use `scripts/partitioning_check.py` for a disposable unpartitioned-vs-partitioned timing comparison and query-plan proof.
+- **Milestone 5:** `etl/src/replay.py::replay_run()` safely reverts the latest run using history, removes rows that did not exist before it, and reloads the recorded source batches as a new run. It refuses to overwrite later runs.
+
+**Testing note:** Docker/Airflow integration requires the supplied Docker runtime; this workspace validates Python/unit behavior locally.

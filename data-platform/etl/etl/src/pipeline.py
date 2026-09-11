@@ -5,7 +5,7 @@ from transform import transform_data
 from quality_gate import quality_gate
 from load import load_data
 from watermark import get_watermark, update_watermark
-from logger import create_run, finish_run
+from logger import create_run, finish_run, record_run_batch
 from logging_config import logger
 from data_contract import validate_schema
 from schema_drift import detect_schema_drift
@@ -312,7 +312,7 @@ if __name__ == "__main__":
 # adding a third source is a YAML edit rather than a code change.
 # ---------------------------------------------------------------------------
 
-from data_contract import validate_schema_against
+from data_contract import validate_schema_against, validate_no_unexpected_columns
 from quality_gate import quality_gate_generic
 from transform import transform_data_generic
 from load import load_data_bulk_generic
@@ -327,6 +327,7 @@ def validate_batches_generic(extracted_batches, source_config, run_id=None):
 
         try:
             validate_schema_against(batch["data"], source_config.columns)
+            validate_no_unexpected_columns(batch["data"], source_config.columns)
             valid_batches.append(batch)
 
         except Exception as e:
@@ -334,6 +335,13 @@ def validate_batches_generic(extracted_batches, source_config, run_id=None):
             logger.error(
                 f"[{source_config.name}] Schema validation failed: {e}"
             )
+
+            if source_config.schema_evolution == "quarantine":
+                from schema_evolution import handle_schema_evolution
+                try:
+                    handle_schema_evolution(batch["file_path"], source_config)
+                except OSError as move_error:
+                    logger.warning(f"Could not quarantine {batch['file_path'].name}: {move_error}")
 
             write_alert(
                 pipeline="sales_etl",
@@ -363,6 +371,9 @@ def run_source(source_config, run_id):
     raw_batches = [dict(batch, data=batch["data"].copy()) for batch in extracted_batches]
 
     batches_seen = len(extracted_batches)
+
+    for batch in extracted_batches:
+        record_run_batch(run_id, source_config.name, batch["file_path"].name)
 
     if not extracted_batches:
         logger.warning(f"[{source_config.name}] No new files found")
