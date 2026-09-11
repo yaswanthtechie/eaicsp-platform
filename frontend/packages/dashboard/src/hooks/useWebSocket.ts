@@ -168,6 +168,7 @@ export function useWebSocket({
           autoReconnect &&
           retryCountRef.current < maxRetries
         ) {
+         
           const delay = Math.min(
             1000 * 2 ** retryCountRef.current,
             30000,

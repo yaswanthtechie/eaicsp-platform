@@ -1,0 +1,89 @@
+"""
+Supplier Portal GraphQL contract.
+
+This schema is the single source of truth for the target GraphQL contract
+expected between the Supplier Portal frontend and the future backend.
+
+R5 is frontend-only and continues to use mocks. This schema is
+documentation-as-code and is not wired to a live backend.
+
+Divergences from the current REST implementation:
+- This schema defines the target GraphQL contract, not the current REST API shape.
+- The current REST implementation represents PurchaseOrder items as List[str],
+  while this target GraphQL contract models them as structured POItem objects.
+- The current REST implementation represents monetary amounts as float,
+  while this target GraphQL contract currently represents them as Int.
+- These differences are intentional and should be resolved during future
+  backend GraphQL integration rather than treated as accidental drift.
+"""
+
+type Query {
+purchaseOrders(
+first: Int!
+after: String
+status: POStatus
+poNumber: String
+minAmount: Int
+maxAmount: Int
+startDate: String
+endDate: String
+): PurchaseOrderConnection!
+}
+
+
+type Mutation {
+  acknowledgePurchaseOrder(poNumber: String!): PurchaseOrder!
+
+  submitInvoice(
+    invoiceNumber: String!
+    poReference: String!
+    amount: Int!
+    date: String!
+  ): Invoice!
+}
+
+type PurchaseOrderConnection {
+  edges: [PurchaseOrderEdge!]!
+  pageInfo: PageInfo!
+}
+
+type PurchaseOrderEdge {
+  cursor: String!
+  node: PurchaseOrder!
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  endCursor: String
+}
+
+type PurchaseOrder {
+  poNumber: String!
+  supplierId: String!
+  status: POStatus!
+  totalAmount: Int!
+  expectedDelivery: String!
+  items: [POItem!]!
+}
+
+type POItem {
+  sku: String!
+  productName: String!
+  quantity: Int!
+  unitPrice: Int!
+}
+
+type Invoice {
+  invoiceNumber: String!
+  poReference: String!
+  amount: Int!
+  date: String!
+}
+
+enum POStatus {
+  DRAFT
+  SENT
+  ACKNOWLEDGED
+  FULFILLED
+  CANCELLED
+}

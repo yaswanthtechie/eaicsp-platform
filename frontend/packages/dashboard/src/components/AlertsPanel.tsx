@@ -18,7 +18,6 @@ export default function AlertsPanel({
   onRemove,
 }: AlertsPanelProps) {
   const [fadingAlerts, setFadingAlerts] = useState<string[]>([]);
-
   const timers = useRef<
     Record<string, ReturnType<typeof setTimeout>>
   >({});
@@ -230,12 +229,7 @@ export default function AlertsPanel({
           marginBottom: space.sm,
         }}
       >
-        <h2
-          style={{
-            color: colors.text,
-            margin: 0,
-          }}
-        >
+        <h2 style={{ color: colors.text }}>
           Live Alerts
         </h2>
 

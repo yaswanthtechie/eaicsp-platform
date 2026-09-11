@@ -1,0 +1,15 @@
+.chart-container {
+  width: 100%;
+  color: var(--color-primary);
+}
+
+.chart-empty {
+  width: 100%;
+  min-height: 250px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-secondary);
+  border: 1px dashed var(--color-border);
+  border-radius: 8px;
+}

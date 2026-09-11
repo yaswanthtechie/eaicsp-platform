@@ -158,7 +158,7 @@ function ForecastChart({
 
         <button onClick={fetchData}>
           Retry
-        </button>
+        </Button>
       </div>
     );
   }

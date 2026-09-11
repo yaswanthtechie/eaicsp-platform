@@ -1,22 +1,14 @@
 import {
-  createContext,
+  useCallback,
   useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from "react";
-
-export type Theme = "light" | "dark";
-
-interface ThemeContextValue {
-  theme: Theme;
-  toggleTheme: () => void;
-  setTheme: (theme: Theme) => void;
-}
-
-export const ThemeContext = createContext<ThemeContextValue | undefined>(
-  undefined
-);
+import {
+  ThemeContext,
+  type Theme,
+} from "./ThemeContext";
 
 interface ThemeProviderProps {
   children: ReactNode;
@@ -24,11 +16,16 @@ interface ThemeProviderProps {
 
 const STORAGE_KEY = "ui-library-theme";
 
-export function ThemeProvider({ children }: ThemeProviderProps) {
+export function ThemeProvider({
+  children,
+}: ThemeProviderProps) {
   const [theme, setTheme] = useState<Theme>(() => {
     const savedTheme = localStorage.getItem(STORAGE_KEY);
 
-    if (savedTheme === "light" || savedTheme === "dark") {
+    if (
+      savedTheme === "light" ||
+      savedTheme === "dark"
+    ) {
       return savedTheme;
     }
 
@@ -36,15 +33,21 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   });
 
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
+    document.documentElement.setAttribute(
+      "data-theme",
+      theme
+    );
+
     localStorage.setItem(STORAGE_KEY, theme);
   }, [theme]);
 
-  const toggleTheme = () => {
+  const toggleTheme = useCallback(() => {
     setTheme((previousTheme) =>
-      previousTheme === "light" ? "dark" : "light"
+      previousTheme === "light"
+        ? "dark"
+        : "light"
     );
-  };
+  }, []);
 
   const value = useMemo(
     () => ({
@@ -52,7 +55,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       toggleTheme,
       setTheme,
     }),
-    [theme]
+    [theme, toggleTheme]
   );
 
   return (

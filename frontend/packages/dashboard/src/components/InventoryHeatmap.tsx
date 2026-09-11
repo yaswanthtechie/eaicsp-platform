@@ -111,6 +111,9 @@ export default function InventoryHeatmap({
 
     return colors.success;
   };
+  const warehouses = [
+    ...new Set(inventoryData.map((item) => item.warehouse_id)),
+  ];
 
   const getCategorySummary = (
     warehouse: string
@@ -689,3 +692,4 @@ export default function InventoryHeatmap({
     </div>
   );
 }
+

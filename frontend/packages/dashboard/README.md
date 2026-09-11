@@ -3,6 +3,7 @@
 ## Project Structure
 
 frontend/
+
 └── packages/
     └── dashboard/
         └── src/

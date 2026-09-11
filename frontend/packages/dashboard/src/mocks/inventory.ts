@@ -1,3 +1,4 @@
+
 import type { InventoryItem } from "../types/forecast";
 
 export const inventory: InventoryItem[] = [

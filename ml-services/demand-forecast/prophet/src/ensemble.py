@@ -1,5 +1,4 @@
 import math
-import math
 
 
 def validate_weights(
@@ -12,14 +11,12 @@ def validate_weights(
 
     total = prophet_weight + xgb_weight
 
-    if not math.isclose(total, 1.0):
-
+    if not math.isclose(total, 1.0, rel_tol=1e-9):
         raise ValueError(
             "Ensemble weights must sum to 1"
         )
 
     if prophet_weight < 0 or xgb_weight < 0:
-
         raise ValueError(
             "Weights cannot be negative"
         )
@@ -33,6 +30,9 @@ def weighted_ensemble(
     prophet_weight,
     xgb_weight
 ):
+    """
+    Combine Prophet and XGBoost predictions.
+    """
 
     validate_weights(
         prophet_weight,
@@ -44,26 +44,6 @@ def weighted_ensemble(
         +
         xgb_weight * xgb_prediction
     )
-    """
-    Combine Prophet and XGBoost predictions.
-    """
-
-    if not math.isclose(
-        prophet_weight + xgb_weight,
-        1.0,
-        rel_tol=1e-9
-    ):
-        raise ValueError(
-            "Weights must sum to 1."
-        )
-
-    prediction = (
-        prophet_pred * prophet_weight
-        +
-        xgb_pred * xgb_weight
-    )
-
-    return prediction
 
 
 def ensemble_interval(
@@ -78,25 +58,21 @@ def ensemble_interval(
     Combine Prophet and XGBoost prediction intervals.
     """
 
-    if not math.isclose(
-        prophet_weight + xgb_weight,
-        1.0,
-        rel_tol=1e-9
-    ):
-        raise ValueError(
-            "Weights must sum to 1."
-        )
+    validate_weights(
+        prophet_weight,
+        xgb_weight
+    )
 
     lower = (
-        prophet_lower * prophet_weight
+        prophet_weight * prophet_lower
         +
-        xgb_lower * xgb_weight
+        xgb_weight * xgb_lower
     )
 
     upper = (
-        prophet_upper * prophet_weight
+        prophet_weight * prophet_upper
         +
-        xgb_upper * xgb_weight
+        xgb_weight * xgb_upper
     )
 
     return lower, upper

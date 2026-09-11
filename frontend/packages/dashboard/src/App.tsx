@@ -382,6 +382,7 @@ function App() {
           >
             <InventoryTable data={filteredInventory} />
           </div>
+        </div>
 
           <div
             style={{
@@ -415,3 +416,4 @@ function App() {
 }
 
 export default App;
+

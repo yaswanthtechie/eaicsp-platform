@@ -1,18 +1,28 @@
+"""
+Multi-Step LSTM Architectures: Plain & Temporal Self-Attention
+"""
+
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
-class DemandLSTM(nn.Module):
-    """
-    LSTM Model for Multi-Step Demand Forecasting.
-    
-    Args:
-        input_size (int): Number of input features per time step (default: 1).
-        hidden_size (int): Number of hidden units in LSTM layers (default: 64).
-        num_layers (int): Number of stacked LSTM layers (default: 2).
-        horizon (int): Number of output time steps to forecast (default: 7).
-        dropout (float): Dropout probability between LSTM layers & FC layer (default: 0.2).
-    """
+class TemporalAttention(nn.Module):
+    """Calculates attention weights across LSTM sequence time steps."""
+
+    def __init__(self, hidden_size: int):
+        super().__init__()
+        self.attn = nn.Linear(hidden_size, 1, bias=False)
+
+    def forward(self, lstm_outputs: torch.Tensor):
+        scores = self.attn(lstm_outputs)
+        weights = F.softmax(scores, dim=1)
+        context = torch.sum(weights * lstm_outputs, dim=1)
+        return context, weights
+
+
+class MultiStepLSTM(nn.Module):
+    """Standard Multi-Step LSTM network with optional temporal attention."""
 
     def __init__(
         self,
@@ -21,51 +31,81 @@ class DemandLSTM(nn.Module):
         num_layers: int = 2,
         horizon: int = 7,
         dropout: float = 0.2,
+        dropout_rate: float = None,
+        use_attention: bool = False,
+        **kwargs,
     ):
         super().__init__()
+        if dropout_rate is not None:
+            dropout = dropout_rate
 
-        # PyTorch emits a warning if dropout > 0 when num_layers == 1
-        lstm_dropout = dropout if num_layers > 1 else 0.0
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.horizon = horizon
+        self.use_attention = use_attention
 
         self.lstm = nn.LSTM(
             input_size=input_size,
             hidden_size=hidden_size,
             num_layers=num_layers,
             batch_first=True,
-            dropout=lstm_dropout,
+            dropout=dropout if num_layers > 1 else 0.0,
         )
+
+        if self.use_attention:
+            self.attention = TemporalAttention(hidden_size)
 
         self.dropout = nn.Dropout(dropout)
         self.fc = nn.Linear(hidden_size, horizon)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def enable_mc_dropout(self):
         """
-        Forward pass.
+        Enables Monte Carlo Dropout during inference.
         
-        Input shape:  (batch_size, sequence_length, input_size)
-        Output shape: (batch_size, horizon)
+        Explicitly activates standard nn.Dropout layers and enables the internal 
+        recurrent layer dropout inside nn.LSTM (active when num_layers > 1).
         """
-        # out shape: (batch_size, seq_len, hidden_size)
-        out, _ = self.lstm(x)
+        self.eval()
+        for m in self.modules():
+            if isinstance(m, nn.Dropout):
+                m.train()
 
-        # Extract output of the last time step: (batch_size, hidden_size)
-        out = out[:, -1, :]
+        # PyTorch cuDNN LSTM applies inter-layer dropout only when training=True
+        if self.num_layers > 1:
+            self.lstm.train()
 
-        # Apply dropout before dense layer
-        out = self.dropout(out)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        lstm_out, _ = self.lstm(x)
 
-        # Map to forecast horizon: (batch_size, horizon)
-        out = self.fc(out)
+        if self.use_attention:
+            context, _ = self.attention(lstm_out)
+        else:
+            context = lstm_out[:, -1, :]
 
+        out = self.fc(self.dropout(context))
         return out
 
 
-if __name__ == "__main__":
-    # Quick sanity check / shape testing
-    model = DemandLSTM(input_size=1, hidden_size=64, num_layers=2, horizon=7)
-    dummy_input = torch.randn(32, 30, 1)  # Batch=32, Lookback=30, Features=1
-    output = model(dummy_input)
-    
-    print(f"Model architecture verified!")
-    print(f"Input shape : {dummy_input.shape}")
-    print(f"Output shape: {output.shape} (Expected: [32, 7])")
+class AttentionMultiStepLSTM(MultiStepLSTM):
+    """Attention-enabled Multi-Step LSTM variant."""
+
+    def __init__(
+        self,
+        input_size: int = 1,
+        hidden_size: int = 64,
+        num_layers: int = 2,
+        horizon: int = 7,
+        dropout: float = 0.2,
+        dropout_rate: float = None,
+        **kwargs,
+    ):
+        super().__init__(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            horizon=horizon,
+            dropout=dropout,
+            dropout_rate=dropout_rate,
+            use_attention=True,
+            **kwargs,
+        )
