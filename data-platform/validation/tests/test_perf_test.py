@@ -57,6 +57,8 @@ class TestRunPerformanceTest:
         mock_report = MagicMock()
         mock_report.passed = True
         mock_report.total_rows_affected = 0
+        mock_report.rule_timings = {"fast_rule": 0.0001}
+        mock_report.slowest_rule = {"rule": "fast_rule", "duration_seconds": 0.0001}
         mock_validator.validate.return_value = mock_report
         mock_validator.rules = [MagicMock(), MagicMock()]
         mock_validator_cls.from_config.return_value = mock_validator
@@ -108,6 +110,8 @@ class TestRunPerformanceTest:
         mock_report = MagicMock()
         mock_report.passed = False
         mock_report.total_rows_affected = 25
+        mock_report.rule_timings = {"slow_rule": 4.9}
+        mock_report.slowest_rule = {"rule": "slow_rule", "duration_seconds": 4.9}
         mock_validator.validate.return_value = mock_report
         mock_validator.rules = [MagicMock()]
         mock_validator_cls.from_config.return_value = mock_validator

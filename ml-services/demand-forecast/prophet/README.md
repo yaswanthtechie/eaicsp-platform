@@ -209,6 +209,8 @@ The feature importance distribution was considered reasonable for the current mo
 
 ---
 
+
+
 ## Automated Retraining
 
 R4 also includes a simulated automated retraining workflow.
@@ -428,3 +430,251 @@ with the current evaluation results:
 MAPE = 2.19%
 RMSE = 11354.85
 ```
+# Round 5 – Demand Forecasting Enhancements
+
+Round 5 improves the demand forecasting pipeline with automated retraining,
+ensemble weight tuning, hierarchical reconciliation, and expanded test coverage.
+
+## 1. Automated Retraining & Auto-Promotion
+
+Implemented in:
+
+`src/automated_retraining.py`
+
+- Yearly simulated retraining
+- 120-month training window
+- 12-month validation window
+- Prophet + XGBoost candidate models
+- Candidate model is compared against the previously promoted baseline
+- Better candidate is automatically promoted
+- Worse candidate is rejected
+- Promotion/rejection decisions are recorded in MLflow
+
+### Retraining Evidence
+
+The R5 retraining pipeline was executed across multiple yearly cycles.
+
+Evidence includes:
+
+- MLflow yearly retraining runs
+- Grid-search results for retraining cycles
+- Retraining cycle screenshots
+- Promoted model metadata
+
+Example yearly runs include:
+
+`yearly_retrain_2015`
+
+`yearly_retrain_2016`
+### R5 Automated Retraining Result
+
+During automated retraining, ensemble weights are selected dynamically for
+each validation cycle.
+
+For the currently promoted R5 retraining run:
+
+Prophet = 80%
+XGBoost = 20%
+
+MAPE = 1.3255%
+RMSE = 7370.6375
+### Promoted Baseline
+
+The existing promoted model used as the baseline for the R5 retraining
+simulation has the following metadata:
+
+| Metric | Value |
+|---|---:|
+| Model Version | R5 |
+| Status | Promoted |
+| MAPE | 1.3255% |
+| RMSE | 7370.6375 |
+| Prophet Weight | 0.8 |
+| XGBoost Weight | 0.2 |
+
+This same promoted baseline is used for comparison across yearly
+retraining cycles. A candidate model is promoted only when it outperforms
+this currently promoted baseline according to the promotion criteria.
+
+The pipeline therefore demonstrates that the auto-promotion decision logic
+is actually executed across retraining cycles rather than only being implemented
+in code.
+
+---
+
+## 2. Ensemble Weight Auto-Tuning
+
+The pipeline evaluates 11 Prophet/XGBoost weight combinations:
+
+0/100
+10/90
+20/80
+30/70
+40/60
+50/50
+60/40
+70/30
+80/20
+90/10
+100/0
+Every combination is evaluated on validation data.
+
+The winning combination is selected using:
+
+Validation MAPE as the primary metric
+Validation RMSE as the secondary tie-breaker
+
+Each grid-search combination is logged as a nested MLflow run.
+
+Grid-search result CSV files are generated for retraining cycles.
+## 3. Hierarchical Reconciliation
+
+Implemented 3-level hierarchy:
+
+SKU
+ ↓
+Category
+ ↓
+Region
+
+Bottom-up reconciliation aggregates:
+
+SKU forecasts → Category forecasts
+Category forecasts → Region forecasts
+
+The reconciliation validation confirms that forecast totals remain
+sum-consistent across all three levels.
+
+The implementation also validates:
+
+Missing hierarchy columns
+Empty hierarchy data
+Missing SKU/category/region mappings
+Invalid SKU-to-category/region mappings
+Missing forecast values
+SKU → Category consistency
+Category → Region consistency
+Global total consistency
+  ## 4. Test Coverage
+
+R5 includes dedicated tests for the new retraining and reconciliation behaviour.
+
+The following areas are covered:
+
+Better model promotion
+Worse model rejection
+MAPE tie-breaking using RMSE
+All 11 ensemble weight combinations
+Grid-search winner selection
+Grid-search RMSE tie-breaker
+SKU → Category → Region reconciliation
+Reconciliation across multiple regions
+Reconciliation failure path
+
+Retraining-specific test file:
+
+tests/test_retraining.py
+
+Test execution:
+
+python -m pytest tests/test_retraining.py -v
+
+Result:
+
+10 passed
+## 5. MLflow Evidence
+
+Experiment:
+
+R5_Automated_Retraining
+
+MLflow records:
+
+Yearly retraining cycles
+All 11 ensemble combinations
+Validation MAPE/RMSE
+Selected ensemble weights
+Promotion/rejection status
+Training and validation date ranges
+Grid-search results
+
+Start MLflow UI with:
+
+python -m mlflow ui
+
+
+## R5 Pipeline Note
+
+`src/automated_retraining.py` is the primary R5 retraining pipeline.
+
+`src/main.py` is retained as a legacy/reference pipeline from earlier rounds.
+It is not used by the R5 automated retraining and auto-promotion flow.
+
+## XGBoost Validation Limitation
+
+The XGBoost validation forecast currently uses historical/ground-truth lag
+features for the validation period (teacher forcing).
+
+Production forecasting is recursive, where previous XGBoost predictions are
+fed back as lag features.
+
+Therefore, validation MAPE/RMSE may be more optimistic than production
+performance.
+### Validation and Promotion Decision
+
+For the R5 implementation, the same validation window is currently used
+for ensemble weight selection and the promotion comparison.
+
+The validation MAPE is used to select the best Prophet/XGBoost weight
+combination, and the selected candidate is then compared against the
+current promoted baseline.
+
+A separate promotion hold-out or nested validation split would provide a
+more statistically independent promotion gate and can be considered as a
+future enhancement.
+
+## Definition of Done
+
+- [x] Automated yearly retraining implemented
+  - 120-month training window
+  - 12-month validation window
+  - Yearly retraining trigger
+
+- [x] Auto-promotion decision logic implemented and executed
+  - Candidate compared with promoted baseline
+  - Better candidate promoted
+  - Worse candidate rejected
+  - Promotion/rejection status recorded in MLflow
+
+- [x] Multiple retraining cycles executed
+  - Yearly retraining cycles executed using available historical data
+  - MLflow contains yearly retraining runs
+  - Retraining/grid-search evidence captured
+
+- [x] 11 ensemble weight combinations evaluated
+  - Prophet/XGBoost weights from 0.0/1.0 through 1.0/0.0
+  - 0.1 increments
+  - Every combination logged as a nested MLflow run
+  - Grid-search CSV generated
+
+- [x] Best ensemble selected automatically
+  - MAPE is the primary metric
+  - RMSE is the secondary tie-breaker
+
+- [x] SKU → Category → Region reconciliation
+  - Three hierarchy levels implemented
+  - Multiple regions supported
+  - Sum consistency verified
+
+- [x] R5 retraining and reconciliation tests
+  - `tests/test_retraining.py`
+  - Promotion/rejection tests
+  - Grid-search tests
+  - 3-level reconciliation tests
+  - Reconciliation failure-path test
+
+- [x] Existing regression/robustness tests maintained
+  - Forecasting validation
+  - Invalid input handling
+  - Ensemble validation
+  - Service behaviour

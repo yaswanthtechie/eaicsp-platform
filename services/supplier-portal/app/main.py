@@ -1,4 +1,5 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+import time
 
 from app.routes.purchase_order import router as purchase_order_router
 from app.routes.invoice import router as invoice_router
@@ -11,6 +12,29 @@ app = FastAPI(
     version="1.0.0",
     description="Enterprise AI Cognitive Supply Chain",
 )
+
+
+# ============================================================
+# REQUEST LOGGING MIDDLEWARE
+# ============================================================
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = time.time()
+
+    response = await call_next(request)
+
+    process_time = time.time() - start_time
+
+    print(
+        f"{request.method} "
+        f"{request.url.path} "
+        f"- {response.status_code} "
+        f"({process_time:.3f}s)",
+        flush=True,
+    )
+
+    return response
 
 
 # ============================================================
@@ -52,7 +76,7 @@ app.include_router(
 
 @app.get(
     "/",
-    response_model=MessageResponse,
+    response_model=MessageResponse
 )
 def root():
     return {

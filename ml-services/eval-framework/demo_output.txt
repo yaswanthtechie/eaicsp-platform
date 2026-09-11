@@ -1,0 +1,19 @@
+$ python run_leaderboard.py
+
+Fold 1: naive MAPE=6.22, prophet MAPE=3.67
+Fold 2: naive MAPE=6.83, prophet MAPE=6.45
+Fold 3: naive MAPE=6.22, prophet MAPE=6.46
+Fold 4: naive MAPE=5.61, prophet MAPE=15.76
+Fold 5: naive MAPE=6.24, prophet MAPE=11.59
+
+Naive MAPE per fold: [6.22, 6.83, 6.22, 5.61, 6.24]
+Prophet MAPE per fold: [3.67, 6.45, 6.46, 15.76, 11.59]
+
+Leaderboard (mape, lower is better):
+----------------------------------------
+1. naive                6.2230
+2. prophet              8.7844
+
+Model A's mean score differs from Model B's by -2.5614. This difference is
+NOT statistically significant (p=0.3270 >= 0.05) -- could be due to random
+noise across folds.

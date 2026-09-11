@@ -16,3 +16,4 @@ def test_missing_column():
 
     with pytest.raises(ValueError):
         validate_schema(df)
+    

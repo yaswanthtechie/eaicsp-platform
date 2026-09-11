@@ -13,6 +13,8 @@ class PurchaseOrderStatus(str, Enum):
     cancelled = "cancelled"
 
 class PurchaseOrderHistory(BaseModel):
+    po_number: str
+    supplier_id: str
     actor: str | None = None
     from_status: PurchaseOrderStatus
     to_status: PurchaseOrderStatus
@@ -110,7 +112,7 @@ class BulkPOSendRequest(BaseModel):
     po_numbers: List[str] = Field(
         min_length=1
     )
-    actor: str
+    
     
     model_config = ConfigDict(
         json_schema_extra={

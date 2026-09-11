@@ -201,19 +201,27 @@ const activeRefreshTokens = new Set();
 
 const typeDefs = `#graphql
 
+enum POStatus {
+  DRAFT
+  SENT
+  ACKNOWLEDGED
+  FULFILLED
+  CANCELLED
+}
+
 type POItem {
   sku: String!
-  product_name: String!
+  productName: String!
   quantity: Int!
-  unit_price: Int!
+  unitPrice: Int!
 }
 
 type PurchaseOrder {
-  po_number: String!
-  supplier_id: String!
-  status: String!
-  total_amount: Int!
-  expected_delivery: String!
+  poNumber: String!
+  supplierId: String!
+  status: POStatus!
+  totalAmount: Int!
+  expectedDelivery: String!
   items: [POItem!]!
 }
 
@@ -244,7 +252,7 @@ type Query {
     first: Int!
     after: String
     poNumber: String
-    status: String
+    status: POStatus
     minAmount: Int
     maxAmount: Int
     startDate: String
@@ -254,7 +262,7 @@ type Query {
 
 type Mutation {
   acknowledgePurchaseOrder(
-    po_number: String!
+    poNumber: String!
   ): PurchaseOrder
 
   submitInvoice(
@@ -271,6 +279,35 @@ type Mutation {
 // -----------------------------------------------------------------------------
 
 const resolvers = {
+  // ---------------------------------------------------------------------------
+  // POItem field mapping
+  // ---------------------------------------------------------------------------
+
+  POItem: {
+    productName: (item) => item.product_name,
+    unitPrice: (item) => item.unit_price,
+  },
+
+  // ---------------------------------------------------------------------------
+  // PurchaseOrder field mapping
+  // ---------------------------------------------------------------------------
+
+  PurchaseOrder: {
+    poNumber: (po) => po.po_number,
+    supplierId: (po) => po.supplier_id,
+
+    // Convert backend lowercase status to GraphQL POStatus enum
+    status: (po) => po.status.toUpperCase(),
+
+    totalAmount: (po) => po.total_amount,
+    expectedDelivery: (po) => po.expected_delivery,
+    items: (po) => po.items,
+  },
+
+  // ---------------------------------------------------------------------------
+  // Queries
+  // ---------------------------------------------------------------------------
+
   Query: {
     purchaseOrders(
       _,
@@ -287,17 +324,29 @@ const resolvers = {
     ) {
       let filteredOrders = [...purchaseOrders];
 
+      // -----------------------------------------------------------------------
+      // Search by PO number
+      // -----------------------------------------------------------------------
+
       if (poNumber) {
         filteredOrders = filteredOrders.filter((po) =>
           po.po_number.toLowerCase().includes(poNumber.toLowerCase())
         );
       }
 
+      // -----------------------------------------------------------------------
+      // Filter by status
+      // -----------------------------------------------------------------------
+
       if (status) {
         filteredOrders = filteredOrders.filter(
-          (po) => po.status.toLowerCase() === status.toLowerCase()
+          (po) => po.status.toUpperCase() === status
         );
       }
+
+      // -----------------------------------------------------------------------
+      // Filter by minimum amount
+      // -----------------------------------------------------------------------
 
       if (minAmount != null) {
         filteredOrders = filteredOrders.filter(
@@ -305,11 +354,19 @@ const resolvers = {
         );
       }
 
+      // -----------------------------------------------------------------------
+      // Filter by maximum amount
+      // -----------------------------------------------------------------------
+
       if (maxAmount != null) {
         filteredOrders = filteredOrders.filter(
           (po) => po.total_amount <= maxAmount
         );
       }
+
+      // -----------------------------------------------------------------------
+      // Filter by start date
+      // -----------------------------------------------------------------------
 
       if (startDate) {
         filteredOrders = filteredOrders.filter(
@@ -317,11 +374,19 @@ const resolvers = {
         );
       }
 
+      // -----------------------------------------------------------------------
+      // Filter by end date
+      // -----------------------------------------------------------------------
+
       if (endDate) {
         filteredOrders = filteredOrders.filter(
           (po) => po.expected_delivery <= endDate
         );
       }
+
+      // -----------------------------------------------------------------------
+      // Cursor pagination
+      // -----------------------------------------------------------------------
 
       let startIndex = 0;
 
@@ -337,6 +402,10 @@ const resolvers = {
         startIndex,
         startIndex + first
       );
+
+      // -----------------------------------------------------------------------
+      // Create GraphQL connection edges
+      // -----------------------------------------------------------------------
 
       const edges = items.map((po) => ({
         cursor: po.po_number,
@@ -361,10 +430,14 @@ const resolvers = {
     },
   },
 
+  // ---------------------------------------------------------------------------
+  // Mutations
+  // ---------------------------------------------------------------------------
+
   Mutation: {
-    acknowledgePurchaseOrder(_, { po_number }) {
+    acknowledgePurchaseOrder(_, { poNumber }) {
       const order = purchaseOrders.find(
-        (po) => po.po_number === po_number
+        (po) => po.po_number === poNumber
       );
 
       if (!order) {

@@ -4,7 +4,7 @@ export const GET_PURCHASE_ORDERS = gql`
   query GetPurchaseOrders(
     $first: Int!
     $after: String
-    $status: String
+    $status: POStatus
     $poNumber: String
     $minAmount: Int
     $maxAmount: Int
@@ -24,17 +24,17 @@ export const GET_PURCHASE_ORDERS = gql`
       edges {
         cursor
         node {
-          po_number
-          supplier_id
+          poNumber
+          supplierId
           status
-          total_amount
-          expected_delivery
+          totalAmount
+          expectedDelivery
 
           items {
             sku
-            product_name
+            productName
             quantity
-            unit_price
+            unitPrice
           }
         }
       }

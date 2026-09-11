@@ -32,9 +32,20 @@ function isSamePO(
   action: OfflineAction,
   newAction: Omit<OfflineAction, "id" | "createdAt">
 ): boolean {
+  // Only de-duplicate repeated acknowledgements of the same PO.
+  // Two invoice submissions are never duplicates of each other.
+  if (
+    action.type !== "ACKNOWLEDGE_PO" ||
+    newAction.type !== "ACKNOWLEDGE_PO"
+  ) {
+    return false;
+  }
+
+  const incoming = newAction.payload.poNumber;
+
   return (
-    action.type === newAction.type &&
-    action.payload.po_number === newAction.payload.po_number
+    typeof incoming === "string" &&
+    action.payload.poNumber === incoming
   );
 }
 
@@ -49,8 +60,8 @@ export function addOfflineAction(
 
   let queue = getQueue();
 
-  // Prevent duplicate pending actions for the same PO.
-  // The latest user action replaces the older pending action.
+  // Prevent duplicate pending acknowledgements for the same PO.
+  // The latest acknowledgement replaces the older one.
   queue = queue.filter(
     (existingAction) =>
       !isSamePO(existingAction, newAction)

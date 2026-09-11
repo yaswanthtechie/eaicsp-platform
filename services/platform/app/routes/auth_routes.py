@@ -1,4 +1,4 @@
-
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter , HTTPException,Depends, Request,status
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError
@@ -10,24 +10,39 @@ from app.services.auth_service import (
     register_user,
     login_user,
     get_refresh_token,
-    revoke_refresh_token 
+    save_refresh_token,
+    request_password_reset,
+    reset_password
 )
+from app.services.audit_service import (
+    TOKEN_REVOKED ,
+    create_audit_log,
+)
+from app.models.refresh_token import RefreshToken
+
+from app.core.service_auth import verify_service_api_key
+from app.schemas.auth import VerifyResponse
 from app.schemas.auth import (
     TokenResponse,  
     RefreshRequest,
     AccessTokenResponse,
     LogoutRequest,
-    RegisterRequest
+    RegisterRequest,
+    PasswordResetRequest,
+    PasswordResetConfirm,
    
 )
+
 from app.core.security import (
     create_access_token,
+    create_refresh_token,
     decode_token
 )
 from app.core.dependencies import(
     get_current_user,
     ROLE_HIERARCHY
 )
+import logging
 router = APIRouter(
     prefix="/api/v1/auth",
     tags=["Authentication"]
@@ -76,7 +91,6 @@ def login(
         password=form_data.password,
         client_ip=get_client_ip(request)
     )
-
 # ============================================================
 # REFRESH TOKEN
 # ============================================================
@@ -134,19 +148,44 @@ def refresh_token(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid user"
         )
-
     new_access_token = create_access_token(
-        {
-            "sub": user.email,
-            "user_id": user.id,
-            "role": user.role.name
-        }
+    {
+        "sub": user.email,
+        "user_id": user.id,
+        "role": user.role.name
+    }
     )
 
-    return {
-        "access_token": new_access_token,
-        "token_type": "bearer"
+    new_refresh_token = create_refresh_token(
+    {
+        "sub": user.email,
+        "user_id": user.id,
     }
+)
+
+    new_refresh_expires_at = (
+    datetime.now(timezone.utc)
+    + timedelta(days=7)
+)
+
+# Revoke the old refresh token.
+    refresh.is_revoked = True
+
+# Save the new refresh token.
+    save_refresh_token(
+    db=db,
+    user_id=user.id,
+    token=new_refresh_token,
+    expires_at=new_refresh_expires_at,
+)
+
+    db.commit()
+
+    return {
+    "access_token": new_access_token,
+    "refresh_token": new_refresh_token,
+    "token_type": "bearer",
+}   
 
 # ============================================================
 # PERMISSIONS
@@ -181,20 +220,118 @@ def my_permissions(
 @router.post("/logout")
 def logout(
     body: LogoutRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
-    success = revoke_refresh_token(
-        db=db,
-        token=body.refresh_token
+    refresh = (
+        db.query(RefreshToken)
+        .filter(RefreshToken.token == body.refresh_token)
+        .first()
     )
 
-    if not success:
+    if refresh is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Refresh token not found"
+            detail="Refresh token not found",
         )
+    if refresh.user_id != current_user.id:
+        raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Cannot revoke another user's session",
+    )
+
+    if refresh.is_revoked:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Refresh token already revoked",
+        )
+
+    refresh.is_revoked = True
+
+    create_audit_log(
+        db=db,
+        event_type=TOKEN_REVOKED,
+        user_id=refresh.user_id,
+        details="Refresh token revoked during logout",
+    )
+
+    db.commit()
 
     return {
         "message": "Logged out successfully"
     }
+# ============================================================
+# PASSWORD REQUEST
+# ============================================================
+@router.post("/password-reset/request")
+def password_reset_request(
+    payload: PasswordResetRequest,
+    db: Session = Depends(get_db),
+):
+    request_password_reset(
+        db=db,
+        email=payload.email,
+    )
 
+    return {
+        "message": "If the account exists, a password reset token has been sent."
+    }
+
+# ============================================================
+# PASSWORD CONFIRM
+# ============================================================
+@router.post("/password-reset/reset")
+def password_reset_confirm(
+    payload: PasswordResetConfirm,
+    db: Session = Depends(get_db),
+):
+    reset_password(
+        db=db,
+        token=payload.token,
+        new_password=payload.new_password,
+    )
+
+    return {
+        "message": "Password has been reset successfully."
+    }
+
+# ============================================================
+# VERIFY
+# ============================================================
+
+logger = logging.getLogger("platform.request")
+
+@router.post(
+    "/verify",
+    response_model=VerifyResponse,
+)
+def verify_access_token(
+    current_user: User = Depends(get_current_user),
+):
+    response_data = {
+        "valid":True,
+        "user_id": current_user.id,
+        "email": current_user.email,
+        "full_name": current_user.full_name,
+        "role": current_user.role.name if current_user.role else None,
+        "supplier_id": current_user.supplier_id,
+        "is_active": current_user.is_active,
+    }
+
+    logger.info(
+        "Token verified | user_id=%s | role=%s | endpoint=/api/v1/auth/verify ",
+        current_user.id,
+        current_user.role.name if current_user.role else None,
+    )
+
+    return response_data
+
+@router.post("/service-verify")
+def service_verify(
+    service=Depends(verify_service_api_key),
+):
+    return {
+        "authenticated": True,
+        "service": service["service"],
+        "auth_type": service["auth_type"],
+    }

@@ -5,6 +5,8 @@ import pandas as pd
 from scipy.stats import pearsonr
 from sklearn.ensemble import RandomForestRegressor
 
+import pandas as pd
+from sklearn.ensemble import RandomForestRegressor
 
 def calculate_feature_correlations(
     df: pd.DataFrame,

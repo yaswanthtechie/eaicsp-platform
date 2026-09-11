@@ -9,6 +9,7 @@ from fastapi import (
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.dependency import require_roles
 
 from app.schemas.compliance import (
     ComplianceRequest,
@@ -48,6 +49,7 @@ router = APIRouter()
 def screen(
     request: ComplianceRequest,
     db: Session = Depends(get_db),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
   
     result = screen_entity(
@@ -86,6 +88,7 @@ def screen(
 def bulk_screen(
     request: BulkComplianceRequest,
     db: Session = Depends(get_db),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
   
 
@@ -138,6 +141,7 @@ def bulk_screen(
 def audit_history(
     entity_name: str = Query(...),
     db: Session = Depends(get_db),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
 
 
@@ -152,8 +156,8 @@ def audit_history(
 )
 def audit_summary(
     db: Session = Depends(get_db),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
-
     return get_audit_summary(db)
 
 
@@ -164,6 +168,7 @@ def audit_summary(
 def add_override(
     request: OverrideCreateRequest,
     db: Session = Depends(get_db),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
 
 
@@ -188,6 +193,7 @@ def read_override(
     matched_name: str = Query(...),
     source: str = Query(...),
     db: Session = Depends(get_db),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
 
 
@@ -208,29 +214,22 @@ def read_override(
 
 
 
-@router.get(
-    "/overrides",
-    response_model=list[OverrideResponse],
-)
+@router.get("/overrides", response_model=list[OverrideResponse])
 def read_all_overrides(
     db: Session = Depends(get_db),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
-
     return get_all_overrides(db)
 
 
-
-@router.delete(
-    "/override",
-)
+@router.delete("/override")
 def remove_override(
     entity_name: str = Query(...),
     matched_name: str = Query(...),
     source: str = Query(...),
     db: Session = Depends(get_db),
+    auth_data=Depends(require_roles("compliance_officer")),
 ):
-
-
     deleted = delete_override(
         db=db,
         entity_name=entity_name,
@@ -250,4 +249,3 @@ def remove_override(
         "matched_name": matched_name,
         "source": source,
     }
-
