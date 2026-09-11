@@ -1,81 +1,147 @@
 import {
-  Area,
-  CartesianGrid,
-  ComposedChart,
-  Legend,
-  Line,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
+    Area,
+    Brush,
+    CartesianGrid,
+    ComposedChart,
+    Legend,
+    Line,
+    ResponsiveContainer,
+    Tooltip,
+    XAxis,
+    YAxis,
 } from "recharts";
 
-import { useEffect, useState } from "react";
-import { Button } from "../../../ui/src/components/Button";
-import { Spinner } from "../../../ui/src/components/Spinner";
+import { useEffect, useMemo, useState } from "react";
 import { loadForecast } from "../mocks/forecast";
-import { colors, radius, space } from "../tokens";
+import { colors, space } from "../tokens";
+import type { ForecastPoint } from "../types/forecast";
+import Skeleton from "./Skeleton";
 interface ForecastChartProps {
+  startDate?: string;
+  endDate?: string;
   shouldFail?: boolean;
 }
 
-export default function ForecastChart({
+function ForecastChart({
+  startDate = "",
+  endDate = "",
   shouldFail = false,
 }: ForecastChartProps) {
-  const [forecastData, setForecastData] = useState<
-    Awaited<ReturnType<typeof loadForecast>>
-  >([]);
-
+  const [forecastData, setForecastData] = useState<ForecastPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
+
+  const [zoomStart, setZoomStart] = useState<number | null>(null);
+  const [zoomEnd, setZoomEnd] = useState<number | null>(null);
+
+  const fetchData = async () => {
+    setLoading(true);
+    setError(false);
+
+    try {
+      if (shouldFail) {
+        throw new Error("Failed to load forecast data");
+      }
+
+      const data = await loadForecast();
+      setForecastData(data);
+    } catch {
+      setForecastData([]);
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
 
-    const fetchData = async () => {
+    const loadData = async () => {
       setLoading(true);
       setError(false);
 
       try {
-        const data = await loadForecast(shouldFail);
+        if (shouldFail) {
+          throw new Error("Failed to load forecast data");
+        }
+
+        const data = await loadForecast();
 
         if (!cancelled) {
           setForecastData(data);
+          setLoading(false);
         }
       } catch {
         if (!cancelled) {
           setForecastData([]);
           setError(true);
-        }
-      } finally {
-        if (!cancelled) {
           setLoading(false);
         }
       }
     };
 
-    fetchData();
+    loadData();
 
     return () => {
       cancelled = true;
     };
-  }, [shouldFail, retryCount]);
+  }, [shouldFail]);
+
+  const filteredData = useMemo(() => {
+    return forecastData.filter((item) => {
+      const matchesStart =
+        !startDate || item.date >= startDate;
+
+      const matchesEnd =
+        !endDate || item.date <= endDate;
+
+      return matchesStart && matchesEnd;
+    });
+  }, [forecastData, startDate, endDate]);
+
+  const chartData = useMemo(() => {
+    return filteredData.map((item) => ({
+      ...item,
+      band: item.upper_bound - item.lower_bound,
+    }));
+  }, [filteredData]);
+
+  const handleResetZoom = () => {
+    setZoomStart(null);
+    setZoomEnd(null);
+  };
+
+  const handleZoomChange = (range: {
+    startIndex?: number;
+    endIndex?: number;
+  }) => {
+    if (
+      range.startIndex !== undefined &&
+      range.endIndex !== undefined
+    ) {
+      setZoomStart(range.startIndex);
+      setZoomEnd(range.endIndex);
+    }
+  };
 
   if (loading) {
     return (
       <div
         style={{
-          minHeight: 350,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: space.sm,
-          color: colors.text,
+          padding: space.lg,
         }}
       >
-        <Spinner size="md" />
-        <span>Loading Forecast Chart...</span>
+        <Skeleton width="35%" height={28} />
+        <div style={{ marginTop: space.sm }}>
+          <Skeleton width="20%" height={16} />
+        </div>
+        <div style={{ marginTop: space.md }}>
+          <Skeleton
+            width="100%"
+            height={400}
+            borderRadius={10}
+          />
+        </div>
       </div>
     );
   }
@@ -84,25 +150,15 @@ export default function ForecastChart({
     return (
       <div
         style={{
-          minHeight: 350,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: space.sm,
-          color: colors.text,
-          textAlign: "center",
+          color: colors.danger,
+          padding: space.lg,
         }}
       >
         <p>Something went wrong.</p>
 
-        <Button
-          variant="danger"
-          size="sm"
-          onClick={() => setRetryCount((count) => count + 1)}
-        >
+        <button onClick={fetchData}>
           Retry
-        </Button>
+        </button>
       </div>
     );
   }
@@ -111,87 +167,11 @@ export default function ForecastChart({
     return (
       <div
         style={{
-          minHeight: 350,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          color: colors.text,
-          textAlign: "center",
+          color: colors.textMuted,
+          padding: space.lg,
         }}
       >
-        <h2>No Forecast Data Available.</h2>
-      </div>
-    );
-  }
-
-  return <ForecastChartContent forecast={forecastData} />;
-}
-
-interface ForecastChartContentProps {
-  forecast: Awaited<ReturnType<typeof loadForecast>>;
-}
-
-function ForecastChartContent({
-  forecast,
-}: ForecastChartContentProps) {
-  const chartData = forecast.map((item) => ({
-    ...item,
-    band: item.upper_bound - item.lower_bound,
-  }));
-
-  const lastActualIndex = chartData.reduce(
-    (last, item, index) =>
-      item.actual !== undefined ? index : last,
-    0
-  );
-
-  const defaultStart =
-    chartData[Math.max(0, lastActualIndex - 9)].date;
-
-  const defaultEnd =
-    chartData[
-      Math.min(chartData.length - 1, lastActualIndex + 5)
-    ].date;
-
-  const [startDate, setStartDate] = useState(defaultStart);
-  const [endDate, setEndDate] = useState(defaultEnd);
-
-  const filteredData = chartData.filter(
-    (item) =>
-      item.date >= startDate &&
-      item.date <= endDate
-  );
-
-  const resetDates = () => {
-    setStartDate(chartData[0].date);
-    setEndDate(chartData[chartData.length - 1].date);
-  };
-
-  if (startDate > endDate) {
-    return (
-      <div
-        style={{
-          minHeight: 350,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: space.sm,
-          color: colors.text,
-          textAlign: "center",
-        }}
-      >
-        <h2 style={{ color: colors.danger }}>
-          Start date must be on or before the end date.
-        </h2>
-
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={resetDates}
-        >
-          Reset
-        </Button>
+        No forecast data available.
       </div>
     );
   }
@@ -200,146 +180,132 @@ function ForecastChartContent({
     return (
       <div
         style={{
-          minHeight: 350,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: space.sm,
-          color: colors.text,
-          textAlign: "center",
+          color: colors.textMuted,
+          padding: space.lg,
         }}
       >
-        <h2>No forecast data in the selected range.</h2>
-
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={resetDates}
-        >
-          Reset
-        </Button>
+        No forecast data for the selected date range.
       </div>
     );
   }
 
   return (
-    <div
-      style={{
-        background: colors.surface,
-        padding: space.md,
-        borderRadius: radius.md,
-      }}
-    >
+    <div style={{ width: "100%" }}>
       <div
         style={{
           display: "flex",
-          gap: space.md,
-          marginBottom: space.sm,
+          justifyContent: "space-between",
           alignItems: "center",
-          flexWrap: "wrap",
+          marginBottom: space.md,
         }}
       >
-        <h2
+        <div>
+          <h2
+            style={{
+              color: colors.text,
+              marginTop: 0,
+              marginBottom: space.sm,
+            }}
+          >
+            Sales Forecast
+          </h2>
+
+          <div
+            style={{
+              color: colors.textMuted,
+              fontSize: 14,
+            }}
+          >
+            {startDate || "Start"} → {endDate || "End"}
+          </div>
+        </div>
+
+        <button
+          onClick={handleResetZoom}
           style={{
+            padding: "8px 12px",
+            borderRadius: 6,
+            border: `1px solid ${colors.border}`,
+            background: colors.surface,
             color: colors.text,
-            textAlign: "left",
-            fontSize: space.lg,
+            cursor: "pointer",
           }}
         >
-          Sales Forecasting From : {startDate} to {endDate}
-        </h2>
-
-        <label style={{ color: colors.text }}>
-          Start Date:
-          <input
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            style={{
-              marginLeft: space.sm,
-              padding: "6px 8px",
-            }}
-          />
-        </label>
-
-        <label style={{ color: colors.text }}>
-          End Date:
-          <input
-            type="date"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            style={{
-              marginLeft: space.sm,
-              padding: "6px 8px",
-            }}
-          />
-        </label>
-
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={resetDates}
-        >
-          Reset
-        </Button>
+          Reset Zoom
+        </button>
       </div>
 
-      <ResponsiveContainer width="100%" height={350}>
-        <ComposedChart data={filteredData}>
-          <CartesianGrid
-            stroke={colors.border}
-            strokeDasharray="3 4"
-          />
+      <div
+        style={{
+          width: "100%",
+          height: 400,
+        }}
+      >
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={chartData}>
+            <CartesianGrid stroke={colors.border} />
 
-          <XAxis
-            dataKey="date"
-            stroke={colors.textMuted}
-          />
+            <XAxis
+              dataKey="date"
+              stroke={colors.textMuted}
+            />
 
-          <YAxis stroke={colors.textMuted} />
+            <YAxis stroke={colors.textMuted} />
 
-          <Tooltip />
+            <Tooltip />
 
-          <Legend />
+            <Legend />
 
-          <Area
-            dataKey="lower_bound"
-            stackId="band"
-            stroke="none"
-            fill="transparent"
-            legendType="none"
-          />
+            <Area
+              type="monotone"
+              dataKey="lower_bound"
+              stackId="confidence"
+              stroke="none"
+              fill="transparent"
+            />
 
-          <Area
-            dataKey="band"
-            stackId="band"
-            stroke="none"
-            fill={colors.success}
-            fillOpacity={0.2}
-            name="Confidence Band"
-          />
+            <Area
+              type="monotone"
+              dataKey="band"
+              stackId="confidence"
+              stroke="none"
+              fill={colors.primary}
+              fillOpacity={0.15}
+            />
 
-          <Line
-            type="monotone"
-            dataKey="predicted"
-            stroke={colors.primary}
-            strokeWidth={5}
-            dot={false}
-            name="Predicted"
-          />
+            <Line
+              type="monotone"
+              dataKey="predicted"
+              stroke={colors.primary}
+              strokeWidth={2}
+              dot={false}
+            />
 
-          <Line
-            type="monotone"
-            dataKey="actual"
-            stroke={colors.success}
-            strokeWidth={2}
-            strokeDasharray="5 5"
-            dot
-            name="Actual"
-          />
-        </ComposedChart>
-      </ResponsiveContainer>
+            <Line
+              type="monotone"
+              dataKey="actual"
+              stroke={colors.success}
+              strokeWidth={2}
+              strokeDasharray="5 5"
+              dot={false}
+            />
+
+            <Brush
+              dataKey="date"
+              height={30}
+              stroke={colors.primary}
+              startIndex={zoomStart ?? 0}
+              endIndex={
+                zoomEnd ?? chartData.length - 1
+              }
+              onChange={handleZoomChange}
+            />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
+
+export default ForecastChart;
+
