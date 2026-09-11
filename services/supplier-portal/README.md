@@ -32,33 +32,40 @@ The Supplier Portal Service is part of the **Enterprise AI Cognitive Supply Chai
 
 11. [Supplier Performance Scorecard](#11-supplier-performance-scorecard)
 
-12. [API Reference](#12-api-reference)
+12. [Procure-to-Pay Lifecycle](#12-procure-to-pay-lifecycle)
 
-13. [HTTP Response Codes](#13-http-response-codes)
+13. [Three-Way Match](#13-three-way-match)
 
-14. [Configuration](#14-configuration)
+14. [Supplier Onboarding](#14-supplier-onboarding)
 
-15. [Installation](#15-installation)
+15. [API Reference](#15-api-reference)
 
-16. [Running the Services](#16-running-the-services)
+16. [HTTP Response Codes](#16-http-response-codes)
 
-17. [Swagger Documentation](#17-swagger-documentation)
+17. [Configuration](#17-configuration)
 
-18. [Testing](#18-testing)
+18. [Installation](#18-installation)
 
-19. [Business Rules](#19-business-rules)
+19. [Running the Services](#19-running-the-services)
 
-20. [Security Controls](#20-security-controls)
+20. [Swagger Documentation](#20-swagger-documentation)
 
-21. [Storage](#21-storage)
+21. [Testing](#21-testing)
 
-22. [End-to-End Workflow](#22-end-to-end-workflow)
+22. [Business Rules](#22-business-rules)
 
-23. [Current Implementation Status](#23-current-implementation-status)
+23. [Security Controls](#23-security-controls)
 
-24. [Known Limitations](#24-known-limitations)
+24. [Storage](#24-storage)
 
-25. [Future Enhancements](#25-future-enhancements)
+25. [End-to-End Workflow](#25-end-to-end-workflow)
+
+26. [Current Implementation Status](#26-current-implementation-status)
+
+27. [Known Limitations](#27-known-limitations)
+
+28. [Future Enhancements](#28-future-enhancements)
+
 
 ---
 
@@ -66,100 +73,93 @@ The Supplier Portal Service is part of the **Enterprise AI Cognitive Supply Chai
 
 The **Supplier Portal Service** provides backend APIs for the supplier and procurement workflow.
 
-The service currently manages four major functional areas:
+The Supplier Portal Service currently manages the following major functional areas:
 
 ```text
 1. Purchase Order Management
 
-2. Invoice Management
+2. Procure-to-Pay Processing
 
-3. Supplier Statistics
+3. Goods Receipt Management
 
-4. Supplier Performance Scorecard
+4. Invoice Management
+
+5. Three-Way Match Processing
+
+6. Supplier Onboarding
+
+7. Supplier Statistics
+
+8. Supplier Performance Scorecard
+
+9. Invoice Document Management
+
+10. Authentication, Authorization, and Supplier Scoping
 ```
 
-The overall business flow is:
+The service now supports the complete procure-to-pay business flow:
 
 ```text
 Purchase Order
-
       │
-
       ▼
-
-   Draft
-
+Acknowledgement
       │
-
       ▼
-
-    Sent
-
+Shipment Notice
       │
-
       ▼
-
-Acknowledged
-
+Goods Receipt
       │
-
       ▼
-
- Fulfilled
-
+Invoice
       │
-
       ▼
-
-   Invoice
-
+Three-Way Match
       │
-
-      ▼
-
-Invoice Validation
-
+      ├── Matched
       │
-
-      ▼
-
-Invoice Document
-
+      └── Discrepancy → Human Review
       │
-
       ▼
-
-Supplier Statistics
-
-      │
-
-      ▼
-
-Supplier Scorecard
+Payment Approval
 ```
 
-The service uses:
+Supplier onboarding is implemented as a separate supplier lifecycle:
 
-* **In-memory dictionaries** for Purchase Orders, invoices, and events
+```text
+Registration
+      │
+      ▼
+Document Collection
+      │
+      ▼
+Mock Verification
+      │
+      ▼
+Approval
+      │
+      ▼
+Active
+```
 
-* **Local filesystem storage** for invoice PDF documents
+Supplier-level authorization from Round 5 remains enforced throughout the supplier-facing workflows.
 
-* **Platform Service** for authentication and user identity verification
+-----------------------------------------------------------------
+## Existing Status & Known Gaps
+------------------------------------------------------------
 
-The implementation is structured so persistent infrastructure can be introduced in a later phase.
+The current Supplier Portal implementation includes Platform Service authentication, role-based authorization, supplier-level scoping, Purchase Order management, the complete procure-to-pay workflow, Goods Receipt processing, invoice processing, three-way matching, payment approval workflow states, supplier onboarding, supplier statistics, supplier performance scorecards, invoice document security, and automated security and business-rule testing.
 
-## Status & Known Gaps
+The major remaining implementation limitations are primarily infrastructure-related:
 
-The current Supplier Portal implementation includes authentication, role-based authorization, supplier-level scoping, Purchase Order and invoice workflows, document validation, supplier statistics, supplier scorecards, and automated security testing.
-
-The major current implementation limitations are:
-
-* Purchase Orders, invoices, and audit events use **in-memory storage** and are not persistent across service restarts.
-* Invoice PDF documents use **local filesystem storage**.
-* Authentication depends on the availability of the **Platform Service**.
+* Purchase Orders, invoices, P2P records, onboarding workflow data, and audit events use in-memory storage and are not persistent across service restarts.
+* Invoice PDF documents use local filesystem storage.
+* Authentication depends on the availability of the Platform Service.
 * The current implementation is suitable for development and functional validation; production deployment requires persistent storage and additional operational hardening.
 
-For the detailed list of limitations and future production considerations, see [Known Limitations](#24-known-limitations).
+The functional procure-to-pay, three-way match, supplier onboarding, supplier analytics, and supplier-scoping milestones are implemented. The remaining limitations are primarily related to production infrastructure and operational hardening.
+
 
 ---
 
@@ -297,6 +297,42 @@ For the detailed list of limitations and future production considerations, see [
 
 * Historical dispute tracking
 
+## Procure-to-Pay
+
+* Complete PO-to-payment workflow
+* PO acknowledgement
+* Shipment notice processing
+* Goods Receipt processing
+* P2P state transitions
+* Invoice integration with P2P state
+* Three-way PO/Receipt/Invoice matching
+* Quantity discrepancy detection
+* Price discrepancy detection
+* Human-review routing for discrepancies
+* Payment approval workflow
+
+## Supplier Onboarding
+
+* Supplier registration
+* Supplier document collection
+* Mock supplier verification
+* Supplier approval workflow
+* Supplier activation
+* Supplier-scoped onboarding access
+* Onboarding lifecycle state management
+
+## Three-Way Match
+
+* Purchase Order matching
+* Goods Receipt matching
+* Invoice matching
+* Quantity validation
+* Price validation
+* Match/discrepancy determination
+* Human-review handling for discrepancies
+* Prevention of automatic approval when a discrepancy exists
+
+
 ---
 
 # 3. Architecture
@@ -393,6 +429,115 @@ User Identity + Role + Supplier ID
 
 Supplier Portal Authorization
 ```
+## Procure-to-Pay Architecture
+
+The Supplier Portal extends the existing layered architecture with a procure-to-pay workflow layer.
+
+```text
+                         Client
+                           │
+                           ▼
+                    FastAPI Application
+                           │
+                           ▼
+                         Routes
+                           │
+          ┌────────────────┼────────────────┐
+          │                │                │
+          ▼                ▼                ▼
+       PO Routes      Invoice Routes    Supplier Routes
+          │                │                │
+          ▼                ▼                ▼
+       PO Service      Invoice Service   Supplier Services
+          │                │                │
+          └────────────┬───┴────────────────┘
+                       │
+                       ▼
+               P2P State Management
+                       │
+          ┌────────────┼─────────────┐
+          │            │             │
+          ▼            ▼             ▼
+      Shipment      Goods Receipt   Invoice
+          │            │             │
+          └────────────┼─────────────┘
+                       ▼
+                Three-Way Match
+                       │
+                ┌──────┴──────┐
+                │             │
+                ▼             ▼
+             Matched     Discrepancy
+                │             │
+                │             ▼
+                │        Human Review
+                │
+                ▼
+          Payment Approval
+```
+
+The P2P state machine is separate from the existing Purchase Order lifecycle state machine.
+
+The Purchase Order lifecycle represents the business status of the Purchase Order itself:
+
+```text
+draft
+  │
+  ▼
+sent
+  │
+  ▼
+acknowledged
+  │
+  ▼
+fulfilled
+```
+
+The P2P state machine represents the progress of the Purchase Order through the complete procure-to-pay process:
+
+```text
+acknowledged
+      │
+      ▼
+shipped
+      │
+      ▼
+received
+      │
+      ▼
+invoiced
+      │
+      ▼
+matched / discrepancy
+      │
+      ▼
+payment_approved
+```
+
+These two state models serve different purposes and must not be treated as the same state machine.
+
+### Layer Responsibilities
+
+The existing layered architecture remains:
+
+```text
+Routes
+   │
+   ▼
+Authentication / Authorization
+   │
+   ▼
+Business Services
+   │
+   ▼
+P2P State Management
+   │
+   ▼
+In-Memory Business Stores
+```
+
+The P2P workflow reuses the existing Purchase Order and Invoice business objects rather than creating an unrelated parallel PO/invoice system.
+
 
 ---
 
@@ -421,81 +566,60 @@ The Supplier Portal Service follows a layered FastAPI architecture separating ap
 
 ```text
 supplier-portal/
-
 │
-
 ├── app/
-
 │   ├── main.py
-
 │   │
-
 │   ├── core/
-
 │   │   ├── auth.py
-
 │   │   └── config.py
-
 │   │
-
 │   ├── routes/
-
 │   │   ├── purchase_order.py
-
+│   │   ├── shipment_routes.py
+│   │   ├── goods_receipt_routes.py
 │   │   ├── invoice.py
-
+│   │   ├── three_way_match_routes.py
+│   │   ├── supplier_onboarding_routes.py
 │   │   └── supplier_stats_routes.py
-
 │   │
-
 │   ├── schemas/
-
 │   │   ├── purchase_order.py
-
+│   │   ├── shipment.py
+│   │   ├── goods_receipt.py
 │   │   ├── invoice.py
-
+│   │   ├── three_way_match.py
+│   │   ├── supplier_onboarding.py
 │   │   └── supplier_stats.py
-
 │   │
-
 │   └── services/
-
 │       ├── purchase_order_service.py
-
+│       ├── shipment_service.py
+│       ├── goods_receipt_service.py
 │       ├── invoice_service.py
-
-│       └── supplier_stats_service.py
-
+│       ├── three_way_match_service.py
+│       ├── supplier_onboarding_service.py
+│       ├── supplier_stats_service.py
+│       └── po_p2p_state_machine.py
 │
-
 ├── tests/
-
 │   ├── conftest.py
-
 │   ├── test_purchase_order.py
-
 │   ├── test_invoices.py
-
 │   ├── test_auth.py
-
 │   ├── test_requires_auth.py
-
-│   └── test_supplier_stats.py
-
+│   ├── test_supplier_stats.py
+│   ├── test_shipments.py
+│   ├── test_goods_receipts.py
+│   ├── test_three_way_match.py
+│   └── test_supplier_onboarding.py
 │
-
 ├── uploads/
-
 │
-
 ├── .env.example
-
 ├── requirements.txt
-
 ├── pytest.ini
-
 └── README.md
-```
 
 ### Application Layer
 
@@ -504,12 +628,10 @@ supplier-portal/
 Responsible for:
 
 * Creating and configuring the FastAPI application
-
 * Registering application routers
-
 * Defining the root endpoint
-
 * Initializing the application entry point
+* Exposing the Supplier Portal API modules
 
 ### Core Layer
 
@@ -518,31 +640,22 @@ Responsible for:
 Responsible for:
 
 * Bearer-token extraction and handling
-
 * Authentication with the Platform Service
-
 * Role-based authorization
-
 * Authenticated user identity propagation
-
 * Supplier identity propagation
-
 * Supplier-level access control
-
 * Request ID generation and propagation
-
 * Authentication error handling
+* Handling Platform Service timeout, unavailable, and invalid authentication responses
 
 `app/core/config.py`
 
 Responsible for:
 
 * Environment-based configuration
-
 * Platform authentication service URL
-
 * Upload directory configuration
-
 * Application configuration values
 
 ### Routes
@@ -550,126 +663,62 @@ Responsible for:
 The route layer is responsible for:
 
 * Defining HTTP endpoints
-
 * Processing incoming requests
-
 * Dependency injection
-
 * Authentication and authorization dependencies
-
 * Supplier ownership and scoping checks
-
 * HTTP status-code handling
-
+* Resource existence validation
 * Calling the appropriate service-layer functions
+
+The Supplier Portal currently exposes routes for:
+
+* Purchase-order management
+* Shipment notices
+* Goods receipts
+* Invoice management and invoice documents
+* Three-way matching and payment approval
+* Supplier onboarding
+* Supplier statistics and performance scorecards
 
 ### Schemas
 
 The schema layer is responsible for:
 
 * Request validation
-
 * Response validation
-
 * Field constraints
-
 * Regex validation
-
 * Percentage and numeric boundaries
-
-* API data-model definitions
+* Purchase-order data models
+* Shipment data models
+* Goods-receipt data models
+* Invoice data models
+* Three-way-match data models
+* Supplier-onboarding data models
+* Supplier-statistics and scorecard data models
 
 ### Services
 
 The service layer is responsible for:
 
-* Business rules
-
+* Business rules and validation
+* Purchase-order processing
 * Purchase-order lifecycle state transitions
-
+* Procure-to-pay state transitions
+* Shipment processing
+* Goods-receipt processing
+* Invoice processing
 * Invoice lifecycle state transitions
-
-* Business validation
-
+* Three-way matching
+* Discrepancy detection and resolution
+* Payment-approval processing
+* Supplier onboarding workflow
 * Supplier performance calculations
-
 * Supplier scorecard calculations
-
 * Invoice and purchase-order processing
-
-* Document handling
-
-### Tests
-
-The `tests/` directory contains automated test coverage for:
-
-* Purchase-order APIs and lifecycle operations
-
-* Invoice APIs and lifecycle operations
-
-* Authentication and Platform Service integration
-
-* Role-based authorization
-
-* Supplier-level data scoping
-
-* Cross-supplier access rejection
-
-* Supplier statistics
-
-* Supplier scorecards
-
-* Validation and business rules
-
-* Authentication-required endpoint protection
-
-### R5 Authentication and Supplier Scoping
-
-Round 5 extends the application with authentication, role-based authorization, and supplier-level data isolation across supplier-facing endpoints.
-
-The route layer obtains the authenticated user through the Platform Service authentication dependency and applies the appropriate access-control rules before returning protected resources.
-
-The primary R5 security principle is:
-
-```text
-A valid supplier token does not provide unrestricted supplier access.
-
-The authenticated supplier must own the requested resource.
-```
-
-For example:
-
-```text
-Supplier A
-
-supplier_id = SUP001
-
-       │
-
-       │ requests
-
-       ▼
-
-Supplier B resource
-
-supplier_id = SUP002
-
-       │
-
-       ▼
-
-HTTP 403 Forbidden
-```
-
-Supplier users are therefore restricted to resources belonging to their authenticated `supplier_id`.
-
-Internal authorized roles may access supplier data according to their assigned permissions and role-based access rules.
-
-Supplier identities without a valid `supplier_id` are rejected from supplier-scoped operations with `HTTP 403 Forbidden`.
-
-Unknown supplier resources return `HTTP 404 Not Found`, while authenticated suppliers attempting to access another supplier's existing resource return `HTTP 403 Forbidden`.
-
-This separation ensures that authentication establishes **who the caller is**, while supplier scoping determines **which supplier data the caller is authorized to access**.
+* Invoice document handling
+* Supplier-scoped business operations
 
 ---
 
@@ -2569,7 +2618,602 @@ This allows invoice-only suppliers to receive a scorecard instead of incorrectly
 
 ---
 
-# 12. API Reference
+## Supplier Performance Analytics
+
+Supplier performance analytics are implemented through the supplier scorecard endpoint:
+
+```http
+GET /api/v1/suppliers/{supplier_id}/scorecard
+```
+
+The scorecard provides supplier performance indicators including:
+
+```text
+On-time delivery percentage
+
+Invoice accuracy percentage
+
+Dispute rate
+
+Dispute performance
+
+Overall supplier score
+
+Performance rating
+
+Performance status
+
+Purchase Order performance details
+
+Invoice performance details
+```
+
+The scorecard uses historical Purchase Order and invoice information to calculate supplier performance.
+
+Supplier-scoped access remains enforced:
+
+```text
+Supplier SUP001
+      │
+      ▼
+SUP001 scorecard
+      │
+      ▼
+Allowed
+```
+
+while:
+
+```text
+Supplier SUP001
+      │
+      ▼
+SUP002 scorecard
+      │
+      ▼
+403 Forbidden
+```
+
+This satisfies the supplier performance analytics milestone while preserving the Round 5 supplier-isolation requirement.
+
+# 12. Procure-to-Pay Lifecycle
+
+The Supplier Portal implements a complete procure-to-pay workflow connecting Purchase Orders, shipment processing, Goods Receipt, invoices, three-way matching, and payment approval.
+
+The workflow is implemented using real state transitions rather than treating each step as an independent record operation.
+
+## P2P Flow
+
+```text
+Purchase Order
+      │
+      ▼
+Acknowledged
+      │
+      ▼
+Shipped
+      │
+      ▼
+Received
+      │
+      ▼
+Invoiced
+      │
+      ▼
+Matched / Discrepancy
+      │
+      ▼
+Payment Approved
+```
+
+## P2P State Machine
+
+The P2P state machine is separate from the Purchase Order lifecycle.
+
+The P2P states represent the processing stage of the transaction:
+
+```text
+acknowledged
+
+     ↓
+
+shipped
+
+     ↓
+
+received
+
+     ↓
+
+invoiced
+
+     ↓
+
+matched / discrepancy
+
+     ↓
+
+payment_approved
+```
+
+The transition logic prevents invalid workflow progression.
+
+For example:
+
+```text
+acknowledged → shipped       Allowed
+
+shipped      → received     Allowed
+
+received     → invoiced     Allowed
+```
+
+A transaction cannot skip required processing stages.
+
+## Shipment Notice
+
+After a Purchase Order has been acknowledged, the supplier can progress the P2P workflow through shipment processing.
+
+The shipment stage represents the supplier's notification that the ordered goods have been shipped.
+
+```text
+acknowledged
+      │
+      ▼
+shipped
+```
+
+## Goods Receipt
+
+Goods Receipt represents the receiving of shipped goods.
+
+A Goods Receipt is associated with:
+
+```text
+receipt_id
+
+po_number
+
+supplier_id
+
+receipt_date
+
+warehouse
+
+received_by
+
+items
+
+status
+
+created_at
+
+created_by
+```
+
+A Goods Receipt is created only for a valid Purchase Order and validates:
+
+* Purchase Order existence
+* Supplier ownership
+* Item codes
+* Received quantities
+* Duplicate items
+* Valid receipt information
+
+The expected P2P transition is:
+
+```text
+shipped
+   │
+   ▼
+received
+```
+
+The Goods Receipt operation does not allow an invalid state transition.
+
+## Invoice Integration
+
+Invoice submission is integrated with the P2P state machine.
+
+An invoice participating in the P2P flow requires the related transaction to have reached:
+
+```text
+received
+```
+
+Only after Goods Receipt has been completed can the P2P transaction progress to:
+
+```text
+invoiced
+```
+
+The existing Invoice lifecycle remains separate:
+
+```text
+submitted
+   │
+   ├── approved
+   ├── rejected
+   └── disputed
+          │
+          └── adjusted
+```
+
+Therefore:
+
+```text
+P2P State Machine
+        +
+Invoice Lifecycle
+```
+
+work together without replacing each other.
+
+Invalid or duplicate invoice submissions do not advance the P2P state.
+
+## Payment Approval
+
+After invoice processing and three-way matching, a successfully matched transaction can progress toward:
+
+```text
+payment_approved
+```
+
+A discrepancy does not automatically progress to payment approval.
+
+Instead:
+
+```text
+Match
+  │
+  ├── No discrepancy
+  │       │
+  │       ▼
+  │   Payment Approval
+  │
+  └── Discrepancy
+          │
+          ▼
+      Human Review
+```
+
+This prevents an invoice with a quantity or price mismatch from being automatically approved for payment.
+
+## P2P State Integrity
+
+The P2P workflow maintains state integrity by:
+
+* Validating the current P2P state before transition
+* Allowing only legal transitions
+* Preventing duplicate processing
+* Validating Purchase Order ownership
+* Validating related business records
+* Preventing invalid invoice submissions from advancing the state
+* Routing discrepancies for human review
+
+
+# 13. Three-Way Match
+
+The Supplier Portal implements automated three-way matching between:
+
+```text
+Purchase Order
+
+      +
+
+Goods Receipt
+
+      +
+
+Invoice
+```
+
+The purpose of the match is to determine whether the supplier invoice agrees with what was ordered and what was actually received.
+
+## Three-Way Match Flow
+
+```text
+Purchase Order
+      │
+      ├── Ordered Quantity
+      ├── Item Code
+      └── Unit Price
+      │
+      ▼
+Goods Receipt
+      │
+      ├── Received Quantity
+      └── Item Code
+      │
+      ▼
+Invoice
+      │
+      ├── Invoiced Quantity
+      ├── Item Code
+      └── Unit Price
+      │
+      ▼
+Three-Way Match
+      │
+ ┌────┴─────────────┐
+ │                  │
+ ▼                  ▼
+Matched        Discrepancy
+ │                  │
+ ▼                  ▼
+Continue        Human Review
+to Payment
+Approval
+```
+
+## Quantity Matching
+
+The matching process validates quantities across the Purchase Order, Goods Receipt, and Invoice.
+
+A deliberate quantity mismatch is identified as a discrepancy rather than being silently accepted.
+
+Example:
+
+```text
+PO quantity       = 100
+
+Received quantity = 90
+
+Invoice quantity  = 100
+```
+
+Result:
+
+```text
+Quantity discrepancy
+        │
+        ▼
+Human Review
+```
+
+## Price Matching
+
+The matching process also validates invoice pricing against the Purchase Order.
+
+Example:
+
+```text
+PO unit price      = 100
+
+Invoice unit price = 120
+```
+
+Result:
+
+```text
+Price discrepancy
+        │
+        ▼
+Human Review
+```
+
+## Match Result
+
+A successful match indicates that the relevant Purchase Order, Goods Receipt, and Invoice information is consistent with the implemented matching rules.
+
+```text
+PO
+ │
+ ├── Item matches
+ ├── Quantity matches
+ └── Price matches
+ │
+ ▼
+Goods Receipt
+ │
+ └── Received data matches
+ │
+ ▼
+Invoice
+ │
+ └── Invoice data matches
+ │
+ ▼
+Matched
+ │
+ ▼
+Payment Approval
+```
+
+## Discrepancy Handling
+
+The three-way match does not automatically approve transactions containing discrepancies.
+
+Discrepancies are flagged for human review.
+
+Supported discrepancy categories include:
+
+```text
+Quantity mismatch
+
+Price mismatch
+```
+
+The intended control is:
+
+```text
+Discrepancy detected
+        │
+        ▼
+Human review required
+        │
+        ▼
+No automatic payment approval
+```
+
+This ensures that the matching system identifies exceptions while keeping the final decision under controlled business review.
+
+## P2P Integration
+
+The three-way match operates after:
+
+```text
+Acknowledged
+      ↓
+Shipped
+      ↓
+Received
+      ↓
+Invoiced
+```
+
+and before:
+
+```text
+Payment Approved
+```
+
+Therefore the complete transaction control is:
+
+```text
+PO
+ ↓
+Receipt
+ ↓
+Invoice
+ ↓
+Three-Way Match
+ ↓
+ ┌───────────────┐
+ │               │
+Matched      Discrepancy
+ │               │
+ ▼               ▼
+Payment        Human
+Approval       Review
+```
+
+# 14. Supplier Onboarding
+
+The Supplier Portal implements a supplier onboarding workflow for registering and activating new suppliers.
+
+## Onboarding Lifecycle
+
+```text
+Registration
+      │
+      ▼
+Document Collection
+      │
+      ▼
+Mock Verification
+      │
+      ▼
+Approval
+      │
+      ▼
+Active
+```
+
+Each stage represents a business step in the onboarding process.
+
+## Registration
+
+The workflow begins when a new supplier is registered.
+
+The registration stage establishes the supplier onboarding record before verification and approval.
+
+## Document Collection
+
+Required supplier documentation is collected as part of the onboarding workflow.
+
+The workflow does not treat document collection as final approval.
+
+```text
+Registration
+      │
+      ▼
+Documents Collected
+      │
+      ▼
+Verification
+```
+
+## Mock Verification
+
+The current implementation uses mock verification logic for development and functional validation.
+
+The verification stage represents the point at which the collected supplier information and documents are checked before approval.
+
+```text
+Document Collection
+      │
+      ▼
+Mock Verification
+```
+
+## Approval
+
+After successful verification, the supplier can progress through the approval stage.
+
+```text
+Verified
+   │
+   ▼
+Approved
+```
+
+## Active Supplier
+
+An approved supplier reaches the active state:
+
+```text
+Approved
+   │
+   ▼
+Active
+```
+
+Only the completed onboarding lifecycle should result in an active supplier.
+
+## Supplier Scoping
+
+Supplier onboarding follows the same supplier-level security principles established in Round 5.
+
+Authentication, role authorization, and supplier ownership are treated as separate controls.
+
+```text
+Authentication
+      │
+      ▼
+Role Authorization
+      │
+      ▼
+Supplier Ownership / Scope
+      │
+      ▼
+Onboarding Resource Access
+```
+
+The onboarding workflow therefore does not bypass the existing supplier-scoping security model.
+
+## Onboarding Workflow Integrity
+
+The workflow validates the current onboarding stage before advancing.
+
+The intended lifecycle is:
+
+```text
+registration
+      ↓
+documents
+      ↓
+verification
+      ↓
+approval
+      ↓
+active
+```
+
+Invalid progression is rejected rather than silently changing the supplier's onboarding state.
+
+
+# 15. API Reference
 
 All application APIs use the `/api/v1` prefix.
 
@@ -2715,6 +3359,41 @@ Therefore, a valid supplier token cannot be used to retrieve invoices belonging 
 Internal authenticated users can access the broader invoice collection according to their assigned role permissions.
 
 ---
+
+## Procure-to-Pay APIs
+
+The Supplier Portal exposes P2P workflow operations for progressing Purchase Orders through shipment, Goods Receipt, invoice processing, matching, and payment approval.
+
+The implemented P2P API operations cover the following business stages:
+
+| Stage            | Purpose                                                            |
+| ---------------- | ------------------------------------------------------------------ |
+| Shipment         | Progress an acknowledged P2P transaction to shipped                |
+| Goods Receipt    | Record received goods and progress the P2P state                   |
+| Invoice          | Submit an invoice after the required receipt state                 |
+| Three-Way Match  | Compare PO, receipt, and invoice data                              |
+| Payment Approval | Progress successfully matched transactions toward payment approval |
+
+P2P operations require the appropriate authentication, role authorization, and supplier ownership checks.
+
+Supplier-facing operations follow the same R5 security principle:
+
+```text
+Authenticated supplier
+        │
+        ▼
+Authenticated supplier_id
+        │
+        ▼
+Related resource supplier_id
+        │
+        ├── Same → Allowed
+        │
+        └── Different → 403 Forbidden
+```
+
+Invalid P2P state transitions are rejected and do not partially advance the workflow.
+
 
 ## Supplier Statistics APIs
 
@@ -2977,7 +3656,7 @@ The R5 implementation is covered by automated tests for:
 
 ---
 
-# 13. HTTP Response Codes
+# 16. HTTP Response Codes
 
 | Status | Meaning                                                |
 | -----: | ------------------------------------------------------ |
@@ -2993,7 +3672,7 @@ The R5 implementation is covered by automated tests for:
 
 ---
 
-# 14. Configuration
+# 17. Configuration
 
 The Supplier Portal uses Pydantic Settings for configuration.
 
@@ -3038,7 +3717,7 @@ The Supplier Portal uses the Platform Service as its centralized authentication 
 
 ---
 
-# 15. Installation
+# 18. Installation
 
 ## Step 1 — Clone/Open the Project
 
@@ -3109,7 +3788,7 @@ The Platform Service must be available at this address when running authenticate
 
 ---
 
-# 16. Running the Services
+# 19. Running the Services
 
 The Supplier Portal depends on the Platform Service for authentication.
 
@@ -3213,7 +3892,7 @@ Supplier Portal Authorization
 
 ---
 
-# 17. Swagger Documentation
+# 20. Swagger Documentation
 
 FastAPI automatically provides interactive API documentation.
 
@@ -3253,7 +3932,7 @@ Protected endpoints require a valid bearer token.
 
 ---
 
-# 18. Testing
+# 21. Testing
 
 The Supplier Portal uses Pytest for automated testing.
 
@@ -3429,6 +4108,101 @@ GET /api/v1/invoices
        ▼
 Only SUP001 invoices returned
 ```
+## Procure-to-Pay and Milestone Testing
+
+The test suite additionally validates the completed procure-to-pay and supplier workflow milestones.
+
+### P2P Workflow Tests
+
+The P2P tests validate:
+
+* P2P state initialization
+* Valid P2P transitions
+* Invalid P2P transitions
+* Shipment progression
+* Goods Receipt creation
+* Goods Receipt validation
+* Purchase Order existence validation
+* Supplier ownership validation
+* Item validation
+* Quantity validation
+* Duplicate Goods Receipt item protection
+* Invoice submission after required receipt state
+* Invoice submission advancing the P2P workflow
+* Invalid invoice submission not advancing P2P state
+* Duplicate invoice protection
+* Three-way match processing
+* Quantity discrepancy detection
+* Price discrepancy detection
+* Discrepancy routing for human review
+* Prevention of automatic payment approval for discrepancies
+* Payment approval progression after successful matching
+
+The P2P state sequence is validated as:
+
+```text
+acknowledged
+      ↓
+shipped
+      ↓
+received
+      ↓
+invoiced
+      ↓
+matched / discrepancy
+      ↓
+payment_approved
+```
+
+### Supplier Onboarding Tests
+
+The onboarding workflow tests validate:
+
+* Supplier registration
+* Document collection
+* Mock verification
+* Approval
+* Activation
+* Valid onboarding state transitions
+* Invalid onboarding transitions
+* Supplier-level authorization
+* Cross-supplier access protection
+
+The onboarding lifecycle is validated as:
+
+```text
+registration
+      ↓
+documents
+      ↓
+verification
+      ↓
+approval
+      ↓
+active
+```
+
+### Three-Way Match Tests
+
+The three-way matching tests deliberately inject discrepancies to verify that:
+
+```text
+Quantity mismatch
+       OR
+Price mismatch
+       │
+       ▼
+Discrepancy detected
+       │
+       ▼
+Human review required
+       │
+       ▼
+No automatic payment approval
+```
+
+This ensures the matching implementation detects exceptions rather than silently approving inconsistent transactions.
+
 
 ---
 
@@ -3893,7 +4667,7 @@ for existing resources owned by another supplier.
 
 ---
 
-# 19. Business Rules
+# 22. Business Rules
 
 ## Purchase Order Rules
 
@@ -3978,6 +4752,174 @@ Duplicate invoices are prevented using:
 ```text
 supplier_id + invoice_number
 ```
+## Procure-to-Pay Rules
+
+The P2P workflow uses controlled state transitions.
+
+The required processing order is:
+
+```text
+acknowledged
+      ↓
+shipped
+      ↓
+received
+      ↓
+invoiced
+      ↓
+matched / discrepancy
+      ↓
+payment_approved
+```
+
+### Shipment Rule
+
+Shipment processing requires the P2P transaction to be in the appropriate pre-shipment state.
+
+```text
+acknowledged → shipped
+```
+
+Invalid transitions are rejected.
+
+### Goods Receipt Rule
+
+Goods Receipt processing requires:
+
+```text
+P2P state = shipped
+```
+
+The valid transition is:
+
+```text
+shipped → received
+```
+
+Goods Receipt validation includes:
+
+```text
+PO exists
+
+Supplier ownership is valid
+
+Item codes are valid
+
+Quantities are valid
+
+Duplicate items are rejected
+```
+
+### Invoice P2P Rule
+
+An invoice participating in the P2P workflow requires:
+
+```text
+P2P state = received
+```
+
+The successful operation progresses:
+
+```text
+received → invoiced
+```
+
+An invalid or duplicate invoice must not advance the P2P state.
+
+The existing invoice business lifecycle remains independent:
+
+```text
+submitted
+disputed
+adjusted
+approved
+rejected
+```
+
+### Three-Way Match Rule
+
+The match compares:
+
+```text
+Purchase Order
+
++
+
+Goods Receipt
+
++
+
+Invoice
+```
+
+The matching process checks relevant item, quantity, and price information.
+
+A discrepancy is flagged for human review.
+
+```text
+Quantity mismatch → Human Review
+
+Price mismatch    → Human Review
+```
+
+A discrepancy must not automatically progress to payment approval.
+
+### Payment Approval Rule
+
+Only a successfully matched transaction can progress toward:
+
+```text
+payment_approved
+```
+
+Transactions requiring human review must remain outside automatic payment approval.
+
+---
+
+## Supplier Onboarding Rules
+
+The supplier onboarding lifecycle is:
+
+```text
+registration
+      ↓
+documents
+      ↓
+verification
+      ↓
+approval
+      ↓
+active
+```
+
+The workflow must validate the current state before progressing.
+
+A supplier cannot skip required onboarding stages.
+
+Mock verification is used in the current development implementation.
+
+---
+
+## Milestone Completion Rules
+
+The completed implementation satisfies the following functional requirements:
+
+```text
+Full procure-to-pay workflow          → Complete
+
+Three-way match automation             → Complete
+
+Discrepancy detection                 → Complete
+
+Human-review routing                  → Complete
+
+Supplier onboarding workflow          → Complete
+
+Supplier performance analytics        → Complete
+
+Deep supplier-scoping validation     → Complete
+```
+
 
 ### Invoice Authorization Rules
 
@@ -4154,7 +5096,7 @@ Internal authorized users are governed by their assigned role permissions.
 
 ---
 
-# 20. Security Controls
+# 23. Security Controls
 
 The service implements several security controls.
 
@@ -4246,7 +5188,7 @@ Invoice documents are protected through:
 
 ---
 
-# 21. Storage
+# 24. Storage
 
 The current implementation intentionally uses in-memory storage.
 
@@ -4301,85 +5243,197 @@ A production deployment should replace in-memory business storage with persisten
 
 ---
 
-# 22. End-to-End Workflow
 
-The complete business workflow is:
+# 25. End-to-End Workflow
+
+The Supplier Portal now implements the complete procure-to-pay workflow.
 
 ```text
-                        Procurement
-                             │
-                             ▼
-                    Create Purchase Order
-                             │
-                             ▼
-                          Draft
-                             │
-                             ▼
-                           Sent
-                             │
-                             ▼
+                         Procurement
+                              │
+                              ▼
+                     Create Purchase Order
+                              │
+                              ▼
+                           Draft
+                              │
+                              ▼
+                            Sent
+                              │
+                              ▼
                     Supplier Authentication
-                             │
-                             ▼
+                              │
+                              ▼
                     Supplier Ownership Check
-                             │
-                             ▼
-                    Supplier Acknowledgement
-                             │
-                             ▼
-                       Acknowledged
-                             │
-                             ▼
-                         Fulfilled
-                             │
-                             ▼
-                      Create Invoice
-                             │
-               ┌─────────────┼─────────────┐
-               │             │             │
-               ▼             ▼             ▼
-          Validate PO   Validate Items   Validate Amount
-               │             │             │
-               └─────────────┼─────────────┘
-                             ▼
-                      Invoice Submitted
-                             │
-                   ┌─────────┴─────────┐
-                   │                   │
-                   ▼                   ▼
-                Approved            Disputed
-                                       │
-                              ┌─────────┼─────────┐
-                              │         │         │
-                              ▼         ▼         ▼
-                           Approved  Rejected  Adjusted
-                                                  │
-                                            ┌─────┴─────┐
-                                            ▼           ▼
-                                         Approved    Rejected
-                             │
-                             ▼
-                          Upload PDF
-                             │
-                   ┌─────────┴─────────┐
-                   ▼                   ▼
-              Validate Content    Validate Signature
-                   │                   │
-                   └─────────┬─────────┘
-                             ▼
-                         Store PDF
-                             │
-                             ▼
-                    Supplier Statistics
-                             │
-                   ┌─────────┴─────────┐
-                   ▼                   ▼
-                PO Metrics       Invoice Metrics
-                   │                   │
-                   └─────────┬─────────┘
-                             ▼
-                    Supplier Scorecard
+                              │
+                              ▼
+                      Supplier Acknowledgement
+                              │
+                              ▼
+                        Acknowledged
+                              │
+                              ▼
+                           Shipped
+                              │
+                              ▼
+                       Goods Receipt
+                              │
+                              ▼
+                           Received
+                              │
+                              ▼
+                       Submit Invoice
+                              │
+                              ▼
+                          Invoiced
+                              │
+                              ▼
+                    Three-Way Match
+                              │
+                 ┌────────────┴────────────┐
+                 │                         │
+                 ▼                         ▼
+             Matched                  Discrepancy
+                 │                         │
+                 │                         ▼
+                 │                    Human Review
+                 │                         │
+                 │                         ▼
+                 │                  Controlled Resolution
+                 │
+                 ▼
+                     Payment Approval
 ```
+
+The three-way match compares:
+
+```text
+Purchase Order
+      │
+      ├── Item
+      ├── Quantity
+      └── Price
+      │
+      ▼
+Goods Receipt
+      │
+      ├── Item
+      └── Received Quantity
+      │
+      ▼
+Invoice
+      │
+      ├── Item
+      ├── Quantity
+      └── Price
+```
+
+A mismatch is not automatically approved:
+
+```text
+Mismatch
+   │
+   ▼
+Discrepancy
+   │
+   ▼
+Human Review
+```
+
+---
+
+## Supplier Onboarding Workflow
+
+Supplier onboarding is implemented as a separate lifecycle:
+
+```text
+Supplier Registration
+          │
+          ▼
+Document Collection
+          │
+          ▼
+Mock Verification
+          │
+          ▼
+Approval
+          │
+          ▼
+Active Supplier
+```
+
+The onboarding workflow is subject to the same authentication and supplier-scoping principles implemented in R5.
+
+---
+
+## Supplier Analytics Workflow
+
+Operational activity contributes to supplier performance analytics:
+
+```text
+Purchase Orders
+      │
+      ├── Delivery Performance
+      │
+      ▼
+Invoices
+      │
+      ├── Invoice Accuracy
+      ├── Disputes
+      │
+      ▼
+Supplier Statistics
+      │
+      ▼
+Supplier Scorecard
+```
+
+The final supplier scorecard combines the implemented performance metrics while preserving supplier-level authorization.
+
+---
+
+## Complete Business Architecture
+
+The overall business flow can therefore be represented as:
+
+```text
+                    SUPPLIER PORTAL
+
+                         │
+          ┌──────────────┼──────────────┐
+          │              │              │
+          ▼              ▼              ▼
+      Procurement     Onboarding      Analytics
+          │              │              │
+          ▼              ▼              ▼
+      Purchase Order  Registration   Statistics
+          │              │              │
+          ▼              ▼              ▼
+     Acknowledgement Documents     Scorecard
+          │              │
+          ▼              ▼
+       Shipment       Verification
+          │              │
+          ▼              ▼
+    Goods Receipt     Approval
+          │              │
+          ▼              ▼
+        Invoice        Active
+          │
+          ▼
+    Three-Way Match
+          │
+     ┌────┴────┐
+     ▼         ▼
+  Matched   Discrepancy
+     │         │
+     ▼         ▼
+ Payment     Human
+ Approval    Review
+```
+
+R5 supplier authentication and supplier-level authorization apply throughout supplier-facing operations.
+
 
 R5 authorization applies to the supplier-facing portions of this workflow.
 
@@ -4433,42 +5487,146 @@ Requested resource supplier_id = SUP002
 
 ---
 
-# 23. Current Implementation Status
+# 26. Current Implementation Status
+| Module / Capability                  | Status   |
+| ------------------------------------ | -------- |
+| Procure-to-Pay Workflow              | Complete |
+| P2P State Machine                    | Complete |
+| Shipment Processing                  | Complete |
+| Goods Receipt Workflow               | Complete |
+| Goods Receipt Validation             | Complete |
+| P2P Invoice Integration              | Complete |
+| Three-Way Match                      | Complete |
+| Quantity Discrepancy Detection       | Complete |
+| Price Discrepancy Detection          | Complete |
+| Human-Review Discrepancy Handling    | Complete |
+| Payment Approval Workflow            | Complete |
+| Supplier Onboarding Registration     | Complete |
+| Supplier Document Collection         | Complete |
+| Supplier Mock Verification           | Complete |
+| Supplier Onboarding Approval         | Complete |
+| Supplier Activation                  | Complete |
+| Supplier Performance Analytics       | Complete |
+| Deep Supplier-Scoping Validation     | Complete |
+| Cross-Supplier Endpoint Testing      | Complete |
+| P2P Business-Rule Testing            | Complete |
+| Three-Way Match Discrepancy Testing  | Complete |
+| Supplier Onboarding Workflow Testing | Complete |
 
-| Module                                 | Status    |
-| -------------------------------------- | --------- |
-| Purchase Order CRUD                    | Complete  |
-| PO State Machine                       | Complete  |
-| PO Acknowledgement                     | Complete  |
-| PO Cancellation                        | Complete  |
-| PO Audit Events                        | Complete  |
-| PO Delivery Tracking                   | Complete  |
-| Bulk PO Send                           | Complete  |
-| Invoice Creation                       | Complete  |
-| Invoice Validation                     | Complete  |
-| Invoice Duplicate Protection           | Complete  |
-| Invoice Tolerance                      | Complete  |
-| Invoice State Machine                  | Complete  |
-| Invoice Disputes                       | Complete  |
-| Invoice Adjustments                    | Complete  |
-| PDF Upload                             | Complete  |
-| PDF Download                           | Complete  |
-| PDF Signature Validation               | Complete  |
-| File Size Validation                   | Complete  |
-| Path Traversal Protection              | Complete  |
-| Supplier Statistics                    | Complete  |
-| Supplier Scorecard                     | Complete  |
-| Supplier Authentication                | Complete  |
-| Supplier Scoping                       | Complete  |
-| Supplier Collection Filtering          | Complete  |
-| Role-Based Authorization               | Complete  |
-| Cross-Supplier Access Protection       | Complete  |
-| Missing Supplier Identity Protection   | Complete  |
-| Platform Authentication Integration    | Complete  |
-| Authentication-Required Endpoint Tests | Complete  |
-| Automated Tests                        | Complete  |
-| R5 Supplier-Scoping Tests              | Complete  |
-| Swagger Documentation                  | Available |
+````
+
+దాని తర్వాత existing R5 Completion Status అలాగే ఉంచి, **R5 తర్వాత** ఈ section add చేయండి:
+
+:::writing{variant="document" id="87513" title="Rounds 6 to 8 Completion Status"}
+## Rounds 6–8 Completion Status
+
+The Supplier Portal functional expansion completed the five planned milestones.
+
+### Milestone 1 — Full Procure-to-Pay Flow
+
+Status:
+
+```text
+Complete
+````
+
+Implemented flow:
+
+```text
+PO
+→ Acknowledgement
+→ Shipment
+→ Goods Receipt
+→ Invoice
+→ Three-Way Match
+→ Payment Approval
+```
+
+Each stage is controlled through real business-state transitions.
+
+### Milestone 2 — Three-Way Match Automation
+
+Status:
+
+```text
+Complete
+```
+
+The implementation compares:
+
+```text
+Purchase Order
++
+Goods Receipt
++
+Invoice
+```
+
+Quantity and price discrepancies are detected and routed for human review instead of being automatically approved.
+
+### Milestone 3 — Supplier Onboarding
+
+Status:
+
+```text
+Complete
+```
+
+Implemented lifecycle:
+
+```text
+Registration
+→ Documents
+→ Mock Verification
+→ Approval
+→ Active
+```
+
+The workflow preserves the supplier-scoping security model introduced in R5.
+
+### Milestone 4 — Supplier Performance Analytics
+
+Status:
+
+```text
+Complete
+```
+
+Supplier performance is available through:
+
+```http
+GET /api/v1/suppliers/{supplier_id}/scorecard
+```
+
+The scorecard includes delivery, invoice, dispute, and overall performance metrics.
+
+### Milestone 5 — Deep Supplier-Scoping Security
+
+Status:
+
+```text
+Complete
+```
+
+Supplier-facing resource access is protected through:
+
+```text
+Authentication
+      +
+Role Authorization
+      +
+Supplier Ownership
+      +
+Collection Filtering
+```
+
+Cross-supplier access is explicitly tested across the supported resource paths.
+
+
+The five planned functional milestones are therefore complete.
+
+The remaining limitations are infrastructure and production-readiness concerns rather than unfinished milestone functionality.
+               | Available |
 
 ### Authentication-Required Endpoint Coverage
 
@@ -4582,7 +5740,7 @@ The implemented R5 security controls satisfy the supplier data-isolation require
 
 ---
 
-# 24. Known Limitations
+# 27. Known Limitations
 
 The current implementation is primarily designed for the development and testing phase.
 
@@ -4591,6 +5749,50 @@ The core authentication, role-based authorization, and supplier-level data-scopi
 The remaining limitations are primarily related to production persistence, durable file storage, service availability, and operational hardening.
 
 ---
+## Functional Milestone Status
+
+The following capabilities are implemented and are not considered outstanding functional gaps:
+
+```text
+Procure-to-Pay workflow
+
+P2P state transitions
+
+Goods Receipt
+
+Invoice/P2P integration
+
+Three-Way Match
+
+Quantity discrepancy detection
+
+Price discrepancy detection
+
+Human-review discrepancy handling
+
+Payment Approval workflow
+
+Supplier Onboarding
+
+Supplier Performance Analytics
+
+Supplier-Scoping Security
+```
+
+The remaining limitations are primarily infrastructure and production-readiness limitations, including:
+
+```text
+In-memory business storage
+
+Local invoice document storage
+
+Platform Service availability dependency
+
+Production monitoring and operational hardening
+```
+
+These limitations do not indicate incomplete implementation of the five completed milestones.
+
 
 ## In-Memory Business Storage
 

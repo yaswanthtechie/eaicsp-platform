@@ -1,8 +1,16 @@
 from fastapi import FastAPI, Request
 import time
 
+from app.routes.supplier_onboarding import (
+    router as supplier_onboarding_router,
+)
 from app.routes.purchase_order import router as purchase_order_router
+from app.routes.shipment import router as shipment_router
+from app.routes.goods_receipt import router as goods_receipt_router
 from app.routes.invoice import router as invoice_router
+from app.routes.three_way_match import (
+    router as three_way_match_router,
+)
 from app.routes import supplier_stats_routes
 from app.schemas.purchase_order import MessageResponse
 
@@ -38,6 +46,16 @@ async def log_requests(request: Request, call_next):
 
 
 # ============================================================
+# SUPPLIER ONBOARDING ROUTES
+# ============================================================
+
+app.include_router(
+    supplier_onboarding_router,
+    prefix="/api/v1",
+    tags=["Supplier Onboarding"],
+)
+
+# ============================================================
 # PURCHASE ORDER ROUTES
 # ============================================================
 
@@ -49,6 +67,26 @@ app.include_router(
 
 
 # ============================================================
+# SHIPMENT ROUTES
+# ============================================================
+
+app.include_router(
+    shipment_router,
+    prefix="/api/v1",
+    tags=["Shipments"],
+)
+
+# ============================================================
+# Goods Receipt ROUTES
+# ============================================================
+
+app.include_router(
+    goods_receipt_router,
+    prefix="/api/v1",
+    tags=["Goods Receipts"],
+)
+
+# ============================================================
 # INVOICE ROUTES
 # ============================================================
 
@@ -58,6 +96,15 @@ app.include_router(
     tags=["Invoices"],
 )
 
+# ============================================================
+# THREE-WAY MATCH ROUTES
+# ============================================================
+
+app.include_router(
+    three_way_match_router,
+    prefix="/api/v1",
+    tags=["Three-Way Matches"],
+)
 
 # ============================================================
 # SUPPLIER STATS + SCORECARD ROUTES
