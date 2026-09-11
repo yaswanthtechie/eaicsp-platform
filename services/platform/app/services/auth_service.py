@@ -1,10 +1,6 @@
-#auth serv
 from datetime import datetime, timedelta, timezone
-from ipaddress import ip_address
-
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
-
 from app.core.password_validator import validate_password
 from app.core.security import (
     create_access_token,
@@ -12,14 +8,11 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-
 from app.models.users import User
 from app.models.password_reset_tokens import PasswordResetToken
 from app.models.refresh_token import RefreshToken
 from app.models.failed_login_attempts import FailedLoginAttempt
-
 from app.schemas.auth import RegisterRequest
-
 from app.services.email_service import MockEmailService
 from app.services.audit_service import (
     ACCOUNT_LOCKED,
@@ -51,7 +44,6 @@ WINDOW = timedelta(minutes=15)
 LOCKOUT_DURATION = timedelta(minutes=15)
 
 RESET_TOKEN_EXPIRE_MINUTES = 15
-
 
 # ============================================================
 # REFRESH TOKEN
@@ -138,11 +130,8 @@ def revoke_refresh_token(
 
     if refresh is None:
         return False
-
     refresh.is_revoked = True
-
     return True
-
 
 # ============================================================
 # FAILED LOGIN TRACKING
@@ -181,7 +170,6 @@ def get_recent_attempts_by_email(
         .count()
     )
 
-
 def get_recent_attempts_by_ip(
     db: Session,
     ip_address: str,
@@ -199,7 +187,6 @@ def get_recent_attempts_by_ip(
         )
         .count()
     )
-
 
 # ============================================================
 # LOGIN RATE LIMITING
@@ -229,7 +216,6 @@ def check_login_rate_limit(
             detail="Too many login attempts. Try again after 15 minutes.",
         )
 
-
 # ============================================================
 # ACCOUNT LOCKOUT HELPER
 # ============================================================
@@ -256,17 +242,14 @@ def is_account_locked(user: User):
 
     if locked_until > now:
         return True
-
     # Lock period expired
     user.locked_until = None
 
     return False
 
-
 # ============================================================
 # RATE LIMIT LOCKS
 # ============================================================
-
 # One lock per email + IP bucket
 _rate_limit_locks: dict[str, threading.Lock] = defaultdict(
     threading.Lock
@@ -284,7 +267,6 @@ def _get_bucket_lock(
 
     with _rate_limit_locks_guard:
         return _rate_limit_locks[key]
-
 
 # ============================================================
 # REGISTER
@@ -316,9 +298,7 @@ def register_user(
     hashed_password = hash_password(
         request.password
     )
-
     now = datetime.now(timezone.utc)
-
     user = User(
         email=email_address,
         full_name=request.full_name,
@@ -330,15 +310,11 @@ def register_user(
     )
 
     db.add(user)
-
     db.commit()
-
     db.refresh(user)
-
     return {
         "message": "User registered successfully"
     }
-
 
 # ============================================================
 # BASIC LOGIN
@@ -703,7 +679,6 @@ def request_password_reset(
         email=user.email,
         reset_token=token,
     )
-
 
 # ============================================================
 # PASSWORD RESET
