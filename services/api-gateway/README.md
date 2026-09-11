@@ -429,16 +429,7 @@ Platform DB                             Rahul Platform (:8005)
 >
 > *Note: Live integration tests are not currently executed in CI.*
 
-### 3. Test Coverage Categorization
-
-| Tier | Test File | Scope & Mechanism |
-|------|-----------|-------------------|
-| **Unit & Mocked Tests** | `tests/test_round5_auth_forwarding.py`<br>`tests/test_round5_gateway_integration.py`<br>`tests/test_api.py` | Uses `unittest.mock.patch` on `httpx.AsyncClient.send`. Verifies request headers, body forwarding, 401/403/404/422/500 passthrough, and breaker state transitions under simulated network responses. |
-| **Dummy Service Tests** | `tests/test_integration.py` | Spins up in-file `dummy_inventory` and `dummy_shipments` FastAPI apps on ephemeral localhost TCP ports. Verifies socket-level serialization and routing. |
-| **Live Real Platform Tests** | `tests/test_real_platform_integration.py` | Targets Rahul's **real running Platform Service** (`http://localhost:8005`) through the **API Gateway** (`http://localhost:8000`). Verifies real login, token verification, and 401 rejection over real sockets. |
-| **Live Real Inventory Tests** | `tests/test_real_inventory_integration.py` | Targets Balaji's **real running Inventory Service** (`http://localhost:8001`) through the **API Gateway** (`http://localhost:8000`), which in turn calls Platform Service (:8005) for token verification. |
-
-### 4. Running Live Integration Tests
+### 3. Running Live Integration Tests
 
 Start the services in three separate terminals:
 
