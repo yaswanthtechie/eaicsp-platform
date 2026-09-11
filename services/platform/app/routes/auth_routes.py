@@ -370,3 +370,43 @@ def inventory_test(user=Depends(get_current_user)):
         }
     }
 
+# ============================================================
+# VERIFY
+# ============================================================
+
+logger = logging.getLogger("platform.request")
+
+@router.post(
+    "/verify",
+    response_model=VerifyResponse,
+)
+def verify_access_token(
+    current_user: User = Depends(get_current_user),
+):
+    response_data = {
+        "valid":True,
+        "user_id": current_user.id,
+        "email": current_user.email,
+        "full_name": current_user.full_name,
+        "role": current_user.role.name if current_user.role else None,
+        "supplier_id": current_user.supplier_id,
+        "is_active": current_user.is_active,
+    }
+
+    logger.info(
+        "Token verified | user_id=%s | role=%s | endpoint=/api/v1/auth/verify ",
+        current_user.id,
+        current_user.role.name if current_user.role else None,
+    )
+
+    return response_data
+
+@router.post("/service-verify")
+def service_verify(
+    service=Depends(verify_service_api_key),
+):
+    return {
+        "authenticated": True,
+        "service": service["service"],
+        "auth_type": service["auth_type"],
+    }

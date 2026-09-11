@@ -1,47 +1,71 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { NetworkStatus } from "@apollo/client";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 import POCard from "../components/POCard";
 import EmptyState from "../components/EmptyState";
 import ErrorState from "../components/ErrorState";
 import Loading from "../components/Loading";
 import { logout } from "../auth/logout";
-import type { PurchaseOrder } from "../types/po";
-import { usePurchaseOrders } from "../hooks/usePurchaseOrders";
 
+import type { POStatus, PurchaseOrder } from "../types/po";
 import type { PurchaseOrderEdge } from "../types/graphql";
+
+import { usePurchaseOrders } from "../hooks/usePurchaseOrders";
 import { ORDERS_PER_PAGE } from "../constants/pagination";
+
+type OrderFilter = "All" | POStatus;
 
 const Orders = () => {
   const navigate = useNavigate();
 
-  const [filter, setFilter] = useState("All");
+  const [filter, setFilter] =
+    useState<OrderFilter>("All");
   const [poNumber, setPoNumber] = useState("");
   const [minAmount, setMinAmount] = useState("");
   const [maxAmount, setMaxAmount] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
-  const {
-    data,
-    loading,
-    error,
-    fetchMore,
-    networkStatus,
-  } = usePurchaseOrders({
-    first: ORDERS_PER_PAGE,
-    after: null,
-    status: filter === "All" ? undefined : filter.toLowerCase(),
-    poNumber: poNumber || undefined,
-    minAmount: minAmount ? Number(minAmount) : undefined,
-    maxAmount: maxAmount ? Number(maxAmount) : undefined,
-    startDate: startDate || undefined,
-    endDate: endDate || undefined,
-  });
+  const parentRef = useRef<HTMLDivElement>(null);
+
+  const { data, loading, error, fetchMore, networkStatus } =
+    usePurchaseOrders({
+      first: ORDERS_PER_PAGE,
+      after: null,
+      status:
+        filter === "All" ? undefined : filter,
+      poNumber: poNumber || undefined,
+      minAmount: minAmount
+        ? Number(minAmount)
+        : undefined,
+      maxAmount: maxAmount
+        ? Number(maxAmount)
+        : undefined,
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
+    });
 
   const loadingMore =
     networkStatus === NetworkStatus.fetchMore;
+
+  const orders: PurchaseOrder[] =
+    data?.purchaseOrders?.edges?.map(
+      (edge: PurchaseOrderEdge) => edge.node
+    ) || [];
+
+  /*
+   * useVirtualizer must always be called before
+   * conditional returns so React sees the same
+   * hook order on every render.
+   */
+  const rowVirtualizer = useVirtualizer({
+    count: orders.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 150,
+    overscan: 5,
+  });
 
   if (loading && !data) {
     return <Loading />;
@@ -50,11 +74,6 @@ const Orders = () => {
   if (error && !data) {
     return <ErrorState />;
   }
-
-  const orders: PurchaseOrder[] =
-    data?.purchaseOrders?.edges?.map(
-      (edge: PurchaseOrderEdge) => edge.node
-    ) || [];
 
   const handleLoadMore = () => {
     const endCursor =
@@ -69,9 +88,7 @@ const Orders = () => {
         first: ORDERS_PER_PAGE,
         after: endCursor,
         status:
-          filter === "All"
-            ? undefined
-            : filter.toLowerCase(),
+          filter === "All" ? undefined : filter,
         poNumber: poNumber || undefined,
         minAmount: minAmount
           ? Number(minAmount)
@@ -85,6 +102,22 @@ const Orders = () => {
     });
   };
 
+  const tabs: Array<{
+    label: string;
+    value: OrderFilter;
+  }> = [
+    { label: "All", value: "All" },
+    { label: "Sent", value: "SENT" },
+    {
+      label: "Acknowledged",
+      value: "ACKNOWLEDGED",
+    },
+    {
+      label: "Fulfilled",
+      value: "FULFILLED",
+    },
+  ];
+
   return (
     <div className="orders">
       <h1>Purchase Orders</h1>
@@ -94,40 +127,60 @@ const Orders = () => {
           type="text"
           placeholder="Search PO Number"
           value={poNumber}
-          onChange={(e) => setPoNumber(e.target.value)}
+          onChange={(e) =>
+            setPoNumber(e.target.value)
+          }
         />
 
         <input
           type="number"
           placeholder="Min Amount"
           value={minAmount}
-          onChange={(e) => setMinAmount(e.target.value)}
+          onChange={(e) =>
+            setMinAmount(e.target.value)
+          }
         />
 
         <input
           type="number"
           placeholder="Max Amount"
           value={maxAmount}
-          onChange={(e) => setMaxAmount(e.target.value)}
+          onChange={(e) =>
+            setMaxAmount(e.target.value)
+          }
         />
 
-        <input
-          type="date"
-          value={startDate}
-          onChange={(e) => setStartDate(e.target.value)}
-        />
+        <label>
+          Start Date
+          <input
+            type="date"
+            aria-label="Start Date"
+            value={startDate}
+            onChange={(e) =>
+              setStartDate(e.target.value)
+            }
+          />
+        </label>
 
-        <input
-          type="date"
-          value={endDate}
-          onChange={(e) => setEndDate(e.target.value)}
-        />
+        <label>
+          End Date
+          <input
+            type="date"
+            aria-label="End Date"
+            value={endDate}
+            onChange={(e) =>
+              setEndDate(e.target.value)
+            }
+          />
+        </label>
       </div>
 
       <div className="top-buttons">
         <button
           className="invoice-btn"
-          onClick={() => navigate("/invoices/new")}
+          onClick={() =>
+            navigate("/invoices/new")
+          }
         >
           New Invoice
         </button>
@@ -141,20 +194,19 @@ const Orders = () => {
       </div>
 
       <div className="tabs">
-        {[
-          "All",
-          "Sent",
-          "Acknowledged",
-          "Fulfilled",
-        ].map((tab) => (
+        {tabs.map((tab) => (
           <button
-            key={tab}
+            key={tab.value}
             className={
-              filter === tab ? "active-tab" : ""
+              filter === tab.value
+                ? "active-tab"
+                : ""
             }
-            onClick={() => setFilter(tab)}
+            onClick={() =>
+              setFilter(tab.value)
+            }
           >
-            {tab}
+            {tab.label}
           </button>
         ))}
       </div>
@@ -162,15 +214,50 @@ const Orders = () => {
       {orders.length === 0 ? (
         <EmptyState />
       ) : (
-        orders.map((order) => (
-          <POCard
-            key={order.po_number}
-            order={order}
-          />
-        ))
+        <div
+          ref={parentRef}
+          role="list"
+          aria-label="Purchase orders"
+          style={{
+            height: "600px",
+            overflow: "auto",
+          }}
+        >
+          <div
+            style={{
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              width: "100%",
+              position: "relative",
+            }}
+          >
+            {rowVirtualizer
+              .getVirtualItems()
+              .map((virtualItem) => {
+                const order =
+                  orders[virtualItem.index];
+
+                return (
+                  <div
+                    key={order.poNumber}
+                    role="listitem"
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      transform: `translateY(${virtualItem.start}px)`,
+                    }}
+                  >
+                    <POCard order={order} />
+                  </div>
+                );
+              })}
+          </div>
+        </div>
       )}
 
-      {data?.purchaseOrders?.pageInfo?.hasNextPage && (
+      {data?.purchaseOrders?.pageInfo
+        ?.hasNextPage && (
         <button
           className="load-more-btn"
           onClick={handleLoadMore}

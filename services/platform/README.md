@@ -275,6 +275,10 @@ An administrator can assign the appropriate role later.
 
 This prevents users from assigning privileged roles to themselves during registration.
 
+The refresh token is marked as revoked in the database.
+
+After logout, the revoked refresh token cannot be used to obtain another access token.
+
 ---
 
 # Login
@@ -1544,6 +1548,14 @@ curl -X POST \
   -H "X-API-Key: sk_<service-secret>"
 ```
 
+Example:
+
+```env
+SECRET_KEY=<generated-secret>
+```
+
+Never commit the real `.env` file or production secrets.
+
 ---
 
 # Testing
@@ -1910,6 +1922,9 @@ Definition of done:
 
 Install dependencies:
 
+Unit tests — run without requiring the Platform Service to be running.
+Integration tests — make real HTTP requests to the running Platform Service on port 8005.
+Run the default test suite
 ```bash
 pip install -r requirements.txt
 ```
