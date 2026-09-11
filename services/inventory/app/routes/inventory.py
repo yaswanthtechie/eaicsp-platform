@@ -27,6 +27,7 @@ from app.schemas.inventory import (
     ReorderPlanEntry,
     WhatIfRequest,
     WhatIfResponse,
+    MultiEchelonResponse,
 )
 
 from app.services.inventory_service import (
@@ -55,6 +56,9 @@ from app.services.transfer_service import (
 
 from app.services.simulation_service import (
     simulate_demand_growth,
+)
+from app.services.multi_echelon_service import (
+    fulfill_shortage,
 )
 
 
@@ -590,15 +594,49 @@ def update_inventory_route(
                 detail="Inventory not found",
             )
 
-        return inventory_response(
-            inventory=result,
-            db=db,
-        )
+        return result
 
     except HTTPException:
         raise
 
     except ValueError as exc:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        )
+        
+@router.post(
+    "/multi-echelon/fulfill",
+    response_model=MultiEchelonResponse,
+)
+def multi_echelon_fulfill_route(
+    sku_id: str,
+    warehouse_id: str,
+    required_quantity: int,
+    db: Session = Depends(get_db),
+):
+    if required_quantity <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Required quantity must be "
+                "greater than zero"
+            ),
+        )
+
+    try:
+
+        return fulfill_shortage(
+            db=db,
+            sku_id=sku_id,
+            warehouse_id=warehouse_id,
+            required_quantity=required_quantity,
+        )
+
+    except ValueError as exc:
+
         db.rollback()
 
         raise HTTPException(
