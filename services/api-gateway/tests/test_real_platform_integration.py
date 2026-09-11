@@ -6,7 +6,7 @@ Verifies:
 2. Client -> Gateway -> Platform: Real token verification (POST /api/v1/auth/verify)
 3. Client -> Gateway -> Platform: Real missing/invalid token rejection (401)
 4. Client -> Gateway -> Platform: Circuit breaker immunity against 401/403 responses
-5. Verification of Platform hardening responses through Gateway (Invalid or expired authentication token)
+5. Verification of Platform hardening responses through Gateway (Invalid or expired token / Not authenticated)
 """
 
 import os
@@ -177,7 +177,7 @@ def test_real_platform_verify_missing_token_returns_401(live_caller):
 
     assert response.status_code == 401
     data = response.json()
-    assert data["detail"] == "Invalid or expired authentication token"
+    assert data["detail"] == "Not authenticated"
 
 
 def test_real_platform_verify_invalid_token_returns_401(live_caller):
@@ -191,7 +191,7 @@ def test_real_platform_verify_invalid_token_returns_401(live_caller):
 
     assert response.status_code == 401
     data = response.json()
-    assert data["detail"] == "Invalid or expired authentication token"
+    assert data["detail"] == "Invalid or expired token"
 
 
 def test_real_platform_repeated_401_breaker_immunity(live_caller):
