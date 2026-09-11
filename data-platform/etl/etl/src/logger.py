@@ -176,3 +176,28 @@ def log_failure(
                 "error_message": str(error_message)
             }
         )
+
+
+def record_run_batch(run_id, source_name, batch_file):
+    """Persist the source files associated with a pipeline run for safe replay."""
+    query = text("""
+        INSERT INTO etl_run_batches (run_id, source_name, batch_file)
+        VALUES (:run_id, :source_name, :batch_file)
+        ON CONFLICT (run_id, source_name, batch_file) DO NOTHING
+    """)
+    engine = get_engine()
+    with engine.begin() as connection:
+        connection.execute(query, {
+            "run_id": run_id, "source_name": source_name, "batch_file": batch_file
+        })
+
+
+def mark_run_status(run_id, status, error_message=None):
+    query = text("""
+        UPDATE etl_run_log
+        SET status = :status, error_message = COALESCE(:error_message, error_message)
+        WHERE run_id = :run_id
+    """)
+    engine = get_engine()
+    with engine.begin() as connection:
+        connection.execute(query, {"run_id": run_id, "status": status, "error_message": error_message})

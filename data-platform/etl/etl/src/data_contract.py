@@ -97,3 +97,10 @@ def validate_schema_against(df, schema):
 
 def validate_schema(df):
     return validate_schema_against(df, EXPECTED_SCHEMA)
+
+def validate_no_unexpected_columns(df, schema):
+    """Raise when a source introduces columns outside its configured contract."""
+    unexpected = sorted(set(df.columns) - set(schema.keys()))
+    if unexpected:
+        raise ValueError(f"Unexpected columns detected: {', '.join(unexpected)}")
+    return True

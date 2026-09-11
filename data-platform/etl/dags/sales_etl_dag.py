@@ -11,6 +11,7 @@ Important:
 
 from datetime import datetime, timedelta
 from pathlib import Path
+import json
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator, BranchPythonOperator
@@ -83,11 +84,15 @@ default_args = {
 # ---------------------------------------------------------------------------
 
 def _serialize_batches(batches):
-
     return [
         {
             "file_path": str(batch["file_path"]),
-            "data": batch["data"].to_dict(orient="records"),
+            "data": json.loads(
+                batch["data"].to_json(
+                    orient="records",
+                    date_format="iso"
+                )
+            ),
             "report": batch.get("report"),
         }
         for batch in batches
@@ -144,7 +149,7 @@ def make_extract_task(source_config, extract_task_id):
     def _extract(source_config=source_config, **context):
 
         from etl.src.alert_service import write_alert
-        from etl.src.data_contract import validate_schema_against
+        from etl.src.data_contract import validate_schema_against, validate_no_unexpected_columns
         from etl.src.extract import extract_data
         from etl.src.watermark import get_watermark
 
@@ -197,6 +202,7 @@ def make_extract_task(source_config, extract_task_id):
                     batch["data"],
                     source_config.columns,
                 )
+                validate_no_unexpected_columns(batch["data"], source_config.columns)
 
                 schema_valid.append(batch)
 
@@ -206,6 +212,13 @@ def make_extract_task(source_config, extract_task_id):
                     f"[{source_config.name}] "
                     f"Schema validation failed: {e}"
                 )
+
+                if source_config.schema_evolution == "quarantine":
+                    from etl.src.schema_evolution import handle_schema_evolution
+                    try:
+                        handle_schema_evolution(batch["file_path"], source_config)
+                    except OSError as move_error:
+                        logger.warning(f"Could not quarantine {batch['file_path'].name}: {move_error}")
 
                 write_alert(
                     pipeline="sales_etl",
@@ -359,6 +372,11 @@ def make_load_task(
             )
 
             return
+
+        from etl.src.logger import record_run_batch
+
+        for batch in validated_batches:
+            record_run_batch(run_id, source_config.name, batch["file_path"].name)
 
         approved_batches = [
             dict(batch, data=batch["data"].copy())
@@ -766,19 +784,13 @@ def archive_task(**context):
 with DAG(
     dag_id="sales_etl_pipeline",
     description=(
-        "Config-driven multi-source ETL "
-        "pipeline with sales and inventory"
+        "Config-driven multi-source ETL pipeline with dependencies"
     ),
     default_args=default_args,
     start_date=datetime(2026, 7, 1),
     schedule=PIPELINE_CONFIG.schedule,
     catchup=False,
-    tags=[
-        "etl",
-        "sales",
-        "inventory",
-        "r4",
-    ],
+    tags=["etl", "sales", "inventory", "shipments", "r6-r8"],
 ) as dag:
 
     start_run = PythonOperator(

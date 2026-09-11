@@ -361,7 +361,7 @@ def load_data_bulk_generic(validated_batches, run_id, source_config):
     plus a same-day correction), the winner is decided by an explicit rule -
     latest file wins, by explicit filename version/timestamp - not by whichever
     file happened to be processed last. Each record carries its source
-    file's mtime as "_conflict_priority", consumed by bulk_upsert()'s
+    file's deterministic filename precedence as "_conflict_priority", consumed by bulk_upsert()'s
     priority_key and never sent to the database (it isn't in `all_columns`).
     """
 

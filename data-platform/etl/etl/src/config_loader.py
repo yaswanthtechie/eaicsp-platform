@@ -32,6 +32,7 @@ class SourceConfig:
     min_rows: int = 1
     max_rows: int = 1_000_000
     history_table: str = None
+    schema_evolution: str = "quarantine"
 
 
 @dataclass
@@ -87,6 +88,7 @@ def load_pipeline_config(config_path=None):
                 min_rows=raw_source.get("min_rows", 1),
                 max_rows=raw_source.get("max_rows", 1_000_000),
                 history_table=raw_source.get("history_table"),
+                schema_evolution=raw_source.get("schema_evolution", "quarantine"),
             )
         )
 
