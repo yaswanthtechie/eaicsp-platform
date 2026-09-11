@@ -31,8 +31,9 @@ DEFAULT_NEUTRAL_SENTIMENT_PENALTY: Final[float] = 0.0
 DEFAULT_POSITIVE_SENTIMENT_PENALTY: Final[float] = 0.0
 DEFAULT_MAX_RISK_SCORE: Final[float] = 100.0
 DEFAULT_CONFIDENCE_DIVISOR: Final[float] = 8.0
-DEFAULT_AGGREGATION_STRATEGY: Final[str] = "blend"
+DEFAULT_AGGREGATION_STRATEGY: Final[str] = "top_k_mean"
 DEFAULT_AGGREGATION_TOP_K: Final[int] = 3
+DEFAULT_RECENCY_HALF_LIFE_DAYS: Final[float] = 30.0
 
 ALLOWED_AGGREGATION_STRATEGIES: Final[Set[str]] = {
     "top_k_mean",
@@ -153,6 +154,7 @@ class Settings:
         confidence_divisor: float | None = None,
         aggregation_strategy: str | None = None,
         aggregation_top_k: int | None = None,
+        recency_half_life_days: float | None = None,
     ) -> None:
         # 1. Negative sentiment penalty
         if negative_sentiment_penalty is not None:
@@ -254,6 +256,34 @@ class Settings:
                 if raw_top_k is not None
                 else DEFAULT_AGGREGATION_TOP_K
             )
+
+        # 9. Recency half-life days
+        if recency_half_life_days is not None:
+            self.recency_half_life_days = validate_numeric_weight(
+                "recency_half_life_days", recency_half_life_days, allow_zero=False
+            )
+        else:
+            raw_recency = os.getenv("RECENCY_HALF_LIFE_DAYS")
+            self.recency_half_life_days = (
+                validate_numeric_weight("RECENCY_HALF_LIFE_DAYS", float(raw_recency), allow_zero=False)
+                if raw_recency is not None
+                else DEFAULT_RECENCY_HALF_LIFE_DAYS
+            )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert settings instance to dictionary for API serialization."""
+        return {
+            "model_name": MODEL_NAME,
+            "negative_sentiment_penalty": self.negative_sentiment_penalty,
+            "neutral_sentiment_penalty": self.neutral_sentiment_penalty,
+            "positive_sentiment_penalty": self.positive_sentiment_penalty,
+            "max_risk_score": self.max_risk_score,
+            "confidence_divisor": self.confidence_divisor,
+            "aggregation_strategy": self.aggregation_strategy,
+            "aggregation_top_k": self.aggregation_top_k,
+            "recency_half_life_days": self.recency_half_life_days,
+            "signal_weights": dict(self.signal_weights),
+        }
 
 
 @lru_cache
