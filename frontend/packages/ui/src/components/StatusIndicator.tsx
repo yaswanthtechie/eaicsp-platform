@@ -28,5 +28,9 @@ export function StatusIndicator({
 
   const text = label ?? status;
 
-  return <Badge status={badgeStatus}>{text}</Badge>;
+  return (
+  <span role="status">
+    <Badge status={badgeStatus}>{text}</Badge>
+  </span>
+);
 }

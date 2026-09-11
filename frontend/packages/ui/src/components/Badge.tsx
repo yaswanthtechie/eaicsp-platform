@@ -1,4 +1,4 @@
-import { colors, spacing, radius } from "../theme/tokens";
+import { spacing, radius } from "../theme/tokens";
 
 export interface BadgeProps {
   status: "info" | "success" | "warning" | "danger" | "neutral";
@@ -11,19 +11,19 @@ export function Badge({
 }: BadgeProps) {
   const backgroundColor =
     status === "success"
-      ? colors.success
+      ? "var(--color-success)"
       : status === "warning"
-      ? colors.warning
-      : status === "danger"
-      ? colors.danger
-      : status === "info"
-      ? colors.info
-      : colors.gray200;
+        ? "var(--color-warning)"
+        : status === "danger"
+          ? "var(--color-danger)"
+          : status === "info"
+            ? "var(--color-info)"
+            : "var(--color-muted)";
 
   const textColor =
     status === "neutral"
-      ? colors.gray900
-      : colors.white;
+      ? "var(--color-text)"
+      : "var(--color-white)";
 
   return (
     <span

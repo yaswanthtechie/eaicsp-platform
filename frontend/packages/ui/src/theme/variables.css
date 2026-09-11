@@ -6,10 +6,19 @@
   --color-primary: #2563eb;
   --color-primary-hover: #1d4ed8;
 
-  --color-success: #16a34a;
-  --color-warning: #d97706;
-  --color-danger: #dc2626;
-  --color-info: #0ea5e9;
+  --color-success: #15803d;
+
+  /* Darker warning for WCAG contrast */
+  --color-warning: #92400e;
+
+  /* Darker danger for WCAG contrast */
+  --color-danger: #b91c1c;
+
+  --color-info: #0369a1;
+  --color-white: #ffffff;
+
+  /* Overlay */
+  --color-overlay: rgba(0, 0, 0, 0.45);
 
   /* ===========================
      Light Theme
@@ -17,6 +26,7 @@
 
   --color-background: #ffffff;
   --color-surface: #f9fafb;
+  --color-muted: #f3f4f6;
 
   --color-text: #111827;
   --color-text-secondary: #6b7280;
@@ -75,9 +85,43 @@
 [data-theme="dark"] {
   --color-background: #111827;
   --color-surface: #1f2937;
+  --color-muted: #374151;
 
   --color-text: #f9fafb;
   --color-text-secondary: #d1d5db;
 
   --color-border: #374151;
+
+  --color-overlay: rgba(0, 0, 0, 0.65);
+
+  /* High-contrast-friendly semantic colors */
+  --color-warning: #fbbf24;
+  --color-danger: #f87171;
+}
+
+/* ==========================================
+   High Contrast Theme
+========================================== */
+
+[data-theme="high-contrast"] {
+  --color-background: #000000;
+  --color-surface: #000000;
+  --color-muted: #000000;
+
+  --color-text: #ffffff;
+  --color-text-secondary: #ffffff;
+
+  --color-border: #ffffff;
+
+  --color-primary: #ffff00;
+  --color-primary-hover: #ffffff;
+
+  --color-success: #00ff00;
+  --color-warning: #ffff00;
+  --color-danger: #ff0000;
+  --color-info: #00ffff;
+
+  --color-white: #000000;
+
+  --color-overlay: rgba(0, 0, 0, 0.85);
 }

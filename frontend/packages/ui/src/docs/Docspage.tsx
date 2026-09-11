@@ -200,10 +200,7 @@ export function DocsPage() {
       quantity: 1,
     },
   });
-
-  const onSubmit = (data: FormValues) => {
-    console.log("Form submitted:", data);
-  };
+const onSubmit = () => {};
 
   return (
     <div

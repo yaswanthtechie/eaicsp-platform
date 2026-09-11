@@ -1,4 +1,4 @@
-import { colors, spacing, radius } from "../theme/tokens";
+import { spacing, radius } from "../theme/tokens";
 
 export interface KpiCardProps {
   label: string;
@@ -13,10 +13,10 @@ export function KpiCard({
 }: KpiCardProps) {
   const deltaColor =
     delta === undefined
-      ? colors.gray500
+      ? "var(--color-text-secondary)"
       : delta >= 0
-      ? colors.success
-      : colors.danger;
+        ? "var(--color-success)"
+        : "var(--color-danger)";
 
   const arrow =
     delta === undefined ? "" : delta >= 0 ? "▲" : "▼";
@@ -24,8 +24,8 @@ export function KpiCard({
   return (
     <div
       style={{
-        backgroundColor: colors.surface,
-        border: `1px solid ${colors.border}`,
+        backgroundColor: "var(--color-surface)",
+        border: "1px solid var(--color-border)",
         borderRadius: radius.md,
         padding: spacing.md,
         width: "100%",
@@ -35,7 +35,7 @@ export function KpiCard({
       <p
         style={{
           margin: 0,
-          color: colors.gray500,
+          color: "var(--color-text-secondary)",
           fontSize: 14,
         }}
       >
@@ -45,7 +45,7 @@ export function KpiCard({
       <h2
         style={{
           margin: `${spacing.sm} 0`,
-          color: colors.text,
+          color: "var(--color-text)",
         }}
       >
         {value}

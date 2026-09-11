@@ -17,6 +17,9 @@ import { StatusIndicator } from "./components/StatusIndicator";
 import { Table } from "./components/Table";
 import { TrendLine } from "./components/charts/TrendLine";
 import { MiniBarChart } from "./components/charts/MiniBarChart";
+import { Sparkline } from "./components/charts/Sparkline";
+import { Gauge } from "./components/charts/Gauge";
+
 
 type Inventory = {
   product: string;
@@ -570,9 +573,36 @@ function App() {
   xKey="month"
   yKey="sales"
 />
+<h3>Sparkline</h3>
+
+<p>
+  Displays a compact trend for quick data visualization.
+</p>
+
+<Sparkline
+  data={[
+    { value: 20 },
+    { value: 35 },
+    { value: 28 },
+    { value: 45 },
+    { value: 40 },
+    { value: 60 },
+  ]}
+/>
+
+<h3>Gauge</h3>
+
+<p>
+  Displays a value relative to a defined range.
+</p>
+
+<Gauge
+  value={75}
+  min={0}
+  max={100}
+  label="Performance"
+/>
     </div>
-       
-    
   );
 }
 

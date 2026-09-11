@@ -1,7 +1,7 @@
 import { Card } from "./Card";
 import { Button } from "./Button";
 import { Badge } from "./Badge";
-import { colors, spacing } from "../theme/tokens";
+import { spacing } from "../theme/tokens";
 
 export interface AlertBannerProps {
   type?: "info" | "success" | "warning" | "danger";
@@ -19,10 +19,10 @@ export function AlertBanner({
   onAction,
 }: AlertBannerProps) {
   const borderColor = {
-    info: colors.info,
-    success: colors.success,
-    warning: colors.warning,
-    danger: colors.danger,
+    info: "var(--color-info)",
+    success: "var(--color-success)",
+    warning: "var(--color-warning)",
+    danger: "var(--color-danger)",
   }[type];
 
   const badgeLabel = {
@@ -57,22 +57,22 @@ export function AlertBanner({
             <h3
               style={{
                 margin: 0,
-                color: colors.gray900,
+                color: "var(--color-text)",
               }}
             >
               {title}
             </h3>
 
-           <Badge status={type}>
-  {badgeLabel}
-</Badge>
+            <Badge status={type}>
+              {badgeLabel}
+            </Badge>
           </div>
 
           {/* Message */}
           <p
             style={{
               margin: 0,
-              color: colors.gray500,
+              color: "var(--color-text-secondary)",
             }}
           >
             {message}
