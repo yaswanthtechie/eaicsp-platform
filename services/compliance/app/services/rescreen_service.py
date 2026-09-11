@@ -4,6 +4,12 @@ from datetime import datetime, timezone
 import inspect
 import time
 from typing import Any
+import httpx
+
+from app.core.config import (
+    PLATFORM_AUTH_URL,
+    PLATFORM_SERVICE_API_KEY,
+)
 
 from app.core.database import SessionLocal
 from app.models.audit import ComplianceAudit
@@ -232,8 +238,53 @@ def rescreen_cleared_entities() -> dict[str, Any]:
         db.close()
 
 
+def authenticate_rescreen_job() -> dict[str, Any]:
+    if not PLATFORM_SERVICE_API_KEY:
+        raise RuntimeError(
+            "PLATFORM_SERVICE_API_KEY is not configured"
+        )
+
+    verify_url = (
+        f"{PLATFORM_AUTH_URL.rstrip('/')}"
+        "/api/v1/auth/service-verify"
+    )
+
+    try:
+        response = httpx.post(
+            verify_url,
+            headers={
+                "X-API-Key": PLATFORM_SERVICE_API_KEY,
+            },
+            timeout=10.0,
+        )
+    except httpx.RequestError as exc:
+        raise RuntimeError(
+            "Unable to connect to Platform/Auth service"
+        ) from exc
+
+    if response.status_code != 200:
+        raise RuntimeError(
+            "Platform service authentication failed"
+        )
+
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise RuntimeError(
+            "Platform/Auth returned an invalid response"
+        ) from exc
+
+    if data.get("authenticated") is not True:
+        raise RuntimeError(
+            "Platform service authentication was not successful"
+        )
+
+    return data
+
 def nightly_rescreen_job() -> dict[str, Any]:
     print("Starting nightly re-screen...")
+
+    authenticate_rescreen_job()
 
     result = rescreen_cleared_entities()
 
@@ -245,7 +296,3 @@ def nightly_rescreen_job() -> dict[str, Any]:
     )
 
     return result
-
-
-if __name__ == "__main__":
-    nightly_rescreen_job()

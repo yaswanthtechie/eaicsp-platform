@@ -4,11 +4,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-
-
 load_dotenv()
-
-
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -34,6 +30,15 @@ UN_XML_PATH = DOWNLOAD_DIR / "un.xml"
 EU_XML_PATH = DOWNLOAD_DIR / "eu.xml"
 
 FIXTURE_DIR = DATA_DIR / "fixtures"
+
+INTERNAL_WATCHLIST_PATH = DATA_DIR / "internal_watchlist.csv"
+
+PEP_CSV_PATH = DATA_DIR / "pep.csv"
+
+TOTAL_SOURCES = int(
+    os.getenv("TOTAL_SOURCES", "5")
+)
+
 
 OFAC_FIXTURE_PATH = (
     FIXTURE_DIR / "ofac_sample.csv"
@@ -146,11 +151,42 @@ COUNTRY_RISK_INDEX = {
     "NORTH KOREA": 100,
 }
 
+LOW_COUNTRY_RISK_MAX = float(
+    os.getenv(
+        "LOW_COUNTRY_RISK_MAX",
+        "39",
+    )
+)
+
+MEDIUM_COUNTRY_RISK_MAX = float(
+    os.getenv(
+        "MEDIUM_COUNTRY_RISK_MAX",
+        "69",
+    )
+)
+
+LOW_TRANSACTION_VALUE_MAX = float(
+    os.getenv(
+        "LOW_TRANSACTION_VALUE_MAX",
+        "1000000",
+    )
+)
+
+MEDIUM_TRANSACTION_VALUE_MAX = float(
+    os.getenv(
+        "MEDIUM_TRANSACTION_VALUE_MAX",
+        "5000000",
+    )
+)
+
 PLATFORM_AUTH_URL = os.getenv(
     "PLATFORM_AUTH_URL",
     "http://127.0.0.1:8005",
 )
 
+PLATFORM_SERVICE_API_KEY = os.getenv(
+    "PLATFORM_SERVICE_API_KEY",
+)
 
 OFAC_DOWNLOAD_URL = os.getenv(
     "OFAC_DOWNLOAD_URL",

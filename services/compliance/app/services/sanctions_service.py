@@ -9,6 +9,8 @@ from app.core.config import (
     OFAC_CSV_PATH,
     UN_XML_PATH,
     EU_XML_PATH,
+    INTERNAL_WATCHLIST_PATH,
+    PEP_CSV_PATH,
     MATCH_THRESHOLD,
     USE_FIXTURES,
     OFAC_FIXTURE_PATH,
@@ -19,6 +21,10 @@ from app.core.config import (
 from app.services.sources.ofac import load_ofac
 from app.services.sources.un import load_un
 from app.services.sources.eu import load_eu
+from app.services.sources.internal_watchlist import (
+    load_internal_watchlist,
+)
+from app.services.sources.pep import load_pep
 
 from app.services.dedupe_service import (
     normalize_name,
@@ -396,6 +402,18 @@ def _get_sanctions_paths() -> tuple[Path, Path, Path]:
     )
 
 
+def _validate_source_records(
+    source_name: str,
+    records: list[Any],
+) -> None:
+    """Fail closed when a required source loads zero records."""
+    if not records:
+        raise RuntimeError(
+            f"Required sanctions source {source_name} loaded 0 records. "
+            "Screening cannot safely continue."
+        )
+
+
 def _load_fixture_data() -> None:
 
     print("Using local sanctions fixtures")
@@ -432,6 +450,7 @@ def _load_fixture_data() -> None:
     print(
         f"Loaded {len(ofac_records)} OFAC fixture records"
     )
+    _validate_source_records("OFAC", ofac_records)
 
     print("Loading UN fixture")
 
@@ -442,6 +461,7 @@ def _load_fixture_data() -> None:
     print(
         f"Loaded {len(un_records)} UN fixture records"
     )
+    _validate_source_records("UN", un_records)
 
     print("Loading EU fixture")
 
@@ -452,11 +472,40 @@ def _load_fixture_data() -> None:
     print(
         f"Loaded {len(eu_records)} EU fixture records"
     )
+    _validate_source_records("EU", eu_records)
+
+    print("Loading Internal Watchlist")
+
+    internal_watchlist_records = load_internal_watchlist(
+        INTERNAL_WATCHLIST_PATH
+    )
+
+    print(
+        f"Loaded {len(internal_watchlist_records)} "
+        "Internal Watchlist records"
+    )
+    _validate_source_records(
+        "INTERNAL_WATCHLIST",
+        internal_watchlist_records,
+    )
+
+    print("Loading PEP")
+
+    pep_records = load_pep(
+        PEP_CSV_PATH
+    )
+
+    print(
+        f"Loaded {len(pep_records)} PEP records"
+    )
+    _validate_source_records("PEP", pep_records)
 
     all_records = (
         ofac_records
         + un_records
         + eu_records
+        + internal_watchlist_records
+        + pep_records
     )
 
     print(
@@ -476,15 +525,45 @@ def _load_fixture_data() -> None:
         merged_records
     )
 
-
 def _load_downloaded_data() -> None:
 
-    required_files = [
+    # These files come from external sources and can be downloaded.
+    downloadable_files = [
         Path(OFAC_CSV_PATH),
         Path(UN_XML_PATH),
         Path(EU_XML_PATH),
     ]
 
+    # These are local mock data files.
+    local_files = [
+        Path(INTERNAL_WATCHLIST_PATH),
+        Path(PEP_CSV_PATH),
+    ]
+
+    # Download only missing external sanctions files.
+    missing_downloadable = [
+        file
+        for file in downloadable_files
+        if not file.exists()
+    ]
+
+    if missing_downloadable:
+        print("Missing sanctions files:")
+
+        for file in missing_downloadable:
+            print(f"  - {file}")
+
+        print("Downloading sanctions lists...")
+
+        download_all_lists()
+
+    # All five files are required for screening.
+    required_files = (
+        downloadable_files
+        + local_files
+    )
+
+    # Validate that everything is now available.
     missing_files = [
         file
         for file in required_files
@@ -492,28 +571,11 @@ def _load_downloaded_data() -> None:
     ]
 
     if missing_files:
-
-        print("Missing sanctions files:")
-
-        for file in missing_files:
-            print(f"  - {file}")
-
-        print("Downloading sanctions lists...")
-
-        download_all_lists()
-
-    missing_after_download = [
-        file
-        for file in required_files
-        if not file.exists()
-    ]
-
-    if missing_after_download:
         raise FileNotFoundError(
-            "Required sanctions files are missing: "
+            "Required screening files are missing: "
             + ", ".join(
                 str(file)
-                for file in missing_after_download
+                for file in missing_files
             )
         )
 
@@ -526,6 +588,7 @@ def _load_downloaded_data() -> None:
     print(
         f"Loaded {len(ofac_records)} OFAC records"
     )
+    _validate_source_records("OFAC", ofac_records)
 
     print("Loading UN")
 
@@ -536,6 +599,7 @@ def _load_downloaded_data() -> None:
     print(
         f"Loaded {len(un_records)} UN records"
     )
+    _validate_source_records("UN", un_records)
 
     print("Loading EU")
 
@@ -546,17 +610,48 @@ def _load_downloaded_data() -> None:
     print(
         f"Loaded {len(eu_records)} EU records"
     )
+    _validate_source_records("EU", eu_records)
 
+    print("Loading Internal Watchlist")
+
+    internal_watchlist_records = load_internal_watchlist(
+        INTERNAL_WATCHLIST_PATH
+    )
+
+    print(
+        f"Loaded {len(internal_watchlist_records)} "
+        "Internal Watchlist records"
+    )
+    _validate_source_records(
+        "INTERNAL_WATCHLIST",
+        internal_watchlist_records,
+    )
+
+    print("Loading PEP")
+
+    pep_records = load_pep(
+        PEP_CSV_PATH
+    )
+
+    print(
+        f"Loaded {len(pep_records)} PEP records"
+    )
+    _validate_source_records("PEP", pep_records)
+
+    # Combine all five sources into one screening dataset.
     all_records = (
         ofac_records
         + un_records
         + eu_records
+        + internal_watchlist_records
+        + pep_records
     )
 
     print(
         f"Total records: {len(all_records)}"
     )
 
+    # Deduplicate entities appearing in multiple sources.
     merged_records = deduplicate_entities(
         all_records,
         threshold=MATCH_THRESHOLD,
@@ -566,10 +661,10 @@ def _load_downloaded_data() -> None:
         f"Merged entities: {len(merged_records)}"
     )
 
+    # Build the searchable index from the merged records.
     build_sanction_index(
         merged_records
     )
-
 
 def load_all_sanctions() -> None:
 

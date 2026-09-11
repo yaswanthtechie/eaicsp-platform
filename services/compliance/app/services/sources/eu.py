@@ -3,10 +3,15 @@ import xmltodict
 from app.schemas.sanctions import SanctionedEntity
 
 
+
 def get_value(
     data: dict,
     key: str,
 ):
+    """
+    Get a value from a dictionary while ignoring
+    XML namespace prefixes.
+    """
 
     if not isinstance(data, dict):
         return None
@@ -22,6 +27,10 @@ def get_value(
 
 
 def find_entities(data):
+    """
+    Recursively find all sanctionEntity objects
+    from the EU sanctions XML structure.
+    """
 
     entities = []
 
@@ -39,10 +48,7 @@ def find_entities(data):
                 else:
                     entities.append(value)
 
-            elif isinstance(
-                value,
-                (dict, list),
-            ):
+            elif isinstance(value, (dict, list)):
 
                 entities.extend(
                     find_entities(value)
@@ -62,6 +68,13 @@ def find_entities(data):
 def load_eu(
     xml_path,
 ) -> list[SanctionedEntity]:
+    """
+    Load EU sanctions entities from the XML file.
+
+    The XML file is read as raw bytes so that the XML
+    parser can detect and correctly handle the encoding
+    declared inside the document.
+    """
 
     print(
         "Loading EU sanctions list..."
@@ -69,9 +82,12 @@ def load_eu(
 
     try:
 
+        # Read raw bytes instead of forcing UTF-8.
+        # This allows the XML parser to detect the
+        # encoding declared in the XML document.
         with open(
             xml_path,
-            encoding="utf-8-sig",
+            "rb",
         ) as file:
 
             xml_content = file.read()
@@ -86,6 +102,8 @@ def load_eu(
             xml_content
         )
 
+        
+
     except Exception as error:
 
         raise RuntimeError(
@@ -93,7 +111,7 @@ def load_eu(
             f"{error}"
         )
 
-    entities = []
+    entities: list[SanctionedEntity] = []
 
     sanctions = find_entities(
         data
@@ -112,8 +130,12 @@ def load_eu(
         ):
             continue
 
-        aliases = []
+        aliases: list[str] = []
         primary_name = ""
+
+        # -------------------------------------------------
+        # Read nameAlias entries
+        # -------------------------------------------------
 
         name_alias = get_value(
             entity,
@@ -126,6 +148,7 @@ def load_eu(
                 name_alias,
                 dict,
             ):
+
                 name_alias = [
                     name_alias
                 ]
@@ -147,26 +170,36 @@ def load_eu(
                     )
                 )
 
-                if whole_name:
+                if not isinstance(
+                    whole_name,
+                    str,
+                ):
+                    continue
 
-                    whole_name = (
-                        whole_name.strip()
+                whole_name = (
+                    whole_name.strip()
+                )
+
+                if not whole_name:
+                    continue
+
+                # First name becomes the primary name.
+                if not primary_name:
+
+                    primary_name = (
+                        whole_name
                     )
 
-                    if not primary_name:
+                # Remaining unique names become aliases.
+                elif whole_name not in aliases:
 
-                        primary_name = (
-                            whole_name
-                        )
-
-                    elif (
+                    aliases.append(
                         whole_name
-                        not in aliases
-                    ):
+                    )
 
-                        aliases.append(
-                            whole_name
-                        )
+        # -------------------------------------------------
+        # Fallback to <name> if no nameAlias exists
+        # -------------------------------------------------
 
         if not primary_name:
 
@@ -184,8 +217,13 @@ def load_eu(
                     name.strip()
                 )
 
+        # Skip records without a usable name.
         if not primary_name:
             continue
+
+        # -------------------------------------------------
+        # Listed/designation date
+        # -------------------------------------------------
 
         listed_date = (
             entity.get(
@@ -195,6 +233,19 @@ def load_eu(
                 "designationDate"
             )
         )
+
+        if isinstance(
+            listed_date,
+            str,
+        ):
+
+            listed_date = (
+                listed_date.strip()
+            )
+
+        # -------------------------------------------------
+        # Create standard SanctionedEntity
+        # -------------------------------------------------
 
         entities.append(
             SanctionedEntity(

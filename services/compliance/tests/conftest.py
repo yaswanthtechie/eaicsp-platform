@@ -13,6 +13,8 @@ from app.services import sanctions_service
 from app.core.database import SessionLocal, Base, engine
 from app.models.audit import ComplianceAudit
 
+from app.models.compliance_case import ComplianceCase
+from app.models.case_history import CaseHistory
 
 @pytest.fixture(
     scope="session",
@@ -49,6 +51,14 @@ def clean_audit_database():
     try:
 
         db.query(
+            CaseHistory
+        ).delete()
+
+        db.query(
+            ComplianceCase
+        ).delete()
+
+        db.query(
             ComplianceAudit
         ).delete()
 
@@ -57,6 +67,14 @@ def clean_audit_database():
         yield
 
     finally:
+
+        db.query(
+            CaseHistory
+        ).delete()
+
+        db.query(
+            ComplianceCase
+        ).delete()
 
         db.query(
             ComplianceAudit

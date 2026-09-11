@@ -1,4 +1,3 @@
-
 from fastapi import (
     APIRouter,
     Depends,
@@ -18,11 +17,17 @@ from app.schemas.compliance import (
     BulkComplianceResponse,
     OverrideCreateRequest,
     OverrideResponse,
+    ComplianceSummaryResponse,
 )
 
 from app.services.sanctions_service import (
     screen_entity,
     screen_bulk,
+)
+
+from app.services.screening_tier_service import (
+    calculate_screening_tier,
+    get_screening_action,
 )
 
 from app.services.audit_service import (
@@ -39,8 +44,22 @@ from app.services.override_service import (
     delete_override,
 )
 
+from app.services.case_service import (
+    create_case,
+    assign_case,
+    transition_case,
+)
+
+from app.models.compliance_case import ComplianceCase
+from app.models.case_history import CaseHistory
+
+from app.services.reporting_service import (
+    get_compliance_summary,
+)
+
 
 router = APIRouter()
+
 
 @router.post(
     "/screen",
@@ -49,9 +68,10 @@ router = APIRouter()
 def screen(
     request: ComplianceRequest,
     db: Session = Depends(get_db),
-    auth_data=Depends(require_roles("compliance_officer")),
+    auth_data=Depends(
+        require_roles("compliance_officer")
+    ),
 ):
-  
     result = screen_entity(
         name=request.entity_name,
         country=request.country,
@@ -61,11 +81,44 @@ def screen(
     result["entity_name"] = request.entity_name
     result["entity_type"] = request.entity_type
     result["country"] = request.country
+    result["transaction_value"] = request.transaction_value
 
     result["source"] = result.get(
         "matched_lists",
         [],
     )
+
+    screening_tier = calculate_screening_tier(
+        country_risk_score=result.get(
+            "country_risk_score",
+            50.0,
+        ),
+        transaction_value=request.transaction_value,
+    )
+
+    result["screening_tier"] = screening_tier
+
+    result["enhanced_review_required"] = (
+        screening_tier == "HIGH"
+    )
+
+    result["screening_action"] = get_screening_action(
+        screening_tier
+    )
+
+    # Create a case when the entity is flagged.
+    if result.get("is_flagged"):
+        case = create_case(
+            db=db,
+            entity_name=request.entity_name,
+            entity_type=request.entity_type,
+            country=request.country,
+            result=result,
+        )
+
+        result["case_id"] = case.id
+        result["case_number"] = case.case_number
+        result["case_status"] = case.status
 
     write_audit(
         db=db,
@@ -80,7 +133,6 @@ def screen(
     return result
 
 
-
 @router.post(
     "/screen-bulk",
     response_model=BulkComplianceResponse,
@@ -88,10 +140,10 @@ def screen(
 def bulk_screen(
     request: BulkComplianceRequest,
     db: Session = Depends(get_db),
-    auth_data=Depends(require_roles("compliance_officer")),
+    auth_data=Depends(
+        require_roles("compliance_officer")
+    ),
 ):
-  
-
     bulk_result = screen_bulk(
         names=request.entity_names,
         country=request.country,
@@ -107,11 +159,46 @@ def bulk_screen(
         result["entity_name"] = entity_name
         result["entity_type"] = request.entity_type
         result["country"] = request.country
+        result["transaction_value"] = (
+            request.transaction_value
+        )
 
         result["source"] = result.get(
             "matched_lists",
             [],
         )
+
+        screening_tier = calculate_screening_tier(
+            country_risk_score=result.get(
+                "country_risk_score",
+                50.0,
+            ),
+            transaction_value=request.transaction_value,
+        )
+
+        result["screening_tier"] = screening_tier
+
+        result["enhanced_review_required"] = (
+            screening_tier == "HIGH"
+        )
+
+        result["screening_action"] = get_screening_action(
+            screening_tier
+        )
+
+        # Create or reuse a case for every flagged entity.
+        if result.get("is_flagged"):
+            case = create_case(
+                db=db,
+                entity_name=entity_name,
+                entity_type=request.entity_type,
+                country=request.country,
+                result=result,
+            )
+
+            result["case_id"] = case.id
+            result["case_number"] = case.case_number
+            result["case_status"] = case.status
 
         results.append(result)
 
@@ -133,18 +220,16 @@ def bulk_screen(
     }
 
 
-
-
 @router.get(
     "/audit",
 )
 def audit_history(
     entity_name: str = Query(...),
     db: Session = Depends(get_db),
-    auth_data=Depends(require_roles("compliance_officer")),
+    auth_data=Depends(
+        require_roles("compliance_officer")
+    ),
 ):
-
-
     return get_audit_history(
         db=db,
         entity_name=entity_name,
@@ -156,7 +241,9 @@ def audit_history(
 )
 def audit_summary(
     db: Session = Depends(get_db),
-    auth_data=Depends(require_roles("compliance_officer")),
+    auth_data=Depends(
+        require_roles("compliance_officer")
+    ),
 ):
     return get_audit_summary(db)
 
@@ -168,10 +255,10 @@ def audit_summary(
 def add_override(
     request: OverrideCreateRequest,
     db: Session = Depends(get_db),
-    auth_data=Depends(require_roles("compliance_officer")),
+    auth_data=Depends(
+        require_roles("compliance_officer")
+    ),
 ):
-
-
     override = create_override(
         db=db,
         entity_name=request.entity_name,
@@ -193,10 +280,10 @@ def read_override(
     matched_name: str = Query(...),
     source: str = Query(...),
     db: Session = Depends(get_db),
-    auth_data=Depends(require_roles("compliance_officer")),
+    auth_data=Depends(
+        require_roles("compliance_officer")
+    ),
 ):
-
-
     override = get_override(
         db=db,
         entity_name=entity_name,
@@ -213,22 +300,30 @@ def read_override(
     return override
 
 
-
-@router.get("/overrides", response_model=list[OverrideResponse])
+@router.get(
+    "/overrides",
+    response_model=list[OverrideResponse],
+)
 def read_all_overrides(
     db: Session = Depends(get_db),
-    auth_data=Depends(require_roles("compliance_officer")),
+    auth_data=Depends(
+        require_roles("compliance_officer")
+    ),
 ):
     return get_all_overrides(db)
 
 
-@router.delete("/override")
+@router.delete(
+    "/override",
+)
 def remove_override(
     entity_name: str = Query(...),
     matched_name: str = Query(...),
     source: str = Query(...),
     db: Session = Depends(get_db),
-    auth_data=Depends(require_roles("compliance_officer")),
+    auth_data=Depends(
+        require_roles("compliance_officer")
+    ),
 ):
     deleted = delete_override(
         db=db,
@@ -249,3 +344,157 @@ def remove_override(
         "matched_name": matched_name,
         "source": source,
     }
+
+@router.get(
+    "/reports/compliance-summary",
+    response_model=ComplianceSummaryResponse,
+)
+def compliance_summary(
+    db: Session = Depends(get_db),
+    auth_data=Depends(
+        require_roles("compliance_officer")
+    ),
+):
+    return get_compliance_summary(db)
+
+
+@router.get(
+    "/cases/{case_number}",
+)
+def get_case(
+    case_number: str,
+    db: Session = Depends(get_db),
+    auth_data=Depends(
+        require_roles("compliance_officer")
+    ),
+):
+    case = (
+        db.query(ComplianceCase)
+        .filter(
+            ComplianceCase.case_number == case_number
+        )
+        .first()
+    )
+
+    if not case:
+        raise HTTPException(
+            status_code=404,
+            detail="Case not found",
+        )
+
+    return case
+
+
+@router.post(
+    "/cases/{case_number}/assign",
+)
+def assign_case_to_officer(
+    case_number: str,
+    assigned_to: str = Query(...),
+    db: Session = Depends(get_db),
+    auth_data=Depends(
+        require_roles("compliance_officer")
+    ),
+):
+    case = (
+        db.query(ComplianceCase)
+        .filter(
+            ComplianceCase.case_number == case_number
+        )
+        .first()
+    )
+
+    if not case:
+        raise HTTPException(
+            status_code=404,
+            detail="Case not found",
+        )
+
+    return assign_case(
+        db=db,
+        case=case,
+        assigned_to=assigned_to,
+        changed_by="compliance_officer",
+    )
+
+
+@router.post(
+    "/cases/{case_number}/status",
+)
+def update_case_status(
+    case_number: str,
+    new_status: str = Query(...),
+    reason: str | None = Query(None),
+    comments: str | None = Query(None),
+    db: Session = Depends(get_db),
+    auth_data=Depends(
+        require_roles("compliance_officer")
+    ),
+):
+    case = (
+        db.query(ComplianceCase)
+        .filter(
+            ComplianceCase.case_number == case_number
+        )
+        .first()
+    )
+
+    if not case:
+        raise HTTPException(
+            status_code=404,
+            detail="Case not found",
+        )
+
+    try:
+        return transition_case(
+            db=db,
+            case=case,
+            new_status=new_status.upper(),
+            changed_by="compliance_officer",
+            reason=reason,
+            comments=comments,
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        )
+
+
+@router.get(
+    "/cases/{case_number}/history",
+)
+def get_case_history(
+    case_number: str,
+    db: Session = Depends(get_db),
+    auth_data=Depends(
+        require_roles("compliance_officer")
+    ),
+):
+    case = (
+        db.query(ComplianceCase)
+        .filter(
+            ComplianceCase.case_number == case_number
+        )
+        .first()
+    )
+
+    if not case:
+        raise HTTPException(
+            status_code=404,
+            detail="Case not found",
+        )
+
+    history = (
+        db.query(CaseHistory)
+        .filter(
+            CaseHistory.case_id == case.id
+        )
+        .order_by(
+            CaseHistory.id.asc()
+        )
+        .all()
+    )
+
+    return history

@@ -485,3 +485,122 @@ def test_removed_override_no_longer_applies(mock_compliance_officer_auth):
     assert data["override_reason"] is None
     assert data["reviewed_by"] is None
 
+
+def test_screen_returns_low_screening_tier(
+    client,
+    mock_compliance_officer_auth,
+):
+    response = client.post(
+        "/api/v1/compliance/screen",
+        json={
+            "entity_name": "ABC IMPORTS LTD",
+            "entity_type": "supplier",
+            "country": "India",
+            "transaction_value": 500000,
+        },
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["transaction_value"] == 500000
+    assert data["screening_tier"] == "LOW"
+    assert data["enhanced_review_required"] is False
+
+
+def test_screen_returns_medium_screening_tier(
+    client,
+    mock_compliance_officer_auth,
+):
+    response = client.post(
+        "/api/v1/compliance/screen",
+        json={
+            "entity_name": "ABC IMPORTS LTD",
+            "entity_type": "supplier",
+            "country": "India",
+            "transaction_value": 3000000,
+        },
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["transaction_value"] == 3000000
+    assert data["screening_tier"] == "MEDIUM"
+    assert data["enhanced_review_required"] is False
+
+
+def test_screen_returns_high_screening_tier(
+    client,
+    mock_compliance_officer_auth,
+):
+    response = client.post(
+        "/api/v1/compliance/screen",
+        json={
+            "entity_name": "ABC IMPORTS LTD",
+            "entity_type": "supplier",
+            "country": "India",
+            "transaction_value": 10000000,
+        },
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["transaction_value"] == 10000000
+    assert data["screening_tier"] == "HIGH"
+    assert data["enhanced_review_required"] is True
+
+def test_high_country_risk_makes_screening_tier_high(
+    client,
+    mock_compliance_officer_auth,
+):
+    response = client.post(
+        "/api/v1/compliance/screen",
+        json={
+            "entity_name": "ABC IMPORTS LTD",
+            "entity_type": "supplier",
+            "country": "IRAN",
+            "transaction_value": 500000,
+        },
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["country_risk_score"] == 90
+    assert data["screening_tier"] == "HIGH"
+    assert data["enhanced_review_required"] is True
+
+
+def test_bulk_screen_creates_cases_for_flagged_entities(
+    mock_compliance_officer_auth,
+):
+    response = client.post(
+        "/api/v1/compliance/screen-bulk",
+        json={
+            "entity_names": [
+                "HAMAS",
+                "ABC IMPORTS LTD",
+                "JOHN SMITH",
+            ],
+            "entity_type": "supplier",
+            "country": "India",
+            "transaction_value": 1000000,
+        },
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    for result in data["results"]:
+        assert result["is_flagged"] is True
+        assert result["case_id"] is not None
+        assert result["case_number"].startswith("CASE-")
+        assert result["case_status"] == "OPEN"
+

@@ -1,3 +1,4 @@
+
 from datetime import datetime
 from typing import Literal
 
@@ -6,7 +7,6 @@ from pydantic import (
     Field,
     field_validator,
 )
-
 
 
 class ComplianceRequest(BaseModel):
@@ -32,15 +32,22 @@ class ComplianceRequest(BaseModel):
         },
     )
 
+    transaction_value: float = Field(
+        default=0.0,
+        ge=0,
+        json_schema_extra={
+            "example": 2500000,
+            "description": "Transaction value in INR",
+        },
+    )
+
     @field_validator("entity_name")
     @classmethod
     def validate_entity_name(
         cls,
         value: str,
     ) -> str:
-
         if not value.strip():
-
             raise ValueError(
                 "entity_name must not be blank"
             )
@@ -53,15 +60,12 @@ class ComplianceRequest(BaseModel):
         cls,
         value: str,
     ) -> str:
-
         if not value.strip():
-
             raise ValueError(
                 "country must not be blank"
             )
 
         return value
-
 
 
 class RiskFactors(BaseModel):
@@ -81,6 +85,18 @@ class ComplianceResponse(BaseModel):
 
     country: str
 
+    transaction_value: float
+
+    screening_tier: Literal[
+        "LOW",
+        "MEDIUM",
+        "HIGH",
+    ]
+
+    enhanced_review_required: bool
+
+    screening_action: str
+
     is_flagged: bool
 
     matched_lists: list[str]
@@ -95,22 +111,17 @@ class ComplianceResponse(BaseModel):
 
     confidence: float
 
-
     risk_score: float
 
     risk_factors: RiskFactors
 
-
     country_risk_score: float
 
-
     overall_supplier_risk: float
-
 
     duration_ms: float
 
     source: list[str]
-
 
     override_applied: bool
 
@@ -118,14 +129,25 @@ class ComplianceResponse(BaseModel):
 
     reviewed_by: str | None
 
+    # Case management fields
+    case_id: int | None = None
+
+    case_number: str | None = None
+
+    case_status: Literal[
+        "OPEN",
+        "UNDER_REVIEW",
+        "CLEARED",
+        "CONFIRMED",
+    ] | None = None
 
 
 class BulkComplianceRequest(BaseModel):
 
     entity_names: list[str] = Field(
-    ...,
-    min_length=1,
-    max_length=500,
+        ...,
+        min_length=1,
+        max_length=500,
     )
 
     entity_type: Literal[
@@ -141,47 +163,14 @@ class BulkComplianceRequest(BaseModel):
         },
     )
 
-    @field_validator("entity_names")
-    @classmethod
-    def validate_entity_names(
-        cls,
-        values: list[str],
-    ) -> list[str]:
-
-        for value in values:
-
-            if not isinstance(
-                value,
-                str,
-            ):
-
-                raise ValueError(
-                    "Each entity_name must be a string"
-                )
-
-            if not value.strip():
-
-                raise ValueError(
-                    "entity_name must not be blank"
-                )
-
-        return values
-
-    @field_validator("country")
-    @classmethod
-    def validate_country(
-        cls,
-        value: str,
-    ) -> str:
-
-        if not value.strip():
-
-            raise ValueError(
-                "country must not be blank"
-            )
-
-        return value
-
+    transaction_value: float = Field(
+        default=0.0,
+        ge=0,
+        json_schema_extra={
+            "example": 2500000,
+            "description": "Transaction value in INR",
+        },
+    )
 
 
 class BulkComplianceResponse(BaseModel):
@@ -194,10 +183,7 @@ class BulkComplianceResponse(BaseModel):
 
     total_duration_ms: float
 
-    results: list[
-        ComplianceResponse
-    ]
-
+    results: list[ComplianceResponse]
 
 
 class FlagRatePoint(BaseModel):
@@ -226,14 +212,11 @@ class AuditSummaryResponse(BaseModel):
 
     overall_flag_rate: float
 
-    flag_rate_over_time: list[
-        FlagRatePoint
-    ]
+    flag_rate_over_time: list[FlagRatePoint]
 
     most_frequently_flagged_entities: list[
         TopFlaggedEntity
     ]
-
 
 
 class OverrideCreateRequest(BaseModel):
@@ -292,15 +275,12 @@ class OverrideCreateRequest(BaseModel):
         cls,
         value: str,
     ) -> str:
-
         if not value.strip():
-
             raise ValueError(
                 "Value must not be blank"
             )
 
         return value
-
 
 
 class OverrideResponse(BaseModel):
@@ -318,3 +298,11 @@ class OverrideResponse(BaseModel):
     reviewed_by: str
 
     created_at: datetime
+
+
+class ComplianceSummaryResponse(BaseModel):
+    screening_volume: int
+    flagged_count: int
+    flag_rate: float
+    open_cases: int
+    average_resolution_time_hours: float
