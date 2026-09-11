@@ -369,20 +369,92 @@ Tests are discovered from two directories as configured in `pytest.ini`:
 
 ### Test Categories
 
-| File                                | What it covers                                                       |
-|-------------------------------------|----------------------------------------------------------------------|
-| `app/tests/test_cache.py`           | InMemoryCache TTL, invalidation, metrics integration                 |
-| `app/tests/test_circuit_breaker.py` | CLOSED/OPEN/HALF-OPEN transitions, fail-fast, recovery              |
-| `app/tests/test_dashboard.py`       | /gateway/dashboard metrics aggregation                               |
-| `app/tests/test_rate_limit.py`      | Per-user, per-role, IP fallback, JWT identity, LOAD_TEST_MODE        |
-| `app/tests/test_versioning.py`      | /api/v2/* stub responses                                             |
-| `tests/test_api.py`                 | Root, health, proxy success/timeout/503, request ID security         |
-| `tests/test_integration.py`         | Live proxy routing via real dummy downstream services                |
+| File                                       | What it covers                                                       |
+|--------------------------------------------|----------------------------------------------------------------------|
+| `app/tests/test_cache.py`                  | InMemoryCache TTL, invalidation, metrics integration                 |
+| `app/tests/test_circuit_breaker.py`        | CLOSED/OPEN/HALF-OPEN transitions, fail-fast, recovery              |
+| `app/tests/test_dashboard.py`              | /gateway/dashboard metrics aggregation                               |
+| `app/tests/test_rate_limit.py`             | Per-user, per-role, IP fallback, JWT identity, LOAD_TEST_MODE        |
+| `app/tests/test_versioning.py`             | /api/v2/* stub responses                                             |
+| `tests/test_api.py`                        | Root, health, proxy success/timeout/503, request ID security        |
+| `tests/test_integration.py`                | Live proxy routing via real dummy downstream services                |
+| `tests/test_round5_auth_forwarding.py`     | Mocked unit tests for Authorization forwarding & 401/403 passthrough |
+| `tests/test_round5_gateway_integration.py` | Mocked error handling (401, 403, 404, 422, 500, 503, 504) & dummy isolation |
+| `tests/test_real_platform_integration.py`  | Live end-to-end integration test against real Rahul Platform service |
+| `tests/test_real_inventory_integration.py` | Live end-to-end integration test against real Balaji Inventory service|
 
 ### Running Tests
 
 ```bash
 python -m pytest -v
+```
+
+---
+
+## Round 5 Real Microservice Integration & Verification
+
+### 1. Architecture
+
+```text
+Client
+  |
+  | HTTP (Authorization: Bearer <token>)
+  v
+API Gateway (:8000)
+  |
+  +---------------------------------------+
+  |                                       |
+  | HTTP (Forwarded Authorization)        | HTTP (Forwarded Authorization)
+  v                                       v
+Rahul Platform (:8005)                  Balaji Inventory (:8001)
+  |                                       |
+  | Token verification                    | POST /api/v1/auth/verify (HTTP)
+  v                                       v
+Platform DB                             Rahul Platform (:8005)
+                                          |
+                                          | Token & Role verification
+                                          v
+                                        Inventory DB
+```
+
+### 2. Live Services Requirement
+
+> [!IMPORTANT]
+> **Live integration testing requires all three services running concurrently on their designated ports:**
+> - **Rahul Platform Service**: port `8005` (`uvicorn app.main:app --port 8005` from `services/platform`)
+> - **Balaji Inventory Service**: port `8001` (`uvicorn app.main:app --port 8001` from `services/inventory`)
+> - **API Gateway**: port `8000` (`uvicorn app.main:app --port 8000` from `services/api-gateway`)
+>
+> If any downstream service is not running, the corresponding live integration tests skip with an explicit message detailing the missing prerequisite.
+>
+> *Note: Live integration tests are not currently executed in CI.*
+
+### 3. Running Live Integration Tests
+
+Start the services in three separate terminals:
+
+```powershell
+# Terminal 1: Platform Service
+cd services/platform
+uvicorn app.main:app --host 127.0.0.1 --port 8005
+
+# Terminal 2: Inventory Service
+cd services/inventory
+uvicorn app.main:app --host 127.0.0.1 --port 8001
+
+# Terminal 3: API Gateway
+cd services/api-gateway
+uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+Execute the live integration suites:
+
+```powershell
+# Live Platform Integration
+python -m pytest tests/test_real_platform_integration.py -v
+
+# Live Inventory Integration
+python -m pytest tests/test_real_inventory_integration.py -v
 ```
 
 ---

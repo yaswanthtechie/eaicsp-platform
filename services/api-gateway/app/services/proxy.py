@@ -162,6 +162,19 @@ def _build_forward_headers(
     if request_id:
         headers["x-request-id"] = request_id
 
+    # Identify caller service as api-gateway unless caller explicitly set one
+    if "x-caller-service" not in headers:
+        headers["x-caller-service"] = "api-gateway"
+
+    # Forward service API key if configured and not already provided
+    if (
+        getattr(settings, "API_GATEWAY_SERVICE_API_KEY", None)
+        and "x-api-key" not in headers
+        and "x-service-api-key" not in headers
+    ):
+        headers["x-api-key"] = settings.API_GATEWAY_SERVICE_API_KEY
+        headers["x-service-name"] = "api_gateway"
+
     return headers
 
 
@@ -348,6 +361,11 @@ class ProxyService:
 
                     if response.status_code >= 500:
                         circuit_breaker_manager.record_failure(service_id)
+                    elif response.status_code in {401, 403}:
+                        # HTTP 401/403 are client authentication/authorization outcomes,
+                        # NOT downstream infrastructure failures. Excluded from breaker statistics
+                        # so they neither count as failures nor artificially dilute real 5xx failures.
+                        pass
                     else:
                         circuit_breaker_manager.record_success(service_id)
 
