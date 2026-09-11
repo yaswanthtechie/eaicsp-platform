@@ -1,7 +1,8 @@
 import logging
+import collections
+import time
 from typing import List, Dict, Any, Optional
 
-import time
 import pandas as pd
 import yaml
 from pydantic import BaseModel, Field, model_validator, ConfigDict
@@ -13,6 +14,7 @@ logger = logging.getLogger(__name__)
 # The Explicit Registry: Only functions listed here can be executed.
 SAFE_FUNCTION_REGISTRY = {
     "src.custom_rules.check_composite_unique": custom_rules.check_composite_unique,
+    "src.custom_rules.check_composite_unique_stream": custom_rules.check_composite_unique_stream,
     "src.custom_rules.check_unparseable_dates": custom_rules.check_unparseable_dates,
     "src.custom_rules.check_outliers": custom_rules.check_outliers,
     "src.custom_rules.check_negatives": custom_rules.check_negatives,
@@ -38,15 +40,15 @@ class SecurityError(Exception):
 class ValidationResult(BaseModel):
     config_version: str = 'unknown'
     passed: bool
-    batch_rejected: bool = False  # <-- NEW: Threshold breaker flag
-    rejection_reasons: List[str] = Field(default_factory=list)  # <-- NEW: Details for threshold breaches
+    batch_rejected: bool = False
+    rejection_reasons: List[str] = Field(default_factory=list)
     total_rows_affected: int
     errors: List[Dict[str, Any]] = Field(default_factory=list)
     warnings: List[Dict[str, Any]] = Field(default_factory=list)
     sample_bad_rows: Dict[str, List[Dict[str, Any]]] = Field(default_factory=dict)
     rule_timings: Dict[str, float] = Field(default_factory=dict)
     skipped_rules: List[Dict[str, Any]] = Field(default_factory=list)
-    total_rows: int = 0  # NEW: Required to calculate failure rates
+    total_rows: int = 0
 
     def __getitem__(self, item):
         """Allows dictionary-style access to the model's attributes (e.g., result['passed'])."""
@@ -71,20 +73,21 @@ class ConfigRule(BaseModel):
     type: str
     severity: str = "INFO"
     depends_on: Optional[List[str]] = Field(default_factory=list)
-    max_fail_pct: Optional[float] = None  # <-- NEW: Per-rule threshold
-    drift_abs_min: Optional[float] = None  # NEW: Per-rule absolute threshold
-    drift_rel_min: Optional[float] = None  # NEW: Per-rule relative threshold
+    max_fail_pct: Optional[float] = None
+    drift_abs_min: Optional[float] = None
+    drift_rel_min: Optional[float] = None
 
     @model_validator(mode='after')
     def validate_function_path(self) -> 'ConfigRule':
         if self.type in ['custom', 'transform']:
-            func_path = (self.model_extra or {}).get('function')
+            extra = self.model_extra or {}
+            func_path = extra.get('function')
             if not func_path:
                 raise ValueError(
                     f"Rule '{self.name}' has type '{self.type}' but no 'function' path. "
                     f"Add a 'function:' key naming an entry in SAFE_FUNCTION_REGISTRY."
                 )
-            self._load_function(func_path)
+            self._load_function(str(func_path))
         return self
 
     @model_validator(mode='before')
@@ -113,12 +116,14 @@ class ConfigRule(BaseModel):
 
     def _execute_dynamic_function(self, df: pd.DataFrame) -> Any:
         """Helper to deduplicate dynamic function execution for custom/transform rules."""
-        func_path = self.model_extra.get('function')
+        extra = self.model_extra or {}
+        func_path = extra.get('function')
+
         if not func_path:
             raise ValueError(f"Rule '{self.name}' missing 'function' path.")
 
-        func = self._load_function(func_path)
-        kwargs = (self.model_extra or {}).copy()
+        func = self._load_function(str(func_path))
+        kwargs = extra.copy()
         kwargs.pop('function', None)
 
         if self.field:
@@ -133,60 +138,53 @@ class ConfigRule(BaseModel):
         if self.field and self.field not in df.columns:
             raise ValueError(f"Target field '{self.field}' missing from DataFrame.")
 
-        # Standard missing value check
+        extra = self.model_extra or {}
+
         if self.type == "not_null":
             return df[self.field].isna()
 
-        # Standard range check
         elif self.type == "range":
-            min_val = self.model_extra.get('min', float('-inf'))
-            max_val = self.model_extra.get('max', float('inf'))
+            min_val = extra.get('min', float('-inf'))
+            max_val = extra.get('max', float('inf'))
             s = df[self.field]
             return ~((s >= min_val) & (s <= max_val)) & s.notna()
 
-        # Standard Regex check
         elif self.type == "regex":
-            pattern = self.model_extra.get('pattern')
+            pattern = extra.get('pattern')
             if not pattern:
                 raise ValueError(f"Regex missing 'pattern' in rule '{self.name}'")
             s = df[self.field]
-            return ~s.astype(str).str.match(pattern) & s.notna()
+            return ~s.astype(str).str.match(str(pattern)) & s.notna()
 
-        # Standard Uniqueness check
         elif self.type == "unique":
             s = df[self.field]
             return s.duplicated(keep=False) & s.notna()
 
-        # --- NEW: Declarative Cross-Field Conditional ---
         elif self.type == "conditional":
-            cond_field = self.model_extra.get('condition_field')
-            cond_val = self.model_extra.get('condition_value')
-            tgt_type = self.model_extra.get('target_type')
+            cond_field = extra.get('condition_field')
+            cond_val = extra.get('condition_value')
+            tgt_type = extra.get('target_type')
 
-            if not cond_field or 'condition_value' not in self.model_extra or not tgt_type:
+            if not cond_field or 'condition_value' not in extra or not tgt_type:
                 raise ValueError(f"Rule '{self.name}' missing conditional keys.")
-            if cond_field not in df.columns:
+            if str(cond_field) not in df.columns:
                 raise ValueError(f"Condition field '{cond_field}' missing from DataFrame.")
             if self.field and self.field not in df.columns:
                 raise ValueError(f"Target field '{self.field}' missing from DataFrame.")
 
-            condition_mask = df[cond_field] == cond_val
+            condition_mask = df[str(cond_field)] == cond_val
 
-            target_kwargs = {k: v for k, v in self.model_extra.items()
+            target_kwargs = {k: v for k, v in extra.items()
                              if k not in ['condition_field', 'condition_value', 'target_type']}
 
             target_rule = ConfigRule(
-                name=f"{self.name}_target", type=tgt_type, field=self.field, **target_kwargs
+                name=f"{self.name}_target", type=str(tgt_type), field=self.field, **target_kwargs
             )
-
-            # Apply target rule, but ONLY fail rows that ALSO match the condition
             return target_rule.evaluate(df) & condition_mask
 
-        # Dynamic Custom Evaluation
         elif self.type == "custom":
             return self._execute_dynamic_function(df)
 
-        # Transform rules do not evaluate failures
         elif self.type == "transform":
             return pd.Series([False] * len(df), index=df.index)
 
@@ -254,10 +252,12 @@ class DataValidator:
         field_ranges = {}
         for rule in self.rules:
             if rule.type == "range" and rule.field:
-                min_val = rule.model_extra.get('min')
-                max_val = rule.model_extra.get('max')
-                exclusive_min = rule.model_extra.get('exclusive_min', False)
-                exclusive_max = rule.model_extra.get('exclusive_max', False)
+                extra = rule.model_extra or {}
+
+                min_val = extra.get('min')
+                max_val = extra.get('max')
+                exclusive_min = extra.get('exclusive_min', False)
+                exclusive_max = extra.get('exclusive_max', False)
 
                 if is_comparable(min_val, max_val) and min_val > max_val:
                     raise ValueError(f"Config Error: Rule '{rule.name}' is impossible.")
@@ -363,10 +363,7 @@ class DataValidator:
             target_profile = profiles[profile_name]
             raw_rules = {}
 
-            # Retrieve global threshold, respecting inheritance
             global_max_fail_pct = target_profile.get('global_max_fail_pct')
-
-            # Retrieve global drift thresholds, respecting inheritance
             global_drift_abs_min = target_profile.get('global_drift_abs_min')
             global_drift_rel_min = target_profile.get('global_drift_rel_min')
 
@@ -387,7 +384,6 @@ class DataValidator:
                 if global_drift_rel_min is None:
                     global_drift_rel_min = profiles[parent].get('global_drift_rel_min')
 
-            # Fallbacks if not specified
             abs_min = 0.01 if global_drift_abs_min is None else global_drift_abs_min
             rel_min = 0.50 if global_drift_rel_min is None else global_drift_rel_min
 
@@ -406,18 +402,134 @@ class DataValidator:
         """Ensures all fields required by the rules exist in the DataFrame before execution."""
         required_fields = {str(rule.field) for rule in self.rules if rule.field and rule.type != "conditional"}
 
-        # Also validate conditional rule fields
         for rule in self.rules:
             if rule.type == "conditional":
-                cond_f = rule.model_extra.get('condition_field')
+                extra = rule.model_extra or {}
+                cond_f = extra.get('condition_field')
                 if cond_f:
-                    required_fields.add(cond_f)
+                    required_fields.add(str(cond_f))
                 if rule.field:
                     required_fields.add(rule.field)
 
         missing_fields = required_fields - set(df.columns)
         if missing_fields:
             raise ValueError(f"Pipeline failed to start. Missing required columns: {', '.join(missing_fields)}")
+
+    def validate_stream(self, filepath: str, chunksize: int) -> ValidationResult:
+        """Executes the validation pipeline sequentially over chunks to prevent errors."""
+        logger.info(f"Starting STREAMING validation pass (chunksize={chunksize:,})...")
+
+        # --- PASS 1: Build Global State ---
+        logger.info("Pass 1: Identifying global state (duplicates, quantiles)...")
+
+        global_cols = set()
+        has_composite = False
+        composite_subset = []
+
+        for i, rule in enumerate(self.rules):
+            if rule.name == 'composite_pk_unique':
+                has_composite = True
+                extra = rule.model_extra or {}
+                composite_subset = extra.get('subset', [])
+                global_cols.update(composite_subset)
+
+                # Mock the rule temporarily for streaming
+                rule_dict = rule.model_dump()
+                rule_dict['function'] = "src.custom_rules.check_composite_unique_stream"
+                self.rules[i] = ConfigRule(**rule_dict)
+
+        global_counts = collections.Counter()
+
+        if has_composite and global_cols:
+            for chunk in pd.read_csv(filepath, chunksize=chunksize, usecols=lambda c: c in global_cols):
+                if all(c in chunk.columns for c in composite_subset):
+                    keys = chunk[composite_subset[0]].astype(str)
+                    for col in composite_subset[1:]:
+                        keys = keys + '-' + chunk[col].astype(str)
+                    global_counts.update(keys)
+
+        global_duplicates = {k for k, v in global_counts.items() if v > 1}
+        logger.info(f"Pass 1 Complete. Found {len(global_duplicates):,} cross-chunk composite duplicates.")
+
+        # --- PASS 2: Chunk Validation ---
+        logger.info("Pass 2: Validating chunks...")
+
+        agg_total_rows = 0
+        agg_total_affected = 0
+        agg_errors = collections.defaultdict(int)
+        agg_warnings = collections.defaultdict(int)
+        agg_sample_bad = collections.defaultdict(list)
+        agg_rule_timings = collections.defaultdict(float)
+
+        chunk_idx = 0
+
+        for chunk in pd.read_csv(filepath, chunksize=chunksize):
+            chunk_idx += 1
+            logger.info(f"  -> Processing Chunk {chunk_idx}...")
+
+            # Apply global state dynamically
+            if has_composite:
+                if all(c in chunk.columns for c in composite_subset):
+                    keys = chunk[composite_subset[0]].astype(str)
+                    for col in composite_subset[1:]:
+                        keys = keys + '-' + chunk[col].astype(str)
+                    chunk['_global_dup_mask'] = keys.isin(global_duplicates)
+                else:
+                    chunk['_global_dup_mask'] = False
+
+            # Evaluate chunk using existing logic
+            chunk_report = self.validate(chunk)
+
+            # Aggregate Results
+            agg_total_rows += chunk_report.total_rows
+
+            # Combine timings
+            for k, v in chunk_report.rule_timings.items():
+                agg_rule_timings[k] += v
+
+            # Aggregate errors
+            for error in chunk_report.errors:
+                agg_errors[(error['rule'], error['field'])] += error['count']
+
+            # Aggregate warnings
+            for warning in chunk_report.warnings:
+                agg_warnings[(warning['rule'], warning['field'])] += warning['count']
+
+            # Aggregate samples
+            for rule_name, samples in chunk_report.sample_bad_rows.items():
+                if len(agg_sample_bad[rule_name]) < 5:
+                    agg_sample_bad[rule_name].extend(samples[:5 - len(agg_sample_bad[rule_name])])
+
+            agg_total_affected += chunk_report.total_rows_affected
+
+        # Format aggregated errors/warnings
+        final_errors = [{"rule": k[0], "field": k[1], "count": v} for k, v in agg_errors.items()]
+        final_warnings = [{"rule": k[0], "field": k[1], "count": v} for k, v in agg_warnings.items()]
+
+        # Re-calculate thresholds based on aggregates
+        rejection_reasons = []
+        global_fail_pct = agg_total_affected / agg_total_rows if agg_total_rows > 0 else 0
+        if self.global_max_fail_pct is not None and global_fail_pct > self.global_max_fail_pct:
+            rejection_reasons.append(
+                f"Global failure rate {global_fail_pct:.1%} exceeds threshold ({self.global_max_fail_pct:.1%})")
+
+        batch_rejected = len(rejection_reasons) > 0
+        passed = len(final_errors) == 0 and not batch_rejected
+
+        logger.info("Streaming validation complete. Aggregating final JSON report.")
+
+        return ValidationResult(
+            config_version=self.version,
+            passed=passed,
+            batch_rejected=batch_rejected,
+            rejection_reasons=rejection_reasons,
+            total_rows=agg_total_rows,
+            total_rows_affected=agg_total_affected,
+            errors=final_errors,
+            warnings=final_warnings,
+            sample_bad_rows=dict(agg_sample_bad),
+            rule_timings=dict(agg_rule_timings)
+        )
 
     def validate(self, df: pd.DataFrame) -> ValidationResult:
         """Executes the validation pipeline and generates a report."""
@@ -507,7 +619,6 @@ class DataValidator:
                     warnings.append(report_item)
                     affected_indices.update(bad_rows.index.tolist())
 
-        # --- NEW: ENFORCE THRESHOLDS ---
         rejection_reasons = []
 
         # 1. Per-Rule Thresholds
@@ -547,8 +658,6 @@ class DataValidator:
         """
             Cleans the dataset by applying transforms and removing invalid rows.
         """
-        # --- NEW: THRESHOLD SAFEGUARD ---
-        # Run validate strictly to ensure we don't try to clean a hopelessly broken batch
         val_report = self.validate(df)
         if val_report.batch_rejected:
             raise RuntimeError(
@@ -559,7 +668,6 @@ class DataValidator:
         self._validate_schema(df)
         df_clean = df.copy()
 
-        # 1. First Pass: Apply Transforms
         for rule in self.rules:
             if rule.type == "transform":
                 try:
@@ -568,7 +676,6 @@ class DataValidator:
                     logger.error(f"FATAL ERROR: Transform rule '{rule.name}' crashed: {e}. Skipping rule.")
                     continue
 
-        # 2. Second Pass: Filter rows
         drop_indices = set()
         skipped = []
         rule_failure_masks = {}

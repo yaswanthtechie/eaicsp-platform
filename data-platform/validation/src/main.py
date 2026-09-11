@@ -21,22 +21,27 @@ from src.validator import DataValidator
 # ---------------------------------------------------------
 # LOGGER SETUP
 # ---------------------------------------------------------
-LOG_DIR = PROJECT_ROOT / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
-
-timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-log_filepath = LOG_DIR / f"validation_{timestamp}.log"
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-    handlers=[
-        logging.FileHandler(log_filepath, mode="w", encoding="utf-8"),
-        logging.StreamHandler()
-    ]
-)
 logger = logging.getLogger(__name__)
+
+def setup_logging() -> str:
+    """Configures logging and creates the file only when the pipeline runs."""
+    log_dir = PROJECT_ROOT / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_filepath = log_dir / f"validation_{timestamp}.log"
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+        handlers=[
+            logging.FileHandler(log_filepath, mode="w", encoding="utf-8"),
+            logging.StreamHandler(sys.stdout)
+        ],
+        force=True # Ensures we override any existing logger configurations
+    )
+    return str(log_filepath)
 
 
 def log_issues(issues: List[Dict[str, Any]], severity_label: str, report: Dict[str, Any]):
@@ -52,6 +57,8 @@ def log_issues(issues: List[Dict[str, Any]], severity_label: str, report: Dict[s
 
 
 def main():
+    # Initialize Logger
+    log_filepath = setup_logging()
     # Setup CLI Arguments
     parser = argparse.ArgumentParser(description="Run the Config-Driven Data Validation Pipeline.")
     parser.add_argument("--config", type=str, default=str(PROJECT_ROOT / "configs" / "sales_rules.yaml"),

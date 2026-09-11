@@ -20,7 +20,7 @@ def test_golden_regression():
 
     # 3. Assert specific, known outcomes
     assert report.passed is False
-    assert report.batch_rejected is True  # NEW: 22% failure rate exceeds the 20% threshold
+    assert report.batch_rejected is True
     assert report.total_rows_affected == 110
 
     # Assert specific rules caught the exact right number of rows

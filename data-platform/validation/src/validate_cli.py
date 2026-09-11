@@ -84,6 +84,8 @@ def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument("--watermark-file", type=Path, default=PROJECT_ROOT / ".watermark_cli.json",
                         help="Path to state tracking file.")
     parser.add_argument("--log-to-file", action="store_true", help="Enable timestamped file logging.")
+    parser.add_argument("--chunk-size", type=int, default=None,
+                        help="Enable streaming execution. Specify number of rows per chunk (e.g., 500000).")
 
     return parser.parse_args(args)
 
@@ -155,7 +157,14 @@ def main(cli_args: Optional[list[str]] = None) -> int:
         validator = DataValidator.from_config(str(config_path), profile_name=args.profile)
 
         # Run validation
-        report = validator.validate(df)
+        if args.chunk_size:
+            # Drop into the streaming engine
+            report = validator.validate_stream(str(input_path), chunksize=args.chunk_size)
+        else:
+            # Fully backward compatible in-memory execution
+            df = pd.read_csv(input_path)
+            # ... existing incremental logic ...
+            report = validator.validate(df)
 
     except (pd.errors.EmptyDataError, pd.errors.ParserError, ValueError, OSError) as e:
         logger.exception("Validation execution failed: %s", e)

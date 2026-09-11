@@ -1,4 +1,5 @@
 # .csv files
+data/
 data/*.csv
 
 # Node / React

@@ -213,15 +213,33 @@ def crashing_transform_rule(df: pd.DataFrame, **kwargs) -> pd.DataFrame:
     raise ValueError("Simulated crash during transformation")
 
 
-# Inject all dummy test functions into the safe registry so the tests are allowed to run them
-SAFE_FUNCTION_REGISTRY.update({
-    "tests.test_validator.dummy_custom_rule": dummy_custom_rule,
-    "tests.test_validator.dummy_transform_rule": dummy_transform_rule,
-    "tests.test_validator.dummy_custom_rule_no_field": dummy_custom_rule_no_field,
-    "tests.test_validator.dummy_transform_no_field": dummy_transform_no_field,
-    "tests.test_validator.crashing_custom_rule": crashing_custom_rule,
-    "tests.test_validator.crashing_transform_rule": crashing_transform_rule,
-})
+def dummy_check_composite_unique(df: pd.DataFrame, **kwargs) -> pd.Series:
+    """Mock for Pass 1 streaming tests."""
+    return pd.Series([False] * len(df), index=df.index)
+
+
+def dummy_check_composite_unique_stream(df: pd.DataFrame, **kwargs) -> pd.Series:
+    """Mock for Pass 2 streaming tests to read injected state."""
+    return df.get('_global_dup_mask', pd.Series([False] * len(df), index=df.index))
+
+
+@pytest.fixture(autouse=True)
+def inject_test_registry_functions():
+    """
+    Runs before every test in this file.
+    Re-injects the dummy functions because conftest.py wipes the registry clean.
+    """
+    SAFE_FUNCTION_REGISTRY.update({
+        "tests.test_validator.dummy_custom_rule": dummy_custom_rule,
+        "tests.test_validator.dummy_transform_rule": dummy_transform_rule,
+        "tests.test_validator.dummy_custom_rule_no_field": dummy_custom_rule_no_field,
+        "tests.test_validator.dummy_transform_no_field": dummy_transform_no_field,
+        "tests.test_validator.crashing_custom_rule": crashing_custom_rule,
+        "tests.test_validator.crashing_transform_rule": crashing_transform_rule,
+        "src.custom_rules.check_composite_unique": dummy_check_composite_unique,
+        "src.custom_rules.check_composite_unique_stream": dummy_check_composite_unique_stream,
+    })
+
 
 # --- ENGINE TESTS ---
 
@@ -336,8 +354,6 @@ def test_clean_applies_transforms():
     assert clean_df.at[0, "col"] == "LOWER"
     assert clean_df.at[2, "col"] == "MIXEDCASE"
 
-
-# --- 100% COVERAGE EDGE CASE TESTS ---
 
 def test_from_config_yaml_error(tmp_path):
     bad_yaml = tmp_path / "bad_syntax.yaml"
@@ -678,6 +694,7 @@ def test_validation_result_slowest_rule_empty():
     res = ValidationResult(passed=True, total_rows_affected=0, rule_timings={})
     assert res.slowest_rule is None
 
+
 # --- INCREMENTAL WATERMARK TESTS ---
 
 def test_filter_incremental_no_watermark():
@@ -771,6 +788,7 @@ def test_detect_conflicts_non_comparable_contradiction():
 
 def test_crashed_rule_is_reported_and_fails_the_run():
     """A rule that raises must NOT be silently skipped while passed stays True."""
+
     def boom(df, **kwargs):
         raise RuntimeError("rule blew up")
 
@@ -790,6 +808,7 @@ def test_crashed_rule_is_reported_and_fails_the_run():
 
 def test_clean_aborts_when_a_rule_did_not_run():
     """clean() must never hand back data it failed to filter."""
+
     def boom(df, **kwargs):
         raise RuntimeError("rule blew up")
 
@@ -822,7 +841,7 @@ def test_depends_on_forward_reference_rejected_at_load():
     dependency = ConfigRule(name="parse_check", field="q", type="not_null")
     with pytest.raises(ValueError, match="declared later"):
         DataValidator([dependent, dependency])
-    DataValidator([dependency, dependent])   # correct order is accepted
+    DataValidator([dependency, dependent])  # correct order is accepted
 
 
 def test_circular_dependency_rejected_at_load():
@@ -1055,7 +1074,7 @@ def test_global_threshold_rejection():
         "field": "qty",
         "type": "range",
         "min": 0,
-        "severity": "ERROR"  # <-- FIX: Explicitly set severity so affected_indices updates
+        "severity": "ERROR"
     })
     val = DataValidator([rule], global_max_fail_pct=0.20)  # 20% global max
     report = val.validate(df)
@@ -1102,8 +1121,96 @@ profiles:
     assert val.global_drift_abs_min == 0.05
     assert val.global_drift_rel_min == 0.75
 
+
 def test_validation_result_total_rows(sample_df, mock_yaml_config):
     """Verifies the newly added total_rows attribute is properly calculated."""
     validator = DataValidator.from_config(mock_yaml_config)
     report = validator.validate(sample_df)
-    assert report.total_rows == 4  # sample_df has 4 rows
+    assert report.total_rows == 4
+
+
+# --- STREAMING ENGINE TESTS ---
+
+def test_validate_stream_basic(tmp_path):
+    """Verifies standard rules evaluate correctly in chunked streaming mode."""
+    df = pd.DataFrame({"A": [1, 2, -1, -2, 5, -3]})
+    csv_path = tmp_path / "stream_basic.csv"
+    df.to_csv(csv_path, index=False)
+
+    r1 = ConfigRule(**{"name": "r1", "field": "A", "type": "range", "min": 0, "severity": "ERROR"})
+    r2 = ConfigRule(**{"name": "r2", "field": "A", "type": "range", "min": 0, "severity": "WARNING"})
+    val = DataValidator([r1, r2])
+
+    report = val.validate_stream(str(csv_path), chunksize=2)
+    assert report.passed is False
+    assert report.total_rows == 6
+    assert report.total_rows_affected == 3
+
+    # Verify samples offset logic properly tracks global line index
+    assert len(report.sample_bad_rows['r1']) == 3
+    indices = [s['row_index'] for s in report.sample_bad_rows['r1']]
+    assert indices == [2, 3, 5]
+
+
+def test_validate_stream_composite_and_thresholds(tmp_path):
+    """Verifies Pass 1/Pass 2 composite logic and global threshold rejection."""
+    df = pd.DataFrame({
+        "A": [1, 1, 1, 2, 3, 4],
+        "B": [1, 1, 1, 2, 3, 4]
+    })
+    csv_path = tmp_path / "stream_comp.csv"
+    df.to_csv(csv_path, index=False)
+
+    rule = ConfigRule(**{
+        "name": "composite_pk_unique",
+        "type": "custom",
+        "function": "src.custom_rules.check_composite_unique",
+        "subset": ["A", "B"],
+        "severity": "ERROR"
+    })
+
+    # 3 duplicates out of 6 rows equals a 50% failure rate
+    val = DataValidator([rule], global_max_fail_pct=0.20)
+    report = val.validate_stream(str(csv_path), chunksize=2)
+
+    assert report.batch_rejected is True
+    assert len(report.rejection_reasons) == 1
+    assert "exceeds threshold" in report.rejection_reasons[0]
+    assert report.errors[0]["count"] == 3
+
+
+def test_validate_stream_composite_missing_columns(tmp_path):
+    """Verifies robust handling when streaming chunks are missing the composite subset columns."""
+    df = pd.DataFrame({"A": [1, 2, 3]})  # Missing 'B'
+    csv_path = tmp_path / "stream_missing_cols.csv"
+    df.to_csv(csv_path, index=False)
+
+    rule = ConfigRule(**{
+        "name": "composite_pk_unique",
+        "type": "custom",
+        "function": "src.custom_rules.check_composite_unique",
+        "subset": ["A", "B"],
+        "severity": "ERROR"
+    })
+
+    val = DataValidator([rule])
+    report = val.validate_stream(str(csv_path), chunksize=2)
+
+    # It should fall back to _global_dup_mask = False and pass cleanly
+    assert report.passed is True
+    assert report.total_rows_affected == 0
+
+
+def test_validate_stream_sample_cap(tmp_path):
+    """Verifies that sample_bad_rows strictly caps at 5 even across chunks."""
+    df = pd.DataFrame({"A": [-1, -2, -3, -4, -5, -6, -7, -8, -9, -10]})
+    csv_path = tmp_path / "stream_cap.csv"
+    df.to_csv(csv_path, index=False)
+
+    r1 = ConfigRule(**{"name": "r1", "field": "A", "type": "range", "min": 0, "severity": "ERROR"})
+    val = DataValidator([r1])
+
+    report = val.validate_stream(str(csv_path), chunksize=3)
+
+    assert report.errors[0]["count"] == 10
+    assert len(report.sample_bad_rows['r1']) == 5  # Strictly capped at 5

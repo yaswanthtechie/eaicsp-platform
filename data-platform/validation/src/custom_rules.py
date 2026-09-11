@@ -121,3 +121,15 @@ def drop_duplicate_rows(
 ) -> pd.DataFrame:
     """Drops entirely duplicated rows from the dataset."""
     return df.drop_duplicates(keep=keep)
+
+
+def check_composite_unique_stream(df: pd.DataFrame, **kwargs) -> pd.Series:
+    """
+    Bypass function for streaming validation.
+    Returns the pre-computed global duplicate mask injected during Pass 2.
+    """
+    if '_global_dup_mask' in df.columns:
+        return df['_global_dup_mask']
+
+    # Fallback in case it's accidentally called outside of stream processing
+    return pd.Series([False] * len(df), index=df.index)

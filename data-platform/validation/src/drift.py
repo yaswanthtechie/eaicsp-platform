@@ -49,7 +49,6 @@ class ReportComparator:
         filepath = self.history_dir / f"report_{timestamp}.json"
 
         try:
-            # Atomic write: Pydantic natively creates the JSON string BEFORE opening the file
             filepath.write_text(report.model_dump_json(indent=2))
         except Exception as e:
             logger.error(f"Failed to save validation history to {filepath}: {e}")
@@ -75,7 +74,6 @@ class ReportComparator:
             historical_rates = [self._get_rule_fail_rate(h, rule.name) for h in history]
 
             # Check if this rule has ever been evaluated in history
-            # FIX: Pair 'historical_rates' and 'history' together using zip()
             if all(r == 0.0 and h.get("total_rows", 0) == 0 for r, h in zip(historical_rates, history)):
                 logger.info(
                     f"Baseline initializing for rule '{rule.name}' - first observation, drift comparison begins once enough history exists.")

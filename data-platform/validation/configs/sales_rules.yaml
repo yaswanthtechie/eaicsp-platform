@@ -1,13 +1,15 @@
-# configs/sales_rules.yaml
-version: "1.1.0"
+version: "1.2.0"
 profiles:
   default:
     global_max_fail_pct: 0.20  # Rejects batch if >20% of all rows fail ANY rules
+    global_drift_abs_min: 0.01  # 1% absolute floor
+    global_drift_rel_min: 0.50  # 50% relative increase
     rules:
       - name: date_not_null
         field: date
         type: not_null
         severity: ERROR
+        # Uses global drift defaults
 
       - name: sku_format
         field: sku_id
@@ -39,6 +41,8 @@ profiles:
         min: 0
         max: 100000
         severity: WARNING
+        drift_abs_min: 0.05  # Looser absolute floor for this specific rule
+        drift_rel_min: 1.00  # Requires a 100% (2x) relative jump to trigger
 
       - name: unit_price_valid
         field: unit_price
@@ -87,5 +91,17 @@ profiles:
         field: quantity_sold
         type: range
         min: 1
-        max: 13
+        max: 12
         severity: ERROR
+
+  bulk:
+    inherits: default
+    global_max_fail_pct: 0.25  # Overrides the default 20% backstop to a bulk 25%
+    rules:
+      - name: sku_format
+        field: sku_id
+        type: regex
+        pattern: "^SKU-[0-9]{4,7}$"
+        severity: ERROR
+        max_fail_pct: 0.05     # Reject batch if >5% of rows fail THIS specific rule
+
