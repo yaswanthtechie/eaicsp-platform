@@ -538,3 +538,266 @@ validate_folder --folder data/ --config configs/sales_rules.yaml --save-reports 
 * **Incremental Write Amplification:** Append mode rewrites the entire output file each run (read_csv → concat → drop_duplicates → to_csv), which is O(total rows) per run rather than O(new rows). This is deliberate: the drop_duplicates pass makes the pipeline crash-safe if a run dies between writing data and writing the watermark. A plain to_csv(mode='a') would be cheaper but would double-write rows on a mid-run failure.
 * **Deduplication:** Incremental append mode deduplicates based on full-row identity. Updates to existing records require a genuine Primary Key configuration (currently unsupported).
 * **Conflict Detection Boundaries:** The _detect_conflicts method only catches impossible range vs range bounds. Contradictions between not_null + strict regex, or unique + custom duplicate checks on the same field currently pass through undetected.
+
+
+
+
+# Validation Profiles
+
+## Feature Description
+The **Validation Profiles** feature allows you to define multiple named rule-sets (e.g., `default`, `strict`, `lenient`, `sales`, `finance`) inside a **single YAML configuration file**. 
+
+Previously, if you needed to change a single threshold for a specific pipeline run, you had to duplicate the entire YAML file, leading to a maintenance nightmare. With Validation Profiles, you can apply the **DRY (Don't Repeat Yourself)** principle by defining core rules once and creating specialized profiles that inherit and override those rules as needed.
+
+## ⚙️ How It Works
+The engine dynamically builds a tailored rule-set in memory just before execution based on your CLI arguments.
+
+1. **Hierarchical Structure:** The YAML configuration now uses a `profiles:` key.
+2. **Single-Level Inheritance:** A profile can use the `inherits: <profile_name>` key to pull in all rules from a parent profile (usually `default`).
+3. **Smart Overrides:** If a child profile defines a rule with the *same name* as a rule in its parent profile, the child's version completely overwrites the parent's version. 
+4. **Loud Fallbacks:** If you do not specify a profile via the CLI, the system will automatically look for and run the `default` profile, logging this action clearly so you always know what rules were applied.
+5. **Fail-Fast Security:** If you specify a profile that does not exist (e.g., a typo like `--profile strct`), the pipeline will immediately halt and throw an error to prevent you from accidentally validating data against the wrong rules.
+
+### Configuration Example
+```yaml
+version: "1.0.0"
+profiles:
+  default:
+    rules:
+      - name: date_not_null
+        field: date
+        type: not_null
+        severity: ERROR
+      - name: quantity_positive
+        field: quantity_sold
+        type: range
+        min: 0
+        severity: WARNING  # Warns on negative numbers
+
+  strict:
+    inherits: default
+    rules:
+      - name: quantity_positive  # Overrides the parent rule
+        field: quantity_sold
+        type: range
+        min: 1
+        severity: ERROR    # Fails and drops rows with 0 or negative numbers
+```
+
+## How to Run:
+* All core CLI scripts have been updated to support the --profile and --list-profiles arguments.
+
+### 1. List Available Profiles:
+* Don't want to open the YAML file? You can ask the CLI to list all available profiles in a given config file. This intercepts the script and exits cleanly without running any data processing.
+```commandline
+python -m src.main --list-profiles
+python -m src.validate_cli --config configs/sales_rules.yaml --list-profiles
+python -m src.validate_folder --config configs/sales_rules.yaml --list-profiles
+```
+
+### 2. Standard Pipeline (main.py)
+* Run your end-to-end simulation and validation flow.
+```commandline
+# Automatically falls back to the 'default' profile
+python -m src.main
+
+# Explicitly run the 'strict' profile
+python -m src.main --profile strict
+```
+
+### 3. CI/CD Pipeline Gate (validate_cli.py)
+* Run the strict validation gate designed for automated environments.
+```commandline
+python -m src.validate_cli --file data/messy_sales.csv --config configs/sales_rules.yaml --profile strict --output reports/report.json
+```
+
+### 4. Batch Folder Validation (validate_folder.py)
+* Apply profiles across an entire directory of CSV files.
+
+#### Single Profile for the Whole Folder:
+```commandline
+python -m src.validate_folder --folder data/ --config configs/sales_rules.yaml --profile strict --save-reports
+```
+
+#### Hybrid Mapping (Advanced):
+* If you are using a mapping.json file to route different data to different configs, you can now define specific profiles directly inside the JSON mapping!
+```json
+{
+  "sales_data/*.csv": "configs/sales_rules.yaml", 
+  "finance_data/*.csv": {
+    "config": "configs/finance_rules.yaml",
+    "profile": "strict"
+  }
+}
+```
+```commandline
+python validate_folder.py --folder data/ --mapping configs/mapping.json
+```
+
+
+# Config-Driven Data Validation Pipeline
+
+This project is a robust, config-driven data validation and cleaning pipeline. It allows data analysts to define strict quality gates in a declarative YAML file, without needing to write or edit Python code. 
+
+Recently, the pipeline was upgraded with two major capabilities: **Cross-Field (Conditional) Rules** and **Aggregate Thresholds**. 
+
+---
+
+## New Features
+
+### 1. Cross-Field (Conditional) Rules
+**Description:**
+Real-world data rules often depend on multiple columns. For example, "If the country is US, the zip code must be 5 digits." Previously, these cross-column checks required writing custom Python functions. Now, you can define them entirely in the YAML configuration using the `conditional` rule type. This keeps the configuration accessible to non-engineers.
+
+**How It Works:**
+When the validator engine encounters a `conditional` rule, it performs a clever two-step intersection:
+1. It looks at the `condition_field` and creates a hidden mask of rows where the condition is met (e.g., `warehouse_id == "WH-01"`).
+2. It mocks a temporary rule and evaluates the `target_type` against the target `field` across the entire dataset.
+3. It combines the two masks: a row is only flagged as a failure if it matches the condition *and* fails the target rule check.
+
+**YAML Configuration Example:**
+```yaml
+- name: wh_01_minimum_price
+  type: conditional
+  condition_field: warehouse_id
+  condition_value: "WH-01"
+  field: unit_price
+  target_type: range
+  min: 15.0
+  severity: WARNING
+```
+### 2. Aggregate Thresholds (Batch Rejection)
+
+#### Description:
+Data cleaning pipelines should not silently process garbage data. If a dataset is heavily corrupted (e.g., 90% of the rows are missing critical IDs), the pipeline shouldn't just filter out the 90% and pass along a tiny, mangled dataset. Aggregate thresholds act as a "circuit breaker," refusing to clean a batch if the failure rate is too high.
+
+#### How It Works:
+The validator keeps a running tally of failures:
+
+* **Per-Rule Thresholds (max_fail_pct):** Different rules have different tolerances. You can define a maximum acceptable failure rate for a specific rule. If breached, the batch is rejected.
+
+* **Global Profile Thresholds (global_max_fail_pct):** Acts as a final safety net. If the total percentage of bad rows in the entire dataset exceeds this limit, the batch is rejected.
+
+* **The Safeguard:** If thresholds are breached during validation, the batch_rejected flag is flipped to True. If you attempt to call .clean() on a rejected batch, the pipeline throws a hard error and refuses to touch the data.
+
+#### YAML Configuration Example:
+```yaml
+profiles:
+  default:
+    global_max_fail_pct: 0.20  # Rejects if >20% of ALL rows fail anything
+    rules:
+      - name: sku_format
+        field: sku_id
+        type: regex
+        pattern: "^SKU-[0-9]{4}$"
+        severity: ERROR
+        max_fail_pct: 0.05     # Rejects if >5% of rows fail THIS specific rule
+```
+
+# Data Validation Pipeline: Drift Detection & Observability
+
+## Feature Description
+
+The pipeline now includes stateful **Drift Detection (Data Observability)**. Instead of evaluating data quality in a vacuum where batches merely pass or fail, the system now possesses a "memory." It tracks the failure rates of specific validation rules over time to detect gradual degradation (the "boiling frog" effect) or sudden spikes in bad data.
+
+To prevent alert fatigue, the drift detection utilizes a **Dual-Threshold Alarm System** configured in the YAML ruleset:
+*   **Relative Jump (`drift_rel_min`):** The failure rate must increase by a significant percentage compared to its historical baseline (e.g., doubling).
+*   **Absolute Floor (`drift_abs_min`):** The raw failure rate must also increase by a meaningful percentage of the total dataset (e.g., a flat 5% increase) to ensure tiny blips are ignored.
+
+These thresholds can be defined globally per profile or overridden on a per-rule basis.
+
+## How It Works
+
+The drift detection logic is decoupled from the core validation engine to ensure that historical trends do not forcefully reject an otherwise internally valid batch. The execution flow follows these steps:
+
+*   **Validation:** The `DataValidator` evaluates the incoming batch against the defined rules and compiles a `ValidationResult` report containing the `total_rows` and failure counts.
+*   **History Retrieval:** The `ReportComparator` accesses the hidden `.history/` directory to load past JSON validation reports.
+*   **Baseline Computation:** The comparator establishes two baselines for every rule: the immediate previous run and a rolling average of the last 10 runs.
+*   **Threshold Evaluation:** The current failure rate is mathematically compared against both baselines. An alert is only prepared if **both** the relative and absolute thresholds are breached. 
+*   **Non-Blocking Alerts:** Any triggered drift alerts are logged directly to the console and log files as `WARNING` level messages, leaving the batch's actual pass/fail status untouched.
+*   **State Preservation:** The current `ValidationResult` is securely serialized to a JSON string and saved into the `.history/` directory to act as a baseline for future runs.
+
+# Scalable Streaming Engine (Chunked Validation)
+
+## Feature Description
+The Streaming Engine is a high-performance architectural upgrade designed to process massive datasets (e.g., 5+ million rows, multiple gigabytes) that are too large to fit into active system memory (RAM). 
+
+Instead of attempting to load an entire CSV file into a single Pandas DataFrame—which causes systems to freeze or crash with Out-Of-Memory (OOM) errors—the Streaming Engine processes the file sequentially in bite-sized chunks. It seamlessly tracks global error thresholds, aggregates rule performance, and handles cross-row validation without losing the big picture.
+
+## How It Works: The "Two-Pass" Architecture
+Validating chunks in isolation creates a unique challenge: *How do you know if a row in Chunk 10 is an exact duplicate of a row in Chunk 1 if Chunk 1 has already been cleared from memory?* 
+
+To solve this while keeping memory usage near zero, the `validate_stream` engine uses a highly efficient Two-Pass approach:
+
+*   **Pass 1: The Global Scout** 
+    The engine rapidly skims the file chunk-by-chunk, loading *only* the specific columns required for global rules (like `date`, `sku_id`, and `warehouse_id` for composite key checks). It uses vectorized string concatenation to build a lightweight, global "cheat sheet" (a hash set) of all duplicate keys across the entire file.
+*   **Pass 2: The Deep Validation**
+    The engine streams through the file a second time, processing all standard configuration rules (Regex, Ranges, Null checks) on each chunk. For global rules, instead of looking at the whole file, it instantly cross-references the current row against the "cheat sheet" generated in Pass 1.
+*   **Aggregation & Thresholds**
+    As each chunk finishes, its error counts, warnings, and execution timings are aggregated into a running tally. Once the final chunk completes, the global failure rate is calculated against your profile's thresholds (e.g., `global_max_fail_pct: 0.25`), and a single, unified JSON report is produced.
+
+---
+
+## How to Run
+The chunking feature is fully integrated into the existing Command Line Interfaces and is strictly opt-in. If you do not provide a chunk size, the application will default to the standard, fully in-memory execution.
+
+### 1. Generate Massive Test Data Safely
+* The data generator has been upgraded to write data to disk in batches, preventing OOM crashes during the creation of massive test files.
+```commandline
+# Generate 5 million rows in safe batches of 500,000
+python -m src,make_messy_data --n-base 5000000 --chunk-size 500000 --output data/large_messy_sales.csv
+```
+
+### 2. Execute Streaming Validation
+* To trigger the Streaming Engine, simply add the --chunk-size flag to your standard validation command.
+```commandline
+# Validate the massive dataset using 500,000 row chunks
+python src.validate_cli --file data/large_messy_sales.csv --config configs/sales_rules.yaml --profile bulk --output reports/stream_report.json --chunk-size 500000
+```
+
+
+# Auto-Generated Data Quality Contracts
+
+## Feature Description
+The **Auto-Generated Documentation** feature bridges the gap between data engineering and business stakeholders. Instead of expecting non-technical users to read complex YAML configurations or Python code, this tool automatically translates your validation rules into human-readable Markdown (`.md`) files. 
+
+These generated files act as **Data Contracts**, providing a clear, scannable definition of what constitutes a "valid" row in your dataset, alongside the operational SLAs (Service Level Agreements) that govern your pipeline's drift and rejection limits.
+
+## How It Works
+The generator uses a "Documentation-as-Code" architecture to ensure your documentation never drifts from your actual code:
+
+1. **Profile Flattening:** If you use environment profiles (e.g., a `strict` profile that inherits from a `default` profile), the generator automatically resolves the inheritance tree. It outputs a fully flattened view of exactly what runs in that specific environment.
+2. **Two-Tiered Structure:**
+    * **Section 1: Data Shape & Business Rules:** Details the fields, allowed ranges, regex patterns, and nullability for stakeholders.
+    * **Section 2: SLAs & Thresholds:** Extracts pipeline-halting limits (`max_fail_pct`) and anomaly detection bounds (`drift_abs_min`, `drift_rel_min`) for DataOps teams.
+3. **Smart Descriptions:** 
+    * It looks for a human-readable `description` field directly in your YAML rule.
+    * If missing, it auto-generates a description based on standard rule types (e.g., translating `type: range` to "Value must be between X and Y").
+    * For `custom` or `transform` rules, it dynamically inspects `src/custom_rules.py` and extracts the Python docstrings to explain the logic.
+
+## How to Run
+
+You can generate the documentation using the standalone CLI script. By default, it will read your configuration and output the markdown files into a `docs/` directory.
+
+### Basic Command
+Run the script from your project root, pointing it to your target YAML configuration:
+
+```commandline
+python -m src.generate_docs --config configs/sales_rules.yaml
+```
+
+### Advanced Usage
+You can customize the output directory using the --output-dir flag:
+```commandline
+python -m src.generate_docs --config configs/sales_rules.yaml --output-dir custom_docs_folder/
+```
+
+### Expected Output
+When you run the command, the script will discover all profiles in your configuration and generate a separate Markdown file for each. For example:
+```text
+Found profiles: default, strict
+Successfully generated: docs\data_contract_default.md
+Successfully generated: docs\data_contract_strict.md
+```
+
+* You can then push these Markdown files to GitHub, GitLab, or integrate them into your internal wiki (like MkDocs or Confluence) for stakeholders to review!
