@@ -3,49 +3,73 @@
 ## Project Structure
 
 frontend/
-
 └── packages/
-└── dashboard/
-    └── src/
-        ├── components/
-        │   ├── AlertsPanel.tsx
-        │   ├── ForecastChart.tsx
-        │   ├── InventoryHeatmap.tsx
-        │   ├── InventoryTable.tsx
-        │   ├── AlertsPanel.test.tsx
-        │   ├── ForecastChart.test.tsx
-        │   ├── InventoryHeatmap.test.tsx
-        │   └── InventoryTable.test.tsx
-        │
-        ├── hooks/
-        │   ├── useWebSocket.ts
-        │   └── useWebSocket.test.ts
-        │
-        ├── mocks/
-        │   ├── api.ts
-        │   ├── forecast.ts
-        │   ├── inventory.ts
-        │   └── wsServer.ts
-        │
-        ├── types/
-        │   └── forecast.ts
-        │
-        ├── App.tsx
-        ├── main.tsx
-        └── tokens.ts
-
+    └── dashboard/
+        └── src/
+            ├── components/
+            │   ├── AlertsPanel.tsx
+            |   ├── ErrorBoundary.tsx
+            │   ├── ForecastChart.tsx
+            │   ├── InventoryHeatmap.tsx
+            │   ├── InventoryTable.tsx
+            │   ├── ForecastAccuracy.tsx
+            │   ├── InventoryHealth.tsx
+            │   ├── SupplierRisk.tsx
+            │   ├── ShipmentStatus.tsx
+            │   ├── SupplierRiskDistribution.tsx
+            │   ├── DashboardFilters.tsx
+            │   └── Skeleton.tsx
+            │
+            ├── hooks/
+            │   ├── useWebSocket.ts
+            │
+            ├── mocks/
+            |   ├── api.ts
+            │   ├── forecast.ts
+            |   ├── forecastAccuracy.ts
+            │   ├── inventory.ts
+            │   ├── inventoryHealth.ts
+            │   ├── shipments.ts
+            │   ├── supplierRisk.ts
+            │   └── wsServer.ts
+            │
+            ├── types/
+            │   ├── forecast.ts
+            │   └── dashboard.ts
+            │
+            ├── test/
+            │   ├── AlertsPanel.test.tsx
+            │   ├── ForecastChart.test.tsx
+            │   ├── InventoryHeatmap.test.tsx
+            │   ├── InventoryTable.test.tsx
+            │   ├── DashboardFilters.test.tsx
+            │   ├── ForecastAccuracy.test.tsx
+            │   ├── InventoryHealth.test.tsx
+            |   ├── setup.ts
+            |   ├── SupplierRiskDistribution.test.tsx
+            │   ├── SupplierRisk.test.tsx
+            |   └── useWebSocket.test.ts
+            │
+            ├── App.tsx
+            ├── main.tsx
+            └── tokens.ts
 # 1. What I Built
 
-I built an **Executive Dashboard** using React + TypeScript to give a quick view of sales forecasts, inventory, and important alerts.
+I built an **Executive Dashboard** using React + TypeScript to give a quick view of sales forecasts, inventory, supplier risk, shipments, and important alerts.
 
 The dashboard includes:
 
-* **Sales Forecast Chart** using Recharts.
-* **Inventory Table** with a low-stock filter.
-* **Inventory Heatmap** for inventory.
+* **Sales Forecast Chart** using Recharts with confidence bands and zoom.
+* **Inventory Table** with search, low-stock filtering, and inventory details.
+* **Inventory Heatmap** for warehouse and category inventory status.
 * **Real-time Alert Panel** using WebSocket.
-* Loading, empty, and error states.
-* Automated tests for the main components and WebSocket hook.
+* **KPI views** for forecast accuracy, inventory health, supplier risk, and shipment status.
+* **Dashboard Filters** for warehouse, category, and date range with URL persistence.
+* **Loading Skeletons** for better loading-state handling.
+* **Error Boundary** for handling unexpected component errors.
+* **Virtualized Inventory Table** for efficiently displaying long lists.
+* **Automated tests** for the main components and WebSocket hook.
+
 
 # 2. Forecast Chart
 
@@ -53,14 +77,15 @@ The Forecast Chart shows sales forecast data using **Recharts**.
 
 I added:
 
-* Start date selection.
-* End date selection.
-* Forecast data for the selected date range.
-* Reset button to return to the full chart.
+* **Forecast data filtering** based on the date range selected from the Dashboard Filters.
+* **Actual and forecast values** with a **confidence band** to show the expected forecast range.
+* **Brush zoom** to focus on a specific section of the chart.
+* **Loading, empty, and error states** for better handling of different data conditions.
 
-This allows an executive to focus on a specific period instead of viewing the entire forecast at once.
+The chart allows an executive to focus on a specific forecast period using the common dashboard date filter.
 
-The forecast also safely handles an empty dataset. The default start and end dates are calculated only after checking that forecast data exists, so an empty forecast can correctly reach the empty state instead of causing an error before the component renders.
+The forecast also safely handles an empty dataset. Default values are calculated only after checking that forecast data exists, so an empty forecast correctly reaches the empty state instead of causing an error before the component renders.
+
 
 # 3. Inventory Table
 
@@ -140,48 +165,86 @@ The mock WebSocket server is used only during development.
 
 It is started only when `import.meta.env.DEV` is true, so the mock server is not started in the production build.
 
-`mock-socket` is kept as a development dependency because it is only required for the mock WebSocket server and tests.
+`mock-socket` is kept as a development dependency because it is only required for the mock WebSocket server and tests.1
 
-# 6. Shared UI Components
+# 6. KPI Views and Dashboard Filters
 
-The dashboard uses the shared UI components such as Button, Badge, Table, AlertBanner, and Spinner.
+### Forecast Accuracy
 
-Currently, these components are imported directly from the shared UI source because the UI library is not yet set up as an `@eaicsp/ui` package.
+* Shows forecast accuracy values along with the corresponding dates.
+* Displays a **90% target** to compare actual forecast performance against the expected accuracy level.
+* Helps executives quickly understand forecast performance over time.
 
-**Known limitation:** The dashboard does not currently consume the UI library through an `@eaicsp/ui` package dependency or package entry point. The components are imported directly from the shared UI source using relative paths.
+### Inventory Health
 
-The proper `@eaicsp/ui` package integration is not completed yet. This requires changes to the shared UI package configuration and workspace dependency setup.
+* Shows inventory status as **Healthy, Low Stock, and Critical**.
+* Clicking a status provides detailed inventory information, including **stock, days remaining, and status**.
+* Helps identify which inventory items need attention.
+
+### Supplier Risk
+
+* Shows supplier risk information including the **supplier name, risk score, confidence, and sentiment breakdown**.
+* The sentiment breakdown includes **positive, negative, and neutral** values.
+* Provides a quick summary of the supplier's overall risk and supporting information.
+
+### Shipment Status
+
+* Shows shipment information including **total, pending, in-transit, delivered, delayed, and cancelled** shipments.
+* Displays the shipment progress using a **progress bar**.
+* Helps executives quickly understand the current logistics and shipment status.
+
+### Supplier Risk Distribution
+
+* Displays a **bar chart** showing suppliers and their corresponding risk levels.
+* Makes it easier to compare risk across different suppliers.
+* Helps identify suppliers with higher risk levels that may need attention.
+
+### Dashboard Filters
+
+* Provides **warehouse, category, and date range** filters.
+* Filter selections are persisted in the **URL**, so the selected dashboard state is maintained.
+* The **Forecast Chart, Inventory Table, and Inventory Heatmap** update based on the selected filters.
 
 
 # 7. Testing
 
 I added tests using **Vitest** and **React Testing Library**.
 
+All component test files are organized inside the `src/test` folder.
+
 Tests were added for:
 
-* `ForecastChart`
-* `InventoryTable`
-* `InventoryHeatmap`
 * `AlertsPanel`
+* `ForecastChart`
+* `InventoryHeatmap`
+* `InventoryTable`
+* `DashboardFilters`
+* `ForecastAccuracy`
+* `InventoryHealth`
+* `SupplierRisk`
+* `SupplierRiskDistribution`
+* `ShipmentStatus`
 * `useWebSocket`
 
-The tests cover things such as:
+The tests cover:
 
 * Loading states.
 * Empty states.
 * Error states.
 * User interactions.
-* Date selection.
-* Reset functionality.
+* Dashboard filter behavior.
 * Inventory filtering.
+* KPI behavior.
 * WebSocket connection states.
 * Receiving alerts.
 * Reconnection.
 * Exponential backoff.
+* Maximum retry failure.
 
-WebSocket tests also cover reconnect/backoff behavior, including retry attempts, increasing retry delays, successful reconnection, and failure after the maximum retry count is reached.
+WebSocket tests also cover reconnect and backoff behavior, including retry attempts, increasing retry delays, successful reconnection, and failure after the maximum retry count is reached.
 
-The tests verify that when the maximum retry count is exhausted, the WebSocket `failed` state becomes `true` and the Alerts Panel can display its error state.
+A `setup.ts` file is also included in the test folder for common test setup and configuration.
+
 
 ## Test Cleanup
 
@@ -212,25 +275,24 @@ The WebSocket error state is triggered when the maximum retry attempts are exhau
 
 The current loading states use simulated delays around locally imported mock data. They demonstrate the required loading UI behavior, but are not connected to real backend request latency yet.
 
-When real API integration is added, the loading state should be driven by the actual asynchronous request lifecycle.
+When real API integration is added, the loading state should be driven by the actual asynchronous request.
 
-### Recharts
+### Virtualized Inventory Table
 
-I had some difficulty while creating the forecast chart with Recharts. I referred to the documentation and examples to understand how the chart components work and then implemented the chart successfully.
+For the Inventory Table, I used virtualization with `react-window` to handle long lists more efficiently.
 
-I also fixed the empty forecast handling so default date calculations do not access forecast data before checking whether the dataset is empty.
+Instead of rendering all rows at once, only the rows needed for the visible scroll area are rendered. As the user scrolls, the required rows are rendered.
 
-### WebSocket Connection
+### Memoization and React Profiler
 
-While working on the Alert Panel, the WebSocket was repeatedly switching between connected and disconnected states.
+I used React `memo` selectively for components where avoiding unnecessary re-renders could improve performance.
 
-I found that the connection logic was being triggered again because of unnecessary re-renders. I used `useCallback` to keep the connection function stable.
+I also used the React Profiler to observe component rendering time and identify components that were re-rendering.
 
-After that, I added automatic reconnection with **exponential backoff** and tested the behavior with the mock WebSocket server.
+One challenge was the Inventory Heatmap. The Heatmap receives filtered inventory data, so when warehouse or category filters change, its props also change. In this case, `memo` cannot prevent the re-render because the component actually needs to update with the new data.
 
-The hook also exposes a `failed` state when the maximum retry attempts are exhausted, allowing the Alerts Panel to display its error state.
+The Profiler also did not always provide a separate client render result for the Heatmap, so the optimization could not be measured independently in every case. This helped me understand that memoization should be used based on actual prop changes and rendering behavior rather than applied to every component.
 
-Reconnect and backoff behavior is covered by the WebSocket test suite.
 
 ### Testing
 
@@ -244,27 +306,36 @@ This ensures that the TypeScript compiler performs stricter type checking during
 
 # 10. How to Run
 
-Open the project in VS Code and run:
+Open the project in VS Code and run the following commands in the terminal:
 
+```bash
 cd frontend/packages/dashboard
-
 npm install
-
 npm run build
-
 npm run dev
+```
 
-To run the test suite all in VS Code Terminal run:
+To run the complete test suite:
 
+```bash
 npm test
-
+```
 
 Open the local development URL shown in the terminal, for example:
 
 `http://localhost:5173`
 
-The dashboard uses the mock WebSocket server during development:
+The dashboard uses a mock WebSocket server during development:
 
 `ws://localhost:8080`
 
 The mock WebSocket server is development-only and is not started as part of the production build.
+
+# 11. Current UI and Next Steps
+
+The current dashboard UI is functional and covers the required dashboard features, but the overall visual design and layout still need improvement.
+
+In the next round, I will work on the UI using the available **UI component library** to improve consistency, spacing, alignment, responsiveness, and overall visual polish.
+
+The functionality and dashboard logic are already implemented, so the next focus will be on improving the user experience and making the dashboard look more professional.
+

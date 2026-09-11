@@ -16,9 +16,9 @@ import InventoryTable from "./components/InventoryTable";
 import ShipmentStatus from "./components/ShipmentStatus";
 import SupplierRisk from "./components/SupplierRisk";
 import SupplierRiskDistribution from "./components/SupplierRiskDistribution";
+import { useWebSocket } from "./hooks/useWebSocket";
 import { inventory } from "./mocks/inventory";
 import { startMockWebSocketServer } from "./mocks/wsServer";
-import { useWebSocket } from "./test/useWebSocket";
 import { colors, radius, space } from "./tokens";
 import type {
     AlertMessage,
