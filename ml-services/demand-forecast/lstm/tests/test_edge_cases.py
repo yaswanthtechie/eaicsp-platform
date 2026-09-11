@@ -137,8 +137,7 @@ class TestModelHorizonShapes:
         assert out.shape == (2, 7)
 
     def test_attention_variant_matches_plain_output_shape(self):
-        """AttentionMultiStepLSTM must produce the same output shape contract
-        as MultiStepLSTM for the same horizon -- attention_compare.py relies
+        """AttentionMultiStepLSTM must produce the same output shape contract        
         on this to swap models transparently."""
         torch = pytest.importorskip("torch")
         from model import MultiStepLSTM, AttentionMultiStepLSTM

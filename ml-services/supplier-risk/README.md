@@ -659,7 +659,7 @@ The test suite validates:
 - Text preprocessing and punctuation boundary isolation
 - Keyword detection, mitigation windows, and variant stemming
 - Sentiment pipeline integration
-- Calibrated 80/20 peak/mean score blending
+- Configurable risk score aggregation (`blend` default, `top_k_mean`, `max`, `mean`)
 - Calibrated risk band classification (Low, Medium, High, Critical)
 - Response schema validation and API endpoints (`/predict`, `/health`, aliases)
 - Configuration defaults, overrides, and input validation

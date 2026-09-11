@@ -1,145 +1,192 @@
 """
--- Real hyperparameter sweep (Reproducible & MLflow Tracked)
+Unified Hyperparameter Sweep ( Attention LSTM)
+Strictly selects winner on validation MAE (no test data leakage).
 """
 
 import itertools
 import os
-from typing import List, Dict
-
-import numpy as np
-import torch
+from typing import Dict, List
 import mlflow
-import mlflow_logger as mlog
+import numpy as np
+from sklearn.metrics import mean_absolute_error, mean_squared_error
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader, TensorDataset
+
+from config import (
+    BATCH_SIZE,
+    EPOCHS,
+    HORIZON,
+    LOOKBACK,
+    N_FOLDS,
+    RANDOM_SEED,
+)
 from data import generate_data, get_walk_forward_folds
 from model import MultiStepLSTM
-from train_utils import train_model, evaluate_scaled, chronological_train_val_split, build_model
-
-HORIZON = 7
-EPOCHS = 25
-BATCH_SIZE = 32
-LR = 0.001
-VAL_FRACTION = 0.2
-SWEEP_FOLDS = (4, 5)  # 1-indexed, matches data.py's fold numbering (n_folds=5)
-
-HIDDEN_SIZES = [32, 64]
-NUM_LAYERS = [1, 2]
-LOOKBACKS = [14, 30, 45]
+from train_utils import chronological_train_val_split
 
 
-def build_grid() -> List[Dict]:
-    grid = []
-    for hidden_size, num_layers, lookback in itertools.product(HIDDEN_SIZES, NUM_LAYERS, LOOKBACKS):
-        grid.append({"hidden_size": hidden_size, "num_layers": num_layers, "lookback": lookback})
-    return grid
+def set_seed(seed=RANDOM_SEED):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
+
+def run_systematic_sweep():
+    mlflow.set_tracking_uri("sqlite:///mlflow.db")
+    mlflow.set_experiment("Demand-Forecast-R5-Systematic-Sweep")
+    return run_sweep()
 
 
 def run_sweep() -> List[Dict]:
     df = generate_data(days=1000)
-    grid = build_grid()
-    print(f"Sweeping {len(grid)} configurations "
-        f"(hidden_size x num_layers x lookback), scored on folds {SWEEP_FOLDS}\n")
+    folds = get_walk_forward_folds(df, n_folds=N_FOLDS, lookback=LOOKBACK, horizon=HORIZON)
+
+    # Search Space includes Attention alongside core architectures
+    grid = {
+        "hidden_size": [32, 64],
+        "num_layers": [1, 2],
+        "dropout": [0.1, 0.2],
+        "lr": [0.001, 0.005],
+        "use_attention": [False, True],
+    }
+
+    keys, values = zip(*grid.items())
+    configurations = [dict(zip(keys, v)) for v in itertools.product(*values)]
+
+    print("=" * 95)
+    print(f"STARTING SYSTEMATIC HYPERPARAMETER SWEEP ({len(configurations)} Configurations)")
+    print("=" * 95)
 
     results = []
 
-    for cfg_idx, config in enumerate(grid, 1):
-        lookback = config["lookback"]
-        hidden_size = config["hidden_size"]
-        num_layers = config["num_layers"]
-
-        # Fold boundaries depend on lookback (create_sequences windows on it),
-        # so folds must be rebuilt per-config rather than reused.
-        folds = get_walk_forward_folds(
-            df, n_folds=5, lookback=lookback, horizon=HORIZON, save_scaler_path=None
-        )
-
-        run_name = f"sweep_h{hidden_size}_l{num_layers}_lb{lookback}"
-        mlog.start_experiment("Demand-Forecast-LSTM-Sweep", run_name=run_name)
-        mlog.log_params({**config, "epochs": EPOCHS, "batch_size": BATCH_SIZE, "lr": LR})
-
+    for idx, config in enumerate(configurations, 1):
         val_maes, val_rmses = [], []
-        test_maes, test_rmses = [], []  # reference only -- NOT used for selection
+        test_maes, test_rmses = [], []
 
-        for fold_num in SWEEP_FOLDS:
-            X_tr, y_tr, X_te, y_te, scaler = folds[fold_num - 1]
+        attn_label = "Attn" if config["use_attention"] else "Plain"
+        run_name = f"cfg_{idx:02d}_{attn_label}_h{config['hidden_size']}_l{config['num_layers']}_lr{config['lr']}"
 
-            X_inner_tr, y_inner_tr, X_val, y_val = chronological_train_val_split(
-                X_tr, y_tr, val_fraction=VAL_FRACTION
-            )
-
-            # Set random seed BEFORE model initialization to guarantee identical initialization
-            torch.manual_seed(42)
-            np.random.seed(42)
-
-            model = build_model(MultiStepLSTM, hidden_size, num_layers, HORIZON)
-            model = train_model(model, X_inner_tr, y_inner_tr, epochs=EPOCHS, batch_size=BATCH_SIZE, lr=LR)
-
-            val_metrics = evaluate_scaled(model, X_val, y_val, scaler)
-            test_metrics = evaluate_scaled(model, X_te, y_te, scaler)  # reference only
-
-            val_maes.append(val_metrics["MAE"])
-            val_rmses.append(val_metrics["RMSE"])
-            test_maes.append(test_metrics["MAE"])
-            test_rmses.append(test_metrics["RMSE"])
-
-            mlog.log_metrics({
-                f"fold_{fold_num}_val_mae": val_metrics["MAE"],
-                f"fold_{fold_num}_val_rmse": val_metrics["RMSE"],
-                f"fold_{fold_num}_test_mae_reference_only": test_metrics["MAE"],
+        with mlflow.start_run(run_name=run_name):
+            mlflow.log_params({
+                **config,
+                "epochs": EPOCHS,
+                "batch_size": BATCH_SIZE,
+                "n_folds": N_FOLDS,
+                "lookback": LOOKBACK,
+                "horizon": HORIZON,
+                "seed": RANDOM_SEED,
             })
 
-        avg_val_mae = float(np.mean(val_maes))
-        avg_val_rmse = float(np.mean(val_rmses))
-        avg_test_mae_ref = float(np.mean(test_maes))
-        avg_test_rmse_ref = float(np.mean(test_rmses))
+            for fold_idx, (X_tr, y_tr, X_te, y_te, scaler) in enumerate(folds, 1):
+                # Chronological train/val split to prevent test leakage
+                X_inner_tr, y_inner_tr, X_val, y_val = chronological_train_val_split(
+                    X_tr, y_tr, val_fraction=0.2
+                )
 
-        mlog.log_metrics({
-            "avg_val_mae": avg_val_mae,
-            "avg_val_rmse": avg_val_rmse,
-            "avg_test_mae_reference_only": avg_test_mae_ref,
-            "avg_test_rmse_reference_only": avg_test_rmse_ref,
-        })
-        mlog.end_run()
+                # Format training tensors
+                X_train_t = torch.tensor(X_inner_tr, dtype=torch.float32)
+                if X_train_t.ndim == 2:
+                    X_train_t = X_train_t.unsqueeze(-1)
+                y_train_t = torch.tensor(y_inner_tr, dtype=torch.float32)
 
-        print(f"[{cfg_idx}/{len(grid)}] {run_name:30s} "
-              f"val_MAE={avg_val_mae:6.2f}  val_RMSE={avg_val_rmse:6.2f}  "
-              f"(test_MAE ref only={avg_test_mae_ref:6.2f})")
+                # Format validation tensors (used for ranking & winner selection)
+                X_val_t = torch.tensor(X_val, dtype=torch.float32)
+                if X_val_t.ndim == 2:
+                    X_val_t = X_val_t.unsqueeze(-1)
 
-        results.append({
-            **config,
-            "run_name": run_name,
-            "avg_val_mae": avg_val_mae,
-            "avg_val_rmse": avg_val_rmse,
-            "avg_test_mae_reference_only": avg_test_mae_ref,
-            "avg_test_rmse_reference_only": avg_test_rmse_ref,
-        })
+                # Format test tensors (reference only)
+                X_test_t = torch.tensor(X_te, dtype=torch.float32)
+                if X_test_t.ndim == 2:
+                    X_test_t = X_test_t.unsqueeze(-1)
 
+                # Deterministic initialization for batching and model weights
+                set_seed(RANDOM_SEED)
+
+                dataset = TensorDataset(X_train_t, y_train_t)
+                loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
+
+                model = MultiStepLSTM(
+                    input_size=1,
+                    hidden_size=config["hidden_size"],
+                    num_layers=config["num_layers"],
+                    horizon=HORIZON,
+                    dropout=config["dropout"],
+                    use_attention=config["use_attention"],
+                )
+                optimizer = torch.optim.Adam(model.parameters(), lr=config["lr"])
+                criterion = nn.MSELoss()
+
+                model.train()
+                for _ in range(EPOCHS):
+                    for bx, by in loader:
+                        optimizer.zero_grad()
+                        pred = model(bx)
+                        loss = criterion(pred, by)
+                        loss.backward()
+                        optimizer.step()
+
+                model.eval()
+                with torch.no_grad():
+                    val_preds_scaled = model(X_val_t).numpy()
+                    test_preds_scaled = model(X_test_t).numpy()
+
+                # Invert scaling
+                val_preds = scaler.inverse_transform(val_preds_scaled.reshape(-1, 1)).reshape(val_preds_scaled.shape)
+                y_val_true = scaler.inverse_transform(y_val.reshape(-1, 1)).reshape(y_val.shape)
+
+                test_preds = scaler.inverse_transform(test_preds_scaled.reshape(-1, 1)).reshape(test_preds_scaled.shape)
+                y_test_true = scaler.inverse_transform(y_te.reshape(-1, 1)).reshape(y_te.shape)
+
+                # Compute fold metrics
+                val_maes.append(mean_absolute_error(y_val_true, val_preds))
+                val_rmses.append(np.sqrt(mean_squared_error(y_val_true, val_preds)))
+
+                test_maes.append(mean_absolute_error(y_test_true, test_preds))
+                test_rmses.append(np.sqrt(mean_squared_error(y_test_true, test_preds)))
+
+            avg_val_mae = float(np.mean(val_maes))
+            avg_val_rmse = float(np.mean(val_rmses))
+            avg_test_mae = float(np.mean(test_maes))
+            avg_test_rmse = float(np.mean(test_rmses))
+
+            mlflow.log_metrics({
+                "avg_val_mae": avg_val_mae,
+                "avg_val_rmse": avg_val_rmse,
+                "avg_test_mae_reference_only": avg_test_mae,
+                "avg_test_rmse_reference_only": avg_test_rmse,
+            })
+
+            res_entry = {
+                **config,
+                "run_name": run_name,
+                "avg_val_mae": avg_val_mae,
+                "avg_val_rmse": avg_val_rmse,
+                "avg_test_mae": avg_test_mae,
+                "avg_test_rmse": avg_test_rmse,
+            }
+            results.append(res_entry)
+
+            attn_str = "ATTENTION" if config["use_attention"] else "PLAIN"
+            print(f"[{idx:02d}/{len(configurations):02d}] {attn_str:<9} | Hidden: {config['hidden_size']:2d} | Layers: {config['num_layers']} | LR: {config['lr']} | Val MAE: {avg_val_mae:.2f} | (Test MAE Ref: {avg_test_mae:.2f})")
+
+    # Winner is strictly selected on validation MAE
+    results.sort(key=lambda x: x["avg_val_mae"])
+    winner = results[0]
+
+    print("\n" + "=" * 95)
+    print("SWEEP RESULTS (Ranked by Validation MAE -- Test MAE shown for reference only)")
+    print("=" * 95)
+    print(f"{'Rank':<5} {'Architecture':<12} {'Hidden':<8} {'Layers':<8} {'Dropout':<9} {'LR':<8} {'Val MAE':<10} {'Test MAE(Ref)':<14}")
+    print("-" * 95)
+    for r, c in enumerate(results[:5], 1):
+        arch = "Attention" if c["use_attention"] else "Plain"
+        marker = " <-- WINNER" if r == 1 else ""
+        print(f"{r:<5} {arch:<12} {c['hidden_size']:<8} {c['num_layers']:<8} {c['dropout']:<9} {c['lr']:<8} {c['avg_val_mae']:<10.2f} {c['avg_test_mae']:<14.2f}{marker}")
+    print("=" * 95)
+    print(f"\nWinner selected on validation split: {winner['run_name']} (Val MAE: {winner['avg_val_mae']:.2f})\n")
     return results
-
-
-def select_winner(results: List[Dict]) -> Dict:
-    """Winner = lowest avg_val_mae. Test metrics are never part of this comparison."""
-    return min(results, key=lambda r: r["avg_val_mae"])
-
-
-def print_results_table(results: List[Dict], winner: Dict) -> None:
-    print("\n" + "=" * 100)
-    print("SWEEP RESULTS (sorted by validation MAE -- winner selection criterion)")
-    print("=" * 100)
-    header = f"{'run_name':30s} {'hidden':>7s} {'layers':>7s} {'lookback':>9s} {'val_MAE':>9s} {'val_RMSE':>9s} {'test_MAE(ref)':>14s}"
-    print(header)
-    print("-" * len(header))
-    for r in sorted(results, key=lambda r: r["avg_val_mae"]):
-        marker = "  <-- WINNER (best val MAE)" if r["run_name"] == winner["run_name"] else ""
-        print(f"{r['run_name']:30s} {r['hidden_size']:7d} {r['num_layers']:7d} {r['lookback']:9d} "
-              f"{r['avg_val_mae']:9.2f} {r['avg_val_rmse']:9.2f} {r['avg_test_mae_reference_only']:14.2f}{marker}")
-    print("=" * 100)
-    print(f"\nWinner justified on VALIDATION data: {winner['run_name']} "
-          f"(avg_val_mae={winner['avg_val_mae']:.2f})")
-    print("Test MAE column is shown for reference only -- it was never used to pick the winner.\n")
 
 
 if __name__ == "__main__":
     os.makedirs("output", exist_ok=True)
-    all_results = run_sweep()
-    best = select_winner(all_results)
-    print_results_table(all_results, best)
+    run_systematic_sweep()

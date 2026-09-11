@@ -264,6 +264,16 @@ def get_config():
     summary="Predict supplier risk (API Gateway alias)",
 )
 @app.post(
+    "/predict",
+    response_model=AnalysisResponse,
+    summary="Predict supplier risk",
+)
+@app.post(
+    "/api/v1/supplier-risk/predict",
+    response_model=AnalysisResponse,
+    summary="Predict supplier risk (API Gateway alias)",
+)
+@app.post(
     "/api/v1/supplier-risk/analyze",
     response_model=AnalysisResponse,
     summary="Analyze supplier risk (legacy alias)",
