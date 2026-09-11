@@ -1,6 +1,33 @@
+# Virtual environments
+.venv/
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Test cache
+.pytest_cache/
+
+# MLflow
+mlruns/
+mlflow.db
+
 # Generated model artifacts
 models/promoted/
 models/xgb_model.pkl
+
+# Generated outputs
 output/
+
+# Local backup models
+models/promoted_backup/
+models/promoted_backup_real/
+
+# Duplicate source artifact folders
 src/models/
 src/output/
+
+# OS files
+.DS_Store
+Thumbs.db
