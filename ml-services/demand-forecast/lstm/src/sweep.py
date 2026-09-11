@@ -1,10 +1,11 @@
 """
-Unified Hyperparameter Sweep (Plain LSTM vs. Attention LSTM)
+Unified Hyperparameter Sweep ( Attention LSTM)
 Strictly selects winner on validation MAE (no test data leakage).
 """
 
 import itertools
 import os
+from typing import Dict, List
 import mlflow
 import numpy as np
 from sklearn.metrics import mean_absolute_error, mean_squared_error
@@ -33,6 +34,7 @@ def set_seed(seed=RANDOM_SEED):
 def run_systematic_sweep():
     mlflow.set_tracking_uri("sqlite:///mlflow.db")
     mlflow.set_experiment("Demand-Forecast-R5-Systematic-Sweep")
+    return run_sweep()
 
 
 def run_sweep() -> List[Dict]:
@@ -182,6 +184,7 @@ def run_sweep() -> List[Dict]:
         print(f"{r:<5} {arch:<12} {c['hidden_size']:<8} {c['num_layers']:<8} {c['dropout']:<9} {c['lr']:<8} {c['avg_val_mae']:<10.2f} {c['avg_test_mae']:<14.2f}{marker}")
     print("=" * 95)
     print(f"\nWinner selected on validation split: {winner['run_name']} (Val MAE: {winner['avg_val_mae']:.2f})\n")
+    return results
 
 
 if __name__ == "__main__":

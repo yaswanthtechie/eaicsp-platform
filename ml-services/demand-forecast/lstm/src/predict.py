@@ -22,7 +22,11 @@ from config import (
 from model import MultiStepLSTM
 
 
-def sanitize_input_sequence(sequence: list, expected_len: int = LOOKBACK) -> np.ndarray:
+def sanitize_input_sequence(
+    sequence: list,
+    expected_len: int = LOOKBACK,
+    scaler=None,
+) -> np.ndarray:
     """Sanitizes adversarial inputs (handles NaNs, infs, negative demand, and extreme outlier spikes)."""
     if len(sequence) != expected_len:
         raise ValueError(f"Expected sequence length {expected_len}, got {len(sequence)}")
@@ -41,9 +45,20 @@ def sanitize_input_sequence(sequence: list, expected_len: int = LOOKBACK) -> np.
     # 2. Lower bound guard: non-negative demand
     arr = np.clip(arr, a_min=0.0, a_max=None)
 
-    # 3. Outlier winsorization (caps extreme 10000x spikes exceeding 10x median non-zero baseline)
-    median_val = np.median(arr[arr > 0]) if np.any(arr > 0) else 100.0
-    cap_threshold = max(median_val * 10.0, 5000.0)
+    # 3. Outlier winsorization based on the training scaler range.
+    # The upper cap is tied to the model's observed training demand range
+    # instead of using a fixed magic-number floor.
+    if scaler is not None:
+        training_max = float(scaler.data_max_[0])
+        training_min = float(scaler.data_min_[0])
+        training_span = max(training_max - training_min, 1.0)
+
+        cap_threshold = training_max + (10.0 * training_span)
+    else:
+        # Fallback for standalone use when no scaler is available.
+        median_val = np.median(arr[arr > 0]) if np.any(arr > 0) else 0.0
+        cap_threshold = max(median_val * 10.0, 1.0)
+
     arr = np.clip(arr, a_min=0.0, a_max=cap_threshold)
 
     return arr
@@ -81,7 +96,6 @@ def compute_mc_dropout_bounds(
 
 def forecast_demand(historical_demand: list, use_onnx: bool = True, mc_iterations: int = 50) -> dict:
     """Runs demand forecast with calibrated empirical confidence bounds."""
-    clean_seq = sanitize_input_sequence(historical_demand, expected_len=LOOKBACK)
 
     if not os.path.exists(SCALER_PATH):
         raise FileNotFoundError(f"Scaler not found at '{SCALER_PATH}'. Run src/train.py first.")
@@ -89,7 +103,16 @@ def forecast_demand(historical_demand: list, use_onnx: bool = True, mc_iteration
     with open(SCALER_PATH, "rb") as f:
         scaler = pickle.load(f)
 
-    scaled_seq = scaler.transform(clean_seq.reshape(-1, 1)).reshape(1, LOOKBACK, 1).astype(np.float32)
+    clean_seq = sanitize_input_sequence(
+        historical_demand,
+        expected_len=LOOKBACK,
+        scaler=scaler,
+    )
+    scaled_seq = (
+        scaler.transform(clean_seq.reshape(-1, 1))
+        .reshape(1, LOOKBACK, 1)
+        .astype(np.float32)
+    )
 
     # 1. Primary deterministic point forecast
     if use_onnx and os.path.exists(ONNX_PATH):

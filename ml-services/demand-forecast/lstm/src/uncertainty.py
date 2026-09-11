@@ -2,17 +2,37 @@ import os
 import mlflow
 import numpy as np
 import torch
-from config import CONFIDENCE_LEVEL, HIDDEN_SIZE, HORIZON, LOOKBACK, MC_SAMPLES, MODEL_PATH, NUM_LAYERS, SCALER_PATH
+
+from config import (
+    CONFIDENCE_LEVEL,
+    HIDDEN_SIZE,
+    HORIZON,
+    LOOKBACK,
+    MC_SAMPLES,
+    MODEL_PATH,
+    NUM_LAYERS,
+    RANDOM_SEED,
+    SCALER_PATH,
+)
 from data import create_sequences, generate_data, load_scaler
 from model import MultiStepLSTM
 
 
-def predict_with_uncertainty(model, x_input, scaler, n_samples=MC_SAMPLES, conf=CONFIDENCE_LEVEL):
+def predict_with_uncertainty(
+    model,
+    x_input,
+    scaler,
+    n_samples=MC_SAMPLES,
+    conf=CONFIDENCE_LEVEL,
+):
     """
     Batched MC-Dropout inference returning per-sample predictions in real demand units.
     """
     model.eval()
     model.enable_mc_dropout()
+
+    # Make MC-Dropout predictions reproducible
+    torch.manual_seed(RANDOM_SEED)
 
     if isinstance(x_input, np.ndarray):
         if x_input.ndim == 2:

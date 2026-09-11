@@ -2,8 +2,8 @@ import os
 
 # Base directory
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__),".."))
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUTPUT_DIR = os.path.join(BASE_DIR, "output")
+
+OUTPUT_DIR = os.path.join(PROJECT_ROOT, "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # File Paths
@@ -19,13 +19,13 @@ RANDOM_SEED = 42
 LOOKBACK = 45
 HORIZON = 7
 HIDDEN_SIZE = 32
-NUM_LAYERS = 1
-DROPOUT = 0.2
+NUM_LAYERS = 2
+DROPOUT = 0.1
 
 # Training Parameters
 EPOCHS = 50
 BATCH_SIZE = 32
-LR = 0.001
+LR = 0.005
 N_FOLDS = 3
 DATASET_DAYS = 1000
 

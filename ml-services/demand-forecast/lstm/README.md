@@ -1,10 +1,10 @@
-## 📈 LSTM Demand Forecasting Service (LSTM + Ensemble & Temporal Attention)
+##  LSTM Demand Forecasting Service (LSTM + Ensemble & Temporal Attention)
 
-- A production-grade multi-step demand forecasting microservices buit with pytorch,ONNX Runtime,and BentoML.Evaluated across 5-fold Expanding walk-forward ross-validation, tracked using MLflow, and served with monte carlo dropout (MC_Dropout) for empirical uncertainty quantification.
+- A production-grade multi-step demand forecasting "microservice built with PyTorch, ONNX Runtime, and BentoML. Evaluated across 5-fold expanding walk-forward cross-validation", tracked using MLflow, and served with monte carlo dropout (MC_Dropout) for empirical uncertainty quantification.
 
 ---
 
-## 📌 Architecture & Configuration
+##  Architecture & Configuration
 
 * **Lookback Sequence:** 45 days (`LOOKBACK = 45`)
 * **Forecast Horizon:** 7 days direct multi-step (`HORIZON = 7`)
@@ -15,7 +15,7 @@
 
 ---
 
-## 📊 📊 Walk-Forward Cross-Validation Results
+##  Walk-Forward Cross-Validation Results
 - Walk-forward validation uses expanding chronological windows across 5 folds with seeded weight initialization (torch.manual_seed(42)):
 ```
 ======================================================================
@@ -55,7 +55,7 @@ Saved PyTorch weights to output/best_model.pt
 - The trained Multi-Step LSTM achieves an average MAE of 6.81 versus 8.78 for the naive baseline (a 22.4% error reduction). Weights are persisted to output/best_model.pt.
 ---
 
-## 🎯 R4: Real Hyperparameter Sweep
+##  R4: Real Hyperparameter Sweep
 -Systematic Hyperparameter Sweep
 Evaluated across inner chronological validation folds (val_fraction=0.2) with fixed random seeds (seed=42) to strictly prevent test data leakage:
 
@@ -114,7 +114,7 @@ Rank  Architecture Hidden   Layers   Dropout   LR       Val MAE    Test MAE(Ref)
 ```
 - The sweep winner (Plain, hidden_size=32, num_layers=2, dropout=0.1, lr=0.005) is directly synchronized into src/config.py.
 ---
-## 🌟 Production ONNX Export & Export & Strict Numerical Parity
+##  Production ONNX Export & Export & Strict Numerical Parity
 ```bash
 python src/onnx_export.py
 
@@ -128,7 +128,7 @@ python src/onnx_export.py
 ```
 
 ---
-## 🧠 R4: Plain LSTM vs. Attention Architecture
+##  R4: Plain LSTM vs. Attention Architecture
 
 `AttentionMultiStepLSTM` adds additive (Bahdanau-style) attention across all lookback timesteps. `src/attention_compare.py` compares both architectures across all 5 walk-forward folds under identical conditions
 
