@@ -5,11 +5,12 @@ on the same basis instead of each computing accuracy their own way.
 
 ## 1. What I built
 
-- `src/metrics.py` - MAPE, RMSE, precision/recall/f1, confusion matrix, and
-  anomaly-detection metrics (recall, specificity, false positive rate,
-  balanced accuracy). Labels must be `{0, 1}` -- sklearn-style `{-1, 1}`
-  anomaly labels (IsolationForest, LOF) raise a clear error rather than
-  being silently miscounted; remap them to `{0, 1}` before calling.
+- `src/metrics.py` - MAPE, RMSE, precision/recall/f1, confusion matrix,
+  accuracy, and anomaly-detection metrics (precision, recall, f1,
+  specificity, false positive rate, balanced accuracy). Labels must be
+  `{0, 1}` -- sklearn-style `{-1, 1}` anomaly labels (IsolationForest, LOF)
+  raise a clear error rather than being silently miscounted; remap them to
+  `{0, 1}` before calling.
 - `src/baseline.py` - naive "tomorrow = today" forecast + comparison, with
   explicit tie-handling
 - `src/splits.py` - chronological train/test split and a general k-fold
@@ -20,8 +21,24 @@ on the same basis instead of each computing accuracy their own way.
   to rank if models report incompatible, non-numeric, or NaN metrics
 - `src/significance.py` - paired t-test across folds, to check whether one
   model's improvement over another is statistically real or just noise
+- `src/guardrails.py` - automated leakage checks: train/test overlap
+  detection, chronological-order enforcement, suspicious-accuracy warnings
+  -- encodes the project's core safety discipline as reusable, automatic
+  checks
+- `src/backtest.py` - reusable backtesting harness: simulates many
+  historical "pretend it's date X, predict forward" points for any
+  forecaster (plugged in via a simple function contract), not just a
+  single train/test split
+- `src/report_html.py` - generates a complete, self-contained HTML
+  evaluation report (metrics table, baseline comparison, significance
+  results, embedded charts) -- the artifact a non-technical stakeholder can
+  open and read
+- `src/leaderboard_service.py` - a live FastAPI `/leaderboard` HTTP
+  endpoint, wrapping the existing leaderboard logic so any external caller
+  (not just Python code importing this package) can rank models and get
+  the same refusal behavior for incompatible metrics
 - `compare.py` - standalone CLI: `python compare.py --results results.json`
-- `tests/test_metrics.py` - 36 tests covering all of the above, including
+- `tests/test_metrics.py` - 63 tests covering all of the above, including
   edge cases and error/refusal paths
 
 Note: MAPE excludes rows where the actual value is 0, since division by zero
@@ -51,24 +68,21 @@ python run_leaderboard.py
 - Wire the framework into a real teammate's model output for real (still
   deliberately deferred so far -- the leaderboard demo builds its own
   Prophet fit rather than importing anyone else's code).
-- Add a bootstrap-based alternative to the paired t-test in `significance.py`,
-  for cases with very few folds where a t-test's normality assumption is shakier.
-- Extend `leaderboard.py` to rank across multiple metrics at once (currently
-  one metric per call), with a way to weight them if they disagree.
 - Add MLflow logging so every leaderboard/significance run is automatically
   recorded with a permanent history, instead of only existing in the
   terminal or a manually-saved output file.
 
 ## 4. What I got stuck on
 
-- My first `matplotlib` install got cancelled mid-way, and leftover terminal text
-  afterward confused PowerShell into throwing errors - turned out harmless, just
-  needed a clean re-run.
-- Wasn't sure whether to add `__init__.py` since the doc didn't mention it - needed
-  it for clean imports between my own files (`baseline.py` using `metrics.py`).
-- Missed that the repo's root `.gitignore` has a `*.csv` rule, which silently
-  excluded my data file from the first push - fixed by reading the CSV straight
-  from the source URL instead of a local file.
+- My first `matplotlib` install got cancelled mid-way, and leftover terminal
+  text afterward confused PowerShell into throwing errors - turned out
+  harmless, just needed a clean re-run.
+- Wasn't sure whether to add `__init__.py` since the doc didn't mention it -
+  needed it for clean imports between my own files (`baseline.py` using
+  `metrics.py`).
+- Missed that the repo's root `.gitignore` has a `*.csv` rule, which
+  silently excluded my data file from the first push - fixed by reading the
+  CSV straight from the source URL instead of a local file.
 - A review caught a scipy import with no declared dependency file, which
   errors out all tests on a clean install - fixed with `requirements.txt`.
 - My first significance-test demo used a synthetic "toy model" instead of a
@@ -76,7 +90,8 @@ python run_leaderboard.py
   compared against naive on the same real dataset and folds.
 - A later review caught that `confusion_matrix` silently miscounted
   sklearn-style `{-1, 1}` anomaly labels instead of erroring - fixed by
-  validating labels explicitly and raising a clear error with remap guidance.
+  validating labels explicitly and raising a clear error with remap
+  guidance.
 
 ## How any model in this pod could use this
 
@@ -113,6 +128,9 @@ cd ml-services/eval-framework
 python compare.py --results uday_results.json
 ```
 
+Or, without touching Python or this repo at all -- send results to the
+running leaderboard service over HTTP (see below).
+
 This keeps the evaluation logic completely decoupled from any one person's
 model code -- anyone can plug in their own predictions. (A proper installable
 package, e.g. via a `pyproject.toml`, would make the import cleaner -- noted
@@ -125,12 +143,13 @@ and continues printing the rest of the table. This is intentional: it's a
 broad, exploratory tool -- useful to see everything you have, even if some
 cells are incomplete.
 
-`leaderboard.py` refuses outright and raises a clear error if any model is
-missing the metric being ranked on, reports a non-numeric value, or reports
-NaN. This is also intentional: a ranking is a definitive claim ("X is better
-than Y"), and that claim isn't trustworthy if the models weren't even
-measured on the same thing, or if a value is meaningless. Silently skipping
-a model or showing a partial ranking would be misleading.
+`leaderboard.py` (and the leaderboard service built on top of it) refuses
+outright and raises a clear error if any model is missing the metric being
+ranked on, reports a non-numeric value, or reports NaN. This is also
+intentional: a ranking is a definitive claim ("X is better than Y"), and
+that claim isn't trustworthy if the models weren't even measured on the
+same thing, or if a value is meaningless. Silently skipping a model or
+showing a partial ranking would be misleading.
 
 In short: `compare.py` optimizes for visibility, `leaderboard.py` optimizes
 for trustworthiness. Both are deliberate, not an oversight.
@@ -139,12 +158,13 @@ for trustworthiness. Both are deliberate, not an oversight.
 
 ### What's included
 
-- **`src/metrics.py`** - `anomaly_metrics()`: recall, specificity, false
-  positive rate, and balanced accuracy, specifically for anomaly detection
-  where the normal class vastly outnumbers the anomaly class (plain accuracy
-  is misleading there). `confusion_matrix()` validates labels are `{0, 1}`
-  and raises a clear error on sklearn-style `{-1, 1}` labels instead of
-  silently miscounting.
+- **`src/metrics.py`** - `anomaly_metrics()`: precision, recall, f1,
+  specificity, false positive rate, and balanced accuracy, specifically for
+  anomaly detection where the normal class vastly outnumbers the anomaly
+  class (plain accuracy is misleading there -- `accuracy()` exists
+  separately, with an explicit warning about this). `confusion_matrix()`
+  validates labels are `{0, 1}` and raises a clear error on sklearn-style
+  `{-1, 1}` labels instead of silently miscounting.
 - **`src/leaderboard.py`** - `generate_leaderboard()` and `print_leaderboard()`.
   Ranks any number of models by a chosen metric, best first. Refuses to rank
   and gives a clear error if any model is missing that metric, reports a
@@ -217,4 +237,91 @@ confusion_matrix([1, -1, 1, -1], [1, 1, -1, -1])
 # ValueError: confusion_matrix: labels must be 0 or 1, got unexpected
 # value(s) [-1]. If using sklearn-style anomaly labels ({-1, 1}), remap
 # with e.g. [0 if v == 1 else 1 for v in labels] before calling this function.
+```
+
+## Metrics Rigor, Guardrails, Backtesting, HTML Reports, Leaderboard Service
+
+### What's included
+
+- **Consolidated `anomaly_metrics()`** now includes precision, recall, and
+  f1 alongside specificity, false positive rate, and balanced accuracy --
+  everything needed for class-imbalanced evaluation in one call. Added a
+  standalone `accuracy()` with an explicit warning about its limitations
+  under class imbalance.
+- **`guardrails.py`** -- automated checks that catch the project's core
+  safety rules without relying on a human reviewer: `check_no_train_test_overlap()`
+  hard-fails on any row appearing in both sets, `check_chronological_order()`
+  hard-fails if test dates aren't strictly after train dates, and
+  `check_suspicious_accuracy()` soft-warns when a score is suspiciously high
+  (a common sign of data leakage). `run_all_guardrails()` runs everything
+  in one call.
+- **`backtest.py`** -- a reusable harness that repeatedly simulates
+  historical forecast points ("pretend it's date X, predict forward,
+  compare to actual") for ANY forecaster, via a simple plug-in function
+  contract `(train_data, horizon) -> predictions`. Integrates directly with
+  existing metrics (e.g. feed backtest results straight into `mape()`).
+- **`report_html.py`** -- generates a single, self-contained HTML report
+  (metrics table, baseline comparison, significance interpretation, embedded
+  bar charts) from any model's results -- no external files needed, easy to
+  share or email.
+- **`leaderboard_service.py`** -- a live FastAPI service exposing
+  `POST /leaderboard` and `GET /health`. Reuses the existing
+  `generate_leaderboard()` logic, so external callers (not just Python code
+  importing this package) get the exact same ranking and the exact same
+  refusal behavior (HTTP 422) for incompatible metrics.
+
+### How to run the leaderboard service
+
+```bash
+cd ml-services/eval-framework
+pip install -r requirements.txt
+uvicorn src.leaderboard_service:app --reload --port 8000
+```
+
+Then, from any other terminal or tool:
+
+```bash
+curl -X POST http://127.0.0.1:8000/leaderboard \
+  -H "Content-Type: application/json" \
+  -d '{"results": {"naive": {"mape": 6.80}, "prophet": {"mape": 3.20}}, "metric": "mape"}'
+```
+
+Incompatible metrics are refused with HTTP 422 and the same clear error
+message as the Python-level function.
+
+### How to generate an HTML report
+
+```python
+from src.report_html import save_html_report
+from src.significance import paired_significance_test
+
+results = {"naive": {"mape": 6.22}, "prophet": {"mape": 8.78}}
+sig_result = paired_significance_test(naive_mapes, prophet_mapes)
+save_html_report(results, "evaluation_report.html", significance_result=sig_result)
+```
+
+### How to use the backtesting harness
+
+```python
+from src.backtest import backtest
+
+def my_forecast_fn(train_df, horizon):
+    # any forecaster -- naive, Prophet, your own model
+    ...
+    return predictions
+
+results = backtest(df, "date", "y", my_forecast_fn, horizon=1, min_train_size=30)
+```
+
+### How to use the guardrails
+
+```python
+from src.guardrails import run_all_guardrails, LeakageError
+
+try:
+    result = run_all_guardrails(train, test, "date", score=model_accuracy)
+    if result["warnings"]:
+        print(result["warnings"])
+except LeakageError as e:
+    print("Hard failure:", e)
 ```

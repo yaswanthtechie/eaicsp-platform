@@ -70,22 +70,43 @@ def precision_recall(y_true, y_pred) -> dict:
     return {"precision": precision, "recall": recall, "f1": f1}
 
 
+def accuracy(y_true, y_pred) -> float:
+    """Plain accuracy: (correct predictions) / (total predictions).
+    Warning: misleading under class imbalance -- a model that always predicts
+    the majority class can score high accuracy while catching zero minority-
+    class cases. Prefer balanced_accuracy for imbalanced problems like anomaly
+    detection.
+    """
+    cm = confusion_matrix(y_true, y_pred)
+    tp, tn, fp, fn = cm["tp"], cm["tn"], cm["fp"], cm["fn"]
+    total = tp + tn + fp + fn
+    return (tp + tn) / total if total > 0 else 0.0
+
+
 def anomaly_metrics(y_true, y_pred) -> dict:
     """Anomaly-detection specific metrics, built on top of confusion_matrix.
-    Includes false positive rate and balanced accuracy -- both matter more than
-    plain precision/recall when anomalies are rare compared to normal points
-    (severe class imbalance), which is the typical real-world anomaly setting.
+    Includes precision, recall, f1 (standard), plus false positive rate and
+    balanced accuracy -- the latter two matter more than plain accuracy when
+    anomalies are rare compared to normal points (severe class imbalance),
+    which is the typical real-world anomaly setting.
     """
     cm = confusion_matrix(y_true, y_pred)
     tp, tn, fp, fn = cm["tp"], cm["tn"], cm["fp"], cm["fn"]
 
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
     recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
     specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+    # Note: false_positive_rate is mathematically 1 - specificity, kept as a
+    # separate field since "false positive rate" is the more familiar framing
+    # in anomaly/alerting contexts even though it's redundant with specificity.
     fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
     balanced_accuracy = (recall + specificity) / 2
 
     return {
+        "precision": precision,
         "recall": recall,
+        "f1": f1,
         "specificity": specificity,
         "false_positive_rate": fpr,
         "balanced_accuracy": balanced_accuracy,
