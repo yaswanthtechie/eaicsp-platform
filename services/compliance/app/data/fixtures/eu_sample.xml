@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<export>
+    <sanctionEntity>
+        <nameAlias wholeName="TEST EU ENTITY 01"/>
+        <designationDate>2024-01-15</designationDate>
+    </sanctionEntity>
+
+    <sanctionEntity>
+        <nameAlias wholeName="TEST EU ENTITY 02"/>
+        <designationDate>2023-06-20</designationDate>
+    </sanctionEntity>
+
+    <sanctionEntity>
+        <nameAlias wholeName="TEST EU ENTITY 03"/>
+        <designationDate>2022-03-10</designationDate>
+    </sanctionEntity>
+
+    <sanctionEntity>
+        <nameAlias wholeName="TEST EU ENTITY 04"/>
+        <designationDate>2021-11-05</designationDate>
+    </sanctionEntity>
+
+    <sanctionEntity>
+        <nameAlias wholeName="TEST EU ENTITY 05"/>
+        <nameAlias wholeName="EU SAMPLE FIVE"/>
+        <designationDate>2020-08-01</designationDate>
+    </sanctionEntity>
+
+    <sanctionEntity>
+        <nameAlias wholeName="TEST EU ENTITY 06"/>
+        <designationDate>2024-05-12</designationDate>
+    </sanctionEntity>
+
+    <sanctionEntity>
+        <nameAlias wholeName="TEST EU ENTITY 07"/>
+        <designationDate>2023-09-18</designationDate>
+    </sanctionEntity>
+
+    <sanctionEntity>
+        <nameAlias wholeName="TEST EU ENTITY 08"/>
+        <designationDate>2022-12-25</designationDate>
+    </sanctionEntity>
+
+    <sanctionEntity>
+        <nameAlias wholeName="TEST EU ENTITY 09"/>
+        <designationDate>2021-04-30</designationDate>
+    </sanctionEntity>
+
+    <sanctionEntity>
+        <nameAlias wholeName="TEST EU ENTITY 10"/>
+        <designationDate>2020-02-14</designationDate>
+    </sanctionEntity>
+</export>

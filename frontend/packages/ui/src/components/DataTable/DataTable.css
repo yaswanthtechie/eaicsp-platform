@@ -1,0 +1,170 @@
+.datatable {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+
+/* Table */
+
+.datatable-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+
+/* Header */
+
+.datatable-table th {
+  padding: 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-background);
+  font-weight: 600;
+}
+
+
+/* Sortable headers */
+
+.datatable-table th:hover {
+  cursor: pointer;
+  background: var(--color-muted);
+}
+
+
+/* Table cells */
+
+.datatable-table td {
+  padding: 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+
+/* Row hover */
+
+.datatable-table tbody tr:hover {
+  background: var(--color-muted);
+}
+
+
+/* Search input */
+
+.datatable-table input[type="text"] {
+
+  width: 100%;
+  padding: 8px;
+
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+
+  background: var(--color-background);
+  color: var(--color-text);
+
+}
+
+
+/* Input focus */
+
+.datatable-table input[type="text"]:focus {
+
+  outline: none;
+
+  border-color: var(--color-primary);
+
+}
+
+
+/* Checkbox */
+
+.datatable-table input[type="checkbox"] {
+
+  width: 16px;
+  height: 16px;
+
+  cursor: pointer;
+
+}
+
+
+/* Empty state */
+
+.datatable-empty {
+
+  padding: 24px;
+
+  text-align: center;
+
+  color: var(--color-muted);
+
+  background: var(--color-surface);
+
+  border: 1px solid var(--color-border);
+
+  border-radius: var(--radius-md);
+
+}
+
+
+
+/* Pagination */
+
+.datatable-pagination {
+
+  display: flex;
+
+  justify-content: center;
+
+  align-items: center;
+
+  gap: 16px;
+
+}
+
+
+
+.datatable-pagination button {
+
+  padding: 8px 16px;
+
+  border: none;
+
+  border-radius: var(--radius-sm);
+
+  background: var(--color-primary);
+
+  color: var(--color-surface);
+
+  cursor: pointer;
+
+}
+
+
+
+.datatable-pagination button:hover {
+
+  opacity: 0.85;
+
+}
+
+
+
+.datatable-pagination button:disabled {
+
+  opacity: 0.5;
+
+  cursor: not-allowed;
+
+}
+
+
+
+.datatable-pagination span {
+
+  color: var(--color-text);
+
+  font-size: 14px;
+
+}

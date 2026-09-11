@@ -1,11 +1,14 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { TOKEN_KEY } from "../constants/storage";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { saveTokens } from "../auth/tokenStorage";
+import { login } from "../api/auth";
 
 const Login = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const [email, setEmail] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
   const [password, setPassword] = useState("");
 
   const [emailError, setEmailError] = useState("");
@@ -32,14 +35,43 @@ const Login = () => {
     return valid;
   };
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!validate()) return;
 
-    localStorage.setItem(TOKEN_KEY, "dummy-token");
+    try {
+      const response = await login(email, password);
+      saveTokens(
+        response.access_token,
+        response.refresh_token,
+        rememberMe
+      );
 
-    navigate("/orders");
+      // Only allow safe internal paths for the next redirect.
+      const nextParam = searchParams.get("next");
+
+      const isInternal = (next: string | null) => {
+        if (!next) {
+          return false;
+        }
+
+        const url = new URL(
+          next,
+          window.location.origin
+        );
+
+        return url.origin === window.location.origin;
+      };
+
+      const nextPage = isInternal(nextParam)
+        ? nextParam!
+        : "/orders";
+
+      navigate(nextPage);
+    } catch {
+      setPasswordError("Invalid email or password");
+    }
   };
 
   return (
@@ -47,10 +79,10 @@ const Login = () => {
       <h1>Supplier Portal</h1>
 
       <form onSubmit={handleLogin}>
-
-        <label>Email</label>
+        <label htmlFor="email">Email</label>
 
         <input
+          id="email"
           type="email"
           placeholder="Enter Email"
           value={email}
@@ -61,9 +93,10 @@ const Login = () => {
           <p className="error">{emailError}</p>
         )}
 
-        <label>Password</label>
+        <label htmlFor="password">Password</label>
 
         <input
+          id="password"
           type="password"
           placeholder="Enter Password"
           value={password}
@@ -74,16 +107,29 @@ const Login = () => {
           <p className="error">{passwordError}</p>
         )}
 
+        <div className="remember-me">
+          <input
+            type="checkbox"
+            id="rememberMe"
+            checked={rememberMe}
+            onChange={(e) =>
+              setRememberMe(e.target.checked)
+            }
+          />
+
+          <label htmlFor="rememberMe">
+            Remember Me
+          </label>
+        </div>
+
         <button type="submit">
           Login
         </button>
-
       </form>
 
       <p className="note">
         Any valid email and password will work.
       </p>
-
     </div>
   );
 };

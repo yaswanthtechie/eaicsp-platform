@@ -1,0 +1,146 @@
+/* ===========================
+   Toast Container
+=========================== */
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+
+  min-width: 320px;
+  max-width: 420px;
+
+  padding: var(--space-md);
+
+  background: var(--color-surface);
+  color: var(--color-text);
+
+  border: 1px solid var(--color-border);
+  border-left: 4px solid;
+
+  border-radius: var(--radius-md);
+
+  box-shadow: var(--shadow-md);
+
+  animation: toastSlideIn 0.25s ease;
+
+  transition:
+    transform var(--transition-default),
+    box-shadow var(--transition-default);
+}
+
+.toast:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+
+/* ===========================
+   Toast Content
+=========================== */
+
+.toast-content {
+  flex: 1;
+}
+
+.toast-title {
+  margin: 0;
+  margin-bottom: var(--space-xs);
+
+  font-size: var(--font-md);
+  font-weight: 600;
+
+  color: var(--color-text);
+}
+
+.toast-description {
+  margin: 0;
+
+  font-size: var(--font-sm);
+
+  color: var(--color-text-secondary);
+}
+
+/* ===========================
+   Close Button
+=========================== */
+
+.toast-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 28px;
+  height: 28px;
+
+  border: none;
+  border-radius: var(--radius-sm);
+
+  background: transparent;
+
+  color: var(--color-text);
+
+  cursor: pointer;
+
+  font-size: 18px;
+
+  transition:
+    background-color var(--transition-default),
+    color var(--transition-default);
+}
+
+.toast-close:hover {
+  background: var(--color-border);
+}
+
+.toast-close:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* ===========================
+   Variants
+=========================== */
+
+.toast-success {
+  border-left-color: var(--color-success);
+}
+
+.toast-error {
+  border-left-color: var(--color-danger);
+}
+
+.toast-warning {
+  border-left-color: var(--color-warning);
+}
+
+.toast-info {
+  border-left-color: var(--color-primary);
+}
+
+/* ===========================
+   Animation
+=========================== */
+
+@keyframes toastSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* ===========================
+   Responsive
+=========================== */
+
+@media (max-width: 600px) {
+  .toast {
+    min-width: 100%;
+    max-width: 100%;
+  }
+}

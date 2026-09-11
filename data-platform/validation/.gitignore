@@ -1,0 +1,20 @@
+# .csv files
+data/*.csv
+
+# Node / React
+node_modules/
+*.log
+
+# watermark
+.watermark.json
+.watermark_cli.json
+.watermarks/
+
+# logs dir
+logs/
+
+# reports dir
+reports/
+
+# tests mock dir
+MagicMock/

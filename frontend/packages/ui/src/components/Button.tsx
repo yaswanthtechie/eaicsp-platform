@@ -1,62 +1,96 @@
-import React from "react";
-import { colors, space, radius } from "../tokens";
+import type { ReactNode } from "react";
+import { colors, spacing, radius } from "../theme/tokens";
 import { Spinner } from "./Spinner";
 
-type ButtonProps = {
-  variant: "primary" | "secondary" | "danger";
-  size: "sm" | "md";
+
+export type ButtonProps = {
+  variant?: "primary" | "secondary" | "danger";
+  size?: "sm" | "md";
   loading?: boolean;
   disabled?: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
+  type?: "button" | "submit" | "reset";
+  onClick?: () => void;
+  children: ReactNode;
 };
 
+
 export function Button({
-  variant,
-  size,
+  variant = "primary",
+  size = "md",
   loading = false,
   disabled = false,
   onClick,
   children,
 }: ButtonProps) {
+
+
   const backgroundColor =
     variant === "primary"
       ? colors.primary
       : variant === "secondary"
-      ? colors.surface
+      ? colors.gray100
       : colors.danger;
+
 
   const textColor =
     variant === "secondary"
-      ? colors.text
-      : colors.textInverse;
+      ? colors.gray900
+      : colors.white;
+
 
   const padding =
     size === "sm"
-      ? `${space.xs}px ${space.sm}px`
-      : `${space.sm}px ${space.md}px`;
+      ? `${spacing.xs} ${spacing.sm}`
+      : `${spacing.sm} ${spacing.md}`;
+
 
   return (
     <button
       type="button"
       onClick={onClick}
-      disabled={loading || disabled}
+      disabled={disabled || loading}
+
       style={{
         backgroundColor,
+
         color: textColor,
+
         padding,
-        border: `1px solid ${colors.border}`,
+
+        border: `1px solid ${colors.gray200}`,
+
         borderRadius: radius.md,
-        cursor: loading || disabled ? "not-allowed" : "pointer",
-        opacity: loading || disabled ? 0.6 : 1,
+
+        cursor:
+          disabled || loading
+            ? "not-allowed"
+            : "pointer",
+
+        opacity:
+          disabled || loading
+            ? 0.6
+            : 1,
+
         display: "inline-flex",
+
         alignItems: "center",
+
         justifyContent: "center",
-        gap: space.xs,
+
+        gap: spacing.xs,
+
         fontWeight: 600,
       }}
     >
-      {loading ? <Spinner /> : children}
+
+      {
+        loading ? (
+          <Spinner />
+        ) : (
+          children
+        )
+      }
+
     </button>
   );
 }
