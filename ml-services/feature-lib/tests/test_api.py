@@ -113,3 +113,80 @@ def test_build_features_missing_required_request_field():
     )
 
     assert response.status_code == 422
+
+def test_build_features_rejects_non_numeric_target():
+    response = client.post(
+        "/features/build",
+        json={
+            "data": [
+                {"date": "2024-01-01", "sales": "100"},
+                {"date": "2024-01-02", "sales": "abc"},
+            ],
+            "date_col": "date",
+            "target_col": "sales",
+            "config": {"lags": [1], "windows": [1]},
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "Target column 'sales' must contain numeric values."
+    )
+def test_build_features_reuses_feature_store_cache(monkeypatch):
+    import api
+    import src.feature_store as feature_store
+
+    api.feature_store.clear()
+
+    call_count = {"count": 0}
+
+    original_build_all_features = feature_store.build_all_features
+
+    def tracked_build_all_features(*args, **kwargs):
+        call_count["count"] += 1
+        return original_build_all_features(*args, **kwargs)
+
+    monkeypatch.setattr(
+        feature_store,
+        "build_all_features",
+        tracked_build_all_features,
+    )
+
+    payload = {
+        "data": [
+            {
+                "date": "2024-01-01",
+                "sales": 100,
+            },
+            {
+                "date": "2024-01-02",
+                "sales": 120,
+            },
+            {
+                "date": "2024-01-03",
+                "sales": 130,
+            },
+        ],
+        "date_col": "date",
+        "target_col": "sales",
+        "config": {
+            "lags": [1],
+            "windows": [1],
+        },
+        "feature_version": "v1",
+    }
+
+    first_response = client.post(
+        "/features/build",
+        json=payload,
+    )
+
+    second_response = client.post(
+        "/features/build",
+        json=payload,
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert first_response.json() == second_response.json()
+    assert call_count["count"] == 1

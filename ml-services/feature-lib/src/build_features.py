@@ -3,7 +3,7 @@ from .rolling_features import add_rolling_features
 from .calendar_features import add_calendar_features
 from .holiday_features import create_holiday_features
 from .interaction_features import add_interaction_features
-
+import pandas as pd
 
 def build_all_features(
     df,
@@ -33,7 +33,14 @@ def build_all_features(
         "config must contain 'lags' and 'windows'."
     )
 
-    # Ensure data is sorted by date
+    if date_col not in data.columns:
+        raise ValueError(f"Date column '{date_col}' not found in dataframe.")
+
+    data[date_col] = pd.to_datetime(
+        data[date_col],
+        errors="raise"
+    )
+
     data = data.sort_values(date_col).reset_index(drop=True)
 
     data = add_lag_features(

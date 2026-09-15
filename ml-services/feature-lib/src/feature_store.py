@@ -29,15 +29,23 @@ class FeatureStore:
         config: dict | None,
         feature_version: str,
     ) -> str:
-        """
-        Create a deterministic cache key for a feature computation.
-        """
+        """Create a deterministic cache key for a feature computation."""
+
+        dataset_content = pd.util.hash_pandas_object(
+            df,
+            index=True,
+        ).values.tobytes()
+
+        dataset_schema = json.dumps(
+            {
+                "columns": list(df.columns),
+                "dtypes": [str(dtype) for dtype in df.dtypes],
+            },
+            sort_keys=True,
+        ).encode("utf-8")
 
         dataset_hash = hashlib.sha256(
-            pd.util.hash_pandas_object(
-                df,
-                index=True
-            ).values.tobytes()
+            dataset_content + dataset_schema
         ).hexdigest()
 
         definition = {
@@ -51,7 +59,7 @@ class FeatureStore:
             json.dumps(
                 definition,
                 sort_keys=True,
-                default=str
+                default=str,
             ).encode("utf-8")
         ).hexdigest()
 

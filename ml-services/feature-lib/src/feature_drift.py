@@ -7,19 +7,26 @@ def detect_feature_drift(
     current_df: pd.DataFrame,
     features: list[str] | None = None,
     significance_level: float = 0.05,
+    effect_size_threshold: float = 0.1,
 ) -> pd.DataFrame:
     """
     Detect distribution drift between reference and current feature data.
 
     Uses the two-sample Kolmogorov-Smirnov test for numeric features.
 
-    A feature is considered drifted when its p-value is below
-    the configured significance level.
+    A feature is considered drifted when both its p-value is below
+    the configured significance level and its KS statistic is greater
+    than or equal to the configured effect-size threshold.
     """
 
     if not 0 < significance_level < 1:
         raise ValueError(
             "significance_level must be between 0 and 1."
+        )
+
+    if not 0 < effect_size_threshold <= 1:
+        raise ValueError(
+            "effect_size_threshold must be between 0 and 1."
         )
 
     if not isinstance(reference_df, pd.DataFrame):
@@ -33,10 +40,15 @@ def detect_feature_drift(
         )
 
     if features is None:
-        features = list(
-            set(reference_df.select_dtypes(include="number").columns)
-            & set(current_df.select_dtypes(include="number").columns)
+        current_numeric_columns = set(
+            current_df.select_dtypes(include="number").columns
         )
+
+        features = [
+            column
+            for column in reference_df.select_dtypes(include="number").columns
+            if column in current_numeric_columns
+        ]
 
     if not features:
         raise ValueError(
@@ -73,13 +85,26 @@ def detect_feature_drift(
         reference_values = reference_df[feature].dropna()
         current_values = current_df[feature].dropna()
 
-        if reference_values.empty or current_values.empty:
+        if current_values.empty:
+            results.append(
+                {
+                    "feature": feature,
+                    "statistic": float("nan"),
+                    "p_value": float("nan"),
+                    "is_drifted": True,
+                    "reason": "no current values",
+                }
+            )
+            continue
+
+        if reference_values.empty:
             results.append(
                 {
                     "feature": feature,
                     "statistic": float("nan"),
                     "p_value": float("nan"),
                     "is_drifted": False,
+                    "reason": "no reference values",
                 }
             )
             continue
@@ -90,12 +115,17 @@ def detect_feature_drift(
             method="asymp",
         )
 
+        is_drifted = (
+            p_value < significance_level
+            and statistic >= effect_size_threshold
+        )
+
         results.append(
             {
                 "feature": feature,
                 "statistic": statistic,
                 "p_value": p_value,
-                "is_drifted": p_value < significance_level,
+                "is_drifted": is_drifted,
             }
         )
 

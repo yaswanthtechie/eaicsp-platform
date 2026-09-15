@@ -4,6 +4,7 @@ import warnings
 import pandas as pd
 from scipy.stats import pearsonr
 from sklearn.ensemble import RandomForestRegressor
+from statsmodels.stats.multitest import multipletests
 
 import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
@@ -49,8 +50,11 @@ def calculate_feature_significance(
     significance_level: float = 0.05
 ) -> pd.DataFrame:
     """
-    Calculate Pearson correlation, p-value, and statistical significance
-    for each numeric feature against the target.
+    Calculate Pearson correlation, p-value, adjusted p-value, and
+    statistical significance for each numeric feature against the target.
+
+    Benjamini-Hochberg false discovery rate correction is applied to
+    the p-values because multiple features are tested simultaneously.
 
     Features with fewer than 3 valid observations are skipped because
     statistical significance cannot be reliably calculated.
@@ -95,7 +99,6 @@ def calculate_feature_significance(
                 "feature": feature,
                 "correlation": correlation,
                 "p_value": p_value,
-                "is_significant": p_value < significance_level,
             }
         )
 
@@ -105,13 +108,26 @@ def calculate_feature_significance(
                 "feature",
                 "correlation",
                 "p_value",
+                "adjusted_p_value",
                 "is_significant",
             ]
         )
 
+    results_df = pd.DataFrame(results)
+
+    results_df["adjusted_p_value"] = multipletests(
+        results_df["p_value"],
+        alpha=significance_level,
+        method="fdr_bh"
+    )[1]
+
+    results_df["is_significant"] = (
+        results_df["adjusted_p_value"] < significance_level
+    )
+
     return (
-        pd.DataFrame(results)
-        .sort_values("p_value", ascending=True)
+        results_df
+        .sort_values("adjusted_p_value", ascending=True)
         .reset_index(drop=True)
     )
 
@@ -204,11 +220,11 @@ def select_top_features(
 ):
     """
     Select the top features using correlation and model-based importance,
-    with statistical significance as supporting evidence.
+    with statistically corrected significance as supporting evidence.
 
     Correlation and model importance are combined into the feature score.
-    Statistical significance is reported and significant features are
-    prioritized when ranking.
+    Benjamini-Hochberg adjusted p-values are used to determine statistical
+    significance, and significant features are prioritized when ranking.
     """
 
     if not isinstance(n_features, numbers.Integral) or isinstance(
@@ -263,7 +279,12 @@ def select_top_features(
         how="inner"
     ).merge(
         significance[
-            ["feature", "p_value", "is_significant"]
+            [
+                "feature",
+                "p_value",
+                "adjusted_p_value",
+                "is_significant"
+            ]
         ],
         on="feature",
         how="left"

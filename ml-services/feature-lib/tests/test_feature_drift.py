@@ -120,3 +120,66 @@ def test_multiple_features_are_checked():
         "feature_a",
         "feature_b",
     ]
+def test_detect_feature_drift_marks_all_null_current_feature_as_drifted():
+    reference_df = pd.DataFrame({
+        "sales": [100, 120, 140, 160],
+    })
+
+    current_df = pd.DataFrame({
+        "sales": [float("nan"), float("nan"), float("nan"), float("nan")],
+    })
+
+    result = detect_feature_drift(
+        reference_df,
+        current_df,
+        features=["sales"],
+    )
+
+    assert result.loc[0, "is_drifted"]
+    assert result.loc[0, "reason"] == "no current values"
+
+def test_detects_variance_only_shift():
+    reference = pd.DataFrame(
+        {
+            "feature_a": (
+                [9, 10, 11, 10, 11, 9, 10, 11] * 25
+            )
+        }
+    )
+
+    current = pd.DataFrame(
+        {
+            "feature_a": (
+                [2, 18, 3, 17, 1, 19, 4, 16] * 25
+            )
+        }
+    )
+
+    result = detect_feature_drift(
+        reference,
+        current,
+        features=["feature_a"],
+    )
+
+    assert result.loc[0, "statistic"] >= 0.1
+    assert result.loc[0, "p_value"] < 0.05
+    assert result.loc[0, "is_drifted"]
+
+
+def test_detects_gradual_distribution_shift():
+    reference = pd.DataFrame(
+        {"feature_a": list(range(100))}
+    )
+
+    current = pd.DataFrame(
+        {"feature_a": list(range(20, 120))}
+    )
+
+    result = detect_feature_drift(
+        reference,
+        current,
+        features=["feature_a"],
+    )
+
+    assert result.loc[0, "statistic"] >= 0.1
+    assert result.loc[0, "is_drifted"]        

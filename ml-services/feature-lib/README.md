@@ -46,32 +46,37 @@ Example:
   - Calculates correlations between numeric features and the target.
   - Calculates Pearson correlation p-values to provide statistical backing for feature-target relationships.
   - Identifies whether feature-target relationships are statistically significant using a configurable significance level.
+  - Applies Benjamini-Hochberg false discovery rate correction to p-values when evaluating multiple features.
   - Calculates model-based feature importance using a Random Forest.
   - Combines absolute correlation and model-based importance after normalizing both signals.
   - Uses statistical significance as supporting evidence when ranking features.
   - Returns the top N most useful features requested by the caller.
   - Random Forest feature importance is calculated from a single model fit on the available data.
   - Importance values are dataset-dependent and may be less stable on small datasets.
+  - Pearson correlation p-values assume independent observations and may be less reliable for autocorrelated time-series data. They are therefore treated as supporting evidence rather than the sole basis for feature selection.
 
 - **Feature Store**
   - Provides a simple in-memory feature store for caching engineered features.
   - Computes features when they are not already cached.
-  - Reuses cached feature sets across multiple models or consumers.
+  - Reuses cached feature sets across multiple models, consumers, and API requests.
   - Cache keys account for dataset contents, feature configuration, date column, target column, and feature definition version.
   - Cached results are returned as copies to prevent accidental modification.
   - Supports clearing cached feature sets.
+  - Supports explicit feature-definition versions such as `v1` and `v2`.
+  - Different feature-definition versions are stored as separate cache entries.
 
 - **Feature Drift Monitoring**
   - Compares reference and current feature distributions.
   - Uses the two-sample Kolmogorov-Smirnov (KS) test for numeric features.
   - Reports the KS statistic, p-value, and drift status.
-  - A feature is considered drifted when its p-value is below the configured significance level.
+  - A feature is considered drifted when both its p-value is below the configured significance level and its KS statistic meets or exceeds the configured effect-size threshold.
   - Supports multiple features and handles missing values.
 
 - **Feature Engineering API**
   - Provides a `POST /features/build` endpoint for building engineered features as a service.
-  - Accepts raw input data, date column, target column, and optional feature configuration.
-  - Uses the shared `build_all_features()` implementation to generate features.
+  - Accepts raw input data, date column, target column, optional feature configuration, and feature-definition version.
+  - Uses the shared `FeatureStore` to compute and cache engineered features.
+  - Reuses cached features when the same dataset, configuration, and feature-definition version are requested again.
   - Returns the engineered features as JSON-compatible records.
   - Returns validation errors using appropriate HTTP responses.
 
@@ -79,15 +84,15 @@ Example:
   - Includes validation for invalid configurations and feature parameters.
   - Includes tests for normal cases and edge cases such as empty data, single-row data, tiny datasets, large lag values, and all-NaN target/feature cases.
   - Includes tests for feature usefulness and feature selection.
-  - Includes tests for statistical significance calculations.
+  - Includes tests for statistical significance calculations and multiple-testing correction.
   - Includes tests for preventing data leakage.
   - Includes tests for feature-store caching, versioning, dataset separation, reuse, and cache clearing.
-  - Includes tests for feature-drift detection.
-  - Includes API tests for successful feature generation and validation/error cases.
+  - Includes tests for feature-drift detection, including shifted, variance-only, and gradual distribution changes.
+  - Includes API tests for successful feature generation, validation/error cases, and Feature Store cache reuse.
 
 The library was tested using the Prophet retail sales dataset.
 
-The current test suite contains 61 tests, and the latest full test run passed all 61 tests.
+The current test suite contains 70 tests, and the latest full test run passed all 70 tests.
 
 ---
 
@@ -111,12 +116,12 @@ The main dependencies include:
 - numpy
 - scipy
 - scikit-learn
+- statsmodels
 - holidays
 - pytest
 - fastapi
 - uvicorn
-
-The API tests also require `httpx2` for the current TestClient environment.
+- httpx
 
 ### Step 3
 
@@ -133,7 +138,8 @@ The demo:
 - Displays the first 10 rows of the generated features.
 - Calculates feature correlations with the target.
 - Calculates model-based feature importance using a Random Forest.
-- Selects the top 5 features using the combined correlation and model-based importance score.
+- Splits the generated features chronologically into training and test portions.
+- Selects the top 5 features using only the training portion.
 - Displays the p-value and statistical significance information as part of the feature-selection results.
 - Prints the number of candidate features and selected features.
 
@@ -166,17 +172,19 @@ The test suite covers:
 - Holiday features
 - Feature usefulness
 - Statistical significance
+- Multiple-testing correction
 - Feature selection
 - Feature-store caching and reuse
 - Feature-drift detection
 - Data-leakage prevention
 - API success and validation/error cases
+- API and Feature Store integration
 
 Expected result:
 
-    61 passed
+    70 passed
 
-The test suite may display dependency-related deprecation warnings. These warnings do not indicate failures in the feature library when all tests pass.
+The test suite may display dependency-related deprecation or statistical warnings. These warnings do not indicate failures in the feature library when all tests pass.
 
 ---
 
@@ -201,7 +209,7 @@ Example:
         feature_version="v1"
     )
 
-If the same dataset, configuration, and feature definition version are requested again, the previously computed features can be reused from the cache.
+If the same dataset, configuration, and feature-definition version are requested again, the previously computed features can be reused from the cache.
 
 The cache key includes:
 
@@ -211,21 +219,35 @@ The cache key includes:
 - Feature configuration
 - Feature definition version
 
+Feature-definition versions allow different versions of feature logic to be cached separately.
+
+For example:
+
+    feature_version="v1"
+
+and:
+
+    feature_version="v2"
+
+produce separate cache entries.
+
 This demonstrates the feature-store pattern:
 
     Raw Data
-       |
-       v
+        |
+        v
     Feature Computation
-       |
-       v
+        |
+        v
     Feature Store / Cache
-       |
-       +------> Model A
-       |
-       +------> Model B
-       |
-       +------> Model C
+        |
+        +------> Model A
+        |
+        +------> Model B
+        |
+        +------> Model C
+
+The Feature Store is also used by the `/features/build` API endpoint. The API and Python library therefore share the same feature computation and caching logic.
 
 The current implementation is an in-memory demonstration and is not intended to be a production distributed feature-store system.
 
@@ -253,9 +275,17 @@ The result contains:
 - `p_value`
 - `is_drifted`
 
+The drift detector uses both statistical significance and an effect-size threshold.
+
 A feature is marked as drifted when:
 
     p_value < significance_level
+
+and:
+
+    statistic >= effect_size_threshold
+
+The default effect-size threshold is `0.1`.
 
 The drift detector compares the distribution of a feature in reference data with its distribution in current data.
 
@@ -266,7 +296,7 @@ Example concept:
          v
     Feature Distribution
          |
-         |       KS Test
+         | KS Test
          |
          v
     Current Data
@@ -276,7 +306,7 @@ Example concept:
 
 This allows changes in feature distributions to be detected and monitored over time.
 
-The current implementation focuses on numeric features.
+The implementation focuses on numeric features.
 
 ---
 
@@ -294,33 +324,37 @@ The endpoint accepts:
 - `date_col`
 - `target_col`
 - Optional feature configuration
+- Optional `feature_version`
 
 Example request:
 
     {
-      "data": [
-        {
-          "date": "2024-01-01",
-          "quantity_sold": 100
+        "data": [
+            {
+                "date": "2024-01-01",
+                "quantity_sold": 100
+            },
+            {
+                "date": "2024-01-02",
+                "quantity_sold": 120
+            },
+            {
+                "date": "2024-01-03",
+                "quantity_sold": 115
+            }
+        ],
+        "date_col": "date",
+        "target_col": "quantity_sold",
+        "config": {
+            "lags": [1],
+            "windows": [2]
         },
-        {
-          "date": "2024-01-02",
-          "quantity_sold": 120
-        },
-        {
-          "date": "2024-01-03",
-          "quantity_sold": 115
-        }
-      ],
-      "date_col": "date",
-      "target_col": "quantity_sold",
-      "config": {
-        "lags": [1],
-        "windows": [2]
-      }
+        "feature_version": "v1"
     }
 
-The API uses the same shared `build_all_features()` implementation used by the Python library.
+The API uses the shared `FeatureStore`, which in turn uses the same `build_all_features()` implementation as the Python library.
+
+For identical requests using the same dataset, configuration, and feature-definition version, the Feature Store can reuse the previously computed features.
 
 ### Start the API
 
@@ -334,7 +368,7 @@ The endpoint can then be called with:
 
 The API returns the generated feature records in JSON format.
 
-Validation errors such as a missing target column or invalid feature configuration are returned as HTTP `400` responses.
+Validation errors such as a missing target column, non-numeric target, or invalid feature configuration are returned as HTTP `400` responses.
 
 ---
 
@@ -360,9 +394,11 @@ While implementing the library, I spent time understanding:
 - How to validate configuration and feature parameters.
 - How correlation can be used as a simple feature usefulness diagnostic.
 - How Pearson correlation p-values provide statistical backing for feature-target relationships.
+- Why multiple-testing correction is useful when evaluating statistical significance across many features.
 - How Random Forest feature importance provides a model-based view of feature usefulness.
 - How feature caching can prevent repeated feature computation.
 - How feature versions can be included in feature-store cache keys.
+- How the API can reuse the Feature Store instead of recomputing features.
 - How feature drift can be detected by comparing distributions.
 - How to expose feature generation through a FastAPI endpoint.
 - Python import paths while running the test and demo scripts.
@@ -377,27 +413,24 @@ After understanding these concepts, I was able to complete the feature engineeri
 - The input data is automatically sorted by the date column before feature generation.
 - Lag features and rolling features require historical observations.
 - Therefore, the first few rows may contain `NaN` values.
-- Rolling statistics are computed on shifted values (`shift(1)`), ensuring only past observations are used and
-  preventing data  leakage.
+- Rolling statistics are computed on shifted values (`shift(1)`), ensuring only past observations are used and preventing data leakage.
 - Users can remove rows containing `NaN` values using `dropna()` before training their models if required.
-- The feature builder accepts a configuration dictionary so lag and rolling-window settings can be changed without 
-  modifying the feature generation code.
+- The feature builder accepts a configuration dictionary so lag and rolling-window settings can be changed without modifying the feature generation code.
 - The feature usefulness helper calculates correlations only for numeric features and requires the target column to be numeric.
-- The statistical significance helper calculates Pearson correlation, p-values, and significance status for numeric features.
-- Statistical significance is used as supporting evidence during feature ranking; it is not added directly to the
-  combined correlation and model-importance score.
+- The statistical significance helper calculates Pearson correlation, p-values, adjusted p-values, and significance status for numeric features.
+- Benjamini-Hochberg false discovery rate correction is applied when evaluating multiple feature p-values.
+- Statistical significance is used as supporting evidence during feature ranking; it is not added directly to the combined correlation and model-importance score.
 - The model-based feature importance helper uses a Random Forest to rank numeric features by their importance to the target.
-- The feature selection helper combines absolute correlation and model-based feature importance after normalizing both
-  signals to a 0–1 range, then returns the top N features.
+- The feature selection helper combines absolute correlation and model-based feature importance after normalizing both signals to a 0–1 range, then returns the top N features.
 - Statistically significant features are prioritized when ranking the final feature-selection results.
 - Features with undefined (`NaN`) correlations, such as constant features, are excluded from the usefulness results.
-- The `FeatureStore` uses an in-memory cache and includes dataset contents, configuration, and feature definition version
-  in its cache key.
+- The `FeatureStore` uses an in-memory cache and includes dataset contents, configuration, and feature definition version in its cache key.
 - Cached feature results are returned as copies so callers cannot directly modify the stored result.
-- Feature drift monitoring currently focuses on numeric features and uses the two-sample KS test.
+- Different feature-definition versions are cached separately.
+- The `/features/build` API uses the shared `FeatureStore` so repeated requests with the same data, configuration, and version can reuse cached features.
+- Feature drift monitoring currently focuses on numeric features and uses the two-sample KS test with both statistical and effect-size criteria.
 - Holiday detection covers 2001–2035; data outside that range returns `is_holiday=False`, not a computed value.
-- The API uses the same feature-building logic as the Python library rather than maintaining a separate
-  feature-generation implementation.
+- The API uses the same feature-building logic as the Python library rather than maintaining a separate feature-generation implementation.
 
 ---
 
@@ -449,14 +482,17 @@ This keeps feature engineering centralized and allows different forecasting mode
 The same feature-generation functionality can also be accessed through the API:
 
     Model / Service
-           |
-           v
+          |
+          v
     POST /features/build
-           |
-           v
+          |
+          v
+    Feature Store / Cache
+          |
+          v
     Shared Feature Engineering Library
-           |
-           v
+          |
+          v
     Engineered Features
 
 This provides both a reusable Python library interface and a service-based interface for other AI/ML components.

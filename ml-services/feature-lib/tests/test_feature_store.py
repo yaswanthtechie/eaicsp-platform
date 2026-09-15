@@ -1,5 +1,5 @@
 import pandas as pd
-
+from src.feature_usefulness import select_top_features
 from src.feature_store import FeatureStore
 
 
@@ -249,7 +249,7 @@ def test_feature_store_feeds_feature_selection(monkeypatch):
             {
                 "date": df["date"],
                 "sales": df["sales"],
-                "lag_1": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+                "lag_1": [10, 12, 15, 14, 18, 20, 22, 21, 25, 28],
                 "lag_7": [7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
                 "rolling_mean_7": [10.0] * 10,
                 "is_holiday": [0, 1] * 5,
@@ -268,16 +268,51 @@ def test_feature_store_feeds_feature_selection(monkeypatch):
         feature_version="v1",
     )
 
-    selected_features = stored_features[
-        ["lag_1", "lag_7", "rolling_mean_7", "is_holiday"]
-    ]
+    selected_features = select_top_features(
+        stored_features,
+        target_col="sales",
+        n_features=2,
+    )
 
-    assert set(selected_features.columns) == {
-        "lag_1",
-        "lag_7",
-        "rolling_mean_7",
-        "is_holiday",
-    }
+    assert len(selected_features) == 2
+    assert set(selected_features.index).issubset(
+        {
+            "lag_1",
+            "lag_7",
+            "rolling_mean_7",
+            "is_holiday",
+        }
+    )
+    assert "sales" not in selected_features.index
+    assert len(store) == 1
 
-    assert "sales" not in selected_features.columns
-    assert len(store) == 1    
+def test_feature_store_cache_key_changes_when_column_name_changes():
+    df1 = pd.DataFrame({
+        "date": ["2024-01-01", "2024-01-02"],
+        "sales": [100, 120],
+    })
+
+    df2 = pd.DataFrame({
+        "date": ["2024-01-01", "2024-01-02"],
+        "revenue": [100, 120],
+    })
+
+    store = FeatureStore()
+
+    key1 = store._create_cache_key(
+        df=df1,
+        date_col="date",
+        target_col="sales",
+        config={"lags": [1], "windows": [1]},
+        feature_version="v1",
+    )
+
+    key2 = store._create_cache_key(
+        df=df2,
+        date_col="date",
+        target_col="revenue",
+        config={"lags": [1], "windows": [1]},
+        feature_version="v1",
+    )
+
+    assert key1 != key2
