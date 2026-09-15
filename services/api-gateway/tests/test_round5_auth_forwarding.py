@@ -77,7 +77,7 @@ def test_authorization_header_forwarded_for_post_with_body(mock_send, client):
     Verify that Authorization header is forwarded on mutating methods (POST) along with body.
     """
     token_value = "Bearer custom-procurement-manager-token-abc-123"
-    request_payload = {"sku": "SKU-9999", "quantity": 50}
+    request_body = b'{"sku":"SKU-9999","quantity":50}'
 
     mock_send.return_value = httpx.Response(
         status_code=201,
@@ -88,8 +88,11 @@ def test_authorization_header_forwarded_for_post_with_body(mock_send, client):
 
     response = client.post(
         "/api/v1/inventory",
-        json=request_payload,
-        headers={"Authorization": token_value},
+        content=request_body,
+        headers={
+            "Authorization": token_value,
+            "Content-Type": "application/json",
+        },
     )
 
     assert response.status_code == 201

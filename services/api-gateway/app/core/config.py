@@ -100,7 +100,49 @@ class Settings(BaseSettings):
         return self.ROLE_RATE_LIMITS.get(
             normalized, self.ROLE_RATE_LIMITS.get("default", 60)
         )
+    HEALTH_CHECK_PATHS: list[str] = ["/health", "/health/"]
+    ROUTE_RATE_LIMITS: dict[str, int | None] = {
+        "/health": None,
+        "/api/v1/dashboard": 60,
+        "/api/v1/auth": 30,
+    }
 
+    def is_health_check_path(self, path: str) -> bool:
+        """
+        Check whether the incoming path matches a registered health check route.
+
+        Strict matching: does not match arbitrary paths with 'health' substring
+        (e.g. /healthy, /api/v1/health-report do NOT match).
+        """
+        normalized = path.rstrip("/") or "/"
+        for health_path in self.HEALTH_CHECK_PATHS:
+            if normalized == health_path.rstrip("/"):
+                return True
+        return False
+
+    def get_route_rate_limit(self, path: str) -> tuple[int | None, str | None]:
+        """
+        Find route-specific rate limit configuration for a path.
+
+        Returns:
+            (quota, matched_pattern)
+            - If matched and quota is None: (None, pattern) -> exempt / unlimited
+            - If matched and quota is int: (quota, pattern) -> route-specific limit
+            - If no pattern matched: (None, None) -> normal gateway route
+        """
+        if self.is_health_check_path(path):
+            return None, "/health"
+
+        # Check longest prefix pattern first for precision
+        for pattern in sorted(self.ROUTE_RATE_LIMITS.keys(), key=len, reverse=True):
+            quota = self.ROUTE_RATE_LIMITS[pattern]
+            if pattern == "/":
+                if path == "/":
+                    return quota, pattern
+            elif path == pattern or path.startswith(pattern + "/") or (pattern.endswith("/") and path.startswith(pattern)):
+                return quota, pattern
+
+        return None, None
     # --------------------------------------------------
     # Circuit Breaker Configuration
     # --------------------------------------------------
