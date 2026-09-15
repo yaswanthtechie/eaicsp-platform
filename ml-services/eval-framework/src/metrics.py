@@ -3,7 +3,7 @@ import numpy as np
 # false_positive_rate, etc.) is treated as lower-is-better by default. This is
 # the single source of truth used by both report.py and leaderboard.py, so
 # adding a new metric here automatically fixes its winner-direction everywhere.
-HIGHER_IS_BETTER_METRICS = {"precision", "recall", "f1", "balanced_accuracy", "specificity"}
+HIGHER_IS_BETTER_METRICS = {"precision", "recall", "f1", "balanced_accuracy", "specificity", "accuracy"}
 
 
 def mape(actual, predicted) -> float:

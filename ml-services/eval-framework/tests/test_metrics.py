@@ -501,6 +501,34 @@ def test_save_html_report_writes_file(tmp_path):
     content = output_path.read_text(encoding="utf-8")
     assert "naive" in content
 
+def test_html_report_escapes_malicious_model_name():
+    malicious_results = {
+        "<script>alert(1)</script>": {"mape": 5.0},
+        "clean_model": {"mape": 3.0},
+    }
+    html_output = generate_html_report(malicious_results)
+    assert "<script>alert(1)</script>" not in html_output
+    assert "&lt;script&gt;" in html_output
+
+
+def test_html_report_escapes_malicious_interpretation():
+    results = {"a": {"mape": 5.0}, "b": {"mape": 3.0}}
+    sig_result = {"interpretation": "<img onerror=alert(1) src=x>"}
+    html_output = generate_html_report(results, significance_result=sig_result)
+    assert "<img onerror=alert(1)" not in html_output
+    assert "&lt;img" in html_output
+
+
+def test_html_report_handles_mismatched_metrics_without_crashing():
+    mixed_results = {
+        "prophet": {"mape": 3.2, "rmse": 20500},
+        "anomaly": {"f1": 0.8},
+    }
+    html_output = generate_html_report(mixed_results)
+    assert len(html_output) > 0
+    assert "prophet" in html_output
+    assert "anomaly" in html_output
+
 def test_leaderboard_service_health_check():
     response = client.get("/health")
     assert response.status_code == 200

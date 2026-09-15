@@ -1,5 +1,7 @@
 import pandas as pd
 
+from .metrics import HIGHER_IS_BETTER_METRICS
+
 
 class LeakageError(Exception):
     """Raised when a guardrail detects a hard failure -- something that
@@ -37,10 +39,17 @@ def check_no_train_test_overlap(train: pd.DataFrame, test: pd.DataFrame, on: lis
 
 
 def check_suspicious_accuracy(score: float, metric_name: str = "accuracy",
-                                 threshold: float = 0.98) -> list:
-    """Flags (does not raise) if a score is suspiciously high -- often a
+                                 threshold: float = 0.98, low_threshold: float = 0.02) -> list:
+    """Flags (does not raise) if a score is suspiciously good -- often a
     sign of data leakage rather than genuine model skill, especially for
     real-world noisy data where near-perfect scores are rare.
+
+    Automatically picks the correct suspicious direction based on the
+    metric name: for higher-is-better metrics (accuracy, precision, recall,
+    f1, etc. -- see HIGHER_IS_BETTER_METRICS in metrics.py), a score at or
+    above `threshold` is flagged. For lower-is-better metrics (MAPE, RMSE),
+    a near-zero score (at or below `low_threshold`) is the equivalent red
+    flag -- e.g. a MAPE of 0.001 is just as suspicious as 99.9% accuracy.
 
     Returns a list of warning strings (empty list if nothing suspicious).
     This is a soft warning, not a hard failure, since some problems
@@ -48,14 +57,27 @@ def check_suspicious_accuracy(score: float, metric_name: str = "accuracy",
     task) -- the caller decides whether to treat it as blocking.
     """
     warnings = []
-    if score >= threshold:
-        warnings.append(
-            f"Suspicious result: {metric_name}={score:.4f} is at or above the "
-            f"{threshold} threshold. Real-world results this high often indicate "
-            f"data leakage (e.g. a feature that indirectly encodes the target, "
-            f"or train/test overlap) rather than genuine model skill. Worth "
-            f"double-checking before trusting this number."
-        )
+    is_higher_better = metric_name in HIGHER_IS_BETTER_METRICS
+
+    if is_higher_better:
+        if score >= threshold:
+            warnings.append(
+                f"Suspicious result: {metric_name}={score:.4f} is at or above the "
+                f"{threshold} threshold. Real-world results this high often indicate "
+                f"data leakage (e.g. a feature that indirectly encodes the target, "
+                f"or train/test overlap) rather than genuine model skill. Worth "
+                f"double-checking before trusting this number."
+            )
+    else:
+        if score <= low_threshold:
+            warnings.append(
+                f"Suspicious result: {metric_name}={score:.4f} is at or below the "
+                f"{low_threshold} threshold. For a lower-is-better metric like this "
+                f"(e.g. MAPE, RMSE), a near-zero error is the same red flag as a "
+                f"near-perfect accuracy elsewhere -- often data leakage rather than "
+                f"genuine model skill. Worth double-checking before trusting this number."
+            )
+
     return warnings
 
 
@@ -63,9 +85,27 @@ def check_chronological_order(train: pd.DataFrame, test: pd.DataFrame, date_col:
     """Hard-fails if any test date is earlier than or equal to the latest
     train date -- enforces the project's core rule that training data must
     always come strictly before test data in time.
+
+    Dates are explicitly converted with pd.to_datetime before comparing --
+    comparing raw strings can both false-alarm on clean splits (e.g.
+    "11/1/2024" < "9/1/2024" alphabetically) and, worse, silently miss real
+    leaks (string comparison doesn't respect calendar order).
+
+    Raises ValueError (not LeakageError) if either dataframe is empty --
+    that's a usage error, not a leakage finding, so it gets a clear message
+    instead of a raw crash.
     """
-    train_max = train[date_col].max()
-    test_min = test[date_col].min()
+    if len(train) == 0 or len(test) == 0:
+        raise ValueError(
+            "check_chronological_order: train and test must both be non-empty."
+        )
+
+    train_dates = pd.to_datetime(train[date_col])
+    test_dates = pd.to_datetime(test[date_col])
+
+    train_max = train_dates.max()
+    test_min = test_dates.min()
+
     if test_min <= train_max:
         raise LeakageError(
             f"Chronological order violated: latest train date ({train_max}) is "
