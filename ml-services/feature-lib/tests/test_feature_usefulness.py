@@ -302,3 +302,38 @@ def test_select_top_features_includes_statistical_backing():
     assert "p_value" in selected.columns
     assert "is_significant" in selected.columns
     assert selected.loc["useful_feature", "is_significant"]
+
+def test_calculate_feature_significance_applies_benjamini_hochberg_correction():
+    df = pd.DataFrame(
+        {
+            "target": range(1, 21),
+            "feature_1": [
+                1, 4, 3, 6, 5, 8, 7, 10, 9, 12,
+                11, 14, 13, 16, 15, 18, 17, 20, 19, 22,
+            ],
+            "feature_2": [
+                1, 7, 3, 9, 5, 11, 7, 13, 9, 15,
+                11, 17, 13, 19, 15, 21, 17, 23, 19, 25,
+            ],
+            "feature_3": [
+                1, 20, 2, 19, 3, 18, 4, 17, 5, 16,
+                6, 15, 7, 14, 8, 13, 9, 12, 10, 11,
+            ],
+        }
+    )
+
+    result = calculate_feature_significance(
+        df,
+        target_col="target",
+        significance_level=0.05,
+    )
+
+    assert "adjusted_p_value" in result.columns
+
+    assert (
+        result["adjusted_p_value"] >= result["p_value"]
+    ).all()
+
+    assert (
+        result["adjusted_p_value"] > result["p_value"]
+    ).any()

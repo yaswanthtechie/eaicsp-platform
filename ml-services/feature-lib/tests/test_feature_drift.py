@@ -182,4 +182,24 @@ def test_detects_gradual_distribution_shift():
     )
 
     assert result.loc[0, "statistic"] >= 0.1
-    assert result.loc[0, "is_drifted"]        
+    assert result.loc[0, "is_drifted"] 
+
+def test_does_not_mark_drift_when_ks_effect_size_is_below_threshold():
+    reference = pd.DataFrame(
+        {"feature_a": list(range(100))}
+    )
+
+    current = pd.DataFrame(
+        {"feature_a": list(range(1, 101))}
+    )
+
+    result = detect_feature_drift(
+        reference,
+        current,
+        features=["feature_a"],
+        significance_level=0.05,
+        effect_size_threshold=0.1,
+    )
+
+    assert result.loc[0, "statistic"] < 0.1
+    assert not result.loc[0, "is_drifted"]           

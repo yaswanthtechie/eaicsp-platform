@@ -14,6 +14,7 @@ The library provides the following features:
   - Creates rolling mean and rolling standard deviation.
   - Rolling statistics are calculated using only historical observations (`shift(1)`) to prevent data leakage.
   - Captures recent trends and variability in the data.
+  - Lag and rolling-window values are based on the number of previous observations (rows), not fixed calendar-day intervals. This supports datasets with irregular date spacing.
 
 - **Calendar Features**
   - Day of week
@@ -92,9 +93,21 @@ Example:
 
 The library was tested using the Prophet retail sales dataset.
 
-The current test suite contains 70 tests, and the latest full test run passed all 70 tests.
+The current test suite contains 77 tests, and the latest full test run passed all 77 tests.
 
 ---
+
+## Milestone Status
+
+| Milestone | Status |
+|---|---|
+| Milestone 1 – Complete Feature Suite |  Done |
+| Milestone 2 – Automated Feature Selection |  Done |
+| Milestone 3 – Feature Store Pattern |  Done |
+| Milestone 4 – Feature Drift Monitoring |  Done |
+| Milestone 5 – Feature Engineering API |  Done |
+
+**Notes:** The FeatureStore is currently an in-memory implementation. Feature versions are explicitly supplied by the caller. Statistical significance uses Pearson correlation with Benjamini-Hochberg correction, with the limitation that Pearson p-values may be less reliable for autocorrelated time-series data.
 
 ## 2. How to Run
 
@@ -182,7 +195,7 @@ The test suite covers:
 
 Expected result:
 
-    70 passed
+    77 passed
 
 The test suite may display dependency-related deprecation or statistical warnings. These warnings do not indicate failures in the feature library when all tests pass.
 
@@ -360,7 +373,7 @@ For identical requests using the same dataset, configuration, and feature-defini
 
 From the `ml-services/feature-lib` directory:
 
-    uvicorn src.api:app --reload
+    uvicorn api:app --reload
 
 The endpoint can then be called with:
 

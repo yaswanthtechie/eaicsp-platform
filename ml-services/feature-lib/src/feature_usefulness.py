@@ -6,8 +6,6 @@ from scipy.stats import pearsonr
 from sklearn.ensemble import RandomForestRegressor
 from statsmodels.stats.multitest import multipletests
 
-import pandas as pd
-from sklearn.ensemble import RandomForestRegressor
 
 def calculate_feature_correlations(
     df: pd.DataFrame,
@@ -47,17 +45,23 @@ def calculate_feature_correlations(
 def calculate_feature_significance(
     df: pd.DataFrame,
     target_col: str,
-    significance_level: float = 0.05
+    significance_level: float = 0.05,
+    use_differencing: bool = False,
 ) -> pd.DataFrame:
     """
-    Calculate Pearson correlation, p-value, adjusted p-value, and
-    statistical significance for each numeric feature against the target.
+    Calculate correlation, p-value, adjusted p-value, and statistical
+    significance for each numeric feature against the target.
 
-    Benjamini-Hochberg false discovery rate correction is applied to
-    the p-values because multiple features are tested simultaneously.
+    When use_differencing is True, first differences are used before
+    calculating Pearson correlation and p-values. This provides a
+    time-series-aware significance diagnostic by reducing the influence
+    of trends and serial dependence in the original observations.
 
-    Features with fewer than 3 valid observations are skipped because
-    statistical significance cannot be reliably calculated.
+    Benjamini-Hochberg false discovery rate correction is applied because
+    multiple features are tested simultaneously.
+
+    Features with fewer than 3 valid observations after preprocessing
+    are skipped.
     """
 
     if target_col not in df.columns:
@@ -75,16 +79,31 @@ def calculate_feature_significance(
             "significance_level must be between 0 and 1."
         )
 
+    if not isinstance(use_differencing, bool):
+        raise ValueError(
+            "use_differencing must be a boolean."
+        )
+
     numeric_df = df.select_dtypes(include="number").copy()
+
     numeric_df = numeric_df.drop(
         columns=[target_col],
         errors="ignore"
     )
 
+    if use_differencing:
+        numeric_df = numeric_df.diff()
+        target = df[target_col].diff()
+    else:
+        target = df[target_col]
+
     results = []
 
     for feature in numeric_df.columns:
-        pair = df[[feature, target_col]].dropna()
+        pair = pd.concat(
+            [numeric_df[feature], target],
+            axis=1,
+        ).dropna()
 
         if len(pair) < 3:
             continue
@@ -217,10 +236,16 @@ def select_top_features(
     target_col,
     n_features=5,
     significance_level=0.05,
+    use_differencing=False,
 ):
     """
     Select the top features using correlation and model-based importance,
     with statistically corrected significance as supporting evidence.
+    
+    Feature selection should be performed on a chronological training
+    window only. The function does not automatically split the input data,
+    so callers are responsible for providing training data and excluding
+    future/test observations.
 
     Correlation and model importance are combined into the feature score.
     Benjamini-Hochberg adjusted p-values are used to determine statistical
@@ -265,7 +290,9 @@ def select_top_features(
     significance = calculate_feature_significance(
         df,
         target_col,
-        significance_level
+        significance_level,
+        use_differencing=use_differencing,
+        
     )
 
     scores = pd.DataFrame({

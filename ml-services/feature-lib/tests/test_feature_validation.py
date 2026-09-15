@@ -338,3 +338,33 @@ def test_rolling_features_do_not_cross_group_boundaries():
     assert result.loc[2, "sales_roll_mean_1"] == 100
     assert result.loc[3, "sales_roll_mean_1"] == 200
 
+def test_build_all_features_does_not_cross_group_boundaries():
+    df = pd.DataFrame({
+        "date": pd.to_datetime([
+            "2024-01-01",
+            "2024-01-01",
+            "2024-01-02",
+            "2024-01-02",
+        ]),
+        "SKU": ["A", "B", "A", "B"],
+        "sales": [100, 200, 120, 220],
+    })
+
+    result = build_all_features(
+        df,
+        date_col="date",
+        target_col="sales",
+        config={"lags": [1], "windows": [1]},
+        group_cols=["SKU"],
+    )
+
+    assert pd.isna(result.loc[0, "sales_lag_1"])
+    assert pd.isna(result.loc[1, "sales_lag_1"])
+    assert result.loc[2, "sales_lag_1"] == 100
+    assert result.loc[3, "sales_lag_1"] == 200
+
+    assert pd.isna(result.loc[0, "sales_roll_mean_1"])
+    assert pd.isna(result.loc[1, "sales_roll_mean_1"])
+    assert result.loc[2, "sales_roll_mean_1"] == 100
+    assert result.loc[3, "sales_roll_mean_1"] == 200    
+

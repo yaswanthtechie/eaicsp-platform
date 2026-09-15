@@ -9,7 +9,8 @@ def build_all_features(
     df,
     date_col,
     target_col,
-    config=None
+    config=None,
+    group_cols=None
 ):
     """
     Build all feature engineering features.
@@ -46,13 +47,15 @@ def build_all_features(
     data = add_lag_features(
         data,
         target_col,
-        lags=config["lags"]
+        lags=config["lags"],
+        group_cols=group_cols
     )
 
     data = add_rolling_features(
         data,
         target_col,
-        windows=config["windows"]
+        windows=config["windows"],
+        group_cols=group_cols
     )
 
     data = add_calendar_features(

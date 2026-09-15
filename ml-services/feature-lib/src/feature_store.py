@@ -1,6 +1,6 @@
 import hashlib
 import json
-
+import inspect
 import pandas as pd
 
 from src.build_features import build_all_features
@@ -48,11 +48,16 @@ class FeatureStore:
             dataset_content + dataset_schema
         ).hexdigest()
 
+        feature_code_hash = hashlib.sha256(
+            inspect.getsource(build_all_features).encode("utf-8")
+        ).hexdigest()
+
         definition = {
             "date_col": date_col,
             "target_col": target_col,
             "config": config,
             "feature_version": feature_version,
+            "feature_code_hash": feature_code_hash,
         }
 
         definition_hash = hashlib.sha256(

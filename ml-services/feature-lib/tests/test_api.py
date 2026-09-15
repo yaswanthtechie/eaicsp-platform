@@ -190,3 +190,102 @@ def test_build_features_reuses_feature_store_cache(monkeypatch):
     assert second_response.status_code == 200
     assert first_response.json() == second_response.json()
     assert call_count["count"] == 1
+
+def test_build_features_rejects_more_than_maximum_rows():
+    payload = {
+        "data": [
+            {
+                "date": "2024-01-01",
+                "sales": 100,
+            }
+        ]
+        * 100_001,
+        "date_col": "date",
+        "target_col": "sales",
+        "config": {
+            "lags": [1],
+            "windows": [1],
+        },
+    }
+
+    response = client.post(
+        "/features/build",
+        json=payload,
+    )
+
+    assert response.status_code == 422
+
+
+def test_build_features_rejects_excessive_lag():
+    payload = {
+        "data": [
+            {
+                "date": "2024-01-01",
+                "sales": 100,
+            }
+        ],
+        "date_col": "date",
+        "target_col": "sales",
+        "config": {
+            "lags": [366],
+            "windows": [1],
+        },
+    }
+
+    response = client.post(
+        "/features/build",
+        json=payload,
+    )
+
+    assert response.status_code == 400
+    assert "exceeds the maximum allowed value" in response.json()["detail"]
+
+
+def test_build_features_rejects_excessive_window():
+    payload = {
+        "data": [
+            {
+                "date": "2024-01-01",
+                "sales": 100,
+            }
+        ],
+        "date_col": "date",
+        "target_col": "sales",
+        "config": {
+            "lags": [1],
+            "windows": [366],
+        },
+    }
+
+    response = client.post(
+        "/features/build",
+        json=payload,
+    )
+
+    assert response.status_code == 400
+    assert "exceeds the maximum allowed value" in response.json()["detail"]
+
+
+def test_build_features_accepts_valid_lag_and_window_limits():
+    payload = {
+        "data": [
+            {
+                "date": "2024-01-01",
+                "sales": 100,
+            }
+        ],
+        "date_col": "date",
+        "target_col": "sales",
+        "config": {
+            "lags": [365],
+            "windows": [365],
+        },
+    }
+
+    response = client.post(
+        "/features/build",
+        json=payload,
+    )
+
+    assert response.status_code == 200
+    assert "features" in response.json()    
