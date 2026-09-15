@@ -7,6 +7,9 @@ Configuration settings for the Iris ML project.
 # Model Configuration
 # ==========================================================
 
+from sqlalchemy import true
+
+
 MODEL_NAME = "iris_classifier"
 EXPERIMENT_NAME = "Iris_Reference"
 
@@ -79,7 +82,7 @@ CANARY_PERCENTAGE = 20
 # ==========================================================
 
 # Drift threshold that triggers retraining.
-DRIFT_THRESHOLD = 0.30
+DRIFT_THRESHOLD = 0.05
 
 
 # ==========================================================
@@ -88,13 +91,13 @@ DRIFT_THRESHOLD = 0.30
 
 # How frequently the simulated scheduler checks for drift.
 # One hour is a safer default for production-like behavior.
-RETRAINING_INTERVAL_SECONDS = 3600
+RETRAINING_INTERVAL_SECONDS = 60
 
 
 # Scheduler is disabled by default.
 # Enable explicitly with:
 # ENABLE_RETRAINING_SCHEDULER=true
-ENABLE_RETRAINING_SCHEDULER = False
+ENABLE_RETRAINING_SCHEDULER = True
 
 
 # Minimum number of recent prediction inputs required
@@ -120,8 +123,8 @@ MODEL_BACKEND = "stub"
 # MILESTONE 3 MULTI-MODEL RETRAINING
 # ==========================================================
 
-MULTIMODEL_RETRAINING_INTERVAL_SECONDS = 3600
+MULTIMODEL_RETRAINING_INTERVAL_SECONDS = 60
 
-ENABLE_MULTIMODEL_RETRAINING_SCHEDULER = False
+ENABLE_MULTIMODEL_RETRAINING_SCHEDULER = True
 
-MULTIMODEL_DRIFT_THRESHOLD = 0.15
+MULTIMODEL_DRIFT_THRESHOLD = 0.05

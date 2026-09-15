@@ -1,4 +1,5 @@
 from typing import Any, Dict
+
 from pydantic import BaseModel, Field
 
 
@@ -13,6 +14,16 @@ class ModelPredictionRequest(BaseModel):
         description="Optional deterministic request ID for A/B assignment",
     )
 
+    quality_score: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Optional externally calculated model-quality score "
+            "between 0 and 1"
+        ),
+    )
+
 
 class ModelPredictionResponse(BaseModel):
     model: str
@@ -22,6 +33,7 @@ class ModelPredictionResponse(BaseModel):
     latency_ms: float
     request_id: str | None = None
     variant: str | None = None
+    quality_score: float | None = None
 
 
 class ModelInfoResponse(BaseModel):

@@ -34,6 +34,8 @@ Milestone 3:
 - Multi-model retraining endpoint
 - Single-model retraining endpoint
 - Safe orchestration integration
+- Rollback safety
+- Per-model monitoring inputs
 
 Milestone 4:
 - MLOps dashboard
@@ -71,6 +73,7 @@ from sklearn.model_selection import train_test_split
 # ==========================================================
 
 from src.model_manager import ModelManager
+from src.experiment import ABExperiment
 
 from src.router import create_router
 
@@ -83,13 +86,14 @@ from src.adapters import (
 
 
 # ==========================================================
-# R5 Monitoring
+# Monitoring
 # ==========================================================
 
 from src.monitoring import (
     get_summary,
     log_prediction,
     get_recent_inputs,
+    get_model_recent_inputs,
 )
 
 
@@ -194,6 +198,18 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ==========================================================
+# Model Names
+# ==========================================================
+
+MULTI_MODEL_NAMES = (
+    "forecast",
+    "eta",
+    "anomaly",
+    "risk",
+)
 
 
 # ==========================================================
@@ -351,10 +367,10 @@ MULTI_MODEL_MANAGER.register(
 # IMPORTANT:
 # The current v2 adapters use the same backend/model
 # implementation as v1. This validates the A/B infrastructure.
-# A genuinely different trained model can be plugged into the
-# v2 adapter later.
+#
+# A genuinely different trained model must eventually be
+# plugged into each v2 adapter.
 # ==========================================================
-
 
 forecast_v2 = ForecastAdapter()
 forecast_v2.model_version = "v2"
@@ -384,6 +400,22 @@ MULTI_MODEL_MANAGER.register_version(
 MULTI_MODEL_MANAGER.register_version(
     risk_v2
 )
+
+
+# ==========================================================
+# Register A/B Experiments
+# ==========================================================
+
+for model_name in MULTI_MODEL_NAMES:
+
+    MULTI_MODEL_MANAGER.register_ab_experiment(
+        ABExperiment(
+            model_name=model_name,
+            variant_a="v1",
+            variant_b="v2",
+            traffic_percentage=50,
+        )
+    )
 
 
 # ==========================================================
@@ -462,19 +494,13 @@ class IrisService:
 
         self.total_predictions = 0
 
-        # Single prediction metrics
-
         self.total_single_predictions = 0
 
         self.total_single_latency = 0.0
 
-        # Batch prediction metrics
-
         self.total_batches = 0
 
         self.total_batch_latency = 0.0
-
-        # Errors
 
         self.error_count = 0
 
@@ -495,16 +521,6 @@ class IrisService:
         # --------------------------------------------------
         # Scheduler environment override
         # --------------------------------------------------
-        #
-        # Safe default remains:
-        #
-        # ENABLE_RETRAINING_SCHEDULER = False
-        #
-        # A live R5 demo can explicitly enable it:
-        #
-        # ENABLE_RETRAINING_SCHEDULER=true
-        #
-        # --------------------------------------------------
 
         scheduler_env = os.getenv(
             "ENABLE_RETRAINING_SCHEDULER"
@@ -524,7 +540,7 @@ class IrisService:
             )
 
         # --------------------------------------------------
-        # Scheduler Interval environment override
+        # Scheduler interval environment override
         # --------------------------------------------------
 
         interval_env = os.getenv(
@@ -557,6 +573,23 @@ class IrisService:
                 scheduler_interval = (
                     RETRAINING_INTERVAL_SECONDS
                 )
+
+        # --------------------------------------------------
+        # Validate scheduler interval
+        # --------------------------------------------------
+
+        if scheduler_interval <= 0:
+
+            logger.warning(
+                "Invalid scheduler interval=%s. "
+                "Using configured value=%s.",
+                scheduler_interval,
+                RETRAINING_INTERVAL_SECONDS,
+            )
+
+            scheduler_interval = (
+                RETRAINING_INTERVAL_SECONDS
+            )
 
         # --------------------------------------------------
         # Start scheduler only when explicitly enabled
@@ -617,14 +650,18 @@ class IrisService:
         )
 
         logger.info(
+            "A/B experiments registered: %s",
+            {
+                model_name: experiment.to_dict()
+                for model_name, experiment
+                in MULTI_MODEL_MANAGER.ab_experiments.items()
+            },
+        )
+
+        logger.info(
             "Milestone 3 multi-model retraining "
             "orchestrator initialized for: %s",
-            [
-                "forecast",
-                "eta",
-                "anomaly",
-                "risk",
-            ],
+            list(MULTI_MODEL_NAMES),
         )
 
         logger.info(
@@ -641,28 +678,62 @@ class IrisService:
         Create the Milestone 3 multi-model retraining
         orchestrator.
 
-        The actual model-specific retraining pipelines
-        are isolated behind callbacks.
+        Each served model receives its own:
 
-        The orchestration layer is safe by default.
+        - production-version callback
+        - drift callback
+        - retraining callback
+        - production-evaluation callback
+        - promotion callback
+        - rollback callback
+        - metric direction
+
+        Drift is calculated from the model's own recent
+        monitoring inputs.
+
+        Real model-specific retraining/promotion callbacks
+        remain explicitly guarded until the corresponding
+        production pipeline is connected.
         """
-
-        model_names = (
-            "forecast",
-            "eta",
-            "anomaly",
-            "risk",
-        )
 
         models = {}
 
-        for model_name in model_names:
+        # --------------------------------------------------
+        # Metric direction
+        # --------------------------------------------------
+        #
+        # Lower is better:
+        #   forecast -> error metric
+        #   eta      -> error metric
+        #
+        # Higher is better:
+        #   anomaly -> quality/performance score
+        #   risk    -> quality/performance score
+        #
+        # The orchestrator uses this information to avoid
+        # incorrectly promoting a worse candidate.
+        # --------------------------------------------------
+
+        higher_is_better = {
+            "forecast": False,
+            "eta": False,
+            "anomaly": True,
+            "risk": True,
+        }
+
+        for model_name in MULTI_MODEL_NAMES:
 
             # --------------------------------------------------
-            # Production version
+            # Production version callback
             # --------------------------------------------------
 
-            def get_version(name=model_name):
+            def get_version(
+                name=model_name,
+            ):
+                """
+                Return the currently served production
+                version for one logical model.
+                """
 
                 adapter = (
                     MULTI_MODEL_MANAGER.get_adapter(
@@ -670,30 +741,57 @@ class IrisService:
                     )
                 )
 
-                return adapter.model_version
+                return str(
+                    adapter.model_version
+                )
 
             # --------------------------------------------------
-            # Drift check
+            # Drift callback
             # --------------------------------------------------
 
             def check_model_drift(
                 name=model_name,
             ):
                 """
-                Perform the Milestone 3 drift decision.
+                Calculate the current drift decision for
+                one served model.
 
-                The actual model-specific monitoring and
-                retraining pipelines can provide the real
-                drift signal through this callback.
+                Unlike the previous implementation, this does
+                NOT use a hardcoded drift_score=0.0.
+
+                Recent prediction inputs are loaded from the
+                model-specific monitoring records and passed
+                into the drift calculator.
                 """
 
-                return check_drift(
+                recent_inputs = (
+                    get_model_recent_inputs(
+                        model_name=name,
+                        limit=MONITORING_INPUT_LIMIT,
+                    )
+                )
+
+                logger.info(
+                    "M3 drift check model=%s samples=%s",
+                    name,
+                    len(recent_inputs),
+                )
+
+                result = check_drift(
                     model_name=name,
-                    drift_score=0.0,
+                    recent_inputs=recent_inputs,
                     threshold=(
                         MULTIMODEL_DRIFT_THRESHOLD
                     ),
                 )
+
+                logger.info(
+                    "M3 drift result model=%s result=%s",
+                    name,
+                    result,
+                )
+
+                return result
 
             # --------------------------------------------------
             # Retraining callback
@@ -703,10 +801,12 @@ class IrisService:
                 name=model_name,
             ):
                 """
-                Placeholder safety callback.
+                Safety boundary for model-specific
+                retraining.
 
-                Real model-specific retraining is connected
-                independently by the corresponding pipeline.
+                Do not silently fake a successful retraining
+                operation. The corresponding production
+                pipeline must be connected here.
                 """
 
                 raise RuntimeError(
@@ -722,11 +822,15 @@ class IrisService:
                 name=model_name,
             ):
                 """
-                Placeholder safety callback.
+                Evaluate the currently deployed production
+                version for one model.
+
+                This remains explicitly guarded until the
+                model-specific evaluation pipeline is wired.
                 """
 
                 raise RuntimeError(
-                    f"Production evaluation for "
+                    f"Production evaluation pipeline for "
                     f"'{name}' is not connected yet."
                 )
 
@@ -739,7 +843,11 @@ class IrisService:
                 name=model_name,
             ):
                 """
-                Placeholder safety callback.
+                Promote a validated candidate version.
+
+                This remains explicitly guarded until the
+                corresponding model registry/promotion
+                pipeline is connected.
                 """
 
                 raise RuntimeError(
@@ -748,17 +856,40 @@ class IrisService:
                 )
 
             # --------------------------------------------------
-            # Register model configuration
+            # Rollback callback
+            # --------------------------------------------------
+
+            def rollback(
+                previous_version,
+                name=model_name,
+            ):
+                """
+                Roll back a failed multi-model promotion.
+
+                The actual registry implementation must be
+                connected before a real production rollback
+                can occur.
+                """
+
+                raise RuntimeError(
+                    f"Rollback pipeline for "
+                    f"'{name}' is not connected yet."
+                )
+
+            # --------------------------------------------------
+            # Model configuration
             # --------------------------------------------------
 
             models[model_name] = {
                 "get_version": get_version,
                 "check_drift": check_model_drift,
                 "retrain": retrain,
-                "evaluate_production": (
-                    evaluate_production
-                ),
+                "evaluate_production": evaluate_production,
                 "promote": promote,
+                "rollback": rollback,
+                "higher_is_better": (
+                    higher_is_better[model_name]
+                ),
             }
 
         return MultiModelRetrainingOrchestrator(
@@ -770,15 +901,21 @@ class IrisService:
     # ======================================================
 
     def _run_multimodel_retraining(self):
-
         """
         Execute one Milestone 3 multi-model
         orchestration cycle.
         """
 
         logger.warning(
-            "Milestone 3 multi-model retraining "
-            "cycle started"
+            "=========================================="
+        )
+
+        logger.warning(
+            "M3 MULTI-MODEL RETRAINING CYCLE STARTED"
+        )
+
+        logger.warning(
+            "=========================================="
         )
 
         result = (
@@ -786,8 +923,7 @@ class IrisService:
         )
 
         logger.warning(
-            "Milestone 3 multi-model retraining "
-            "cycle completed: %s",
+            "M3 multi-model retraining cycle completed: %s",
             result,
         )
 
@@ -1049,6 +1185,7 @@ class IrisService:
 
             log_prediction(
                 request_id=request_id,
+                model_name="iris",
                 model_version=str(
                     selected_version
                 ),
@@ -1190,6 +1327,7 @@ class IrisService:
 
                 log_prediction(
                     request_id=request_id,
+                    model_name="iris",
                     model_version=str(
                         selected_version
                     ),
@@ -1301,7 +1439,7 @@ class IrisService:
     @bentoml.api(route="/metrics/summary")
     def metrics_summary(self) -> dict:
         """
-        Return aggregate and per-model metrics.
+        Return aggregate and per-model monitoring metrics.
         """
 
         return get_summary()
@@ -1345,11 +1483,11 @@ class IrisService:
         self,
     ):
         """
-        Scheduled R5 workflow:
+        Scheduled R5 Iris workflow.
 
         monitoring.db
              ↓
-        recent inputs
+        recent Iris inputs
              ↓
         drift calculation
              ↓
@@ -1672,12 +1810,12 @@ class IrisService:
         Run one Milestone 3 multi-model retraining
         orchestration cycle.
 
-        The orchestrator independently checks:
+        Models checked independently:
 
-        forecast
-        ETA
-        anomaly
-        supplier risk
+        - forecast
+        - eta
+        - anomaly
+        - risk
         """
 
         logger.warning(
@@ -1725,14 +1863,7 @@ class IrisService:
             model_name.strip().lower()
         )
 
-        valid_models = {
-            "forecast",
-            "eta",
-            "anomaly",
-            "risk",
-        }
-
-        if model_name not in valid_models:
+        if model_name not in MULTI_MODEL_NAMES:
 
             return {
                 "status": "error",

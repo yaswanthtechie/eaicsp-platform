@@ -192,3 +192,98 @@ def test_one_model_failure_does_not_stop_other_models():
     assert result["models_checked"] == 2
     assert result["results"]["eta"]["status"] == "error"
     assert result["results"]["forecast"]["status"] == "skipped"
+
+def test_bad_promotion_rolls_back_to_previous_version():
+    model = make_model(
+        drift=True,
+        candidate_score=0.95,
+        production_score=0.90,
+    )
+
+    state = model["state"]
+
+    def validate_promoted():
+        return 0.70
+
+    def rollback(version):
+        state["version"] = version
+        return version
+
+    config = {
+        key: value
+        for key, value in model.items()
+        if key != "state"
+    }
+
+    config["validate_promoted"] = validate_promoted
+    config["rollback"] = rollback
+    config["higher_is_better"] = True
+
+    orchestrator = MultiModelRetrainingOrchestrator(
+        {"forecast": config}
+    )
+
+    result = orchestrator.run_model("forecast")
+
+    assert result["status"] == "rolled_back"
+    assert (
+        result["reason"]
+        == "post_promotion_validation_failed"
+    )
+
+    assert result["candidate_version"] == "v2"
+    assert result["promoted_version"] == "v2"
+    assert result["rollback_version"] == "v1"
+
+    assert state["version"] == "v1"
+
+def test_lower_is_better_metric_promotes_lower_candidate():
+    model = make_model(
+        drift=True,
+        candidate_score=0.80,
+        production_score=0.90,
+    )
+
+    config = {
+        key: value
+        for key, value in model.items()
+        if key != "state"
+    }
+
+    config["higher_is_better"] = False
+
+    orchestrator = MultiModelRetrainingOrchestrator(
+        {"forecast": config}
+    )
+
+    result = orchestrator.run_model("forecast")
+
+    assert result["status"] == "promoted"
+    assert result["candidate_version"] == "v2"
+
+def test_lower_is_better_metric_rejects_higher_candidate():
+    model = make_model(
+        drift=True,
+        candidate_score=0.95,
+        production_score=0.90,
+    )
+
+    config = {
+        key: value
+        for key, value in model.items()
+        if key != "state"
+    }
+
+    config["higher_is_better"] = False
+
+    orchestrator = MultiModelRetrainingOrchestrator(
+        {"forecast": config}
+    )
+
+    result = orchestrator.run_model("forecast")
+
+    assert result["status"] == "rejected"
+    assert (
+        result["reason"]
+        == "candidate_worse_than_production"
+    )

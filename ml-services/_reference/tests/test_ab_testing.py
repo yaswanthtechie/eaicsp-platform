@@ -91,18 +91,21 @@ def test_metrics_are_separated_by_variant():
         variant="v1",
         latency_ms=10,
         success=True,
+        quality_score=0.95,
     )
 
     metrics.record(
         variant="v1",
         latency_ms=20,
         success=False,
+        quality_score=0.80,
     )
 
     metrics.record(
         variant="v2",
         latency_ms=30,
         success=True,
+        quality_score=0.90,
     )
 
     summary = metrics.summary()
@@ -115,18 +118,30 @@ def test_metrics_are_separated_by_variant():
     assert summary["v2"]["successes"] == 1
     assert summary["v2"]["failures"] == 0
 
+    assert summary["v1"]["quality_count"] == 2
+    assert summary["v1"]["average_quality"] == 0.875
+    assert summary["v1"]["average_quality_score"] == 0.875
+
+    assert summary["v2"]["quality_count"] == 1
+    assert summary["v2"]["average_quality"] == 0.90
+    assert summary["v2"]["average_quality_score"] == 0.90
+
 
 def test_statistical_difference_detected():
     metrics_a = {
         "requests": 1000,
-        "successes": 950,
-        "failures": 50,
+        "quality_scores": (
+            [0.95] * 950
+            + [0.80] * 50
+        ),
     }
 
     metrics_b = {
         "requests": 1000,
-        "successes": 800,
-        "failures": 200,
+        "quality_scores": (
+            [0.80] * 800
+            + [0.60] * 200
+        ),
     }
 
     result = compare_variants(
@@ -139,18 +154,22 @@ def test_statistical_difference_detected():
     assert result["loser"] == "variant_b"
     assert result["p_value"] < 0.05
 
+    assert result["quality_a"] == 0.9425
+    assert result["quality_b"] == 0.76
+
+    assert result["sample_count_a"] == 1000
+    assert result["sample_count_b"] == 1000
+
 
 def test_statistical_comparison_is_inconclusive():
     metrics_a = {
         "requests": 1000,
-        "successes": 900,
-        "failures": 100,
+        "quality_scores": [0.900] * 1000,
     }
 
     metrics_b = {
         "requests": 1000,
-        "successes": 901,
-        "failures": 99,
+        "quality_scores": [0.901] * 1000,
     }
 
     result = compare_variants(
@@ -161,3 +180,30 @@ def test_statistical_comparison_is_inconclusive():
     assert result["verdict"] == "inconclusive"
     assert result["winner"] is None
     assert result["loser"] is None
+
+    assert result["quality_a"] == 0.900
+    assert result["quality_b"] == 0.901
+
+
+def test_comparison_is_inconclusive_without_quality_data():
+    metrics_a = {
+        "requests": 1000,
+        "quality_count": 0,
+        "average_quality": None,
+    }
+
+    metrics_b = {
+        "requests": 1000,
+        "quality_count": 0,
+        "average_quality": None,
+    }
+
+    result = compare_variants(
+        metrics_a,
+        metrics_b,
+    )
+
+    assert result["verdict"] == "inconclusive"
+    assert result["winner"] is None
+    assert result["loser"] is None
+    assert result["p_value"] is None
