@@ -32,21 +32,15 @@ def monitor_forecast_accuracy(
 
     df = monitoring_df.copy()
 
-
     # ===============================
     # Validate Required Columns
     # ===============================
 
     required_columns = [
-
         "date",
-
         "actual",
-
         "predicted"
-
     ]
-
 
     for column in required_columns:
 
@@ -56,7 +50,6 @@ def monitor_forecast_accuracy(
                 f"Missing required column: {column}"
             )
 
-
     # ===============================
     # Prepare Data
     # ===============================
@@ -65,16 +58,27 @@ def monitor_forecast_accuracy(
         df["date"]
     )
 
-
     df = df.sort_values(
         "date"
     ).reset_index(
         drop=True
     )
 
-
     # ===============================
     # Calculate Absolute Percentage Error
+    # ===============================
+
+    # ===============================
+    # Validate actual values for MAPE
+    # ===============================
+
+    if (df["actual"] == 0).any():
+        raise ValueError(
+            "Actual values must be non-zero for MAPE calculation."
+        )
+
+    # ===============================
+    # Absolute Percentage Error
     # ===============================
 
     df["absolute_percentage_error"] = (
@@ -97,7 +101,6 @@ def monitor_forecast_accuracy(
 
     )
 
-
     # ===============================
     # Overall MAPE
     # ===============================
@@ -107,9 +110,27 @@ def monitor_forecast_accuracy(
         df[
             "absolute_percentage_error"
         ].mean()
-
     )
 
+    
+
+    # ===============================
+    # Overall RMSE
+    # ===============================
+
+    rmse = np.sqrt(
+
+        np.mean(
+
+            (
+                df["actual"]
+                -
+                df["predicted"]
+            ) ** 2
+
+        )
+
+    )
 
     # ===============================
     # Rolling MAPE
@@ -129,7 +150,6 @@ def monitor_forecast_accuracy(
 
     )
 
-
     # ===============================
     # Latest Rolling MAPE
     # ===============================
@@ -146,7 +166,6 @@ def monitor_forecast_accuracy(
 
     )
 
-
     # ===============================
     # Alert Check
     # ===============================
@@ -154,7 +173,6 @@ def monitor_forecast_accuracy(
     if latest_rolling_mape > threshold:
 
         alert_status = "WARNING"
-
 
         alert_message = (
 
@@ -167,7 +185,6 @@ def monitor_forecast_accuracy(
 
         alert_status = "HEALTHY"
 
-
         alert_message = (
 
             "HEALTHY: Forecast accuracy "
@@ -175,29 +192,39 @@ def monitor_forecast_accuracy(
 
         )
 
-
     # ===============================
     # Return Results
     # ===============================
 
     return {
 
-        "overall_mape":
-            float(overall_mape),
+        "metrics": {
+
+            "mape":
+                float(overall_mape),
+
+            "rmse":
+                float(rmse)
+
+        },
 
         "latest_rolling_mape":
             float(latest_rolling_mape),
 
         "threshold":
-            threshold,
+            float(threshold),
 
-        "alert_status":
-            alert_status,
+        "alert": {
 
-        "alert_message":
-            alert_message,
+            "status":
+                alert_status,
+
+            "message":
+                alert_message
+
+        },
 
         "monitoring_data":
             df
 
-    }
+    }   

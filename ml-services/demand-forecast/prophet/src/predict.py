@@ -4,6 +4,10 @@ import pickle
 from pathlib import Path
 
 import pandas as pd
+from src.external_regressors import (
+    add_external_regressors,
+    validate_external_regressors,
+)
 from prophet.serialize import model_from_json
 
 from src.data import load_sales_data
@@ -661,18 +665,23 @@ def predict(
     # 9. Prophet Forecast
     # ========================================================
 
-    future = (
-        prophet_model.make_future_dataframe(
-            periods=horizon_months,
-            freq="MS",
-        )
+    future = prophet_model.make_future_dataframe(
+        periods=horizon_months,
+        freq="MS",
     )
 
-    prophet_forecast = (
-        prophet_model.predict(
-            future
-        )
-    )
+    # Add the same external regressors used during Prophet training
+    future_regressors = future[["ds"]].copy()
+    future_regressors = future_regressors.rename(columns={"ds": "date"})
+
+    future_regressors = add_external_regressors(future_regressors)
+
+    future = future_regressors.rename(columns={"date": "ds"})
+
+    validate_external_regressors(future)
+
+    prophet_forecast = prophet_model.predict(future)
+    
 
     prophet_future = (
         prophet_forecast

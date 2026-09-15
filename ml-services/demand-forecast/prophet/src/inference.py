@@ -106,15 +106,15 @@ def create_features(df, drop_missing=True):
 
 
         # Default promotion feature if missing
-        if "promotion" not in df.columns:
+    if "promotion" not in df.columns:
 
-            df["promotion"] = 0
+        df["promotion"] = 0
 
 
         # Default weather feature if missing
-        if "weather_index" not in df.columns:
+    if "weather_index" not in df.columns:
 
-            df["weather_index"] = 0.0
+        df["weather_index"] = 0.0
 
     # Calendar Features
 

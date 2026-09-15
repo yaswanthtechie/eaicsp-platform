@@ -637,6 +637,11 @@ def main():
         threshold=10.0
 
     )
+    mlflow.log_metrics({
+    "overall_mape": monitoring_result["metrics"]["mape"],
+    "latest_rolling_mape": monitoring_result["latest_rolling_mape"],
+    "monitoring_rmse": monitoring_result["metrics"]["rmse"],
+    })
 
 
     print(
@@ -644,8 +649,12 @@ def main():
     )
 
     print(
-        f"Overall MAPE: "
-        f"{monitoring_result['overall_mape']:.2f}%"
+         f"Overall MAPE: "
+         f"{monitoring_result['metrics']['mape']:.2f}%"
+    )
+    print(
+        f"Overall RMSE: "
+        f"{monitoring_result['metrics']['rmse']:.2f}"
     )
 
 
@@ -653,15 +662,23 @@ def main():
         f"Latest Rolling MAPE: "
         f"{monitoring_result['latest_rolling_mape']:.2f}%"
     )
+ 
 
 
     print(
         "\n========== ALERT STATUS =========="
     )
+    print(
+        f"Alert Status: "
+        f"{monitoring_result['alert']['status']}"
+    )
 
     print(
-        monitoring_result["alert_message"]
+        f"Alert Message: "
+        f"{monitoring_result['alert']['message']}"
     )
+
+    
     # ===============================
     # Scenario / What-if Forecasting
     # ===============================
@@ -728,6 +745,14 @@ def main():
 
         scenario_forecast
 
+    )
+    total_forecast_difference = (
+        scenario_comparison["forecast_difference"].sum()
+    )
+
+    mlflow.log_metric(
+        "scenario_total_forecast_difference",
+        float(total_forecast_difference)
     )
 
 

@@ -12,7 +12,9 @@ import numpy as np
 import pandas as pd
 
 
-def add_external_regressors(df: pd.DataFrame) -> pd.DataFrame:
+def add_external_regressors(
+    df: pd.DataFrame,
+) -> pd.DataFrame:
     """
     Add external forecasting regressors.
 
@@ -31,7 +33,9 @@ def add_external_regressors(df: pd.DataFrame) -> pd.DataFrame:
 
     data = df.copy()
 
-    data["date"] = pd.to_datetime(data["date"])
+    data["date"] = pd.to_datetime(
+        data["date"]
+    )
 
     # ==========================================
     # Holiday Feature
@@ -40,8 +44,11 @@ def add_external_regressors(df: pd.DataFrame) -> pd.DataFrame:
     holiday_months = [11, 12]
 
     data["is_holiday"] = (
-        data["date"].dt.month.isin(holiday_months)
-    ).astype(int)
+        data["date"]
+        .dt.month
+        .isin(holiday_months)
+        .astype(int)
+    )
 
     # ==========================================
     # Promotion Feature
@@ -50,8 +57,11 @@ def add_external_regressors(df: pd.DataFrame) -> pd.DataFrame:
     promotion_months = [3, 6, 9, 12]
 
     data["promotion"] = (
-        data["date"].dt.month.isin(promotion_months)
-    ).astype(int)
+        data["date"]
+        .dt.month
+        .isin(promotion_months)
+        .astype(int)
+    )
 
     # ==========================================
     # Mock Weather Feature
@@ -73,6 +83,10 @@ def validate_external_regressors(
 ) -> None:
     """
     Validate external regressor columns.
+
+    This validation is intended for the normal
+    training/baseline dataframe where promotion
+    is represented as a binary 0/1 feature.
     """
 
     required_columns = [
@@ -134,4 +148,6 @@ if __name__ == "__main__":
         ].head(10)
     )
 
-    print("\nExternal regressors added successfully.")
+    print(
+        "\nExternal regressors added successfully."
+    )

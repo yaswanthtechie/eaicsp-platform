@@ -11,7 +11,6 @@ def main():
     print("FORECAST ACCURACY MONITORING")
     print("=" * 60)
 
-
     data = pd.DataFrame({
 
         "date": [
@@ -43,17 +42,11 @@ def main():
 
     })
 
-
     result = monitor_forecast_accuracy(
-
         data,
-
         window=3,
-
         threshold=10.0
-
     )
-
 
     print("\n========== OVERALL METRICS ==========")
 
@@ -74,20 +67,21 @@ def main():
         )
     )
 
-
     print("\n========== LATEST ROLLING MAPE ==========")
 
     print(
-        result["latest_rolling_mape"]
+        round(
+            result["latest_rolling_mape"],
+            2
+        ),
+        "%"
     )
-
 
     print("\n========== ALERT STATUS ==========")
 
     print(
         result["alert"]["message"]
     )
-
 
     print("\n========== MONITORING DATA ==========")
 
