@@ -1,0 +1,5 @@
+﻿pandas>=2.0
+holidays>=0.40
+pytest>=8.0
+scikit-learn>=1.0
+numpy>=1.24

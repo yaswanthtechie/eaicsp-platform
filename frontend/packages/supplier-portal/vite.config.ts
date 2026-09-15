@@ -11,20 +11,25 @@ export default defineConfig({
 
       includeAssets: [
         "favicon.ico",
+        "pwa-192.png",
+        "pwa-512.png",
       ],
+
+      workbox: {
+        globPatterns: [
+          "**/*.{js,css,html,ico,png,svg,woff2}",
+        ],
+      },
 
       manifest: {
         name: "Supplier Portal",
         short_name: "Supplier",
-
         description: "Supplier Portal GraphQL App",
 
         theme_color: "#0B0F1A",
-
         background_color: "#0B0F1A",
 
         display: "standalone",
-
         start_url: "/",
 
         icons: [

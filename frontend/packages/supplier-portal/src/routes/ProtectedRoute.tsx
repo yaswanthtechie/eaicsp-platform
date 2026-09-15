@@ -1,6 +1,5 @@
-import { Navigate } from "react-router-dom";
-import { TOKEN_KEY } from "../constants/storage";
-
+import { Navigate, useLocation } from "react-router-dom";
+import { isAuthenticated } from "../auth/tokenStorage";
 
 type ProtectedRouteProps = {
   children: React.ReactNode;
@@ -9,10 +8,15 @@ type ProtectedRouteProps = {
 export default function ProtectedRoute({
   children,
 }: ProtectedRouteProps) {
-  const token = localStorage.getItem(TOKEN_KEY);
+  const location = useLocation();
 
-  if (!token) {
-    return <Navigate to="/login" replace />;
+  if (!isAuthenticated()) {
+    return (
+      <Navigate
+        to={`/login?next=${encodeURIComponent(location.pathname)}`}
+        replace
+      />
+    );
   }
 
   return <>{children}</>;

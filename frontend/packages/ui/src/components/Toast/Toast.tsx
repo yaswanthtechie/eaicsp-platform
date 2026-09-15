@@ -1,4 +1,8 @@
-import { useEffect, useRef } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+} from "react";
 import "./Toast.css";
 
 export type ToastVariant =
@@ -24,19 +28,22 @@ export function Toast({
   duration = 3000,
   onClose,
 }: ToastProps) {
-  const timeoutRef = useRef<number | undefined>(undefined);
+  const timeoutRef = useRef<number | undefined>(
+    undefined
+  );
 
-  const startTimer = () => {
+  const startTimer = useCallback(() => {
     timeoutRef.current = window.setTimeout(() => {
       onClose(id);
     }, duration);
-  };
+  }, [onClose, id, duration]);
 
-  const clearTimer = () => {
+  const clearTimer = useCallback(() => {
     if (timeoutRef.current !== undefined) {
       window.clearTimeout(timeoutRef.current);
+      timeoutRef.current = undefined;
     }
-  };
+  }, []);
 
   useEffect(() => {
     startTimer();
@@ -44,7 +51,7 @@ export function Toast({
     return () => {
       clearTimer();
     };
-  }, []);
+  }, [startTimer, clearTimer]);
 
   return (
     <div

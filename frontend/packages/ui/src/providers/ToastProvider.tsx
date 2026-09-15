@@ -1,49 +1,36 @@
 import {
-  createContext,
   useCallback,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
-
-export type ToastVariant = "success" | "error" | "warning" | "info";
-
-export interface ToastItem {
-  id: number;
-  title: string;
-  description?: string;
-  variant: ToastVariant;
-  duration?: number;
-}
-
-interface ShowToastOptions {
-  title: string;
-  description?: string;
-  variant?: ToastVariant;
-  duration?: number;
-}
-
-export interface ToastContextValue {
-  toasts: ToastItem[];
-  showToast: (options: ShowToastOptions) => void;
-  removeToast: (id: number) => void;
-}
-
-export const ToastContext = createContext<ToastContextValue | undefined>(
-  undefined
-);
+import {
+  ToastContext,
+  type ToastItem,
+  type ShowToastOptions,
+} from "./ToastContext";
+import { colors, shadows } from "../theme/tokens";
 
 interface ToastProviderProps {
   children: ReactNode;
 }
 
-export function ToastProvider({ children }: ToastProviderProps) {
-  const [toasts, setToasts] = useState<ToastItem[]>([]);
+export function ToastProvider({
+  children,
+}: ToastProviderProps) {
+  const [toasts, setToasts] = useState<
+    ToastItem[]
+  >([]);
+
   const idRef = useRef(0);
 
   const removeToast = useCallback((id: number) => {
-    setToasts((previous) => previous.filter((toast) => toast.id !== id));
+    setToasts((previous) =>
+      previous.filter(
+        (toast) => toast.id !== id
+      )
+    );
   }, []);
 
   const showToast = useCallback(
@@ -63,7 +50,10 @@ export function ToastProvider({ children }: ToastProviderProps) {
         duration,
       };
 
-      setToasts((previous) => [...previous, toast]);
+      setToasts((previous) => [
+        ...previous,
+        toast,
+      ]);
 
       window.setTimeout(() => {
         removeToast(id);
@@ -85,7 +75,6 @@ export function ToastProvider({ children }: ToastProviderProps) {
     <ToastContext.Provider value={value}>
       {children}
 
-      {/* Temporary renderer */}
       <div
         style={{
           position: "fixed",
@@ -101,18 +90,20 @@ export function ToastProvider({ children }: ToastProviderProps) {
           <div
             key={toast.id}
             style={{
-              background: "white",
-              border: "1px solid #ddd",
+              background: colors.surface,
+              border: `1px solid ${colors.border}`,
               padding: "12px 16px",
               borderRadius: "8px",
               minWidth: "260px",
-              boxShadow: "0 4px 10px rgba(0,0,0,0.12)",
+              boxShadow: shadows.md,
             }}
           >
             <strong>{toast.title}</strong>
 
             {toast.description && (
-              <div style={{ marginTop: 4 }}>{toast.description}</div>
+              <div style={{ marginTop: 4 }}>
+                {toast.description}
+              </div>
             )}
           </div>
         ))}

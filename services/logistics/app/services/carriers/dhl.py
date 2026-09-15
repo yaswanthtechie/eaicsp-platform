@@ -1,19 +1,23 @@
-from app.services.carriers.base import (
-    CarrierAdapter,
-    api_retry,
-)
+import random
+import time
 
+from app.services.carriers.base import (
+    BaseCarrier,
+    CarrierError,
+)
 from app.schemas.shipment import (
     Carrier,
-    Status,
     CarrierRate,
     TrackingInfo,
 )
 
 
-class DHLAdapter(CarrierAdapter):
+class DHLAdapter(BaseCarrier):
 
-    @api_retry()
+    BASE_PRICE = 850.0
+    ESTIMATED_DAYS = 2
+    RELIABILITY_SCORE = 0.87
+
     def get_rate(
         self,
         origin: str,
@@ -21,26 +25,36 @@ class DHLAdapter(CarrierAdapter):
         weight_kg: float,
     ) -> CarrierRate:
 
+        if weight_kg <= 0:
+            raise CarrierError("Invalid shipment weight")
+
+        # Simulate carrier/network latency
+        time.sleep(random.uniform(0.05, 0.15))
+
+        price = self.BASE_PRICE + (weight_kg * 10)
+
         return CarrierRate(
             carrier=Carrier.dhl,
             origin=origin,
             destination=destination,
             weight_kg=weight_kg,
-            price=850,
-            estimated_days=2,
-            reliability_score=0.87,
+            price=round(price, 2),
+            estimated_days=self.ESTIMATED_DAYS,
+            reliability_score=self.RELIABILITY_SCORE,
         )
 
-    @api_retry()
     def get_tracking(
         self,
-        tracking_number: str,
+        tracking_id: str,
     ) -> TrackingInfo:
 
+        if not tracking_id or not str(tracking_id).strip():
+            raise CarrierError("Tracking ID is required")
+
         return TrackingInfo(
-            tracking_number=tracking_number,
             carrier=Carrier.dhl,
-            status=Status.in_transit,
-            location="In Transit",
+            tracking_number=str(tracking_id),
+            status="in_transit",
+            location="DHL Hub",
             estimated_delivery=None,
         )

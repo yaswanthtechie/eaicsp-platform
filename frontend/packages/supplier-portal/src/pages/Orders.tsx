@@ -1,89 +1,272 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-
-import { useApolloClient, useQuery } from "@apollo/client";
-
-import { GET_PURCHASE_ORDERS } from "../graphql/queries";
+import { NetworkStatus } from "@apollo/client";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 import POCard from "../components/POCard";
 import EmptyState from "../components/EmptyState";
 import ErrorState from "../components/ErrorState";
 import Loading from "../components/Loading";
-import { TOKEN_KEY } from "../constants/storage";
-import type { PurchaseOrder } from "../types/po";
+import { logout } from "../auth/logout";
+
+import type { POStatus, PurchaseOrder } from "../types/po";
+import type { PurchaseOrderEdge } from "../types/graphql";
+
+import { usePurchaseOrders } from "../hooks/usePurchaseOrders";
+import { ORDERS_PER_PAGE } from "../constants/pagination";
+
+type OrderFilter = "All" | POStatus;
 
 const Orders = () => {
   const navigate = useNavigate();
-  const apolloClient = useApolloClient();
 
-  const [filter, setFilter] = useState("All");
+  const [filter, setFilter] =
+    useState<OrderFilter>("All");
+  const [poNumber, setPoNumber] = useState("");
+  const [minAmount, setMinAmount] = useState("");
+  const [maxAmount, setMaxAmount] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
 
-  // GraphQL Query
-  const { data, loading, error } = useQuery(GET_PURCHASE_ORDERS);
+  const parentRef = useRef<HTMLDivElement>(null);
 
-  if (loading) return <Loading />;
+  const { data, loading, error, fetchMore, networkStatus } =
+    usePurchaseOrders({
+      first: ORDERS_PER_PAGE,
+      after: null,
+      status:
+        filter === "All" ? undefined : filter,
+      poNumber: poNumber || undefined,
+      minAmount: minAmount
+        ? Number(minAmount)
+        : undefined,
+      maxAmount: maxAmount
+        ? Number(maxAmount)
+        : undefined,
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
+    });
 
-  if (error) return <ErrorState />;
+  const loadingMore =
+    networkStatus === NetworkStatus.fetchMore;
 
-  const orders: PurchaseOrder[] = data?.purchaseOrders || [];
+  const orders: PurchaseOrder[] =
+    data?.purchaseOrders?.edges?.map(
+      (edge: PurchaseOrderEdge) => edge.node
+    ) || [];
 
-  const filteredOrders =
-    filter === "All"
-      ? orders
-      : orders.filter(
-          (po: PurchaseOrder) =>
-            po.status.toLowerCase() === filter.toLowerCase()
-        );
+  /*
+   * useVirtualizer must always be called before
+   * conditional returns so React sees the same
+   * hook order on every render.
+   */
+  const rowVirtualizer = useVirtualizer({
+    count: orders.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 150,
+    overscan: 5,
+  });
 
-  const handleLogout = async () => {
-    localStorage.removeItem(TOKEN_KEY);
+  if (loading && !data) {
+    return <Loading />;
+  }
 
-    await apolloClient.clearStore();
+  if (error && !data) {
+    return <ErrorState />;
+  }
 
-    navigate("/login");
+  const handleLoadMore = () => {
+    const endCursor =
+      data?.purchaseOrders?.pageInfo?.endCursor;
+
+    if (!endCursor || loadingMore) {
+      return;
+    }
+
+    void fetchMore({
+      variables: {
+        first: ORDERS_PER_PAGE,
+        after: endCursor,
+        status:
+          filter === "All" ? undefined : filter,
+        poNumber: poNumber || undefined,
+        minAmount: minAmount
+          ? Number(minAmount)
+          : undefined,
+        maxAmount: maxAmount
+          ? Number(maxAmount)
+          : undefined,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+      },
+    });
   };
+
+  const tabs: Array<{
+    label: string;
+    value: OrderFilter;
+  }> = [
+    { label: "All", value: "All" },
+    { label: "Sent", value: "SENT" },
+    {
+      label: "Acknowledged",
+      value: "ACKNOWLEDGED",
+    },
+    {
+      label: "Fulfilled",
+      value: "FULFILLED",
+    },
+  ];
 
   return (
     <div className="orders">
       <h1>Purchase Orders</h1>
 
+      <div className="search-filters">
+        <input
+          type="text"
+          placeholder="Search PO Number"
+          value={poNumber}
+          onChange={(e) =>
+            setPoNumber(e.target.value)
+          }
+        />
+
+        <input
+          type="number"
+          placeholder="Min Amount"
+          value={minAmount}
+          onChange={(e) =>
+            setMinAmount(e.target.value)
+          }
+        />
+
+        <input
+          type="number"
+          placeholder="Max Amount"
+          value={maxAmount}
+          onChange={(e) =>
+            setMaxAmount(e.target.value)
+          }
+        />
+
+        <label>
+          Start Date
+          <input
+            type="date"
+            aria-label="Start Date"
+            value={startDate}
+            onChange={(e) =>
+              setStartDate(e.target.value)
+            }
+          />
+        </label>
+
+        <label>
+          End Date
+          <input
+            type="date"
+            aria-label="End Date"
+            value={endDate}
+            onChange={(e) =>
+              setEndDate(e.target.value)
+            }
+          />
+        </label>
+      </div>
+
       <div className="top-buttons">
         <button
           className="invoice-btn"
-          onClick={() => navigate("/invoices/new")}
+          onClick={() =>
+            navigate("/invoices/new")
+          }
         >
           New Invoice
         </button>
 
         <button
           className="logout-btn"
-          onClick={handleLogout}
+          onClick={logout}
         >
           Logout
         </button>
       </div>
 
       <div className="tabs">
-        {["All", "Sent", "Acknowledged", "Fulfilled"].map((tab) => (
+        {tabs.map((tab) => (
           <button
-            key={tab}
-            className={filter === tab ? "active-tab" : ""}
-            onClick={() => setFilter(tab)}
+            key={tab.value}
+            className={
+              filter === tab.value
+                ? "active-tab"
+                : ""
+            }
+            onClick={() =>
+              setFilter(tab.value)
+            }
           >
-            {tab}
+            {tab.label}
           </button>
         ))}
       </div>
 
-      {filteredOrders.length === 0 ? (
+      {orders.length === 0 ? (
         <EmptyState />
       ) : (
-        filteredOrders.map((order: PurchaseOrder) => (
-          <POCard
-            key={order.po_number}
-            order={order}
-          />
-        ))
+        <div
+          ref={parentRef}
+          role="list"
+          aria-label="Purchase orders"
+          style={{
+            height: "600px",
+            overflow: "auto",
+          }}
+        >
+          <div
+            style={{
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              width: "100%",
+              position: "relative",
+            }}
+          >
+            {rowVirtualizer
+              .getVirtualItems()
+              .map((virtualItem) => {
+                const order =
+                  orders[virtualItem.index];
+
+                return (
+                  <div
+                    key={order.poNumber}
+                    role="listitem"
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      transform: `translateY(${virtualItem.start}px)`,
+                    }}
+                  >
+                    <POCard order={order} />
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
+
+      {data?.purchaseOrders?.pageInfo
+        ?.hasNextPage && (
+        <button
+          className="load-more-btn"
+          onClick={handleLoadMore}
+          disabled={loadingMore}
+        >
+          {loadingMore
+            ? "Loading..."
+            : "Load More"}
+        </button>
       )}
     </div>
   );

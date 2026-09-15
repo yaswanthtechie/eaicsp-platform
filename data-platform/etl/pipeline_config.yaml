@@ -1,0 +1,75 @@
+# Config-driven pipeline definition.
+#
+# The DAG and the generic pipeline engine (etl/src/generic_pipeline.py) build
+# their task graph and per-source validation/quality/load behavior entirely
+# from this file. To add a new source, add an entry below - no Python changes
+# are needed unless the new source genuinely needs bespoke business logic.
+#
+# "depends_on" is enforced explicitly as real task dependencies in the DAG
+# (see dags/sales_etl_dag.py) - source order in this file drives the graph,
+# it isn't left to load-order luck.
+
+schedule: "0 2 * * *"
+
+sources:
+  - name: sales
+    path: data/batches/sales/
+    table: sales_fact
+    date_column: date
+    conflict_keys: [date, sku_id, warehouse_id]
+    depends_on: null
+
+    # Column contract, checked by dtype *category* (see data_contract.py's
+    # approach) so this isn't brittle to pandas dtype-string differences.
+    columns:
+      date:            { category: datetime, required: true }
+      sku_id:          { category: string,   required: true }
+      warehouse_id:    { category: string,   required: true }
+      quantity_sold:   { category: integer,  required: true }
+      unit_price:      { category: numeric,  required: true }
+
+    # Columns cast during transform: int columns -> python int, numeric -> float.
+    integer_columns: [quantity_sold]
+    numeric_columns: [unit_price]
+
+    # Quality gate thresholds (same defaults as the R3 sales quality_gate.py).
+    quality_check_column: quantity_sold
+    null_rate_threshold: 0.10
+    negative_rate_threshold: 0.05
+    min_rows: 5
+    max_rows: 2000
+
+    # sales_fact keeps a change-history table (CDC-style) on update.
+    history_table: sales_fact_history
+
+  - name: inventory
+    path: data/batches/inventory/
+    table: inventory_snapshot
+    date_column: snapshot_date
+    conflict_keys: [snapshot_date, sku_id, warehouse_id]
+    depends_on: sales   # sales_fact must load before inventory_snapshot
+
+    columns:
+      snapshot_date:      { category: datetime, required: true }
+      sku_id:              { category: string,   required: true }
+      warehouse_id:         { category: string,   required: true }
+      quantity_on_hand:      { category: integer,  required: true }
+
+    integer_columns: [quantity_on_hand]
+    numeric_columns: []
+
+    quality_check_column: quantity_on_hand
+    null_rate_threshold: 0.10
+    negative_rate_threshold: 0.05
+    min_rows: 1
+    max_rows: 5000
+
+    history_table: null   # inventory is a point-in-time snapshot, no CDC history
+
+# Archival (R4 #4): rows in sales_fact older than this many days move to
+# sales_fact_archive. Runs as its own idempotent DAG task.
+archive:
+  table: sales_fact
+  archive_table: sales_fact_archive
+  date_column: date
+  cutoff_days: 730

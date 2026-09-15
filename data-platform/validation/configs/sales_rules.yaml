@@ -1,0 +1,65 @@
+# configs/sales_rules.yaml
+version: "1.0.0"
+rules:
+  - name: date_not_null
+    field: date
+    type: not_null
+    severity: ERROR
+
+  - name: sku_format
+    field: sku_id
+    type: regex
+    pattern: "^SKU-[0-9]{4}$"
+    severity: ERROR
+
+  - name: warehouse_id_not_null
+    field: warehouse_id
+    type: not_null
+    severity: ERROR
+
+  - name: quantity_positive
+    field: quantity_sold
+    type: range
+    min: 0
+    max: 100000
+    severity: WARNING
+
+  - name: unit_price_valid
+    field: unit_price
+    type: range
+    min: 0.01
+    severity: ERROR
+
+  # Addressing the composite unique constraint
+  - name: composite_pk_unique
+    type: custom
+    function: src.custom_rules.check_composite_unique
+    subset: ['date', 'sku_id', 'warehouse_id']
+    severity: ERROR
+
+  - name: unparseable_dates
+    field: date
+    type: custom
+    function: src.custom_rules.check_unparseable_dates
+    severity: ERROR
+
+  - name: flag_negative_quantities
+    field: quantity_sold
+    type: transform
+    function: src.custom_rules.flag_negatives
+    severity: INFO
+
+  # NEW: Standardize the dates before evaluating the range
+  - name: standardize_dates_transform
+    field: date
+    type: transform
+    function: src.custom_rules.standardize_dates
+    severity: INFO
+
+  - name: date_in_range
+    field: date
+    type: range
+    min: '2024-01-01'
+    max: '2024-04-02'
+    severity: WARNING
+    depends_on: [ "unparseable_dates" ]

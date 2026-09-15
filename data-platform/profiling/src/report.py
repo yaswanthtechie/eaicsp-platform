@@ -31,7 +31,7 @@ def generate_report():
 
     print(f"Rows            : {len(df)}")
     print(f"Columns         : {len(df.columns)}")
-    print(f"Date Range      : {df['date'].min().date()}  →  {df['date'].max().date()}")
+    print(f"Date Range      : {df['date'].min().date()}  ->  {df['date'].max().date()}")
     print(f"Duplicate Rows  : {df.duplicated().sum()}")
 
     print("\nCOLUMN SUMMARY")
@@ -138,6 +138,7 @@ def generate_report():
 
     plt.savefig(REPORTS_DIR / "histogram_after.png")
     plt.close()
+    
 
 
 # BOXPLOT
@@ -170,3 +171,5 @@ def generate_report():
 
 if __name__ == "__main__":
     generate_report()
+
+
