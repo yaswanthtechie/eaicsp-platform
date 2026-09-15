@@ -4,13 +4,6 @@
 
 The **Platform Service** is the authentication and authorization foundation of the EAICSP Supply Chain Management Platform.
 
-It is one microservice within EAICSP and provides common security capabilities that are consumed by other backend services such as:
-
-* Inventory Service
-* Logistics Service
-* Compliance Service
-* Supplier Portal Service
-
 The Platform Service centralizes authentication, authorization, user management, security auditing, session management, and service-to-service authentication so that every microservice does not need to implement its own security logic.
 
 ### Base URL
@@ -24,7 +17,6 @@ http://127.0.0.1:8005
 ```text
 /api/v1
 ```
-
 ---
 
 # Key Responsibilities
@@ -118,7 +110,6 @@ tests/
 ├── test_auth.py
 └── test_integration.py
 ```
-
 ---
 
 # Configuration
@@ -134,9 +125,7 @@ TRUST_PROXY=false
 ```
 
 Production should use PostgreSQL and a securely managed secret.
-
 The JWT signing secret must never be hardcoded in source code.
-
 ---
 
 # Roles
@@ -173,10 +162,8 @@ The role hierarchy allows higher-level roles to inherit appropriate access where
 
 # Database
 
-The development environment uses SQLite.
-
-Production should use PostgreSQL.
-
+- The development environment uses SQLite.
+- Production should use PostgreSQL.
 Main tables include:
 
 ```text
@@ -189,7 +176,6 @@ auth_audit_logs
 role_change_history
 service_api_keys
 ```
-
 ---
 
 # Authentication Flow
@@ -342,7 +328,6 @@ Current configuration:
 Access token: 15 minutes
 Refresh token: 7 days
 ```
-
 ---
 
 # Password Hashing
@@ -403,7 +388,6 @@ Invalid or expired tokens return:
 ```text
 401 Unauthorized
 ```
-
 ---
 
 # Refresh Tokens
@@ -439,7 +423,6 @@ Generate new refresh token
 This is called **refresh-token rotation**.
 
 The old refresh token cannot be reused after successful rotation.
-
 ---
 
 # Refresh Token Replay Protection
@@ -471,7 +454,6 @@ Already revoked
 ```
 
 This protects against stolen refresh-token reuse.
-
 ---
 
 # Logout
@@ -487,7 +469,6 @@ Example audit event:
 ```text
 TOKEN_REVOKED
 ```
-
 ---
 
 # Current User
@@ -507,7 +488,6 @@ Example:
   "is_active": true
 }
 ```
-
 ---
 
 # Role-Based Access Control
@@ -550,7 +530,6 @@ If the user is authenticated but does not have permission:
 ```text
 403 Forbidden
 ```
-
 ---
 
 # Fine-Grained Permissions
@@ -564,7 +543,6 @@ For example, instead of checking only:
 ```text
 inventory_manager
 ```
-
 a service can check:
 
 ```text
@@ -618,9 +596,7 @@ Example:
   ]
 }
 ```
-
 This endpoint is useful when a frontend or another service needs to understand what the current user is allowed to do.
-
 ---
 
 # Login Rate Limiting
@@ -652,7 +628,6 @@ After the configured threshold is reached, login requests can return:
 ```text
 429 Too Many Requests
 ```
-
 ---
 
 # Account Lifecycle
@@ -686,7 +661,6 @@ LOGIN_FAILED
        v
 ACCOUNT_LOCKED
 ```
-
 ---
 
 # Forced Password Rotation
@@ -1213,74 +1187,6 @@ Invalid or missing keys return:
 401 Unauthorized
 ```
 
----
-
-# Inventory and Compliance Integration
-
-Inventory and Compliance can use separate Platform-issued service API keys.
-
-They should **not share the same key**.
-
-Example:
-
-```text
-Platform Service
-       |
-       +---- Inventory API Key
-       |
-       +---- Compliance API Key
-```
-
-Inventory configuration:
-
-```env
-PLATFORM_URL=http://127.0.0.1:8005
-INVENTORY_PLATFORM_API_KEY=<inventory-secret>
-```
-
-Compliance configuration:
-
-```env
-PLATFORM_URL=http://127.0.0.1:8005
-COMPLIANCE_PLATFORM_API_KEY=<compliance-secret>
-```
-
-The values must be stored as environment secrets.
-
----
-
-# Compliance Nightly Job
-
-For a scheduled machine-to-machine operation:
-
-```text
-Compliance Nightly Job
-        |
-        | X-API-Key
-        v
-Platform Service
-        |
-        | Validate Compliance API Key
-        v
-Authenticated Service
-        |
-        v
-Continue scheduled operation
-```
-
-Example:
-
-```http
-POST /api/v1/auth/service-verify
-X-API-Key: sk_<compliance-secret>
-```
-
-The API key authenticates the **Compliance service account**.
-
-If Compliance subsequently calls another service, that target service must independently support and validate the appropriate credential.
-
----
-
 # API-Key Rate Limiting
 
 An optional extension for service authentication is rate limiting `/verify` requests by calling service.
@@ -1296,10 +1202,7 @@ can be used to identify the calling service.
 This can prevent a compromised service credential from generating unlimited verification traffic.
 
 ---
-
 # Token Introspection Caching
-
-## Milestone 1 — Token Introspection Caching
 
 Multiple services may repeatedly call:
 
@@ -1360,44 +1263,6 @@ The cache should be designed carefully around security-sensitive changes such as
 * Expiration
 
 A cache implementation must not allow stale authorization information to bypass important security controls.
-
----
-
-# Cache Performance Measurement
-
-The M1 task requires measuring the difference between:
-
-```text
-Cache disabled
-```
-
-and:
-
-```text
-Cache enabled
-```
-
-A benchmark should record:
-
-```text
-Cold verification latency
-Cache-hit latency
-Percentage improvement
-```
-
-Example format:
-
-```text
-Without cache: <measured-value> ms
-With cache:    <measured-value> ms
-
-Improvement:
-((without_cache - with_cache) / without_cache) * 100
-```
-
-Actual measurements should be recorded from the test/benchmark environment rather than hardcoded into this documentation.
-
----
 
 # Admin Endpoints
 
@@ -1719,24 +1584,6 @@ For a user request:
 7. Service performs business operation
 8. Response returns to client
 ```
-
-For a scheduled service-account request:
-
-```text
-Compliance Nightly Job
-        |
-        | X-API-Key
-        v
-Platform Service
-        |
-        | Validate service key
-        v
-Compliance authenticated
-        |
-        v
-Scheduled operation continues
-```
-
 ---
 
 # Logging
@@ -1779,27 +1626,7 @@ SQLite is suitable for local development but should not be treated as the produc
 
 ---
 
-# Production Security Considerations
-
-Before production deployment:
-
-* Use PostgreSQL
-* Use a strong secret key
-* Store secrets in a secret manager/environment
-* Use HTTPS
-* Configure trusted proxies correctly
-* Restrict CORS
-* Rotate service API keys
-* Monitor authentication failures
-* Monitor account lockouts
-* Monitor suspicious token activity
-* Use centralized logging
-* Use appropriate database connection pooling
-* Use Redis/shared infrastructure where distributed caching is required
-
----
-
-# Milestone Completion Summary
+# Completion Summary
 
 The Platform Service evolves through the following improvements:
 
@@ -1815,14 +1642,6 @@ Short-TTL cache
 Reduced repeated JWT verification work
 ```
 
-Definition of done:
-
-* Short-TTL token cache implemented
-* Cache hit/miss behavior tested
-* TTL behavior tested
-* Latency measured
-* Improvement demonstrated
-
 ### Fine-Grained Permissions
 
 ```text
@@ -1836,13 +1655,6 @@ Permissions
   +--> compliance:read
   +--> compliance:write
 ```
-
-Definition of done:
-
-* Permission model implemented
-* Permissions mapped to roles
-* Permission-level checks available
-* Existing role checks remain supported
 
 ### Full Account Lifecycle
 
@@ -1862,13 +1674,6 @@ Account Active/Inactive
 Session Revocation
 ```
 
-Definition of done:
-
-* Account lockout demonstrated
-* Forced password rotation supported
-* Deactivation cascade implemented
-* Active sessions invalidated after deactivation
-
 ### Audit and Security Dashboard
 
 ```text
@@ -1883,15 +1688,6 @@ Security Dashboard
     +--> Lockouts
 ```
 
-Definition of done:
-
-* Security dashboard available
-* Admin-only access
-* Failed login trends available
-* Active sessions visible
-* Role changes visible
-* Lockout events visible
-
 ### Service-to-Service API Keys
 
 ```text
@@ -1904,18 +1700,6 @@ Issue Service Key
   |
   +--> Compliance
 ```
-
-Definition of done:
-
-* API keys can be issued
-* API keys are hashed before storage
-* API keys can be verified
-* API keys can expire
-* API keys can be revoked
-* Key usage can be tracked
-* Service identity is returned
-* Inventory and Compliance can use separate service credentials
-
 ---
 
 # Setup
@@ -1946,7 +1730,6 @@ Open ReDoc:
 ```text
 http://127.0.0.1:8005/redoc
 ```
-
 ---
 
 # Startup Flow
@@ -1974,11 +1757,9 @@ Register routes
    v
 Service ready
 ```
-
 ---
 
 # Service Dependency Model
-
 Other EAICSP services should depend on the Platform Service for shared authentication capabilities rather than duplicating authentication logic.
 
 ```text
@@ -1996,11 +1777,8 @@ Other EAICSP services should depend on the Platform Service for shared authentic
                          |            |
                          +------------+
 ```
-
 The business services remain responsible for their own domain logic.
-
 For example:
-
 ```text
 Platform
     -> Authentication / Authorization
@@ -2017,32 +1795,6 @@ Compliance
 Supplier Portal
     -> Supplier workflows
 ```
-
----
-
-# Security Boundary
-
-The Platform Service is the central security foundation, but it does not own the business logic of the other microservices.
-
-```text
-Platform Service
-    |
-    +--> Who is the user?
-    +--> Is the token valid?
-    +--> What role does the user have?
-    +--> What permissions does the user have?
-    +--> Is the service authenticated?
-    +--> Is the account active?
-```
-
-The consuming microservice decides:
-
-```text
-What business operation should happen?
-```
-
-and uses the identity/authorization information supplied by Platform.
-
 ---
 
 # Known Limitations
@@ -2066,49 +1818,6 @@ Production should use PostgreSQL.
 Password-reset email delivery may use a mock/local implementation during development.
 
 Production should integrate with a secure email provider.
----
-
-# Reference
-
-## Authentication
-
-```text
-POST /api/v1/auth/register
-POST /api/v1/auth/login
-POST /api/v1/auth/refresh
-POST /api/v1/auth/logout
-POST /api/v1/auth/verify
-POST /api/v1/auth/service-verify
-GET  /api/v1/auth/me/permissions
-POST /api/v1/auth/password-reset/request
-POST /api/v1/auth/password-reset/reset
-```
-
-## Users
-
-```text
-GET /api/v1/users/me
-```
-
-## Administration
-
-```text
-GET    /api/v1/admin/users
-POST   /api/v1/admin/users
-PATCH  /api/v1/admin/users/{user_id}/activate
-PATCH  /api/v1/admin/users/{user_id}/deactivate
-PATCH  /api/v1/admin/users/{user_id}/role
-GET    /api/v1/admin/users/{user_id}/role-history
-POST   /api/v1/admin/users/{user_id}/force-reset-password
-GET    /api/v1/admin/users/{user_id}/sessions
-DELETE /api/v1/admin/users/{user_id}/sessions/{session_id}
-GET    /api/v1/admin/audit-logs
-GET    /api/v1/admin/security-dashboard
-POST   /api/v1/admin/service-keys
-GET    /api/v1/admin/service-keys
-DELETE /api/v1/admin/service-keys/{key_id}
-```
-
 ---
 
 # Summary
@@ -2155,3 +1864,4 @@ Token Introspection Caching
 ```
 
 This allows the other EAICSP microservices to focus on their business responsibilities while using a common authentication and authorization foundation.
+
