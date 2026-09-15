@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { shipmentStatus } from "../mocks/shipments";
+import { dashboardApi } from "../api/dashboard";
 import { colors, radius, space } from "../tokens";
 import Skeleton from "./Skeleton";
 
@@ -7,6 +7,8 @@ function ShipmentStatus() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
+
+  const shipmentStatus = dashboardApi.getShipmentStatus();
 
   useEffect(() => {
     let mounted = true;
@@ -69,41 +71,16 @@ function ShipmentStatus() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns:
-              "repeat(5, minmax(0, 1fr))",
+            gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
             gap: space.sm,
             marginTop: space.lg,
           }}
         >
-          <Skeleton
-            width="100%"
-            height={90}
-            borderRadius={radius.md}
-          />
-
-          <Skeleton
-            width="100%"
-            height={90}
-            borderRadius={radius.md}
-          />
-
-          <Skeleton
-            width="100%"
-            height={90}
-            borderRadius={radius.md}
-          />
-
-          <Skeleton
-            width="100%"
-            height={90}
-            borderRadius={radius.md}
-          />
-
-          <Skeleton
-            width="100%"
-            height={90}
-            borderRadius={radius.md}
-          />
+          <Skeleton width="100%" height={90} borderRadius={radius.md} />
+          <Skeleton width="100%" height={90} borderRadius={radius.md} />
+          <Skeleton width="100%" height={90} borderRadius={radius.md} />
+          <Skeleton width="100%" height={90} borderRadius={radius.md} />
+          <Skeleton width="100%" height={90} borderRadius={radius.md} />
         </div>
 
         <div style={{ marginTop: space.md }}>
@@ -227,11 +204,7 @@ function ShipmentStatus() {
         Current shipment and logistics status
       </div>
 
-      <div
-        style={{
-          marginBottom: space.lg,
-        }}
-      >
+      <div style={{ marginBottom: space.lg }}>
         <div
           style={{
             display: "flex",
@@ -319,12 +292,7 @@ function ShipmentStatus() {
             padding: space.md,
           }}
         >
-          <div
-            style={{
-              color: colors.textMuted,
-              fontSize: 12,
-            }}
-          >
+          <div style={{ color: colors.textMuted, fontSize: 12 }}>
             Pending
           </div>
 
@@ -347,12 +315,7 @@ function ShipmentStatus() {
             padding: space.md,
           }}
         >
-          <div
-            style={{
-              color: colors.textMuted,
-              fontSize: 12,
-            }}
-          >
+          <div style={{ color: colors.textMuted, fontSize: 12 }}>
             In Transit
           </div>
 
@@ -375,12 +338,7 @@ function ShipmentStatus() {
             padding: space.md,
           }}
         >
-          <div
-            style={{
-              color: colors.textMuted,
-              fontSize: 12,
-            }}
-          >
+          <div style={{ color: colors.textMuted, fontSize: 12 }}>
             Delivered
           </div>
 
@@ -403,12 +361,7 @@ function ShipmentStatus() {
             padding: space.md,
           }}
         >
-          <div
-            style={{
-              color: colors.textMuted,
-              fontSize: 12,
-            }}
-          >
+          <div style={{ color: colors.textMuted, fontSize: 12 }}>
             Delayed
           </div>
 
@@ -431,12 +384,7 @@ function ShipmentStatus() {
             padding: space.md,
           }}
         >
-          <div
-            style={{
-              color: colors.textMuted,
-              fontSize: 12,
-            }}
-          >
+          <div style={{ color: colors.textMuted, fontSize: 12 }}>
             Cancelled
           </div>
 
@@ -467,4 +415,3 @@ function ShipmentStatus() {
 }
 
 export default ShipmentStatus;
-

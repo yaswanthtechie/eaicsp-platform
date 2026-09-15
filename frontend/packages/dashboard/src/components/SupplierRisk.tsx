@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supplierRisk } from "../mocks/supplierRisk";
+import { dashboardApi } from "../api/dashboard";
 import { colors, radius, space } from "../tokens";
 import Skeleton from "./Skeleton";
 
@@ -7,7 +7,8 @@ function SupplierRisk() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
-
+  const supplierRisk = dashboardApi.getSupplierRisk();
+  
   useEffect(() => {
     let mounted = true;
 

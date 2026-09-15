@@ -2,11 +2,13 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import DashboardFilters from "../components/DashboardFilters";
-import { loadInventory } from "../mocks/inventory";
+import { dashboardApi } from "../api/dashboard";
 import type { InventoryItem } from "../types/forecast";
 
-vi.mock("../mocks/inventory", () => ({
-  loadInventory: vi.fn(),
+vi.mock("../api/dashboard", () => ({
+  dashboardApi: {
+    fetchInventory: vi.fn(),
+  },
 }));
 
 const mockInventory: InventoryItem[] = [
@@ -42,6 +44,13 @@ const mockInventory: InventoryItem[] = [
   },
 ];
 
+const defaultFilters = {
+  warehouse: "All",
+  category: "All",
+  startDate: "",
+  endDate: "",
+};
+
 describe("DashboardFilters", () => {
   const onFilterChange = vi.fn();
 
@@ -50,12 +59,15 @@ describe("DashboardFilters", () => {
 
     window.history.pushState({}, "", "/");
 
-    vi.mocked(loadInventory).mockResolvedValue(mockInventory);
+    vi.mocked(dashboardApi.fetchInventory).mockResolvedValue(
+      mockInventory,
+    );
   });
 
   it("renders filters", async () => {
     render(
       <DashboardFilters
+        filters={defaultFilters}
         onFilterChange={onFilterChange}
       />,
     );
@@ -77,13 +89,14 @@ describe("DashboardFilters", () => {
     ).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(loadInventory).toHaveBeenCalled();
+      expect(dashboardApi.fetchInventory).toHaveBeenCalled();
     });
   });
 
   it("shows default values", async () => {
     render(
       <DashboardFilters
+        filters={defaultFilters}
         onFilterChange={onFilterChange}
       />,
     );
@@ -102,6 +115,7 @@ describe("DashboardFilters", () => {
   it("loads warehouse and category options", async () => {
     render(
       <DashboardFilters
+        filters={defaultFilters}
         onFilterChange={onFilterChange}
       />,
     );
@@ -142,6 +156,7 @@ describe("DashboardFilters", () => {
   it("changes warehouse", async () => {
     render(
       <DashboardFilters
+        filters={defaultFilters}
         onFilterChange={onFilterChange}
       />,
     );
@@ -176,6 +191,7 @@ describe("DashboardFilters", () => {
   it("changes category", async () => {
     render(
       <DashboardFilters
+        filters={defaultFilters}
         onFilterChange={onFilterChange}
       />,
     );
@@ -210,12 +226,13 @@ describe("DashboardFilters", () => {
   it("changes start date", async () => {
     render(
       <DashboardFilters
+        filters={defaultFilters}
         onFilterChange={onFilterChange}
       />,
     );
 
     await waitFor(() => {
-      expect(loadInventory).toHaveBeenCalled();
+      expect(dashboardApi.fetchInventory).toHaveBeenCalled();
     });
 
     fireEvent.change(
@@ -240,12 +257,13 @@ describe("DashboardFilters", () => {
   it("changes end date", async () => {
     render(
       <DashboardFilters
+        filters={defaultFilters}
         onFilterChange={onFilterChange}
       />,
     );
 
     await waitFor(() => {
-      expect(loadInventory).toHaveBeenCalled();
+      expect(dashboardApi.fetchInventory).toHaveBeenCalled();
     });
 
     fireEvent.change(
@@ -270,6 +288,7 @@ describe("DashboardFilters", () => {
   it("updates URL", async () => {
     render(
       <DashboardFilters
+        filters={defaultFilters}
         onFilterChange={onFilterChange}
       />,
     );
@@ -305,8 +324,16 @@ describe("DashboardFilters", () => {
       "/?warehouse=WH001&category=Food&startDate=2026-08-01&endDate=2026-08-31",
     );
 
+    const urlFilters = {
+      warehouse: "WH001",
+      category: "Food",
+      startDate: "2026-08-01",
+      endDate: "2026-08-31",
+    };
+
     render(
       <DashboardFilters
+        filters={urlFilters}
         onFilterChange={onFilterChange}
       />,
     );
@@ -337,8 +364,16 @@ describe("DashboardFilters", () => {
       "/?warehouse=WH001",
     );
 
+    const filters = {
+      warehouse: "WH001",
+      category: "All",
+      startDate: "",
+      endDate: "",
+    };
+
     render(
       <DashboardFilters
+        filters={filters}
         onFilterChange={onFilterChange}
       />,
     );
@@ -366,12 +401,13 @@ describe("DashboardFilters", () => {
   });
 
   it("handles inventory error", async () => {
-    vi.mocked(loadInventory).mockRejectedValue(
+    vi.mocked(dashboardApi.fetchInventory).mockRejectedValue(
       new Error("Failed"),
     );
 
     render(
       <DashboardFilters
+        filters={defaultFilters}
         onFilterChange={onFilterChange}
       />,
     );

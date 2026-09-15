@@ -1,17 +1,6 @@
-import { useEffect, useState } from "react";
-import { loadInventory } from "../mocks/inventory";
+import { useState } from "react";
+import type { InventoryItem } from "../types/forecast";
 import { colors, radius, space } from "../tokens";
-import Skeleton from "./Skeleton";
-
-interface InventoryItem {
-  sku_id: string;
-  product_name: string;
-  warehouse_id: string;
-  quantity_on_hand: number;
-  reorder_point: number;
-  needs_reorder: boolean;
-  avg_daily_demand: number;
-}
 
 type HealthStatus = "Healthy" | "Low" | "Critical";
 type FilterType = HealthStatus | "Reorder";
@@ -21,151 +10,33 @@ function getHealthStatus(daysRemaining: number): HealthStatus {
   if (daysRemaining <= 10) return "Low";
   return "Healthy";
 }
+interface InventoryHealthProps {
+  inventory: InventoryItem[];
+  warehouse: string;
+  category: string;
+}
 
-function InventoryHealth() {
-  const [inventory, setInventory] = useState<InventoryItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+function InventoryHealth({
+  inventory,
+  warehouse,
+  category,
+}: InventoryHealthProps) {
   const [activeFilter, setActiveFilter] =
     useState<FilterType | null>(null);
-  const [retryCount, setRetryCount] = useState(0);
 
-  useEffect(() => {
-    let mounted = true;
+  const filteredInventory = inventory.filter((item) => {
+    const warehouseMatches =
+      warehouse === "All" ||
+      item.warehouse_id === warehouse;
 
-    loadInventory()
-      .then((data) => {
-        if (mounted) {
-          setInventory(data);
-          setError(false);
-          setLoading(false);
-        }
-      })
-      .catch(() => {
-        if (mounted) {
-          setError(true);
-          setLoading(false);
-        }
-      });
+    const categoryMatches =
+      category === "All" ||
+      item.category === category;
 
-    return () => {
-      mounted = false;
-    };
-  }, [retryCount]);
+    return warehouseMatches && categoryMatches;
+  });
 
-  if (loading) {
-    return (
-      <div
-        style={{
-          background: colors.surface,
-          border: `1px solid ${colors.border}`,
-          borderRadius: radius.lg,
-          padding: space.lg,
-          boxSizing: "border-box",
-          width: "100%",
-        }}
-      >
-        <Skeleton width="30%" height={28} />
-
-        <div style={{ marginTop: space.sm }}>
-          <Skeleton width="50%" height={18} />
-        </div>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns:
-              "repeat(4, minmax(0, 1fr))",
-            gap: space.sm,
-            marginTop: space.md,
-          }}
-        >
-          <Skeleton
-            width="100%"
-            height={90}
-            borderRadius={radius.md}
-          />
-
-          <Skeleton
-            width="100%"
-            height={90}
-            borderRadius={radius.md}
-          />
-
-          <Skeleton
-            width="100%"
-            height={90}
-            borderRadius={radius.md}
-          />
-
-          <Skeleton
-            width="100%"
-            height={90}
-            borderRadius={radius.md}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div
-        style={{
-          background: colors.surface,
-          border: `1px solid ${colors.danger}`,
-          borderRadius: radius.lg,
-          padding: space.lg,
-          minHeight: 250,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: space.sm,
-          textAlign: "center",
-        }}
-      >
-        <h3
-          style={{
-            color: colors.text,
-            margin: 0,
-          }}
-        >
-          Something went wrong.
-        </h3>
-
-        <p
-          style={{
-            color: colors.textMuted,
-            margin: 0,
-          }}
-        >
-          Failed to load inventory health.
-        </p>
-
-        <button
-          type="button"
-          onClick={() => {
-            setError(false);
-            setLoading(true);
-            setRetryCount((count) => count + 1);
-          }}
-          style={{
-            padding: "7px 14px",
-            border: "none",
-            borderRadius: radius.sm,
-            background: colors.danger,
-            color: colors.text,
-            cursor: "pointer",
-          }}
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
-
-  const healthData = inventory.map((item) => {
+  const healthData = filteredInventory.map((item) => {
     const daysRemaining =
       item.avg_daily_demand > 0
         ? Math.ceil(
@@ -501,4 +372,3 @@ function InventoryHealth() {
 }
 
 export default InventoryHealth;
-

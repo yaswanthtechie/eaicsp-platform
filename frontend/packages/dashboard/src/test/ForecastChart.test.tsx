@@ -1,17 +1,19 @@
 import { render, screen, fireEvent, waitFor, cleanup} from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import ForecastChart from "../components/ForecastChart";
-import { loadForecast } from "../mocks/forecast";
+import { dashboardApi } from "../api/dashboard";
 
-vi.mock("../mocks/forecast", () => ({
-  loadForecast: vi.fn(),
+vi.mock("../api/dashboard", () => ({
+  dashboardApi: {
+    fetchForecast:vi.fn(),
+  },
 }));
 
 describe("ForecastChart", () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    vi.mocked(loadForecast).mockResolvedValue([
+    vi.mocked(dashboardApi.fetchForecast).mockResolvedValue([
       {
         date: "2026-08-01",
         predicted: 100,
@@ -78,7 +80,7 @@ describe("ForecastChart", () => {
   });
 
   it("shows no data message when forecast data is empty", async () => {
-    vi.mocked(loadForecast).mockResolvedValue([]);
+    vi.mocked(dashboardApi.fetchForecast).mockResolvedValue([]);
 
     render(<ForecastChart />);
 
@@ -115,7 +117,7 @@ describe("ForecastChart", () => {
   });
 
   it("retries loading forecast data", async () => {
-    vi.mocked(loadForecast)
+    vi.mocked(dashboardApi.fetchForecast)
       .mockRejectedValueOnce(new Error("Failed"))
       .mockResolvedValueOnce([
         {
@@ -143,7 +145,7 @@ describe("ForecastChart", () => {
       ).toBeInTheDocument();
     });
 
-    expect(loadForecast).toHaveBeenCalledTimes(2);
+    expect(dashboardApi.fetchForecast).toHaveBeenCalledTimes(2);
   });
 
   it("resets zoom when Reset Zoom is clicked", async () => {

@@ -11,8 +11,8 @@ import {
     YAxis,
 } from "recharts";
 
-import { useEffect, useMemo, useState } from "react";
-import { loadForecast } from "../mocks/forecast";
+import { memo, useEffect, useMemo, useState } from "react";
+import { dashboardApi } from "../api/dashboard";
 import { colors, space } from "../tokens";
 import type { ForecastPoint } from "../types/forecast";
 import Skeleton from "./Skeleton";
@@ -43,7 +43,7 @@ function ForecastChart({
         throw new Error("Failed to load forecast data");
       }
 
-      const data = await loadForecast();
+      const data = await dashboardApi.fetchForecast();
       setForecastData(data);
     } catch {
       setForecastData([]);
@@ -65,7 +65,7 @@ function ForecastChart({
           throw new Error("Failed to load forecast data");
         }
 
-        const data = await loadForecast();
+        const data = await dashboardApi.fetchForecast();
 
         if (!cancelled) {
           setForecastData(data);
@@ -307,5 +307,5 @@ function ForecastChart({
   );
 }
 
-export default ForecastChart;
+export default memo(ForecastChart);
 

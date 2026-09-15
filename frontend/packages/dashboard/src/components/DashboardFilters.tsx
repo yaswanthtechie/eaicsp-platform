@@ -1,8 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { loadInventory } from "../mocks/inventory";
+import { dashboardApi } from "../api/dashboard";
 import { colors, radius, space } from "../tokens";
 
 interface DashboardFiltersProps {
+  filters: {
+    warehouse: string;
+    category: string;
+    startDate: string;
+    endDate: string;
+  };
   onFilterChange: (filters: {
     warehouse: string;
     category: string;
@@ -12,30 +18,12 @@ interface DashboardFiltersProps {
 }
 
 function DashboardFilters({
+  filters,
   onFilterChange,
 }: DashboardFiltersProps) {
-  const params = new URLSearchParams(
-    window.location.search,
-  );
-
-  const [warehouse, setWarehouse] = useState(
-    params.get("warehouse") || "All",
-  );
-
-  const [category, setCategory] = useState(
-    params.get("category") || "All",
-  );
-
-  const [startDate, setStartDate] = useState(
-    params.get("startDate") || "",
-  );
-
-  const [endDate, setEndDate] = useState(
-    params.get("endDate") || "",
-  );
 
   const [inventoryData, setInventoryData] = useState<
-    Awaited<ReturnType<typeof loadInventory>>
+    Awaited<ReturnType<typeof dashboardApi.fetchInventory>>
   >([]);
 
   useEffect(() => {
@@ -43,7 +31,7 @@ function DashboardFilters({
 
     const fetchInventory = async () => {
       try {
-        const data = await loadInventory();
+        const data = await dashboardApi.fetchInventory();
 
         if (!cancelled) {
           setInventoryData(data);
@@ -85,21 +73,6 @@ function DashboardFilters({
       ),
     [inventoryData],
   );
-
-  useEffect(() => {
-    onFilterChange({
-      warehouse,
-      category,
-      startDate,
-      endDate,
-    });
-  }, [
-    warehouse,
-    category,
-    startDate,
-    endDate,
-    onFilterChange,
-  ]);
 
   const updateUrl = (
     key: string,
@@ -151,11 +124,16 @@ function DashboardFilters({
       }}
     >
       <select
-        value={warehouse}
+        value={filters.warehouse}
         onChange={(event) => {
           const value = event.target.value;
-          setWarehouse(value);
+
           updateUrl("warehouse", value);
+
+          onFilterChange({
+            ...filters,
+            warehouse: value,
+          });
         }}
         style={selectStyle}
         aria-label="Warehouse filter"
@@ -173,11 +151,16 @@ function DashboardFilters({
       </select>
 
       <select
-        value={category}
+        value={filters.category}
         onChange={(event) => {
           const value = event.target.value;
-          setCategory(value);
+          
           updateUrl("category", value);
+
+          onFilterChange({
+            ...filters,
+            category: value,
+          });
         }}
         style={selectStyle}
         aria-label="Category filter"
@@ -196,11 +179,16 @@ function DashboardFilters({
 
       <input
         type="date"
-        value={startDate}
+        value={filters.startDate}
         onChange={(event) => {
           const value = event.target.value;
-          setStartDate(value);
+
           updateUrl("startDate", value);
+
+          onFilterChange({
+            ...filters,
+            startDate: value,
+          });
         }}
         style={selectStyle}
         aria-label="Start date"
@@ -208,11 +196,16 @@ function DashboardFilters({
 
       <input
         type="date"
-        value={endDate}
+        value={filters.endDate}
         onChange={(event) => {
           const value = event.target.value;
-          setEndDate(value);
+
           updateUrl("endDate", value);
+
+          onFilterChange({
+            ...filters,
+            endDate: value,
+          });
         }}
         style={selectStyle}
         aria-label="End date"

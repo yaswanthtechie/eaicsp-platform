@@ -9,14 +9,25 @@ import {
   YAxis,
 } from "recharts";
 
-import { forecastAccuracy } from "../mocks/forecastAccuracy";
+import { dashboardApi } from "../api/dashboard";
 import { colors, radius, space } from "../tokens";
 import Skeleton from "./Skeleton";
 
-function ForecastAccuracy() {
+interface ForecastAccuracyProps {
+  startDate: string;
+  endDate: string;
+}
+
+function ForecastAccuracy({
+  startDate,
+  endDate,
+}: ForecastAccuracyProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
+  const [forecastAccuracy, setForecastAccuracy] = useState(
+    dashboardApi.getForecastAccuracy(),
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -25,11 +36,10 @@ function ForecastAccuracy() {
       setError(false);
 
       try {
-        await new Promise<void>((resolve) => {
-          setTimeout(resolve, 1000);
-        });
+        const data = dashboardApi.getForecastAccuracy();
 
         if (!cancelled) {
+          setForecastAccuracy(data);
           setLoading(false);
         }
       } catch {
@@ -114,6 +124,7 @@ function ForecastAccuracy() {
         </p>
 
         <button
+          type="button"
           onClick={() => {
             setLoading(true);
             setRetryCount((count) => count + 1);
@@ -132,6 +143,13 @@ function ForecastAccuracy() {
       </div>
     );
   }
+
+  const filteredForecastAccuracy = forecastAccuracy.filter((point) => {
+    const afterStart = !startDate || point.date >= startDate;
+    const beforeEnd = !endDate || point.date <= endDate;
+
+    return afterStart && beforeEnd;
+  });
 
   return (
     <div
@@ -168,7 +186,7 @@ function ForecastAccuracy() {
       <div style={{ width: "100%", height: 280 }}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart
-            data={forecastAccuracy}
+            data={filteredForecastAccuracy}
             margin={{
               top: 8,
               right: 16,
@@ -183,13 +201,19 @@ function ForecastAccuracy() {
 
             <XAxis
               dataKey="date"
-              tick={{ fill: colors.textMuted, fontSize: 12 }}
+              tick={{
+                fill: colors.textMuted,
+                fontSize: 12,
+              }}
               tickFormatter={(date) => date.slice(5)}
             />
 
             <YAxis
               domain={[0, 100]}
-              tick={{ fill: colors.textMuted, fontSize: 12 }}
+              tick={{
+                fill: colors.textMuted,
+                fontSize: 12,
+              }}
               tickFormatter={(value) => `${value}%`}
             />
 
@@ -231,4 +255,3 @@ function ForecastAccuracy() {
 }
 
 export default ForecastAccuracy;
-

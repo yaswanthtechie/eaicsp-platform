@@ -1,6 +1,6 @@
 import type { InventoryItem } from "../types/forecast";
 
-export const inventory: InventoryItem[] = [
+const baseInventory: InventoryItem[] = [
   {
     sku_id: "SKU001",
     product_name: "Apples",
@@ -163,6 +163,26 @@ export const inventory: InventoryItem[] = [
   },
 ];
 
+export const inventory: InventoryItem[] = Array.from(
+  { length: 500 },
+  (_, index) => {
+    const source = baseInventory[index % baseInventory.length];
+
+    const quantity = Math.max(
+      5,
+      source.quantity_on_hand + ((index % 11) - 5) * 3,
+    );
+
+    return {
+      ...source,
+      sku_id: `SKU${String(index + 1).padStart(3, "0")}`,
+      product_name: `${source.product_name} ${index + 1}`,
+      quantity_on_hand: quantity,
+      needs_reorder: quantity <= source.reorder_point,
+    };
+  },
+);
+
 export function loadInventory(shouldFail = false) {
   return new Promise<typeof inventory>((resolve, reject) => {
     setTimeout(() => {
@@ -175,3 +195,4 @@ export function loadInventory(shouldFail = false) {
     }, 1000);
   });
 }
+

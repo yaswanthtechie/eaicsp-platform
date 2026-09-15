@@ -1,12 +1,7 @@
-import { render, screen, fireEvent, waitFor, cleanup} from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent, cleanup} from "@testing-library/react";
+import { describe, it, expect, afterEach } from "vitest";
 
 import InventoryHealth from "../components/InventoryHealth";
-import { loadInventory } from "../mocks/inventory";
-
-vi.mock("../mocks/inventory", () => ({
-  loadInventory: vi.fn(),
-}));
 
 interface InventoryItem {
   sku_id: string;
@@ -72,47 +67,23 @@ const mockInventory: InventoryItem[] = [
   },
 ];
 
-const mockedLoadInventory = vi.mocked(loadInventory);
+const defaultProps = {
+  inventory: mockInventory,
+  warehouse: "All",
+  category: "All",
+};
 
 describe("InventoryHealth", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
   afterEach(() => {
     cleanup();
   });
 
-  it("shows loading skeleton while inventory is loading", () => {
-    mockedLoadInventory.mockReturnValue(
-      new Promise<InventoryItem[]>(() => {})
-    );
-
-    const { container } = render(<InventoryHealth />);
+  it("loads and displays inventory health", () => {
+    render(<InventoryHealth {...defaultProps} />);
 
     expect(
-      screen.queryByText("Inventory Health")
-    ).not.toBeInTheDocument();
-
-    expect(
-      screen.queryByText("Loading inventory health...")
-    ).not.toBeInTheDocument();
-
-    expect(
-      container.querySelectorAll("div").length
-    ).toBeGreaterThan(1);
-  });
-
-  it("loads and displays inventory health", async () => {
-    mockedLoadInventory.mockResolvedValue(mockInventory);
-
-    render(<InventoryHealth />);
-
-    await waitFor(() => {
-      expect(
-        screen.getByText("Inventory Health")
-      ).toBeInTheDocument();
-    });
+      screen.getByText("Inventory Health")
+    ).toBeInTheDocument();
 
     expect(
       screen.getByText("Healthy")
@@ -131,16 +102,8 @@ describe("InventoryHealth", () => {
     ).toBeInTheDocument();
   });
 
-  it("calculates and displays health counts", async () => {
-    mockedLoadInventory.mockResolvedValue(mockInventory);
-
-    render(<InventoryHealth />);
-
-    await waitFor(() => {
-      expect(
-        screen.getByText("Inventory Health")
-      ).toBeInTheDocument();
-    });
+  it("calculates and displays health counts", () => {
+    render(<InventoryHealth {...defaultProps} />);
 
     const healthyButton = screen.getByRole("button", {
       name: /Healthy/i,
@@ -164,16 +127,8 @@ describe("InventoryHealth", () => {
     expect(reorderButton).toHaveTextContent("1");
   });
 
-  it("filters healthy inventory", async () => {
-    mockedLoadInventory.mockResolvedValue(mockInventory);
-
-    render(<InventoryHealth />);
-
-    await waitFor(() => {
-      expect(
-        screen.getByText("Inventory Health")
-      ).toBeInTheDocument();
-    });
+  it("filters healthy inventory", () => {
+    render(<InventoryHealth {...defaultProps} />);
 
     fireEvent.click(
       screen.getByRole("button", {
@@ -194,16 +149,8 @@ describe("InventoryHealth", () => {
     ).toBeInTheDocument();
   });
 
-  it("filters low stock inventory", async () => {
-    mockedLoadInventory.mockResolvedValue(mockInventory);
-
-    render(<InventoryHealth />);
-
-    await waitFor(() => {
-      expect(
-        screen.getByText("Inventory Health")
-      ).toBeInTheDocument();
-    });
+  it("filters low stock inventory", () => {
+    render(<InventoryHealth {...defaultProps} />);
 
     fireEvent.click(
       screen.getByRole("button", {
@@ -240,16 +187,8 @@ describe("InventoryHealth", () => {
     ).toBeInTheDocument();
   });
 
-  it("filters critical inventory", async () => {
-    mockedLoadInventory.mockResolvedValue(mockInventory);
-
-    render(<InventoryHealth />);
-
-    await waitFor(() => {
-      expect(
-        screen.getByText("Inventory Health")
-      ).toBeInTheDocument();
-    });
+  it("filters critical inventory", () => {
+    render(<InventoryHealth {...defaultProps} />);
 
     fireEvent.click(
       screen.getByRole("button", {
@@ -270,16 +209,8 @@ describe("InventoryHealth", () => {
     ).toBeInTheDocument();
   });
 
-  it("filters reorder inventory", async () => {
-    mockedLoadInventory.mockResolvedValue(mockInventory);
-
-    render(<InventoryHealth />);
-
-    await waitFor(() => {
-      expect(
-        screen.getByText("Inventory Health")
-      ).toBeInTheDocument();
-    });
+  it("filters reorder inventory", () => {
+    render(<InventoryHealth {...defaultProps} />);
 
     fireEvent.click(
       screen.getByRole("button", {
@@ -300,16 +231,8 @@ describe("InventoryHealth", () => {
     ).toBeInTheDocument();
   });
 
-  it("clears the active filter", async () => {
-    mockedLoadInventory.mockResolvedValue(mockInventory);
-
-    render(<InventoryHealth />);
-
-    await waitFor(() => {
-      expect(
-        screen.getByText("Inventory Health")
-      ).toBeInTheDocument();
-    });
+  it("clears the active filter", () => {
+    render(<InventoryHealth {...defaultProps} />);
 
     fireEvent.click(
       screen.getByRole("button", {
@@ -332,16 +255,8 @@ describe("InventoryHealth", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("toggles the active filter off", async () => {
-    mockedLoadInventory.mockResolvedValue(mockInventory);
-
-    render(<InventoryHealth />);
-
-    await waitFor(() => {
-      expect(
-        screen.getByText("Inventory Health")
-      ).toBeInTheDocument();
-    });
+  it("toggles the active filter off", () => {
+    render(<InventoryHealth {...defaultProps} />);
 
     const healthyButton = screen.getByRole("button", {
       name: /Healthy/i,
@@ -360,7 +275,7 @@ describe("InventoryHealth", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("shows empty state when no items match the filter", async () => {
+  it("shows empty state when no items match the filter", () => {
     const inventoryWithoutReorder: InventoryItem[] = [
       {
         sku_id: "SKU012",
@@ -374,17 +289,13 @@ describe("InventoryHealth", () => {
       },
     ];
 
-    mockedLoadInventory.mockResolvedValue(
-      inventoryWithoutReorder
+    render(
+      <InventoryHealth
+        inventory={inventoryWithoutReorder}
+        warehouse="All"
+        category="All"
+      />
     );
-
-    render(<InventoryHealth />);
-
-    await waitFor(() => {
-      expect(
-        screen.getByText("Inventory Health")
-      ).toBeInTheDocument();
-    });
 
     fireEvent.click(
       screen.getByRole("button", {
@@ -400,21 +311,4 @@ describe("InventoryHealth", () => {
       screen.getByText("No inventory items found.")
     ).toBeInTheDocument();
   });
-
-  it("shows error state when loading fails", async () => {
-    mockedLoadInventory.mockRejectedValue(
-      new Error("Failed")
-    );
-
-    render(<InventoryHealth />);
-
-    await waitFor(() => {
-      expect(
-        screen.getByText(
-          "Failed to load inventory health."
-        )
-      ).toBeInTheDocument();
-    });
-  });
 });
-

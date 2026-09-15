@@ -1,5 +1,7 @@
 import { Component, type ReactNode } from "react";
 
+import { colors, radius, space } from "../tokens";
+
 interface Props {
   children: ReactNode;
 }
@@ -28,9 +30,21 @@ export default class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div>
+        <div
+          style={{
+            padding: space.lg,
+            border: `1px solid ${colors.danger}`,
+            borderRadius: radius.md,
+            background: colors.surface,
+            color: colors.text,
+          }}
+        >
           <h2>Something went wrong</h2>
-          <p>Unable to load the dashboard.</p>
+
+          <p style={{ color: colors.textMuted }}>
+            Unable to load this widget.
+          </p>
+
           <button onClick={this.handleRetry}>Retry</button>
         </div>
       );
@@ -39,4 +53,3 @@ export default class ErrorBoundary extends Component<Props, State> {
     return this.props.children;
   }
 }
-

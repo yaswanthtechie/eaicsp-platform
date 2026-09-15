@@ -1,8 +1,10 @@
 import {
-    useCallback,
-    useEffect,
-    useMemo,
-    useState,
+  Profiler,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ProfilerOnRenderCallback,
 } from "react";
 
 import AlertsPanel from "./components/AlertsPanel";
@@ -21,10 +23,23 @@ import { inventory } from "./mocks/inventory";
 import { startMockWebSocketServer } from "./mocks/wsServer";
 import { colors, radius, space } from "./tokens";
 import type {
-    AlertMessage,
-    InventoryItem,
-    WebSocketMessage,
+  AlertMessage,
+  InventoryItem,
+  WebSocketMessage,
 } from "./types/forecast";
+
+const handleProfilerRender: ProfilerOnRenderCallback = (
+  id,
+  phase,
+  actualDuration,
+  baseDuration,
+) => {
+  console.log(
+    `[Profiler] ${id} | ${phase} | actual: ${actualDuration.toFixed(
+      2,
+    )}ms | base: ${baseDuration.toFixed(2)}ms`,
+  );
+};
 
 function App() {
   const [alerts, setAlerts] = useState<AlertMessage[]>([]);
@@ -53,6 +68,14 @@ function App() {
         startDate: params.get("startDate") || "",
         endDate: params.get("endDate") || "",
       });
+
+      setSelectedKpi(
+        params.get("selectedKpi") || "",
+      );
+
+      setLowStockOnly(
+        params.get("lowStock") === "true",
+      );
     };
 
     updateFiltersFromUrl();
@@ -189,163 +212,189 @@ function App() {
   ];
 
   const handleKpiClick = (title: string) => {
-    setSelectedKpi(title);
+    const params = new URLSearchParams(
+      window.location.search,
+    );
+
+    let nextLowStock = lowStockOnly;
 
     if (title === "Low Stock") {
-      setLowStockOnly((previous) => !previous);
-
-      setTimeout(() => {
-        document
-          .getElementById("inventory-section")
-          ?.scrollIntoView({
-            behavior: "smooth",
-          });
-      }, 0);
-
-      return;
+      nextLowStock = !lowStockOnly;
+    } else if (
+      title === "SKUs" ||
+      title === "Total Units"
+    ) {
+      nextLowStock = false;
     }
 
-    if (title === "SKUs" || title === "Total Units") {
-      setLowStockOnly(false);
+    params.set("selectedKpi", title);
+    params.set(
+      "lowStock",
+      String(nextLowStock),
+    );
 
-      setTimeout(() => {
-        document
-          .getElementById("inventory-section")
-          ?.scrollIntoView({
-            behavior: "smooth",
-          });
-      }, 0);
+    const queryString = params.toString();
 
-      return;
-    }
+    window.history.pushState(
+      {},
+      "",
+      queryString
+        ? `${window.location.pathname}?${queryString}`
+        : window.location.pathname,
+    );
 
-    if (title === "Alerts") {
-      setTimeout(() => {
+    setSelectedKpi(title);
+    setLowStockOnly(nextLowStock);
+
+    setTimeout(() => {
+      if (title === "Alerts") {
         document
           .getElementById("alerts-section")
           ?.scrollIntoView({
             behavior: "smooth",
           });
-      }, 0);
-    }
+      } else {
+        document
+          .getElementById("inventory-section")
+          ?.scrollIntoView({
+            behavior: "smooth",
+          });
+      }
+    }, 0);
   };
 
   return (
-    <ErrorBoundary>
+    <div
+      style={{
+        background: colors.bg,
+        minHeight: "100vh",
+        padding: space.lg,
+        boxSizing: "border-box",
+      }}
+    >
       <div
         style={{
-          background: colors.bg,
-          minHeight: "100vh",
-          padding: space.lg,
-          boxSizing: "border-box",
+          background: colors.surface,
+          padding: space.md,
+          borderRadius: radius.md,
+          marginBottom: space.lg,
         }}
       >
+        <h1
+          style={{
+            color: colors.text,
+            textAlign: "center",
+            margin: 0,
+            fontSize: space.xl,
+            fontWeight: 700,
+          }}
+        >
+          Executive Dashboard
+        </h1>
+      </div>
+
+      <DashboardFilters
+        filters={filters}
+        onFilterChange={setFilters}
+      />
+
+      <div className="kpi-grid">
+        {kpis.map((kpi) => (
+          <button
+            key={kpi.title}
+            type="button"
+            onClick={() =>
+              handleKpiClick(kpi.title)
+            }
+            aria-pressed={
+              selectedKpi === kpi.title
+            }
+            style={{
+              background: colors.surface,
+              border: `1px solid ${
+                selectedKpi === kpi.title
+                  ? colors.primary
+                  : kpi.title === "Low Stock" &&
+                      lowStockOnly
+                    ? colors.warning
+                    : colors.border
+              }`,
+              borderRadius: radius.md,
+              padding: space.lg,
+              cursor: "pointer",
+              boxSizing: "border-box",
+              minWidth: 0,
+            }}
+          >
+            <div
+              style={{
+                color: colors.textMuted,
+                fontSize: 14,
+                marginBottom: space.sm,
+              }}
+            >
+              {kpi.title}
+            </div>
+
+            <div
+              style={{
+                color: colors.text,
+                fontSize: 28,
+                fontWeight: 700,
+              }}
+            >
+              {kpi.value}
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {lowStockOnly && (
         <div
           style={{
             background: colors.surface,
-            padding: space.md,
+            border: `1px solid ${colors.warning}`,
             borderRadius: radius.md,
+            padding: space.sm,
             marginBottom: space.lg,
+            color: colors.text,
+            fontSize: 14,
           }}
         >
-          <h1
-            style={{
-              color: colors.text,
-              textAlign: "center",
-              margin: 0,
-              fontSize: space.xl,
-              fontWeight: 700,
-            }}
-          >
-            Executive Dashboard
-          </h1>
+          Showing low-stock inventory only
         </div>
+      )}
 
-        <DashboardFilters onFilterChange={setFilters} />
-
-        <div className="kpi-grid">
-          {kpis.map((kpi) => (
-            <div
-              key={kpi.title}
-              onClick={() => handleKpiClick(kpi.title)}
-              style={{
-                background: colors.surface,
-                border: `1px solid ${
-                  selectedKpi === kpi.title
-                    ? colors.primary
-                    : kpi.title === "Low Stock" &&
-                        lowStockOnly
-                      ? colors.warning
-                      : colors.border
-                }`,
-                borderRadius: radius.md,
-                padding: space.lg,
-                cursor: "pointer",
-                boxSizing: "border-box",
-                minWidth: 0,
-              }}
-            >
-              <div
-                style={{
-                  color: colors.textMuted,
-                  fontSize: 14,
-                  marginBottom: space.sm,
-                }}
-              >
-                {kpi.title}
-              </div>
-
-              <div
-                style={{
-                  color: colors.text,
-                  fontSize: 28,
-                  fontWeight: 700,
-                }}
-              >
-                {kpi.value}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {lowStockOnly && (
+      <div className="dashboard-grid">
+        <div className="forecast-section">
           <div
             style={{
               background: colors.surface,
-              border: `1px solid ${colors.warning}`,
-              borderRadius: radius.md,
-              padding: space.sm,
-              marginBottom: space.lg,
-              color: colors.text,
-              fontSize: 14,
+              padding: space.lg,
+              borderRadius: radius.lg,
+              boxSizing: "border-box",
+              width: "100%",
             }}
           >
-            Showing low-stock inventory only
+            <ErrorBoundary>
+              <Profiler
+                id="ForecastChart"
+                onRender={handleProfilerRender}
+              >
+                <ForecastChart
+                  startDate={filters.startDate}
+                  endDate={filters.endDate}
+                />
+              </Profiler>
+            </ErrorBoundary>
           </div>
-        )}
+        </div>
 
-        <div className="dashboard-grid">
-          <div className="forecast-section">
-            <div
-              style={{
-                background: colors.surface,
-                padding: space.lg,
-                borderRadius: radius.lg,
-                boxSizing: "border-box",
-                width: "100%",
-              }}
-            >
-              <ForecastChart
-                startDate={filters.startDate}
-                endDate={filters.endDate}
-              />
-            </div>
-          </div>
-
-          <div
-            id="alerts-section"
-            className="alerts-section"
-          >
+        <div
+          id="alerts-section"
+          className="alerts-section"
+        >
+          <ErrorBoundary>
             <AlertsPanel
               alerts={alerts}
               connected={connected}
@@ -353,64 +402,102 @@ function App() {
               failed={failed}
               onRemove={removeAlert}
             />
-          </div>
+          </ErrorBoundary>
         </div>
+      </div>
 
-        <div className="kpi-suite-grid">
-          <ForecastAccuracy />
-          <InventoryHealth />
+      <div className="kpi-suite-grid">
+        <ErrorBoundary>
+          <ForecastAccuracy
+            startDate={filters.startDate}
+            endDate={filters.endDate}
+          />
+        </ErrorBoundary>
+
+        <ErrorBoundary>
+          <InventoryHealth
+            inventory={liveInventory}
+            warehouse={filters.warehouse}
+            category={filters.category}
+          />
+        </ErrorBoundary>
+
+        <ErrorBoundary>
           <SupplierRisk />
-          <ShipmentStatus />
-        </div>
+        </ErrorBoundary>
 
+        <ErrorBoundary>
+          <ShipmentStatus />
+        </ErrorBoundary>
+      </div>
+
+      <div
+        id="inventory-section"
+        className="inventory-section"
+        style={{
+          marginTop: space.lg,
+          width: "100%",
+        }}
+      >
         <div
-          id="inventory-section"
-          className="inventory-section"
           style={{
-            marginTop: space.lg,
+            background: colors.surface,
+            padding: space.lg,
+            borderRadius: radius.lg,
+            boxSizing: "border-box",
             width: "100%",
           }}
         >
-          <div
-            style={{
-              background: colors.surface,
-              padding: space.lg,
-              borderRadius: radius.lg,
-              boxSizing: "border-box",
-              width: "100%",
-            }}
-          >
-            <InventoryTable data={filteredInventory} />
-          </div>
+          <ErrorBoundary>
+            <Profiler
+              id="InventoryTable"
+              onRender={handleProfilerRender}
+            >
+              <InventoryTable
+                data={filteredInventory}
+              />
+            </Profiler>
+          </ErrorBoundary>
+        </div>
 
-          <div
-            style={{
-              background: colors.surface,
-              padding: space.lg,
-              borderRadius: radius.lg,
-              boxSizing: "border-box",
-              width: "100%",
-              marginTop: space.lg,
-            }}
-          >
-            <InventoryHeatmap data={filteredInventory} />
-          </div>
+        <div
+          style={{
+            background: colors.surface,
+            padding: space.lg,
+            borderRadius: radius.lg,
+            boxSizing: "border-box",
+            width: "100%",
+            marginTop: space.lg,
+          }}
+        >
+          <ErrorBoundary>
+            <Profiler
+              id="InventoryHeatmap"
+              onRender={handleProfilerRender}
+            >
+              <InventoryHeatmap
+                data={filteredInventory}
+              />
+            </Profiler>
+          </ErrorBoundary>
+        </div>
 
-          <div
-            style={{
-              background: colors.surface,
-              padding: space.lg,
-              borderRadius: radius.lg,
-              boxSizing: "border-box",
-              width: "100%",
-              marginTop: space.lg,
-            }}
-          ></div>
-
-          <SupplierRiskDistribution />
+        <div
+          style={{
+            background: colors.surface,
+            padding: space.lg,
+            borderRadius: radius.lg,
+            boxSizing: "border-box",
+            width: "100%",
+            marginTop: space.lg,
+          }}
+        >
+          <ErrorBoundary>
+            <SupplierRiskDistribution />
+          </ErrorBoundary>
         </div>
       </div>
-    </ErrorBoundary>
+    </div>
   );
 }
 

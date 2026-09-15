@@ -90,14 +90,16 @@ export function startMockWebSocketServer() {
     };
     
     const sendInventoryUpdate = () => {
+      const quantityOnHand = 30 + Math.floor(Math.random() * 41);
+
       const inventoryItem : InventoryItem = {
         sku_id: "SKU017",
         product_name: "Rice",
         category: "Food",
         warehouse_id: "WH004",
-        quantity_on_hand: 40,
+        quantity_on_hand: quantityOnHand,
         reorder_point: 50,
-        needs_reorder:  true,
+        needs_reorder: quantityOnHand < 50,
         avg_daily_demand: 6
       };
 

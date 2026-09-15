@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { loadInventory } from "../mocks/inventory";
+import { memo, useEffect, useMemo, useState } from "react";
+import { dashboardApi } from "../api/dashboard";
 import { colors, radius, space } from "../tokens";
 import type { InventoryItem } from "../types/forecast";
 import Skeleton from "./Skeleton";
@@ -9,7 +9,7 @@ interface InventoryHeatmapProps {
   data?: InventoryItem[];
 }
 
-export default function InventoryHeatmap({
+function InventoryHeatmap({
   shouldFail = false,
   data,
 }: InventoryHeatmapProps) {
@@ -38,7 +38,7 @@ export default function InventoryHeatmap({
           return;
         }
 
-        const loadedData = await loadInventory(shouldFail);
+        const loadedData = await dashboardApi.fetchInventory(shouldFail);
 
         if (!cancelled) {
           setInventoryData(loadedData);
@@ -344,8 +344,7 @@ export default function InventoryHeatmap({
                       fontSize: 11,
                       fontWeight: 600,
                       color: colors.danger,
-                      background:
-                        "rgba(239, 68, 68, 0.12)",
+                      background:colors.dangerAlpha12,
                       padding: "4px 7px",
                       borderRadius: radius.sm,
                     }}
@@ -358,8 +357,7 @@ export default function InventoryHeatmap({
                       fontSize: 11,
                       fontWeight: 600,
                       color: colors.success,
-                      background:
-                        "rgba(16, 185, 129, 0.12)",
+                      background:colors.successAlpha12,
                       padding: "4px 7px",
                       borderRadius: radius.sm,
                     }}
@@ -571,8 +569,7 @@ export default function InventoryHeatmap({
                                   border: `1px solid ${colors.border}`,
                                   borderRadius:
                                     radius.sm,
-                                  boxShadow:
-                                    "0 4px 12px rgba(0,0,0,0.3)",
+                                  boxShadow:colors.overlayBlack30,
                                   lineHeight: 1.5,
                                   pointerEvents:
                                     "none",
@@ -689,3 +686,4 @@ export default function InventoryHeatmap({
     </div>
   );
 }
+export default memo(InventoryHeatmap);

@@ -9,7 +9,7 @@ import {
   YAxis,
 } from "recharts";
 
-import { supplierRisk } from "../mocks/supplierRisk";
+import { dashboardApi } from "../api/dashboard";
 import { colors, radius, space } from "../tokens";
 import Skeleton from "./Skeleton";
 
@@ -17,7 +17,8 @@ function SupplierRiskDistribution() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
-
+  const supplierRisk = dashboardApi.getSupplierRisk();
+  
   useEffect(() => {
     let mounted = true;
 

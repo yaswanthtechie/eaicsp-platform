@@ -1,15 +1,13 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { List, type RowComponentProps } from "react-window";
-import { loadInventory } from "../mocks/inventory";
+import { dashboardApi } from "../api/dashboard";
 import { colors, radius, space } from "../tokens";
 import type { InventoryItem } from "../types/forecast";
 import Skeleton from "./Skeleton";
-
 interface InventoryTableProps {
   shouldFail?: boolean;
   data?: InventoryItem[];
 }
-
 interface InventoryRow extends InventoryItem {
   daysRemaining: number;
   expectedOrderDate: Date;
@@ -19,7 +17,7 @@ interface RowProps {
   items: InventoryRow[];
 }
 
-export default function InventoryTable({
+function InventoryTable({
   shouldFail = false,
   data,
 }: InventoryTableProps) {
@@ -48,7 +46,7 @@ export default function InventoryTable({
       setError(false);
 
       try {
-        const loadedData = await loadInventory(shouldFail);
+        const loadedData = await dashboardApi.fetchInventory();
 
         if (!cancelled) {
           setInventoryData(loadedData);
@@ -369,4 +367,6 @@ export default function InventoryTable({
     </div>
   );
 }
+
+export default memo(InventoryTable);
 
