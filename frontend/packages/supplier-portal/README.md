@@ -40,39 +40,39 @@ The application is designed with a **mobile-first approach**, targeting a minimu
 
 ## Frontend
 
-* React
-* TypeScript
-* Vite
-* React Router DOM
-* Apollo Client
-* GraphQL
-* React Toastify
-* CSS
-* PWA / Service Worker support
+- React
+- TypeScript
+- Vite
+- React Router DOM
+- Apollo Client
+- GraphQL
+- React Toastify
+- CSS
+- PWA / Service Worker support
 
 ## Backend
 
-* Apollo Server
-* GraphQL
-* Mock Purchase Order data
-* Authentication Service
-* FastAPI Authentication API
-* JWT Access Tokens
-* JWT Refresh Tokens
+- Apollo Server
+- GraphQL
+- Mock Purchase Order data
+- Authentication Service
+- FastAPI Authentication API
+- JWT Access Tokens
+- JWT Refresh Tokens
 
 ## Testing
 
-* Vitest
-* React Testing Library
-* jsdom
+- Vitest
+- React Testing Library
+- jsdom
 
 ## Development Tools
 
-* Node.js
-* npm
-* VS Code
-* Chrome DevTools
-* Git
+- Node.js
+- npm
+- VS Code
+- Chrome DevTools
+- Git
 
 ---
 
@@ -80,22 +80,22 @@ The application is designed with a **mobile-first approach**, targeting a minimu
 
 ## Authentication
 
-* Supplier Login
-* Email validation
-* Password validation
-* JWT Access Token
-* JWT Refresh Token
-* Remember Me
-* Local Storage token persistence
-* Session Storage token persistence
-* Protected Routes
-* Automatic Authorization Header
-* Silent Token Refresh
-* Token Expiry Detection
-* Logout
-* Token Cleanup
-* Apollo Cache Clear on Logout
-* Redirect to Login for unauthenticated users
+- Supplier Login
+- Email validation
+- Password validation
+- JWT Access Token
+- JWT Refresh Token
+- Remember Me
+- Local Storage token persistence
+- Session Storage token persistence
+- Protected Routes
+- Automatic Authorization Header
+- Silent Token Refresh
+- Token Expiry Detection
+- Logout
+- Token Cleanup
+- Apollo Cache Clear on Logout
+- Redirect to Login for unauthenticated users
 
 ---
 
@@ -155,25 +155,25 @@ Suppliers can manage Purchase Orders from the Orders page.
 
 ## Features
 
-* View Purchase Orders
-* Purchase Order Details
-* Purchase Order Number
-* Supplier Information
-* Order Items
-* Quantity
-* Unit Price
-* Total Amount
-* Order Status
-* Search by PO Number
-* Filter by Status
-* Filter by Minimum Amount
-* Filter by Maximum Amount
-* Filter by Date Range
-* Cursor-Based Pagination
-* Load More
-* Loading State
-* Error State
-* Empty State
+- View Purchase Orders
+- Purchase Order Details
+- Purchase Order Number
+- Supplier Information
+- Order Items
+- Quantity
+- Unit Price
+- Total Amount
+- Order Status
+- Search by PO Number
+- Filter by Status
+- Filter by Minimum Amount
+- Filter by Maximum Amount
+- Filter by Date Range
+- Cursor-Based Pagination
+- Load More
+- Loading State
+- Error State
+- Empty State
 
 ---
 
@@ -203,13 +203,13 @@ Purchase Order Status Updated
 
 ## Features
 
-* Acknowledge Purchase Order
-* Optimistic UI
-* Apollo Cache Update
-* GraphQL Mutation
-* Success Notification
-* Error Handling
-* Offline Queue Support
+- Acknowledge Purchase Order
+- Optimistic UI
+- Apollo Cache Update
+- GraphQL Mutation
+- Success Notification
+- Error Handling
+- Offline Queue Support
 
 ---
 
@@ -219,22 +219,22 @@ Suppliers can create invoices for acknowledged Purchase Orders.
 
 ## Invoice Features
 
-* Invoice Number
-* Purchase Order Selection
-* Invoice Amount
-* Invoice Date
-* Form Validation
-* Purchase Order Validation
-* Amount Validation
-* Date Validation
-* PDF Validation
-* File Size Validation
-* Drag and Drop
-* File Preview
-* Remove Selected File
-* Submit Invoice
-* Success Notification
-* Error Notification
+- Invoice Number
+- Purchase Order Selection
+- Invoice Amount
+- Invoice Date
+- Form Validation
+- Purchase Order Validation
+- Amount Validation
+- Date Validation
+- PDF Validation
+- File Size Validation
+- Drag and Drop
+- File Preview
+- Remove Selected File
+- Submit Invoice
+- Success Notification
+- Error Notification
 
 Only **acknowledged Purchase Orders** are available for invoice creation.
 
@@ -301,29 +301,29 @@ Browser Offline?
 
 Responsible for:
 
-* Adding offline actions
-* Reading queued actions
-* Removing individual actions
-* Clearing queued actions
-* Handling invalid stored data
+- Adding offline actions
+- Reading queued actions
+- Removing individual actions
+- Clearing queued actions
+- Handling invalid stored data
 
 ### `src/utils/offlineSync.ts`
 
 Responsible for:
 
-* Reading queued actions
-* Executing queued actions
-* Removing successfully processed actions
-* Handling synchronization errors
+- Reading queued actions
+- Executing queued actions
+- Removing successfully processed actions
+- Handling synchronization errors
 
 ### `src/hooks/useOfflineSync.ts`
 
 Responsible for:
 
-* Detecting online status
-* Synchronizing when the application starts online
-* Synchronizing when the browser comes back online
-* Registering and removing the `online` event listener
+- Detecting online status
+- Synchronizing when the application starts online
+- Synchronizing when the browser comes back online
+- Registering and removing the `online` event listener
 
 ---
 
@@ -367,12 +367,12 @@ src/graphql/apollo.ts
 
 Responsibilities:
 
-* Configure Apollo Client
-* Connect to GraphQL server
-* Configure InMemoryCache
-* Configure pagination cache behavior
-* Support GraphQL queries and mutations
-* Integrate authentication
+- Configure Apollo Client
+- Connect to GraphQL server
+- Configure InMemoryCache
+- Configure pagination cache behavior
+- Support GraphQL queries and mutations
+- Integrate authentication
 
 ---
 
@@ -386,9 +386,9 @@ src/graphql/authLink.ts
 
 Responsibilities:
 
-* Read Access Token from token storage
-* Add token to GraphQL requests
-* Automatically create the Authorization header
+- Read Access Token from token storage
+- Add token to GraphQL requests
+- Automatically create the Authorization header
 
 Example:
 
@@ -414,11 +414,11 @@ GET_PURCHASE_ORDERS
 
 The Purchase Order query supports:
 
-* Cursor pagination
-* Search
-* Status filtering
-* Amount filtering
-* Date filtering
+- Cursor pagination
+- Search
+- Status filtering
+- Amount filtering
+- Date filtering
 
 ---
 
@@ -481,12 +481,12 @@ Purchase Orders support multiple filters.
 
 Available filters:
 
-* PO Number
-* Status
-* Minimum Amount
-* Maximum Amount
-* Start Date
-* End Date
+- PO Number
+- Status
+- Minimum Amount
+- Maximum Amount
+- Start Date
+- End Date
 
 These filters are passed through the GraphQL query.
 
@@ -498,11 +498,11 @@ Apollo Client uses `InMemoryCache` to store GraphQL results.
 
 The cache helps:
 
-* Avoid unnecessary requests
-* Update UI efficiently
-* Support optimistic updates
-* Merge paginated results
-* Maintain client-side GraphQL state
+- Avoid unnecessary requests
+- Update UI efficiently
+- Support optimistic updates
+- Merge paginated results
+- Maintain client-side GraphQL state
 
 ---
 
@@ -511,6 +511,7 @@ The cache helps:
 When a supplier acknowledges a Purchase Order, the UI updates immediately before the backend response is received.
 
 Apollo Client uses an optimistic response in `useAcknowledgePO.ts` to update the normalized `PurchaseOrder` cache immediately.The Purchase Order is normalized using `poNumber` as its cache key.
+
 ```text
 User clicks Acknowledge
         ↓
@@ -640,9 +641,9 @@ sessionStorage
 
 Responsible for token-related utility operations such as:
 
-* Reading token expiry
-* Checking whether a token is expired
-* Supporting refresh timing logic
+- Reading token expiry
+- Checking whether a token is expired
+- Supporting refresh timing logic
 
 ---
 
@@ -650,9 +651,9 @@ Responsible for token-related utility operations such as:
 
 Responsible for:
 
-* Refresh token requests
-* Obtaining a new access token
-* Updating stored access token
+- Refresh token requests
+- Obtaining a new access token
+- Updating stored access token
 
 ---
 
@@ -700,13 +701,13 @@ src/pages/Login.tsx
 
 Responsibilities:
 
-* Supplier login
-* Email validation
-* Password validation
-* Remember Me
-* Token storage
-* Authentication
-* Redirect to Orders
+- Supplier login
+- Email validation
+- Password validation
+- Remember Me
+- Token storage
+- Authentication
+- Redirect to Orders
 
 ---
 
@@ -720,16 +721,16 @@ src/pages/Orders.tsx
 
 Responsibilities:
 
-* Fetch Purchase Orders
-* Display Purchase Orders
-* Search
-* Filters
-* Cursor pagination
-* Load More
-* Loading state
-* Error state
-* Empty state
-* Logout
+- Fetch Purchase Orders
+- Display Purchase Orders
+- Search
+- Filters
+- Cursor pagination
+- Load More
+- Loading state
+- Error state
+- Empty state
+- Logout
 
 ---
 
@@ -743,12 +744,12 @@ src/pages/OrderDetails.tsx
 
 Responsibilities:
 
-* Display complete Purchase Order
-* Display items
-* Display amount
-* Display status
-* Acknowledge Purchase Order
-* Optimistic UI
+- Display complete Purchase Order
+- Display items
+- Display amount
+- Display status
+- Acknowledge Purchase Order
+- Optimistic UI
 
 ---
 
@@ -872,10 +873,10 @@ src/types/po.ts
 
 Contains TypeScript definitions for:
 
-* Purchase Order
-* Purchase Order Item
-* Purchase Order Status
-* Pagination-related data
+- Purchase Order
+- Purchase Order Item
+- Purchase Order Status
+- Pagination-related data
 
 TypeScript provides compile-time type safety across the application.
 
@@ -891,13 +892,13 @@ server/index.js
 
 Responsibilities:
 
-* GraphQL schema
-* Query definitions
-* Mutation definitions
-* Resolvers
-* Mock Purchase Order data
-* Purchase Order status updates
-* Invoice submission handling
+- GraphQL schema
+- Query definitions
+- Mutation definitions
+- Resolvers
+- Mock Purchase Order data
+- Purchase Order status updates
+- Invoice submission handling
 
 ---
 
@@ -911,11 +912,11 @@ VITE_AUTH_URL
 
 The authentication service is responsible for:
 
-* Login
-* Access Token generation
-* Refresh Token generation
-* Token refresh
-* Logout/revocation
+- Login
+- Access Token generation
+- Refresh Token generation
+- Token refresh
+- Logout/revocation
 
 ---
 
@@ -1021,19 +1022,19 @@ npm run test:run
 
 The current test suite covers:
 
-* Token Storage
-* Token Utilities
-* Offline Queue
-* Offline Sync
-* Offline Sync Hook
-* File Upload
-* Status Badge
-* Acknowledge Purchase Order Hook
+- Token Storage
+- Token Utilities
+- Offline Queue
+- Offline Sync
+- Offline Sync Hook
+- File Upload
+- Status Badge
+- Acknowledge Purchase Order Hook
 
 Current test result:
 
 Test Files: 16 passed
-Tests:      78 passed
+Tests: 78 passed
 
 All current automated tests are passing.
 
@@ -1045,13 +1046,13 @@ All current automated tests are passing.
 
 Validates:
 
-* Local Storage
-* Session Storage
-* Access Token
-* Refresh Token
-* Authentication state
-* Token cleanup
-* Access Token update
+- Local Storage
+- Session Storage
+- Access Token
+- Refresh Token
+- Authentication state
+- Token cleanup
+- Access Token update
 
 ---
 
@@ -1059,12 +1060,12 @@ Validates:
 
 Validates:
 
-* Add action
-* Read actions
-* Multiple actions
-* Remove action
-* Clear queue
-* Invalid JSON handling
+- Add action
+- Read actions
+- Multiple actions
+- Remove action
+- Clear queue
+- Invalid JSON handling
 
 ---
 
@@ -1072,9 +1073,9 @@ Validates:
 
 Validates:
 
-* Synchronization
-* Queued action processing
-* Successful removal after synchronization
+- Synchronization
+- Queued action processing
+- Successful removal after synchronization
 
 ---
 
@@ -1082,9 +1083,9 @@ Validates:
 
 Validates:
 
-* Initial online synchronization
-* Synchronization when browser comes online
-* Event listener cleanup
+- Initial online synchronization
+- Synchronization when browser comes online
+- Event listener cleanup
 
 ---
 
@@ -1092,13 +1093,13 @@ Validates:
 
 Validates:
 
-* Upload area
-* PDF validation
-* Invalid file rejection
-* File size validation
-* Selected file display
-* File removal
-* Error display
+- Upload area
+- PDF validation
+- Invalid file rejection
+- File size validation
+- Selected file display
+- File removal
+- Error display
 
 ---
 
@@ -1106,13 +1107,13 @@ Validates:
 
 Validates:
 
-* Draft status
-* Sent status
-* Acknowledged status
-* Fulfilled status
-* Cancelled status
-* Status styling
-* Uppercase display
+- Draft status
+- Sent status
+- Acknowledged status
+- Fulfilled status
+- Cancelled status
+- Status styling
+- Uppercase display
 
 ---
 
@@ -1120,8 +1121,8 @@ Validates:
 
 Validates:
 
-* Offline acknowledgement queue
-* Online GraphQL mutation
+- Offline acknowledgement queue
+- Online GraphQL mutation
 
 ---
 
@@ -1243,29 +1244,29 @@ The application provides proper UI states for asynchronous operations.
 
 Displayed while:
 
-* Login is processing
-* Purchase Orders are loading
-* Purchase Order details are loading
-* Invoice is submitting
-* File operations are processing
+- Login is processing
+- Purchase Orders are loading
+- Purchase Order details are loading
+- Invoice is submitting
+- File operations are processing
 
 ## Error
 
 Displayed when:
 
-* API request fails
-* GraphQL request fails
-* Authentication fails
-* File validation fails
-* Invoice validation fails
-* Offline synchronization fails
+- API request fails
+- GraphQL request fails
+- Authentication fails
+- File validation fails
+- Invoice validation fails
+- Offline synchronization fails
 
 ## Empty
 
 Displayed when:
 
-* No Purchase Orders are available
-* Search/filter returns no results
+- No Purchase Orders are available
+- Search/filter returns no results
 
 ---
 
@@ -1281,9 +1282,9 @@ Primary target:
 
 The UI is responsive for:
 
-* Mobile
-* Tablet
-* Desktop
+- Mobile
+- Tablet
+- Desktop
 
 The main supplier workflow is optimized for users who may access the application from mobile devices.
 
@@ -1302,10 +1303,10 @@ public/pwa-512.png
 
 PWA functionality can provide:
 
-* Installable application
-* Service worker support
-* Cached application shell
-* Better experience in unreliable network conditions
+- Installable application
+- Service worker support
+- Cached application shell
+- Better experience in unreliable network conditions
 
 ---
 
@@ -1313,42 +1314,42 @@ PWA functionality can provide:
 
 ## Authentication
 
-* Login
-* JWT Access Token
-* Refresh Token
-* Remember Me
-* Local Storage
-* Session Storage
-* Protected Routes
-* Authorization Header
-* Silent Token Refresh
-* Logout
-* Token Cleanup
-* Apollo Cache Clear
+- Login
+- JWT Access Token
+- Refresh Token
+- Remember Me
+- Local Storage
+- Session Storage
+- Protected Routes
+- Authorization Header
+- Silent Token Refresh
+- Logout
+- Token Cleanup
+- Apollo Cache Clear
 
 ## Purchase Orders
 
-* Purchase Order List
-* Purchase Order Details
-* Search
-* Status Filter
-* Amount Filter
-* Date Filter
-* Cursor-Based Pagination
-* Load More
-* Loading State
-* Error State
-* Empty State
+- Purchase Order List
+- Purchase Order Details
+- Search
+- Status Filter
+- Amount Filter
+- Date Filter
+- Cursor-Based Pagination
+- Load More
+- Loading State
+- Error State
+- Empty State
 
 ## Purchase Order Acknowledgement
 
-* Acknowledge Purchase Order
-* GraphQL Mutation
-* Optimistic UI
-* Apollo Cache Update
-* Success Notification
-* Error Handling
-* Offline Queue
+- Acknowledge Purchase Order
+- GraphQL Mutation
+- Optimistic UI
+- Apollo Cache Update
+- Success Notification
+- Error Handling
+- Offline Queue
 
 ## Invoice
 
@@ -1373,37 +1374,37 @@ PWA functionality can provide:
 
 ## Offline Support
 
-* Offline Queue
-* Local Storage Queue
-* Online Detection
-* Automatic Synchronization
-* Online Event Listener
-* Queue Cleanup
-* Offline Acknowledgement Support
+- Offline Queue
+- Local Storage Queue
+- Online Detection
+- Automatic Synchronization
+- Online Event Listener
+- Queue Cleanup
+- Offline Acknowledgement Support
 
 ## Testing
 
-* Vitest Configuration
-* React Testing Library
-* Token Storage Tests
-* Token Utility Tests
-* Offline Queue Tests
-* Offline Sync Tests
-* Hook Tests
-* File Upload Tests
-* Status Badge Tests
-* Acknowledge PO Tests
-* 16 Test Files / 78 Tests Passing
+- Vitest Configuration
+- React Testing Library
+- Token Storage Tests
+- Token Utility Tests
+- Offline Queue Tests
+- Offline Sync Tests
+- Hook Tests
+- File Upload Tests
+- Status Badge Tests
+- Acknowledge PO Tests
+- 16 Test Files / 78 Tests Passing
 
 ## UI
 
-* Mobile-First Design
-* Responsive Layout
-* Loading State
-* Error State
-* Empty State
-* Reusable Components
-* Design Tokens
+- Mobile-First Design
+- Responsive Layout
+- Loading State
+- Error State
+- Empty State
+- Reusable Components
+- Design Tokens
 
 ---
 
@@ -1420,7 +1421,6 @@ The core Supplier Portal workflow is implemented. The following functionality is
 - Upload retry mechanism
 - WebSocket-based real-time Purchase Order updates
 - Production database integration
-
 
 ---
 
@@ -1493,8 +1493,6 @@ Submit Invoice
 
 ---
 
-
-
 **Supplier Portal Frontend**
 
 Built using:
@@ -1509,8 +1507,9 @@ Apollo Server
 React Router
 JWT Authentication
 Vitest
-React Testing Library 
+React Testing Library
 ```
+
 ## Round 4 Features
 
 - JWT Access Token Authentication
@@ -1539,11 +1538,11 @@ React Testing Library
 
 Round 5 focused on improving the Supplier Portal through:
 
-* Contract-first GraphQL schema
-* Expanded test coverage
-* Error Boundary
-* Purchase Order list virtualization
-* Accessibility improvements
+- Contract-first GraphQL schema
+- Expanded test coverage
+- Error Boundary
+- Purchase Order list virtualization
+- Accessibility improvements
 
 ## 2. What I Implemented
 
@@ -1551,14 +1550,14 @@ Round 5 focused on improving the Supplier Portal through:
 
 Implemented and maintained `schema.graphql` as the frontend GraphQL contract.
 
-* Added/updated `src/graphql/schema.graphql`
-* Kept GraphQL queries and TypeScript types aligned with the schema
-* Standardized Purchase Order fields using camelCase
-* Standardized Purchase Order status values using the `POStatus` enum
-* Used the connection-based Purchase Order structure
-* Supported pagination through `edges` and `pageInfo`
-* Configured Apollo cache normalization using `poNumber`
-* Updated GraphQL tests to use the real `GET_PURCHASE_ORDERS` query and Apollo cache configuration
+- Added/updated `src/graphql/schema.graphql`
+- Kept GraphQL queries and TypeScript types aligned with the schema
+- Standardized Purchase Order fields using camelCase
+- Standardized Purchase Order status values using the `POStatus` enum
+- Used the connection-based Purchase Order structure
+- Supported pagination through `edges` and `pageInfo`
+- Configured Apollo cache normalization using `poNumber`
+- Updated GraphQL tests to use the real `GET_PURCHASE_ORDERS` query and Apollo cache configuration
 
 ### 2.2 Expanded Test Coverage
 
@@ -1566,21 +1565,21 @@ Expanded automated test coverage across important application functionality.
 
 Tests cover:
 
-* Authentication and token storage
-* Login and protected navigation
-* Purchase Order rendering
-* Purchase Order pagination
-* Search and filters
-* Date filters
-* Logout
-* Acknowledge PO behavior
-* Offline queue
-* Offline synchronization
-* Invoice behavior
-* File upload validation
-* Status badge rendering
-* GraphQL/Apollo behavior
-* Error Boundary behavior
+- Authentication and token storage
+- Login and protected navigation
+- Purchase Order rendering
+- Purchase Order pagination
+- Search and filters
+- Date filters
+- Logout
+- Acknowledge PO behavior
+- Offline queue
+- Offline synchronization
+- Invoice behavior
+- File upload validation
+- Status badge rendering
+- GraphQL/Apollo behavior
+- Error Boundary behavior
 
 ### 2.3 Error Boundary
 
@@ -1588,10 +1587,10 @@ Implemented an Error Boundary to prevent an unexpected React rendering error fro
 
 The Error Boundary:
 
-* Catches render-time errors
-* Displays fallback UI
-* Prevents the application from showing a blank/broken screen
-* Has automated test coverage
+- Catches render-time errors
+- Displays fallback UI
+- Prevents the application from showing a blank/broken screen
+- Has automated test coverage
 
 ### 2.4 Purchase Order List Virtualization
 
@@ -1599,11 +1598,11 @@ Implemented virtualization for the Purchase Order list using `@tanstack/react-vi
 
 The Orders page:
 
-* Renders only the visible/nearby PO items
-* Uses a scrollable container
-* Calculates virtual item positions
-* Uses overscan for smoother scrolling
-* Uses `poNumber` as the stable row key
+- Renders only the visible/nearby PO items
+- Uses a scrollable container
+- Calculates virtual item positions
+- Uses overscan for smoother scrolling
+- Uses `poNumber` as the stable row key
 
 ### 2.5 Accessibility Improvements
 
@@ -1619,11 +1618,11 @@ This provides a keyboard-accessible way to open the file picker instead of depen
 
 Also verified:
 
-* Button has `type="button"`
-* Button activation triggers the file picker
-* PDF validation remains functional
-* File size validation remains functional
-* Preview and Remove actions remain functional
+- Button has `type="button"`
+- Button activation triggers the file picker
+- PDF validation remains functional
+- File size validation remains functional
+- Preview and Remove actions remain functional
 
 ## 3. Test Coverage
 
@@ -1639,10 +1638,11 @@ The production build also completes successfully with TypeScript compilation and
 
 ## Not Done
 
-* The GraphQL schema is documentation-as-code for the target backend contract.
-* The schema has not yet been validated against Rashida's live GraphQL backend implementation.
-* Backend GraphQL integration is planned for a future round.
-* The Supplier Portal continues to use frontend mocks during Round 5.
+- The GraphQL schema is documentation-as-code for the target backend contract.
+- The schema has not yet been validated against Rashida's live GraphQL backend implementation.
+- Backend GraphQL integration is planned for a future round.
+- The Supplier Portal continues to use frontend mocks during Round 5.
+
 ## Offline Actions and Synchronization
 
 The Supplier Portal supports offline actions for Purchase Order acknowledgement and invoice submission.
@@ -1654,10 +1654,256 @@ When a supplier acknowledges a Purchase Order while offline:
 1. The acknowledgement is stored in the browser's local storage queue.
 2. The queued action uses the following payload format:
 
-```ts
+````ts
 {
   type: "ACKNOWLEDGE_PO",
   payload: {
     poNumber: "PO-1001"
   }
 }
+# Supplier Portal – Round 6, 7 & 8 Summary
+
+## Overview
+
+Rounds 6, 7, and 8 focused on completing and stabilizing the Supplier Portal, adding the remaining supplier-facing screens, improving form validation and error handling, and making the application responsive and accessible.
+
+## Completed Work
+
+### 1. Existing Supplier Flow Stabilization
+
+Stabilized the existing supplier workflow:
+
+```text
+Login
+  ↓
+Purchase Orders
+  ↓
+Purchase Order Details
+  ↓
+Acknowledge Purchase Order
+  ↓
+Create Invoice
+  ↓
+Upload Invoice PDF
+  ↓
+Validate Invoice
+  ↓
+Submit Invoice
+Supplier Dashboard
+
+Added a new supplier dashboard at /dashboard.
+
+The dashboard provides:
+
+Total Purchase Orders
+Pending Acknowledgements
+Acknowledged Purchase Orders
+Total Purchase Order Value
+Purchase Order status summary
+Pending supplier actions
+Invoice overview
+Quick navigation to Purchase Orders, Shipments, Documents, and Profile
+Shipment / Delivery Tracking
+
+Added a shipment tracking screen at /shipments.
+
+Features include:
+
+Total shipment count
+In-transit shipment count
+Delivered shipment count
+Purchase Order number
+Product information
+Expected delivery date
+Shipment status
+Delivery progress
+Accessible progress indicators
+
+Supported shipment statuses:
+
+PROCESSING
+IN_TRANSIT
+OUT_FOR_DELIVERY
+DELIVERED
+
+Shipment data is currently provided through frontend mock data because the existing GraphQL mock backend does not yet expose shipment functionality.
+
+Documents Management
+
+Added a Documents screen at /documents.
+
+Features include:
+
+Supplier document upload
+Document type selection
+PDF-only validation
+Maximum file size validation of 5 MB
+Drag-and-drop upload
+Keyboard-accessible file selection
+Uploading state
+Upload success confirmation
+Upload error messages
+Uploaded documents list
+Empty document state
+
+Supported document types:
+
+Company Document
+Tax Document
+Bank Document
+Compliance Document
+Profile & Settings
+
+Added a Profile & Settings screen at /profile.
+
+The profile form includes:
+
+Company Name
+Contact Name
+Email
+Phone Number
+Notification Preferences
+
+The form uses:
+
+React Hook Form
+Zod
+@hookform/resolvers/zod
+
+Implemented:
+
+Field validation
+Inline validation errors
+Loading/saving state
+Disabled submit button while saving
+Success confirmation
+Error handling
+Form Validation and UX
+
+Improved form handling across the Supplier Portal.
+
+Forms now provide:
+
+Proper validation
+Inline error messages
+Loading states
+Disabled submit buttons while submitting
+Success confirmations
+Submission error handling
+
+Invoice validation includes:
+
+Required field validation
+Invoice amount validation
+Positive amount validation
+Invoice date validation
+Future-date prevention
+PDF file validation
+File size validation
+Error Handling
+
+Added an application-level React Error Boundary.
+
+The Error Boundary prevents unexpected rendering errors from breaking the entire application and displays a fallback error UI.
+
+Async screens were also reviewed to support appropriate:
+
+Loading states
+Success/data states
+Empty states
+Error states
+Purchase Order List Improvements
+
+Improved the Purchase Order list for larger datasets.
+
+Implemented/supports:
+
+List virtualization
+Cursor pagination
+Search
+Status filtering
+Amount filtering
+Date filtering
+Loading state
+Error state
+Empty state
+Offline Support
+
+Improved the offline workflow for supplier actions.
+
+Implemented:
+
+Offline Purchase Order acknowledgement queueing
+Offline invoice queueing
+Offline action synchronization
+Queued action replay
+Duplicate acknowledgement prevention
+Synchronization status notification
+
+The Purchase Order acknowledgement payload was standardized to use poNumber consistently between queueing and synchronization.
+
+Accessibility
+
+Improved keyboard and accessibility support throughout the application.
+
+Implemented:
+
+Semantic headings
+Proper form labels
+Accessible validation messages
+role="alert" for errors
+role="status" for status messages
+Accessible progress bars
+Keyboard-accessible document upload
+Enter/Space support for document upload
+Focusable interactive elements
+Native accessible form controls
+
+The document upload flow can be operated using the keyboard without requiring drag-and-drop.
+
+Mobile Responsiveness
+
+The Supplier Portal follows a mobile-first responsive approach.
+
+The UI was designed and reviewed for a target mobile viewport of 375px.
+
+Responsive layouts were implemented for:
+
+Dashboard
+Purchase Orders
+Purchase Order Details
+Invoice
+Shipments
+Documents
+Profile & Settings
+Forms
+Cards
+Navigation
+Authentication and Backend Integration
+
+Stabilized the frontend integration with the FastAPI authentication service.
+
+Authentication supports:
+
+Supplier login
+Username/password validation
+JWT access tokens
+Refresh tokens
+Remember Me
+Protected routes
+Authorization headers
+Silent token refresh
+Token expiry handling
+Logout
+Token/cache cleanup
+
+Development services:
+
+Frontend:
+http://localhost:5173
+
+GraphQL:
+http://localhost:4000/graphql
+
+Authentication:
+http://localhost:8005
