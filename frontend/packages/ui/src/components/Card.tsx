@@ -1,5 +1,5 @@
 import React from "react";
-import { colors, space, radius } from "../tokens";
+import { colors, spacing, radius } from "../theme/tokens";
 
 type CardProps = {
   title?: string;
@@ -19,7 +19,7 @@ export function Card({
         color: colors.text,
         border: `1px solid ${colors.border}`,
         borderRadius: radius.md,
-        padding: space.md,
+        padding: spacing.md,
         width: "350px",
         boxSizing: "border-box",
       }}
@@ -30,7 +30,7 @@ export function Card({
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            marginBottom: space.md,
+            marginBottom: spacing.md,
           }}
         >
           {title && (

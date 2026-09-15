@@ -1,0 +1,132 @@
+@import "../theme/variables.css";
+
+/* ===========================
+   CSS Reset
+=========================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+}
+
+/* ===========================
+   Root
+=========================== */
+
+html {
+  font-family:
+    Inter,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+
+  line-height: 1.5;
+
+  -webkit-font-smoothing: antialiased;
+
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ===========================
+   Body
+=========================== */
+
+body {
+  background: var(--color-background);
+  color: var(--color-text);
+
+  transition:
+    background-color var(--transition-default),
+    color var(--transition-default);
+}
+
+/* ===========================
+   Typography
+=========================== */
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+p {
+  color: var(--color-text);
+}
+
+/* ===========================
+   Links
+=========================== */
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* ===========================
+   Buttons
+=========================== */
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+/* ===========================
+   Inputs
+=========================== */
+
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+/* ===========================
+   Images
+=========================== */
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+/* ===========================
+   Lists
+=========================== */
+
+ul,
+ol {
+  list-style: none;
+}
+
+/* ===========================
+   Tables
+=========================== */
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+/* ===========================
+   Keyboard Focus
+=========================== */
+
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}

@@ -1,3 +1,10 @@
+import pytest
+
+from app.services.carriers.base import (
+    api_retry,
+    CarrierError,
+)
+
 from app.services.carriers.dhl import DHLAdapter
 from app.services.carriers.fedex import FedExAdapter
 from app.services.carriers.ups import UPSAdapter
@@ -12,7 +19,7 @@ def test_dhl_rate():
     result = dhl.get_rate(
         "Hyderabad",
         "Mumbai",
-        25.5
+        25.5,
     )
 
     assert result.carrier.value == "dhl"
@@ -40,7 +47,7 @@ def test_fedex_rate():
     result = fedex.get_rate(
         "Hyderabad",
         "Mumbai",
-        25.5
+        25.5,
     )
 
     assert result.carrier.value == "fedex"
@@ -68,7 +75,7 @@ def test_ups_rate():
     result = ups.get_rate(
         "Hyderabad",
         "Mumbai",
-        25.5
+        25.5,
     )
 
     assert result.carrier.value == "ups"
@@ -96,7 +103,7 @@ def test_bluedart_rate():
     result = bluedart.get_rate(
         "Hyderabad",
         "Mumbai",
-        25.5
+        25.5,
     )
 
     assert result.carrier.value == "bluedart"
@@ -114,3 +121,19 @@ def test_bluedart_tracking():
 
     assert result.carrier.value == "bluedart"
     assert result.tracking_number == "4"
+
+
+# RETRY TEST
+def test_retry_attempts_three_times():
+
+    counter = {"count": 0}
+
+    @api_retry()
+    def always_fail():
+        counter["count"] += 1
+        raise CarrierError("Carrier timeout")
+
+    with pytest.raises(CarrierError):
+        always_fail()
+
+    assert counter["count"] == 3

@@ -1,0 +1,64 @@
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #0B0F1A;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 24px;
+  align-items: start;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.forecast-section {
+  min-width: 0;
+}
+
+.alerts-section {
+  min-width: 0;
+}
+
+.inventory-section {
+  width: 100%;
+  min-width: 0;
+}
+
+.heatmap-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+@media (max-width: 1024px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  .forecast-section {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .alerts-section {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .heatmap-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .dashboard-grid {
+    gap: 16px;
+  }
+
+  .heatmap-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,55 @@
+.tabs {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+
+/* Tabs header */
+.tabs-list {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+
+/* Individual tab button */
+.tabs-button {
+  padding: 10px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-color);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+
+/* Hover state */
+.tabs-button:hover {
+  background: var(--background-hover);
+}
+
+
+/* Active tab */
+.tabs-active {
+  color: var(--primary-color);
+  border-bottom: 2px solid var(--primary-color);
+}
+
+
+/* Disabled tab */
+.tabs-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+
+/* Content area */
+.tabs-panel {
+  padding: 16px;
+  background: var(--surface-color);
+  color: var(--text-color);
+}

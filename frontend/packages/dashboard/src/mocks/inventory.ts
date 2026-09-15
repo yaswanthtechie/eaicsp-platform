@@ -1,0 +1,147 @@
+
+import type { InventoryItem } from "../types/forecast";
+
+export const inventory: InventoryItem[] = [
+  {
+    sku_id: "SKU001",
+    product_name: "Apples",
+    warehouse_id: "WH001",
+    quantity_on_hand: 120,
+    reorder_point: 50,
+    needs_reorder: false,
+  },
+  {
+    sku_id: "SKU002",
+    product_name: "Banana",
+    warehouse_id: "WH001",
+    quantity_on_hand: 35,
+    reorder_point: 50,
+    needs_reorder: true,
+  },
+  {
+    sku_id: "SKU003",
+    product_name: "Sugar",
+    warehouse_id: "WH001",
+    quantity_on_hand: 80,
+    reorder_point: 40,
+    needs_reorder: false,
+  },
+  {
+    sku_id: "SKU004",
+    product_name: "Cooking Oil",
+    warehouse_id: "WH001",
+    quantity_on_hand: 20,
+    reorder_point: 40,
+    needs_reorder: true,
+  },
+  {
+    sku_id: "SKU005",
+    product_name: "Salt",
+    warehouse_id: "WH001",
+    quantity_on_hand: 95,
+    reorder_point: 30,
+    needs_reorder: false,
+  },
+  {
+    sku_id: "SKU006",
+    product_name: "Milk",
+    warehouse_id: "WH002",
+    quantity_on_hand: 70,
+    reorder_point: 40,
+    needs_reorder: false,
+  },
+  {
+    sku_id: "SKU007",
+    product_name: "Chocolates",
+    warehouse_id: "WH002",
+    quantity_on_hand: 25,
+    reorder_point: 40,
+    needs_reorder: true,
+  },
+  {
+    sku_id: "SKU008",
+    product_name: "Milk Powder",
+    warehouse_id: "WH002",
+    quantity_on_hand: 100,
+    reorder_point: 50,
+    needs_reorder: false,
+  },
+  {
+    sku_id: "SKU009",
+    product_name: "Biscuits",
+    warehouse_id: "WH002",
+    quantity_on_hand: 75,
+    reorder_point: 60,
+    needs_reorder: false,
+  },
+  {
+    sku_id: "SKU010",
+    product_name: "Mango Juice",
+    warehouse_id: "WH002",
+    quantity_on_hand: 60,
+    reorder_point: 30,
+    needs_reorder: false,
+  },
+  {
+    sku_id: "SKU011",
+    product_name: "Soap",
+    warehouse_id: "WH003",
+    quantity_on_hand: 110,
+    reorder_point: 50,
+    needs_reorder: false,
+  },
+  {
+    sku_id: "SKU012",
+    product_name: "Shampoo",
+    warehouse_id: "WH003",
+    quantity_on_hand: 60,
+    reorder_point: 50,
+    needs_reorder: false,
+  },
+  {
+    sku_id: "SKU013",
+    product_name: "Toothpaste",
+    warehouse_id: "WH003",
+    quantity_on_hand: 85,
+    reorder_point: 40,
+    needs_reorder: false,
+  },
+  {
+    sku_id: "SKU014",
+    product_name: "Detergent",
+    warehouse_id: "WH003",
+    quantity_on_hand: 20,
+    reorder_point: 40,
+    needs_reorder: true,
+  },
+  {
+    sku_id: "SKU015",
+    product_name: "Notebooks",
+    warehouse_id: "WH004",
+    quantity_on_hand: 90,
+    reorder_point: 50,
+    needs_reorder: false,
+  },
+  {
+    sku_id: "SKU016",
+    product_name: "Pencils",
+    warehouse_id: "WH004",
+    quantity_on_hand: 30,
+    reorder_point: 50,
+    needs_reorder: true,
+  },
+];
+
+export function loadInventory(shouldFail = false) {
+  return new Promise<typeof inventory>((resolve, reject) => {
+    setTimeout(() => {
+      if (shouldFail) {
+        reject(new Error("Failed to load inventory"));
+        return;
+      }
+
+      resolve(inventory);
+    }, 1000);
+  });
+}
+

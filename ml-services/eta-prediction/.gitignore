@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# MLflow
+mlruns/
+mlflow.db
+*.db
+*.sqlite
+*.sqlite3
+
+# Generated data
+data/raw/
+data/processed/
+*.csv
+
+# Trained models / artifacts
+models/
+*.joblib
+*.pkl
+*.pickle
+
+# Logs
+*.log
+logs/
+
+# IDE / editors
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment / secrets
+.env
+.env.*
+!.env.example

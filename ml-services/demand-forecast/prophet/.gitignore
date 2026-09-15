@@ -1,0 +1,6 @@
+# Generated model artifacts
+models/promoted/
+models/xgb_model.pkl
+output/
+src/models/
+src/output/

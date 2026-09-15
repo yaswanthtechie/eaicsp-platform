@@ -16,25 +16,23 @@ models_dir = project_root / "models"
 models_dir.mkdir(parents=True, exist_ok=True)
 
 
-def train_models(df: pd.DataFrame):
+def save_background_sample(df: pd.DataFrame):
     """
-    Train all anomaly detection models, save them,
-    and save a small SHAP background sample.
-
-    Args:
-        df: DataFrame containing the sensor data.
-
-    Returns:
-        dict: Dictionary containing the trained model wrappers.
+    Save a small background sample used by SHAP explainers.
     """
 
-    feature_names = ["temperature", "humidity", "stock_count"]
-    features = df[feature_names].to_numpy()
+    feature_names = [
+        "temperature",
+        "humidity",
+        "stock_count",
+    ]
 
-    # Save a small background sample for SHAP explainers
     background_sample = (
         df[feature_names]
-        .sample(n=min(100, len(df)), random_state=42)
+        .sample(
+            n=min(100, len(df)),
+            random_state=42,
+        )
         .reset_index(drop=True)
     )
 
@@ -43,43 +41,91 @@ def train_models(df: pd.DataFrame):
         index=False,
     )
 
+
+def train_models(df: pd.DataFrame):
+    """
+    Train all anomaly detection models.
+
+    Models are returned but NOT saved.
+    Saving is handled separately by save_models().
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Normal training data.
+
+    Returns
+    -------
+    dict
+        Dictionary of trained models.
+    """
+
+    feature_names = [
+        "temperature",
+        "humidity",
+        "stock_count",
+    ]
+
+    features = df[feature_names].to_numpy()
+
+    save_background_sample(df)
+
     models = {}
 
     # Isolation Forest
-    model1 = IsolationForestModel()
-    model1.train(features)
-    joblib.dump(
-        model1.model,
-        models_dir / "isolation_forest_model.joblib",
-    )
-    models["iforest"] = model1
+    model = IsolationForestModel()
+    model.train(features)
 
-    print("Isolation Forest model is trained")
-    print("=" * 50)
+    models["iforest"] = model
+
+    print("Isolation Forest trained")
 
     # One-Class SVM
-    model2 = OneClassSVMModel()
-    model2.train(features)
-    joblib.dump(
-        model2.model,
-        models_dir / "one_class_svm_model.joblib",
-    )
-    models["ocsvm"] = model2
+    model = OneClassSVMModel()
+    model.train(features)
 
-    print("One-Class SVM model is trained")
-    print("=" * 50)
+    models["ocsvm"] = model
+
+    print("One-Class SVM trained")
 
     # Local Outlier Factor
-    model3 = LOFModel()
-    model3.train(features)
-    joblib.dump(
-        model3.model,
-        models_dir / "lof_model.joblib",
-    )
-    models["lof"] = model3
+    model = LOFModel()
+    model.train(features)
 
-    print("Local Outlier Factor model is trained")
+    models["lof"] = model
+
+    print("Local Outlier Factor trained")
+
     print("=" * 50)
-    print("SHAP background sample saved")
 
     return models
+
+
+def save_models(models):
+    """
+    Deploy trained models by saving them to disk.
+
+    Parameters
+    ----------
+    models : dict
+        Dictionary returned by train_models().
+    """
+
+    joblib.dump(
+        models["iforest"],
+        models_dir / "isolation_forest_model.joblib",
+    )
+
+    joblib.dump(
+        models["ocsvm"],
+        models_dir / "one_class_svm_model.joblib",
+    )
+
+    joblib.dump(
+        models["lof"],
+        models_dir / "lof_model.joblib",
+    )
+
+    print("Models deployed successfully.")
+    print("SHAP background sample saved.")
+    print("=" * 50)

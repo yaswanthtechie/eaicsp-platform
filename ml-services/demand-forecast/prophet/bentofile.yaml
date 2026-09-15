@@ -1,0 +1,13 @@
+service: "src.bentoml_service:ForecastService"
+
+include:
+  - "src/**"
+
+python:
+  packages:
+    - bentoml==1.4.39
+    - prophet
+    - pandas
+    - numpy
+    - scikit-learn
+    - xgboost
