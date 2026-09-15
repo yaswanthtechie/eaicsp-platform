@@ -30,7 +30,7 @@ function App() {
 
   const handleMockNewPO = () => {
     const newNotification =
-      createNewPONotification("PO-1005");
+      createNewPONotification("PO1005");
 
     setNotification(newNotification);
   };
