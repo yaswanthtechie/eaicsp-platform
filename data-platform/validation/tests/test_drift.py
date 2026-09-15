@@ -179,7 +179,7 @@ def test_evaluate_drift_skips_transform_rules(comparator, mock_history_dir):
 
 
 def test_evaluate_drift_zero_baseline_jump(comparator, mock_history_dir):
-    """Hits the branch where baseline is 0 but current failures jump > 0 (delta_rel = inf)."""
+    """Hits the branch where baseline is 0 but current failures jump > 0."""
     (mock_history_dir / "report_1.json").write_text(json.dumps({
         "total_rows": 100,
         "errors": []
@@ -193,7 +193,7 @@ def test_evaluate_drift_zero_baseline_jump(comparator, mock_history_dir):
     alerts = comparator.evaluate_drift(res, val)
 
     assert len(alerts) == 1
-    assert "inf%" in alerts[0]
+    assert "Abs increase: 5.00%" in alerts[0]
 
 
 def test_evaluate_drift_zero_baseline_no_jump(comparator, mock_history_dir):

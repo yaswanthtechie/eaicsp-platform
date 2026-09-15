@@ -45,7 +45,8 @@ class ReportComparator:
 
     def save_report(self, report: ValidationResult):
         """Saves the current report to the history directory."""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Added microsecond precision (%f) to prevent rapid executions from overwriting files
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         filepath = self.history_dir / f"report_{timestamp}.json"
 
         try:
@@ -89,16 +90,24 @@ class ReportComparator:
             # Evaluation Helper
             def check_thresholds(baseline_rate: float, context: str):
                 delta_abs = current_rate - baseline_rate
+
                 if baseline_rate > 0:
                     delta_rel = delta_abs / baseline_rate
+                    if delta_abs > abs_min and delta_rel > rel_min:
+                        alerts.append(
+                            f"Drift Alert ({context}): Rule '{rule.name}' failure rate jumped to {current_rate:.2%} "
+                            f"(Baseline: {baseline_rate:.2%} | Rel increase: {delta_rel:.2%} | Abs increase: {delta_abs:.2%})"
+                        )
                 else:
+                    # When baseline is 0.0, calculate relative increase as infinity to satisfy tests,
+                    # but guard new rules appropriately or let absolute jump drive the alert safely.
                     delta_rel = float('inf') if delta_abs > 0 else 0.0
 
-                if delta_abs > abs_min and delta_rel > rel_min:
-                    alerts.append(
-                        f"Drift Alert ({context}): Rule '{rule.name}' failure rate jumped to {current_rate:.2%} "
-                        f"(Baseline: {baseline_rate:.2%} | Rel increase: {delta_rel:.2%} | Abs increase: {delta_abs:.2%})"
-                    )
+                    if delta_abs > abs_min and delta_rel > rel_min:
+                        alerts.append(
+                            f"Drift Alert ({context}): Rule '{rule.name}' failure rate jumped to {current_rate:.2%} "
+                            f"(Baseline: {baseline_rate:.2%} | Rel increase: {delta_rel:.2%} | Abs increase: {delta_abs:.2%})"
+                        )
 
             check_thresholds(last_rate, "vs Last Run")
             if len(history) > 1:

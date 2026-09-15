@@ -23,8 +23,7 @@ class MessyDataConfig:
     warehouses: List[str] = field(default_factory=lambda: ["WH-01", "WH-02", "WH-03", "WH-04"])
 
     sku_start_range: int = 1000
-    # sku_end_range: int = 1050
-    sku_end_range: int = 200100
+    sku_end_range: int = 1050
     qty_min: int = 1
     qty_max: int = 15
     price_min: float = 10.0

@@ -182,22 +182,25 @@ def test_main_read_csv_fails(mock_read, mock_args, mock_exists, mock_setup_loggi
 @patch("src.main.argparse.ArgumentParser.parse_args")
 @patch("pandas.read_csv", return_value=pd.DataFrame({"id": [1]}))
 @patch("src.main.DataValidator.from_config", side_effect=ValueError("Bad Config"))
-def test_main_validator_init_fails(mock_validator, mock_read, mock_args, mock_exists, mock_setup_logging):
+@patch("src.main.logger.error")
+def test_main_validator_init_fails(mock_logger_error, mock_validator, mock_read, mock_args, mock_exists, mock_setup_logging):
     mock_args.return_value = MagicMock(skip_generate=True, incremental=False, list_profiles=False, profile=None)
     main.main()
-
+    mock_logger_error.assert_called_with("FATAL ERROR: Failed to initialize validator: Bad Config")
 
 @patch("src.main.setup_logging", return_value="dummy_log.log")
 @patch("pathlib.Path.exists", return_value=True)
 @patch("src.main.argparse.ArgumentParser.parse_args")
 @patch("pandas.read_csv", return_value=pd.DataFrame({"id": [1]}))
 @patch("src.main.DataValidator.from_config")
-def test_main_validate_fails(mock_validator, mock_read, mock_args, mock_exists, mock_setup_logging):
+@patch("src.main.logger.error")
+def test_main_validate_fails(mock_logger_error, mock_validator, mock_read, mock_args, mock_exists, mock_setup_logging):
     mock_args.return_value = MagicMock(skip_generate=True, incremental=False, list_profiles=False, profile=None)
     mock_instance = MagicMock()
     mock_instance.validate.side_effect = RuntimeError("Validation Crashed")
     mock_validator.return_value = mock_instance
     main.main()
+    mock_logger_error.assert_called_with("FATAL ERROR: Validation crashed during execution: Validation Crashed")
 
 
 @patch("src.main.setup_logging", return_value="dummy_log.log")

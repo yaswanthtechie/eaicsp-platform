@@ -1,6 +1,11 @@
 import argparse
+import logging
 import sys
 from pathlib import Path
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -61,7 +66,7 @@ def generate_markdown_for_profile(validator: DataValidator, profile_name: str) -
     # Section 1: Business Rules
     for rule in validator.rules:
         field_name = f"`{rule.field}`" if rule.field else "*Cross-field/Dataset*"
-        desc = get_human_readable_description(rule)
+        desc = get_human_readable_description(rule).replace("|", "\\|")
         md.append(f"| {field_name} | `{rule.name}` | `{rule.type}` | {rule.severity} | {desc} |")
 
     # Section 2: SLAs & Thresholds
@@ -72,11 +77,11 @@ def generate_markdown_for_profile(validator: DataValidator, profile_name: str) -
         "### Global Settings"
     ])
 
-    global_fail = f"{validator.global_max_fail_pct * 100}%" if validator.global_max_fail_pct else "Not configured"
+    global_fail = f"{validator.global_max_fail_pct * 100:.2f}%" if validator.global_max_fail_pct is not None else "Not configured"
     md.extend([
         f"- **Max Batch Failure (Rejection Limit):** {global_fail}",
-        f"- **Global Drift Alert (Absolute):** {validator.global_drift_abs_min * 100}% minimum failure jump",
-        f"- **Global Drift Alert (Relative):** {validator.global_drift_rel_min * 100}% relative increase\n",
+        f"- **Global Drift Alert (Absolute):** {validator.global_drift_abs_min * 100:.2f}% minimum failure jump",
+        f"- **Global Drift Alert (Relative):** {validator.global_drift_rel_min * 100:.2f}% relative increase\n",
         "### Rule-Specific Thresholds",
         "| Rule Name | Max Fail Limit | Drift Abs Limit | Drift Rel Limit |",
         "|---|---|---|---|"
@@ -84,11 +89,11 @@ def generate_markdown_for_profile(validator: DataValidator, profile_name: str) -
 
     has_sla_rules = False
     for rule in validator.rules:
-        if rule.max_fail_pct or rule.drift_abs_min or rule.drift_rel_min:
+        if rule.max_fail_pct is not None or rule.drift_abs_min is not None or rule.drift_rel_min is not None:
             has_sla_rules = True
-            m_fail = f"{rule.max_fail_pct * 100}%" if rule.max_fail_pct else "*(Global)*"
-            d_abs = f"{rule.drift_abs_min * 100}%" if rule.drift_abs_min else "*(Global)*"
-            d_rel = f"{rule.drift_rel_min * 100}%" if rule.drift_rel_min else "*(Global)*"
+            m_fail = f"{rule.max_fail_pct * 100:.2f}%" if rule.max_fail_pct is not None else "*(Global)*"
+            d_abs = f"{rule.drift_abs_min * 100:.2f}%" if rule.drift_abs_min is not None else "*(Global)*"
+            d_rel = f"{rule.drift_rel_min * 100:.2f}%" if rule.drift_rel_min is not None else "*(Global)*"
             md.append(f"| `{rule.name}` | {m_fail} | {d_abs} | {d_rel} |")
 
     if not has_sla_rules:
@@ -105,7 +110,7 @@ def main():
     args = parser.parse_args()
 
     if not args.config.exists():
-        print(f"Error: Config file {args.config} not found.")
+        logger.error(f"Error: Config file {args.config} not found.")
         sys.exit(1)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -113,10 +118,10 @@ def main():
     # 1. List all available profiles in the config
     profiles = DataValidator.list_profiles(str(args.config))
     if not profiles:
-        print(f"No profiles found in {args.config}.")
+        logger.warning(f"No profiles found in {args.config}.")
         sys.exit(1)
 
-    print(f"Found profiles: {', '.join(profiles)}")
+    logger.info(f"Found profiles: {', '.join(profiles)}")
 
     # 2. Generate flattened documentation for each profile
     for profile in profiles:
@@ -129,10 +134,10 @@ def main():
             with open(output_file, 'w', encoding='utf-8') as f:
                 f.write(markdown_content)
 
-            print(f"Successfully generated: {output_file}")
+            logger.info(f"Successfully generated: {output_file}")
 
         except Exception as e:
-            print(f"Failed to generate docs for profile '{profile}': {e}")
+            logger.error(f"Failed to generate docs for profile '{profile}': {e}")
 
 
 if __name__ == "__main__":

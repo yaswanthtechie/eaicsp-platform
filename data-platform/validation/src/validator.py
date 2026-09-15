@@ -358,38 +358,32 @@ class DataValidator:
                 else:
                     raise ValueError("No profile specified and no 'default' profile found.")
 
-            if profile_name not in profiles:
-                raise ValueError(f"Profile '{profile_name}' not found.")
+            def resolve_profile(prof_name):
+                if prof_name not in profiles:
+                    raise ValueError(f"Profile '{prof_name}' not found.")
+                prof = profiles[prof_name]
 
-            target_profile = profiles[profile_name]
-            raw_rules = {}
+                merged_rules = {}
+                merged_max_fail = prof.get('global_max_fail_pct')
+                merged_abs_min = prof.get('global_drift_abs_min')
+                merged_rel_min = prof.get('global_drift_rel_min')
 
-            global_max_fail_pct = target_profile.get('global_max_fail_pct')
-            global_drift_abs_min = target_profile.get('global_drift_abs_min')
-            global_drift_rel_min = target_profile.get('global_drift_rel_min')
+                if 'inherits' in prof:
+                    parent_rules, p_max, p_abs, p_rel = resolve_profile(prof['inherits'])
+                    merged_rules.update(parent_rules)
+                    if merged_max_fail is None: merged_max_fail = p_max
+                    if merged_abs_min is None: merged_abs_min = p_abs
+                    if merged_rel_min is None: merged_rel_min = p_rel
 
-            if 'inherits' in target_profile:
-                parent = target_profile['inherits']
-                if parent not in profiles:
-                    raise ValueError(f"Parent profile '{parent}' not found.")
+                for r in prof.get('rules', []):
+                    merged_rules[r['name']] = r
 
-                if global_max_fail_pct is None:
-                    global_max_fail_pct = profiles[parent].get('global_max_fail_pct')
+                return merged_rules, merged_max_fail, merged_abs_min, merged_rel_min
 
-                for r in profiles[parent].get('rules', []):
-                    raw_rules[r['name']] = r
-
-                if global_drift_abs_min is None:
-                    global_drift_abs_min = profiles[parent].get('global_drift_abs_min')
-
-                if global_drift_rel_min is None:
-                    global_drift_rel_min = profiles[parent].get('global_drift_rel_min')
+            raw_rules, global_max_fail_pct, global_drift_abs_min, global_drift_rel_min = resolve_profile(profile_name)
 
             abs_min = 0.01 if global_drift_abs_min is None else global_drift_abs_min
             rel_min = 0.50 if global_drift_rel_min is None else global_drift_rel_min
-
-            for r in target_profile.get('rules', []):
-                raw_rules[r['name']] = r
 
             rules = [ConfigRule(**r) for r in raw_rules.values()]
             return cls(rules, version, allow_rule_failures=allow_rule_failures,
@@ -416,7 +410,13 @@ class DataValidator:
         if missing_fields:
             raise ValueError(f"Pipeline failed to start. Missing required columns: {', '.join(missing_fields)}")
 
-    def validate_stream(self, filepath: str, chunksize: int) -> ValidationResult:
+    def validate_stream(
+            self,
+            filepath: str,
+            chunksize: int,
+            watermark_col: Optional[str] = None,
+            current_watermark: Any = None
+    ) -> ValidationResult:
         """Executes the validation pipeline sequentially over chunks to prevent errors."""
         logger.info(f"Starting STREAMING validation pass (chunksize={chunksize:,})...")
 
@@ -427,7 +427,10 @@ class DataValidator:
         has_composite = False
         composite_subset = []
 
-        for i, rule in enumerate(self.rules):
+        import copy
+        stream_rules = copy.deepcopy(self.rules)
+
+        for i, rule in enumerate(stream_rules):
             if rule.name == 'composite_pk_unique':
                 has_composite = True
                 extra = rule.model_extra or {}
@@ -439,17 +442,39 @@ class DataValidator:
                 rule_dict['function'] = "src.custom_rules.check_composite_unique_stream"
                 self.rules[i] = ConfigRule(**rule_dict)
 
-        global_counts = collections.Counter()
+        seen_keys = set()
+        global_duplicates = set()
 
         if has_composite and global_cols:
-            for chunk in pd.read_csv(filepath, chunksize=chunksize, usecols=lambda c: c in global_cols):
+            use_cols = set(global_cols)
+            if watermark_col:
+                use_cols.add(watermark_col)
+            for chunk in pd.read_csv(filepath, chunksize=chunksize, usecols=lambda c: c in use_cols):
+                if watermark_col and current_watermark is not None:
+                    chunk = self.filter_incremental(chunk, watermark_col, current_watermark)
+                if chunk.empty:
+                    continue
+
+                for r in self.rules:
+                    if r.type == "transform":
+                        try:
+                            chunk = r.apply_transform(chunk)
+                        except Exception:
+                            pass
+
                 if all(c in chunk.columns for c in composite_subset):
                     keys = chunk[composite_subset[0]].astype(str)
                     for col in composite_subset[1:]:
                         keys = keys + '-' + chunk[col].astype(str)
-                    global_counts.update(keys)
 
-        global_duplicates = {k for k, v in global_counts.items() if v > 1}
+                    unique_chunk_keys = set(keys)
+                    chunk_dupes = set(keys[keys.duplicated()])
+
+                    # Store only items duplicated within this chunk, or intersecting with previous chunks
+                    global_duplicates.update(seen_keys.intersection(unique_chunk_keys))
+                    global_duplicates.update(chunk_dupes)
+
+                    seen_keys.update(unique_chunk_keys)
         logger.info(f"Pass 1 Complete. Found {len(global_duplicates):,} cross-chunk composite duplicates.")
 
         # --- PASS 2: Chunk Validation ---
@@ -461,10 +486,15 @@ class DataValidator:
         agg_warnings = collections.defaultdict(int)
         agg_sample_bad = collections.defaultdict(list)
         agg_rule_timings = collections.defaultdict(float)
+        agg_skipped = []
 
         chunk_idx = 0
 
         for chunk in pd.read_csv(filepath, chunksize=chunksize):
+            if watermark_col and current_watermark is not None:
+                chunk = self.filter_incremental(chunk, watermark_col, current_watermark)
+            if chunk.empty:
+                continue
             chunk_idx += 1
             logger.info(f"  -> Processing Chunk {chunk_idx}...")
 
@@ -501,6 +531,9 @@ class DataValidator:
                 if len(agg_sample_bad[rule_name]) < 5:
                     agg_sample_bad[rule_name].extend(samples[:5 - len(agg_sample_bad[rule_name])])
 
+            # Aggregate skipped rules
+            agg_skipped.extend(chunk_report.skipped_rules)
+
             agg_total_affected += chunk_report.total_rows_affected
 
         # Format aggregated errors/warnings
@@ -515,7 +548,7 @@ class DataValidator:
                 f"Global failure rate {global_fail_pct:.1%} exceeds threshold ({self.global_max_fail_pct:.1%})")
 
         batch_rejected = len(rejection_reasons) > 0
-        passed = len(final_errors) == 0 and not batch_rejected
+        passed = len(final_errors) == 0 and not batch_rejected and (self.allow_rule_failures or not agg_skipped)
 
         logger.info("Streaming validation complete. Aggregating final JSON report.")
 
@@ -529,7 +562,8 @@ class DataValidator:
             errors=final_errors,
             warnings=final_warnings,
             sample_bad_rows=dict(agg_sample_bad),
-            rule_timings=dict(agg_rule_timings)
+            rule_timings=dict(agg_rule_timings),
+            skipped_rules=agg_skipped
         )
 
     def validate(self, df: pd.DataFrame) -> ValidationResult:
@@ -624,7 +658,7 @@ class DataValidator:
 
         # 1. Per-Rule Thresholds
         for rule in self.rules:
-            if rule.name in rule_failure_masks and rule.max_fail_pct is not None:
+            if rule.name in rule_failure_masks and rule.max_fail_pct is not None and rule.severity == "ERROR":
                 fail_pct = int(rule_failure_masks[rule.name].sum()) / total_rows
                 if fail_pct > rule.max_fail_pct:
                     rejection_reasons.append(
@@ -655,11 +689,14 @@ class DataValidator:
             skipped_rules=skipped
         )
 
-    def clean(self, df: pd.DataFrame, strict: bool = True, target_rules: Optional[List[str]] = None) -> pd.DataFrame:
+    def clean(self, df: pd.DataFrame, strict: bool = True, target_rules: Optional[List[str]] = None,
+              val_report: Optional[ValidationResult] = None) -> pd.DataFrame:
         """
             Cleans the dataset by applying transforms and removing invalid rows.
         """
-        val_report = self.validate(df)
+        if val_report is None:
+            val_report = self.validate(df)
+
         if val_report.batch_rejected:
             raise RuntimeError(
                 f"Refusing to clean: Batch exceeded failure thresholds. Reasons:\n" +

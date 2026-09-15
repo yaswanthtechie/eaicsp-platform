@@ -5,7 +5,6 @@ import pandas as pd
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any
-from src.drift import ReportComparator
 
 # ---------------------------------------------------------
 # PATH RESOLUTION & MODULE FIX
@@ -15,6 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # Ensure Python can find the 'src' module no matter where you run this from
 sys.path.append(str(PROJECT_ROOT))
 
+from src.drift import ReportComparator
 from src.make_messy_data import generate_messy_data
 from src.validator import DataValidator
 
@@ -191,7 +191,7 @@ def main():
     # 5. Clean the data
     logger.info(f"Executing cleaning sequence (Strict Mode: {args.strict})...")
     try:
-        clean_df = dv.clean(df, strict=args.strict)
+        clean_df = dv.clean(df, strict=args.strict, val_report=report)
         logger.info(f"Cleaning complete. {len(clean_df)} rows remain.")
     except Exception as e:
         logger.error(f"FATAL ERROR: Cleaning crashed during execution: {e}")

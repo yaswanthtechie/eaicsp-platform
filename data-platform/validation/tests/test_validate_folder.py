@@ -415,7 +415,8 @@ def test_main_list_profiles_mapping_success(mock_setup_logging, mock_list_profil
 
 
 @patch("src.validate_folder.setup_logging")
-def test_main_list_profiles_mapping_error(mock_setup_logging):
+@patch("src.validate_folder.logger.error")
+def test_main_list_profiles_mapping_error(mock_logger_error, mock_setup_logging):
     """Verifies mapping read errors during --list-profiles are caught and safely ignored."""
     test_args = [
         "validate_folder.py",
@@ -424,5 +425,7 @@ def test_main_list_profiles_mapping_error(mock_setup_logging):
         "--list-profiles"
     ]
     with patch.object(sys, 'argv', test_args):
-        # This shouldn't throw an unhandled exception, it should hit the `except Exception:` block and exit safely.
         validate_folder.main()
+
+    mock_logger_error.assert_called_once()
+    assert "Failed to read mapping file for profiles" in mock_logger_error.call_args[0][0]

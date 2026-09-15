@@ -532,15 +532,6 @@ validate_data --file data/messy_sales.csv --config configs/sales_rules.yaml --ou
 validate_folder --folder data/ --config configs/sales_rules.yaml --save-reports --output-dir reports/op --incremental --watermark-col "transaction_id"
 ```
 
-# Known Limitations
-* **Watermark Advancement:** The incremental pipeline advances the watermark based on the incoming dataset, *including rows that fail validation*. Failed rows are not automatically queued for reprocessing.
-* **Date Sorting:** String-based watermark columns (like dates) are compared lexicographically. ISO-8601 (`YYYY-MM-DD`) works flawlessly; localized formats (`MM/DD/YYYY`) will filter incorrectly.
-* **Incremental Write Amplification:** Append mode rewrites the entire output file each run (read_csv → concat → drop_duplicates → to_csv), which is O(total rows) per run rather than O(new rows). This is deliberate: the drop_duplicates pass makes the pipeline crash-safe if a run dies between writing data and writing the watermark. A plain to_csv(mode='a') would be cheaper but would double-write rows on a mid-run failure.
-* **Deduplication:** Incremental append mode deduplicates based on full-row identity. Updates to existing records require a genuine Primary Key configuration (currently unsupported).
-* **Conflict Detection Boundaries:** The _detect_conflicts method only catches impossible range vs range bounds. Contradictions between not_null + strict regex, or unique + custom duplicate checks on the same field currently pass through undetected.
-
-
-
 
 # Validation Profiles
 
@@ -553,8 +544,8 @@ Previously, if you needed to change a single threshold for a specific pipeline r
 The engine dynamically builds a tailored rule-set in memory just before execution based on your CLI arguments.
 
 1. **Hierarchical Structure:** The YAML configuration now uses a `profiles:` key.
-2. **Single-Level Inheritance:** A profile can use the `inherits: <profile_name>` key to pull in all rules from a parent profile (usually `default`).
-3. **Smart Overrides:** If a child profile defines a rule with the *same name* as a rule in its parent profile, the child's version completely overwrites the parent's version. 
+2. **Deep Inheritance (Multi-Level):** A profile can use the `inherits: <profile_name>` key to pull in all rules from a parent profile. The engine recursively resolves the entire inheritance tree, allowing you to build complex profile chains without repetition.
+3. **Smart Overrides:** If a child profile defines a rule with the *same name* as a rule in any of its ancestor profiles, the child's version completely overwrites the parent's version.
 4. **Loud Fallbacks:** If you do not specify a profile via the CLI, the system will automatically look for and run the `default` profile, logging this action clearly so you always know what rules were applied.
 5. **Fail-Fast Security:** If you specify a profile that does not exist (e.g., a typo like `--profile strct`), the pipeline will immediately halt and throw an error to prevent you from accidentally validating data against the wrong rules.
 
@@ -631,7 +622,7 @@ python -m src.validate_folder --folder data/ --config configs/sales_rules.yaml -
 }
 ```
 ```commandline
-python validate_folder.py --folder data/ --mapping configs/mapping.json
+python -m validate_folder --folder data/ --mapping configs/mapping.json
 ```
 
 
@@ -727,7 +718,7 @@ Instead of attempting to load an entire CSV file into a single Pandas DataFrame�
 ## How It Works: The "Two-Pass" Architecture
 Validating chunks in isolation creates a unique challenge: *How do you know if a row in Chunk 10 is an exact duplicate of a row in Chunk 1 if Chunk 1 has already been cleared from memory?* 
 
-To solve this while keeping memory usage near zero, the `validate_stream` engine uses a highly efficient Two-Pass approach:
+To solve this while drastically reducing memory usage, the `validate_stream` engine uses a highly efficient Two-Pass approach:
 
 *   **Pass 1: The Global Scout** 
     The engine rapidly skims the file chunk-by-chunk, loading *only* the specific columns required for global rules (like `date`, `sku_id`, and `warehouse_id` for composite key checks). It uses vectorized string concatenation to build a lightweight, global "cheat sheet" (a hash set) of all duplicate keys across the entire file.
@@ -745,14 +736,14 @@ The chunking feature is fully integrated into the existing Command Line Interfac
 * The data generator has been upgraded to write data to disk in batches, preventing OOM crashes during the creation of massive test files.
 ```commandline
 # Generate 5 million rows in safe batches of 500,000
-python -m src,make_messy_data --n-base 5000000 --chunk-size 500000 --output data/large_messy_sales.csv
+python -m src.make_messy_data --n-base 5000000 --chunk-size 500000 --output data/large_messy_sales.csv
 ```
 
 ### 2. Execute Streaming Validation
 * To trigger the Streaming Engine, simply add the --chunk-size flag to your standard validation command.
 ```commandline
 # Validate the massive dataset using 500,000 row chunks
-python src.validate_cli --file data/large_messy_sales.csv --config configs/sales_rules.yaml --profile bulk --output reports/stream_report.json --chunk-size 500000
+python -m src.validate_cli --file data/large_messy_sales.csv --config configs/sales_rules.yaml --profile bulk --output reports/stream_report.json --chunk-size 500000
 ```
 
 
@@ -801,3 +792,11 @@ Successfully generated: docs\data_contract_strict.md
 ```
 
 * You can then push these Markdown files to GitHub, GitLab, or integrate them into your internal wiki (like MkDocs or Confluence) for stakeholders to review!
+
+# Known Limitations
+* **Streaming Memory Growth:** While chunked streaming prevents massive Out-Of-Memory (OOM) crashes, Pass 1 still tracks every unique composite key seen in a set. Memory usage scales linearly $O(N)$ with the number of distinct rows, so it is not strictly "near zero".
+* **Watermark Advancement:** The incremental pipeline advances the watermark based on the incoming dataset, *including rows that fail validation*. Failed rows are not automatically queued for reprocessing.
+* **Date Sorting:** String-based watermark columns (like dates) are compared lexicographically. ISO-8601 (`YYYY-MM-DD`) works flawlessly; localized formats (`MM/DD/YYYY`) will filter incorrectly.
+* **Incremental Write Amplification:** Append mode rewrites the entire output file each run (read_csv → concat → drop_duplicates → to_csv), which is O(total rows) per run rather than O(new rows). This is deliberate: the drop_duplicates pass makes the pipeline crash-safe if a run dies between writing data and writing the watermark. A plain to_csv(mode='a') would be cheaper but would double-write rows on a mid-run failure.
+* **Deduplication:** Incremental append mode deduplicates based on full-row identity. Updates to existing records require a genuine Primary Key configuration (currently unsupported).
+* **Conflict Detection Boundaries:** The _detect_conflicts method only catches impossible range vs range bounds. Contradictions between not_null + strict regex, or unique + custom duplicate checks on the same field currently pass through undetected.

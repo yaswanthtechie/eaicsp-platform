@@ -63,14 +63,14 @@ def validate_folder(
         folder_path: Union[str, Path],
         config_path: Optional[Union[str, Path]] = None,
         mapping_path: Optional[Union[str, Path]] = None,
-        profile_name: Optional[str] = None,
         default_pattern: str = "*.csv",
         top_n_issues: int = 3,
         output_dir: str = "reports",
         save_reports: bool = False,
         incremental: bool = False,
         watermark_col: str = "transaction_id",
-        watermark_dir: str = ".watermarks"
+        watermark_dir: str = ".watermarks",
+        profile_name: Optional[str] = None
 ) -> Dict[str, Any]:
     folder = Path(folder_path)
 

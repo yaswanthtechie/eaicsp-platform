@@ -969,7 +969,7 @@ profiles:
     inherits: missing_base
     rules: []
 """)
-    with pytest.raises(ValueError, match="Parent profile 'missing_base' not found."):
+    with pytest.raises(ValueError, match="Profile 'missing_base' not found."):
         DataValidator.from_config(str(yaml_file), profile_name="strict")
 
 
@@ -1055,7 +1055,8 @@ def test_per_rule_threshold_rejection():
         "field": "qty",
         "type": "range",
         "min": 0,
-        "max_fail_pct": 0.50  # 50% max allowed
+        "max_fail_pct": 0.50,  # 50% max allowed
+        "severity": "ERROR"  # Added severity to ensure failure mask enforces batch rejection
     })
     val = DataValidator([rule])
     report = val.validate(df)
@@ -1093,7 +1094,8 @@ def test_clean_aborts_on_rejected_batch():
         "field": "qty",
         "type": "range",
         "min": 0,
-        "max_fail_pct": 0.10
+        "max_fail_pct": 0.10,
+        "severity": "ERROR"  # Added severity to trigger rejection correctly
     })
     val = DataValidator([rule])
 
@@ -1214,3 +1216,115 @@ def test_validate_stream_sample_cap(tmp_path):
 
     assert report.errors[0]["count"] == 10
     assert len(report.sample_bad_rows['r1']) == 5  # Strictly capped at 5
+
+
+def test_evaluate_transform_rule():
+    """Hits the fallback in evaluate() for transform rules (Line ~174)."""
+    df = pd.DataFrame({"A": [1, 2]})
+    rule = ConfigRule(name="t1", type="transform", function="tests.test_validator.dummy_transform_no_field")
+    mask = rule.evaluate(df)
+    assert mask.sum() == 0  # Should be all False
+
+
+def test_detect_conflicts_max_less_than_prev_max():
+    """Hits min/max comparison edge branches in _detect_conflicts() (Lines ~231)."""
+    # max_val < prev_max
+    r1 = ConfigRule(name="r1", field="q", type="range", max=50)
+    r2 = ConfigRule(name="r2", field="q", type="range", max=20)
+
+    # min_val > prev_min
+    r3 = ConfigRule(name="r3", field="w", type="range", min=10)
+    r4 = ConfigRule(name="r4", field="w", type="range", min=20)
+
+    val = DataValidator([r1, r2, r3, r4])
+    assert len(val.rules) == 4
+
+
+def test_filter_incremental_pure_string_casting():
+    """Hits the `else` branch for string casting in filter_incremental (Line ~282)."""
+    df = pd.DataFrame({"id": ["A", "B", "C"]})
+    result = DataValidator.filter_incremental(df, "id", "A")
+    assert len(result) == 2
+
+
+def test_validate_stream_empty_chunks_via_watermark(tmp_path):
+    """Filters all rows via watermark to hit 'if chunk.empty: continue' in Pass 1 and 2 (Lines ~457-497)."""
+    df = pd.DataFrame({"A": [1, 2], "wm": [1, 2]})
+    csv_path = tmp_path / "empty_stream.csv"
+    df.to_csv(csv_path, index=False)
+
+    rule = ConfigRule(name="r1", field="A", type="not_null")
+    val = DataValidator([rule])
+
+    # Watermark 5 > all data, so chunks become empty after filter
+    report = val.validate_stream(str(csv_path), chunksize=1, watermark_col="wm", current_watermark=5)
+    assert report.total_rows == 0
+
+
+def test_validate_stream_transform_crash_pass_1(tmp_path):
+    """Hits the `except Exception: pass` block in Pass 1 of validate_stream (Lines ~468-469)."""
+    df = pd.DataFrame({"A": [1, 2], "B": [1, 2]})
+    csv_path = tmp_path / "stream_crash.csv"
+    df.to_csv(csv_path, index=False)
+
+    rule_pk = ConfigRule(name="composite_pk_unique", type="custom",
+                         function="src.custom_rules.check_composite_unique", subset=["A", "B"])
+    rule_t = ConfigRule(name="t1", type="transform", function="tests.test_validator.crashing_transform_rule")
+
+    val = DataValidator([rule_pk, rule_t])
+    report = val.validate_stream(str(csv_path), chunksize=2)
+    assert report.passed is True
+
+
+def test_validate_dependency_not_executed(caplog):
+    """Hits the 'Dependency... not found or not executed yet' warning in validate() (Line ~613)."""
+    df = pd.DataFrame({"A": [1]})
+
+    r1 = ConfigRule(name="crash_rule", type="custom", function="tests.test_validator.crashing_custom_rule",
+                    severity="ERROR")
+    r2 = ConfigRule(name="dep_rule", field="A", type="not_null", depends_on=["crash_rule"])
+
+    # Allow failures so it continues to evaluate r2
+    val = DataValidator([r1, r2], allow_rule_failures=True)
+    val.validate(df)
+
+    assert "not found or not executed yet" in caplog.text
+
+
+def test_clean_transform_crashes(caplog):
+    """Hits the transform crash block inside the clean() method (Line ~732)."""
+    df = pd.DataFrame({"A": [1]})
+    r_t = ConfigRule(name="crash_t", type="transform", function="tests.test_validator.crashing_transform_rule")
+
+    val = DataValidator([r_t])
+    # Pass a dummy report to skip the internal validate() which has its own crash handler
+    dummy_report = ValidationResult(passed=True, total_rows_affected=0)
+
+    val.clean(df, val_report=dummy_report)
+    assert "FATAL ERROR: Transform rule 'crash_t' crashed" in caplog.text
+
+
+def test_clean_dependency_not_executed(caplog):
+    """Hits the dependency not found block in clean()."""
+    df = pd.DataFrame({"A": [1]})
+    r1 = ConfigRule(name="crash_rule", type="custom", function="tests.test_validator.crashing_custom_rule",
+                    severity="ERROR")
+    r2 = ConfigRule(name="dep_rule", field="A", type="not_null", depends_on=["crash_rule"])
+
+    val = DataValidator([r1, r2], allow_rule_failures=True)
+    dummy_report = ValidationResult(passed=True, total_rows_affected=0)
+
+    val.clean(df, val_report=dummy_report)
+    assert "not found/executed" in caplog.text
+
+
+def test_evaluate_and_transform_without_field_explicit_fallback():
+    """Hits `return func(df, **kwargs)` in _execute_dynamic_function when no field exists (Line 124)."""
+    df = pd.DataFrame({"A": [1]})
+    rule_custom = ConfigRule(
+        name="custom_no_field_2", type="custom", severity="ERROR",
+        function="tests.test_validator.dummy_custom_rule_no_field"
+    )
+    val = DataValidator([rule_custom])
+    report = val.validate(df)
+    assert report.passed is False
