@@ -4,6 +4,7 @@ from src.outliers import find_outliers
 from src.compare import compare
 from src.trend import generate_null_rate_trend
 from src.anomaly import analyze_anomaly_correlation
+from src.quality_scorecard import generate_quality_scorecard
 
 import re
 
@@ -357,6 +358,17 @@ def profile(df):
     report["anomaly_correlation"] = analyze_anomaly_correlation(
         df,
         outlier_column="quantity_sold"
+    )
+
+    uniqueness_columns = [
+        item["column"]
+        for item in report["column_summary"]
+        if item["role"] == "ID"
+    ]
+
+    report["quality_scorecard"] = generate_quality_scorecard(
+        df,
+        uniqueness_columns=uniqueness_columns
     )
     # Data Quality Score
     report["quality_score"] = calculate_quality_score(df, report)

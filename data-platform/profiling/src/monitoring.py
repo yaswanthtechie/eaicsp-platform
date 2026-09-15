@@ -39,6 +39,7 @@ class MonitoringHistory:
         batch = {
             "timestamp": datetime.now().isoformat(),
             "quality_score": report["quality_score"]["score"],
+            "quality_scorecard": report.get("quality_scorecard", {}),
             "missing_values": report["quality_score"]["missing_values"],
             "duplicate_rows": report["quality_score"]["duplicate_rows"],
             "total_outliers": report["quality_score"]["total_outliers"],
@@ -129,6 +130,68 @@ class MonitoringHistory:
             "previous_score": previous_score,
             "current_score": current_score,
             "drop": drop,
+        }
+
+    def get_scorecard_trend(self):
+        history = self.load_history()
+
+        if not history:
+            return {
+                "batches": 0,
+                "overall_scores": [],
+                "components": {
+                    "completeness": [],
+                    "validity": [],
+                    "consistency": [],
+                    "uniqueness": []
+                },
+                "trend": "No Data"
+            }
+
+        overall_scores = []
+        components = {
+            "completeness": [],
+            "validity": [],
+            "consistency": [],
+            "uniqueness": []
+        }
+
+        for batch in history:
+            scorecard = batch.get("quality_scorecard", {})
+
+            if not scorecard:
+                continue
+
+            overall_score = scorecard.get("overall_score")
+
+            if overall_score is not None:
+                overall_scores.append(overall_score)
+
+            component_scores = scorecard.get("components", {})
+
+            for component in components:
+                value = component_scores.get(component)
+
+                if value is not None:
+                    components[component].append(value)
+
+        if len(overall_scores) < 2:
+            trend = "Not Enough Data"
+
+        elif overall_scores[-1] > overall_scores[0]:
+            trend = "Improving"
+
+        elif overall_scores[-1] < overall_scores[0]:
+            trend = "Declining"
+
+        else:
+            trend = "Stable"
+
+        return {
+            "batches": len(overall_scores),
+            "overall_scores": overall_scores,
+            "components": components,
+            "trend": trend
         }
 
     def get_column_trend(self, column_name):
