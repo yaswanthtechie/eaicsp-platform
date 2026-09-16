@@ -59,6 +59,25 @@ class PipelineConfig:
         raise KeyError(f"No source named '{name}' in pipeline config")
 
 
+def validate_dependency_order(sources):
+    """Reject dependencies that point to a later source or create duplicates/cycles."""
+    seen = set()
+    names = {s.name for s in sources}
+    if len(names) != len(sources):
+        raise ValueError("Duplicate source names are not allowed")
+    for source in sources:
+        if source.depends_on:
+            if source.depends_on not in names:
+                raise ValueError(f"Source '{source.name}' depends on unknown source '{source.depends_on}'")
+            if source.depends_on not in seen:
+                raise ValueError(
+                    f"Source '{source.name}' depends on '{source.depends_on}', "
+                    "but the dependency must appear earlier in the sources list"
+                )
+        seen.add(source.name)
+    return True
+
+
 def load_pipeline_config(config_path=None):
 
     path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
@@ -100,8 +119,10 @@ def load_pipeline_config(config_path=None):
         cutoff_days=archive_raw.get("cutoff_days", 730),
     )
 
-    return PipelineConfig(
+    config = PipelineConfig(
         schedule=raw.get("schedule", "0 2 * * *"),
         sources=sources,
         archive=archive,
     )
+    validate_dependency_order(config.sources)
+    return config

@@ -341,7 +341,7 @@ def validate_batches_generic(extracted_batches, source_config, run_id=None):
                 try:
                     handle_schema_evolution(batch["file_path"], source_config)
                 except OSError as move_error:
-                    logger.warning(f"Could not quarantine {batch['file_path'].name}: {move_error}")
+                    logger.critical(f"Could not quarantine {batch['file_path'].name}: {move_error}")
 
             write_alert(
                 pipeline="sales_etl",

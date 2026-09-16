@@ -1,3 +1,5 @@
+-- Fresh-database schema. For an existing unpartitioned sales_fact, run
+-- sql/migrate_sales_fact_to_partitioned.sql before applying this schema.
 CREATE TABLE IF NOT EXISTS sales_fact (
     id BIGSERIAL,
     date DATE NOT NULL,

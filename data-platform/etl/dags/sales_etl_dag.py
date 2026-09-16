@@ -16,7 +16,7 @@ import json
 from airflow import DAG
 from airflow.operators.python import PythonOperator, BranchPythonOperator
 
-from etl.src.config_loader import load_pipeline_config
+from etl.src.config_loader import load_pipeline_config, validate_dependency_order
 from etl.src.logging_config import logger
 
 
@@ -36,22 +36,7 @@ PIPELINE_CONFIG = load_pipeline_config()
 # Validate source dependency ordering
 # ---------------------------------------------------------------------------
 
-_seen_sources = set()
-
-for _source in PIPELINE_CONFIG.sources:
-
-    if (
-        _source.depends_on
-        and _source.depends_on not in _seen_sources
-    ):
-        raise ValueError(
-            f"pipeline_config.yaml: source '{_source.name}' depends on "
-            f"'{_source.depends_on}', but that source must appear earlier "
-            f"in the sources list."
-        )
-
-    _seen_sources.add(_source.name)
-
+validate_dependency_order(PIPELINE_CONFIG.sources)
 
 # ---------------------------------------------------------------------------
 # Airflow failure callback

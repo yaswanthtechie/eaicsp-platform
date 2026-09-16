@@ -1,5 +1,6 @@
 from pathlib import Path
 from shutil import move
+from datetime import datetime
 
 
 def handle_schema_evolution(file_path, source_config, project_root=None):
@@ -15,6 +16,8 @@ def handle_schema_evolution(file_path, source_config, project_root=None):
     root = Path(project_root) if project_root else Path(__file__).resolve().parents[2]
     quarantine_dir = root / "data" / "quarantine"
     quarantine_dir.mkdir(parents=True, exist_ok=True)
-    destination = quarantine_dir / Path(file_path).name
-    move(str(file_path), str(destination))
+    original = Path(file_path)
+    stamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
+    destination = quarantine_dir / f"{original.stem}__quarantined_{stamp}{original.suffix}"
+    move(str(original), str(destination))
     return destination
