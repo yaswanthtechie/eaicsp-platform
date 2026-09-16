@@ -1,248 +1,311 @@
 import {
-  Area,
-  CartesianGrid,
-  ComposedChart,
-  Legend,
-  Line,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
+    Area,
+    Brush,
+    CartesianGrid,
+    ComposedChart,
+    Legend,
+    Line,
+    ResponsiveContainer,
+    Tooltip,
+    XAxis,
+    YAxis,
 } from "recharts";
 
-import { useEffect, useState } from "react";
-import { forecast } from "../mocks/forecast";
-import { colors } from "../tokens";
+import { memo, useEffect, useMemo, useState } from "react";
+import { dashboardApi } from "../api/dashboard";
+import { colors, space } from "../tokens";
+import type { ForecastPoint } from "../types/forecast";
+import Skeleton from "./Skeleton";
+interface ForecastChartProps {
+  startDate?: string;
+  endDate?: string;
+  shouldFail?: boolean;
+}
 
-const chartData = forecast.map((item) => ({
-  ...item,
-  band: item.upper_bound - item.lower_bound,
-}));
-
-// "Today" is the last date we have an actual for;
-// everything after is forecast.
-const lastActualIndex = chartData.reduce(
-  (last, item, index) =>
-    item.actual !== undefined ? index : last,
-  0
-);
-
-// Spec default: last 10 days + next 5 days.
-const defaultStart =
-  chartData[Math.max(0, lastActualIndex - 9)].date;
-
-const defaultEnd =
-  chartData[
-    Math.min(chartData.length - 1, lastActualIndex + 5)
-  ].date;
-
-export default function ForecastChart() {
+function ForecastChart({
+  startDate = "",
+  endDate = "",
+  shouldFail = false,
+}: ForecastChartProps) {
+  const [forecastData, setForecastData] = useState<ForecastPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const [startDate, setStartDate] = useState(defaultStart);
-  const [endDate, setEndDate] = useState(defaultEnd);
+
+  const [zoomStart, setZoomStart] = useState<number | null>(null);
+  const [zoomEnd, setZoomEnd] = useState<number | null>(null);
+
+  const fetchData = async () => {
+    setLoading(true);
+    setError(false);
+
+    try {
+      if (shouldFail) {
+        throw new Error("Failed to load forecast data");
+      }
+
+      const data = await dashboardApi.fetchForecast();
+      setForecastData(data);
+    } catch {
+      setForecastData([]);
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setLoading(false);
-    }, 1000);
+    let cancelled = false;
 
-    return () => clearTimeout(timer);
-  }, []);
+    const loadData = async () => {
+      setLoading(true);
+      setError(false);
 
-  const filteredData = chartData.filter(
-    (item) => item.date >= startDate && item.date <= endDate
-  );
+      try {
+        if (shouldFail) {
+          throw new Error("Failed to load forecast data");
+        }
 
-  const resetDates = () => {
-    setStartDate(chartData[0].date);
-    setEndDate(chartData[chartData.length - 1].date);
+        const data = await dashboardApi.fetchForecast();
+
+        if (!cancelled) {
+          setForecastData(data);
+          setLoading(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setForecastData([]);
+          setError(true);
+          setLoading(false);
+        }
+      }
+    };
+
+    loadData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [shouldFail]);
+
+  const filteredData = useMemo(() => {
+    return forecastData.filter((item) => {
+      const matchesStart =
+        !startDate || item.date >= startDate;
+
+      const matchesEnd =
+        !endDate || item.date <= endDate;
+
+      return matchesStart && matchesEnd;
+    });
+  }, [forecastData, startDate, endDate]);
+
+  const chartData = useMemo(() => {
+    return filteredData.map((item) => ({
+      ...item,
+      band: item.upper_bound - item.lower_bound,
+    }));
+  }, [filteredData]);
+
+  const handleResetZoom = () => {
+    setZoomStart(null);
+    setZoomEnd(null);
+  };
+
+  const handleZoomChange = (range: {
+    startIndex?: number;
+    endIndex?: number;
+  }) => {
+    if (
+      range.startIndex !== undefined &&
+      range.endIndex !== undefined
+    ) {
+      setZoomStart(range.startIndex);
+      setZoomEnd(range.endIndex);
+    }
   };
 
   if (loading) {
     return (
-      <h2 style={{ color: colors.text }}>
-        Loading Sales Forecast Data....
-      </h2>
+      <div
+        style={{
+          padding: space.lg,
+        }}
+      >
+        <Skeleton width="35%" height={28} />
+        <div style={{ marginTop: space.sm }}>
+          <Skeleton width="20%" height={16} />
+        </div>
+        <div style={{ marginTop: space.md }}>
+          <Skeleton
+            width="100%"
+            height={400}
+            borderRadius={10}
+          />
+        </div>
+      </div>
     );
   }
 
   if (error) {
     return (
-      <div style={{ color: colors.text }}>
+      <div
+        style={{
+          color: colors.danger,
+          padding: space.lg,
+        }}
+      >
         <p>Something went wrong.</p>
 
-        <button onClick={() => setError(false)}>
+        <button onClick={fetchData}>
           Retry
         </button>
       </div>
     );
   }
 
-  if (forecast.length === 0) {
+  if (forecastData.length === 0) {
     return (
-      <h2 style={{ color: colors.text }}>
-        No Forecast Data Available.
-      </h2>
-    );
-  }
-
-  if (startDate > endDate) {
-    return (
-      <div style={{ color: colors.text }}>
-        <h2 style={{ color: colors.danger }}>
-          Start date must be on or before the end date.
-        </h2>
-
-        <button
-          onClick={resetDates}
-          style={{
-            padding: "7px 14px",
-            cursor: "pointer",
-          }}
-        >
-          Reset
-        </button>
+      <div
+        style={{
+          color: colors.textMuted,
+          padding: space.lg,
+        }}
+      >
+        No forecast data available.
       </div>
     );
   }
 
   if (filteredData.length === 0) {
     return (
-      <div style={{ color: colors.text }}>
-        <h2>No forecast data in the selected range.</h2>
-
-        <button
-          onClick={resetDates}
-          style={{
-            padding: "7px 14px",
-            cursor: "pointer",
-          }}
-        >
-          Reset
-        </button>
+      <div
+        style={{
+          color: colors.textMuted,
+          padding: space.lg,
+        }}
+      >
+        No forecast data for the selected date range.
       </div>
     );
   }
 
   return (
-    <div
-      style={{
-        background: colors.surface,
-        padding: 20,
-        borderRadius: 10,
-      }}
-    >
+    <div style={{ width: "100%" }}>
       <div
         style={{
           display: "flex",
-          gap: 16,
-          marginBottom: 20,
+          justifyContent: "space-between",
           alignItems: "center",
-          flexWrap: "wrap",
+          marginBottom: space.md,
         }}
       >
-        <label style={{ color: colors.text }}>
-          Start Date:
-          <input
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
+        <div>
+          <h2
             style={{
-              marginLeft: 8,
-              padding: "6px 8px",
+              color: colors.text,
+              marginTop: 0,
+              marginBottom: space.sm,
             }}
-          />
-        </label>
+          >
+            Sales Forecast
+          </h2>
 
-        <label style={{ color: colors.text }}>
-          End Date:
-          <input
-            type="date"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
+          <div
             style={{
-              marginLeft: 8,
-              padding: "6px 8px",
+              color: colors.textMuted,
+              fontSize: 14,
             }}
-          />
-        </label>
+          >
+            {startDate || "Start"} → {endDate || "End"}
+          </div>
+        </div>
 
         <button
-          onClick={resetDates}
+          onClick={handleResetZoom}
           style={{
-            padding: "7px 14px",
+            padding: "8px 12px",
+            borderRadius: 6,
+            border: `1px solid ${colors.border}`,
+            background: colors.surface,
+            color: colors.text,
             cursor: "pointer",
           }}
         >
-          Reset
+          Reset Zoom
         </button>
       </div>
 
-      <h2
+      <div
         style={{
-          color: colors.text,
-          textAlign: "center",
+          width: "100%",
+          height: 400,
         }}
       >
-        Sales Forecasting From : {startDate} to {endDate}
-      </h2>
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={chartData}>
+            <CartesianGrid stroke={colors.border} />
 
-      <ResponsiveContainer width="100%" height={400}>
-        <ComposedChart data={filteredData}>
-          <CartesianGrid
-            stroke={colors.border}
-            strokeDasharray="3 4"
-          />
+            <XAxis
+              dataKey="date"
+              stroke={colors.textMuted}
+            />
 
-          <XAxis
-            dataKey="date"
-            stroke={colors.textMuted}
-          />
+            <YAxis stroke={colors.textMuted} />
 
-          <YAxis stroke={colors.textMuted} />
+            <Tooltip />
 
-          <Tooltip />
+            <Legend />
 
-          <Legend />
+            <Area
+              type="monotone"
+              dataKey="lower_bound"
+              stackId="confidence"
+              stroke="none"
+              fill="transparent"
+            />
 
-          <Area
-            dataKey="lower_bound"
-            stackId="band"
-            stroke="none"
-            fill="transparent"
-            legendType="none"
-          />
+            <Area
+              type="monotone"
+              dataKey="band"
+              stackId="confidence"
+              stroke="none"
+              fill={colors.primary}
+              fillOpacity={0.15}
+            />
 
-          <Area
-            dataKey="band"
-            stackId="band"
-            stroke="none"
-            fill={colors.success}
-            fillOpacity={0.2}
-            name="Confidence Band"
-          />
+            <Line
+              type="monotone"
+              dataKey="predicted"
+              stroke={colors.primary}
+              strokeWidth={2}
+              dot={false}
+            />
 
-          <Line
-            type="monotone"
-            dataKey="predicted"
-            stroke={colors.primary}
-            strokeWidth={5}
-            dot={false}
-            name="Predicted"
-          />
+            <Line
+              type="monotone"
+              dataKey="actual"
+              stroke={colors.success}
+              strokeWidth={2}
+              strokeDasharray="5 5"
+              dot={false}
+            />
 
-          <Line
-            type="monotone"
-            dataKey="actual"
-            stroke={colors.success}
-            strokeWidth={2}
-            strokeDasharray="5 5"
-            dot={true}
-            name="Actual"
-          />
-        </ComposedChart>
-      </ResponsiveContainer>
+            <Brush
+              dataKey="date"
+              height={30}
+              stroke={colors.primary}
+              startIndex={zoomStart ?? 0}
+              endIndex={
+                zoomEnd ?? chartData.length - 1
+              }
+              onChange={handleZoomChange}
+            />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
+
+export default memo(ForecastChart);
+

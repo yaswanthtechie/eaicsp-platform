@@ -726,14 +726,88 @@ ABC COMPANY → matched
 
 The latest result is `matched`, so the entity is not treated as previously cleared.
 
-If:
+Therefore, it should not be selected as a previously-cleared entity.
+
+Another example:
 
 ```text
 ABC COMPANY → clean
 ABC COMPANY → clean
 ```
 
-the entity can be selected for re-screening.
+The latest result is clean, so the entity can be selected for re-screening.
+
+### Newly Flagged Entity
+
+An entity is considered newly flagged when:
+
+```text
+Previous latest result = clean
+Current re-screening result = matched
+```
+
+The new audit record is stored as:
+
+```text
+screening_type = RESCREEN
+newly_flagged = true
+```
+
+If the entity remains clean after re-screening, the result is recorded as still clean.
+
+---
+
+## 10. Scheduled Re-Screening Job
+
+A scheduled re-screening job is provided using **APScheduler**.
+
+The current development/test configuration uses a 30-second interval to simulate a nightly re-screening process.
+
+The scheduled job:
+
+1. Runs inside the Compliance Service process.
+2. Refreshes the sanctions data.
+3. Re-screens previously cleared entities.
+4. Stores the new results in the audit database.
+5. Identifies newly flagged entities.
+
+### Scheduled Job Authentication
+
+The nightly re-screening job runs **in-process through APScheduler**.
+
+It directly calls:
+
+```python
+nightly_rescreen_job()
+```
+
+from the service layer.
+
+It does **not** make an HTTP request to the Compliance API.
+
+Therefore:
+
+* It does not call the Compliance API endpoints.
+* It does not pass through `verify_token`.
+* It does not use a JWT.
+* It does not require a separate credential.
+* It is treated as a trusted internal process because it runs inside the Compliance Service itself.
+
+This is an intentional design decision for the current architecture.
+
+If the scheduled job is moved to a separate worker, container, or external cron service in the future, it will need its own authenticated identity before calling protected APIs.
+
+Possible approaches include:
+
+```text
+Service account registered in Platform Service
+```
+
+or, if introduced by the platform architecture:
+
+```text
+API key
+```
 
 ---
 
@@ -1038,13 +1112,13 @@ Fixture mode provides:
 Enable fixture mode in PowerShell:
 
 ```powershell
-$env:USE_FIXTURES="true"
+python -m venv venv
 ```
 
 Check the value:
 
 ```powershell
-$env:USE_FIXTURES
+.\venv\Scripts\Activate.ps1
 ```
 
 Expected:
@@ -1149,6 +1223,12 @@ python -m pytest --collect-only -q
 
 
 
+Re-screen completed:
+
+1 checked
+0 newly flagged
+1 still clean
+```
 
 ```powershell
 python -m venv venv

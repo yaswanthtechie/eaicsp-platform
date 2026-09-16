@@ -8,8 +8,7 @@ import torch.nn as nn
 # Ensure tests can import modules from src/ regardless of CWD
 TEST_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SRC_DIR = os.path.join(TEST_ROOT, "src")
-if SRC_DIR not in sys.path:
-    sys.path.insert(0, SRC_DIR)
+
 
 from model import MultiStepLSTM
 from data import get_walk_forward_folds, generate_data

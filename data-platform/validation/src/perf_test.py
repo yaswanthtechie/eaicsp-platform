@@ -7,6 +7,12 @@ from pathlib import Path
 from typing import Optional
 
 import pandas as pd
+
+# --- PATH RESOLUTION ---
+# Must run BEFORE any `from src...` import (see validate_cli.py).
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
 from src.make_messy_data import generate_messy_data, MessyDataConfig
 from src.validator import DataValidator
 
@@ -85,6 +91,16 @@ def run_performance_test(
 
         status = 'PASSED' if report.passed else 'FAILED'
         logger.info(f"Status: {status} (Found {report.total_rows_affected:,} bad rows)")
+
+        if report.rule_timings:
+            logger.info("--- RULE PERFORMANCE BREAKDOWN (Slowest to Fastest) ---")
+            sorted_timings = sorted(report.rule_timings.items(), key=lambda x: x[1], reverse=True)
+            for rule_name, rule_duration in sorted_timings:
+                logger.info(f"  • {rule_name:30s} : {rule_duration:.6f}s")
+
+            if report.slowest_rule:
+                logger.info(
+                    f"Slowest Rule: '{report.slowest_rule['rule']}' ({report.slowest_rule['duration_seconds']:.6f}s)")
 
         if duration > time_threshold:
             logger.warning(

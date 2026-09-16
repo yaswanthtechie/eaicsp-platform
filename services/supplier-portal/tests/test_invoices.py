@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.core.auth import verify_token
 from app.schemas.invoice import InvoiceStatus
 from app.services.purchase_order_service import purchase_orders
 from app.services.invoice_service import invoices, invoice_events, resolve_document_path
@@ -18,6 +19,88 @@ from app.services import invoice_service
 
 
 client = TestClient(app)
+
+
+# ============================================================
+# TEST AUTHENTICATION USERS
+# ============================================================
+
+SUPPLIER_1_USER = {
+    "valid": True,
+    "user_id": 8,
+    "email": "supplier@company.com",
+    "full_name": "Supplier User",
+    "role": "supplier",
+    "supplier_id": "SUP001",
+    "is_active": True,
+}
+
+
+SUPPLIER_2_USER = {
+    "valid": True,
+    "user_id": 9,
+    "email": "supplier2@company.com",
+    "full_name": "Supplier Two",
+    "role": "supplier",
+    "supplier_id": "SUP002",
+    "is_active": True,
+}
+
+
+SUPPLIER_123_USER = {
+    "valid": True,
+    "user_id": 10,
+    "email": "supplier123@company.com",
+    "full_name": "Supplier 123",
+    "role": "supplier",
+    "supplier_id": "SUP123",
+    "is_active": True,
+}
+
+
+COMPLIANCE_USER = {
+    "valid": True,
+    "user_id": 6,
+    "email": "compliance@company.com",
+    "full_name": "Compliance Officer",
+    "role": "compliance_officer",
+    "supplier_id": None,
+    "is_active": True,
+}
+
+PROCUREMENT_USER = {
+    "valid": True,
+    "user_id": 4,
+    "email": "procurementmanager@company.com",
+    "full_name": "Procurement Manager",
+    "role": "procurement_manager",
+    "supplier_id": None,
+    "is_active": True,
+}
+
+
+SUPPLIER_NO_ID_USER = {
+    "valid": True,
+    "user_id": 100,
+    "email": "supplier-no-id@example.com",
+    "full_name": "Supplier Without ID",
+    "role": "supplier",
+    "supplier_id": None,
+    "is_active": True,
+}
+
+
+def authenticate_as(user):
+    """
+    Change the authenticated test user.
+    """
+
+    async def mock_verify_token():
+        return user
+
+    app.dependency_overrides[verify_token] = mock_verify_token
+
+
 
 
 # ============================================================
@@ -65,8 +148,12 @@ def create_sample_po(
     """
     Create a Purchase Order.
 
-    Newly created POs start in draft state.
+    PO creation is a procurement_manager operation.
+    Therefore the helper temporarily authenticates as
+    procurement_manager before creating the PO.
     """
+
+    authenticate_as(PROCUREMENT_USER)
 
     response = client.post(
         "/api/v1/purchase-orders",
@@ -91,13 +178,21 @@ def create_sample_po(
 
     return response
 
-
 def acknowledge_po(po_number="PO1001"):
     """
     Move PO:
 
         draft -> sent -> acknowledged
+
+    Procurement manager sends the PO.
+    Supplier acknowledges the PO.
     """
+
+    # --------------------------------------------------------
+    # Step 1: Procurement sends the PO
+    # --------------------------------------------------------
+
+    authenticate_as(PROCUREMENT_USER)
 
     response = client.post(
         f"/api/v1/purchase-orders/{po_number}/transition",
@@ -108,6 +203,31 @@ def acknowledge_po(po_number="PO1001"):
     )
 
     assert response.status_code == 200, response.text
+
+    # --------------------------------------------------------
+    # Step 2: Determine the PO owner
+    # --------------------------------------------------------
+
+    po = purchase_orders[po_number]
+    supplier_id = po["supplier_id"]
+
+    if supplier_id == "SUP001":
+        authenticate_as(SUPPLIER_1_USER)
+
+    elif supplier_id == "SUP002":
+        authenticate_as(SUPPLIER_2_USER)
+
+    elif supplier_id == "SUP123":
+        authenticate_as(SUPPLIER_123_USER)
+
+    else:
+        raise ValueError(
+            f"No test user configured for supplier_id={supplier_id}"
+        )
+
+    # --------------------------------------------------------
+    # Step 3: Supplier acknowledges the PO
+    # --------------------------------------------------------
 
     response = client.post(
         f"/api/v1/purchase-orders/{po_number}/acknowledge"
@@ -126,8 +246,13 @@ def create_acknowledged_po(
     unit_price=50000,
 ):
     """
-    Create a PO and move it to acknowledged state.
+    Create a PO as procurement manager, then authenticate
+    as the owning supplier to acknowledge it.
     """
+
+    # --------------------------------------------------------
+    # Step 1: Procurement creates the PO
+    # --------------------------------------------------------
 
     create_sample_po(
         po_number=po_number,
@@ -136,6 +261,28 @@ def create_acknowledged_po(
         quantity=quantity,
         unit_price=unit_price,
     )
+
+    # --------------------------------------------------------
+    # Step 2: Authenticate as the supplier that owns the PO
+    # --------------------------------------------------------
+
+    if supplier_id == "SUP001":
+        authenticate_as(SUPPLIER_1_USER)
+
+    elif supplier_id == "SUP002":
+        authenticate_as(SUPPLIER_2_USER)
+
+    elif supplier_id == "SUP123":
+        authenticate_as(SUPPLIER_123_USER)
+
+    else:
+        raise ValueError(
+            f"No test user configured for supplier_id={supplier_id}"
+        )
+
+    # --------------------------------------------------------
+    # Step 3: Supplier acknowledges the PO
+    # --------------------------------------------------------
 
     acknowledge_po(po_number)
 
@@ -150,11 +297,12 @@ def create_fulfilled_po(
     unit_price=50000,
 ):
     """
-    Create PO and move it:
+    Create a PO and move it through:
 
         draft -> sent -> acknowledged -> fulfilled
     """
 
+    # Create the PO and move it to acknowledged state.
     create_acknowledged_po(
         po_number=po_number,
         supplier_id=supplier_id,
@@ -162,6 +310,9 @@ def create_fulfilled_po(
         quantity=quantity,
         unit_price=unit_price,
     )
+
+    # Fulfillment transition requires procurement_manager.
+    authenticate_as(PROCUREMENT_USER)
 
     response = client.post(
         f"/api/v1/purchase-orders/{po_number}/transition",
@@ -173,8 +324,7 @@ def create_fulfilled_po(
 
     assert response.status_code == 200, response.text
 
-    return purchase_orders[po_number]
-
+    return response.json()
 
 def invoice_payload(
     invoice_number="INV1001",
@@ -253,32 +403,9 @@ def create_submitted_invoice(
     assert response.status_code == 201, response.text
 
     return response
-
-
-def transition_invoice(
-    invoice_number="INV1001",
-    target_state="approved",
-    reason=None,
-    supplier_id="SUP001",
-    actor_id="USER001",
-    actor_name="Test User",
-    role="buyer",
-):
-    return client.post(
-        f"/api/v1/invoices/{supplier_id}/{invoice_number}/transition",
-        json={
-            "target_state": target_state,
-            "actor_id": actor_id,
-            "actor_name": actor_name,
-            "role": role,
-            "reason": reason,
-        },
-    )
 # ============================================================
 # INVOICE STATE MACHINE - LEGAL TRANSITIONS
 # ============================================================
-
-
 def transition_invoice(
     invoice_number="INV1001",
     target_state="approved",
@@ -385,37 +512,57 @@ def test_submitted_to_rejected():
 
     assert data["status"] == "rejected"
 
+
 def test_adjusted_to_rejected():
     create_submitted_invoice()
 
+    # --------------------------------------------------------
     # submitted -> disputed
+    # Supplier can dispute the invoice
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_1_USER)
+
     response = transition_invoice(
         "INV1001",
         "disputed",
         reason="Invoice has an incorrect amount.",
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
 
+    # --------------------------------------------------------
     # disputed -> adjusted
+    # ONLY compliance officer can adjust
+    # --------------------------------------------------------
+
+    authenticate_as(COMPLIANCE_USER)
+
     response = adjust_invoice_api(
         invoice_number="INV1001",
         quantity=1,
         unit_price=50000,
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
     assert response.json()["status"] == "adjusted"
 
+    # --------------------------------------------------------
     # adjusted -> rejected
+    # Switch back to supplier
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_1_USER)
+
     response = transition_invoice(
         "INV1001",
         "rejected",
         reason="The adjustment is still incorrect.",
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
     assert response.json()["status"] == "rejected"
+
 
 
 def test_disputed_to_approved():
@@ -472,8 +619,15 @@ def test_disputed_to_rejected():
     assert data["dispute"]["resolved_at"] is not None
 
 
+
 def test_disputed_to_adjusted_to_approved():
     create_submitted_invoice()
+
+    # --------------------------------------------------------
+    # submitted -> disputed
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_1_USER)
 
     response = transition_invoice(
         "INV1001",
@@ -482,6 +636,13 @@ def test_disputed_to_adjusted_to_approved():
     )
 
     assert response.status_code == 200, response.text
+
+    # --------------------------------------------------------
+    # disputed -> adjusted
+    # Compliance officer performs adjustment
+    # --------------------------------------------------------
+
+    authenticate_as(COMPLIANCE_USER)
 
     response = adjust_invoice_api(
         quantity=1,
@@ -494,6 +655,13 @@ def test_disputed_to_adjusted_to_approved():
 
     assert data["status"] == "adjusted"
 
+    # --------------------------------------------------------
+    # adjusted -> approved
+    # Switch back to supplier
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_1_USER)
+
     response = transition_invoice(
         "INV1001",
         "approved",
@@ -504,6 +672,8 @@ def test_disputed_to_adjusted_to_approved():
     data = response.json()
 
     assert data["status"] == "approved"
+
+
 
 
 def test_dispute_requires_reason():
@@ -586,17 +756,22 @@ def test_dispute_rejects_blank_reason():
         ("adjusted", "adjusted"),
     ],
 )
+
 def test_illegal_invoice_transitions(
     current_state,
     target_state,
 ):
     create_submitted_invoice()
 
+    # Always start as supplier SUP001
+    authenticate_as(SUPPLIER_1_USER)
+
     # --------------------------------------------------------
     # Move invoice to required current state
     # --------------------------------------------------------
 
     if current_state == "disputed":
+
         response = transition_invoice(
             "INV1001",
             "disputed",
@@ -606,6 +781,7 @@ def test_illegal_invoice_transitions(
         assert response.status_code == 200, response.text
 
     elif current_state == "approved":
+
         response = transition_invoice(
             "INV1001",
             "approved",
@@ -614,6 +790,7 @@ def test_illegal_invoice_transitions(
         assert response.status_code == 200, response.text
 
     elif current_state == "rejected":
+
         response = transition_invoice(
             "INV1001",
             "rejected",
@@ -622,8 +799,13 @@ def test_illegal_invoice_transitions(
         assert response.status_code == 200, response.text
 
     elif current_state == "adjusted":
-        # adjusted is reached only through the dedicated
-        # adjustment endpoint.
+
+        # ----------------------------------------------------
+        # submitted -> disputed
+        # ----------------------------------------------------
+
+        authenticate_as(SUPPLIER_1_USER)
+
         response = transition_invoice(
             "INV1001",
             "disputed",
@@ -631,6 +813,13 @@ def test_illegal_invoice_transitions(
         )
 
         assert response.status_code == 200, response.text
+
+        # ----------------------------------------------------
+        # disputed -> adjusted
+        # Compliance officer is required
+        # ----------------------------------------------------
+
+        authenticate_as(COMPLIANCE_USER)
 
         response = adjust_invoice_api(
             invoice_number="INV1001",
@@ -640,6 +829,12 @@ def test_illegal_invoice_transitions(
 
         assert response.status_code == 200, response.text
         assert response.json()["status"] == "adjusted"
+
+        # ----------------------------------------------------
+        # Switch back to supplier for transition endpoint
+        # ----------------------------------------------------
+
+        authenticate_as(SUPPLIER_1_USER)
 
     # --------------------------------------------------------
     # Attempt illegal transition
@@ -660,6 +855,8 @@ def test_illegal_invoice_transitions(
     detail = response.json()["detail"]
 
     assert "cannot go from" in detail.lower()
+
+
 
 def test_invoice_transition_not_found():
     response = transition_invoice(
@@ -1118,17 +1315,34 @@ def test_duplicate_invoice():
 # ============================================================
 
 def test_same_invoice_number_different_supplier():
+    # --------------------------------------------------------
+    # Supplier 1 owns PO1001
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_1_USER)
+
     create_acknowledged_po(
         po_number="PO1001",
         supplier_id="SUP001",
     )
+
+    # --------------------------------------------------------
+    # Supplier 2 owns PO1002
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_2_USER)
 
     create_acknowledged_po(
         po_number="PO1002",
         supplier_id="SUP002",
     )
 
-    # Supplier 1 can create INV1001
+    # --------------------------------------------------------
+    # Supplier 1 creates INV1001
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_1_USER)
+
     response = create_sample_invoice(
         invoice_number="INV1001",
         po_number="PO1001",
@@ -1137,8 +1351,13 @@ def test_same_invoice_number_different_supplier():
 
     assert response.status_code == 201, response.text
 
-    # Supplier 2 can also create INV1001 because
-    # invoice numbers are supplier-scoped.
+    # --------------------------------------------------------
+    # Supplier 2 can also create INV1001
+    # because invoice numbers are supplier-scoped
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_2_USER)
+
     response = create_sample_invoice(
         invoice_number="INV1001",
         po_number="PO1002",
@@ -1146,6 +1365,8 @@ def test_same_invoice_number_different_supplier():
     )
 
     assert response.status_code == 201, response.text
+
+
 
 def test_duplicate_invoice_number_same_supplier():
     create_acknowledged_po(
@@ -1771,11 +1992,31 @@ def test_invoice_missing_supplier_id():
 
     assert response.status_code == 422
 
+
+
 def test_invoice_supplier_does_not_match_po():
+    # --------------------------------------------------------
+    # PO belongs to SUP001
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_1_USER)
+
     create_acknowledged_po(
         po_number="PO1001",
         supplier_id="SUP001",
     )
+
+    # --------------------------------------------------------
+    # Now login as SUP002
+    #
+    # This allows the request to pass supplier ownership
+    # authentication for the invoice.
+    #
+    # Then the business logic can correctly detect that
+    # the invoice references a PO belonging to SUP001.
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_2_USER)
 
     response = create_sample_invoice(
         invoice_number="INV1001",
@@ -1788,6 +2029,7 @@ def test_invoice_supplier_does_not_match_po():
     assert "supplier" in (
         response.json()["detail"].lower()
     )
+
 
 
 # ============================================================
@@ -2172,16 +2414,34 @@ def test_document_url_saved_in_memory():
 
 def test_invoice_document_saved_under_supplier_directory():
 
+    # --------------------------------------------------------
+    # Authenticate as supplier SUP123
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_123_USER)
+
+    # --------------------------------------------------------
+    # Create PO belonging to SUP123
+    # --------------------------------------------------------
+
     create_acknowledged_po(
         supplier_id="SUP123"
     )
+
+    # --------------------------------------------------------
+    # Create invoice belonging to SUP123
+    # --------------------------------------------------------
 
     response = create_sample_invoice(
         invoice_number="INV1001",
         supplier_id="SUP123",
     )
 
-    assert response.status_code == 201
+    assert response.status_code == 201, response.text
+
+    # --------------------------------------------------------
+    # Upload document
+    # --------------------------------------------------------
 
     upload_response = client.post(
         "/api/v1/invoices/SUP123/INV1001/document",
@@ -2194,11 +2454,16 @@ def test_invoice_document_saved_under_supplier_directory():
         },
     )
 
-    assert upload_response.status_code == 200
+    assert upload_response.status_code == 200, (
+        upload_response.text
+    )
 
     invoice_key = ("SUP123", "INV1001")
 
+    # --------------------------------------------------------
     # Internal document path
+    # --------------------------------------------------------
+
     document_path = invoices[
         invoice_key
     ]["document_path"]
@@ -2207,24 +2472,30 @@ def test_invoice_document_saved_under_supplier_directory():
         "SUP123/INV1001.pdf"
     )
 
-    # Resolve internal path and verify physical file
+    # --------------------------------------------------------
+    # Verify physical file exists
+    # --------------------------------------------------------
+
     filepath = resolve_document_path(
         document_path
     )
 
     assert filepath.exists()
 
+    # --------------------------------------------------------
     # Public API URL
+    # --------------------------------------------------------
+
     assert upload_response.json()["document_url"] == (
         "/api/v1/invoices/SUP123/INV1001/document"
     )
 
     # Internal path must not be exposed
-    assert "document_path" not in upload_response.json()
+    assert "document_path" not in (
+        upload_response.json()
+    )
 
-# ============================================================
-# INVOICE CREATE DOES NOT CREATE DOCUMENT
-# ============================================================
+
 
 # ============================================================
 # INVOICE CREATE DOES NOT CREATE DOCUMENT
@@ -3189,3 +3460,877 @@ def test_purge_only_deletes_orphaned_files(
 
     # Recent file remains
     assert recent_file.exists()
+
+# ============================================================
+# R5 - ORPHANED FILE AUTHORIZATION
+# ============================================================
+def test_supplier_cannot_scan_orphaned_invoice_files():
+    """
+    R5 Role Authorization:
+
+    Orphaned-file scanning is a global maintenance operation.
+
+    Suppliers must receive HTTP 403.
+    """
+
+    authenticate_as(SUPPLIER_1_USER)
+
+    response = client.get(
+        "/api/v1/maintenance/orphaned-invoice-files"
+    )
+
+    assert response.status_code == 403
+
+    assert (
+        response.json()["detail"]
+        == (
+            "Role 'supplier' is not authorized "
+            "for this endpoint"
+        )
+    )
+
+def test_supplier_cannot_purge_orphaned_invoice_files():
+    """
+    R5 Role Authorization:
+
+    Purging orphaned files is destructive.
+
+    Suppliers must receive HTTP 403.
+    """
+
+    authenticate_as(SUPPLIER_1_USER)
+
+    response = client.delete(
+        "/api/v1/maintenance/orphaned-invoice-files"
+    )
+
+    assert response.status_code == 403
+
+    assert (
+        response.json()["detail"]
+        == (
+            "Role 'supplier' is not authorized "
+            "for this endpoint"
+        )
+    )
+
+def test_compliance_officer_can_scan_orphaned_invoice_files(
+    tmp_path,
+    monkeypatch,
+):
+    """
+    R5 Role Authorization:
+
+    compliance_officer is authorized to scan orphaned
+    invoice files.
+    """
+
+    upload_dir = tmp_path / "uploads"
+    upload_dir.mkdir()
+
+    # invoice_service.find_orphaned_invoice_files()
+    # reads invoice_service.UPLOAD_DIR.
+    monkeypatch.setattr(
+        invoice_service,
+        "UPLOAD_DIR",
+        str(upload_dir),
+    )
+
+    # Create an old orphaned PDF.
+    create_old_pdf(
+        upload_dir=upload_dir,
+        supplier_id="SUP001",
+        invoice_number="INV9901",
+        age_days=2,
+    )
+
+    authenticate_as(COMPLIANCE_USER)
+
+    response = client.get(
+        "/api/v1/maintenance/orphaned-invoice-files",
+        params={
+            "older_than_days": 1,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+
+    data = response.json()
+
+    assert data["total"] == 1
+    assert len(data["orphaned_files"]) == 1
+
+    orphan = data["orphaned_files"][0]
+
+    assert orphan["supplier_id"] == "SUP001"
+    assert orphan["invoice_number"] == "INV9901"
+    assert orphan["file_name"] == "INV9901.pdf"
+
+    assert orphan["file_path"] == (
+        "SUP001/INV9901.pdf"
+    )
+
+def test_compliance_officer_can_purge_orphaned_invoice_files(
+    tmp_path,
+    monkeypatch,
+):
+    """
+    R5 Role Authorization:
+
+    compliance_officer is authorized to permanently
+    purge orphaned invoice files.
+    """
+
+    upload_dir = tmp_path / "uploads"
+    upload_dir.mkdir()
+
+    monkeypatch.setattr(
+        invoice_service,
+        "UPLOAD_DIR",
+        str(upload_dir),
+    )
+
+    # Create an old orphaned PDF.
+    file_path = create_old_pdf(
+        upload_dir=upload_dir,
+        supplier_id="SUP001",
+        invoice_number="INV9902",
+        age_days=2,
+    )
+
+    assert file_path.exists()
+
+    authenticate_as(COMPLIANCE_USER)
+
+    response = client.delete(
+        "/api/v1/maintenance/orphaned-invoice-files",
+        params={
+            "older_than_days": 1,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+
+    data = response.json()
+
+    assert data["total"] == 1
+    assert data["deleted"] == 1
+
+    assert len(data["files"]) == 1
+
+    assert (
+        data["files"][0]["invoice_number"]
+        == "INV9902"
+    )
+
+    # Physical file must actually be deleted.
+    assert not file_path.exists()
+
+def test_supplier_cannot_purge_orphaned_file_physically(
+    tmp_path,
+    monkeypatch,
+):
+    """
+    Security regression test:
+
+    A supplier must not be able to trigger physical deletion
+    of orphaned files.
+    """
+
+    upload_dir = tmp_path / "uploads"
+    upload_dir.mkdir()
+
+    monkeypatch.setattr(
+        invoice_service,
+        "UPLOAD_DIR",
+        str(upload_dir),
+    )
+
+    file_path = create_old_pdf(
+        upload_dir=upload_dir,
+        supplier_id="SUP002",
+        invoice_number="INV9903",
+        age_days=2,
+    )
+
+    assert file_path.exists()
+
+    authenticate_as(SUPPLIER_1_USER)
+
+    response = client.delete(
+        "/api/v1/maintenance/orphaned-invoice-files",
+        params={
+            "older_than_days": 1,
+        },
+    )
+
+    assert response.status_code == 403
+
+    # Most important security assertion:
+    # the file must still exist.
+    assert file_path.exists()
+
+def test_procurement_manager_cannot_purge_orphaned_invoice_files():
+    """
+    Only compliance_officer may perform destructive
+    orphan-file maintenance.
+    """
+
+    authenticate_as(PROCUREMENT_USER)
+
+    response = client.delete(
+        "/api/v1/maintenance/orphaned-invoice-files"
+    )
+
+    assert response.status_code == 403
+
+    assert (
+        response.json()["detail"]
+        == (
+            "Role 'procurement_manager' is not authorized "
+            "for this endpoint"
+        )
+    )
+
+def test_procurement_manager_cannot_scan_orphaned_invoice_files():
+    """
+    Orphan-file scanning is restricted to compliance_officer.
+    """
+
+    authenticate_as(PROCUREMENT_USER)
+
+    response = client.get(
+        "/api/v1/maintenance/orphaned-invoice-files"
+    )
+
+    assert response.status_code == 403
+
+    assert (
+        response.json()["detail"]
+        == (
+            "Role 'procurement_manager' is not authorized "
+            "for this endpoint"
+        )
+    )
+
+# ============================================================
+# R5 AUTHORIZATION / SUPPLIER SCOPING TESTS
+# ============================================================
+
+def test_supplier_can_access_own_invoice():
+    """
+    R5:
+    Supplier SUP001 must be able to access its own invoice.
+    """
+
+    # Authenticate as SUP001
+    authenticate_as(SUPPLIER_1_USER)
+
+    # Create acknowledged PO owned by SUP001
+    create_acknowledged_po(
+        po_number="PO2001",
+        supplier_id="SUP001",
+    )
+
+    # Create invoice owned by SUP001
+    response = create_sample_invoice(
+        invoice_number="INV2001",
+        po_number="PO2001",
+        supplier_id="SUP001",
+    )
+
+    assert response.status_code == 201, response.text
+
+    # Supplier accesses its own invoice
+    response = client.get(
+        "/api/v1/invoices/SUP001/INV2001"
+    )
+
+    assert response.status_code == 200, response.text
+
+    data = response.json()
+
+    assert data["invoice_number"] == "INV2001"
+    assert data["supplier_id"] == "SUP001"
+
+
+def test_supplier_cannot_access_other_supplier_invoice():
+    """
+    R5 Supplier Scoping:
+
+    Authenticated supplier = SUP001
+    Requested invoice owner = SUP002
+
+    SUP001 must not be able to view SUP002's invoice.
+    """
+
+    # --------------------------------------------------------
+    # Create PO and invoice for SUP002
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_2_USER)
+
+    create_acknowledged_po(
+        po_number="PO2002",
+        supplier_id="SUP002",
+    )
+
+    response = create_sample_invoice(
+        invoice_number="INV2002",
+        po_number="PO2002",
+        supplier_id="SUP002",
+    )
+
+    assert response.status_code == 201, response.text
+
+    # --------------------------------------------------------
+    # Switch to SUP001
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_1_USER)
+
+    response = client.get(
+        "/api/v1/invoices/SUP002/INV2002"
+    )
+
+    assert response.status_code == 403
+
+    assert (
+        response.json()["detail"]
+        == "Forbidden: supplier does not own this invoice"
+    )
+
+
+def test_supplier_cannot_transition_other_supplier_invoice():
+    """
+    R5 Supplier Scoping:
+
+    SUP001 must not be able to transition
+    an invoice owned by SUP002.
+    """
+
+    # --------------------------------------------------------
+    # Create SUP002 invoice
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_2_USER)
+
+    create_acknowledged_po(
+        po_number="PO2003",
+        supplier_id="SUP002",
+    )
+
+    response = create_sample_invoice(
+        invoice_number="INV2003",
+        po_number="PO2003",
+        supplier_id="SUP002",
+    )
+
+    assert response.status_code == 201, response.text
+
+    # --------------------------------------------------------
+    # Switch to SUP001
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_1_USER)
+
+    response = client.post(
+        "/api/v1/invoices/SUP002/INV2003/transition",
+        json={
+            "target_state": "disputed",
+            "actor_id": "USER001",
+            "actor_name": "Supplier User",
+            "role": "supplier",
+            "reason": "Attempting unauthorized access.",
+        },
+    )
+
+    assert response.status_code == 403
+
+    assert (
+        response.json()["detail"]
+        == "Forbidden: supplier does not own this invoice"
+    )
+
+
+def test_supplier_cannot_upload_document_for_other_supplier_invoice():
+    """
+    R5 Supplier Scoping:
+
+    SUP001 must not be able to upload a document
+    to an invoice owned by SUP002.
+    """
+
+    # --------------------------------------------------------
+    # Create SUP002 invoice
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_2_USER)
+
+    create_acknowledged_po(
+        po_number="PO2004",
+        supplier_id="SUP002",
+    )
+
+    response = create_sample_invoice(
+        invoice_number="INV2004",
+        po_number="PO2004",
+        supplier_id="SUP002",
+    )
+
+    assert response.status_code == 201, response.text
+
+    # --------------------------------------------------------
+    # Switch to SUP001
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_1_USER)
+
+    response = client.post(
+        "/api/v1/invoices/SUP002/INV2004/document",
+        files={
+            "file": (
+                "invoice.pdf",
+                valid_pdf(),
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 403
+
+    assert (
+        response.json()["detail"]
+        == "Forbidden: supplier does not own this invoice"
+    )
+
+
+def test_supplier_cannot_download_other_supplier_invoice_document():
+    """
+    R5 Supplier Scoping:
+
+    SUP001 must not be able to download
+    a document belonging to SUP002.
+    """
+
+    # --------------------------------------------------------
+    # Create SUP002 invoice
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_2_USER)
+
+    create_acknowledged_po(
+        po_number="PO2005",
+        supplier_id="SUP002",
+    )
+
+    response = create_sample_invoice(
+        invoice_number="INV2005",
+        po_number="PO2005",
+        supplier_id="SUP002",
+    )
+
+    assert response.status_code == 201, response.text
+
+    # Upload document as SUP002
+    response = client.post(
+        "/api/v1/invoices/SUP002/INV2005/document",
+        files={
+            "file": (
+                "invoice.pdf",
+                valid_pdf(),
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 200, response.text
+
+    # --------------------------------------------------------
+    # Switch to SUP001
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_1_USER)
+
+    response = client.get(
+        "/api/v1/invoices/SUP002/INV2005/document"
+    )
+
+    assert response.status_code == 403
+
+    assert (
+        response.json()["detail"]
+        == "Forbidden: supplier does not own this invoice"
+    )
+
+
+def test_supplier_cannot_create_invoice_for_other_supplier():
+    """
+    R5 Supplier Scoping:
+
+    SUP001 token must not be able to create an invoice
+    claiming supplier_id = SUP002.
+    """
+
+    # --------------------------------------------------------
+    # Create a valid SUP002 PO
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_2_USER)
+
+    create_acknowledged_po(
+        po_number="PO2006",
+        supplier_id="SUP002",
+    )
+
+    # --------------------------------------------------------
+    # Switch to SUP001
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_1_USER)
+
+    response = create_sample_invoice(
+        invoice_number="INV2006",
+        po_number="PO2006",
+        supplier_id="SUP002",
+    )
+
+    assert response.status_code == 403
+
+    assert (
+        response.json()["detail"]
+        == "Forbidden: supplier does not own this invoice"
+    )
+
+
+def test_supplier_cannot_adjust_invoice():
+    """
+    R5 Role Authorization:
+
+    Invoice adjustment is restricted to the
+    compliance_officer role.
+
+    A supplier token must receive HTTP 403.
+    """
+
+    authenticate_as(SUPPLIER_1_USER)
+
+    create_acknowledged_po(
+        po_number="PO2007",
+        supplier_id="SUP001",
+    )
+
+    response = create_sample_invoice(
+        invoice_number="INV2007",
+        po_number="PO2007",
+        supplier_id="SUP001",
+    )
+
+    assert response.status_code == 201, response.text
+
+    # First move invoice to disputed.
+    response = client.post(
+        "/api/v1/invoices/SUP001/INV2007/transition",
+        json={
+            "target_state": "disputed",
+            "actor_id": "USER001",
+            "actor_name": "Supplier User",
+            "role": "supplier",
+            "reason": "Invoice needs correction.",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+
+    # Supplier attempts compliance-only adjustment.
+    response = client.post(
+        "/api/v1/invoices/SUP001/INV2007/adjust",
+        json={
+            "actor_id": "USER001",
+            "actor_name": "Supplier User",
+            "role": "supplier",
+            "reason": "Unauthorized adjustment attempt.",
+            "items": [
+                {
+                    "po_number": "PO2007",
+                    "item_code": "LAPTOP",
+                    "description": "Laptop",
+                    "quantity": 1,
+                    "unit_price": 50000,
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 403
+
+    assert (
+        response.json()["detail"]
+        == "Role 'supplier' is not authorized for this endpoint"
+    )
+
+
+def test_compliance_officer_can_adjust_supplier_invoice():
+    """
+    R5 Role Authorization:
+
+    Compliance officer must be allowed to adjust
+    a supplier invoice after it is disputed.
+    """
+
+    # --------------------------------------------------------
+    # Create invoice as SUP001
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_1_USER)
+
+    create_acknowledged_po(
+        po_number="PO2008",
+        supplier_id="SUP001",
+    )
+
+    response = create_sample_invoice(
+        invoice_number="INV2008",
+        po_number="PO2008",
+        supplier_id="SUP001",
+    )
+
+    assert response.status_code == 201, response.text
+
+    # --------------------------------------------------------
+    # Supplier disputes invoice
+    # --------------------------------------------------------
+
+    response = client.post(
+        "/api/v1/invoices/SUP001/INV2008/transition",
+        json={
+            "target_state": "disputed",
+            "actor_id": "USER001",
+            "actor_name": "Supplier User",
+            "role": "supplier",
+            "reason": "Incorrect invoice quantity.",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+
+    # --------------------------------------------------------
+    # Compliance officer adjusts invoice
+    # --------------------------------------------------------
+
+    authenticate_as(COMPLIANCE_USER)
+
+    response = client.post(
+        "/api/v1/invoices/SUP001/INV2008/adjust",
+        json={
+            "actor_id": "USER002",
+            "actor_name": "Compliance Officer",
+            "role": "compliance_officer",
+            "reason": "Correcting invoice quantity.",
+            "items": [
+                {
+                    "po_number": "PO2008",
+                    "item_code": "LAPTOP",
+                    "description": "Laptop",
+                    "quantity": 1,
+                    "unit_price": 50000,
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+
+    assert response.json()["status"] == "adjusted"
+
+# ============================================================
+# R5 - GET ALL INVOICES SUPPLIER SCOPING
+# ============================================================
+
+def test_supplier_get_all_invoices_returns_only_own_invoices():
+    """
+    R5 Supplier Scoping:
+
+    SUP001 must only receive invoices belonging to SUP001.
+
+    Invoices belonging to other suppliers must not be exposed.
+    """
+
+    # --------------------------------------------------------
+    # Create SUP001 invoice
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_1_USER)
+
+    create_acknowledged_po(
+        po_number="PO2101",
+        supplier_id="SUP001",
+    )
+
+    response = create_sample_invoice(
+        invoice_number="INV2101",
+        po_number="PO2101",
+        supplier_id="SUP001",
+    )
+
+    assert response.status_code == 201, response.text
+
+    # --------------------------------------------------------
+    # Create SUP002 invoice
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_2_USER)
+
+    create_acknowledged_po(
+        po_number="PO2102",
+        supplier_id="SUP002",
+    )
+
+    response = create_sample_invoice(
+        invoice_number="INV2102",
+        po_number="PO2102",
+        supplier_id="SUP002",
+    )
+
+    assert response.status_code == 201, response.text
+
+    # --------------------------------------------------------
+    # Request list as SUP001
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_1_USER)
+
+    response = client.get(
+        "/api/v1/invoices"
+    )
+
+    assert response.status_code == 200, response.text
+
+    data = response.json()
+
+    # Only SUP001 invoice must be visible
+    assert len(data) == 1
+
+    assert data[0]["invoice_number"] == "INV2101"
+    assert data[0]["supplier_id"] == "SUP001"
+
+    # SUP002 data must not leak
+    assert all(
+        invoice["supplier_id"] != "SUP002"
+        for invoice in data
+    )
+
+
+def test_supplier_b_get_all_invoices_returns_only_own_invoices():
+    """
+    R5 Supplier Scoping:
+
+    SUP002 must only receive invoices belonging to SUP002.
+    """
+
+    # --------------------------------------------------------
+    # Create SUP001 invoice
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_1_USER)
+
+    create_acknowledged_po(
+        po_number="PO2111",
+        supplier_id="SUP001",
+    )
+
+    response = create_sample_invoice(
+        invoice_number="INV2111",
+        po_number="PO2111",
+        supplier_id="SUP001",
+    )
+
+    assert response.status_code == 201, response.text
+
+    # --------------------------------------------------------
+    # Create SUP002 invoice
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_2_USER)
+
+    create_acknowledged_po(
+        po_number="PO2112",
+        supplier_id="SUP002",
+    )
+
+    response = create_sample_invoice(
+        invoice_number="INV2112",
+        po_number="PO2112",
+        supplier_id="SUP002",
+    )
+
+    assert response.status_code == 201, response.text
+
+    # --------------------------------------------------------
+    # Request list as SUP002
+    # --------------------------------------------------------
+
+    authenticate_as(SUPPLIER_2_USER)
+
+    response = client.get(
+        "/api/v1/invoices"
+    )
+
+    assert response.status_code == 200, response.text
+
+    data = response.json()
+
+    assert len(data) == 1
+
+    assert data[0]["invoice_number"] == "INV2112"
+    assert data[0]["supplier_id"] == "SUP002"
+
+    # SUP001 must not be exposed
+    assert all(
+        invoice["supplier_id"] != "SUP001"
+        for invoice in data
+    )
+
+# ============================================================
+# R5 - SUPPLIER TOKEN WITHOUT SUPPLIER_ID
+# ============================================================
+
+def test_supplier_without_supplier_id_is_rejected():
+    """
+    R5 Supplier Scoping:
+
+    A supplier token without supplier_id must not be allowed
+    to access supplier-scoped invoice resources.
+    """
+
+    authenticate_as(SUPPLIER_NO_ID_USER)
+
+    response = client.get(
+        "/api/v1/invoices/SUP001/INV9999"
+    )
+
+    assert response.status_code == 403
+
+    assert (
+        response.json()["detail"]
+        == "Supplier identity is missing"
+    )
+
+def test_supplier_without_supplier_id_cannot_list_invoices():
+    """
+    A supplier without supplier_id must not be able to
+    retrieve the invoice list.
+    """
+
+    authenticate_as(SUPPLIER_NO_ID_USER)
+
+    response = client.get(
+        "/api/v1/invoices"
+    )
+
+    assert response.status_code == 403
+
+    assert (
+        response.json()["detail"]
+        == "Supplier identity is missing"
+    )

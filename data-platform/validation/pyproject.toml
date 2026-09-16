@@ -33,3 +33,11 @@ validate_folder = "src.validate_folder:main"
 
 [tool.setuptools]
 packages = ["src"]
+
+[tool.coverage.run]
+source = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "--cov=src --cov-report=term-missing --cov-fail-under=98"

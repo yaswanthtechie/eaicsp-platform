@@ -63,6 +63,7 @@ USERS = [
         "full_name": "Supplier",
         "password": "supplier@123",
         "role": "supplier",
+        "supplier_id": "SUP001",
     },
 ]
 
@@ -115,6 +116,7 @@ def seed_database():
                 full_name=data["full_name"],
                 password=hash_password(data["password"]),
                 role_id=role_map[data["role"]].id,
+                supplier_id=data.get("supplier_id"),
                 is_active=True,
             )
 

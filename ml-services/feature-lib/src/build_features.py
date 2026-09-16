@@ -2,6 +2,7 @@ from .lag_features import add_lag_features
 from .rolling_features import add_rolling_features
 from .calendar_features import add_calendar_features
 from .holiday_features import create_holiday_features
+from .interaction_features import add_interaction_features
 
 
 def build_all_features(
@@ -56,6 +57,9 @@ def build_all_features(
         data,
         date_col
 
+    )
+    data = add_interaction_features(
+    data
     )
 
     return data

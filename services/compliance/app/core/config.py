@@ -207,6 +207,71 @@ PLATFORM_SERVICE_API_KEY = os.getenv(
     "PLATFORM_SERVICE_API_KEY",
 )
 
+
+CONFIDENCE_WEIGHT = float(
+    os.getenv(
+        "CONFIDENCE_WEIGHT",
+        "0.50",
+    )
+)
+
+SOURCE_WEIGHT = float(
+    os.getenv(
+        "SOURCE_WEIGHT",
+        "0.30",
+    )
+)
+
+RECENCY_WEIGHT = float(
+    os.getenv(
+        "RECENCY_WEIGHT",
+        "0.20",
+    )
+)
+
+SANCTIONS_WEIGHT = float(
+    os.getenv(
+        "SANCTIONS_WEIGHT",
+        "0.80",
+    )
+)
+
+COUNTRY_RISK_WEIGHT = float(
+    os.getenv(
+        "COUNTRY_RISK_WEIGHT",
+        "0.20",
+    )
+)
+
+UNKNOWN_COUNTRY_RISK = float(
+    os.getenv(
+        "UNKNOWN_COUNTRY_RISK",
+        "50.0",
+    )
+)
+
+COUNTRY_RISK_INDEX = {
+    "INDIA": 30,
+    "USA": 20,
+    "UNITED STATES": 20,
+    "UK": 20,
+    "UNITED KINGDOM": 20,
+    "GERMANY": 20,
+    "FRANCE": 25,
+    "CANADA": 20,
+    "AUSTRALIA": 20,
+    "JAPAN": 20,
+    "RUSSIA": 70,
+    "IRAN": 90,
+    "NORTH KOREA": 100,
+}
+
+PLATFORM_AUTH_URL = os.getenv(
+    "PLATFORM_AUTH_URL",
+    "http://127.0.0.1:8005",
+)
+
+
 OFAC_DOWNLOAD_URL = os.getenv(
     "OFAC_DOWNLOAD_URL",
     "https://sanctionslistservice.ofac.treas.gov/"

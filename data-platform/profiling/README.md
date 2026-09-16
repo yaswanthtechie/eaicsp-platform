@@ -1,194 +1,97 @@
 # Data Profiling & Quality Report
 
-A Python-based data profiling utility for analyzing dataset quality, identifying common data issues, detecting data drift, monitoring historical quality, and generating actionable profiling reports.
+A Python-based data profiling utility for analyzing dataset quality, identifying common data issues, detecting drift between datasets, monitoring data quality over time, and generating profiling reports.
 
-The project supports dataset profiling, missing-value analysis, outlier detection, data-quality scoring, PII detection, drift analysis, historical monitoring, anomaly correlation, foreign-key-like column detection, scheduled quality checks, performance validation, and automatic data-quality rule suggestions.
-
----
+The project includes dataset profiling, data quality scoring, outlier detection, drift analysis, rule suggestions, monitoring alerts, performance benchmarking, and profile snapshot comparison.
 
 ## Features
 
-### Data Generation
-- Generate 5,000 rows of sample sales data
-- Generate 50 unique SKU IDs
-- Generate 5 warehouses
-- Generate dates across 2024 and 2025
-- Introduce approximately 3% missing values
-- Introduce approximately 1% abnormal `quantity_sold` values
+* Dataset and column-level profiling
+* Missing value analysis
+* Unique value and cardinality analysis
+* Automatic column role classification
+* Numeric summary statistics
+* IQR-based outlier detection
+* Correlation analysis
+* Basic PII detection
+* Data quality scoring
+* Ranked data quality issues
+* Dataset schema compatibility checks
+* Data drift detection
+* Per-column drift status
+* New and removed categorical value detection
+* Significant categorical proportion-change detection
+* Numeric mean-shift detection
+* Automatic data-quality rule suggestions
+* Versioned `suggested_rules.yaml` generation
+* Rule configuration validation
+* Batch monitoring and quality trend tracking
+* Quality-score drop alerts
+* Performance benchmarking up to 1,000,000 rows
+* Profile snapshot comparison utility
+* HTML profiling reports
+* Automated tests
+* Reusable Python API
 
-### Data Profiling
-- Dataset shape and column information
-- Data types
-- Missing-value count and percentage
-- Unique-value count
-- Cardinality analysis
-- Automatic column-role classification
-- Foreign-key-like column detection
-- Numeric summary statistics
-- Date range analysis
-- Duplicate-row detection
-- Correlation analysis
-- Basic PII detection
-- Data-quality scoring
-- Ranked data-quality issues
-
-### Outlier Detection
-- IQR-based numeric outlier detection
-- Lower and upper IQR boundaries
-- Outlier counts
-- Top outlier values
-- Histogram before outlier removal
-- Histogram after outlier removal
-- Box plot generation
-
-### Data Drift Detection
-- Dataset shape changes
-- Data-type changes
-- Null-percentage changes
-- Numeric mean shifts
-- New categorical values
-- Per-column drift status
-- Overall dataset drift status
-- PII leakage protection during drift analysis
-
-### Historical Monitoring
-- Save profiling results across multiple runs
-- Track data-quality scores
-- Track missing values
-- Track duplicate rows
-- Track outlier counts
-- Track drift status
-- Track per-column null rates
-- Retain the latest 10 batches
-- Classify quality-score trends as Improving, Declining, Stable, or Not Enough Data
-
-### Anomaly Correlation
-- Analyze whether outlier rows also contain issues in other columns
-- Detect relationships between outliers and missing values
-- Provide cross-column data-quality insights
-
-### Scheduled Quality Check
-- Evaluate the data-quality score against a threshold
-- Print an alert when the score falls below the threshold
-- Simulate an email-style quality alert without sending real email
-
-### Performance Validation
-- Profile a 100,000-row dataset
-- Measure profiling execution time
-- Validate the profiling workflow at a larger data volume
-
-### Suggested Data-Quality Rules
-- Automatically suggest `not_null` rules
-- Automatically suggest numeric `range` rules
-- Generate a YAML rules file
-- Keep the rule-generation functionality independent from other validation libraries
-
----
-
-## Dataset
+# Dataset
 
 The sample dataset represents sales activity with the following columns:
 
-| Column | Description |
-|---|---|
-| `date` | Sales date |
-| `sku_id` | Product SKU identifier |
-| `warehouse_id` | Warehouse identifier |
-| `quantity_sold` | Quantity sold |
-| `unit_price` | Unit price |
+| Column          | Description            |
+| --------------- | ---------------------- |
+| `date`          | Sales date             |
+| `sku_id`        | Product SKU identifier |
+| `warehouse_id`  | Warehouse identifier   |
+| `quantity_sold` | Quantity sold          |
+| `unit_price`    | Unit price             |
 
 The generated dataset contains:
 
-- 5,000 rows
-- 50 unique SKU IDs
-- 5 warehouses
-- Daily dates covering 2024 and 2025
+* 5,000 rows
+* 50 SKU IDs
+* 5 warehouses
+* Dates between January 2024 and December 2025
 
-To create realistic data-quality scenarios, the generator introduces approximately 3% missing values in `quantity_sold` and `unit_price`.
-
-Approximately 1% of `quantity_sold` values are intentionally replaced with an abnormal value (`99999`) to validate outlier detection.
-
----
+The generator introduces approximately 3% missing values in `quantity_sold` and `unit_price`, along with approximately 1% abnormal values in `quantity_sold`.
 
 ## Profiling
 
-The profiler collects both dataset-level and column-level information.
+The profiler collects dataset-level and column-level information including:
 
-The profiling results include:
+* Dataset shape
+* Column names and data types
+* Missing value count and percentage
+* Unique value count
+* Column role
+* Cardinality
+* Numeric statistics
+* Date range
+* Outlier counts
+* Correlations
+* PII indicators
 
-- Dataset shape
-- Column names
-- Data types
-- Missing-value count
-- Missing-value percentage
-- Unique-value count
-- Cardinality
-- Column role
-- Numeric statistics
-- Date range
-- Duplicate rows
-- Outlier information
-- Correlations
-- PII indicators
-- Data-quality score
-- Ranked data-quality issues
+## Column Roles
 
----
+Columns are automatically classified into:
 
-## Column Role Classification
+* `ID`
+* `Category`
+* `Measure`
+* `Text`
 
-Columns are automatically classified based on their characteristics.
-
-Supported roles include:
-
-- `ID`
-- `Category`
-- `Measure`
-- `Text`
-- `Foreign Key`
-
-Cardinality information is also calculated to help distinguish categorical and high-cardinality columns.
-
-The profiler can identify identifier-like columns with a small repeated set of values that appear to reference another table and classify them as `Foreign Key`.
-
-For the sample dataset:
-
-- `sku_id` is classified as a foreign-key-like column
-- `warehouse_id` is classified as a foreign-key-like column
-
----
+Cardinality is also classified to help distinguish categorical and high-cardinality columns.
 
 ## Outlier Detection
 
-Numeric columns are analyzed using the Interquartile Range (IQR) method.
+Numeric columns are checked for outliers using the Interquartile Range (IQR) method.
 
-The profiler calculates:
+Values outside the lower and upper IQR bounds are reported as outliers.
 
-```text
-Q1
-Q3
-IQR = Q3 - Q1
-Lower Bound = Q1 - 1.5 Ã— IQR
-Upper Bound = Q3 + 1.5 Ã— IQR
-````
-
-Values outside the calculated bounds are reported as outliers.
-
-For the sample dataset, `quantity_sold = 99999` is intentionally introduced as an abnormal value.
-
-The reporting workflow generates:
-
-```text
-reports/histogram_before.png
-reports/histogram_after.png
-reports/boxplot.png
-```
-
----
+For the sample dataset, `quantity_sold = 99999` is intentionally introduced to verify outlier detection.
 
 ## Data Quality Score
 
-Each profiling run produces a data-quality score from 0 to 100.
+Each profiling run produces a data quality score from 0 to 100.
 
 The score considers:
 
@@ -197,57 +100,98 @@ The score considers:
 * Outliers
 * Potential PII
 
-The HTML report also includes a ranked `worst_issues` section to highlight the most significant data-quality problems.
+The report also includes a ranked `worst_issues` section so that problematic columns can be identified quickly.
 
----
+# Round 5 Enhancements
 
-## Data Drift Detection
+## 1. Dataset Comparison and Drift Detection
 
-The `compare` module compares two DataFrames and identifies changes between data batches.
+The `compare` module compares two DataFrames and reports structural and data-level changes.
 
-Drift checks include:
+The comparison includes:
 
 * Dataset shape changes
-* Data-type changes
-* Null-percentage changes
+* Shared columns
+* Columns only present in the old dataset
+* Columns only present in the new dataset
+* Compatible data types
+* Incompatible data types
+* Null percentage changes
 * Numeric mean shifts
+* Per-column drift status
+* Overall drift status
+
+Column drift statuses are:
+
+* `no_drift`
+* `minor_drift`
+* `major_drift`
+
+Overall dataset drift is reported as:
+
+* `No Drift`
+* `Minor Drift`
+* `Major Drift`
+
+### Categorical Drift
+
+Categorical columns are additionally checked for:
+
 * New categorical values
+* Disappeared categorical values
+* Significant category proportion changes
 
-Each column can receive one of the following statuses:
+A 10 percentage-point proportion-change threshold is used for significant categorical changes.
 
-```text
-no_drift
-minor_drift
-major_drift
+The report records the old percentage, new percentage, and difference for affected categories.
+
+## 2. Automatic Rule Suggestions
+
+The `rules_suggestions` module generates data-quality rules from profiling results.
+
+Generated rules currently support:
+
+* `not_null`
+* `range`
+
+The generated YAML uses version `1.0.0` and includes:
+
+* Rule name
+* Field
+* Rule type
+* Severity
+* Range boundaries where applicable
+
+Example:
+
+```yaml
+version: 1.0.0
+rules:
+- name: sku_id_not_null
+  field: sku_id
+  type: not_null
+  severity: ERROR
 ```
 
-The overall dataset drift status can be:
+Generated configurations can be validated before use.
 
-```text
-No Drift
-Minor Drift
-Major Drift
-```
+Unsupported rule types, missing fields, invalid severities, invalid versions, and invalid ranges are rejected.
 
-PII-like values are protected from being exposed through drift reporting.
+## 3. Monitoring and Quality Alerts
 
----
+`MonitoringHistory` stores profiling results across multiple batches.
 
-## Historical Monitoring
+The monitoring history tracks:
 
-`MonitoringHistory` stores profiling results across multiple batches using a local JSON history file.
-
-The history tracks:
-
-* Profiling timestamp
-* Data-quality score
+* Timestamp
+* Data quality score
 * Missing values
 * Duplicate rows
 * Outlier count
 * Drift status
 * Per-column null rates
 
-The latest 10 profiling runs are retained by default.
+Only the latest 10 batches are retained by default.
 
 Quality-score history can be classified as:
 
@@ -256,206 +200,171 @@ Quality-score history can be classified as:
 * `Stable`
 * `Not Enough Data`
 
-### Historical Null-Rate Trend
+A quality alert is also available for significant score drops.
 
-Per-column null percentages are saved for every profiling run.
-
-The historical data is used to generate a line chart showing the null-rate trend for `quantity_sold`.
-
-Generated chart:
+If the quality score drops by more than 10 points between the two most recent runs, the alert status becomes:
 
 ```text
-reports/quantity_sold_null_trend.png
+CRITICAL
 ```
 
----
+A drop of exactly 10 points is not considered critical.
 
-## Anomaly Correlation
+## 4. Performance Benchmark
 
-The anomaly-correlation analysis checks whether rows containing an outlier in one column also have issues in other columns.
+`benchmark.py` measures the execution time of the real profiling function using synthetic sales-shaped datasets.
 
-For example, rows containing outlier `quantity_sold` values are checked for missing `unit_price` values.
-
-For the sample dataset, rows with outlier `quantity_sold` values were approximately 2.71x more likely to have a missing `unit_price`.
-
-This provides cross-column data-quality insights instead of treating every column independently.
-
----
-
-## Scheduled Quality Check
-
-The scheduled-report mock evaluates the data-quality score against a configured threshold.
-
-If the score falls below the threshold, an alert message is printed.
-
-Example:
+The benchmark covers:
 
 ```text
-SCHEDULED QUALITY CHECK: ALERT - Data quality score 70 is below threshold 80
+100,000 rows
+250,000 rows
+500,000 rows
+750,000 rows
+1,000,000 rows
 ```
 
-This functionality does not send real email. It implements the quality-score threshold and alert logic required for a scheduled quality check.
-
----
-
-## Performance
-
-The profiler was tested against a 100,000-row dataset.
-
-The performance test measures and logs the profiling execution time.
-
-Observed result in the local test environment:
+The recorded benchmark results are stored in:
 
 ```text
-100,000-row profiling time: 0.2613 seconds
+reports/performance_benchmark.csv
 ```
 
-The test validates that the profiling workflow can process a 100,000-row dataset using vectorized operations within the measured execution time.
-
----
-
-## Suggested Data-Quality Rules
-
-As a stretch capability, profiling results can be converted into suggested validation rules.
-
-The rule-generation functionality is independent and does not directly integrate with another team's validation library.
-
-Currently supported rules include:
-
-* `not_null`
-* `range`
-
-Example generated YAML:
-
-```yaml
-rules:
-  - column: sku_id
-    rule: not_null
-
-  - column: quantity_sold
-    rule: range
-    min: 1.0
-    max: 99999.0
-```
-
-The generated rules file is saved to:
+Example observed results:
 
 ```text
-reports/suggested_rules.yaml
+100,000  -> 0.53 seconds
+250,000  -> 1.28 seconds
+500,000  -> 2.43 seconds
+750,000  -> 3.73 seconds
+1,000,000 -> 4.57 seconds
 ```
 
-This creates an independent bridge between profiling results and a future data-validation rules system.
+Each dataset size is profiled 3 times, and the average execution time is recorded.
 
----
+These measurements provide an observed performance baseline and show increasing execution time as dataset size grows. The benchmark does not establish a formal performance knee point or performance ceiling.
 
-## HTML Report
+Run the benchmark with:
 
-The profiling workflow generates:
+```bash
+python benchmark.py
+```
+# Limitations
+
+The current implementation has the following limitations:
+
+- The dataset comparison workflow does not currently include an inventory-shaped comparison demonstration.
+- The performance benchmark records observed timings but does not establish a formal performance knee point or performance ceiling.
+- The quality-alert logic has unit tests for synthetic scores and a real-data degraded-profile demonstration. The real-data demonstration profiles a clean dataset, injects missing values and outliers, re-profiles the degraded dataset, and verifies a CRITICAL alert.
+- The categorical drift threshold is 10 percentage points.
+
+
+# Stretch: Profile Snapshot Diff
+
+`profile_diff.py` provides a standalone command-line utility for comparing two saved profiling JSON snapshots.
+
+Usage:
+
+```bash
+python profile_diff.py --old run1.json --new run2.json
+```
+
+The utility reports:
+
+* Quality-score changes
+* Dataset shape changes
+* Added columns
+* Removed columns
+* Column-level changes
+* Null-count changes
+* Null-percentage changes
+* Numeric statistic changes
+* Outlier-limit changes
+* Outlier-count changes
+
+This makes it possible to inspect exactly what changed between two profiling runs without rerunning the profiler.
+
+# HTML Report
+
+The profiling workflow generates an HTML report at:
 
 ```text
 reports/profile_report.html
 ```
 
-The HTML report contains:
+The report includes:
 
-* Data-quality score
+* Data quality score
 * Ranked worst issues
 * Dataset summary
 * Column summary
-* Column roles
-* Foreign-key detection
 * Sortable and searchable column table
 * Numeric statistics
-* Distribution charts
+* Inline SVG distribution charts
 * Correlation analysis
-* PII detection
+* PII detection results
 * Outlier analysis
 * Data drift results
-* Anomaly-correlation findings
-* Historical quality trends
-* Historical `quantity_sold` null-rate trends
 
 The column summary table uses DataTables.js for sorting and filtering.
 
----
-
-## Project Structure
+# Project Structure
 
 ```text
 profiling/
-â”‚
-â”œâ”€â”€ data/
-â”‚   â”œâ”€â”€ sales_data.csv
-â”‚   â””â”€â”€ sales_data_new.csv
-â”‚
-â”œâ”€â”€ reports/
-â”‚   â”œâ”€â”€ profile_report.html
-â”‚   â”œâ”€â”€ histogram_before.png
-â”‚   â”œâ”€â”€ histogram_after.png
-â”‚   â”œâ”€â”€ boxplot.png
-â”‚   â”œâ”€â”€ history.json
-â”‚   â”œâ”€â”€ quantity_sold_null_trend.png
-â”‚   â””â”€â”€ suggested_rules.yaml
-â”‚
-â”œâ”€â”€ src/
-â”‚   â”œâ”€â”€ anomaly.py
-â”‚   â”œâ”€â”€ compare.py
-â”‚   â”œâ”€â”€ main.py
-â”‚   â”œâ”€â”€ make_sample_data.py
-â”‚   â”œâ”€â”€ monitoring.py
-â”‚   â”œâ”€â”€ outliers.py
-â”‚   â”œâ”€â”€ profile.py
-â”‚   â”œâ”€â”€ profiler.py
-â”‚   â”œâ”€â”€ report.py
-â”‚   â”œâ”€â”€ rules_suggestions.py
-â”‚   â”œâ”€â”€ scheduled_report.py
-â”‚   â””â”€â”€ trend.py
-â”‚
-â”œâ”€â”€ tests/
-â”‚   â”œâ”€â”€ test_anomaly.py
-â”‚   â”œâ”€â”€ test_compare.py
-â”‚   â”œâ”€â”€ test_monitoring.py
-â”‚   â”œâ”€â”€ test_outliers.py
-â”‚   â”œâ”€â”€ test_performance.py
-â”‚   â”œâ”€â”€ test_pii_leakage.py
-â”‚   â”œâ”€â”€ test_profile.py
-â”‚   â”œâ”€â”€ test_profiler.py
-â”‚   â”œâ”€â”€ test_rules_suggestions.py
-â”‚   â””â”€â”€ test_scheduled_report.py
-â”‚
-â”œâ”€â”€ README.md
-â””â”€â”€ requirements.txt
+│
+├── benchmark.py
+├── profile_diff.py
+├── data/
+│
+├── reports/
+│   ├── profile_report.html
+│   ├── histogram_before.png
+│   ├── histogram_after.png
+│   ├── boxplot.png
+│   ├── suggested_rules.yaml
+│   └── performance_benchmark.csv
+│
+├── src/
+│   ├── compare.py
+│   ├── main.py
+│   ├── make_sample_data.py
+│   ├── monitoring.py
+│   ├── outliers.py
+│   ├── profile.py
+│   ├── profiler.py
+│   ├── report.py
+│   └── rules_suggestions.py
+│
+├── tests/
+│   ├── test_compare.py
+│   ├── test_monitoring.py
+│   ├── test_outliers.py
+│   ├── test_pii_leakage.py
+│   ├── test_profile.py
+│   ├── test_profiler.py
+│   ├── test_profile_diff.py
+│   └── test_rules_suggestions.py
+│
+├── pytest.ini
+├── README.md
+└── requirements.txt
+
 ```
 
----
+# Running the Project
 
-## Running the Project
-
-From the `profiling` directory, run:
+From the `profiling` directory:
 
 ```bash
 python -m src.main
 ```
 
-The workflow:
+This generates the sample dataset, runs profiling, generates suggested data-quality rules, saves the monitoring history, checks the quality alert, creates the HTML report, and generates the visualizations.
 
-1. Generates the sample dataset.
-2. Loads and profiles the current dataset.
-3. Calculates the data-quality score.
-4. Performs the scheduled quality threshold check.
-5. Saves the profiling run to historical monitoring.
-6. Generates the historical null-rate trend.
-7. Generates the HTML report.
-8. Generates the standard data-quality report.
-9. Generates the outlier visualizations.
+# Using the Profiler API
 
----
-
-## Using the Profiler API
-
-The profiling functionality can also be used directly from Python.
-
-### Profile a DataFrame
+## Profile a DataFrame
 
 ```python
 import pandas as pd
@@ -470,7 +379,7 @@ report = profiler.profile(df)
 report.save_html("output/quality_report.html")
 ```
 
-### Compare Two DataFrames
+## Compare Two DataFrames
 
 ```python
 import pandas as pd
@@ -485,11 +394,9 @@ drift = profiler.compare(old_df, new_df)
 
 print(drift)
 
-if drift.has_major_drift:
-    print("Major data drift detected")
 ```
 
-### Monitor a New Batch
+## Monitor a New Batch
 
 ```python
 import pandas as pd
@@ -511,17 +418,13 @@ print(result["drift"])
 print(result["history"])
 ```
 
----
+# Pipeline Integration
 
-## How Vivek's Pipeline Would Use This
+A data pipeline can use the profiler whenever a new data batch is loaded.
 
-The profiling library can be used by the pipeline whenever a new data batch is loaded.
+The first batch can be profiled to understand its data quality. When the next batch arrives, it can be compared with the previous batch to detect data drift.
 
-The first batch can be profiled to understand its data quality. When the next batch arrives, it can be compared with the previous batch to detect data drift. If major drift is detected, the pipeline can trigger an alert.
-
-The R4 enhancements remain independently implemented and are not wired into Vivek's pipeline.
-
-Example integration:
+If major drift is detected, the pipeline can trigger an alert.
 
 ```python
 import pandas as pd
@@ -530,114 +433,80 @@ from src.profiler import Profiler
 
 profiler = Profiler()
 
-# Load the previous batch
 last_df = pd.read_csv("data/sales_data.csv")
 
-# Profile the previous batch
 report = profiler.profile(last_df)
 report.save_html("output/quality_report.html")
 
-# Load the next batch
 df = pd.read_csv("data/sales_data_new.csv")
 
-# Compare the batches
 drift = profiler.compare(last_df, df)
 
-# Alert if major drift is detected
-if drift.has_major_drift:
-    alert("Major data drift detected")
+print(drift)
 ```
 
----
+# Generated Reports
 
-## Generated Reports and Artifacts
-
-The reporting workflow generates:
+The reporting workflow can generate:
 
 ```text
 reports/profile_report.html
 reports/histogram_before.png
 reports/histogram_after.png
 reports/boxplot.png
-reports/history.json
-reports/quantity_sold_null_trend.png
 reports/suggested_rules.yaml
+reports/performance_benchmark.csv
 ```
 
-These artifacts provide:
-
-* Complete HTML profiling results
-* Before/after distribution views
-* `quantity_sold` box plot
-* Historical profiling information
-* Historical null-rate trends
-* Suggested data-quality rules
-
----
-
-## Tests
+# Tests
 
 Run the complete test suite with:
 
 ```bash
-python -m pytest tests -v
+python -m pytest -q
 ```
 
-The test suite covers:
+Current result:
+
+```text
+54 passed
+```
+
+The tests cover:
 
 * Profiling
 * Missing values
 * Empty DataFrames
 * All-null columns
-* Data-type handling
+* Data type handling
 * Outlier detection
+* PII leakage prevention
 * No-drift scenarios
 * Minor drift
 * Major drift
+* Structural compatibility
+* New and removed columns
+* Incompatible data types
+* Categorical drift
 * Monitoring history
 * History retention
-* Quality-score trends
+* Quality score trends
 * Column null-rate trends
-* PII leakage protection
-* Foreign-key detection
-* Anomaly correlation
-* Scheduled quality threshold checks
-* 100,000-row performance
-* Suggested data-quality rules
-* YAML rule generation
+* Quality-score alerts
+* Rule suggestion generation
+* Rule YAML generation
+* Rule configuration validation
+* Profile snapshot comparison
 
-Current test result:
-
-```text
-24 passed
-```
-
----
-
-## Technologies
+# Technologies
 
 * Python
 * Pandas
 * NumPy
 * Matplotlib
-* PyYAML
 * Pytest
 * HTML
 * DataTables.js
 * jQuery
 * SVG
-
----
-
-## Round 4 Completion
-
-The Round 4 implementation includes:
-
-1. Historical trend tracking
-2. Anomaly correlation
-3. Smarter type inference with foreign-key detection
-4. Scheduled quality-report mock
-5. 100,000-row performance validation
-6. Stretch data-quality rule suggestions with YAML generation
-
-All implemented functionality is independently maintained within the profiling library and is not wired into Vivek's pipeline.
+* YAML

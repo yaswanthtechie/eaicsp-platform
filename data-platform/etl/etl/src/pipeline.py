@@ -360,6 +360,7 @@ def run_source(source_config, run_id):
         source_path=source_config.path,
         date_column=source_config.date_column,
     )
+    raw_batches = [dict(batch, data=batch["data"].copy()) for batch in extracted_batches]
 
     batches_seen = len(extracted_batches)
 
@@ -407,15 +408,21 @@ def run_source(source_config, run_id):
             "status": "REJECTED",
         }
 
+    approved_batches = [dict(batch, data=batch["data"].copy()) for batch in validated]
     data_frames = [batch["data"] for batch in validated]
     transformed = transform_data_generic(data_frames, source_config)
 
     for batch, df in zip(validated, transformed):
         batch["data"] = df
 
+    transformed_batches = [dict(batch, data=batch["data"].copy()) for batch in validated]
+
     rows_inserted, rows_updated = load_data_bulk_generic(
         validated, run_id, source_config
     )
+
+    from reconciliation import reconcile_load
+    reconcile_load(raw_batches, approved_batches, transformed_batches, source_config, run_id)
 
     rows_dropped_in_gate = sum(
         batch["report"]["rows_dropped"] for batch in validated

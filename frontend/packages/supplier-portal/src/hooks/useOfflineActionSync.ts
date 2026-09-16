@@ -19,7 +19,7 @@ export const useOfflineActionSync = (
     ) => {
       switch (type) {
         case "ACKNOWLEDGE_PO": {
-          const poNumber = payload.po_number;
+          const poNumber = payload.poNumber;
 
           if (typeof poNumber !== "string") {
             throw new Error(
@@ -30,7 +30,7 @@ export const useOfflineActionSync = (
           await client.mutate({
             mutation: ACKNOWLEDGE_PO,
             variables: {
-              po_number: poNumber,
+              poNumber,
             },
           });
 

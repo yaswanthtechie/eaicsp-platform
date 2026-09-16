@@ -1,4 +1,6 @@
+
 import pytest
+from unittest.mock import MagicMock, patch
 from pydantic import ValidationError
 
 from src.service import (
@@ -8,14 +10,41 @@ from src.service import (
 )
 
 
+# ==========================================================
+# Service Fixture
+# ==========================================================
+
 @pytest.fixture
 def service():
-    return IrisService()
+    """
+    Create IrisService with mocked model loaders.
+
+    The canary loader returns the same structure expected
+    by select_model():
+
+        alias -> (model, version)
+
+    This prevents the tests from requiring a real MLflow
+    production model.
+    """
+
+    with patch(
+        "src.service.load_model",
+        return_value=(MagicMock(), "1"),
+    ), patch(
+        "src.service.load_canary_models",
+        return_value={
+            "production": (MagicMock(), "1"),
+            "staging": (MagicMock(), "2"),
+        },
+    ):
+        return IrisService()
 
 
 # ==========================================================
 # Single Prediction Tests
 # ==========================================================
+
 
 def test_valid_prediction(service):
     request = IrisRequest(
@@ -87,6 +116,7 @@ def test_invalid_feature_type():
 # Health Test
 # ==========================================================
 
+
 def test_health(service):
     response = service.health()
 
@@ -98,6 +128,7 @@ def test_health(service):
 # ==========================================================
 # Metrics Test
 # ==========================================================
+
 
 def test_metrics(service):
 
@@ -120,6 +151,7 @@ def test_metrics(service):
 # ==========================================================
 # Batch Prediction Tests
 # ==========================================================
+
 
 def test_batch_prediction(service):
 
@@ -194,3 +226,4 @@ def test_batch_invalid_feature_type():
                 ["abc", "xyz", "test", "value"]
             ]
         )
+

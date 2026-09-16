@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Dict, List
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from src.data import load_headlines
 from src.predict import predict
@@ -54,10 +54,47 @@ class AnalysisResponse(BaseModel):
 
 
 class AnalyzeRequest(BaseModel):
-    """Request body for supplier risk analysis."""
+    """Request body for supplier risk analysis and prediction."""
 
-    supplier_name: str
-    headlines: List[str]
+    supplier_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+        description="Supplier name to evaluate (1 to 200 characters)",
+    )
+    headlines: List[str] = Field(
+        ...,
+        max_length=50,
+        description="List of news headlines (maximum 50 items)",
+    )
+
+    @field_validator("supplier_name")
+    @classmethod
+    def validate_supplier_name(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("supplier_name cannot be blank or whitespace-only")
+        if len(stripped) > 200:
+            raise ValueError("supplier_name cannot exceed 200 characters")
+        return stripped
+
+    @field_validator("headlines")
+    @classmethod
+    def validate_headlines(cls, value: List[str]) -> List[str]:
+        if len(value) > 50:
+            raise ValueError("headlines list cannot exceed 50 items")
+        validated = []
+        for idx, item in enumerate(value):
+            if not isinstance(item, str):
+                raise ValueError(f"Headline at index {idx} must be a string")
+            if len(item) > 2000:
+                raise ValueError(f"Headline at index {idx} exceeds maximum length of 2000 characters")
+            validated.append(item)
+        return validated
+
+
+# Alias for ML prediction standard
+PredictRequest = AnalyzeRequest
 
 
 # ----------------------------------------------------
@@ -104,32 +141,41 @@ def health():
 
 
 # ----------------------------------------------------
-# Analyze Endpoint
-# POST with request body
+# Predict Endpoint (First-Class ML Serving)
+# POST /predict and aliases
 # ----------------------------------------------------
 
 @app.post(
+    "/predict",
+    response_model=AnalysisResponse,
+    summary="Predict supplier risk",
+)
+@app.post(
+    "/api/v1/supplier-risk/predict",
+    response_model=AnalysisResponse,
+    summary="Predict supplier risk (API Gateway alias)",
+)
+@app.post(
     "/api/v1/supplier-risk/analyze",
     response_model=AnalysisResponse,
+    summary="Analyze supplier risk (legacy alias)",
 )
-def analyze_headlines(request: AnalyzeRequest):
+def predict_endpoint(request: AnalyzeRequest):
     """
-    Analyze supplier risk for given headlines.
+    Predict supplier risk for given supplier headlines.
     Empty headlines are ignored and do not contribute to risk score or confidence.
 
     Args:
-        request: Contains supplier_name and headlines.
+        request: Contains supplier_name and headlines list.
 
     Returns:
-        AnalysisResponse with risk scores and signals.
+        AnalysisResponse with risk scores, confidence, and detected signals.
     """
-
     if not request.supplier_name or not request.supplier_name.strip():
         raise HTTPException(
             status_code=400,
             detail="supplier_name cannot be blank"
         )
-
     try:
         summary = predict(
             supplier_name=request.supplier_name,
@@ -143,12 +189,13 @@ def analyze_headlines(request: AnalyzeRequest):
         }
 
     except Exception as exc:
-        logger.exception("Supplier risk analysis failed.")
+        logger.exception("Supplier risk prediction failed.")
 
         raise HTTPException(
             status_code=500,
             detail="Internal Server Error",
         ) from exc
+
 
 
 # ----------------------------------------------------

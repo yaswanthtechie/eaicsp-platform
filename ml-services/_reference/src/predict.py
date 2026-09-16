@@ -1,13 +1,7 @@
-"""
-Prediction model loader.
+import os
+from pathlib import Path
 
-This module loads the current Production model from the
-MLflow Model Registry.
-
-The service always loads the model using the Production alias,
-so promoting a new version requires no code changes.
-"""
-
+import joblib
 import mlflow.sklearn
 from mlflow.exceptions import MlflowException
 from mlflow.tracking import MlflowClient
@@ -19,25 +13,43 @@ client = MlflowClient()
 
 def load_model():
     """
-    Load the Production model from the MLflow Model Registry.
+    Load the Production model.
 
-    Returns
-    -------
-    tuple
-        (
-            model,
-            model_version
-        )
+    Docker:
+        Load bundled model from /app/models/model.pkl.
 
-    Raises
-    ------
-    RuntimeError
-        If no model has been promoted to the Production alias.
+    Local development:
+        Load Production model from MLflow Registry.
     """
+
+    # --------------------------------------------------
+    # Docker environment
+    # --------------------------------------------------
+
+    local_model_path = Path("/app/models/model.pkl")
+
+    if local_model_path.exists():
+
+        model = joblib.load(local_model_path)
+
+        try:
+            model_version = client.get_model_version_by_alias(
+                MODEL_NAME,
+                "production",
+            ).version
+        except Exception:
+            model_version = "local"
+
+        return model, str(model_version)
+
+    # --------------------------------------------------
+    # Local development / MLflow
+    # --------------------------------------------------
 
     model_uri = f"models:/{MODEL_NAME}@production"
 
     try:
+
         model = mlflow.sklearn.load_model(model_uri)
 
         model_version = client.get_model_version_by_alias(
@@ -46,25 +58,17 @@ def load_model():
         ).version
 
     except MlflowException as exc:
+
         raise RuntimeError(
             f"No model is promoted to @production for '{MODEL_NAME}'. "
-            "Run `python -m src.train` (the model must clear "
-            "PROMOTION_ACCURACY_THRESHOLD), or promote an existing "
-            "staging version with promote_model()."
+            "Run `python -m src.train` or promote an existing "
+            "staging version."
         ) from exc
 
     return model, str(model_version)
 
 
 def get_model_version():
-    """
-    Get the current Production model version.
-
-    Returns
-    -------
-    str
-        Production model version.
-    """
 
     version = client.get_model_version_by_alias(
         MODEL_NAME,
@@ -83,5 +87,4 @@ if __name__ == "__main__":
     print("=" * 60)
     print(f"Model Name    : {MODEL_NAME}")
     print(f"Model Version : {version}")
-    print(f"Model URI     : models:/{MODEL_NAME}@production")
     print("=" * 60)

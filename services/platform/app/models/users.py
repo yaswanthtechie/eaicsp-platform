@@ -12,5 +12,6 @@ class User(Base):
     password=Column(String(255),nullable=False)
     is_active=Column(Boolean, default=True, nullable=False)
     role_id = Column(Integer, ForeignKey("roles.id"),nullable=True)
+    supplier_id = Column(String(100), nullable=True, index=True)
     role = relationship("Role",back_populates="users")
 

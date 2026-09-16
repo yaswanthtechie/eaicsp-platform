@@ -57,7 +57,10 @@ def sample_df():
 
 def test_check_unparseable_dates(sample_df):
     """Test that only non-null, unparseable strings are flagged as True."""
-    result = check_unparseable_dates(sample_df, field='order_date')
+    # Apply the transform first to mirror the pipeline's df_working behavior
+    df_working = standardize_dates(sample_df, field='order_date')
+
+    result = check_unparseable_dates(df_working, field='order_date')
 
     # Row 2 is 'NOT_A_DATE', everything else is parsable or intentionally null
     expected = [False, False, True, False, False]
@@ -125,8 +128,8 @@ def test_standardize_dates(sample_df):
     dates = clean_df['order_date']
     assert dates[0] == '2026-07-31'  # Kept valid ISO
     assert dates[1] == '2026-08-15'  # Parsed mixed/dayfirst properly
-    assert pd.isna(dates[2])  # Handled invalid string (NaT)
-    assert pd.isna(dates[3])  # Handled Nulls properly
+    assert dates[2] == 'NOT_A_DATE'  # Preserved invalid string for validation
+    assert pd.isna(dates[3])         # Handled Nulls properly
 
 
 def test_drop_duplicate_rows(sample_df):

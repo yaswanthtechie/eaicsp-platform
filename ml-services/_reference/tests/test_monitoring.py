@@ -1,3 +1,4 @@
+
 from src.monitoring import (
     log_prediction,
     get_summary,
@@ -9,7 +10,7 @@ def test_prediction_is_logged():
     Every prediction should create a monitoring record.
     """
 
-    before = get_summary()
+    before = get_summary()["request_volume"]
 
     log_prediction(
         prediction="setosa",
@@ -18,9 +19,9 @@ def test_prediction_is_logged():
         latency_ms=25.0,
     )
 
-    after = get_summary()
+    after = get_summary()["request_volume"]
 
-    assert after["request_volume"] >= before["request_volume"]
+    assert after >= before + 1
 
 
 def test_latency_is_recorded():
@@ -52,9 +53,15 @@ def test_latency_is_recorded():
     summary = get_summary()
 
     assert "latency_ms" in summary
+    assert "p50" in summary["latency_ms"]
+    assert "p95" in summary["latency_ms"]
 
 
 def test_metrics_summary_contains_request_volume():
+    """
+    Monitoring summary should expose request volume.
+    """
+
     summary = get_summary()
 
     assert "request_volume" in summary
@@ -107,6 +114,13 @@ def test_metrics_summary_contains_volume_over_time():
 
 
 def test_multiple_predictions_increase_request_volume():
+    """
+    Multiple predictions should increase the total request volume.
+
+    This test checks the total database count rather than the
+    detailed 1000-record monitoring window.
+    """
+
     before = get_summary()["request_volume"]
 
     for i in range(5):
@@ -137,3 +151,65 @@ def test_model_version_is_logged():
     summary = get_summary()
 
     assert summary is not None
+
+
+def test_per_model_metrics_are_available():
+    """
+    R5 monitoring should expose metrics grouped by model version.
+    """
+
+    log_prediction(
+        prediction="setosa",
+        request_id="model-1-test",
+        model_version="1",
+        latency_ms=12.0,
+    )
+
+    log_prediction(
+        prediction="versicolor",
+        request_id="model-2-test",
+        model_version="2",
+        latency_ms=20.0,
+    )
+
+    summary = get_summary()
+
+    assert "models" in summary
+    assert isinstance(summary["models"], dict)
+
+    assert "1" in summary["models"]
+    assert "2" in summary["models"]
+
+    assert summary["models"]["1"]["request_volume"] >= 1
+    assert summary["models"]["2"]["request_volume"] >= 1
+
+
+def test_per_model_latency_metrics_are_available():
+    """
+    R5 should expose p50 and p95 latency for each model version.
+    """
+
+    for i, latency in enumerate([10, 20, 30, 40, 50]):
+        log_prediction(
+            prediction="setosa",
+            request_id=f"model-latency-{i}",
+            model_version="1",
+            latency_ms=latency,
+        )
+
+    summary = get_summary()
+
+    model_metrics = summary["models"]["1"]
+
+    assert "latency_ms" in model_metrics
+    assert "p50" in model_metrics["latency_ms"]
+    assert "p95" in model_metrics["latency_ms"]
+
+    assert model_metrics["latency_ms"]["p50"] > 0
+    assert model_metrics["latency_ms"]["p95"] > 0
+
+    assert (
+        model_metrics["latency_ms"]["p95"]
+        >= model_metrics["latency_ms"]["p50"]
+    )
+

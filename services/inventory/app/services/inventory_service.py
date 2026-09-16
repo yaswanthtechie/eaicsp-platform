@@ -409,19 +409,21 @@ def simulate_demand_spike(
 # =========================================================
 
 def bulk_update_inventory(
-    updates,
+    updates: list,
     db: Session,
 ):
     """
     Atomically update multiple inventory rows.
 
-    PostgreSQL row locking prevents lost updates during
-    concurrent operations.
+    PostgreSQL row-level locking prevents lost updates
+    during concurrent inventory operations.
     """
 
     updated_items = []
 
     # Always acquire locks in the same order.
+    # This helps prevent deadlocks when multiple requests
+    # update the same inventory rows concurrently.
     ordered_updates = sorted(
         updates,
         key=lambda update: (
@@ -431,16 +433,13 @@ def bulk_update_inventory(
     )
 
     try:
-
         for update in ordered_updates:
 
             item = (
                 db.query(Inventory)
                 .filter(
-                    Inventory.sku_id
-                    == update.sku_id,
-                    Inventory.warehouse_id
-                    == update.warehouse_id,
+                    Inventory.sku_id == update.sku_id,
+                    Inventory.warehouse_id == update.warehouse_id,
                 )
                 .with_for_update()
                 .first()
@@ -449,8 +448,7 @@ def bulk_update_inventory(
             if item is None:
                 raise ValueError(
                     "Inventory not found for "
-                    f"{update.sku_id}/"
-                    f"{update.warehouse_id}"
+                    f"{update.sku_id}/{update.warehouse_id}"
                 )
 
             new_quantity = (
@@ -460,27 +458,28 @@ def bulk_update_inventory(
 
             if new_quantity < 0:
                 raise ValueError(
-                    "Inventory quantity cannot "
-                    "be negative for "
-                    f"{update.sku_id}/"
-                    f"{update.warehouse_id}"
+                    "Inventory quantity cannot be negative for "
+                    f"{update.sku_id}/{update.warehouse_id}"
                 )
 
             item.quantity_on_hand = new_quantity
 
             updated_items.append(item)
 
+        # Commit only after every update succeeds.
         db.commit()
 
+        # Refresh committed objects so the returned data
+        # represents the latest database state.
         for item in updated_items:
             db.refresh(item)
 
         return updated_items
 
     except Exception:
+        # Any failure rolls back the entire bulk operation.
         db.rollback()
         raise
-
 
 # =========================================================
 # CSV BULK UPLOAD
