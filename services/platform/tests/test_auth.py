@@ -1,15 +1,12 @@
-from datetime import timedelta
+from datetime import timedelta,timezone, datetime
 from concurrent.futures import ThreadPoolExecutor
 import time
 import uuid
-
 import pytest
 from fastapi.testclient import TestClient
-
 from app.main import app
 from app.database import SessionLocal
 from app.core.security import create_access_token
-
 from app.models.users import User
 from app.models.failed_login_attempts import FailedLoginAttempt
 from app.models.password_reset_tokens import PasswordResetToken
@@ -2082,6 +2079,117 @@ def test_r7_security_dashboard_contains_security_sections():
 
 
 # ============================================================
+# PASSWORD ROTATION
+# ============================================================
+
+def test_r7_expired_password_cannot_login():
+    admin_login = login_as_ceo()
+
+    email = unique_email("r7_expired_password")
+
+    create_admin_user(
+        admin_login["access_token"],
+        email=email,
+        password="ValidPassword@123",
+        role="analyst",
+        full_name="R7 Expired Password User",
+    )
+
+    db = SessionLocal()
+
+    try:
+        user = (
+            db.query(User)
+            .filter(User.email == email)
+            .first()
+        )
+
+        assert user is not None
+
+        now = datetime.now(timezone.utc)
+
+        user.password_changed_at = (
+            now - timedelta(days=91)
+        )
+
+        user.password_expires_at = (
+            now - timedelta(days=1)
+        )
+
+        db.commit()
+
+    finally:
+        db.close()
+
+    response = client.post(
+        "/api/v1/auth/login",
+        data={
+            "username": email,
+            "password": "ValidPassword@123",
+        },
+    )
+
+    assert response.status_code == 401
+
+    assert response.json()["detail"] == (
+        "Password has expired. Please reset your password."
+    )
+
+def test_r7_password_not_expired_can_login():
+    admin_login = login_as_ceo()
+
+    email = unique_email("r7_active_password")
+
+    create_admin_user(
+        admin_login["access_token"],
+        email=email,
+        password="ValidPassword@123",
+        role="analyst",
+        full_name="R7 Active Password User",
+    )
+
+    db = SessionLocal()
+
+    try:
+        user = (
+            db.query(User)
+            .filter(User.email == email)
+            .first()
+        )
+
+        assert user is not None
+
+        now = datetime.now(timezone.utc)
+
+        user.password_changed_at = (
+            now - timedelta(days=10)
+        )
+
+        user.password_expires_at = (
+            now + timedelta(days=80)
+        )
+
+        db.commit()
+
+    finally:
+        db.close()
+
+    response = client.post(
+        "/api/v1/auth/login",
+        data={
+            "username": email,
+            "password": "ValidPassword@123",
+        },
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert "access_token" in body
+    assert "refresh_token" in body
+
+# ============================================================
 # SERVICE API KEYS
 # ============================================================
 
@@ -2382,12 +2490,9 @@ def test_r8_revoking_inventory_key_does_not_revoke_compliance_key():
 
     assert inventory_verify.status_code == 401
     assert compliance_verify.status_code == 200
-
-
-# ============================================================
+#============================================================
 # API KEY EXPIRATION
-# ============================================================
-
+# ===========================================================
 def test_r8_expired_api_key_rejected():
     admin_login = login_as_ceo()
 
@@ -2402,20 +2507,13 @@ def test_r8_expired_api_key_rejected():
         },
     )
 
-    assert response.status_code == 201
+    # Expired/past expiry date must be rejected when creating
+    # the service API key.
+    assert response.status_code == 400
 
-    api_key = response.json()["api_key"]
-
-    verify_response = client.post(
-        "/api/v1/auth/service-verify",
-        headers={
-            "X-API-Key": api_key,
-        },
+    assert response.json()["detail"] == (
+        "expires_at must be in the future"
     )
-
-    assert verify_response.status_code == 401
-
-
 # ============================================================
 # API KEY TRACKING
 # ============================================================
@@ -2614,7 +2712,6 @@ def test_definition_of_done_security_dashboard():
     )
 
     assert response.status_code == 200
-
 
 # ============================================================
 # DEFINITION OF DONE -M5

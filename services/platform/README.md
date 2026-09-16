@@ -1820,6 +1820,79 @@ Password-reset email delivery may use a mock/local implementation during develop
 Production should integrate with a secure email provider.
 ---
 
+## Database Schema Update
+
+The Platform Service introduced the following new columns to the `users` table:
+
+* `locked_until`
+* `password_changed_at`
+* `password_expires_at`
+
+These columns are required for the account lifecycle features, including:
+
+* Account lockout
+* Password expiration
+* Forced password rotation
+
+### Important: Existing Development Database
+
+`Base.metadata.create_all()` creates missing tables, but it **does not alter an existing table** to add new columns.
+
+Therefore, an existing `platform.db` created before these fields were introduced may fail with an error such as:
+
+```text
+sqlite3.OperationalError: no such column: users.locked_until
+```
+
+### Fresh Development Setup
+
+If you are using the local SQLite development database and do not need to preserve its data, delete the existing database and restart the Platform Service.
+
+For example:
+
+```bash
+del platform.db
+```
+
+Then start the service again:
+
+```bash
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8005
+```
+
+The application will recreate the database schema with the latest `users` columns.
+
+### If You Need to Preserve Existing Data
+
+**Do not delete `platform.db`.**
+
+A proper database migration should be used to add the new columns while preserving existing users and data.
+
+For production or shared environments, a real migration tool such as Alembic should be used instead of deleting and recreating the database.
+
+### Developer Checklist
+
+After pulling the latest Platform Service changes:
+
+1. Check whether your local database was created before the account-lifecycle changes.
+2. If it is disposable development data, delete `platform.db`.
+3. Restart the Platform Service.
+4. Run the seed/setup process if required.
+5. Run the test suite:
+
+```bash
+pytest -q
+```
+
+For integration tests:
+
+```bash
+pytest -m integration -q
+```
+
+> **Do not delete the database in shared, staging, or production environments. Use a database migration instead.**
+
+
 # Summary
 
 The Platform Service provides a centralized security foundation for EAICSP.

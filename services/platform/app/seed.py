@@ -3,6 +3,8 @@ from app.models.users import User
 from app.models.roles import Role
 from app.core.security import hash_password
 from app.database import Base, engine
+from datetime import datetime, timezone, timedelta
+import os
 
 ROLES = [
     ("ceo", "Chief Executive Officer"),
@@ -19,49 +21,49 @@ USERS = [
     {
         "email": "ceo@company.com",
         "full_name": "Company CEO",
-        "password": "ceocompany@123",
+        "password": os.environ["CEO_PASSWORD"],
         "role": "ceo",
     },
     {
         "email": "warehousemanager@company.com",
         "full_name": "Warehouse Manager",
-        "password": "warehouse@123",
+        "password": os.environ["WAREHOUSE_MANAGER_PASSWORD"],
         "role": "warehouse_manager",
     },
     {
         "email": "vpoperations@company.com",
         "full_name": "VP Operations Manager",
-        "password": "vpoperations@123",
+        "password": os.environ["VP_OPERATIONS_PASSWORD"],
         "role": "vp_operations",
     },
     {
         "email": "procurementmanager@company.com",
         "full_name": "Procurement Manager",
-        "password": "procurement@123",
+        "password": os.environ["PROCUREMENT_MANAGER_PASSWORD"],
         "role": "procurement_manager",
     },
     {
         "email": "logisticsmanager@company.com",
         "full_name": "Logistics Manager",
-        "password": "logistics@123",
+        "password": os.environ["LOGISTICS_MANAGER_PASSWORD"],
         "role": "logistics_manager",
     },
     {
         "email": "compliance@company.com",
         "full_name": "Compliance Officer",
-        "password": "compliance@123",
+        "password": os.environ["COMPLIANCE_OFFICER_PASSWORD"],
         "role": "compliance_officer",
     },
     {
         "email": "analyst@company.com",
         "full_name": "Analyst",
-        "password": "analyst@1234",
+        "password": os.environ["ANALYST_PASSWORD"],
         "role": "analyst",
     },
     {
         "email": "supplier@company.com",
         "full_name": "Supplier",
-        "password": "supplier@123",
+        "password": os.environ["SUPPLIER_PASSWORD"],
         "role": "supplier",
         "supplier_id": "SUP001",
     },
@@ -110,7 +112,8 @@ def seed_database():
 
             if existing_user:
                 continue
-
+            now = datetime.now(timezone.utc)
+            
             user = User(
                 email=email,
                 full_name=data["full_name"],
@@ -118,6 +121,8 @@ def seed_database():
                 role_id=role_map[data["role"]].id,
                 supplier_id=data.get("supplier_id"),
                 is_active=True,
+                password_changed_at=now,
+                password_expires_at=now + timedelta(days=90),
             )
 
             db.add(user)
@@ -132,7 +137,6 @@ def seed_database():
 
     finally:
         db.close()
-
 
 if __name__ == "__main__":
     Base.metadata.create_all(bind=engine)

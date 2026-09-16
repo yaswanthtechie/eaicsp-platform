@@ -6,7 +6,8 @@ from app.database import get_db
 from app.models.users import User
 from app.models.roles import Role as RoleModel
 from app.models.role_change_history import RoleChangeHistory
-
+from app.core.token_cache import token_cache
+from app.schemas import user
 from app.schemas.user import (
     AdminCreateUserRequest,
     RoleChangeRequest,
@@ -29,7 +30,9 @@ from app.services.audit_service import (
     TOKEN_REVOKED,
     ROLE_CHANGED,
     LOGIN_FAILED,
-    ACCOUNT_LOCKED
+    ACCOUNT_LOCKED,
+    SERVICE_KEY_CREATED,
+    SERVICE_KEY_REVOKED
 )
 from app.models.refresh_token import RefreshToken
 from app.schemas.auth import SessionResponse
@@ -147,6 +150,7 @@ def create_user(
 
         role_id = role.id
         role_name = role.name
+    now = datetime.now(timezone.utc)
 
     user = User(
         email=email,
@@ -154,12 +158,13 @@ def create_user(
         password=hash_password(request.password),
         role_id=role_id,
         is_active=True,
+        password_changed_at=now,
+        password_expires_at=now + timedelta(days=90),
     )
-
+    
     db.add(user)
     db.commit()
     db.refresh(user)
-
 
     if role_name is not None:
 
@@ -215,18 +220,19 @@ def deactivate_user(
 
     # Deactivate account
     user.is_active = False
-
-    # Revoke all active refresh tokens/sessions
+     # Revoke all active refresh tokens/sessions
     db.query(RefreshToken).filter(
-        RefreshToken.user_id == user.id,
-        RefreshToken.is_revoked.is_(False),
-    ).update(
-        {
-            RefreshToken.is_revoked: True
-        },
-        synchronize_session=False,
-    )
-
+            RefreshToken.user_id == user.id,
+            RefreshToken.is_revoked.is_(False),
+        ).update(
+            {
+                RefreshToken.is_revoked: True
+            },
+            synchronize_session=False,
+        )
+    
+    # Remove all cached access-token responses
+    token_cache.invalidate_user(user.id)
     db.commit()
     db.refresh(user)
 
@@ -237,7 +243,6 @@ def deactivate_user(
         "role": user.role.name if user.role else None,
         "is_active": user.is_active,
     }
-
 
 # ============================================================
 # ASSIGN ROLE
@@ -294,6 +299,8 @@ def change_user_role(
         )
 
     user.role_id = new_role.id
+
+    token_cache.invalidate_user(user.id)
 
     history = RoleChangeHistory(
         user_id=user.id,
@@ -403,10 +410,6 @@ def force_reset_password(
             detail="User not found"
         )
 
-    '''validate_password(request.new_password)
-    user.password = hash_password(
-        request.new_password
-    )'''
     validate_password(request.new_password)
 
     user.password = hash_password(
@@ -430,13 +433,13 @@ def force_reset_password(
     },
     synchronize_session=False,
 )
-    
+    # Remove cached authentication responses
+    token_cache.invalidate_user(user.id)
     db.commit()
 
     return {
         "message": "Password reset successfully"
 }
-
 # ============================================================
 # ACTIVE SESSIONS
 # ============================================================
@@ -586,25 +589,12 @@ def get_audit_logs(
 )
 def security_dashboard(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends( 
+        require_any_role("ceo", "vp_operations")
+    ),
 ):
-    # --------------------------------------------------------
-    # ADMIN ACCESS CHECK
-    # --------------------------------------------------------
-    if (
-        not current_user.role
-        or current_user.role.name not in {
-            "ceo",
-            "vp_operations",
-        }
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required",
-        )
 
     now = datetime.now(timezone.utc)
-
     last_24_hours = now - timedelta(hours=24)
     last_7_days = now - timedelta(days=7)
 
@@ -614,7 +604,7 @@ def security_dashboard(
     failed_login_24h = (
         db.query(AuthAuditLog)
         .filter(
-            AuthAuditLog.event_type == "LOGIN_FAILED",
+            AuthAuditLog.event_type == LOGIN_FAILED,
             AuthAuditLog.created_at >= last_24_hours,
         )
         .count()
@@ -623,7 +613,7 @@ def security_dashboard(
     failed_login_7d = (
         db.query(AuthAuditLog)
         .filter(
-            AuthAuditLog.event_type == "LOGIN_FAILED",
+            AuthAuditLog.event_type == LOGIN_FAILED,
             AuthAuditLog.created_at >= last_7_days,
         )
         .count()
@@ -699,7 +689,7 @@ def security_dashboard(
     lockout_events = (
         db.query(AuthAuditLog)
         .filter(
-            AuthAuditLog.event_type == "ACCOUNT_LOCKED"
+            AuthAuditLog.event_type == ACCOUNT_LOCKED
         )
         .order_by(
             AuthAuditLog.created_at.desc()
@@ -744,6 +734,15 @@ def create_service_api_key(
     # Generate raw API key
     api_key = generate_service_api_key()
 
+    if (
+    request.expires_at is not None
+    and request.expires_at <= datetime.now(timezone.utc)
+    ):
+        raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="expires_at must be in the future",
+    )
+
     # Hash before storing
     key_hash = hash_service_api_key(api_key)
 
@@ -757,6 +756,19 @@ def create_service_api_key(
     db.add(service_key)
     db.commit()
     db.refresh(service_key)
+
+    create_audit_log(
+    db=db,
+    event_type=SERVICE_KEY_CREATED,
+    user_id=current_user.id,
+    details=(
+        f"Service API key created for "
+        f"{service_key.service_name} "
+        f"by admin {current_user.id}"
+    ),
+    )
+
+    db.commit()
 
     return {
         "id": service_key.id,
@@ -834,7 +846,7 @@ def revoke_service_api_key(
 
     create_audit_log(
         db=db,
-        event_type=TOKEN_REVOKED,
+        event_type=SERVICE_KEY_REVOKED,
         user_id=current_user.id,
         details=(
             f"Service API key {key_id} "

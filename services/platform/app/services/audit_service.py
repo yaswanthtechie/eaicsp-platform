@@ -9,6 +9,8 @@ ROLE_CHANGED = "ROLE_CHANGED"
 TOKEN_REVOKED = "TOKEN_REVOKED"
 PASSWORD_RESET="PASSWORD_RESET"
 ACCOUNT_LOCKED="ACCOUNT_LOCKED"
+SERVICE_KEY_CREATED = "SERVICE_KEY_CREATED"
+SERVICE_KEY_REVOKED = "SERVICE_KEY_REVOKED"
 
 def create_audit_log(
     db: Session,
@@ -30,3 +32,5 @@ def create_audit_log(
     db.flush()
 
     return audit
+
+ 

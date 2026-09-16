@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict,Field
 from app.schemas.user import RoleChangeHistoryResponse
 class AuditLogResponse(BaseModel):
     id: int
@@ -35,7 +35,7 @@ class SecurityDashboardResponse(BaseModel):
     lockout_events: list[AuditLogResponse]
 
 class ServiceAPIKeyCreateRequest(BaseModel):
-    service_name: str
+    service_name: str = Field(..., min_length=1)
     expires_at: datetime | None = None
 
 class ServiceAPIKeyCreateResponse(BaseModel):

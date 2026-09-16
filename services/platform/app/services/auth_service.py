@@ -8,6 +8,7 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
+from app.core.token_cache import token_cache
 from app.models.users import User
 from app.models.password_reset_tokens import PasswordResetToken
 from app.models.refresh_token import RefreshToken
@@ -64,23 +65,6 @@ def save_refresh_token(
     db.add(refresh)
 
     return refresh
-
-
-def get_refresh_token(
-    db: Session,
-    token: str,
-):
-    now = datetime.now(timezone.utc)
-
-    return (
-        db.query(RefreshToken)
-        .filter(
-            RefreshToken.token == token,
-            RefreshToken.is_revoked.is_(False),
-            RefreshToken.expires_at > now,
-        )
-        .first()
-    )
 
 def get_refresh_token(
     db: Session,
@@ -437,6 +421,7 @@ def login_user(
                     datetime.now(timezone.utc)
                     + LOCKOUT_DURATION
                 )
+                token_cache.invalidate_user(user.id)
 
                 create_audit_log(
                     db=db,
@@ -540,11 +525,10 @@ def login_user(
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail=(
-                        "Password has expired. "
-                        "Please reset your password."
+                        "Password has expired. ""Please reset your password."
                     ),
                 )
-
+                    
         # ----------------------------------------------------
         # 10. Create access token
         # ----------------------------------------------------
@@ -743,6 +727,8 @@ def reset_password(
 
     # Update password
     user.password = hash_password(new_password)
+
+    token_cache.invalidate_user(user.id)
 
     # Update password lifecycle dates
     user.password_changed_at = now

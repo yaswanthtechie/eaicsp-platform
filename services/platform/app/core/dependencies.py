@@ -2,18 +2,16 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from jose import JWTError
-from app.core.token_cache import token_cache
 from app.core.security import decode_token
 from app.database import get_db
 from app.models.users import User
 from app.core.permissions import ROLE_PERMISSIONS
+from datetime import datetime, timezone
 
 
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="/api/v1/auth/login"
 )
-
-
 # ============================================================
 # Authentication
 # ============================================================
@@ -45,7 +43,6 @@ def get_current_user(
         email = email.lower()
 
     except HTTPException:
-        # Preserve our intentional 401 errors
         raise
 
     except JWTError:
@@ -56,7 +53,6 @@ def get_current_user(
         )
 
     except Exception:
-        # Do not expose internal authentication errors
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
@@ -75,8 +71,18 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
         )
+    
+    # 6. Reject access while account is locked
+    if (
+        user.locked_until is not None
+        and user.locked_until > datetime.now(timezone.utc)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
 
-    # 6. Cross-check JWT subject with DB user
+    # 7. Cross-check JWT subject with DB user
     if user.email.lower() != email:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -84,8 +90,6 @@ def get_current_user(
         )
 
     return user
-
-
 # ============================================================
 # Role Hierarchy
 # ============================================================
@@ -136,8 +140,6 @@ ROLE_HIERARCHY = {
         "supplier",
     },
 }
-
-
 # ============================================================
 # Require ANY Role
 # ============================================================
@@ -166,8 +168,6 @@ def require_any_role(*allowed_roles):
         return user
 
     return dependency
-
-
 # ============================================================
 # Require ALL Roles
 # ============================================================
@@ -194,9 +194,7 @@ def require_all_roles(*required_roles):
             )
 
         return user
-
     return dependency
-
 
 # ============================================================
 # RBAC - Require Role
@@ -224,27 +222,7 @@ def require_role(*allowed_roles):
             )
 
         return user
-
     return dependency
-
-
-def get_cached_current_user(
-    token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db),
-):
-    cached_user = token_cache.get(token)
-
-    if cached_user is not None:
-        return cached_user
-
-    user = get_current_user(
-        token=token,
-        db=db,
-    )
-
-    token_cache.set(token, user)
-
-    return user
 
 def require_permission(permission: str):
     def checker(
@@ -271,5 +249,4 @@ def require_permission(permission: str):
             )
 
         return current_user
-
     return checker

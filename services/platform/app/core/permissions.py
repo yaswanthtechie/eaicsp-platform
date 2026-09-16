@@ -24,6 +24,8 @@ ROLE_PERMISSIONS = {
     "vp_operations": {
         "inventory:read",
         "inventory:write",
+        "compliance:read",
+        "compliance:write",
         "supplier:read",
         "supplier:write",
         "logistics:read",

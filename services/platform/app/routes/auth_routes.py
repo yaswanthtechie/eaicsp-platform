@@ -312,62 +312,155 @@ def service_verify(
 # ============================================================
 # VERIFY
 # ============================================================
-
 @router.post(
     "/verify",
     response_model=VerifyResponse,
 )
 def verify_access_token(
-    current_user: User = Depends(get_current_user),
     token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
 ):
+    # -------------------------------------------------
+    # Check cache BEFORE JWT decode and DB query
+    # -------------------------------------------------
     cached_response = token_cache.get(token)
 
     if cached_response is not None:
         logger.info(
-            "Token verification cache HIT | endpoint=/api/v1/auth/verify"
+            "Token verification cache HIT"
         )
         return cached_response
 
-    response_data = {
-        "valid": True,
-        "user_id": current_user.id,
-        "email": current_user.email,
-        "full_name": current_user.full_name,
-        "role": current_user.role.name if current_user.role else None,
-        "supplier_id": current_user.supplier_id,
-        "is_active": current_user.is_active,
-    }
-
-    token_cache.set(token, response_data)
-
     logger.info(
-        "Token verification cache MISS | user_id=%s | role=%s | endpoint=/api/v1/auth/verify",
-        current_user.id,
-        current_user.role.name if current_user.role else None,
+        "Token verification cache MISS"
     )
 
-    return response_data
+    # -------------------------------------------------
+    # Cache miss -> decode JWT
+    # -------------------------------------------------
+    try:
+        payload = decode_token(token)
 
-# ============================================================
-# TESTING
-# ============================================================
-@router.get(
-    "/inventory-test",
-    dependencies=[
-        Depends(require_permission("inventory:write"))
-    ]
-)
-def inventory_test(user=Depends(get_current_user)):
-    return {
-        "message": "Inventory write permission granted",
-        "user": {
-            "user_id": user.id,
-            "email": user.email,
-            "full_name": user.full_name,
-            "role": user.role.name if user.role else None,
-            "is_active": user.is_active,
-        }
+        if payload.get("type") != "access":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token",
+            )
+
+        email = payload.get("sub")
+
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token",
+            )
+
+        email = email.lower()
+
+    except HTTPException:
+        raise
+
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+    # -------------------------------------------------
+    # DB lookup only on cache MISS
+    # -------------------------------------------------
+    user = (
+        db.query(User)
+        .filter(User.email == email)
+        .first()
+    )
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+
+    if user.email.lower() != email:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+    # -------------------------------------------------
+    # locked users cannot verify existing tokens
+    # -------------------------------------------------
+    if user.locked_until is not None:
+        locked_until = user.locked_until
+
+        if locked_until.tzinfo is None:
+            locked_until = locked_until.replace(
+                tzinfo=timezone.utc
+            )
+
+        if locked_until > datetime.now(timezone.utc):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token",
+            )
+
+    # -------------------------------------------------
+    # include fine-grained permissions
+    # -------------------------------------------------
+    role = (
+        user.role.name
+        if user.role
+        else None
+    )
+    permissions = sorted(
+        ROLE_PERMISSIONS.get(role, set())
+    )
+
+    response_data = {
+        "valid": True,
+        "user_id": user.id,
+        "email": user.email,
+        "full_name": user.full_name,
+        "role": role,
+        "supplier_id": user.supplier_id,
+        "is_active": user.is_active,
+        "permissions": permissions,
     }
 
-	
+    # -------------------------------------------------
+    # JWT expiration when calculating TTL
+    # -------------------------------------------------
+    cache_ttl = 60
+
+    exp = payload.get("exp")
+
+    if exp is not None:
+        remaining_seconds = int(
+            exp - datetime.now(timezone.utc).timestamp()
+        )
+
+        if remaining_seconds <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token",
+            )
+
+        cache_ttl = min(60, remaining_seconds)
+
+    token_cache.set(
+        token,
+        response_data,
+        user_id=user.id,
+        ttl_seconds=cache_ttl,
+    )
+    return response_data
