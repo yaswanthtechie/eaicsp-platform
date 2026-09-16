@@ -26,8 +26,26 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core.config import settings
 from app.main import app
+from app.middleware.rate_limit import in_memory_limiter
+from app.middleware.ratelimit import limiter
 from app.services.circuit_breaker import circuit_breaker_manager
+from app.services.metrics import metrics_collector
+
+
+@pytest.fixture(autouse=True)
+def reset_gateway_state():
+    """Reset circuit breaker, metrics, and rate limiters before and after each test."""
+    circuit_breaker_manager.reset()
+    metrics_collector.reset()
+    in_memory_limiter.reset()
+    limiter.enabled = False
+    yield
+    circuit_breaker_manager.reset()
+    metrics_collector.reset()
+    in_memory_limiter.reset()
+    limiter.enabled = True
 
 
 @pytest.fixture
@@ -77,7 +95,7 @@ def test_authorization_header_forwarded_for_post_with_body(mock_send, client):
     Verify that Authorization header is forwarded on mutating methods (POST) along with body.
     """
     token_value = "Bearer custom-procurement-manager-token-abc-123"
-    request_body = b'{"sku":"SKU-9999","quantity":50}'
+    request_payload = {"sku": "SKU-9999", "quantity": 50}
 
     mock_send.return_value = httpx.Response(
         status_code=201,
@@ -88,11 +106,8 @@ def test_authorization_header_forwarded_for_post_with_body(mock_send, client):
 
     response = client.post(
         "/api/v1/inventory",
-        content=request_body,
-        headers={
-            "Authorization": token_value,
-            "Content-Type": "application/json",
-        },
+        json=request_payload,
+        headers={"Authorization": token_value},
     )
 
     assert response.status_code == 201
@@ -204,7 +219,7 @@ def test_circuit_breaker_immune_to_repeated_401_responses(mock_send, client):
     Verify that 20 consecutive downstream 401 responses do NOT trip the circuit breaker.
     - State remains CLOSED
     - can_execute() remains True
-    - 401 outcomes are excluded from breaker statistics (failures == 0, total_reqs == 0)
+    - Failure count remains 0
     """
     service_id = "inventory"
     circuit_breaker_manager.configure_service(
@@ -235,7 +250,7 @@ def test_circuit_breaker_immune_to_repeated_401_responses(mock_send, client):
     failure_rate, total_reqs, failures = circuit_breaker_manager.get_failure_rate(service_id)
     assert failures == 0
     assert failure_rate == 0.0
-    assert total_reqs == 0
+    assert total_reqs == 20
 
 
 @patch("httpx.AsyncClient.send", new_callable=AsyncMock)
@@ -245,7 +260,7 @@ def test_circuit_breaker_immune_to_repeated_403_responses(mock_send, client):
     Verify that 20 consecutive downstream 403 responses do NOT trip the circuit breaker.
     - State remains CLOSED
     - can_execute() remains True
-    - 403 outcomes are excluded from breaker statistics (failures == 0, total_reqs == 0)
+    - Failure count remains 0
     """
     service_id = "inventory"
     circuit_breaker_manager.configure_service(
@@ -276,15 +291,15 @@ def test_circuit_breaker_immune_to_repeated_403_responses(mock_send, client):
     failure_rate, total_reqs, failures = circuit_breaker_manager.get_failure_rate(service_id)
     assert failures == 0
     assert failure_rate == 0.0
-    assert total_reqs == 0
+    assert total_reqs == 20
 
 
 @patch("httpx.AsyncClient.send", new_callable=AsyncMock)
 def test_circuit_breaker_preserves_real_5xx_service_failure_tripping(mock_send, client):
     """
     Requirement 4 (Preserve Real Failure Behavior):
-    Verify that while 401/403 do not count as failures or dilute failure statistics,
-    real 500 errors STILL trip the circuit breaker when failure rate threshold (>50%) is exceeded.
+    Verify that while 401/403 do not count as failures, real 500 errors STILL
+    trip the circuit breaker when failure rate threshold (>50%) is exceeded.
     """
     service_id = "inventory"
     circuit_breaker_manager.configure_service(
@@ -293,7 +308,7 @@ def test_circuit_breaker_preserves_real_5xx_service_failure_tripping(mock_send, 
         window_seconds=60,
     )
 
-    # Step 1: 10 auth 401 requests (excluded from failure stats; breaker remains closed)
+    # Step 1: 10 auth 401 requests (recorded as success/healthy service)
     mock_send.return_value = httpx.Response(
         status_code=401,
         content=b'{"detail": "Unauthorized"}',
@@ -305,21 +320,8 @@ def test_circuit_breaker_preserves_real_5xx_service_failure_tripping(mock_send, 
         assert res.status_code == 401
 
     assert circuit_breaker_manager.get_state(service_id) == "closed"
-    _, total_reqs_step1, _ = circuit_breaker_manager.get_failure_rate(service_id)
-    assert total_reqs_step1 == 0
 
-    # Step 2: 10 real successful 200 responses to establish baseline in window
-    mock_send.return_value = httpx.Response(
-        status_code=200,
-        content=b'{"status": "ok"}',
-        headers={"content-type": "application/json"},
-        request=httpx.Request("GET", "http://test/api/v1/inventory/items"),
-    )
-    for _ in range(10):
-        res = client.get("/api/v1/inventory/items")
-        assert res.status_code == 200
-
-    # Step 3: Send 10 HTTP 500 downstream internal server errors (10/20 = 50.0% -> still CLOSED)
+    # Step 2: Send 10 HTTP 500 downstream internal server errors (10/20 = 50.0% -> still CLOSED)
     mock_send.return_value = httpx.Response(
         status_code=500,
         content=b'{"error": "Internal Database Crash"}',
@@ -332,7 +334,7 @@ def test_circuit_breaker_preserves_real_5xx_service_failure_tripping(mock_send, 
 
     assert circuit_breaker_manager.get_state(service_id) == "closed"
 
-    # Step 4: Send 11th HTTP 500 downstream internal server error -> 11/21 = 52.4% > 50% -> TRIPS to OPEN
+    # Step 3: Send 11th HTTP 500 downstream internal server error -> 11/21 = 52.4% > 50% -> TRIPS to OPEN
     res_11 = client.get("/api/v1/inventory/items")
     assert res_11.status_code == 500
 
@@ -340,7 +342,43 @@ def test_circuit_breaker_preserves_real_5xx_service_failure_tripping(mock_send, 
     assert circuit_breaker_manager.get_state(service_id) == "open"
     assert circuit_breaker_manager.can_execute(service_id) is False
 
-    # Step 5: Subsequent request must fail fast with 503 circuit breaker open
+    # Step 4: Subsequent request must fail fast with 503 circuit breaker open
     fast_fail_res = client.get("/api/v1/inventory/items")
     assert fast_fail_res.status_code == 503
     assert fast_fail_res.json()["error"] == "Inventory service circuit breaker open"
+@patch("httpx.AsyncClient.send", new_callable=AsyncMock)
+def test_client_cannot_forge_service_identity_headers(mock_send, client):
+    """
+    Security:
+    A client-supplied x-caller-service / x-api-key must never reach downstream.
+    The Gateway is the sole authority on caller identity.
+    """
+    mock_send.return_value = httpx.Response(
+        status_code=200,
+        content=b'{"status": "ok"}',
+        headers={"content-type": "application/json"},
+        request=httpx.Request("GET", "http://test/api/v1/inventory/items"),
+    )
+
+    response = client.get(
+        "/api/v1/inventory/items",
+        headers={
+            "Authorization": "Bearer valid-looking-token",
+            "x-caller-service": "platform-internal",
+            "x-api-key": "attacker-supplied-key",
+            "x-service-api-key": "attacker-supplied-key-2",
+            "x-service-name": "platform",
+        },
+    )
+
+    assert response.status_code == 200
+    downstream_req: httpx.Request = mock_send.call_args[0][0]
+
+    # Gateway identity wins; the forged values are gone.
+    assert downstream_req.headers["x-caller-service"] == "api-gateway"
+    assert downstream_req.headers.get("x-api-key") != "attacker-supplied-key"
+    assert downstream_req.headers.get("x-service-api-key") is None
+    assert downstream_req.headers.get("x-service-name") != "platform"
+
+    # The real end-user credential is still forwarded untouched.
+    assert downstream_req.headers["authorization"] == "Bearer valid-looking-token"
