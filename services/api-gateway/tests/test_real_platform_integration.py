@@ -171,7 +171,8 @@ def test_real_platform_verify_token_flow(live_caller):
 def test_real_platform_verify_missing_token_returns_401(live_caller):
     """
     Verify Gateway passes through 401 when no token is provided.
-    Platform error message: 'Invalid or expired authentication token'.
+    Platform error message: 'Not authenticated' (FastAPI's HTTPBearer
+    default when no Authorization header is sent).
     """
     response = live_caller.post("/api/v1/auth/verify")
 
