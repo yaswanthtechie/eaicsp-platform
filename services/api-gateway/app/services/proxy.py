@@ -16,6 +16,7 @@ from tenacity import (
 )
 
 from app.core.config import settings
+from app.services.auth import auth_precheck_service
 from app.services.circuit_breaker import circuit_breaker_manager
 from app.services.metrics import metrics_collector
 
@@ -257,6 +258,16 @@ class ProxyService:
         service_id = route_prefix.strip("/").split("/")[-1]
         caller_service = request.headers.get("x-caller-service") or "api-gateway"
         start_time = time.perf_counter()
+
+        # ------------------------------------------------------------------
+        # Authentication Pre-Check (M5)
+        # ------------------------------------------------------------------
+
+        auth_error = await auth_precheck_service.verify_request(
+            request, route_prefix
+        )
+        if auth_error is not None:
+            return auth_error
 
         # ------------------------------------------------------------------
         # Circuit Breaker Check

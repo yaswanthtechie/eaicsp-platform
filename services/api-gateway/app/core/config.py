@@ -163,6 +163,12 @@ class Settings(BaseSettings):
         1000.0,
     ]
 
+    # --------------------------------------------------
+    # Authentication Pre-Check Configuration
+    # --------------------------------------------------
+    AUTH_PRECHECK_ENABLED: bool = False
+    AUTH_PRECHECK_TIMEOUT_SECONDS: float = 3.0
+
     def model_post_init(self, __context: object = None, /) -> None:
         """
         Synchronize individual downstream URLs with the route mapping table.
