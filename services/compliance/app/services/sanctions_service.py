@@ -1016,6 +1016,7 @@ def _get_fuzzy_candidates(
 
 def fuzzy_search(
     normalized: str,
+    match_threshold: int = MATCH_THRESHOLD,
 ):
 
     if not normalized:
@@ -1032,14 +1033,14 @@ def fuzzy_search(
         normalized,
         candidates,
         scorer=fuzz.WRatio,
-        score_cutoff=MATCH_THRESHOLD,
+        score_cutoff=match_threshold,
     )
-
 
 def screen_normalized_entity(
     normalized: str,
     original_name: str,
     country: str | None = None,
+    match_threshold: int = MATCH_THRESHOLD,
 ) -> dict[str, Any]:
 
     start = time.perf_counter()
@@ -1065,7 +1066,8 @@ def screen_normalized_entity(
         )
 
     match = fuzzy_search(
-        normalized
+        normalized,
+        match_threshold=match_threshold,
     )
 
     duration = (
@@ -1139,6 +1141,7 @@ def screen_entity(
     name: str,
     country: str | None = None,
     db: Session | None = None,
+    match_threshold: int = MATCH_THRESHOLD,
 ) -> dict[str, Any]:
 
     _validate_entity_name(name)
@@ -1165,6 +1168,7 @@ def screen_entity(
         normalized=normalized,
         original_name=name,
         country=country,
+        match_threshold=match_threshold,
     )
 
     return apply_override(
@@ -1178,6 +1182,7 @@ def screen_bulk(
     names: list[str],
     country: str | None = None,
     db: Session | None = None,
+    match_threshold: int = MATCH_THRESHOLD,
 ) -> dict[str, Any]:
 
     if names is None:
@@ -1319,6 +1324,7 @@ def screen_bulk(
             normalized=normalized,
             original_name=original_name,
             country=country,
+            match_threshold=match_threshold,
         )
 
         cache[normalized] = result.copy()

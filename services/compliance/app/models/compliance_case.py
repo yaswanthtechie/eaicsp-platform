@@ -27,9 +27,15 @@ class ComplianceCase(Base):
         nullable=False,
         unique=True,
         index=True,
-    )
+)
 
     entity_name = Column(
+        String,
+        nullable=False,
+        index=True,
+    )
+
+    normalized_entity_name = Column(
         String,
         nullable=False,
         index=True,

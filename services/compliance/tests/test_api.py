@@ -604,3 +604,165 @@ def test_bulk_screen_creates_cases_for_flagged_entities(
         assert result["case_number"].startswith("CASE-")
         assert result["case_status"] == "OPEN"
 
+
+def test_closed_case_cannot_be_reassigned(
+    mock_compliance_officer_auth,
+):
+    
+    screen_response = client.post(
+        "/api/v1/compliance/screen",
+        json={
+            "entity_name": "HAMAS",
+            "entity_type": "supplier",
+            "country": "India",
+        },
+    )
+
+    assert screen_response.status_code == 200
+
+    screen_data = screen_response.json()
+
+    assert screen_data["is_flagged"] is True
+    case_number = screen_data["case_number"]
+
+  
+    review_response = client.post(
+        f"/api/v1/compliance/cases/{case_number}/status",
+        params={
+            "new_status": "UNDER_REVIEW",
+        },
+    )
+
+    assert review_response.status_code == 200
+
+  
+    close_response = client.post(
+        f"/api/v1/compliance/cases/{case_number}/status",
+        params={
+            "new_status": "CLEARED",
+            "reason": "False positive after compliance review",
+        },
+    )
+
+    assert close_response.status_code == 200
+
+
+    assign_response = client.post(
+        f"/api/v1/compliance/cases/{case_number}/assign",
+        params={
+            "assigned_to": "another_officer",
+        },
+    )
+
+    assert assign_response.status_code == 400
+    assert (
+        assign_response.json()["detail"]
+        == "Closed cases cannot be reassigned"
+    )
+
+
+def test_closing_case_requires_resolution_reason(
+    mock_compliance_officer_auth,
+):
+  
+    screen_response = client.post(
+        "/api/v1/compliance/screen",
+        json={
+            "entity_name": "HAMAS",
+            "entity_type": "supplier",
+            "country": "India",
+        },
+    )
+
+    assert screen_response.status_code == 200
+
+    screen_data = screen_response.json()
+
+    assert screen_data["is_flagged"] is True
+    case_number = screen_data["case_number"]
+
+    review_response = client.post(
+        f"/api/v1/compliance/cases/{case_number}/status",
+        params={
+            "new_status": "UNDER_REVIEW",
+        },
+    )
+
+    assert review_response.status_code == 200
+
+
+    close_response = client.post(
+        f"/api/v1/compliance/cases/{case_number}/status",
+        params={
+            "new_status": "CLEARED",
+        },
+    )
+
+    assert close_response.status_code == 400
+    assert (
+        close_response.json()["detail"]
+        == "Resolution reason is required when closing a case"
+    )
+
+
+def test_list_cases_by_status(
+    client,
+    mock_compliance_officer_auth,
+):
+    response = client.get(
+        "/api/v1/compliance/cases?status=OPEN",
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert "cases" in data
+    assert "count" in data
+
+    for case in data["cases"]:
+        assert case["status"] == "OPEN"
+
+
+def test_list_cases_invalid_status(
+    client,
+    mock_compliance_officer_auth,
+):
+    response = client.get(
+        "/api/v1/compliance/cases?status=INVALID",
+    )
+
+    assert response.status_code == 400
+    assert "Invalid status" in response.json()["detail"]
+
+def test_assign_case_blank_assigned_to_api(
+    mock_compliance_officer_auth,
+):
+    screen_response = client.post(
+        "/api/v1/compliance/screen",
+        json={
+            "entity_name": "HAMAS",
+            "entity_type": "supplier",
+            "country": "India",
+        },
+    )
+
+    assert screen_response.status_code == 200
+
+    screen_data = screen_response.json()
+
+    assert screen_data["is_flagged"] is True
+    case_number = screen_data["case_number"]
+
+    assign_response = client.post(
+        f"/api/v1/compliance/cases/{case_number}/assign",
+        params={
+            "assigned_to": "   ",
+        },
+    )
+
+    assert assign_response.status_code == 400
+    assert (
+        assign_response.json()["detail"]
+        == "assigned_to must not be blank"
+    )

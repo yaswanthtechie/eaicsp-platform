@@ -1,8 +1,6 @@
-
+from uuid import uuid4
 from datetime import datetime, timezone
-
 from sqlalchemy.orm import Session
-
 from app.models.compliance_case import ComplianceCase
 from app.models.case_history import CaseHistory
 from app.services.case_state_machine import (
@@ -14,22 +12,27 @@ from app.services.case_state_machine import (
 )
 
 
-def _next_case_number(db: Session) -> str:
-    last_case = (
-        db.query(ComplianceCase)
-        .order_by(
-            ComplianceCase.id.desc()
+def normalize_case_name(entity_name: str) -> str:
+    
+    normalized = " ".join(
+        entity_name.strip().upper().split()
+    )
+
+    replacements = {
+        "CORPORATION": "CORP",
+        "COMPANY": "CO",
+        "LIMITED": "LTD",
+        "INCORPORATED": "INC",
+        "&": "AND",
+    }
+
+    for old, new in replacements.items():
+        normalized = normalized.replace(
+            old,
+            new,
         )
-        .first()
-    )
 
-    next_id = (
-        last_case.id + 1
-        if last_case
-        else 1
-    )
-
-    return f"CASE-{next_id:06d}"
+    return normalized
 
 
 def create_case(
@@ -40,12 +43,21 @@ def create_case(
     result: dict,
 ) -> ComplianceCase:
 
+    normalized_name = normalize_case_name(entity_name)
+
+    normalized_country = (
+        country.strip().upper()
+        if country
+        else None
+    )
+
     existing_case = (
         db.query(ComplianceCase)
         .filter(
-            ComplianceCase.entity_name.ilike(
-                entity_name.strip()
-            ),
+            ComplianceCase.normalized_entity_name
+            == normalized_name,
+            ComplianceCase.country
+            == normalized_country,
             ComplianceCase.status.in_(
                 [
                     CASE_OPEN,
@@ -72,14 +84,11 @@ def create_case(
         )
 
     case = ComplianceCase(
-        case_number=_next_case_number(db),
+        case_number=f"PENDING-{uuid4().hex}",
         entity_name=entity_name.strip(),
+        normalized_entity_name=normalized_name,
         entity_type=entity_type,
-        country=(
-            country.strip()
-            if country
-            else None
-        ),
+        country=normalized_country,
         matched_name=result.get(
             "matched_name"
         ),
@@ -107,10 +116,18 @@ def create_case(
         status=CASE_OPEN,
     )
 
+    # Let the database assign the primary key first.
     db.add(case)
+    db.flush()
+
+    # Generate the case number from the database-assigned ID.
+    case.case_number = f"CASE-{case.id:06d}"
+    db.flush()
+
     db.commit()
     db.refresh(case)
 
+    # Create the initial case-history entry.
     history = CaseHistory(
         case_id=case.id,
         from_status=None,
@@ -124,7 +141,6 @@ def create_case(
 
     return case
 
-
 def transition_case(
     db: Session,
     case: ComplianceCase,
@@ -133,7 +149,7 @@ def transition_case(
     reason: str | None = None,
     comments: str | None = None,
 ) -> ComplianceCase:
-
+    
     validate_transition(
         current_status=case.status,
         new_status=new_status,
@@ -141,20 +157,26 @@ def transition_case(
 
     old_status = case.status
 
-    case.status = new_status
-    case.updated_at = datetime.now(
-        timezone.utc
-    )
-
+    # Closing a case requires a reason.
     if new_status in {
         CASE_CLEARED,
         CASE_CONFIRMED,
     }:
+        if not reason or not reason.strip():
+            raise ValueError(
+                "Resolution reason is required when closing a case"
+            )
+
         case.resolution = new_status
-        case.resolution_reason = reason
+        case.resolution_reason = reason.strip()
         case.resolved_at = datetime.now(
             timezone.utc
         )
+
+    case.status = new_status
+    case.updated_at = datetime.now(
+        timezone.utc
+    )
 
     history = CaseHistory(
         case_id=case.id,
@@ -167,6 +189,7 @@ def transition_case(
 
     db.add(case)
     db.add(history)
+
     db.commit()
     db.refresh(case)
 
@@ -179,8 +202,34 @@ def assign_case(
     assigned_to: str,
     changed_by: str = "system",
 ) -> ComplianceCase:
+    """
+    Assign a case to a compliance officer.
 
-    case.assigned_to = assigned_to.strip()
+    OPEN and UNDER_REVIEW cases can be assigned.
+
+    CLEARED and CONFIRMED cases cannot be reassigned.
+
+    Blank or whitespace-only assigned_to values are rejected.
+    """
+
+    # Closed cases cannot be reassigned.
+    if case.status in {
+        CASE_CLEARED,
+        CASE_CONFIRMED,
+    }:
+        raise ValueError(
+            "Closed cases cannot be reassigned"
+        )
+
+    assigned_to = assigned_to.strip()
+
+    # Prevent blank assignments.
+    if not assigned_to:
+        raise ValueError(
+            "assigned_to must not be blank"
+        )
+
+    case.assigned_to = assigned_to
     case.assigned_at = datetime.now(
         timezone.utc
     )
@@ -188,6 +237,12 @@ def assign_case(
         timezone.utc
     )
 
+    # Assignment is an audit event, not a state transition.
+    #
+    # Therefore:
+    # OPEN -> OPEN
+    # or
+    # UNDER_REVIEW -> UNDER_REVIEW
     history = CaseHistory(
         case_id=case.id,
         from_status=case.status,
@@ -199,6 +254,7 @@ def assign_case(
 
     db.add(case)
     db.add(history)
+
     db.commit()
     db.refresh(case)
 
@@ -214,21 +270,25 @@ def review_case(
     comments: str | None = None,
 ) -> ComplianceCase:
     """
-    Internal case-review workflow.
+    Complete the case-review workflow.
 
-    Flow:
+    Workflow:
 
         OPEN
           ↓
         UNDER_REVIEW
           ↓
         CLEARED / CONFIRMED
-
-    The case is assigned to the reviewer,
-    moved into review, and then resolved.
     """
 
-    decision = decision.upper().strip()
+    reviewer = reviewer.strip()
+
+    if not reviewer:
+        raise ValueError(
+            "reviewer must not be blank"
+        )
+
+    decision = decision.strip().upper()
 
     if decision not in {
         CASE_CLEARED,
@@ -244,7 +304,7 @@ def review_case(
             f"Current status: {case.status}"
         )
 
-    # Step 1: Assign the case to the reviewer.
+    # Assign the case to the reviewer.
     assign_case(
         db=db,
         case=case,
@@ -252,7 +312,7 @@ def review_case(
         changed_by=reviewer,
     )
 
-    # Step 2: Start the review.
+    # Move the case into UNDER_REVIEW.
     transition_case(
         db=db,
         case=case,
@@ -262,7 +322,9 @@ def review_case(
         comments=comments,
     )
 
-    # Step 3: Complete the review.
+    # Resolve the case.
+    #
+    # transition_case() will reject an empty reason.
     transition_case(
         db=db,
         case=case,
@@ -274,3 +336,78 @@ def review_case(
 
     return case
 
+
+def get_case_or_404(
+    db: Session,
+    case_number: str,
+) -> ComplianceCase:
+    case = (
+        db.query(ComplianceCase)
+        .filter(
+            ComplianceCase.case_number == case_number
+        )
+        .first()
+    )
+
+    if not case:
+        raise ValueError("Case not found")
+
+    return case
+
+def get_cases(
+    db: Session,
+    status: str | None = None,
+) -> list[ComplianceCase]:
+    """
+    Get compliance cases, optionally filtered by status.
+    """
+
+    query = db.query(ComplianceCase)
+
+    if status:
+        status = status.strip().upper()
+
+        allowed_statuses = {
+            CASE_OPEN,
+            CASE_UNDER_REVIEW,
+            CASE_CLEARED,
+            CASE_CONFIRMED,
+        }
+
+        if status not in allowed_statuses:
+            raise ValueError(
+                "Invalid status. Allowed values: "
+                "OPEN, UNDER_REVIEW, CLEARED, CONFIRMED"
+            )
+
+        query = query.filter(
+            ComplianceCase.status == status
+        )
+
+    return (
+        query
+        .order_by(
+            ComplianceCase.created_at.desc()
+        )
+        .all()
+    )
+
+
+def get_case_history(
+    db: Session,
+    case: ComplianceCase,
+) -> list[CaseHistory]:
+    """
+    Get the audit history for a compliance case.
+    """
+
+    return (
+        db.query(CaseHistory)
+        .filter(
+            CaseHistory.case_id == case.id
+        )
+        .order_by(
+            CaseHistory.id.asc()
+        )
+        .all()
+    )

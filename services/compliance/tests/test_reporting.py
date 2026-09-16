@@ -28,9 +28,12 @@ def _add_audit(db, entity_name, matched):
 
 
 def _add_case(db, status, created_at, resolved_at=None):
+    entity_name = f"REPORT {status}"
+
     case = ComplianceCase(
         case_number=f"REPORT-{status}-{created_at.timestamp()}",
-        entity_name=f"REPORT {status}",
+        entity_name=entity_name,
+        normalized_entity_name=entity_name.upper(),
         entity_type="supplier",
         country="India",
         matched_name="MATCH" if status != "OPEN" else None,

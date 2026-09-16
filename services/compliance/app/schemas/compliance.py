@@ -141,6 +141,56 @@ class ComplianceResponse(BaseModel):
         "CONFIRMED",
     ] | None = None
 
+class CaseResponse(BaseModel):
+
+    id: int
+
+    case_number: str
+
+    entity_name: str
+
+    entity_type: str
+
+    country: str | None
+
+    matched_name: str | None
+
+    matched_lists: str | None
+
+    match_score: int
+
+    risk_score: float
+
+    screening_tier: str | None
+
+    screening_action: str | None
+
+    status: Literal[
+        "OPEN",
+        "UNDER_REVIEW",
+        "CLEARED",
+        "CONFIRMED",
+    ]
+
+    assigned_to: str | None
+
+    assigned_at: datetime | None
+
+    resolution: str | None
+
+    resolution_reason: str | None
+
+    resolved_at: datetime | None
+
+    created_at: datetime
+
+    updated_at: datetime
+
+class CaseListResponse(BaseModel):
+
+    cases: list[CaseResponse]
+
+    count: int
 
 class BulkComplianceRequest(BaseModel):
 

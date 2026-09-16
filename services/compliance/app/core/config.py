@@ -90,7 +90,26 @@ DEDUPE_THRESHOLD = int(
     )
 )
 
+LOW_TIER_MATCH_THRESHOLD = int(
+    os.getenv(
+        "LOW_TIER_MATCH_THRESHOLD",
+        "90",
+    )
+)
 
+MEDIUM_TIER_MATCH_THRESHOLD = int(
+    os.getenv(
+        "MEDIUM_TIER_MATCH_THRESHOLD",
+        "85",
+    )
+)
+
+HIGH_TIER_MATCH_THRESHOLD = int(
+    os.getenv(
+        "HIGH_TIER_MATCH_THRESHOLD",
+        "80",
+    )
+)
 
 
 CONFIDENCE_WEIGHT = float(

@@ -3,6 +3,9 @@ from app.core.config import (
     MEDIUM_COUNTRY_RISK_MAX,
     LOW_TRANSACTION_VALUE_MAX,
     MEDIUM_TRANSACTION_VALUE_MAX,
+    LOW_TIER_MATCH_THRESHOLD,
+    MEDIUM_TIER_MATCH_THRESHOLD,
+    HIGH_TIER_MATCH_THRESHOLD,
 )
 
 
@@ -65,3 +68,17 @@ def get_screening_action(screening_tier: str) -> str:
     }
 
     return actions[screening_tier]
+
+def get_match_threshold(screening_tier: str) -> int:
+    thresholds = {
+        "LOW": LOW_TIER_MATCH_THRESHOLD,
+        "MEDIUM": MEDIUM_TIER_MATCH_THRESHOLD,
+        "HIGH": HIGH_TIER_MATCH_THRESHOLD,
+    }
+
+    try:
+        return thresholds[screening_tier]
+    except KeyError:
+        raise ValueError(
+            f"Unknown screening tier: {screening_tier}"
+        )

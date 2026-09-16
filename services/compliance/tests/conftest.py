@@ -2,7 +2,7 @@ import pytest
 
 import os
 
-
+os.environ["DATABASE_URL"] = "sqlite:///./test_compliance.db"
 os.environ.setdefault("USE_FIXTURES", "true")
 
 from fastapi.testclient import TestClient

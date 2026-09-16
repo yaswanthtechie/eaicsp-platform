@@ -18,16 +18,7 @@ from app.schemas.compliance import (
     OverrideCreateRequest,
     OverrideResponse,
     ComplianceSummaryResponse,
-)
-
-from app.services.sanctions_service import (
-    screen_entity,
-    screen_bulk,
-)
-
-from app.services.screening_tier_service import (
-    calculate_screening_tier,
-    get_screening_action,
+    CaseListResponse,
 )
 
 from app.services.audit_service import (
@@ -45,21 +36,36 @@ from app.services.override_service import (
 )
 
 from app.services.case_service import (
-    create_case,
     assign_case,
     transition_case,
+    get_case_or_404,
+    get_cases,
+    get_case_history,
 )
 
-from app.models.compliance_case import ComplianceCase
-from app.models.case_history import CaseHistory
+from app.services.compliance_screening_service import (
+    screen_and_open_case,
+    screen_bulk_and_open_cases,
+)
 
 from app.services.reporting_service import (
     get_compliance_summary,
 )
 
-
 router = APIRouter()
 
+def get_actor_identity(auth_data) -> str:
+    user_id = auth_data.get("user_id")
+
+    if user_id is not None:
+        return str(user_id)
+
+    email = auth_data.get("email")
+
+    if email:
+        return email
+
+    return "unknown"
 
 @router.post(
     "/screen",
@@ -72,53 +78,13 @@ def screen(
         require_roles("compliance_officer")
     ),
 ):
-    result = screen_entity(
-        name=request.entity_name,
-        country=request.country,
+    result = screen_and_open_case(
         db=db,
-    )
-
-    result["entity_name"] = request.entity_name
-    result["entity_type"] = request.entity_type
-    result["country"] = request.country
-    result["transaction_value"] = request.transaction_value
-
-    result["source"] = result.get(
-        "matched_lists",
-        [],
-    )
-
-    screening_tier = calculate_screening_tier(
-        country_risk_score=result.get(
-            "country_risk_score",
-            50.0,
-        ),
+        entity_name=request.entity_name,
+        entity_type=request.entity_type,
+        country=request.country,
         transaction_value=request.transaction_value,
     )
-
-    result["screening_tier"] = screening_tier
-
-    result["enhanced_review_required"] = (
-        screening_tier == "HIGH"
-    )
-
-    result["screening_action"] = get_screening_action(
-        screening_tier
-    )
-
-    # Create a case when the entity is flagged.
-    if result.get("is_flagged"):
-        case = create_case(
-            db=db,
-            entity_name=request.entity_name,
-            entity_type=request.entity_type,
-            country=request.country,
-            result=result,
-        )
-
-        result["case_id"] = case.id
-        result["case_number"] = case.case_number
-        result["case_status"] = case.status
 
     write_audit(
         db=db,
@@ -132,7 +98,6 @@ def screen(
 
     return result
 
-
 @router.post(
     "/screen-bulk",
     response_model=BulkComplianceResponse,
@@ -144,81 +109,21 @@ def bulk_screen(
         require_roles("compliance_officer")
     ),
 ):
-    bulk_result = screen_bulk(
-        names=request.entity_names,
-        country=request.country,
+    results = screen_bulk_and_open_cases(
         db=db,
+        entity_names=request.entity_names,
+        entity_type=request.entity_type,
+        country=request.country,
+        transaction_value=request.transaction_value,
     )
-
-    results = []
-
-    for entity_name, result in zip(
-        request.entity_names,
-        bulk_result["results"],
-    ):
-        result["entity_name"] = entity_name
-        result["entity_type"] = request.entity_type
-        result["country"] = request.country
-        result["transaction_value"] = (
-            request.transaction_value
-        )
-
-        result["source"] = result.get(
-            "matched_lists",
-            [],
-        )
-
-        screening_tier = calculate_screening_tier(
-            country_risk_score=result.get(
-                "country_risk_score",
-                50.0,
-            ),
-            transaction_value=request.transaction_value,
-        )
-
-        result["screening_tier"] = screening_tier
-
-        result["enhanced_review_required"] = (
-            screening_tier == "HIGH"
-        )
-
-        result["screening_action"] = get_screening_action(
-            screening_tier
-        )
-
-        # Create or reuse a case for every flagged entity.
-        if result.get("is_flagged"):
-            case = create_case(
-                db=db,
-                entity_name=entity_name,
-                entity_type=request.entity_type,
-                country=request.country,
-                result=result,
-            )
-
-            result["case_id"] = case.id
-            result["case_number"] = case.case_number
-            result["case_status"] = case.status
-
-        results.append(result)
 
     write_bulk_audit(
         db=db,
         entity_names=request.entity_names,
-        results=results,
+        results=results["results"],
     )
 
-    return {
-        "entity_type": request.entity_type,
-        "country": request.country,
-        "count": len(results),
-        "total_duration_ms": bulk_result.get(
-            "total_duration_ms",
-            0,
-        ),
-        "results": results,
-    }
-
+    return results
 
 @router.get(
     "/audit",
@@ -235,7 +140,6 @@ def audit_history(
         entity_name=entity_name,
     )
 
-
 @router.get(
     "/audit/summary",
 )
@@ -246,7 +150,6 @@ def audit_summary(
     ),
 ):
     return get_audit_summary(db)
-
 
 @router.post(
     "/override",
@@ -269,7 +172,6 @@ def add_override(
     )
 
     return override
-
 
 @router.get(
     "/override",
@@ -299,7 +201,6 @@ def read_override(
 
     return override
 
-
 @router.get(
     "/overrides",
     response_model=list[OverrideResponse],
@@ -311,7 +212,6 @@ def read_all_overrides(
     ),
 ):
     return get_all_overrides(db)
-
 
 @router.delete(
     "/override",
@@ -357,6 +257,32 @@ def compliance_summary(
 ):
     return get_compliance_summary(db)
 
+@router.get(
+    "/cases",
+    response_model=CaseListResponse,
+)
+def list_cases(
+    status: str | None = Query(None),
+    db: Session = Depends(get_db),
+    auth_data=Depends(
+        require_roles("compliance_officer")
+    ),
+):
+    try:
+        cases = get_cases(
+            db=db,
+            status=status,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        )
+
+    return {
+        "cases": cases,
+        "count": len(cases),
+    }
 
 @router.get(
     "/cases/{case_number}",
@@ -368,22 +294,18 @@ def get_case(
         require_roles("compliance_officer")
     ),
 ):
-    case = (
-        db.query(ComplianceCase)
-        .filter(
-            ComplianceCase.case_number == case_number
+    try:
+        case = get_case_or_404(
+            db=db,
+            case_number=case_number,
         )
-        .first()
-    )
-
-    if not case:
+    except ValueError as exc:
         raise HTTPException(
             status_code=404,
-            detail="Case not found",
+            detail=str(exc),
         )
 
     return case
-
 
 @router.post(
     "/cases/{case_number}/assign",
@@ -396,27 +318,30 @@ def assign_case_to_officer(
         require_roles("compliance_officer")
     ),
 ):
-    case = (
-        db.query(ComplianceCase)
-        .filter(
-            ComplianceCase.case_number == case_number
+    try:
+        case = get_case_or_404(
+            db=db,
+            case_number=case_number,
         )
-        .first()
-    )
-
-    if not case:
+    except ValueError as exc:
         raise HTTPException(
             status_code=404,
-            detail="Case not found",
+            detail=str(exc),
         )
 
-    return assign_case(
-        db=db,
-        case=case,
-        assigned_to=assigned_to,
-        changed_by="compliance_officer",
-    )
+    try:
+        return assign_case(
+            db=db,
+            case=case,
+            assigned_to=assigned_to,
+            changed_by=get_actor_identity(auth_data),
+        )
 
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        )
 
 @router.post(
     "/cases/{case_number}/status",
@@ -431,26 +356,23 @@ def update_case_status(
         require_roles("compliance_officer")
     ),
 ):
-    case = (
-        db.query(ComplianceCase)
-        .filter(
-            ComplianceCase.case_number == case_number
+    try:
+        case = get_case_or_404(
+            db=db,
+            case_number=case_number,
         )
-        .first()
-    )
-
-    if not case:
+    except ValueError as exc:
         raise HTTPException(
             status_code=404,
-            detail="Case not found",
+            detail=str(exc),
         )
 
     try:
         return transition_case(
             db=db,
             case=case,
-            new_status=new_status.upper(),
-            changed_by="compliance_officer",
+            new_status=new_status.strip().upper(),
+            changed_by=get_actor_identity(auth_data),
             reason=reason,
             comments=comments,
         )
@@ -461,40 +383,29 @@ def update_case_status(
             detail=str(exc),
         )
 
-
 @router.get(
     "/cases/{case_number}/history",
 )
-def get_case_history(
+def get_case_history_route(
     case_number: str,
     db: Session = Depends(get_db),
     auth_data=Depends(
         require_roles("compliance_officer")
     ),
 ):
-    case = (
-        db.query(ComplianceCase)
-        .filter(
-            ComplianceCase.case_number == case_number
+    try:
+        case = get_case_or_404(
+            db=db,
+            case_number=case_number,
         )
-        .first()
-    )
 
-    if not case:
+        return get_case_history(
+            db=db,
+            case=case,
+        )
+
+    except ValueError as exc:
         raise HTTPException(
             status_code=404,
-            detail="Case not found",
+            detail=str(exc),
         )
-
-    history = (
-        db.query(CaseHistory)
-        .filter(
-            CaseHistory.case_id == case.id
-        )
-        .order_by(
-            CaseHistory.id.asc()
-        )
-        .all()
-    )
-
-    return history

@@ -1,37 +1,16 @@
 # Compliance Screening Service
 
-This project is a **Compliance Screening Service** developed using **FastAPI**.
+A **FastAPI-based Compliance Screening Service** for screening supplier and customer entities against sanctions lists, internal watchlists, and PEP data.
 
-The main purpose of this service is to screen supplier and customer entities against sanctions lists, internal watchlists, and PEP data.
+The service supports multi-source screening, exact and fuzzy name matching, risk-based screening tiers, compliance case management, audit history, reporting, sanctions-data refresh, scheduled re-screening, and service-to-service authentication.
 
-The service provides:
 
-* Sanctions screening
-* Internal watchlist and PEP screening
-* Exact and fuzzy name matching
-* Risk-based screening
-* Country risk assessment
-* Transaction-value risk assessment
-* Audit history and analytics
-* False-positive overrides
-* Bulk screening
-* Case management
-* Compliance reporting
-* Sanctions data refresh
-* Scheduled re-screening
-* JWT authentication
-* Role-based authorization
-* Service-to-service authentication
 
-The service uses **SQLite with SQLAlchemy** for audit and case-management data.
+# Overview
 
----
+The Compliance Screening Service is responsible for identifying potentially risky suppliers and customers before or during business operations.
 
-# Features
-
-## Sanctions Screening
-
-The service checks entity names against multiple sources:
+The service screens entities against:
 
 ```text
 OFAC
@@ -41,9 +20,7 @@ Internal Watchlist
 PEP
 ```
 
-All sources are combined into a single screening process.
-
-The matching process includes:
+The general screening flow is:
 
 ```text
 Request
@@ -52,9 +29,13 @@ Validate Input
    ↓
 Normalize Entity Name
    ↓
-Search Sanctions and Watchlists
+Calculate Screening Tier
    ↓
-Exact/Fuzzy Matching
+Select Matching Threshold
+   ↓
+Search Sanctions / Watchlists / PEP
+   ↓
+Exact + Fuzzy Matching
    ↓
 Deduplicate Matches
    ↓
@@ -62,7 +43,7 @@ Calculate Confidence
    ↓
 Calculate Risk
    ↓
-Check Override
+Check False-Positive Override
    ↓
 Create Case if Flagged
    ↓
@@ -71,21 +52,82 @@ Save Audit Record
 Return Response
 ```
 
-Fuzzy matching uses **RapidFuzz WRatio**.
+The service uses:
 
-The matching threshold is configurable:
-
-```env
-MATCH_THRESHOLD=90
-```
+* FastAPI
+* SQLAlchemy
+* SQLite
+* RapidFuzz
+* APScheduler
+* HTTPX
+* JWT-based authentication
+* Platform Service authentication
+* Service API-key authentication
 
 ---
 
-# Source Attribution and Deduplication
 
-When an entity matches more than one source, the response identifies the matching sources.
 
-Example:
+# Features
+
+The service currently supports:
+
+* OFAC screening
+* UN screening
+* EU screening
+* Internal Watchlist screening
+* PEP screening
+* Source attribution
+* Exact name matching
+* Fuzzy name matching
+* Match deduplication
+* Confidence calculation
+* Sanctions risk scoring
+* Country risk assessment
+* Transaction-value risk assessment
+* Risk-based screening tiers
+* Tier-specific matching thresholds
+* False-positive overrides
+* Bulk screening
+* Audit history
+* Audit analytics
+* Compliance case management
+* Case assignment
+* Case state machine
+* Case history
+* Resolution reasons
+* Compliance reporting
+* Sanctions data refresh
+* Re-screening
+* Newly flagged detection
+* Scheduled re-screening
+* JWT authentication
+* Role-based authorization
+* Platform Service integration
+* Service API-key authentication
+* Fixture-based testing
+* Integration testing
+* Performance testing
+
+
+
+# Multi-Source Screening
+
+The service combines multiple compliance data sources into a single screening process.
+
+Supported sources:
+
+```text
+OFAC
+UN
+EU
+Internal Watchlist
+PEP
+```
+
+A single entity can match more than one source.
+
+For example:
 
 ```json
 {
@@ -97,31 +139,82 @@ Example:
 }
 ```
 
-Similar records from different sources are deduplicated using:
+This allows downstream compliance users to understand which sources contributed to the match.
+
+---
+
+# Matching and Deduplication
+
+## Name Normalization
+
+Entity names are normalized before matching.
+
+Examples of normalization include:
+
+```text
+CORPORATION → CORP
+COMPANY     → CO
+LIMITED     → LTD
+INCORPORATED → INC
+&           → AND
+```
+
+Normalization helps reduce formatting differences between user input and sanctions records.
+
+## Exact Matching
+
+Exact matching is performed after normalization.
+
+## Fuzzy Matching
+
+Fuzzy matching uses:
+
+```text
+RapidFuzz WRatio
+```
+
+The default matching threshold is configurable:
+
+```env
+MATCH_THRESHOLD=90
+```
+
+A higher score represents a stronger similarity between the submitted entity and a sanctions/watchlist record.
+
+## Deduplication
+
+Matches from different sources can represent the same underlying entity.
+
+The service deduplicates similar records using:
 
 ```env
 DEDUPE_THRESHOLD=90
 ```
 
-This prevents the same entity from being treated as multiple unrelated matches.
+Source attribution is preserved after deduplication.
+
+This prevents the same entity from being counted as multiple unrelated matches.
 
 ---
 
 # Risk-Based Screening
 
-The service calculates a risk score instead of returning only `matched` or `clean`.
+The service calculates risk information in addition to the screening match result.
 
-Risk calculation considers factors such as:
+Risk-related information can include:
 
 * Match confidence
 * Source coverage
 * Listing recency
 * Country risk
 * Transaction value
+* Overall supplier risk
+
+---
 
 ## Sanctions Risk Score
 
-The sanctions risk score uses:
+The sanctions risk score uses the following configurable weights:
 
 | Risk Factor      | Weight |
 | ---------------- | -----: |
@@ -137,11 +230,13 @@ SOURCE_WEIGHT=0.30
 RECENCY_WEIGHT=0.20
 ```
 
-The weights are configurable through environment variables.
+The weights can be changed through environment variables.
+
+---
 
 ## Overall Supplier Risk
 
-The sanctions risk can be combined with country risk.
+For supplier screening, sanctions risk can be combined with country risk.
 
 Current configuration:
 
@@ -161,59 +256,127 @@ Overall Supplier Risk =
 
 ---
 
-# Risk-Based Screening Tiers
+# Screening Tiers
 
-The screening process can apply different levels of screening depending on risk.
-
-Risk can be influenced by:
+The service uses screening tiers to adjust screening behavior according to:
 
 * Country risk
 * Transaction value
-* Sanctions risk
+
+The tier is calculated **before entity matching**.
+
+The higher-risk tier between country risk and transaction value is selected.
+
+
+
+## Tier Rules
+
+Country risk:
+
+```text
+LOW
+    Country risk <= 39
+
+MEDIUM
+    Country risk <= 69
+
+HIGH
+    Country risk > 69
+```
+
+Transaction value:
+
+```text
+LOW
+    Transaction value < 1,000,000
+
+MEDIUM
+    Transaction value <= 5,000,000
+
+HIGH
+    Transaction value > 5,000,000
+```
+
+The final screening tier is the higher of the country-risk tier and transaction-value tier.
+
+---
+
+## Tier-Specific Matching
+
+The selected tier affects the fuzzy matching threshold.
+
+| Tier   | Match Threshold | Screening Action                      |
+| ------ | --------------: | ------------------------------------- |
+| LOW    |              90 | `STANDARD_SCREENING`                  |
+| MEDIUM |              85 | `ADDITIONAL_COMPLIANCE_REVIEW`        |
+| HIGH   |              80 | `ENHANCED_REVIEW_AND_MANUAL_APPROVAL` |
+
+A lower matching threshold makes screening more sensitive for higher-risk entities.
 
 Configuration:
 
 ```env
-LOW_COUNTRY_RISK_MAX=39
-MEDIUM_COUNTRY_RISK_MAX=69
-
-LOW_TRANSACTION_VALUE_MAX=1000000
-MEDIUM_TRANSACTION_VALUE_MAX=5000000
+LOW_TIER_MATCH_THRESHOLD=90
+MEDIUM_TIER_MATCH_THRESHOLD=85
+HIGH_TIER_MATCH_THRESHOLD=80
 ```
 
-The configuration allows risk rules to be changed without modifying application code.
+The selected tier is calculated before screening and its threshold is passed to the matching engine.
+
+The screening result can include:
+
+```text
+screening_tier
+screening_action
+country_risk_score
+transaction_value
+enhanced_review_required
+```
 
 ---
 
 # Country Risk
 
+Country risk is calculated for the submitted entity country.
+
 The screening result can contain:
 
 * Country
 * Country risk score
-* Risk factors
+* Country risk factors
 * Overall supplier risk
 
-Country risk is combined with sanctions risk to calculate the overall supplier risk.
+Unknown countries use the configured default:
+
+```env
+UNKNOWN_COUNTRY_RISK=50.0
+```
+
+Country risk contributes to overall supplier risk for supplier screening.
 
 ---
 
 # Case Management
 
-Flagged screening results can be converted into compliance cases.
+Flagged screening results can create compliance cases.
 
-Case management allows compliance users to:
+Case management supports:
 
-* Create cases
-* Assign cases
-* Start reviews
-* Clear cases
-* Confirm cases
-* Record resolution reasons
-* Add comments
-* Maintain case history
+* Creating cases
+* Assigning cases
+* Starting reviews
+* Clearing cases
+* Confirming cases
+* Recording resolution reasons
+* Maintaining case history
+* Tracking assignment timestamps
+* Tracking resolution timestamps
+
+---
 
 ## Case Workflow
+
+Cases follow the state machine:
 
 ```text
 OPEN
@@ -235,9 +398,43 @@ CONFIRMED
 
 Invalid state transitions are rejected.
 
+---
+
+## Case Assignment
+
+Open and under-review cases can be assigned to compliance officers.
+
+Blank assignments are rejected.
+
+Closed cases cannot be reassigned.
+
+Closed statuses are:
+
+```text
+CLEARED
+CONFIRMED
+```
+
+---
+
+## Case Resolution
+
+A resolution reason is required when closing a case.
+
+The following transitions require a reason:
+
+```text
+UNDER_REVIEW → CLEARED
+UNDER_REVIEW → CONFIRMED
+```
+
+This ensures that the compliance decision contains an explanation.
+
+---
+
 ## Case History
 
-Important case actions are recorded in the case history.
+Case actions are recorded in case history.
 
 History can contain:
 
@@ -248,7 +445,7 @@ History can contain:
 * Comments
 * Timestamp
 
-This provides an audit trail for compliance decisions.
+The actor is taken from the authenticated request where applicable rather than using a fixed user identity.
 
 ---
 
@@ -262,7 +459,7 @@ Endpoint:
 GET /api/v1/compliance/reports/compliance-summary
 ```
 
-The report provides information such as:
+The report can provide:
 
 * Screening volume
 * Flagged count
@@ -282,13 +479,11 @@ Example:
 }
 ```
 
-The reporting endpoint requires the:
+The reporting endpoint requires:
 
 ```text
 compliance_officer
 ```
-
-role.
 
 ---
 
@@ -303,7 +498,7 @@ SQLite
 SQLAlchemy
 ```
 
-Audit information can include:
+Audit records can contain:
 
 * Entity name
 * Entity type
@@ -324,12 +519,18 @@ Audit information can include:
 * Screening duration
 * Created timestamp
 
-Screening types include:
+---
+
+## Screening Types
+
+The service supports:
 
 ```text
 INITIAL
 RESCREEN
 ```
+
+Re-screening records can additionally identify whether the entity became newly flagged.
 
 ---
 
@@ -347,7 +548,7 @@ The endpoint requires:
 compliance_officer
 ```
 
-It can provide:
+The summary can provide:
 
 * Total screenings
 * Total flagged screenings
@@ -363,7 +564,7 @@ It can provide:
 
 # False-Positive Overrides
 
-Fuzzy matching can sometimes identify an entity that is not the actual sanctioned entity.
+Fuzzy matching can produce false positives because similar names do not always represent the same entity.
 
 The service supports approved false-positive overrides.
 
@@ -376,7 +577,7 @@ Override information can include:
 * Reviewed by
 * Created timestamp
 
-Available endpoints:
+Available endpoints include:
 
 ```text
 POST   /api/v1/compliance/override
@@ -385,19 +586,32 @@ GET    /api/v1/compliance/overrides
 DELETE /api/v1/compliance/override
 ```
 
-These operations are protected using the `compliance_officer` role.
+Override operations require the:
+
+```text
+compliance_officer
+```
+
+role.
 
 ---
 
 # Bulk Screening
 
-The service supports screening multiple entities in a single request.
+The service supports screening multiple entities in one request.
 
-Bulk screening preserves the input order.
+Bulk screening:
 
-The service also includes performance testing for large batches.
+* Screens multiple entities
+* Preserves input order
+* Applies risk-based screening tiers
+* Uses the tier-specific matching threshold
+* Supports case creation for flagged entities
+* Records screening results
 
-Example performance test:
+Performance testing is included for large batches.
+
+Example:
 
 ```powershell
 python -m pytest tests/test_sanctions.py::test_bulk_screen_500_entities -s -v
@@ -409,13 +623,19 @@ The target performance is:
 < 100 ms
 ```
 
-Actual performance depends on the machine, Python environment, dataset, and system load.
+Actual performance depends on:
+
+* Machine hardware
+* Python version
+* Dataset size
+* Database state
+* System load
 
 ---
 
 # Sanctions Data
 
-Sanctions data is available from:
+The service supports sanctions data from:
 
 ```text
 OFAC
@@ -423,7 +643,7 @@ UN
 EU
 ```
 
-Additional screening data comes from:
+Additional screening sources are:
 
 ```text
 Internal Watchlist
@@ -444,9 +664,9 @@ app/data/fixtures/
 
 # Sanctions Data Refresh
 
-The service can refresh sanctions data before re-screening.
+Sanctions data can be refreshed before re-screening.
 
-The refresh process is:
+The refresh flow is:
 
 ```text
 Download OFAC
@@ -464,9 +684,9 @@ Build Index
 Ready for Screening
 ```
 
-Download URLs are configured through environment variables.
+Download URLs are configured using environment variables.
 
-The application should fail when required sanctions data cannot be loaded rather than silently approving all entities.
+The application should fail when required sanctions data cannot be loaded rather than silently treating missing data as clean.
 
 ---
 
@@ -488,6 +708,10 @@ Screen Entity Again
 Compare New Result
         ↓
 Save RESCREEN Audit
+        ↓
+Identify Newly Flagged Entities
+        ↓
+Create Case if Required
 ```
 
 The latest audit result is used when determining whether an entity is currently cleared.
@@ -500,7 +724,7 @@ ABC COMPANY → clean
 ABC COMPANY → matched
 ```
 
-The latest result is `matched`, so the entity is not considered previously cleared.
+The latest result is `matched`, so the entity is not treated as previously cleared.
 
 If:
 
@@ -511,21 +735,25 @@ ABC COMPANY → clean
 
 the entity can be selected for re-screening.
 
-## Newly Flagged
+---
+
+## Newly Flagged Detection
 
 An entity is newly flagged when:
 
 ```text
-Previous result = clean
-Current result = matched
+Previous Result = Clean
+Current Result  = Matched
 ```
 
-The audit record contains:
+The resulting audit record contains:
 
 ```text
 screening_type = RESCREEN
 newly_flagged = true
 ```
+
+A newly flagged entity can also result in an open compliance case.
 
 ---
 
@@ -539,16 +767,13 @@ The scheduled process:
 2. Refreshes sanctions data.
 3. Finds previously cleared entities.
 4. Re-screens those entities.
-5. Saves the results.
+5. Saves audit results.
 6. Identifies newly flagged entities.
+7. Creates cases for newly flagged entities when applicable.
 
 The scheduler controls **when** the job runs.
 
 The re-screening service controls **what happens during the job**.
-
-For development/testing, a short interval can be configured.
-
-Production should use an appropriate nightly schedule.
 
 The scheduler uses:
 
@@ -556,19 +781,25 @@ The scheduler uses:
 max_instances=1
 ```
 
-to prevent multiple copies of the same job from running at the same time.
+to prevent multiple instances of the same scheduled job from running simultaneously.
+
+For development and testing, a short interval can be configured.
+
+Production deployments should use an appropriate nightly schedule.
 
 ---
 
 # Service-to-Service Authentication
 
-The scheduled re-screening process is a system process rather than a human user.
+Scheduled re-screening is a system process rather than a human user.
 
-Therefore, it does not use a human JWT.
+Therefore, the scheduled job does not use a human JWT.
 
 Instead, the Compliance Service authenticates with the Platform/Auth Service using a service API key.
 
-The Platform/Auth Service runs on:
+The Platform/Auth Service is configured separately.
+
+Default local configuration:
 
 ```text
 http://127.0.0.1:8005
@@ -586,10 +817,14 @@ The API key is sent using:
 X-API-Key
 ```
 
-The flow is:
+---
+
+## Service Authentication Flow
 
 ```text
 Scheduled Job
+      ↓
+Read Service API Key
       ↓
 Authenticate with Platform
       ↓
@@ -597,14 +832,14 @@ Platform verifies API key
       ↓
 Authentication successful?
       ↓
-   Yes ─────────────→ Run re-screening
-      |
-     No
-      ↓
-Stop the job
+   ┌──┴──┐
+  Yes    No
+   ↓      ↓
+Run     Stop Job
+Job
 ```
 
-A successful response looks like:
+A successful response is expected to contain information similar to:
 
 ```json
 {
@@ -614,7 +849,7 @@ A successful response looks like:
 }
 ```
 
-If authentication fails, the re-screening process does not continue.
+If authentication fails, the re-screening process stops.
 
 This provides **fail-closed behavior**.
 
@@ -622,7 +857,9 @@ This provides **fail-closed behavior**.
 
 # Service API Key Configuration
 
-The real service API key is stored locally in `.env`:
+The real service API key must be stored outside source control.
+
+Local `.env`:
 
 ```env
 PLATFORM_AUTH_URL=http://127.0.0.1:8005
@@ -631,7 +868,7 @@ PLATFORM_SERVICE_API_KEY=<real-secret>
 
 The real API key must **never be committed to Git**.
 
-The `.env.example` file should contain only:
+The `.env.example` file should contain only a placeholder:
 
 ```env
 PLATFORM_AUTH_URL=http://127.0.0.1:8005
@@ -640,17 +877,25 @@ PLATFORM_SERVICE_API_KEY=your-compliance-service-api-key
 
 The `.env` file should be included in `.gitignore`.
 
-The service API key must not be printed in logs or included in documentation.
+The API key must not be:
+
+* Printed in logs
+* Added to README files
+* Added to test source code
+* Committed to Git
+* Included in API examples
+
+Automated tests use dummy values through mocking rather than requiring the developer's real API key.
 
 ---
 
 # Authentication and Authorization
 
-The Compliance Service integrates with the Platform/Auth Service for user authentication and authorization.
+The Compliance Service integrates with the Platform/Auth Service for human authentication and authorization.
 
 Human users authenticate using JWT access tokens.
 
-The general flow is:
+General flow:
 
 ```text
 Client
@@ -668,22 +913,26 @@ Role Check
 Allow / Reject
 ```
 
-The main role used by the Compliance Service is:
+The primary role used by protected Compliance operations is:
 
 ```text
 compliance_officer
 ```
 
-Typical authentication responses are:
+---
+
+## Authentication Responses
+
+Typical responses are:
 
 ```text
 Missing token
     → 401 Unauthorized
 
-Invalid/expired token
+Invalid / expired token
     → 401 Unauthorized
 
-Valid token but wrong role
+Valid token but incorrect role
     → 403 Forbidden
 
 Platform unavailable
@@ -694,16 +943,19 @@ Platform unavailable
 
 # Protected Compliance Operations
 
-Role-protected operations use the:
+Role-protected operations use:
 
 ```text
 compliance_officer
 ```
 
+This includes protected screening, audit, override, case-management, and reporting operations as configured by the application.
+
+---
 
 # Authentication Request Logging
 
-Authentication requests can include tracing information such as:
+Authentication-related requests can include tracing information such as:
 
 ```text
 Caller service
@@ -717,7 +969,58 @@ User ID
 Role
 ```
 
-This helps trace requests between the Compliance Service and Platform Service.
+This information helps trace requests between the Compliance Service and Platform Service.
+
+---
+
+# Configuration
+
+Create a `.env` file in the project root.
+
+Example:
+
+```env
+DATABASE_URL=sqlite:///./compliance.db
+
+SERVICE_NAME=compliance-service
+ENVIRONMENT=development
+
+MATCH_THRESHOLD=90
+DEDUPE_THRESHOLD=90
+
+LOW_TIER_MATCH_THRESHOLD=90
+MEDIUM_TIER_MATCH_THRESHOLD=85
+HIGH_TIER_MATCH_THRESHOLD=80
+
+CONFIDENCE_WEIGHT=0.50
+SOURCE_WEIGHT=0.30
+RECENCY_WEIGHT=0.20
+
+SANCTIONS_WEIGHT=0.80
+COUNTRY_RISK_WEIGHT=0.20
+UNKNOWN_COUNTRY_RISK=50.0
+
+TOTAL_SOURCES=5
+
+LOW_COUNTRY_RISK_MAX=39
+MEDIUM_COUNTRY_RISK_MAX=69
+
+LOW_TRANSACTION_VALUE_MAX=1000000
+MEDIUM_TRANSACTION_VALUE_MAX=5000000
+
+PLATFORM_AUTH_URL=http://127.0.0.1:8005
+PLATFORM_SERVICE_API_KEY=<real-secret>
+```
+
+Do not place the real API key in:
+
+```text
+.env.example
+README.md
+Git
+Tests
+Logs
+```
 
 ---
 
@@ -725,14 +1028,14 @@ This helps trace requests between the Compliance Service and Platform Service.
 
 Automated tests use local fixture data.
 
-This makes tests:
+Fixture mode provides:
 
-* Faster
-* Stable
-* Independent of external internet access
-* Easier to reproduce
+* Faster tests
+* Stable test results
+* No dependency on external internet access
+* Reproducible test data
 
-Enable fixture mode:
+Enable fixture mode in PowerShell:
 
 ```powershell
 $env:USE_FIXTURES="true"
@@ -756,11 +1059,21 @@ true
 
 ## Run All Tests
 
+From:
+
+```text
+services/compliance
+```
+
+run:
+
 ```powershell
 python -m pytest -q
 ```
 
-The current test suite has been verified successfully.
+The Round 6 test suite has been verified successfully.
+
+---
 
 ## Authentication Tests
 
@@ -768,13 +1081,25 @@ The current test suite has been verified successfully.
 python -m pytest -q tests/test_auth_integration.py
 ```
 
+---
+
 ## Scheduled Job Authentication Tests
 
 ```powershell
 python -m pytest tests/test_rescreen_auth.py -v
 ```
 
+These tests mock the service API key so they do not depend on a real secret in `.env`.
 
+---
+
+## Re-Screening Tests
+
+```powershell
+python -m pytest tests/test_rescreen.py -v
+```
+
+---
 
 ## Risk Configuration Tests
 
@@ -782,36 +1107,56 @@ python -m pytest tests/test_rescreen_auth.py -v
 python -m pytest -q tests/test_risk_config.py
 ```
 
-## Live Download Tests
+---
+
+## Reporting Tests
+
+```powershell
+python -m pytest tests/test_reporting.py -q
+```
+
+---
+
+## Bulk Performance Test
+
+```powershell
+python -m pytest tests/test_sanctions.py::test_bulk_screen_500_entities -s -v
+```
+
+---
+
+## Integration Tests
+
+To test live sanctions downloads:
 
 ```powershell
 $env:USE_FIXTURES="false"
+
 python -m pytest -m integration -v -s
 ```
 
+Live integration tests depend on external sanctions providers and network availability.
+
+---
+
 ## Collect Tests
+
+To see the tests collected by pytest:
 
 ```powershell
 python -m pytest --collect-only -q
 ```
 
----
 
-# Installation
 
-## Create Virtual Environment
 
 ```powershell
 python -m venv venv
 ```
-
-## Activate Virtual Environment
-
 ```powershell
 .\venv\Scripts\Activate.ps1
 ```
-
-## Install Dependencies
+## 4. Install Dependencies
 
 ```powershell
 pip install -r requirements.txt
@@ -819,47 +1164,15 @@ pip install -r requirements.txt
 
 ---
 
-# Configuration
+## 5. Configure Environment Variables
 
-Create a `.env` file in the project root.
+Create:
 
-Example:
-
-```env
-DATABASE_URL=sqlite:///./compliance.db
-
-SERVICE_NAME=compliance-service
-ENVIRONMENT=development
-
-MATCH_THRESHOLD=90
-DEDUPE_THRESHOLD=90
-
-CONFIDENCE_WEIGHT=0.50
-SOURCE_WEIGHT=0.30
-RECENCY_WEIGHT=0.20
-
-SANCTIONS_WEIGHT=0.80
-COUNTRY_RISK_WEIGHT=0.20
-UNKNOWN_COUNTRY_RISK=50.0
-
-TOTAL_SOURCES=5
-
-LOW_COUNTRY_RISK_MAX=39
-MEDIUM_COUNTRY_RISK_MAX=69
-
-LOW_TRANSACTION_VALUE_MAX=1000000
-MEDIUM_TRANSACTION_VALUE_MAX=5000000
-
-PLATFORM_AUTH_URL=http://127.0.0.1:8005
-
-PLATFORM_SERVICE_API_KEY=<real-secret>
+```text
+.env
 ```
 
-Do not put the real API key in `.env.example`, README files, or Git.
-
-URLs in `.env` must be written directly.
-
-Do not use Markdown formatting around URLs.
+and configure the required values described in the [Configuration](#configuration) section.
 
 ---
 
@@ -871,7 +1184,7 @@ Start the Compliance Service:
 python -m uvicorn app.main:app --reload
 ```
 
-The service runs on:
+The service runs locally on:
 
 ```text
 http://127.0.0.1:8000
@@ -889,7 +1202,7 @@ The Platform/Auth Service should run separately on:
 http://127.0.0.1:8005
 ```
 
-when authentication testing is required.
+when authentication or service-to-service authentication is being tested.
 
 ---
 
@@ -906,7 +1219,7 @@ The scheduler starts the re-screening process according to its configured schedu
 Example flow:
 
 ```text
-Starting nightly re-screen...
+Starting scheduled re-screen...
         ↓
 Platform authentication
         ↓
@@ -919,12 +1232,14 @@ Finding previously cleared entities
 Re-screening
         ↓
 Saving audit results
+        ↓
+Creating cases for newly flagged entities
 ```
 
 If authentication fails:
 
 ```text
-Starting nightly re-screen...
+Starting scheduled re-screen...
         ↓
 Platform authentication failed
         ↓
@@ -941,7 +1256,7 @@ The project currently uses:
 SQLite
 ```
 
-Database file:
+Default database:
 
 ```text
 compliance.db
@@ -951,48 +1266,119 @@ The database stores:
 
 * Screening audit records
 * Re-screening results
-* Case information
+* Compliance cases
 * Case history
+* Override information
+
+SQLite is primarily intended for development and testing.
+
+
+# Environment and Security
+
+Secrets must remain outside source control.
+
+Recommended local setup:
+
+```text
+.env
+    ↓
+Environment variables
+    ↓
+Application configuration
+```
+
+Do not commit:
+
+```text
+.env
+Real API keys
+Passwords
+JWT secrets
+Production credentials
+```
+
+Use placeholders in `.env.example`.
 
 ---
 
 # Known Limitations
 
-### External Sanctions Sources
+## External Sanctions Providers
 
 OFAC, UN, and EU data depend on external providers.
 
 If a provider is unavailable or changes its format, the refresh process may fail.
 
-### SQLite
+The service is designed to fail rather than silently treat missing required sanctions data as clean.
+
+---
+
+## SQLite
 
 SQLite is currently used for development and testing.
 
-A production deployment should use a production-grade database and migration strategy.
+A production deployment should use a production-grade database and an appropriate migration strategy.
 
+---
 
-### Re-Screening Data
+## Re-Screening Data
 
 Re-screening depends on existing audit records.
 
 If there are no previously cleared entities, the job correctly reports zero entities to re-screen.
 
-### Fuzzy Matching
+---
+
+## Fuzzy Matching
 
 Fuzzy matching can produce false positives because similar names do not always represent the same entity.
 
-The matching threshold and false-positive override mechanism help manage these cases.
+The matching threshold, risk-based thresholds, deduplication, and false-positive override mechanisms help manage these cases.
 
-### Service API Key
+---
 
-The scheduled re-screening job requires successful service authentication with Platform/Auth.
+## Service API Key
 
-The real API key must remain outside source control.
+Scheduled re-screening requires successful authentication with the Platform/Auth Service.
 
+The real service API key must remain outside source control.
 
+Automated tests should use mocked/dummy credentials rather than real secrets.
 
+---
 
-The Compliance Screening Service currently supports:
+# Development Notes
+
+For local development:
+
+```text
+Compliance Service
+    ↓
+127.0.0.1:8000
+
+Platform/Auth Service
+    ↓
+127.0.0.1:8005
+```
+
+Fixture mode can be used for deterministic local testing:
+
+```powershell
+$env:USE_FIXTURES="true"
+```
+
+Live sanctions downloads can be tested using:
+
+```powershell
+$env:USE_FIXTURES="false"
+python -m pytest -m integration -v -s
+```
+
+---
+
+# Current Implementation Summary
+
+The current Round 6 implementation includes:
 
 ```text
 ✓ OFAC screening
@@ -1000,33 +1386,48 @@ The Compliance Screening Service currently supports:
 ✓ EU screening
 ✓ Internal Watchlist screening
 ✓ PEP screening
+
 ✓ Source attribution
-✓ Deduplication
+✓ Match deduplication
 ✓ Exact matching
 ✓ Fuzzy matching
-✓ Risk-based screening
+
+✓ Sanctions risk scoring
 ✓ Country risk
 ✓ Transaction-value risk
+✓ Risk-based screening tiers
+✓ Tier-specific matching thresholds
 ✓ Configurable risk weights
+
 ✓ Audit history
 ✓ Audit analytics
 ✓ False-positive overrides
 ✓ Bulk screening
-✓ Case management
+
+✓ Compliance case management
+✓ Case assignment
 ✓ Case state machine
 ✓ Case history
+✓ Resolution reasons
+✓ Closed-case reassignment protection
+
 ✓ Compliance reporting
+
 ✓ Sanctions data refresh
 ✓ Re-screening
 ✓ Newly flagged detection
+✓ Newly flagged case creation
 ✓ Scheduled re-screening
+
 ✓ JWT authentication
 ✓ Role-based authorization
 ✓ Platform Service integration
 ✓ Service API-key authentication
-✓ Authentication failure handling
+✓ Fail-closed authentication
+
 ✓ Fixture-based testing
-✓ Live download testing
 ✓ Authentication testing
+✓ Re-screening testing
+✓ Integration testing
 ✓ Performance testing
 ```

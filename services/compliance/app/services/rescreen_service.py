@@ -14,6 +14,7 @@ from app.core.config import (
 from app.core.database import SessionLocal
 from app.models.audit import ComplianceAudit
 from app.services.audit_service import write_audit
+from app.services.case_service import create_case
 from app.services.sanctions_service import (
     apply_override,
     refresh_sanctions_data,
@@ -131,6 +132,16 @@ def rescreen_entity(
             False,
         )
     )
+
+    if is_flagged:
+        create_case(
+            db=db,
+            entity_name=entity_name,
+            entity_type="supplier",
+
+            country=country,
+            result=result,
+        )
 
     risk_score = result.get(
         "risk_score",
@@ -296,3 +307,4 @@ def nightly_rescreen_job() -> dict[str, Any]:
     )
 
     return result
+
