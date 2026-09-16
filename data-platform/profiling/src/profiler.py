@@ -57,7 +57,7 @@ class Profiler:
 
         if isinstance(obj, dict):
             return {
-                key: self._make_json_serializable(value)
+                self._make_json_serializable(key): self._make_json_serializable(value)
                 for key, value in obj.items()
             }
 

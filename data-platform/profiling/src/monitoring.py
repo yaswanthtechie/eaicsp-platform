@@ -215,3 +215,49 @@ class MonitoringHistory:
             "column": column_name,
             "values": values
         }
+
+    def compare_runs(self, metric, last_n=5):
+        history = self.load_history()
+
+        if not history:
+            return {
+                "metric": metric,
+                "runs": 0,
+                "values": [],
+                "change": None,
+                "trend": "No Data"
+            }
+
+        recent_history = history[-last_n:]
+
+        values = []
+
+        for batch in recent_history:
+            if metric in batch:
+                values.append(batch[metric])
+
+        if len(values) < 2:
+            return {
+                "metric": metric,
+                "runs": len(values),
+                "values": values,
+                "change": None,
+                "trend": "Not Enough Data"
+            }
+
+        change = values[-1] - values[0]
+
+        if change > 0:
+            trend = "Increasing"
+        elif change < 0:
+            trend = "Decreasing"
+        else:
+            trend = "Stable"
+
+        return {
+            "metric": metric,
+            "runs": len(values),
+            "values": values,
+            "change": change,
+            "trend": trend
+        }

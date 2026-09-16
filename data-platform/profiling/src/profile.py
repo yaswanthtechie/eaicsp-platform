@@ -5,6 +5,7 @@ from src.compare import compare
 from src.trend import generate_null_rate_trend
 from src.anomaly import analyze_anomaly_correlation
 from src.quality_scorecard import generate_quality_scorecard
+from src.insights import generate_insights
 
 import re
 
@@ -299,7 +300,8 @@ def profile(df):
         "worst_issues":[],
         "top_correlations": [],
         "anomaly_correlation": {},
-        "sparklines": {}
+        "sparklines": {},
+        "insights": []
     }
 
     # Detect first date-like column
@@ -370,6 +372,7 @@ def profile(df):
         df,
         uniqueness_columns=uniqueness_columns
     )
+    report["insights"] = generate_insights(df, report)
     # Data Quality Score
     report["quality_score"] = calculate_quality_score(df, report)
     report["worst_issues"] = find_worst_issues(df, report)
