@@ -4,13 +4,13 @@ import pickle
 from pathlib import Path
 
 import pandas as pd
+from prophet.serialize import model_from_json
+
+from src.data import load_sales_data
 from src.external_regressors import (
     add_external_regressors,
     validate_external_regressors,
 )
-from prophet.serialize import model_from_json
-
-from src.data import load_sales_data
 from src.inference import predict_future_xgboost
 from src.ensemble import (
     weighted_ensemble,
@@ -69,7 +69,10 @@ def validate_prediction_history(
     the input data is invalid.
     """
 
-    required_columns = ["ds", "y"]
+    required_columns = [
+        "ds",
+        "y",
+    ]
 
     # --------------------------------------------------------
     # Required columns
@@ -210,14 +213,14 @@ def load_prophet_model():
         2. output/prophet_model.json
 
     The promoted model is preferred for production.
-    The output model is used as a fallback so that
-    clean checkouts and tests do not fail when promoted
-    artifacts are not committed.
+    The output model is used as a fallback.
     """
 
     if PROMOTED_PROPHET_MODEL_PATH.exists():
 
-        model_path = PROMOTED_PROPHET_MODEL_PATH
+        model_path = (
+            PROMOTED_PROPHET_MODEL_PATH
+        )
 
         print(
             "\nUsing promoted Prophet model:"
@@ -225,7 +228,9 @@ def load_prophet_model():
 
     elif FALLBACK_PROPHET_MODEL_PATH.exists():
 
-        model_path = FALLBACK_PROPHET_MODEL_PATH
+        model_path = (
+            FALLBACK_PROPHET_MODEL_PATH
+        )
 
         print(
             "\nPromoted Prophet model not found."
@@ -295,7 +300,9 @@ def load_xgb_package():
 
     if PROMOTED_XGB_MODEL_PATH.exists():
 
-        model_path = PROMOTED_XGB_MODEL_PATH
+        model_path = (
+            PROMOTED_XGB_MODEL_PATH
+        )
 
         print(
             "Using promoted XGBoost model:"
@@ -303,7 +310,9 @@ def load_xgb_package():
 
     elif FALLBACK_XGB_MODEL_PATH.exists():
 
-        model_path = FALLBACK_XGB_MODEL_PATH
+        model_path = (
+            FALLBACK_XGB_MODEL_PATH
+        )
 
         print(
             "Promoted XGBoost model not found."
@@ -400,7 +409,9 @@ def load_ensemble_weights():
 
     if PROMOTED_WEIGHTS_PATH.exists():
 
-        weights_path = PROMOTED_WEIGHTS_PATH
+        weights_path = (
+            PROMOTED_WEIGHTS_PATH
+        )
 
         print(
             "Using promoted ensemble weights:"
@@ -408,7 +419,9 @@ def load_ensemble_weights():
 
     elif FALLBACK_WEIGHTS_PATH.exists():
 
-        weights_path = FALLBACK_WEIGHTS_PATH
+        weights_path = (
+            FALLBACK_WEIGHTS_PATH
+        )
 
         print(
             "Promoted ensemble weights not found."
@@ -545,6 +558,98 @@ def load_ensemble_weights():
 
 
 # ============================================================
+# VALIDATE FORECAST DATES
+# ============================================================
+
+def validate_forecast_dates(
+    prophet_future: pd.DataFrame,
+    xgb_future: list,
+) -> None:
+    """
+    Validate that Prophet and XGBoost produce forecasts
+    for exactly the same dates.
+
+    This prevents blending predictions belonging to
+    different months.
+    """
+
+    # --------------------------------------------------------
+    # Prophet dates
+    # --------------------------------------------------------
+
+    prophet_dates = pd.Series(
+        pd.to_datetime(
+            prophet_future["ds"]
+        )
+    ).reset_index(drop=True)
+
+    # --------------------------------------------------------
+    # XGBoost dates
+    # --------------------------------------------------------
+
+    try:
+
+        xgb_dates = pd.Series(
+            pd.to_datetime(
+                [
+                    row["date"]
+                    for row in xgb_future
+                ]
+            )
+        ).reset_index(drop=True)
+
+    except (
+        KeyError,
+        TypeError,
+        ValueError,
+    ) as exc:
+
+        raise ValueError(
+            "Invalid XGBoost forecast output: "
+            "each forecast row must contain a valid "
+            "'date' field."
+        ) from exc
+
+    # --------------------------------------------------------
+    # Length check
+    # --------------------------------------------------------
+
+    if len(prophet_dates) != len(xgb_dates):
+
+        raise ValueError(
+            "Prophet and XGBoost forecast date lengths "
+            "do not match. "
+            f"Prophet: {len(prophet_dates)}, "
+            f"XGBoost: {len(xgb_dates)}."
+        )
+
+    # --------------------------------------------------------
+    # Date equality check
+    # --------------------------------------------------------
+
+    if not prophet_dates.equals(
+        xgb_dates
+    ):
+
+        prophet_date_list = (
+            prophet_dates
+            .dt.strftime("%Y-%m-%d")
+            .tolist()
+        )
+
+        xgb_date_list = (
+            xgb_dates
+            .dt.strftime("%Y-%m-%d")
+            .tolist()
+        )
+
+        raise ValueError(
+            "Prophet and XGBoost forecast dates do not "
+            "match. "
+            f"Prophet dates: {prophet_date_list}. "
+            f"XGBoost dates: {xgb_date_list}."
+        )
+# ============================================================
 # PREDICT
 # ============================================================
 
@@ -563,9 +668,13 @@ def predict(
         Legacy fallback models
 
     IMPORTANT:
-    Input history is validated BEFORE model loading.
-    This guarantees that invalid input raises the expected
-    ValueError even when promoted model artifacts are absent.
+
+    Future Prophet dates are generated from the last date
+    in the actual input history, not from the Prophet model's
+    own historical training range.
+
+    Prophet and XGBoost forecast dates are also validated
+    before their predictions are blended.
     """
 
     # ========================================================
@@ -665,23 +774,81 @@ def predict(
     # 9. Prophet Forecast
     # ========================================================
 
-    future = prophet_model.make_future_dataframe(
+    # IMPORTANT:
+    #
+    # Do NOT use:
+    #
+    # prophet_model.make_future_dataframe(...)
+    #
+    # because the promoted Prophet model may have an older
+    # training history than the actual production dataset.
+    #
+    # Instead, generate future dates from the latest date
+    # in the actual input history.
+
+    last_actual_date = pd.to_datetime(
+        history["ds"]
+    ).max()
+
+    prophet_future_dates = pd.date_range(
+        start=(
+            last_actual_date
+            + pd.offsets.MonthBegin(1)
+        ),
         periods=horizon_months,
         freq="MS",
     )
 
-    # Add the same external regressors used during Prophet training
-    future_regressors = future[["ds"]].copy()
-    future_regressors = future_regressors.rename(columns={"ds": "date"})
+    future = pd.DataFrame(
+        {
+            "ds": prophet_future_dates
+        }
+    )
 
-    future_regressors = add_external_regressors(future_regressors)
+    # --------------------------------------------------------
+    # Add external regressors
+    # --------------------------------------------------------
 
-    future = future_regressors.rename(columns={"date": "ds"})
+    future_regressors = (
+        future[["ds"]]
+        .copy()
+    )
 
-    validate_external_regressors(future)
+    future_regressors = (
+        future_regressors.rename(
+            columns={
+                "ds": "date"
+            }
+        )
+    )
 
-    prophet_forecast = prophet_model.predict(future)
-    
+    future_regressors = (
+        add_external_regressors(
+            future_regressors
+        )
+    )
+
+    future = (
+        future_regressors.rename(
+            columns={
+                "date": "ds"
+            }
+        )
+    )
+
+    validate_external_regressors(
+        future
+    )
+
+    # --------------------------------------------------------
+    # Prophet prediction
+    # --------------------------------------------------------
+
+    prophet_forecast = (
+        prophet_model.predict(
+            future
+        )
+    )
 
     prophet_future = (
         prophet_forecast
@@ -722,6 +889,19 @@ def predict(
         )
 
     # ========================================================
+    # 11A. Forecast Date Alignment Validation
+    # ========================================================
+
+    validate_forecast_dates(
+        prophet_future,
+        xgb_future,
+    )
+
+    prophet_dates = pd.to_datetime(
+        prophet_future["ds"]
+    ).reset_index(drop=True)
+
+    # ========================================================
     # 12. Ensemble Forecast
     # ========================================================
 
@@ -737,6 +917,10 @@ def predict(
 
         xgb_row = (
             xgb_future[i]
+        )
+
+        forecast_date = (
+            prophet_dates.iloc[i]
         )
 
         # ----------------------------------------------------
@@ -836,9 +1020,7 @@ def predict(
 
         forecast.append(
             {
-                "date": prophet_row[
-                    "ds"
-                ].strftime(
+                "date": forecast_date.strftime(
                     "%Y-%m-%d"
                 ),
 

@@ -638,9 +638,9 @@ def main():
 
     )
     mlflow.log_metrics({
-    "overall_mape": monitoring_result["metrics"]["mape"],
-    "latest_rolling_mape": monitoring_result["latest_rolling_mape"],
-    "monitoring_rmse": monitoring_result["metrics"]["rmse"],
+        "overall_mape": monitoring_result["metrics"]["mape"],
+        "latest_rolling_mape": monitoring_result["latest_rolling_mape"],
+        "monitoring_rmse": monitoring_result["metrics"]["rmse"],
     })
 
 

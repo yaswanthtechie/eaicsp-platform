@@ -141,6 +141,52 @@ prophet/
 ├── mlflow.db
 ├── README.md
 └── requirements.txt
+
+
+
+
+### Seasonal-Naive Baseline Context
+
+The seasonal-naive baseline is used as a reference point for evaluating
+forecast quality. It predicts each future month using the demand observed
+in the same month of the previous year.
+
+The current model evaluation should be interpreted alongside this baseline,
+rather than viewing the R5 MAPE in isolation.
+
+The promoted R5 model achieved a MAPE of approximately 1.19%. This relatively
+low error is reported with the seasonal-naive baseline as additional context.
+The time-based evaluation split was retained to avoid using future observations
+during model training.
+
+The seasonal-naive baseline is not used for production serving; it is included
+only as a benchmark for model evaluation.
+### Evaluation Winner vs Production Model
+
+The ensemble grid search identifies the best-performing candidate
+on the current evaluation/validation data. This candidate is not
+automatically used for serving.
+
+The candidate is first compared against the currently promoted
+production model using the R5 promotion guardrails:
+
+- MAPE is the primary promotion metric.
+- RMSE is used as a tie-breaker when MAPE values are effectively equal.
+- The candidate is promoted only when it passes the promotion criteria.
+
+Therefore, the grid-search winner and the production serving weights
+may differ.
+
+For the current evaluation:
+
+- Best grid-search candidate: Prophet 0.3 / XGBoost 0.7
+- Promoted production bundle: Prophet 0.7 / XGBoost 0.3
+
+The serving pipeline intentionally loads the promoted production
+weights rather than directly using the latest grid-search winner.
+
+
+
 Milestone 1 – Production Forecasting Pipeline
 Objective
 
@@ -492,6 +538,8 @@ However, the current dataset is aggregate-level retail data and does not contain
 
 Therefore, these fields are currently API interface placeholders and are not used for true SKU-specific forecasting.
 
+
+
 Milestone 1 Conclusion
 
 Milestone 1 implements the complete production forecasting architecture.
@@ -519,6 +567,9 @@ MLflow Tracking
 Status:
 
 Milestone 1: COMPLETED
+
+
+
 Milestone 2 – External Regressors
 Objective
 
@@ -647,6 +698,15 @@ XGBoost Integration    ✓
 Accuracy Comparison    ✓
 
 The current dataset did not show accuracy improvement.
+
+Milestone 2 – External Regressors:
+External regressors (is_holiday, promotion, and weather_index)
+were implemented and evaluated. They did not improve forecasting
+accuracy on the current dataset, so the promoted R5 production
+Prophet model intentionally does not use external regressors.
+
+The serving pipeline remains compatible with regressor-enabled
+Prophet models.
 
 
 
@@ -920,6 +980,9 @@ and compare:
 Normal Forecast
         VS
 Promotion Forecast
+
+
+Scenario promotion sizes are illustrative and should not be interpreted as precise business uplift estimates, because the promotion signal is fixed to recurring months and overlaps with seasonal patterns.
 
 Status:
 

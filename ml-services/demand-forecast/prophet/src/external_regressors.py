@@ -67,8 +67,8 @@ def add_external_regressors(
     # Mock Weather Feature
     # ==========================================
 
-    np.random.seed(42)
-
+    rng = np.random.default_rng(42)
+    
     data["weather_index"] = np.random.uniform(
         0.0,
         1.0,
