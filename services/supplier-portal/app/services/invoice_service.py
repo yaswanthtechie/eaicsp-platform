@@ -336,33 +336,22 @@ def _validate_invoice_line_item(
         )
 
     # ---------------------------------------------------------
-    # 7. Validate unit price tolerance
+    # 7. Capture PO and invoice prices for three-way matching
+    # ---------------------------------------------------------
+    #
+    # IMPORTANT:
+    # Price differences are legitimate business discrepancies.
+    # They must reach the three-way match stage so that the
+    # matching service can flag them for human review.
+    #
+    # Therefore, invoice creation must NOT reject a price
+    # simply because it is outside the 5% matching tolerance.
     # ---------------------------------------------------------
 
     po_unit_price = float(
         po_item["unit_price"]
     )
-
-    minimum_unit_price = (
-        po_unit_price * (1 - TOLERANCE)
-    )
-
-    maximum_unit_price = (
-        po_unit_price * (1 + TOLERANCE)
-    )
-
-    if not (
-        minimum_unit_price
-        <= invoice_unit_price
-        <= maximum_unit_price
-    ):
-        raise ValueError(
-            f"Invoice unit price for item "
-            f"'{item_code}' must be between "
-            f"{minimum_unit_price:.2f} and "
-            f"{maximum_unit_price:.2f}."
-        )
-
+    
     # ---------------------------------------------------------
     # 8. Return validation details
     # ---------------------------------------------------------

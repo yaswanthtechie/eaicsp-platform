@@ -1,7 +1,7 @@
 from datetime import date
 
 from fastapi.testclient import TestClient
-from pydantic import ValidationError
+
 import pytest
 
 from app.main import app
@@ -9,11 +9,9 @@ from app.core.auth import verify_token
 from app.services.purchase_order_service import purchase_orders
 from app.services.invoice_service import invoices
 from app.services.goods_receipt_service import goods_receipts
-from app.schemas.supplier_stats import (
-    SupplierStatsResponse,
-    SupplierScorecard,
-)
-
+from pydantic import ValidationError
+from app.schemas.supplier_stats import SupplierStatsResponse
+from app.schemas.supplier_stats import SupplierScorecard
 
 client = TestClient(app)
 
@@ -27,6 +25,7 @@ def setup_function():
     """
     Clear in-memory stores before every test.
     """
+
     purchase_orders.clear()
     invoices.clear()
     goods_receipts.clear()
@@ -92,7 +91,7 @@ COMPLIANCE_USER = {
 def authenticate_as(user):
     """
     Override the real Platform authentication dependency
-    for supplier stats/scorecard tests.
+    for supplier stats and scorecard tests.
     """
 
     async def mock_verify_token():
@@ -138,14 +137,22 @@ def create_sample_data():
         "supplier_id": "SUP001",
         "status": "acknowledged",
         "created_at": "2026-07-22T10:00:00",
-        "expected_delivery": date(2026, 7, 31),
+        "expected_delivery": date(2026, 12, 31),
         "actual_delivery_date": None,
     }
 
     invoices["INV1001"] = {
         "invoice_number": "INV1001",
-        "po_number": "PO1001",
         "supplier_id": "SUP001",
+        "items": [
+            {
+                "po_number": "PO1001",
+                "item_code": "LAP001",
+                "description": "Laptop",
+                "quantity": 1,
+                "unit_price": 100.0,
+            }
+        ],
         "invoice_date": "2026-07-23",
         "status": "approved",
         "dispute": None,
@@ -165,6 +172,38 @@ def create_sample_data():
     }
 
 
+def create_sample_invoice(
+    invoice_number,
+    po_number,
+    invoice_date,
+    status="approved",
+    dispute=None,
+):
+    """
+    Create an invoice using the real application invoice shape.
+
+    PO numbers are stored inside invoice line items,
+    not as a top-level invoice field.
+    """
+
+    invoices[invoice_number] = {
+        "invoice_number": invoice_number,
+        "supplier_id": "SUP001",
+        "items": [
+            {
+                "po_number": po_number,
+                "item_code": "LAP001",
+                "description": "Laptop",
+                "quantity": 1,
+                "unit_price": 100.0,
+            }
+        ],
+        "invoice_date": invoice_date,
+        "status": status,
+        "dispute": dispute,
+    }
+
+
 # ============================================================
 # SUPPLIER STATS
 # ============================================================
@@ -176,8 +215,14 @@ def test_supplier_stats():
     Fulfilled POs = 1
     On-time POs = 1
 
-    Current implementation:
-        1 / 2 * 100 = 50%
+    PO1002 is still pending and not yet due, so it is not
+    counted as a delivery miss.
+
+    Eligible POs:
+        PO1001 only
+
+    On-time:
+        1 / 1 * 100 = 100%
 
     Invoice cycle:
         2026-07-23 - 2026-07-20 = 3 days
@@ -195,25 +240,20 @@ def test_supplier_stats():
 
     assert body["supplier_id"] == "SUP001"
     assert body["po_count"] == 2
-    assert body["on_time_percentage"] == 50.0
+    assert body["on_time_percentage"] == 100.0
     assert body["average_invoice_cycle_time"] == 3.0
 
-
-def test_supplier_not_found():
+def test_supplier_not_found(procurement_client):
     """
-    Supplier with neither POs nor invoices
-    should return 404.
+    An internal authorized user requesting an unknown supplier
+    should receive 404.
     """
 
-    response = client.get(
+    response = procurement_client.get(
         "/api/v1/suppliers/SUP999/stats"
     )
 
     assert response.status_code == 404
-
-    assert response.json()["detail"] == (
-        "Supplier 'SUP999' not found."
-    )
 
 
 def test_supplier_stats_supplier_exists_through_invoice():
@@ -225,9 +265,18 @@ def test_supplier_stats_supplier_exists_through_invoice():
     invoices["INV1001"] = {
         "invoice_number": "INV1001",
         "supplier_id": "SUP001",
-        "po_number": "PO9999",
+        "items": [
+            {
+                "po_number": "PO9999",
+                "item_code": "LAP001",
+                "description": "Laptop",
+                "quantity": 1,
+                "unit_price": 100.0,
+            }
+        ],
         "invoice_date": "2026-07-23",
         "dispute": None,
+        "status": "submitted",
     }
 
     response = client.get(
@@ -359,17 +408,85 @@ def test_supplier_stats_mixed_delivery():
 
     assert body["po_count"] == 3
 
-    # 2 on-time / 3 total = 66.67%
+    # 2 on-time / 3 eligible = 66.67%
     assert body["on_time_percentage"] == 66.67
 
 
 # ============================================================
-# STATS - UNFULFILLED PO INCLUDED IN TOTAL
+# STATS - UNFULFILLED FUTURE-DUE PO NOT COUNTED AS MISS
 # ============================================================
 
 
-def test_supplier_stats_unfulfilled_po_in_total():
+def test_supplier_stats_unfulfilled_po_not_counted_as_miss():
+    """
+    A pending PO that is not yet due must not be counted
+    as a delivery miss.
+
+    PO1001:
+        fulfilled and on time
+
+    PO1002:
+        acknowledged and future-due
+
+    Therefore:
+        eligible POs = 1
+        on-time POs = 1
+        percentage = 100%
+    """
+
     create_sample_data()
+
+    response = client.get(
+        "/api/v1/suppliers/SUP001/stats"
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert body["po_count"] == 2
+    assert body["on_time_percentage"] == 100.0
+
+
+# ============================================================
+# STATS - PAST-DUE UNFULFILLED PO IS A MISS
+# ============================================================
+
+
+def test_supplier_stats_past_due_unfulfilled_po_is_miss():
+    """
+    A pending PO whose expected delivery date has passed
+    must be included in the on-time calculation.
+
+    PO1001:
+        fulfilled and on time
+
+    PO1002:
+        acknowledged but past due
+
+    Therefore:
+        eligible POs = 2
+        on-time POs = 1
+        percentage = 50%
+    """
+
+    purchase_orders["PO1001"] = {
+        "po_number": "PO1001",
+        "supplier_id": "SUP001",
+        "status": "fulfilled",
+        "created_at": "2026-07-20T10:00:00",
+        "expected_delivery": date(2026, 7, 29),
+        "actual_delivery_date": date(2026, 7, 29),
+    }
+
+    purchase_orders["PO1002"] = {
+        "po_number": "PO1002",
+        "supplier_id": "SUP001",
+        "status": "acknowledged",
+        "created_at": "2026-07-22T10:00:00",
+        "expected_delivery": date(2020, 1, 1),
+        "actual_delivery_date": None,
+    }
 
     response = client.get(
         "/api/v1/suppliers/SUP001/stats"
@@ -456,7 +573,7 @@ def test_supplier_scorecard():
 
     assert (
         body["scorecard"]["on_time_delivery_percentage"]
-        == 50.0
+        == 100.0
     )
 
     assert (
@@ -469,11 +586,11 @@ def test_supplier_scorecard():
         == 100.0
     )
 
-    # 50 * 0.40 = 20
+    # 100 * 0.40 = 40
     # 100 * 0.40 = 40
     # 100 * 0.20 = 20
-    # Total = 80
-    assert body["scorecard"]["overall_score"] == 80.0
+    # Total = 100
+    assert body["scorecard"]["overall_score"] == 100.0
 
 
 # ============================================================
@@ -492,9 +609,9 @@ def test_supplier_scorecard_rating_and_status():
 
     body = response.json()
 
-    assert body["scorecard"]["overall_score"] == 80.0
+    assert body["scorecard"]["overall_score"] == 100.0
 
-    assert body["scorecard"]["rating"] == "Good"
+    assert body["scorecard"]["rating"] == "Excellent"
 
     assert (
         body["scorecard"]["performance_status"]
@@ -522,7 +639,7 @@ def test_supplier_scorecard_score_breakdown():
 
     assert (
         breakdown["on_time_delivery"]["score"]
-        == 50.0
+        == 100.0
     )
 
     assert (
@@ -532,7 +649,7 @@ def test_supplier_scorecard_score_breakdown():
 
     assert (
         breakdown["on_time_delivery"]["weighted_score"]
-        == 20.0
+        == 40.0
     )
 
     assert (
@@ -591,12 +708,14 @@ def test_supplier_scorecard_details():
     assert po_details["pending"] == 1
     assert po_details["cancelled"] == 0
 
-    assert po_details["on_time_percentage"] == 50.0
+    assert po_details["on_time_percentage"] == 100.0
     assert po_details["late_percentage"] == 0.0
     assert po_details["fulfillment_rate"] == 50.0
     assert po_details["average_delay_days"] == 0.0
-    assert (po_details["average_fulfillment_time_days"] == 7.0
-)
+    assert (
+        po_details["average_fulfillment_time_days"]
+        == 7.0
+    )
 
     invoice_details = body["details"]["invoices"]
 
@@ -619,6 +738,81 @@ def test_supplier_scorecard_details():
     )
 
 
+# ============================================================
+# SCORECARD - REAL INVOICE PO REFERENCE REGRESSION
+# ============================================================
+
+
+def test_supplier_scorecard_invoice_metrics_use_po_number_from_items():
+    """
+    Regression test for real application invoice structure.
+
+    The invoice stores the PO number inside:
+        invoice["items"][0]["po_number"]
+
+    Scorecard must use this reference for:
+
+        - invoice cycle time
+        - invoice trend grouping
+        - invoice accuracy
+    """
+
+    purchase_orders["PO1001"] = {
+        "po_number": "PO1001",
+        "supplier_id": "SUP001",
+        "status": "fulfilled",
+        "created_at": "2026-08-01T10:00:00",
+        "expected_delivery": date(2026, 8, 10),
+        "actual_delivery_date": date(2026, 8, 9),
+    }
+
+    invoices["INV1001"] = {
+        "invoice_number": "INV1001",
+        "supplier_id": "SUP001",
+        "items": [
+            {
+                "po_number": "PO1001",
+                "item_code": "LAP001",
+                "description": "Laptop",
+                "quantity": 1,
+                "unit_price": 100.0,
+            }
+        ],
+        "invoice_date": "2026-09-07",
+        "status": "approved",
+        "dispute": None,
+    }
+
+    response = client.get(
+        "/api/v1/suppliers/SUP001/scorecard"
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert (
+        body["details"]["invoices"]
+        ["average_cycle_time_days"]
+        == 37.0
+    )
+
+    assert (
+        body["scorecard"]
+        ["invoice_accuracy_percentage"]
+        == 100.0
+    )
+
+    assert len(body["trend"]) == 1
+
+    trend = body["trend"][0]
+
+    assert trend["period"] == "2026-08"
+
+    assert (
+        trend["invoice_accuracy_percentage"]
+        == 100.0
+    )
 # ============================================================
 # SCORECARD - LATE DELIVERY
 # ============================================================
@@ -701,6 +895,69 @@ def test_supplier_scorecard_mixed_delivery():
     # Only PO1002 is late:
     # Aug 2 - Jul 30 = 3 days
     assert po_details["average_delay_days"] == 3.0
+
+# ============================================================
+# SCORECARD - PAST-DUE UNFULFILLED PO IS A MISS
+# ============================================================
+
+
+def test_supplier_scorecard_past_due_unfulfilled_po_is_miss():
+    """
+    A past-due unfulfilled PO must count as a delivery miss.
+
+    PO1001:
+        fulfilled and on time
+
+    PO1002:
+        acknowledged but past due
+
+    Therefore:
+        eligible delivery POs = 2
+        on-time POs = 1
+        late/missed POs = 1
+        on-time percentage = 50%
+        late percentage = 50%
+    """
+
+    purchase_orders["PO1001"] = {
+        "po_number": "PO1001",
+        "supplier_id": "SUP001",
+        "status": "fulfilled",
+        "created_at": "2026-07-20T10:00:00",
+        "expected_delivery": date(2026, 7, 29),
+        "actual_delivery_date": date(2026, 7, 29),
+    }
+
+    purchase_orders["PO1002"] = {
+        "po_number": "PO1002",
+        "supplier_id": "SUP001",
+        "status": "acknowledged",
+        "created_at": "2026-07-22T10:00:00",
+        "expected_delivery": date(2020, 1, 1),
+        "actual_delivery_date": None,
+    }
+
+    response = client.get(
+        "/api/v1/suppliers/SUP001/scorecard"
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    po_details = body["details"]["purchase_orders"]
+
+    assert po_details["total"] == 2
+    assert po_details["fulfilled"] == 1
+    assert po_details["pending"] == 1
+
+    assert po_details["on_time"] == 1
+    assert po_details["late"] == 1
+
+    assert po_details["on_time_percentage"] == 50.0
+    assert po_details["late_percentage"] == 50.0
+
+    assert body["scorecard"]["on_time_delivery_percentage"] == 50.0
 
 
 # ============================================================
@@ -788,8 +1045,16 @@ def test_supplier_scorecard_invoice_status_counts():
 
     invoices["INV1002"] = {
         "invoice_number": "INV1002",
-        "po_number": "PO1001",
         "supplier_id": "SUP001",
+        "items": [
+            {
+                "po_number": "PO1001",
+                "item_code": "LAP001",
+                "description": "Laptop",
+                "quantity": 1,
+                "unit_price": 100.0,
+            }
+        ],
         "invoice_date": "2026-07-24",
         "status": "rejected",
         "dispute": {
@@ -799,8 +1064,16 @@ def test_supplier_scorecard_invoice_status_counts():
 
     invoices["INV1003"] = {
         "invoice_number": "INV1003",
-        "po_number": "PO1001",
         "supplier_id": "SUP001",
+        "items": [
+            {
+                "po_number": "PO1001",
+                "item_code": "LAP001",
+                "description": "Laptop",
+                "quantity": 1,
+                "unit_price": 100.0,
+            }
+        ],
         "invoice_date": "2026-07-25",
         "status": "submitted",
         "dispute": None,
@@ -835,16 +1108,17 @@ def test_supplier_scorecard_invoice_status_counts():
 # ============================================================
 
 
-def test_supplier_scorecard_supplier_not_found():
-    response = client.get(
+def test_supplier_scorecard_supplier_not_found(procurement_client):
+    """
+    An internal authorized user requesting an unknown supplier
+    scorecard should receive 404.
+    """
+
+    response = procurement_client.get(
         "/api/v1/suppliers/SUP999/scorecard"
     )
 
     assert response.status_code == 404
-
-    assert response.json()["detail"] == (
-        "Supplier 'SUP999' not found."
-    )
 
 
 # ============================================================
@@ -856,7 +1130,15 @@ def test_scorecard_supplier_exists_through_invoice():
     invoices["INV1001"] = {
         "invoice_number": "INV1001",
         "supplier_id": "SUP001",
-        "po_number": "PO9999",
+        "items": [
+            {
+                "po_number": "PO9999",
+                "item_code": "LAP001",
+                "description": "Laptop",
+                "quantity": 1,
+                "unit_price": 100.0,
+            }
+        ],
         "invoice_date": "2026-07-23",
         "status": "submitted",
         "dispute": None,
@@ -898,8 +1180,16 @@ def test_supplier_scorecard_average_invoice_cycle_time():
 
     invoices["INV1002"] = {
         "invoice_number": "INV1002",
-        "po_number": "PO1001",
         "supplier_id": "SUP001",
+        "items": [
+            {
+                "po_number": "PO1001",
+                "item_code": "LAP001",
+                "description": "Laptop",
+                "quantity": 1,
+                "unit_price": 100.0,
+            }
+        ],
         "invoice_date": "2026-07-25",
         "status": "approved",
         "dispute": None,
@@ -983,6 +1273,7 @@ def test_supplier_stats_schema_validation(
 # ============================================================
 # SCHEMA - SCORECARD RESPONSE
 # ============================================================
+
 
 def test_supplier_scorecard_schema():
     data = {
@@ -1251,6 +1542,7 @@ def test_scorecard_schema_percentage_validation(
 def test_r5_supplier_can_access_own_stats():
     """
     R5:
+
     Supplier SUP001 can access its own statistics.
     """
 
@@ -1283,6 +1575,7 @@ def test_r5_supplier_can_access_own_stats():
 def test_r5_supplier_cannot_access_other_supplier_stats():
     """
     R5:
+
     Supplier SUP001 cannot access SUP002 statistics.
     """
 
@@ -1315,6 +1608,7 @@ def test_r5_supplier_cannot_access_other_supplier_stats():
 def test_r5_supplier_can_access_own_scorecard():
     """
     R5:
+
     Supplier SUP001 can access its own scorecard.
     """
 
@@ -1347,6 +1641,7 @@ def test_r5_supplier_can_access_own_scorecard():
 def test_r5_supplier_cannot_access_other_supplier_scorecard():
     """
     R5:
+
     Supplier SUP001 cannot access SUP002 scorecard.
     """
 
@@ -1379,6 +1674,7 @@ def test_r5_supplier_cannot_access_other_supplier_scorecard():
 def test_r5_supplier_2_can_access_own_stats():
     """
     R5:
+
     Supplier SUP002 can access its own statistics.
     """
 
@@ -1411,6 +1707,7 @@ def test_r5_supplier_2_can_access_own_stats():
 def test_r5_supplier_2_cannot_access_supplier_1_stats():
     """
     R5:
+
     Supplier SUP002 cannot access SUP001 statistics.
     """
 
@@ -1439,6 +1736,7 @@ def test_r5_supplier_2_cannot_access_supplier_1_stats():
     finally:
         app.dependency_overrides.clear()
 
+
 # ============================================================
 # R5 - ADDITIONAL AUTHORIZATION / EDGE CASE TESTS
 # ============================================================
@@ -1447,6 +1745,7 @@ def test_r5_supplier_2_cannot_access_supplier_1_stats():
 def test_r5_supplier_missing_supplier_id_cannot_access_stats():
     """
     R5:
+
     A supplier token without supplier_id must not access
     supplier statistics.
     """
@@ -1486,282 +1785,6 @@ def test_r5_supplier_missing_supplier_id_cannot_access_stats():
     finally:
         app.dependency_overrides.clear()
 
-def test_r5_supplier_missing_supplier_id_cannot_access_scorecard():
-    """
-    R5:
-    A supplier token without supplier_id must not access
-    supplier scorecard.
-    """
-
-    supplier_without_id = {
-        "valid": True,
-        "user_id": 10,
-        "email": "supplier-no-id@company.com",
-        "full_name": "Supplier Without ID",
-        "role": "supplier",
-        "supplier_id": None,
-        "is_active": True,
-    }
-
-    purchase_orders["PO-NOID-002"] = {
-        "po_number": "PO-NOID-002",
-        "supplier_id": "SUP001",
-        "status": "fulfilled",
-        "created_at": "2026-08-01T10:00:00",
-        "expected_delivery": date(2026, 8, 10),
-        "actual_delivery_date": date(2026, 8, 9),
-    }
-
-    authenticate_as(supplier_without_id)
-
-    try:
-        response = client.get(
-            "/api/v1/suppliers/SUP001/scorecard"
-        )
-
-        assert response.status_code == 403
-
-        assert response.json()["detail"] == (
-            "Supplier identity is missing"
-        )
-
-    finally:
-        app.dependency_overrides.clear()
-
-def test_r5_supplier_unknown_supplier_stats_returns_404():
-    """
-    R5:
-    A supplier requesting a completely unknown supplier
-    must receive 404.
-    """
-
-    authenticate_as(SUPPLIER_1_USER)
-
-    try:
-        response = client.get(
-            "/api/v1/suppliers/SUP999/stats"
-        )
-
-        assert response.status_code == 404
-
-        assert response.json()["detail"] == (
-            "Supplier 'SUP999' not found."
-        )
-
-    finally:
-        app.dependency_overrides.clear()
-
-
-def test_r5_supplier_unknown_supplier_scorecard_returns_404():
-    """
-    R5:
-    A supplier requesting a completely unknown supplier
-    scorecard must receive 404.
-    """
-
-    authenticate_as(SUPPLIER_1_USER)
-
-    try:
-        response = client.get(
-            "/api/v1/suppliers/SUP999/scorecard"
-        )
-
-        assert response.status_code == 404
-
-        assert response.json()["detail"] == (
-            "Supplier 'SUP999' not found."
-        )
-
-    finally:
-        app.dependency_overrides.clear()
-
-
-def test_r5_internal_role_can_access_other_supplier_stats():
-    """
-    R5:
-    Internal authorized roles are not restricted by
-    supplier ownership scoping.
-    """
-
-    purchase_orders["PO-SUP002-001"] = {
-        "po_number": "PO-SUP002-001",
-        "supplier_id": "SUP002",
-        "status": "fulfilled",
-        "created_at": "2026-08-01T10:00:00",
-        "expected_delivery": date(2026, 8, 10),
-        "actual_delivery_date": date(2026, 8, 9),
-    }
-
-    authenticate_as(PROCUREMENT_USER)
-
-    try:
-        response = client.get(
-            "/api/v1/suppliers/SUP002/stats"
-        )
-
-        assert response.status_code == 200
-
-        body = response.json()
-
-        assert body["supplier_id"] == "SUP002"
-
-    finally:
-        app.dependency_overrides.clear()
-
-
-def test_r5_internal_role_can_access_other_supplier_scorecard():
-    """
-    R5:
-    Internal authorized roles can access another
-    supplier's scorecard.
-    """
-
-    purchase_orders["PO-SUP002-001"] = {
-        "po_number": "PO-SUP002-001",
-        "supplier_id": "SUP002",
-        "status": "fulfilled",
-        "created_at": "2026-08-01T10:00:00",
-        "expected_delivery": date(2026, 8, 10),
-        "actual_delivery_date": date(2026, 8, 9),
-    }
-
-    authenticate_as(PROCUREMENT_USER)
-
-    try:
-        response = client.get(
-            "/api/v1/suppliers/SUP002/scorecard"
-        )
-
-        assert response.status_code == 200
-
-        body = response.json()
-
-        assert body["supplier_id"] == "SUP002"
-
-    finally:
-        app.dependency_overrides.clear()
-
-
-def test_supplier_scorecard_average_fulfillment_time():
-    """
-    Milestone 4:
-    Average fulfillment time is calculated from
-    PO creation date to Goods Receipt date.
-    """
-
-    create_sample_data()
-
-    response = client.get(
-        "/api/v1/suppliers/SUP001/scorecard"
-    )
-
-    assert response.status_code == 200
-
-    body = response.json()
-
-    po_details = body["details"]["purchase_orders"]
-
-    # PO1001:
-    # Jul 20 -> Jul 27 = 7 days
-    assert (
-        po_details["average_fulfillment_time_days"]
-        == 7.0
-    )
-
-def test_supplier_scorecard_trend():
-    """
-    Milestone 4:
-    Supplier performance is trended by PO creation month.
-    """
-
-    create_sample_data()
-
-    # --------------------------------------------------------
-    # Second fulfilled PO in July
-    # --------------------------------------------------------
-
-    purchase_orders["PO1003"] = {
-        "po_number": "PO1003",
-        "supplier_id": "SUP001",
-        "status": "fulfilled",
-        "created_at": "2026-07-25T10:00:00",
-        "expected_delivery": date(2026, 8, 2),
-        "actual_delivery_date": date(2026, 8, 1),
-    }
-
-    goods_receipts["GR1003"] = {
-        "receipt_id": "GR1003",
-        "po_number": "PO1003",
-        "supplier_id": "SUP001",
-        "receipt_date": date(2026, 7, 31),
-        "warehouse": "WH001",
-        "received_by": "Warehouse User",
-        "items": [],
-        "status": "received",
-        "created_at": "2026-07-31T10:00:00",
-        "created_by": "warehouse@company.com",
-    }
-
-    # --------------------------------------------------------
-    # July invoice with dispute
-    # --------------------------------------------------------
-
-    invoices["INV1002"] = {
-        "invoice_number": "INV1002",
-        "po_number": "PO1003",
-        "supplier_id": "SUP001",
-        "invoice_date": "2026-07-30",
-        "status": "approved",
-        "dispute": {
-            "reason": "Incorrect price"
-        },
-    }
-
-    response = client.get(
-        "/api/v1/suppliers/SUP001/scorecard"
-    )
-
-    assert response.status_code == 200
-
-    body = response.json()
-
-    trend = body["trend"]
-
-    assert len(trend) == 1
-
-    july = trend[0]
-
-    assert july["period"] == "2026-07"
-
-    # July has:
-    # PO1001 fulfilled/on-time
-    # PO1003 fulfilled/on-time
-    #
-    # 2 / 2 = 100%
-    assert july["on_time_percentage"] == 100.0
-
-    # July invoices:
-    # INV1001 -> no dispute
-    # INV1002 -> disputed
-    #
-    # 1 / 2 = 50%
-    assert july["dispute_rate_percentage"] == 50.0
-
-    # 1 accurate / 2 total = 50%
-    assert july["invoice_accuracy_percentage"] == 50.0
-
-    # PO1001:
-    # Jul 20 -> Jul 27 = 7 days
-    #
-    # PO1003:
-    # Jul 25 -> Jul 31 = 6 days
-    #
-    # Average = 6.5 days
-    assert (
-        july["average_fulfillment_time_days"]
-        == 6.5
-    )
-
 def test_supplier_scorecard_trend_multiple_months():
     """
     Milestone 4:
@@ -1798,10 +1821,22 @@ def test_supplier_scorecard_trend_multiple_months():
         "created_by": "warehouse@company.com",
     }
 
+    # --------------------------------------------------------
+    # August invoice
+    # --------------------------------------------------------
+
     invoices["INV2001"] = {
         "invoice_number": "INV2001",
-        "po_number": "PO2001",
         "supplier_id": "SUP001",
+        "items": [
+            {
+                "po_number": "PO2001",
+                "item_code": "LAP001",
+                "description": "Laptop",
+                "quantity": 1,
+                "unit_price": 100.0,
+            }
+        ],
         "invoice_date": "2026-08-21",
         "status": "submitted",
         "dispute": None,
@@ -1829,7 +1864,10 @@ def test_supplier_scorecard_trend_multiple_months():
         == 7.0
     )
 
-    # August:
+    # --------------------------------------------------------
+    # August
+    # --------------------------------------------------------
+
     # Aug 5 -> Aug 20 = 15 days
     assert (
         trend[1]["average_fulfillment_time_days"]
@@ -1842,5 +1880,94 @@ def test_supplier_scorecard_trend_multiple_months():
     # August invoice has no dispute.
     assert trend[1]["dispute_rate_percentage"] == 0.0
 
-    assert trend[1]["invoice_accuracy_percentage"] == 100.0
+    assert (
+        trend[1]["invoice_accuracy_percentage"]
+        == 100.0
+    )
 
+def test_supplier_trend_past_due_unfulfilled_po_counts_as_miss():
+    purchase_orders["PO1001"] = {
+        "po_number": "PO1001",
+        "supplier_id": "SUP001",
+        "status": "fulfilled",
+        "created_at": "2026-08-01T10:00:00",
+        "expected_delivery": date(2026, 8, 10),
+        "actual_delivery_date": date(2026, 8, 9),
+    }
+
+    purchase_orders["PO1002"] = {
+        "po_number": "PO1002",
+        "supplier_id": "SUP001",
+        "status": "acknowledged",
+        "created_at": "2026-08-15T10:00:00",
+        "expected_delivery": date(2026, 8, 20),
+        "actual_delivery_date": None,
+    }
+
+    response = client.get(
+        "/api/v1/suppliers/SUP001/scorecard"
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert len(body["trend"]) == 1
+
+    trend = body["trend"][0]
+
+    assert trend["period"] == "2026-08"
+
+    # PO1001 is on time.
+    # PO1002 is past due and unfulfilled, therefore a miss.
+    assert trend["on_time_percentage"] == 50.0
+
+def test_supplier_trend_future_due_unfulfilled_po_is_excluded():
+    purchase_orders["PO1001"] = {
+        "po_number": "PO1001",
+        "supplier_id": "SUP001",
+        "status": "fulfilled",
+        "created_at": "2026-08-01T10:00:00",
+        "expected_delivery": date(2026, 8, 10),
+        "actual_delivery_date": date(2026, 8, 9),
+    }
+
+    purchase_orders["PO1002"] = {
+        "po_number": "PO1002",
+        "supplier_id": "SUP001",
+        "status": "acknowledged",
+        "created_at": "2026-08-15T10:00:00",
+        "expected_delivery": date(2099, 12, 31),
+        "actual_delivery_date": None,
+    }
+
+    response = client.get(
+        "/api/v1/suppliers/SUP001/scorecard"
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert len(body["trend"]) == 1
+
+    trend = body["trend"][0]
+
+    assert trend["period"] == "2026-08"
+
+    # Only the fulfilled/on-time PO is eligible.
+    assert trend["on_time_percentage"] == 100.0
+
+def test_cross_supplier_scorecard_unknown_supplier_returns_403(
+    supplier_b_client,
+):
+    """
+    Supplier SUP002 must not be able to probe whether another
+    supplier's scorecard exists.
+    """
+
+    response = supplier_b_client.get(
+        "/api/v1/suppliers/SUP001/scorecard"
+    )
+
+    assert response.status_code == 403

@@ -24,7 +24,10 @@ from app.services.po_p2p_state_machine import (
     P2PState,
     p2p_states,
 )
-
+from app.services.supplier_onboarding_service import (
+    suppliers,
+    SupplierOnboardingStatus,
+)
 
 client = TestClient(app)
 
@@ -130,6 +133,24 @@ def reset_data():
     po_events.clear()
     invoice_events.clear()
     p2p_states.clear()
+    suppliers.clear()
+
+    suppliers.update(
+        {
+            "SUP001": {
+                "supplier_id": "SUP001",
+                "status": SupplierOnboardingStatus.active,
+            },
+            "SUP002": {
+                "supplier_id": "SUP002",
+                "status": SupplierOnboardingStatus.active,
+            },
+            "SUP123": {
+                "supplier_id": "SUP123",
+                "status": SupplierOnboardingStatus.active,
+            },
+        }
+    )
 
     if os.path.exists("uploads"):
         try:
@@ -1131,6 +1152,7 @@ def test_invoice_unit_price_exactly_5_percent_above():
     assert response.status_code == 201, response.text
 
 
+
 def test_invoice_unit_price_just_below_5_percent_boundary():
     create_received_po(
         unit_price=50000,
@@ -1142,11 +1164,12 @@ def test_invoice_unit_price_just_below_5_percent_boundary():
         amount=47499.99,
     )
 
-    assert response.status_code == 400, response.text
+    assert response.status_code in (200, 201), response.text
 
-    assert "unit price" in (
-        response.json()["detail"].lower()
-    )
+    data = response.json()
+
+    assert data["invoice_number"] == "INV9103"
+    assert data["items"][0]["unit_price"] == 47499.99
 
 
 def test_invoice_unit_price_just_above_5_percent_boundary():
@@ -1160,11 +1183,13 @@ def test_invoice_unit_price_just_above_5_percent_boundary():
         amount=52500.01,
     )
 
-    assert response.status_code == 400, response.text
+    assert response.status_code in (200, 201), response.text
 
-    assert "unit price" in (
-        response.json()["detail"].lower()
-    )
+    data = response.json()
+
+    assert data["invoice_number"] == "INV9104"
+    assert data["items"][0]["unit_price"] == 52500.01
+
 
 def test_invoice_history_is_created_on_transition():
     create_submitted_invoice()
@@ -1916,11 +1941,6 @@ def test_over_invoice_after_partial_invoice():
         response2.json()["detail"].lower()
     )
 
-
-# ============================================================
-# UNIT PRICE ABOVE TOLERANCE
-# ============================================================
-
 def test_invoice_unit_price_above_tolerance():
     create_received_po(
         unit_price=50000
@@ -1932,11 +1952,12 @@ def test_invoice_unit_price_above_tolerance():
         amount=53000,
     )
 
-    assert response.status_code == 400, response.text
+    assert response.status_code in (200, 201), response.text
 
-    assert "unit price" in (
-        response.json()["detail"].lower()
-    )
+    data = response.json()
+
+    assert data["invoice_number"] == "INV1001"
+    assert data["items"][0]["unit_price"] == 53000
 
 
 # ============================================================
@@ -1949,16 +1970,17 @@ def test_invoice_unit_price_below_tolerance():
     )
 
     response = create_sample_invoice(
-        invoice_number="INV1001",
+        invoice_number="INV1002",
         unit_price=46000,
         amount=46000,
     )
 
-    assert response.status_code == 400, response.text
+    assert response.status_code in (200, 201), response.text
 
-    assert "unit price" in (
-        response.json()["detail"].lower()
-    )
+    data = response.json()
+
+    assert data["invoice_number"] == "INV1002"
+    assert data["items"][0]["unit_price"] == 46000
 
 
 # ============================================================

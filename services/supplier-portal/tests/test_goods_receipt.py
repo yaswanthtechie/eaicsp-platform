@@ -49,7 +49,10 @@ def clear_test_data():
 # ============================================================
 
 
-def create_shipped_po():
+def create_shipped_po(
+    po_number="PO1001",
+    supplier_id="SUP001",
+):
     """
     Create a PO that is ready for Goods Receipt.
 
@@ -63,9 +66,9 @@ def create_shipped_po():
         shipped -> received
     """
 
-    purchase_orders["PO1001"] = {
-        "po_number": "PO1001",
-        "supplier_id": "SUP001",
+    purchase_orders[po_number] = {
+        "po_number": po_number,
+        "supplier_id": supplier_id,
         "items": [
             {
                 "item_code": "LAP001",
@@ -89,40 +92,67 @@ def create_shipped_po():
     }
 
     initialize_p2p_state(
-        "PO1001",
+        po_number,
         P2PState.shipped,
     )
 
 
-def valid_goods_receipt():
+def valid_goods_receipt(
+    po_number="PO1001",
+    quantity_lap=10,
+    quantity_mouse=10,
+):
     """
-    Complete Goods Receipt.
-
-    PO quantities:
-        LAP001 = 10
-        MOU001 = 10
-
-    Receipt quantities:
-        LAP001 = 10
-        MOU001 = 10
+    Create a valid Goods Receipt payload.
     """
 
     return GoodsReceiptCreate(
-        po_number="PO1001",
+        po_number=po_number,
         receipt_date="2026-09-09",
         warehouse="WH-HYD-01",
         received_by="warehouse.user@company.com",
         items=[
             {
                 "item_code": "LAP001",
-                "quantity": 10,
+                "quantity": quantity_lap,
             },
             {
                 "item_code": "MOU001",
-                "quantity": 10,
+                "quantity": quantity_mouse,
             },
         ],
     )
+
+
+def create_goods_receipt_for_supplier(
+    supplier_id="SUP001",
+    po_number="PO1001",
+    quantity_lap=10,
+    quantity_mouse=10,
+    created_by="warehouse.user@company.com",
+):
+    """
+    Create a shipped PO for the requested supplier and then
+    create a Goods Receipt through the service layer.
+
+    This helper is used by API scoping tests.
+    """
+
+    create_shipped_po(
+        po_number=po_number,
+        supplier_id=supplier_id,
+    )
+
+    receipt = create_goods_receipt(
+        valid_goods_receipt(
+            po_number=po_number,
+            quantity_lap=quantity_lap,
+            quantity_mouse=quantity_mouse,
+        ),
+        created_by=created_by,
+    )
+
+    return receipt
 
 
 # ============================================================
@@ -238,14 +268,17 @@ def test_goods_receipt_creates_fulfillment_history_event():
 
     assert event["po_number"] == "PO1001"
     assert event["supplier_id"] == "SUP001"
+
     assert (
         event["actor"]
         == "warehouse.user@company.com"
     )
+
     assert (
         event["from_status"]
         == PurchaseOrderStatus.acknowledged
     )
+
     assert (
         event["to_status"]
         == PurchaseOrderStatus.fulfilled
@@ -290,6 +323,7 @@ def test_get_goods_receipts_by_po():
     result = get_goods_receipts_by_po("PO1001")
 
     assert len(result) == 1
+
     assert (
         result[0]["receipt_id"]
         == receipt["receipt_id"]
@@ -307,6 +341,7 @@ def test_get_all_goods_receipts():
     result = get_all_goods_receipts()
 
     assert len(result) == 1
+
     assert (
         result[0]["receipt_id"]
         == receipt["receipt_id"]
@@ -506,7 +541,7 @@ def test_goods_receipt_quantity_cannot_exceed_po_quantity():
     )
 
 
-def test_goods_receipt_cannot_be_incomplete():
+def test_goods_receipt_allows_partial_quantity():
     create_shipped_po()
 
     receipt = GoodsReceiptCreate(
@@ -526,29 +561,32 @@ def test_goods_receipt_cannot_be_incomplete():
         ],
     )
 
-    with pytest.raises(
-        ValueError,
-        match="Goods Receipt is incomplete",
-    ):
-        create_goods_receipt(
-            receipt,
-            created_by="warehouse.user@company.com",
-        )
+    result = create_goods_receipt(
+        receipt,
+        created_by="warehouse.user@company.com",
+    )
 
-    assert goods_receipts == {}
+    assert result["po_number"] == "PO1001"
+    assert result["supplier_id"] == "SUP001"
+    assert result["status"] == "received"
+
+    assert result["items"][0]["quantity"] == 5
+    assert result["items"][1]["quantity"] == 10
+
+    assert result["receipt_id"] in goods_receipts
 
     assert (
         p2p_states["PO1001"]
-        == P2PState.shipped
+        == P2PState.received
     )
 
     assert (
         purchase_orders["PO1001"]["status"]
-        == PurchaseOrderStatus.acknowledged
+        == PurchaseOrderStatus.fulfilled
     )
 
 
-def test_goods_receipt_with_missing_po_item_is_rejected():
+def test_goods_receipt_allows_missing_po_item_for_partial_receipt():
     create_shipped_po()
 
     receipt = GoodsReceiptCreate(
@@ -564,20 +602,29 @@ def test_goods_receipt_with_missing_po_item_is_rejected():
         ],
     )
 
-    with pytest.raises(
-        ValueError,
-        match="Missing item",
-    ):
-        create_goods_receipt(
-            receipt,
-            created_by="warehouse.user@company.com",
-        )
+    result = create_goods_receipt(
+        receipt,
+        created_by="warehouse.user@company.com",
+    )
 
-    assert goods_receipts == {}
+    assert result["po_number"] == "PO1001"
+    assert result["supplier_id"] == "SUP001"
+    assert result["status"] == "received"
+
+    assert len(result["items"]) == 1
+    assert result["items"][0]["item_code"] == "LAP001"
+    assert result["items"][0]["quantity"] == 10
+
+    assert result["receipt_id"] in goods_receipts
 
     assert (
         p2p_states["PO1001"]
-        == P2PState.shipped
+        == P2PState.received
+    )
+
+    assert (
+        purchase_orders["PO1001"]["status"]
+        == PurchaseOrderStatus.fulfilled
     )
 
 
@@ -626,7 +673,6 @@ def test_duplicate_goods_receipt_item_is_rejected():
 def test_goods_receipt_does_not_allow_direct_acknowledged_to_received():
     create_shipped_po()
 
-    # Force the P2P state back to acknowledged.
     p2p_states["PO1001"] = P2PState.acknowledged
 
     with pytest.raises(
@@ -664,16 +710,10 @@ def test_goods_receipt_transition_is_exactly_shipped_to_received():
         created_by="warehouse.user@company.com",
     )
 
-    # Goods Receipt must perform exactly:
-    #
-    # shipped -> received
-
     assert (
         p2p_states["PO1001"]
         == P2PState.received
     )
-
-    # It must not skip any P2P stages.
 
     assert (
         p2p_states["PO1001"]
@@ -733,7 +773,6 @@ def test_goods_receipt_failure_does_not_store_receipt():
 
 def test_goods_receipt_requires_at_least_one_item():
     with pytest.raises(ValueError):
-
         GoodsReceiptCreate(
             po_number="PO1001",
             receipt_date="2026-09-09",
@@ -745,7 +784,6 @@ def test_goods_receipt_requires_at_least_one_item():
 
 def test_goods_receipt_quantity_must_be_positive():
     with pytest.raises(ValueError):
-
         GoodsReceiptCreate(
             po_number="PO1001",
             receipt_date="2026-09-09",
@@ -762,7 +800,6 @@ def test_goods_receipt_quantity_must_be_positive():
 
 def test_goods_receipt_item_code_format_is_validated():
     with pytest.raises(ValueError):
-
         GoodsReceiptCreate(
             po_number="PO1001",
             receipt_date="2026-09-09",
@@ -779,7 +816,6 @@ def test_goods_receipt_item_code_format_is_validated():
 
 def test_goods_receipt_po_number_format_is_validated():
     with pytest.raises(ValueError):
-
         GoodsReceiptCreate(
             po_number="PO 1001",
             receipt_date="2026-09-09",
@@ -797,9 +833,6 @@ def test_goods_receipt_po_number_format_is_validated():
 def test_goods_receipt_requires_acknowledged_purchase_order():
     create_shipped_po()
 
-    # Keep P2P state as shipped,
-    # but make the PO status invalid.
-
     purchase_orders["PO1001"]["status"] = (
         PurchaseOrderStatus.draft
     )
@@ -812,8 +845,6 @@ def test_goods_receipt_requires_acknowledged_purchase_order():
             valid_goods_receipt(),
             created_by="warehouse.user@company.com",
         )
-
-    # Nothing should change after the failed operation.
 
     assert goods_receipts == {}
 
@@ -872,4 +903,171 @@ def test_goods_receipt_with_extra_item_is_rejected():
         purchase_orders["PO1001"]["status"]
         == PurchaseOrderStatus.acknowledged
     )
+
+
+# ============================================================
+# API SECURITY / SUPPLIER SCOPING
+# ============================================================
+
+
+def test_supplier_can_view_own_goods_receipt(
+    supplier_client,
+):
+    """
+    Supplier can retrieve its own Goods Receipt.
+    """
+
+    receipt = create_goods_receipt_for_supplier(
+        supplier_id="SUP001",
+    )
+
+    response = supplier_client.get(
+        f"/api/v1/goods-receipts/{receipt['receipt_id']}"
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert body["receipt_id"] == receipt["receipt_id"]
+    assert body["supplier_id"] == "SUP001"
+
+
+def test_supplier_cannot_view_another_suppliers_goods_receipt(
+    supplier_client,
+):
+    """
+    Supplier SUP001 must not access a Goods Receipt
+    belonging to SUP002.
+    """
+
+    receipt = create_goods_receipt_for_supplier(
+        supplier_id="SUP002",
+        po_number="PO2001",
+    )
+
+    response = supplier_client.get(
+        f"/api/v1/goods-receipts/{receipt['receipt_id']}"
+    )
+
+    assert response.status_code == 403
+
+    assert (
+        "forbidden"
+        in response.json()["detail"].lower()
+    )
+
+
+def test_supplier_cannot_determine_unknown_goods_receipt_existence(
+    supplier_client,
+):
+    """
+    Unknown Goods Receipt IDs must return the same forbidden
+    response class used for inaccessible receipts.
+
+    This prevents supplier users from determining whether
+    another supplier's receipt exists.
+    """
+
+    response = supplier_client.get(
+        "/api/v1/goods-receipts/GR-DOES-NOT-EXIST"
+    )
+
+    assert response.status_code == 403
+
+    assert (
+        "goods receipt is not accessible"
+        in response.json()["detail"].lower()
+    )
+
+
+def test_supplier_gets_same_forbidden_response_for_existing_and_unknown_receipts(
+    supplier_client,
+):
+    """
+    Existing cross-supplier and unknown Goods Receipt IDs must
+    both remain forbidden to supplier users.
+
+    The exact detail text may differ, but both must remain 403.
+    """
+
+    receipt = create_goods_receipt_for_supplier(
+        supplier_id="SUP002",
+        po_number="PO2002",
+    )
+
+    existing_response = supplier_client.get(
+        f"/api/v1/goods-receipts/{receipt['receipt_id']}"
+    )
+
+    unknown_response = supplier_client.get(
+        "/api/v1/goods-receipts/GR-UNKNOWN"
+    )
+
+    assert existing_response.status_code == 403
+    assert unknown_response.status_code == 403
+
+
+def test_supplier_without_supplier_id_cannot_view_goods_receipt(
+    supplier_no_id_client,
+):
+    """
+    A supplier without supplier_id cannot access Goods Receipt data.
+    """
+
+    response = supplier_no_id_client.get(
+        "/api/v1/goods-receipts/GR-DOES-NOT-EXIST"
+    )
+
+    assert response.status_code == 403
+
+    assert (
+        "supplier identity is missing"
+        in response.json()["detail"].lower()
+    )
+
+
+def test_internal_user_gets_404_for_unknown_goods_receipt(
+    procurement_client,
+):
+    """
+    Internal authenticated users receive 404 for a genuinely
+    unknown Goods Receipt.
+    """
+
+    response = procurement_client.get(
+        "/api/v1/goods-receipts/GR-DOES-NOT-EXIST"
+    )
+
+    assert response.status_code == 404
+
+    assert (
+        "goods receipt not found"
+        in response.json()["detail"].lower()
+    )
+
+
+def test_internal_user_can_view_existing_supplier_goods_receipt(
+    procurement_client,
+):
+    """
+    Internal authenticated users can view an existing Goods Receipt
+    regardless of supplier ownership.
+    """
+
+    receipt = create_goods_receipt_for_supplier(
+        supplier_id="SUP002",
+        po_number="PO2003",
+    )
+
+    response = procurement_client.get(
+        f"/api/v1/goods-receipts/{receipt['receipt_id']}"
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert body["receipt_id"] == receipt["receipt_id"]
+    assert body["supplier_id"] == "SUP002"
 

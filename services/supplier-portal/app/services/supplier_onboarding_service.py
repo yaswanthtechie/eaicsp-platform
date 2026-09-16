@@ -205,6 +205,32 @@ def get_supplier(supplier_id: str):
 
 
 # ============================================================
+# SUPPLIER ONBOARDING ENFORCEMENT HELPER
+# ============================================================
+
+def is_supplier_active(supplier_id: str) -> bool:
+    """
+    Return True only when the supplier exists and has
+    completed onboarding and is active.
+
+    This helper is intended for other modules that need to
+    enforce supplier onboarding before allowing business
+    operations such as Purchase Order sending.
+    """
+
+    supplier = suppliers.get(supplier_id)
+
+    if supplier is None:
+        return False
+
+    return (
+        supplier["status"]
+        == SupplierOnboardingStatus.active
+    )
+
+
+
+# ============================================================
 # 3. UPLOAD DOCUMENT
 # ============================================================
 

@@ -1514,9 +1514,9 @@ def test_supplier_without_supplier_id_cannot_view_history(
 # ============================================================
 
 def test_unknown_supplier_details_return_404(
-    supplier_client,
+    procurement_client,
 ):
-    response = supplier_client.get(
+    response = procurement_client.get(
         "/api/v1/suppliers/UNKNOWN"
     )
 
@@ -1528,9 +1528,9 @@ def test_unknown_supplier_details_return_404(
 # ============================================================
 
 def test_unknown_supplier_documents_return_404(
-    supplier_client,
+    procurement_client,
 ):
-    response = supplier_client.get(
+    response = procurement_client.get(
         "/api/v1/suppliers/UNKNOWN/documents"
     )
 
@@ -1542,9 +1542,9 @@ def test_unknown_supplier_documents_return_404(
 # ============================================================
 
 def test_unknown_supplier_status_returns_404(
-    supplier_client,
+    procurement_client,
 ):
-    response = supplier_client.get(
+    response = procurement_client.get(
         "/api/v1/suppliers/UNKNOWN/status"
     )
 
@@ -1556,9 +1556,9 @@ def test_unknown_supplier_status_returns_404(
 # ============================================================
 
 def test_unknown_supplier_history_returns_404(
-    supplier_client,
+    procurement_client,
 ):
-    response = supplier_client.get(
+    response = procurement_client.get(
         "/api/v1/suppliers/UNKNOWN/history"
     )
 

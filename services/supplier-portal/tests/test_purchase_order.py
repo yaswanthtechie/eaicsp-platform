@@ -6,6 +6,13 @@ from app.services.purchase_order_service import (
 )
 from app.services.invoice_service import invoices
 
+from app.services.supplier_onboarding_service import (
+    suppliers,
+)
+from app.schemas.supplier_onboarding import (
+    SupplierOnboardingStatus,
+)
+
 
 # ============================================================
 # TEST SETUP
@@ -14,10 +21,25 @@ from app.services.invoice_service import invoices
 def setup_function():
     """
     Clear all in-memory stores before every test.
+
+    Existing Purchase Order tests use SUP001 and SUP002,
+    so both suppliers are prepared as active suppliers.
     """
+
     purchase_orders.clear()
     invoices.clear()
     po_events.clear()
+    suppliers.clear()
+
+    suppliers["SUP001"] = {
+        "supplier_id": "SUP001",
+        "status": SupplierOnboardingStatus.active,
+    }
+
+    suppliers["SUP002"] = {
+        "supplier_id": "SUP002",
+        "status": SupplierOnboardingStatus.active,
+    }
 
 
 # ============================================================
@@ -2002,3 +2024,121 @@ def test_procurement_manager_can_list_all_purchase_orders(
 
     assert "PO3023" in po_numbers
     assert "PO3024" in po_numbers
+
+# ============================================================
+# SUPPLIER ONBOARDING ENFORCEMENT
+# ============================================================
+
+def test_cannot_create_purchase_order_for_unregistered_supplier(
+    procurement_client,
+):
+    """
+    A Purchase Order must not be created for a supplier
+    that has not been registered through onboarding.
+    """
+
+    response = procurement_client.post(
+        "/api/v1/purchase-orders",
+        json={
+            "po_number": "PO4001",
+            "supplier_id": "SUP999",
+            "items": [
+                {
+                    "item_code": "LAP001",
+                    "description": "Laptop",
+                    "quantity": 1,
+                    "unit_price": 5000,
+                }
+            ],
+            "total_amount": 5000,
+            "created_at": "2026-07-23T10:00:00",
+            "expected_delivery": "2026-07-30",
+        },
+    )
+
+    assert response.status_code == 400
+
+    assert (
+        "must complete onboarding and be active"
+        in response.json()["detail"]
+    )
+
+    assert "PO4001" not in purchase_orders
+
+
+def test_cannot_create_purchase_order_for_inactive_supplier(
+    procurement_client,
+):
+    """
+    A Purchase Order must not be created when the supplier
+    is registered but has not reached active onboarding status.
+    """
+
+    suppliers["SUP003"] = {
+        "supplier_id": "SUP003",
+        "status": SupplierOnboardingStatus.pending_documents,
+    }
+
+    response = procurement_client.post(
+        "/api/v1/purchase-orders",
+        json={
+            "po_number": "PO4002",
+            "supplier_id": "SUP003",
+            "items": [
+                {
+                    "item_code": "LAP001",
+                    "description": "Laptop",
+                    "quantity": 1,
+                    "unit_price": 5000,
+                }
+            ],
+            "total_amount": 5000,
+            "created_at": "2026-07-23T10:00:00",
+            "expected_delivery": "2026-07-30",
+        },
+    )
+
+    assert response.status_code == 400
+
+    assert (
+        "must complete onboarding and be active"
+        in response.json()["detail"]
+    )
+
+    assert "PO4002" not in purchase_orders
+
+
+def test_can_create_purchase_order_for_active_supplier(
+    procurement_client,
+):
+    """
+    A fully onboarded active supplier can receive a
+    newly created Purchase Order.
+    """
+
+    response = procurement_client.post(
+        "/api/v1/purchase-orders",
+        json={
+            "po_number": "PO4003",
+            "supplier_id": "SUP001",
+            "items": [
+                {
+                    "item_code": "LAP001",
+                    "description": "Laptop",
+                    "quantity": 1,
+                    "unit_price": 5000,
+                }
+            ],
+            "total_amount": 5000,
+            "created_at": "2026-07-23T10:00:00",
+            "expected_delivery": "2026-07-30",
+        },
+    )
+
+    assert response.status_code == 201
+
+    body = response.json()
+
+    assert body["po_number"] == "PO4003"
+    assert body["supplier_id"] == "SUP001"
+    assert body["status"] == "draft"

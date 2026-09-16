@@ -112,8 +112,6 @@ def create_shipment_notice(
             status_code=400,
             detail=message,
         )
-
-
 # ============================================================
 # GET SHIPMENT BY ID
 # ============================================================
@@ -133,24 +131,19 @@ def get_shipment(
         - own shipment -> 200
         - another supplier's shipment -> 403
         - missing supplier_id -> 403
+        - unknown shipment -> 403
 
-    Internal authenticated users can access shipments.
+    Internal authenticated users:
+        - existing shipment -> 200
+        - unknown shipment -> 404
+
+    Supplier requests intentionally return a uniform 403 for
+    inaccessible or unknown shipment IDs so that suppliers
+    cannot determine whether another supplier's shipment exists.
     """
 
-    shipment = get_shipment_by_id(shipment_id)
-
     # --------------------------------------------------------
-    # UNKNOWN SHIPMENT
-    # --------------------------------------------------------
-
-    if not shipment:
-        raise HTTPException(
-            status_code=404,
-            detail="Shipment not found",
-        )
-
-    # --------------------------------------------------------
-    # SUPPLIER SCOPING
+    # SUPPLIER USERS
     # --------------------------------------------------------
 
     if user.get("role") == "supplier":
@@ -163,14 +156,39 @@ def get_shipment(
                 detail="Supplier identity is missing",
             )
 
-        if shipment["supplier_id"] != supplier_id:
+        shipment = get_shipment_by_id(shipment_id)
+
+        # Unknown shipment must not reveal whether the
+        # shipment exists to a supplier.
+        if not shipment:
+            raise HTTPException(
+                status_code=403,
+                detail="Forbidden: shipment is not accessible",
+            )
+
+        # Existing shipment belonging to another supplier
+        # must return the same forbidden response class.
+        if shipment.get("supplier_id") != supplier_id:
             raise HTTPException(
                 status_code=403,
                 detail="Forbidden: supplier does not own this Shipment",
             )
 
-    return shipment
+        return shipment
 
+    # --------------------------------------------------------
+    # INTERNAL AUTHENTICATED USERS
+    # --------------------------------------------------------
+
+    shipment = get_shipment_by_id(shipment_id)
+
+    if not shipment:
+        raise HTTPException(
+            status_code=404,
+            detail="Shipment not found",
+        )
+
+    return shipment
 
 # ============================================================
 # GET SHIPMENTS FOR PURCHASE ORDER

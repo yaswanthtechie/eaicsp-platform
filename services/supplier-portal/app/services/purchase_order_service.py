@@ -11,24 +11,43 @@ from app.services.po_p2p_state_machine import (
     initialize_p2p_state,
     remove_p2p_state,
 )
+from app.services.supplier_onboarding_service import (
+    is_supplier_active,
+)
 
 # In-memory po storage
 purchase_orders = {}
 
 # In-memory event storage
 po_events =  {}
-
-
 def create_purchase_order(
     purchase_order: PurchaseOrderCreate,
 ):
     """
     Create a new Purchase Order.
+
+    A Purchase Order can only be created for a supplier
+    that has completed onboarding and is active.
     """
 
     if purchase_order.po_number in purchase_orders:
         raise ValueError(
             "Purchase Order already exists."
+        )
+
+    # Supplier must be fully onboarded and active
+    supplier_id = purchase_order.supplier_id
+
+    if not supplier_id:
+        raise ValueError(
+            "Purchase Order supplier ID is required."
+        )
+
+    if not is_supplier_active(supplier_id):
+        raise ValueError(
+            f"Supplier '{supplier_id}' must complete "
+            "onboarding and be active before creating "
+            "a Purchase Order."
         )
 
     # Calculate total from PO items
@@ -266,6 +285,41 @@ def transition_purchase_order(
 
     # Allowed transitions
     allowed_states = VALID_TRANSITIONS[current_state]
+
+        # --------------------------------------------------------
+    # Supplier onboarding enforcement
+    # --------------------------------------------------------
+    #
+    # A Purchase Order may only be sent to a supplier that
+    # has completed the onboarding workflow and reached
+    # the ACTIVE status.
+    #
+    # This check applies only to draft -> sent.
+    # It therefore does not interfere with acknowledgement,
+    # fulfilment, cancellation, or other existing transitions.
+    #
+    # bulk_send_purchase_orders() also uses this transition
+    # function, so bulk sending is protected automatically.
+    # --------------------------------------------------------
+
+    if (
+        current_state == PurchaseOrderStatus.draft
+        and target_state == PurchaseOrderStatus.sent
+    ):
+        supplier_id = purchase_order.get("supplier_id")
+
+        if not supplier_id:
+            raise ValueError(
+                "Purchase Order supplier ID is required "
+                "before sending."
+            )
+
+        if not is_supplier_active(supplier_id):
+            raise ValueError(
+                f"Supplier '{supplier_id}' must complete "
+                "onboarding and be active before the "
+                "Purchase Order can be sent."
+            )
 
     # Check whether the transition is legal
     if target_state not in allowed_states:

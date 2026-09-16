@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from app.schemas.purchase_order import PurchaseOrderStatus
@@ -157,7 +157,7 @@ def create_shipment(
             for item in shipment.items
         ],
         "status": ShipmentStatus.created,
-        "created_at": datetime.utcnow(),
+        "created_at": datetime.now(timezone.utc),
         "created_by": created_by,
     }
 

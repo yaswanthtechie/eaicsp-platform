@@ -175,7 +175,14 @@ def get_supplier_endpoint(
     # Missing supplier identity must always be rejected first.
     validate_supplier_identity(user)
 
-    # Check whether the requested supplier exists.
+    # Check supplier ownership BEFORE looking up the supplier.
+    # This prevents cross-supplier existence probing.
+    check_supplier_access(
+        supplier_id,
+        user,
+    )
+
+    # Only after authorization, check whether the supplier exists.
     try:
         supplier = get_supplier(
             supplier_id
@@ -186,13 +193,6 @@ def get_supplier_endpoint(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         )
-
-    # Existing supplier belonging to another supplier user
-    # must return 403.
-    check_supplier_access(
-        supplier_id,
-        user,
-    )
 
     return supplier
 
@@ -269,7 +269,14 @@ def list_documents_endpoint(
     # Missing supplier identity must return 403.
     validate_supplier_identity(user)
 
-    # First determine whether the requested supplier exists.
+    # Check supplier ownership BEFORE looking up documents.
+    # This prevents cross-supplier existence probing.
+    check_supplier_access(
+        supplier_id,
+        user,
+    )
+
+    # Only after authorization, check the resource.
     try:
         documents = list_supplier_documents(
             supplier_id
@@ -280,12 +287,6 @@ def list_documents_endpoint(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         )
-
-    # Existing other supplier -> 403.
-    check_supplier_access(
-        supplier_id,
-        user,
-    )
 
     return documents
 
@@ -443,7 +444,14 @@ def supplier_status_endpoint(
     # Missing supplier identity must return 403.
     validate_supplier_identity(user)
 
-    # Check resource existence first.
+    # Check supplier ownership BEFORE looking up status.
+    # This prevents cross-supplier existence probing.
+    check_supplier_access(
+        supplier_id,
+        user,
+    )
+
+    # Only after authorization, check resource existence.
     try:
         result = get_supplier_status(
             supplier_id
@@ -454,12 +462,6 @@ def supplier_status_endpoint(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         )
-
-    # Existing other supplier -> 403.
-    check_supplier_access(
-        supplier_id,
-        user,
-    )
 
     return result
 
@@ -479,7 +481,14 @@ def supplier_history_endpoint(
     # Missing supplier identity must return 403.
     validate_supplier_identity(user)
 
-    # Check resource existence first.
+    # Check supplier ownership BEFORE looking up history.
+    # This prevents cross-supplier existence probing.
+    check_supplier_access(
+        supplier_id,
+        user,
+    )
+
+    # Only after authorization, check resource existence.
     try:
         history = get_supplier_history(
             supplier_id
@@ -491,11 +500,4 @@ def supplier_history_endpoint(
             detail=str(exc),
         )
 
-    # Existing other supplier -> 403.
-    check_supplier_access(
-        supplier_id,
-        user,
-    )
-
     return history
-

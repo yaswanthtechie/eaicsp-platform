@@ -66,6 +66,7 @@ def reset_data():
     three_way_matches.clear()
 
 
+
 # ============================================================
 # TEST DATA HELPERS
 # ============================================================
@@ -100,6 +101,37 @@ def create_fulfilled_po(
 
     return purchase_orders[po_number]
 
+def create_invoice_via_api(
+    client,
+    invoice_number="INV1001",
+    po_number="PO1001",
+    supplier_id="SUP001",
+    item_code="LAP001",
+    quantity=10,
+    unit_price=100.0,
+    amount=None,
+):
+    if amount is None:
+        amount = quantity * unit_price
+
+    return client.post(
+        "/api/v1/invoices",
+        json={
+            "invoice_number": invoice_number,
+            "supplier_id": supplier_id,
+            "items": [
+                {
+                    "po_number": po_number,
+                    "item_code": item_code,
+                    "description": "Laptop",
+                    "quantity": quantity,
+                    "unit_price": unit_price,
+                }
+            ],
+            "amount": amount,
+            "invoice_date": "2026-09-09",
+        },
+    )
 
 def create_received_goods_receipt(
     po_number="PO1001",
@@ -410,20 +442,50 @@ def test_price_difference_exactly_five_percent_is_matched(
 # 8. PRICE ABOVE 5%
 # ============================================================
 
+# ============================================================
+# 8. PRICE ABOVE 5%
+# ============================================================
+
 def test_price_difference_above_five_percent_is_discrepancy(
+    supplier_client,
     procurement_client,
 ):
-    prepare_exact_match()
-
-    invoices[
-        ("SUP001", "INV1001")
-    ]["items"][0]["unit_price"] = 106.0
-
-    response = procurement_client.post(
-        match_url()
+    create_fulfilled_po(
+        quantity=10,
+        unit_price=100.0,
     )
 
-    assert response.status_code == 200
+    create_received_goods_receipt(
+        quantity=10,
+    )
+
+    # The invoice API expects the P2P state to be
+    # "received" before invoice creation.
+    # Invoice creation will transition it to "invoiced".
+    p2p_states["PO1001"] = P2PState.received
+
+    invoice_response = create_invoice_via_api(
+        supplier_client,
+        invoice_number="INV1001",
+        quantity=10,
+        unit_price=106.0,
+        amount=1060.0,
+    )
+
+    assert invoice_response.status_code in (
+        200,
+        201,
+    ), invoice_response.text
+
+    # Invoice creation must move the P2P state:
+    # received -> invoiced
+    assert p2p_states["PO1001"] == P2PState.invoiced
+
+    response = procurement_client.post(
+        match_url(),
+    )
+
+    assert response.status_code == 200, response.text
 
     data = response.json()
 
@@ -432,28 +494,49 @@ def test_price_difference_above_five_percent_is_discrepancy(
 
     assert p2p_states["PO1001"] == P2PState.discrepancy
 
-
 # ============================================================
 # 9. QUANTITY + PRICE MISMATCH
 # ============================================================
 
 def test_quantity_and_price_mismatch(
+    supplier_client,
     procurement_client,
 ):
-    prepare_exact_match()
-
-    invoice = invoices[
-        ("SUP001", "INV1001")
-    ]
-
-    invoice["items"][0]["quantity"] = 5
-    invoice["items"][0]["unit_price"] = 106.0
-
-    response = procurement_client.post(
-        match_url()
+    create_fulfilled_po(
+        quantity=10,
+        unit_price=100.0,
     )
 
-    assert response.status_code == 200
+    create_received_goods_receipt(
+        quantity=10,
+    )
+
+    # The invoice API requires the PO to be in
+    # the "received" P2P state before invoice creation.
+    p2p_states["PO1001"] = P2PState.received
+
+    invoice_response = create_invoice_via_api(
+        supplier_client,
+        invoice_number="INV1001",
+        quantity=5,
+        unit_price=106.0,
+        amount=530.0,
+    )
+
+    assert invoice_response.status_code in (
+        200,
+        201,
+    ), invoice_response.text
+
+    # Invoice creation should transition:
+    # received -> invoiced
+    assert p2p_states["PO1001"] == P2PState.invoiced
+
+    response = procurement_client.post(
+        match_url(),
+    )
+
+    assert response.status_code == 200, response.text
 
     data = response.json()
 
@@ -463,7 +546,6 @@ def test_quantity_and_price_mismatch(
     assert "price_mismatch" in data["discrepancies"]
 
     assert p2p_states["PO1001"] == P2PState.discrepancy
-
 
 # ============================================================
 # 10. MISSING INVOICE
@@ -1690,8 +1772,7 @@ def test_unknown_three_way_match_returns_404(
 # ============================================================
 # 45. UNKNOWN SUPPLIER MATCH RETURNS 404
 # ============================================================
-
-def test_unknown_supplier_match_returns_404(
+def test_unknown_supplier_match_returns_403(
     supplier_client,
 ):
     response = supplier_client.get(
@@ -1701,12 +1782,25 @@ def test_unknown_supplier_match_returns_404(
         )
     )
 
+    assert response.status_code == 403
+
+    assert "forbidden" in response.text.lower()
+
+def test_unknown_match_for_own_supplier_returns_404(
+    supplier_client,
+):
+    response = supplier_client.get(
+        match_url(
+            supplier_id="SUP001",
+            invoice_number="INV-DOES-NOT-EXIST",
+        )
+    )
+
     assert response.status_code == 404
 
     assert "three-way match record not found" in (
         response.text.lower()
     )
-
 
 # ============================================================
 # 46. PROCUREMENT MANAGER CAN GET OTHER SUPPLIER MATCH

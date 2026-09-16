@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import verify_token
 from app.schemas.goods_receipt import (
@@ -30,10 +30,19 @@ router = APIRouter()
 )
 def create_goods_receipt_endpoint(
     receipt: GoodsReceiptCreate,
-    request: Request,
     user=Depends(verify_token),
 ):
-    role = request.state.role
+    """
+    Create a Goods Receipt.
+
+    Goods Receipt creation is a warehouse-side activity and is
+    restricted to the Warehouse Manager role.
+
+    The authenticated user's email is used as created_by.
+    The client cannot provide or override the actor identity.
+    """
+
+    role = user.get("role")
 
     # Goods Receipt is a warehouse-side activity.
     if role != "warehouse_manager":
@@ -42,7 +51,7 @@ def create_goods_receipt_endpoint(
             detail="Only Warehouse Manager can create Goods Receipts.",
         )
 
-    email = request.state.email
+    email = user.get("email")
 
     if not email:
         raise HTTPException(
@@ -81,27 +90,35 @@ def create_goods_receipt_endpoint(
 )
 def get_goods_receipt_endpoint(
     receipt_id: str,
-    request: Request,
     user=Depends(verify_token),
 ):
-    receipt = get_goods_receipt_by_id(receipt_id)
+    """
+    Get a Goods Receipt by ID.
 
-    # Unknown resource -> 404
-    if not receipt:
-        raise HTTPException(
-            status_code=404,
-            detail="Goods Receipt not found.",
-        )
+    Supplier:
+        - own receipt -> 200
+        - another supplier's receipt -> 403
+        - unknown receipt -> 403
+        - missing supplier_id -> 403
 
-    role = request.state.role
+    Internal authenticated users:
+        - existing receipt -> 200
+        - unknown receipt -> 404
+
+    Supplier requests intentionally return a uniform 403 for
+    inaccessible or unknown receipt IDs so that suppliers
+    cannot determine whether another supplier's receipt exists.
+    """
+
+    role = user.get("role")
 
     # --------------------------------------------------------
-    # SUPPLIER SCOPING
+    # SUPPLIER
     # --------------------------------------------------------
 
     if role == "supplier":
 
-        supplier_id = request.state.supplier_id
+        supplier_id = user.get("supplier_id")
 
         # Supplier identity is mandatory.
         if not supplier_id:
@@ -110,12 +127,35 @@ def get_goods_receipt_endpoint(
                 detail="Supplier identity is missing.",
             )
 
-        # Supplier may only access its own receipt.
-        if receipt["supplier_id"] != supplier_id:
+        receipt = get_goods_receipt_by_id(receipt_id)
+
+        # Do not reveal whether the receipt exists.
+        if not receipt:
             raise HTTPException(
                 status_code=403,
-                detail="Supplier does not own this Goods Receipt.",
+                detail="Forbidden: goods receipt is not accessible.",
             )
+
+        # Supplier may only access its own receipt.
+        if receipt.get("supplier_id") != supplier_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Forbidden: supplier does not own this Goods Receipt.",
+            )
+
+        return receipt
+
+    # --------------------------------------------------------
+    # INTERNAL AUTHENTICATED USERS
+    # --------------------------------------------------------
+
+    receipt = get_goods_receipt_by_id(receipt_id)
+
+    if not receipt:
+        raise HTTPException(
+            status_code=404,
+            detail="Goods Receipt not found.",
+        )
 
     return receipt
 
@@ -130,9 +170,23 @@ def get_goods_receipt_endpoint(
 )
 def get_goods_receipts_for_po(
     po_number: str,
-    request: Request,
     user=Depends(verify_token),
 ):
+    """
+    Get Goods Receipts associated with a Purchase Order.
+
+    Supplier users:
+        - can access only their own Purchase Order
+        - cannot determine another supplier's PO receipt data
+        - require supplier_id in the authenticated token
+
+    Internal authenticated users:
+        - can access receipts for any existing Purchase Order
+
+    The Purchase Order is used as the authorization boundary
+    before retrieving the associated Goods Receipts.
+    """
+
     # --------------------------------------------------------
     # 1. PURCHASE ORDER MUST EXIST
     # --------------------------------------------------------
@@ -145,20 +199,15 @@ def get_goods_receipts_for_po(
             detail="Purchase Order not found.",
         )
 
-    role = request.state.role
+    role = user.get("role")
 
     # --------------------------------------------------------
-    # 2. SUPPLIER OWNERSHIP MUST BE CHECKED AGAINST THE PO
+    # 2. SUPPLIER OWNERSHIP
     # --------------------------------------------------------
-    # Do this before looking at receipts.
-    #
-    # Otherwise:
-    #   existing PO + no receipts
-    # could return [] to the wrong supplier.
 
     if role == "supplier":
 
-        supplier_id = request.state.supplier_id
+        supplier_id = user.get("supplier_id")
 
         if not supplier_id:
             raise HTTPException(
@@ -179,7 +228,7 @@ def get_goods_receipts_for_po(
     receipts = get_goods_receipts_by_po(po_number)
 
     # --------------------------------------------------------
-    # 4. DEFENSIVE FILTER
+    # 4. DEFENSIVE SUPPLIER FILTER
     # --------------------------------------------------------
 
     if role == "supplier":
@@ -188,6 +237,10 @@ def get_goods_receipts_for_po(
             for receipt in receipts
             if receipt.get("supplier_id") == supplier_id
         ]
+
+    # --------------------------------------------------------
+    # 5. INTERNAL USERS
+    # --------------------------------------------------------
 
     return receipts
 
@@ -201,12 +254,20 @@ def get_goods_receipts_for_po(
     response_model=list[GoodsReceiptResponse],
 )
 def get_goods_receipts(
-    request: Request,
     user=Depends(verify_token),
 ):
+    """
+    Get Goods Receipts.
+
+    Supplier users receive only receipts belonging to their
+    authenticated supplier_id.
+
+    Internal authenticated users receive all Goods Receipts.
+    """
+
     receipts = get_all_goods_receipts()
 
-    role = request.state.role
+    role = user.get("role")
 
     # --------------------------------------------------------
     # SUPPLIER SCOPING
@@ -214,7 +275,7 @@ def get_goods_receipts(
 
     if role == "supplier":
 
-        supplier_id = request.state.supplier_id
+        supplier_id = user.get("supplier_id")
 
         if not supplier_id:
             raise HTTPException(

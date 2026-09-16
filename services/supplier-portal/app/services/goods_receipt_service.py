@@ -41,9 +41,12 @@ def create_goods_receipt(
     PO transition:
         acknowledged -> fulfilled
 
-    For the current Milestone 1 implementation,
-    the Goods Receipt must contain the complete quantity
-    ordered in the Purchase Order.
+    Partial receipts are allowed. Received quantity must be
+    greater than zero and must not exceed the Purchase Order
+    quantity.
+
+    Quantity differences are handled by the three-way match
+    service and flagged as discrepancies for human review.
     """
 
     # ---------------------------------------------------------
@@ -130,24 +133,7 @@ def create_goods_receipt(
         )
 
     # ---------------------------------------------------------
-    # 7. Validate all PO items are present
-    #
-    # Current Milestone 1 rule:
-    # Goods Receipt must represent the complete PO quantity.
-    # ---------------------------------------------------------
-
-    missing_items = set(po_items) - set(receipt_items)
-
-    if missing_items:
-        missing = ", ".join(sorted(missing_items))
-
-        raise ValueError(
-            "Goods Receipt must contain all Purchase Order "
-            f"items. Missing item(s): {missing}."
-        )
-
-    # ---------------------------------------------------------
-    # 8. Validate no extra items are present
+    # 7. Validate no extra items are present
     # ---------------------------------------------------------
 
     extra_items = set(receipt_items) - set(po_items)
@@ -161,15 +147,27 @@ def create_goods_receipt(
         )
 
     # ---------------------------------------------------------
-    # 9. Validate received quantity
+    # 8. Validate received quantity
     #
-    # Each received quantity must exactly match the
-    # corresponding PO quantity.
+    # Partial receipts are allowed.
+    #
+    # Reject only:
+    #   - zero/negative quantity
+    #   - quantity greater than PO quantity
+    #
+    # A quantity lower than the PO quantity is allowed so
+    # that the three-way match can flag it as a discrepancy.
     # ---------------------------------------------------------
 
-    for item_code, ordered_quantity in po_items.items():
+    for item_code, received_quantity in receipt_items.items():
 
-        received_quantity = receipt_items[item_code]
+        ordered_quantity = po_items[item_code]
+
+        if received_quantity <= 0:
+            raise ValueError(
+                f"Received quantity for item "
+                f"'{item_code}' must be greater than zero."
+            )
 
         if received_quantity > ordered_quantity:
             raise ValueError(
@@ -179,15 +177,8 @@ def create_goods_receipt(
                 f"Received: {received_quantity}."
             )
 
-        if received_quantity < ordered_quantity:
-            raise ValueError(
-                f"Goods Receipt is incomplete for item "
-                f"'{item_code}'. Ordered: {ordered_quantity}, "
-                f"Received: {received_quantity}."
-            )
-
     # ---------------------------------------------------------
-    # 10. Generate receipt ID
+    # 9. Generate receipt ID
     # ---------------------------------------------------------
 
     receipt_id = (
@@ -195,7 +186,7 @@ def create_goods_receipt(
     )
 
     # ---------------------------------------------------------
-    # 11. Build Goods Receipt record
+    # 10. Build Goods Receipt record
     # ---------------------------------------------------------
 
     receipt_data = {
@@ -215,13 +206,13 @@ def create_goods_receipt(
     }
 
     # ---------------------------------------------------------
-    # 12. Store Goods Receipt
+    # 11. Store Goods Receipt
     # ---------------------------------------------------------
 
     goods_receipts[receipt_id] = receipt_data
 
     # ---------------------------------------------------------
-    # 13. Advance P2P state
+    # 12. Advance P2P state
     #
     #     shipped -> received
     # ---------------------------------------------------------
@@ -241,14 +232,13 @@ def create_goods_receipt(
         raise
 
     # ---------------------------------------------------------
-    # 14. Fulfill the Purchase Order
-    #
-    # Since the complete PO quantity has now been received:
-    #
-    #     acknowledged -> fulfilled
+    # 13. Fulfill the Purchase Order
     #
     # IMPORTANT:
     # This is PO status, NOT P2P state.
+    #
+    # The existing Milestone 1 flow requires the PO to move
+    # from acknowledged -> fulfilled after Goods Receipt.
     # ---------------------------------------------------------
 
     try:

@@ -209,20 +209,35 @@ def get_match(
 
     Access rules:
         - Supplier without supplier_id -> 403
-        - Unknown match -> 404
-        - Other supplier's match -> 403
+        - Other supplier's request -> 403
+        - Unknown resource for an authorized supplier -> 404
         - Own supplier's match -> 200
         - Internal users -> 200 when match exists
+        - Internal users -> 404 when match does not exist
+
+    Ownership is checked before resource lookup so that
+    cross-supplier requests cannot determine whether another
+    supplier's record exists.
     """
 
-    # 1. Supplier identity must be available first.
-    #    This prevents a supplier without supplier_id from
-    #    receiving a misleading 404.
+    # 1. Supplier users must have a supplier_id.
     validate_supplier_identity(user)
 
-    # 2. Check whether the requested match actually exists.
-    #    Unknown resource must return 404 before ownership
-    #    comparison is performed.
+    # 2. Check supplier ownership BEFORE looking up the resource.
+    #
+    # This prevents an existence leak:
+    #
+    # SUP002 -> SUP001/INV1  => 403
+    # SUP002 -> SUP001/NOPE => 403
+    #
+    # The application never reveals whether the SUP001
+    # resource exists to SUP002.
+    check_supplier_access(
+        supplier_id=supplier_id,
+        user=user,
+    )
+
+    # 3. Only after authorization, look up the resource.
     match = get_three_way_match(
         supplier_id=supplier_id,
         invoice_number=invoice_number,
@@ -234,16 +249,8 @@ def get_match(
             detail="Three-way match record not found.",
         )
 
-    # 3. After confirming the resource exists, enforce
-    #    supplier ownership.
-    check_supplier_access(
-        supplier_id=supplier_id,
-        user=user,
-    )
-
-    # 4. Return the authorized match.
+    # 4. Authorized resource.
     return match
-
 
 
 # ============================================================
