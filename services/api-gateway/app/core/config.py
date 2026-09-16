@@ -150,6 +150,19 @@ class Settings(BaseSettings):
     CIRCUIT_BREAKER_WINDOW_SECONDS: int = 60
     CIRCUIT_BREAKER_RECOVERY_TIMEOUT: float = 30.0
 
+    # --------------------------------------------------
+    # Observability & Metrics Configuration
+    # --------------------------------------------------
+    LATENCY_HISTOGRAM_BUCKETS: list[float] = [
+        10.0,
+        25.0,
+        50.0,
+        100.0,
+        250.0,
+        500.0,
+        1000.0,
+    ]
+
     def model_post_init(self, __context: object = None, /) -> None:
         """
         Synchronize individual downstream URLs with the route mapping table.
