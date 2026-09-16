@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { AlertBanner } from "../../../ui/src/components/AlertBanner";
-import { Spinner } from "../../../ui/src/components/Spinner";
 import { colors, radius, space } from "../tokens";
 import type { AlertMessage } from "../types/forecast";
+import Skeleton from "./Skeleton";
 interface AlertsPanelProps {
   alerts: AlertMessage[];
   connected: boolean;
@@ -19,6 +18,7 @@ export default function AlertsPanel({
   onRemove,
 }: AlertsPanelProps) {
   const [fadingAlerts, setFadingAlerts] = useState<string[]>([]);
+
   const timers = useRef<
     Record<string, ReturnType<typeof setTimeout>>
   >({});
@@ -101,20 +101,62 @@ export default function AlertsPanel({
     return new Date(timestamp).toLocaleTimeString("en-GB");
   };
 
+  const getAlertColor = (
+    type: "info" | "success" | "warning" | "danger"
+  ) => {
+    if (type === "danger") {
+      return colors.danger;
+    }
+
+    if (type === "warning") {
+      return colors.warning;
+    }
+
+    if (type === "success") {
+      return colors.success;
+    }
+
+    return colors.primary;
+  };
+
   if (isConnecting) {
     return (
       <div
         style={{
-          minHeight: 350,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: space.sm,
-          color: colors.text,
+          background: colors.surface,
+          padding: space.md,
+          borderRadius: radius.md,
         }}
       >
-        <Spinner size="md" />
-        <span>Loading Live Alerts...</span>
+        <Skeleton width="30%" height={28} />
+
+        <div style={{ marginTop: space.md }}>
+          <Skeleton width="25%" height={18} />
+        </div>
+
+        <div style={{ marginTop: space.md }}>
+          <Skeleton
+            width="100%"
+            height={90}
+            borderRadius={radius.md}
+          />
+        </div>
+
+        <div style={{ marginTop: space.sm }}>
+          <Skeleton
+            width="100%"
+            height={90}
+            borderRadius={radius.md}
+          />
+        </div>
+
+        <div style={{ marginTop: space.sm }}>
+          <Skeleton
+            width="100%"
+            height={90}
+            borderRadius={radius.md}
+          />
+        </div>
       </div>
     );
   }
@@ -126,13 +168,25 @@ export default function AlertsPanel({
           background: colors.surface,
           padding: space.md,
           borderRadius: radius.md,
+          border: `1px solid ${colors.danger}`,
         }}
       >
-        <h2 style={{ color: colors.text }}>
+        <h2
+          style={{
+            color: colors.text,
+            margin: 0,
+            marginBottom: space.sm,
+          }}
+        >
           Unable to connect to the alerts service.
         </h2>
 
-        <p style={{ color: colors.textMuted }}>
+        <p
+          style={{
+            color: colors.textMuted,
+            margin: 0,
+          }}
+        >
           Connection failed after multiple retry attempts.
         </p>
       </div>
@@ -148,7 +202,12 @@ export default function AlertsPanel({
           borderRadius: radius.md,
         }}
       >
-        <h2 style={{ color: colors.text }}>
+        <h2
+          style={{
+            color: colors.text,
+            margin: 0,
+          }}
+        >
           No Alerts Available.
         </h2>
       </div>
@@ -171,7 +230,12 @@ export default function AlertsPanel({
           marginBottom: space.sm,
         }}
       >
-        <h2 style={{ color: colors.text }}>
+        <h2
+          style={{
+            color: colors.text,
+            margin: 0,
+          }}
+        >
           Live Alerts
         </h2>
 
@@ -196,6 +260,8 @@ export default function AlertsPanel({
 
       {alerts.map((alert) => {
         const isFading = fadingAlerts.includes(alert.id);
+        const alertType = getAlertType(alert.severity);
+        const alertColor = getAlertColor(alertType);
 
         return (
           <div
@@ -205,15 +271,44 @@ export default function AlertsPanel({
               transition: "opacity 0.5s ease",
               pointerEvents: isFading ? "none" : "auto",
               marginBottom: space.sm,
+              padding: space.md,
+              borderRadius: radius.md,
+              borderLeft: `4px solid ${alertColor}`,
+              background: colors.bg,
             }}
           >
-            <AlertBanner
-              type={getAlertType(alert.severity)}
-              title={getTitle(alert.type)}
-              message={`${alert.message} • ${formatTime(
-                alert.timestamp
-              )}`}
-            />
+            <h3
+              style={{
+                margin: 0,
+                marginBottom: space.xs,
+                color: colors.text,
+                fontSize: "15px",
+              }}
+            >
+              {getTitle(alert.type)}
+            </h3>
+
+            <p
+              style={{
+                margin: 0,
+                color: colors.textMuted,
+                fontSize: "14px",
+                lineHeight: 1.5,
+              }}
+            >
+              {alert.message}
+            </p>
+
+            <span
+              style={{
+                display: "block",
+                marginTop: space.xs,
+                color: colors.textMuted,
+                fontSize: "12px",
+              }}
+            >
+              {formatTime(alert.timestamp)}
+            </span>
           </div>
         );
       })}
