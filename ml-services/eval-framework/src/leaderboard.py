@@ -1,6 +1,6 @@
 import math
 
-from .metrics import HIGHER_IS_BETTER_METRICS
+from .metrics import HIGHER_IS_BETTER_METRICS, KNOWN_METRICS
 
 
 def generate_leaderboard(results: dict, metric: str, lower_is_better: bool = None,
@@ -10,26 +10,34 @@ def generate_leaderboard(results: dict, metric: str, lower_is_better: bool = Non
     Ranks all models by the given metric, best first.
 
     Refuses to rank if:
+    - the metric is unrecognized (not in KNOWN_METRICS) AND lower_is_better
+      wasn't explicitly given -- previously, an unknown metric like "r2"
+      silently defaulted to lower-is-better, ranking it backwards. Now the
+      caller must either use a known metric name or say explicitly which
+      direction is better.
     - the requested metric is missing from any model's results
     - any model's value for that metric isn't numeric, is a bool, is NaN,
-      or is infinite (math.isfinite catches NaN AND +/-Infinity in one check)
+      or is infinite
     - fewer than 2 models have that metric
     - metadata is provided and models disagree on dataset_id, test window/
-      horizon, or metric units -- ranking models evaluated on different
-      data, windows, or scales is not a meaningful comparison even if the
-      raw numbers both happen to be valid floats
+      horizon, or metric units
+
+    IMPORTANT: metadata is optional. Without it, this function cannot
+    detect scale mismatches (e.g. one model reporting MAPE as a fraction
+    like 0.0264, another as a percentage like 3.64) -- both are valid
+    finite numbers for the same metric NAME, so numeric validation alone
+    can't catch this. Pass metadata with a "units" key whenever there's
+    any chance models used different scales or conventions.
 
     metadata: optional {model_name: {"dataset_id": ..., "horizon": ...,
         "units": ...}}. If provided, all models must agree on every key
         present, or the ranking is refused with a clear message naming the
         mismatch.
 
-    lower_is_better: optional override. If not given, inferred automatically
-        from the shared HIGHER_IS_BETTER_METRICS set in metrics.py. An
-        explicit override that CONTRADICTS the known direction for a metric
-        already in HIGHER_IS_BETTER_METRICS is rejected -- silently letting
-        a caller force MAPE to rank higher-is-better would defeat the whole
-        point of this guard.
+    lower_is_better: required if `metric` is not in KNOWN_METRICS (see
+        metrics.py). If given for a KNOWN metric, an explicit value that
+        CONTRADICTS the known direction is rejected -- silently letting a
+        caller force MAPE to rank higher-is-better would defeat this guard.
 
     Returns a list of (model_name, score) tuples, sorted best-first.
     Raises ValueError with a clear message if ranking isn't possible.
@@ -37,13 +45,30 @@ def generate_leaderboard(results: dict, metric: str, lower_is_better: bool = Non
     if not results:
         raise ValueError("No results provided to rank.")
 
-    known_direction_higher = metric in HIGHER_IS_BETTER_METRICS
-    if lower_is_better is not None:
+    metric_key = metric.lower()
+    is_known = metric_key in KNOWN_METRICS
+
+    if not is_known and lower_is_better is None:
+        raise ValueError(
+            f"Cannot rank: '{metric}' is not a recognized metric, and no "
+            f"lower_is_better direction was given. Pass lower_is_better=True "
+            f"or lower_is_better=False explicitly for unrecognized metrics -- "
+            f"the framework will not guess, since guessing wrong silently "
+            f"ranks results backwards. Known metrics: {sorted(KNOWN_METRICS)}."
+        )
+
+    known_direction_higher = metric_key in HIGHER_IS_BETTER_METRICS
+    if lower_is_better is not None and is_known:
         requested_higher_is_better = not lower_is_better
-        if metric in HIGHER_IS_BETTER_METRICS and requested_higher_is_better is False:
+        if known_direction_higher and requested_higher_is_better is False:
             raise ValueError(
                 f"Cannot rank: '{metric}' is a known higher-is-better metric, but "
                 f"lower_is_better=True was explicitly requested, which contradicts it."
+            )
+        if not known_direction_higher and requested_higher_is_better is True:
+            raise ValueError(
+                f"Cannot rank: '{metric}' is a known lower-is-better metric, but "
+                f"lower_is_better=False was explicitly requested, which contradicts it."
             )
 
     if lower_is_better is None:
@@ -118,7 +143,7 @@ def print_leaderboard(results: dict, metric: str, lower_is_better: bool = None,
         return
 
     if lower_is_better is None:
-        lower_is_better = metric not in HIGHER_IS_BETTER_METRICS
+        lower_is_better = metric.lower() not in HIGHER_IS_BETTER_METRICS
 
     print(f"Leaderboard ({metric}, {'lower' if lower_is_better else 'higher'} is better):")
     print("-" * 40)

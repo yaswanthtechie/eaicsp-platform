@@ -1,6 +1,6 @@
 import pandas as pd
 
-from .metrics import HIGHER_IS_BETTER_METRICS
+from .metrics import HIGHER_IS_BETTER_METRICS, KNOWN_METRICS, SUSPICIOUS_THRESHOLDS
 
 
 class LeakageError(Exception):
@@ -38,28 +38,42 @@ def check_no_train_test_overlap(train: pd.DataFrame, test: pd.DataFrame, on: lis
         )
 
 
-def check_suspicious_accuracy(score: float, metric_name: str = "accuracy",
-                                 threshold: float = 0.98, low_threshold: float = 0.02) -> list:
+def check_suspicious_accuracy(score: float, metric_name: str = "accuracy") -> list:
     """Flags (does not raise) if a score is suspiciously good -- often a
-    sign of data leakage rather than genuine model skill, especially for
-    real-world noisy data where near-perfect scores are rare.
+    sign of data leakage rather than genuine model skill.
 
-    Automatically picks the correct suspicious direction based on the
-    metric name: for higher-is-better metrics (accuracy, precision, recall,
-    f1, etc. -- see HIGHER_IS_BETTER_METRICS in metrics.py), a score at or
-    above `threshold` is flagged. For lower-is-better metrics (MAPE, RMSE),
-    a near-zero score (at or below `low_threshold`) is the equivalent red
-    flag -- e.g. a MAPE of 0.001 is just as suspicious as 99.9% accuracy.
+    Metric name matching is case-insensitive (so "Accuracy" and "accuracy"
+    both work). Thresholds are looked up per-metric from
+    SUSPICIOUS_THRESHOLDS in metrics.py, since different metrics live on
+    very different scales (MAPE is a percentage 0-100, accuracy is a
+    fraction 0-1 -- one shared threshold cannot correctly apply to both).
+
+    If metric_name is not a recognized metric (not in KNOWN_METRICS), this
+    returns an explicit warning saying the metric is unrecognized and the
+    check was skipped -- NOT a silent guess at direction. Silently
+    defaulting unknown metrics to "lower is better" previously caused
+    real bugs: r2 ranked backwards, and auc / false_positive_rate flagged
+    incorrectly.
 
     Returns a list of warning strings (empty list if nothing suspicious).
-    This is a soft warning, not a hard failure, since some problems
-    genuinely can be solved near-perfectly (e.g. a trivial classification
-    task) -- the caller decides whether to treat it as blocking.
+    This is a soft warning, not a hard failure -- the caller decides
+    whether to treat any warning as blocking.
     """
-    warnings = []
-    is_higher_better = metric_name in HIGHER_IS_BETTER_METRICS
+    metric_key = metric_name.lower()
 
-    if is_higher_better:
+    if metric_key not in KNOWN_METRICS:
+        return [
+            f"Metric '{metric_name}' is not recognized by this framework -- cannot "
+            f"determine whether a high or low value is suspicious, so this check "
+            f"was skipped. Known metrics: {sorted(KNOWN_METRICS)}."
+        ]
+
+    is_higher_better = metric_key in HIGHER_IS_BETTER_METRICS
+    thresholds = SUSPICIOUS_THRESHOLDS.get(metric_key, {})
+    warnings = []
+
+    if is_higher_better and "high" in thresholds:
+        threshold = thresholds["high"]
         if score >= threshold:
             warnings.append(
                 f"Suspicious result: {metric_name}={score:.4f} is at or above the "
@@ -68,11 +82,12 @@ def check_suspicious_accuracy(score: float, metric_name: str = "accuracy",
                 f"or train/test overlap) rather than genuine model skill. Worth "
                 f"double-checking before trusting this number."
             )
-    else:
-        if score <= low_threshold:
+    elif not is_higher_better and "low" in thresholds:
+        threshold = thresholds["low"]
+        if score <= threshold:
             warnings.append(
                 f"Suspicious result: {metric_name}={score:.4f} is at or below the "
-                f"{low_threshold} threshold. For a lower-is-better metric like this "
+                f"{threshold} threshold. For a lower-is-better metric like this "
                 f"(e.g. MAPE, RMSE), a near-zero error is the same red flag as a "
                 f"near-perfect accuracy elsewhere -- often data leakage rather than "
                 f"genuine model skill. Worth double-checking before trusting this number."
@@ -81,15 +96,19 @@ def check_suspicious_accuracy(score: float, metric_name: str = "accuracy",
     return warnings
 
 
-def check_chronological_order(train: pd.DataFrame, test: pd.DataFrame, date_col: str) -> None:
+def check_chronological_order(train: pd.DataFrame, test: pd.DataFrame, date_col: str,
+                                 dayfirst: bool = False, date_format: str = None) -> None:
     """Hard-fails if any test date is earlier than or equal to the latest
     train date -- enforces the project's core rule that training data must
     always come strictly before test data in time.
 
     Dates are explicitly converted with pd.to_datetime before comparing --
-    comparing raw strings can both false-alarm on clean splits (e.g.
-    "11/1/2024" < "9/1/2024" alphabetically) and, worse, silently miss real
-    leaks (string comparison doesn't respect calendar order).
+    comparing raw strings can both false-alarm on clean splits and, worse,
+    silently miss real leaks.
+
+    dayfirst / date_format: passed through to pd.to_datetime, since date
+    strings are genuinely ambiguous (e.g. "10/01/2024" could be Jan 10 or
+    Oct 1) -- pass whichever matches your data's actual convention.
 
     Raises ValueError (not LeakageError) if either dataframe is empty --
     that's a usage error, not a leakage finding, so it gets a clear message
@@ -100,8 +119,8 @@ def check_chronological_order(train: pd.DataFrame, test: pd.DataFrame, date_col:
             "check_chronological_order: train and test must both be non-empty."
         )
 
-    train_dates = pd.to_datetime(train[date_col])
-    test_dates = pd.to_datetime(test[date_col])
+    train_dates = pd.to_datetime(train[date_col], dayfirst=dayfirst, format=date_format)
+    test_dates = pd.to_datetime(test[date_col], dayfirst=dayfirst, format=date_format)
 
     train_max = train_dates.max()
     test_min = test_dates.min()

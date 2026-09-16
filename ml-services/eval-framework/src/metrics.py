@@ -1,9 +1,39 @@
 import numpy as np
+
 # Metrics where a HIGHER value is better. Every other known metric (mape, rmse,
 # false_positive_rate, etc.) is treated as lower-is-better by default. This is
 # the single source of truth used by both report.py and leaderboard.py, so
 # adding a new metric here automatically fixes its winner-direction everywhere.
 HIGHER_IS_BETTER_METRICS = {"precision", "recall", "f1", "balanced_accuracy", "specificity", "accuracy"}
+
+# Metrics where a LOWER value is better. Combined with HIGHER_IS_BETTER_METRICS,
+# this is the full set of metric names this framework recognizes. A metric
+# name outside both sets is UNKNOWN -- callers must say explicitly which
+# direction it goes, rather than the framework silently guessing (guessing
+# wrong previously ranked r2 backwards and let auc get incorrectly flagged).
+LOWER_IS_BETTER_METRICS = {"mape", "rmse", "false_positive_rate"}
+
+KNOWN_METRICS = HIGHER_IS_BETTER_METRICS | LOWER_IS_BETTER_METRICS
+
+# Suspicious-score thresholds, tailored to each known metric's REAL scale.
+# Fractional (0-1) metrics use 0.98. MAPE is a PERCENTAGE (0-100) in this
+# framework's own mape() function, so a fraction-scale threshold like 0.02
+# would never fire on real MAPE values -- its low threshold is on the
+# percentage scale instead. RMSE is intentionally omitted: its scale is
+# entirely data-dependent (units of the forecasted quantity), so no single
+# universal threshold is meaningful across different datasets.
+# false_positive_rate is also intentionally omitted: a LOW false positive
+# rate is genuinely good in a real detector (correctly leaving normal points
+# alone), not a leakage red flag the way near-zero MAPE/RMSE is.
+SUSPICIOUS_THRESHOLDS = {
+    "accuracy": {"high": 0.98},
+    "precision": {"high": 0.98},
+    "recall": {"high": 0.98},
+    "f1": {"high": 0.98},
+    "specificity": {"high": 0.98},
+    "balanced_accuracy": {"high": 0.98},
+    "mape": {"low": 0.5},
+}
 
 
 def mape(actual, predicted) -> float:

@@ -18,7 +18,10 @@ def paired_significance_test(scores_a: list, scores_b: list, alpha: float = 0.05
     is numerically unstable here (scipy warns of precision loss), so no
     p-value is computed -- p_value is explicitly None rather than a
     fabricated 0.0 or 1.0, with "significant" and the interpretation set
-    based on whether the constant difference is non-zero.
+    based on whether the constant difference is non-zero. With very few
+    folds (<=3), the interpretation also adds an explicit caution, since a
+    perfectly consistent difference across so few folds is weak evidence
+    on its own.
     """
     if len(scores_a) != len(scores_b):
         raise ValueError("scores_a and scores_b must be the same length (paired per fold).")
@@ -29,6 +32,12 @@ def paired_significance_test(scores_a: list, scores_b: list, alpha: float = 0.05
 
     if len(diffs) > 0 and np.allclose(diffs, diffs[0], atol=1e-9):
         mean_diff = diffs[0]
+        few_folds_caveat = (
+            f" Caution: this is based on only {len(diffs)} fold(s) -- a "
+            f"perfectly consistent difference across so few folds is a weak "
+            f"basis for a strong claim; more folds would give more confidence."
+            if len(diffs) <= 3 else ""
+        )
         return {
             "mean_difference": mean_diff,
             "p_value": None,
@@ -40,6 +49,7 @@ def paired_significance_test(scores_a: list, scores_b: list, alpha: float = 0.05
                 f"computed here, so none is reported. "
                 + ("Treated as a real, consistent difference since it is non-zero."
                    if mean_diff != 0 else "No difference at all.")
+                + few_folds_caveat
             ),
         }
 
@@ -67,9 +77,16 @@ def wilcoxon_significance_test(scores_a: list, scores_b: list, alpha: float = 0.
     """
     Wilcoxon signed-rank test -- a non-parametric alternative to the paired
     t-test. Doesn't assume the fold differences are normally distributed,
-    which matters when there are very few folds (e.g. 3-5, the typical
-    walk-forward fold count in this project) -- with that little data, a
-    t-test's normality assumption is hard to trust.
+    which matters when there are very few folds -- with that little data,
+    a t-test's normality assumption is hard to trust.
+
+    IMPORTANT LIMITATION: with n folds, the smallest p-value Wilcoxon can
+    ever report is 1 / 2^(n-1). At n=5 (this project's typical walk-forward
+    fold count), that floor is 0.0625 -- ABOVE the default alpha=0.05, so
+    this test can never report significant=True with 5 or fewer folds, no
+    matter how large or consistent the real difference is. With few folds,
+    prefer paired_significance_test() (the t-test) instead, or increase the
+    number of folds if you specifically want to use Wilcoxon.
 
     scores_a, scores_b: lists of the same length, paired per fold, same
     convention as paired_significance_test().

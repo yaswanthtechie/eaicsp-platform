@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from typing import Dict, List, Optional
+from pydantic import BaseModel, ConfigDict
+from typing import Dict, List, Optional, Any
 
 from .leaderboard import generate_leaderboard
 from .metrics import HIGHER_IS_BETTER_METRICS
@@ -13,13 +13,22 @@ class LeaderboardRequest(BaseModel):
     results: {model_name: {metric_name: value}} -- same shape used
         throughout this framework (compare.py, leaderboard.py)
     metric: which metric to rank by
-    metadata: optional {model_name: {"dataset_id": ..., "horizon": ...,
-        "units": ...}} -- if provided, ranking is refused when models
-        disagree on any key
+    metadata: optional {model_name: {key: value}}, e.g. {"dataset_id": "x",
+        "horizon": 7, "units": "percent"} -- values may be strings,
+        numbers, or booleans; if provided, ranking is refused when models
+        disagree on any key.
+
+    model_config forbids any field not listed above (e.g. a stray
+    lower_is_better) -- FastAPI/Pydantic reject the request with a clear
+    422 instead of silently accepting and ignoring an unrecognized field,
+    which would otherwise look like a 200 success while quietly doing
+    something the caller didn't expect.
     """
+    model_config = ConfigDict(extra="forbid")
+
     results: Dict[str, Dict[str, float]]
     metric: str
-    metadata: Optional[Dict[str, Dict[str, str]]] = None
+    metadata: Optional[Dict[str, Dict[str, Any]]] = None
 
 
 class LeaderboardEntry(BaseModel):
@@ -39,15 +48,18 @@ def get_leaderboard(request: LeaderboardRequest) -> LeaderboardResponse:
     Ranks all models in the request by the given metric. Returns HTTP 422
     (via a clear error message) if the models' metrics aren't comparable --
     e.g. one model is missing the metric, a value is non-numeric/NaN/
-    infinite, or metadata is provided and models disagree on dataset/
-    horizon/units -- rather than forcing a fake ranking.
+    infinite, the metric is unrecognized, or metadata is provided and
+    models disagree on dataset/horizon/units -- rather than forcing a fake
+    ranking.
 
     Note: the direction (higher/lower is better) is always inferred
-    automatically from the shared HIGHER_IS_BETTER_METRICS set -- this
-    public API intentionally does not expose a lower_is_better override,
-    since allowing a caller to contradict a metric's known direction
-    (e.g. force MAPE to rank higher-is-better) would defeat the point of
-    the safety guard.
+    automatically from the shared HIGHER_IS_BETTER_METRICS / KNOWN_METRICS
+    sets -- this public API intentionally does not expose a
+    lower_is_better override, since allowing a caller to contradict a
+    metric's known direction (e.g. force MAPE to rank higher-is-better)
+    would defeat the point of the safety guard. A request containing a
+    stray lower_is_better field (or any other unrecognized field) is
+    rejected with 422 rather than silently ignored.
     """
     try:
         ranked = generate_leaderboard(request.results, request.metric, metadata=request.metadata)
