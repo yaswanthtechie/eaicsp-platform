@@ -82,7 +82,7 @@ CANARY_PERCENTAGE = 20
 # ==========================================================
 
 # Drift threshold that triggers retraining.
-DRIFT_THRESHOLD = 0.05
+DRIFT_THRESHOLD = 0.30
 
 
 # ==========================================================
@@ -91,13 +91,13 @@ DRIFT_THRESHOLD = 0.05
 
 # How frequently the simulated scheduler checks for drift.
 # One hour is a safer default for production-like behavior.
-RETRAINING_INTERVAL_SECONDS = 60
+RETRAINING_INTERVAL_SECONDS = 3600
 
 
 # Scheduler is disabled by default.
 # Enable explicitly with:
 # ENABLE_RETRAINING_SCHEDULER=true
-ENABLE_RETRAINING_SCHEDULER = True
+ENABLE_RETRAINING_SCHEDULER = False
 
 
 # Minimum number of recent prediction inputs required
@@ -123,8 +123,8 @@ MODEL_BACKEND = "stub"
 # MILESTONE 3 MULTI-MODEL RETRAINING
 # ==========================================================
 
-MULTIMODEL_RETRAINING_INTERVAL_SECONDS = 60
+MULTIMODEL_RETRAINING_INTERVAL_SECONDS = 3600
 
-ENABLE_MULTIMODEL_RETRAINING_SCHEDULER = True
+ENABLE_MULTIMODEL_RETRAINING_SCHEDULER = False
 
-MULTIMODEL_DRIFT_THRESHOLD = 0.05
+MULTIMODEL_DRIFT_THRESHOLD = 0.30
