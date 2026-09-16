@@ -46,7 +46,7 @@ def calculate_feature_significance(
     df: pd.DataFrame,
     target_col: str,
     significance_level: float = 0.05,
-    use_differencing: bool = False,
+    use_differencing: bool = True,
 ) -> pd.DataFrame:
     """
     Calculate correlation, p-value, adjusted p-value, and statistical
@@ -90,7 +90,6 @@ def calculate_feature_significance(
         columns=[target_col],
         errors="ignore"
     )
-
     if use_differencing:
         numeric_df = numeric_df.diff()
         target = df[target_col].diff()
@@ -107,7 +106,8 @@ def calculate_feature_significance(
 
         if len(pair) < 3:
             continue
-
+        if pair[feature].nunique() < 2 or pair[target_col].nunique() < 2:
+            continue
         correlation, p_value = pearsonr(
             pair[feature],
             pair[target_col]
@@ -236,7 +236,7 @@ def select_top_features(
     target_col,
     n_features=5,
     significance_level=0.05,
-    use_differencing=False,
+    use_differencing=True,
 ):
     """
     Select the top features using correlation and model-based importance,
@@ -292,7 +292,6 @@ def select_top_features(
         target_col,
         significance_level,
         use_differencing=use_differencing,
-        
     )
 
     scores = pd.DataFrame({

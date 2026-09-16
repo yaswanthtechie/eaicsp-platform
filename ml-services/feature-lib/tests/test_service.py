@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from api import app
+from src.service import app
 
 
 client = TestClient(app)
@@ -133,10 +133,10 @@ def test_build_features_rejects_non_numeric_target():
         "Target column 'sales' must contain numeric values."
     )
 def test_build_features_reuses_feature_store_cache(monkeypatch):
-    import api
+    import src.service as service
     import src.feature_store as feature_store
 
-    api.feature_store.clear()
+    service.feature_store.clear()
 
     call_count = {"count": 0}
 
@@ -288,4 +288,39 @@ def test_build_features_accepts_valid_lag_and_window_limits():
     )
 
     assert response.status_code == 200
-    assert "features" in response.json()    
+    assert "features" in response.json()
+
+def test_build_features_separates_multiple_series_by_group():
+    payload = {
+        "data": [
+            {"date": "2024-01-01", "sku": "A", "sales": 100},
+            {"date": "2024-01-01", "sku": "B", "sales": 5},
+            {"date": "2024-01-02", "sku": "A", "sales": 101},
+            {"date": "2024-01-02", "sku": "B", "sales": 6},
+        ],
+        "date_col": "date",
+        "target_col": "sales",
+        "group_cols": ["sku"],
+        "config": {
+            "lags": [1],
+            "windows": [1],
+        },
+    }
+
+    response = client.post(
+        "/features/build",
+        json=payload,
+    )
+
+    assert response.status_code == 200
+
+    features = response.json()["features"]
+
+    by_sku = {
+        row["sku"]: row
+        for row in features
+        if row["date"] == "2024-01-02T00:00:00"
+    }
+
+    assert by_sku["A"]["sales_lag_1"] == 100
+    assert by_sku["B"]["sales_lag_1"] == 5

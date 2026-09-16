@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 from src.feature_usefulness import select_top_features
 from src.feature_store import FeatureStore
 
@@ -316,3 +317,138 @@ def test_feature_store_cache_key_changes_when_column_name_changes():
     )
 
     assert key1 != key2
+
+def test_feature_code_hash_changes_when_feature_implementation_changes(monkeypatch):
+    df = sample_data()
+    store = FeatureStore()
+
+    original_sources = {
+        "build_all_features": "build source",
+        "add_lag_features": "lag source",
+        "add_rolling_features": "rolling source",
+        "add_calendar_features": "calendar source",
+        "create_holiday_features": "holiday source",
+        "add_interaction_features": "interaction source",
+    }
+
+    def fake_getsource(function):
+        return original_sources[function.__name__]
+
+    monkeypatch.setattr(
+        "src.feature_store.inspect.getsource",
+        fake_getsource,
+    )
+
+    key_before = store._create_cache_key(
+        df=df,
+        date_col="date",
+        target_col="sales",
+        config={"lags": [1], "windows": [1]},
+        feature_version="v1",
+    )
+
+    original_sources["add_lag_features"] = "CHANGED lag source"
+
+    key_after = store._create_cache_key(
+        df=df,
+        date_col="date",
+        target_col="sales",
+        config={"lags": [1], "windows": [1]},
+        feature_version="v1",
+    )
+
+    assert key_before != key_after
+
+def test_feature_store_evicts_oldest_entry_when_cache_is_full(monkeypatch):
+    df = sample_data()
+    store = FeatureStore(max_cache_size=2)
+
+    def fake_build_all_features(*args, **kwargs):
+        return kwargs["df"].copy()
+
+    monkeypatch.setattr(
+        "src.feature_store.build_all_features",
+        fake_build_all_features,
+    )
+
+    store.get_or_compute(
+        df=df,
+        date_col="date",
+        target_col="sales",
+        feature_version="v1",
+    )
+
+    store.get_or_compute(
+        df=df,
+        date_col="date",
+        target_col="sales",
+        feature_version="v2",
+    )
+
+    store.get_or_compute(
+        df=df,
+        date_col="date",
+        target_col="sales",
+        feature_version="v3",
+    )
+
+    assert len(store) == 2
+
+def test_feature_store_lru_keeps_recently_used_entry(monkeypatch):
+    df = sample_data()
+    store = FeatureStore(max_cache_size=2)
+
+    call_count = {"count": 0}
+
+    def fake_build_all_features(*args, **kwargs):
+        call_count["count"] += 1
+        return kwargs["df"].copy()
+
+    monkeypatch.setattr(
+        "src.feature_store.build_all_features",
+        fake_build_all_features,
+    )
+
+    store.get_or_compute(
+        df=df,
+        date_col="date",
+        target_col="sales",
+        feature_version="v1",
+    )
+
+    store.get_or_compute(
+        df=df,
+        date_col="date",
+        target_col="sales",
+        feature_version="v2",
+    )
+
+    # Reuse v1, making it the most recently used entry.
+    store.get_or_compute(
+        df=df,
+        date_col="date",
+        target_col="sales",
+        feature_version="v1",
+    )
+
+    # v3 should evict v2, not v1.
+    store.get_or_compute(
+        df=df,
+        date_col="date",
+        target_col="sales",
+        feature_version="v3",
+    )
+
+    store.get_or_compute(
+        df=df,
+        date_col="date",
+        target_col="sales",
+        feature_version="v1",
+    )
+
+    assert call_count["count"] == 3
+    assert len(store) == 2
+
+def test_feature_store_rejects_invalid_cache_size():
+    with pytest.raises(ValueError, match="max_cache_size"):
+        FeatureStore(max_cache_size=0)

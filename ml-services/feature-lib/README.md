@@ -55,6 +55,7 @@ Example:
   - Random Forest feature importance is calculated from a single model fit on the available data.
   - Importance values are dataset-dependent and may be less stable on small datasets.
   - Pearson correlation p-values assume independent observations and may be less reliable for autocorrelated time-series data. They are therefore treated as supporting evidence rather than the sole basis for feature selection.
+  - For time-series feature selection, first differencing is enabled by default (`use_differencing=True`) to reduce spurious correlation caused by autocorrelation and trends. Set `use_differencing=False` when raw-level correlation is intentionally required.
 
 - **Feature Store**
   - Provides a simple in-memory feature store for caching engineered features.
@@ -75,7 +76,7 @@ Example:
 
 - **Feature Engineering API**
   - Provides a `POST /features/build` endpoint for building engineered features as a service.
-  - Accepts raw input data, date column, target column, optional feature configuration, and feature-definition version.
+- Accepts raw input data, date column, target column, optional feature configuration, optional group columns, and feature-definition version.
   - Uses the shared `FeatureStore` to compute and cache engineered features.
   - Reuses cached features when the same dataset, configuration, and feature-definition version are requested again.
   - Returns the engineered features as JSON-compatible records.
@@ -93,7 +94,7 @@ Example:
 
 The library was tested using the Prophet retail sales dataset.
 
-The current test suite contains 77 tests, and the latest full test run passed all 77 tests.
+The current test suite contains 82 tests, and the latest full test run passed all 82 tests.
 
 ---
 
@@ -195,7 +196,7 @@ The test suite covers:
 
 Expected result:
 
-    77 passed
+    82 passed
 
 The test suite may display dependency-related deprecation or statistical warnings. These warnings do not indicate failures in the feature library when all tests pass.
 
@@ -222,7 +223,7 @@ Example:
         feature_version="v1"
     )
 
-If the same dataset, configuration, and feature-definition version are requested again, the previously computed features can be reused from the cache.
+If the same dataset, configuration,group columns,and feature-definition version are requested again, the previously computed features can be reused from the cache.
 
 The cache key includes:
 
@@ -231,6 +232,7 @@ The cache key includes:
 - Target column
 - Feature configuration
 - Feature definition version
+- Group columns
 
 Feature-definition versions allow different versions of feature logic to be cached separately.
 
@@ -243,6 +245,18 @@ and:
     feature_version="v2"
 
 produce separate cache entries.
+
+The cache uses an LRU (Least Recently Used) policy with a default maximum
+of 10 cached feature sets. When the cache reaches this limit, the least
+recently used entry is automatically evicted.
+
+The cache size can be configured when creating a FeatureStore:
+
+    store = FeatureStore(max_cache_size=20)
+
+The cache can also be cleared explicitly using:
+
+    store.clear()
 
 This demonstrates the feature-store pattern:
 
@@ -338,6 +352,7 @@ The endpoint accepts:
 - `target_col`
 - Optional feature configuration
 - Optional `feature_version`
+- Optional `group_cols`
 
 Example request:
 
@@ -362,7 +377,8 @@ Example request:
             "lags": [1],
             "windows": [2]
         },
-        "feature_version": "v1"
+        "feature_version": "v1",
+        "group_cols": ["sku"]
     }
 
 The API uses the shared `FeatureStore`, which in turn uses the same `build_all_features()` implementation as the Python library.
@@ -373,7 +389,7 @@ For identical requests using the same dataset, configuration, and feature-defini
 
 From the `ml-services/feature-lib` directory:
 
-    uvicorn api:app --reload
+    uvicorn src.service:app --reload
 
 The endpoint can then be called with:
 

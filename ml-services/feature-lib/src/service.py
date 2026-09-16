@@ -27,9 +27,11 @@ class FeatureBuildRequest(BaseModel):
     target_col: str
     config: dict[str, Any] | None = Field(default=None)
     feature_version: str = "v1"
+    group_cols: list[str] | None = None
 
 
 @app.post("/features/build")
+
 def build_features(request: FeatureBuildRequest):
     """
     Build engineered features from raw input data and configuration.
@@ -77,6 +79,7 @@ def build_features(request: FeatureBuildRequest):
             target_col=request.target_col,
             config=config,
             feature_version=request.feature_version,
+            group_cols=request.group_cols,
         )
 
         safe_features = features.astype(object).where(

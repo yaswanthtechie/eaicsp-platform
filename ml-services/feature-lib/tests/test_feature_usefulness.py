@@ -1,5 +1,6 @@
 import pandas as pd
 import pytest
+from statsmodels.stats.multitest import multipletests
 from src.build_features import build_all_features
 from src.feature_usefulness import calculate_feature_correlations,calculate_model_feature_importance,calculate_feature_significance,select_top_features
 
@@ -189,9 +190,18 @@ def test_select_top_features_end_to_end_with_tiny_dataset():
 def test_calculate_feature_significance():
     df = pd.DataFrame(
         {
-            "target": [1, 2, 3, 4, 5],
-            "strong_feature": [2, 4, 6, 8, 10],
-            "weak_feature": [5, 1, 4, 2, 3],
+            "target": [
+                100, 103, 101, 106, 110,
+                108, 113, 111, 116, 120,
+            ],
+            "strong_feature": [
+                50, 56, 52, 62, 70,
+                66, 76, 72, 82, 90,
+            ],
+            "weak_feature": [
+                7, 2, 9, 1, 6,
+                3, 8, 4, 10, 5,
+            ],
         }
     )
 
@@ -207,7 +217,7 @@ def test_calculate_feature_significance():
 
     strong = result[result["feature"] == "strong_feature"].iloc[0]
 
-    assert strong["correlation"] == 1.0
+    assert strong["correlation"] > 0.9
     assert strong["p_value"] < 0.05
     assert bool(strong["is_significant"]) is True
 
@@ -215,8 +225,14 @@ def test_calculate_feature_significance():
 def test_calculate_feature_significance_handles_missing_values():
     df = pd.DataFrame(
         {
-            "target": [1, 2, 3, 4, 5],
-            "feature": [2, 4, None, 8, 10],
+            "target": [
+                100, 103, 101, 106, 110,
+                108, 113, 111, 116, 120,
+            ],
+            "feature": [
+                50, 56, None, 62, 70,
+                66, 76, 72, 82, 90,
+            ],
         }
     )
 
@@ -262,9 +278,18 @@ def test_calculate_feature_significance_requires_numeric_target():
 def test_calculate_feature_significance_marks_significant_and_insignificant_features():
     df = pd.DataFrame(
         {
-            "target": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-            "strong_feature": [2, 4, 6, 8, 10, 12, 14, 16, 18, 20],
-            "weak_feature": [7, 2, 9, 1, 6, 3, 8, 4, 10, 5],
+            "target": [
+                100, 103, 101, 106, 110,
+                108, 113, 111, 116, 120,
+            ],
+            "strong_feature": [
+                50, 56, 52, 62, 70,
+                66, 76, 72, 82, 90,
+            ],
+            "weak_feature": [
+                7, 2, 9, 1, 6,
+                3, 8, 4, 10, 5,
+            ],
         }
     )
 
@@ -283,13 +308,21 @@ def test_calculate_feature_significance_marks_significant_and_insignificant_feat
     assert not weak["is_significant"]
     assert weak["p_value"] >= 0.05
 
-
 def test_select_top_features_includes_statistical_backing():
     df = pd.DataFrame(
         {
-            "target": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-            "useful_feature": [2, 4, 6, 8, 10, 12, 14, 16, 18, 20],
-            "noise_feature": [7, 2, 9, 1, 6, 3, 8, 4, 10, 5],
+            "target": [
+                100, 103, 101, 106, 110,
+                108, 113, 111, 116, 120,
+            ],
+            "useful_feature": [
+                50, 56, 52, 62, 70,
+                66, 76, 72, 82, 90,
+            ],
+            "noise_feature": [
+                7, 2, 9, 1, 6,
+                3, 8, 4, 10, 5,
+            ],
         }
     )
 
@@ -300,24 +333,36 @@ def test_select_top_features_includes_statistical_backing():
     )
 
     assert "p_value" in selected.columns
+    assert "adjusted_p_value" in selected.columns
     assert "is_significant" in selected.columns
     assert selected.loc["useful_feature", "is_significant"]
 
 def test_calculate_feature_significance_applies_benjamini_hochberg_correction():
     df = pd.DataFrame(
         {
-            "target": range(1, 21),
+            "target": [
+                100, 103, 101, 106, 110,
+                108, 113, 111, 116, 120,
+                118, 123, 121, 126, 130,
+                128, 133, 131, 136, 140,
+            ],
             "feature_1": [
-                1, 4, 3, 6, 5, 8, 7, 10, 9, 12,
-                11, 14, 13, 16, 15, 18, 17, 20, 19, 22,
+                50, 56, 52, 62, 70,
+                66, 76, 72, 82, 90,
+                86, 96, 92, 102, 110,
+                106, 116, 112, 122, 130,
             ],
             "feature_2": [
-                1, 7, 3, 9, 5, 11, 7, 13, 9, 15,
-                11, 17, 13, 19, 15, 21, 17, 23, 19, 25,
+                40, 46, 42, 52, 60,
+                56, 66, 62, 72, 80,
+                76, 86, 82, 92, 100,
+                96, 106, 102, 112, 120,
             ],
             "feature_3": [
-                1, 20, 2, 19, 3, 18, 4, 17, 5, 16,
-                6, 15, 7, 14, 8, 13, 9, 12, 10, 11,
+                7, 20, 2, 19, 3,
+                18, 4, 17, 5, 16,
+                6, 15, 7, 14, 8,
+                13, 9, 12, 10, 11,
             ],
         }
     )
@@ -328,12 +373,14 @@ def test_calculate_feature_significance_applies_benjamini_hochberg_correction():
         significance_level=0.05,
     )
 
+    expected_adjusted = multipletests(
+        result["p_value"],
+        alpha=0.05,
+        method="fdr_bh",
+    )[1]
+
     assert "adjusted_p_value" in result.columns
 
-    assert (
-        result["adjusted_p_value"] >= result["p_value"]
-    ).all()
-
-    assert (
-        result["adjusted_p_value"] > result["p_value"]
-    ).any()
+    assert result["adjusted_p_value"].tolist() == pytest.approx(
+        expected_adjusted
+    )

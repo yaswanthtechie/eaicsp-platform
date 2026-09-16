@@ -126,6 +126,7 @@ def detect_feature_drift(
                 "statistic": statistic,
                 "p_value": p_value,
                 "is_drifted": is_drifted,
+                "reason": None,
             }
         )
 
