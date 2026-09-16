@@ -118,10 +118,13 @@ def test_evaluate_drift_initialization(comparator, mock_history_dir, caplog):
 def test_evaluate_drift_triggers_alerts(comparator, mock_history_dir):
     """Verifies alerts trigger properly when BOTH abs and rel thresholds are breached."""
     # Baseline: 10 failures out of 100 = 10% rate
-    (mock_history_dir / "report_1.json").write_text(json.dumps({
-        "total_rows": 100,
-        "errors": [{"rule": "r1", "count": 10}]
-    }))
+    (mock_history_dir / "report_1.json").write_text(
+        json.dumps({
+            "total_rows": 100,
+            "evaluated_rules": ["r1"],
+            "errors": [{"rule": "r1", "count": 10}],
+        })
+    )
 
     rule = ConfigRule(**{"name": "r1", "field": "col", "type": "not_null"})
     val = DataValidator([rule], global_drift_abs_min=0.01, global_drift_rel_min=0.50)
@@ -182,6 +185,7 @@ def test_evaluate_drift_zero_baseline_jump(comparator, mock_history_dir):
     """Hits the branch where baseline is 0 but current failures jump > 0."""
     (mock_history_dir / "report_1.json").write_text(json.dumps({
         "total_rows": 100,
+        "evaluated_rules": ["r1"],
         "errors": []
     }))
     rule = ConfigRule(**{"name": "r1", "field": "col", "type": "not_null"})
@@ -213,10 +217,13 @@ def test_evaluate_drift_zero_baseline_no_jump(comparator, mock_history_dir):
 def test_evaluate_drift_rolling_baseline(comparator, mock_history_dir):
     """Hits the `if len(history) > 1` branch to evaluate the rolling baseline."""
     # Baseline 1: 0 failures
-    (mock_history_dir / "report_1.json").write_text(json.dumps({"total_rows": 100, "errors": []}))
+    (mock_history_dir / "report_1.json").write_text(
+        json.dumps({"total_rows": 100, "evaluated_rules": ["r1"], "errors": []})
+    )
     # Baseline 2: 10 failures
     (mock_history_dir / "report_2.json").write_text(
-        json.dumps({"total_rows": 100, "errors": [{"rule": "r1", "count": 10}]}))
+        json.dumps({"total_rows": 100, "evaluated_rules": ["r1"], "errors": [{"rule": "r1", "count": 10}]})
+    )
 
     rule = ConfigRule(**{"name": "r1", "field": "col", "type": "not_null"})
     val = DataValidator([rule], global_drift_abs_min=0.01, global_drift_rel_min=0.50)

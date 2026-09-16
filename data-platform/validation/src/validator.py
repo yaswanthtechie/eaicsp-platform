@@ -2,6 +2,7 @@ import logging
 import collections
 import time
 from typing import List, Dict, Any, Optional
+import copy
 
 import pandas as pd
 import yaml
@@ -49,6 +50,7 @@ class ValidationResult(BaseModel):
     rule_timings: Dict[str, float] = Field(default_factory=dict)
     skipped_rules: List[Dict[str, Any]] = Field(default_factory=list)
     total_rows: int = 0
+    evaluated_rules: List[str] = []
 
     def __getitem__(self, item):
         """Allows dictionary-style access to the model's attributes (e.g., result['passed'])."""
@@ -417,7 +419,38 @@ class DataValidator:
             watermark_col: Optional[str] = None,
             current_watermark: Any = None
     ) -> ValidationResult:
-        """Executes the validation pipeline sequentially over chunks to prevent errors."""
+        """
+        Public entry point for streaming validation.
+
+        The composite-key rule is swapped for its streaming variant only for the
+        duration of this call, on a deep copy. self.rules is always restored, so a
+        streaming run never changes how this validator behaves afterwards.
+        """
+        stream_rules = copy.deepcopy(self.rules)
+
+        for i, rule in enumerate(stream_rules):
+            if rule.name == 'composite_pk_unique':
+                rule_dict = rule.model_dump()
+                rule_dict['function'] = "src.custom_rules.check_composite_unique_stream"
+                stream_rules[i] = ConfigRule(**rule_dict)
+
+        original_rules = self.rules
+        self.rules = stream_rules
+        try:
+            return self._validate_stream_impl(
+                filepath, chunksize, watermark_col, current_watermark
+            )
+        finally:
+            self.rules = original_rules
+
+    def _validate_stream_impl(
+            self,
+            filepath: str,
+            chunksize: int,
+            watermark_col: Optional[str] = None,
+            current_watermark: Any = None
+    ) -> ValidationResult:
+        """Executes the validation pipeline sequentially over chunks."""
         logger.info(f"Starting STREAMING validation pass (chunksize={chunksize:,})...")
 
         # --- PASS 1: Build Global State ---
@@ -427,20 +460,12 @@ class DataValidator:
         has_composite = False
         composite_subset = []
 
-        import copy
-        stream_rules = copy.deepcopy(self.rules)
-
-        for i, rule in enumerate(stream_rules):
+        for rule in self.rules:
             if rule.name == 'composite_pk_unique':
                 has_composite = True
                 extra = rule.model_extra or {}
                 composite_subset = extra.get('subset', [])
                 global_cols.update(composite_subset)
-
-                # Mock the rule temporarily for streaming
-                rule_dict = rule.model_dump()
-                rule_dict['function'] = "src.custom_rules.check_composite_unique_stream"
-                self.rules[i] = ConfigRule(**rule_dict)
 
         seen_keys = set()
         global_duplicates = set()
@@ -459,8 +484,10 @@ class DataValidator:
                     if r.type == "transform":
                         try:
                             chunk = r.apply_transform(chunk)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.warning("Pass 1: transform '%s' failed on a chunk (%s). "
+                                           "Duplicate keys for this chunk use untransformed values.", r.name, e
+                                           )
 
                 if all(c in chunk.columns for c in composite_subset):
                     keys = chunk[composite_subset[0]].astype(str)
@@ -547,6 +574,26 @@ class DataValidator:
             rejection_reasons.append(
                 f"Global failure rate {global_fail_pct:.1%} exceeds threshold ({self.global_max_fail_pct:.1%})")
 
+        # Per-rule thresholds mirrors _check_thresholds() so a streamed run
+        # reaches the same verdict as an in-memory one on the same file.
+        per_rule_counts = collections.defaultdict(int)
+        for (rule_name, _field), count in agg_errors.items():
+            per_rule_counts[rule_name] += count
+        for (rule_name, _field), count in agg_warnings.items():
+            per_rule_counts[rule_name] += count
+
+        for rule in self.rules:
+            if rule.max_fail_pct is None or rule.severity != "ERROR":
+                continue
+            failed = per_rule_counts.get(rule.name, 0)
+            if agg_total_rows > 0:
+                fail_pct = failed / agg_total_rows
+                if fail_pct > rule.max_fail_pct:
+                    rejection_reasons.append(
+                        f"Rule '{rule.name}' failed {fail_pct:.1%} of rows "
+                        f"(max allowed: {rule.max_fail_pct:.1%})"
+                    )
+
         batch_rejected = len(rejection_reasons) > 0
         passed = len(final_errors) == 0 and not batch_rejected and (self.allow_rule_failures or not agg_skipped)
 
@@ -563,7 +610,8 @@ class DataValidator:
             warnings=final_warnings,
             sample_bad_rows=dict(agg_sample_bad),
             rule_timings=dict(agg_rule_timings),
-            skipped_rules=agg_skipped
+            skipped_rules=agg_skipped,
+            evaluated_rules=[r.name for r in self.rules]
         )
 
     def validate(self, df: pd.DataFrame) -> ValidationResult:
@@ -686,7 +734,8 @@ class DataValidator:
             warnings=warnings,
             sample_bad_rows=sample_bad,
             rule_timings=rule_timings,
-            skipped_rules=skipped
+            skipped_rules=skipped,
+            evaluated_rules=[r.name for r in self.rules]
         )
 
     def clean(self, df: pd.DataFrame, strict: bool = True, target_rules: Optional[List[str]] = None,

@@ -3,6 +3,7 @@ import pandas as pd
 import yaml
 from pydantic import ValidationError
 from src.validator import ConfigRule, DataValidator, ValidationResult, SecurityError, SAFE_FUNCTION_REGISTRY
+import src.custom_rules as real_custom_rules
 
 
 # --- FIXTURES ---
@@ -220,6 +221,7 @@ def dummy_check_composite_unique(df: pd.DataFrame, **kwargs) -> pd.Series:
 
 def dummy_check_composite_unique_stream(df: pd.DataFrame, **kwargs) -> pd.Series:
     """Mock for Pass 2 streaming tests to read injected state."""
+    # return df.get('_global_dup_mask', pd.Series([False] * len(df), index=df.index))
     return df.get('_global_dup_mask', pd.Series([False] * len(df), index=df.index))
 
 
@@ -1328,3 +1330,66 @@ def test_evaluate_and_transform_without_field_explicit_fallback():
     val = DataValidator([rule_custom])
     report = val.validate(df)
     assert report.passed is False
+
+
+def _error_counts(report):
+    return {e["rule"]: e["count"] for e in report.errors}
+
+
+def test_stream_matches_in_memory_and_leaves_validator_unchanged(tmp_path):
+    """
+    validate_stream() must reach the same verdict as validate() on the same file,
+    and must not change the validator's own rules as a side effect.
+    """
+    rows = []
+    for i in range(100):
+        sku = f"SKU-{1000 + i:04d}" if i >= 10 else f"BAD-{i}"   # 10% bad SKUs
+        rows.append({
+            "date": "2024-01-01", "sku_id": sku, "warehouse_id": "WH-01",
+            "quantity_sold": 5, "unit_price": 20.0,
+        })
+    df = pd.DataFrame(rows)
+    # Force 5 cross-chunk composite duplicates
+    df.loc[95:99, ["date", "sku_id", "warehouse_id"]] = \
+        df.loc[0:4, ["date", "sku_id", "warehouse_id"]].values
+
+    csv_path = tmp_path / "equiv.csv"
+    df.to_csv(csv_path, index=False)
+
+    # Temporarily restore the real implementations for this end-to-end parity test
+    orig_unique = SAFE_FUNCTION_REGISTRY.get("src.custom_rules.check_composite_unique")
+    orig_stream = SAFE_FUNCTION_REGISTRY.get("src.custom_rules.check_composite_unique_stream")
+    SAFE_FUNCTION_REGISTRY["src.custom_rules.check_composite_unique"] = real_custom_rules.check_composite_unique
+    SAFE_FUNCTION_REGISTRY[
+        "src.custom_rules.check_composite_unique_stream"] = real_custom_rules.check_composite_unique_stream
+
+    try:
+        rules = [
+            ConfigRule(name="sku_format", field="sku_id", type="regex",
+                       pattern="^SKU-[0-9]{4}$", severity="ERROR", max_fail_pct=0.05),
+            ConfigRule(**{
+                "name": "composite_pk_unique", "type": "custom",
+                "function": "src.custom_rules.check_composite_unique",
+                "subset": ["date", "sku_id", "warehouse_id"], "severity": "ERROR",
+            }),
+        ]
+        val = DataValidator(rules, global_max_fail_pct=0.50)
+
+        in_memory = val.validate(pd.read_csv(csv_path))
+        streamed = val.validate_stream(str(csv_path), chunksize=25)
+
+        # Same verdict, same reasons, same counts.
+        assert streamed.batch_rejected == in_memory.batch_rejected
+        assert sorted(streamed.rejection_reasons) == sorted(in_memory.rejection_reasons)
+        assert _error_counts(streamed) == _error_counts(in_memory)
+
+        # The streaming run must not have changed this validator.
+        assert [r.model_extra.get("function") for r in val.rules if r.name == "composite_pk_unique"] == \
+               ["src.custom_rules.check_composite_unique"]
+        after = val.validate(pd.read_csv(csv_path))
+        assert _error_counts(after) == _error_counts(in_memory)
+    finally:
+        if orig_unique is not None:
+            SAFE_FUNCTION_REGISTRY["src.custom_rules.check_composite_unique"] = orig_unique
+        if orig_stream is not None:
+            SAFE_FUNCTION_REGISTRY["src.custom_rules.check_composite_unique_stream"] = orig_stream

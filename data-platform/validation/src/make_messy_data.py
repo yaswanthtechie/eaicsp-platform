@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 # 1. Centralized Configuration
 @dataclass
 class MessyDataConfig:
-    n_base: int = 5_000_000
+    n_base: int = 970  # demo default; pass --n-base for large/streaming runs
     chunk_size: int = 500_000
     seed: int = 42
     start_date: str = "2024-01-01"
@@ -42,6 +42,18 @@ class MessyDataConfig:
     frac_exact_duplicates: float = 0.031
     frac_missing_price: float = 0.02
     frac_unparseable_date: float = 0.01
+
+
+def __post_init__(self):
+    """
+    Keep the composite key space (date x sku x warehouse) larger than the row
+    count. Otherwise duplicates dominate, composite_pk_unique flags most rows,
+    and the global failure threshold rejects the batch before clean() runs.
+    The SKU pattern is ^SKU-[0-9]{4}$, so ids must stay within 1000-9999.
+    """
+    wanted = max(50, self.n_base // 100)
+    max_skus = 9999 - self.sku_start_range
+    self.sku_end_range = self.sku_start_range + min(wanted, max_skus)
 
 
 def _inject_anomaly(df: pd.DataFrame, column: str, fraction: float, replacement: Any) -> pd.Index:

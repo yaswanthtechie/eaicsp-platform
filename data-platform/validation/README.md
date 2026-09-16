@@ -665,7 +665,7 @@ Data cleaning pipelines should not silently process garbage data. If a dataset i
 #### How It Works:
 The validator keeps a running tally of failures:
 
-* **Per-Rule Thresholds (max_fail_pct):** Different rules have different tolerances. You can define a maximum acceptable failure rate for a specific rule. If breached, the batch is rejected.
+* **Per-Rule Thresholds (max_fail_pct):** Different rules have different tolerances. You can define a maximum acceptable failure rate for a specific rule. If breached, the batch is rejected. Note that `max_fail_pct` is only enforced on `ERROR`-severity rules; `WARNING`-severity rules allow rows to pass through and do not participate in threshold-based batch rejection.
 
 * **Global Profile Thresholds (global_max_fail_pct):** Acts as a final safety net. If the total percentage of bad rows in the entire dataset exceeds this limit, the batch is rejected.
 
@@ -745,6 +745,12 @@ python -m src.make_messy_data --n-base 5000000 --chunk-size 500000 --output data
 # Validate the massive dataset using 500,000 row chunks
 python -m src.validate_cli --file data/large_messy_sales.csv --config configs/sales_rules.yaml --profile bulk --output reports/stream_report.json --chunk-size 500000
 ```
+### Empirical Streaming Benchmarks (Evidence):
+--- BENCHMARK RESULTS ---
+Total Rows:     5,155,000
+Chunk Size:     500,000
+Wall Time:      59.73s
+Peak RSS:       109.4 MB
 
 
 # Auto-Generated Data Quality Contracts
@@ -800,3 +806,4 @@ Successfully generated: docs\data_contract_strict.md
 * **Incremental Write Amplification:** Append mode rewrites the entire output file each run (read_csv → concat → drop_duplicates → to_csv), which is O(total rows) per run rather than O(new rows). This is deliberate: the drop_duplicates pass makes the pipeline crash-safe if a run dies between writing data and writing the watermark. A plain to_csv(mode='a') would be cheaper but would double-write rows on a mid-run failure.
 * **Deduplication:** Incremental append mode deduplicates based on full-row identity. Updates to existing records require a genuine Primary Key configuration (currently unsupported).
 * **Conflict Detection Boundaries:** The _detect_conflicts method only catches impossible range vs range bounds. Contradictions between not_null + strict regex, or unique + custom duplicate checks on the same field currently pass through undetected.
+* **WARNING Rule Thresholds:** `max_fail_pct` is strictly enforced on `ERROR`-severity rules to trigger batch rejection. Setting `max_fail_pct` on `WARNING`-severity rules is unsupported and ignored, as warnings are non-blocking and designed strictly for observability and drift tracking rather than halting pipelines.

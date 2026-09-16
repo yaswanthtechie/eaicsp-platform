@@ -137,9 +137,12 @@ def test_main_incremental_flow_new_output(mock_comparator, mock_wm_class, mock_t
 @patch("src.main.setup_logging", return_value="dummy_log.log")
 @patch("pathlib.Path.exists", return_value=False)
 @patch("src.main.argparse.ArgumentParser.parse_args")
-def test_main_config_missing(mock_args, mock_exists, mock_setup_logging):
+@patch("src.main.logger.error")
+def test_main_config_missing(mock_logger_error, mock_args, mock_exists, mock_setup_logging):
     mock_args.return_value = MagicMock(list_profiles=False, profile=None)
     main.main()
+    assert mock_logger_error.called
+    assert "config" in mock_logger_error.call_args[0][0].lower()
 
 
 @patch("src.main.setup_logging", return_value="dummy_log.log")
@@ -209,13 +212,16 @@ def test_main_validate_fails(mock_logger_error, mock_validator, mock_read, mock_
 @patch("pandas.read_csv", return_value=pd.DataFrame({"id": [1]}))
 @patch("src.main.DataValidator.from_config")
 @patch("src.main.ReportComparator")
-def test_main_clean_fails(mock_comparator, mock_validator, mock_read, mock_args, mock_exists, mock_setup_logging):
+@patch("src.main.logger.error")
+def test_main_clean_fails(mock_logger_error, mock_comparator, mock_validator, mock_read, mock_args, mock_exists, mock_setup_logging):
     mock_args.return_value = MagicMock(skip_generate=True, incremental=False, list_profiles=False, profile=None)
     mock_instance = MagicMock()
     mock_instance.validate.return_value = MagicMock(passed=True, rule_timings={"r1": 0.1})
     mock_instance.clean.side_effect = RuntimeError("Clean Crashed")
     mock_validator.return_value = mock_instance
     main.main()
+    mock_logger_error.assert_called_once()
+    assert "Cleaning crashed" in mock_logger_error.call_args[0][0]
 
 
 @patch("src.main.setup_logging", return_value="dummy_log.log")

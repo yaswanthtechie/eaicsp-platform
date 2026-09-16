@@ -21,7 +21,7 @@ def test_golden_regression():
     # 3. Assert specific, known outcomes
     assert report.passed is False
     assert report.batch_rejected is True
-    assert report.total_rows_affected == 110
+    assert report.total_rows_affected == 134
 
     # Assert specific rules caught the exact right number of rows
     error_counts = {e['rule']: e['count'] for e in report.errors}
@@ -34,4 +34,4 @@ def test_golden_regression():
     assert error_counts.get('warehouse_id_not_null') == 6
     assert error_counts.get('composite_pk_unique') == 45
     assert warning_counts.get('quantity_positive') == 2
-    assert warning_counts.get('date_in_range') == 43
+    assert warning_counts.get('date_in_range') == 69

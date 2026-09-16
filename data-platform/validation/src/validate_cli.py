@@ -192,9 +192,7 @@ def main(cli_args: Optional[list[str]] = None) -> int:
             col_name = str(args.watermark_col)  # Cast to string to satisfy type checker
 
             if args.chunk_size:
-                # Safely handle pytest MagicMocks that bypass normal integer > checks
-                total_rows = getattr(report, 'total_rows', 0)
-                if type(total_rows) is not int or total_rows > 0:
+                if getattr(report, 'total_rows', 0) > 0:
                     logger.warning("LIMITATION: Watermark advances past failed rows.")
                     # Stream ONLY the watermark column to find the max safely
                     for chunk in pd.read_csv(input_path, usecols=[col_name], chunksize=args.chunk_size):

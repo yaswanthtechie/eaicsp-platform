@@ -74,10 +74,13 @@ class ReportComparator:
             # Extract historical rates
             historical_rates = [self._get_rule_fail_rate(h, rule.name) for h in history]
 
-            # Check if this rule has ever been evaluated in history
-            if all(r == 0.0 and h.get("total_rows", 0) == 0 for r, h in zip(historical_rates, history)):
+            # Skip rules that have never been evaluated in any historical run
+            # — a first observation is not a regression.
+            if not any(rule.name in h.get("evaluated_rules", []) for h in history):
                 logger.info(
-                    f"Baseline initializing for rule '{rule.name}' - first observation, drift comparison begins once enough history exists.")
+                    f"Baseline initializing for rule '{rule.name}' - first observation, "
+                    f"drift comparison begins with the next run."
+                )
                 continue
 
             last_rate = historical_rates[-1]
@@ -90,24 +93,16 @@ class ReportComparator:
             # Evaluation Helper
             def check_thresholds(baseline_rate: float, context: str):
                 delta_abs = current_rate - baseline_rate
-
                 if baseline_rate > 0:
                     delta_rel = delta_abs / baseline_rate
-                    if delta_abs > abs_min and delta_rel > rel_min:
-                        alerts.append(
-                            f"Drift Alert ({context}): Rule '{rule.name}' failure rate jumped to {current_rate:.2%} "
-                            f"(Baseline: {baseline_rate:.2%} | Rel increase: {delta_rel:.2%} | Abs increase: {delta_abs:.2%})"
-                        )
                 else:
-                    # When baseline is 0.0, calculate relative increase as infinity to satisfy tests,
-                    # but guard new rules appropriately or let absolute jump drive the alert safely.
                     delta_rel = float('inf') if delta_abs > 0 else 0.0
 
-                    if delta_abs > abs_min and delta_rel > rel_min:
-                        alerts.append(
-                            f"Drift Alert ({context}): Rule '{rule.name}' failure rate jumped to {current_rate:.2%} "
-                            f"(Baseline: {baseline_rate:.2%} | Rel increase: {delta_rel:.2%} | Abs increase: {delta_abs:.2%})"
-                        )
+                if delta_abs > abs_min and delta_rel > rel_min:
+                    alerts.append(
+                        f"Drift Alert ({context}): Rule '{rule.name}' failure rate jumped to {current_rate:.2%} "
+                        f"(Baseline: {baseline_rate:.2%} | Rel increase: {delta_rel:.2%} | Abs increase: {delta_abs:.2%})"
+                    )
 
             check_thresholds(last_rate, "vs Last Run")
             if len(history) > 1:

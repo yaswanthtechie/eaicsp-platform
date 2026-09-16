@@ -33,7 +33,6 @@ profiles:
         target_type: range
         min: 15.0
         severity: WARNING
-        max_fail_pct: 0.10     # Tolerates up to 10% failures for this warning before throwing a flag
 
       - name: quantity_positive
         field: quantity_sold
@@ -78,7 +77,7 @@ profiles:
         field: date
         type: range
         min: '2024-01-01'
-        max: '2024-04-02'
+        max: '2024-03-29'
         severity: WARNING
         depends_on: [ "unparseable_dates" ]
 
