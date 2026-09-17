@@ -318,21 +318,27 @@ def service_verify(
 def verify_access_token(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
-    x_caller_service: str = Header(..., alias="X-Caller-Service"),
+    x_caller_service: str | None = Header(
+        default=None,
+        alias="X-Caller-Service",
+    ),
 ):
-    caller_service = x_caller_service.strip().lower()
     
-    if not caller_service:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="X-Caller-Service header is required",
-            )
+    # The header identifies the calling service for per-service rate
+    # limiting. It is optional: callers that omit it share an "unknown"
+    # bucket rather than being rejected, so /verify keeps its Round 5
+    # contract (200 on a valid token, 401 on an invalid one).
+    caller_service = (
+        x_caller_service.strip().lower()
+        if x_caller_service and x_caller_service.strip()
+        else "unknown"
+    )
     
     if not verify_rate_limiter.check(caller_service):
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Too many /verify requests for this service. Try again later.",
-            )
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many /verify requests for this service. Try again later.",
+        )
     
     # -------------------------------------------------
     # Check cache BEFORE JWT decode and DB query

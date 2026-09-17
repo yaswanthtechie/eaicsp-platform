@@ -10,7 +10,7 @@ from app.core.security import create_access_token
 from app.models.users import User
 from app.models.failed_login_attempts import FailedLoginAttempt
 from app.models.password_reset_tokens import PasswordResetToken
-
+import os
 
 client = TestClient(app)
 
@@ -111,26 +111,14 @@ def login_as(email: str, password: str):
     assert response.status_code == 200
     return response.json()
 
-
 def login_as_ceo():
-    return login_as(
-        "ceo@company.com",
-        "ceocompany@123",
-    )
-
+    return login_as("ceo@company.com", os.environ["CEO_PASSWORD"])
 
 def login_as_vp():
-    return login_as(
-        "vpoperations@company.com",
-        "vpoperations@123",
-    )
-
+    return login_as("vpoperations@company.com", os.environ["VP_OPERATIONS_PASSWORD"])
 
 def login_as_supplier():
-    return login_as(
-        "supplier@company.com",
-        "supplier@123",
-    )
+    return login_as("supplier@company.com", os.environ["SUPPLIER_PASSWORD"])
 
 
 def auth_header(token: str):
@@ -1720,6 +1708,35 @@ def test_r6_verify_cache_latency_measurement():
         for latency in cache_hit_latencies
     )
 
+def test_verify_cache_hit_skips_decode_and_db(monkeypatch):
+    """
+    A cache hit must not decode the JWT or query the database.
+    Wall-clock timing is too noisy to assert on; this asserts the
+    expensive work is genuinely skipped.
+    """
+    from app.core import token_cache
+    import app.routes.auth_routes as auth_routes
+
+    token_cache.token_cache.clear()
+    token = login_as_ceo()["access_token"]
+    headers = {**auth_header(token), "X-Caller-Service": "test-suite"}
+
+    # First call populates the cache.
+    assert client.post("/api/v1/auth/verify", headers=headers).status_code == 200
+
+    calls = {"decode": 0}
+    real_decode = auth_routes.decode_token
+
+    def counting_decode(*args, **kwargs):
+        calls["decode"] += 1
+        return real_decode(*args, **kwargs)
+
+    monkeypatch.setattr(auth_routes, "decode_token", counting_decode)
+
+    for _ in range(5):
+        assert client.post("/api/v1/auth/verify", headers=headers).status_code == 200
+
+    assert calls["decode"] == 0, "cache hits must not re-decode the JWT"
 
 def test_r6_expired_token_not_accepted_by_verify():
     expired_token = create_access_token(

@@ -1309,6 +1309,13 @@ The cache should be designed carefully around security-sensitive changes such as
 
 A cache implementation must not allow stale authorization information to bypass important security controls.
 
+
+- Token verification caching: /verify caches successful token verification results for up to 60 seconds, bounded by the JWT expiration time. Cache hits avoid re-decoding the JWT and repeating the database lookup. End-to-end latency improvement at single-request scale may be within measurement noise because HTTP/request-processing overhead can dominate the small in-process operation.
+
+- Verified by test: Repeated cache hits skip JWT decoding, demonstrating that the cache removes repeated token-decoding work.
+
+- Rate limiting: The /verify rate limiter runs before the cache lookup, so cache hits are still subject to per-service rate limiting through X-Caller-Service. This ensures caching cannot bypass /verify request protection.
+
 # Admin Endpoints
 
 Complete administrative endpoint set:

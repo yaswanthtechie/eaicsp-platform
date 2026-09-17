@@ -2,6 +2,10 @@ from collections import defaultdict
 from threading import Lock
 from time import monotonic
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 VERIFY_MAX_REQUESTS = 100
 VERIFY_WINDOW_SECONDS = 60
 
@@ -34,25 +38,23 @@ class VerifyRateLimiter:
                 if now - timestamp < self.window_seconds
             ]
 
-            print(
-                f"VERIFY RATE LIMIT | "
-                f"service={caller_service} | "
-                f"current={len(requests)} | "
-                f"max={self.max_requests}"
+            logger.debug(
+                "Verify rate limit | service=%s current=%s max=%s",
+                caller_service,
+                len(requests),
+                self.max_requests,
             )
 
             # Block when maximum requests have already been reached
             if len(requests) >= self.max_requests:
-                print("VERIFY RATE LIMIT → BLOCKED")
+                logger.warning(
+                    "Verify rate limit BLOCKED for service=%s",
+                    caller_service,
+                )
                 return False
 
             # Record this request
             requests.append(now)
-
-            print(
-                f"VERIFY RATE LIMIT → ALLOWED | "
-                f"new_count={len(requests)}"
-            )
 
             return True
 
@@ -64,4 +66,3 @@ class VerifyRateLimiter:
 
 # Single shared rate limiter instance
 verify_rate_limiter = VerifyRateLimiter()
-
