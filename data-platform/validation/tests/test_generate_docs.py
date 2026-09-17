@@ -8,6 +8,16 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.registry import clear_registry, discover_rules
+
+@pytest.fixture(autouse=True)
+def setup_dynamic_registry():
+    """Cleans registry state and loads rules before and after each test."""
+    clear_registry()
+    discover_rules(PROJECT_ROOT / "rules")
+    yield
+    clear_registry()
+
 # Import the modules we are testing
 from src.validator import ConfigRule
 from src.generate_docs import get_human_readable_description, generate_markdown_for_profile, main
@@ -66,7 +76,8 @@ def test_get_description_custom_with_docstring():
     rule = ConfigRule(
         name="test",
         type="custom",
-        function="src.custom_rules.check_unparseable_dates"
+        # FIX: Changed to use the flat function name
+        function="check_unparseable_dates"
     )
     # This should pull the actual docstring from your custom_rules.py
     desc = get_human_readable_description(rule)
@@ -79,7 +90,8 @@ def test_get_description_custom_no_docstring_or_unknown():
     mock_rule = MagicMock()
     mock_rule.description = None
     mock_rule.type = "custom"
-    mock_rule.model_extra = {"function": "src.custom_rules.non_existent_function"}
+    # FIX: Using a flat mock function name
+    mock_rule.model_extra = {"function": "non_existent_function"}
 
     assert get_human_readable_description(mock_rule) == "Applies custom custom logic."
 
@@ -113,7 +125,8 @@ def test_generate_markdown_for_profile():
     rule_without_sla = ConfigRule(
         name="rule_2",
         type="custom",
-        function="src.custom_rules.check_composite_unique",
+        # FIX: Changed to use the flat function name
+        function="check_composite_unique",
         severity="WARNING"
     )
 

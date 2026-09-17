@@ -13,7 +13,11 @@ def test_golden_regression():
     config_path = PROJECT_ROOT / "configs" / "sales_rules.yaml"
 
     df = pd.read_csv(data_path)
-    validator = DataValidator.from_config(str(config_path))
+
+    validator = DataValidator.from_config(
+        str(config_path),
+        rules_dir=str(PROJECT_ROOT / "rules")
+    )
 
     # 2. Execute
     report = validator.validate(df)

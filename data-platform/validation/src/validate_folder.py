@@ -50,12 +50,12 @@ def setup_logging(log_level: str = "INFO", log_dir: str = "logs") -> None:
     logger.info("Logging initialized. Writing logs to: %s", log_file)
 
 
-def _load_validator(config_path: str, profile_name: Optional[str], cache: dict) -> DataValidator:
-    """Loads and caches the validator, keying by both file path and profile name."""
-    cache_key = f"{config_path}::{profile_name}"
+def _load_validator(config_path: str, profile_name: Optional[str], cache: dict, rules_dir: str) -> DataValidator:
+    """Loads and caches the validator, keying by both file path, profile name, and rules dir."""
+    cache_key = f"{config_path}::{profile_name}::{rules_dir}"
     if cache_key not in cache:
         logger.debug("Initializing new DataValidator for config: %s (Profile: %s)", config_path, profile_name)
-        cache[cache_key] = DataValidator.from_config(config_path, profile_name=profile_name)
+        cache[cache_key] = DataValidator.from_config(config_path, profile_name=profile_name, rules_dir=rules_dir)
     return cache[cache_key]
 
 
@@ -70,7 +70,8 @@ def validate_folder(
         incremental: bool = False,
         watermark_col: str = "transaction_id",
         watermark_dir: str = ".watermarks",
-        profile_name: Optional[str] = None
+        profile_name: Optional[str] = None,
+        rules_dir: str = "rules"
 ) -> Dict[str, Any]:
     folder = Path(folder_path)
 
@@ -98,25 +99,25 @@ def validate_folder(
             # Handle both simple strings and complex dictionary mappings
             if isinstance(rule_target, dict):
                 cfg_path = rule_target.get("config")
-                target_profile = rule_target.get("profile", profile_name)  # Fallback to CLI flag
+                target_profile = rule_target.get("profile", profile_name)
             else:
                 cfg_path = rule_target
-                target_profile = profile_name  # Fallback to CLI flag
+                target_profile = profile_name
 
             if not cfg_path:
                 logger.error("Mapping pattern '%s' is missing a config path.", pattern)
                 continue
 
-            validator = _load_validator(cfg_path, target_profile, validators_cache)
+            validator = _load_validator(str(cfg_path), target_profile, validators_cache, rules_dir)
             for file_path in folder.rglob(pattern):
                 validation_queue[file_path] = validator
 
         logger.info("Loaded %d routing rules from %s", len(mapping_rules), mapping_file.name)
     else:
-        if not Path(config_path).is_file():
+        if not Path(str(config_path)).is_file():
             raise FileNotFoundError(f"Configuration file not found: {config_path}")
 
-        validator = _load_validator(str(config_path), profile_name, validators_cache)
+        validator = _load_validator(str(config_path), profile_name, validators_cache, rules_dir)
         for file_path in folder.rglob(default_pattern):
             validation_queue[file_path] = validator
 
@@ -238,7 +239,10 @@ def main():
     parser.add_argument("--list-profiles", action="store_true",
                         help="List available profiles in the config(s) and exit.")
 
-    # --- INCREMENTAL ARGUMENTS ---
+    # --- CUSTOM RULES DIRECTORY ---
+    parser.add_argument("--rules-dir", type=str, default=str(PROJECT_ROOT / "rules"),
+                        help="Path to the custom rules directory for auto-discovery.")
+
     parser.add_argument("--incremental", action="store_true", help="Only process new rows since the last run.")
     parser.add_argument("--watermark-col", type=str, default="transaction_id", help="Column for watermarking.")
     parser.add_argument("--watermark-dir", type=str, default=".watermarks", help="Directory for state tracking files.")
@@ -283,6 +287,7 @@ def main():
             config_path=args.config,
             mapping_path=args.mapping,
             profile_name=args.profile,
+            rules_dir=args.rules_dir,
             default_pattern=args.pattern,
             top_n_issues=args.top_n,
             output_dir=args.output_dir,

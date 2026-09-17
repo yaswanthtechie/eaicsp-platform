@@ -1,19 +1,18 @@
 import pandas as pd
 from typing import Optional, Literal
+from src.registry import register_rule
 
 # ==========================================
 # VALIDATION RULES (type: custom)
 # ==========================================
 
+@register_rule()
 def check_unparseable_dates(df: pd.DataFrame, *, field: str, **kwargs) -> pd.Series:
     """Flags dates that failed standard parsing and remained as malformed strings."""
-    # Matches valid YYYY-MM-DD format
     valid_format = df[field].astype(str).str.match(r'^\d{4}-\d{2}-\d{2}$')
-
-    # Flags rows that are NOT the valid format AND are NOT genuinely missing
     return ~valid_format & df[field].notna()
 
-
+@register_rule()
 def check_outliers(
     df: pd.DataFrame,
     *,
@@ -27,18 +26,16 @@ def check_outliers(
     Q1 = df[field].quantile(lower_q)
     Q3 = df[field].quantile(upper_q)
     IQR = Q3 - Q1
-
     lower_bound = Q1 - multiplier * IQR
     upper_bound = Q3 + multiplier * IQR
-
     return (df[field] < lower_bound) | (df[field] > upper_bound)
 
-
+@register_rule()
 def check_negatives(df: pd.DataFrame, *, field: str, **kwargs) -> pd.Series:
     """Returns a boolean mask for rows where the quantity is less than zero."""
     return df[field] < 0
 
-
+@register_rule()
 def check_duplicate_rows(
     df: pd.DataFrame,
     *,
@@ -49,7 +46,7 @@ def check_duplicate_rows(
     """Checks if an entire row is an exact duplicate of another row."""
     return df.duplicated(keep=keep)
 
-
+@register_rule()
 def check_composite_unique(
     df: pd.DataFrame,
     *,
@@ -65,6 +62,7 @@ def check_composite_unique(
 # TRANSFORMATION RULES (type: transform)
 # ==========================================
 
+@register_rule()
 def standardize_products(
     df: pd.DataFrame,
     *,
@@ -75,7 +73,6 @@ def standardize_products(
 ) -> pd.DataFrame:
     """Cleans text columns by forcing lowercase, stripping whitespace, and replacing characters."""
     df_c = df.copy()
-
     if field in df_c.columns:
         df_c[field] = (
             df_c[field]
@@ -86,33 +83,28 @@ def standardize_products(
         )
     return df_c
 
-
+@register_rule()
 def flag_negatives(df: pd.DataFrame, *, field: str = 'quantity_sold', **kwargs) -> pd.DataFrame:
     """Adds a 'flagged_for_review' column for rows with negative quantities."""
     df_c = df.copy()
     if 'flagged_for_review' not in df_c.columns:
         df_c['flagged_for_review'] = False
-
     if field in df_c.columns:
         df_c.loc[df_c[field] < 0, 'flagged_for_review'] = True
-
     return df_c
 
-
+@register_rule()
 def standardize_dates(df: pd.DataFrame, *, field: str = 'order_date', **kwargs) -> pd.DataFrame:
     """Unifies date string formats; preserves original bad strings for validation."""
     df_c = df.copy()
     if field in df_c.columns:
         original = df_c[field]
-        # Try strict ISO parsing first
         iso_dates = pd.to_datetime(original, format='%Y-%m-%d', errors='coerce')
         mixed_dates = pd.to_datetime(original, format='mixed', dayfirst=True, errors='coerce')
-
-        # Format valid dates to string, but fill unparseable ones with the original messy string
         df_c[field] = iso_dates.fillna(mixed_dates).dt.strftime('%Y-%m-%d').fillna(original)
     return df_c
 
-
+@register_rule()
 def drop_duplicate_rows(
     df: pd.DataFrame,
     *,
@@ -122,14 +114,9 @@ def drop_duplicate_rows(
     """Drops entirely duplicated rows from the dataset."""
     return df.drop_duplicates(keep=keep)
 
-
+@register_rule()
 def check_composite_unique_stream(df: pd.DataFrame, **kwargs) -> pd.Series:
-    """
-    Bypass function for streaming validation.
-    Returns the pre-computed global duplicate mask injected during Pass 2.
-    """
+    """Bypass function for streaming validation."""
     if '_global_dup_mask' in df.columns:
         return df['_global_dup_mask']
-
-    # Fallback in case it's accidentally called outside of stream processing
     return pd.Series([False] * len(df), index=df.index)

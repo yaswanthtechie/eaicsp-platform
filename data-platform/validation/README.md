@@ -799,6 +799,111 @@ Successfully generated: docs\data_contract_strict.md
 
 * You can then push these Markdown files to GitHub, GitLab, or integrate them into your internal wiki (like MkDocs or Confluence) for stakeholders to review!
 
+# Dynamic Custom-Rule Registry & Auto-Discovery
+
+A modular, drop-in extension system for data validation pipelines. This feature replaces hardcoded function registries with a decoupled, decorator-driven auto-discovery engine that dynamically registers custom validation and transformation rules from standalone Python files.
+
+---
+
+## Feature Description
+
+* **Decorator-Based Rule Registration:** Rules are explicitly marked with `@register_rule()`, avoiding accidental registration of imports, helper utilities, or internal functions.
+* **Drop-in File System Auto-Discovery:** Python modules placed into the designated rules folder (`rules/` by default) are automatically discovered and loaded via `importlib` at runtime.
+* **Flat YAML Referencing:** Rules are referenced directly by their bare function name (e.g., `function: check_outliers`) in configuration files, decoupling pipeline configuration from file structure or module paths.
+* **Fail-Fast Collision Detection:** Re-registering conflicting functions under the same rule identifier immediately raises a `ValueError` (`RegistryError`) at load time to prevent silent overrides.
+* **Configurable Rules Directory (`--rules-dir`):** All CLI entry points (`main.py`, `validate_cli.py`, `validate_folder.py`, `generate_docs.py`) accept a `--rules-dir` parameter to point the auto-discovery engine to custom rule locations on demand.
+* **Dynamic Parameter Forwarding:** Custom parameters declared in YAML rules (e.g., `lower_q`, `multiplier`, `subset`) are automatically captured and passed directly to the registered functions via `**kwargs`.
+
+---
+
+## How It Works
+
+### 1. Registration (`src/registry.py`)
+Functions decorated with `@register_rule(name=None)` are stored in the global `RULE_REGISTRY` dictionary:
+
+```python
+from src.registry import register_rule
+import pandas as pd
+
+@register_rule()
+def check_unparseable_dates(df: pd.DataFrame, *, field: str, **kwargs) -> pd.Series:
+    """Flags dates that failed standard parsing and remained as malformed strings."""
+    valid_format = df[field].astype(str).str.match(r'^\d{4}-\d{2}-\d{2}$')
+    return ~valid_format & df[field].notna()
+```
+
+* If name is omitted, the decorator uses func.__name__.
+
+* If a duplicate name is registered with a different function reference, the engine halts with a RegistryError.
+
+* If the identical function is re-registered (e.g., repeated test discovery cycles), the call is treated as idempotent and avoids duplicate-registration crashes
+
+### 2. Auto-Discovery Lifecycle
+When DataValidator.from_config(yaml_path, rules_dir="rules") is called:
+
+* The engine scans the specified rules_dir path for all non-dunder Python files (*.py excluding __*).
+
+* Each file is dynamically loaded into memory using importlib.util.spec_from_file_location under the dynamic_rules.<stem> namespace.
+
+* Executing the module triggers the @register_rule() decorators, populating RULE_REGISTRY.
+
+* The YAML configuration is parsed by Pydantic (ConfigRule). Each custom or transform rule checks its function field against RULE_REGISTRY. If not present, a SecurityError halts execution before any data is processed.
+
+### 3. Execution & Dynamic Kwargs
+During validation (evaluate) or transformation (apply_transform), ConfigRule captures rule-specific parameters from YAML (via Pydantic's extra='allow') and passes them into the custom function:
+```yaml
+    - name: detect_quantity_outliers
+      type: custom
+      field: quantity_sold
+      severity: WARNING
+      function: check_outliers
+      lower_q: 0.25
+      upper_q: 0.75
+      multiplier: 1.5
+```
+
+## How to Run
+
+### 1. Project Directory Layout
+Ensure custom rules reside in the configured rules directory:
+```text
+├── configs/
+│   └── sales_rules.yaml
+├── rules/
+│   └── custom_rules.py
+├── src/
+    ├── registry.py
+    ├── validator.py
+    ├── main.py
+    ├── validate_cli.py
+    └── validate_folder.py
+```
+
+### 2. Running main.py (Full Pipeline)
+Runs data generation/reading, rule validation, drift comparison, and cleaning.
+
+### Running in Default directory (rules/):
+```bash
+# Running main.py file
+python -m src.main --config configs/sales_rules.yaml --input data/messy_sales.csv --output data/clean_sales.csv --rules-dir rules/
+
+# Running validate_cli.py In-memory mode:
+python -m src.validate_cli --file data/messy_sales.csv --config configs/sales_rules.yaml --output reports/report.json --rules-dir rules/
+
+# Running validate_cli.py Chunked streaming mode:
+python -m src.validate_cli --file data/large_messy_sales.csv --config configs/sales_rules.yaml --output reports/report.json --chunk-size 500000 --rules-dir rules/ --profile bulk
+
+# Running validate_folder.py (Batch Processing):
+# Single config:
+python -m src.validate_folder --folder data/ --config configs/sales_rules.yaml --rules-dir rules/ --save-reports --output-dir reports/op1
+# Pattern mapping file:
+python -m src.validate_folder --folder data/ --mapping configs/routing_map.json --rules-dir rules/ --save-reports --output-dir reports/op2
+
+# Running generate_docs.py (Data Contract Generator)
+python -m src.generate_docs --config configs/sales_rules.yaml --output-dir docs/ --rules-dir rules/
+```
+
+
 # Known Limitations
 * **Streaming Memory Growth:** While chunked streaming prevents massive Out-Of-Memory (OOM) crashes, Pass 1 still tracks every unique composite key seen in a set. Memory usage scales linearly $O(N)$ with the number of distinct rows, so it is not strictly "near zero".
 * **Watermark Advancement:** The incremental pipeline advances the watermark based on the incoming dataset, *including rows that fail validation*. Failed rows are not automatically queued for reprocessing.

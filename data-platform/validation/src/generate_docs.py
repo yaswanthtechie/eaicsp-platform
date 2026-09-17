@@ -10,8 +10,8 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.validator import DataValidator, SAFE_FUNCTION_REGISTRY
-
+from src.validator import DataValidator
+from src.registry import RULE_REGISTRY
 
 def get_human_readable_description(rule) -> str:
     """Gets the description from the YAML or falls back to auto-generated/docstrings."""
@@ -41,8 +41,9 @@ def get_human_readable_description(rule) -> str:
     # 3. Fallback to Python Docstrings for custom/transform functions
     elif rule.type in ["custom", "transform"]:
         func_path = (rule.model_extra or {}).get('function')
-        if func_path and func_path in SAFE_FUNCTION_REGISTRY:
-            doc = SAFE_FUNCTION_REGISTRY[func_path].__doc__
+        func_name = func_path.split('.')[-1] if func_path else None
+        if func_name and func_name in RULE_REGISTRY:
+            doc = RULE_REGISTRY[func_name].__doc__
             if doc:
                 return f"*(Custom)* {doc.strip()}"
         return f"Applies custom {rule.type} logic."
@@ -106,6 +107,7 @@ def main():
     parser = argparse.ArgumentParser(description="Generate human-readable Markdown docs from validation configs.")
     parser.add_argument("--config", type=Path, required=True, help="Path to the YAML config file.")
     parser.add_argument("--output-dir", type=Path, default=Path("docs"), help="Directory to save the markdown files.")
+    parser.add_argument("--rules-dir", type=str, default=str(PROJECT_ROOT / "rules"), help="Path to the custom rules directory.")
 
     args = parser.parse_args()
 
@@ -126,8 +128,7 @@ def main():
     # 2. Generate flattened documentation for each profile
     for profile in profiles:
         try:
-            # DataValidator handles inheritance seamlessly
-            validator = DataValidator.from_config(str(args.config), profile_name=profile)
+            validator = DataValidator.from_config(str(args.config), profile_name=profile, rules_dir=args.rules_dir)
             markdown_content = generate_markdown_for_profile(validator, profile)
 
             output_file = args.output_dir / f"data_contract_{profile}.md"

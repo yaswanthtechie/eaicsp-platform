@@ -8,23 +8,7 @@ import pandas as pd
 import yaml
 from pydantic import BaseModel, Field, model_validator, ConfigDict
 
-import src.custom_rules as custom_rules
-
 logger = logging.getLogger(__name__)
-
-# The Explicit Registry: Only functions listed here can be executed.
-SAFE_FUNCTION_REGISTRY = {
-    "src.custom_rules.check_composite_unique": custom_rules.check_composite_unique,
-    "src.custom_rules.check_composite_unique_stream": custom_rules.check_composite_unique_stream,
-    "src.custom_rules.check_unparseable_dates": custom_rules.check_unparseable_dates,
-    "src.custom_rules.check_outliers": custom_rules.check_outliers,
-    "src.custom_rules.check_negatives": custom_rules.check_negatives,
-    "src.custom_rules.check_duplicate_rows": custom_rules.check_duplicate_rows,
-    "src.custom_rules.standardize_products": custom_rules.standardize_products,
-    "src.custom_rules.flag_negatives": custom_rules.flag_negatives,
-    "src.custom_rules.standardize_dates": custom_rules.standardize_dates,
-    "src.custom_rules.drop_duplicate_rows": custom_rules.drop_duplicate_rows,
-}
 
 
 def is_comparable(a, b):
@@ -88,7 +72,7 @@ class ConfigRule(BaseModel):
             if not func_path:
                 raise ValueError(
                     f"Rule '{self.name}' has type '{self.type}' but no 'function' path. "
-                    f"Add a 'function:' key naming an entry in SAFE_FUNCTION_REGISTRY."
+                    f"Add a 'function:' key naming an entry in the dynamic registry."
                 )
             self._load_function(str(func_path))
         return self
@@ -110,12 +94,16 @@ class ConfigRule(BaseModel):
 
     @staticmethod
     def _load_function(func_path: str):
-        """Safely loads a function exclusively from the explicit registry."""
-        if func_path not in SAFE_FUNCTION_REGISTRY:
+        """Safely loads a function exclusively from the dynamic registry."""
+        from src.registry import RULE_REGISTRY
+        clean_name = func_path.split('.')[-1]
+
+        if clean_name not in RULE_REGISTRY:
             raise SecurityError(
-                f"FATAL: Function '{func_path}' is not in the safe registry. Execution denied."
+                f"FATAL: Function '{clean_name}' is not in the active registry. "
+                f"Execution denied. Ensure the file is in the configured rules directory."
             )
-        return SAFE_FUNCTION_REGISTRY[func_path]
+        return RULE_REGISTRY[clean_name]
 
     def _execute_dynamic_function(self, df: pd.DataFrame) -> Any:
         """Helper to deduplicate dynamic function execution for custom/transform rules."""
@@ -332,8 +320,13 @@ class DataValidator:
 
     @classmethod
     def from_config(cls, yaml_path: str, profile_name: Optional[str] = None,
-                    allow_rule_failures: bool = False) -> 'DataValidator':
-        """Instantiates the validator from a YAML configuration file."""
+                    allow_rule_failures: bool = False, rules_dir: str = "rules") -> 'DataValidator':
+        """Instantiates the validator from a YAML configuration file and loads custom rules."""
+
+        # --- Trigger dynamic rule discovery before parsing ---
+        from src.registry import discover_rules
+        discover_rules(rules_dir)
+
         try:
             with open(yaml_path, 'r') as f:
                 data = yaml.safe_load(f)
@@ -431,7 +424,7 @@ class DataValidator:
         for i, rule in enumerate(stream_rules):
             if rule.name == 'composite_pk_unique':
                 rule_dict = rule.model_dump()
-                rule_dict['function'] = "src.custom_rules.check_composite_unique_stream"
+                rule_dict['function'] = "check_composite_unique_stream"
                 stream_rules[i] = ConfigRule(**rule_dict)
 
         original_rules = self.rules

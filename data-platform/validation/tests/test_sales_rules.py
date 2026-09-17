@@ -2,7 +2,6 @@ import pytest
 import pandas as pd
 import sys
 from pathlib import Path
-from unittest.mock import patch
 
 # ---------------------------------------------------------
 # PATH RESOLUTION
@@ -10,7 +9,8 @@ from unittest.mock import patch
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.validator import DataValidator, SAFE_FUNCTION_REGISTRY
+from src.validator import DataValidator
+from src.registry import RULE_REGISTRY, clear_registry
 
 
 # ---------------------------------------------------------
@@ -37,14 +37,25 @@ def mock_standardize_dates(df, field='order_date', **kwargs):
     return df.copy()
 
 
+@pytest.fixture(autouse=True)
+def setup_mock_registry():
+    clear_registry()
+    RULE_REGISTRY["check_composite_unique"] = mock_check_composite_unique
+    RULE_REGISTRY["check_unparseable_dates"] = mock_check_unparseable_dates
+    RULE_REGISTRY["flag_negatives"] = mock_flag_negatives
+    RULE_REGISTRY["standardize_dates"] = mock_standardize_dates
+    yield
+    clear_registry()
+
+
 # ---------------------------------------------------------
-# TEST DATA CONFIGURATION (Updated to sales_rules_2.yaml)
+# TEST DATA CONFIGURATION (Updated to flat function names)
 # ---------------------------------------------------------
 YAML_CONFIG = """
 version: "1.2.0"
 profiles:
   default:
-    global_max_fail_pct: 1.00  # FIX: Set to 100% so the heavily corrupted test dataframe isn't rejected
+    global_max_fail_pct: 1.00  
     global_drift_abs_min: 0.01
     global_drift_rel_min: 0.50
     rules:
@@ -58,7 +69,7 @@ profiles:
         type: regex
         pattern: "^SKU-[0-9]{4,7}$"
         severity: ERROR
-        max_fail_pct: 1.00     # FIX: Set to 100% so the test dataframe isn't rejected
+        max_fail_pct: 1.00     
 
       - name: warehouse_id_not_null
         field: warehouse_id
@@ -73,7 +84,7 @@ profiles:
         target_type: range
         min: 15.0
         severity: WARNING
-        max_fail_pct: 1.00     # FIX: Set to 100% so the test dataframe isn't rejected
+        max_fail_pct: 1.00     
 
       - name: quantity_positive
         field: quantity_sold
@@ -92,26 +103,26 @@ profiles:
 
       - name: composite_pk_unique
         type: custom
-        function: src.custom_rules.check_composite_unique
+        function: check_composite_unique 
         subset: ['date', 'sku_id', 'warehouse_id']
         severity: ERROR
 
       - name: unparseable_dates
         field: date
         type: custom
-        function: src.custom_rules.check_unparseable_dates
+        function: check_unparseable_dates 
         severity: ERROR
 
       - name: flag_negative_quantities
         field: quantity_sold
         type: transform
-        function: src.custom_rules.flag_negatives
+        function: flag_negatives 
         severity: INFO
 
       - name: standardize_dates_transform
         field: date
         type: transform
-        function: src.custom_rules.standardize_dates
+        function: standardize_dates 
         severity: INFO
 
       - name: date_in_range
@@ -190,20 +201,11 @@ def test_sales_rules_subset(rules_config_path):
         ]
     })
 
-    # Safely inject the mock functions securely for THIS TEST ONLY
-    mock_registry = SAFE_FUNCTION_REGISTRY.copy()
-    mock_registry.update({
-        "src.custom_rules.check_composite_unique": mock_check_composite_unique,
-        "src.custom_rules.check_unparseable_dates": mock_check_unparseable_dates,
-        "src.custom_rules.flag_negatives": mock_flag_negatives,
-        "src.custom_rules.standardize_dates": mock_standardize_dates
-    })
+    # over our carefully injected mocks from the fixture.
+    validator = DataValidator.from_config(rules_config_path, rules_dir="dummy")
 
-    # 2. Execute Validation inside the safe patched context
-    with patch.dict("src.validator.SAFE_FUNCTION_REGISTRY", mock_registry):
-        # Automatically loads the 'default' profile
-        validator = DataValidator.from_config(rules_config_path)
-        report = validator.validate(df)
+    # 2. Execute Validation
+    report = validator.validate(df)
 
     # 3. Assert General Pipeline Status
     assert report.passed is False
@@ -224,9 +226,8 @@ def test_sales_rules_subset(rules_config_path):
     assert warning_rules.get("wh_01_minimum_price") == 1
     assert warning_rules.get("date_in_range") == 1
 
-    # 4. Test the Strict Cleaning Engine inside the safe patched context
-    with patch.dict("src.validator.SAFE_FUNCTION_REGISTRY", mock_registry):
-        clean_df = validator.clean(df, strict=True)
+    # 4. Test the Strict Cleaning Engine
+    clean_df = validator.clean(df, strict=True)
 
     # strict=True drops the 7 ERROR rows (1, 2, 3, 5, 6, 7, 8)
     # It keeps WARNING rows (4, 9) and perfectly valid rows (0)

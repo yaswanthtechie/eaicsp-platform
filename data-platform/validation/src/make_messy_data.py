@@ -76,7 +76,7 @@ def generate_messy_data(filepath: Path | str, config: Optional[MessyDataConfig] 
     total_generated = 0
     first_chunk = True
 
-    logger.info(f"Generating {cfg.n_base:,} rows in chunks of {cfg.chunk_size:,} to {filepath}...")
+    # logger.info(f"Generating {cfg.n_base:,} rows in chunks of {cfg.chunk_size:,} to {filepath}...")
 
     # --- Streaming Generator Loop ---
     while total_generated < cfg.n_base:

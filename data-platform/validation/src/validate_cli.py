@@ -20,7 +20,7 @@ from src.validator import DataValidator
 # --- Configuration Constants ---
 EXIT_SUCCESS = 0
 EXIT_VALIDATION_FAILED = 1
-EXIT_TOOL_ERROR = 2  # New exit code for tool crashes
+EXIT_TOOL_ERROR = 2
 
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -62,7 +62,6 @@ def setup_logger(log_level: str = DEFAULT_LOG_LEVEL, enable_file_logging: bool =
     return custom_logger
 
 
-# Define globally so all functions can reference 'logger'
 logger = logging.getLogger(__name__)
 
 
@@ -74,7 +73,10 @@ def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument("--config", type=Path, required=True, help="Path to YAML rules")
     parser.add_argument("--output", type=Path, required=True, help="Path for JSON report output")
 
-    # --- PROFILE ARGUMENTS ---
+    # --- CUSTOM RULES DIRECTORY ---
+    parser.add_argument("--rules-dir", type=Path, default=PROJECT_ROOT / "rules",
+                        help="Path to the custom rules directory for auto-discovery.")
+
     parser.add_argument("--profile", type=str, default=None,
                         help="Named validation profile to execute (e.g., 'strict').")
     parser.add_argument("--list-profiles", action="store_true", help="List available profiles in the config and exit.")
@@ -95,8 +97,6 @@ def export_report(report: Any, output_path: Path) -> None:
     """Exports the validation report to JSON, handling Pydantic V1/V2 differences."""
     try:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Dynamically resolve Pydantic V2 (model_dump) or V1 (dict) method
         dump_method = getattr(report, "model_dump", getattr(report, "dict", None))
         if not callable(dump_method):
             raise AttributeError("Report object lacks Pydantic export methods (model_dump/dict)")
@@ -152,8 +152,11 @@ def main(cli_args: Optional[list[str]] = None) -> int:
 
         # 2. Branch execution based on streaming vs. in-memory
         if args.chunk_size:
-            # Load validator with profile support
-            validator = DataValidator.from_config(str(config_path), profile_name=args.profile)
+            validator = DataValidator.from_config(
+                str(config_path),
+                profile_name=args.profile,
+                rules_dir=str(args.rules_dir)
+            )
             logger.info(f"Streaming mode enabled (chunk size: {args.chunk_size})")
             report = validator.validate_stream(
                 filepath=str(input_path),
@@ -171,14 +174,17 @@ def main(cli_args: Optional[list[str]] = None) -> int:
                     return EXIT_SUCCESS
                 logger.info(f"Incremental Mode: Identified {len(df)} new rows to validate.")
 
-            # Load validator ONLY if there is actual data to process (fixes mock assert_not_called test)
-            validator = DataValidator.from_config(str(config_path), profile_name=args.profile)
+            validator = DataValidator.from_config(
+                str(config_path),
+                profile_name=args.profile,
+                rules_dir=str(args.rules_dir)
+            )
             report = validator.validate(df)
 
     except (pd.errors.EmptyDataError, pd.errors.ParserError, ValueError, OSError) as e:
         logger.exception("Validation execution failed: %s", e)
         return EXIT_TOOL_ERROR
-    except RuntimeError as e:  # Catch fallback for external library runtime errors
+    except RuntimeError as e:
         logger.exception("Runtime error during validation: %s", e)
         return EXIT_TOOL_ERROR
 
@@ -189,7 +195,7 @@ def main(cli_args: Optional[list[str]] = None) -> int:
         # --- WATERMARK SAVING ---
         if args.incremental:
             new_wm = None
-            col_name = str(args.watermark_col)  # Cast to string to satisfy type checker
+            col_name = str(args.watermark_col)
 
             if args.chunk_size:
                 if getattr(report, 'total_rows', 0) > 0:
@@ -235,5 +241,4 @@ def main(cli_args: Optional[list[str]] = None) -> int:
 
 
 if __name__ == "__main__":
-    # Defer sys.exit to the very edge of the application
     sys.exit(main())

@@ -3,6 +3,7 @@ import logging
 import math
 import sys
 from unittest.mock import patch, MagicMock
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -10,6 +11,8 @@ import pytest
 # Import the module explicitly from the src package
 from src import validate_folder
 
+# Add project root to path so we can resolve default rules dir
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 class MockReport:
     """Mock implementation of the DataValidator report object."""
@@ -91,14 +94,13 @@ def test_load_validator(mock_validator_class):
     mock_validator_class.from_config.return_value = mock_instance
     cache = {}
 
-    res1 = validate_folder._load_validator("config1.yaml", "strict", cache)
+    res1 = validate_folder._load_validator("config1.yaml", "strict", cache, "rules")
     assert res1 == mock_instance
 
-    res2 = validate_folder._load_validator("config1.yaml", "strict", cache)
+    res2 = validate_folder._load_validator("config1.yaml", "strict", cache, "rules")
     assert res2 == mock_instance
     assert mock_validator_class.from_config.call_count == 1
-    # Check that profile_name was passed correctly on initialization
-    mock_validator_class.from_config.assert_called_with("config1.yaml", profile_name="strict")
+    mock_validator_class.from_config.assert_called_with("config1.yaml", profile_name="strict", rules_dir="rules")
 
 
 def test_validate_folder_invalid_folder():
@@ -209,7 +211,7 @@ def test_validate_folder_hybrid_mapping(mock_validator_class, mock_read_csv, tem
     )
 
     assert summary["passed_files"] == 1
-    mock_validator_class.from_config.assert_called_with(str(temp_env["config_file"]), profile_name="strict")
+    mock_validator_class.from_config.assert_called_with(str(temp_env["config_file"]), profile_name="strict", rules_dir="rules")
 
 
 @patch("src.validate_folder.pd.read_csv")
@@ -252,12 +254,12 @@ def test_main_success(mock_setup_logging, mock_validate_folder):
         validate_folder.main()
 
     mock_setup_logging.assert_called_once()
-    # Updated to include profile_name=None as requested by the pipeline
     mock_validate_folder.assert_called_once_with(
         folder_path="/dummy/folder",
         config_path="/dummy/config.yaml",
         mapping_path=None,
         profile_name=None,
+        rules_dir=str(PROJECT_ROOT / "rules"),
         default_pattern="*.csv",
         top_n_issues=3,
         output_dir="reports",

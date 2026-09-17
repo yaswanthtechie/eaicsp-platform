@@ -4,6 +4,17 @@ import logging
 from pathlib import Path
 from src.drift import ReportComparator
 from src.validator import DataValidator, ConfigRule, ValidationResult
+from src.registry import clear_registry, discover_rules
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+@pytest.fixture(autouse=True)
+def setup_dynamic_registry():
+    """Cleans registry state and loads rules before and after each test."""
+    clear_registry()
+    discover_rules(PROJECT_ROOT / "rules")
+    yield
+    clear_registry()
 
 
 @pytest.fixture
@@ -172,8 +183,8 @@ def test_evaluate_drift_skips_transform_rules(comparator, mock_history_dir):
     """Verifies transform rules, which do not produce failures, are ignored by the comparator."""
     (mock_history_dir / "report_1.json").write_text(json.dumps({"total_rows": 100}))
 
-    # 'dummy' is not in SAFE_FUNCTION_REGISTRY, so mock it for this test just to instantiate
-    rule = ConfigRule(**{"name": "t1", "type": "transform", "function": "src.custom_rules.flag_negatives"})
+    # FIX: Use the flat function name instead of the old module path
+    rule = ConfigRule(**{"name": "t1", "type": "transform", "function": "flag_negatives"})
     val = DataValidator([rule])
     res = ValidationResult(passed=True, total_rows=100, total_rows_affected=0)
 

@@ -6,21 +6,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any
 
-# ---------------------------------------------------------
-# PATH RESOLUTION & MODULE FIX
-# ---------------------------------------------------------
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
-# Ensure Python can find the 'src' module no matter where you run this from
 sys.path.append(str(PROJECT_ROOT))
 
 from src.drift import ReportComparator
 from src.make_messy_data import generate_messy_data
 from src.validator import DataValidator
 
-# ---------------------------------------------------------
-# LOGGER SETUP
-# ---------------------------------------------------------
 logger = logging.getLogger(__name__)
 
 def setup_logging() -> str:
@@ -39,15 +31,13 @@ def setup_logging() -> str:
             logging.FileHandler(log_filepath, mode="w", encoding="utf-8"),
             logging.StreamHandler(sys.stdout)
         ],
-        force=True # Ensures we override any existing logger configurations
+        force=True
     )
     return str(log_filepath)
 
 
 def log_issues(issues: List[Dict[str, Any]], severity_label: str, report: Dict[str, Any]):
-    """Helper to cleanly log both errors and warnings without repeating code."""
     log_func = logger.error if severity_label == "ERROR" else logger.warning
-
     for item in issues:
         log_func(f"{severity_label} -> Rule: {item['rule']} | Field: {item['field']} | Count: {item['count']}")
         if item['rule'] in report.get('sample_bad_rows', {}):
@@ -70,12 +60,15 @@ def main():
     parser.add_argument("--skip-generate", action="store_true",
                         help="Skip auto-generating data and use existing input file.")
     parser.add_argument("--no-strict", action="store_false", dest="strict", help="Disable strict cleaning mode.")
-
     # --- PROFILE ARGUMENTS ---
     parser.add_argument("--profile", type=str, default=None,
                         help="Named validation profile to execute (e.g., 'strict').")
     parser.add_argument("--list-profiles", action="store_true",
                         help="List available profiles in the config and exit.")
+
+    # --- CUSTOM RULES DIRECTORY ---
+    parser.add_argument("--rules-dir", type=str, default=str(PROJECT_ROOT / "rules"),
+                        help="Path to the custom rules directory for auto-discovery.")
 
     # Incremental Arguments
     parser.add_argument("--incremental", action="store_true", help="Only process new rows since the last run.")
@@ -151,8 +144,11 @@ def main():
     # 3. Initialize the config-driven Validator
     logger.info(f"Loading rules from {config_path.name}...")
     try:
-        # Pass the profile down to the validator
-        dv = DataValidator.from_config(str(config_path), profile_name=args.profile)
+        dv = DataValidator.from_config(
+            str(config_path),
+            profile_name=args.profile,
+            rules_dir=args.rules_dir
+        )
     except Exception as e:
         logger.error(f"FATAL ERROR: Failed to initialize validator: {e}")
         return
@@ -171,7 +167,7 @@ def main():
     log_issues(report.errors, "ERROR", report.model_dump())
     log_issues(report.warnings, "WARNING", report.model_dump())
 
-    # --- NEW: DRIFT DETECTION ---
+    # --- DRIFT DETECTION ---
     logger.info("Evaluating historical drift...")
     comparator = ReportComparator()
     drift_alerts = comparator.evaluate_drift(report, dv)
