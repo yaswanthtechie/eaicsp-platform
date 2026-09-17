@@ -1,7 +1,6 @@
 from datetime import date, timedelta
 
 import pytest
-
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from fastapi.testclient import TestClient
@@ -15,12 +14,10 @@ from app.models.sales_history import SalesHistory
 
 TEST_DATABASE_URL = settings.TEST_DATABASE_URL
 
-
 test_engine = create_engine(
     TEST_DATABASE_URL,
     pool_pre_ping=True,
 )
-
 
 TestingSessionLocal = sessionmaker(
     autocommit=False,
@@ -58,6 +55,9 @@ def db_session():
         db.close()
 
 
+# IMPORTANT:
+# This is a NORMAL FUNCTION.
+# Do NOT put @pytest.fixture above it.
 def seed_sales_history(
     sku_id: str,
     warehouse_id: str,
@@ -88,8 +88,6 @@ def seed_sales_history(
 
 
 def _as_user(role: str):
-    """Bypass the real /verify call for tests that are not testing auth."""
-
     async def _override():
         return {
             "valid": True,
@@ -102,12 +100,6 @@ def _as_user(role: str):
 
 @pytest.fixture
 def client():
-    """
-    Default client for business-logic tests.
-
-    Uses a warehouse_manager role so authentication does not
-    interfere with tests that are not testing authentication.
-    """
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[verify_token] = _as_user(
         "warehouse_manager"
@@ -121,12 +113,6 @@ def client():
 
 @pytest.fixture
 def client_raw():
-    """
-    Authentication tests.
-
-    Does not override verify_token, so the real Platform Auth
-    verification path is executed.
-    """
     app.dependency_overrides[get_db] = override_get_db
 
     with TestClient(app) as c:
@@ -137,7 +123,6 @@ def client_raw():
 
 @pytest.fixture
 def client_ceo():
-    """Tests that require CEO authorization."""
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[verify_token] = _as_user("ceo")
 
@@ -149,7 +134,6 @@ def client_ceo():
 
 @pytest.fixture
 def client_warehouse_manager():
-    """Tests that specifically require warehouse_manager authorization."""
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[verify_token] = _as_user(
         "warehouse_manager"

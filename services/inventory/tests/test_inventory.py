@@ -203,6 +203,7 @@ def test_reorder_exactly_at_threshold(client):
         "quantity_on_hand": 100,
         "lead_time_days": 4,
         "safety_stock": 10,
+        
     }
 
     response = client.post(
@@ -225,6 +226,7 @@ def test_reorder_exactly_at_threshold(client):
         "SKU-THRESHOLD/WH001",
         json={
             "quantity_on_hand": reorder_point,
+            "version":1
         },
     )
 
@@ -278,6 +280,7 @@ def test_reorder_one_unit_below_threshold(client):
         "quantity_on_hand": 100,
         "lead_time_days": 4,
         "safety_stock": 10,
+       
     }
 
     response = client.post(
@@ -303,6 +306,7 @@ def test_reorder_one_unit_below_threshold(client):
         "SKU-BELOW/WH001",
         json={
             "quantity_on_hand": quantity_below,
+            "version":1,
         },
     )
 
@@ -891,6 +895,7 @@ def test_update_inventory(client):
             "quantity_on_hand": 20,
             "lead_time_days": 6,
             "safety_stock": 20,
+            "version":1,
         },
     )
 
@@ -1308,3 +1313,138 @@ def test_timeout_returns_503(client_raw, fake_platform):
                         headers=auth_header("t"))
     assert r.status_code == 503
     assert "timed out" in r.json()["detail"].lower()
+    
+def test_update_inventory_increments_version(client):
+    create_response = client.post(
+        "/api/v1/inventory/",
+        json={
+            "sku_id": "M4-VERSION-001",
+            "product_name": "M4 Version Product",
+            "warehouse_id": "WH001",
+            "quantity_on_hand": 100,
+            "lead_time_days": 5,
+            "safety_stock": 10,
+        },
+    )
+
+    assert create_response.status_code == 201
+
+    created = create_response.json()
+
+    assert created["version"] == 1
+
+    update_response = client.put(
+        "/api/v1/inventory/"
+        "M4-VERSION-001/WH001",
+        json={
+            "quantity_on_hand": 90,
+            "version": 1,
+        },
+    )
+
+    assert update_response.status_code == 200
+
+    updated = update_response.json()
+
+    assert updated["quantity_on_hand"] == 90
+    assert updated["version"] == 2
+
+def test_update_inventory_stale_version_returns_409(client):
+    create_response = client.post(
+        "/api/v1/inventory/",
+        json={
+            "sku_id": "M4-STALE-001",
+            "product_name": "M4 Stale Version Product",
+            "warehouse_id": "WH001",
+            "quantity_on_hand": 100,
+            "lead_time_days": 5,
+            "safety_stock": 10,
+        },
+    )
+
+    assert create_response.status_code == 201
+
+    created = create_response.json()
+
+    assert created["version"] == 1
+
+    # First update succeeds.
+    first_update = client.put(
+        "/api/v1/inventory/"
+        "M4-STALE-001/WH001",
+        json={
+            "quantity_on_hand": 90,
+            "version": 1,
+        },
+    )
+
+    assert first_update.status_code == 200
+    assert first_update.json()["version"] == 2
+
+    # Second update uses stale version 1.
+    stale_update = client.put(
+        "/api/v1/inventory/"
+        "M4-STALE-001/WH001",
+        json={
+            "quantity_on_hand": 80,
+            "version": 1,
+        },
+    )
+
+    assert stale_update.status_code == 409
+
+    body = stale_update.json()
+
+    assert "modified by another user" in body["detail"]
+    assert "Current version is 2" in body["detail"]
+    assert "request used version 1" in body["detail"]
+
+def test_stale_update_does_not_increment_version(client):
+    create_response = client.post(
+        "/api/v1/inventory/",
+        json={
+            "sku_id": "M4-NO-INCREMENT-001",
+            "product_name": "M4 Version Safety Product",
+            "warehouse_id": "WH001",
+            "quantity_on_hand": 100,
+            "lead_time_days": 5,
+            "safety_stock": 10,
+        },
+    )
+
+    assert create_response.status_code == 201
+
+    first_update = client.put(
+        "/api/v1/inventory/"
+        "M4-NO-INCREMENT-001/WH001",
+        json={
+            "quantity_on_hand": 90,
+            "version": 1,
+        },
+    )
+
+    assert first_update.status_code == 200
+    assert first_update.json()["version"] == 2
+
+    stale_update = client.put(
+        "/api/v1/inventory/"
+        "M4-NO-INCREMENT-001/WH001",
+        json={
+            "quantity_on_hand": 80,
+            "version": 1,
+        },
+    )
+
+    assert stale_update.status_code == 409
+
+    current = client.get(
+        "/api/v1/inventory/"
+        "M4-NO-INCREMENT-001/WH001"
+    )
+
+    assert current.status_code == 200
+
+    data = current.json()
+
+    assert data["quantity_on_hand"] == 90
+    assert data["version"] == 2

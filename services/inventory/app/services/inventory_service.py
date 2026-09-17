@@ -1,5 +1,10 @@
 import csv
 import io
+from fastapi import HTTPException
+from sqlalchemy.orm import Session
+
+from app.models.inventory import Inventory
+from app.schemas.inventory import InventoryUpdate               
 
 from fastapi import UploadFile
 from pydantic import ValidationError
@@ -22,27 +27,22 @@ REQUIRED_CSV_COLUMNS = (
     "sku_id",
     "product_name",
     "warehouse_id",
+    "category",
     "quantity_on_hand",
     "lead_time_days",
     "safety_stock",
+    "warehouse_type",
+    "parent_warehouse_id",
 )
 
 
 # =========================================================
 # RESPONSE
 # =========================================================
-
 def inventory_response(
     inventory: Inventory,
     db: Session,
 ):
-    """
-    Build the response for one inventory item.
-
-    Demand is calculated dynamically from sales history.
-    ABC classification is used to adjust safety stock.
-    """
-
     calculation = calculate_reorder_point(
         db=db,
         inventory=inventory,
@@ -52,15 +52,30 @@ def inventory_response(
         "sku_id": inventory.sku_id,
         "product_name": inventory.product_name,
         "warehouse_id": inventory.warehouse_id,
+        "category": inventory.category,
         "quantity_on_hand": inventory.quantity_on_hand,
-        "reorder_point": calculation["reorder_point"],
+
+        "reorder_point": calculation[
+            "reorder_point"
+        ],
+
         "avg_daily_demand": calculation[
             "rolling_avg_demand"
         ],
+
         "lead_time_days": inventory.lead_time_days,
+
         "safety_stock": calculation[
             "adjusted_safety_stock"
         ],
+
+        # M1
+        "warehouse_type": inventory.warehouse_type,
+
+        "parent_warehouse_id": (
+            inventory.parent_warehouse_id
+        ),
+        "version": inventory.version,
     }
 
 
@@ -95,9 +110,14 @@ def create_inventory(
         sku_id=inventory.sku_id,
         product_name=inventory.product_name,
         warehouse_id=inventory.warehouse_id,
+        category=inventory.category,
         quantity_on_hand=inventory.quantity_on_hand,
         lead_time_days=inventory.lead_time_days,
         safety_stock=inventory.safety_stock,
+
+        # M1
+        warehouse_type=inventory.warehouse_type,
+        parent_warehouse_id=inventory.parent_warehouse_id,
     )
 
     db.add(item)
@@ -165,69 +185,88 @@ def update_inventory(
     db: Session,
     sku_id: str,
     warehouse_id: str,
-    inventory,
+    inventory: InventoryUpdate,
 ):
-    """
-    Update an existing inventory record.
-
-    The parameter name is `inventory` because the route calls:
-
-        update_inventory(
-            db=db,
-            sku_id=sku_id,
-            warehouse_id=warehouse_id,
-            inventory=inventory,
+    item = (
+        db.query(Inventory)
+        .filter(
+            Inventory.sku_id == sku_id,
+            Inventory.warehouse_id == warehouse_id,
         )
-    """
-
-    item = get_inventory(
-        db=db,
-        sku_id=sku_id,
-        warehouse_id=warehouse_id,
+        .with_for_update()
+        .first()
     )
 
     if item is None:
         return None
 
-    update_data = inventory.model_dump(
-        exclude_unset=True
-    )
+    # -------------------------------------------------
+    # MILESTONE 4: OPTIMISTIC LOCKING
+    # -------------------------------------------------
+    # The client sends the version it originally read.
+    #
+    # Example:
+    # Database version = 5
+    # Client sends version = 4
+    #
+    # The record has already been changed by somebody else.
+    # -------------------------------------------------
 
-    # avg_daily_demand is calculated from sales history.
-    # It must never be manually changed.
-    update_data.pop(
-        "avg_daily_demand",
-        None,
-    )
-
-    for field, value in update_data.items():
-
-        # Only update fields that actually exist
-        # on the Inventory model.
-        if hasattr(item, field):
-            setattr(
-                item,
-                field,
-                value,
-            )
-
-    try:
-        db.flush()
-
-        # Recalculate dynamic values after update.
-        inventory_response(
-            inventory=item,
-            db=db,
+    if item.version != inventory.version:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Inventory record was modified by another user. "
+                f"Current version is {item.version}, "
+                f"but the request used version {inventory.version}. "
+                "Refresh the inventory record and try again."
+            ),
         )
 
+    # -------------------------------------------------
+    # Get only the fields that need to be updated.
+    # -------------------------------------------------
+
+    data = inventory.model_dump(
+        exclude_unset=True,
+        exclude={"version"},
+    )
+
+    # -------------------------------------------------
+    # Existing update logic
+    # -------------------------------------------------
+
+    for key, value in data.items():
+
+        if key == "quantity_on_hand":
+            if value < 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Quantity cannot be negative",
+                )
+
+        setattr(
+            item,
+            key,
+            value,
+        )
+
+    # -------------------------------------------------
+    # MILESTONE 4:
+    # Increase version after successful update.
+    # -------------------------------------------------
+
+    item.version += 1
+
+    try:
         db.commit()
+        db.refresh(item)
 
     except Exception:
         db.rollback()
         raise
 
-    return item
-
+    return inventory_response(item,db)
 
 # =========================================================
 # DELETE
@@ -591,6 +630,7 @@ def bulk_upload_csv(
                 sku_id=parsed.sku_id,
                 product_name=parsed.product_name,
                 warehouse_id=parsed.warehouse_id,
+                category=parsed.category,
                 quantity_on_hand=(
                     parsed.quantity_on_hand
                 ),
@@ -599,6 +639,12 @@ def bulk_upload_csv(
                 ),
                 safety_stock=(
                     parsed.safety_stock
+                ),
+                warehouse_type=(
+                    parsed.warehouse_type
+                ),
+                parent_warehouse_id=(
+                    parsed.parent_warehouse_id
                 ),
             )
         )
@@ -616,7 +662,6 @@ def bulk_upload_csv(
         "message": "CSV uploaded successfully",
         "total_records": len(new_items),
     }
-
 
 # =========================================================
 # WHAT-IF SIMULATION
