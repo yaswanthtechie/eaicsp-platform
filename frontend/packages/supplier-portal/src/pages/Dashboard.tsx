@@ -1,274 +1,196 @@
 import { useMemo } from "react";
+import { NetworkStatus } from "@apollo/client";
 import { useNavigate } from "react-router-dom";
 
-import { NetworkStatus } from "@apollo/client";
-
 import { usePurchaseOrders } from "../hooks/usePurchaseOrders";
-import Loading from "../components/Loading";
-import ErrorState from "../components/ErrorState";
-import type { POStatus, PurchaseOrder } from "../types/po";
-import type { PurchaseOrderEdge } from "../types/graphql";
 
-import { formatCurrency } from "../utils/formatCurrency";
+interface DashboardPurchaseOrder {
+  poNumber: string;
+  supplierId: string;
+  status: string;
+  totalAmount: number;
+  expectedDelivery: string;
+  items: unknown[];
+}
 
-const Dashboard = () => {
+interface DashboardPurchaseOrderEdge {
+  cursor: string;
+  node: DashboardPurchaseOrder;
+}
+
+export default function Dashboard() {
   const navigate = useNavigate();
 
-  const { data, loading, error, networkStatus } =
-    usePurchaseOrders({
-      first: 100,
-    });
-
-  const orders: PurchaseOrder[] = useMemo(
-    () =>
-      data?.purchaseOrders?.edges?.map(
-        (edge: PurchaseOrderEdge) => edge.node
-      ) ?? [],
-    [data]
-  );
-
-  // Only show the full-page loader on the
-  // initial request. Polling should not remove
-  // the dashboard while it is being viewed.
-  if (
-    loading &&
-    networkStatus === NetworkStatus.loading &&
-    !data
-  ) {
-    return <Loading />;
-  }
-
-  if (error && !data) {
-    return <ErrorState />;
-  }
-
-  const counts: Record<POStatus, number> = {
-    DRAFT: 0,
-    SENT: 0,
-    ACKNOWLEDGED: 0,
-    FULFILLED: 0,
-    CANCELLED: 0,
-  };
-
-  orders.forEach((order) => {
-    counts[order.status] += 1;
+  const {
+    data,
+    loading,
+    error,
+    networkStatus,
+  } = usePurchaseOrders({
+    first: 100,
   });
 
-  const totalValue = orders.reduce(
-    (sum, order) => sum + order.totalAmount,
-    0
+  const purchaseOrders = useMemo<
+    DashboardPurchaseOrder[]
+  >(
+    () =>
+      (
+        data?.purchaseOrders?.edges as
+          | DashboardPurchaseOrderEdge[]
+          | undefined
+      )?.map(
+        (edge: DashboardPurchaseOrderEdge) =>
+          edge.node,
+      ) ?? [],
+    [data],
   );
 
-  const pendingAcknowledgement = counts.SENT;
+  const totalPOs = purchaseOrders.length;
 
-  const acknowledgedOrders = orders.filter(
-    (order) => order.status === "ACKNOWLEDGED"
+  const pendingAcknowledgement = useMemo(
+    () =>
+      purchaseOrders.filter(
+        (order: DashboardPurchaseOrder) =>
+          order.status === "SENT",
+      ),
+    [purchaseOrders],
   );
 
-  const pendingInvoiceValue = acknowledgedOrders.reduce(
-    (sum, order) => sum + order.totalAmount,
-    0
+  const acknowledgedPOs = useMemo(
+    () =>
+      purchaseOrders.filter(
+        (order: DashboardPurchaseOrder) =>
+          order.status === "ACKNOWLEDGED",
+      ),
+    [purchaseOrders],
   );
+
+  const totalPOValue = useMemo(
+    () =>
+      purchaseOrders.reduce(
+        (
+          total: number,
+          order: DashboardPurchaseOrder,
+        ) => total + order.totalAmount,
+        0,
+      ),
+    [purchaseOrders],
+  );
+
+  const isLoading =
+    loading ||
+    networkStatus === NetworkStatus.loading;
+
+  if (isLoading) {
+    return (
+      <main className="dashboard-page">
+        <header className="page-header">
+          <h1>Supplier Dashboard</h1>
+
+          <p>
+            Overview of your purchase
+            orders and supplier activity.
+          </p>
+        </header>
+
+        <div
+          className="loading-state"
+          role="status"
+          aria-label="Loading dashboard"
+        >
+          Loading dashboard...
+        </div>
+      </main>
+    );
+  }
+
+  if (error) {
+    return (
+      <main className="dashboard-page">
+        <header className="page-header">
+          <h1>Supplier Dashboard</h1>
+
+          <p>
+            Overview of your purchase
+            orders and supplier activity.
+          </p>
+        </header>
+
+        <div
+          className="error-state"
+          role="alert"
+        >
+          Something went wrong.
+        </div>
+      </main>
+    );
+  }
 
   return (
-    <main className="dashboard">
-      <header className="dashboard-header">
-        <div>
-          <h1>Supplier Dashboard</h1>
-          <p>
-            Overview of your purchase orders and pending
-            actions.
-          </p>
-        </div>
+    <main className="dashboard-page">
+      <header className="page-header">
+        <h1>Supplier Dashboard</h1>
+
+        <p>
+          Overview of your purchase
+          orders and supplier activity.
+        </p>
       </header>
 
-      {/* Summary cards */}
       <section
         className="dashboard-summary"
         aria-label="Purchase order summary"
       >
-        <div className="dashboard-card">
+        <article className="dashboard-card">
           <span className="dashboard-card-label">
             Total POs
           </span>
 
-          <strong>{orders.length}</strong>
-        </div>
+          <strong className="dashboard-card-value">
+            {totalPOs}
+          </strong>
+        </article>
 
-        <div className="dashboard-card">
+        <article className="dashboard-card">
           <span className="dashboard-card-label">
             Pending Acknowledgement
           </span>
 
-          <strong>{pendingAcknowledgement}</strong>
-        </div>
+          <strong className="dashboard-card-value">
+            {pendingAcknowledgement.length}
+          </strong>
+        </article>
 
-        <div className="dashboard-card">
+        <article className="dashboard-card">
           <span className="dashboard-card-label">
             Acknowledged
           </span>
 
-          <strong>{counts.ACKNOWLEDGED}</strong>
-        </div>
+          <strong className="dashboard-card-value">
+            {acknowledgedPOs.length}
+          </strong>
+        </article>
 
-        <div className="dashboard-card">
+        <article className="dashboard-card">
           <span className="dashboard-card-label">
             Total PO Value
           </span>
 
-          <strong>{formatCurrency(totalValue)}</strong>
-        </div>
+          <strong className="dashboard-card-value">
+            ₹
+            {totalPOValue.toLocaleString(
+              "en-IN",
+              {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              },
+            )}
+          </strong>
+        </article>
       </section>
 
-      {/* Status overview */}
       <section
-        className="dashboard-section"
-        aria-labelledby="status-heading"
-      >
-        <h2 id="status-heading">
-          Purchase Order Status
-        </h2>
-
-        <div className="status-grid">
-          <button
-            type="button"
-            className="status-card"
-            onClick={() =>
-              navigate("/orders?status=DRAFT")
-            }
-          >
-            <span>Draft</span>
-            <strong>{counts.DRAFT}</strong>
-          </button>
-
-          <button
-            type="button"
-            className="status-card"
-            onClick={() =>
-              navigate("/orders?status=SENT")
-            }
-          >
-            <span>Sent</span>
-            <strong>{counts.SENT}</strong>
-          </button>
-
-          <button
-            type="button"
-            className="status-card"
-            onClick={() =>
-              navigate(
-                "/orders?status=ACKNOWLEDGED"
-              )
-            }
-          >
-            <span>Acknowledged</span>
-            <strong>{counts.ACKNOWLEDGED}</strong>
-          </button>
-
-          <button
-            type="button"
-            className="status-card"
-            onClick={() =>
-              navigate(
-                "/orders?status=FULFILLED"
-              )
-            }
-          >
-            <span>Fulfilled</span>
-            <strong>{counts.FULFILLED}</strong>
-          </button>
-
-          <button
-            type="button"
-            className="status-card"
-            onClick={() =>
-              navigate(
-                "/orders?status=CANCELLED"
-              )
-            }
-          >
-            <span>Cancelled</span>
-            <strong>{counts.CANCELLED}</strong>
-          </button>
-        </div>
-      </section>
-
-      {/* Pending actions */}
-      <section
-        className="dashboard-section"
-        aria-labelledby="actions-heading"
-      >
-        <h2 id="actions-heading">
-          Pending Actions
-        </h2>
-
-        {pendingAcknowledgement > 0 ? (
-          <div className="action-card">
-            <div>
-              <strong>
-                {pendingAcknowledgement} PO
-                {pendingAcknowledgement !== 1
-                  ? "s"
-                  : ""}{" "}
-                waiting for acknowledgement
-              </strong>
-
-              <p>
-                Review and acknowledge your sent
-                purchase orders.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() =>
-                navigate("/orders?status=SENT")
-              }
-            >
-              Review POs
-            </button>
-          </div>
-        ) : (
-          <div className="dashboard-empty">
-            <p>
-              No purchase orders are waiting for
-              acknowledgement.
-            </p>
-          </div>
-        )}
-
-        {counts.ACKNOWLEDGED > 0 && (
-          <div className="action-card">
-            <div>
-              <strong>
-                {counts.ACKNOWLEDGED} acknowledged PO
-                {counts.ACKNOWLEDGED !== 1
-                  ? "s"
-                  : ""}{" "}
-                ready for invoicing
-              </strong>
-
-              <p>
-                Acknowledged purchase orders can be
-                used to create invoices.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() =>
-                navigate("/invoices/new")
-              }
-            >
-              Create Invoice
-            </button>
-          </div>
-        )}
-      </section>
-
-      {/* Quick actions */}
-      <section
-        className="dashboard-section"
+        className="dashboard-actions"
         aria-labelledby="quick-actions-heading"
       >
         <h2 id="quick-actions-heading">
@@ -278,7 +200,9 @@ const Dashboard = () => {
         <div className="quick-actions">
           <button
             type="button"
-            onClick={() => navigate("/orders")}
+            onClick={() =>
+              navigate("/orders")
+            }
           >
             View Purchase Orders
           </button>
@@ -291,57 +215,92 @@ const Dashboard = () => {
           >
             Track Shipments
           </button>
-
-          <button
-            type="button"
-            onClick={() =>
-              navigate("/documents")
-            }
-          >
-            Documents
-          </button>
-
-          <button
-            type="button"
-            onClick={() =>
-              navigate("/profile")
-            }
-          >
-            Profile & Settings
-          </button>
         </div>
       </section>
 
-      {/* Invoice information */}
-      {pendingInvoiceValue > 0 && (
-        <section
-          className="dashboard-section"
-          aria-labelledby="invoice-heading"
-        >
-          <h2 id="invoice-heading">
-            Invoice Overview
-          </h2>
+      <section
+        className="dashboard-notifications"
+        aria-labelledby="action-items-heading"
+      >
+        <h2 id="action-items-heading">
+          Action Items
+        </h2>
 
-          <div className="dashboard-card">
-            <span className="dashboard-card-label">
-              Value of acknowledged POs
-            </span>
+        <div className="dashboard-action-list">
+          {pendingAcknowledgement.length >
+            0 && (
+            <article className="dashboard-action-card">
+              <div>
+                <h3>
+                  Purchase Orders Awaiting
+                  Acknowledgement
+                </h3>
 
-            <strong>
-              {formatCurrency(
-                pendingInvoiceValue
-              )}
-            </strong>
+                <p>
+                  {
+                    pendingAcknowledgement.length
+                  }{" "}
+                  POs waiting for
+                  acknowledgement
+                </p>
+              </div>
 
-            <p>
-              These POs are currently eligible for
-              invoice submission.
-            </p>
-          </div>
-        </section>
-      )}
+              <button
+                type="button"
+                onClick={() =>
+                  navigate("/orders")
+                }
+              >
+                Review POs
+              </button>
+            </article>
+          )}
+
+          {acknowledgedPOs.length > 0 && (
+            <article className="dashboard-action-card">
+              <div>
+                <h3>
+                  Purchase Orders Ready
+                  for Invoicing
+                </h3>
+
+                <p>
+                  {acknowledgedPOs.length}{" "}
+                  {acknowledgedPOs.length ===
+                  1
+                    ? "acknowledged PO"
+                    : "acknowledged POs"}{" "}
+                  ready for invoicing
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  navigate("/invoices/new")
+                }
+              >
+                Create Invoice
+              </button>
+            </article>
+          )}
+
+          {pendingAcknowledgement.length ===
+            0 &&
+            acknowledgedPOs.length ===
+              0 && (
+              <div className="empty-state">
+                <h3>No action items</h3>
+
+                <p>
+                  There are no purchase
+                  orders requiring your
+                  attention.
+                </p>
+              </div>
+            )}
+        </div>
+      </section>
     </main>
   );
-};
-
-export default Dashboard;
+}

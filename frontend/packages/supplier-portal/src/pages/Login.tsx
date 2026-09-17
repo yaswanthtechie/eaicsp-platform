@@ -1,120 +1,173 @@
-import { useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import {
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
+
 import { saveTokens } from "../auth/tokenStorage";
 import { login } from "../api/auth";
 
+const loginSchema = z.object({
+  email: z
+    .string()
+    .trim()
+    .min(1, "Email is required")
+    .email("Enter a valid email"),
+
+  password: z
+    .string()
+    .min(1, "Password is required"),
+
+  rememberMe: z.boolean(),
+});
+
+type LoginFormData =
+  z.infer<typeof loginSchema>;
+
 const Login = () => {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
 
-  const [email, setEmail] = useState("");
-  const [rememberMe, setRememberMe] = useState(false);
-  const [password, setPassword] = useState("");
+  const [searchParams] =
+    useSearchParams();
 
-  const [emailError, setEmailError] = useState("");
-  const [passwordError, setPasswordError] = useState("");
+  const {
+    register,
+    handleSubmit,
+    setError,
+    formState: {
+      errors,
+      isSubmitting,
+    },
+  } = useForm<LoginFormData>({
+    resolver:
+      zodResolver(loginSchema),
 
-  const validate = () => {
-    let valid = true;
+    defaultValues: {
+      email: "",
+      password: "",
+      rememberMe: false,
+    },
+  });
 
-    setEmailError("");
-    setPasswordError("");
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-    if (!emailRegex.test(email)) {
-      setEmailError("Enter a valid email");
-      valid = false;
-    }
-
-    if (password.trim() === "") {
-      setPasswordError("Password is required");
-      valid = false;
-    }
-
-    return valid;
-  };
-
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!validate()) return;
-
+  const onSubmit = async (
+    data: LoginFormData,
+  ) => {
     try {
-      const response = await login(email, password);
+      const response =
+        await login(
+          data.email,
+          data.password,
+        );
+
       saveTokens(
         response.access_token,
         response.refresh_token,
-        rememberMe
+        data.rememberMe,
       );
 
-      // Only allow safe internal paths for the next redirect.
-      const nextParam = searchParams.get("next");
+      const nextParam =
+        searchParams.get("next");
 
-      const isInternal = (next: string | null) => {
+      const isInternal = (
+        next: string | null,
+      ): boolean => {
         if (!next) {
           return false;
         }
 
         const url = new URL(
           next,
-          window.location.origin
+          window.location.origin,
         );
 
-        return url.origin === window.location.origin;
+        return (
+          url.origin ===
+          window.location.origin
+        );
       };
 
-      const nextPage = isInternal(nextParam)
-        ? nextParam!
-        : "/orders";
+      const nextPage =
+        isInternal(nextParam) &&
+        nextParam
+          ? nextParam
+          : "/orders";
 
       navigate(nextPage);
     } catch {
-      setPasswordError("Invalid email or password");
+      setError("password", {
+        type: "server",
+        message:
+          "Invalid email or password",
+      });
     }
   };
 
   return (
     <div className="login-page">
-      <h1>Supplier Portal</h1>
+      <h1>
+        Supplier Portal
+      </h1>
 
-      <form onSubmit={handleLogin}>
-        <label htmlFor="email">Email</label>
+      <form
+        onSubmit={handleSubmit(
+          onSubmit,
+        )}
+      >
+        <label htmlFor="email">
+          Email
+        </label>
 
         <input
           id="email"
           type="email"
           placeholder="Enter Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          {...register("email")}
+          aria-invalid={Boolean(
+            errors.email,
+          )}
         />
 
-        {emailError && (
-          <p className="error">{emailError}</p>
+        {errors.email && (
+          <p
+            className="error"
+            role="alert"
+          >
+            {errors.email.message}
+          </p>
         )}
 
-        <label htmlFor="password">Password</label>
+        <label htmlFor="password">
+          Password
+        </label>
 
         <input
           id="password"
           type="password"
           placeholder="Enter Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          {...register("password")}
+          aria-invalid={Boolean(
+            errors.password,
+          )}
         />
 
-        {passwordError && (
-          <p className="error">{passwordError}</p>
+        {errors.password && (
+          <p
+            className="error"
+            role="alert"
+          >
+            {errors.password.message}
+          </p>
         )}
 
         <div className="remember-me">
           <input
             type="checkbox"
             id="rememberMe"
-            checked={rememberMe}
-            onChange={(e) =>
-              setRememberMe(e.target.checked)
-            }
+            {...register(
+              "rememberMe",
+            )}
           />
 
           <label htmlFor="rememberMe">
@@ -122,13 +175,19 @@ const Login = () => {
           </label>
         </div>
 
-        <button type="submit">
-          Login
+        <button
+          type="submit"
+          disabled={isSubmitting}
+        >
+          {isSubmitting
+            ? "Logging in..."
+            : "Login"}
         </button>
       </form>
 
       <p className="note">
-        Any valid email and password will work.
+        Any valid email and password
+        will work.
       </p>
     </div>
   );
