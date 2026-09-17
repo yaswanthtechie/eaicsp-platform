@@ -373,6 +373,12 @@ class ProxyService:
 
                     if response.status_code >= 500:
                         circuit_breaker_manager.record_failure(service_id)
+                    elif response.status_code in {401, 403}:
+                        # HTTP 401/403 are client authentication/authorization outcomes,
+                        # NOT downstream infrastructure failures. Excluded from breaker
+                        # statistics entirely so they neither count as failures nor
+                        # dilute the failure rate that real 5xx errors need to reach.
+                        pass
                     else:
                         circuit_breaker_manager.record_success(service_id)
 
