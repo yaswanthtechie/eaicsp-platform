@@ -68,8 +68,8 @@ def add_external_regressors(
     # ==========================================
 
     rng = np.random.default_rng(42)
-    
-    data["weather_index"] = np.random.uniform(
+
+    data["weather_index"] = rng.uniform(
         0.0,
         1.0,
         len(data),

@@ -3,6 +3,7 @@ import json
 
 import pandas as pd
 import mlflow
+from src.seasonal_naive import seasonal_naive_forecast
 from src.scenario_forecasting import (
     create_promotion_scenario,
     compare_scenarios
@@ -295,7 +296,37 @@ def main():
         len(xgb_forecast)
     )
 
+    # ===============================
+    # Seasonal-Naive Baseline
+    # ===============================
 
+    naive_predictions = seasonal_naive_forecast(
+        train_df=train_df,
+        horizon_months=len(test_df),
+    )
+
+    naive_prediction_values = [
+        item["prediction"]
+        for item in naive_predictions
+    ]
+
+    naive_actual_values = test_df["y"].values
+
+    naive_mape = float(
+        (
+            abs(naive_actual_values - naive_prediction_values)
+            / naive_actual_values
+        ).mean()
+        * 100
+    )
+    print(
+        f"Seasonal-naive baseline MAPE: {naive_mape:.2f}%"
+    )
+
+    mlflow.log_metric(
+        "seasonal_naive_mape",
+        naive_mape,
+    )
 
     # ===============================
     # Prophet Evaluation

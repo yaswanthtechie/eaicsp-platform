@@ -145,22 +145,19 @@ prophet/
 
 
 
-### Seasonal-Naive Baseline Context
+### Seasonal-Naive Baseline
 
-The seasonal-naive baseline is used as a reference point for evaluating
-forecast quality. It predicts each future month using the demand observed
-in the same month of the previous year.
+A seasonal-naive baseline was evaluated on the same held-out test
+period as the forecasting models.
 
-The current model evaluation should be interpreted alongside this baseline,
-rather than viewing the R5 MAPE in isolation.
+The seasonal-naive model predicts each month using the corresponding
+month from the previous year.
 
-The promoted R5 model achieved a MAPE of approximately 1.19%. This relatively
-low error is reported with the seasonal-naive baseline as additional context.
-The time-based evaluation split was retained to avoid using future observations
-during model training.
+- Seasonal-Naive MAPE: **3.06%**
 
-The seasonal-naive baseline is not used for production serving; it is included
-only as a benchmark for model evaluation.
+This baseline provides a reference point for evaluating whether the
+Prophet, XGBoost, and ensemble models provide improvement over a
+simple seasonal forecasting approach.
 ### Evaluation Winner vs Production Model
 
 The ensemble grid search identifies the best-performing candidate
@@ -1061,6 +1058,27 @@ Example:
 |--------------------------|------------|
        Training              Validation
        120 months            12 months
+
+### Why the Promoted Model Has No External Regressors
+
+The promoted production bundle (`models/promoted/prophet_model.json`) is the R5
+model, trained without external regressors. This is deliberate.
+
+Milestone 2 evaluated holidays, promotions and a mock weather index and found
+they did **not** improve accuracy ensemble RMSE rose from 11,400.81 to
+12,309.01 when they were added. Rather than promote a model that scored worse
+on held-out data purely to demonstrate the feature, the R5 model was kept in
+production.
+
+Consequence for readers of the code: `predict.py` builds the regressor columns
+on the future frame and passes them to Prophet, which silently ignores columns
+it was not trained on. The regressor code path is exercised by the training
+pipeline and by the fallback model in `output/`, not by the promoted model.
+
+If a future retrain shows regressors genuinely helping, promoting that model is
+the only change required  the serving code already supplies the columns.
+
+
 
 Next retraining cycle:
 
