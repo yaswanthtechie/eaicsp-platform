@@ -38,7 +38,7 @@ on the same basis instead of each computing accuracy their own way.
   (not just Python code importing this package) can rank models and get
   the same refusal behavior for incompatible metrics
 - `compare.py` - standalone CLI: `python compare.py --results results.json`
-- `tests/test_metrics.py` - 63 tests covering all of the above, including
+- `tests/test_metrics.py` - 92 tests covering all of the above, including
   edge cases and error/refusal paths
 
 Note: MAPE excludes rows where the actual value is 0, since division by zero

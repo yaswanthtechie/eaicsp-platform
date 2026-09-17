@@ -115,6 +115,16 @@ def wilcoxon_significance_test(scores_a: list, scores_b: list, alpha: float = 0.
     except ValueError as e:
         raise ValueError(f"wilcoxon_significance_test: {e}")
 
+    n = len(scores_a)
+    low_power_note = (
+        f" Note: with only {n} folds, Wilcoxon's minimum possible p-value is "
+        f"{1 / (2 ** (n - 1)):.4f} -- a 'not significant' result here may reflect "
+        f"this test's limited power at low fold counts, not necessarily the "
+        f"absence of a real difference. Consider paired_significance_test() "
+        f"or more folds."
+        if n <= 5 and p_value >= alpha else ""
+    )
+
     return {
         "mean_difference": mean_diff,
         "p_value": float(p_value),
@@ -129,5 +139,6 @@ def wilcoxon_significance_test(scores_a: list, scores_b: list, alpha: float = 0.
                 else f"This difference is NOT statistically significant (p={p_value:.4f} >= {alpha}) -- "
                      f"could be due to random noise across folds."
             )
+            + low_power_note
         ),
     }

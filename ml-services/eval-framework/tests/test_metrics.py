@@ -2,6 +2,7 @@ import sys
 import os
 import json
 import subprocess
+import warnings
 
 import pandas as pd
 
@@ -778,3 +779,56 @@ def test_leaderboard_service_rejects_stray_lower_is_better_field():
         "lower_is_better": False
     })
     assert response.status_code == 422
+
+
+# ----------  mean_difference and alpha escaping ----------
+
+def test_html_report_escapes_mean_difference_and_alpha():
+    results = {"a": {"mape": 5.0}, "b": {"mape": 3.0}}
+    sig_result = {
+        "mean_difference": "<script>alert(1)</script>",
+        "alpha": "<img src=x onerror=alert(2)>",
+        "interpretation": "test",
+    }
+    html_output = generate_html_report(results, significance_result=sig_result)
+    assert "<script>alert(1)</script>" not in html_output
+    assert "<img src=x onerror" not in html_output
+    assert "&lt;script&gt;" in html_output
+    assert "&lt;img" in html_output
+
+
+# ---------- warn when metadata is absent ----------
+
+def test_leaderboard_warns_when_metadata_absent():
+    results = {"a": {"mape": 6.80}, "b": {"mape": 3.20}}
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        generate_leaderboard(results, "mape")
+        assert any("without metadata" in str(w.message) for w in caught)
+
+
+def test_leaderboard_no_warning_when_metadata_provided():
+    results = {"a": {"mape": 6.80}, "b": {"mape": 3.20}}
+    metadata = {"a": {"units": "percent"}, "b": {"units": "percent"}}
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        generate_leaderboard(results, "mape", metadata=metadata)
+        assert not any("without metadata" in str(w.message) for w in caught)
+
+
+# ----------  Wilcoxon low-power note in interpretation ----------
+
+def test_wilcoxon_interpretation_includes_low_power_note_at_five_folds():
+    scores_a = [3.1, 3.4, 2.9, 3.2, 3.0]
+    scores_b = [6.8, 7.1, 6.5, 6.9, 7.0]
+    result = wilcoxon_significance_test(scores_a, scores_b)
+    assert result["significant"] is False
+    assert "limited power" in result["interpretation"]
+
+
+def test_wilcoxon_interpretation_omits_low_power_note_when_significant():
+    scores_a = [3.1, 3.4, 2.9, 3.2, 3.0, 3.3, 2.8, 3.1]
+    scores_b = [6.8, 7.1, 6.5, 6.9, 7.0, 6.7, 6.6, 6.9]
+    result = wilcoxon_significance_test(scores_a, scores_b)
+    assert result["significant"] is True
+    assert "limited power" not in result["interpretation"]

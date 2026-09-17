@@ -100,7 +100,16 @@ def generate_leaderboard(results: dict, metric: str, lower_is_better: bool = Non
 
     if metadata:
         _check_metadata_compatible(metadata, list(results.keys()))
-
+    else:
+        import warnings as _warnings
+        _warnings.warn(
+            f"generate_leaderboard: ranking '{metric}' without metadata. "
+            f"Models could be on different scales or units (e.g. a fractional "
+            f"vs. percentage MAPE) and this cannot be detected without "
+            f"metadata. Pass metadata with a 'units' key when there's any "
+            f"chance of a scale mismatch.",
+            stacklevel=2,
+        )
     scored.sort(key=lambda pair: pair[1], reverse=not lower_is_better)
     return scored
 

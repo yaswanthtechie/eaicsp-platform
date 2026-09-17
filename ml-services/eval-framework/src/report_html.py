@@ -118,13 +118,15 @@ def generate_html_report(results: dict, baseline_comparison: dict = None,
         )
         p_value = significance_result.get("p_value")
         p_value_str = f"{p_value:.4f}" if isinstance(p_value, (int, float)) else "N/A"
+        safe_mean_diff = html_lib.escape(str(significance_result.get('mean_difference', 'N/A')))
+        safe_alpha = html_lib.escape(str(significance_result.get('alpha', 'N/A')))
         significance_html = f"""
         <h2>Statistical Significance</h2>
         <p>{safe_interpretation}</p>
         <ul>
-            <li>Mean difference: {significance_result.get('mean_difference', 'N/A')}</li>
+            <li>Mean difference: {safe_mean_diff}</li>
             <li>p-value: {p_value_str}</li>
-            <li>Alpha: {significance_result.get('alpha', 'N/A')}</li>
+            <li>Alpha: {safe_alpha}</li>
         </ul>
         """
 
