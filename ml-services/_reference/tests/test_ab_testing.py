@@ -161,7 +161,7 @@ def test_statistical_difference_detected():
     assert result["sample_count_b"] == 1000
 
 
-def test_statistical_comparison_is_inconclusive():
+def test_statistical_comparison_detects_deterministic_differences():
     metrics_a = {
         "requests": 1000,
         "quality_scores": [0.900] * 1000,
@@ -177,12 +177,12 @@ def test_statistical_comparison_is_inconclusive():
         metrics_b,
     )
 
-    assert result["verdict"] == "inconclusive"
-    assert result["winner"] is None
-    assert result["loser"] is None
+    assert result["verdict"] == "significant_difference"
+    assert result["winner"] == "variant_b"
+    assert result["loser"] == "variant_a"
 
-    assert result["quality_a"] == 0.900
-    assert result["quality_b"] == 0.901
+    assert result["p_value"] == 0.0
+    
 
 
 def test_comparison_is_inconclusive_without_quality_data():

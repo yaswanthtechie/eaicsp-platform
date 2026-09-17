@@ -9,6 +9,8 @@ from src.retraining import (
     manual_retrain_trigger,
 )
 
+from src.retraining_adapters import check_drift
+
 
 def test_calculate_drift_with_similar_inputs():
     """
@@ -273,3 +275,66 @@ def test_manual_retrain_trigger():
     assert result["status"] == "retraining_triggered"
     assert "message" in result
     assert "manually" in result["message"].lower()
+
+
+# ============================================================
+# Problem 1 - Model Retraining Adapter Drift Tests
+# ============================================================
+
+
+def test_check_drift_accepts_recent_inputs_like_the_service_calls_it():
+    """
+    service.py calls check_drift with model_name, recent_inputs,
+    and threshold. The adapter must accept this call without TypeError.
+    """
+
+    result = check_drift(
+        model_name="forecast",
+        recent_inputs=[
+            [1.0, 2.0],
+            [1.0, 2.0],
+            [1.0, 2.0],
+            [1.0, 2.0],
+        ],
+        threshold=0.3,
+    )
+
+    assert result["drift_detected"] is False
+    assert result["reason"] == "scored"
+
+
+def test_check_drift_flags_a_shifted_distribution():
+    """
+    A significant distribution shift between the older and newer
+    portions of the recent input window should be detected.
+    """
+
+    result = check_drift(
+        model_name="forecast",
+        recent_inputs=[
+            [1.0, 1.0],
+            [1.0, 1.0],
+            [10.0, 10.0],
+            [10.0, 10.0],
+        ],
+        threshold=0.3,
+    )
+
+    assert result["drift_detected"] is True
+
+
+def test_no_data_is_unknown_not_no_drift():
+    """
+    Empty input history should be reported as insufficient data,
+    rather than being treated as a valid no-drift result.
+    """
+
+    result = check_drift(
+        model_name="forecast",
+        recent_inputs=[],
+        threshold=0.3,
+    )
+
+    assert result["reason"] == "insufficient_data"
+    assert result["drift_score"] is None
+    assert result["drift_detected"] is False

@@ -8,18 +8,26 @@ Responsibilities:
 - Run version-specific predictions for A/B testing
 - Store A/B experiment configuration
 - Collect per-variant A/B metrics
+- Record production request metrics
+- Record production inputs for drift detection
 - Provide model health and information
 """
 
 from __future__ import annotations
 
+import logging
 import time
+import uuid
 from typing import Any, Dict, Optional
 
 from src.ab_testing import ABMetrics
 from src.adapters.base import BaseModelAdapter
 from src.experiment import ABExperiment
+from src.monitoring import log_prediction
 from src.registry import model_exists
+
+
+logger = logging.getLogger(__name__)
 
 
 class ModelManager:
@@ -32,6 +40,8 @@ class ModelManager:
     - A/B testing between versions
     - Per-variant quality metrics
     - A/B experiment configuration
+    - Production request monitoring
+    - Production input logging for drift detection
     """
 
     def __init__(self) -> None:
@@ -410,7 +420,7 @@ class ModelManager:
         }
 
     # ========================================================
-    # Internal Prediction Helper
+    # Internal Production Prediction Helper
     # ========================================================
 
     def _predict_with_adapter(
@@ -420,16 +430,41 @@ class ModelManager:
     ) -> Dict[str, Any]:
         """Execute an adapter and return a standardized response."""
 
+        model_name = adapter.model_name.strip().lower()
         start_time = time.perf_counter()
 
-        result = adapter.predict(
-            payload
-        )
+        try:
+            result = adapter.predict(
+                payload
+            )
+
+        except Exception:
+            latency_ms = (
+                time.perf_counter()
+                - start_time
+            ) * 1000.0
+
+            self._record_production_request(
+                model_name=model_name,
+                version=adapter.model_version,
+                latency_ms=latency_ms,
+                success=False,
+            )
+
+            raise
 
         latency_ms = (
             time.perf_counter()
             - start_time
         ) * 1000.0
+
+        self._record_production_request(
+            model_name=model_name,
+            version=adapter.model_version,
+            latency_ms=latency_ms,
+            success=True,
+            payload=payload,
+        )
 
         return {
             "model": adapter.model_name,
@@ -446,6 +481,72 @@ class ModelManager:
                 3,
             ),
         }
+
+    # ========================================================
+    # Production Monitoring
+    # ========================================================
+
+    def _record_production_request(
+        self,
+        model_name: str,
+        version: str,
+        latency_ms: float,
+        success: bool,
+        payload: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        Record a production (non-A/B) request.
+
+        Metrics are keyed by the serving version so the MLOps
+        dashboard reflects real traffic, and the input is logged
+        so multi-model drift detection has a window to score.
+
+        Monitoring failures are intentionally isolated from the
+        live prediction path.
+        """
+
+        self.ab_metrics.setdefault(
+            model_name,
+            ABMetrics(),
+        )
+
+        try:
+            self.ab_metrics[
+                model_name
+            ].record(
+                variant=version,
+                latency_ms=latency_ms,
+                success=success,
+            )
+
+        except Exception:
+            logger.warning(
+                "Failed to record metrics for %s",
+                model_name,
+                exc_info=True,
+            )
+
+        if not success or payload is None:
+            return
+
+        try:
+            log_prediction(
+                request_id=str(
+                    uuid.uuid4()
+                ),
+                model_name=model_name,
+                model_version=str(version),
+                latency_ms=latency_ms,
+                prediction=None,
+                input_features=payload,
+            )
+
+        except Exception:
+            logger.warning(
+                "Failed to log prediction for %s",
+                model_name,
+                exc_info=True,
+            )
 
     # ========================================================
     # A/B Metrics

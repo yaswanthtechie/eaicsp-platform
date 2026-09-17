@@ -1,3 +1,4 @@
+
 """
 A/B testing utilities for the unified multi-model serving platform.
 
@@ -227,7 +228,9 @@ def _normal_cdf(value: float) -> float:
 def _two_sided_p_value(z_score: float) -> float:
     """Return a two-sided normal-test p-value."""
     return 2.0 * (
-        1.0 - _normal_cdf(abs(z_score))
+        1.0 - _normal_cdf(
+            abs(z_score)
+        )
     )
 
 
@@ -313,9 +316,11 @@ def compare_variants(
 
     Higher quality is considered better.
 
-    If both variants have zero observed variance, the normal
-    approximation cannot establish statistical significance, so
-    the result is reported as inconclusive.
+    When both variants have zero observed variance, the result
+    is handled explicitly:
+
+    - identical deterministic means -> no_difference
+    - different deterministic means -> significant_difference
     """
     if not 0.0 < alpha < 1.0:
         raise ValueError(
@@ -394,18 +399,85 @@ def compare_variants(
         mean_b,
     )
 
+    base_result = {
+        "alpha": alpha,
+        "quality_a": round(
+            mean_a,
+            6,
+        ),
+        "quality_b": round(
+            mean_b,
+            6,
+        ),
+        "difference": round(
+            difference,
+            6,
+        ),
+        "sample_count_a": n_a,
+        "sample_count_b": n_b,
+    }
+
+    # ------------------------------------------------------------------
+    # Problem 4 fix:
+    #
+    # When both variants have zero variance, the normal approximation
+    # cannot calculate a normal z-score because the standard error is
+    # zero.
+    #
+    # Identical deterministic scores:
+    #     no_difference
+    #
+    # Different deterministic scores:
+    #     significant_difference
+    #
+    # There is intentionally NO 0.01 threshold.
+    # ------------------------------------------------------------------
+    if variance_a == 0.0 and variance_b == 0.0:
+
+        if mean_a == mean_b:
+            return {
+                **base_result,
+                "p_value": 1.0,
+                "verdict": "no_difference",
+                "winner": None,
+                "loser": None,
+                "reason": (
+                    "Both variants produced identical quality scores."
+                ),
+            }
+
+        winner = (
+            "variant_b"
+            if mean_b > mean_a
+            else "variant_a"
+        )
+
+        loser = (
+            "variant_a"
+            if winner == "variant_b"
+            else "variant_b"
+        )
+
+        return {
+            **base_result,
+            "p_value": 0.0,
+            "verdict": "significant_difference",
+            "winner": winner,
+            "loser": loser,
+            "reason": (
+                "Deterministic quality scores differ between variants."
+            ),
+        }
+
+    # ------------------------------------------------------------------
+    # Normal approximation for variants with observed variance.
+    # ------------------------------------------------------------------
     standard_error = math.sqrt(
         (variance_a / n_a)
         + (variance_b / n_b)
     )
 
     if standard_error == 0.0:
-        # Both groups contain constant values.
-        #
-        # Even if their constant means differ slightly,
-        # there is no observed variance from which the
-        # normal approximation can calculate a meaningful
-        # significance result.
         p_value = 1.0
     else:
         z_score = (
@@ -417,12 +489,15 @@ def compare_variants(
         )
 
     if p_value < alpha:
+
         if mean_a > mean_b:
             winner = "variant_a"
             loser = "variant_b"
+
         elif mean_b > mean_a:
             winner = "variant_b"
             loser = "variant_a"
+
         else:
             winner = None
             loser = None
@@ -432,6 +507,7 @@ def compare_variants(
             if winner is not None
             else "inconclusive"
         )
+
     else:
         winner = None
         loser = None
@@ -465,3 +541,4 @@ def compare_variants(
             "model-quality scores."
         ),
     }
+
