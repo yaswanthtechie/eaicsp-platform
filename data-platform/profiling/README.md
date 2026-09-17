@@ -338,8 +338,8 @@ Insights can identify:
 * Missing-value issues
 * Detected outliers
 * Dominant categorical values
+* Cumulative category concentration
 * Strong positive or negative correlations
-* Overall data quality score
 
 Example:
 
@@ -347,7 +347,6 @@ Example:
 unit_price has 25.0% missing values.
 quantity_sold contains 1 detected outliers.
 WH1 accounts for 50.0% of all records in warehouse_id.
-Overall data quality score is 98.44 out of 100.
 ```
 
 The generated insights are included directly in the profiling report.
@@ -734,7 +733,7 @@ python -m pytest -q
 Current test result:
 
 ```text
-102 passed
+110 passed
 ```
 
 The test suite covers:
@@ -788,7 +787,7 @@ The test suite covers:
 The latest complete test run completed successfully with:
 
 ```text
-102 passed
+110 passed
 ```
 
 ---

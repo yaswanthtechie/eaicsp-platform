@@ -1,6 +1,3 @@
-import pandas as pd
-
-
 def generate_insights(df, report):
     """
     Generate plain-English insights from profiling results.
@@ -30,7 +27,9 @@ def generate_insights(df, report):
             )
 
     # 3. Dominant category insight
-    for column in df.select_dtypes(include=["object", "category", "string"]).columns:
+    for column in df.select_dtypes(
+        include=["object", "category", "string"]
+    ).columns:
         series = df[column].dropna()
 
         if series.empty:
@@ -45,6 +44,19 @@ def generate_insights(df, report):
             insights.append(
                 f"{top_value} accounts for {top_percentage}% "
                 f"of all records in {column}."
+            )
+
+        # Cumulative concentration insight
+        cumulative_percentage = value_counts.cumsum() * 100
+
+        categories_needed = (
+            cumulative_percentage.ge(80).to_numpy().argmax() + 1
+        )
+
+        if categories_needed < len(value_counts):
+            insights.append(
+                f"{categories_needed} categories in {column} "
+                f"account for at least 80% of all records."
             )
 
     # 4. Strong-correlation insight
@@ -64,14 +76,5 @@ def generate_insights(df, report):
                 f"{correlation['column2']} have a strong "
                 f"{direction} correlation of {value}."
             )
-
-    # 5. Quality-score insight
-    quality_scorecard = report.get("quality_scorecard", {})
-    overall_score = quality_scorecard.get("overall_score")
-
-    if overall_score is not None:
-        insights.append(
-            f"Overall data quality score is {overall_score} out of 100."
-        )
 
     return insights

@@ -286,6 +286,26 @@ def create_sparkline(series):
 
 def profile(df):
     df = df.copy()
+
+    if df.empty:
+        return {
+            "shape": df.shape,
+            "columns": list(df.columns),
+            "status": "empty_dataset",
+            "message": "The dataset contains no rows.",
+            "column_summary": [],
+            "statistics": {},
+            "outliers": {},
+            "correlations": {},
+            "pii_detection": [],
+            "quality_score": {},
+            "worst_issues": [],
+            "top_correlations": [],
+            "anomaly_correlation": {},
+            "sparklines": {},
+            "quality_scorecard": {},
+            "insights": []
+        }
     report = {
         "shape": df.shape,
         "columns": list(df.columns),
@@ -363,15 +383,40 @@ def profile(df):
     )
 
     uniqueness_columns = [
-        item["column"]
-        for item in report["column_summary"]
-        if item["role"] == "ID"
-    ]
+    item["column"]
+    for item in report["column_summary"]
+    if item["role"] == "ID"
+]
+
+    consistency_rules = []
+
+    if (
+        "quantity_sold" in df.columns
+        and pd.api.types.is_numeric_dtype(df["quantity_sold"])
+    ):
+        consistency_rules.append(
+            lambda data: data["quantity_sold"].isna()
+            | data["quantity_sold"].ge(0)
+            )
+
+    if (
+        "unit_price" in df.columns
+        and pd.api.types.is_numeric_dtype(df["unit_price"])
+    ):
+        consistency_rules.append(
+            lambda data: data["unit_price"].isna()
+            | data["unit_price"].gt(0)
+        )
 
     report["quality_scorecard"] = generate_quality_scorecard(
         df,
+        consistency_rules=consistency_rules,
         uniqueness_columns=uniqueness_columns
     )
+
+
+
+    
     report["insights"] = generate_insights(df, report)
     # Data Quality Score
     report["quality_score"] = calculate_quality_score(df, report)

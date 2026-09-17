@@ -48,7 +48,7 @@ def test_outlier_insight():
     assert "amount contains 1 detected outliers." in insights
 
 
-def test_quality_score_insight():
+def test_quality_score_not_repeated_as_insight():
     df = pd.DataFrame({
         "id": [1, 2, 3]
     })
@@ -63,8 +63,7 @@ def test_quality_score_insight():
 
     insights = generate_insights(df, report)
 
-    assert "Overall data quality score is 99.65 out of 100." in insights
-
+    assert "Overall data quality score is 99.65 out of 100." not in insights
 
 def test_no_missing_values_no_missing_insight():
     df = pd.DataFrame({

@@ -35,8 +35,8 @@ def _is_compatible_type(left_series, right_series):
     Numeric columns are compatible with numeric columns.
     """
 
-    left_is_numeric = isinstance(left_series.dtype, pd.CategoricalDtype)
-    right_is_numeric = isinstance(right_series.dtype, pd.CategoricalDtype)
+    left_is_numeric = pd.api.types.is_numeric_dtype(left_series)
+    right_is_numeric = pd.api.types.is_numeric_dtype(right_series)
 
     left_is_string = (
         pd.api.types.is_object_dtype(left_series)

@@ -216,7 +216,7 @@ class MonitoringHistory:
             "values": values
         }
 
-    def compare_runs(self, metric, last_n=5):
+    def compare_runs(self, metric, last_n=5, slope_threshold=0.01):
         history = self.load_history()
 
         if not history:
@@ -225,6 +225,7 @@ class MonitoringHistory:
                 "runs": 0,
                 "values": [],
                 "change": None,
+                "slope": None,
                 "trend": "No Data"
             }
 
@@ -242,14 +243,32 @@ class MonitoringHistory:
                 "runs": len(values),
                 "values": values,
                 "change": None,
+                "slope": None,
                 "trend": "Not Enough Data"
             }
 
         change = values[-1] - values[0]
 
-        if change > 0:
+        # Calculate least-squares slope across all runs.
+        x_values = list(range(len(values)))
+        x_mean = sum(x_values) / len(x_values)
+        y_mean = sum(values) / len(values)
+
+        numerator = sum(
+            (x - x_mean) * (y - y_mean)
+            for x, y in zip(x_values, values)
+        )
+
+        denominator = sum(
+            (x - x_mean) ** 2
+            for x in x_values
+        )
+
+        slope = numerator / denominator
+
+        if slope > slope_threshold:
             trend = "Increasing"
-        elif change < 0:
+        elif slope < -slope_threshold:
             trend = "Decreasing"
         else:
             trend = "Stable"
@@ -259,5 +278,6 @@ class MonitoringHistory:
             "runs": len(values),
             "values": values,
             "change": change,
+            "slope": slope,
             "trend": trend
         }

@@ -1,8 +1,11 @@
-from fastapi import FastAPI, UploadFile, File
-from src.profiler import Profiler
+from fastapi import FastAPI, UploadFile, File, HTTPException
 import pandas as pd
 
 from src.profile import profile
+from src.profiler import make_json_serializable
+
+
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
 app = FastAPI(
@@ -14,7 +17,44 @@ app = FastAPI(
 
 @app.post("/profile")
 async def profile_dataset(file: UploadFile = File(...)):
-    df = pd.read_csv(file.file)
+    if file.content_type not in {"text/csv", "application/csv"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Only CSV files are allowed."
+        )
+
+    try:
+        contents = await file.read()
+
+        if len(contents) > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=400,
+                detail="File size exceeds the 10 MB limit."
+            )
+
+        if not contents:
+            raise HTTPException(
+                status_code=400,
+                detail="Uploaded CSV file is empty."
+            )
+
+        from io import BytesIO
+
+        df = pd.read_csv(BytesIO(contents))
+
+    except HTTPException:
+        raise
+
+    except (
+        pd.errors.ParserError,
+        pd.errors.EmptyDataError,
+        UnicodeDecodeError
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid CSV file."
+        )
+
     report = profile(df)
 
-    return Profiler()._make_json_serializable(report)
+    return make_json_serializable(report)

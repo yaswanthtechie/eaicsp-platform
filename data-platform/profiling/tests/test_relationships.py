@@ -199,6 +199,27 @@ def test_low_overlap_is_not_reported():
 
     assert result == []
 
+def test_numeric_join_key():
+    left = pd.DataFrame({
+        "order_id": range(1, 21),
+        "amount": range(100, 120),
+    })
+
+    right = pd.DataFrame({
+        "order_id": range(1, 21),
+        "customer": [f"C{i}" for i in range(1, 21)],
+    })
+
+    relationships = discover_relationships(left, right)
+
+    assert len(relationships) == 1
+    assert relationships[0]["left_column"] == "order_id"
+    assert relationships[0]["right_column"] == "order_id"
+    assert relationships[0]["classification"] == "likely_join_key"
+    assert relationships[0]["overlap_percentage"] == 100.0
+
+
+
 
 def test_low_cardinality_columns_are_skipped():
     """
