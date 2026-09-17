@@ -376,7 +376,7 @@ Row-by-row time: 21.57 sec
 
 Bulk time:       1.11 sec
 
-Speedup:         19.4x
+Speedup:         19.4x (R4 bulk-upsert benchmark; not the R6-8 partition benchmark)
 
 ==================================================
 
@@ -640,3 +640,142 @@ at 837 rows/sec. The benchmark stopped at 200,000 rows and did not proceed to
 R5 performance investigation note
 ---------------------------------
 The 27 Aug 2026 benchmark reached 200,000 rows in 238.97s (837 rows/sec), crossing the 120s operational cutoff. This is a loader/application ceiling under the current implementation, not a PostgreSQL theoretical limit. The benchmark intentionally isolates bulk_upsert(), so it excludes the real sales_fact history-copy callback; production sales loads can therefore be slower. The next tuning target is the current SQLAlchemy multi-row parameterized INSERT/ON CONFLICT path and its 5,000-row chunks; a scale claim beyond 200K requires another measured run after tuning.
+
+
+## Combined Round 6 + 7 + 8 (ETL)
+
+Milestone status
+
+Milestone
+
+Status
+
+Implementation / proof
+
+M1 Multi-table dependencies
+
+Implemented
+
+sales -> inventory -> shipments; depends_on is validated and used to build Airflow task edges.
+
+M2 Schema evolution
+
+Implemented
+
+Quarantine + alert. Unexpected columns are rejected instead of silently dropped.
+
+M3 Observability
+
+Implemented
+
+GET /pipeline/status returns run health, row counts, watermarks, alerts and reconciliation.
+
+M4 Monthly partitioning
+
+Implemented + benchmark
+
+sales_fact is range-partitioned by month. scripts/partitioning_check.py benchmarks 1,000,000 synthetic rows across 84 monthly partitions, runs ANALYZE, repeated timings and EXPLAIN partition-pruning checks; results are written to docs/partitioning_benchmark.json.
+
+M5 Recovery / replay
+
+Hardened
+
+Sales-only replay verifies every recorded file before DB changes and performs revert + reload + status updates in one transaction. Failed replay transactions roll back, allowing retry.
+
+M2 design decision: quarantine + alert
+
+We chose quarantine + alert rather than automatically changing the target schema. A new source column can be intentional, accidental, or malformed. Automatically adding it could change the production contract without review. Quarantine preserves the original file for investigation, raises an operational alert, and prevents silent data loss. Once the schema change is approved, the target contract can be updated deliberately.
+
+Quarantined files receive a timestamp suffix (__quarantined_<timestamp>) so two files with the same original name cannot overwrite each other. If the quarantine move itself fails, the pipeline raises a CRITICAL alert rather than repeatedly leaving the bad file in the inbox with only a warning.
+
+M3 observability
+
+Start the API with:
+
+uvicorn etl.src.status_api:app --host 0.0.0.0 --port 8000
+
+Endpoint:
+
+GET /pipeline/status
+
+The response includes last run per pipeline, recent runs, row counts, current watermarks, recent alerts, reconciliation state, and explicit health reasons. Database failures are returned as HTTP 503 instead of an unhandled 500.
+
+M4 partitioning and benchmark
+
+Fresh databases use monthly sales_fact partitions plus a DEFAULT partition. Existing unpartitioned databases must first run:
+
+sql/migrate_sales_fact_to_partitioned.sql
+
+The migration locks sales_fact, determines the existing data range, creates monthly partitions covering that range, copies rows while preserving IDs, updates the identity sequence, and removes the old table only after the copy succeeds. If the table is already partitioned, the migration does nothing.
+
+Run the benchmark with the Docker/PostgreSQL environment:
+
+python scripts/partitioning_check.py
+
+The benchmark reads the actual MIN(date)/MAX(date) from sales_fact as the production date-range reference, then creates a 1,000,000-row synthetic benchmark dataset across 84 monthly partitions. It runs ANALYZE, warms both paths, performs five timed repetitions, reports the median, checks EXPLAIN for partition pruning, and records the measured values in docs/partitioning_benchmark.json.
+
+The benchmark result is environment-specific and is not a production performance guarantee. The script exits non-zero if partition pruning or a measurable speedup is not demonstrated.
+
+M5 recovery / replay
+
+Replay is intentionally sales-only until restore logic is generalized for inventory and shipments. Calling replay with another source fails immediately with a clear error rather than reverting sales_fact for the wrong source.
+
+Safety sequence:
+
+Verify the requested run exists and is not running.
+
+Confirm it is still the latest normal sales_etl run. Replay runs use sales_etl_replay, so a failed replay does not make the original run permanently unreplayable.
+
+Verify every recorded batch file exists before any database mutation.
+
+Validate and quality-check the recorded files before changing the target.
+
+In one DB transaction, create the replay run, revert the bad run using sales_fact_history, reload the approved source batches, mark the replay successful, and mark the original run REPLAYED.
+
+If any DB step fails, the transaction rolls back the revert and reload together. The original run remains available for retry.
+
+The latest-run restriction is a deliberate safety boundary: replay will not overwrite a later normal pipeline run.
+
+Tests
+
+Round 6-8 tests cover dependency validation (including a misordered dependency), schema evolution/quarantine collisions, replay safety checks and transaction behavior, and the /pipeline/status endpoint including database failure handling.
+
+Run:
+
+pytest -q
+
+Latest local test result:
+
+63 passed
+1 skipped
+1 warning
+
+The skipped test is related to the Airflow/Linux fcntl dependency when running directly on Windows. Docker/Linux is required for that integration scenario.
+
+The warning is a Starlette/httpx deprecation warning and is not an ETL test failure.
+
+R6-R8 Definition of Done
+
+3 tables load in dependency order.
+
+Schema evolution is deliberately handled and tested.
+
+Unexpected columns are quarantined and alerted.
+
+/pipeline/status is available.
+
+Row counts, watermarks, alerts and reconciliation are exposed.
+
+sales_fact uses monthly partitions.
+
+Partition pruning is demonstrated.
+
+Before/after partition benchmark is recorded.
+
+Replay verifies source files before database changes.
+
+Replay is transaction-safe.
+
+Wrong-source replay is rejected.
+
+Failure paths are tested.
