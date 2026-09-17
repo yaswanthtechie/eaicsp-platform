@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from app.routes.purchase_order import router as purchase_order_router
 from app.routes.invoice import router as invoice_router
+from app.routes.auth import router as auth_router
 from app.schemas.purchase_order import MessageResponse
 
 app = FastAPI(
@@ -21,6 +22,13 @@ app.include_router(
     prefix="/api/v1",
     tags=["Invoices"]
 )
+
+app.include_router(
+    auth_router,
+    prefix="/api/v1",
+    tags=["Authentication"]
+)
+
 
 @app.get(
     "/",

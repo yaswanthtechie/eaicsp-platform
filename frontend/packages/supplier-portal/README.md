@@ -1312,9 +1312,19 @@ PWA functionality can provide:
 
 # Current Implementation Status
 
+| Milestone   | Scope                                                                                                        | Status   |
+| ----------- | ------------------------------------------------------------------------------------------------------------ | -------- |
+| Milestone 1 | Existing Supplier Portal flow and authentication                                                             | Complete |
+| Milestone 2 | Purchase Orders, acknowledgement, invoice workflow, and offline actions                                      | Complete |
+| Milestone 3 | Real form UX with react-hook-form, Zod validation, inline errors, loading states, and success/error feedback | Partial  |
+| Milestone 4 | Robust async states, Error Boundary, list virtualization, and resilient UI behavior                          | Partial  |
+| Milestone 5 | Dashboard, shipment tracking, documents, profile/settings, and additional supplier-facing screens            | Partial  |
+
 ## Authentication
 
 - Login
+- Email validation
+- Password validation
 - JWT Access Token
 - Refresh Token
 - Remember Me
@@ -1350,21 +1360,30 @@ PWA functionality can provide:
 - Success Notification
 - Error Handling
 - Offline Queue
+- Offline acknowledgement replay
 
 ## Invoice
 
 - Invoice Form
+- React Hook Form
+- Zod Validation
 - Purchase Order Selection
 - Invoice Validation
 - Invoice Number Validation
 - Invoice Amount Validation
+- Positive Amount Validation
 - Invoice Date Validation
+- Future-Date Prevention
 - PDF Validation
 - File Size Validation
 - Drag and Drop
+- Keyboard-Accessible File Upload
 - File Preview
 - Remove File
 - Invoice GraphQL Mutation
+- Loading State
+- Submission Error Handling
+- Success Confirmation
 
 ### Deferred
 
@@ -1381,6 +1400,51 @@ PWA functionality can provide:
 - Online Event Listener
 - Queue Cleanup
 - Offline Acknowledgement Support
+- Queued acknowledgement replay
+- Duplicate acknowledgement prevention
+
+## Supplier Dashboard
+
+- Dashboard summary cards
+- Purchase Order count
+- Pending acknowledgement count
+- Acknowledged Purchase Order count
+- Total Purchase Order value
+- Purchase Order status summary
+- Pending supplier actions
+- Invoice overview
+- Quick navigation actions
+- Loading State
+- Error State
+
+## Shipment Tracking
+
+- Shipment Tracking page
+- Supplier-specific shipment filtering
+- Shipment status
+- Delivery progress
+- Expected delivery date
+- Loading State
+- Error State
+- Empty State
+
+> Shipment data is currently provided through frontend mock data because the existing GraphQL mock backend does not expose shipment functionality. The current authentication mock also does not return a supplier ID, so supplier-specific shipment filtering depends on the authenticated supplier identity being provided by the authentication contract.
+
+## Documents
+
+- Document list
+- Document type selection
+- PDF-only validation
+- Maximum file size validation of 5 MB
+- Drag and Drop
+- Keyboard accessibility
+- Upload loading state
+- Upload success confirmation
+- Upload error handling
+- Uploaded documents list
+- Empty State
+
+> Document data is currently provided through a frontend API module because the existing GraphQL mock backend does not expose document functionality.
 
 ## Testing
 
@@ -1394,19 +1458,31 @@ PWA functionality can provide:
 - File Upload Tests
 - Status Badge Tests
 - Acknowledge PO Tests
-- 16 Test Files / 78 Tests Passing
+- Login Tests
+- Orders Tests
+- Dashboard Tests
+- Documents Tests
+- Shipments Tests
+- Invoice Tests
+- Error State Tests
+- Validation Tests
+
+**Current test result: 22 test files / 130 tests passing**
 
 ## UI
 
 - Mobile-First Design
 - Responsive Layout
-- Loading State
-- Error State
-- Empty State
-- Reusable Components
-- Design Tokens
-
----
+- Loading States
+- Error States
+- Empty States
+- Keyboard Accessibility
+- Responsive Supplier Dashboard
+- Responsive Purchase Orders
+- Responsive Invoice
+- Responsive Shipment Tracking
+- Responsive Documents
+- Responsive Profile & Settings
 
 # Future Enhancements
 
@@ -1907,3 +1983,4 @@ http://localhost:4000/graphql
 
 Authentication:
 http://localhost:8005
+````

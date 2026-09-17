@@ -13,12 +13,9 @@
   },
   "dependencies": {
     "@apollo/client": "^3.14.1",
-    "@apollo/server": "^5.5.1",
     "@as-integrations/express5": "^1.1.2",
     "@hookform/resolvers": "^5.9.1",
     "@tanstack/react-virtual": "^3.14.10",
-    "cors": "^2.8.6",
-    "express": "^5.2.1",
     "graphql": "^16.14.2",
     "jwt-decode": "^4.0.0",
     "react": "^19.2.7",
@@ -29,6 +26,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@apollo/server": "^5.5.1",
     "@eslint/js": "^10.0.1",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.2",
@@ -37,9 +35,11 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
+    "cors": "^2.8.6",
     "eslint": "^10.6.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
+    "express": "^5.2.1",
     "globals": "^17.7.0",
     "jsdom": "^30.0.1",
     "typescript": "~6.0.2",

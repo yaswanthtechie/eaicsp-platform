@@ -1,47 +1,57 @@
-import { useRef, useState } from "react";
-
-type DocumentStatus = "UPLOADED" | "PENDING" | "REJECTED";
-
-interface SupplierDocument {
-  id: string;
-  name: string;
-  type: string;
-  uploadedAt: string;
-  status: DocumentStatus;
-}
-
-const initialDocuments: SupplierDocument[] = [
-  {
-    id: "DOC-001",
-    name: "Company Registration.pdf",
-    type: "Company Document",
-    uploadedAt: "2026-09-10",
-    status: "UPLOADED",
-  },
-  {
-    id: "DOC-002",
-    name: "Tax Certificate.pdf",
-    type: "Tax Document",
-    uploadedAt: "2026-09-11",
-    status: "UPLOADED",
-  },
-];
+import { useEffect, useRef, useState } from "react";
+import {
+  getDocuments,
+  type SupplierDocument,
+} from "../api/documents";
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
 export default function Documents() {
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const [documents, setDocuments] =
-    useState<SupplierDocument[]>(initialDocuments);
+  const [documents, setDocuments] = useState<SupplierDocument[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
 
-  const [selectedType, setSelectedType] = useState(
-    "Company Document",
-  );
+  const [selectedType, setSelectedType] =
+    useState("Company Document");
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [isUploading, setIsUploading] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadDocuments = async () => {
+      try {
+        setLoading(true);
+        setLoadError("");
+
+        const data = await getDocuments();
+
+        if (isMounted) {
+          setDocuments(data);
+        }
+      } catch {
+        if (isMounted) {
+          setLoadError(
+            "Unable to load documents. Please try again.",
+          );
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void loadDocuments();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const openFilePicker = () => {
     inputRef.current?.click();
@@ -49,8 +59,9 @@ export default function Documents() {
 
   const handleFile = (file: File | undefined) => {
     if (isUploading) {
-  return;
-}
+      return;
+    }
+
     setError("");
     setSuccess("");
 
@@ -69,24 +80,54 @@ export default function Documents() {
     }
 
     setIsUploading(true);
+window.setTimeout(() => {
+  setDocuments((current) => {
+    const usedIds = new Set(
+      current.map(
+        (document) => document.id,
+      ),
+    );
 
-    window.setTimeout(() => {
-      const newDocument: SupplierDocument = {
-        id: `DOC-${String(documents.length + 1).padStart(3, "0")}`,
-        name: file.name,
-        type: selectedType,
-        uploadedAt: new Date().toISOString().slice(0, 10),
-        status: "UPLOADED",
-      };
+    let nextNumber = 1;
 
-      setDocuments((current) => [newDocument, ...current]);
-      setIsUploading(false);
-      setSuccess(`${file.name} uploaded successfully.`);
+    while (
+      usedIds.has(
+        `DOC-${String(
+          nextNumber,
+        ).padStart(3, "0")}`,
+      )
+    ) {
+      nextNumber += 1;
+    }
 
-      if (inputRef.current) {
-        inputRef.current.value = "";
-      }
-    }, 600);
+    const newDocument: SupplierDocument = {
+      id: `DOC-${String(
+        nextNumber,
+      ).padStart(3, "0")}`,
+      name: file.name,
+      type: selectedType,
+      uploadedAt: new Date()
+        .toISOString()
+        .slice(0, 10),
+      status: "UPLOADED",
+    };
+
+    return [
+      newDocument,
+      ...current,
+    ];
+  });
+
+  setIsUploading(false);
+
+  setSuccess(
+    `${file.name} uploaded successfully.`,
+  );
+
+  if (inputRef.current) {
+    inputRef.current.value = "";
+  }
+}, 600);
   };
 
   const handleInputChange = (
@@ -193,10 +234,24 @@ export default function Documents() {
           Uploaded Documents
         </h2>
 
-        {documents.length === 0 ? (
+        {loading ? (
+          <div
+            className="loading-state"
+            role="status"
+            aria-label="Loading documents..."
+          >
+            Loading documents...
+          </div>
+        ) : loadError ? (
+          <div className="error-state" role="alert">
+            {loadError}
+          </div>
+        ) : documents.length === 0 ? (
           <div className="empty-state">
             <h3>No documents</h3>
-            <p>No supplier documents have been uploaded yet.</p>
+            <p>
+              No supplier documents have been uploaded yet.
+            </p>
           </div>
         ) : (
           <div className="document-list">
