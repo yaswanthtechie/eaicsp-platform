@@ -6,12 +6,16 @@ import pytest
 
 from app.main import app
 from app.core.auth import verify_token
-from app.services.purchase_order_service import purchase_orders
+from app.services.purchase_order_service import (
+    purchase_orders,
+    transition_purchase_order,
+)
 from app.services.invoice_service import invoices
 from app.services.goods_receipt_service import goods_receipts
 from pydantic import ValidationError
 from app.schemas.supplier_stats import SupplierStatsResponse
 from app.schemas.supplier_stats import SupplierScorecard
+from app.schemas.purchase_order import PurchaseOrderStatus
 
 client = TestClient(app)
 
@@ -849,6 +853,75 @@ def test_supplier_scorecard_late_delivery():
     # Aug 2 - Jul 29 = 4 days
     assert po_details["average_delay_days"] == 4.0
 
+# ============================================================
+# SCORECARD - DELIVERY DATE FROM GOODS RECEIPT
+# ============================================================
+def test_supplier_scorecard_uses_goods_receipt_date_for_delivery():
+    """
+    Regression test:
+
+    PO expected delivery:
+        2026-08-01
+
+    Goods receipt:
+        2026-07-20
+
+    The PO fulfillment transition must use the latest
+    goods receipt date as the actual delivery date.
+
+    Therefore the PO is delivered on time.
+    """
+
+    purchase_orders["PO1001"] = {
+        "po_number": "PO1001",
+        "supplier_id": "SUP001",
+        "status": "acknowledged",
+        "created_at": "2026-07-15T10:00:00",
+        "expected_delivery": date(2026, 8, 1),
+        "actual_delivery_date": None,
+    }
+
+    goods_receipts["GR1001"] = {
+        "receipt_id": "GR1001",
+        "po_number": "PO1001",
+        "supplier_id": "SUP001",
+        "receipt_date": date(2026, 7, 20),
+        "warehouse": "WH001",
+        "received_by": "Warehouse User",
+        "items": [],
+        "status": "received",
+        "created_at": "2026-07-20T10:00:00",
+        "created_by": "warehouse@company.com",
+    }
+
+    # Fulfill the PO. The PO service should derive
+    # actual_delivery_date from the goods receipt.
+    transition_purchase_order(
+        "PO1001",
+        "procurementmanager@company.com",
+        PurchaseOrderStatus.fulfilled,
+    )
+
+    assert purchase_orders["PO1001"]["actual_delivery_date"] == date(
+        2026, 7, 20
+    )
+
+    response = client.get(
+        "/api/v1/suppliers/SUP001/scorecard"
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    po_details = body["details"]["purchase_orders"]
+
+    assert po_details["total"] == 1
+    assert po_details["fulfilled"] == 1
+    assert po_details["on_time"] == 1
+    assert po_details["late"] == 0
+    assert po_details["on_time_percentage"] == 100.0
+    assert po_details["average_delay_days"] == 0.0
 
 # ============================================================
 # SCORECARD - MIXED DELIVERY

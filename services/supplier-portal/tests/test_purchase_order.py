@@ -482,7 +482,7 @@ def test_acknowledged_to_fulfilled(
 
     assert "timestamp" in event
 
-    assert body["actual_delivery_date"] is not None
+    assert body["actual_delivery_date"] is None
 
 
 def test_draft_to_cancelled(procurement_client):

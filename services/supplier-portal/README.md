@@ -1947,7 +1947,6 @@ submitted
 The P2P state machine represents the broader transaction processing stage.
 
 ---
-
 # 10. Supplier Statistics
 
 Supplier operational statistics are available through:
@@ -1969,8 +1968,6 @@ on_time_percentage
 average_invoice_cycle_time
 ```
 
----
-
 ## Supplier-Level Access Control
 
 Supplier statistics are protected by supplier ownership.
@@ -1979,7 +1976,6 @@ Example:
 
 ```text
 Authenticated supplier:
-
 SUP001
 ```
 
@@ -2007,15 +2003,13 @@ Result:
 403 Forbidden
 ```
 
-A supplier user without a `supplier_id` is rejected from supplier-scoped statistics access:
+A supplier user without a `supplier_id` is rejected from supplier-scoped statistics access with:
 
 ```text
 403 Forbidden
 ```
 
 Internal authorized users can access supplier statistics according to their assigned role permissions.
-
----
 
 ## Purchase Order Count
 
@@ -2035,13 +2029,11 @@ fulfilled
 cancelled
 ```
 
----
-
 ## Delivery Eligibility and On-Time Percentage
 
-Supplier delivery statistics use a common delivery-eligibility rule shared with the supplier scorecard and monthly trend calculations.
+Supplier delivery statistics use the same delivery-eligibility rule as the Supplier Performance Scorecard and monthly trend calculations.
 
-A Purchase Order is eligible for delivery-performance calculation when:
+A Purchase Order is eligible for delivery-performance calculation when it is:
 
 ```text
 fulfilled
@@ -2055,9 +2047,9 @@ expected delivery date has passed
 
 Cancelled POs are excluded.
 
-Future-due unfulfilled POs are excluded because they are not yet eligible to be considered late.
+Future-due unfulfilled POs are excluded because their delivery deadline has not yet passed.
 
-The implemented rule is conceptually:
+The implemented rule is:
 
 ```text
 Cancelled
@@ -2084,11 +2076,15 @@ on-time percentage =
 (on-time eligible POs / eligible POs) × 100
 ```
 
-A fulfilled PO is considered on time when its actual delivery is on or before the expected delivery date.
+A fulfilled PO is considered on time when its actual delivery date is on or before the expected delivery date.
 
-Past-due unfulfilled POs are counted as misses.
+The actual delivery date is derived from the related Goods Receipt records. When multiple Goods Receipts exist for the same Purchase Order, the latest recorded `receipt_date` is used as the actual delivery date.
 
-Future-due unfulfilled POs do not count as misses because their delivery deadline has not yet passed.
+Therefore, the implementation does not use the current system date as the delivery date when calculating supplier performance.
+
+Past-due unfulfilled POs are counted as delivery misses.
+
+Future-due unfulfilled POs do not count as misses.
 
 The result is rounded to two decimal places.
 
@@ -2101,7 +2097,7 @@ On-time POs = 2
 On-time percentage = 66.67%
 ```
 
-This delivery-eligibility rule is intentionally shared by:
+This delivery-eligibility rule is shared by:
 
 ```text
 Supplier Statistics
@@ -2112,8 +2108,6 @@ Supplier Monthly Trend
 ```
 
 so that the same business definition is used consistently.
-
----
 
 ## Average Invoice Cycle Time
 
@@ -2126,9 +2120,15 @@ invoice cycle time =
 invoice date - PO creation date
 ```
 
-Invoice Purchase Order references are taken from the invoice line items' `po_number` values.
+Purchase Order references are taken from invoice line items:
 
-For example:
+```text
+invoice.items[].po_number
+```
+
+The service also supports the legacy/top-level `po_number` value when present.
+
+Example:
 
 ```text
 PO created:   August 1
@@ -2139,25 +2139,7 @@ Cycle time = 3 days
 
 Negative cycle times are ignored.
 
-Invalid or unusable date records are ignored rather than causing the entire supplier statistic calculation to fail.
-
----
-
-## Invoice PO Reference Handling
-
-Invoice records store the related Purchase Order reference at the invoice-item level.
-
-The statistics service therefore extracts Purchase Order numbers from:
-
-```text
-invoice.items[].po_number
-```
-
-The service also supports the legacy/top-level `po_number` value when present.
-
-This allows invoice cycle-time and trend calculations to correctly associate invoices with their Purchase Orders.
-
----
+Invalid or unusable date records are ignored rather than causing the entire supplier-statistics calculation to fail.
 
 ## Date Normalization
 
@@ -2171,15 +2153,11 @@ ISO datetime string
 ISO datetime with Z
 ```
 
-These values are normalized through the shared date-conversion logic before calculations are performed.
-
----
+These values are normalized before calculations are performed.
 
 ## Supplier Not Found
 
-A supplier can be identified from the supplier-related data maintained by the Supplier Portal, including relevant Purchase Order and invoice records.
-
-If the requested supplier cannot be found for a supplier-statistics operation, the service returns:
+If the requested supplier cannot be identified from the supplier-related data maintained by the Supplier Portal, the statistics operation returns:
 
 ```http
 404 Not Found
@@ -2193,11 +2171,9 @@ Example:
 }
 ```
 
----
+## R5 Supplier-Scoping Security
 
-## R5 403 vs 404 Security Behavior
-
-Supplier-scoped detail and analytics endpoints were updated so that supplier ownership is checked before exposing resource-existence information where the endpoint supports that security model.
+Supplier-scoped analytics endpoints enforce supplier ownership.
 
 For a supplier user:
 
@@ -2212,26 +2188,15 @@ Ownership check
         │
    ┌────┴────┐
    │         │
- Owner     Not owner
+ Owner    Not owner
    │         │
    ▼         ▼
 Continue   403 Forbidden
 ```
 
-This prevents an unauthorized supplier from learning whether another supplier's protected resource exists merely from a different response status.
+This prevents an unauthorized supplier from accessing another supplier's statistics.
 
-The same security principle is applied across the affected supplier-scoped detail endpoints.
-
-For internal authorized users, resource lookup and access behavior follows the endpoint's internal authorization rules.
-
-The implemented security objective is:
-
-```text
-Unauthorized supplier
-        │
-        ▼
-No cross-supplier resource disclosure
-```
+The same supplier-scoping principle is applied across protected supplier detail and analytics endpoints.
 
 ---
 
@@ -2251,7 +2216,7 @@ Supplier users can access only their own scorecard.
 
 Internal authorized users can access supplier scorecards according to their assigned role permissions.
 
-The scorecard contains performance information including:
+The scorecard includes:
 
 ```text
 On-time delivery
@@ -2265,13 +2230,11 @@ Detailed PO metrics
 Detailed invoice metrics
 ```
 
----
-
 ## Scorecard Metrics
 
 ### On-Time Delivery
 
-The scorecard uses the same delivery-eligibility rule as supplier statistics.
+The scorecard uses the same delivery-eligibility rule as Supplier Statistics.
 
 Eligible Purchase Orders are:
 
@@ -2281,7 +2244,7 @@ Fulfilled POs
 Past-due unfulfilled POs
 ```
 
-The following are excluded:
+Excluded Purchase Orders are:
 
 ```text
 Cancelled POs
@@ -2289,7 +2252,7 @@ Cancelled POs
 Future-due unfulfilled POs
 ```
 
-The percentage is calculated from eligible Purchase Orders.
+The actual delivery date for fulfilled Purchase Orders is derived from the related Goods Receipt records. When multiple receipts exist, the latest receipt date is used.
 
 Weight:
 
@@ -2297,13 +2260,11 @@ Weight:
 40%
 ```
 
----
-
 ### Invoice Accuracy
 
 Invoice accuracy is calculated from the supplier's invoice history.
 
-An invoice without a recorded dispute is treated as accurate for the implemented scorecard calculation.
+For the implemented scorecard calculation, invoices without recorded dispute information are treated as accurate.
 
 Conceptually:
 
@@ -2318,9 +2279,7 @@ Weight:
 40%
 ```
 
-Historical dispute information is retained, so a previously disputed invoice continues to contribute to the supplier's historical dispute metrics even if it is later adjusted or approved.
-
----
+Historical dispute information is retained. Therefore, an invoice that was previously disputed continues to contribute to historical dispute metrics even after later adjustment or approval.
 
 ### Dispute Rate
 
@@ -2336,11 +2295,9 @@ The dispute rate is:
 disputed invoices / total invoices × 100
 ```
 
----
-
 ### Dispute Performance
 
-Because the implemented scorecard treats a higher dispute rate as lower performance:
+The implemented scorecard converts dispute rate into dispute performance:
 
 ```text
 dispute performance = 100 - dispute rate
@@ -2352,17 +2309,13 @@ Weight:
 20%
 ```
 
----
-
 ## Overall Score
 
 The implemented scorecard combines:
 
 ```text
 40% → On-time delivery
-
 40% → Invoice accuracy
-
 20% → Dispute performance
 ```
 
@@ -2395,38 +2348,9 @@ Calculation:
 = 80
 ```
 
----
-
-## Scorecard Rating
-
-The implementation maps the calculated score into the configured rating bands:
-
-|    Score | Rating            |
-| -------: | ----------------- |
-|   90–100 | Excellent         |
-| 75–89.99 | Good              |
-| 60–74.99 | Average           |
-| 40–59.99 | Needs Improvement |
-| Below 40 | Poor              |
-
----
-
-## Performance Status
-
-The implementation also exposes a performance status based on score:
-
-|    Score | Status   |
-| -------: | -------- |
-|   75–100 | Healthy  |
-| 60–74.99 | Watch    |
-| 40–59.99 | At Risk  |
-| Below 40 | Critical |
-
----
-
 ## Scorecard Details
 
-The scorecard provides detailed Purchase Order metrics including:
+Purchase Order metrics include:
 
 ```text
 total
@@ -2457,21 +2381,19 @@ approval_rate_percentage
 average_cycle_time_days
 ```
 
-Invoice cycle-time calculations use the Purchase Order references stored in:
+Invoice cycle-time calculations use:
 
 ```text
 invoice.items[].po_number
 ```
 
-This ensures invoice metrics correctly associate invoice records with their related Purchase Orders.
-
----
+to associate invoices with their Purchase Orders.
 
 ## Historical Dispute Tracking
 
 A resolved dispute remains part of the supplier's historical performance.
 
-For example:
+Example:
 
 ```text
 submitted
@@ -2486,17 +2408,15 @@ adjusted
 approved
 ```
 
-The invoice remains historically disputed because its dispute information is retained.
+The invoice remains historically disputed because the dispute information is retained.
 
-This prevents supplier performance metrics from losing the history of previously disputed invoices.
-
----
+This prevents supplier performance calculations from losing the history of previously disputed invoices.
 
 ## Invoice-Only Suppliers
 
-A supplier can be identified through invoice data even if it currently has no Purchase Orders.
+A supplier can be identified from invoice data even if it currently has no Purchase Orders.
 
-The scorecard can recognize a supplier from relevant supplier data maintained by the service, including:
+Supplier identification can therefore use relevant supplier data maintained by the service, including:
 
 ```text
 Purchase Order data
@@ -2504,59 +2424,7 @@ Purchase Order data
 Invoice data
 ```
 
-This prevents an invoice-only supplier from incorrectly receiving a `404 Not Found` solely because the supplier currently has no Purchase Orders.
-
----
-
-## Supplier Performance Analytics
-
-Supplier performance analytics are implemented through:
-
-```http
-GET /api/v1/suppliers/{supplier_id}/scorecard
-```
-
-The scorecard provides:
-
-```text
-On-time delivery percentage
-Invoice accuracy percentage
-Dispute rate
-Dispute performance
-Overall supplier score
-Performance rating
-Performance status
-Purchase Order performance details
-Invoice performance details
-```
-
-Supplier-scoped access remains enforced:
-
-```text
-Supplier SUP001
-      │
-      ▼
-SUP001 scorecard
-      │
-      ▼
-Allowed
-```
-
-while:
-
-```text
-Supplier SUP001
-      │
-      ▼
-SUP002 scorecard
-      │
-      ▼
-403 Forbidden
-```
-
-The scorecard therefore combines operational Purchase Order metrics, invoice metrics, dispute history, and supplier-scoped authorization.
-
----
+This prevents an invoice-only supplier from incorrectly receiving a `404 Not Found` solely because it currently has no Purchase Orders.
 
 # 12. Procure-to-Pay Lifecycle
 
@@ -2909,7 +2777,6 @@ PO Creation Allowed
 This provides an actual enforcement point between the onboarding workflow and P2P business operations.
 
 ---
-
 # 13. Three-Way Match
 
 The Supplier Portal implements automated three-way matching between:
@@ -2924,7 +2791,7 @@ Invoice
 
 The purpose of the match is to determine whether the invoice agrees with what was ordered and what was actually received.
 
-The matching process can identify quantity and price discrepancies and flag them for human review.
+The matching process evaluates item codes, quantities, and unit prices. Quantity and price discrepancies are identified and flagged for human review.
 
 ---
 
@@ -2959,10 +2826,12 @@ Three-Way Match
 Matched        Discrepancy
  │                  │
  ▼                  ▼
-Continue        Human Review
+Continue       Human Review
 to Payment
 Approval
 ```
+
+The matching process does not automatically approve transactions that contain discrepancies.
 
 ---
 
@@ -2976,7 +2845,7 @@ Goods Receipt
 Invoice
 ```
 
-A deliberate quantity mismatch is identified as a discrepancy.
+A quantity mismatch is identified as a discrepancy.
 
 Example:
 
@@ -2995,21 +2864,30 @@ Quantity discrepancy
 Human Review
 ```
 
-Because Goods Receipt now supports partial receiving, short receipts can reach the matching stage and be evaluated by the three-way match logic.
+Because Goods Receipt supports partial receiving, a short receipt can reach the three-way matching stage instead of being rejected earlier.
+
+Each Goods Receipt item must satisfy the existing receipt validation rules, including:
+
+```text
+quantity > 0
+received quantity <= PO quantity
+```
+
+Duplicate item codes within a receipt are rejected.
 
 ---
 
 ## Price Matching
 
-Invoice creation no longer blocks a valid invoice merely because its unit price differs from the Purchase Order price.
+Invoice creation does not reject an otherwise valid invoice solely because its unit price differs from the Purchase Order price.
 
-This allows a price discrepancy to reach the three-way matching stage.
+This allows price differences to reach the three-way matching stage.
 
 Example:
 
 ```text
-PO unit price       = 100
-Invoice unit price  = 120
+PO unit price      = 100
+Invoice unit price = 120
 ```
 
 Result:
@@ -3021,9 +2899,43 @@ Price discrepancy
 Human Review
 ```
 
-The implemented three-way matching logic uses the configured price tolerance when determining whether the price difference is acceptable.
+The three-way match applies the configured price tolerance when determining whether a price difference is acceptable.
 
-The tolerance is therefore a **matching rule**, not an invoice-creation rejection rule.
+### Price Tolerance
+
+The configured price tolerance is:
+
+```text
+PRICE_TOLERANCE_PERCENT = 5.0
+```
+
+The tolerance is **inclusive**.
+
+Therefore, a price difference of up to and including 5% is considered within tolerance.
+
+For example, when the Purchase Order price is:
+
+```text
+PO unit price = 100
+```
+
+the following range is within the configured tolerance:
+
+```text
+95 through 105
+```
+
+A price of:
+
+```text
+106
+```
+
+is outside the configured tolerance and can be reported as a price discrepancy.
+
+The tolerance is therefore a **three-way matching rule**, not an invoice-creation rejection rule.
+
+This separation allows the matching process to identify price exceptions and route them for human review.
 
 ---
 
@@ -3037,8 +2949,8 @@ Conceptually:
 Purchase Order
       │
       ├── Item matches
-      ├── Quantity matches
-      └── Unit price matches within tolerance
+      ├── Quantity satisfies matching rules
+      └── Unit price is within tolerance
       │
       ▼
 Goods Receipt
@@ -3057,6 +2969,8 @@ Matched
 Payment Approval
 ```
 
+A matched transaction can continue toward payment approval according to the P2P state machine.
+
 ---
 
 ## Discrepancy Handling
@@ -3070,7 +2984,7 @@ Quantity mismatch
 Price mismatch
 ```
 
-The intended control is:
+The control flow is:
 
 ```text
 Discrepancy detected
@@ -3127,15 +3041,17 @@ Payment          Human Review
 Approval
 ```
 
+The P2P state machine prevents invalid transitions and does not allow the workflow to skip required stages.
+
 ---
 
 ## Real-Flow Discrepancy Support
 
-The implementation supports discrepancy scenarios through the real API flow.
+The implementation supports discrepancy scenarios through the actual API workflow.
 
-### Quantity discrepancy
+### Quantity Discrepancy
 
-A partial Goods Receipt can be created first, allowing a short-receipt scenario to reach matching.
+A partial Goods Receipt can be created first, allowing a short-receipt scenario to reach the matching stage.
 
 Example:
 
@@ -3145,11 +3061,41 @@ Goods Receipt     = 90
 Invoice quantity  = 100
 ```
 
-The match can flag the quantity discrepancy.
+The three-way match can identify the quantity discrepancy.
 
-### Price discrepancy
+The workflow is:
 
-Invoice creation allows a price difference to reach matching.
+```text
+PO
+ │
+ ▼
+Acknowledged
+ │
+ ▼
+Shipped
+ │
+ ▼
+Partial Goods Receipt
+ │
+ ▼
+Received
+ │
+ ▼
+Invoice
+ │
+ ▼
+Three-Way Match
+ │
+ ▼
+Quantity Discrepancy
+ │
+ ▼
+Human Review
+```
+
+### Price Discrepancy
+
+Invoice creation allows a price difference to reach the matching stage.
 
 Example:
 
@@ -3158,11 +3104,57 @@ PO unit price      = 100
 Invoice unit price = 120
 ```
 
-The three-way match can then flag the price discrepancy.
+The three-way match can identify the price discrepancy.
 
-This prevents invoice validation from hiding the discrepancy before the matching process has an opportunity to evaluate it.
+This prevents invoice validation from hiding a price exception before the matching process has an opportunity to evaluate it.
 
 ---
+
+## Matching Tolerance Configuration
+
+The three-way match uses the centralized configuration value:
+
+```python
+PRICE_TOLERANCE_PERCENT = 5.0
+```
+
+This value is maintained in:
+
+```text
+app/core/config.py
+```
+
+The three-way match service uses this configuration rather than maintaining a separate hardcoded tolerance.
+
+This keeps the matching rule centralized and avoids different parts of the application applying different price-tolerance values.
+
+---
+
+## Human Review Requirement
+
+The three-way match is designed to identify exceptions rather than make an uncontrolled automatic business decision.
+
+The intended behavior is:
+
+```text
+Three-Way Match
+      │
+      ├── Match successful
+      │       │
+      │       ▼
+      │   Continue toward
+      │   Payment Approval
+      │
+      └── Discrepancy detected
+              │
+              ▼
+          Human Review
+              │
+              ▼
+      Controlled Resolution
+```
+
+Therefore, a quantity or price discrepancy does not automatically result in payment approval.
 
 # 14. Supplier Onboarding
 
@@ -3206,13 +3198,15 @@ active
 
 The onboarding service validates the current stage before allowing the supplier to progress.
 
+Invalid state transitions are rejected instead of silently changing the supplier's onboarding state.
+
 ---
 
 ## Registration
 
 The workflow begins when a supplier is registered.
 
-The registration stage establishes the supplier onboarding record before verification and approval.
+The registration stage establishes the supplier onboarding record before document collection, verification, and approval.
 
 A supplier that has only been registered is not considered active.
 
@@ -3220,7 +3214,7 @@ A supplier that has only been registered is not considered active.
 
 ## Document Collection
 
-Required supplier documentation is collected as part of onboarding.
+Required supplier documentation can be collected as part of onboarding.
 
 Document collection does not itself activate the supplier.
 
@@ -3232,6 +3226,53 @@ Documents Collected
       │
       ▼
 Verification
+```
+
+Supplier onboarding document uploads currently support:
+
+```text
+PDF
+JPG / JPEG
+PNG
+DOC
+DOCX
+```
+
+The maximum supported document size is:
+
+```text
+10 MB
+```
+
+The implementation validates both the uploaded content type and the corresponding file extension.
+
+The following validation failures are rejected:
+
+```text
+Unsupported document type
+        → 400 Bad Request
+
+File extension does not match content type
+        → 400 Bad Request
+
+Empty document
+        → 400 Bad Request
+
+Document larger than 10 MB
+        → 400 Bad Request
+```
+
+Supplier ownership is validated separately from file validation:
+
+```text
+Authenticated supplier
+        │
+        ▼
+Requested onboarding supplier
+        │
+        ├── Same → Allowed
+        │
+        └── Different → 403 Forbidden
 ```
 
 ---
@@ -3249,6 +3290,8 @@ Document Collection
 Mock Verification
 ```
 
+Mock verification is intentionally used instead of an external supplier-verification provider in the current implementation.
+
 ---
 
 ## Approval
@@ -3261,6 +3304,8 @@ Verified
    ▼
 Approved
 ```
+
+The onboarding service validates the current onboarding state before allowing approval.
 
 ---
 
@@ -3295,7 +3340,7 @@ Unregistered / inactive supplier
 PO creation rejected
 ```
 
-This makes onboarding enforcement part of the actual business flow rather than documentation-only behavior.
+This makes onboarding enforcement part of the actual procurement business flow rather than documentation-only behavior.
 
 ---
 
@@ -3320,6 +3365,8 @@ Onboarding Resource Access
 
 Supplier users cannot access another supplier's onboarding resources.
 
+A supplier token without a valid `supplier_id` cannot access supplier-scoped onboarding resources.
+
 ---
 
 ## Onboarding Workflow Integrity
@@ -3341,6 +3388,8 @@ active
 ```
 
 Invalid progression is rejected rather than silently changing the supplier's onboarding state.
+
+A supplier cannot skip required onboarding stages.
 
 ---
 
@@ -3373,6 +3422,8 @@ A supplier that has not completed onboarding cannot be used for new Purchase Ord
 # 15. API Reference
 
 All application APIs use the `/api/v1` prefix unless otherwise noted.
+
+The service root endpoint `/` is not under the `/api/v1` prefix.
 
 Protected application endpoints authenticate users through the Platform Service.
 
@@ -3478,7 +3529,9 @@ For supplier users, invoice ownership is enforced.
 
 Internal authorized users can access invoices according to the endpoint's role authorization rules.
 
-### Invoice Collection Scoping
+---
+
+## Invoice Collection Scoping
 
 The invoice collection endpoint requires authentication:
 
@@ -3518,6 +3571,8 @@ and:
 GET /api/v1/invoices/{supplier_id}/{invoice_number}/document
 ```
 
+Invoice document uploads are restricted to PDF documents.
+
 The upload operation validates:
 
 ```text
@@ -3529,6 +3584,12 @@ Maximum file size
 Safe filesystem path
 ```
 
+The current invoice PDF size limit is:
+
+```text
+10 MB
+```
+
 The download operation validates:
 
 ```text
@@ -3538,6 +3599,20 @@ Stored document path
 Path traversal protection
 File existence
 ```
+
+Invoice document validation is separate from supplier onboarding document validation.
+
+Supplier onboarding supports:
+
+```text
+PDF
+JPG / JPEG
+PNG
+DOC
+DOCX
+```
+
+while invoice documents are PDF-only.
 
 ---
 
@@ -3554,6 +3629,22 @@ The Supplier Portal exposes P2P operations covering:
 | Payment Approval | Progress successfully matched transactions toward payment approval |
 
 P2P operations require the appropriate authentication, role authorization, supplier ownership, and current-state validation.
+
+The implemented P2P state sequence is:
+
+```text
+acknowledged
+      ↓
+shipped
+      ↓
+received
+      ↓
+invoiced
+      ↓
+matched / discrepancy
+      ↓
+payment_approved
+```
 
 Supplier-facing operations follow the R5 security principle:
 
@@ -3629,6 +3720,32 @@ Supplier onboarding detail operations are supplier-scoped.
 
 The onboarding service also exposes the active-supplier state internally so that business operations such as Purchase Order creation can enforce onboarding completion.
 
+Onboarding document uploads validate:
+
+```text
+Supported document type
+File extension
+Empty file
+Maximum file size
+Supplier ownership
+```
+
+The supported onboarding document types are:
+
+```text
+PDF
+JPG / JPEG
+PNG
+DOC
+DOCX
+```
+
+The maximum document size is:
+
+```text
+10 MB
+```
+
 ---
 
 ## Shipment APIs
@@ -3680,6 +3797,8 @@ Partial receipt support
 
 A partial receipt can contain fewer quantities than the original Purchase Order.
 
+Receipt quantities must be greater than zero and cannot exceed the corresponding Purchase Order quantity.
+
 ---
 
 ## Three-Way Match APIs
@@ -3700,6 +3819,23 @@ The matching process checks relevant:
 Item codes
 Quantities
 Unit prices
+```
+
+The configured price tolerance is:
+
+```text
+5%
+```
+
+The tolerance is inclusive.
+
+For example, if the PO unit price is `100`:
+
+```text
+95  → Match
+100 → Match
+105 → Match
+106 → Price discrepancy
 ```
 
 Supported discrepancy categories include:
@@ -3772,126 +3908,54 @@ The authenticated supplier identity must match the supplier associated with the 
 
 ---
 
-## R5 Security Principle
-
-The core security principle is:
-
-```text
-Valid authentication ≠ unrestricted authorization
-```
-
-Authentication establishes:
-
-```text
-Who is the user?
-```
-
-Authorization establishes:
-
-```text
-What role does the user have?
-```
-
-Supplier scoping establishes:
-
-```text
-Which supplier's data can this supplier access?
-```
-
-The complete access-control sequence is:
-
-```text
-Bearer Token
-      │
-      ▼
-Platform Service Verification
-      │
-      ▼
-Authenticated User
-      │
-      ▼
-Role Authorization
-      │
-      ▼
-Supplier Ownership Check
-      │
-      ▼
-Resource Access
-```
-
-For supplier users, the ownership check verifies that the authenticated `supplier_id` matches the supplier associated with the requested resource.
-
-For internal authorized users, access is determined by the user's assigned role and the authorization rules implemented for the endpoint.
-
----
-
-## Round 5 Definition of Done
-
-The Supplier Portal R5 authorization requirement is satisfied when:
-
-```text
-Valid supplier authentication
-        │
-        ▼
-Correct supplier identity
-        │
-        ▼
-Correct resource ownership
-        │
-        ▼
-Resource access allowed
-```
-
-Cross-supplier access must be rejected:
-
-```text
-SUP001 token
-      │
-      ▼
-SUP002 resource
-      │
-      ▼
-403 Forbidden
-```
-
-Automated tests cover areas including:
-
-* Cross-supplier Purchase Order access
-* Cross-supplier Purchase Order acknowledgement
-* Cross-supplier Purchase Order events
-* Cross-supplier invoice access
-* Cross-supplier invoice document access
-* Cross-supplier supplier statistics access
-* Cross-supplier supplier scorecard access
-* Supplier users without `supplier_id`
-* Supplier Purchase Order list filtering
-* Supplier invoice list filtering
-* Internal-role access to authorized resources
-* Supplier-scoped detail endpoint access-control behavior
-
----
-
 # 16. HTTP Response Codes
 
-| Status | Meaning                                                                          |
-| -----: | -------------------------------------------------------------------------------- |
-|    200 | Successful request                                                               |
-|    201 | Resource created                                                                 |
-|    400 | Business-rule validation failure                                                 |
-|    401 | Authentication required, invalid, or expired                                     |
-|    403 | Authenticated user is not authorized or supplier scope does not match            |
-|    404 | Resource not found when the endpoint's access model permits existence disclosure |
-|    409 | Duplicate resource                                                               |
-|    422 | Request/schema validation failure                                                |
-|    503 | Platform authentication service unavailable or returned an unusable response     |
+| Status | Meaning                                                                      |
+| -----: | ---------------------------------------------------------------------------- |
+|    200 | Successful request                                                           |
+|    201 | Resource created                                                             |
+|    400 | Business-rule or input validation failure                                    |
+|    401 | Authentication required, invalid, or expired                                 |
+|    403 | Authenticated user is not authorized or supplier scope does not match        |
+|    404 | Resource not found                                                           |
+|    409 | Duplicate resource or conflicting resource state                             |
+|    422 | FastAPI request/schema validation failure                                    |
+|    503 | Platform authentication service unavailable or returned an unusable response |
 
-For protected supplier-scoped resources, the implementation also applies ownership checks before resource lookup on affected detail endpoints to avoid cross-supplier existence disclosure.
+For protected supplier-scoped resources, the implementation applies supplier ownership checks on affected detail endpoints.
+
+This prevents unauthorized supplier users from accessing resources belonging to another supplier.
+
+Typical examples are:
+
+```text
+Missing / invalid token
+        → 401 Unauthorized
+
+Valid supplier token + different supplier resource
+        → 403 Forbidden
+
+Unknown resource
+        → 404 Not Found
+
+Duplicate resource
+        → 409 Conflict
+
+Invalid business input
+        → 400 Bad Request
+
+Invalid request schema
+        → 422 Unprocessable Entity
+
+Platform authentication unavailable
+        → 503 Service Unavailable
+```
 
 ---
 
 # 17. Configuration
 
-The Supplier Portal uses Pydantic Settings for configuration.
+The Supplier Portal uses Pydantic Settings for environment-based configuration.
 
 Create a `.env` file in the project root when local configuration needs to be changed.
 
@@ -3906,6 +3970,55 @@ The default Platform authentication URL is:
 ```text
 http://127.0.0.1:8005
 ```
+
+---
+
+## Platform Authentication Configuration
+
+The Supplier Portal uses the Platform Service as its centralized authentication provider.
+
+```env
+PLATFORM_AUTH_URL=http://127.0.0.1:8005
+```
+
+The Supplier Portal sends token-verification requests to the configured Platform Service instead of decoding authentication tokens locally.
+
+---
+
+## Three-Way Match Configuration
+
+The three-way matching price tolerance is centrally configured in:
+
+```text
+app/core/config.py
+```
+
+Current configuration:
+
+```python
+PRICE_TOLERANCE_PERCENT = 5.0
+```
+
+This represents an inclusive price tolerance of:
+
+```text
+±5%
+```
+
+For a Purchase Order unit price of `100`:
+
+```text
+95  → Match
+100 → Match
+105 → Match
+106 → Price discrepancy
+```
+
+The tolerance is used by the three-way matching service.
+
+It is not used as a blanket invoice-creation rejection rule.
+
+This allows valid price discrepancies to reach the matching layer and be flagged for human review.
 
 ---
 
@@ -3932,8 +4045,6 @@ Copy-Item .env.example .env
 ```
 
 The `.env` file should not be committed to source control when it contains sensitive or environment-specific configuration.
-
-The Supplier Portal uses the Platform Service as its centralized authentication provider.
 
 ---
 
@@ -3971,8 +4082,10 @@ python -m venv venv
 
 ## Step 4 — Install Dependencies
 
+Install the project dependencies:
+
 ```powershell
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
 The project uses dependencies including:
@@ -3986,7 +4099,16 @@ Pytest
 HTTPX
 ```
 
-`python-multipart` is required for multipart invoice PDF upload handling.
+The test environment uses:
+
+```text
+pytest==8.4.1
+pytest-asyncio==1.2.0
+```
+
+`pytest==8.4.1` is used because the configured `pytest-asyncio` version requires a pytest version below 9.
+
+`python-multipart` is required for multipart file-upload handling.
 
 ---
 
@@ -4022,6 +4144,12 @@ Start the Platform Service on:
 
 ```text
 http://127.0.0.1:8005
+```
+
+From the Platform Service directory, the local service can be started with:
+
+```powershell
+python -m uvicorn app.main:app --reload --port 8005
 ```
 
 The Platform Service provides authentication operations including:
@@ -4144,12 +4272,17 @@ Supplier Portal
        └── Supplier Operations
 ```
 
-The Supplier Portal does not replace the Platform Service authentication mechanism. It consumes the authenticated identity provided by the Platform Service and applies endpoint-specific authorization and supplier-scoping rules.
+The Supplier Portal does not replace the Platform Service authentication mechanism.
+
+It consumes the authenticated identity provided by the Platform Service and applies endpoint-specific authorization and supplier-scoping rules.
+
+---
+
 # 20. Swagger Documentation
 
-FastAPI automatically provides interactive API documentation.
+FastAPI automatically provides interactive API documentation for the Supplier Portal.
 
-Open Swagger UI:
+When the Supplier Portal is running on port `8000`, open Swagger UI at:
 
 ```text
 http://127.0.0.1:8000/docs
@@ -4161,7 +4294,11 @@ Alternative ReDoc documentation:
 http://127.0.0.1:8000/redoc
 ```
 
-Swagger can be used to inspect and test supported API operations, including:
+---
+
+## Swagger API Coverage
+
+Swagger can be used to inspect and test supported Supplier Portal operations, including:
 
 ```text
 Purchase Orders
@@ -4169,8 +4306,10 @@ PO acknowledgement
 PO transitions
 PO events
 Bulk PO sending
-Shipment notices
+
+Shipment processing
 Goods Receipts
+
 Invoice creation
 Invoice retrieval
 Invoice transitions
@@ -4178,17 +4317,75 @@ Invoice disputes
 Invoice adjustments
 Invoice document upload
 Invoice document download
+
 Supplier onboarding
 Supplier statistics
 Supplier scorecard
+
 Three-way matching
 Payment approval
+
 Maintenance endpoints
 ```
 
 Protected endpoints require a valid bearer token.
 
+The Supplier Portal delegates token verification to the Platform Service, so authenticated Swagger requests must use a token that the configured Platform Service can verify.
+
 ---
+
+## Swagger Authentication Flow
+
+The protected API flow is:
+
+```text
+Swagger UI
+     │
+     │ Bearer Token
+     ▼
+Supplier Portal
+     │
+     │ Token verification
+     ▼
+Platform Service :8005
+     │
+     ▼
+Authenticated Identity
+     │
+     ▼
+Role / Supplier Scope Validation
+     │
+     ▼
+Supplier Portal Endpoint
+```
+
+Supplier users are still subject to supplier-level ownership checks when using Swagger.
+
+For example:
+
+```text
+SUP001 token
+      │
+      ▼
+Request SUP001 resource
+      │
+      ▼
+Allowed
+```
+
+while:
+
+```text
+SUP001 token
+      │
+      ▼
+Request SUP002 resource
+      │
+      ▼
+403 Forbidden
+```
+
+Swagger therefore exposes the same authorization and supplier-scoping rules as normal API clients.
 
 # 21. Testing
 
@@ -4201,11 +4398,14 @@ The test suite covers:
 * P2P state transitions
 * Shipment processing
 * Goods Receipt processing
+* Partial Goods Receipt support
 * Invoice lifecycle
+* P2P invoice integration
 * Three-way matching
 * Quantity discrepancy detection
 * Price discrepancy detection
 * Supplier onboarding
+* Supplier onboarding document validation
 * Supplier statistics and scorecards
 * Authentication
 * Role-based authorization
@@ -4223,6 +4423,14 @@ python -m pytest -v
 ```
 
 The test suite uses `python -m pytest` so that tests execute using the active Python environment.
+
+The project uses:
+
+```text
+pytest==8.4.1
+```
+
+This version is compatible with the configured `pytest-asyncio` dependency.
 
 ---
 
@@ -4252,6 +4460,7 @@ The Purchase Order tests cover:
 * Actor tracking
 * Timestamp tracking
 * Delivery tracking
+* Actual delivery date from Goods Receipt
 * Bulk PO sending
 * Active supplier enforcement
 * Unregistered supplier rejection
@@ -4450,6 +4659,27 @@ The onboarding workflow tests validate:
 * Supplier-level authorization
 * Cross-supplier access protection
 * Active-supplier enforcement for Purchase Order creation
+* Supported onboarding document types
+* Empty document rejection
+* File-extension validation
+* MIME-type validation
+* 10 MB document-size limit
+
+Supported onboarding document types are:
+
+```text
+PDF
+JPG / JPEG
+PNG
+DOC
+DOCX
+```
+
+The maximum document size is:
+
+```text
+10 MB
+```
 
 The onboarding lifecycle is:
 
@@ -4504,7 +4734,24 @@ The mismatch tests are exercised through the supported API flow so that quantity
 
 Partial Goods Receipts are supported, which allows a received quantity to be lower than the original PO quantity.
 
-The matching implementation uses the configured price tolerance when determining whether invoice price differences constitute discrepancies.
+The matching implementation uses the configured price tolerance:
+
+```python
+PRICE_TOLERANCE_PERCENT = 5.0
+```
+
+The tolerance is inclusive.
+
+For example:
+
+```text
+PO price = 100
+
+95  → Match
+100 → Match
+105 → Match
+106 → Price discrepancy
+```
 
 ---
 
@@ -4528,6 +4775,7 @@ The tests cover:
 * Future-due Purchase Orders
 * Past-due unfulfilled Purchase Orders
 * Delivery exactly on expected date
+* Actual delivery date from Goods Receipt
 * Missing delivery date
 * Average invoice cycle time
 * Invoice line-level `po_number` handling
@@ -4567,7 +4815,41 @@ PO without a usable expected-delivery date
     → Excluded
 ```
 
-This prevents future-due Purchase Orders from being counted as delivery failures.
+For fulfilled Purchase Orders, the actual delivery date is derived from the latest applicable Goods Receipt `receipt_date`.
+
+Therefore:
+
+```text
+Goods Receipt receipt_date
+          │
+          ▼
+Actual delivery date
+          │
+          ▼
+On-time / late calculation
+```
+
+For example:
+
+```text
+Expected delivery = 2026-08-01
+Goods Receipt     = 2026-07-20
+
+Actual delivery = 2026-07-20
+
+Result:
+On-time delivery
+```
+
+The on-time calculation uses:
+
+```text
+actual_delivery_date <= expected_delivery
+```
+
+Future-due unfulfilled Purchase Orders are excluded rather than counted as late.
+
+---
 
 ### Invoice Cycle-Time and Trend Coverage
 
@@ -4582,6 +4864,8 @@ This ensures invoices containing their PO relationship at line level are include
 * Average invoice cycle time
 * Invoice-related trend calculations
 * Scorecard invoice metrics
+
+---
 
 ### R5 Authorization and Supplier-Scoping Tests
 
@@ -4720,7 +5004,7 @@ The test removes the authentication dependency override used by the normal test 
 
 Protected routes are discovered automatically from the Supplier Portal API routers rather than maintaining a hardcoded endpoint list.
 
-The current test discovers and validates:
+The test currently validates:
 
 ```text
 20 protected endpoint/method combinations
@@ -4792,7 +5076,7 @@ Requested Resource
 403 Forbidden
 ```
 
-The R5 test suite validates supplier ownership across:
+The R5 test suite validates supplier ownership across supported supplier-facing resources, including:
 
 ```text
 Purchase Orders
@@ -5066,6 +5350,10 @@ Invoice line quantities are validated against available PO quantities.
 
 Rejected invoices do not consume the Purchase Order's available invoice quantity.
 
+Invoice creation does not reject price differences solely because they exceed the three-way-match tolerance.
+
+Price discrepancies are evaluated by the three-way matching process.
+
 ---
 
 ## Procure-to-Pay Rules
@@ -5166,7 +5454,7 @@ The match compares:
 
 ```text
 Purchase Order
-+
++ 
 Goods Receipt
 +
 Invoice
@@ -5174,7 +5462,13 @@ Invoice
 
 Relevant item, quantity, and price information is compared.
 
-The configured price tolerance is applied during matching.
+The configured price tolerance is:
+
+```text
+PRICE_TOLERANCE_PERCENT = 5.0
+```
+
+The tolerance is inclusive.
 
 A discrepancy is flagged for human review:
 
@@ -5220,6 +5514,45 @@ A supplier cannot skip required onboarding stages.
 
 Mock verification is used in the current development implementation.
 
+### Supplier Onboarding Document Rules
+
+Supported document types are:
+
+```text
+PDF
+JPG / JPEG
+PNG
+DOC
+DOCX
+```
+
+Maximum document size:
+
+```text
+10 MB
+```
+
+The upload validation checks:
+
+```text
+Content type
+File extension
+Empty content
+Maximum file size
+```
+
+Invalid document uploads return:
+
+```text
+400 Bad Request
+```
+
+Supplier ownership is checked separately and unauthorized supplier access returns:
+
+```text
+403 Forbidden
+```
+
 ### Active Supplier Enforcement
 
 Supplier onboarding status is enforced by Purchase Order creation.
@@ -5247,14 +5580,25 @@ This connects the onboarding lifecycle to the procurement workflow rather than l
 The configured matching tolerance is:
 
 ```text
-TOLERANCE = 0.05
+PRICE_TOLERANCE_PERCENT = 5.0
 ```
 
-The tolerance is applied by the three-way matching logic when evaluating price differences.
+This represents an inclusive `±5%` price tolerance.
 
-It should not be interpreted as a blanket invoice-creation acceptance rule.
+For example, for a PO unit price of `100`:
 
-The invoice service allows price discrepancies to reach the matching layer so that they can be identified and routed for review.
+```text
+95  → Match
+100 → Match
+105 → Match
+106 → Price discrepancy
+```
+
+The tolerance is applied by the three-way matching logic.
+
+It should not be interpreted as a blanket invoice-creation acceptance or rejection rule.
+
+The invoice service allows price discrepancies to reach the matching layer so that they can be identified and routed for human review.
 
 ---
 
@@ -5298,7 +5642,22 @@ PO without a usable expected-delivery date
         → Excluded
 ```
 
-For fulfilled Purchase Orders, an on-time delivery satisfies:
+For fulfilled Purchase Orders, the actual delivery date is based on the latest applicable Goods Receipt `receipt_date`.
+
+```text
+Goods Receipt
+     │
+     ▼
+receipt_date
+     │
+     ▼
+actual_delivery_date
+     │
+     ▼
+On-time / late calculation
+```
+
+An on-time delivery satisfies:
 
 ```text
 actual_delivery_date <= expected_delivery
@@ -5466,9 +5825,11 @@ Collection endpoints are filtered so supplier users do not receive other supplie
 
 ## Input Validation
 
-* PO number validation
-* Supplier ID validation
-* Invoice number validation
+The service validates:
+
+* PO number format
+* Supplier ID format
+* Invoice number format
 * Positive quantities
 * Positive unit prices
 * Positive invoice amounts
@@ -5476,6 +5837,10 @@ Collection endpoints are filtered so supplier users do not receive other supplie
 * Item validation
 * Receipt quantity validation
 * Duplicate item validation
+* Onboarding document type
+* Onboarding document extension
+* Onboarding document size
+* Empty uploaded documents
 
 Allowed identifier format:
 
@@ -5486,6 +5851,8 @@ Allowed identifier format:
 ---
 
 ## Document Security
+
+### Invoice Documents
 
 Invoice documents are protected through:
 
@@ -5498,6 +5865,27 @@ Invoice documents are protected through:
 * Path traversal protection
 * Supplier-specific directories
 * Supplier-scoped document access
+
+### Supplier Onboarding Documents
+
+Supplier onboarding documents are protected through:
+
+* Supported MIME-type validation
+* File-extension validation
+* 10 MB size limit
+* Empty-file validation
+* Supplier ownership validation
+* Supplier-specific storage paths
+
+Supported onboarding document types:
+
+```text
+PDF
+JPG / JPEG
+PNG
+DOC
+DOCX
+```
 
 ---
 
@@ -5525,7 +5913,7 @@ po_events = {}
 
 Other workflow and supplier business data is also maintained in application memory.
 
-Invoice documents are stored locally:
+Invoice documents and supplier onboarding documents are stored locally under:
 
 ```text
 uploads/
@@ -5550,9 +5938,24 @@ Application restart
 In-memory business data cleared
 ```
 
-Invoice PDF files stored under `uploads/` are filesystem-based and are not automatically removed by an application restart.
+Files stored under `uploads/` are filesystem-based and are not automatically removed by an application restart.
 
 A production deployment should replace in-memory business storage with persistent storage.
+
+---
+
+## File Storage
+
+The current development implementation stores uploaded documents under the local upload directory.
+
+The application currently manages:
+
+```text
+Invoice PDF documents
+Supplier onboarding documents
+```
+
+Production deployments should replace local filesystem storage with durable document or object storage.
 
 ---
 
@@ -5629,6 +6032,8 @@ Invoice
       └── Price
 ```
 
+The configured price tolerance is applied to the price comparison.
+
 A mismatch is not automatically approved:
 
 ```text
@@ -5663,6 +6068,22 @@ Approval
 Active Supplier
 ```
 
+Supplier onboarding document collection supports:
+
+```text
+PDF
+JPG / JPEG
+PNG
+DOC
+DOCX
+```
+
+with a maximum file size of:
+
+```text
+10 MB
+```
+
 The active status is used by Purchase Order creation to prevent procurement operations from being performed against suppliers that have not completed onboarding.
 
 The onboarding workflow is also protected by authentication and supplier-scoping rules.
@@ -5691,6 +6112,8 @@ Supplier Statistics
       ▼
 Supplier Scorecard
 ```
+
+For fulfilled Purchase Orders, delivery performance uses Goods Receipt dates to determine the actual delivery date.
 
 The scorecard combines the implemented performance metrics while preserving supplier-level authorization.
 
@@ -5737,36 +6160,6 @@ The overall business flow can be represented as:
 
 R5 authentication and supplier-level authorization apply throughout supplier-facing operations.
 
-For example:
-
-```text
-Supplier SUP001
-      │
-      ▼
-Authenticated through Platform Service
-      │
-      ▼
-supplier_id = SUP001
-      │
-      ▼
-Requested resource supplier_id = SUP001
-      │
-      ▼
-Allowed
-```
-
-Whereas:
-
-```text
-Supplier SUP001
-      │
-      ▼
-Requested resource supplier_id = SUP002
-      │
-      ▼
-403 Forbidden
-```
-
 ---
 
 # 26. Current Implementation Status
@@ -5787,6 +6180,7 @@ Requested resource supplier_id = SUP002
 | Payment Approval Workflow                   | Complete |
 | Supplier Onboarding Registration            | Complete |
 | Supplier Document Collection                | Complete |
+| Supplier Onboarding Document Validation     | Complete |
 | Supplier Mock Verification                  | Complete |
 | Supplier Onboarding Approval                | Complete |
 | Supplier Activation                         | Complete |
@@ -5799,6 +6193,7 @@ Requested resource supplier_id = SUP002
 | P2P Business-Rule Testing                   | Complete |
 | Three-Way Match Discrepancy Testing         | Complete |
 | Supplier Onboarding Workflow Testing        | Complete |
+| Authentication-Required Endpoint Testing    | Complete |
 
 ---
 
@@ -5926,7 +6321,9 @@ Quantity discrepancies
 Price discrepancies
 ```
 
-and routes discrepancies for human review instead of automatically approving payment.
+using the configured inclusive 5% price tolerance.
+
+Discrepancies are routed for human review instead of automatically approving payment.
 
 The invoice creation and Goods Receipt validation layers allow valid discrepancy scenarios to reach the matching layer.
 
@@ -5950,9 +6347,25 @@ Registration
 → Active
 ```
 
+Supplier document validation is implemented for:
+
+```text
+PDF
+JPG / JPEG
+PNG
+DOC
+DOCX
+```
+
+with a maximum size of:
+
+```text
+10 MB
+```
+
 The workflow preserves the supplier-scoping security model introduced in R5.
 
-Additionally, Purchase Order creation now verifies that the referenced supplier exists and has reached the `active` onboarding state.
+Additionally, Purchase Order creation verifies that the referenced supplier exists and has reached the `active` onboarding state.
 
 ---
 
@@ -5971,6 +6384,8 @@ GET /api/v1/suppliers/{supplier_id}/scorecard
 ```
 
 The scorecard includes implemented delivery, invoice, dispute, cycle-time, and overall performance metrics.
+
+For fulfilled Purchase Orders, actual delivery is derived from applicable Goods Receipt dates.
 
 Delivery eligibility excludes future-due unfulfilled Purchase Orders and counts past-due unfulfilled Purchase Orders as misses.
 
@@ -6097,6 +6512,8 @@ Payment Approval workflow
 
 Supplier Onboarding
 
+Supplier Onboarding Document Validation
+
 Active Supplier enforcement
 
 Supplier Performance Analytics
@@ -6164,7 +6581,7 @@ A production deployment should use persistent database storage.
 
 ## Local File Storage
 
-Invoice PDF documents are currently stored locally under:
+Invoice PDF documents and supplier onboarding documents are currently stored locally under:
 
 ```text
 uploads/
@@ -6225,6 +6642,7 @@ The protected supplier-facing areas include:
 * Invoice documents
 * Supplier statistics
 * Supplier scorecards
+* Supplier onboarding resources
 * Supplier collection endpoints
 
 Maintenance operations are separate from normal supplier-facing business operations.
@@ -6237,7 +6655,7 @@ GET    /api/v1/maintenance/orphaned-invoice-files
 DELETE /api/v1/maintenance/orphaned-invoice-files
 ```
 
-These endpoints should remain restricted to the designated administrative authorization implemented by the service and must not be exposed to anonymous callers.
+These endpoints remain restricted to the designated administrative authorization implemented by the service and must not be exposed to anonymous callers.
 
 ---
 
@@ -6295,27 +6713,50 @@ These are enhancements to the existing authorization model rather than missing R
 
 ---
 
-## Onboarding Document Validation Enhancements
+## Onboarding Document Validation Status
 
-The supplier onboarding workflow currently supports document collection and mock verification.
+Supplier onboarding document validation is implemented in the current version.
 
-Future production hardening may include:
+The current implementation validates:
 
-* Strict document type validation
-* File-size limits
-* Secure filename handling
+```text
+Supported MIME type
+File extension
+Empty file
+Maximum file size
+Supplier ownership
+```
+
+Supported types:
+
+```text
+PDF
+JPG / JPEG
+PNG
+DOC
+DOCX
+```
+
+Maximum size:
+
+```text
+10 MB
+```
+
+Therefore, document-type and size validation are **not** current functional limitations.
+
+Future production hardening may still include:
+
 * Malware scanning
 * Durable document storage
 * Document retention policies
-* Stronger verification integrations
-
-The current onboarding workflow itself is implemented.
+* Stronger external verification integrations
 
 ---
 
 ## End-to-End Test Expansion
 
-The test suite covers the individual P2P services, state transitions, validation rules, and discrepancy scenarios.
+The test suite covers the individual P2P services, state transitions, validation rules, authorization behavior, and discrepancy scenarios.
 
 A future enhancement would add a single comprehensive API integration test that drives the entire lifecycle through HTTP endpoints:
 
@@ -6334,20 +6775,29 @@ This would complement the existing service-level and milestone-specific API test
 
 ---
 
-## Configuration and Maintainability Enhancements
+## Configuration and Maintainability Status
 
-Some business constants are currently defined in individual service modules.
-
-Future improvements may centralize:
+The three-way match price tolerance is already centralized in:
 
 ```text
-Three-way match tolerance
+app/core/config.py
+```
+
+using:
+
+```python
+PRICE_TOLERANCE_PERCENT = 5.0
+```
+
+Therefore, three-way match tolerance centralization is **implemented** rather than a future enhancement.
+
+Other business constants may still be centralized further in future iterations, including:
+
+```text
 Scorecard weights
 Upload limits
 Workflow configuration
 ```
-
-into shared configuration so that these values are easier to manage consistently across environments.
 
 ---
 
@@ -6406,3 +6856,271 @@ Future Authorization / Maintainability Enhancements
 ```
 
 These limitations are documented separately from the completed R5 and Rounds 6–8 functional requirements.
+
+---
+
+# 28. Future Enhancements
+
+The following enhancements are outside the currently completed R5 and Rounds 6–8 scope.
+
+## Persistent Database Storage
+
+Replace in-memory business stores with a production database.
+
+Potential future implementation:
+
+```text
+Purchase Orders
+Invoices
+PO Events
+P2P State
+Supplier Onboarding
+Goods Receipts
+Shipments
+Scorecards
+Audit History
+```
+
+should be persisted in durable database storage.
+
+---
+
+## Durable Document Storage
+
+Replace local:
+
+```text
+uploads/
+```
+
+storage with durable object or document storage.
+
+Future capabilities may include:
+
+* Object storage
+* Encryption at rest
+* Access policies
+* Retention policies
+* Backup and recovery
+* Document versioning
+
+---
+
+## Complete Multi-Invoice P2P Lifecycle
+
+Extend the P2P state model to support repeated partial invoicing.
+
+Example:
+
+```text
+PO quantity = 10
+
+Invoice 1 = 5
+      ↓
+Remaining = 5
+      ↓
+Invoice 2 = 5
+      ↓
+Fully invoiced
+```
+
+The future state model should distinguish between partially invoiced and fully invoiced quantities.
+
+---
+
+## Production Supplier Verification
+
+Replace mock verification with an actual supplier verification integration.
+
+Potential future flow:
+
+```text
+Supplier Registration
+        ↓
+Document Collection
+        ↓
+External Verification
+        ↓
+Verification Result
+        ↓
+Approval
+        ↓
+Active
+```
+
+---
+
+## Document Security Enhancements
+
+Future production document security may include:
+
+* Malware scanning
+* Content inspection
+* Stronger file-type verification
+* Document retention policies
+* Document versioning
+* Secure object-storage integration
+
+---
+
+## Payment Service Integration
+
+The current payment approval workflow is represented within the Supplier Portal P2P state model.
+
+A future implementation could integrate payment approval with a dedicated payment or finance service:
+
+```text
+Three-Way Match
+       ↓
+Payment Approval
+       ↓
+Finance / Payment Service
+       ↓
+Payment Execution
+```
+
+---
+
+## Event-Driven P2P Processing
+
+A future implementation could publish business events for major P2P transitions:
+
+```text
+PO Acknowledged
+Shipment Created
+Goods Received
+Invoice Submitted
+Three-Way Match Completed
+Payment Approved
+```
+
+These events could be consumed by other supply-chain services.
+
+---
+
+## Advanced Supplier Analytics
+
+Future analytics may include:
+
+* Supplier trend dashboards
+* Delivery-risk indicators
+* Invoice anomaly detection
+* Supplier benchmarking
+* Historical scorecard trends
+* Predictive supplier performance analytics
+
+These would extend the current operational statistics and scorecard implementation.
+
+---
+
+## Expanded Integration Testing
+
+A future enhancement would introduce a complete end-to-end integration test that drives the entire P2P lifecycle through HTTP APIs.
+
+The target flow would be:
+
+```text
+Supplier Onboarding
+        ↓
+Active Supplier
+        ↓
+Create PO
+        ↓
+Send PO
+        ↓
+Supplier Acknowledgement
+        ↓
+Shipment
+        ↓
+Goods Receipt
+        ↓
+Invoice
+        ↓
+Three-Way Match
+        ↓
+Payment Approval
+```
+
+This would complement the existing focused service and API tests.
+
+---
+
+## Production Observability
+
+Future production deployment should introduce:
+
+* Centralized logging
+* Metrics
+* Distributed tracing
+* Health checks
+* Readiness checks
+* Authentication dependency monitoring
+* P2P workflow monitoring
+* Alerting
+
+---
+
+## Advanced Authorization
+
+Future authorization enhancements may include:
+
+```text
+Fine-Grained Permissions
+        ↓
+Segregation of Duties
+        ↓
+Workflow-Specific Permissions
+        ↓
+Audit Controls
+```
+
+This can provide more granular separation between:
+
+```text
+Procurement
+Invoice Management
+Compliance
+Three-Way Matching
+Payment Approval
+```
+
+---
+
+## Audit and Compliance Enhancements
+
+Future versions may provide persistent audit history for:
+
+* PO transitions
+* Supplier onboarding transitions
+* Invoice transitions
+* Goods Receipt creation
+* Shipment events
+* Three-way match decisions
+* Payment approvals
+* Administrative maintenance operations
+
+The existing event and authorization concepts can be extended into a durable audit subsystem.
+
+---
+
+## Summary of Future Scope
+
+The current implementation completes the defined R5 and Rounds 6–8 functional requirements.
+
+Future work primarily focuses on:
+
+```text
+Production Persistence
+Durable Document Storage
+Complete Multi-Invoice Lifecycle
+External Supplier Verification
+Payment-Service Integration
+Event-Driven Processing
+Advanced Analytics
+Expanded Integration Testing
+Production Observability
+Advanced Authorization
+Persistent Audit Controls
+```
+
+These enhancements build on the implemented Supplier Portal rather than replacing the existing R5 security model or Rounds 6–8 functionality.

@@ -23,6 +23,23 @@ supplier_onboarding_history: dict[str, list[dict]] = {}
 
 
 # ============================================================
+# DOCUMENT UPLOAD CONFIGURATION
+# ============================================================
+
+MAX_DOCUMENT_SIZE = 10 * 1024 * 1024  # 10 MB
+
+ALLOWED_DOCUMENT_TYPES = {
+    "application/pdf": {".pdf"},
+    "image/jpeg": {".jpg", ".jpeg"},
+    "image/png": {".png"},
+    "application/msword": {".doc"},
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+        ".docx"
+    },
+}
+
+
+# ============================================================
 # STATE TRANSITIONS
 # ============================================================
 
@@ -229,7 +246,6 @@ def is_supplier_active(supplier_id: str) -> bool:
     )
 
 
-
 # ============================================================
 # 3. UPLOAD DOCUMENT
 # ============================================================
@@ -288,6 +304,28 @@ def upload_supplier_document(
 
     original_name = file.filename or "document"
 
+    # --------------------------------------------------------
+    # FILE TYPE VALIDATION
+    # --------------------------------------------------------
+
+    file_extension = Path(
+        original_name
+    ).suffix.lower()
+
+    allowed_extensions = ALLOWED_DOCUMENT_TYPES.get(
+        file.content_type
+    )
+
+    if allowed_extensions is None:
+        raise ValueError(
+            "Unsupported document file type."
+        )
+
+    if file_extension not in allowed_extensions:
+        raise ValueError(
+            "File extension does not match the uploaded file type."
+        )
+
     upload_directory = (
         Path("uploads")
         / "supplier_onboarding"
@@ -312,6 +350,15 @@ def upload_supplier_document(
     if not content:
         raise ValueError(
             "Uploaded document is empty."
+        )
+
+    # --------------------------------------------------------
+    # FILE SIZE VALIDATION
+    # --------------------------------------------------------
+
+    if len(content) > MAX_DOCUMENT_SIZE:
+        raise ValueError(
+            "Uploaded document exceeds the 10 MB size limit."
         )
 
     document_path.write_bytes(content)
@@ -575,4 +622,3 @@ def get_supplier_history(
         supplier_id,
         [],
     )
-

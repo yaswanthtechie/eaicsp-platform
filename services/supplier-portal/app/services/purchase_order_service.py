@@ -286,7 +286,7 @@ def transition_purchase_order(
     # Allowed transitions
     allowed_states = VALID_TRANSITIONS[current_state]
 
-        # --------------------------------------------------------
+    # --------------------------------------------------------
     # Supplier onboarding enforcement
     # --------------------------------------------------------
     #
@@ -337,9 +337,21 @@ def transition_purchase_order(
             f"Allowed: {allowed}."
         )
 
-    # Set actual delivery date when PO is fulfilled
+    # Set actual delivery date from the latest goods receipt
+    # when the PO is fulfilled.
     if target_state == PurchaseOrderStatus.fulfilled:
-        purchase_order["actual_delivery_date"] = date.today()
+        from app.services.goods_receipt_service import goods_receipts
+
+        receipt_dates = [
+            receipt["receipt_date"]
+            for receipt in goods_receipts.values()
+            if receipt.get("po_number") == po_number
+            and receipt.get("receipt_date") is not None
+        ]
+
+        purchase_order["actual_delivery_date"] = (
+            max(receipt_dates) if receipt_dates else None
+        )
 
     # Create audit event
     event = {

@@ -21,7 +21,6 @@ from app.services.po_p2p_state_machine import (
 )
 
 
-TOLERANCE = 0.05
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 

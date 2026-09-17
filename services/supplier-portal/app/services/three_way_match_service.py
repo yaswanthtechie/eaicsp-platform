@@ -23,6 +23,7 @@ from app.services.po_p2p_state_machine import (
     transition_p2p,
     p2p_states,
 )
+from app.core.config import PRICE_TOLERANCE_PERCENT
 
 
 # ============================================================
@@ -407,9 +408,9 @@ def execute_three_way_match(
                 )
             )
 
-            # 5% tolerance is inclusive.
+            # Configured price tolerance is inclusive.
             price_matched = (
-                price_difference <= 5.0
+                 price_difference <= PRICE_TOLERANCE_PERCENT
             )
 
             line_discrepancies = []

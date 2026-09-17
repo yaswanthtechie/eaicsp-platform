@@ -1674,3 +1674,120 @@ def test_procurement_manager_can_view_supplier_documents(
 
     assert documents[0]["supplier_id"] == "SUP001"
 
+# ============================================================
+# 8A. UNSUPPORTED DOCUMENT FILE TYPE
+# ============================================================
+
+def test_unsupported_document_file_type_rejected(
+    procurement_client,
+    supplier_client,
+):
+    assert (
+        register_supplier(
+            procurement_client
+        ).status_code
+        == 201
+    )
+
+    response = supplier_client.post(
+        "/api/v1/suppliers/SUP001/documents",
+        data={
+            "document_type": "gst_certificate",
+        },
+        files={
+            "file": (
+                "gst_certificate.txt",
+                io.BytesIO(
+                    b"plain text supplier document"
+                ),
+                "text/plain",
+            )
+        },
+    )
+
+    assert response.status_code == 400
+
+    assert response.json()["detail"] == (
+        "Unsupported document file type."
+    )
+
+
+# ============================================================
+# 8B. DOCUMENT EXTENSION MUST MATCH FILE TYPE
+# ============================================================
+
+def test_document_extension_must_match_file_type(
+    procurement_client,
+    supplier_client,
+):
+    assert (
+        register_supplier(
+            procurement_client
+        ).status_code
+        == 201
+    )
+
+    response = supplier_client.post(
+        "/api/v1/suppliers/SUP001/documents",
+        data={
+            "document_type": "gst_certificate",
+        },
+        files={
+            "file": (
+                "gst_certificate.txt",
+                io.BytesIO(
+                    b"%PDF-1.4 test supplier document"
+                ),
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 400
+
+    assert response.json()["detail"] == (
+        "File extension does not match the uploaded file type."
+    )
+
+
+# ============================================================
+# 8C. DOCUMENT SIZE LIMIT
+# ============================================================
+
+def test_document_larger_than_10_mb_rejected(
+    procurement_client,
+    supplier_client,
+):
+    assert (
+        register_supplier(
+            procurement_client
+        ).status_code
+        == 201
+    )
+
+    oversized_content = b"x" * (
+        10 * 1024 * 1024 + 1
+    )
+
+    response = supplier_client.post(
+        "/api/v1/suppliers/SUP001/documents",
+        data={
+            "document_type": "gst_certificate",
+        },
+        files={
+            "file": (
+                "gst_certificate.pdf",
+                io.BytesIO(
+                    oversized_content
+                ),
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 400
+
+    assert response.json()["detail"] == (
+        "Uploaded document exceeds the 10 MB size limit."
+    )
+
