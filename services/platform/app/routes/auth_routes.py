@@ -1,11 +1,12 @@
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter , HTTPException,Depends, Request,status
+from fastapi import APIRouter , HTTPException,Depends, Request,status,Header
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError
 from app.core.config import TRUST_PROXY
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.users import User
+from app.core.verify_rate_limiter import verify_rate_limiter
 from app.services.auth_service import (
     register_user,
     login_user,
@@ -19,7 +20,8 @@ from app.services.audit_service import (
     create_audit_log,
 )
 from app.models.refresh_token import RefreshToken
-
+from app.core.token_cache import token_cache
+from app.core.permissions import ROLE_PERMISSIONS
 from app.core.service_auth import verify_service_api_key
 from app.schemas.auth import VerifyResponse
 from app.schemas.auth import (
@@ -40,7 +42,7 @@ from app.core.security import (
 )
 from app.core.dependencies import(
     get_current_user,
-    ROLE_HIERARCHY
+    oauth2_scheme
 )
 import logging
 router = APIRouter(
@@ -190,6 +192,7 @@ def refresh_token(
 # ============================================================
 # PERMISSIONS
 # ============================================================
+
 @router.get("/me/permissions")
 def my_permissions(
     user=Depends(get_current_user)
@@ -202,16 +205,11 @@ def my_permissions(
 
     role = user.role.name
 
+    permissions = ROLE_PERMISSIONS.get(role, set())
+
     return {
         "role": role,
-        "permissions": sorted(
-            list(
-                ROLE_HIERARCHY.get(
-                    role,
-                    {role}
-                )
-            )
-        )
+        "permissions": sorted(list(permissions)),
     }
 
 # ============================================================
@@ -294,37 +292,11 @@ def password_reset_confirm(
     return {
         "message": "Password has been reset successfully."
     }
-
 # ============================================================
-# VERIFY
+# SERVICE-VERIFY
 # ============================================================
 
 logger = logging.getLogger("platform.request")
-
-@router.post(
-    "/verify",
-    response_model=VerifyResponse,
-)
-def verify_access_token(
-    current_user: User = Depends(get_current_user),
-):
-    response_data = {
-        "valid":True,
-        "user_id": current_user.id,
-        "email": current_user.email,
-        "full_name": current_user.full_name,
-        "role": current_user.role.name if current_user.role else None,
-        "supplier_id": current_user.supplier_id,
-        "is_active": current_user.is_active,
-    }
-
-    logger.info(
-        "Token verified | user_id=%s | role=%s | endpoint=/api/v1/auth/verify ",
-        current_user.id,
-        current_user.role.name if current_user.role else None,
-    )
-
-    return response_data
 
 @router.post("/service-verify")
 def service_verify(
@@ -335,3 +307,180 @@ def service_verify(
         "service": service["service"],
         "auth_type": service["auth_type"],
     }
+
+# ============================================================
+# VERIFY
+# ============================================================
+@router.post(
+    "/verify",
+    response_model=VerifyResponse,
+)
+def verify_access_token(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+    x_caller_service: str | None = Header(
+        default=None,
+        alias="X-Caller-Service",
+    ),
+):
+    
+    # The header identifies the calling service for per-service rate
+    # limiting. It is optional: callers that omit it share an "unknown"
+    # bucket rather than being rejected, so /verify keeps its Round 5
+    # contract (200 on a valid token, 401 on an invalid one).
+    caller_service = (
+        x_caller_service.strip().lower()
+        if x_caller_service and x_caller_service.strip()
+        else "unknown"
+    )
+    
+    if not verify_rate_limiter.check(caller_service):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many /verify requests for this service. Try again later.",
+        )
+    
+    # -------------------------------------------------
+    # Check cache BEFORE JWT decode and DB query
+    # -------------------------------------------------
+    cached_response = token_cache.get(token)
+
+    if cached_response is not None:
+        logger.info(
+            "Token verification cache HIT"
+        )
+        return cached_response
+
+    logger.info(
+        "Token verification cache MISS"
+    )
+
+    # -------------------------------------------------
+    # Cache miss -> decode JWT
+    # -------------------------------------------------
+    try:
+        payload = decode_token(token)
+
+        if payload.get("type") != "access":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token",
+            )
+
+        email = payload.get("sub")
+
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token",
+            )
+
+        email = email.lower()
+
+    except HTTPException:
+        raise
+
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+    # -------------------------------------------------
+    # DB lookup only on cache MISS
+    # -------------------------------------------------
+    user = (
+        db.query(User)
+        .filter(User.email == email)
+        .first()
+    )
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+
+    if user.email.lower() != email:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+    # -------------------------------------------------
+    # locked users cannot verify existing tokens
+    # -------------------------------------------------
+    if user.locked_until is not None:
+        locked_until = user.locked_until
+
+        if locked_until.tzinfo is None:
+            locked_until = locked_until.replace(
+                tzinfo=timezone.utc
+            )
+
+        if locked_until > datetime.now(timezone.utc):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token",
+            )
+
+    # -------------------------------------------------
+    # include fine-grained permissions
+    # -------------------------------------------------
+    role = (
+        user.role.name
+        if user.role
+        else None
+    )
+    permissions = sorted(
+        ROLE_PERMISSIONS.get(role, set())
+    )
+
+    response_data = {
+        "valid": True,
+        "user_id": user.id,
+        "email": user.email,
+        "full_name": user.full_name,
+        "role": role,
+        "supplier_id": user.supplier_id,
+        "is_active": user.is_active,
+        "permissions": permissions,
+    }
+
+    # -------------------------------------------------
+    # JWT expiration when calculating TTL
+    # -------------------------------------------------
+    cache_ttl = 60
+
+    exp = payload.get("exp")
+
+    if exp is not None:
+        remaining_seconds = int(
+            exp - datetime.now(timezone.utc).timestamp()
+        )
+
+        if remaining_seconds <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token",
+            )
+
+        cache_ttl = min(60, remaining_seconds)
+
+    token_cache.set(
+        token,
+        response_data,
+        user_id=user.id,
+        ttl_seconds=cache_ttl,
+    )
+    return response_data
