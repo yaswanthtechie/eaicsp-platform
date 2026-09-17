@@ -1,11 +1,12 @@
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter , HTTPException,Depends, Request,status
+from fastapi import APIRouter , HTTPException,Depends, Request,status,Header
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError
 from app.core.config import TRUST_PROXY
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.users import User
+from app.core.verify_rate_limiter import verify_rate_limiter
 from app.services.auth_service import (
     register_user,
     login_user,
@@ -41,9 +42,7 @@ from app.core.security import (
 )
 from app.core.dependencies import(
     get_current_user,
-    ROLE_HIERARCHY,
-    oauth2_scheme,
-    require_permission
+    oauth2_scheme
 )
 import logging
 router = APIRouter(
@@ -319,7 +318,22 @@ def service_verify(
 def verify_access_token(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
+    x_caller_service: str = Header(..., alias="X-Caller-Service"),
 ):
+    caller_service = x_caller_service.strip().lower()
+    
+    if not caller_service:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="X-Caller-Service header is required",
+            )
+    
+    if not verify_rate_limiter.check(caller_service):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many /verify requests for this service. Try again later.",
+            )
+    
     # -------------------------------------------------
     # Check cache BEFORE JWT decode and DB query
     # -------------------------------------------------

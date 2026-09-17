@@ -92,6 +92,7 @@ app/
 │   └── service_auth.py
 │   └── token_cache.py
 │   └── permissions.py
+│   └── verify_rate_limiter.py
 │
 ├── models/
 │   ├── auth_audit_logs.py
@@ -1189,17 +1190,61 @@ Invalid or missing keys return:
 
 # API-Key Rate Limiting
 
-An optional extension for service authentication is rate limiting `/verify` requests by calling service.
+An optional extension for service authentication is rate limiting `/verify` requests by the calling service.
 
-For example:
+The calling service identifies itself using the `X-Caller-Service` header:
 
 ```http
 X-Caller-Service: inventory-service
 ```
 
-can be used to identify the calling service.
+The Platform Service maintains a separate rate-limit bucket for each calling service.
 
-This can prevent a compromised service credential from generating unlimited verification traffic.
+For example, with:
+
+```python
+VERIFY_MAX_REQUESTS = 100
+VERIFY_WINDOW_SECONDS = 60
+```
+
+`inventory-service` can make a maximum of **100 `/verify` requests within a rolling 60-second window**.
+
+```text
+Request 1 → Allowed
+Request 2 → Allowed
+Request 3 → Allowed
+Request 4 → Allowed
+Request 5 → Allowed
+Request 101 → 429 Too Many Requests
+```
+
+After requests fall outside the 60-second window, new requests can be accepted again.
+
+Different calling services have independent limits:
+
+```text
+inventory-service  → 100 requests / 60 seconds
+logistics-service  → 100 requests / 60 seconds
+compliance-service → 100 requests / 60 seconds
+supplier-service → 100 requests / 60 seconds
+```
+
+When the configured limit is exceeded, the Platform Service returns:
+
+```http
+429 Too Many Requests
+```
+
+This helps prevent excessive `/verify` traffic and limits the impact if a service credential is compromised.
+
+The limit can be adjusted through configuration without changing the rate-limiting logic. For example:
+
+```python
+VERIFY_MAX_REQUESTS = 300
+VERIFY_WINDOW_SECONDS = 100
+```
+
+would allow **300 `/verify` requests per calling service within a rolling 100-second window**.
 
 ---
 # Token Introspection Caching
