@@ -109,3 +109,9 @@ def test_main_cli(tmp_path):
     df = pd.read_csv(out_file)
     # Total will be slightly higher than 100 due to injected duplicates
     assert len(df) >= 100, "CLI did not generate the expected number of base rows."
+
+
+def test_sku_range_widens_with_row_count():
+    """Verifies that __post_init__ correctly scales the SKU key-space based on n_base."""
+    cfg = MessyDataConfig(n_base=20000)
+    assert cfg.sku_end_range - cfg.sku_start_range >= 200

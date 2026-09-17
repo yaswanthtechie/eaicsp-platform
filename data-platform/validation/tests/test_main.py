@@ -175,9 +175,11 @@ def test_main_list_profiles_not_found(mock_list, mock_args, mock_exists, mock_se
 @patch("pathlib.Path.exists", return_value=True)
 @patch("src.main.argparse.ArgumentParser.parse_args")
 @patch("pandas.read_csv", side_effect=FileNotFoundError)
-def test_main_read_csv_fails(mock_read, mock_args, mock_exists, mock_setup_logging):
-    mock_args.return_value = MagicMock(skip_generate=True, list_profiles=False, profile=None)
+@patch("src.main.logger.error")
+def test_main_read_csv_fails(mock_logger_error, mock_read, mock_args, mock_exists, mock_setup_logging):
+    mock_args.return_value = MagicMock(skip_generate=True, list_profiles=False, profile=None, input="dummy_input.csv")
     main.main()
+    mock_logger_error.assert_called_with("FATAL ERROR: The input file was not found at dummy_input.csv.")
 
 
 @patch("src.main.setup_logging", return_value="dummy_log.log")
@@ -222,6 +224,7 @@ def test_main_clean_fails(mock_logger_error, mock_comparator, mock_validator, mo
     main.main()
     mock_logger_error.assert_called_once()
     assert "Cleaning crashed" in mock_logger_error.call_args[0][0]
+    mock_logger_error.assert_called_with("FATAL ERROR: Cleaning crashed during execution: Clean Crashed")
 
 
 @patch("src.main.setup_logging", return_value="dummy_log.log")
@@ -246,10 +249,12 @@ def test_main_save_fails(mock_comparator, mock_to_csv, mock_validator, mock_read
 @patch("src.main.argparse.ArgumentParser.parse_args")
 @patch("pandas.read_csv", return_value=pd.DataFrame({"wrong_col": [1]}))
 @patch("src.watermark.WatermarkManager")
-def test_main_incremental_missing_col(mock_wm_class, mock_read, mock_args, mock_exists, mock_setup_logging):
+@patch("src.main.logger.error")
+def test_main_incremental_missing_col(mock_logger_error, mock_wm_class, mock_read, mock_args, mock_exists, mock_setup_logging):
     args = MagicMock(skip_generate=True, incremental=True, watermark_col="id", list_profiles=False, profile=None)
     mock_args.return_value = args
     main.main()
+    mock_logger_error.assert_called_with("FATAL ERROR: Incremental column 'id' missing from input data.")
 
 
 @patch("src.main.setup_logging", return_value="dummy_log.log")
@@ -258,8 +263,8 @@ def test_main_incremental_missing_col(mock_wm_class, mock_read, mock_args, mock_
 @patch("pandas.read_csv", return_value=pd.DataFrame({"id": [1]}))
 @patch("src.main.DataValidator.filter_incremental", return_value=pd.DataFrame())
 @patch("src.watermark.WatermarkManager")
-def test_main_incremental_no_new_data(mock_wm_class, mock_filter, mock_read, mock_args, mock_exists,
-                                      mock_setup_logging):
+@patch("src.main.logger.info")
+def test_main_incremental_no_new_data(mock_logger_info, mock_wm_class, mock_filter, mock_read, mock_args, mock_exists, mock_setup_logging):
     args = MagicMock(skip_generate=True, incremental=True, watermark_col="id", list_profiles=False, profile=None)
     mock_args.return_value = args
 
@@ -268,6 +273,7 @@ def test_main_incremental_no_new_data(mock_wm_class, mock_filter, mock_read, moc
     mock_wm_class.return_value = mock_wm_instance
 
     main.main()
+    mock_logger_info.assert_any_call("No new data to process. Pipeline halting cleanly.")
 
 
 @patch("src.main.logger.error")
@@ -331,10 +337,11 @@ def test_main_skip_generate_override(mock_comparator, mock_to_csv, mock_validato
 @patch("pathlib.Path.exists", return_value=True)
 @patch("src.main.argparse.ArgumentParser.parse_args")
 @patch("pandas.read_csv", side_effect=Exception("Unexpected Read Error"))
-def test_main_read_csv_generic_exception(mock_read, mock_args, mock_exists, mock_setup_logging):
+@patch("src.main.logger.error")
+def test_main_read_csv_generic_exception(mock_logger_error, mock_read, mock_args, mock_exists, mock_setup_logging):
     mock_args.return_value = MagicMock(skip_generate=True, incremental=False, list_profiles=False, profile=None)
     main.main()
-
+    mock_logger_error.assert_called_with("FATAL ERROR: An unexpected error occurred while reading the data: Unexpected Read Error")
 
 def test_setup_logging_execution(monkeypatch):
     # 1. Prevent real directories from being created
