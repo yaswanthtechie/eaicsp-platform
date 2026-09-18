@@ -16,6 +16,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 UPLOAD_DIR = BASE_DIR / "uploads"
 
+# ============================================================
+# THREE-WAY MATCH CONFIGURATION
+# ============================================================
+
+PRICE_TOLERANCE_PERCENT = 5.0
+
 
 # ============================================================
 # APPLICATION SETTINGS
