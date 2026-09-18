@@ -42,6 +42,7 @@ from app.services.inventory_service import (
     bulk_update_inventory,
     what_if_simulation,
     inventory_response,
+    InventoryOperationError,
 )
 
 from app.services.reorder_service import (
@@ -97,7 +98,7 @@ def create_inventory_route(
     except HTTPException:
         raise
 
-    except ValueError as exc:
+    except InventoryOperationError as exc:
         db.rollback()
 
         raise HTTPException(
