@@ -15,7 +15,7 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.validator import DataValidator
+from src.validator import DataValidator, SecurityError
 
 # --- Configuration Constants ---
 EXIT_SUCCESS = 0
@@ -74,7 +74,7 @@ def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument("--output", type=Path, required=True, help="Path for JSON report output")
 
     # --- CUSTOM RULES DIRECTORY ---
-    parser.add_argument("--rules-dir", type=Path, default=PROJECT_ROOT / "rules",
+    parser.add_argument("--rules-dir", type=Path, default=None,
                         help="Path to the custom rules directory for auto-discovery.")
 
     parser.add_argument("--profile", type=str, default=None,
@@ -155,7 +155,7 @@ def main(cli_args: Optional[list[str]] = None) -> int:
             validator = DataValidator.from_config(
                 str(config_path),
                 profile_name=args.profile,
-                rules_dir=str(args.rules_dir)
+                rules_dir=args.rules_dir
             )
             logger.info(f"Streaming mode enabled (chunk size: {args.chunk_size})")
             report = validator.validate_stream(
@@ -177,11 +177,11 @@ def main(cli_args: Optional[list[str]] = None) -> int:
             validator = DataValidator.from_config(
                 str(config_path),
                 profile_name=args.profile,
-                rules_dir=str(args.rules_dir)
+                rules_dir=args.rules_dir
             )
             report = validator.validate(df)
 
-    except (pd.errors.EmptyDataError, pd.errors.ParserError, ValueError, OSError) as e:
+    except (pd.errors.EmptyDataError, pd.errors.ParserError, ValueError, OSError, SecurityError) as e:
         logger.exception("Validation execution failed: %s", e)
         return EXIT_TOOL_ERROR
     except RuntimeError as e:

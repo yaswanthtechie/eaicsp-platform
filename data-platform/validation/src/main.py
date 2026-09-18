@@ -67,7 +67,7 @@ def main():
                         help="List available profiles in the config and exit.")
 
     # --- CUSTOM RULES DIRECTORY ---
-    parser.add_argument("--rules-dir", type=str, default=str(PROJECT_ROOT / "rules"),
+    parser.add_argument("--rules-dir", type=str, default=None,
                         help="Path to the custom rules directory for auto-discovery.")
 
     # Incremental Arguments

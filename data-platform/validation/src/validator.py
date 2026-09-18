@@ -320,12 +320,12 @@ class DataValidator:
 
     @classmethod
     def from_config(cls, yaml_path: str, profile_name: Optional[str] = None,
-                    allow_rule_failures: bool = False, rules_dir: str = "rules") -> 'DataValidator':
+                    allow_rule_failures: bool = False, rules_dir: Optional[str] = None) -> 'DataValidator':
         """Instantiates the validator from a YAML configuration file and loads custom rules."""
 
         # --- Trigger dynamic rule discovery before parsing ---
-        from src.registry import discover_rules
-        discover_rules(rules_dir)
+        from src.registry import discover_rules, DEFAULT_RULES_DIR
+        discover_rules(rules_dir or DEFAULT_RULES_DIR)
 
         try:
             with open(yaml_path, 'r') as f:
@@ -436,6 +436,30 @@ class DataValidator:
         finally:
             self.rules = original_rules
 
+    def _composite_keys(self, chunk: pd.DataFrame, composite_subset: List[str]) -> Optional[pd.Series]:
+        """
+        Builds one hashable key per row for composite_pk_unique. Both streaming passes
+        must call this so their keys match.
+
+        - Transforms run first, the same as validate(), so '01/02/2024' and '2024-02-01'
+          count as the same date.
+        - hash_pandas_object treats a missing value like df.duplicated() does: it only
+          matches another missing value in the same column. Joining columns with
+          astype(str) turns the whole key into NaN when any column is missing, and then
+          every such row looks like a duplicate of every other.
+        """
+        for r in self.rules:
+            if r.type == "transform":
+                try:
+                    chunk = r.apply_transform(chunk)
+                except Exception as e:
+                    logger.warning("Transform '%s' failed on a chunk (%s). "
+                                   "Duplicate keys for this chunk use untransformed values.", r.name, e)
+
+        if not all(c in chunk.columns for c in composite_subset):
+            return None
+        return pd.util.hash_pandas_object(chunk[composite_subset].astype("string"), index=False)
+
     def _validate_stream_impl(
             self,
             filepath: str,
@@ -463,30 +487,19 @@ class DataValidator:
         seen_keys = set()
         global_duplicates = set()
 
+        use_cols = set(global_cols)
+        if watermark_col:
+            use_cols.add(watermark_col)
+
         if has_composite and global_cols:
-            use_cols = set(global_cols)
-            if watermark_col:
-                use_cols.add(watermark_col)
             for chunk in pd.read_csv(filepath, chunksize=chunksize, usecols=lambda c: c in use_cols):
                 if watermark_col and current_watermark is not None:
                     chunk = self.filter_incremental(chunk, watermark_col, current_watermark)
                 if chunk.empty:
                     continue
 
-                for r in self.rules:
-                    if r.type == "transform":
-                        try:
-                            chunk = r.apply_transform(chunk)
-                        except Exception as e:
-                            logger.warning("Pass 1: transform '%s' failed on a chunk (%s). "
-                                           "Duplicate keys for this chunk use untransformed values.", r.name, e
-                                           )
-
-                if all(c in chunk.columns for c in composite_subset):
-                    keys = chunk[composite_subset[0]].astype(str)
-                    for col in composite_subset[1:]:
-                        keys = keys + '-' + chunk[col].astype(str)
-
+                keys = self._composite_keys(chunk, composite_subset)
+                if keys is not None:
                     unique_chunk_keys = set(keys)
                     chunk_dupes = set(keys[keys.duplicated()])
 
@@ -520,11 +533,11 @@ class DataValidator:
 
             # Apply global state dynamically
             if has_composite:
-                if all(c in chunk.columns for c in composite_subset):
-                    keys = chunk[composite_subset[0]].astype(str)
-                    for col in composite_subset[1:]:
-                        keys = keys + '-' + chunk[col].astype(str)
-                    chunk['_global_dup_mask'] = keys.isin(global_duplicates)
+                # Build keys from the same columns Pass 1 read, so transforms see identical input
+                key_cols = [c for c in chunk.columns if c in use_cols]
+                keys = self._composite_keys(chunk[key_cols], composite_subset)
+                if keys is not None:
+                    chunk['_global_dup_mask'] = keys.isin(global_duplicates).to_numpy()
                 else:
                     chunk['_global_dup_mask'] = False
 

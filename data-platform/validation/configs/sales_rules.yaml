@@ -51,26 +51,26 @@ profiles:
 
       - name: composite_pk_unique
         type: custom
-        function: src.custom_rules.check_composite_unique
+        function: check_composite_unique
         subset: ['date', 'sku_id', 'warehouse_id']
         severity: ERROR
 
       - name: unparseable_dates
         field: date
         type: custom
-        function: src.custom_rules.check_unparseable_dates
+        function: check_unparseable_dates
         severity: ERROR
 
       - name: flag_negative_quantities
         field: quantity_sold
         type: transform
-        function: src.custom_rules.flag_negatives
+        function: flag_negatives
         severity: INFO
 
       - name: standardize_dates_transform
         field: date
         type: transform
-        function: src.custom_rules.standardize_dates
+        function: standardize_dates
         severity: INFO
 
       - name: date_in_range
@@ -80,6 +80,15 @@ profiles:
         max: '2024-03-29'
         severity: WARNING
         depends_on: [ "unparseable_dates" ]
+
+      - name: detect_quantity_outliers
+        type: custom
+        field: quantity_sold
+        severity: WARNING
+        function: check_outliers
+        lower_q: 0.25
+        upper_q: 0.75
+        multiplier: 1.5
 
   strict:
     inherits: default

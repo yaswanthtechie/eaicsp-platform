@@ -107,7 +107,7 @@ def main():
     parser = argparse.ArgumentParser(description="Generate human-readable Markdown docs from validation configs.")
     parser.add_argument("--config", type=Path, required=True, help="Path to the YAML config file.")
     parser.add_argument("--output-dir", type=Path, default=Path("docs"), help="Directory to save the markdown files.")
-    parser.add_argument("--rules-dir", type=str, default=str(PROJECT_ROOT / "rules"), help="Path to the custom rules directory.")
+    parser.add_argument("--rules-dir", type=str, default=None, help="Path to the custom rules directory.")
 
     args = parser.parse_args()
 

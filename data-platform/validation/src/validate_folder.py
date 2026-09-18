@@ -49,8 +49,8 @@ def setup_logging(log_level: str = "INFO", log_dir: str = "logs") -> None:
     )
     logger.info("Logging initialized. Writing logs to: %s", log_file)
 
-
-def _load_validator(config_path: str, profile_name: Optional[str], cache: dict, rules_dir: str) -> DataValidator:
+def _load_validator(config_path: str, profile_name: Optional[str], cache: dict,
+                    rules_dir: Optional[str]) -> DataValidator:
     """Loads and caches the validator, keying by both file path, profile name, and rules dir."""
     cache_key = f"{config_path}::{profile_name}::{rules_dir}"
     if cache_key not in cache:
@@ -71,7 +71,7 @@ def validate_folder(
         watermark_col: str = "transaction_id",
         watermark_dir: str = ".watermarks",
         profile_name: Optional[str] = None,
-        rules_dir: str = "rules"
+        rules_dir: Optional[str] = None
 ) -> Dict[str, Any]:
     folder = Path(folder_path)
 
@@ -240,7 +240,7 @@ def main():
                         help="List available profiles in the config(s) and exit.")
 
     # --- CUSTOM RULES DIRECTORY ---
-    parser.add_argument("--rules-dir", type=str, default=str(PROJECT_ROOT / "rules"),
+    parser.add_argument("--rules-dir", type=str, default=None,
                         help="Path to the custom rules directory for auto-discovery.")
 
     parser.add_argument("--incremental", action="store_true", help="Only process new rows since the last run.")

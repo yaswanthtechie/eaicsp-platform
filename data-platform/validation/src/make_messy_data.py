@@ -1,6 +1,7 @@
 # src/make_messy_data.py
 import argparse
 import logging
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, List, Optional, Literal
@@ -45,14 +46,30 @@ class MessyDataConfig:
 
     def __post_init__(self):
         """
-        Keep the composite key space (date x sku x warehouse) larger than the row
-        count. Otherwise duplicates dominate, composite_pk_unique flags most rows,
-        and the global failure threshold rejects the batch before clean() runs.
-        The SKU pattern is ^SKU-[0-9]{4}$, so ids must stay within 1000-9999.
+        Make sure every base row can get its own composite key (date x sku x warehouse).
+
+        generate_messy_data() hands out keys without repeats, so the only composite
+        duplicates in the file are the ones injected on purpose (frac_exact_duplicates,
+        bad/missing SKUs, ...). That only works if the key space holds at least n_base keys.
+
+        The date range is left alone because configs/sales_rules.yaml checks it
+        (date_in_range). The SKU pattern is ^SKU-[0-9]{4}$, so ids must stay within
+        1000-9999. Once SKU ids run out, more warehouses are added instead.
         """
-        wanted = max(50, self.n_base // 100)
+        n_dates = len(pd.date_range(self.start_date, self.end_date, freq=self.date_freq))
+
+        # 1. Widen SKUs (never narrower than what was configured)
+        skus_needed = math.ceil(self.n_base / (n_dates * len(self.warehouses)))
         max_skus = 9999 - self.sku_start_range
-        self.sku_end_range = self.sku_start_range + min(wanted, max_skus)
+        n_skus = min(max(self.sku_end_range - self.sku_start_range, skus_needed), max_skus)
+        self.sku_end_range = self.sku_start_range + n_skus
+
+        # 2. Out of SKU ids: add warehouses WH-05, WH-06, ...
+        warehouses_needed = math.ceil(self.n_base / (n_dates * n_skus))
+        next_id = len(self.warehouses) + 1
+        while len(self.warehouses) < warehouses_needed:
+            self.warehouses.append(f"WH-{next_id:02d}")
+            next_id += 1
 
 
 def _inject_anomaly(df: pd.DataFrame, column: str, fraction: float, replacement: Any) -> pd.Index:
@@ -73,19 +90,34 @@ def generate_messy_data(filepath: Path | str, config: Optional[MessyDataConfig] 
     date_range = pd.date_range(start=cfg.start_date, end=cfg.end_date, freq=cfg.date_freq)
     valid_skus = [f"SKU-{str(i).zfill(4)}" for i in range(cfg.sku_start_range, cfg.sku_end_range)]
 
+    # Unique keys without holding them in memory: walk the key grid with a fixed stride.
+    # (offset + i * stride) % n_keys never repeats for i < n_keys when gcd(stride, n_keys) == 1,
+    # and a large stride spreads consecutive rows across dates, SKUs and warehouses.
+    n_wh = len(cfg.warehouses)
+    n_keys = len(date_range) * len(valid_skus) * n_wh
+    stride = int(n_keys * 0.6180339887) | 1
+    while math.gcd(stride, n_keys) != 1:
+        stride += 2
+    offset = np.random.randint(n_keys)
+    sku_array = np.array(valid_skus)
+    warehouse_array = np.array(cfg.warehouses)
+
     total_generated = 0
     first_chunk = True
 
-    # logger.info(f"Generating {cfg.n_base:,} rows in chunks of {cfg.chunk_size:,} to {filepath}...")
+    logger.info(f"Generating {cfg.n_base:,} rows in chunks of {cfg.chunk_size:,} to {filepath}...")
 
     # --- Streaming Generator Loop ---
     while total_generated < cfg.n_base:
         current_chunk_size = min(cfg.chunk_size, cfg.n_base - total_generated)
 
         # 1. Generate Base Data for current chunk (Suppressed static type warnings for numpy)
-        dates: List[Any] = np.random.choice(date_range, size=current_chunk_size).tolist()  # type: ignore
-        sku_col: List[str] = np.random.choice(valid_skus, size=current_chunk_size).tolist()  # type: ignore
-        warehouse_col = np.random.choice(cfg.warehouses, size=current_chunk_size).tolist()  # type: ignore
+        row_numbers = np.arange(total_generated, total_generated + current_chunk_size, dtype=np.int64)
+        key_idx = (offset + row_numbers * stride) % n_keys
+        per_date = len(valid_skus) * n_wh
+        dates: List[Any] = date_range[key_idx // per_date].tolist()
+        sku_col: List[str] = sku_array[(key_idx % per_date) // n_wh].tolist()
+        warehouse_col = warehouse_array[(key_idx % per_date) % n_wh].tolist()
         quantities: List[float] = np.random.randint(cfg.qty_min, cfg.qty_max, size=current_chunk_size).astype(
             float).tolist()  # type: ignore
         prices = np.random.uniform(cfg.price_min, cfg.price_max, size=current_chunk_size).round(

@@ -211,7 +211,7 @@ def test_validate_folder_hybrid_mapping(mock_validator_class, mock_read_csv, tem
     )
 
     assert summary["passed_files"] == 1
-    mock_validator_class.from_config.assert_called_with(str(temp_env["config_file"]), profile_name="strict", rules_dir="rules")
+    mock_validator_class.from_config.assert_called_with(str(temp_env["config_file"]), profile_name="strict", rules_dir=None)
 
 
 @patch("src.validate_folder.pd.read_csv")
@@ -259,7 +259,7 @@ def test_main_success(mock_setup_logging, mock_validate_folder):
         config_path="/dummy/config.yaml",
         mapping_path=None,
         profile_name=None,
-        rules_dir=str(PROJECT_ROOT / "rules"),
+        rules_dir=None,
         default_pattern="*.csv",
         top_n_issues=3,
         output_dir="reports",

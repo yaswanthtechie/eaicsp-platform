@@ -450,13 +450,13 @@ rules:
 
 # 1. Secure Custom Rule Registry
 
-- Security is paramount when allowing configuration-driven code execution. 
-- To prevent malicious actors from injecting arbitrary system commands via the YAML configuration, the dynamic import engine is locked behind a strict allow-list.
+- To prevent malicious actors from injecting arbitrary system commands via the YAML configuration, a config can only call functions that were registered with `@register_rule()`.
 
 ## How It Works:
 - The pipeline does not blindly use `eval()` or `importlib` on the string provided in the `function` key.
-- All user-defined functions must be explicitly mapped in the `SAFE_FUNCTION_REGISTRY` inside `src/validator.py`.
-- **Provable Safety:** If a configuration file attempts to load an unregistered or malicious function (e.g., `os.system`), the validator immediately raises a `SecurityError` and halts execution before any data is processed.
+- Rule functions live in `.py` files inside the rules folder (`rules/` by default, or `--rules-dir`) and are decorated with `@register_rule()` from `src/registry.py`.
+- **Provable Safety:** If a configuration file names a function that is not in the registry (e.g., `os.system`), the validator raises a `SecurityError` and halts before any data is processed.
+- **Trust boundary:** every `.py` file under the rules folder is executed when rules are discovered. Only point `--rules-dir` at a folder you trust as much as this repository's own code.
 
 # 2. Rule Conflict Detection
 
@@ -905,7 +905,7 @@ python -m src.generate_docs --config configs/sales_rules.yaml --output-dir docs/
 
 
 # Known Limitations
-* **Streaming Memory Growth:** While chunked streaming prevents massive Out-Of-Memory (OOM) crashes, Pass 1 still tracks every unique composite key seen in a set. Memory usage scales linearly $O(N)$ with the number of distinct rows, so it is not strictly "near zero".
+* **Streaming Memory Growth:** While chunked streaming prevents massive Out-Of-Memory (OOM) crashes, Pass 1 still tracks every unique composite key seen in a set. Memory usage scales linearly O(N) with the number of distinct rows, so it is not strictly "near zero".
 * **Watermark Advancement:** The incremental pipeline advances the watermark based on the incoming dataset, *including rows that fail validation*. Failed rows are not automatically queued for reprocessing.
 * **Date Sorting:** String-based watermark columns (like dates) are compared lexicographically. ISO-8601 (`YYYY-MM-DD`) works flawlessly; localized formats (`MM/DD/YYYY`) will filter incorrectly.
 * **Incremental Write Amplification:** Append mode rewrites the entire output file each run (read_csv → concat → drop_duplicates → to_csv), which is O(total rows) per run rather than O(new rows). This is deliberate: the drop_duplicates pass makes the pipeline crash-safe if a run dies between writing data and writing the watermark. A plain to_csv(mode='a') would be cheaper but would double-write rows on a mid-run failure.

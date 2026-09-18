@@ -234,14 +234,19 @@ def test_main_clean_fails(mock_logger_error, mock_comparator, mock_validator, mo
 @patch("src.main.DataValidator.from_config")
 @patch("pandas.DataFrame.to_csv", side_effect=OSError("Disk Full"))
 @patch("src.main.ReportComparator")
-def test_main_save_fails(mock_comparator, mock_to_csv, mock_validator, mock_read, mock_args, mock_exists,
-                         mock_setup_logging):
+@patch("src.main.logger.error")
+def test_main_save_fails(mock_logger_error, mock_comparator, mock_to_csv, mock_validator, mock_read, mock_args,
+                         mock_exists, mock_setup_logging):
     mock_args.return_value = MagicMock(skip_generate=True, incremental=False, list_profiles=False, profile=None)
     mock_instance = MagicMock()
     mock_instance.validate.return_value = MagicMock(passed=True, rule_timings={})
     mock_instance.clean.return_value = pd.DataFrame({"id": [1]})
     mock_validator.return_value = mock_instance
     main.main()
+
+    mock_to_csv.assert_called()
+    assert "Disk Full" in mock_logger_error.call_args[0][0]
+    assert "Failed to save cleaned data" in mock_logger_error.call_args[0][0]
 
 
 @patch("src.main.setup_logging", return_value="dummy_log.log")
