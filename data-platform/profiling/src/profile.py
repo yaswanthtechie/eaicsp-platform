@@ -383,10 +383,10 @@ def profile(df):
     )
 
     uniqueness_columns = [
-    item["column"]
-    for item in report["column_summary"]
-    if item["role"] == "ID"
-]
+        item["column"]
+        for item in report["column_summary"]
+        if item["role"] == "ID"
+    ]
 
     consistency_rules = []
 
@@ -397,7 +397,7 @@ def profile(df):
         consistency_rules.append(
             lambda data: data["quantity_sold"].isna()
             | data["quantity_sold"].ge(0)
-            )
+        )
 
     if (
         "unit_price" in df.columns

@@ -216,7 +216,13 @@ class MonitoringHistory:
             "values": values
         }
 
-    def compare_runs(self, metric, last_n=5, slope_threshold=0.01):
+    def compare_runs(
+        self,
+        metric,
+        last_n=5,
+        slope_threshold=0.3,
+        min_runs_for_drift=5,
+    ):
         history = self.load_history()
 
         if not history:
@@ -226,7 +232,8 @@ class MonitoringHistory:
                 "values": [],
                 "change": None,
                 "slope": None,
-                "trend": "No Data"
+                "trend": "No Data",
+                "gradual_drift": False
             }
 
         recent_history = history[-last_n:]
@@ -244,7 +251,8 @@ class MonitoringHistory:
                 "values": values,
                 "change": None,
                 "slope": None,
-                "trend": "Not Enough Data"
+                "trend": "Not Enough Data",
+                "gradual_drift": False
             }
 
         change = values[-1] - values[0]
@@ -279,5 +287,9 @@ class MonitoringHistory:
             "values": values,
             "change": change,
             "slope": slope,
-            "trend": trend
+            "trend": trend,
+            "gradual_drift": (
+                trend != "Stable"
+                and len(values) >= min_runs_for_drift
+            )
         }

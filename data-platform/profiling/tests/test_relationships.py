@@ -393,3 +393,40 @@ def test_empty_columns_do_not_create_relationship():
     )
 
     assert result == []
+
+def test_numeric_columns_with_coincidental_overlap_are_not_join_keys():
+    """
+    Quantities and day counts in the same small range overlap by chance.
+    Neither column is unique, so neither is a join key.
+    """
+    import numpy as np
+
+    rng = np.random.default_rng(0)
+
+    sales = pd.DataFrame({
+        "quantity_sold": rng.integers(1, 60, 200),
+        "unit_price": rng.integers(1, 60, 200),
+    })
+
+    returns = pd.DataFrame({
+        "days_to_return": rng.integers(1, 60, 200),
+        "warehouse_no": rng.integers(1, 60, 200),
+    })
+
+    assert discover_relationships(sales, returns) == []
+
+
+def test_numeric_key_unique_on_one_side_is_still_found():
+    # orders repeat product_id; products has it once per row
+    orders = pd.DataFrame({
+        "product_id": list(range(1, 21)) * 5
+    })
+
+    products = pd.DataFrame({
+        "product_id": range(1, 21)
+    })
+
+    relationships = discover_relationships(orders, products)
+
+    assert len(relationships) == 1
+    assert relationships[0]["classification"] == "likely_join_key"

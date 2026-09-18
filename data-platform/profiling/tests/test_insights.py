@@ -177,3 +177,22 @@ def test_weak_correlation_no_insight():
         "strong" in insight and "correlation" in insight
         for insight in insights
     )
+
+
+def test_cumulative_concentration_insight():
+    # 3 of 6 warehouses hold 80% of records
+    df = pd.DataFrame({
+        "warehouse_id": ["WH1"] * 30
+        + ["WH2"] * 30
+        + ["WH3"] * 20
+        + ["WH4"] * 10
+        + ["WH5"] * 5
+        + ["WH6"] * 5
+    })
+
+    insights = generate_insights(df, {})
+
+    assert (
+        "3 categories in warehouse_id account for at least 80% of all records."
+        in insights
+    )

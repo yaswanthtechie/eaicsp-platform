@@ -70,6 +70,20 @@ def _is_candidate_column(series):
     return unique_count > MIN_UNIQUE_VALUES
 
 
+def _is_mostly_unique(series, min_ratio=0.9):
+    """
+    True when almost every non-null value in the column is distinct,
+    i.e. the column looks like an ID on this side of the join.
+    """
+
+    values = series.dropna()
+
+    if values.empty:
+        return False
+
+    return values.nunique() / len(values) >= min_ratio
+
+
 def discover_relationships(
     df_left: pd.DataFrame,
     df_right: pd.DataFrame,
@@ -81,6 +95,7 @@ def discover_relationships(
     - Compare only compatible data types.
     - Consider only columns with more than 10 unique values.
     - Calculate overlap using unique values.
+    - For numeric columns, require one side to be mostly unique.
     - >90%  -> likely join key
     - 50-90% -> possible relationship
     - <50% -> do not report
@@ -117,6 +132,23 @@ def discover_relationships(
             if not _is_compatible_type(
                 left_series,
                 right_series,
+            ):
+                continue
+
+            # Numeric columns with small value ranges
+            # (quantities, prices, day counts) can overlap
+            # heavily by coincidence.
+            #
+            # A real numeric join key should be mostly unique
+            # on at least one side.
+            both_numeric = (
+                pd.api.types.is_numeric_dtype(left_series)
+                and pd.api.types.is_numeric_dtype(right_series)
+            )
+
+            if both_numeric and not (
+                _is_mostly_unique(left_series)
+                or _is_mostly_unique(right_series)
             ):
                 continue
 

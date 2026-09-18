@@ -1,11 +1,11 @@
 import pandas as pd
 import numpy as np
+import math
 
 from src.profile import profile, ProfileReport
 from src.compare import compare, DriftReport
 from src.monitoring import MonitoringHistory
 from src.relationships import discover_relationships as discover_relationships_between
-
 
 def make_json_serializable(obj):
     if isinstance(obj, dict):
@@ -32,11 +32,13 @@ def make_json_serializable(obj):
     if isinstance(obj, np.integer):
         return int(obj)
 
-    if isinstance(obj, np.floating):
+    if isinstance(obj, (float, np.floating)):
+        # NaN and infinity are not valid JSON; FastAPI would return a 500.
+        if not math.isfinite(obj):
+            return None
         return float(obj)
 
     return obj
-
 
 class Profiler:
 

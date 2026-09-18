@@ -103,3 +103,85 @@ def test_compare_runs_not_enough_data(tmp_path):
     assert result["runs"] == 1
     assert result["values"] == [90]
     assert result["trend"] == "Not Enough Data"
+
+
+def test_compare_runs_detects_gradual_degradation(tmp_path):
+    history = MonitoringHistory(
+        history_file=tmp_path / "history.json"
+    )
+
+    for score in [100, 99.5, 99.0, 98.5, 98.0, 97.5, 97.0, 96.5, 96.0, 95.5]:
+        history.save_batch(create_batch(score))
+
+    result = history.compare_runs(
+        "quality_score",
+        last_n=10
+    )
+
+    assert result["runs"] == 10
+    assert result["trend"] == "Decreasing"
+    assert result["slope"] < 0
+    assert result["gradual_drift"] is True
+
+def _save_scores(history, scores):
+    for score in scores:
+        history.save_batch(create_batch(score))
+
+
+def test_compare_runs_detects_slow_drift_hidden_by_noise(tmp_path):
+    """
+    Loses ~0.5 points per run with noise. No single run-to-run change is
+    bigger than 1.5 points, so run-vs-run comparison would not flag it.
+    """
+    history = MonitoringHistory(
+        history_file=tmp_path / "history.json"
+    )
+
+    _save_scores(
+        history,
+        [95.0, 95.2, 93.9, 93.8, 93.2, 92.4, 92.3, 91.1, 91.0, 90.4]
+    )
+
+    result = history.compare_runs(
+        "quality_score",
+        last_n=10
+    )
+
+    assert result["slope"] < -0.3
+    assert result["trend"] == "Decreasing"
+    assert result["gradual_drift"] is True
+
+
+def test_compare_runs_ignores_small_noise(tmp_path):
+    history = MonitoringHistory(
+        history_file=tmp_path / "history.json"
+    )
+
+    _save_scores(
+        history,
+        [95.0, 95.1, 94.9, 95.05, 94.95, 95.0, 95.1, 94.9, 94.95, 94.9]
+    )
+
+    result = history.compare_runs(
+        "quality_score",
+        last_n=10
+    )
+
+    assert result["trend"] == "Stable"
+    assert result["gradual_drift"] is False
+
+
+def test_compare_runs_needs_enough_runs_to_call_drift(tmp_path):
+    history = MonitoringHistory(
+        history_file=tmp_path / "history.json"
+    )
+
+    _save_scores(history, [90, 85, 80])
+
+    result = history.compare_runs(
+        "quality_score",
+        last_n=3
+    )
+
+    assert result["trend"] == "Decreasing"
+    assert result["gradual_drift"] is False

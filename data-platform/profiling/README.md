@@ -733,7 +733,7 @@ python -m pytest -q
 Current test result:
 
 ```text
-110 passed
+121 passed
 ```
 
 The test suite covers:
@@ -787,7 +787,7 @@ The test suite covers:
 The latest complete test run completed successfully with:
 
 ```text
-110 passed
+121 passed
 ```
 
 ---

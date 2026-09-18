@@ -127,3 +127,56 @@ def test_profile_empty_dataset():
     assert data["status"] == "empty_dataset"
     assert data["message"] == "The dataset contains no rows."
     assert data["shape"][0] == 0
+
+VALID_CSV = "sku_id,warehouse_id,quantity_sold,unit_price\nSKU001,WH1,10,100\nSKU002,WH2,20,200\n"
+
+
+def test_profile_accepts_csv_with_charset_parameter():
+    response = client.post(
+        "/profile",
+        files={"file": ("data.csv", VALID_CSV, "text/csv; charset=utf-8")}
+    )
+
+    assert response.status_code == 200
+
+
+def test_profile_accepts_windows_excel_content_type():
+    # Windows browsers send this for .csv files when Excel is installed
+    response = client.post(
+        "/profile",
+        files={"file": ("data.csv", VALID_CSV, "application/vnd.ms-excel")}
+    )
+
+    assert response.status_code == 200
+
+
+def test_profile_rejects_csv_content_type_with_wrong_extension():
+    response = client.post(
+        "/profile",
+        files={"file": ("data.exe", VALID_CSV, "text/csv")}
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Only CSV files are allowed."
+
+
+def test_profile_rejects_rows_with_more_fields_than_header():
+    response = client.post(
+        "/profile",
+        files={"file": ("ragged.csv", "a,b\n1,2,3,4\n5\n", "text/csv")}
+    )
+
+    assert response.status_code == 400
+    assert "more fields than the header" in response.json()["detail"]
+
+
+def test_profile_with_missing_values_returns_valid_json():
+    # NaN in the report used to crash JSON encoding with a 500
+    csv_content = "a,b\n1,\n,2\n3,4\n"
+
+    response = client.post(
+        "/profile",
+        files={"file": ("nulls.csv", csv_content, "text/csv")}
+    )
+
+    assert response.status_code == 200
