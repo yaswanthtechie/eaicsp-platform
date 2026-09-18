@@ -6,7 +6,10 @@ import {
   useSearchParams,
 } from "react-router-dom";
 
-import { saveTokens } from "../auth/tokenStorage";
+import {
+  saveSupplierId,
+  saveTokens,
+} from "../auth/tokenStorage";
 import { login } from "../api/auth";
 
 const loginSchema = z.object({
@@ -23,14 +26,11 @@ const loginSchema = z.object({
   rememberMe: z.boolean(),
 });
 
-type LoginFormData =
-  z.infer<typeof loginSchema>;
+type LoginFormData = z.infer<typeof loginSchema>;
 
 const Login = () => {
   const navigate = useNavigate();
-
-  const [searchParams] =
-    useSearchParams();
+  const [searchParams] = useSearchParams();
 
   const {
     register,
@@ -41,8 +41,7 @@ const Login = () => {
       isSubmitting,
     },
   } = useForm<LoginFormData>({
-    resolver:
-      zodResolver(loginSchema),
+    resolver: zodResolver(loginSchema),
 
     defaultValues: {
       email: "",
@@ -51,15 +50,12 @@ const Login = () => {
     },
   });
 
-  const onSubmit = async (
-    data: LoginFormData,
-  ) => {
+  const onSubmit = async (data: LoginFormData) => {
     try {
-      const response =
-        await login(
-          data.email,
-          data.password,
-        );
+      const response = await login(
+        data.email,
+        data.password,
+      );
 
       saveTokens(
         response.access_token,
@@ -67,8 +63,12 @@ const Login = () => {
         data.rememberMe,
       );
 
-      const nextParam =
-        searchParams.get("next");
+      saveSupplierId(
+        response.supplier_id,
+        data.rememberMe,
+      );
+
+      const nextParam = searchParams.get("next");
 
       const isInternal = (
         next: string | null,
@@ -77,63 +77,62 @@ const Login = () => {
           return false;
         }
 
-        const url = new URL(
-          next,
-          window.location.origin,
-        );
+        try {
+          const url = new URL(
+            next,
+            window.location.origin,
+          );
 
-        return (
-          url.origin ===
-          window.location.origin
-        );
+          return (
+            url.origin ===
+            window.location.origin
+          );
+        } catch {
+          return false;
+        }
       };
 
       const nextPage =
-        isInternal(nextParam) &&
-        nextParam
+        isInternal(nextParam) && nextParam
           ? nextParam
           : "/orders";
 
       navigate(nextPage);
-    } catch {
+    } catch (error) {
+      console.error("LOGIN ERROR:", error);
+
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : "";
+
       setError("password", {
         type: "server",
         message:
-          "Invalid email or password",
+          errorMessage === "Invalid credentials"
+            ? "Invalid email or password"
+            : "Unable to login. Please try again.",
       });
     }
   };
 
   return (
     <div className="login-page">
-      <h1>
-        Supplier Portal
-      </h1>
+      <h1>Supplier Portal</h1>
 
-      <form
-        onSubmit={handleSubmit(
-          onSubmit,
-        )}
-      >
-        <label htmlFor="email">
-          Email
-        </label>
+      <form onSubmit={handleSubmit(onSubmit)}>
+        <label htmlFor="email">Email</label>
 
         <input
           id="email"
           type="email"
           placeholder="Enter Email"
           {...register("email")}
-          aria-invalid={Boolean(
-            errors.email,
-          )}
+          aria-invalid={Boolean(errors.email)}
         />
 
         {errors.email && (
-          <p
-            className="error"
-            role="alert"
-          >
+          <p className="error" role="alert">
             {errors.email.message}
           </p>
         )}
@@ -147,16 +146,11 @@ const Login = () => {
           type="password"
           placeholder="Enter Password"
           {...register("password")}
-          aria-invalid={Boolean(
-            errors.password,
-          )}
+          aria-invalid={Boolean(errors.password)}
         />
 
         {errors.password && (
-          <p
-            className="error"
-            role="alert"
-          >
+          <p className="error" role="alert">
             {errors.password.message}
           </p>
         )}
@@ -165,9 +159,7 @@ const Login = () => {
           <input
             type="checkbox"
             id="rememberMe"
-            {...register(
-              "rememberMe",
-            )}
+            {...register("rememberMe")}
           />
 
           <label htmlFor="rememberMe">
@@ -186,8 +178,7 @@ const Login = () => {
       </form>
 
       <p className="note">
-        Any valid email and password
-        will work.
+        Any valid email and password will work.
       </p>
     </div>
   );

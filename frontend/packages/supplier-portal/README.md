@@ -1312,28 +1312,20 @@ PWA functionality can provide:
 
 # Current Implementation Status
 
-| Milestone   | Scope                                                                                                        | Status   |
-| ----------- | ------------------------------------------------------------------------------------------------------------ | -------- |
-| Milestone 1 | Existing Supplier Portal flow and authentication                                                             | Complete |
-| Milestone 2 | Purchase Orders, acknowledgement, invoice workflow, and offline actions                                      | Complete |
-| Milestone 3 | Real form UX with react-hook-form, Zod validation, inline errors, loading states, and success/error feedback | Partial  |
-| Milestone 4 | Robust async states, Error Boundary, list virtualization, and resilient UI behavior                          | Partial  |
-| Milestone 5 | Dashboard, shipment tracking, documents, profile/settings, and additional supplier-facing screens            | Partial  |
-
 ## Authentication
 
-* Login
-* JWT Access Token
-* Refresh Token
-* Remember Me
-* Local Storage
-* Session Storage
-* Protected Routes
-* Authorization Header
-* Silent Token Refresh
-* Logout
-* Token Cleanup
-* Apollo Cache Clear
+- Login
+- JWT Access Token
+- Refresh Token
+- Remember Me
+- Local Storage
+- Session Storage
+- Protected Routes
+- Authorization Header
+- Silent Token Refresh
+- Logout
+- Token Cleanup
+- Apollo Cache Clear
 
 ## Purchase Orders
 
@@ -1351,36 +1343,28 @@ PWA functionality can provide:
 
 ## Purchase Order Acknowledgement
 
-* Acknowledge Purchase Order
-* GraphQL Mutation
-* Optimistic UI
-* Apollo Cache Update
-* Success Notification
-* Error Handling
-* Offline Queue
+- Acknowledge Purchase Order
+- GraphQL Mutation
+- Optimistic UI
+- Apollo Cache Update
+- Success Notification
+- Error Handling
+- Offline Queue
 
 ## Invoice
 
 - Invoice Form
-- React Hook Form
-- Zod Validation
 - Purchase Order Selection
 - Invoice Validation
 - Invoice Number Validation
 - Invoice Amount Validation
-- Positive Amount Validation
 - Invoice Date Validation
-- Future-Date Prevention
 - PDF Validation
 - File Size Validation
 - Drag and Drop
-- Keyboard-Accessible File Upload
 - File Preview
 - Remove File
 - Invoice GraphQL Mutation
-- Loading State
-- Submission Error Handling
-- Success Confirmation
 
 ### Deferred
 
@@ -1390,37 +1374,37 @@ PWA functionality can provide:
 
 ## Offline Support
 
-* Offline Queue
-* Local Storage Queue
-* Online Detection
-* Automatic Synchronization
-* Online Event Listener
-* Queue Cleanup
-* Offline Acknowledgement Support
+- Offline Queue
+- Local Storage Queue
+- Online Detection
+- Automatic Synchronization
+- Online Event Listener
+- Queue Cleanup
+- Offline Acknowledgement Support
 
 ## Testing
 
-* Vitest Configuration
-* React Testing Library
-* Token Storage Tests
-* Token Utility Tests
-* Offline Queue Tests
-* Offline Sync Tests
-* Hook Tests
-* File Upload Tests
-* Status Badge Tests
-* Acknowledge PO Tests
-* 16 Test Files / 78 Tests Passing
+- Vitest Configuration
+- React Testing Library
+- Token Storage Tests
+- Token Utility Tests
+- Offline Queue Tests
+- Offline Sync Tests
+- Hook Tests
+- File Upload Tests
+- Status Badge Tests
+- Acknowledge PO Tests
+- 16 Test Files / 78 Tests Passing
 
 ## UI
 
-* Mobile-First Design
-* Responsive Layout
-* Loading State
-* Error State
-* Empty State
-* Reusable Components
-* Design Tokens
+- Mobile-First Design
+- Responsive Layout
+- Loading State
+- Error State
+- Empty State
+- Reusable Components
+- Design Tokens
 
 ---
 
@@ -1677,3 +1661,218 @@ When a supplier acknowledges a Purchase Order while offline:
     poNumber: "PO-1001"
   }
 }
+
+#rounds(6,7,8):
+
+# Milestones 1–5 Implementation Summary
+
+## Overview
+
+## What I Found Broken vs What I Built
+
+### Existing issues found
+
+During the initial review of the existing supplier portal flow, the following issues were identified:
+
+- **Supplier identity was not persisted after login.**
+  The login response contained a supplier ID, but the frontend did not save it. As a result, the Shipments page could not determine the logged-in supplier and displayed no supplier-specific shipments.
+
+- **Offline purchase-order acknowledgement replay used an inconsistent payload key.**
+  The queued acknowledgement was written using `poNumber`, while the replay logic expected `po_number`. This prevented queued acknowledgements from being replayed correctly.
+
+- **Queued acknowledgement deduplication was too broad.**
+  The acknowledgement queue logic could discard previously queued acknowledgements when multiple purchase orders were waiting to be synchronized.
+
+### Fixes and features built
+
+- Persisted the supplier ID returned by the authentication API after successful login.
+- Updated the authentication backend login response to provide the supplier ID required by supplier-specific screens.
+- Verified supplier filtering in the Shipments page using the persisted supplier ID.
+- Fixed the offline acknowledgement payload contract to consistently use `poNumber`.
+- Updated offline acknowledgement replay to send the expected GraphQL variable.
+- Updated acknowledgement queue deduplication so acknowledgements for different purchase orders are preserved.
+- Added integration coverage verifying that the supplier ID returned during login is persisted.
+- Converted the Documents upload form to React Hook Form with Zod validation while preserving the existing automatic-upload experience.
+- Added validation for PDF file type and the 5 MB file-size limit.
+- Preserved loading, empty, error, upload-progress, and success states.
+
+
+The implementation completed the Supplier Portal requirements across Milestones 1–5.
+
+The work included stabilizing the inherited supplier workflow, adding the remaining supplier-facing screens, implementing real form validation, improving application robustness, and completing responsive and accessibility improvements.
+
+## Milestone 1 – Existing Supplier Flow Stabilization
+
+Stabilized the existing supplier workflow:
+
+```text
+Login
+  ↓
+Purchase Orders
+  ↓
+Purchase Order Details
+  ↓
+Acknowledge Purchase Order
+  ↓
+Create Invoice
+  ↓
+Upload Invoice PDF
+  ↓
+Validate Invoice
+  ↓
+Submit Invoice
+
+Then:
+
+## Milestone 2 – Supplier Experience
+
+### Supplier Dashboard
+
+Added a supplier dashboard at `/dashboard`.
+
+The dashboard provides:
+
+- Total Purchase Orders
+- Pending Acknowledgements
+- Acknowledged Purchase Orders
+- Total Purchase Order Value
+- Pending supplier actions
+- Quick navigation to Purchase Orders and Shipments
+
+### Shipment / Delivery Tracking
+
+Added shipment tracking at `/shipments`.
+
+Features include:
+
+- Shipment count
+- In-transit shipment count
+- Delivered shipment count
+- Purchase Order number
+- Product information
+- Expected delivery date
+- Shipment status
+- Delivery progress
+- Supplier-specific shipment filtering
+
+Shipment data is currently provided through frontend mock data because the existing GraphQL mock backend does not expose shipment functionality.
+
+### Documents Management
+
+Added Documents at `/documents`.
+
+Features include:
+
+- Supplier document upload
+- Document type selection
+- PDF validation
+- Maximum file size validation
+- Drag-and-drop upload
+- Keyboard-accessible file selection
+- Uploading state
+- Upload success confirmation
+- Upload error messages
+- Uploaded documents list
+- Empty document state
+
+### Profile & Settings
+
+Added Profile & Settings at `/profile`.
+
+The profile form includes:
+
+- Company Name
+- Contact Name
+- Email
+- Phone Number
+- Notification Preferences
+## Milestone 3 – Real Form UX
+
+Forms were updated to use:
+
+- React Hook Form
+- Zod
+- `@hookform/resolvers/zod`
+
+Forms provide:
+
+- Required field validation
+- Inline validation errors
+- Loading states
+- Disabled submit buttons while submitting
+- Success confirmation
+- Submission error handling
+
+Invoice validation includes:
+
+- Invoice number validation
+- Invoice amount validation
+- Positive amount validation
+- Invoice date validation
+- Future-date prevention
+- PDF validation
+- File size validation
+
+## Milestone 4 – Robustness
+
+Implemented application robustness improvements.
+
+### Error Boundary
+
+Added an application-level React Error Boundary.
+
+The Error Boundary:
+
+- Catches render-time errors
+- Displays fallback UI
+- Prevents a component rendering error from breaking the complete application
+- Has automated test coverage
+
+### Async States
+
+Async screens provide appropriate:
+
+- Loading states
+- Success/data states
+- Empty states
+- Error states
+
+### Purchase Order List Virtualization
+
+Implemented Purchase Order list virtualization using `@tanstack/react-virtual`.
+
+The Orders page:
+
+- Renders visible/nearby PO items
+- Uses a scrollable container
+- Uses overscan
+- Uses `poNumber` as the stable row key
+- Continues to support cursor pagination
+
+## Milestone 5 – Mobile & Accessibility
+
+The Supplier Portal follows a mobile-first responsive approach targeting a 375px viewport.
+
+Responsive layouts were implemented for:
+
+- Dashboard
+- Purchase Orders
+- Purchase Order Details
+- Invoice
+- Shipments
+- Documents
+- Profile & Settings
+
+Accessibility improvements include:
+
+- Semantic headings
+- Proper form labels--
+- Inline validation messages
+- `role="alert"` for errors
+- `role="status"` for status messages
+- Accessible progress indicators
+- Keyboard-accessible document upload
+- Focusable interactive elements
+- Native accessible form controls
+
+````
