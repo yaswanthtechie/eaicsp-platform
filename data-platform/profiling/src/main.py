@@ -9,11 +9,8 @@ from src.report import generate_report
 from src.scheduled_report import check_quality_threshold
 from src.rules_suggestions import write_rules_yaml
 
-def main():
-    print("=" * 60)
-    print("STARTING DATA PROFILING PROJECT")
-    print("=" * 60)
 
+def main():
     # Generate sample data
     make_sample_data()
 
@@ -23,7 +20,7 @@ def main():
 
     df = pd.read_csv(data_path)
     report = profile(df)
-   
+
     # Generate suggested data-quality rules
     write_rules_yaml(report)
 
@@ -34,22 +31,10 @@ def main():
     # Check quality alert based on recent monitoring history
     quality_alert = monitoring.get_quality_alert()
 
-    print(
-        f"QUALITY ALERT: "
-        f"{quality_alert['status']} - "
-        f"Score drop: {quality_alert['drop']}"
-    )
-
     # Scheduled quality check mock
     quality_check = check_quality_threshold(
         report,
         threshold=80
-    )
-
-    print(
-        f"SCHEDULED QUALITY CHECK: "
-        f"{quality_check['status']} - "
-        f"{quality_check['message']}"
     )
 
     # Generate HTML report including historical trends
@@ -57,10 +42,6 @@ def main():
 
     # Generate standard data-quality report
     generate_report()
-
-    print("=" * 60)
-    print("PROJECT COMPLETED SUCCESSFULLY")
-    print("=" * 60)
 
 
 if __name__ == "__main__":

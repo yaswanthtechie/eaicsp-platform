@@ -1,6 +1,6 @@
 import json
 import pandas as pd
-
+from src.monitoring import MonitoringHistory
 from src.profiler import Profiler
 
 
@@ -297,3 +297,110 @@ def test_real_data_quality_alert_critical(tmp_path):
     assert alert["previous_score"] == 100
     assert alert["current_score"] == 70
     assert alert["drop"] == 30
+
+def test_quality_scorecard_trend(tmp_path):
+    history_file = tmp_path / "history.json"
+
+    monitor = MonitoringHistory(
+        history_file=history_file
+    )
+
+    report1 = {
+        "quality_score": {
+            "score": 90,
+            "missing_values": 10,
+            "duplicate_rows": 0,
+            "total_outliers": 0,
+        },
+        "quality_scorecard": {
+            "version": 1,
+            "overall_score": 90,
+            "components": {
+                "completeness": 90,
+                "validity": 90,
+                "consistency": 90,
+                "uniqueness": 90,
+            },
+        },
+        "column_summary": [],
+    }
+
+    report2 = {
+        "quality_score": {
+            "score": 95,
+            "missing_values": 5,
+            "duplicate_rows": 0,
+            "total_outliers": 0,
+        },
+        "quality_scorecard": {
+            "version": 1,
+            "overall_score": 95,
+            "components": {
+                "completeness": 95,
+                "validity": 94,
+                "consistency": 96,
+                "uniqueness": 95,
+            },
+        },
+        "column_summary": [],
+    }
+
+    monitor.save_batch(report1)
+    monitor.save_batch(report2)
+
+    trend = monitor.get_scorecard_trend()
+
+    assert trend["batches"] == 2
+    assert trend["overall_scores"] == [90, 95]
+    assert trend["trend"] == "Improving"
+
+    assert trend["components"]["completeness"] == [90, 95]
+    assert trend["components"]["validity"] == [90, 94]
+    assert trend["components"]["consistency"] == [90, 96]
+    assert trend["components"]["uniqueness"] == [90, 95]
+
+
+def test_quality_scorecard_trend_no_data(tmp_path):
+    history_file = tmp_path / "history.json"
+
+    monitor = MonitoringHistory(history_file=history_file)
+
+    trend = monitor.get_scorecard_trend()
+
+    assert trend["batches"] == 0
+    assert trend["overall_scores"] == []
+    assert trend["trend"] == "No Data"
+
+
+def test_quality_scorecard_trend_single_batch(tmp_path):
+    history_file = tmp_path / "history.json"
+
+    monitor = MonitoringHistory(history_file=history_file)
+
+    report = {
+        "quality_score": {
+            "score": 90,
+            "missing_values": 10,
+            "duplicate_rows": 0,
+            "total_outliers": 0,
+        },
+        "quality_scorecard": {
+            "version": 1,
+            "overall_score": 90,
+            "components": {
+                "completeness": 90,
+                "validity": 90,
+                "consistency": 90,
+                "uniqueness": 90,
+            },
+        },
+        "column_summary": [],
+    }
+
+    monitor.save_batch(report)
+
+    trend = monitor.get_scorecard_trend()
+
+    assert trend["batches"] == 1
+    assert trend["overall_scores"] == [90]
+    assert trend["trend"] == "Not Enough Data"
