@@ -1,202 +1,301 @@
+
 import { useState } from "react";
+import {
+  useForm,
+  type SubmitHandler,
+} from "react-hook-form";
+import { z } from "zod";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "react-toastify";
 
 import { useInvoice } from "../hooks/useInvoice";
-
+import FileUpload from "../components/FileUpload";
 import Loading from "../components/Loading";
 import ErrorState from "../components/ErrorState";
-import FileUpload from "../components/FileUpload";
+import EmptyState from "../components/EmptyState";
 
-import { colors } from "../tokens";
+const invoiceSchema = z.object({
+  invoiceNumber: z
+    .string()
+    .trim()
+    .min(1, "Invoice number is required.")
+    .regex(
+      /^INV\d+$/,
+      "Invoice number must be like INV001."
+    ),
+
+  poReference: z
+    .string()
+    .min(1, "Please select a Purchase Order."),
+
+  amount: z
+    .number({
+      error: "Invoice amount is required.",
+    })
+    .positive(
+      "Invoice amount must be greater than 0."
+    ),
+
+  date: z
+    .string()
+    .min(1, "Invoice date is required.")
+    .refine(
+      (value) => {
+        if (!value) {
+          return false;
+        }
+
+        const today = new Date();
+
+        const selectedDate = new Date(
+          `${value}T00:00:00`
+        );
+
+        today.setHours(0, 0, 0, 0);
+
+        return selectedDate <= today;
+      },
+      {
+        message:
+          "Invoice date cannot be in the future.",
+      }
+    ),
+});
+
+type InvoiceFormValues =
+  z.infer<typeof invoiceSchema>;
 
 const Invoice = () => {
+  const [selectedFile, setSelectedFile] =
+    useState<File | null>(null);
+
+  const [fileError, setFileError] =
+    useState("");
+
+  const [submissionError, setSubmissionError] =
+    useState("");
+
   const {
     submitInvoiceWithOfflineSupport,
     acknowledgedPOs,
     loading,
     error,
-    data,
   } = useInvoice();
 
-  const [invoiceNumber, setInvoiceNumber] =
-    useState("");
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: {
+      errors,
+      isSubmitting,
+    },
+  } = useForm<InvoiceFormValues>({
+    resolver: zodResolver(invoiceSchema),
 
-  const [poReference, setPoReference] =
-    useState("");
+    defaultValues: {
+      invoiceNumber: "",
+      poReference: "",
+      amount: undefined,
+      date: "",
+    },
+  });
 
-  const [amount, setAmount] =
-    useState("");
+  const purchaseOrders =
+    acknowledgedPOs ?? [];
 
-  const [date, setDate] =
-    useState("");
-
-  const [file, setFile] =
-    useState<File | null>(null);
-
-  const [formError, setFormError] =
-    useState("");
-
-  const [fileError, setFileError] =
-    useState("");
-
-  const [isSubmitting, setIsSubmitting] =
-    useState(false);
-
-  // Only show the full-page loader when
-  // there is no previous data.
-  //
-  // Because usePurchaseOrders polls, loading
-  // can become true again every few seconds.
-  // This prevents the form from disappearing
-  // while the supplier is typing.
-  if (loading && !data) {
-    return <Loading />;
-  }
-
-  if (error) {
-    return <ErrorState />;
-  }
-
-  const handleSubmit = async (
-    e: React.FormEvent
+  const handleFileChange = (
+    file: File | null
   ) => {
-    e.preventDefault();
+    setSelectedFile(file);
+    setFileError("");
+    setSubmissionError("");
+  };
 
-    setFormError("");
+  const onSubmit: SubmitHandler<
+    InvoiceFormValues
+  > = async (values) => {
+    setFileError("");
+    setSubmissionError("");
+
+    if (!selectedFile) {
+      setFileError(
+        "Please upload the invoice PDF."
+      );
+      return;
+    }
 
     if (
-      !invoiceNumber ||
-      !poReference ||
-      !amount ||
-      !date ||
-      !file
+      selectedFile.type !==
+      "application/pdf"
     ) {
-      setFormError(
-        "Please fill all fields."
+      setFileError(
+        "Only PDF files are allowed."
       );
       return;
     }
-
-    const invoiceRegex = /^INV\d+$/i;
 
     if (
-      !invoiceRegex.test(
-        invoiceNumber.trim()
-      )
+      selectedFile.size >
+      10 * 1024 * 1024
     ) {
-      setFormError(
-        "Invoice number must be like INV001."
+      setFileError(
+        "PDF file must be smaller than 10 MB."
       );
       return;
     }
-
-    if (Number(amount) <= 0) {
-      setFormError(
-        "Invoice amount must be greater than 0."
-      );
-      return;
-    }
-
-    const today = new Date();
-    const invoiceDate = new Date(date);
-
-    if (invoiceDate > today) {
-      setFormError(
-        "Invoice date cannot be in the future."
-      );
-      return;
-    }
-
-    setIsSubmitting(true);
 
     try {
       const result =
         await submitInvoiceWithOfflineSupport(
-          invoiceNumber.trim(),
-          poReference,
-          Number(amount),
-          date
+          values.invoiceNumber,
+          values.poReference,
+          values.amount,
+          values.date
         );
 
-      if (result.queued) {
-        toast.info(
-          "Invoice queued. It will be submitted when you are back online."
+      if (result?.queued) {
+        toast.success(
+          "Invoice saved offline and will be submitted when you are online."
         );
       } else {
         toast.success(
-          "Invoice Submitted Successfully!"
+          "Invoice submitted successfully."
         );
       }
 
-      setInvoiceNumber("");
-      setPoReference("");
-      setAmount("");
-      setDate("");
-      setFile(null);
+      reset();
 
-      setFormError("");
+      setSelectedFile(null);
       setFileError("");
-    } catch (err) {
-      console.error(err);
+      setSubmissionError("");
+    } catch (submitError) {
+      console.error(submitError);
 
-      setFormError(
+      setSubmissionError(
         "Failed to submit invoice."
       );
-    } finally {
-      setIsSubmitting(false);
+
+      toast.error(
+        "Failed to submit invoice."
+      );
     }
   };
 
+  if (loading) {
+    return (
+      <main className="invoice-page">
+        <h2>Create Invoice</h2>
+        <Loading />
+      </main>
+    );
+  }
+
+  if (error) {
+    return (
+      <main className="invoice-page">
+        <h2>Create Invoice</h2>
+        <ErrorState />
+      </main>
+    );
+  }
+
+  if (purchaseOrders.length === 0) {
+    return (
+      <main className="invoice-page">
+        <h2>Create Invoice</h2>
+
+        <EmptyState />
+
+        <p
+          style={{
+            marginTop: "10px",
+            textAlign: "center",
+          }}
+        >
+          No acknowledged Purchase Orders are
+          available for invoicing.
+        </p>
+
+        <button
+          type="button"
+          disabled
+          style={{
+            width: "100%",
+            marginTop: "20px",
+          }}
+        >
+          Submit Invoice
+        </button>
+      </main>
+    );
+  }
+
   return (
-    <div className="invoice-page">
+    <main className="invoice-page">
       <h2>Create Invoice</h2>
 
-      <form onSubmit={handleSubmit}>
-        {/* Invoice Number */}
-        <label htmlFor="invoiceNumber">
-          Invoice Number
-        </label>
+      <form
+        onSubmit={handleSubmit(onSubmit)}
+        noValidate
+      >
+        <div>
+          <label htmlFor="invoiceNumber">
+            Invoice Number
+          </label>
 
-        <input
-          id="invoiceNumber"
-          type="text"
-          placeholder="INV001"
-          value={invoiceNumber}
-          onChange={(e) =>
-            setInvoiceNumber(e.target.value)
-          }
-        />
+          <input
+            id="invoiceNumber"
+            type="text"
+            placeholder="INV001"
+            {...register("invoiceNumber")}
+            aria-invalid={
+              errors.invoiceNumber
+                ? "true"
+                : "false"
+            }
+            aria-describedby={
+              errors.invoiceNumber
+                ? "invoice-number-error"
+                : undefined
+            }
+          />
 
-        {/* Purchase Order */}
-        <label htmlFor="poReference">
-          Purchase Order
-        </label>
-
-        {acknowledgedPOs.length === 0 ? (
-          <div
-            style={{
-              marginTop: "8px",
-              marginBottom: "15px",
-            }}
-          >
-            <p>
-              No acknowledged Purchase Orders
-              are available for invoicing.
+          {errors.invoiceNumber && (
+            <p
+              id="invoice-number-error"
+              className="error"
+              role="alert"
+            >
+              {errors.invoiceNumber.message}
             </p>
-          </div>
-        ) : (
+          )}
+        </div>
+
+        <div>
+          <label htmlFor="poReference">
+            Purchase Order
+          </label>
+
           <select
             id="poReference"
-            value={poReference}
-            onChange={(e) =>
-              setPoReference(e.target.value)
+            {...register("poReference")}
+            aria-invalid={
+              errors.poReference
+                ? "true"
+                : "false"
+            }
+            aria-describedby={
+              errors.poReference
+                ? "po-reference-error"
+                : undefined
             }
           >
             <option value="">
               Select Purchase Order
             </option>
 
-            {acknowledgedPOs.map((po) => (
+            {purchaseOrders.map((po) => (
               <option
                 key={po.poNumber}
                 value={po.poNumber}
@@ -205,75 +304,122 @@ const Invoice = () => {
               </option>
             ))}
           </select>
-        )}
 
-        {/* Invoice Amount */}
-        <label htmlFor="amount">
-          Invoice Amount
-        </label>
+          {errors.poReference && (
+            <p
+              id="po-reference-error"
+              className="error"
+              role="alert"
+            >
+              {errors.poReference.message}
+            </p>
+          )}
+        </div>
 
-        <input
-          id="amount"
-          type="number"
-          value={amount}
-          onChange={(e) =>
-            setAmount(e.target.value)
-          }
-        />
+        <div>
+          <label htmlFor="amount">
+            Invoice Amount
+          </label>
 
-        {/* Invoice Date */}
-        <label htmlFor="date">
-          Invoice Date
-        </label>
+          <input
+            id="amount"
+            type="number"
+            min="0"
+            step="0.01"
+            {...register("amount", {
+              valueAsNumber: true,
+            })}
+            aria-invalid={
+              errors.amount
+                ? "true"
+                : "false"
+            }
+            aria-describedby={
+              errors.amount
+                ? "amount-error"
+                : undefined
+            }
+          />
 
-        <input
-          id="date"
-          type="date"
-          value={date}
-          onChange={(e) =>
-            setDate(e.target.value)
-          }
-        />
+          {errors.amount && (
+            <p
+              id="amount-error"
+              className="error"
+              role="alert"
+            >
+              {errors.amount.message}
+            </p>
+          )}
+        </div>
 
-        {/* PDF File */}
-        <FileUpload
-          file={file}
-          setFile={setFile}
-          error={fileError}
-          setError={setFileError}
-        />
+        <div>
+          <label htmlFor="date">
+            Invoice Date
+          </label>
 
-        {/* File Error */}
-        {fileError && (
+          <input
+            id="date"
+            type="date"
+            {...register("date")}
+            aria-invalid={
+              errors.date
+                ? "true"
+                : "false"
+            }
+            aria-describedby={
+              errors.date
+                ? "date-error"
+                : undefined
+            }
+          />
+
+          {errors.date && (
+            <p
+              id="date-error"
+              className="error"
+              role="alert"
+            >
+              {errors.date.message}
+            </p>
+          )}
+        </div>
+
+        <div>
+          <FileUpload
+            file={selectedFile}
+            setFile={handleFileChange}
+            error={fileError}
+            setError={setFileError}
+          />
+
+          {fileError && (
+            <p
+              role="alert"
+              style={{
+                color: "rgb(239, 68, 68)",
+                marginTop: "10px",
+              }}
+            >
+              {fileError}
+            </p>
+          )}
+        </div>
+
+        {submissionError && (
           <p
+            role="alert"
             style={{
-              color: colors.danger,
+              color: "rgb(239, 68, 68)",
               marginTop: "10px",
             }}
           >
-            {fileError}
+            {submissionError}
           </p>
         )}
 
-        {/* Form Error */}
-        {formError && (
-          <p
-            style={{
-              color: colors.danger,
-              marginTop: "10px",
-            }}
-          >
-            {formError}
-          </p>
-        )}
-
-        {/* Submit */}
         <button
           type="submit"
-          disabled={
-            isSubmitting ||
-            acknowledgedPOs.length === 0
-          }
+          disabled={isSubmitting}
           style={{
             marginTop: "20px",
           }}
@@ -283,7 +429,7 @@ const Invoice = () => {
             : "Submit Invoice"}
         </button>
       </form>
-    </div>
+    </main>
   );
 };
 
