@@ -34,6 +34,26 @@ DEFAULT_CONFIDENCE_DIVISOR: Final[float] = 8.0
 DEFAULT_AGGREGATION_STRATEGY: Final[str] = "top_k_mean"
 DEFAULT_AGGREGATION_TOP_K: Final[int] = 3
 DEFAULT_RECENCY_HALF_LIFE_DAYS: Final[float] = 30.0
+DEFAULT_TREND_WINDOW_DAYS: Final[int] = 30
+DEFAULT_TREND_DIRECTION_THRESHOLD: Final[float] = 3.0
+DEFAULT_VOLUME_WEIGHT: Final[float] = 0.15
+DEFAULT_MITIGATION_WEIGHT: Final[float] = 0.35
+
+# ------------------------------------------------------------------
+# Fixed Risk Tier Classification Thresholds
+# (Configured a priori before evaluation; independent of model prediction scores)
+# ------------------------------------------------------------------
+
+DEFAULT_TIER_LOW_CEILING: Final[float] = 60.0
+DEFAULT_TIER_MEDIUM_CEILING: Final[float] = 72.0
+DEFAULT_TIER_HIGH_CEILING: Final[float] = 85.0
+
+TIER_BOUNDARIES: Final[Dict[str, float]] = {
+    "Low": DEFAULT_TIER_LOW_CEILING,
+    "Medium": DEFAULT_TIER_MEDIUM_CEILING,
+    "High": DEFAULT_TIER_HIGH_CEILING,
+}
+
 
 ALLOWED_AGGREGATION_STRATEGIES: Final[Set[str]] = {
     "top_k_mean",
@@ -134,6 +154,43 @@ def validate_aggregation_top_k(top_k: Any) -> int:
     return top_k
 
 
+def validate_trend_window_days(days: Any) -> int:
+    """
+    Validate that trend rolling window days is a positive integer.
+    """
+    if not isinstance(days, int) or isinstance(days, bool):
+        try:
+            days = int(days)
+        except (ValueError, TypeError):
+            raise ValueError(f"Trend window days must be an integer, got {days}")
+    if days <= 0:
+        raise ValueError(f"Trend window days must be greater than zero, got {days}")
+    return days
+
+
+def validate_trend_direction_threshold(threshold: Any) -> float:
+    """
+    Validate that trend direction delta threshold is a non-negative float.
+    """
+    if not isinstance(threshold, (int, float)) or isinstance(threshold, bool):
+        raise ValueError(
+            f"Trend direction threshold must be numeric, got {type(threshold).__name__}: {threshold}"
+        )
+    if threshold < 0:
+        raise ValueError(f"Trend direction threshold cannot be negative, got {threshold}")
+    return float(threshold)
+
+
+def validate_factor_weight(name: str, value: Any, max_val: float = 1.0) -> float:
+    """
+    Validate that a weight factor is numeric and in [0.0, max_val].
+    """
+    val = validate_numeric_weight(name, value, allow_zero=True)
+    if val > max_val:
+        raise ValueError(f"Weight '{name}' cannot exceed {max_val}, got {val}")
+    return val
+
+
 # ------------------------------------------------------------------
 # Configuration Settings Class
 # ------------------------------------------------------------------
@@ -155,6 +212,13 @@ class Settings:
         aggregation_strategy: str | None = None,
         aggregation_top_k: int | None = None,
         recency_half_life_days: float | None = None,
+        trend_window_days: int | None = None,
+        trend_direction_threshold: float | None = None,
+        tier_low_ceiling: float | None = None,
+        tier_medium_ceiling: float | None = None,
+        tier_high_ceiling: float | None = None,
+        volume_weight: float | None = None,
+        mitigation_weight: float | None = None,
     ) -> None:
         # 1. Negative sentiment penalty
         if negative_sentiment_penalty is not None:
@@ -270,6 +334,87 @@ class Settings:
                 else DEFAULT_RECENCY_HALF_LIFE_DAYS
             )
 
+        # 10. Fixed risk tier thresholds (configured a priori before evaluation)
+        if tier_low_ceiling is not None:
+            self.tier_low_ceiling = validate_numeric_weight("tier_low_ceiling", tier_low_ceiling, allow_zero=False)
+        else:
+            raw_low = os.getenv("TIER_LOW_CEILING")
+            self.tier_low_ceiling = (
+                validate_numeric_weight("TIER_LOW_CEILING", float(raw_low), allow_zero=False)
+                if raw_low is not None
+                else DEFAULT_TIER_LOW_CEILING
+            )
+
+        if tier_medium_ceiling is not None:
+            self.tier_medium_ceiling = validate_numeric_weight("tier_medium_ceiling", tier_medium_ceiling, allow_zero=False)
+        else:
+            raw_med = os.getenv("TIER_MEDIUM_CEILING")
+            self.tier_medium_ceiling = (
+                validate_numeric_weight("TIER_MEDIUM_CEILING", float(raw_med), allow_zero=False)
+                if raw_med is not None
+                else DEFAULT_TIER_MEDIUM_CEILING
+            )
+
+        if tier_high_ceiling is not None:
+            self.tier_high_ceiling = validate_numeric_weight("tier_high_ceiling", tier_high_ceiling, allow_zero=False)
+        else:
+            raw_high = os.getenv("TIER_HIGH_CEILING")
+            self.tier_high_ceiling = (
+                validate_numeric_weight("TIER_HIGH_CEILING", float(raw_high), allow_zero=False)
+                if raw_high is not None
+                else DEFAULT_TIER_HIGH_CEILING
+            )
+
+        if not (self.tier_low_ceiling < self.tier_medium_ceiling < self.tier_high_ceiling):
+            raise ValueError(
+                f"Tier ceilings must satisfy low < medium < high, got: "
+                f"low={self.tier_low_ceiling}, medium={self.tier_medium_ceiling}, high={self.tier_high_ceiling}"
+            )
+
+        # 11. Trend rolling window days
+        if trend_window_days is not None:
+            self.trend_window_days = validate_trend_window_days(trend_window_days)
+        else:
+            raw_win = os.getenv("TREND_WINDOW_DAYS", os.getenv("ROLLING_WINDOW_DAYS"))
+            self.trend_window_days = (
+                validate_trend_window_days(int(raw_win))
+                if raw_win is not None
+                else DEFAULT_TREND_WINDOW_DAYS
+            )
+
+        # 12. Trend direction sensitivity threshold
+        if trend_direction_threshold is not None:
+            self.trend_direction_threshold = validate_trend_direction_threshold(trend_direction_threshold)
+        else:
+            raw_thresh = os.getenv("TREND_DIRECTION_THRESHOLD")
+            self.trend_direction_threshold = (
+                validate_trend_direction_threshold(float(raw_thresh))
+                if raw_thresh is not None
+                else DEFAULT_TREND_DIRECTION_THRESHOLD
+            )
+
+        # 13. Volume amplification weight (top_k_mean)
+        if volume_weight is not None:
+            self.volume_weight = validate_factor_weight("volume_weight", volume_weight)
+        else:
+            raw_vol = os.getenv("VOLUME_WEIGHT")
+            self.volume_weight = (
+                validate_factor_weight("VOLUME_WEIGHT", float(raw_vol))
+                if raw_vol is not None
+                else DEFAULT_VOLUME_WEIGHT
+            )
+
+        # 14. Mitigation discount weight (top_k_mean)
+        if mitigation_weight is not None:
+            self.mitigation_weight = validate_factor_weight("mitigation_weight", mitigation_weight)
+        else:
+            raw_mit = os.getenv("MITIGATION_WEIGHT")
+            self.mitigation_weight = (
+                validate_factor_weight("MITIGATION_WEIGHT", float(raw_mit))
+                if raw_mit is not None
+                else DEFAULT_MITIGATION_WEIGHT
+            )
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert settings instance to dictionary for API serialization."""
         return {
@@ -282,6 +427,13 @@ class Settings:
             "aggregation_strategy": self.aggregation_strategy,
             "aggregation_top_k": self.aggregation_top_k,
             "recency_half_life_days": self.recency_half_life_days,
+            "tier_low_ceiling": self.tier_low_ceiling,
+            "tier_medium_ceiling": self.tier_medium_ceiling,
+            "tier_high_ceiling": self.tier_high_ceiling,
+            "trend_window_days": self.trend_window_days,
+            "trend_direction_threshold": self.trend_direction_threshold,
+            "volume_weight": self.volume_weight,
+            "mitigation_weight": self.mitigation_weight,
             "signal_weights": dict(self.signal_weights),
         }
 

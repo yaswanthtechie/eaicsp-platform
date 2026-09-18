@@ -116,6 +116,50 @@ class TrendPoint(BaseModel):
 
 class TrendResponse(BaseModel):
     supplier: str
+    current_risk_score: float | None = Field(
+        default=None,
+        description="Time-aware recency-weighted aggregate risk score for current window",
+    )
+    previous_risk_score: float | None = Field(
+        default=None,
+        description="Time-aware aggregate risk score for previous historical window",
+    )
+    trend_direction: str | None = Field(
+        default=None,
+        description="Trend direction: 'rising', 'falling', or 'stable'",
+    )
+    article_count: int | None = Field(
+        default=None,
+        description="Total number of evaluated articles",
+    )
+    current_window_article_count: int | None = Field(
+        default=None,
+        description="Number of articles in current rolling window",
+    )
+    historical_article_count: int | None = Field(
+        default=None,
+        description="Number of articles in previous historical window",
+    )
+    window_days: int | None = Field(
+        default=None,
+        description="Rolling window duration in days",
+    )
+    window_start: str | None = Field(
+        default=None,
+        description="Start date of current rolling window",
+    )
+    window_end: str | None = Field(
+        default=None,
+        description="End date of current rolling window",
+    )
+    previous_window_start: str | None = Field(
+        default=None,
+        description="Start date of previous historical window",
+    )
+    previous_window_end: str | None = Field(
+        default=None,
+        description="End date of previous historical window",
+    )
     overall_confidence: float | None = Field(
         default=None,
         description="Timeline-wide confidence weighted by volume, agreement, and recency",
@@ -124,7 +168,10 @@ class TrendResponse(BaseModel):
         default=None,
         description="Top risk-driving headlines across the entire timeline",
     )
-    risk_trend: List[TrendPoint]
+    risk_trend: List[TrendPoint] = Field(
+        default_factory=list,
+        description="Chronological per-date risk points",
+    )
 
 
 class TrendArticleInput(BaseModel):
@@ -183,6 +230,8 @@ class ConfigResponse(BaseModel):
     aggregation_strategy: str
     aggregation_top_k: int
     recency_half_life_days: float
+    trend_window_days: int = 30
+    trend_direction_threshold: float = 3.0
     signal_weights: Dict[str, int]
 
 
@@ -253,16 +302,6 @@ def get_config():
 # POST /predict and aliases
 # ----------------------------------------------------
 
-@app.post(
-    "/predict",
-    response_model=AnalysisResponse,
-    summary="Predict supplier risk",
-)
-@app.post(
-    "/api/v1/supplier-risk/predict",
-    response_model=AnalysisResponse,
-    summary="Predict supplier risk (API Gateway alias)",
-)
 @app.post(
     "/predict",
     response_model=AnalysisResponse,
@@ -369,7 +408,7 @@ def analyze_static_dataset():
 def get_supplier_risk_trend(supplier_name: str):
     """
     Retrieve chronologically ordered risk trend points for a supplier.
-    If the supplier is unknown or has no trend records, returns an empty risk_trend.
+    Supplier lookup is case-insensitive. Unknown suppliers return 404.
     """
     stripped = supplier_name.strip()
     if not stripped:
@@ -379,19 +418,22 @@ def get_supplier_risk_trend(supplier_name: str):
         )
 
     trend_data = load_active_trend_headlines()
-    records = trend_data.get(stripped, [])
+    supplier_key = next(
+        (name for name in trend_data if name.casefold() == stripped.casefold()),
+        None,
+    )
 
-    if not records:
-        return {
-            "supplier": stripped,
-            "overall_confidence": 0.0,
-            "top_evidence": [],
-            "risk_trend": [],
-        }
+    if supplier_key is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown supplier: {stripped}",
+        )
+
+    records = trend_data[supplier_key]
 
     try:
         return calculate_supplier_trend(
-            supplier_name=stripped,
+            supplier_name=supplier_key,
             records=records,
         )
     except Exception as exc:

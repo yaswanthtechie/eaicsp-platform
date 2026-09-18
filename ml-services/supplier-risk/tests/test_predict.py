@@ -688,6 +688,19 @@ def test_mitigation_handling():
     signals2 = detect_signals(clean_text("The CEO avoids sanction."))
     assert len(signals2) == 0
 
+
+def test_mitigation_words_do_not_match_prefixes_in_real_risk_headlines():
+    """Adverbs such as 'clearly' must not suppress nearby risk signals."""
+    default_signals = detect_signals(
+        clean_text("Court clearly rules Acme in default on bond payments.")
+    )
+    fraud_signals = detect_signals(
+        clean_text("Regulators say Acme clearly committed fraud.")
+    )
+
+    assert any(signal["keyword"] == "default" for signal in default_signals)
+    assert any(signal["keyword"] == "fraud" for signal in fraud_signals)
+
 def test_later_real_risk():
     """
     Test that a real risk after a mitigated mention is still detected.
@@ -801,6 +814,68 @@ def test_mitigation_cross_clause_preservation():
     assert "outage" not in keywords3
     assert "fraud" in keywords3
     assert "investigation" in keywords3
+
+
+def test_mitigation_whole_word_matching_regression_cases():
+    """
+    Must-fix 1 Regression tests:
+    Verify that ordinary words such as 'clearly', 'clearance', etc. are NOT treated as mitigations
+    and do not suppress genuine risk signals.
+    """
+    # Case A: "Court clearly rules Acme in default on bond payments"
+    # Expected: default signal is detected, 'clearly' does NOT mitigate 'default'
+    text_a = "Court clearly rules Acme in default on bond payments"
+    signals_a = detect_signals(clean_text(text_a))
+    keywords_a = [s["keyword"] for s in signals_a]
+    assert "default" in keywords_a, f"Expected 'default' signal, got {keywords_a}"
+
+    # Case B: "Regulators say Acme clearly committed fraud"
+    # Expected: fraud signal is detected, 'clearly' does NOT mitigate 'fraud'
+    text_b = "Regulators say Acme clearly committed fraud"
+    signals_b = detect_signals(clean_text(text_b))
+    keywords_b = [s["keyword"] for s in signals_b]
+    assert "fraud" in keywords_b, f"Expected 'fraud' signal, got {keywords_b}"
+
+    # Additional case: punctuation and casing with non-mitigating 'clear' derivatives
+    text_c = "Security CLEARANCE revoked: Acme clearly committed FRAUD!"
+    signals_c = detect_signals(clean_text(text_c))
+    keywords_c = [s["keyword"] for s in signals_c]
+    assert "fraud" in keywords_c, f"Expected 'fraud' signal, got {keywords_c}"
+
+
+def test_legitimate_mitigation_cases():
+    """
+    Verify that legitimate mitigation keywords (denies, cleared, resolved, dismissed, avoided)
+    continue to suppress the relevant risk signals according to existing semantics.
+    """
+    # 1. "Acme denies fraud" -> fraud should be mitigated
+    signals1 = detect_signals(clean_text("Acme denies fraud"))
+    keywords1 = [s["keyword"] for s in signals1]
+    assert "fraud" not in keywords1, f"'fraud' should be mitigated by 'denies', got {keywords1}"
+
+    # 2. "Acme was cleared of fraud" -> fraud should be mitigated
+    signals2 = detect_signals(clean_text("Acme was cleared of fraud"))
+    keywords2 = [s["keyword"] for s in signals2]
+    assert "fraud" not in keywords2, f"'fraud' should be mitigated by 'cleared', got {keywords2}"
+
+    # 3. "The lawsuit was resolved" -> lawsuit should be mitigated
+    signals3 = detect_signals(clean_text("The lawsuit was resolved"))
+    keywords3 = [s["keyword"] for s in signals3]
+    assert "lawsuit" not in keywords3, f"'lawsuit' should be mitigated by 'resolved', got {keywords3}"
+
+    # "The dispute was resolved" with dynamic/configured keyword
+    signals3_custom = detect_signals(clean_text("The dispute was resolved"), weights={"dispute": 25})
+    keywords3_custom = [s["keyword"] for s in signals3_custom]
+    assert "dispute" not in keywords3_custom, f"'dispute' should be mitigated by 'resolved', got {keywords3_custom}"
+
+    # 4. Case-insensitivity and punctuation
+    signals4 = detect_signals(clean_text("ACME: DENIED allegations of FRAUD!"))
+    keywords4 = [s["keyword"] for s in signals4]
+    assert "fraud" not in keywords4, f"'fraud' should be mitigated despite casing/punctuation, got {keywords4}"
+
+    signals5 = detect_signals(clean_text("Acme was DISMISSED from the lawsuit."))
+    keywords5 = [s["keyword"] for s in signals5]
+    assert "lawsuit" not in keywords5, f"'lawsuit' should be mitigated by 'dismissed', got {keywords5}"
 
 
 def test_punctuation_word_merging_and_signal_detection():
@@ -1152,3 +1227,194 @@ def test_basf_headlines_detect_shortages_and_layoffs():
     keywords_layoffs = [s["keyword"] for s in signals_layoffs]
     assert "layoff" in keywords_layoffs
     assert "restructuring" in keywords_layoffs
+
+
+def test_score_aggregation_proves_volume_and_positive_coverage_effects():
+    """
+    Regression test for MUST-FIX 2: Score Aggregation.
+    Proves that:
+    1. CASE B (1 risk + 11 positive) < CASE A (1 risk) (positive coverage genuinely reduces risk).
+    2. CASE C (3 risk headlines) > CASE A (1 risk) (repeated negative coverage genuinely increases risk).
+    3. Scores are distinct and not artificially compressed/identical.
+    4. Balanced case (2 negative + 2 positive) sits between CASE B and CASE C.
+    """
+    # Negative/risk headlines:
+    h_risk_1 = "The supplier faces an unexpected strike by factory workers."
+    h_risk_2 = "The supplier faces a major lawsuit over breach of contract."
+    h_risk_3 = "The supplier is under government investigation for fraud."
+
+    # Clearly positive headlines (zero risk, positive sentiment):
+    h_positive_11 = [
+        f"The supplier reports record positive profit and earnings in quarter {i}."
+        for i in range(11)
+    ]
+
+    # CASE A: 1 negative/risk headline
+    res_a = predict("SupplierA", [h_risk_1])
+    score_a = res_a["risk_score"]
+
+    # CASE B: 1 negative/risk headline + 11 clearly positive headlines
+    res_b = predict("SupplierB", [h_risk_1] + h_positive_11)
+    score_b = res_b["risk_score"]
+
+    # CASE C: 3 negative/risk headlines
+    res_c = predict("SupplierC", [h_risk_1, h_risk_2, h_risk_3])
+    score_c = res_c["risk_score"]
+
+    # Balanced Case: 2 negative + 2 positive headlines
+    res_mixed = predict(
+        "SupplierMixed",
+        [h_risk_1, h_risk_2, h_positive_11[0], h_positive_11[1]],
+    )
+    score_mixed = res_mixed["risk_score"]
+
+    # Qualitative relationships:
+    # 1. Positive coverage genuinely reduces risk
+    assert score_b < score_a, f"Expected score(B) < score(A), got {score_b} vs {score_a}"
+    # 2. Repeated negative coverage genuinely increases risk
+    assert score_c > score_a, f"Expected score(C) > score(A), got {score_c} vs {score_a}"
+    # 3. Scores must not be identical
+    assert len({score_a, score_b, score_c}) == 3, "Scores must not be identical"
+    # 4. Mixed case sits appropriately between high mitigation and raw baseline
+    assert score_b < score_mixed < score_c
+    # 5. All scores bounded
+    for sc in [score_a, score_b, score_c, score_mixed]:
+        assert 0.0 <= sc <= 100.0
+
+
+def test_predict_response_shape_preserved():
+    """Verify that predict() output format, keys, and types remain standard."""
+    res = predict("TestSupplier", ["The supplier faces a strike."])
+    assert isinstance(res["supplier"], str)
+    assert isinstance(res["risk_score"], float)
+    assert isinstance(res["confidence"], float)
+    assert isinstance(res["sentiment_breakdown"], dict)
+    assert isinstance(res["signals"], list)
+    assert isinstance(res["top_worst_3"], list)
+
+
+# ------------------------------------------------------------------
+# Risk Evidence Filtering Tests (SHOULD-CONSIDER #2: score > 0 only)
+# ------------------------------------------------------------------
+
+def test_evidence_excludes_zero_risk_positive_headlines():
+    """Zero-risk positive and neutral headlines must NOT appear in risk evidence (top_worst_3)."""
+    res = predict(
+        "CleanCorp",
+        [
+            "CleanCorp reports record positive profits and earnings growth.",
+            "CleanCorp opens a modern state-of-the-art research facility.",
+        ],
+    )
+    assert res["risk_score"] == 0.0
+    assert res["top_worst_3"] == []
+
+
+def test_evidence_preserves_positive_risk_headlines():
+    """Headlines with positive calculated risk score must be preserved in risk evidence."""
+    res = predict(
+        "DistressedCorp",
+        [
+            "DistressedCorp files for emergency bankruptcy and debt default.",
+        ],
+    )
+    assert res["risk_score"] > 0.0
+    assert len(res["top_worst_3"]) == 1
+    assert res["top_worst_3"][0]["score"] > 0.0
+    assert "bankruptcy" in res["top_worst_3"][0]["headline"]
+
+
+def test_evidence_mixed_zero_and_positive_risk_returns_only_positive_risk():
+    """Mixed zero-risk and positive-risk inputs return only headlines with score > 0 in evidence."""
+    res = predict(
+        "MixedCorp",
+        [
+            "MixedCorp reports strong positive revenue growth.",       # zero risk (positive)
+            "MixedCorp operations disrupted by severe worker strike.",  # positive risk
+            "MixedCorp holds routine annual shareholder meeting.",      # zero risk (neutral)
+        ],
+    )
+    assert len(res["top_worst_3"]) == 1
+    assert res["top_worst_3"][0]["score"] > 0.0
+    assert "strike" in res["top_worst_3"][0]["headline"]
+    evidence_headlines = [item["headline"] for item in res["top_worst_3"]]
+    assert "MixedCorp reports strong positive revenue growth." not in evidence_headlines
+    assert "MixedCorp holds routine annual shareholder meeting." not in evidence_headlines
+
+
+# ------------------------------------------------------------------
+# Configurable Volume and Mitigation Weights Tests (SHOULD-CONSIDER #4)
+# ------------------------------------------------------------------
+
+def test_config_default_volume_and_mitigation_weights():
+    """Verify default volume weight is 0.15 and mitigation weight is 0.35 in Settings and to_dict()."""
+    cfg = Settings()
+    assert cfg.volume_weight == 0.15
+    assert cfg.mitigation_weight == 0.35
+    d = cfg.to_dict()
+    assert d["volume_weight"] == 0.15
+    assert d["mitigation_weight"] == 0.35
+
+
+def test_custom_volume_weight_changes_score_deterministically():
+    """Verify custom volume_weight in Settings scales repeated risk events deterministically."""
+    headlines = [
+        "Supplier faces major strike disrupting operations.",
+        "Supplier hit with recall of defective components.",
+    ]
+    # Default volume weight (0.15)
+    cfg_default = Settings()
+    score_default = predict("TestSupp", headlines, config=cfg_default)["risk_score"]
+
+    # Higher volume weight (0.30): repeated risk amplifies the score higher
+    cfg_higher_vol = Settings(volume_weight=0.30)
+    score_higher = predict("TestSupp", headlines, config=cfg_higher_vol)["risk_score"]
+
+    # Zero volume weight (0.0): no volume amplification
+    cfg_zero_vol = Settings(volume_weight=0.0)
+    score_zero = predict("TestSupp", headlines, config=cfg_zero_vol)["risk_score"]
+
+    assert score_higher > score_default > score_zero
+
+
+def test_custom_mitigation_weight_changes_score_deterministically():
+    """Verify custom mitigation_weight in Settings discounts risk for positive coverage deterministically."""
+    headlines = [
+        "Supplier hit with recall of defective components.",
+        "Supplier reports record positive earnings growth.",
+        "Supplier announces positive expansion and strong performance.",
+    ]
+    # Default mitigation weight (0.35)
+    cfg_default = Settings()
+    score_default = predict("TestSupp", headlines, config=cfg_default)["risk_score"]
+
+    # Higher mitigation weight (0.50): positive headlines discount risk more aggressively
+    cfg_higher_mit = Settings(mitigation_weight=0.50)
+    score_higher_mit = predict("TestSupp", headlines, config=cfg_higher_mit)["risk_score"]
+
+    # Zero mitigation weight (0.0): positive headlines provide no discount
+    cfg_zero_mit = Settings(mitigation_weight=0.0)
+    score_zero_mit = predict("TestSupp", headlines, config=cfg_zero_mit)["risk_score"]
+
+    assert score_higher_mit < score_default < score_zero_mit
+
+
+def test_volume_and_mitigation_weight_validation_failures():
+    """Verify invalid volume and mitigation weights raise ValueError."""
+    # Negative weights
+    with pytest.raises(ValueError, match="Weight 'volume_weight' cannot be negative"):
+        Settings(volume_weight=-0.1)
+
+    with pytest.raises(ValueError, match="Weight 'mitigation_weight' cannot be negative"):
+        Settings(mitigation_weight=-0.2)
+
+    # Weights exceeding 1.0
+    with pytest.raises(ValueError, match="Weight 'volume_weight' cannot exceed 1.0"):
+        Settings(volume_weight=1.5)
+
+    with pytest.raises(ValueError, match="Weight 'mitigation_weight' cannot exceed 1.0"):
+        Settings(mitigation_weight=2.0)
+
+    # Non-numeric weights
+    with pytest.raises(ValueError, match="Weight 'volume_weight' must be numeric"):
+        Settings(volume_weight="high")

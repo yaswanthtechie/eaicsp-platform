@@ -224,15 +224,21 @@ def test_api_get_trend_valid_supplier():
         assert dates == sorted(dates)
 
 
+def test_api_get_trend_supplier_lookup_is_case_insensitive():
+    """GET trend normalizes supplier name casing before dataset lookup."""
+    with TestClient(app) as client:
+        response = client.get("/api/v1/supplier-risk/trend/tesla")
+
+        assert response.status_code == 200
+        assert response.json()["supplier"] == "Tesla"
+        assert response.json()["risk_trend"]
+
+
 def test_api_get_trend_unknown_supplier():
-    """GET trend for unknown supplier returns 200 with empty risk_trend."""
+    """GET trend for an unknown supplier returns 404."""
     with TestClient(app) as client:
         response = client.get("/api/v1/supplier-risk/trend/NonExistentSupplier123")
-        assert response.status_code == 200
-        data = response.json()
-
-        assert data["supplier"] == "NonExistentSupplier123"
-        assert data["risk_trend"] == []
+        assert response.status_code == 404
 
 
 def test_api_get_trend_blank_supplier():
@@ -335,3 +341,177 @@ def test_predict_endpoint_response_contract_unchanged():
         }
         assert set(summary.keys()) == expected_keys
         assert set(summary["sentiment_breakdown"].keys()) == {"positive", "neutral", "negative"}
+
+
+# ------------------------------------------------------------------
+# 6. Entity-Level Time-Aware Risk Aggregation (MUST-FIX #4)
+# ------------------------------------------------------------------
+
+def test_trend_multi_article_aggregation():
+    """Verify multiple dated articles for one supplier are aggregated into a single score."""
+    records = [
+        {"date": "2026-03-01", "headline": "Acme Corp files for bankruptcy amid massive debt default."},
+        {"date": "2026-03-15", "headline": "Acme Corp reports routine facility inspection."},
+        {"date": "2026-03-20", "headline": "Acme Corp expands manufacturing partnership in Europe."},
+    ]
+    res = calculate_supplier_trend("Acme Corp", records)
+    assert res["supplier"] == "Acme Corp"
+    assert res["article_count"] == 3
+    assert res["current_window_article_count"] == 3
+    assert res["window_days"] == 30
+    assert res["window_start"] is not None
+    assert res["window_end"] == "2026-03-20"
+
+    # Score must be a weighted aggregate, not just the single latest article
+    single_latest = calculate_supplier_trend("Acme Corp", [records[-1]])["current_risk_score"]
+    single_earliest = calculate_supplier_trend("Acme Corp", [records[0]])["current_risk_score"]
+    assert res["current_risk_score"] != single_latest
+    assert min(single_latest, single_earliest) <= res["current_risk_score"] <= max(single_latest, single_earliest)
+
+
+def test_trend_recency_decay_weighting():
+    """Verify newer articles carry strictly higher weight than older articles within the window."""
+    # Two identical-severity events placed at different times relative to anchor date (2026-03-30)
+    # Event A: High risk today (2026-03-30), Low risk 28 days ago (2026-03-02)
+    records_recent_bad = [
+        {"date": "2026-03-02", "headline": "Beta Corp reports positive earnings and strong demand."},
+        {"date": "2026-03-30", "headline": "Beta Corp hit with severe sanction and product recall."},
+    ]
+    # Event B: High risk 28 days ago (2026-03-02), Low risk today (2026-03-30)
+    records_old_bad = [
+        {"date": "2026-03-02", "headline": "Beta Corp hit with severe sanction and product recall."},
+        {"date": "2026-03-30", "headline": "Beta Corp reports positive earnings and strong demand."},
+    ]
+
+    res_recent_bad = calculate_supplier_trend("Beta Corp", records_recent_bad)
+    res_old_bad = calculate_supplier_trend("Beta Corp", records_old_bad)
+
+    # Since the high-risk event is newer in records_recent_bad, its current score must be strictly higher
+    assert res_recent_bad["current_risk_score"] > res_old_bad["current_risk_score"]
+
+
+def test_trend_window_exclusion():
+    """Verify older articles outside the 30-day window do not contribute to current_risk_score."""
+    # Anchor date: 2026-03-31
+    # Article 1: 2026-01-15 (75 days ago, well outside 30-day window) -> Severe risk (bankruptcy)
+    # Article 2: 2026-03-31 (today) -> Zero risk (positive earnings)
+    records = [
+        {"date": "2026-01-15", "headline": "Gamma Inc declares bankruptcy and liquidation."},
+        {"date": "2026-03-31", "headline": "Gamma Inc reports record positive profits and new contracts."},
+    ]
+    res = calculate_supplier_trend("Gamma Inc", records)
+    assert res["article_count"] == 2
+    assert res["current_window_article_count"] == 1
+    assert res["historical_article_count"] == 1
+    # Current score must only reflect the article inside the 30-day window
+    res_only_current = calculate_supplier_trend("Gamma Inc", [records[1]])
+    assert res["current_risk_score"] == res_only_current["current_risk_score"]
+    # Previous score must capture the historical article
+    assert res["previous_risk_score"] is not None
+    assert res["previous_risk_score"] > 50.0
+
+
+def test_trend_changing_recency_half_life_deterministic():
+    """Verify changing recency_half_life_days alters weights and aggregate score deterministically."""
+    from src.config import Settings
+    records = [
+        {"date": "2026-03-01", "headline": "Delta Corp announces major recall due to defect."},
+        {"date": "2026-03-31", "headline": "Delta Corp reports routine positive earnings."},
+    ]
+    # Shorter half-life (5 days) decays the older bad news faster -> lower current risk score
+    cfg_short = Settings(recency_half_life_days=5.0)
+    res_short = calculate_supplier_trend("Delta Corp", records, config=cfg_short)
+
+    # Longer half-life (60 days) retains more weight on older bad news -> higher current risk score
+    cfg_long = Settings(recency_half_life_days=60.0)
+    res_long = calculate_supplier_trend("Delta Corp", records, config=cfg_long)
+
+    assert res_short["current_risk_score"] < res_long["current_risk_score"]
+
+
+def test_trend_rising_direction_detected():
+    """Verify a supplier with deteriorating risk over time is classified as 'rising'."""
+    records = [
+        # Previous window: clean/positive news
+        {"date": "2026-01-20", "headline": "Epsilon Corp reports positive earnings and revenue growth."},
+        {"date": "2026-02-10", "headline": "Epsilon Corp signs positive supply agreement with major partner."},
+        # Current window: multiple severe risk events
+        {"date": "2026-03-05", "headline": "Epsilon Corp workers go on strike shutting down production."},
+        {"date": "2026-03-20", "headline": "Epsilon Corp hit with lawsuit over fraud and supply disruption."},
+    ]
+    res = calculate_supplier_trend("Epsilon Corp", records)
+    assert res["previous_risk_score"] is not None
+    assert res["current_risk_score"] > res["previous_risk_score"]
+    assert res["trend_direction"] == "rising"
+
+
+def test_trend_falling_direction_detected():
+    """Verify a supplier recovering from past distress is classified as 'falling'."""
+    records = [
+        # Previous window: severe risk events
+        {"date": "2026-01-20", "headline": "Zeta Corp faces bankruptcy and severe debt default."},
+        {"date": "2026-02-10", "headline": "Zeta Corp hit with regulator investigation and sanction."},
+        # Current window: recovery and clean operations
+        {"date": "2026-03-05", "headline": "Zeta Corp completes restructuring and resolves dispute."},
+        {"date": "2026-03-20", "headline": "Zeta Corp reports record positive profits and new expansion."},
+    ]
+    res = calculate_supplier_trend("Zeta Corp", records)
+    assert res["previous_risk_score"] is not None
+    assert res["current_risk_score"] < res["previous_risk_score"]
+    assert res["trend_direction"] == "falling"
+
+
+def test_trend_stable_direction_detected():
+    """Verify a supplier with steady risk levels is classified as 'stable'."""
+    records = [
+        # Previous window: neutral news
+        {"date": "2026-01-20", "headline": "Eta Corp holds routine annual shareholder meeting."},
+        {"date": "2026-02-10", "headline": "Eta Corp releases quarterly operational update."},
+        # Current window: consistent neutral news
+        {"date": "2026-03-05", "headline": "Eta Corp continues standard logistics operations."},
+        {"date": "2026-03-20", "headline": "Eta Corp maintains existing supply contracts."},
+    ]
+    res = calculate_supplier_trend("Eta Corp", records)
+    assert res["previous_risk_score"] is not None
+    assert abs(res["current_risk_score"] - res["previous_risk_score"]) <= 3.0
+    assert res["trend_direction"] == "stable"
+
+
+def test_trend_supplier_isolation():
+    """Verify records for other suppliers do not contaminate the target supplier's trend."""
+    records = [
+        {"supplier": "TargetSupplier", "date": "2026-03-10", "headline": "TargetSupplier reports positive earnings."},
+        {"supplier": "OtherSupplier", "date": "2026-03-10", "headline": "OtherSupplier declares bankruptcy after massive fraud scandal."},
+    ]
+    res = calculate_supplier_trend("TargetSupplier", records)
+    assert res["supplier"] == "TargetSupplier"
+    assert res["article_count"] == 1
+    # The bankruptcy headline from OtherSupplier must NOT affect TargetSupplier
+    assert res["current_risk_score"] == 0.0
+
+
+def test_trend_invalid_configuration():
+    """Verify invalid trend configuration parameters raise ValueError."""
+    from src.config import Settings
+    with pytest.raises(ValueError, match="Trend window days must be greater than zero"):
+        Settings(trend_window_days=0)
+
+    with pytest.raises(ValueError, match="Trend window days must be an integer"):
+        Settings(trend_window_days="invalid")
+
+    with pytest.raises(ValueError, match="Trend direction threshold cannot be negative"):
+        Settings(trend_direction_threshold=-1.0)
+
+
+def test_aggregate_supplier_trends_multi_supplier():
+    """Verify aggregate_supplier_trends groups multiple suppliers and calculates trends for each."""
+    from src.trend import aggregate_supplier_trends
+    records = [
+        {"supplier": "SupplierA", "date": "2026-03-10", "headline": "SupplierA reports positive earnings."},
+        {"supplier": "SupplierB", "date": "2026-03-10", "headline": "SupplierB hit with strike and supply disruption."},
+    ]
+    results = aggregate_supplier_trends(records)
+    assert "SupplierA" in results
+    assert "SupplierB" in results
+    assert results["SupplierA"]["current_risk_score"] < results["SupplierB"]["current_risk_score"]
+    assert results["SupplierA"]["trend_direction"] == "stable"

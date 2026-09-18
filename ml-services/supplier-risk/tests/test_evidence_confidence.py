@@ -73,11 +73,11 @@ def test_trend_point_contains_evidence_structure():
 
 
 def test_evidence_ranking_highest_risk_first():
-    """Evidence for a date with multiple headlines must be deterministically ranked with highest risk first."""
+    """Evidence for a date with multiple headlines must be deterministically ranked with highest risk first and exclude score 0."""
     records = [
         {
             "date": "2026-01-10",
-            "headline": "Supplier reports positive earnings for Q3.",  # zero risk
+            "headline": "Supplier reports positive earnings for Q3.",  # zero risk -> excluded
         },
         {
             "date": "2026-01-10",
@@ -91,15 +91,17 @@ def test_evidence_ranking_highest_risk_first():
     result = calculate_supplier_trend("SupplierX", records)
     evidence = result["risk_trend"][0]["evidence"]
 
-    assert len(evidence) == 3
+    # Zero-risk positive headline is excluded from risk evidence
+    assert len(evidence) == 2
     # Check descending score ordering
-    assert evidence[0]["score"] >= evidence[1]["score"] >= evidence[2]["score"]
+    assert evidence[0]["score"] >= evidence[1]["score"]
+    assert all(item["score"] > 0 for item in evidence)
     # The bankruptcy/fraud headline must be ranked first
     assert "bankruptcy" in evidence[0]["headline"]
 
 
 def test_clean_date_evidence_handling():
-    """On clean/positive dates, evidence contains zero-risk headlines with score 0 and empty signals."""
+    """On clean/positive dates, zero-risk headlines are excluded from risk evidence (score > 0 only)."""
     records = [
         {
             "date": "2026-02-01",
@@ -110,11 +112,9 @@ def test_clean_date_evidence_handling():
     point = result["risk_trend"][0]
 
     assert point["risk_score"] == 0.0
-    assert len(point["evidence"]) == 1
-    ev = point["evidence"][0]
-    assert ev["score"] == 0.0
-    assert ev["signals"] == []
-    assert ev["sentiment"] == "positive"
+    # Risk evidence must not contain zero-risk positive headlines
+    assert point["evidence"] == []
+
 
 
 def test_timeline_top_evidence_across_dates():
@@ -231,16 +231,10 @@ def test_duplicate_headlines_do_not_duplicate_evidence_or_inflate():
 # ------------------------------------------------------------------
 
 def test_failure_path_unknown_supplier_trend_endpoint():
-    """GET trend for unknown supplier returns 200 with empty risk_trend, top_evidence, and 0.0 confidence."""
+    """GET trend for an unknown supplier returns 404."""
     with TestClient(app) as client:
         response = client.get("/api/v1/supplier-risk/trend/NonExistentSupplierXYZ")
-        assert response.status_code == 200
-        data = response.json()
-
-        assert data["supplier"] == "NonExistentSupplierXYZ"
-        assert data["risk_trend"] == []
-        assert data["top_evidence"] == []
-        assert data["overall_confidence"] == 0.0
+        assert response.status_code == 404
 
 
 def test_failure_path_malformed_records():
