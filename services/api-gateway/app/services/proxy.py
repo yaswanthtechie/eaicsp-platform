@@ -16,6 +16,7 @@ from tenacity import (
 )
 
 from app.core.config import settings
+from app.services.auth import auth_precheck_service
 from app.services.circuit_breaker import circuit_breaker_manager
 from app.services.metrics import metrics_collector
 
@@ -25,7 +26,6 @@ logger = logging.getLogger("api_gateway.proxy")
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-
 HOP_BY_HOP_HEADERS = {
     "connection",
     "keep-alive",
@@ -56,7 +56,6 @@ RETRYABLE_METHODS = {
     "PUT",
     "DELETE",
 }
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -185,7 +184,6 @@ def _build_forward_headers(
 
     return headers
 
-
 def _build_response_headers(
     response: httpx.Response,
 ) -> dict[str, str]:
@@ -208,6 +206,7 @@ def _build_response_headers(
         for key, value in response.headers.items()
         if key.lower() not in excluded_headers
     }
+
 
 
 # ---------------------------------------------------------------------------
@@ -257,13 +256,33 @@ class ProxyService:
         route_prefix, target_base_url = route
         service_name = get_service_name(route_prefix)
         service_id = route_prefix.strip("/").split("/")[-1]
+        caller_service = request.headers.get("x-caller-service") or "api-gateway"
         start_time = time.perf_counter()
+
+        # ------------------------------------------------------------------
+        # Authentication Pre-Check (M5)
+        # ------------------------------------------------------------------
+
+        auth_error = await auth_precheck_service.verify_request(
+            request, route_prefix
+        )
+        if auth_error is not None:
+            return auth_error
 
         # ------------------------------------------------------------------
         # Circuit Breaker Check
         # ------------------------------------------------------------------
 
         if not circuit_breaker_manager.can_execute(service_id):
+            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+            metrics_collector.record_request(
+                service_name=service_id,
+                latency_ms=elapsed_ms,
+                route=route_prefix,
+                status_code=503,
+                is_error=True,
+                caller_service=caller_service,
+            )
             return JSONResponse(
                 status_code=503,
                 content={
@@ -369,22 +388,36 @@ class ProxyService:
                         stream=True,
                     )
                     elapsed_ms = (time.perf_counter() - start_time) * 1000.0
-                    metrics_collector.record_request(service_id, elapsed_ms)
+                    is_err = response.status_code >= 500
+                    metrics_collector.record_request(
+                        service_name=service_id,
+                        latency_ms=elapsed_ms,
+                        route=route_prefix,
+                        status_code=response.status_code,
+                        is_error=is_err,
+                        caller_service=caller_service,
+                    )
 
                     if response.status_code >= 500:
                         circuit_breaker_manager.record_failure(service_id)
                     elif response.status_code in {401, 403}:
                         # HTTP 401/403 are client authentication/authorization outcomes,
-                        # NOT downstream infrastructure failures. Excluded from breaker
-                        # statistics entirely so they neither count as failures nor
-                        # dilute the failure rate that real 5xx errors need to reach.
+                        # NOT downstream infrastructure failures. Excluded from breaker statistics
+                        # so they neither count as failures nor artificially dilute real 5xx failures.
                         pass
                     else:
                         circuit_breaker_manager.record_success(service_id)
 
         except httpx.TimeoutException:
             elapsed_ms = (time.perf_counter() - start_time) * 1000.0
-            metrics_collector.record_request(service_id, elapsed_ms)
+            metrics_collector.record_request(
+                service_name=service_id,
+                latency_ms=elapsed_ms,
+                route=route_prefix,
+                status_code=504,
+                is_error=True,
+                caller_service=caller_service,
+            )
             circuit_breaker_manager.record_failure(service_id)
             return JSONResponse(
                 status_code=504,
@@ -395,7 +428,14 @@ class ProxyService:
 
         except httpx.RequestError:
             elapsed_ms = (time.perf_counter() - start_time) * 1000.0
-            metrics_collector.record_request(service_id, elapsed_ms)
+            metrics_collector.record_request(
+                service_name=service_id,
+                latency_ms=elapsed_ms,
+                route=route_prefix,
+                status_code=503,
+                is_error=True,
+                caller_service=caller_service,
+            )
             circuit_breaker_manager.record_failure(service_id)
             return JSONResponse(
                 status_code=503,
