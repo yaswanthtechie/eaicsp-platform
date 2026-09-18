@@ -49,12 +49,14 @@ def setup_logging(log_level: str = "INFO", log_dir: str = "logs") -> None:
     )
     logger.info("Logging initialized. Writing logs to: %s", log_file)
 
-
-def _load_validator(config_path: str, cache: dict) -> DataValidator:
-    if config_path not in cache:
-        logger.debug("Initializing new DataValidator for config: %s", config_path)
-        cache[config_path] = DataValidator.from_config(config_path)
-    return cache[config_path]
+def _load_validator(config_path: str, profile_name: Optional[str], cache: dict,
+                    rules_dir: Optional[str]) -> DataValidator:
+    """Loads and caches the validator, keying by both file path, profile name, and rules dir."""
+    cache_key = f"{config_path}::{profile_name}::{rules_dir}"
+    if cache_key not in cache:
+        logger.debug("Initializing new DataValidator for config: %s (Profile: %s)", config_path, profile_name)
+        cache[cache_key] = DataValidator.from_config(config_path, profile_name=profile_name, rules_dir=rules_dir)
+    return cache[cache_key]
 
 
 def validate_folder(
@@ -67,7 +69,9 @@ def validate_folder(
         save_reports: bool = False,
         incremental: bool = False,
         watermark_col: str = "transaction_id",
-        watermark_dir: str = ".watermarks"
+        watermark_dir: str = ".watermarks",
+        profile_name: Optional[str] = None,
+        rules_dir: Optional[str] = None
 ) -> Dict[str, Any]:
     folder = Path(folder_path)
 
@@ -91,17 +95,29 @@ def validate_folder(
         with open(mapping_file, 'r') as f:
             mapping_rules = json.load(f)
 
-        for pattern, cfg_path in mapping_rules.items():
-            validator = _load_validator(cfg_path, validators_cache)
+        for pattern, rule_target in mapping_rules.items():
+            # Handle both simple strings and complex dictionary mappings
+            if isinstance(rule_target, dict):
+                cfg_path = rule_target.get("config")
+                target_profile = rule_target.get("profile", profile_name)
+            else:
+                cfg_path = rule_target
+                target_profile = profile_name
+
+            if not cfg_path:
+                logger.error("Mapping pattern '%s' is missing a config path.", pattern)
+                continue
+
+            validator = _load_validator(str(cfg_path), target_profile, validators_cache, rules_dir)
             for file_path in folder.rglob(pattern):
                 validation_queue[file_path] = validator
 
         logger.info("Loaded %d routing rules from %s", len(mapping_rules), mapping_file.name)
     else:
-        if not Path(config_path).is_file():
+        if not Path(str(config_path)).is_file():
             raise FileNotFoundError(f"Configuration file not found: {config_path}")
 
-        validator = _load_validator(str(config_path), validators_cache)
+        validator = _load_validator(str(config_path), profile_name, validators_cache, rules_dir)
         for file_path in folder.rglob(default_pattern):
             validation_queue[file_path] = validator
 
@@ -142,6 +158,7 @@ def validate_folder(
                     summary["skipped_files"] += 1
                     continue
                 logger.info("   -> Validating %d new rows...", len(df))
+
             # --- Validation ---
             report = validator.validate(df)
 
@@ -160,7 +177,6 @@ def validate_folder(
 
             # --- Export Report ---
             if save_reports:
-                # Wrap the entire dictionary in the sanitizer before dumping
                 file_report_data = sanitize_for_json({
                     "config_version": getattr(report, "config_version", "1.0.0"),
                     "passed": passed,
@@ -217,7 +233,16 @@ def main():
     parser.add_argument("--save-reports", action="store_true",
                         help="Enable generating and saving detailed JSON reports.")
     parser.add_argument("--output-dir", type=str, default="reports", help="Directory to save detailed JSON reports.")
-    # --- INCREMENTAL ARGUMENTS ---
+
+    # --- PROFILE ARGUMENTS ---
+    parser.add_argument("--profile", type=str, default=None, help="Named validation profile to execute.")
+    parser.add_argument("--list-profiles", action="store_true",
+                        help="List available profiles in the config(s) and exit.")
+
+    # --- CUSTOM RULES DIRECTORY ---
+    parser.add_argument("--rules-dir", type=str, default=None,
+                        help="Path to the custom rules directory for auto-discovery.")
+
     parser.add_argument("--incremental", action="store_true", help="Only process new rows since the last run.")
     parser.add_argument("--watermark-col", type=str, default="transaction_id", help="Column for watermarking.")
     parser.add_argument("--watermark-dir", type=str, default=".watermarks", help="Directory for state tracking files.")
@@ -229,11 +254,40 @@ def main():
     args = parser.parse_args()
     setup_logging(log_level=args.log_level, log_dir=args.log_dir)
 
+    # --- INTERCEPT: LIST PROFILES ---
+    if args.list_profiles:
+        if args.config:
+            profiles = DataValidator.list_profiles(args.config)
+            if profiles:
+                logger.info(f"Available profiles in {Path(args.config).name}: {', '.join(profiles)}")
+            else:
+                logger.warning(f"No profiles found in {Path(args.config).name}.")
+        elif args.mapping:
+            try:
+                with open(args.mapping, 'r') as f:
+                    mapping_rules = json.load(f)
+
+                seen_configs = set()
+                for rule_target in mapping_rules.values():
+                    cfg_path = rule_target.get("config") if isinstance(rule_target, dict) else rule_target
+                    if cfg_path and cfg_path not in seen_configs:
+                        profiles = DataValidator.list_profiles(cfg_path)
+                        if profiles:
+                            logger.info(f"Profiles in {Path(cfg_path).name}: {', '.join(profiles)}")
+                        else:
+                            logger.warning(f"No profiles found in {Path(cfg_path).name}.")
+                        seen_configs.add(cfg_path)
+            except Exception as e:
+                logger.error(f"Failed to read mapping file for profiles: {e}")
+        return
+
     try:
         validate_folder(
             folder_path=args.folder,
             config_path=args.config,
             mapping_path=args.mapping,
+            profile_name=args.profile,
+            rules_dir=args.rules_dir,
             default_pattern=args.pattern,
             top_n_issues=args.top_n,
             output_dir=args.output_dir,
