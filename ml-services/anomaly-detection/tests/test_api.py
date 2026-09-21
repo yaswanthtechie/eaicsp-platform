@@ -186,6 +186,69 @@ def test_reason_fields():
         == expected_features
     )
 
+def test_m4_root_cause_explanation_fields():
+    response = client.post(
+        "/detect",
+        json=VALID_REQUEST,
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    # M4 root-cause fields
+    assert "primary_reason" in body
+    assert "explanation" in body
+
+    primary_reason = body["primary_reason"]
+
+    assert isinstance(
+        primary_reason,
+        dict,
+    )
+
+    assert "feature" in primary_reason
+    assert "contribution" in primary_reason
+
+    assert primary_reason["feature"] in {
+        "temperature",
+        "humidity",
+        "stock_count",
+    }
+
+    assert isinstance(
+        primary_reason["contribution"],
+        (int, float),
+    )
+
+    assert primary_reason["contribution"] >= 0
+
+    # Human-readable explanation
+    assert isinstance(
+        body["explanation"],
+        str,
+    )
+
+    assert len(body["explanation"]) > 0
+
+    # Primary reason must be the
+    # highest SHAP contribution.
+    reasons = body["reasons"]
+
+    top_reason = max(
+        reasons,
+        key=lambda reason: reason["contribution"],
+    )
+
+    assert (
+        primary_reason["feature"]
+        == top_reason["feature"]
+    )
+
+    assert (
+        primary_reason["contribution"]
+        == top_reason["contribution"]
+    )
 
 def test_contributions_sum_to_one():
     response = client.post(

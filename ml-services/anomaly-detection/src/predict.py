@@ -298,6 +298,26 @@ def _get_prediction_details(
             ],
             reverse=True,
         )[:3]
+           
+
+    # --------------------------------------------------------
+    # M4 root-cause explanation
+    # --------------------------------------------------------
+
+    primary_reason = reasons[0] if reasons else None
+
+    explanation = ""
+
+    if primary_reason:
+        explanation = (
+            f"{primary_reason['feature']} is the primary contributor "
+            f"to the anomaly "
+            f"({primary_reason['contribution'] * 100:.1f}% of the "
+            f"normalized feature contribution)."
+        )
+
+    # --------------------------------------------------------
+    # Return all decision information.    
 
     # --------------------------------------------------------
     # Return all decision information.
@@ -346,8 +366,11 @@ def _get_prediction_details(
         ),
 
         "reasons": reasons,
-    }
 
+        "primary_reason": primary_reason,
+
+        "explanation": explanation,
+    }
 
 # ============================================================
 # PRODUCTION PREDICTION
@@ -434,6 +457,13 @@ def predict(
 
         "reasons": result[
             "reasons"
+        ],
+                "primary_reason": result[
+            "primary_reason"
+        ],
+
+        "explanation": result[
+            "explanation"
         ],
     }
 
