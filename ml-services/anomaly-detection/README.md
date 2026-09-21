@@ -1687,7 +1687,7 @@ and validates API-level error handling and response contracts.
 Latest full-suite execution:
 
 ```text
-462 passed
+463 passed
 3 warnings
 0 failures
 ```
@@ -2052,7 +2052,213 @@ The validated continuous-lifecycle results are:
 ## Test suite
 
 ```text
-462 passed
+463 passed
 3 warnings
 0 failures
 ```
+Milestone 3 – Multivariate Anomaly Detection
+Objective
+
+Extend anomaly detection beyond a single sensor signal and detect anomalies using multiple warehouse features simultaneously.
+
+The service uses:
+
+temperature
+humidity
+stock_count
+
+Three anomaly detection algorithms are trained and evaluated:
+
+Isolation Forest
+One-Class SVM
+Local Outlier Factor (LOF)
+M3 Pipeline
+Normal Sensor Data
+        ↓
+Feature Generation
+        ↓
+temperature + humidity + stock_count
+        ↓
+Train Anomaly Detection Models
+        ↓
+Isolation Forest
+One-Class SVM
+LOF
+        ↓
+Model Deployment
+        ↓
+Anomaly Scenario Testing
+        ↓
+Precision / Recall / F1 Evaluation
+Anomaly Scenarios
+
+The models are evaluated against multiple anomaly patterns:
+
+Temperature Spike
+Sudden temperature increase.
+Stock Anomaly
+Abnormal stock_count while other sensor values remain normal.
+Temperature Drift
+Gradual temperature change over time without a sudden spike.
+Combined Anomaly
+Multiple sensor features change together in an unusual pattern.
+
+This tests whether the models can detect anomaly patterns beyond the original planted temperature anomalies.
+
+M3 Evaluation
+
+Each model is evaluated separately for each anomaly scenario using:
+
+Precision
+Recall
+F1 score
+Number of anomalies caught
+Number of false alarms
+
+The evaluation results are printed by the training/evaluation pipeline.
+
+M3 Status
+
+Milestone 3: COMPLETED
+
+Implemented:
+
+Multivariate feature detection
+Isolation Forest
+One-Class SVM
+Local Outlier Factor
+Multiple anomaly scenarios
+Scenario-wise evaluation
+Production model scoring
+Automated test coverage
+Model deployment flow
+
+Milestone 4 – Root Cause / Explainable Anomaly Detection
+Objective
+
+M3 answers:
+
+"Is this reading anomalous?"
+
+M4 extends the system to answer:
+
+"Why is this reading anomalous?"
+
+The anomaly prediction API now provides feature-level explanations using SHAP-based feature contributions.
+
+M4 Explanation Flow
+Sensor Reading
+      ↓
+temperature + humidity + stock_count
+      ↓
+Anomaly Detection Model
+      ↓
+Anomaly Score
+      ↓
+SHAP Feature Contributions
+      ↓
+Top 3 Contributing Features
+      ↓
+Primary Reason
+      ↓
+Human-Readable Explanation
+Feature Contributions
+
+For every prediction, the service calculates normalized feature contributions for:
+
+temperature
+humidity
+stock_count
+
+The API returns the top contributing features in descending order.
+
+Example:
+
+"reasons": [
+    {
+        "feature": "stock_count",
+        "contribution": 0.9968
+    },
+    {
+        "feature": "humidity",
+        "contribution": 0.0024
+    },
+    {
+        "feature": "temperature",
+        "contribution": 0.0008
+    }
+]
+
+The contributions are normalized so that the returned feature contributions represent their relative contribution to the explanation.
+
+Primary Reason
+
+M4 additionally exposes the highest-contributing feature through primary_reason.
+
+Example:
+
+"primary_reason": {
+    "feature": "stock_count",
+    "contribution": 0.9968
+}
+
+The primary reason is derived directly from the top entry in the reasons list.
+
+Human-Readable Explanation
+
+The API also returns an explanation field so that downstream applications can display a readable explanation instead of only numerical feature contributions.
+
+Example:
+
+stock_count is the primary contributor to the anomaly
+(99.7% of the normalized feature contribution).
+/detect API Response
+
+The anomaly detection API now exposes:
+
+model
+model_label
+model_version
+is_anomaly
+score
+production_threshold
+model_prediction
+model_is_anomaly
+reasons
+primary_reason
+explanation
+M4 Validation
+
+M4 was validated through:
+
+Unit tests
+API tests
+Feature contribution validation
+Primary reason validation
+Explanation field validation
+Live FastAPI /detect verification
+Swagger UI verification
+
+The API was verified to return:
+
+reasons
+primary_reason
+explanation
+
+and primary_reason matches the highest-contributing feature from reasons.
+
+M4 Status
+
+Milestone 4: COMPLETED
+
+Implemented:
+
+SHAP-based feature explanations
+Top-3 feature contributions
+Normalized contribution values
+Primary root-cause feature
+Human-readable explanation
+/detect API integration
+API test coverage
+Swagger verification
+Live API verification
