@@ -28,9 +28,16 @@ def test_temperature_drift_reproducibility():
     )
 
     # Generate the same dataset independently
-    normal = generate_normal_data()
+    normal = generate_normal_data(
+        seed=456
+    )
 
-    expected = inject_temperature_drift(normal)
+    expected = inject_temperature_drift(
+        normal,
+        hours=24,
+        drift_per_hour=0.5,
+        seed=1003,
+    )
 
     # Match timestamp dtype
     actual["timestamp"] = pd.to_datetime(

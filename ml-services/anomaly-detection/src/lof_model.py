@@ -14,8 +14,8 @@ class LOFModel:
     def __init__(
         self,
         contamination=0.004,
-        n_neighbors=20,
-        metric="minkowski",
+        n_neighbors=10,
+        metric="manhattan",
         novelty=True,
     ):
         self.model = LocalOutlierFactor(

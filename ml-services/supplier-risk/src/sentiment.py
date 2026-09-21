@@ -15,11 +15,7 @@ except ModuleNotFoundError as exc:
     ) from exc
 
 
-# ------------------------------------------------------------------
-# Model Configuration
-# ------------------------------------------------------------------
-
-MODEL_NAME: Final[str] = "ProsusAI/finbert"
+from src.config import MODEL_NAME
 
 # Global pipeline instance (loaded only once)
 _nlp_pipeline: Optional[Any] = None

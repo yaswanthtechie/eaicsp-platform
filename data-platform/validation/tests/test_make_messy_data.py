@@ -39,7 +39,7 @@ def test_generate_messy_data(tmp_path):
     assert len(df) == expected_total_rows, f"Expected {expected_total_rows} rows, got {len(df)}"
 
     # Assert the new schema columns map perfectly to the sales_fact config
-    expected_columns = ["date", "sku_id", "warehouse_id", "quantity_sold", "unit_price"]
+    expected_columns = ["transaction_id", "date", "sku_id", "warehouse_id", "quantity_sold", "unit_price"]
     assert list(df.columns) == expected_columns, f"Schema mismatch. Expected {expected_columns}, got {list(df.columns)}"
 
     # Check for missing dates

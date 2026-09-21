@@ -1,7 +1,155 @@
+from datetime import datetime
+
 from sqlalchemy.orm import Session
 
 from app.models.inventory import Inventory
 from app.models.inventory_cost_layer import InventoryCostLayer
+
+
+# ==========================================================
+# CONSUME COST LAYERS
+# ==========================================================
+# When inventory leaves a warehouse, consume the oldest
+# available cost layers first.
+#
+# Example:
+#
+# 10 units @ $5
+# 10 units @ $10
+#
+# Remove 12 units:
+#
+# 10 units @ $5  -> consumed
+# 2 units @ $10  -> consumed
+#
+# Remaining:
+#
+# 8 units @ $10
+# ==========================================================
+
+def consume_cost_layers(
+    db: Session,
+    sku_id: str,
+    warehouse_id: str,
+    quantity: int,
+) -> list[tuple[int, float]]:
+
+    if quantity <= 0:
+        return []
+
+    layers = (
+        db.query(InventoryCostLayer)
+        .filter(
+            InventoryCostLayer.sku_id == sku_id,
+            InventoryCostLayer.warehouse_id == warehouse_id,
+            InventoryCostLayer.quantity_remaining > 0,
+        )
+        .order_by(
+            InventoryCostLayer.received_at.asc()
+        )
+        .with_for_update()
+        .all()
+    )
+
+    remaining = quantity
+
+    consumed = []
+
+    for layer in layers:
+
+        if remaining <= 0:
+            break
+
+        take = min(
+            remaining,
+            layer.quantity_remaining,
+        )
+
+        layer.quantity_remaining -= take
+
+        remaining -= take
+
+        consumed.append(
+            (
+                take,
+                layer.unit_cost,
+            )
+        )
+
+    return consumed
+
+
+# ==========================================================
+# ADD COST LAYER
+# ==========================================================
+# Adds inventory cost information to a warehouse.
+#
+# Used when:
+# - stock is received
+# - stock is transferred into another warehouse
+# - bulk inventory quantity increases and a known cost exists
+# ==========================================================
+
+def add_cost_layer(
+    db: Session,
+    sku_id: str,
+    warehouse_id: str,
+    category: str,
+    quantity: int,
+    unit_cost: float,
+    received_at: datetime | None = None,
+) -> None:
+
+    if quantity <= 0:
+        return
+
+    db.add(
+        InventoryCostLayer(
+            sku_id=sku_id,
+            warehouse_id=warehouse_id,
+            category=category,
+            quantity_received=quantity,
+            quantity_remaining=quantity,
+            unit_cost=unit_cost,
+            received_at=(
+                received_at
+                or datetime.utcnow()
+            ),
+        )
+    )
+
+
+# ==========================================================
+# LATEST UNIT COST
+# ==========================================================
+# Returns the most recently received unit cost.
+#
+# Used when bulk inventory quantity increases and the
+# application needs a cost for the newly added quantity.
+# ==========================================================
+
+def latest_unit_cost(
+    db: Session,
+    sku_id: str,
+    warehouse_id: str,
+) -> float | None:
+
+    layer = (
+        db.query(InventoryCostLayer)
+        .filter(
+            InventoryCostLayer.sku_id == sku_id,
+            InventoryCostLayer.warehouse_id == warehouse_id,
+        )
+        .order_by(
+            InventoryCostLayer.received_at.desc()
+        )
+        .first()
+    )
+
+    if layer is None:
+        return None
+
+    return layer.unit_cost
 
 
 # ==========================================================
@@ -24,7 +172,9 @@ def calculate_fifo_value(
     )
 
     if inventory is None:
-        raise ValueError("Inventory record not found")
+        raise ValueError(
+            "Inventory record not found"
+        )
 
     quantity_needed = inventory.quantity_on_hand
 
@@ -63,7 +213,10 @@ def calculate_fifo_value(
 
         quantity_needed -= quantity_from_layer
 
-    return round(total_value, 2)
+    return round(
+        total_value,
+        2,
+    )
 
 
 # ==========================================================
@@ -86,7 +239,9 @@ def calculate_weighted_average_value(
     )
 
     if inventory is None:
-        raise ValueError("Inventory record not found")
+        raise ValueError(
+            "Inventory record not found"
+        )
 
     current_quantity = inventory.quantity_on_hand
 

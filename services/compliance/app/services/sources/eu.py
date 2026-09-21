@@ -3,15 +3,18 @@ import xmltodict
 from app.schemas.sanctions import SanctionedEntity
 
 
-# =====================================================
-# GET VALUE FROM XML DICT
-# =====================================================
 
-def get_value(data: dict, key: str):
+def get_value(
+    data: dict,
+    key: str,
+):
+    """
+    Get a value from a dictionary while ignoring
+    XML namespace prefixes.
+    """
 
     if not isinstance(data, dict):
         return None
-
 
     for item_key, value in data.items():
 
@@ -20,19 +23,16 @@ def get_value(data: dict, key: str):
         if clean_key == key:
             return value
 
-
     return None
 
 
-
-# =====================================================
-# FIND SANCTION ENTITIES RECURSIVELY
-# =====================================================
-
 def find_entities(data):
+    """
+    Recursively find all sanctionEntity objects
+    from the EU sanctions XML structure.
+    """
 
     entities = []
-
 
     if isinstance(data, dict):
 
@@ -40,26 +40,19 @@ def find_entities(data):
 
             clean_key = key.split(":")[-1]
 
-
             if clean_key == "sanctionEntity":
 
                 if isinstance(value, list):
-
                     entities.extend(value)
 
                 else:
-
                     entities.append(value)
-
-
 
             elif isinstance(value, (dict, list)):
 
                 entities.extend(
                     find_entities(value)
                 )
-
-
 
     elif isinstance(data, list):
 
@@ -69,33 +62,35 @@ def find_entities(data):
                 find_entities(item)
             )
 
-
     return entities
 
 
-
-# =====================================================
-# LOAD EU SANCTIONS XML
-# =====================================================
-
 def load_eu(
-    xml_path
+    xml_path,
 ) -> list[SanctionedEntity]:
+    """
+    Load EU sanctions entities from the XML file.
 
+    The XML file is read as raw bytes so that the XML
+    parser can detect and correctly handle the encoding
+    declared inside the document.
+    """
 
-    print("Loading EU sanctions list...")
-
+    print(
+        "Loading EU sanctions list..."
+    )
 
     try:
 
+        # Read raw bytes instead of forcing UTF-8.
+        # This allows the XML parser to detect the
+        # encoding declared in the XML document.
         with open(
             xml_path,
-            encoding="utf-8-sig"
+            "rb",
         ) as file:
 
             xml_content = file.read()
-
-
 
         if not xml_content.strip():
 
@@ -103,180 +98,166 @@ def load_eu(
                 "EU XML file is empty"
             )
 
-
-
         data = xmltodict.parse(
             xml_content
         )
 
-
+        
 
     except Exception as error:
 
         raise RuntimeError(
-            f"Failed loading EU sanctions XML: {error}"
+            "Failed loading EU sanctions XML: "
+            f"{error}"
         )
 
-
-
-    entities = []
-
+    entities: list[SanctionedEntity] = []
 
     sanctions = find_entities(
         data
     )
 
-
     print(
-        f"EU XML entities found: {len(sanctions)}"
+        "EU XML entities found: "
+        f"{len(sanctions)}"
     )
-
-
 
     for entity in sanctions:
 
-
-        if not isinstance(entity, dict):
-
+        if not isinstance(
+            entity,
+            dict,
+        ):
             continue
 
-
-
-        aliases = []
-
+        aliases: list[str] = []
         primary_name = ""
 
-
-
-        # -------------------------------------
-        # Extract nameAlias
-        # -------------------------------------
+        # -------------------------------------------------
+        # Read nameAlias entries
+        # -------------------------------------------------
 
         name_alias = get_value(
             entity,
-            "nameAlias"
+            "nameAlias",
         )
-
-
 
         if name_alias:
 
-
             if isinstance(
                 name_alias,
-                dict
+                dict,
             ):
 
                 name_alias = [
                     name_alias
                 ]
 
-
-
             for alias in name_alias:
-
 
                 if not isinstance(
                     alias,
-                    dict
+                    dict,
                 ):
-
                     continue
 
-
-
                 whole_name = (
-
-                    alias.get("@wholeName")
-
-                    or
-
-                    alias.get("wholeName")
-
+                    alias.get(
+                        "@wholeName"
+                    )
+                    or alias.get(
+                        "wholeName"
+                    )
                 )
 
+                if not isinstance(
+                    whole_name,
+                    str,
+                ):
+                    continue
 
+                whole_name = (
+                    whole_name.strip()
+                )
 
-                if whole_name:
+                if not whole_name:
+                    continue
 
+                # First name becomes the primary name.
+                if not primary_name:
 
-                    if not primary_name:
+                    primary_name = (
+                        whole_name
+                    )
 
-                        primary_name = whole_name.strip()
+                # Remaining unique names become aliases.
+                elif whole_name not in aliases:
 
+                    aliases.append(
+                        whole_name
+                    )
 
-
-                    elif whole_name not in aliases:
-
-                        aliases.append(
-                            whole_name.strip()
-                        )
-
-
-
-        # -------------------------------------
-        # Fallback name field
-        # -------------------------------------
+        # -------------------------------------------------
+        # Fallback to <name> if no nameAlias exists
+        # -------------------------------------------------
 
         if not primary_name:
-
 
             name = get_value(
                 entity,
-                "name"
+                "name",
             )
-
 
             if isinstance(
                 name,
-                str
+                str,
             ):
 
-                primary_name = name.strip()
+                primary_name = (
+                    name.strip()
+                )
 
-
-
-        # Ignore invalid records
-
+        # Skip records without a usable name.
         if not primary_name:
-
             continue
 
-
+        # -------------------------------------------------
+        # Listed/designation date
+        # -------------------------------------------------
 
         listed_date = (
-
-            entity.get("@designationDate")
-
-            or
-
-            entity.get("designationDate")
-
+            entity.get(
+                "@designationDate"
+            )
+            or entity.get(
+                "designationDate"
+            )
         )
 
+        if isinstance(
+            listed_date,
+            str,
+        ):
 
-
-        entities.append(
-
-            SanctionedEntity(
-
-                name=primary_name,
-
-                aliases=aliases,
-
-                source="EU",
-
-                listed_date=listed_date
-
+            listed_date = (
+                listed_date.strip()
             )
 
+        # -------------------------------------------------
+        # Create standard SanctionedEntity
+        # -------------------------------------------------
+
+        entities.append(
+            SanctionedEntity(
+                name=primary_name,
+                aliases=aliases,
+                source="EU",
+                listed_date=listed_date,
+            )
         )
-
-
 
     print(
         f"Loaded {len(entities)} EU records"
     )
-
 
     return entities

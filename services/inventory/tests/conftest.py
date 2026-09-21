@@ -26,6 +26,10 @@ TestingSessionLocal = sessionmaker(
 )
 
 
+# ============================================================
+# DATABASE FIXTURES
+# ============================================================
+
 def override_get_db():
     db = TestingSessionLocal()
 
@@ -54,6 +58,10 @@ def db_session():
     finally:
         db.close()
 
+
+# ============================================================
+# SALES HISTORY SEED HELPER
+# ============================================================
 
 # IMPORTANT:
 # This is a NORMAL FUNCTION.
@@ -87,20 +95,82 @@ def seed_sales_history(
         db.close()
 
 
+# ============================================================
+# TEST PERMISSIONS
+# ============================================================
+
+ROLE_PERMISSIONS = {
+    "ceo": [
+        "inventory:read",
+        "inventory:write",
+        "compliance:read",
+        "compliance:write",
+        "supplier:read",
+        "supplier:write",
+        "logistics:read",
+        "logistics:write",
+    ],
+    "vp_operations": [
+        "inventory:read",
+        "inventory:write",
+        "compliance:read",
+        "compliance:write",
+        "supplier:read",
+        "supplier:write",
+        "logistics:read",
+        "logistics:write",
+    ],
+    "procurement_manager": [
+        "supplier:read",
+        "supplier:write",
+    ],
+    "logistics_manager": [
+        "logistics:read",
+        "logistics:write",
+    ],
+    "compliance_officer": [
+        "compliance:read",
+        "compliance:write",
+    ],
+    "warehouse_manager": [
+        "inventory:read",
+        "inventory:write",
+    ],
+    "analyst": [
+        "inventory:read",
+        "compliance:read",
+        "supplier:read",
+        "logistics:read",
+    ],
+    "supplier": [
+        "supplier:read",
+        "supplier:write",
+    ],
+}
+
+
 def _as_user(role: str):
     async def _override():
         return {
             "valid": True,
             "role": role,
             "user_id": 1,
+            "email": f"{role}@example.com",
+            "permissions": ROLE_PERMISSIONS.get(role, []),
         }
 
     return _override
 
 
+# ============================================================
+# DEFAULT CLIENT
+# warehouse_manager
+# ============================================================
+
 @pytest.fixture
 def client():
     app.dependency_overrides[get_db] = override_get_db
+
     app.dependency_overrides[verify_token] = _as_user(
         "warehouse_manager"
     )
@@ -110,6 +180,11 @@ def client():
 
     app.dependency_overrides.clear()
 
+
+# ============================================================
+# RAW CLIENT
+# No authentication override
+# ============================================================
 
 @pytest.fixture
 def client_raw():
@@ -121,10 +196,17 @@ def client_raw():
     app.dependency_overrides.clear()
 
 
+# ============================================================
+# CEO CLIENT
+# ============================================================
+
 @pytest.fixture
 def client_ceo():
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[verify_token] = _as_user("ceo")
+
+    app.dependency_overrides[verify_token] = _as_user(
+        "ceo"
+    )
 
     with TestClient(app) as c:
         yield c
@@ -132,9 +214,14 @@ def client_ceo():
     app.dependency_overrides.clear()
 
 
+# ============================================================
+# WAREHOUSE MANAGER CLIENT
+# ============================================================
+
 @pytest.fixture
 def client_warehouse_manager():
     app.dependency_overrides[get_db] = override_get_db
+
     app.dependency_overrides[verify_token] = _as_user(
         "warehouse_manager"
     )

@@ -277,62 +277,57 @@ def download_file(
 
 def download_all_lists():
 
-
     download_tasks = [
 
-
         (
-
             OFAC_DOWNLOAD_URL,
-
             OFAC_CSV_PATH
-
         ),
 
-
-
         (
-
             UN_DOWNLOAD_URL,
-
             UN_XML_PATH
-
         ),
-
-
 
         (
-
             EU_DOWNLOAD_URL,
-
             EU_XML_PATH
-
         ),
-
 
     ]
 
-
+    skipped = []
 
     for url, path in download_tasks:
 
+        if not url or not url.strip():
+
+            print(
+                f"Skipping {path.name}: "
+                "no download URL configured."
+            )
+
+            skipped.append(path.name)
+
+            continue
 
         download_file(
-
             url,
-
             path
-
         )
 
+    if skipped:
 
+        print(
+            "Sanctions lists downloaded; "
+            f"skipped (not configured): "
+            f"{', '.join(skipped)}"
+        )
 
-    print(
+    else:
 
-        "All sanctions lists downloaded successfully."
-
-    )
-
-
+        print(
+            "All sanctions lists downloaded successfully."
+        )
 
     return True

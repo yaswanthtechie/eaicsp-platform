@@ -1,11 +1,12 @@
+
+from datetime import datetime
 from typing import Literal
 
 from pydantic import (
     BaseModel,
     Field,
+    field_validator,
 )
-
-
 
 
 class ComplianceRequest(BaseModel):
@@ -23,17 +24,78 @@ class ComplianceRequest(BaseModel):
         "customer",
     ]
 
-    country: str
+    country: str = Field(
+        ...,
+        min_length=1,
+        json_schema_extra={
+            "example": "India",
+        },
+    )
 
+    transaction_value: float = Field(
+        default=0.0,
+        ge=0,
+        json_schema_extra={
+            "example": 2500000,
+            "description": "Transaction value in INR",
+        },
+    )
+
+    @field_validator("entity_name")
+    @classmethod
+    def validate_entity_name(
+        cls,
+        value: str,
+    ) -> str:
+        if not value.strip():
+            raise ValueError(
+                "entity_name must not be blank"
+            )
+
+        return value
+
+    @field_validator("country")
+    @classmethod
+    def validate_country(
+        cls,
+        value: str,
+    ) -> str:
+        if not value.strip():
+            raise ValueError(
+                "country must not be blank"
+            )
+
+        return value
+
+
+class RiskFactors(BaseModel):
+
+    match_confidence: float
+
+    source_coverage: float
+
+    recency: float
 
 
 class ComplianceResponse(BaseModel):
 
-    entity_name: str | None = None
+    entity_name: str | None
 
     entity_type: str
 
     country: str
+
+    transaction_value: float
+
+    screening_tier: Literal[
+        "LOW",
+        "MEDIUM",
+        "HIGH",
+    ]
+
+    enhanced_review_required: bool
+
+    screening_action: str
 
     is_flagged: bool
 
@@ -49,21 +111,93 @@ class ComplianceResponse(BaseModel):
 
     confidence: float
 
+    risk_score: float
+
+    risk_factors: RiskFactors
+
+    country_risk_score: float
+
+    overall_supplier_risk: float
+
     duration_ms: float
 
+    source: list[str]
 
+    override_applied: bool
+
+    override_reason: str | None
+
+    reviewed_by: str | None
+
+    # Case management fields
+    case_id: int | None = None
+
+    case_number: str | None = None
+
+    case_status: Literal[
+        "OPEN",
+        "UNDER_REVIEW",
+        "CLEARED",
+        "CONFIRMED",
+    ] | None = None
+
+class CaseResponse(BaseModel):
+
+    id: int
+
+    case_number: str
+
+    entity_name: str
+
+    entity_type: str
+
+    country: str | None
+
+    matched_name: str | None
+
+    matched_lists: str | None
+
+    match_score: int
+
+    risk_score: float
+
+    screening_tier: str | None
+
+    screening_action: str | None
+
+    status: Literal[
+        "OPEN",
+        "UNDER_REVIEW",
+        "CLEARED",
+        "CONFIRMED",
+    ]
+
+    assigned_to: str | None
+
+    assigned_at: datetime | None
+
+    resolution: str | None
+
+    resolution_reason: str | None
+
+    resolved_at: datetime | None
+
+    created_at: datetime
+
+    updated_at: datetime
+
+class CaseListResponse(BaseModel):
+
+    cases: list[CaseResponse]
+
+    count: int
 
 class BulkComplianceRequest(BaseModel):
 
     entity_names: list[str] = Field(
         ...,
         min_length=1,
-        json_schema_extra={
-            "example": [
-                "HAMAS",
-                "OpenAI",
-            ],
-        },
+        max_length=500,
     )
 
     entity_type: Literal[
@@ -71,8 +205,22 @@ class BulkComplianceRequest(BaseModel):
         "customer",
     ]
 
-    country: str
+    country: str = Field(
+        ...,
+        min_length=1,
+        json_schema_extra={
+            "example": "India",
+        },
+    )
 
+    transaction_value: float = Field(
+        default=0.0,
+        ge=0,
+        json_schema_extra={
+            "example": 2500000,
+            "description": "Transaction value in INR",
+        },
+    )
 
 
 class BulkComplianceResponse(BaseModel):
@@ -86,3 +234,125 @@ class BulkComplianceResponse(BaseModel):
     total_duration_ms: float
 
     results: list[ComplianceResponse]
+
+
+class FlagRatePoint(BaseModel):
+
+    date: str
+
+    total: int
+
+    flagged: int
+
+    flag_rate: float
+
+
+class TopFlaggedEntity(BaseModel):
+
+    entity_name: str
+
+    count: int
+
+
+class AuditSummaryResponse(BaseModel):
+
+    total_screenings: int
+
+    total_flagged: int
+
+    overall_flag_rate: float
+
+    flag_rate_over_time: list[FlagRatePoint]
+
+    most_frequently_flagged_entities: list[
+        TopFlaggedEntity
+    ]
+
+
+class OverrideCreateRequest(BaseModel):
+
+    entity_name: str = Field(
+        ...,
+        min_length=1,
+        json_schema_extra={
+            "example": "ABC Technologies",
+        },
+    )
+
+    matched_name: str = Field(
+        ...,
+        min_length=1,
+        json_schema_extra={
+            "example": "ABC TECHNOLOGY LTD",
+        },
+    )
+
+    source: str = Field(
+        ...,
+        min_length=1,
+        json_schema_extra={
+            "example": "OFAC",
+        },
+    )
+
+    reason: str = Field(
+        ...,
+        min_length=1,
+        json_schema_extra={
+            "example": (
+                "Reviewed and confirmed as a different company"
+            ),
+        },
+    )
+
+    reviewed_by: str = Field(
+        ...,
+        min_length=1,
+        json_schema_extra={
+            "example": "admin",
+        },
+    )
+
+    @field_validator(
+        "entity_name",
+        "matched_name",
+        "source",
+        "reason",
+        "reviewed_by",
+    )
+    @classmethod
+    def validate_not_blank(
+        cls,
+        value: str,
+    ) -> str:
+        if not value.strip():
+            raise ValueError(
+                "Value must not be blank"
+            )
+
+        return value
+
+
+class OverrideResponse(BaseModel):
+
+    id: int
+
+    entity_name: str
+
+    matched_name: str
+
+    source: str
+
+    reason: str
+
+    reviewed_by: str
+
+    created_at: datetime
+
+
+class ComplianceSummaryResponse(BaseModel):
+    screening_volume: int
+    flagged_count: int
+    flag_rate: float
+    open_cases: int
+    average_resolution_time_hours: float

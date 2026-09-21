@@ -3,9 +3,21 @@ import json
 
 import pandas as pd
 import mlflow
+from src.seasonal_naive import seasonal_naive_forecast
+from src.scenario_forecasting import (
+    create_promotion_scenario,
+    compare_scenarios
+)
+from src.accuracy_monitor import (
+    monitor_forecast_accuracy
+)
 
 
 from src.data import load_sales_data
+from src.external_regressors import (
+    add_external_regressors,
+    validate_external_regressors,
+)
 
 
 from src.train_prophet import (
@@ -59,9 +71,15 @@ def main():
     # Load Dataset
     # ===============================
 
-
     df = load_sales_data()
 
+    df = add_external_regressors(df)
+
+    validate_external_regressors(df)
+
+    print(
+        "External regressors added successfully."
+    )
 
     print(
         f"Total Rows : {len(df)}"
@@ -278,7 +296,37 @@ def main():
         len(xgb_forecast)
     )
 
+    # ===============================
+    # Seasonal-Naive Baseline
+    # ===============================
 
+    naive_predictions = seasonal_naive_forecast(
+        train_df=train_df,
+        horizon_months=len(test_df),
+    )
+
+    naive_prediction_values = [
+        item["prediction"]
+        for item in naive_predictions
+    ]
+
+    naive_actual_values = test_df["y"].values
+
+    naive_mape = float(
+        (
+            abs(naive_actual_values - naive_prediction_values)
+            / naive_actual_values
+        ).mean()
+        * 100
+    )
+    print(
+        f"Seasonal-naive baseline MAPE: {naive_mape:.2f}%"
+    )
+
+    mlflow.log_metric(
+        "seasonal_naive_mape",
+        naive_mape,
+    )
 
     # ===============================
     # Prophet Evaluation
@@ -339,14 +387,18 @@ def main():
 
 
     weight_combinations = [
-
-        (0.5,0.5),
-
-        (0.4,0.6),
-
-        (0.3,0.7)
-
-    ]
+    (0.0, 1.0),
+    (0.1, 0.9),
+    (0.2, 0.8),
+    (0.3, 0.7),
+    (0.4, 0.6),
+    (0.5, 0.5),
+    (0.6, 0.4),
+    (0.7, 0.3),
+    (0.8, 0.2),
+    (0.9, 0.1),
+    (1.0, 0.0),
+]
 
 
 
@@ -539,6 +591,10 @@ def main():
             float(weights[1])
 
     }
+    log_model(
+        best_weights,
+        "Best_Ensemble"
+    )
 
 
 
@@ -581,7 +637,217 @@ def main():
     print(
         best_weights
     )
-        # ===============================
+    # ===============================
+    # Forecast Accuracy Monitoring
+    # ===============================
+
+    print(
+        "\n========== FORECAST ACCURACY MONITORING =========="
+    )
+
+    monitoring_df = pd.DataFrame({
+
+        "date":
+            merged_forecast["ds"].values,
+
+        "actual":
+            actual,
+
+        "predicted":
+            best_model["prediction"]
+
+    })
+
+
+    monitoring_result = monitor_forecast_accuracy(
+
+        monitoring_df,
+
+        window=3,
+
+        threshold=10.0
+
+    )
+    mlflow.log_metrics({
+        "overall_mape": monitoring_result["metrics"]["mape"],
+        "latest_rolling_mape": monitoring_result["latest_rolling_mape"],
+        "monitoring_rmse": monitoring_result["metrics"]["rmse"],
+    })
+
+
+    print(
+        "\n========== OVERALL MONITORING METRICS =========="
+    )
+
+    print(
+         f"Overall MAPE: "
+         f"{monitoring_result['metrics']['mape']:.2f}%"
+    )
+    print(
+        f"Overall RMSE: "
+        f"{monitoring_result['metrics']['rmse']:.2f}"
+    )
+
+
+    print(
+        f"Latest Rolling MAPE: "
+        f"{monitoring_result['latest_rolling_mape']:.2f}%"
+    )
+ 
+
+
+    print(
+        "\n========== ALERT STATUS =========="
+    )
+    print(
+        f"Alert Status: "
+        f"{monitoring_result['alert']['status']}"
+    )
+
+    print(
+        f"Alert Message: "
+        f"{monitoring_result['alert']['message']}"
+    )
+
+    
+    # ===============================
+    # Scenario / What-if Forecasting
+    # ===============================
+
+    print(
+        "\n========== SCENARIO FORECASTING =========="
+    )
+
+
+    # Baseline future dataframe
+
+    scenario_input = test_df[
+        [
+            "ds",
+            "is_holiday",
+            "promotion",
+            "weather_index"
+        ]
+    ].copy()
+
+
+    # -------------------------------
+    # Baseline Forecast
+    # -------------------------------
+
+    baseline_forecast = prophet_model.predict(
+        scenario_input
+    )
+
+
+    # -------------------------------
+    # Create Promotion Scenario
+    # -------------------------------
+
+    promotion_scenario_input = (
+        create_promotion_scenario(
+
+            scenario_input,
+
+            promotion_increase=0.20,
+
+            scenario_month=12
+
+        )
+    )
+
+
+    # -------------------------------
+    # Scenario Forecast
+    # -------------------------------
+
+    scenario_forecast = prophet_model.predict(
+        promotion_scenario_input
+    )
+
+
+    # -------------------------------
+    # Compare Forecasts
+    # -------------------------------
+
+    scenario_comparison = compare_scenarios(
+
+        baseline_forecast,
+
+        scenario_forecast
+
+    )
+    total_forecast_difference = (
+        scenario_comparison["forecast_difference"].sum()
+    )
+
+    mlflow.log_metric(
+        "scenario_total_forecast_difference",
+        float(total_forecast_difference)
+    )
+
+
+    print(
+        "\n========== BASELINE VS PROMOTION SCENARIO =========="
+    )
+
+
+    print(
+        scenario_comparison[
+            [
+                "date",
+                "baseline_forecast",
+                "scenario_forecast",
+                "forecast_difference",
+                "percentage_change"
+            ]
+        ]
+    )
+
+
+    print(
+        "\n========== SCENARIO SUMMARY =========="
+    )
+
+
+    total_baseline = (
+        scenario_comparison[
+            "baseline_forecast"
+        ].sum()
+    )
+
+
+    total_scenario = (
+        scenario_comparison[
+            "scenario_forecast"
+        ].sum()
+    )
+
+
+    total_difference = (
+        total_scenario
+        -
+        total_baseline
+    )
+
+
+    print(
+        f"Baseline Forecast Total: "
+        f"{total_baseline:.2f}"
+    )
+
+
+    print(
+        f"Scenario Forecast Total: "
+        f"{total_scenario:.2f}"
+    )
+
+
+    print(
+        f"Forecast Difference: "
+        f"{total_difference:.2f}"
+    )
+    # ===============================
     # Save Forecast Plot
     # ===============================
 
@@ -591,7 +857,14 @@ def main():
 
 
     prophet_plot = prophet_model.predict(
-        test_df[["ds"]]
+        test_df[
+            [
+                "ds",
+                "is_holiday",
+                "promotion",
+                "weather_index",
+            ]
+        ]
     )
 
 

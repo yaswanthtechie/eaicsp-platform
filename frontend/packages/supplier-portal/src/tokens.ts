@@ -4,10 +4,13 @@ export const colors = {
   border: "#232B3E",
   text: "#E6EAF2",
   textMuted: "#8B95A8",
+
   primary: "#3B82F6",
   success: "#10B981",
   warning: "#F59E0B",
   danger: "#EF4444",
+
+  black: "#000000",
 };
 
 export const space = {

@@ -1,4 +1,7 @@
+
 import pytest
+from unittest.mock import MagicMock, patch
+from pydantic import ValidationError
 
 from src.service import (
     IrisService,
@@ -7,9 +10,40 @@ from src.service import (
 )
 
 
+# ==========================================================
+# Service Fixture
+# ==========================================================
+
 @pytest.fixture
 def service():
-    return IrisService()
+    """
+    Create IrisService with mocked model loaders.
+
+    The canary loader returns the same structure expected
+    by select_model():
+
+        alias -> (model, version)
+
+    This prevents the tests from requiring a real MLflow
+    production model.
+    """
+
+    with patch(
+        "src.service.load_model",
+        return_value=(MagicMock(), "1"),
+    ), patch(
+        "src.service.load_canary_models",
+        return_value={
+            "production": (MagicMock(), "1"),
+            "staging": (MagicMock(), "2"),
+        },
+    ):
+        return IrisService()
+
+
+# ==========================================================
+# Single Prediction Tests
+# ==========================================================
 
 
 def test_valid_prediction(service):
@@ -32,10 +66,55 @@ def test_valid_prediction(service):
 
 
 def test_invalid_input():
-    with pytest.raises(Exception):
+    """
+    Input must contain exactly four features.
+    """
+
+    with pytest.raises(ValidationError):
         IrisRequest(
             features=[5.1, 3.5]
         )
+
+
+def test_malformed_prediction_input():
+    """
+    Malformed prediction input should be rejected.
+    """
+
+    with pytest.raises(ValidationError):
+        IrisRequest(
+            features=[5.1, 3.5, 1.4]
+        )
+
+
+def test_missing_prediction_input():
+    """
+    Missing features field should be rejected.
+    """
+
+    with pytest.raises(ValidationError):
+        IrisRequest()
+
+
+def test_invalid_feature_type():
+    """
+    Feature values must be numeric.
+    """
+
+    with pytest.raises(ValidationError):
+        IrisRequest(
+            features=[
+                "abc",
+                "xyz",
+                "test",
+                "value",
+            ]
+        )
+
+
+# ==========================================================
+# Health Test
+# ==========================================================
 
 
 def test_health(service):
@@ -45,6 +124,10 @@ def test_health(service):
     assert "model_version" in response
     assert "canary_prediction" in response
 
+
+# ==========================================================
+# Metrics Test
+# ==========================================================
 
 
 def test_metrics(service):
@@ -65,6 +148,11 @@ def test_metrics(service):
     assert metrics["model_version"] is not None
 
 
+# ==========================================================
+# Batch Prediction Tests
+# ==========================================================
+
+
 def test_batch_prediction(service):
 
     request = IrisBatchRequest(
@@ -81,11 +169,61 @@ def test_batch_prediction(service):
     assert response["batch_latency_ms"] >= 0
 
     for prediction in response["predictions"]:
+
         assert prediction["prediction"] in [
             "setosa",
             "versicolor",
             "virginica",
         ]
+
         assert prediction["confidence"] >= 0
         assert prediction["latency_ms"] >= 0
         assert prediction["model_version"] is not None
+
+
+def test_batch_missing_input():
+    """
+    Batch request must contain the features field.
+    """
+
+    with pytest.raises(ValidationError):
+        IrisBatchRequest()
+
+
+def test_batch_invalid_feature_count():
+    """
+    Every batch sample must contain exactly four features.
+    """
+
+    with pytest.raises(ValidationError):
+        IrisBatchRequest(
+            features=[
+                [5.1, 3.5, 1.4],
+                [6.7, 3.1, 4.7, 1.5],
+            ]
+        )
+
+
+def test_empty_batch_input():
+    """
+    Batch request must contain at least one sample.
+    """
+
+    with pytest.raises(ValidationError):
+        IrisBatchRequest(
+            features=[]
+        )
+
+
+def test_batch_invalid_feature_type():
+    """
+    Batch features must be numeric.
+    """
+
+    with pytest.raises(ValidationError):
+        IrisBatchRequest(
+            features=[
+                ["abc", "xyz", "test", "value"]
+            ]
+        )
+

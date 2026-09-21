@@ -6,38 +6,94 @@ from app.schemas.purchase_order import (
     PurchaseOrderStatus,
 )
 
+from app.services.po_p2p_state_machine import (
+    P2PState,
+    initialize_p2p_state,
+    remove_p2p_state,
+)
+from app.services.supplier_onboarding_service import (
+    is_supplier_active,
+)
+
 # In-memory po storage
 purchase_orders = {}
 
 # In-memory event storage
 po_events =  {}
-
-
-
-def create_purchase_order(purchase_order: PurchaseOrderCreate):
+def create_purchase_order(
+    purchase_order: PurchaseOrderCreate,
+):
     """
     Create a new Purchase Order.
+
+    A Purchase Order can only be created for a supplier
+    that has completed onboarding and is active.
     """
 
     if purchase_order.po_number in purchase_orders:
-        raise ValueError("Purchase Order already exists.")
+        raise ValueError(
+            "Purchase Order already exists."
+        )
+
+    # Supplier must be fully onboarded and active
+    supplier_id = purchase_order.supplier_id
+
+    if not supplier_id:
+        raise ValueError(
+            "Purchase Order supplier ID is required."
+        )
+
+    if not is_supplier_active(supplier_id):
+        raise ValueError(
+            f"Supplier '{supplier_id}' must complete "
+            "onboarding and be active before creating "
+            "a Purchase Order."
+        )
+
+    # Calculate total from PO items
+    calculated_total = sum(
+        item.quantity * item.unit_price
+        for item in purchase_order.items
+    )
+
+    calculated_total = round(
+        calculated_total,
+        2,
+    )
+
+    submitted_total = round(
+        purchase_order.total_amount,
+        2,
+    )
+
+    # Validate total amount
+    if submitted_total != calculated_total:
+        raise ValueError(
+            "Purchase Order total amount does not "
+            "match the item total. "
+            f"Expected: {calculated_total:.2f}, "
+            f"Received: {submitted_total:.2f}."
+        )
 
     purchase_order_data = purchase_order.model_dump()
 
-    # Every new Purchase Order starts in draft state
-    purchase_order_data["status"] = PurchaseOrderStatus.draft
+    purchase_order_data["status"] = (
+        PurchaseOrderStatus.draft
+    )
 
-# Initialize history
     purchase_order_data["history"] = []
 
     purchase_order_data["actual_delivery_date"] = None
 
-    purchase_orders[purchase_order.po_number] = purchase_order_data
+    purchase_orders[
+        purchase_order.po_number
+    ] = purchase_order_data
 
-    po_events[purchase_order.po_number] = []
+    po_events[
+        purchase_order.po_number
+    ] = []
 
     return purchase_order_data
-
 
 def get_purchase_order_events(po_number: str):
     """
@@ -66,25 +122,91 @@ def get_all_purchase_orders():
 
 def update_purchase_order(
     po_number: str,
-    purchase_order: PurchaseOrderUpdate
+    purchase_order: PurchaseOrderUpdate,
 ):
     """
     Update an existing Purchase Order.
+
+    Rules:
+    - PO must exist.
+    - Only draft POs can be updated.
+    - If items or total_amount are changed, the total
+      must match the sum of item quantities × unit prices.
     """
 
+    # Check whether PO exists
     if po_number not in purchase_orders:
         return None
 
     existing_po = purchase_orders[po_number]
 
-    update_data = purchase_order.model_dump(exclude_unset=True)
+    # Only draft POs can be updated
+    if existing_po["status"] != PurchaseOrderStatus.draft:
+        raise ValueError(
+            f"Purchase Order '{po_number}' cannot be updated "
+            f"because its current status is "
+            f"'{existing_po['status'].value}'. "
+            "Only draft Purchase Orders can be updated."
+        )
 
+    # Get only fields provided by the client
+    update_data = purchase_order.model_dump(
+        exclude_unset=True
+    )
+
+    # Prevent empty update requests
+    if not update_data:
+        raise ValueError(
+            "No fields were provided for update."
+        )
+
+    # Validate total when items or total_amount change
+    if "items" in update_data or "total_amount" in update_data:
+
+        items = update_data.get(
+            "items",
+            existing_po["items"],
+        )
+
+        total_amount = update_data.get(
+            "total_amount",
+            existing_po["total_amount"],
+        )
+
+        # Calculate total from items
+        calculated_total = sum(
+            item["quantity"] * item["unit_price"]
+            for item in items
+        )
+
+        calculated_total = round(
+            calculated_total,
+            2,
+        )
+
+        submitted_total = round(
+            total_amount,
+            2,
+        )
+
+        # Validate total
+        if submitted_total != calculated_total:
+            raise ValueError(
+                "Purchase Order total amount does not "
+                "match the item total. "
+                f"Expected: {calculated_total:.2f}, "
+                f"Received: {submitted_total:.2f}."
+            )
+
+    # Apply validated changes
     existing_po.update(update_data)
 
+    # Save updated PO
     purchase_orders[po_number] = existing_po
 
     return existing_po
 
+#delete purchase order and remove p2p state
 
 def delete_purchase_order(po_number: str):
     if po_number not in purchase_orders:
@@ -92,28 +214,37 @@ def delete_purchase_order(po_number: str):
 
     del purchase_orders[po_number]
 
-    # Keep audit events even after the Purchase Order is deleted.
-    # The audit trail must outlive the Purchase Order it describes.
+    remove_p2p_state(po_number)
 
     return True
 
 
-
 def acknowledge_purchase_order(po_number: str):
     """
-    Acknowledge an existing Purchase Order
-    using the state machine.
+    Acknowledge an existing Purchase Order.
+
+    Once the PO reaches acknowledged status, the shared
+    P2P workflow starts from the acknowledged stage.
     """
 
-    return transition_purchase_order(
+    purchase_order = transition_purchase_order(
         po_number,
         "supplier",
         PurchaseOrderStatus.acknowledged,
     )
 
+    if purchase_order is None:
+        return None
+
+    initialize_p2p_state(
+        po_number,
+        P2PState.acknowledged,
+    )
+
+    return purchase_order
+
+
 # valid transitions and history tracking
-
-
 
 VALID_TRANSITIONS = {
     PurchaseOrderStatus.draft: [
@@ -155,6 +286,41 @@ def transition_purchase_order(
     # Allowed transitions
     allowed_states = VALID_TRANSITIONS[current_state]
 
+    # --------------------------------------------------------
+    # Supplier onboarding enforcement
+    # --------------------------------------------------------
+    #
+    # A Purchase Order may only be sent to a supplier that
+    # has completed the onboarding workflow and reached
+    # the ACTIVE status.
+    #
+    # This check applies only to draft -> sent.
+    # It therefore does not interfere with acknowledgement,
+    # fulfilment, cancellation, or other existing transitions.
+    #
+    # bulk_send_purchase_orders() also uses this transition
+    # function, so bulk sending is protected automatically.
+    # --------------------------------------------------------
+
+    if (
+        current_state == PurchaseOrderStatus.draft
+        and target_state == PurchaseOrderStatus.sent
+    ):
+        supplier_id = purchase_order.get("supplier_id")
+
+        if not supplier_id:
+            raise ValueError(
+                "Purchase Order supplier ID is required "
+                "before sending."
+            )
+
+        if not is_supplier_active(supplier_id):
+            raise ValueError(
+                f"Supplier '{supplier_id}' must complete "
+                "onboarding and be active before the "
+                "Purchase Order can be sent."
+            )
+
     # Check whether the transition is legal
     if target_state not in allowed_states:
 
@@ -171,12 +337,26 @@ def transition_purchase_order(
             f"Allowed: {allowed}."
         )
 
-    # Set actual delivery date when PO is fulfilled
+    # Set actual delivery date from the latest goods receipt
+    # when the PO is fulfilled.
     if target_state == PurchaseOrderStatus.fulfilled:
-        purchase_order["actual_delivery_date"] = date.today()
+        from app.services.goods_receipt_service import goods_receipts
+
+        receipt_dates = [
+            receipt["receipt_date"]
+            for receipt in goods_receipts.values()
+            if receipt.get("po_number") == po_number
+            and receipt.get("receipt_date") is not None
+        ]
+
+        purchase_order["actual_delivery_date"] = (
+            max(receipt_dates) if receipt_dates else None
+        )
 
     # Create audit event
     event = {
+        "po_number": po_number,
+        "supplier_id": purchase_order["supplier_id"],
         "actor": actor,
         "from_status": current_state,
         "to_status": target_state,
@@ -202,3 +382,96 @@ def transition_purchase_order(
     return purchase_order
 
 
+def bulk_send_purchase_orders(po_numbers: list[str],  actor: str,):
+    """
+    Send multiple Purchase Orders from draft -> sent.
+
+    Each PO is processed independently.
+
+    Success:
+        draft -> sent
+
+    Failure:
+        PO does not exist
+        OR PO is not in draft status
+
+    One failed PO does not stop the remaining POs.
+    """
+
+    results = []
+
+    successful = 0
+    failed = 0
+
+    for po_number in po_numbers:
+
+        # ----------------------------------------------------
+        # 1. Check whether PO exists
+        # ----------------------------------------------------
+
+        if po_number not in purchase_orders:
+
+            results.append({
+                "po_number": po_number,
+                "success": False,
+                "status": None,
+                "error": "Purchase Order not found",
+            })
+
+            failed += 1
+            continue
+
+        # ----------------------------------------------------
+        # 2. Use the existing state-machine function
+        # ----------------------------------------------------
+
+        try:
+
+            purchase_order = transition_purchase_order(
+                po_number=po_number,
+                actor=actor,
+                target_state=PurchaseOrderStatus.sent,
+            )
+
+            # ------------------------------------------------
+            # 3. Successful result
+            # ------------------------------------------------
+
+            results.append({
+                "po_number": po_number,
+                "success": True,
+                "status": purchase_order["status"],
+                "error": None,
+            })
+
+            successful += 1
+
+        except ValueError as e:
+
+            # ------------------------------------------------
+            # 4. One PO failure should not stop the batch
+            # ------------------------------------------------
+
+            current_status = (
+                purchase_orders[po_number]["status"]
+            )
+
+            results.append({
+                "po_number": po_number,
+                "success": False,
+                "status": current_status,
+                "error": str(e),
+            })
+
+            failed += 1
+
+    # --------------------------------------------------------
+    # 5. Return complete bulk result
+    # --------------------------------------------------------
+
+    return {
+        "total": len(po_numbers),
+        "successful": successful,
+        "failed": failed,
+        "results": results,
+    }

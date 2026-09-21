@@ -1,4 +1,3 @@
-
 from datetime import datetime, timedelta
 
 import pytest
@@ -197,10 +196,21 @@ def test_m1_fulfill_shortage_from_parent_warehouse(
         parent_warehouse_id="WH-PARENT",
     )
 
+    parent_cost_layer = InventoryCostLayer(
+        sku_id=sku,
+        warehouse_id="WH-PARENT",
+        category="Electronics",
+        quantity_received=100,
+        quantity_remaining=100,
+        unit_cost=50.0,
+        received_at=datetime.utcnow() - timedelta(days=1),
+    )
+
     db_session.add_all(
         [
             parent,
             child,
+            parent_cost_layer,
         ]
     )
 
@@ -299,7 +309,7 @@ def test_m2_automatic_draft_po_selects_lowest_cost_supplier(
     )
 
     response = client.post(
-        "/api/v1/purchase-orders/draft",
+        "/api/v1/inventory/purchase-orders/draft",
         json={
             "sku_id": sku,
             "warehouse_id": "WH-M2",
@@ -363,7 +373,7 @@ def test_m2_automatic_po_contains_expected_cost(
     )
 
     response = client.post(
-        "/api/v1/purchase-orders/draft",
+        "/api/v1/inventory/purchase-orders/draft",
         json={
             "sku_id": sku,
             "warehouse_id": "WH-M2-COST",
@@ -385,7 +395,7 @@ def test_m2_automatic_po_fails_when_inventory_not_found(
     client,
 ):
     response = client.post(
-        "/api/v1/purchase-orders/draft",
+        "/api/v1/inventory/purchase-orders/draft",
         json={
             "sku_id": "SKU-M2-NOT-FOUND",
             "warehouse_id": "WH-MISSING",
@@ -414,6 +424,7 @@ def test_m2_automatic_po_fails_when_no_supplier_exists(
     )
 
     db_session.add(inventory)
+
     db_session.commit()
 
     seed_sales_history(
@@ -424,7 +435,7 @@ def test_m2_automatic_po_fails_when_no_supplier_exists(
     )
 
     response = client.post(
-        "/api/v1/purchase-orders/draft",
+        "/api/v1/inventory/purchase-orders/draft",
         json={
             "sku_id": sku,
             "warehouse_id": "WH-M2-NO-SUP",
@@ -466,6 +477,7 @@ def add_m3_cost_layer(
     )
 
     db_session.add(layer)
+
     db_session.commit()
 
 
@@ -477,13 +489,13 @@ def test_m3_fifo_inventory_valuation(
     FIFO:
 
         50 units @ 10
-        30 units @ 20
+        50 units @ 20
 
     Current inventory = 80
 
-    Expected:
+    Expected remaining value:
 
-        (50 * 10) + (30 * 20)
+        50 * 10 + 30 * 20
         = 500 + 600
         = 1100
     """
@@ -503,6 +515,7 @@ def test_m3_fifo_inventory_valuation(
     )
 
     db_session.add(inventory)
+
     db_session.commit()
 
     add_m3_cost_layer(
@@ -522,7 +535,7 @@ def test_m3_fifo_inventory_valuation(
     )
 
     response = client.get(
-        "/api/v1/reports/inventory-value",
+        "/api/v1/inventory/reports/inventory-value",
         params={
             "valuation_method": "fifo",
         },
@@ -569,6 +582,7 @@ def test_m3_weighted_average_inventory_valuation(
     )
 
     db_session.add(inventory)
+
     db_session.commit()
 
     add_m3_cost_layer(
@@ -588,7 +602,7 @@ def test_m3_weighted_average_inventory_valuation(
     )
 
     response = client.get(
-        "/api/v1/reports/inventory-value",
+        "/api/v1/inventory/reports/inventory-value",
         params={
             "valuation_method": "weighted_average",
         },
@@ -669,7 +683,7 @@ def test_m3_inventory_value_grouped_by_warehouse_and_category(
     )
 
     response = client.get(
-        "/api/v1/reports/inventory-value",
+        "/api/v1/inventory/reports/inventory-value",
         params={
             "valuation_method": "fifo",
         },
@@ -694,6 +708,7 @@ def test_m3_inventory_value_grouped_by_warehouse_and_category(
             break
 
     assert grouped_item is not None
+
     assert grouped_item["inventory_value"] == 3000.0
 
 
@@ -716,10 +731,11 @@ def test_m3_zero_inventory_is_excluded_from_report(
     )
 
     db_session.add(inventory)
+
     db_session.commit()
 
     response = client.get(
-        "/api/v1/reports/inventory-value",
+        "/api/v1/inventory/reports/inventory-value",
         params={
             "valuation_method": "fifo",
         },
@@ -742,7 +758,7 @@ def test_m3_invalid_valuation_method_returns_422(
     client,
 ):
     response = client.get(
-        "/api/v1/reports/inventory-value",
+        "/api/v1/inventory/reports/inventory-value",
         params={
             "valuation_method": "invalid",
         },
@@ -750,3 +766,299 @@ def test_m3_invalid_valuation_method_returns_422(
 
     assert response.status_code == 422
 
+
+# ============================================================
+# MILESTONE 3 — PO RECEIVING AND COST LAYER
+# ============================================================
+
+
+def test_m3_receive_purchase_order_creates_cost_layer(
+    client,
+    db_session,
+):
+    """
+    Receiving a PO must:
+
+    1. Increase inventory quantity.
+    2. Create a new cost layer.
+    3. Use the PO unit cost.
+    4. Change PO status to received.
+    """
+
+    sku = "SKU-M3-PO-RECEIVE"
+    warehouse = "WH-M3-RECEIVE"
+
+    inventory = Inventory(
+        sku_id=sku,
+        warehouse_id=warehouse,
+        product_name="PO Receive Product",
+        category="Electronics",
+        quantity_on_hand=10,
+        avg_daily_demand=2,
+        lead_time_days=5,
+        safety_stock=5,
+        warehouse_type="local",
+    )
+
+    supplier = Supplier(
+        supplier_id="SUP-M3-RECEIVE",
+        sku_id=sku,
+        supplier_name="M3 Supplier",
+        unit_cost=25.0,
+        lead_time_days=5,
+    )
+
+    db_session.add_all(
+        [
+            inventory,
+            supplier,
+        ]
+    )
+
+    db_session.commit()
+
+    seed_sales_history(
+        sku_id=sku,
+        warehouse_id=warehouse,
+        daily_quantity=2,
+        days=30,
+    )
+
+    draft_response = client.post(
+        "/api/v1/inventory/purchase-orders/draft",
+        json={
+            "sku_id": sku,
+            "warehouse_id": warehouse,
+        },
+    )
+
+    assert draft_response.status_code == 201
+
+    draft_data = draft_response.json()
+
+    po_id = draft_data["po_id"]
+    po_quantity = draft_data["quantity"]
+    po_unit_cost = draft_data["unit_cost"]
+
+    receive_response = client.post(
+        f"/api/v1/inventory/purchase-orders/{po_id}/receive"
+    )
+
+    assert receive_response.status_code == 200
+
+    receive_data = receive_response.json()
+
+    assert receive_data["po_id"] == po_id
+    assert receive_data["status"] == "received"
+
+    db_session.expire_all()
+
+    updated_inventory = (
+        db_session.query(Inventory)
+        .filter(
+            Inventory.sku_id == sku,
+            Inventory.warehouse_id == warehouse,
+        )
+        .first()
+    )
+
+    assert updated_inventory is not None
+
+    assert (
+        updated_inventory.quantity_on_hand
+        == 10 + po_quantity
+    )
+
+    layers = (
+        db_session.query(InventoryCostLayer)
+        .filter(
+            InventoryCostLayer.sku_id == sku,
+            InventoryCostLayer.warehouse_id == warehouse,
+        )
+        .all()
+    )
+
+    assert len(layers) == 1
+
+    layer = layers[0]
+
+    assert layer.quantity_received == po_quantity
+    assert layer.quantity_remaining == po_quantity
+    assert layer.unit_cost == po_unit_cost
+    assert layer.category == "Electronics"
+
+
+def test_m3_receive_purchase_order_updates_inventory_value(
+    client,
+    db_session,
+):
+    """
+    A cost layer created by receiving a PO must
+    be included in FIFO valuation.
+    """
+
+    sku = "SKU-M3-PO-VALUE"
+    warehouse = "WH-M3-PO-VALUE"
+
+    inventory = Inventory(
+        sku_id=sku,
+        warehouse_id=warehouse,
+        product_name="PO Value Product",
+        category="Electronics",
+        quantity_on_hand=10,
+        avg_daily_demand=2,
+        lead_time_days=5,
+        safety_stock=5,
+        warehouse_type="local",
+    )
+
+    supplier = Supplier(
+        supplier_id="SUP-M3-PO-VALUE",
+        sku_id=sku,
+        supplier_name="Value Supplier",
+        unit_cost=20.0,
+        lead_time_days=5,
+    )
+
+    db_session.add_all(
+        [
+            inventory,
+            supplier,
+        ]
+    )
+
+    db_session.commit()
+
+    add_m3_cost_layer(
+        db_session,
+        sku,
+        warehouse,
+        10,
+        10.0,
+    )
+
+    seed_sales_history(
+        sku_id=sku,
+        warehouse_id=warehouse,
+        daily_quantity=2,
+        days=30,
+    )
+
+    draft_response = client.post(
+        "/api/v1/inventory/purchase-orders/draft",
+        json={
+            "sku_id": sku,
+            "warehouse_id": warehouse,
+        },
+    )
+
+    assert draft_response.status_code == 201
+
+    draft_data = draft_response.json()
+
+    po_id = draft_data["po_id"]
+    po_quantity = draft_data["quantity"]
+
+    receive_response = client.post(
+        f"/api/v1/inventory/purchase-orders/{po_id}/receive"
+    )
+
+    assert receive_response.status_code == 200
+
+    valuation_response = client.get(
+        "/api/v1/inventory/reports/inventory-value",
+        params={
+            "valuation_method": "fifo",
+        },
+    )
+
+    assert valuation_response.status_code == 200
+
+    valuation_data = valuation_response.json()
+
+    expected_value = (
+        10 * 10.0
+        + po_quantity * 20.0
+    )
+
+    assert (
+        valuation_data["total_inventory_value"]
+        == expected_value
+    )
+
+
+def test_m3_cannot_receive_purchase_order_twice(
+    client,
+    db_session,
+):
+    """
+    A received PO cannot be received again.
+    """
+
+    sku = "SKU-M3-PO-DUPLICATE"
+    warehouse = "WH-M3-PO-DUPLICATE"
+
+    inventory = Inventory(
+        sku_id=sku,
+        warehouse_id=warehouse,
+        product_name="Duplicate Receive Product",
+        category="Electronics",
+        quantity_on_hand=1,
+        avg_daily_demand=2,
+        lead_time_days=5,
+        safety_stock=5,
+        warehouse_type="local",
+    )
+
+    supplier = Supplier(
+        supplier_id="SUP-M3-DUPLICATE",
+        sku_id=sku,
+        supplier_name="Duplicate Supplier",
+        unit_cost=30.0,
+        lead_time_days=5,
+    )
+
+    db_session.add_all(
+        [
+            inventory,
+            supplier,
+        ]
+    )
+
+    db_session.commit()
+
+    seed_sales_history(
+        sku_id=sku,
+        warehouse_id=warehouse,
+        daily_quantity=2,
+        days=30,
+    )
+
+    draft_response = client.post(
+        "/api/v1/inventory/purchase-orders/draft",
+        json={
+            "sku_id": sku,
+            "warehouse_id": warehouse,
+        },
+    )
+
+    assert draft_response.status_code == 201
+
+    po_id = draft_response.json()["po_id"]
+
+    first_receive = client.post(
+        f"/api/v1/inventory/purchase-orders/{po_id}/receive"
+    )
+
+    assert first_receive.status_code == 200
+
+    second_receive = client.post(
+        f"/api/v1/inventory/purchase-orders/{po_id}/receive"
+    )
+
+    assert second_receive.status_code == 400
+
+    assert (
+        second_receive.json()["detail"]
+        == "Only draft purchase orders can be received"
+    )

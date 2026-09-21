@@ -1,64 +1,53 @@
-﻿# Inventory Service
+﻿﻿# Inventory Service
 
-## 1. Overview
+FastAPI microservice for managing inventory across multiple warehouses.
 
-The Inventory Service is a FastAPI microservice for managing inventory across multiple warehouses.
+## Technology
 
-### Main Features
+* Python 3.12
+* FastAPI
+* PostgreSQL
+* SQLAlchemy
+* Pydantic
+* HTTPX
+* Pytest
 
-* Multi-echelon inventory management
-* Reorder point calculation
-* Low-stock detection
-* Warehouse-to-warehouse stock transfer
-* Automatic draft purchase orders
-* FIFO and weighted-average inventory valuation
-* Optimistic locking and version control
-* Platform authentication and fine-grained RBAC
-* Row-level locking for concurrent updates
-* Bulk inventory update and CSV upload
-* What-if inventory simulation
+## Quick Start
 
-### Technology Stack
+```powershell
+cd services\inventory
+.\myenv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python -m pytest -v
+python -m uvicorn app.main:app --reload --port 8001
+```
 
-| Technology  | Purpose                     |
-| ----------- | --------------------------- |
-| Python 3.12 | Runtime                     |
-| FastAPI     | REST API                    |
-| PostgreSQL  | Database                    |
-| SQLAlchemy  | ORM                         |
-| Pydantic    | Validation                  |
-| HTTPX       | Platform Auth communication |
-| Pytest      | Testing                     |
+Swagger:
+
+```text
+http://localhost:8001/docs
+```
+
+Platform Auth Service:
+
+```text
+http://localhost:8005
+```
 
 ---
 
-# 2. Milestone 1 — Multi-Echelon Inventory
+## Milestone 1 — Multi-Echelon Inventory
 
-The inventory network follows a warehouse hierarchy:
+Supports:
 
-```text
-Central Warehouse
-        ↓
-Regional Warehouse
-        ↓
-Local Warehouse
-```
+* Central → Regional → Local warehouse hierarchy
+* Reorder point calculation
+* Low-stock detection
+* Warehouse-to-warehouse transfers
+* Parent warehouse shortage fulfillment
+* Self-parent and circular hierarchy validation
 
-Each inventory record maintains:
-
-* SKU
-* Warehouse
-* Product
-* Category
-* Quantity
-* Average daily demand
-* Lead time
-* Safety stock
-* Warehouse type
-* Parent warehouse
-* Version
-
-### Reorder Point
+Reorder point:
 
 ```text
 Reorder Point =
@@ -66,354 +55,29 @@ Average Daily Demand × Lead Time
 + Adjusted Safety Stock
 ```
 
-### Multi-Echelon Fulfillment
-
-When a warehouse has insufficient stock, the service checks its parent warehouse before triggering supplier replenishment.
+Main API:
 
 ```text
-Local Warehouse
-      ↓
-Check Parent Warehouse
-      ↓
-Stock Available?
-   /       \
- Yes        No
- ↓           ↓
-Transfer   Supplier
- Stock     Replenishment
-```
-
-### APIs
-
-| Method | Endpoint                                  | Purpose          |
-| ------ | ----------------------------------------- | ---------------- |
-| POST   | `/api/v1/inventory`                       | Create inventory |
-| GET    | `/api/v1/inventory`                       | List inventory   |
-| GET    | `/api/v1/inventory/reorder-plan`          | Reorder planning |
-| GET    | `/api/v1/inventory/low-stock`             | Low-stock items  |
-| POST   | `/api/v1/inventory/multi-echelon/fulfill` | Fulfill shortage |
-
----
-
-# 3. Milestone 2 — Demand-Driven Automatic Draft Purchase Order
-
-When inventory falls below the reorder point, the service can generate a structured draft purchase order.
-
-### Supplier Selection
-
-Suppliers are searched for the requested SKU.
-
-The supplier with the lowest available unit cost is selected.
-
-```text
-SKU
- ↓
-Find Suppliers
- ↓
-Compare Unit Cost
- ↓
-Select Supplier
- ↓
-Create Draft PO
-```
-
-### Suggested Quantity
-
-```text
-Suggested Quantity =
-Reorder Point - Current Quantity
-```
-
-### Expected Cost
-
-```text
-Expected Cost =
-Suggested Quantity × Unit Cost
-```
-
-### Draft PO Data
-
-A draft PO contains:
-
-* PO ID
-* SKU
-* Warehouse
-* Supplier
-* Quantity
-* Unit cost
-* Expected cost
-* Status
-
-The initial status is:
-
-```text
-draft
-```
-
-### API
-
-```text
-POST /api/v1/purchase-orders/draft
-```
-
-### Allowed Roles
-
-* `warehouse_manager`
-* `procurement_manager`
-
-### Authentication Responses
-
-| Situation                                  |                  Response |
-| ------------------------------------------ | ------------------------: |
-| Authorization header missing               |        `401 Unauthorized` |
-| Invalid/expired token                      |        `401 Unauthorized` |
-| User authenticated but role is not allowed |           `403 Forbidden` |
-| Auth service times out                     | `503 Service Unavailable` |
-| Auth service is unavailable                | `503 Service Unavailable` |
-| Unexpected auth-service response           | `503 Service Unavailable` |
-
----
-
-# 4. Milestone 3 — Inventory Valuation
-
-Inventory valuation supports:
-
-1. FIFO
-2. Weighted Average
-
-## FIFO
-
-FIFO consumes the oldest cost layers first.
-
-Example:
-
-```text
-50 units × ₹10
-50 units × ₹20
-```
-
-For 80 units:
-
-```text
-50 × ₹10 = ₹500
-30 × ₹20 = ₹600
-
-FIFO Value = ₹1,100
-```
-
-## Weighted Average
-
-```text
-50 × ₹10 = ₹500
-50 × ₹20 = ₹1,000
-
-Total Cost = ₹1,500
-Total Quantity = 100
-
-Average Cost = ₹15
-```
-
-For 80 units:
-
-```text
-80 × ₹15 = ₹1,200
-```
-
-### Report Grouping
-
-The valuation report is grouped by:
-
-```text
-Warehouse + Category
-```
-
-### API
-
-```text
-GET /api/v1/reports/inventory-value
-```
-
-Supported methods:
-
-```text
-valuation_method=fifo
-valuation_method=weighted_average
-```
-
-Example:
-
-```text
-GET /api/v1/reports/inventory-value?valuation_method=fifo
+POST /api/v1/inventory/multi-echelon/fulfill
 ```
 
 ---
 
-# 5. Milestone 4 — Optimistic Locking and Version Control
+## Milestone 2 — Automatic Draft Purchase Orders
 
-Inventory records maintain a `version` field for optimistic concurrency control.
+When inventory falls below the reorder point:
 
-### Version Flow
+* Calculates suggested quantity
+* Selects the lowest-cost supplier
+* Calculates expected cost
+* Creates a structured draft PO
+* Prevents duplicate draft POs
 
-```text
-Current Record
-     ↓
-Read Version
-     ↓
-Update With Expected Version
-     ↓
-Version Matches?
-   /       \
- Yes        No
- ↓           ↓
-Update     Reject
-Record     Conflict
- ↓
-Increment Version
-```
-
-For example:
+Draft PO:
 
 ```text
-Current version = 1
-
-Request A expects version = 1
-Request A succeeds
-New version = 2
-
-Request B still expects version = 1
-Request B is rejected
+POST /api/v1/inventory/purchase-orders/draft
 ```
-
-This prevents a stale update from overwriting a newer update.
-
-### Version Conflict
-
-A stale update is rejected when the supplied version does not match the current database version.
-
-The version is incremented only after a successful update.
-
----
-
-# 6. Milestone 5 — Fine-Grained Permissions and RBAC
-
-The Inventory Service integrates with the real Platform Auth Service.
-
-### Authentication Flow
-
-```text
-Client
-  ↓
-Inventory Service
-  ↓
-Platform Auth Service
-  ↓
-Validate Bearer Token
-  ↓
-Return User + Role
-  ↓
-Check Permission
-  ↓
-Allow / Reject
-```
-
-Requests include:
-
-```text
-Authorization: Bearer <token>
-X-Caller-Service: inventory-service
-```
-
-### Authentication Responses
-
-| Situation                                  |                  Response |
-| ------------------------------------------ | ------------------------: |
-| Authorization header missing               |        `401 Unauthorized` |
-| Invalid/expired token                      |        `401 Unauthorized` |
-| User authenticated but role is not allowed |           `403 Forbidden` |
-| Auth service times out                     | `503 Service Unavailable` |
-| Auth service is unavailable                | `503 Service Unavailable` |
-| Unexpected auth-service response           | `503 Service Unavailable` |
-
-### Role Permissions
-
-| Operation          | Allowed Roles                                                                                                            |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------ |
-| Bulk update        | `warehouse_manager`, `procurement_manager`                                                                               |
-| Bulk upload        | `warehouse_manager`, `procurement_manager`                                                                               |
-| Draft PO           | `warehouse_manager`, `procurement_manager`                                                                               |
-| What-if simulation | `ceo`, `vp_operations`                                                                                                   |
-| Valuation report   | `analyst`, `warehouse_manager`, `procurement_manager`, `logistics_manager`, `compliance_officer`, `vp_operations`, `ceo` |
-
----
-
-# 7. Row-Level Locking
-
-Bulk inventory updates use database row-level locking to protect concurrent updates.
-
-### Endpoint
-
-```text
-POST /api/v1/inventory/bulk-update
-```
-
-The service uses:
-
-```text
-SELECT ... FOR UPDATE
-```
-
-before modifying inventory rows.
-
-### Locking Flow
-
-```text
-Request 1
-   ↓
-Lock Row
-   ↓
-Update
-   ↓
-Commit
-   ↓
-Release
-
-Request 2
-   ↓
-Wait for Lock
-   ↓
-Update
-   ↓
-Commit
-```
-
-Rows are locked in a consistent order using:
-
-```text
-sku_id + warehouse_id
-```
-
-This reduces deadlock risk during concurrent bulk updates.
-
----
-
-# 8. Bulk CSV Upload
-
-Inventory can be uploaded through CSV.
-
-### API
-
-```text
-POST /api/v1/inventory/bulk-upload
-```
-
-Validation includes:
-
-* Required fields
-* SKU and warehouse
-* Quantity validation
-* Negative quantity rejection
-* Inventory consistency
-* CSV size validation
 
 Allowed roles:
 
@@ -422,25 +86,143 @@ warehouse_manager
 procurement_manager
 ```
 
+Receive PO:
+
+```text
+POST /api/v1/inventory/purchase-orders/{po_id}/receive
+```
+
+Receiving a PO:
+
+* Increases inventory
+* Creates a cost layer using the PO unit cost
+* Increments inventory version
+* Changes status to `received`
+
 ---
 
-# 9. What-If Simulation
+## Milestone 3 — Inventory Valuation
 
-The service provides demand simulation without permanently modifying actual inventory.
+Supports:
 
-### API
+* FIFO valuation
+* Weighted-average valuation
+* Cost-layer tracking
+* Cost-layer consumption during stock movement
+* Warehouse and category reporting
+
+API:
+
+```text
+GET /api/v1/inventory/reports/inventory-value
+```
+
+Example:
+
+```text
+GET /api/v1/inventory/reports/inventory-value?valuation_method=fifo
+```
+
+Supported methods:
+
+```text
+fifo
+weighted_average
+```
+
+---
+
+## Milestone 4 — Optimistic Locking
+
+Each inventory record contains a `version`.
+
+```text
+Version 1
+   ↓
+Successful Update
+   ↓
+Version 2
+```
+
+If an update uses an old version, the service rejects the request with a conflict instead of overwriting newer data.
+
+---
+
+## Milestone 5 — Permissions and Authentication
+
+Inventory uses the real Platform Auth Service.
+
+```text
+Client
+  ↓
+Inventory Service
+  ↓
+Platform Auth Service
+  ↓
+Token + Role + Permissions
+  ↓
+Allow / Reject
+```
+
+Normal permissions:
+
+```text
+inventory:read
+inventory:write
+```
+
+Special endpoint access:
+
+| Operation   | Roles                                      |
+| ----------- | ------------------------------------------ |
+| Bulk update | `warehouse_manager`, `procurement_manager` |
+| Bulk upload | `warehouse_manager`, `procurement_manager` |
+| Draft PO    | `warehouse_manager`, `procurement_manager` |
+| What-if     | `ceo`, `vp_operations`                     |
+
+Authentication responses:
+
+* `401` — Missing or invalid token
+* `403` — Unauthorized role/permission
+* `503` — Authentication service unavailable or timeout
+
+---
+
+## Concurrency and Bulk Operations
+
+Bulk updates use database row-level locking:
+
+```text
+SELECT ... FOR UPDATE
+```
+
+Rows are locked consistently using:
+
+```text
+sku_id + warehouse_id
+```
+
+Bulk CSV upload:
+
+```text
+POST /api/v1/inventory/bulk-upload
+```
+
+Bulk update:
+
+```text
+POST /api/v1/inventory/bulk-update
+```
+
+---
+
+## What-If Simulation
+
+Simulates demand changes without permanently modifying inventory.
 
 ```text
 POST /api/v1/inventory/what-if
 ```
-
-The response includes:
-
-* Demand growth percentage
-* Total items
-* Affected items
-* Suggested order quantity
-* Item-level details
 
 Allowed roles:
 
@@ -451,85 +233,62 @@ vp_operations
 
 ---
 
-# 10. Database Design
+## Main APIs
 
-### Main Tables
+| Method | Endpoint                                            |
+| ------ | --------------------------------------------------- |
+| POST   | `/api/v1/inventory`                                 |
+| GET    | `/api/v1/inventory`                                 |
+| PUT    | `/api/v1/inventory/{sku_id}/{warehouse_id}`         |
+| DELETE | `/api/v1/inventory/{sku_id}/{warehouse_id}`         |
+| GET    | `/api/v1/inventory/reorder-plan`                    |
+| GET    | `/api/v1/inventory/low-stock`                       |
+| POST   | `/api/v1/inventory/decrement`                       |
+| POST   | `/api/v1/inventory/bulk-upload`                     |
+| POST   | `/api/v1/inventory/bulk-update`                     |
+| POST   | `/api/v1/inventory/what-if`                         |
+| POST   | `/api/v1/inventory/multi-echelon/fulfill`           |
+| POST   | `/api/v1/inventory/purchase-orders/draft`           |
+| POST   | `/api/v1/inventory/purchase-orders/{po_id}/receive` |
+| GET    | `/api/v1/inventory/reports/inventory-value`         |
 
-| Table                   | Purpose                           |
-| ----------------------- | --------------------------------- |
-| `inventory`             | Current inventory                 |
-| `sales_history`         | Historical sales                  |
-| `suppliers`             | Supplier information              |
-| `purchase_orders`       | Draft purchase orders             |
-| `inventory_cost_layers` | FIFO/weighted-average cost layers |
+---
 
-### Inventory Key
+## Database
 
-Inventory uses a composite primary key:
+Main tables:
+
+* `inventory`
+* `sales_history`
+* `suppliers`
+* `purchase_orders`
+* `inventory_cost_layers`
+
+Inventory uses:
 
 ```text
 sku_id + warehouse_id
 ```
 
-This allows the same SKU to exist independently in multiple warehouses.
-
-### Cost Layers
-
-Cost layers store:
-
-* SKU
-* Warehouse
-* Category
-* Quantity received
-* Remaining quantity
-* Unit cost
-* Received date
-
-They support FIFO and weighted-average valuation.
+as the composite primary key.
 
 ---
 
-# 11. API Summary
+## Testing
 
-| Method | Endpoint                                  | Purpose                   |
-| ------ | ----------------------------------------- | ------------------------- |
-| POST   | `/api/v1/inventory`                       | Create inventory          |
-| GET    | `/api/v1/inventory`                       | List inventory            |
-| GET    | `/api/v1/inventory/reorder-plan`          | Reorder plan              |
-| GET    | `/api/v1/inventory/low-stock`             | Low stock                 |
-| POST   | `/api/v1/inventory/multi-echelon/fulfill` | Multi-echelon fulfillment |
-| POST   | `/api/v1/inventory/bulk-update`           | Row-locked bulk update    |
-| POST   | `/api/v1/inventory/bulk-upload`           | CSV upload                |
-| POST   | `/api/v1/inventory/what-if`               | What-if simulation        |
-| POST   | `/api/v1/purchase-orders/draft`           | Draft PO                  |
-| GET    | `/api/v1/reports/inventory-value`         | Valuation report          |
-
----
-
-# 12. Testing
-
-### Run All Tests
+Run all tests:
 
 ```powershell
-pytest -v
+python -m pytest -v
 ```
 
-### HTML Coverage
+Coverage:
 
 ```powershell
-pytest --cov=app --cov-report=term-missing --cov-report=html
-start htmlcov\index.html
+python -m pytest --cov=app --cov-report=term-missing
 ```
 
-### Authentication Tests
-
-Live authentication tests require:
-
-* Platform Auth Service running on port `8005`
-* Inventory Service running on port `8001`
-* Valid test tokens
-
-Required environment variables:
+Authentication tests use:
 
 ```text
 WAREHOUSE_MANAGER_TOKEN
@@ -539,68 +298,14 @@ VP_OPERATIONS_TOKEN
 EXPIRED_TOKEN
 ```
 
-Run the complete suite after configuring them:
-
-```powershell
-pytest -v
-```
-
-The target is:
-
-```text
-0 failed
-```
-
-Test counts should be documented only from the actual final `pytest -v` output.
-
 ---
 
-# 13. Running the Service
+## Round 6 Status
 
-### Activate the Environment
-
-```powershell
-.\myenv\Scripts\Activate.ps1
-```
-
-### Start Inventory Service
-
-```powershell
-uvicorn app.main:app --reload --port 8001
-```
-
-### Swagger
-
-```text
-http://localhost:8001/docs
-```
-
-### Platform Auth Service
-
-```text
-http://localhost:8005
-```
-
----
-
-# 14. Milestone Status
-
-| Milestone                                   | Status    |
-| ------------------------------------------- | --------- |
-| M1 — Multi-Echelon Inventory                | Completed |
-| M2 — Demand-Driven Automatic Draft PO       | Completed |
-| M3 — Inventory Valuation                    | Completed |
-| M4 — Optimistic Locking and Version Control | Completed |
-| M5 — Fine-Grained Permissions and RBAC      | Completed |
-
-## Final Coverage
-
-**M1:** Multi-echelon inventory and replenishment
-
-**M2:** Demand-driven automatic draft PO generation
-
-**M3:** FIFO and weighted-average inventory valuation
-
-**M4:** Optimistic locking and version conflict detection
-
-**M5:** Real Platform authentication, fine-grained RBAC, row-level locking, bulk operations and what-if simulation
+| Milestone                    | Status    |
+| ---------------------------- | --------- |
+| M1 — Multi-Echelon Inventory | Completed |
+| M2 — Automatic Draft PO      | Completed |
+| M3 — Inventory Valuation     | Completed |
+| M4 — Optimistic Locking      | Completed |
+| M5 — Permissions and RBAC    | Completed |

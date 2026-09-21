@@ -1,3 +1,6 @@
+from .metrics import HIGHER_IS_BETTER_METRICS
+
+
 def compare_models(results: dict) -> None:
     """
     results = {"prophet": {...metrics}, "xgboost": {...metrics}, "naive":
@@ -6,7 +9,7 @@ def compare_models(results: dict) -> None:
     Models missing a given metric show as "N/A" in that row instead of crashing,
     and are excluded from winner selection for that metric.
     """
-    HIGHER_IS_BETTER = {"precision", "recall", "f1"}
+    HIGHER_IS_BETTER = HIGHER_IS_BETTER_METRICS
 
     if not results:
         print("No results to compare.")
@@ -20,7 +23,7 @@ def compare_models(results: dict) -> None:
 
     model_names = list(results.keys())
 
-    header = f"{'Metric':<15}" + "".join(f"{m:<15}" for m in model_names)
+    header = f"{'Metric':<20}" + "".join(f"{m:<20}" for m in model_names)
     print(header)
     print("-" * len(header))
 
@@ -30,7 +33,7 @@ def compare_models(results: dict) -> None:
         if values:
             winner = (max if metric in HIGHER_IS_BETTER else min)(values, key=values.get)
 
-        row = f"{metric:<15}"
+        row = f"{metric:<20}"
         for m in model_names:
             if metric in results[m]:
                 cell = f"{results[m][metric]:.2f}"
@@ -38,5 +41,5 @@ def compare_models(results: dict) -> None:
                     cell += " *"
             else:
                 cell = "N/A"
-            row += f"{cell:<15}"
+            row += f"{cell:<20}"
         print(row)

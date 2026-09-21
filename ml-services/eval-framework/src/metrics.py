@@ -1,5 +1,40 @@
 import numpy as np
 
+# Metrics where a HIGHER value is better. Every other known metric (mape, rmse,
+# false_positive_rate, etc.) is treated as lower-is-better by default. This is
+# the single source of truth used by both report.py and leaderboard.py, so
+# adding a new metric here automatically fixes its winner-direction everywhere.
+HIGHER_IS_BETTER_METRICS = {"precision", "recall", "f1", "balanced_accuracy", "specificity", "accuracy"}
+
+# Metrics where a LOWER value is better. Combined with HIGHER_IS_BETTER_METRICS,
+# this is the full set of metric names this framework recognizes. A metric
+# name outside both sets is UNKNOWN -- callers must say explicitly which
+# direction it goes, rather than the framework silently guessing (guessing
+# wrong previously ranked r2 backwards and let auc get incorrectly flagged).
+LOWER_IS_BETTER_METRICS = {"mape", "rmse", "false_positive_rate"}
+
+KNOWN_METRICS = HIGHER_IS_BETTER_METRICS | LOWER_IS_BETTER_METRICS
+
+# Suspicious-score thresholds, tailored to each known metric's REAL scale.
+# Fractional (0-1) metrics use 0.98. MAPE is a PERCENTAGE (0-100) in this
+# framework's own mape() function, so a fraction-scale threshold like 0.02
+# would never fire on real MAPE values -- its low threshold is on the
+# percentage scale instead. RMSE is intentionally omitted: its scale is
+# entirely data-dependent (units of the forecasted quantity), so no single
+# universal threshold is meaningful across different datasets.
+# false_positive_rate is also intentionally omitted: a LOW false positive
+# rate is genuinely good in a real detector (correctly leaving normal points
+# alone), not a leakage red flag the way near-zero MAPE/RMSE is.
+SUSPICIOUS_THRESHOLDS = {
+    "accuracy": {"high": 0.98},
+    "precision": {"high": 0.98},
+    "recall": {"high": 0.98},
+    "f1": {"high": 0.98},
+    "specificity": {"high": 0.98},
+    "balanced_accuracy": {"high": 0.98},
+    "mape": {"low": 0.5},
+}
+
 
 def mape(actual, predicted) -> float:
     """Mean Absolute Percentage Error, standard for forecasting.
@@ -19,14 +54,27 @@ def rmse(actual, predicted) -> float:
 
 
 def confusion_matrix(y_true, y_pred) -> dict:
-    """Returns {tp, tn, fp, fn} for binary classification (labels 0/1 or False/True).
-    Raises ValueError on empty input rather than crashing with a confusing numpy error.
+    """Returns {tp, tn, fp, fn} for binary classification.
+    Requires labels to be exactly 0 (normal/negative) or 1 (anomaly/positive).
+    Common sklearn anomaly detectors (IsolationForest, LOF) output {-1, 1}
+    instead -- remap those to {0, 1} before calling this, or this function
+    will raise a clear error rather than silently miscounting.
     """
     y_true, y_pred = list(y_true), list(y_pred)
     if len(y_true) == 0 or len(y_pred) == 0:
         raise ValueError("confusion_matrix: y_true and y_pred must not be empty")
     if len(y_true) != len(y_pred):
         raise ValueError("confusion_matrix: y_true and y_pred must be the same length")
+
+    valid_labels = {0, 1}
+    invalid = [v for v in set(y_true) | set(y_pred) if v not in valid_labels]
+    if invalid:
+        raise ValueError(
+            f"confusion_matrix: labels must be 0 or 1, got unexpected value(s) {invalid}. "
+            f"If using sklearn-style anomaly labels ({{-1, 1}}), remap with "
+            f"e.g. [0 if v == 1 else 1 for v in labels] (1=normal->0, -1=anomaly->1) "
+            f"before calling this function."
+        )
 
     tp = sum(1 for t, p in zip(y_true, y_pred) if t == 1 and p == 1)
     tn = sum(1 for t, p in zip(y_true, y_pred) if t == 0 and p == 0)
@@ -50,3 +98,46 @@ def precision_recall(y_true, y_pred) -> dict:
     f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
 
     return {"precision": precision, "recall": recall, "f1": f1}
+
+
+def accuracy(y_true, y_pred) -> float:
+    """Plain accuracy: (correct predictions) / (total predictions).
+    Warning: misleading under class imbalance -- a model that always predicts
+    the majority class can score high accuracy while catching zero minority-
+    class cases. Prefer balanced_accuracy for imbalanced problems like anomaly
+    detection.
+    """
+    cm = confusion_matrix(y_true, y_pred)
+    tp, tn, fp, fn = cm["tp"], cm["tn"], cm["fp"], cm["fn"]
+    total = tp + tn + fp + fn
+    return (tp + tn) / total if total > 0 else 0.0
+
+
+def anomaly_metrics(y_true, y_pred) -> dict:
+    """Anomaly-detection specific metrics, built on top of confusion_matrix.
+    Includes precision, recall, f1 (standard), plus false positive rate and
+    balanced accuracy -- the latter two matter more than plain accuracy when
+    anomalies are rare compared to normal points (severe class imbalance),
+    which is the typical real-world anomaly setting.
+    """
+    cm = confusion_matrix(y_true, y_pred)
+    tp, tn, fp, fn = cm["tp"], cm["tn"], cm["fp"], cm["fn"]
+
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+    specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+    # Note: false_positive_rate is mathematically 1 - specificity, kept as a
+    # separate field since "false positive rate" is the more familiar framing
+    # in anomaly/alerting contexts even though it's redundant with specificity.
+    fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
+    balanced_accuracy = (recall + specificity) / 2
+
+    return {
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "specificity": specificity,
+        "false_positive_rate": fpr,
+        "balanced_accuracy": balanced_accuracy,
+    }

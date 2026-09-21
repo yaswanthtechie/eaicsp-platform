@@ -1,75 +1,48 @@
 from datetime import date
 from sqlalchemy import text
 from database import get_engine
-from alert_service import write_alert
 
 
-
-def get_watermark():
-
-    engine = get_engine()
-
-    try:
-        query = text("""
-            SELECT last_processed_date
-            FROM etl_watermark
-            WHERE pipeline_name = 'sales_etl';
-        """)
-
-        with engine.connect() as connection:
-            result = connection.execute(query)
-            row = result.fetchone()
-
-            if row is None:
-                return date(1900, 1, 1)
-
-            return row[0]
-
-    except Exception as e:
-
-        write_alert(
-            pipeline="sales_etl",
-            severity="CRITICAL",
-            message=f"Failed to get watermark: {e}"
-        )
-
-        raise
-
-
-def update_watermark(last_processed_date):
+def get_watermark(pipeline_name="sales_etl"):
+    query = text("""
+        SELECT last_processed_date
+        FROM etl_watermark
+        WHERE pipeline_name = :pipeline_name;
+    """)
 
     engine = get_engine()
+    with engine.connect() as connection:
+        result = connection.execute(query, {"pipeline_name": pipeline_name})
+        row = result.fetchone()
 
-    try:
-        query = text("""
-            INSERT INTO etl_watermark (
-                pipeline_name,
-                last_processed_date
-            )
-            VALUES (
-                'sales_etl',
-                :last_processed_date
-            )
-            ON CONFLICT (pipeline_name)
-            DO UPDATE SET
-                last_processed_date = EXCLUDED.last_processed_date,
-                updated_at = NOW();
-        """)
+        if row is None:
+            return date(1900, 1, 1)
 
-        with engine.begin() as connection:
-            connection.execute(
-                query,
-                {
-                    "last_processed_date": last_processed_date
-                }
-            )
+        return row[0]
 
-    except Exception as e:
 
-        write_alert(
-            pipeline="sales_etl",
-            severity="CRITICAL",
-            message=f"Failed to update watermark: {e}"
+def update_watermark(last_processed_date, pipeline_name="sales_etl"):
+    query = text("""
+        INSERT INTO etl_watermark (
+            pipeline_name,
+            last_processed_date
         )
+        VALUES (
+            :pipeline_name,
+            :last_processed_date
+        )
+        ON CONFLICT (pipeline_name)
+        DO UPDATE SET
+            last_processed_date = EXCLUDED.last_processed_date,
+            updated_at = NOW();
+    """)
 
-        raise
+    engine = get_engine()
+    with engine.begin() as connection:
+        connection.execute(
+            query,
+            {
+                "pipeline_name": pipeline_name,
+                "last_processed_date": last_processed_date
+            }
+        )

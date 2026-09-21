@@ -9,16 +9,16 @@ const StatusBadge = ({ status }: Props) => {
 
   const getColor = () => {
     switch (status) {
-      case "sent":
+      case "SENT":
         return colors.warning;
 
-      case "acknowledged":
+      case "ACKNOWLEDGED":
         return colors.primary;
 
-      case "fulfilled":
+      case "FULFILLED":
         return colors.success;
 
-      case "cancelled":
+      case "CANCELLED":
         return colors.danger;
 
       default:
@@ -29,8 +29,8 @@ const StatusBadge = ({ status }: Props) => {
 
   const getTextColor = () => {
     switch (status) {
-      case "sent":
-        return "#000000";
+      case "SENT":
+        return colors.black;
 
       default:
         return colors.text;

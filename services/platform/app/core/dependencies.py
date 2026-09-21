@@ -1,62 +1,252 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy.orm import Session
 from jose import JWTError
-
 from app.core.security import decode_token
-from app.services.auth_service import users
+from app.database import get_db
+from app.models.users import User
+from app.core.permissions import ROLE_PERMISSIONS
+from datetime import datetime, timezone
+
 
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="/api/v1/auth/login"
 )
-
+# ============================================================
 # Authentication
-def get_current_user(
-    token: str = Depends(oauth2_scheme)
-):
+# ============================================================
 
+def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+):
     try:
+        # 1. Decode and validate JWT
         payload = decode_token(token)
 
+        # 2. Only access tokens can be used for protected endpoints
+        if payload.get("type") != "access":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token",
+            )
+
+        # 3. Get user identity from JWT subject
         email = payload.get("sub")
 
         if not email:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token"
+                detail="Invalid or expired token",
             )
 
-        user = users.get(email)
+        email = email.lower()
 
-        if user is None or not user["is_active"]:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or inactive user"
-            )
-
-        return user
+    except HTTPException:
+        raise
 
     except JWTError:
+        # Invalid signature, expired token, malformed token, etc.
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token"
+            detail="Invalid or expired token",
         )
 
-#RBAC
-def require_role(*allowed_roles):
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+
+    # 4. Find user using JWT subject
+    user = (
+        db.query(User)
+        .filter(User.email == email)
+        .first()
+    )
+
+    # 5. Reject missing or inactive users
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+    
+    # 6. Reject access while account is locked
+    if (
+        user.locked_until is not None
+        and user.locked_until > datetime.now(timezone.utc)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+
+    # 7. Cross-check JWT subject with DB user
+    if user.email.lower() != email:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+
+    return user
+# ============================================================
+# Role Hierarchy
+# ============================================================
+
+ROLE_HIERARCHY = {
+    "ceo": {
+        "ceo",
+        "vp_operations",
+        "procurement_manager",
+        "logistics_manager",
+        "compliance_officer",
+        "warehouse_manager",
+        "analyst",
+        "supplier",
+    },
+
+    "vp_operations": {
+        "vp_operations",
+        "procurement_manager",
+        "logistics_manager",
+        "compliance_officer",
+        "warehouse_manager",
+        "analyst",
+        "supplier",
+    },
+
+    "procurement_manager": {
+        "procurement_manager",
+    },
+
+    "logistics_manager": {
+        "logistics_manager",
+    },
+
+    "compliance_officer": {
+        "compliance_officer",
+    },
+
+    "warehouse_manager": {
+        "warehouse_manager",
+    },
+
+    "analyst": {
+        "analyst",
+    },
+
+    "supplier": {
+        "supplier",
+    },
+}
+# ============================================================
+# Require ANY Role
+# ============================================================
+
+def require_any_role(*allowed_roles):
 
     def dependency(
-        user=Depends(get_current_user)
+        user=Depends(get_current_user),
     ):
+        role = user.role.name
 
-        role = user["role"]
-        user_role = getattr(role, "value", role)
-        
-        if user_role not in allowed_roles:
+        permissions = ROLE_HIERARCHY.get(
+            role,
+            {role},
+        )
+
+        if not any(
+            allowed_role in permissions
+            for allowed_role in allowed_roles
+        ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Forbidden: insufficient permissions"
+                detail="Forbidden: insufficient permissions",
             )
 
         return user
 
     return dependency
+# ============================================================
+# Require ALL Roles
+# ============================================================
+
+def require_all_roles(*required_roles):
+
+    def dependency(
+        user=Depends(get_current_user),
+    ):
+        role = user.role.name
+
+        permissions = ROLE_HIERARCHY.get(
+            role,
+            {role},
+        )
+
+        if not all(
+            required_role in permissions
+            for required_role in required_roles
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: insufficient permissions",
+            )
+
+        return user
+    return dependency
+
+# ============================================================
+# RBAC - Require Role
+# ============================================================
+
+def require_role(*allowed_roles):
+
+    def dependency(
+        user=Depends(get_current_user),
+    ):
+        role = user.role.name
+
+        permissions = ROLE_HIERARCHY.get(
+            role,
+            {role},
+        )
+
+        if not any(
+            allowed_role in permissions
+            for allowed_role in allowed_roles
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: insufficient permissions",
+            )
+
+        return user
+    return dependency
+
+def require_permission(permission: str):
+    def checker(
+        current_user: User = Depends(get_current_user),
+    ):
+        user_role = (
+            current_user.role.name
+            if current_user.role
+            else None
+        )
+
+        if user_role is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden:Insufficient permissions",
+            )
+
+        permissions = ROLE_PERMISSIONS.get(user_role, set())
+
+        if permission not in permissions:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden:Insufficient permissions",
+            )
+
+        return current_user
+    return checker

@@ -219,3 +219,10 @@ __marimo__/
 
 # .csv files
 data/*.csv
+
+# Node / React
+node_modules/
+*.log
+
+# Data profiling generated reports
+data-platform/profiling/reports/

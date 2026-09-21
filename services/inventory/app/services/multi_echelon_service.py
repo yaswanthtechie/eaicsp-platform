@@ -1,7 +1,10 @@
-
 from sqlalchemy.orm import Session
 
 from app.models.inventory import Inventory
+from app.services.valuation_service import (
+    add_cost_layer,
+    consume_cost_layers,
+)
 
 
 def get_inventory(
@@ -25,9 +28,9 @@ def get_parent_warehouse(
     warehouse_id: str,
 ):
     current = get_inventory(
-        db,
-        sku_id,
-        warehouse_id,
+        db=db,
+        sku_id=sku_id,
+        warehouse_id=warehouse_id,
     )
 
     if current is None:
@@ -37,9 +40,9 @@ def get_parent_warehouse(
         return None
 
     return get_inventory(
-        db,
-        sku_id,
-        current.parent_warehouse_id,
+        db=db,
+        sku_id=sku_id,
+        warehouse_id=current.parent_warehouse_id,
     )
 
 
@@ -53,6 +56,11 @@ def transfer_stock(
     if quantity <= 0:
         raise ValueError(
             "Transfer quantity must be greater than zero"
+        )
+
+    if source_warehouse_id == destination_warehouse_id:
+        raise ValueError(
+            "Source and destination warehouses cannot be the same"
         )
 
     source = (
@@ -93,8 +101,45 @@ def transfer_stock(
             f"{source_warehouse_id}"
         )
 
+    # -----------------------------------------------------
+    # M3 COST LAYERS
+    #
+    # Remove the transferred quantity from the source
+    # using FIFO and create matching cost layers at the
+    # destination.
+    # -----------------------------------------------------
+
+    consumed_layers = consume_cost_layers(
+        db=db,
+        sku_id=sku_id,
+        warehouse_id=source_warehouse_id,
+        quantity=quantity,
+    )
+
+    consumed_quantity = sum(
+        layer_quantity
+        for layer_quantity, _unit_cost in consumed_layers
+    )
+
+    if consumed_quantity < quantity:
+        raise ValueError(
+            "Insufficient cost-layer quantity "
+            f"for source warehouse: {source_warehouse_id}"
+        )
+
     source.quantity_on_hand -= quantity
     destination.quantity_on_hand += quantity
+
+    # Preserve the source FIFO costs at the destination.
+    for layer_quantity, unit_cost in consumed_layers:
+        add_cost_layer(
+            db=db,
+            sku_id=sku_id,
+            warehouse_id=destination_warehouse_id,
+            category=destination.category,
+            quantity=layer_quantity,
+            unit_cost=unit_cost,
+        )
 
 
 def create_supplier_po(
@@ -125,9 +170,9 @@ def fulfill_shortage(
         )
 
     local = get_inventory(
-        db,
-        sku_id,
-        warehouse_id,
+        db=db,
+        sku_id=sku_id,
+        warehouse_id=warehouse_id,
     )
 
     if local is None:
@@ -155,18 +200,47 @@ def fulfill_shortage(
 
     transfers = []
 
+    # -----------------------------------------------------
+    # M1 MULTI-ECHELON TRAVERSAL
+    #
+    # Keep track of every warehouse visited.
+    # This prevents an infinite loop such as:
+    #
+    # WH-A -> WH-B -> WH-A -> WH-B ...
+    # -----------------------------------------------------
+
     current_warehouse_id = warehouse_id
+
+    visited_warehouse_ids = {
+        warehouse_id
+    }
 
     while shortage > 0:
 
         parent = get_parent_warehouse(
-            db,
-            sku_id,
-            current_warehouse_id,
+            db=db,
+            sku_id=sku_id,
+            warehouse_id=current_warehouse_id,
         )
 
         if parent is None:
             break
+
+        # -------------------------------------------------
+        # CYCLE DETECTION
+        # -------------------------------------------------
+
+        if parent.warehouse_id in visited_warehouse_ids:
+            raise ValueError(
+                "Warehouse hierarchy contains a cycle at "
+                f"{parent.warehouse_id}. "
+                "Fix parent_warehouse_id "
+                "for this SKU before requesting fulfilment."
+            )
+
+        visited_warehouse_ids.add(
+            parent.warehouse_id
+        )
 
         available_stock = max(
             parent.quantity_on_hand,
@@ -179,6 +253,7 @@ def fulfill_shortage(
         )
 
         if transfer_quantity > 0:
+
             transfer_stock(
                 db=db,
                 sku_id=sku_id,
@@ -197,20 +272,32 @@ def fulfill_shortage(
 
             shortage -= transfer_quantity
 
+        # Continue searching from the parent warehouse.
         current_warehouse_id = parent.warehouse_id
+
+    # -----------------------------------------------------
+    # REMAINING SHORTAGE
+    #
+    # Anything that could not be fulfilled by the
+    # warehouse hierarchy becomes supplier quantity.
+    # -----------------------------------------------------
 
     supplier_quantity = shortage
 
     supplier_po = create_supplier_po(
-        sku_id,
-        warehouse_id,
-        supplier_quantity,
+        sku_id=sku_id,
+        warehouse_id=warehouse_id,
+        quantity=supplier_quantity,
     )
 
     transferred_quantity = sum(
         transfer["quantity"]
         for transfer in transfers
     )
+
+    # -----------------------------------------------------
+    # COMMIT THE COMPLETE NETWORK OPERATION
+    # -----------------------------------------------------
 
     try:
         db.commit()
@@ -219,12 +306,12 @@ def fulfill_shortage(
         raise
 
     if supplier_quantity > 0:
-        status = "supplier_required"
+        fulfillment_status = "supplier_required"
     else:
-        status = "fulfilled_from_network"
+        fulfillment_status = "fulfilled_from_network"
 
     return {
-        "status": status,
+        "status": fulfillment_status,
         "sku_id": sku_id,
         "warehouse_id": warehouse_id,
         "required_quantity": required_quantity,

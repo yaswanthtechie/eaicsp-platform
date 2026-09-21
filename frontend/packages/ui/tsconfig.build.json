@@ -1,0 +1,55 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+
+    "jsx": "react-jsx",
+
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+
+    "declaration": true,
+    "declarationMap": true,
+    "emitDeclarationOnly": true,
+
+    "outDir": "./dist",
+    "rootDir": "./src",
+
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+
+    "noEmit": false
+  },
+
+  "include": [
+    "src/global.d.ts",
+    "src/index.ts",
+    "src/components/**/*.ts",
+    "src/components/**/*.tsx",
+    "src/forms/**/*.ts",
+    "src/forms/**/*.tsx",
+    "src/hooks/**/*.ts",
+    "src/hooks/**/*.tsx",
+    "src/providers/**/*.ts",
+    "src/providers/**/*.tsx",
+    "src/theme/**/*.ts",
+    "src/theme/**/*.tsx",
+    "src/styles/**/*.ts",
+    "src/styles/**/*.tsx",
+    "src/utils/**/*.ts",
+    "src/utils/**/*.tsx"
+  ],
+
+  "exclude": [
+    "src/App.tsx",
+    "src/main.tsx",
+    "src/setupTests.ts",
+    "src/docs/**",
+    "src/mocks/**",
+    "**/*.test.ts",
+    "**/*.test.tsx"
+  ]
+}

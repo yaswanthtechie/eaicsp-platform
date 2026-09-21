@@ -10,9 +10,8 @@ import string
 # ------------------------------------------------------------------
 
 PUNCTUATION_TRANSLATOR = str.maketrans(
-    "",
-    "",
     string.punctuation,
+    " " * len(string.punctuation),
 )
 
 

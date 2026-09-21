@@ -1,45 +1,31 @@
 from sqlalchemy import text
 from database import get_engine
-from alert_service import write_alert
 
 
+def create_run(pipeline_name="sales_etl", connection=None):
 
-def create_run():
+    query = text("""
+        INSERT INTO etl_run_log
+        (
+            pipeline_name,
+            started_at,
+            status
+        )
+        VALUES
+        (
+            :pipeline_name,
+            NOW(),
+            'RUNNING'
+        )
+        RETURNING run_id;
+    """)
 
     engine = get_engine()
-
-    try:
-        query = text("""
-            INSERT INTO etl_run_log
-            (
-                pipeline_name,
-                started_at,
-                status
-            )
-            VALUES
-            (
-                'sales_etl',
-                NOW(),
-                'RUNNING'
-            )
-            RETURNING run_id;
-        """)
-
-        with engine.begin() as connection:
-
-            run_id = connection.execute(query).scalar()
-
-        return run_id
-
-    except Exception as e:
-
-        write_alert(
-            pipeline="sales_etl",
-            severity="CRITICAL",
-            message=f"Failed to create run log: {e}"
-        )
-
-        raise
+    params = {"pipeline_name": pipeline_name}
+    if connection is not None:
+        return connection.execute(query, params).scalar()
+    with engine.begin() as conn:
+        return conn.execute(query, params).scalar()
 
 
 def finish_run(
@@ -50,50 +36,39 @@ def finish_run(
     rows_inserted,
     rows_updated,
     rows_rejected,
-    error_message=None
+    error_message=None,
+    connection=None
 ):
 
+    query = text("""
+        UPDATE etl_run_log
+        SET
+            finished_at = :finished_at,
+            status = :status,
+            batches_seen = :batches_seen,
+            rows_inserted = :rows_inserted,
+            rows_updated = :rows_updated,
+            rows_rejected = :rows_rejected,
+            error_message = :error_message
+        WHERE run_id = :run_id;
+    """)
+
+    params = {
+        "run_id": run_id,
+        "finished_at": end_time,
+        "status": status,
+        "batches_seen": batches_seen,
+        "rows_inserted": rows_inserted,
+        "rows_updated": rows_updated,
+        "rows_rejected": rows_rejected,
+        "error_message": error_message
+    }
     engine = get_engine()
-
-    try:
-        query = text("""
-            UPDATE etl_run_log
-            SET
-                finished_at = :finished_at,
-                status = :status,
-                batches_seen = :batches_seen,
-                rows_inserted = :rows_inserted,
-                rows_updated = :rows_updated,
-                rows_rejected = :rows_rejected,
-                error_message = :error_message
-            WHERE run_id = :run_id;
-        """)
-
-        with engine.begin() as connection:
-
-            connection.execute(
-                query,
-                {
-                    "run_id": run_id,
-                    "finished_at": end_time,
-                    "status": status,
-                    "batches_seen": batches_seen,
-                    "rows_inserted": rows_inserted,
-                    "rows_updated": rows_updated,
-                    "rows_rejected": rows_rejected,
-                    "error_message": error_message
-                }
-            )
-
-    except Exception as e:
-
-        write_alert(
-            pipeline="sales_etl",
-            severity="CRITICAL",
-            message=f"Failed to finish run log: {e}"
-        )
-
-        raise
+    if connection is not None:
+        connection.execute(query, params)
+    else:
+        with engine.begin() as conn:
+            conn.execute(query, params)
 
 
 def log_success(
@@ -105,59 +80,47 @@ def log_success(
     rows_rejected
 ):
 
-    engine = get_engine()
-
-    try:
-        query = text("""
-            INSERT INTO etl_run_log
-            (
-                pipeline_name,
-                started_at,
-                finished_at,
-                status,
-                batches_seen,
-                rows_inserted,
-                rows_updated,
-                rows_rejected,
-                error_message
-            )
-            VALUES
-            (
-                'sales_etl',
-                :started_at,
-                :finished_at,
-                'SUCCESS',
-                :batches_seen,
-                :rows_inserted,
-                :rows_updated,
-                :rows_rejected,
-                NULL
-            );
-        """)
-
-        with engine.begin() as connection:
-
-            connection.execute(
-                query,
-                {
-                    "started_at": start_time,
-                    "finished_at": end_time,
-                    "batches_seen": batches_seen,
-                    "rows_inserted": rows_inserted,
-                    "rows_updated": rows_updated,
-                    "rows_rejected": rows_rejected
-                }
-            )
-
-    except Exception as e:
-
-        write_alert(
-            pipeline="sales_etl",
-            severity="CRITICAL",
-            message=f"Failed to log successful run: {e}"
+    query = text("""
+        INSERT INTO etl_run_log
+        (
+            pipeline_name,
+            started_at,
+            finished_at,
+            status,
+            batches_seen,
+            rows_inserted,
+            rows_updated,
+            rows_rejected,
+            error_message
         )
+        VALUES
+        (
+            'sales_etl',
+            :started_at,
+            :finished_at,
+            'SUCCESS',
+            :batches_seen,
+            :rows_inserted,
+            :rows_updated,
+            :rows_rejected,
+            NULL
+        );
+    """)
 
-        raise
+    engine = get_engine()
+    with engine.begin() as connection:
+
+        connection.execute(
+            query,
+            {
+                "started_at": start_time,
+                "finished_at": end_time,
+                "batches_seen": batches_seen,
+                "rows_inserted": rows_inserted,
+                "rows_updated": rows_updated,
+                "rows_rejected": rows_rejected
+            }
+        )
 
 
 def log_failure(
@@ -171,58 +134,77 @@ def log_failure(
     status="FAILED"
 ):
 
+    query = text("""
+        INSERT INTO etl_run_log
+        (
+            pipeline_name,
+            started_at,
+            finished_at,
+            status,
+            batches_seen,
+            rows_inserted,
+            rows_updated,
+            rows_rejected,
+            error_message
+        )
+        VALUES
+        (
+            'sales_etl',
+            :started_at,
+            :finished_at,
+            :status,
+            :batches_seen,
+            :rows_inserted,
+            :rows_updated,
+            :rows_rejected,
+            :error_message
+        );
+    """)
+
     engine = get_engine()
+    with engine.begin() as connection:
 
-    try:
-        query = text("""
-            INSERT INTO etl_run_log
-            (
-                pipeline_name,
-                started_at,
-                finished_at,
-                status,
-                batches_seen,
-                rows_inserted,
-                rows_updated,
-                rows_rejected,
-                error_message
-            )
-            VALUES
-            (
-                'sales_etl',
-                :started_at,
-                :finished_at,
-                :status,
-                :batches_seen,
-                :rows_inserted,
-                :rows_updated,
-                :rows_rejected,
-                :error_message
-            );
-        """)
-
-        with engine.begin() as connection:
-
-            connection.execute(
-                query,
-                {
-                    "started_at": start_time,
-                    "finished_at": end_time,
-                    "status": status,
-                    "batches_seen": batches_seen,
-                    "rows_inserted": rows_inserted,
-                    "rows_updated": rows_updated,
-                    "rows_rejected": rows_rejected,
-                    "error_message": str(error_message)
-                }
-            )
-
-    except Exception as e:
-
-        write_alert(
-            pipeline="sales_etl",
-            severity="CRITICAL",
-            message=f"Failed to log failed run: {e}"
+        connection.execute(
+            query,
+            {
+                "started_at": start_time,
+                "finished_at": end_time,
+                "status": status,
+                "batches_seen": batches_seen,
+                "rows_inserted": rows_inserted,
+                "rows_updated": rows_updated,
+                "rows_rejected": rows_rejected,
+                "error_message": str(error_message)
+            }
         )
 
-        raise
+
+def record_run_batch(run_id, source_name, batch_file, connection=None):
+    """Persist the source files associated with a pipeline run for safe replay."""
+    query = text("""
+        INSERT INTO etl_run_batches (run_id, source_name, batch_file)
+        VALUES (:run_id, :source_name, :batch_file)
+        ON CONFLICT (run_id, source_name, batch_file) DO NOTHING
+    """)
+    params = {"run_id": run_id, "source_name": source_name, "batch_file": batch_file}
+    engine = get_engine()
+    if connection is not None:
+        connection.execute(query, params)
+    else:
+        with engine.begin() as conn:
+            conn.execute(query, params)
+
+
+def mark_run_status(run_id, status, error_message=None, connection=None):
+    query = text("""
+        UPDATE etl_run_log
+        SET status = :status, error_message = COALESCE(:error_message, error_message)
+        WHERE run_id = :run_id
+    """)
+    params = {"run_id": run_id, "status": status, "error_message": error_message}
+    engine = get_engine()
+    if connection is not None:
+        connection.execute(query, params)
+    else:
+        with engine.begin() as conn:
+            conn.execute(query, params)

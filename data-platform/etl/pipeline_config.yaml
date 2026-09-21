@@ -1,0 +1,110 @@
+schedule: 0 2 * * *
+sources:
+- name: sales
+  path: data/batches/sales/
+  table: sales_fact
+  date_column: date
+  conflict_keys:
+  - date
+  - sku_id
+  - warehouse_id
+  depends_on: null
+  columns:
+    date:
+      category: datetime
+      required: true
+    sku_id:
+      category: string
+      required: true
+    warehouse_id:
+      category: string
+      required: true
+    quantity_sold:
+      category: integer
+      required: true
+    unit_price:
+      category: numeric
+      required: true
+  integer_columns:
+  - quantity_sold
+  numeric_columns:
+  - unit_price
+  quality_check_column: quantity_sold
+  null_rate_threshold: 0.1
+  negative_rate_threshold: 0.05
+  min_rows: 5
+  max_rows: 2000
+  history_table: sales_fact_history
+  schema_evolution: quarantine
+- name: inventory
+  path: data/batches/inventory/
+  table: inventory_snapshot
+  date_column: snapshot_date
+  conflict_keys:
+  - snapshot_date
+  - sku_id
+  - warehouse_id
+  depends_on: sales
+  columns:
+    snapshot_date:
+      category: datetime
+      required: true
+    sku_id:
+      category: string
+      required: true
+    warehouse_id:
+      category: string
+      required: true
+    quantity_on_hand:
+      category: integer
+      required: true
+  integer_columns:
+  - quantity_on_hand
+  numeric_columns: []
+  quality_check_column: quantity_on_hand
+  null_rate_threshold: 0.1
+  negative_rate_threshold: 0.05
+  min_rows: 1
+  max_rows: 5000
+  history_table: null
+  schema_evolution: quarantine
+- name: shipments
+  path: data/batches/shipments/
+  table: shipments_fact
+  date_column: shipment_date
+  conflict_keys:
+  - shipment_date
+  - sku_id
+  - warehouse_id
+  depends_on: inventory
+  columns:
+    shipment_date:
+      category: datetime
+      required: true
+    sku_id:
+      category: string
+      required: true
+    warehouse_id:
+      category: string
+      required: true
+    shipped_quantity:
+      category: integer
+      required: true
+    carrier:
+      category: string
+      required: true
+  integer_columns:
+  - shipped_quantity
+  numeric_columns: []
+  quality_check_column: shipped_quantity
+  null_rate_threshold: 0.1
+  negative_rate_threshold: 0.05
+  min_rows: 5
+  max_rows: 5000
+  history_table: null
+  schema_evolution: quarantine
+archive:
+  table: sales_fact
+  archive_table: sales_fact_archive
+  date_column: date
+  cutoff_days: 730

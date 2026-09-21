@@ -1,5 +1,6 @@
 import { Server } from "mock-socket";
-import type { AlertMessage } from "../types/forecast";
+import type { AlertMessage, InventoryItem, InventoryUpdate } from "../types/forecast";
+
 
 const alerts: Omit<AlertMessage, "id" | "timestamp">[] = [
   {
@@ -42,6 +43,12 @@ const alerts: Omit<AlertMessage, "id" | "timestamp">[] = [
     severity: "info",
     message: "Forecast model updated successfully",
   },
+
+  {
+    type: "low-stock",
+    severity: "error",
+    message: "SKU004 (Cooking Oil) quantity below threshold",
+  }
 ];
 
 let serverStarted = false;
@@ -57,6 +64,7 @@ export function startMockWebSocketServer() {
     console.log("Mock WebSocket connected");
 
     let alertTimer: ReturnType<typeof setTimeout>;
+    let inventoryTimer: ReturnType<typeof setTimeout>;
 
     const sendAlert = () => {
       const randomAlert =
@@ -80,11 +88,40 @@ export function startMockWebSocketServer() {
 
       alertTimer = setTimeout(sendAlert, nextTime);
     };
+    
+    const sendInventoryUpdate = () => {
+      const quantityOnHand = 30 + Math.floor(Math.random() * 41);
+
+      const inventoryItem : InventoryItem = {
+        sku_id: "SKU017",
+        product_name: "Rice",
+        category: "Food",
+        warehouse_id: "WH004",
+        quantity_on_hand: quantityOnHand,
+        reorder_point: 50,
+        needs_reorder: quantityOnHand < 50,
+        avg_daily_demand: 6
+      };
+
+      const update:InventoryUpdate = {
+        type: "inventory_update",
+        item: inventoryItem,
+      };
+
+      console.log("Inventory update sent:",update);
+
+      socket.send(JSON.stringify(update));
+
+      inventoryTimer = setTimeout(sendInventoryUpdate, 5000);
+
+    };
 
     sendAlert();
+    inventoryTimer = setTimeout(sendInventoryUpdate, 5000);
 
     socket.on("close", () => {
       clearTimeout(alertTimer);
+      clearTimeout(inventoryTimer)
 
       console.log("Mock WebSocket disconnected.");
     });

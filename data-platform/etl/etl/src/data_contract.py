@@ -41,10 +41,12 @@ _CATEGORY_CHECKS = {
 }
 
 
-def validate_schema(df):
+def validate_schema_against(df, schema):
+    """Generic schema check, driven by an arbitrary {column: {category, required}}
+    dict (e.g. loaded from pipeline_config.yaml). validate_schema() below is
+    just this function called with the sales-specific EXPECTED_SCHEMA."""
 
-
-    for column, rule in EXPECTED_SCHEMA.items():
+    for column, rule in schema.items():
 
         if rule["required"] and column not in df.columns:
 
@@ -54,9 +56,9 @@ def validate_schema(df):
                 f"Missing required column : {column}"
             )
 
-   
 
-    for column, rule in EXPECTED_SCHEMA.items():
+
+    for column, rule in schema.items():
 
         if column not in df.columns:
             continue
@@ -78,11 +80,11 @@ def validate_schema(df):
                 f"{column} datatype mismatch"
             )
 
-    
+
 
     for column in df.columns:
 
-        if column not in EXPECTED_SCHEMA:
+        if column not in schema:
 
             logger.warning(
                 f"Unexpected column detected : {column}"
@@ -90,4 +92,15 @@ def validate_schema(df):
 
     logger.info("Schema validation passed")
 
+    return True
+
+
+def validate_schema(df):
+    return validate_schema_against(df, EXPECTED_SCHEMA)
+
+def validate_no_unexpected_columns(df, schema):
+    """Raise when a source introduces columns outside its configured contract."""
+    unexpected = sorted(set(df.columns) - set(schema.keys()))
+    if unexpected:
+        raise ValueError(f"Unexpected columns detected: {', '.join(unexpected)}")
     return True

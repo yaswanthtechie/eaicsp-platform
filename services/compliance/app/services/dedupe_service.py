@@ -1,11 +1,11 @@
+
 import re
 
 from rapidfuzz import fuzz
 
 
-
 def normalize_name(name: str) -> str:
-    
+  
 
     if not name:
         return ""
@@ -23,29 +23,22 @@ def normalize_name(name: str) -> str:
     }
 
     for old, new in replacements.items():
-        name = name.replace(
-            old,
-            new,
-        )
+        name = name.replace(old, new)
 
     name = re.sub(
-        r"[^A-Z0-9 ]",
-        " ",
-        name,
-    )
+    r"[^\w\s]",
+    " ",
+    name,
+    flags=re.UNICODE,
+)
 
-    return " ".join(
-        name.split()
-    )
-
+    return " ".join(name.split())
 
 
 def create_bucket_key(name: str) -> str:
-    
+   
 
-    normalized = normalize_name(
-        name
-    )
+    normalized = normalize_name(name)
 
     if not normalized:
         return ""
@@ -55,81 +48,80 @@ def create_bucket_key(name: str) -> str:
     if len(words) >= 2:
         return (
             words[0][:3]
-            +
-            words[1][:3]
+            + words[1][:3]
         )
 
     return words[0][:4]
-
-
 
 
 def merge_records(
     target: dict,
     source: dict,
 ) -> dict:
-  
-
-    
-
-    target_sources = target.get(
-        "sources",
-        [],
+   
+    target_sources = set(
+        target.get("sources", [])
     )
 
-    source_sources = source.get(
-        "sources",
-        [],
+    source_sources = set(
+        source.get("sources", [])
     )
 
     target["sources"] = sorted(
-        set(
-            target_sources
-            +
-            source_sources
-        )
+        target_sources | source_sources
     )
 
-
-    target_aliases = target.get(
-        "aliases",
-        [],
+    target_aliases = set(
+        target.get("aliases", [])
     )
 
-    source_aliases = source.get(
-        "aliases",
-        [],
+    source_aliases = set(
+        source.get("aliases", [])
     )
 
     target["aliases"] = sorted(
-        set(
-            target_aliases
-            +
-            source_aliases
-        )
+        target_aliases | source_aliases
     )
-
-   
 
     target["confidence"] = max(
-        target.get(
-            "confidence",
-            100,
+        int(
+            target.get(
+                "confidence",
+                100,
+            )
         ),
-        source.get(
-            "confidence",
-            100,
+        int(
+            source.get(
+                "confidence",
+                100,
+            )
         ),
     )
+
+    target_date = target.get(
+        "listed_date"
+    )
+
+    source_date = source.get(
+        "listed_date"
+    )
+
+    if target_date and source_date:
+
+        if str(source_date) < str(target_date):
+            target["listed_date"] = source_date
+
+    elif source_date and not target_date:
+
+        target["listed_date"] = source_date
 
     return target
 
 
-
-
-def create_entity_record(entity) -> dict:
+def create_entity_record(
+    entity,
+) -> dict:
    
-
     return {
         "name": entity.name,
 
@@ -144,16 +136,67 @@ def create_entity_record(entity) -> dict:
         ],
 
         "confidence": 100,
+
+        "listed_date": entity.listed_date,
     }
+
+
+def _find_exact_record(
+    normalized_name: str,
+    bucket_records: dict[str, dict],
+):
+   
+
+    if normalized_name in bucket_records:
+        return normalized_name
+
+    return None
+
+
+def _find_fuzzy_record(
+    normalized_name: str,
+    bucket_records: dict[str, dict],
+    threshold: int,
+):
+   
+
+    matched_key = None
+    best_score = 0
+
+    for existing_key in bucket_records:
+
+      
+        if normalized_name == existing_key:
+            continue
+
+        score = fuzz.WRatio(
+            normalized_name,
+            existing_key,
+        )
+
+        if score > best_score:
+            best_score = score
+            matched_key = existing_key
+
+    if (
+        matched_key is not None
+        and best_score >= threshold
+    ):
+        return (
+            matched_key,
+            int(best_score),
+        )
+
+    return (
+        None,
+        0,
+    )
 
 
 def deduplicate_entities(
     entities,
     threshold: int = 90,
 ) -> dict:
-   
-
-
 
     buckets = {}
 
@@ -172,24 +215,22 @@ def deduplicate_entities(
         buckets.setdefault(
             key,
             [],
-        ).append(
-            entity
-        )
+        ).append(entity)
 
     print(
         f"Created buckets: {len(buckets)}"
     )
 
-
     final_records = {}
 
+  
 
-
-    for bucket_key, bucket_entities in buckets.items():
+    for (
+        bucket_key,
+        bucket_entities,
+    ) in buckets.items():
 
         bucket_records = {}
-
-     
 
         for entity in bucket_entities:
 
@@ -203,54 +244,71 @@ def deduplicate_entities(
             if len(normalized) < 3:
                 continue
 
-            matched_key = None
-            best_score = 0
 
-         
+            exact_key = _find_exact_record(
+                normalized,
+                bucket_records,
+            )
 
-            for existing_key in bucket_records:
-
-                comparisons += 1
-
-                score = fuzz.WRatio(
-                    normalized,
-                    existing_key,
-                )
-
-                if score > best_score:
-
-                    best_score = score
-
-                    matched_key = existing_key
-
-
-            if (
-                matched_key
-                and best_score >= threshold
-            ):
-
-                existing_record = bucket_records[
-                    matched_key
-                ]
+            if exact_key is not None:
 
                 new_record = create_entity_record(
                     entity
                 )
 
-                new_record["confidence"] = int(
-                    best_score
+                bucket_records[
+                    exact_key
+                ] = merge_records(
+                    bucket_records[
+                        exact_key
+                    ],
+                    new_record,
                 )
 
-                merged_record = merge_records(
-                    existing_record,
-                    new_record,
+                continue
+
+
+
+            comparisons += max(
+                len(bucket_records),
+                0,
+            )
+
+            (
+                matched_key,
+                best_score,
+            ) = _find_fuzzy_record(
+                normalized_name=normalized,
+                bucket_records=bucket_records,
+                threshold=threshold,
+            )
+
+
+            if matched_key is not None:
+
+                existing_record = (
+                    bucket_records[
+                        matched_key
+                    ]
+                )
+
+                new_record = (
+                    create_entity_record(
+                        entity
+                    )
+                )
+
+                new_record["confidence"] = (
+                    best_score
                 )
 
                 bucket_records[
                     matched_key
-                ] = merged_record
+                ] = merge_records(
+                    existing_record,
+                    new_record,
+                )
 
-    
 
             else:
 
@@ -261,19 +319,28 @@ def deduplicate_entities(
                 )
 
 
-        for key, record in bucket_records.items():
+
+        for (
+            key,
+            record,
+        ) in bucket_records.items():
 
             if key in final_records:
 
-                final_records[key] = merge_records(
-                    final_records[key],
+                final_records[
+                    key
+                ] = merge_records(
+                    final_records[
+                        key
+                    ],
                     record,
                 )
 
             else:
 
-                final_records[key] = record
-
+                final_records[
+                    key
+                ] = record
 
     print(
         f"Fuzzy comparisons performed: {comparisons}"
