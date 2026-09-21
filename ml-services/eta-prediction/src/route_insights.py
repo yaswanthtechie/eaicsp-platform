@@ -1,7 +1,9 @@
-
-from pathlib import Path
-
 import pandas as pd
+
+
+# A route whose standard deviation is under this fraction of its mean is
+# reliably slow rather than occasionally disastrous.
+CONSISTENCY_RATIO = 0.5
 
 
 def build_route_insights(
@@ -21,6 +23,7 @@ def build_route_insights(
     ----------
     datasets:
         Raw Olist datasets loaded by load_dataset().
+
     min_orders:
         Minimum number of orders required for a route to be included.
 
@@ -177,6 +180,12 @@ def build_route_insights(
                 "delivery_days",
                 "median",
             ),
+            # Spread separates a route that is RELIABLY slow from one
+            # whose average is dragged up by a few bad deliveries.
+            delivery_days_std=(
+                "delivery_days",
+                "std",
+            ),
             min_delivery_days=(
                 "delivery_days",
                 "min",
@@ -186,6 +195,11 @@ def build_route_insights(
                 "max",
             ),
         )
+    )
+
+    # A single-order route has no spread; treat that as 0.0 rather than NaN.
+    insights["delivery_days_std"] = (
+        insights["delivery_days_std"].fillna(0.0)
     )
 
     # Keep routes with enough historical observations.
@@ -220,6 +234,7 @@ def build_route_insights(
             "order_count",
             "average_delivery_days",
             "median_delivery_days",
+            "delivery_days_std",
             "min_delivery_days",
             "max_delivery_days",
         ]
@@ -267,6 +282,13 @@ def generate_route_findings(
 ) -> list[str]:
     """
     Generate plain-English findings for the slowest routes.
+
+    Each finding compares the route against the network median so the
+    number carries meaning. "18.4 days" says nothing on its own;
+    "18.4 days, 2.3x the network median of 7.9" is a finding.
+
+    Routes whose spread is small relative to their average are called
+    out as consistently slow, which is what the ranking is for.
     """
 
     slowest = get_slowest_routes(
@@ -274,14 +296,62 @@ def generate_route_findings(
         top_n=top_n,
     )
 
+    if insights.empty:
+        return []
+
+    # Network baseline: the typical route, not the typical order.
+    network_median = float(
+        insights["average_delivery_days"].median()
+    )
+
     findings = []
 
     for _, row in slowest.iterrows():
-        findings.append(
+        average = float(
+            row["average_delivery_days"]
+        )
+
+        orders = int(
+            row["order_count"]
+        )
+
+        finding = (
             f"{row['route']} has an average delivery time "
-            f"of {row['average_delivery_days']:.2f} days "
-            f"across {int(row['order_count'])} orders."
+            f"of {average:.2f} days across {orders} orders"
+        )
+
+        ratio = None
+
+        if network_median > 0:
+            ratio = average / network_median
+
+            finding += (
+                f", {ratio:.1f}x the network median "
+                f"of {network_median:.2f} days"
+            )
+
+        # "Consistently slow" needs BOTH:
+        # 1. slower than the network
+        # 2. low spread relative to its average
+        std = float(
+            row.get("delivery_days_std", 0.0) or 0.0
+        )
+
+        is_slower_than_network = (
+            ratio is not None
+            and ratio > 1.0
+        )
+
+        is_consistent = (
+            average > 0
+            and std / average <= CONSISTENCY_RATIO
+        )
+
+        if is_slower_than_network and is_consistent:
+            finding += " (consistently slow)"
+
+        findings.append(
+            finding + "."
         )
 
     return findings
-

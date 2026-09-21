@@ -172,3 +172,102 @@ def test_predict_internal_error(client, monkeypatch):
 
     assert body["detail"]["error_code"] == "INTERNAL_PREDICTION_ERROR"
 
+# ---------------------------------------------------------------------
+# End-to-end tests: these drive the REAL predict() through the API.
+#
+# The stubbed tests above verify error mapping, but they would pass even
+# if prediction were completely broken, because they never call it.
+# ---------------------------------------------------------------------
+
+
+def test_predict_end_to_end_returns_ordered_interval(
+    client,
+    trained_model_path,
+    patch_city_coordinates,
+):
+    """Real model, real geolocation lookup, real interval construction."""
+    response = client.post(
+        "/predict",
+        json={
+            "origin": "city_a",
+            "destination": "city_b",
+            "carrier": "carrier_x",
+            "weight_kg": 2.5,
+        },
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    # Assert the interval against the calibration artifact itself, rather
+    # than just low <= high: predict() clamps with max(), so an ordering
+    # assertion alone passes even if the bounds are swapped.
+    from src.model_loader import load_prediction_interval
+
+    calibration = load_prediction_interval()
+
+    eta = body["eta_days"]
+    expected_high = eta + float(calibration["residual_upper"])
+    expected_low = max(
+        0.0,
+        eta + float(calibration["residual_lower"]),
+    )
+
+    assert body["confidence_high"] == pytest.approx(
+        expected_high,
+        abs=0.01,
+    )
+    assert body["confidence_low"] == pytest.approx(
+        expected_low,
+        abs=0.01,
+    )
+    assert body["eta_days"] >= 0
+    assert body["confidence_low"] >= 0
+
+
+def test_predict_end_to_end_unseen_carrier_matches_known_carrier(
+    client,
+    trained_model_path,
+    patch_city_coordinates,
+):
+    """
+    Carrier is accepted for contract compatibility but is not a model
+    feature, so an unseen carrier must produce an identical prediction
+    rather than an error. This is the claim the stubbed test could not make.
+    """
+
+    def call(carrier):
+        return client.post(
+            "/predict",
+            json={
+                "origin": "city_a",
+                "destination": "city_b",
+                "carrier": carrier,
+                "weight_kg": 2.5,
+            },
+        ).json()
+
+    assert call("carrier_x") == call(
+        "completely_new_carrier_xyz"
+    )
+
+
+def test_predict_end_to_end_unknown_city_returns_location_error(
+    client,
+    trained_model_path,
+    patch_city_coordinates,
+):
+    """The real lookup must reject a city absent from the geolocation data."""
+    response = client.post(
+        "/predict",
+        json={
+            "origin": "no_such_city_xyz",
+            "destination": "city_b",
+            "carrier": "carrier_x",
+            "weight_kg": 2.5,
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["error_code"] == "LOCATION_NOT_FOUND"

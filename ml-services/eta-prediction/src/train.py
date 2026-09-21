@@ -18,6 +18,11 @@ CALIBRATION_MODEL_PATH = (
 # Prediction interval configuration
 # ---------------------------------------------------------
 PREDICTION_INTERVAL_COVERAGE = 0.80
+# Below this many calibration rows the empirical interval is noise rather
+# than a calibrated bound. Unit tests train on tiny fixtures on purpose, so
+# train_model() stays permissive; main.py enforces this before an artifact
+# is published as production.
+MIN_PRODUCTION_CALIBRATION_ROWS = 100
 
 
 def train_model(X_train, y_train):
@@ -187,6 +192,9 @@ def train_model(X_train, y_train):
         "calibration_rows": len(
             X_calibration
         ),
+        # Provenance: makes it obvious at a glance whether an artifact came
+        # from the real dataset or from a test fixture.
+        "training_rows": len(X_train),
         "lower_quantile": (
             1.0
             - PREDICTION_INTERVAL_COVERAGE
@@ -237,3 +245,25 @@ def train_model(X_train, y_train):
     # 12. Return final production pipeline
     # ---------------------------------------------------------
     return pipeline
+def check_production_calibration(calibration: dict) -> None:
+    """
+    Refuse to publish a prediction interval calibrated on too little data.
+
+    An 80% empirical quantile taken over a handful of residuals is not a
+    calibrated interval, and a model trained on a test fixture will happily
+    produce one. Called from main.py after training, not from train_model(),
+    so unit tests can keep training on small synthetic fixtures.
+    """
+
+    calibration_rows = int(
+        calibration.get("calibration_rows", 0)
+    )
+
+    if calibration_rows < MIN_PRODUCTION_CALIBRATION_ROWS:
+        raise ValueError(
+            "Prediction interval was calibrated on "
+            f"{calibration_rows} rows, which is below the production "
+            f"minimum of {MIN_PRODUCTION_CALIBRATION_ROWS}. "
+            "This usually means the model was trained on test fixture "
+            "data instead of the real dataset. Do not ship this artifact."
+        )
