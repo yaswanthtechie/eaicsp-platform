@@ -81,6 +81,9 @@ profiles:
         severity: WARNING
         depends_on: [ "unparseable_dates" ]
 
+  deep:
+    inherits: default
+    rules:
       - name: detect_quantity_outliers
         type: custom
         field: quantity_sold
