@@ -1,6 +1,11 @@
 import joblib
 
 from src.data import load_dataset
+from src.route_insights import (
+    build_route_insights,
+    get_slowest_routes,
+    generate_route_findings,
+)
 from src.features import (
     build_eta_features,
     save_eta_features,
@@ -48,6 +53,36 @@ def main():
         # 4. Load raw datasets
         # -----------------------------------------------------
         datasets = load_dataset()
+        # -----------------------------------------------------
+        # 5. Generate route-level insights
+        # -----------------------------------------------------
+        route_insights = build_route_insights(
+            datasets,
+            min_orders=10,
+        )
+
+        print("\nTop Slowest Routes")
+        print("==================")
+
+        slowest_routes = get_slowest_routes(
+            route_insights,
+            top_n=10,
+        )
+
+        print(
+            slowest_routes.to_string(index=False)
+        )
+
+        print("\nRoute Findings")
+        print("==============")
+
+        findings = generate_route_findings(
+            route_insights,
+            top_n=5,
+        )
+
+        for finding in findings:
+            print(f"- {finding}")
 
         # -----------------------------------------------------
         # 5. Extract ETA features
