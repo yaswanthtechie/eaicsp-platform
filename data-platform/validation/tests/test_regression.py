@@ -39,3 +39,5 @@ def test_golden_regression():
     assert error_counts.get('composite_pk_unique') == 45
     assert warning_counts.get('quantity_positive') == 2
     assert warning_counts.get('date_in_range') == 69
+    assert warning_counts.get('detect_quantity_outliers') == 2
+    assert warning_counts.get('wh_01_minimum_price') == 2

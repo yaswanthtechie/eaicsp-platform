@@ -26,6 +26,12 @@ def test_stream_matches_in_memory_on_messy_data(tmp_path, chunksize):
     generate_messy_data(csv_path, MessyDataConfig(n_base=3000))
 
     validator = DataValidator.from_config(str(CONFIG))
+
+    validator.rules = [
+        r for r in validator.rules
+        if not getattr(r, 'requires_full_dataset', False)
+    ]
+
     in_memory = validator.validate(pd.read_csv(csv_path))
     streamed = validator.validate_stream(str(csv_path), chunksize=chunksize)
 

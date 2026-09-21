@@ -89,6 +89,7 @@ profiles:
         lower_q: 0.25
         upper_q: 0.75
         multiplier: 1.5
+        requires_full_dataset: true
 
   strict:
     inherits: default

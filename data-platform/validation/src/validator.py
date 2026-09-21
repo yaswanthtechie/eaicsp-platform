@@ -63,6 +63,7 @@ class ConfigRule(BaseModel):
     max_fail_pct: Optional[float] = None
     drift_abs_min: Optional[float] = None
     drift_rel_min: Optional[float] = None
+    requires_full_dataset: bool = False
 
     @model_validator(mode='after')
     def validate_function_path(self) -> 'ConfigRule':
@@ -419,6 +420,15 @@ class DataValidator:
         duration of this call, on a deep copy. self.rules is always restored, so a
         streaming run never changes how this validator behaves afterwards.
         """
+        # --- Guard against aggregate rules in streaming mode ---
+        aggregate_rules = [r.name for r in self.rules if getattr(r, 'requires_full_dataset', False)]
+        if aggregate_rules:
+            raise RuntimeError(
+                f"Streaming validation aborted: Active profile contains aggregate rules that "
+                f"require the full dataset in memory. Conflicting rules: {aggregate_rules}. "
+                f"Either run in-memory or use a profile without these rules."
+            )
+
         stream_rules = copy.deepcopy(self.rules)
 
         for i, rule in enumerate(stream_rules):
