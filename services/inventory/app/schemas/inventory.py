@@ -37,6 +37,10 @@ class InventoryCreate(BaseModel):
     ] = "local"
 
     parent_warehouse_id: Optional[str] = None
+    unit_cost: Optional[float] = Field(
+    default=None,
+    ge=0,
+    )
 
 
 class InventoryUpdate(BaseModel):

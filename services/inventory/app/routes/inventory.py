@@ -1,3 +1,5 @@
+
+import logging
 import time
 
 from fastapi import (
@@ -46,6 +48,7 @@ from app.services.inventory_service import (
     bulk_update_inventory,
     what_if_simulation,
     inventory_response,
+    generate_draft_po_if_required,
 )
 
 from app.services.reorder_service import (
@@ -70,6 +73,8 @@ from app.services.valuation_service import (
     consume_cost_layers,
 )
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -182,7 +187,7 @@ def reorder_plan(
 
             reorder_point = calculation["reorder_point"]
 
-            # At the reorder point is still sufficient.
+            # At the reorder point inventory is still sufficient.
             # Reorder only when quantity is below ROP.
             if inventory.quantity_on_hand >= reorder_point:
                 continue
@@ -424,6 +429,10 @@ def simulate_inventory(
 #
 # M3:
 # Consume FIFO cost layers whenever stock leaves.
+#
+# Important:
+# Missing cost layers must not block physical stock
+# movement. They only affect valuation accuracy.
 # =========================================================
 
 @router.post(
@@ -481,21 +490,44 @@ def decrement_inventory_route(
             for layer_quantity, _unit_cost in consumed_layers
         )
 
-        if consumed_quantity < quantity:
-            db.rollback()
+        # Stock with no or partial cost history still moves.
+        # Missing cost layers affect valuation accuracy;
+        # they must not prevent the physical inventory movement.
+        uncosted_quantity = quantity - consumed_quantity
 
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "Insufficient cost-layer quantity "
-                    "for this inventory decrement"
-                ),
+        if uncosted_quantity > 0:
+            logger.warning(
+                "Decrement of %s units of %s at %s exceeded "
+                "available cost layers by %s units; valuation "
+                "for this SKU is incomplete until stock is "
+                "received against a PO.",
+                quantity,
+                sku_id,
+                warehouse_id,
+                uncosted_quantity,
             )
 
         item.quantity_on_hand -= quantity
 
         db.commit()
         db.refresh(item)
+
+        # -----------------------------------------------------
+        # MILESTONE 2:
+        # A sale is a common way stock falls below its
+        # reorder point, so check whether an automatic
+        # draft PO is required after the decrement.
+        #
+        # The decrement has already committed, so a missing
+        # supplier configuration must not fail the movement.
+        # -----------------------------------------------------
+        try:
+            generate_draft_po_if_required(
+                db=db,
+                inventory=item,
+            )
+        except ValueError:
+            pass
 
         return inventory_response(
             inventory=item,

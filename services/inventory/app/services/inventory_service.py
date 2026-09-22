@@ -141,8 +141,7 @@ def create_inventory(
 
     if (
         inventory.parent_warehouse_id
-        and inventory.parent_warehouse_id
-        == inventory.warehouse_id
+        and inventory.parent_warehouse_id == inventory.warehouse_id
     ):
         raise ValueError(
             "parent_warehouse_id cannot be the warehouse itself"
@@ -165,10 +164,54 @@ def create_inventory(
     try:
         db.flush()
 
-        inventory_response(
-            inventory=item,
-            db=db,
-        )
+        # -------------------------------------------------
+        # MILESTONE 3:
+        # Opening stock gets a cost layer.
+        # -------------------------------------------------
+
+        if item.quantity_on_hand > 0:
+
+            opening_unit_cost = inventory.unit_cost
+
+            if opening_unit_cost is None:
+                opening_unit_cost = latest_unit_cost(
+                    db=db,
+                    sku_id=item.sku_id,
+                    warehouse_id=item.warehouse_id,
+                )
+
+            if opening_unit_cost is not None:
+                add_cost_layer(
+                    db=db,
+                    sku_id=item.sku_id,
+                    warehouse_id=item.warehouse_id,
+                    category=item.category,
+                    quantity=item.quantity_on_hand,
+                    unit_cost=opening_unit_cost,
+                )
+
+        # -------------------------------------------------
+        # MILESTONE 2:
+        # Validate reorder/demand logic before committing.
+        #
+        # This ensures invalid demand data cannot leave
+        # behind a partially-created inventory record.
+        # -------------------------------------------------
+
+        try:
+            generate_draft_po_if_required(
+                db=db,
+                inventory=item,
+            )
+        except ValueError as exc:
+            message = str(exc)
+
+            if "Negative demand" in message:
+                raise
+
+            # Supplier configuration may be missing.
+            # Inventory creation should still succeed.
+            pass
 
         db.commit()
         db.refresh(item)
@@ -176,23 +219,6 @@ def create_inventory(
     except Exception:
         db.rollback()
         raise
-
-    # -----------------------------------------------------
-    # MILESTONE 2:
-    # If newly created inventory is already below ROP,
-    # automatically create a draft PO.
-    # -----------------------------------------------------
-
-    try:
-        generate_draft_po_if_required(
-            db=db,
-            inventory=item,
-        )
-    except ValueError:
-        # Inventory creation itself has already succeeded.
-        # Do not roll back inventory because supplier
-        # configuration may be missing.
-        pass
 
     return item
 

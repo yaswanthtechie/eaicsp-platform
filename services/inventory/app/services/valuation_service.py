@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
@@ -113,7 +113,7 @@ def add_cost_layer(
             unit_cost=unit_cost,
             received_at=(
                 received_at
-                or datetime.utcnow()
+                or datetime.now(UTC)
             ),
         )
     )

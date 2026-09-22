@@ -7,7 +7,7 @@ from fastapi import (
 
 from sqlalchemy.orm import Session
 
-from app.core.auth import require_roles
+from app.core.auth import require_permission
 from app.database import get_db
 
 from app.schemas.purchase_order import (
@@ -36,10 +36,7 @@ def create_purchase_order(
     data: PurchaseOrderRequest,
     db: Session = Depends(get_db),
     auth=Depends(
-        require_roles(
-            "warehouse_manager",
-            "procurement_manager",
-        )
+        require_permission("inventory:write")
     ),
 ):
     try:
@@ -64,10 +61,7 @@ def receive_purchase_order_endpoint(
     po_id: str,
     db: Session = Depends(get_db),
     auth=Depends(
-        require_roles(
-            "warehouse_manager",
-            "procurement_manager",
-        )
+        require_permission("inventory:write")
     ),
 ):
     try:
