@@ -2117,21 +2117,20 @@ Number of false alarms
 
 The evaluation results are printed by the training/evaluation pipeline.
 
-M3 Status
 
-Milestone 3: COMPLETED
 
-Implemented:
+## Milestone status
 
-Multivariate feature detection
-Isolation Forest
-One-Class SVM
-Local Outlier Factor
-Multiple anomaly scenarios
-Scenario-wise evaluation
-Production model scoring
-Automated test coverage
-Model deployment flow
+| Milestone | Status | Notes |
+|---|---|---|
+| M3 – Multivariate | **Done (evaluation)** | `src/multivariate_eval.py` trains on correlated normal data and tests relationship breaks (every value within 2σ, the pair wrong). Single-feature rule: 0/20. LOF and Elliptic Envelope: 20/20 with features scaled on train only. Isolation Forest 1/20, One-Class SVM 0/20. Logged to MLflow. |
+| M4 – Root-cause hints | **Done** | `/detect` returns `root_cause_hint`: the nearest labeled past incident type (k=5 cosine vote over a history library built from separate seeds), or `unknown` when similarity < 0.8. Held-out matching: 59/60. |
+
+### Known limitations / next steps
+- Production models are still trained on independent data, so `/detect` cannot yet flag relationship breaks. Next: switch `train_normal` to `generate_correlated_normal_data()`, re-run the R4.5 cost-threshold tuning, update `PRODUCTION_THRESHOLDS`, and add `relationship_break` to `default_history()`.
+- Recall of 1.0 is against planted breaks of 1.5–2σ. Also report recall on smaller breaks (around 1σ) before relying on that number.
+- In the current independent-data setup, a humidity-only spike matches `combined_anomaly` (similarity 0.93), because humidity is the only signal both share.
+- SHAP uses an `Independent` masker, which ignores feature correlation, so `reasons` blames a single feature even for relationship breaks. `root_cause_hint` covers this case.
 
 Milestone 4 – Root Cause / Explainable Anomaly Detection
 Objective

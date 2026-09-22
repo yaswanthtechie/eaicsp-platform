@@ -12,10 +12,13 @@ from .adaptive_engine_manager import (
 from .model_loader import (
     feature_names,
     get_explainer,
+    get_incident_library,
     get_model_version,
     get_models,
     initialize_adaptive_thresholds,
 )
+
+from .root_cause import match_incident
 
 
 model_labels = {
@@ -28,7 +31,7 @@ model_labels = {
 # ============================================================
 # R4.5 PRODUCTION COST-BASED THRESHOLDS
 # ============================================================
-#
+
 # Project anomaly-score convention:
 #
 #     anomaly_score = -model.score(features)
@@ -99,9 +102,8 @@ PRODUCTION_MODEL = "lof"
 # INTERNAL HELPERS
 # ============================================================
 
-def _get_production_threshold(
-    model_name,
-):
+
+def _get_production_threshold(model_name):
     """
     Return the R4.5 production threshold for a model.
 
@@ -113,28 +115,18 @@ def _get_production_threshold(
     Higher score means more anomalous.
     """
 
-    model_name = str(
-        model_name
-    )
+    model_name = str(model_name)
 
     if model_name not in PRODUCTION_THRESHOLDS:
-
         raise ValueError(
             f"No production threshold configured "
             f"for model: {model_name}"
         )
 
-    return float(
-        PRODUCTION_THRESHOLDS[
-            model_name
-        ]
-    )
+    return float(PRODUCTION_THRESHOLDS[model_name])
 
 
-def _is_production_anomaly(
-    score,
-    model_name,
-):
+def _is_production_anomaly(score, model_name):
     """
     Apply the R4.5 production threshold.
 
@@ -147,18 +139,45 @@ def _is_production_anomaly(
         score >= threshold -> anomaly
     """
 
-    threshold = _get_production_threshold(
-        model_name
-    )
+    threshold = _get_production_threshold(model_name)
 
-    return bool(
-        float(score) >= threshold
-    )
+    return bool(float(score) >= threshold)
 
 
 # ============================================================
 # INTERNAL PREDICTION HELPER
 # ============================================================
+
+
+def _build_explanation(
+    is_anomaly,
+    primary_reason,
+    root_cause_hint,
+):
+    """
+    Human-readable summary of the decision.
+    """
+
+    if not is_anomaly:
+        return "Reading is within normal operating behaviour."
+
+    if primary_reason is None:
+        return "Reading flagged as anomalous."
+
+    text = (
+        f"Anomaly driven mainly by {primary_reason['feature']} "
+        f"({primary_reason['contribution'] * 100:.1f}% of the "
+        f"normalized feature contribution)."
+    )
+
+    if (
+        root_cause_hint is not None
+        and root_cause_hint["incident_type"] != "unknown"
+    ):
+        text += " " + root_cause_hint["description"]
+
+    return text
+
 
 def _get_prediction_details(
     reading,
@@ -172,6 +191,8 @@ def _get_prediction_details(
         - R4.5 production decision
         - production threshold
         - SHAP reasons
+        - root-cause hint
+        - human-readable explanation
 
     Project convention:
 
@@ -180,31 +201,22 @@ def _get_prediction_details(
     Higher anomaly_score = more anomalous.
     """
 
-    model_name = str(
-        model_name
-    )
+    model_name = str(model_name)
 
     models = get_models()
 
     if model_name not in models:
-
         raise ValueError(
             f"Unknown model: {model_name}"
         )
 
-    model = models[
-        model_name
-    ]
+    model = models[model_name]
 
-    explainer = get_explainer(
-        model_name
-    )
+    explainer = get_explainer(model_name)
 
     features = pd.DataFrame(
         [reading]
-    )[
-        feature_names
-    ]
+    )[feature_names]
 
     model_input = features.to_numpy()
 
@@ -282,9 +294,7 @@ def _get_prediction_details(
                 {
                     "feature": feature,
                     "contribution": round(
-                        float(
-                            contribution
-                        ),
+                        float(contribution),
                         4,
                     ),
                 }
@@ -293,31 +303,43 @@ def _get_prediction_details(
                     contributions,
                 )
             ],
-            key=lambda x: x[
-                "contribution"
-            ],
+            key=lambda x: x["contribution"],
             reverse=True,
         )[:3]
-           
 
     # --------------------------------------------------------
     # M4 root-cause explanation
+    #
+    # Only describe a reading as an anomaly when the production
+    # decision says it is one. For normal readings the SHAP
+    # ranking is still returned in `reasons`, but the text must
+    # not claim there is an anomaly.
     # --------------------------------------------------------
 
-    primary_reason = reasons[0] if reasons else None
+    primary_reason = (
+        reasons[0]
+        if reasons
+        else None
+    )
 
-    explanation = ""
+    root_cause_hint = None
 
-    if primary_reason:
-        explanation = (
-            f"{primary_reason['feature']} is the primary contributor "
-            f"to the anomaly "
-            f"({primary_reason['contribution'] * 100:.1f}% of the "
-            f"normalized feature contribution)."
-        )
+    if production_is_anomaly:
 
-    # --------------------------------------------------------
-    # Return all decision information.    
+        library = get_incident_library()
+
+        if library is not None:
+
+            root_cause_hint = match_incident(
+                reading,
+                library,
+            )
+
+    explanation = _build_explanation(
+        production_is_anomaly,
+        primary_reason,
+        root_cause_hint,
+    )
 
     # --------------------------------------------------------
     # Return all decision information.
@@ -340,7 +362,7 @@ def _get_prediction_details(
         #
         #     -1 = anomaly
         #      1 = normal
-        #
+
         "model_prediction": int(
             prediction
         ),
@@ -352,15 +374,17 @@ def _get_prediction_details(
         # Project normalized score:
         #
         # higher = more anomalous
-        #
+
         "score": anomaly_score,
 
         # R4.5 production threshold.
+
         "production_threshold": (
             production_threshold
         ),
 
         # R4.5 production decision.
+
         "production_is_anomaly": (
             production_is_anomaly
         ),
@@ -369,12 +393,16 @@ def _get_prediction_details(
 
         "primary_reason": primary_reason,
 
+        "root_cause_hint": root_cause_hint,
+
         "explanation": explanation,
     }
+
 
 # ============================================================
 # PRODUCTION PREDICTION
 # ============================================================
+
 
 def predict(
     reading,
@@ -458,8 +486,13 @@ def predict(
         "reasons": result[
             "reasons"
         ],
-                "primary_reason": result[
+
+        "primary_reason": result[
             "primary_reason"
+        ],
+
+        "root_cause_hint": result[
+            "root_cause_hint"
         ],
 
         "explanation": result[
@@ -471,6 +504,7 @@ def predict(
 # ============================================================
 # OLD ADAPTIVE PREDICTION
 # ============================================================
+
 
 def adaptive_predict(
     reading,
@@ -552,12 +586,25 @@ def adaptive_predict(
         "reasons": result[
             "reasons"
         ],
+
+        "primary_reason": result[
+            "primary_reason"
+        ],
+
+        "root_cause_hint": result[
+            "root_cause_hint"
+        ],
+
+        "explanation": result[
+            "explanation"
+        ],
     }
 
 
 # ============================================================
 # STATEFUL ADAPTIVE ENGINE PREDICTION
 # ============================================================
+
 
 def adaptive_engine_predict(
     reading,
@@ -582,17 +629,17 @@ def adaptive_engine_predict(
         |            |
         v            v
      NORMAL      TEMPORAL CHECK
-     WORKING        |
-     CONDITION  +---+---+
-                |       |
-              DRIFT   NO DRIFT
-                |       |
-                v       v
-              ALERT   REGIME
-               ONLY   CONFIRMATION
-                         |
-                         v
-                    ADAPTATION
+     WORKING          |
+     CONDITION    +---+---+
+                  |       |
+                DRIFT   NO DRIFT
+                  |       |
+                  v       v
+                ALERT   REGIME
+                 ONLY   CONFIRMATION
+                            |
+                            v
+                        ADAPTATION
 
     The AdaptiveEngine owns the complete stateful adaptive
     threshold lifecycle.
@@ -615,7 +662,6 @@ def adaptive_engine_predict(
         model_name,
         "value",
     ):
-
         model_name = (
             model_name.value
         )
@@ -705,6 +751,18 @@ def adaptive_engine_predict(
             "reasons"
         ],
 
+        "primary_reason": result[
+            "primary_reason"
+        ],
+
+        "root_cause_hint": result[
+            "root_cause_hint"
+        ],
+
+        "explanation": result[
+            "explanation"
+        ],
+
         # ----------------------------------------------------
         # Adaptive decision
         # ----------------------------------------------------
@@ -759,6 +817,7 @@ def adaptive_engine_predict(
 # FASTAPI COMPATIBILITY WRAPPER
 # ============================================================
 
+
 def predict_with_explanation(
     reading: dict,
     model_choice,
@@ -788,7 +847,6 @@ def predict_with_explanation(
         model_choice,
         "value",
     ):
-
         model_choice = (
             model_choice.value
         )
@@ -807,6 +865,7 @@ def predict_with_explanation(
 # ============================================================
 # OLD ADAPTIVE FASTAPI COMPATIBILITY WRAPPER
 # ============================================================
+
 
 def adaptive_predict_with_explanation(
     reading: dict,
@@ -832,7 +891,6 @@ def adaptive_predict_with_explanation(
         model_choice,
         "value",
     ):
-
         model_choice = (
             model_choice.value
         )
@@ -851,6 +909,7 @@ def adaptive_predict_with_explanation(
 # ============================================================
 # NEW STATEFUL ADAPTIVE FASTAPI WRAPPER
 # ============================================================
+
 
 def adaptive_engine_predict_with_explanation(
     reading: dict,
@@ -876,7 +935,6 @@ def adaptive_engine_predict_with_explanation(
         model_choice,
         "value",
     ):
-
         model_choice = (
             model_choice.value
         )

@@ -186,70 +186,59 @@ def test_reason_fields():
         == expected_features
     )
 
-def test_m4_root_cause_explanation_fields():
-    response = client.post(
+def _detect(temperature, humidity, stock_count, model="lof"):
+    return client.post(
         "/detect",
-        json=VALID_REQUEST,
+        json={
+            "model": model,
+            "reading": {
+                "reading_id": 1,
+                "temperature": temperature,
+                "humidity": humidity,
+                "stock_count": stock_count,
+            },
+        },
     )
+
+
+def test_m4_primary_reason_is_top_ranked_reason():
+    body = client.post("/detect", json=VALID_REQUEST).json()
+
+    contributions = [r["contribution"] for r in body["reasons"]]
+
+    # reasons must be ranked, and primary_reason must be the top one
+    assert contributions == sorted(contributions, reverse=True)
+    assert body["primary_reason"] == body["reasons"][0]
+
+
+def test_m4_normal_reading_is_not_described_as_anomaly():
+    response = _detect(22.0, 45.0, 500)
 
     assert response.status_code == 200
 
     body = response.json()
 
-    # M4 root-cause fields
-    assert "primary_reason" in body
-    assert "explanation" in body
+    assert body["is_anomaly"] is False
+    assert "anomal" not in body["explanation"].lower()
+    assert body["root_cause_hint"] is None
 
-    primary_reason = body["primary_reason"]
 
-    assert isinstance(
-        primary_reason,
-        dict,
-    )
+def test_m4_temperature_spike_matches_past_spike_incidents():
+    body = _detect(30.0, 45.0, 500).json()
 
-    assert "feature" in primary_reason
-    assert "contribution" in primary_reason
+    assert body["is_anomaly"] is True
+    assert body["root_cause_hint"]["incident_type"] == "temperature_spike"
+    assert body["root_cause_hint"]["similarity"] >= 0.8
+    assert "temperature" in body["explanation"]
 
-    assert primary_reason["feature"] in {
-        "temperature",
-        "humidity",
-        "stock_count",
-    }
 
-    assert isinstance(
-        primary_reason["contribution"],
-        (int, float),
-    )
+def test_m4_unseen_pattern_is_reported_as_unknown():
+    # Stock far BELOW normal. The library only has past stock
+    # incidents ABOVE normal, so it must not pretend to recognise it.
+    body = _detect(22.0, 45.0, 100).json()
 
-    assert primary_reason["contribution"] >= 0
-
-    # Human-readable explanation
-    assert isinstance(
-        body["explanation"],
-        str,
-    )
-
-    assert len(body["explanation"]) > 0
-
-    # Primary reason must be the
-    # highest SHAP contribution.
-    reasons = body["reasons"]
-
-    top_reason = max(
-        reasons,
-        key=lambda reason: reason["contribution"],
-    )
-
-    assert (
-        primary_reason["feature"]
-        == top_reason["feature"]
-    )
-
-    assert (
-        primary_reason["contribution"]
-        == top_reason["contribution"]
-    )
-
+    assert body["is_anomaly"] is True
+    assert body["root_cause_hint"]["incident_type"] == "unknown"
 def test_contributions_sum_to_one():
     response = client.post(
         "/detect",
