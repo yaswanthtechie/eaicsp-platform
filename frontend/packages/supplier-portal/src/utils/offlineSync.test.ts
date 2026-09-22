@@ -52,7 +52,7 @@ describe("syncOfflineActions", () => {
       id: "action-1",
       type: "ACKNOWLEDGE_PO" as const,
       payload: {
-        po_number: "PO-1001",
+        poNumber: "PO-1001",
       },
       createdAt: 123456789,
     };
@@ -66,7 +66,7 @@ describe("syncOfflineActions", () => {
     expect(handler).toHaveBeenCalledWith(
       "ACKNOWLEDGE_PO",
       {
-        po_number: "PO-1001",
+        poNumber: "PO-1001",
       }
     );
 
@@ -80,7 +80,7 @@ describe("syncOfflineActions", () => {
       id: "action-1",
       type: "ACKNOWLEDGE_PO" as const,
       payload: {
-        po_number: "PO-1001",
+        poNumber: "PO-1001",
       },
       createdAt: 123456789,
     };
@@ -100,7 +100,7 @@ describe("syncOfflineActions", () => {
     expect(handler).toHaveBeenCalledWith(
       "ACKNOWLEDGE_PO",
       {
-        po_number: "PO-1001",
+        poNumber: "PO-1001",
       }
     );
 
@@ -110,20 +110,20 @@ describe("syncOfflineActions", () => {
   });
 
   it("skips an unsupported action and continues syncing valid actions", async () => {
-const invalidAction = {
-  id: "invalid-action",
-  type: "UNKNOWN_ACTION",
-  payload: {
-    po_number: "PO-1001",
-  },
-  createdAt: 123456789,
-} as unknown as import("./offlineQueue").OfflineAction;
+    const invalidAction = {
+      id: "invalid-action",
+      type: "UNKNOWN_ACTION",
+      payload: {
+        poNumber: "PO-1001",
+      },
+      createdAt: 123456789,
+    } as unknown as import("./offlineQueue").OfflineAction;
 
     const validAction = {
       id: "valid-action",
-      type: "ACKNOWLEDGE_PO" as const,      
+      type: "ACKNOWLEDGE_PO" as const,
       payload: {
-        po_number: "PO-1002",
+        poNumber: "PO-1002",
       },
       createdAt: 123456790,
     };
@@ -153,7 +153,7 @@ const invalidAction = {
       1,
       "UNKNOWN_ACTION",
       {
-        po_number: "PO-1001",
+        poNumber: "PO-1001",
       }
     );
 
@@ -161,7 +161,7 @@ const invalidAction = {
       2,
       "ACKNOWLEDGE_PO",
       {
-        po_number: "PO-1002",
+        poNumber: "PO-1002",
       }
     );
 

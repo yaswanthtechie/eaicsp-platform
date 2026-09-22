@@ -1,7 +1,6 @@
 from datetime import date, timedelta
 
 import pytest
-
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from fastapi.testclient import TestClient
@@ -15,12 +14,10 @@ from app.models.sales_history import SalesHistory
 
 TEST_DATABASE_URL = settings.TEST_DATABASE_URL
 
-
 test_engine = create_engine(
     TEST_DATABASE_URL,
     pool_pre_ping=True,
 )
-
 
 TestingSessionLocal = sessionmaker(
     autocommit=False,
@@ -28,6 +25,10 @@ TestingSessionLocal = sessionmaker(
     bind=test_engine,
 )
 
+
+# ============================================================
+# DATABASE FIXTURES
+# ============================================================
 
 def override_get_db():
     db = TestingSessionLocal()
@@ -58,6 +59,13 @@ def db_session():
         db.close()
 
 
+# ============================================================
+# SALES HISTORY SEED HELPER
+# ============================================================
+
+# IMPORTANT:
+# This is a NORMAL FUNCTION.
+# Do NOT put @pytest.fixture above it.
 def seed_sales_history(
     sku_id: str,
     warehouse_id: str,
@@ -87,28 +95,82 @@ def seed_sales_history(
         db.close()
 
 
-def _as_user(role: str):
-    """Bypass the real /verify call for tests that are not testing auth."""
+# ============================================================
+# TEST PERMISSIONS
+# ============================================================
 
+ROLE_PERMISSIONS = {
+    "ceo": [
+        "inventory:read",
+        "inventory:write",
+        "compliance:read",
+        "compliance:write",
+        "supplier:read",
+        "supplier:write",
+        "logistics:read",
+        "logistics:write",
+    ],
+    "vp_operations": [
+        "inventory:read",
+        "inventory:write",
+        "compliance:read",
+        "compliance:write",
+        "supplier:read",
+        "supplier:write",
+        "logistics:read",
+        "logistics:write",
+    ],
+    "procurement_manager": [
+        "supplier:read",
+        "supplier:write",
+    ],
+    "logistics_manager": [
+        "logistics:read",
+        "logistics:write",
+    ],
+    "compliance_officer": [
+        "compliance:read",
+        "compliance:write",
+    ],
+    "warehouse_manager": [
+        "inventory:read",
+        "inventory:write",
+    ],
+    "analyst": [
+        "inventory:read",
+        "compliance:read",
+        "supplier:read",
+        "logistics:read",
+    ],
+    "supplier": [
+        "supplier:read",
+        "supplier:write",
+    ],
+}
+
+
+def _as_user(role: str):
     async def _override():
         return {
             "valid": True,
             "role": role,
             "user_id": 1,
+            "email": f"{role}@example.com",
+            "permissions": ROLE_PERMISSIONS.get(role, []),
         }
 
     return _override
 
 
+# ============================================================
+# DEFAULT CLIENT
+# warehouse_manager
+# ============================================================
+
 @pytest.fixture
 def client():
-    """
-    Default client for business-logic tests.
-
-    Uses a warehouse_manager role so authentication does not
-    interfere with tests that are not testing authentication.
-    """
     app.dependency_overrides[get_db] = override_get_db
+
     app.dependency_overrides[verify_token] = _as_user(
         "warehouse_manager"
     )
@@ -119,14 +181,13 @@ def client():
     app.dependency_overrides.clear()
 
 
+# ============================================================
+# RAW CLIENT
+# No authentication override
+# ============================================================
+
 @pytest.fixture
 def client_raw():
-    """
-    Authentication tests.
-
-    Does not override verify_token, so the real Platform Auth
-    verification path is executed.
-    """
     app.dependency_overrides[get_db] = override_get_db
 
     with TestClient(app) as c:
@@ -134,12 +195,18 @@ def client_raw():
 
     app.dependency_overrides.clear()
 
+
+# ============================================================
+# CEO CLIENT
+# ============================================================
 
 @pytest.fixture
 def client_ceo():
-    """Tests that require CEO authorization."""
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[verify_token] = _as_user("ceo")
+
+    app.dependency_overrides[verify_token] = _as_user(
+        "ceo"
+    )
 
     with TestClient(app) as c:
         yield c
@@ -147,10 +214,14 @@ def client_ceo():
     app.dependency_overrides.clear()
 
 
+# ============================================================
+# WAREHOUSE MANAGER CLIENT
+# ============================================================
+
 @pytest.fixture
 def client_warehouse_manager():
-    """Tests that specifically require warehouse_manager authorization."""
     app.dependency_overrides[get_db] = override_get_db
+
     app.dependency_overrides[verify_token] = _as_user(
         "warehouse_manager"
     )

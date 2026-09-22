@@ -1,22 +1,22 @@
 export type POStatus =
-  | "draft"
-  | "sent"
-  | "acknowledged"
-  | "fulfilled"
-  | "cancelled";
+  | "DRAFT"
+  | "SENT"
+  | "ACKNOWLEDGED"
+  | "FULFILLED"
+  | "CANCELLED";
 
 export interface POItem {
   sku: string;
-  product_name: string;
+  productName: string;
   quantity: number;
-  unit_price: number;
+  unitPrice: number;
 }
 
 export interface PurchaseOrder {
-  po_number: string;
-  supplier_id: string;
+  poNumber: string;
+  supplierId: string;
   status: POStatus;
-  total_amount: number;
-  expected_delivery: string;
+  totalAmount: number;
+  expectedDelivery: string;
   items: POItem[];
 }

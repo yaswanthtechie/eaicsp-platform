@@ -18,7 +18,11 @@ def make_sample_data():
     
     sku_ids=np.random.choice(skus,size=5000)
     
-    warehouse_id=np.random.choice(warehouses, size=5000)
+    warehouse_id = np.random.choice(
+        warehouses,
+        size=5000,
+        p=[0.27, 0.27, 0.27, 0.095, 0.095]
+    )
     
     quantity_sold=np.random.randint(1, 101, size=5000)
     

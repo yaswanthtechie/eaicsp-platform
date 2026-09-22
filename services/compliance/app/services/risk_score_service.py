@@ -8,10 +8,9 @@ from app.core.config import (
     COUNTRY_RISK_WEIGHT,
     COUNTRY_RISK_INDEX,
     UNKNOWN_COUNTRY_RISK,
+    TOTAL_SOURCES,
 )
 
-
-TOTAL_SOURCES = 3
 
 
 def parse_date(
