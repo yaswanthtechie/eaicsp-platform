@@ -4,6 +4,8 @@ from src.outliers import find_outliers
 from src.compare import compare
 from src.trend import generate_null_rate_trend
 from src.anomaly import analyze_anomaly_correlation
+from src.quality_scorecard import generate_quality_scorecard
+from src.insights import generate_insights
 
 import re
 
@@ -282,8 +284,35 @@ def create_sparkline(series):
 
 
 
-def profile(df):
+def profile(df, consistency_rules=None):
     df = df.copy()
+
+    if df.empty:
+        return {
+            "shape": df.shape,
+            "columns": list(df.columns),
+            "status": "empty_dataset",
+            "message": "The dataset contains no rows.",
+            "earliest_date": None,
+            "latest_date": None,
+            "column_summary": [],
+            "statistics": {},
+            "outliers": {},
+            "correlations": {},
+            "pii_detection": [],
+            "quality_score": {
+                "score": 100.0,
+                "missing_values": 0,
+                "duplicate_rows": 0,
+                "total_outliers": 0
+            },
+        "worst_issues": [],
+        "top_correlations": [],
+        "anomaly_correlation": {},
+        "sparklines": {},
+        "quality_scorecard": {},
+        "insights": []
+    }
     report = {
         "shape": df.shape,
         "columns": list(df.columns),
@@ -298,7 +327,8 @@ def profile(df):
         "worst_issues":[],
         "top_correlations": [],
         "anomaly_correlation": {},
-        "sparklines": {}
+        "sparklines": {},
+        "insights": []
     }
 
     # Detect first date-like column
@@ -358,6 +388,44 @@ def profile(df):
         df,
         outlier_column="quantity_sold"
     )
+
+    uniqueness_columns = [
+        item["column"]
+        for item in report["column_summary"]
+        if item["role"] == "ID"
+    ]
+
+    if consistency_rules is None:
+        consistency_rules = []
+
+        if (
+            "quantity_sold" in df.columns
+            and pd.api.types.is_numeric_dtype(df["quantity_sold"])
+        ):
+            consistency_rules.append(
+                lambda data: data["quantity_sold"].isna()
+                | data["quantity_sold"].ge(0)
+            )
+
+        if (
+            "unit_price" in df.columns
+            and pd.api.types.is_numeric_dtype(df["unit_price"])
+        ):
+            consistency_rules.append(
+                lambda data: data["unit_price"].isna()
+                | data["unit_price"].gt(0)
+            )
+
+    report["quality_scorecard"] = generate_quality_scorecard(
+        df,
+        consistency_rules=consistency_rules,
+        uniqueness_columns=uniqueness_columns
+    )
+
+
+
+    
+    report["insights"] = generate_insights(df, report)
     # Data Quality Score
     report["quality_score"] = calculate_quality_score(df, report)
     report["worst_issues"] = find_worst_issues(df, report)
@@ -366,7 +434,12 @@ def profile(df):
 
     return report
 
-def generate_html(report=None, drift_report=None, report_path=None):
+def generate_html(
+    report=None,
+    drift_report=None,
+    monitoring_report=None,
+    report_path=None
+):
 
     BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -854,7 +927,7 @@ h1 {{
         file.write("""
 </table>
 """)
-                # HISTORICAL NULL RATE TREND
+        # HISTORICAL NULL RATE TREND
         if trend_chart is not None:
             file.write(f"""
 <h2>Historical Null Rate Trend</h2>
@@ -864,7 +937,29 @@ h1 {{
 <img src="{Path(trend_chart).name}" alt="Quantity Sold Null Rate Trend"
      style="max-width: 800px;">
 """)
+                # HISTORICAL QUALITY SCORE TREND
+        if monitoring_report is not None:
+            file.write("""
+<h2>Historical Quality Score Trend</h2>
 
+<p><b>Metric:</b> {}</p>
+<p><b>Runs:</b> {}</p>
+<p><b>Change:</b> {}</p>
+<p><b>Slope:</b> {:.2f}</p>
+<p><b>Trend:</b> {}</p>
+<p><b>Gradual Drift:</b> {}</p>
+""".format(
+                monitoring_report["metric"],
+                monitoring_report["runs"],
+                monitoring_report["change"],
+                monitoring_report["slope"]
+                if monitoring_report["slope"] is not None
+                else 0,
+                monitoring_report["trend"],
+                "Yes"
+                if monitoring_report["gradual_drift"]
+                else "No"
+            ))  
 
 
         file.write("""
