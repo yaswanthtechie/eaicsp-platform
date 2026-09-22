@@ -779,3 +779,322 @@ Replay is transaction-safe.
 Wrong-source replay is rejected.
 
 Failure paths are tested.
+
+## Combined Round 9 + 10 + 11 (ETL)
+
+Milestone Status
+
+Milestone
+
+Status
+
+Implementation / Proof
+
+M1 Multi-environment configuration
+
+Implemented
+
+Dev, staging and prod configurations with configuration-only environment switching
+
+M2 Data Quality SLA Alerting
+
+Implemented + tested
+
+Quality pass-rate SLA with CRITICAL alert when threshold is breached
+
+M3 Dependency Visualization
+
+Implemented + tested
+
+Generates the ETL dependency graph
+
+M4 Cross-table Lineage
+
+Implemented + tested
+
+Traces a target row across shipments -> inventory -> sales
+
+M5 Disaster Recovery Drill
+
+Implemented + verified
+
+Backup, failure simulation, restore and manifest-based replay
+
+M1 Multi-environment Configuration
+
+The ETL pipeline supports separate environment configurations:
+
+pipeline_config.yaml - development
+
+pipeline_config.staging.yaml - staging
+
+pipeline_config.prod.yaml - production
+
+The same ETL pipeline code is reused across environments.
+
+Environment switching is configuration-driven using:
+
+ETL_ENV=dev
+ETL_ENV=staging
+ETL_ENV=prod
+
+No pipeline code changes are required when switching environments.
+
+Environment-specific configuration
+
+Development:
+
+Environment: dev
+
+Staging:
+
+Environment: staging
+Schedule: 0 3 * * *
+
+Production:
+
+Environment: prod
+Schedule: 0 1 * * *
+
+The Docker services mount the environment configuration files so the scheduler, webserver, worker and triggerer use the same configuration model.
+
+M1 Verification
+
+The configuration loader successfully switches between:
+
+dev
+staging
+prod
+
+The final dependency configuration is:
+
+SOURCE -> sales -> inventory -> shipments
+
+M2 Data Quality SLA Alerting
+
+The pipeline includes data-quality SLA monitoring in:
+
+etl/src/sla_monitor.py
+
+The quality SLA evaluates:
+
+Processed rows
+
+Accepted rows
+
+Rejected rows
+
+Pass rate
+
+Configured minimum pass-rate threshold
+
+The pass rate is calculated as:
+
+pass_rate = accepted_rows / processed_rows
+
+A CRITICAL alert is generated when the pass rate falls below the configured SLA threshold.
+
+M2 Verification
+
+A deliberate degraded test was executed:
+
+Processed: 100
+Accepted: 80
+Rejected: 20
+Pass rate: 80%
+Required: 95%
+
+The pipeline generated a CRITICAL quality-SLA alert.
+
+Result:
+
+QUALITY-SLA Data-quality SLA breached
+pass rate=80.00%
+required>=95.00%
+
+M3 Dependency Visualization
+
+Dependency visualization is implemented in:
+
+etl/src/dependency_graph.py
+
+The configured ETL dependencies are generated as a graph.
+
+Generated graph:
+
+digraph pipeline_dependencies {
+  rankdir=LR;
+  "SOURCE" [shape=box];
+  "SOURCE" -> "sales";
+  "sales" -> "inventory";
+  "inventory" -> "shipments";
+}
+
+This represents the execution dependency:
+
+SOURCE
+   |
+   v
+sales
+   |
+   v
+inventory
+   |
+   v
+shipments
+
+M3 Verification
+
+The dependency graph was generated successfully from the pipeline configuration.
+
+M4 Cross-table Lineage
+
+Cross-table lineage is implemented in:
+
+etl/src/lineage.py
+
+The lineage traversal follows the configured dependency chain:
+
+shipments_fact
+      |
+      v
+inventory_snapshot
+      |
+      v
+sales_fact
+
+Lineage matching uses the business keys:
+
+date / snapshot_date / shipment_date
+sku
+warehouse
+
+The lineage result includes:
+
+Table
+
+Row ID
+
+Run ID
+
+Source batch
+
+Lineage level
+
+Row role
+
+M4 Verification
+
+An end-to-end lineage test was successfully executed.
+
+Example result:
+
+Level 0:
+shipments_fact
+row_id = 1
+run_id = 34
+source_batch = shipments_2024-01-01.csv
+
+Level 1:
+inventory_snapshot
+row_id = 7
+
+Level 2:
+sales_fact
+row_id = 12148
+run_id = 999999
+source_batch = m4_test_sales.csv
+
+This proves that a target shipment row can be traced through the upstream inventory and sales tables.
+
+M5 Disaster Recovery Drill
+
+Disaster recovery is implemented using:
+
+etl/src/dr_recovery.py
+scripts/disaster_recovery_drill.py
+
+The recovery process supports:
+
+Creating a database backup.
+
+Recording the recovery manifest.
+
+Simulating a pipeline failure.
+
+Restoring the database backup.
+
+Replaying the recorded source batches.
+
+Verifying the recovered data.
+
+Recording the replay result.
+
+Backup artifact:
+
+docs/dr_drill_backup.dump
+
+Recovery documentation:
+
+docs/disaster_recovery_drill.md
+
+M5 Recovery Flow
+
+Normal Pipeline
+      |
+      v
+Database Backup
+      |
+      v
+Simulated Failure
+      |
+      v
+Database Restore
+      |
+      v
+Recovery Manifest
+      |
+      v
+Replay Source Batches
+      |
+      v
+Successful Recovery
+
+M5 Verification
+
+The recovery drill successfully restored the recorded pipeline state and replayed the required source batches.
+
+Recovery result:
+
+Original run: 11
+Replay run: 33
+Inserted: 1929
+Updated: 0
+Restored: 0
+Deleted: 0
+
+Final run status:
+
+run_id  status
+11      REPLAYED
+33      SUCCESS
+
+The recovery completed without manual reconstruction of the source data.
+
+Round 9-11 Definition of Done
+
+Multi-environment configuration is implemented and verified.
+
+Environment switching is configuration-only.
+
+Data-quality SLA breach generates a CRITICAL alert.
+
+Dependency graph is generated successfully.
+
+Cross-table lineage works end-to-end.
+
+Disaster recovery backup and restore drill is completed.
+
+Recovery replay successfully restores pipeline processing.
+
+

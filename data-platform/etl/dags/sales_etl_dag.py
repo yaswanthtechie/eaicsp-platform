@@ -682,6 +682,18 @@ def log_run_task(**context):
 
         total_rejected += rows_rejected
 
+        # R9 M2: data-quality SLA. Keep this independent of the duration SLA:
+        # a fast run can still be a bad run if too many rows were rejected.
+        from etl.src.sla_monitor import check_quality_sla
+        check_quality_sla(
+            run_id=run_id,
+            source_name=source_config.name,
+            rows_inserted=ti.xcom_pull(task_ids=load_id, key="rows_inserted") or 0,
+            rows_updated=ti.xcom_pull(task_ids=load_id, key="rows_updated") or 0,
+            rows_rejected=rows_rejected,
+            min_pass_rate=PIPELINE_CONFIG.quality_sla_min_pass_rate,
+        )
+
         status = (
             ti.xcom_pull(
                 task_ids=load_id,

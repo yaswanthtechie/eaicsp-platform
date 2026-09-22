@@ -90,7 +90,10 @@ x-airflow-common:
     - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
     - ${AIRFLOW_PROJ_DIR:-.}/etl:/opt/airflow/etl
     - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data
+    # Pipeline environment configurations
     - ${AIRFLOW_PROJ_DIR:-.}/pipeline_config.yaml:/opt/airflow/pipeline_config.yaml
+    - ${AIRFLOW_PROJ_DIR:-.}/pipeline_config.staging.yaml:/opt/airflow/pipeline_config.staging.yaml
+    - ${AIRFLOW_PROJ_DIR:-.}/pipeline_config.prod.yaml:/opt/airflow/pipeline_config.prod.yaml
     - ${AIRFLOW_PROJ_DIR:-.}/scripts:/opt/airflow/scripts
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:

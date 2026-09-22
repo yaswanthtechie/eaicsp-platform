@@ -8,11 +8,24 @@ the pipeline is a YAML edit here, not a code change in either of those.
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import os
 
 import yaml
 
 
-DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "pipeline_config.yaml"
+CONFIG_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_CONFIG_PATH = CONFIG_ROOT / "pipeline_config.yaml"
+SUPPORTED_ENVIRONMENTS = {"dev", "staging", "prod"}
+
+def environment_config_path(environment=None):
+    env = (environment or os.getenv("ETL_ENV", "dev")).strip().lower()
+    if env not in SUPPORTED_ENVIRONMENTS:
+        raise ValueError(
+            f"Unsupported ETL_ENV '{env}'. Expected one of: "
+            f"{', '.join(sorted(SUPPORTED_ENVIRONMENTS))}"
+        )
+    filename = "pipeline_config.yaml" if env == "dev" else f"pipeline_config.{env}.yaml"
+    return CONFIG_ROOT / filename
 
 
 @dataclass
@@ -48,6 +61,8 @@ class PipelineConfig:
     schedule: str
     sources: list
     archive: ArchiveConfig
+    environment: str = "dev"
+    quality_sla_min_pass_rate: float = 0.95
 
     def source_names(self):
         return [s.name for s in self.sources]
@@ -80,7 +95,9 @@ def validate_dependency_order(sources):
 
 def load_pipeline_config(config_path=None):
 
-    path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
+    # An explicitly supplied path remains authoritative for backwards compatibility
+    # and for replay/tests. Environment selection applies only when no path is supplied.
+    path = Path(config_path) if config_path else environment_config_path()
 
     if not path.exists():
         raise FileNotFoundError(f"pipeline config not found at {path}")
@@ -123,6 +140,8 @@ def load_pipeline_config(config_path=None):
         schedule=raw.get("schedule", "0 2 * * *"),
         sources=sources,
         archive=archive,
+        environment=raw.get("environment", "dev"),
+        quality_sla_min_pass_rate=float(raw.get("quality_sla_min_pass_rate", 0.95)),
     )
     validate_dependency_order(config.sources)
     return config
