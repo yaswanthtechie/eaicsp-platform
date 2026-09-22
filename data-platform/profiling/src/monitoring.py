@@ -289,7 +289,7 @@ class MonitoringHistory:
             "slope": slope,
             "trend": trend,
             "gradual_drift": (
-                trend != "Stable"
+                trend == "Decreasing"
                 and len(values) >= min_runs_for_drift
             )
         }

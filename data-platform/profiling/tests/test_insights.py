@@ -47,14 +47,18 @@ def test_outlier_insight():
 
     assert "amount contains 1 detected outliers." in insights
 
-
 def test_quality_score_not_repeated_as_insight():
     df = pd.DataFrame({
-        "id": [1, 2, 3]
+        "name": ["A", "B", None, "D"]
     })
 
     report = {
-        "column_summary": [],
+        "column_summary": [
+            {
+                "column": "name",
+                "null_percent": 25.0
+            }
+        ],
         "outliers": {},
         "quality_scorecard": {
             "overall_score": 99.65
@@ -62,6 +66,8 @@ def test_quality_score_not_repeated_as_insight():
     }
 
     insights = generate_insights(df, report)
+
+    assert "name has 25.0% missing values." in insights
 
     assert "Overall data quality score is 99.65 out of 100." not in insights
 
@@ -194,5 +200,78 @@ def test_cumulative_concentration_insight():
 
     assert (
         "3 categories in warehouse_id account for at least 80% of all records."
+        in insights
+    )
+
+def test_near_unique_column_is_not_a_concentration_insight():
+    df = pd.DataFrame(
+        {
+            "sku_id": [f"SKU{i:03d}" for i in range(50)]
+        }
+    )
+
+    report = {
+        "column_summary": [],
+        "outliers": {},
+        "top_correlations": [],
+    }
+
+    insights = generate_insights(df, report)
+
+    assert not any(
+        "account for at least 80%" in insight
+        for insight in insights
+    )
+
+
+def test_id_role_column_is_skipped_for_concentration():
+    df = pd.DataFrame(
+        {
+            "order_id": [f"ORD{i:03d}" for i in range(20)]
+        }
+    )
+
+    report = {
+        "column_summary": [
+            {
+                "column": "order_id",
+                "role": "ID",
+                "null_percent": 0,
+            }
+        ],
+        "outliers": {},
+        "top_correlations": [],
+    }
+
+    insights = generate_insights(df, report)
+
+    assert not any(
+        "account for at least 80%" in insight
+        for insight in insights
+    )
+
+
+def test_single_dominant_category_is_pluralised_correctly():
+    df = pd.DataFrame(
+        {
+            "region": (
+                ["North"] * 85
+                + ["South"] * 5
+                + ["East"] * 5
+                + ["West"] * 5
+            )
+        }
+    )
+
+    report = {
+        "column_summary": [],
+        "outliers": {},
+        "top_correlations": [],
+    }
+
+    insights = generate_insights(df, report)
+
+    assert (
+        "1 category in region account for at least 80% of all records."
         in insights
     )

@@ -185,3 +185,20 @@ def test_compare_runs_needs_enough_runs_to_call_drift(tmp_path):
 
     assert result["trend"] == "Decreasing"
     assert result["gradual_drift"] is False
+
+
+def test_improving_trend_is_not_reported_as_drift(tmp_path):
+    history = MonitoringHistory(
+        history_file=tmp_path / "history.json"
+    )
+
+    for score in [80, 81, 82, 83, 84, 85, 86, 87, 88, 90]:
+        history.save_batch(create_batch(score))
+
+    result = history.compare_runs(
+        "quality_score",
+        last_n=10
+    )
+
+    assert result["trend"] == "Increasing"
+    assert result["gradual_drift"] is False

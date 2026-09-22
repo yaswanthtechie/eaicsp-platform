@@ -422,7 +422,9 @@ The comparison returns:
 * Number of runs
 * Values across the selected runs
 * Change between the first and latest selected run
+* Slope of the metric across the selected runs
 * Trend classification
+* Whether gradual drift is detected
 
 Trend classifications include:
 
@@ -435,6 +437,9 @@ Trend classifications include:
 This allows changes in profiling metrics to be identified across multiple batches.
 
 ---
+The `gradual_drift` flag is `True` when the metric shows a decreasing
+trend and the minimum number of runs required for drift detection has
+been reached.
 
 ## 6. Relationship-Based Rule Suggestions
 
@@ -530,6 +535,7 @@ The report includes:
 * PII detection results
 * Outlier analysis
 * Data drift results
+* Historical quality score trend
 * Automated insights
 
 The column summary table uses DataTables.js for sorting and filtering.
@@ -661,7 +667,13 @@ print(result["history"])
 
 ---
 
+
+with:
+
 ## Compare Multiple Monitoring Runs
+
+Historical monitoring results can be compared across multiple runs using
+`compare_runs()`.
 
 ```python
 from src.monitoring import MonitoringHistory
@@ -674,9 +686,11 @@ result = history.compare_runs(
 )
 
 print(result)
-```
 
----
+
+The result includes the selected metric values, change, slope, trend classification,
+and gradual drift status.
+
 
 # Pipeline Integration
 
@@ -733,7 +747,7 @@ python -m pytest -q
 Current test result:
 
 ```text
-121 passed
+127 passed
 ```
 
 The test suite covers:
@@ -787,7 +801,7 @@ The test suite covers:
 The latest complete test run completed successfully with:
 
 ```text
-121 passed
+127 passed
 ```
 
 ---

@@ -59,5 +59,25 @@ class TestProfile(unittest.TestCase):
         self.assertEqual(roles["quantity_sold"], "Measure")
 
 
+def test_empty_dataset_report_is_consumable_downstream(tmp_path):
+    """
+        The empty-dataset early return must carry the same keys the normal
+                path does, because save_batch and generate_html index into them.
+                """
+    from src.monitoring import MonitoringHistory
+        
+    report = profile(pd.DataFrame(columns=["a", "b"]))
+        
+    history = MonitoringHistory(
+    history_file=tmp_path / "history.json"
+    )
+        
+    history.save_batch(report)
+        
+    assert report["quality_score"]["score"] == 100.0
+    assert report["earliest_date"] is None
+    
 if __name__ == "__main__":
     unittest.main()
+
+    

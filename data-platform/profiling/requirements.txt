@@ -6,4 +6,3 @@ pyyaml
 fastapi
 uvicorn
 python-multipart
-httpx2

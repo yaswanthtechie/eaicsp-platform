@@ -404,3 +404,37 @@ def test_quality_scorecard_trend_single_batch(tmp_path):
     assert trend["batches"] == 1
     assert trend["overall_scores"] == [90]
     assert trend["trend"] == "Not Enough Data"
+
+def test_improving_trend_is_not_gradual_drift(tmp_path):
+    history_file = tmp_path / "history.json"
+
+    history = MonitoringHistory(
+        history_file=history_file,
+        max_batches=10
+    )
+
+    scores = [80, 81, 82, 83, 84, 85, 86, 87, 88, 90]
+
+    for score in scores:
+        report = {
+            "quality_score": {
+                "score": score,
+                "missing_values": 0,
+                "duplicate_rows": 0,
+                "total_outliers": 0
+            },
+            "quality_scorecard": {},
+            "column_summary": []
+        }
+
+        history.save_batch(report)
+
+    result = history.compare_runs(
+        metric="quality_score",
+        last_n=10,
+        min_runs_for_drift=5
+    )
+
+    assert result["trend"] == "Increasing"
+    assert result["gradual_drift"] is False
+
