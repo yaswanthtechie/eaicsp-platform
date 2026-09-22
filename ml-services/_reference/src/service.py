@@ -46,12 +46,21 @@ Milestone 4:
 - Average latency
 - A/B testing metrics
 - Dashboard auto-refresh
+
+Round 10:
+- Unified cross-model batch prediction
+- Concurrent model execution
+- Batch latency monitoring
+- CPU monitoring
+- Memory monitoring
+- Batch success/failure metrics
 """
 
 import logging
 import os
 import time
 import uuid
+from typing import Any
 
 import bentoml
 import numpy as np
@@ -82,6 +91,15 @@ from src.adapters import (
     ETAAdapter,
     AnomalyAdapter,
     RiskAdapter,
+)
+
+
+# ==========================================================
+# Round 10 Batch Prediction
+# ==========================================================
+
+from src.batch_predict import (
+    BatchPredictionService,
 )
 
 
@@ -261,6 +279,48 @@ class IrisBatchRequest(BaseModel):
 
 
 # ==========================================================
+# Round 10 Multi-Model Batch Request Models
+# ==========================================================
+
+
+class MultiModelBatchItem(BaseModel):
+    """
+    One model prediction inside a unified batch.
+    """
+
+    model_name: str = Field(
+        ...,
+        description=(
+            "Model name: forecast, eta, "
+            "anomaly or risk"
+        ),
+    )
+
+    features: dict[str, Any] = Field(
+        ...,
+        description="Model-specific input features",
+    )
+
+
+class MultiModelBatchRequest(BaseModel):
+    """
+    Unified cross-model batch request.
+
+    A single request can contain predictions for
+    multiple independently served models.
+    """
+
+    requests: list[MultiModelBatchItem] = Field(
+        ...,
+        min_length=1,
+        description=(
+            "List of model predictions to execute "
+            "as one batch"
+        ),
+    )
+
+
+# ==========================================================
 # Retraining Check Request
 # ==========================================================
 
@@ -419,6 +479,15 @@ for model_name in MULTI_MODEL_NAMES:
 
 
 # ==========================================================
+# Round 10 Batch Prediction Service
+# ==========================================================
+
+BATCH_PREDICTION_SERVICE = BatchPredictionService(
+    model_manager=MULTI_MODEL_MANAGER
+)
+
+
+# ==========================================================
 # FastAPI Multi-Model Application
 # ==========================================================
 
@@ -430,6 +499,87 @@ multi_model_app = FastAPI(
         "anomaly detection and supplier risk models."
     ),
 )
+
+
+# ==========================================================
+# Round 10 Unified Batch Prediction Endpoint
+# ==========================================================
+
+
+@multi_model_app.post(
+    "/models/batch-predict",
+    tags=["Multi-Model Serving"],
+)
+def batch_predict(
+    request: MultiModelBatchRequest,
+) -> dict:
+    """
+    Run multiple model predictions as one batch.
+
+    Predictions for independent models are executed
+    concurrently.
+
+    Resource metrics include:
+
+    - batch size
+    - model count
+    - total predictions
+    - CPU usage
+    - memory usage
+    - total latency
+    """
+
+    logger.info(
+        "Round 10 batch prediction requested: "
+        "batch_size=%s",
+        len(request.requests),
+    )
+
+    try:
+
+        batch_requests = [
+            {
+                "model_name": (
+                    item.model_name.strip().lower()
+                ),
+                "features": item.features,
+            }
+            for item in request.requests
+        ]
+
+        result = (
+            BATCH_PREDICTION_SERVICE.predict(
+                batch_requests
+            )
+        )
+
+        logger.info(
+            "Round 10 batch prediction completed: "
+            "batch_size=%s latency_ms=%s",
+            result["summary"]["batch_size"],
+            result["resource_metrics"]["latency_ms"],
+        )
+
+        return result
+
+    except ValueError as exc:
+
+        logger.warning(
+            "Invalid batch prediction request: %s",
+            exc,
+        )
+
+        raise
+
+    except Exception as exc:
+
+        logger.exception(
+            "Batch prediction failed"
+        )
+
+        raise RuntimeError(
+            f"Batch prediction failed: {exc}"
+        ) from exc
 
 
 # ==========================================================
@@ -669,6 +819,11 @@ class IrisService:
             "/mlops/dashboard"
         )
 
+        logger.info(
+            "Round 10 unified batch prediction available at "
+            "/models/batch-predict"
+        )
+
     # ======================================================
     # Milestone 3 Orchestrator Creation
     # ======================================================
@@ -700,18 +855,6 @@ class IrisService:
 
         # --------------------------------------------------
         # Metric direction
-        # --------------------------------------------------
-        #
-        # Lower is better:
-        #   forecast -> error metric
-        #   eta      -> error metric
-        #
-        # Higher is better:
-        #   anomaly -> quality/performance score
-        #   risk    -> quality/performance score
-        #
-        # The orchestrator uses this information to avoid
-        # incorrectly promoting a worse candidate.
         # --------------------------------------------------
 
         higher_is_better = {
@@ -755,13 +898,6 @@ class IrisService:
                 """
                 Calculate the current drift decision for
                 one served model.
-
-                Unlike the previous implementation, this does
-                NOT use a hardcoded drift_score=0.0.
-
-                Recent prediction inputs are loaded from the
-                model-specific monitoring records and passed
-                into the drift calculator.
                 """
 
                 recent_inputs = (
@@ -800,14 +936,6 @@ class IrisService:
             def retrain(
                 name=model_name,
             ):
-                """
-                Safety boundary for model-specific
-                retraining.
-
-                Do not silently fake a successful retraining
-                operation. The corresponding production
-                pipeline must be connected here.
-                """
 
                 raise RuntimeError(
                     f"Real retraining pipeline for "
@@ -821,13 +949,6 @@ class IrisService:
             def evaluate_production(
                 name=model_name,
             ):
-                """
-                Evaluate the currently deployed production
-                version for one model.
-
-                This remains explicitly guarded until the
-                model-specific evaluation pipeline is wired.
-                """
 
                 raise RuntimeError(
                     f"Production evaluation pipeline for "
@@ -842,13 +963,6 @@ class IrisService:
                 version,
                 name=model_name,
             ):
-                """
-                Promote a validated candidate version.
-
-                This remains explicitly guarded until the
-                corresponding model registry/promotion
-                pipeline is connected.
-                """
 
                 raise RuntimeError(
                     f"Promotion pipeline for "
@@ -863,13 +977,6 @@ class IrisService:
                 previous_version,
                 name=model_name,
             ):
-                """
-                Roll back a failed multi-model promotion.
-
-                The actual registry implementation must be
-                connected before a real production rollback
-                can occur.
-                """
 
                 raise RuntimeError(
                     f"Rollback pipeline for "
@@ -884,7 +991,9 @@ class IrisService:
                 "get_version": get_version,
                 "check_drift": check_model_drift,
                 "retrain": retrain,
-                "evaluate_production": evaluate_production,
+                "evaluate_production": (
+                    evaluate_production
+                ),
                 "promote": promote,
                 "rollback": rollback,
                 "higher_is_better": (
@@ -901,10 +1010,6 @@ class IrisService:
     # ======================================================
 
     def _run_multimodel_retraining(self):
-        """
-        Execute one Milestone 3 multi-model
-        orchestration cycle.
-        """
 
         logger.warning(
             "=========================================="
@@ -1096,10 +1201,6 @@ class IrisService:
 
             "model_version":
                 str(self.model_version),
-
-            # ------------------------------------------------
-            # Per-model A/B metrics
-            # ------------------------------------------------
 
             "multi_model_metrics": {
                 model_name:

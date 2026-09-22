@@ -2463,6 +2463,275 @@ Invoke-RestMethod http://localhost:3000/models
 * [ ] Final multi-model Docker image
 
 
+# MLOps + Model Serving
+## Round 9, 10 & 11 — Implementation Document
+## 1. Overview
+This document summarizes the implementation completed for Round 9, 10 and 11. Five MLOps capabilities were added:
+1. Model Governance Workflow
+2. Serving Cost / Performance Optimization
+3. Blue-Green Model Deployment
+4. Incident Response Runbook and Drill
+5. Cross-Model Dependency Documentation
+All five phases are complete.
+## 2. Phase 1 — Model Governance Workflow
+### Objective
+Add an approval step before a model can be promoted to Production.
+### Implementation
+The governance workflow tracks model name, version, requester, reason, approval status, approver/rejector, decision reason, request time and decision time.
+```text
+PENDING → APPROVED → Production
+       ↘ REJECTED
+``Files:
+```text
+src/governance.py
+src/approve_model.py
+src/promote_approved_model.py
+src/reject_model.py
+```The promotion logic verifies that the approved model version matches the version being promoted.
+### Demonstration
+Promotion was blocked while approval was pending and allowed after approval.
+```text
+Model Name     : iris_classifier
+Model Version  : 4
+Status         : APPROVED
+Approved By    : reviewer
+``
+**Result: Phase 1 COMPLETE**
+## 3. Phase 2 — Serving Cost / Performance Optimization
 
+### Objective
+Improve serving efficiency by processing multiple model predictions as a batch and monitoring resource usage.
+### Implementation
+Batch prediction was implemented in:
+```text
+src/batch_predict.py
+```Supported models:
+```text
+forecast, eta, anomaly, risk
+```The system supports concurrent predictions and collects latency, memory and CPU information.
+### Batch Flow
+```text
+Batch Request → Concurrent Predictions → Results → Resource Metrics → Summary
+```
+### Demonstrated Result
+```text
+Batch Size  : 4
+Successful  : 4
+Failed      : 0
+Model Count : 4
+Latency     : 59.392 ms
+Memory      : 242.508 MB
+Memory Usage: 3.041 %
+CPU Usage   : Recorded
+```
+**Result: Phase 2 COMPLETE**
+## 4. Phase 3 — Blue-Green Model Deployment
+### Objective
+Allow a new model version to be validated separately before becoming active.
+### Implementation
+Implemented in:
+```text
+src/blue_green.py
+```
+The deployment maintains Blue and Green versions and tracks the active color, active/inactive versions, deployment status and switch time.
 
+```text
+             Model
+            /     \
+       Blue v1   Green v2
+            \     /
+          Active
+```
+Deployment flow:
+
+```text
+Production v1 → Blue v1 → Deploy v2 to Green → Validate → Switch
+```Rollback:
+```text
+Green v2 → Failure → Rollback → Blue v1
+```Supported operations:
+```text
+Configure deployment
+Get status
+Predict using active version
+Switch Blue/Green
+Rollback
+```
+**Result: Phase 3 COMPLETE**
+## 5. Phase 4 — Incident Response Runbook and Drill
+### Objective
+Document and test the response process for model-serving failures.
+### Implementation
+Runbook:
+```text
+docs/INCIDENT_RUNBOOK.md
+```
+Incident simulator:
+```textsrc/incident_simulator.py
+```
+The simulator injects a controlled serving failure without modifying the model artifact.
+Drill command:
+```bash
+python -m src.run_incident_drill
+```Drill flow:
+
+```text
+Baseline → Failure Injection → Detection → Recovery → Verification
+```
+### Drill Result
+```text
+baseline_success : True
+failure_detected : True
+recovery_success : True
+drill_passed     : True
+INCIDENT DRILL: PASSED
+```
+**Result: Phase 4 COMPLETE**
+## 6. Phase 5 — Cross-Model Dependency Documentation
+### Objective
+Document business dependencies and potential blast radius when models change, are promoted, rolled back or become unavailable.
+Document:
+```textdocs/MODEL_DEPENDENCIES.md
+```
+### Dependency Mapping
+| Model      | Business Capability   |
+| ---------- | --------------------- |
+| `forecast` | Demand Planning       |
+| `eta`      | Delivery / Logistics  |
+| `anomaly`  | Operations Monitoring |
+| `risk`     | Supplier Management   |
+The documentation covers model changes, promotion, rollback, availability, Blue-Green deployment, governance, incident response, input/output changes and dependency maintenance.
+**Result: Phase 5 COMPLETE**
+## 7. Overall MLOps Workflow
+
+```text
+Model Development
+       ↓
+Model Version
+       ↓
+Governance Review
+    ↙       ↘
+REJECT     APPROVE
+             ↓
+      Blue-Green Deploy
+             ↓
+          Validate
+             ↓
+        Production
+             ↓
+     Batch / Monitoring
+             ↓
+          Incident
+          ↙      ↘
+     Recover    Rollback
+```
+Dependency documentation provides the business impact information throughout the lifecycle.
+## 8. Testing
+The complete test suite was executed using:
+```bash
+python -m pytest -q tests
+```Result:
+
+```text
+154 passed
+49 warnings
+0 failures
+```
+The warnings were dependency/deprecation warnings and did not cause test failures.
+## 9. Main Files
+### Governance
+```text
+src/governance.py
+src/approve_model.py
+src/promote_approved_model.py
+src/reject_model.py
+```
+### Serving Optimization
+```text
+src/batch_predict.py
+```
+### Blue-Green
+
+```text
+src/blue_green.py
+tests/test_blue_green.py
+```
+### Incident Response
+
+```text
+src/incident_simulator.py
+src/run_incident_drill.py
+docs/INCIDENT_RUNBOOK.md
+docs/INCIDENT_DRILL.md
+tests/test_incident.py
+```### Dependencies
+
+```text
+docs/MODEL_DEPENDENCIES.md
+```
+## 10. Definition of Done
+### Governance
+```text
+[x] Approval workflow implemented
+[x] Unapproved promotion blocked
+[x] Approved promotion demonstrated
+```
+### Serving Optimization
+
+```text
+[x] Batch prediction implemented
+[x] Multiple models tested
+[x] Concurrent prediction supported
+[x] Resource usage monitored
+```
+### Blue-Green
+
+```text
+[x] Blue version supported
+[x] Green version supported
+[x] Version switching supported
+[x] Rollback supported
+[x] Deployment validation supported
+```
+### Incident Response
+
+```text
+[x] Runbook documented
+[x] Failure simulation implemented
+[x] Incident drill executed
+[x] Failure detected
+[x] Recovery verified
+```
+### Dependencies
+
+```text
+[x] Models documented
+[x] Business dependencies documented
+[x] Blast radius documented
+[x] Promotion impact documented
+[x] Rollback impact documented
+```
+## 11. Final Status
+
+| Phase                     | Status   |
+| ------------------------- | -------- |
+| Model Governance          | Complete |
+| Serving Optimization      | Complete |
+| Blue-Green Deployment     | Complete |
+| Incident Response + Drill | Complete |
+| Cross-Model Dependencies  | Complete |
+### Final Validation
+
+```text
+Implementation     : COMPLETE
+Documentation      : COMPLETE
+Governance Demo    : PASSED
+Blue-Green         : COMPLETE
+Incident Drill     : PASSED
+Test Suite         : 154 PASSED
+Definition of Done : MET
+```
+## Conclusion
+
+Round 9, 10 and 11 MLOps + Model Serving work is complete. The platform now provides governance-controlled promotion, batch multi-model serving, resource monitoring, Blue-Green deployment, rollback, incident response and drill capability, and cross-model dependency documentation.
 

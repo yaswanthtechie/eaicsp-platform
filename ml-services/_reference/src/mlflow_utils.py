@@ -1,4 +1,3 @@
-
 """
 MLflow utility wrapper.
 
@@ -52,6 +51,7 @@ def _set_alias(
                 version=version,
             )
             return
+
     except Exception:
         # If the API exists but fails, expose the error
         raise
@@ -236,10 +236,10 @@ def assign_staging(
 
     Flow:
 
-    Register Version
-          |
-          v
-       staging
+        Register Version
+              |
+              v
+           staging
     """
 
     latest = get_latest_version(
@@ -266,16 +266,43 @@ def assign_staging(
 # ==========================================================
 # Production Promotion
 # ==========================================================
+
 def promote_model(
     model_name: str,
     from_alias: str = "staging",
     to_alias: str = "production",
+    expected_version: str | None = None,
 ):
     """
     Promote a model version from one alias to another.
 
-    Records the previous target-alias version before
-    changing the target alias and adds promotion metadata.
+    Parameters
+    ----------
+    model_name:
+        Registered MLflow model name.
+
+    from_alias:
+        Source alias. Defaults to "staging".
+
+    to_alias:
+        Target alias. Defaults to "production".
+
+    expected_version:
+        Optional exact model version that is expected to be
+        behind the source alias.
+
+        This protects the governance workflow from accidentally
+        promoting a different version if the staging alias
+        changed after approval.
+
+    Raises
+    ------
+    RuntimeError
+        If the source alias does not exist.
+
+    RuntimeError
+        If expected_version is supplied and does not match
+        the current source alias version.
     """
 
     # --------------------------------------------------
@@ -296,12 +323,39 @@ def promote_model(
     new_version = str(source_version.version)
 
     # --------------------------------------------------
+    # Exact version safety check
+    # --------------------------------------------------
+    #
+    # This is important for the governance workflow.
+    #
+    # Example:
+    #
+    #   Governance approved version 12
+    #   staging later changed to version 13
+    #
+    # We must NOT promote version 13 using approval for
+    # version 12.
+    #
+    # --------------------------------------------------
+
+    if (
+        expected_version is not None
+        and new_version != str(expected_version)
+    ):
+        raise RuntimeError(
+            f"Version mismatch: expected version "
+            f"{expected_version} behind @{from_alias}, "
+            f"but found version {new_version}."
+        )
+
+    # --------------------------------------------------
     # Get current target alias version
     # --------------------------------------------------
     #
     # Do not use get_model_version_by_alias() here because
     # tests/mock clients may configure the underlying MLflow
     # client directly.
+    #
     # --------------------------------------------------
 
     target_version = None
@@ -399,7 +453,6 @@ def promote_model(
     return new_version
 
 
-
 # ==========================================================
 # Load Production Model
 # ==========================================================
@@ -468,6 +521,8 @@ def current_production(
     )
 
     return version
+
+
 # ==========================================================
 # Rollback Info
 # ==========================================================
@@ -543,15 +598,19 @@ def rollback_model(
     print("=" * 60)
     print("MODEL ROLLBACK COMPLETED")
     print("=" * 60)
+
     print(
         f"Model Name       : {model_name}"
     )
+
     print(
         f"Failed Version   : {current_version}"
     )
+
     print(
         f"Restored Version : {previous_version}"
     )
+
     print("=" * 60)
 
     return {
