@@ -1169,3 +1169,83 @@ def test_validate_row_missing_dependency(caplog):
     assert res.passed is False
     assert "r_eval" in res.errors
     assert "Dependency 'ghost_rule' for rule 'r_eval' not found" in caplog.text
+
+
+def test_validate_records_field_remediations():
+    """Tests that validate() tracks field-specific remediations properly, ignoring NaNs."""
+    # "mixed" will change to "MIXED". "UPPER" stays "UPPER". None stays NaN.
+    df = pd.DataFrame({"col": ["mixed", "UPPER", None]})
+
+    rule = ConfigRule(**{
+        "name": "uppercase_col",
+        "field": "col",
+        "type": "transform",
+        "function": "dummy_transform_rule",
+        "target_case": "upper",
+        "severity": "INFO"
+    })
+
+    val = DataValidator([rule])
+    report = val.validate(df)
+
+    assert len(report.remediations) == 1
+    rem = report.remediations[0]
+    assert rem["rule"] == "uppercase_col"
+    assert rem["field"] == "col"
+    assert rem["rows_modified"] == 1  # Only "mixed" -> "MIXED" is an actual change
+
+    samples = report.sample_remediations["uppercase_col"]
+    assert len(samples) == 1
+    assert samples[0]["original"] == "mixed"
+    assert samples[0]["remediated"] == "MIXED"
+
+
+def test_validate_records_cross_field_remediations():
+    """Tests that validate() falls back to cross-field diffing when no field is specified."""
+    df = pd.DataFrame({"A": [1, 2]})
+
+    # dummy_transform_no_field explicitly injects a new column into the whole DF
+    rule = ConfigRule(**{
+        "name": "add_col_transform",
+        "type": "transform",
+        "function": "dummy_transform_no_field",
+        "severity": "INFO"
+    })
+
+    val = DataValidator([rule])
+    report = val.validate(df)
+
+    assert len(report.remediations) == 1
+    rem = report.remediations[0]
+    assert rem["rule"] == "add_col_transform"
+    assert rem["field"] == "cross_field"
+    assert rem["rows_modified"] == 2  # Both rows got the new column
+
+
+def test_validate_stream_aggregates_remediations(tmp_path):
+    """Tests that streaming validation aggregates remediations and strictly caps samples at 5."""
+    # 6 lowercase items that will be modified, 1 uppercase that won't be
+    df = pd.DataFrame({"col": ["a", "b", "c", "d", "e", "f", "G"]})
+    csv_path = tmp_path / "stream_remed.csv"
+    df.to_csv(csv_path, index=False)
+
+    rule = ConfigRule(**{
+        "name": "upper_stream",
+        "field": "col",
+        "type": "transform",
+        "function": "dummy_transform_rule",
+        "target_case": "upper"
+    })
+
+    val = DataValidator([rule])
+    # Forcing chunksize=2 means it processes 4 separate chunks
+    report = val.validate_stream(str(csv_path), chunksize=2)
+
+    assert len(report.remediations) == 1
+    rem = report.remediations[0]
+    assert rem["rule"] == "upper_stream"
+    assert rem["field"] == "col"
+    assert rem["rows_modified"] == 6  # 'a' through 'f' modified
+
+    samples = report.sample_remediations["upper_stream"]
+    assert len(samples) == 5  # Strictly capped at 5 across all chunks

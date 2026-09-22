@@ -167,6 +167,20 @@ def main():
     log_issues(report.errors, "ERROR", report.model_dump())
     log_issues(report.warnings, "WARNING", report.model_dump())
 
+    # --- Log Remediations ---
+    if getattr(report, "remediations", []):
+        logger.info("--- AUTO-REMEDIATIONS APPLIED ---")
+
+        for rem in report.remediations:
+            logger.info(
+                f"REMEDIATED -> Rule: {rem['rule']} | Field: {rem['field']} | Modified: {rem['rows_modified']} rows")
+
+            # Optionally print the samples to the console
+            if rem['rule'] in report.sample_remediations:
+                for sample in report.sample_remediations[rem['rule']]:
+                    logger.info(
+                        f"     -> Row {sample['row_index']}: [{sample['original']}] -> [{sample['remediated']}]")
+
     # --- DRIFT DETECTION ---
     logger.info("Evaluating historical drift...")
     comparator = ReportComparator()

@@ -365,3 +365,44 @@ def test_setup_logging_execution(monkeypatch):
     assert "validation_" in log_path
     assert log_path.endswith(".log")
 
+
+@patch("src.main.setup_logging", return_value="dummy_log.log")
+@patch("pathlib.Path.exists", return_value=True)
+@patch("src.main.argparse.ArgumentParser.parse_args")
+@patch("src.main.generate_messy_data")
+@patch("pandas.read_csv", return_value=pd.DataFrame({"id": [1]}))
+@patch("src.main.DataValidator.from_config")
+@patch("pandas.DataFrame.to_csv")
+@patch("src.main.ReportComparator")
+@patch("src.main.logger.info")
+def test_main_logs_remediations(mock_info, mock_comparator, mock_to_csv, mock_validator, mock_read, mock_generate,
+                                mock_args, mock_exists, mock_setup_logging):
+    """Tests that the orchestrator logs auto-remediations successfully to the console/log files."""
+    args = MagicMock(skip_generate=True, incremental=False, list_profiles=False, profile=None)
+    mock_args.return_value = args
+
+    mock_instance = MagicMock()
+    mock_report = MagicMock()
+    mock_report.passed = True
+    mock_report.total_rows_affected = 0
+    mock_report.errors = []
+    mock_report.warnings = []
+    mock_report.model_dump.return_value = {}
+
+    # Inject telemetry payload
+    mock_report.remediations = [{"rule": "test_rem_rule", "field": "test_field", "rows_modified": 42}]
+    mock_report.sample_remediations = {
+        "test_rem_rule": [{"row_index": 7, "original": "  dirty  ", "remediated": "dirty"}]
+    }
+
+    mock_instance.validate.return_value = mock_report
+    mock_instance.clean.return_value = pd.DataFrame({"id": [1]})
+    mock_validator.return_value = mock_instance
+
+    main.main()
+
+    # Assert the new logic executed correctly
+    mock_info.assert_any_call("--- AUTO-REMEDIATIONS APPLIED ---")
+    mock_info.assert_any_call("REMEDIATED -> Rule: test_rem_rule | Field: test_field | Modified: 42 rows")
+    mock_info.assert_any_call("     -> Row 7: [  dirty  ] -> [dirty]")
+

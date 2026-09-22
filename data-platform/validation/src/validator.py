@@ -28,6 +28,7 @@ class RowLevelResult(BaseModel):
     errors: List[str] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
     info: List[str] = Field(default_factory=list)
+    remediations: List[str] = Field(default_factory=list)
     skipped_stateful: List[str] = Field(default_factory=list)
 
 
@@ -40,6 +41,8 @@ class ValidationResult(BaseModel):
     errors: List[Dict[str, Any]] = Field(default_factory=list)
     warnings: List[Dict[str, Any]] = Field(default_factory=list)
     sample_bad_rows: Dict[str, List[Dict[str, Any]]] = Field(default_factory=dict)
+    remediations: List[Dict[str, Any]] = Field(default_factory=list)
+    sample_remediations: Dict[str, List[Dict[str, Any]]] = Field(default_factory=dict)
     rule_timings: Dict[str, float] = Field(default_factory=dict)
     skipped_rules: List[Dict[str, Any]] = Field(default_factory=list)
     total_rows: int = 0
@@ -539,6 +542,8 @@ class DataValidator:
         agg_sample_bad = collections.defaultdict(list)
         agg_rule_timings = collections.defaultdict(float)
         agg_skipped = []
+        agg_remediations = collections.defaultdict(int)
+        agg_sample_remed = collections.defaultdict(list)
 
         chunk_idx = 0
 
@@ -583,6 +588,15 @@ class DataValidator:
                 if len(agg_sample_bad[rule_name]) < 5:
                     agg_sample_bad[rule_name].extend(samples[:5 - len(agg_sample_bad[rule_name])])
 
+            # Aggregate remediations
+            for rem in chunk_report.remediations:
+                agg_remediations[(rem['rule'], rem['field'])] += rem['rows_modified']
+
+            # Aggregate sample remediations
+            for rule_name, samples in chunk_report.sample_remediations.items():
+                if len(agg_sample_remed[rule_name]) < 5:
+                    agg_sample_remed[rule_name].extend(samples[:5 - len(agg_sample_remed[rule_name])])
+
             # Aggregate skipped rules
             agg_skipped.extend(chunk_report.skipped_rules)
 
@@ -591,6 +605,7 @@ class DataValidator:
         # Format aggregated errors/warnings
         final_errors = [{"rule": k[0], "field": k[1], "count": v} for k, v in agg_errors.items()]
         final_warnings = [{"rule": k[0], "field": k[1], "count": v} for k, v in agg_warnings.items()]
+        final_remediations = [{"rule": k[0], "field": k[1], "rows_modified": v} for k, v in agg_remediations.items()]
 
         # Re-calculate thresholds based on aggregates
         rejection_reasons = []
@@ -636,7 +651,9 @@ class DataValidator:
             sample_bad_rows=dict(agg_sample_bad),
             rule_timings=dict(agg_rule_timings),
             skipped_rules=agg_skipped,
-            evaluated_rules=[r.name for r in self.rules]
+            evaluated_rules=[r.name for r in self.rules],
+            remediations=final_remediations,
+            sample_remediations=dict(agg_sample_remed)
         )
 
     def validate_row(self, row: Union[dict, str]) -> RowLevelResult:
@@ -736,10 +753,60 @@ class DataValidator:
         self._validate_schema(df)
 
         df_working = df.copy()
+        remediations = []
+        sample_remediations = collections.defaultdict(list)
         for rule in self.rules:
             if rule.type == "transform":
                 try:
+                    # 1. Snapshot Before
+                    series_before = df_working[
+                        rule.field].copy() if rule.field and rule.field in df_working.columns else None
+                    df_before = df_working.copy() if series_before is None else None
+
+                    # 2. Execute Transformation
                     df_working = rule.apply_transform(df_working)
+
+                    # 3. Vectorized Diff & Sampling
+                    if series_before is not None:
+                        series_after = df_working[rule.field]
+
+                        # Compare, intentionally ignoring cases where both are NaN
+                        changed_mask = (series_before != series_after) & ~(series_before.isna() & series_after.isna())
+                        changed_count = int(changed_mask.sum())
+
+                        if changed_count > 0:
+                            remediations.append({
+                                "rule": rule.name,
+                                "field": rule.field,
+                                "rows_modified": changed_count
+                            })
+
+                            # Grab up to 5 examples for the audit log
+                            for idx in df_working[changed_mask].head(5).index:
+                                sample_remediations[rule.name].append({
+                                    "row_index": idx,
+                                    "original": series_before.loc[idx],
+                                    "remediated": series_after.loc[idx]
+                                })
+
+                    elif df_before is not None:
+                        # Fallback for cross-field transformations
+                        if list(df_before.columns) != list(df_working.columns):
+                            # If columns were added or dropped, count all rows as modified
+                            changed_count = len(df_working)
+                        else:
+                            # Safe to perform element-wise comparison on identical schemas
+                            changed_mask = (df_before != df_working) & ~(df_before.isna() & df_working.isna())
+                            changed_rows = changed_mask.any(axis=1)
+                            changed_count = int(changed_rows.sum())
+
+                        if changed_count > 0:
+                            remediations.append({
+                                "rule": rule.name,
+                                "field": "cross_field",
+                                "rows_modified": changed_count
+                            })
+
                 except Exception as e:
                     logger.error(f"FATAL ERROR: Transform '{rule.name}' crashed during validation setup: {e}")
 
@@ -844,7 +911,10 @@ class DataValidator:
             sample_bad_rows=sample_bad,
             rule_timings=rule_timings,
             skipped_rules=skipped,
-            evaluated_rules=[r.name for r in self.rules]
+            evaluated_rules=[r.name for r in self.rules],
+            remediations=remediations,
+            sample_remediations=dict(sample_remediations)
+
         )
 
     def clean(self, df: pd.DataFrame, strict: bool = True, target_rules: Optional[List[str]] = None,
