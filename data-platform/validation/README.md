@@ -904,6 +904,72 @@ python -m src.generate_docs --config configs/sales_rules.yaml --output-dir docs/
 ```
 
 
+# Real-Time (Row-Level) Validation Mode
+
+## Feature Description
+Beyond batch and streaming file validation, the `DataValidator` supports real-time, single-row validation via the `validate_row()` method. This is designed for event-driven architectures where data arrives one record at a time (e.g., via Kafka, Kinesis, or an HTTP endpoint).
+
+To provide a clean API boundary, `validate_row()` accepts a standard Python dictionary or a JSON string. You do not need to wrap your data in a Pandas DataFrame; the engine handles this internally.
+
+## POC of validate_row:
+```python
+import json
+from src.validator import DataValidator
+
+validator = DataValidator.from_config("configs/sales_rules.yaml")
+
+# Accept a raw dict (or JSON string) from your consumer
+incoming_event = {
+    "transaction_id": 9912,
+    "date": "2024-04-10",
+    "sku_id": "SKU-9999",
+    "warehouse_id": "WH-01",
+    "quantity_sold": -5,
+    "unit_price": 12.50
+}
+
+# Execute the row-level validation
+result = validator.validate_row(incoming_event)
+
+# Print the lightweight RealtimeResult payload as JSON
+print(json.dumps(result.model_dump(), indent=2))
+```
+## Expected Output:
+- You will see the lightweight RealtimeResult JSON payload print to your console, indicating whether the row passed, which specific rules failed, and explicitly listing any stateful rules (like composite_pk_unique) that were bypassed.
+```json
+{
+  "passed": true,
+  "errors": [],
+  "warnings": [
+    "wh_01_minimum_price",
+    "quantity_positive",
+    "date_in_range"
+  ],
+  "info": [],
+  "skipped_stateful": [
+    "composite_pk_unique"
+  ]
+}
+```
+
+## Architectural Decisions & Limitations
+
+### Engine Implementation:"Option A" (Pandas Wrapper) vs. "Option B" (Dual Engine)
+To process single rows, validate_row() wraps the incoming dictionary into a 1-row Pandas DataFrame and utilizes the existing vectorized rules engine (Option A) rather than building a separate, native Python scalar engine (Option B).
+
+#### Reasoning:
+While Option B would yield better per-row latency by avoiding Pandas' initialization overhead, it requires building a dual-evaluation engine. Every rule would need two implementations that must stay behaviorally identical, introducing significant correctness risks and doubling the rule-execution surface area.
+
+By choosing Option A, we guarantee 100% behavioral consistency with the batch engine. We designed the public function signature (validate_row(row) -> RealtimeResult) so that if actual measured latency fails to meet future SLAs, the internals can be swapped to Option B transparently without breaking any downstream callers.
+
+### Stateful Rules: Skip vs. Cache
+Rules that evaluate row uniqueness (unique, composite_pk_unique) inherently require visibility across a dataset. In an isolated, single-row event, this context is missing.
+#### Reasoning:
+We chose to explicitly skip these rules rather than evaluating them (which would yield false positives/negatives) or silently ignoring them. Because pretending a rule was evaluated is worse than skipping it, skipped rules are explicitly listed in the skipped_stateful array in the response payload. This ensures no downstream consumer mistakes "not checked" for "passed."
+
+## Future Extension (Contract Concept):
+To genuinely restore uniqueness checking in real-time mode, an external state store (like Redis or an in-memory LRU cache) must be introduced. Under that architecture, a custom rule would intercept the row, hash the composite key, perform an EXISTS check against Redis, and return the boolean result.
+
 # Known Limitations
 * **Streaming Memory Growth:** While chunked streaming prevents massive Out-Of-Memory (OOM) crashes, Pass 1 still tracks every unique composite key seen in a set. Memory usage scales linearly O(N) with the number of distinct rows, so it is not strictly "near zero".
 * **Watermark Advancement:** The incremental pipeline advances the watermark based on the incoming dataset, *including rows that fail validation*. Failed rows are not automatically queued for reprocessing.

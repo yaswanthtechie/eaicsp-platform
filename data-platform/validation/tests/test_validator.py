@@ -1083,3 +1083,89 @@ def test_stream_matches_in_memory_and_leaves_validator_unchanged(tmp_path):
     finally:
         RULE_REGISTRY.pop("check_composite_unique", None)
         RULE_REGISTRY.pop("check_composite_unique_stream", None)
+
+
+def test_validate_row_dict_mixed_results():
+    """Tests proper bucketing of errors, warnings, info, and skipped rules from a dictionary."""
+    row = {"req": "value", "rng": 15, "inf": "fail_regex", "pk": 1}
+
+    r_err = ConfigRule(name="err_rule", field="req", type="not_null", severity="ERROR")
+    r_warn = ConfigRule(name="warn_rule", field="rng", type="range", min=0, max=10, severity="WARNING")
+    r_info = ConfigRule(name="info_rule", field="inf", type="regex", pattern="^pass$", severity="INFO")
+    r_skip1 = ConfigRule(name="skip1", field="req", type="unique")
+    r_skip2 = ConfigRule(name="composite_pk_unique", type="custom", function="dummy_custom_rule")
+
+    val = DataValidator([r_err, r_warn, r_info, r_skip1, r_skip2])
+    res = val.validate_row(row)
+
+    assert res.passed is True  # No ERROR rules failed (req is not null)
+    assert "err_rule" not in res.errors
+    assert "warn_rule" in res.warnings
+    assert "info_rule" in res.info
+    assert "skip1" in res.skipped_stateful
+    assert "composite_pk_unique" in res.skipped_stateful
+
+
+def test_validate_row_json_string_success():
+    """Tests parsing a valid JSON string."""
+    val = DataValidator([ConfigRule(name="r1", field="A", type="not_null", severity="ERROR")])
+    res = val.validate_row('{"A": 1}')
+
+    assert res.passed is True
+    assert len(res.errors) == 0
+
+
+def test_validate_row_json_string_failure():
+    """Tests the ValueError raised upon receiving malformed JSON."""
+    val = DataValidator([ConfigRule(name="r1", field="A", type="not_null", severity="ERROR")])
+    with pytest.raises(ValueError, match="Failed to parse JSON string"):
+        val.validate_row('{"A": 1')
+
+
+def test_validate_row_crashing_transform(caplog):
+    """Tests that a crashing transform does not crash the entire real-time pipeline."""
+    r_t = ConfigRule(name="crash_t", type="transform", function="crashing_transform_rule")
+    val = DataValidator([r_t])
+    res = val.validate_row({"A": 1})
+
+    assert res.passed is True
+    assert "crashed during real-time setup" in caplog.text
+
+
+def test_validate_row_crashing_evaluate(caplog):
+    """Tests that a crashing rule evaluation does not halt execution."""
+    r_e = ConfigRule(name="crash_e", type="custom", function="crashing_custom_rule", severity="ERROR")
+    val = DataValidator([r_e])
+    res = val.validate_row({"A": 1})
+
+    assert res.passed is True
+    assert "crash_e" not in res.errors
+    assert "crashed during real-time validation" in caplog.text
+
+
+def test_validate_row_dependencies():
+    """Tests that dependent rules are masked out if the parent rule fails."""
+    r_a = ConfigRule(name="r_a", field="qty", type="not_null", severity="ERROR")
+    r_b = ConfigRule(name="r_b", field="qty", type="range", min=0, max=100, severity="ERROR", depends_on=["r_a"])
+    val = DataValidator([r_a, r_b])
+
+    # Null qty fails r_a. Since r_b depends on r_a, r_b should NOT report an error.
+    res = val.validate_row({"qty": None})
+
+    assert res.passed is False
+    assert "r_a" in res.errors
+    assert "r_b" not in res.errors
+
+
+def test_validate_row_missing_dependency(caplog):
+    """Tests fallback logic when a dependency mask is unexpectedly missing."""
+    r_eval = ConfigRule(name="r_eval", field="A", type="not_null", severity="ERROR")
+    val = DataValidator([r_eval])
+
+    # Dynamically inject dependency to bypass initialization checks
+    val.rules[0].depends_on = ["ghost_rule"]
+    res = val.validate_row({"A": None})
+
+    assert res.passed is False
+    assert "r_eval" in res.errors
+    assert "Dependency 'ghost_rule' for rule 'r_eval' not found" in caplog.text

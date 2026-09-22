@@ -1,8 +1,9 @@
 import logging
 import collections
 import time
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 import copy
+import json
 
 import pandas as pd
 import yaml
@@ -20,6 +21,14 @@ def is_comparable(a, b):
 
 class SecurityError(Exception):
     pass
+
+
+class RowLevelResult(BaseModel):
+    passed: bool
+    errors: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    info: List[str] = Field(default_factory=list)
+    skipped_stateful: List[str] = Field(default_factory=list)
 
 
 class ValidationResult(BaseModel):
@@ -418,7 +427,7 @@ class DataValidator:
 
         The composite-key rule is swapped for its streaming variant only for the
         duration of this call, on a deep copy. self.rules is always restored, so a
-        streaming run never changes how this validator behaves afterwards.
+        streaming run never changes how this validator behaves afterward.
         """
         # --- Guard against aggregate rules in streaming mode ---
         aggregate_rules = [r.name for r in self.rules if getattr(r, 'requires_full_dataset', False)]
@@ -628,6 +637,90 @@ class DataValidator:
             rule_timings=dict(agg_rule_timings),
             skipped_rules=agg_skipped,
             evaluated_rules=[r.name for r in self.rules]
+        )
+
+    def validate_row(self, row: Union[dict, str]) -> RowLevelResult:
+        """
+        Real-time validation for a single row.
+        Accepts a dictionary or JSON string, evaluates stateless rules, and explicitly skips stateful rules.
+        """
+        # 1. Normalize input to a dictionary
+        if isinstance(row, str):
+            try:
+                row_dict = json.loads(row)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Failed to parse JSON string: {e}")
+        else:
+            row_dict = row
+
+        # 2. Wrap in a 1-row DataFrame to reuse the existing engine (Option A architecture)
+        df_working = pd.DataFrame([row_dict])
+
+        # We cannot use self._validate_schema(df_working) here because a streaming row
+        # might intentionally be missing fields (e.g. partial updates), or we might want to let
+        # not_null rules handle missing fields naturally rather than raising a hard exception.
+
+        # 3. Apply transformations
+        for rule in self.rules:
+            if rule.type == "transform":
+                try:
+                    df_working = rule.apply_transform(df_working)
+                except Exception as e:
+                    logger.error(f"Transform '{rule.name}' crashed during real-time setup: {e}")
+
+        errors = []
+        warnings = []
+        infos = []
+        skipped_stateful = []
+        rule_failure_masks = {}
+
+        # 4. Evaluate rules
+        for rule in self.rules:
+            if rule.type == "transform":
+                continue
+
+            # Identify and skip stateful rules
+            if rule.type == "unique" or rule.name == "composite_pk_unique":
+                skipped_stateful.append(rule.name)
+                # Mark as 'passed' (False) so dependent rules can still execute if needed
+                rule_failure_masks[rule.name] = pd.Series([False], index=[0])
+                continue
+
+            try:
+                # Evaluate the 1-row DataFrame
+                bad_mask = rule.evaluate(df_working)
+
+                # Handle depends_on logic to prevent cascading errors
+                if rule.depends_on:
+                    for dep_name in rule.depends_on:
+                        if dep_name in rule_failure_masks:
+                            bad_mask = bad_mask & ~rule_failure_masks[dep_name]
+                        else:
+                            logger.warning(f"Dependency '{dep_name}' for rule '{rule.name}' not found.")
+
+                rule_failure_masks[rule.name] = bad_mask
+
+            except Exception as e:
+                logger.error(f"Rule '{rule.name}' crashed during real-time validation: {type(e).__name__}: {e}")
+                continue
+
+            # 5. Route failures to the correct severity bucket
+            if bad_mask.iloc[0]:
+                if rule.severity == "ERROR":
+                    errors.append(rule.name)
+                elif rule.severity == "WARNING":
+                    warnings.append(rule.name)
+                else:
+                    infos.append(rule.name)
+
+        passed = len(errors) == 0
+
+        return RowLevelResult(
+            passed=passed,
+            errors=errors,
+            warnings=warnings,
+            info=infos,
+            skipped_stateful=skipped_stateful
         )
 
     def validate(self, df: pd.DataFrame) -> ValidationResult:
