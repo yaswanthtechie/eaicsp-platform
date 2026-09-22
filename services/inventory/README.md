@@ -1,571 +1,451 @@
-# Inventory Service – Task 5: Authentication Integration
+﻿﻿# Inventory Service
 
-## 1. Overview
+FastAPI microservice for managing inventory across multiple warehouses.
 
-The Inventory Service is a FastAPI microservice responsible for inventory management, reorder planning, demand simulation, ABC classification, and stock-related operations.
+## Technology
 
-### Task 5 – Authentication Integration
+* Python 3.12
+* FastAPI
+* PostgreSQL
+* SQLAlchemy
+* Pydantic
+* HTTPX
+* Pytest
 
-Task 5 integrates the Inventory Service with the shared **Platform/Auth Service**.
+## Quick Start
 
-The Inventory Service does **not** validate JWT tokens independently for protected endpoints. Instead, it makes a real HTTP request to Rahul's Platform Service to verify the supplied access token and obtain the user's role.
+```powershell
+cd services\inventory
+.\myenv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python -m pytest -v
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
+```
 
-### Services
-
-| Service               |   Port | Purpose                               |
-| --------------------- | -----: | ------------------------------------- |
-| Inventory Service     | `8001` | Inventory APIs                        |
-| Platform/Auth Service | `8005` | Authentication and token verification |
-
----
-
-# 2. Architecture
+Swagger:
 
 ```text
-Client
-  |
-  | Authorization: Bearer <access_token>
-  v
-Inventory Service :8001
-  |
-  | POST /api/v1/auth/verify
-  | Authorization: Bearer <access_token>
-  v
-Rahul's Platform/Auth Service :8005
-  |
-  | Token validation
-  | User lookup
-  | Role lookup
-  v
-Inventory Service
-  |
-  | Role authorization
-  v
-Protected Inventory Endpoint
+http://localhost:8001/docs
 ```
 
-The important point is that **Inventory depends on Rahul's Platform Service for authentication verification**.
-
----
-
-# 3. Rahul's Platform Service Dependency
-
-The Inventory Service requires Rahul's Platform/Auth Service to be available for real authentication.
-
-The expected verification endpoint is:
+Platform Auth Service:
 
 ```text
-POST http://127.0.0.1:8005/api/v1/auth/verify
+http://localhost:8005
 ```
-
-The Inventory Service sends the user's bearer token to this endpoint.
-
-### Required environment variable
-
-```env
-PLATFORM_AUTH_URL=http://127.0.0.1:8005
-```
-
-The final verification URL is:
-
-```text
-{PLATFORM_AUTH_URL}/api/v1/auth/verify
-```
-
-### Important
-
-Rahul's Platform/Auth Service is a **shared dependency**.
-
-If Rahul's service is not running:
-
-* authentication cannot be verified;
-* the Inventory Service should return `503 Service Unavailable`;
-* the Inventory Service should **not crash**.
-
-At the moment, end-to-end authentication testing requires Rahul's Platform/Auth Service branch/service containing the `/api/v1/auth/verify` endpoint.
-
-**Rahul should push/merge the Platform/Auth changes to the shared team repository so other developers can test the complete integration.**
 
 ---
 
-# 4. Environment Configuration
+## Milestone 1 — Multi-Echelon Inventory
 
-Create a `.env` file inside the Inventory Service.
+Supports:
 
-Example:
+* Central → Regional → Local warehouse hierarchy
+* Reorder point calculation
+* Low-stock detection
+* Warehouse-to-warehouse transfers
+* Parent warehouse shortage fulfillment
+* Self-parent validation
+* Circular hierarchy validation
 
-```env
-DATABASE_URL=postgresql+psycopg2://USER:PASSWORD@localhost:5432/inventory
-TEST_DATABASE_URL=postgresql+psycopg2://USER:PASSWORD@localhost:5432/inventory_test
-PLATFORM_AUTH_URL=http://127.0.0.1:8005
-```
-
-A `.env.example` file should also be provided:
-
-```env
-DATABASE_URL=postgresql+psycopg2://USER:PASSWORD@localhost:5432/inventory
-TEST_DATABASE_URL=postgresql+psycopg2://USER:PASSWORD@localhost:5432/inventory_test
-PLATFORM_AUTH_URL=http://127.0.0.1:8005
-```
-
-Do **not** commit real database credentials or secrets.
-
----
-
-# 5. Authentication Flow
-
-For a protected Inventory endpoint:
-
-### Step 1 – Client sends a request
-
-```http
-Authorization: Bearer <access_token>
-```
-
-### Step 2 – Inventory extracts the token
-
-FastAPI's authentication dependency reads the bearer token.
-
-### Step 3 – Inventory calls Platform/Auth
-
-Inventory makes a real HTTP request:
-
-```http
-POST /api/v1/auth/verify
-Authorization: Bearer <access_token>
-```
-
-### Step 4 – Platform/Auth validates the token
-
-Rahul's service validates the token and returns the authentication result and user role.
-
-Example successful response:
-
-```json
-{
-  "valid": true,
-  "role": "warehouse_manager",
-  "user_id": 1
-}
-```
-
-### Step 5 – Inventory checks the role
-
-After authentication succeeds, Inventory checks whether the returned role is allowed to access the requested endpoint.
-
----
-
-# 6. Authentication Error Handling
-
-The Inventory Service converts authentication failures into appropriate HTTP responses.
-
-| Situation                                  |                  Response |
-| ------------------------------------------ | ------------------------: |
-| Authorization header missing               |        `401 Unauthorized` |
-| Invalid/expired token                      |        `401 Unauthorized` |
-| User authenticated but role is not allowed |           `403 Forbidden` |
-| Auth service times out                     | `503 Service Unavailable` |
-| Auth service is unavailable                | `503 Service Unavailable` |
-| Unexpected auth-service response           | `503 Service Unavailable` |
-
-The authentication HTTP client uses a timeout so that the Inventory Service does not wait indefinitely for the Platform/Auth Service.
-
----
-
-# 7. Protected Endpoint Authorization
-
-Endpoints that require authentication use the authentication dependency.
-
-Conceptually:
-
-```python
-current_user = Depends(verify_token)
-```
-
-Role-protected endpoints additionally verify that the authenticated user's role is permitted.
-
-For example:
-
-```text
-CEO
-VP Operations
-Warehouse Manager
-```
-
-may have different permissions depending on the endpoint.
-
-The exact allowed roles should be defined with the endpoint's authorization requirement rather than assuming every authenticated user has access.
-
----
-
-# 8. Inventory API
-
-Base URL:
-
-```text
-http://127.0.0.1:8001
-```
-
-Swagger documentation:
-
-```text
-http://127.0.0.1:8001/docs
-```
-
-Main inventory operations include:
-
-| Method   | Endpoint                                    | Purpose                      |
-| -------- | ------------------------------------------- | ---------------------------- |
-| `POST`   | `/api/v1/inventory/`                        | Create inventory             |
-| `GET`    | `/api/v1/inventory/`                        | List inventory               |
-| `GET`    | `/api/v1/inventory/{sku_id}`                | Get inventory by SKU         |
-| `PUT`    | `/api/v1/inventory/{sku_id}/{warehouse_id}` | Update inventory             |
-| `DELETE` | `/api/v1/inventory/{sku_id}/{warehouse_id}` | Delete inventory             |
-| `GET`    | `/api/v1/inventory/reorder-plan`            | Get reorder recommendations  |
-| `GET`    | `/api/v1/inventory/low-stock`               | Get low-stock items          |
-| `POST`   | `/api/v1/inventory/what-if`                 | Demand what-if analysis      |
-| `POST`   | `/api/v1/inventory/simulate`                | Simulate demand growth/spike |
-| `POST`   | `/api/v1/inventory/bulk-upload`             | Upload inventory CSV         |
-| `POST`   | `/api/v1/inventory/bulk-update`             | Bulk update inventory        |
-
-> Keep the HTTP method in this section synchronized with the actual route implementation. In particular, the reviewer identified a previous `POST` → `PUT` change for `/bulk-update`.
-
----
-
-# 9. R4 Features
-
-## Demand-Driven Reorder Point
-
-Reorder points are calculated using demand, lead time, and safety stock.
+Reorder point:
 
 ```text
 Reorder Point =
 Average Daily Demand × Lead Time
-+ Safety Stock
++ Adjusted Safety Stock
+```
+
+Main API:
+
+```text
+POST /api/v1/inventory/multi-echelon/fulfill
 ```
 
 ---
 
-## ABC Classification
+## Milestone 2 — Automatic Draft Purchase Orders
 
-SKUs are classified based on sales volume.
+When inventory falls below the reorder point:
 
-```text
-A → Top 20%
-B → Next 30%
-C → Remaining 50%
-```
+* Calculates suggested quantity
+* Selects the lowest-cost supplier
+* Calculates expected cost
+* Creates a structured draft PO
+* Prevents duplicate draft POs
 
-ABC classification is calculated using sales history grouped by SKU and warehouse.
-
-### Tier-Based Safety Stock
-
-ABC is not only a label. Each tier has a different safety-stock multiplier.
+Draft PO:
 
 ```text
-A → 1.5 × base safety stock
-B → 1.2 × base safety stock
-C → 1.0 × base safety stock
+POST /api/v1/inventory/purchase-orders/draft
 ```
 
-Therefore, high-volume A items receive higher safety-stock protection than B and C items.
+Draft PO generation is triggered when inventory reaches the reorder condition during:
+
+* Inventory creation
+* Inventory update
+* Bulk inventory operations
+* Stock decrement
+
+Required permission:
+
+```text
+inventory:write
+```
+
+Receive PO:
+
+```text
+POST /api/v1/inventory/purchase-orders/{po_id}/receive
+```
+
+Receiving a PO:
+
+* Increases inventory
+* Creates a cost layer using the PO unit cost
+* Increments inventory version
+* Changes status to `received`
 
 ---
 
-## Demand Growth Simulation
+## Milestone 3 — Inventory Valuation
 
-The `/simulate` endpoint allows a future demand-growth scenario to be evaluated.
+Supports:
+
+* FIFO valuation
+* Weighted-average valuation
+* Cost-layer tracking
+* Cost-layer consumption during stock movement
+* Warehouse and category reporting
+
+API:
+
+```text
+GET /api/v1/inventory/reports/inventory-value
+```
 
 Example:
 
 ```text
-Current demand
-      ↓
-Apply demand growth/spike %
-      ↓
-Calculate simulated demand
-      ↓
-Evaluate inventory/reorder requirement
+GET /api/v1/inventory/reports/inventory-value?valuation_method=fifo
 ```
 
-Example request:
+Supported methods:
+
+```text
+fifo
+weighted_average
+```
+
+### Opening Inventory Cost
+
+Inventory creation supports an optional `unit_cost` field.
+
+When `quantity_on_hand` is greater than zero and `unit_cost` is provided, an opening cost layer is created for the inventory.
+
+Example:
 
 ```json
 {
-  "demand_spike_percent": 30
+    "sku_id": "SKU001",
+    "product_name": "Example Product",
+    "warehouse_id": "WH001",
+    "category": "Electronics",
+    "quantity_on_hand": 40,
+    "lead_time_days": 5,
+    "safety_stock": 10,
+    "warehouse_type": "local",
+    "unit_cost": 12.50
 }
 ```
 
-This allows the inventory team to understand how inventory requirements change when demand increases.
+If `unit_cost` is omitted and no previous cost exists for the SKU and warehouse, the physical inventory can still be created and moved. However, the uncosted quantity is not included in inventory valuation until cost information becomes available.
 
 ---
 
-# 10. Testing
+## Stock Decrement and Cost History
 
-Run the complete test suite from the Inventory Service directory:
+Stock can still be physically decremented when cost-layer history is missing or only partially covers the quantity.
 
-```bash
-pytest -v
-```
+Available cost layers are consumed when possible.
 
-Authentication-related tests should cover at least:
+If the available cost layers do not cover the entire decrement:
 
-### Invalid token
+* Physical inventory quantity is still reduced.
+* Available cost layers are consumed.
+* The uncovered quantity remains uncosted for valuation.
+* A warning is logged for incomplete cost history.
 
-Expected:
+Missing cost history affects valuation accuracy but does not prevent physical inventory movement.
 
-```text
-401 Unauthorized
-```
-
-### Wrong role
-
-Expected:
+Stock decrement API:
 
 ```text
-403 Forbidden
-```
-
-### Correct role
-
-Expected:
-
-```text
-Successful endpoint response
-```
-
-### Auth service timeout/down
-
-Expected:
-
-```text
-503 Service Unavailable
+POST /api/v1/inventory/decrement
 ```
 
 ---
 
-# 11. Testing Without Rahul's Service
+## Milestone 4 — Optimistic Locking
 
-Unit/integration tests should not depend entirely on Rahul's service being available.
-
-Authentication tests can mock the HTTP call to:
+Each inventory record contains a `version`.
 
 ```text
-POST /api/v1/auth/verify
+Version 1
+   ↓
+Successful Update
+   ↓
+Version 2
 ```
 
-This allows the tests to simulate:
+If an update uses an old version, the service rejects the request with a conflict instead of overwriting newer data.
 
-```text
-401 → invalid token
-200 + wrong role → 403
-200 + correct role → success
-Timeout → 503
-```
-
-The test suite should also retain tests that use the real Platform/Auth Service where end-to-end verification is required.
+This prevents stale updates from silently overwriting newer inventory changes.
 
 ---
 
-# 12. Test Database
+## Milestone 5 — Permissions and Authentication
 
-Tests must use the test database rather than the production database.
-
-Configure:
-
-```env
-TEST_DATABASE_URL=postgresql+psycopg2://USER:PASSWORD@localhost:5432/inventory_test
-```
-
-The test configuration overrides the application's normal database dependency so that test execution does not modify production data.
-
----
-
-# 13. Running the Services
-
-## Start Rahul's Platform/Auth Service
-
-Run Rahul's service on:
+Inventory uses the real Platform Auth Service.
 
 ```text
-127.0.0.1:8005
+Client
+  ↓
+Inventory Service
+  ↓
+Platform Auth Service
+  ↓
+Token + Role + Permissions
+  ↓
+Allow / Reject
 ```
 
-Verify that:
+The inventory service calls the real authentication verification endpoint.
+
+Normal permissions:
 
 ```text
-POST /api/v1/auth/verify
+inventory:read
+inventory:write
 ```
 
-is available.
+### Protected Operations
 
-## Start Inventory Service
+| Operation                  | Required access                              |
+| -------------------------- | -------------------------------------------- |
+| Inventory read operations  | `inventory:read`                             |
+| Inventory write operations | `inventory:write`                            |
+| Bulk update                | `warehouse_manager` or `procurement_manager` |
+| Bulk upload                | `warehouse_manager` or `procurement_manager` |
+| Draft PO                   | `inventory:write`                            |
+| Receive PO                 | `inventory:write`                            |
+| What-if                    | `ceo` or `vp_operations`                     |
 
-From the Inventory Service directory:
+Authentication responses:
 
-```bash
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
-```
+* `401` — Missing or invalid token
+* `403` — Insufficient role or permission
+* `503` — Authentication service unavailable, timeout, or unexpected authentication-service failure
 
-Open:
+Authentication requests include:
 
 ```text
-http://127.0.0.1:8001/docs
-```
-
----
-
-# 14. Swagger Authentication Testing
-
-1. Start Rahul's Platform/Auth Service on port `8005`.
-2. Start Inventory Service on port `8001`.
-3. Obtain a valid access token from the Platform/Auth Service.
-4. Open Inventory Swagger:
-
-```text
-http://127.0.0.1:8001/docs
-```
-
-5. Click **Authorize**.
-6. Enter the bearer token.
-7. Call a protected Inventory endpoint.
-8. Inventory sends the token to Rahul's `/api/v1/auth/verify`.
-9. The returned role is checked.
-10. The request is allowed or rejected according to the endpoint's authorization rules.
-
----
-
-# 15. Troubleshooting
-
-### `401 Missing authentication token`
-
-The request did not contain:
-
-```http
 Authorization: Bearer <token>
+X-Caller-Service: inventory-service
+X-Request-ID: <request-id>
 ```
 
-Check Swagger's **Authorize** button or the request headers.
-
 ---
 
-### `401 Unauthorized`
+## Concurrency and Bulk Operations
 
-The Platform/Auth Service rejected the supplied token.
-
-Check:
-
-* token validity;
-* token expiration;
-* Platform/Auth Service logs;
-* `/api/v1/auth/verify` response.
-
----
-
-### `403 Forbidden`
-
-The token is valid, but the authenticated user's role does not have permission for that endpoint.
-
-Check the user's role in the Platform/Auth Service.
-
----
-
-### `503 Authentication service unavailable`
-
-Inventory could not communicate with Rahul's Platform/Auth Service.
-
-Check:
+Bulk updates use database row-level locking:
 
 ```text
-Platform/Auth Service → port 8005
-Inventory Service     → port 8001
+SELECT ... FOR UPDATE
 ```
 
-Also verify:
-
-```env
-PLATFORM_AUTH_URL=http://127.0.0.1:8005
-```
-
----
-
-### `503 Authentication service timed out`
-
-The Platform/Auth Service did not respond within the configured timeout.
-
-Check whether Rahul's service is running correctly and responding to:
+Rows are locked consistently using:
 
 ```text
-POST /api/v1/auth/verify
+sku_id + warehouse_id
+```
+
+This helps prevent concurrent updates from overwriting each other.
+
+Bulk CSV upload:
+
+```text
+POST /api/v1/inventory/bulk-upload
+```
+
+Bulk update:
+
+```text
+POST /api/v1/inventory/bulk-update
 ```
 
 ---
 
-# 16. Important Developer Notes
+## What-If Simulation
 
-### Shared authentication dependency
+Simulates demand changes without permanently modifying inventory.
 
-Inventory authentication depends on Rahul's Platform/Auth Service.
-
-Do **not** replace the real HTTP call with local JWT validation unless the team changes the agreed authentication architecture.
-
-### Role response contract
-
-The Inventory Service expects the Platform/Auth verification response to provide the user's role in the agreed format, for example:
-
-```json
-{
-  "valid": true,
-  "role": "ceo",
-  "user_id": 1
-}
+```text
+POST /api/v1/inventory/what-if
 ```
 
-This contract should remain consistent between both services.
+Allowed roles:
 
-### Do not commit secrets
+```text
+ceo
+vp_operations
+```
 
-Never commit:
+---
+
+## Main APIs
+
+| Method | Endpoint                                            |
+| ------ | --------------------------------------------------- |
+| POST   | `/api/v1/inventory`                                 |
+| GET    | `/api/v1/inventory`                                 |
+| GET    | `/api/v1/inventory/{sku_id}/{warehouse_id}`         |
+| PUT    | `/api/v1/inventory/{sku_id}/{warehouse_id}`         |
+| DELETE | `/api/v1/inventory/{sku_id}/{warehouse_id}`         |
+| GET    | `/api/v1/inventory/reorder-plan`                    |
+| GET    | `/api/v1/inventory/low-stock`                       |
+| POST   | `/api/v1/inventory/decrement`                       |
+| POST   | `/api/v1/inventory/bulk-upload`                     |
+| POST   | `/api/v1/inventory/bulk-update`                     |
+| POST   | `/api/v1/inventory/what-if`                         |
+| POST   | `/api/v1/inventory/multi-echelon/fulfill`           |
+| POST   | `/api/v1/inventory/purchase-orders/draft`           |
+| POST   | `/api/v1/inventory/purchase-orders/{po_id}/receive` |
+| GET    | `/api/v1/inventory/reports/inventory-value`         |
+
+---
+
+## Inventory Creation
+
+The `POST /api/v1/inventory` endpoint accepts the following fields:
+
+| Field                 | Description                                   |
+| --------------------- | --------------------------------------------- |
+| `sku_id`              | Product/SKU identifier                        |
+| `product_name`        | Product name                                  |
+| `warehouse_id`        | Warehouse identifier                          |
+| `category`            | Inventory category                            |
+| `quantity_on_hand`    | Current physical stock                        |
+| `lead_time_days`      | Supplier/replenishment lead time              |
+| `safety_stock`        | Safety-stock quantity                         |
+| `warehouse_type`      | `central`, `regional`, or `local`             |
+| `parent_warehouse_id` | Parent warehouse in the hierarchy             |
+| `unit_cost`           | Optional opening unit cost used for valuation |
+
+`unit_cost` is optional.
+
+When positive opening stock is created with `unit_cost`, the service creates the corresponding opening inventory cost layer.
+
+---
+
+## Database
+
+Main tables:
+
+* `inventory`
+* `sales_history`
+* `suppliers`
+* `purchase_orders`
+* `inventory_cost_layers`
+
+Inventory uses:
+
+```text
+sku_id + warehouse_id
+```
+
+as the composite primary key.
+
+---
+
+## Testing
+
+Run all tests:
+
+```powershell
+python -m pytest -v
+```
+
+Run regression tests:
+
+```powershell
+python -m pytest tests/test_regressions.py -v
+```
+
+Run inventory tests:
+
+```powershell
+python -m pytest tests/test_inventory.py -v
+```
+
+Coverage:
+
+```powershell
+python -m pytest --cov=app --cov-report=term-missing
+```
+
+Authentication tests use:
+
+```text
+WAREHOUSE_MANAGER_TOKEN
+PROCUREMENT_MANAGER_TOKEN
+CEO_TOKEN
+VP_OPERATIONS_TOKEN
+EXPIRED_TOKEN
+```
+
+---
+
+## Environment Configuration
+
+The inventory service uses environment variables for database and authentication configuration.
+
+Example configuration is provided in:
+
+```text
+.env.example
+```
+
+The actual local configuration should be stored in:
 
 ```text
 .env
-database passwords
-JWT secrets
-access tokens
 ```
 
-Use `.env.example` for setup documentation.
+The real `.env` file must not be committed to the repository.
+
+Important configuration includes:
+
+```text
+DATABASE_URL
+TEST_DATABASE_URL
+PLATFORM_AUTH_URL
+WAREHOUSE_MANAGER_TOKEN
+PROCUREMENT_MANAGER_TOKEN
+CEO_TOKEN
+VP_OPERATIONS_TOKEN
+EXPIRED_TOKEN
+```
 
 ---
 
-# 17. Task 5 Completion
+## Round 6 Status
 
-Task 5 includes:
-
-* ✅ Real HTTP authentication integration with Platform/Auth Service
-* ✅ `POST /api/v1/auth/verify` integration
-* ✅ Bearer-token forwarding
-* ✅ Authentication timeout handling
-* ✅ Authentication-service failure handling
-* ✅ `401` handling for authentication failures
-* ✅ `403` handling for role authorization
-* ✅ Role-based endpoint protection
-* ✅ Authentication test coverage
-* ✅ Test database isolation
-* ✅ `.env.example` configuration
-* ✅ R4 demand simulation
-* ✅ ABC classification
-* ✅ Tier-specific safety-stock sizing
-
-### Dependency
-
-The only external runtime dependency for authentication is **Rahul's Platform/Auth Service on port `8005`**.
-
-For complete end-to-end testing, both services must be running:
-
-```text
-Platform/Auth Service → 8005
-Inventory Service     → 8001
-```
-
-If the Platform/Auth Service is unavailable, Inventory safely returns `503 Service Unavailable` rather than crashing.
+| Milestone                           | Status    |
+| ----------------------------------- | --------- |
+| M1 — Multi-Echelon Inventory        | Completed |
+| M2 — Automatic Draft PO             | Completed |
+| M3 — Inventory Valuation            | Completed |
+| M4 — Optimistic Locking             | Completed |
+| M5 — Permissions and Authentication | Completed |

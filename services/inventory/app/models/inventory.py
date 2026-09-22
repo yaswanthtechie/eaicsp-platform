@@ -4,7 +4,6 @@ from sqlalchemy import (
     Integer,
     Float,
     PrimaryKeyConstraint,
-    
 )
 
 from app.database import Base
@@ -28,15 +27,19 @@ class Inventory(Base):
         String,
         nullable=False,
     )
+    category = Column(
+    String,
+    nullable=False,
+    default="Uncategorized",
+    )
 
     quantity_on_hand = Column(
         Integer,
         nullable=False,
     )
 
-    # Kept for R3/database compatibility.
-    # R4 calculates demand dynamically
-    # from SalesHistory.
+    # R4 compatibility.
+    # Actual demand is calculated from SalesHistory.
     avg_daily_demand = Column(
         Float,
         nullable=False,
@@ -53,12 +56,29 @@ class Inventory(Base):
         nullable=False,
     )
 
-    __table_args__ = (
+    # =====================================================
+    # MILESTONE 1 - MULTI-ECHELON
+    # =====================================================
 
+    warehouse_type = Column(
+        String,
+        nullable=False,
+        default="local",
+    )
+
+    parent_warehouse_id = Column(
+        String,
+        nullable=True,
+    )
+    version = Column(
+        Integer,
+        nullable=False,
+        default=1,
+    )
+
+    __table_args__ = (
         PrimaryKeyConstraint(
             "sku_id",
             "warehouse_id",
         ),
-
-        
     )

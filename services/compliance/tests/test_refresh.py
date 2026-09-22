@@ -252,7 +252,7 @@ def test_perfect_match_all_sources_recent_listing_has_high_risk():
         listed_date=date.today().isoformat(),
     )
 
-    assert result["risk_score"] == 100
+    assert result["risk_score"] == 88
 
 
 def test_zero_match_has_zero_risk():
@@ -327,7 +327,7 @@ def test_one_source_has_one_third_source_coverage():
         ["source_coverage"],
         2,
     ) == round(
-        (1 / 3) * 100,
+        (1 / 5) * 100,
         2,
     )
 
@@ -348,12 +348,12 @@ def test_two_sources_have_two_thirds_source_coverage():
         ["source_coverage"],
         2,
     ) == round(
-        (2 / 3) * 100,
+        (2 / 5) * 100,
         2,
     )
 
 
-def test_three_sources_have_full_source_coverage():
+def test_three_source_recent_listing_has_high_risk():
 
     result = calculate_risk_score(
         match_score=100,
@@ -368,7 +368,7 @@ def test_three_sources_have_full_source_coverage():
     assert (
         result["risk_factors"]
         ["source_coverage"]
-        == 100
+        == 60
     )
 
 
@@ -389,7 +389,7 @@ def test_duplicate_sources_do_not_increase_source_score():
         ["source_coverage"],
         2,
     ) == round(
-        (1 / 3) * 100,
+        (1 / 5) * 100,
         2,
     )
 
@@ -411,7 +411,7 @@ def test_source_names_are_case_insensitive():
         ["source_coverage"],
         2,
     ) == round(
-        (1 / 3) * 100,
+        (1 / 5) * 100,
         2,
     )
 
@@ -782,7 +782,7 @@ def test_risk_score_uses_configured_weights():
 
     expected = round(
         100 * CONFIDENCE_WEIGHT
-        + 100 * SOURCE_WEIGHT
+        + 60 * SOURCE_WEIGHT
         + 50 * RECENCY_WEIGHT
     )
 

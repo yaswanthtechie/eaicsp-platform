@@ -15,12 +15,12 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.validator import DataValidator
+from src.validator import DataValidator, SecurityError
 
 # --- Configuration Constants ---
 EXIT_SUCCESS = 0
 EXIT_VALIDATION_FAILED = 1
-EXIT_TOOL_ERROR = 2  # New exit code for tool crashes
+EXIT_TOOL_ERROR = 2
 
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -37,6 +37,7 @@ def setup_logger(log_level: str = DEFAULT_LOG_LEVEL, enable_file_logging: bool =
 
     # 1. Always configure the console handler
     log_handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
+    log_file = None
 
     # 2. Conditionally configure the file handler
     if enable_file_logging:
@@ -55,12 +56,12 @@ def setup_logger(log_level: str = DEFAULT_LOG_LEVEL, enable_file_logging: bool =
     )
 
     custom_logger = logging.getLogger(__name__)
-    if enable_file_logging:
+    if enable_file_logging and log_file:
         custom_logger.info("File logging enabled. Writing to: %s", log_file)
 
     return custom_logger
 
-# Define globally so all functions can reference 'logger'
+
 logger = logging.getLogger(__name__)
 
 
@@ -71,12 +72,24 @@ def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument("--file", type=Path, required=True, help="Path to input CSV")
     parser.add_argument("--config", type=Path, required=True, help="Path to YAML rules")
     parser.add_argument("--output", type=Path, required=True, help="Path for JSON report output")
-    # --- ADD INCREMENTAL ARGUMENTS ---
+
+    # --- CUSTOM RULES DIRECTORY ---
+    parser.add_argument("--rules-dir", type=Path, default=None,
+                        help="Path to the custom rules directory for auto-discovery.")
+
+    parser.add_argument("--profile", type=str, default=None,
+                        help="Named validation profile to execute (e.g., 'strict').")
+    parser.add_argument("--list-profiles", action="store_true", help="List available profiles in the config and exit.")
+
+    # --- INCREMENTAL ARGUMENTS ---
     parser.add_argument("--incremental", action="store_true", help="Only process new rows since the last run.")
     parser.add_argument("--watermark-col", type=str, default="transaction_id", help="Column for watermarking.")
     parser.add_argument("--watermark-file", type=Path, default=PROJECT_ROOT / ".watermark_cli.json",
                         help="Path to state tracking file.")
     parser.add_argument("--log-to-file", action="store_true", help="Enable timestamped file logging.")
+    parser.add_argument("--chunk-size", type=int, default=None,
+                        help="Enable streaming execution. Specify number of rows per chunk (e.g., 500000).")
+
     return parser.parse_args(args)
 
 
@@ -84,8 +97,6 @@ def export_report(report: Any, output_path: Path) -> None:
     """Exports the validation report to JSON, handling Pydantic V1/V2 differences."""
     try:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Dynamically resolve Pydantic V2 (model_dump) or V1 (dict) method
         dump_method = getattr(report, "model_dump", getattr(report, "dict", None))
         if not callable(dump_method):
             raise AttributeError("Report object lacks Pydantic export methods (model_dump/dict)")
@@ -110,53 +121,104 @@ def main(cli_args: Optional[list[str]] = None) -> int:
     output_path: Path = args.output
 
     # Validate file existence strictly as files, not just paths
-    if not input_path.is_file():
-        logger.error("Input file does not exist or is not a file: %s", input_path)
-        return EXIT_TOOL_ERROR
-
     if not config_path.is_file():
         logger.error("Config file does not exist or is not a file: %s", config_path)
         return EXIT_TOOL_ERROR
 
+    # --- INTERCEPT: LIST PROFILES ---
+    if getattr(args, 'list_profiles', False):
+        profiles = DataValidator.list_profiles(str(config_path))
+        if profiles:
+            logger.info(f"Available profiles in {config_path.name}: {', '.join(profiles)}")
+        else:
+            logger.warning(f"No profiles found in {config_path.name}.")
+        return EXIT_SUCCESS
+
+    if not input_path.is_file():
+        logger.error("Input file does not exist or is not a file: %s", input_path)
+        return EXIT_TOOL_ERROR
+
+    df = pd.DataFrame()
 
     # Load Data & Validate (Fixed broad exception)
     try:
-        df = pd.read_csv(input_path)
-        # --- WATERMARK FILTERING ---
+        # 1. Setup Watermark (WITHOUT loading the DataFrame globally)
+        current_watermark = None
+        wm = None
         if args.incremental:
             from src.watermark import WatermarkManager
             wm = WatermarkManager(args.watermark_file)
             current_watermark = wm.get_watermark()
 
-            df = DataValidator.filter_incremental(df, args.watermark_col, current_watermark)
+        # 2. Branch execution based on streaming vs. in-memory
+        if args.chunk_size:
+            validator = DataValidator.from_config(
+                str(config_path),
+                profile_name=args.profile,
+                rules_dir=args.rules_dir
+            )
+            logger.info(f"Streaming mode enabled (chunk size: {args.chunk_size})")
+            report = validator.validate_stream(
+                filepath=str(input_path),
+                chunksize=args.chunk_size,
+                watermark_col=args.watermark_col if args.incremental else None,
+                current_watermark=current_watermark
+            )
+        else:
+            # Fully backward compatible in-memory execution
+            df = pd.read_csv(input_path)
+            if args.incremental:
+                df = DataValidator.filter_incremental(df, args.watermark_col, current_watermark)
+                if df.empty:
+                    logger.info("Incremental Mode: No new data to process. Exiting cleanly.")
+                    return EXIT_SUCCESS
+                logger.info(f"Incremental Mode: Identified {len(df)} new rows to validate.")
 
-            if df.empty:
-                logger.info("Incremental Mode: No new data to process. Exiting cleanly.")
-                return EXIT_SUCCESS
-            logger.info(f"Incremental Mode: Identified {len(df)} new rows to validate.")
-        validator = DataValidator.from_config(str(config_path))
+            validator = DataValidator.from_config(
+                str(config_path),
+                profile_name=args.profile,
+                rules_dir=args.rules_dir
+            )
+            report = validator.validate(df)
 
-        # Run validation
-        report = validator.validate(df)
-
-    except (pd.errors.EmptyDataError, pd.errors.ParserError, ValueError, OSError) as e:
+    except (pd.errors.EmptyDataError, pd.errors.ParserError, ValueError, OSError, SecurityError) as e:
         logger.exception("Validation execution failed: %s", e)
         return EXIT_TOOL_ERROR
-    except RuntimeError as e:  # Catch fallback for external library runtime errors
+    except RuntimeError as e:
         logger.exception("Runtime error during validation: %s", e)
         return EXIT_TOOL_ERROR
 
     # 3. Export JSON Report (Fixed broad exception)
     try:
         export_report(report, output_path)
+
         # --- WATERMARK SAVING ---
-        if args.incremental and not df.empty:
-            logger.warning(
-                "LIMITATION: Watermark advances past failed rows. Bad rows are not filtered from this check.")
-            new_wm = df[args.watermark_col].max()
-            wm.set_watermark(new_wm)
-            logger.info(f"Watermark updated to: {new_wm}")
-    except (OSError, TypeError, ValueError, AttributeError):
+        if args.incremental:
+            new_wm = None
+            col_name = str(args.watermark_col)
+
+            if args.chunk_size:
+                if getattr(report, 'total_rows', 0) > 0:
+                    logger.warning("LIMITATION: Watermark advances past failed rows.")
+                    # Stream ONLY the watermark column to find the max safely
+                    for chunk in pd.read_csv(input_path, usecols=[col_name], chunksize=args.chunk_size):
+                        chunk_max = chunk[col_name].max()
+                        if new_wm is None or chunk_max > new_wm:
+                            new_wm = chunk_max
+            else:
+                # In-memory mode: df is already loaded and filtered
+                if not df.empty:
+                    logger.warning("LIMITATION: Watermark advances past failed rows.")
+                    new_wm = df[col_name].max()
+
+            if new_wm is not None and wm is not None:
+                # Convert NumPy scalar to native Python type for safe logging/saving
+                safe_wm = new_wm.item() if hasattr(new_wm, 'item') else new_wm
+                wm.set_watermark(safe_wm)
+                logger.info(f"Watermark updated to: {safe_wm}")
+
+    except (OSError, TypeError, ValueError, AttributeError) as e:
+        logger.exception("Failed during report export or watermark saving: %s", e)
         return EXIT_TOOL_ERROR
 
     if hasattr(report, "rule_timings") and report.rule_timings:
@@ -179,5 +241,4 @@ def main(cli_args: Optional[list[str]] = None) -> int:
 
 
 if __name__ == "__main__":
-    # Defer sys.exit to the very edge of the application
     sys.exit(main())

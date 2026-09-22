@@ -6,7 +6,12 @@ for supplier risk scoring.
 import math
 from typing import Any, Dict, List, Optional
 
-from src.config import Settings, get_settings
+from src.config import (
+    DEFAULT_MITIGATION_WEIGHT,
+    DEFAULT_VOLUME_WEIGHT,
+    Settings,
+    get_settings,
+)
 from src.preprocess import clean_text
 from src.sentiment import analyze_sentiment
 from src.signals import detect_signals
@@ -78,6 +83,51 @@ def _calculate_confidence(
     return round(min(1.0, max(0.0, raw_conf)), 4)
 
 
+
+
+def _calculate_top_k_mean_aggregated_score(
+    processed_headlines: List[Dict[str, Any]],
+    top_k: int,
+    volume_weight: float = DEFAULT_VOLUME_WEIGHT,
+    mitigation_weight: float = DEFAULT_MITIGATION_WEIGHT,
+) -> float:
+    """
+    Calculate risk score under the principled top_k_mean strategy.
+
+    Combines:
+    1. Risk Intensity / Severity: Average of top-k risk-bearing headline scores.
+    2. Risk Coverage Volume: Monotonically scales risk when repeated adverse
+       events are detected (saturation curve with diminishing marginal increases).
+    3. Positive / Mitigating Coverage: Mitigating headlines genuinely reduce the
+       risk score proportionally to positive evidence in the headline sample.
+    """
+    risk_scores = [item["score"] for item in processed_headlines if item.get("score", 0.0) > 0]
+    if not risk_scores:
+        return 0.0
+
+    sorted_risk_scores = sorted(risk_scores, reverse=True)
+
+    # 1. Severity: Average of top-k risk-bearing headline scores
+    top_k_scores = sorted_risk_scores[:top_k]
+    severity_base = sum(top_k_scores) / len(top_k_scores)
+
+    # 2. Volume Factor: Repeated negative coverage amplifies risk with diminishing returns
+    num_risk = len(sorted_risk_scores)
+    volume_factor = 1.0 + volume_weight * (1.0 - 1.0 / num_risk) if num_risk > 1 else 1.0
+
+    # 3. Mitigating Positive Coverage: Clean positive headlines genuinely reduce risk
+    positive_headlines = [
+        item for item in processed_headlines
+        if item.get("sentiment") == "positive" and item.get("score", 0.0) == 0
+    ]
+    num_pos = len(positive_headlines)
+    num_total = len(processed_headlines)
+    positive_ratio = (num_pos / num_total) if num_total > 0 else 0.0
+    mitigation_factor = 1.0 - mitigation_weight * positive_ratio
+
+    return severity_base * volume_factor * mitigation_factor
+
+
 def _aggregate_risk_score(
     processed_headlines: List[Dict[str, Any]],
     config: Settings,
@@ -87,11 +137,12 @@ def _aggregate_risk_score(
     based on the configured aggregation strategy.
 
     Supported strategies:
-    - "blend" (default): Backward-compatible 80% average / 20% peak blend.
-    - "top_k_mean": Anti-dilution strategy that averages the top-k
-      risk-bearing headline scores. If a catastrophic headline is present,
-      adding neutral headlines will not dilute it away.
+    - "top_k_mean" (default): Principled anti-dilution strategy that combines:
+      1. Peak severity: Top-k mean of risk-bearing headline scores.
+      2. Risk coverage volume: Saturation curve scaling with repeated risk events.
+      3. Positive mitigation: Mitigating factor scaling with positive coverage proportion.
     - "max": Uses the worst-case (maximum) headline risk score.
+    - "blend": Backward-compatible 80% average / 20% peak blend.
     - "mean": Backward-compatible unweighted mean of all headlines.
     """
     if not processed_headlines:
@@ -113,17 +164,19 @@ def _aggregate_risk_score(
         raw_score = sum(scores) / len(scores)
 
     elif strategy == "top_k_mean":
-        sorted_scores = sorted(scores, reverse=True)
-        top_k_scores = sorted_scores[:top_k]
-        risk_bearing = [s for s in top_k_scores if s > 0]
-        if risk_bearing:
-            raw_score = sum(risk_bearing) / len(risk_bearing)
-        else:
-            raw_score = 0.0
+        raw_score = _calculate_top_k_mean_aggregated_score(
+            processed_headlines=processed_headlines,
+            top_k=top_k,
+            volume_weight=config.volume_weight,
+            mitigation_weight=config.mitigation_weight,
+        )
     else:
-        sorted_scores = sorted(scores, reverse=True)[:top_k]
-        risk_bearing = [s for s in sorted_scores if s > 0]
-        raw_score = (sum(risk_bearing) / len(risk_bearing)) if risk_bearing else 0.0
+        raw_score = _calculate_top_k_mean_aggregated_score(
+            processed_headlines=processed_headlines,
+            top_k=top_k,
+            volume_weight=config.volume_weight,
+            mitigation_weight=config.mitigation_weight,
+        )
 
     return min(config.max_risk_score, max(0.0, raw_score))
 
@@ -273,13 +326,17 @@ def predict(
     )
 
     # ----------------------------------------
-    # Top 3 Highest Risk Headlines
+    # Top 3 Highest Risk Headlines (Score > 0 only)
     # ----------------------------------------
+    risk_bearing_headlines = [
+        item for item in processed_headlines if item["score"] > 0
+    ]
     top_worst_3 = sorted(
-        processed_headlines,
+        risk_bearing_headlines,
         key=lambda item: item["score"],
         reverse=True,
     )[:3]
+
 
     # ----------------------------------------
     # Remove Duplicate Signals

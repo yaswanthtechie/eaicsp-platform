@@ -1,3 +1,4 @@
+
 from fastapi.testclient import TestClient
 import pytest
 from src.analyze import app
@@ -125,3 +126,44 @@ def test_health_endpoint():
         response = client.get("/health")
         assert response.status_code == 200
         assert response.json() == {"status": "UP", "service": "supplier-risk"}
+
+
+def test_no_duplicate_predict_route_registrations():
+    """Verify each predict endpoint is registered exactly once in app routes."""
+    from collections import Counter
+    post_routes = [
+        route.path
+        for route in app.routes
+        if hasattr(route, "path") and "POST" in getattr(route, "methods", set())
+    ]
+    counts = Counter(post_routes)
+    assert counts["/predict"] == 1
+    assert counts["/api/v1/supplier-risk/predict"] == 1
+    assert counts["/api/v1/supplier-risk/analyze"] == 1
+
+
+def test_openapi_schema_no_duplicate_predict_paths():
+    """Verify OpenAPI schema paths have unique operations without duplicates."""
+    openapi = app.openapi()
+    paths = openapi["paths"]
+    assert "/predict" in paths
+    assert "/api/v1/supplier-risk/predict" in paths
+    assert "/api/v1/supplier-risk/analyze" in paths
+    assert list(paths["/predict"].keys()) == ["post"]
+    assert list(paths["/api/v1/supplier-risk/predict"].keys()) == ["post"]
+    assert list(paths["/api/v1/supplier-risk/analyze"].keys()) == ["post"]
+
+
+def test_api_gateway_predict_alias_endpoint():
+    """Verify /api/v1/supplier-risk/predict alias works identically to /predict."""
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/supplier-risk/predict",
+            json={
+                "supplier_name": "GatewaySupplier",
+                "headlines": ["GatewaySupplier secures new restructuring contract."],
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "GatewaySupplier" in data["supplier_summary"]

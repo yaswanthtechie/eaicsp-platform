@@ -390,6 +390,12 @@ def bulk_upsert(
         with engine.begin() as conn:
             _execute(conn)
 
+    if connection is not None:
+        _execute(connection)
+    else:
+        with engine.begin() as conn:
+            _execute(conn)
+
     return rows_inserted, rows_updated
 
 

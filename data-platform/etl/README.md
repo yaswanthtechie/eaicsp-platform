@@ -1098,3 +1098,4 @@ Disaster recovery backup and restore drill is completed.
 Recovery replay successfully restores pipeline processing.
 
 
+Failure paths are tested.

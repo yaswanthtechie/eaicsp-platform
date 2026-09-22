@@ -2067,3 +2067,402 @@ Restored Version : 4
     }
   }
 }
+
+
+Round 6,7,8
+# EAICSP Platform - ML Services Reference Serving Layer
+
+## Overview
+
+Reference ML serving layer for four EAICSP ML services:
+
+* Demand Forecast (`forecast`)
+* ETA Prediction (`eta`)
+* Anomaly Detection (`anomaly`)
+* Supplier Risk (`risk`)
+
+The framework provides:
+
+* Unified multi-model serving
+* Independent model versioning
+* Deterministic A/B testing
+* Per-version metrics and statistical comparison
+* Production request monitoring
+* Drift detection framework
+* Retraining orchestration
+* Candidate evaluation and promotion/rejection
+* Rollback safety
+* MLOps dashboard
+* Docker reproducibility
+
+> **Current status:** The serving/orchestration framework is implemented and tested. The four adapters currently use stub loaders. Real model artifacts and retraining pipelines are not yet connected.
+
+## Milestone 1 - Unified Multi-Model Serving
+
+### Endpoints
+
+```text
+GET  /models
+POST /models/{model_name}/predict
+```
+
+Example:
+
+```json
+{
+  "payload": {
+    "history": [100, 110, 120, 130],
+    "horizon": 3
+  }
+}
+```
+
+The current Forecast implementation returns `model_type: "stub"`.
+
+### Main files
+
+```text
+src/
+├── service.py
+├── router.py
+├── registry.py
+├── schemas.py
+├── model_manager.py
+├── adapters/
+│   ├── base.py
+│   ├── forecast.py
+│   ├── eta.py
+│   ├── anomaly.py
+│   └── risk.py
+└── loaders/
+    └── stub.py
+```
+
+## Milestone 2 - A/B Testing
+
+A/B traffic is deterministically assigned using `request_id`.
+
+### Endpoints
+
+```text
+POST /models/{model_name}/ab-test/predict
+GET  /models/{model_name}/ab-test
+```
+
+Example:
+
+```json
+{
+  "payload": {
+    "history": [100, 110, 120, 130],
+    "horizon": 3
+  },
+  "request_id": "forecast-test-001",
+  "quality_score": 0.90
+}
+```
+
+The service records:
+
+* Request count
+* Success/failure
+* Latency
+* Success rate
+* Quality observations
+* Average quality
+* Per-version metrics
+
+Quality scores are supplied by the caller; the service does not calculate quality from ground-truth labels.
+
+Statistical comparison uses the configured control and challenger versions.
+
+## Milestone 3 - Retraining and Safe Promotion
+
+Supported models:
+
+```text
+forecast
+eta
+anomaly
+risk
+```
+
+The orchestration framework supports:
+
+```text
+Drift
+  ↓
+Retraining
+  ↓
+Candidate evaluation
+  ↓
+Promotion / Rejection
+  ↓
+Post-promotion validation
+  ↓
+Rollback on failure
+```
+
+Lower-is-better metrics:
+
+```text
+MAE, MAPE, RMSE
+```
+
+Higher-is-better metrics:
+
+```text
+Accuracy, F1, AUC
+```
+
+Candidates must show strict improvement. Ties are not automatically promoted.
+
+### Current limitation
+
+The orchestration and rollback framework is implemented and unit-tested, but the real retraining pipelines and complete live drift workflow are not yet connected.
+
+Required remaining flow:
+
+```text
+Real logged inputs
+→ Drift detection
+→ Real retraining
+→ Candidate evaluation
+→ Promote / Reject
+→ Validation
+→ Keep / Rollback
+```
+
+### Scheduler
+
+```text
+ENABLE_RETRAINING_SCHEDULER=False
+MULTIMODEL_RETRAINING_INTERVAL_SECONDS=3600
+```
+
+The scheduler is disabled by default.
+
+## Milestone 4 - MLOps Dashboard
+
+```text
+GET /mlops/dashboard
+```
+
+Dashboard:
+
+```text
+http://localhost:3000/mlops/dashboard
+```
+
+Currently displays:
+
+* Service health
+* Model readiness
+* Production versions
+* Request volume
+* Average latency
+* Success rate
+* A/B metrics
+* Statistical comparison
+
+Live per-model drift status and last-retraining time are not yet fully implemented.
+
+## Milestone 5 - Docker and Reproducibility
+
+Development environment:
+
+```text
+Python 3.12.4
+```
+
+Tested with Python 3.11 and 3.12.
+
+Pinned dependencies include:
+
+```text
+bentoml==1.4.22
+mlflow==3.4.0
+joblib==1.5.1
+numpy==2.3.2
+pydantic==2.11.7
+scikit-learn==1.7.1
+pytest==8.4.1
+fastapi==0.141.1
+httpx==0.28.1
+sqlalchemy==2.0.52
+```
+
+> The current Dockerfile is still based on the R4/R5 Iris reference service and has not yet been converted to the final multi-model production image.
+
+## Project Structure
+
+```text
+_reference/
+├── data/
+├── mlruns/
+├── models/
+├── src/
+│   ├── service.py
+│   ├── router.py
+│   ├── registry.py
+│   ├── schemas.py
+│   ├── model_manager.py
+│   ├── ab_testing.py
+│   ├── experiment.py
+│   ├── orchestrator.py
+│   ├── retraining_adapters.py
+│   ├── monitoring.py
+│   ├── dashboard.py
+│   ├── config.py
+│   ├── adapters/
+│   └── loaders/
+├── tests/
+├── Dockerfile
+├── requirements.txt
+├── bentofile.yaml
+├── .dockerignore
+└── README.md
+```
+
+## API Endpoints
+
+| Method | Endpoint                               | Purpose            |
+| ------ | -------------------------------------- | ------------------ |
+| GET    | `/healthz`                             | Health             |
+| GET    | `/livez`                               | Liveness           |
+| GET    | `/readyz`                              | Readiness          |
+| GET    | `/models`                              | List models        |
+| POST   | `/models/{model_name}/predict`         | Prediction         |
+| POST   | `/models/{model_name}/ab-test/predict` | A/B prediction     |
+| GET    | `/models/{model_name}/ab-test`         | A/B results        |
+| POST   | `/retrain/multimodel`                  | Retrain all models |
+| POST   | `/retrain/multimodel/{model_name}`     | Retrain one model  |
+| GET    | `/mlops/dashboard`                     | Dashboard          |
+| GET    | `/docs`                                | OpenAPI            |
+
+## Run Locally
+
+```powershell
+cd D:\ml__services\eaicsp-platform\ml-services\_reference
+```
+
+Start:
+
+```powershell
+bentoml serve src.service:IrisService --host 0.0.0.0 --port 3000
+```
+
+Tests:
+
+```powershell
+python -m pytest -q tests
+```
+
+Health:
+
+```powershell
+Invoke-RestMethod http://localhost:3000/healthz
+```
+
+Models:
+
+```powershell
+Invoke-RestMethod http://localhost:3000/models
+```
+
+A/B results:
+
+```powershell
+Invoke-RestMethod http://localhost:3000/models/forecast/ab-test
+```
+
+Dashboard:
+
+```powershell
+Start-Process "http://localhost:3000/mlops/dashboard"
+```
+
+API docs:
+
+```text
+http://localhost:3000/docs
+```
+
+## Docker
+
+Build:
+
+```powershell
+docker build -t eaicsp-ml-serving:r5 .
+```
+
+Run:
+
+```powershell
+docker run --rm -p 3000:3000 --name eaicsp-ml-serving eaicsp-ml-serving:r5
+```
+
+Verify:
+
+```powershell
+docker ps
+docker logs eaicsp-ml-serving
+Invoke-RestMethod http://localhost:3000/healthz
+Invoke-RestMethod http://localhost:3000/readyz
+Invoke-RestMethod http://localhost:3000/models
+```
+
+## Milestone Status
+
+| Milestone                | Status                                                             |
+| ------------------------ | ------------------------------------------------------------------ |
+| M1 - Multi-model serving | Framework live; four adapters use stubs                            |
+| M2 - A/B testing         | Live and tested                                                    |
+| M3 - Retraining          | Framework and rollback tested; live drift/retraining not connected |
+| M4 - Dashboard           | Live; drift/retrain fields incomplete                              |
+| M5 - Docker              | Current Iris reference image; dependencies pinned                  |
+
+## Remaining Work
+
+* Connect real Forecast retraining pipeline
+* Connect real ETA retraining pipeline
+* Connect real Anomaly retraining pipeline
+* Connect real Supplier Risk retraining pipeline
+* Implement production drift baselines
+* Demonstrate live drift detection
+* Demonstrate drift-triggered retraining
+* Demonstrate candidate evaluation and promotion/rejection
+* Demonstrate post-promotion rollback
+* Build final multi-model Docker image
+
+## Definition of Done
+
+### Completed
+
+* [x] Unified multi-model serving
+* [x] Independent model versioning
+* [x] Deterministic A/B routing
+* [x] Per-version metrics
+* [x] Statistical comparison
+* [x] Production monitoring
+* [x] Retraining orchestration framework
+* [x] Candidate promotion/rejection
+* [x] Rollback safety
+* [x] MLOps dashboard
+* [x] Pinned dependencies
+* [x] Health/readiness/liveness checks
+* [x] Docker build/run workflow
+
+### Pending
+
+* [ ] Real model integrations
+* [ ] Live production drift baselines
+* [ ] Live drift → retrain workflow
+* [ ] Live promotion/rejection
+* [ ] Live rollback demonstration
+* [ ] Final multi-model Docker image
+
+
+
+
+
