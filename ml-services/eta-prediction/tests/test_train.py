@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import joblib
 import pytest
 from sklearn.compose import ColumnTransformer
 from sklearn.metrics import mean_absolute_error
@@ -540,3 +541,49 @@ def test_production_calibration_rejects_missing_row_count():
         check_production_calibration(
             calibration
         )
+def test_production_gate_blocks_artifact_write(
+    sample_model_data,
+    tmp_path,
+    monkeypatch,
+):
+    """
+    A run that fails the production gate must not write artifacts.
+    Otherwise a bad run overwrites the good model in models/ even
+    though it raises.
+    """
+    from src import train
+
+    model_path = tmp_path / "eta_pipeline.joblib"
+    calibration_path = tmp_path / "eta_prediction_interval.joblib"
+
+    monkeypatch.setattr(train, "MODEL_PATH", model_path)
+    monkeypatch.setattr(train, "CALIBRATION_MODEL_PATH", calibration_path)
+
+    X_train = sample_model_data["X_train"].copy()
+    y_train = sample_model_data["y_train"].copy()
+
+    with pytest.raises(ValueError, match="below the production minimum"):
+        train_model(X_train, y_train, enforce_production_gate=True)
+
+    assert not model_path.exists()
+    assert not calibration_path.exists()
+
+
+def test_committed_artifact_passes_production_gate():
+    """
+    The artifact actually shipped in models/ must pass the same gate
+    main.py enforces. This is the test that catches a fixture-trained
+    model being committed.
+    """
+    from src.train import CALIBRATION_MODEL_PATH
+
+    if not CALIBRATION_MODEL_PATH.exists():
+        pytest.skip("No committed calibration artifact")
+
+    calibration = joblib.load(CALIBRATION_MODEL_PATH)
+
+    check_production_calibration(calibration)
+
+    assert "training_rows" in calibration, (
+        "Artifact predates provenance tracking; retrain with python main.py"
+    )        

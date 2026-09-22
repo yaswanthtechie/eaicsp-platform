@@ -1,0 +1,23 @@
+artifact_path: file:C:/Users/DELL/OneDrive/Desktop/ETA/eaicsp-platform/ml-services/eta-prediction/mlruns/1/models/m-792d5e789cab459593680482334f2799/artifacts
+flavors:
+  python_function:
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.sklearn
+    model_path: model.pkl
+    predict_fn: predict
+    python_version: 3.14.6
+  sklearn:
+    code: null
+    pickled_model: model.pkl
+    serialization_format: cloudpickle
+    sklearn_version: 1.9.0
+    skops_trusted_types: null
+mlflow_version: 3.15.2
+model_id: m-792d5e789cab459593680482334f2799
+model_size_bytes: 358062
+model_uuid: m-792d5e789cab459593680482334f2799
+prompts: null
+run_id: 1ac17062af2147c5933b331dddb11220
+utc_time_created: '2026-09-21 11:38:50.287903'

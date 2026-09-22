@@ -1,50 +1,7 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-
-# Virtual environments
-.venv/
-venv/
-env/
-ENV/
-
-# Pytest
-.pytest_cache/
-.coverage
-htmlcov/
-
-# MLflow
-mlruns/
-mlflow.db
-*.db
-*.sqlite
-*.sqlite3
-
-# Generated data
-data/raw/
-data/processed/
-*.csv
-
-# Trained models / artifacts
-models/
+models/*
 *.joblib
-*.pkl
-*.pickle
-
-# Logs
-*.log
-logs/
-
-# IDE / editors
-.vscode/
-.idea/
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Environment / secrets
-.env
-.env.*
-!.env.example
+# Production artifacts are committed deliberately: /predict needs
+# them at startup. Produced by `python main.py` on the real Olist
+# data, which refuses to write them if calibration is too small.
+!models/eta_pipeline.joblib
+!models/eta_prediction_interval.joblib
