@@ -226,3 +226,10 @@ node_modules/
 
 # Data profiling generated reports
 data-platform/profiling/reports/
+
+# Local development environments
+myenv/
+.vscode/
+
+# Local platform database
+services/platform/platform.db

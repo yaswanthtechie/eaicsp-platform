@@ -48,3 +48,5 @@ class VerifyResponse(BaseModel):
     role: Optional[str] = None
     supplier_id: Optional[str] = None
     is_active: bool
+    permissions: list[str]
+    

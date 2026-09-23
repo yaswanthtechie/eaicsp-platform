@@ -32,6 +32,7 @@ class SourceConfig:
     min_rows: int = 1
     max_rows: int = 1_000_000
     history_table: str = None
+    schema_evolution: str = "quarantine"
 
 
 @dataclass
@@ -56,6 +57,25 @@ class PipelineConfig:
             if s.name == name:
                 return s
         raise KeyError(f"No source named '{name}' in pipeline config")
+
+
+def validate_dependency_order(sources):
+    """Reject dependencies that point to a later source or create duplicates/cycles."""
+    seen = set()
+    names = {s.name for s in sources}
+    if len(names) != len(sources):
+        raise ValueError("Duplicate source names are not allowed")
+    for source in sources:
+        if source.depends_on:
+            if source.depends_on not in names:
+                raise ValueError(f"Source '{source.name}' depends on unknown source '{source.depends_on}'")
+            if source.depends_on not in seen:
+                raise ValueError(
+                    f"Source '{source.name}' depends on '{source.depends_on}', "
+                    "but the dependency must appear earlier in the sources list"
+                )
+        seen.add(source.name)
+    return True
 
 
 def load_pipeline_config(config_path=None):
@@ -87,6 +107,7 @@ def load_pipeline_config(config_path=None):
                 min_rows=raw_source.get("min_rows", 1),
                 max_rows=raw_source.get("max_rows", 1_000_000),
                 history_table=raw_source.get("history_table"),
+                schema_evolution=raw_source.get("schema_evolution", "quarantine"),
             )
         )
 
@@ -98,8 +119,10 @@ def load_pipeline_config(config_path=None):
         cutoff_days=archive_raw.get("cutoff_days", 730),
     )
 
-    return PipelineConfig(
+    config = PipelineConfig(
         schedule=raw.get("schedule", "0 2 * * *"),
         sources=sources,
         archive=archive,
     )
+    validate_dependency_order(config.sources)
+    return config

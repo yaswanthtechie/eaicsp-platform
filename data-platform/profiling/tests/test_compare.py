@@ -160,9 +160,9 @@ def test_structural_comparison_detects_incompatible_types():
     schema = result["schema_compatibility"]
 
     assert schema["incompatible_types"] == [{
-        "column": "quantity_sold",
-        "old_dtype": "int64",
-        "new_dtype": "object"
+    "column": "quantity_sold",
+    "old_dtype": "int64",
+    "new_dtype": "str"
     }]
 
 
