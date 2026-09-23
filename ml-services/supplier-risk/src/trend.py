@@ -147,6 +147,9 @@ def calculate_supplier_trend(
             "current_risk_score": 0.0,
             "previous_risk_score": None,
             "trend_direction": "stable",
+            "is_deteriorating": False,
+            "risk_delta": None,
+            "deterioration_summary": "No headline records provided.",
             "article_count": 0,
             "current_window_article_count": 0,
             "historical_article_count": 0,
@@ -207,6 +210,9 @@ def calculate_supplier_trend(
             "current_risk_score": 0.0,
             "previous_risk_score": None,
             "trend_direction": "stable",
+            "is_deteriorating": False,
+            "risk_delta": None,
+            "deterioration_summary": "No valid headline records found for supplier.",
             "article_count": 0,
             "current_window_article_count": 0,
             "historical_article_count": 0,
@@ -319,17 +325,41 @@ def calculate_supplier_trend(
         prev_window_start_str = None
         prev_window_end_str = None
 
-    # 5. Determine trend direction algorithmically from current vs previous aggregate
+    # 5. Determine trend direction and deterioration flag algorithmically
     if previous_risk_score is None:
         trend_direction = "stable"
+        is_deteriorating = False
+        risk_delta = None
+        deterioration_summary = (
+            f"Insufficient historical data to establish trend direction. "
+            f"Current window score is {current_risk_score:.2f} across {len(current_articles)} articles."
+        )
     else:
-        score_diff = current_risk_score - previous_risk_score
+        score_diff = round(current_risk_score - previous_risk_score, 2)
+        risk_delta = score_diff
         if score_diff > threshold:
             trend_direction = "rising"
+            is_deteriorating = True
+            deterioration_summary = (
+                f"Risk is deteriorating: score increased by +{score_diff:.2f} points "
+                f"(from {previous_risk_score:.2f} to {current_risk_score:.2f}) "
+                f"exceeding the sensitivity threshold of {threshold}."
+            )
         elif score_diff < -threshold:
             trend_direction = "falling"
+            is_deteriorating = False
+            deterioration_summary = (
+                f"Risk is improving: score decreased by {score_diff:.2f} points "
+                f"(from {previous_risk_score:.2f} to {current_risk_score:.2f})."
+            )
         else:
             trend_direction = "stable"
+            is_deteriorating = False
+            deterioration_summary = (
+                f"Risk is stable: score delta of {score_diff:+.2f} points "
+                f"(from {previous_risk_score:.2f} to {current_risk_score:.2f}) "
+                f"is within the steady-state margin of ±{threshold}."
+            )
 
     # 6. Chronological risk_trend points (backward compatible timeline)
     date_grouped: Dict[str, List[str]] = defaultdict(list)
@@ -397,6 +427,9 @@ def calculate_supplier_trend(
         "current_risk_score": current_risk_score,
         "previous_risk_score": previous_risk_score,
         "trend_direction": trend_direction,
+        "is_deteriorating": is_deteriorating,
+        "risk_delta": risk_delta,
+        "deterioration_summary": deterioration_summary,
         "article_count": len(valid_records),
         "current_window_article_count": len(current_articles),
         "historical_article_count": len(prev_articles),
@@ -446,3 +479,24 @@ def aggregate_supplier_trends(
             as_of_date=as_of_date,
         )
     return results
+
+
+def detect_deteriorating_suppliers(
+    records: List[Dict[str, Any]],
+    config: Optional[Settings] = None,
+    as_of_date: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Scan records across multiple suppliers, compute risk trends, and detect/flag
+    all suppliers whose risk profile is deteriorating over time.
+
+    Returns a list of trend summary dictionaries for deteriorating suppliers, sorted by
+    risk_delta descending (highest deteriorating increase first).
+    """
+    all_trends = aggregate_supplier_trends(records, config=config, as_of_date=as_of_date)
+    deteriorating = [
+        summary for summary in all_trends.values()
+        if summary.get("is_deteriorating")
+    ]
+    deteriorating.sort(key=lambda s: s.get("risk_delta") or 0.0, reverse=True)
+    return deteriorating

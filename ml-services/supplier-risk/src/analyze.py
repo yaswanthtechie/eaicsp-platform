@@ -128,6 +128,18 @@ class TrendResponse(BaseModel):
         default=None,
         description="Trend direction: 'rising', 'falling', or 'stable'",
     )
+    is_deteriorating: bool | None = Field(
+        default=False,
+        description="Flag indicating whether supplier risk is deteriorating over time",
+    )
+    risk_delta: float | None = Field(
+        default=None,
+        description="Score delta between current and previous historical windows",
+    )
+    deterioration_summary: str | None = Field(
+        default=None,
+        description="Narrative explanation of risk trend direction and deterioration",
+    )
     article_count: int | None = Field(
         default=None,
         description="Total number of evaluated articles",
