@@ -54,6 +54,14 @@ Round 10:
 - CPU monitoring
 - Memory monitoring
 - Batch success/failure metrics
+
+Round 11:
+- Blue-Green model deployment
+- Blue/Green model version configuration
+- Governance-gated Green deployment
+- Blue rollback
+- Blue-Green prediction endpoint
+- Blue-Green deployment status
 """
 
 import logging
@@ -65,7 +73,7 @@ from typing import Any
 import bentoml
 import numpy as np
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 
 from pydantic import (
     BaseModel,
@@ -100,6 +108,19 @@ from src.adapters import (
 
 from src.batch_predict import (
     BatchPredictionService,
+)
+
+
+# ==========================================================
+# Round 11 Blue-Green Deployment
+# ==========================================================
+
+from src.blue_green import (
+    BlueGreenManager,
+)
+
+from src.governance import (
+    governance_manager,
 )
 
 
@@ -308,15 +329,50 @@ class MultiModelBatchRequest(BaseModel):
 
     A single request can contain predictions for
     multiple independently served models.
+
+    Batch size is limited to 100 items to prevent
+    excessively large requests from consuming
+    excessive serving resources.
     """
 
     requests: list[MultiModelBatchItem] = Field(
         ...,
         min_length=1,
+        max_length=100,
         description=(
             "List of model predictions to execute "
             "as one batch"
         ),
+    )
+
+
+# ==========================================================
+# Round 11 Blue-Green Request Model
+# ==========================================================
+
+
+class BlueGreenConfigureRequest(BaseModel):
+    """
+    Configure Blue-Green deployment for a model.
+
+    Blue:
+        Current known-good model version.
+
+    Green:
+        Candidate model version that requires
+        governance approval before activation.
+    """
+
+    blue_version: str = Field(
+        ...,
+        min_length=1,
+        description="Current Blue model version",
+    )
+
+    green_version: str = Field(
+        ...,
+        min_length=1,
+        description="Candidate Green model version",
     )
 
 
@@ -488,6 +544,25 @@ BATCH_PREDICTION_SERVICE = BatchPredictionService(
 
 
 # ==========================================================
+# Round 11 Blue-Green Manager
+# ==========================================================
+#
+# Governance is injected into the Blue-Green manager.
+#
+# Switching to Green:
+#     governance approval required
+#
+# Switching to Blue:
+#     always allowed as rollback
+# ==========================================================
+
+BLUE_GREEN_MANAGER = BlueGreenManager(
+    MULTI_MODEL_MANAGER,
+    governance=governance_manager,
+)
+
+
+# ==========================================================
 # FastAPI Multi-Model Application
 # ==========================================================
 
@@ -527,6 +602,12 @@ def batch_predict(
     - CPU usage
     - memory usage
     - total latency
+
+    Invalid batch requests that reach the service layer
+    as ValueError are returned as HTTP 400 responses.
+    Pydantic validation errors such as an empty batch or
+    a batch larger than 100 items are returned by FastAPI
+    as HTTP 422 responses before this function executes.
     """
 
     logger.info(
@@ -569,16 +650,202 @@ def batch_predict(
             exc,
         )
 
-        raise
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
 
-    except Exception as exc:
 
-        logger.exception(
-            "Batch prediction failed"
+# ==========================================================
+# Round 11 Blue-Green Configuration Endpoint
+# ==========================================================
+
+
+@multi_model_app.post(
+    "/models/{model_name}/blue-green",
+    tags=["Blue-Green"],
+)
+def configure_blue_green(
+    model_name: str,
+    body: BlueGreenConfigureRequest,
+) -> dict:
+    """
+    Configure Blue-Green deployment for a model.
+
+    The configured Blue version is the currently active
+    known-good version.
+
+    The configured Green version is the candidate version.
+
+    Configuration itself does not switch traffic.
+    """
+
+    try:
+
+        normalized_model_name = (
+            model_name.strip().lower()
         )
 
-        raise RuntimeError(
-            f"Batch prediction failed: {exc}"
+        return BLUE_GREEN_MANAGER.configure(
+            normalized_model_name,
+            body.blue_version,
+            body.green_version,
+        )
+
+    except (ValueError, KeyError) as exc:
+
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+
+
+# ==========================================================
+# Round 11 Blue-Green Status Endpoint
+# ==========================================================
+
+
+@multi_model_app.get(
+    "/models/{model_name}/blue-green",
+    tags=["Blue-Green"],
+)
+def blue_green_status(
+    model_name: str,
+) -> dict:
+    """
+    Return the current Blue-Green deployment state.
+    """
+
+    try:
+
+        normalized_model_name = (
+            model_name.strip().lower()
+        )
+
+        return BLUE_GREEN_MANAGER.status(
+            normalized_model_name
+        )
+
+    except KeyError as exc:
+
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        ) from exc
+
+
+# ==========================================================
+# Round 11 Blue-Green Switch Endpoint
+# ==========================================================
+
+
+@multi_model_app.post(
+    "/models/{model_name}/blue-green/switch/{color}",
+    tags=["Blue-Green"],
+)
+def blue_green_switch(
+    model_name: str,
+    color: str,
+) -> dict:
+    """
+    Switch active traffic between Blue and Green.
+
+    Green:
+        Requires governance approval.
+
+    Blue:
+        Always allowed because it is the rollback
+        destination.
+    """
+
+    try:
+
+        normalized_model_name = (
+            model_name.strip().lower()
+        )
+
+        return BLUE_GREEN_MANAGER.switch(
+            normalized_model_name,
+            color,
+        )
+
+    except PermissionError as exc:
+
+        logger.warning(
+            "Blue-Green switch blocked by governance: "
+            "model=%s color=%s reason=%s",
+            model_name,
+            color,
+            exc,
+        )
+
+        raise HTTPException(
+            status_code=403,
+            detail=str(exc),
+        ) from exc
+
+    except KeyError as exc:
+
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        ) from exc
+
+    except ValueError as exc:
+
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+
+
+# ==========================================================
+# Round 11 Blue-Green Prediction Endpoint
+# ==========================================================
+
+
+@multi_model_app.post(
+    "/models/{model_name}/blue-green/predict",
+    tags=["Blue-Green"],
+)
+def blue_green_predict(
+    model_name: str,
+    payload: dict[str, Any],
+) -> dict:
+    """
+    Run prediction against the currently active
+    Blue-Green model version.
+
+    The response identifies:
+
+    - active model version
+    - deployment color
+    - deployment status
+    """
+
+    try:
+
+        normalized_model_name = (
+            model_name.strip().lower()
+        )
+
+        return BLUE_GREEN_MANAGER.predict(
+            normalized_model_name,
+            payload,
+        )
+
+    except KeyError as exc:
+
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        ) from exc
+
+    except ValueError as exc:
+
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
         ) from exc
 
 
@@ -822,6 +1089,11 @@ class IrisService:
         logger.info(
             "Round 10 unified batch prediction available at "
             "/models/batch-predict"
+        )
+
+        logger.info(
+            "Round 11 Blue-Green deployment available at "
+            "/models/{model_name}/blue-green"
         )
 
     # ======================================================
@@ -1604,6 +1876,8 @@ class IrisService:
              ↓
         staging
              ↓
+        governance approval
+             ↓
         production
         """
 
@@ -1682,6 +1956,8 @@ class IrisService:
         compare with production
           ↓
         staging
+          ↓
+        governance approval
           ↓
         production
           ↓
@@ -1830,20 +2106,66 @@ class IrisService:
             MODEL_NAME
         )
 
+        staging_version = str(
+            staging_version
+        )
+
         logger.info(
             "New model assigned to staging: %s",
             staging_version,
         )
 
         # --------------------------------------------------
-        # Promote staging → production
+        # Governance request
         # --------------------------------------------------
 
-        production_version = promote_model(
-            MODEL_NAME,
-            from_alias="staging",
-            to_alias="production",
+        from src.governance import governance_manager
+
+        governance_manager.request_approval(
+            model_name=MODEL_NAME,
+            model_version=staging_version,
+            requested_by="auto_retraining",
+            reason=(
+                f"Retrained candidate "
+                f"accuracy={candidate_accuracy:.4f}"
+            ),
         )
+
+        # --------------------------------------------------
+        # Promote staging -> production
+        # --------------------------------------------------
+
+        try:
+
+            production_version = promote_model(
+                MODEL_NAME,
+                from_alias="staging",
+                to_alias="production",
+                expected_version=staging_version,
+            )
+
+        except PermissionError as exc:
+
+            logger.warning(
+                "Retrained model awaiting governance approval: %s",
+                exc,
+            )
+
+            return {
+
+                "status":
+                    "pending_approval",
+
+                "staging_version":
+                    staging_version,
+
+                "candidate_accuracy":
+                    candidate_accuracy,
+            }
+
+        # --------------------------------------------------
+        # Production promotion succeeded
+        # --------------------------------------------------
 
         logger.warning(
             "New model promoted to production: %s",
@@ -2048,6 +2370,23 @@ class IrisService:
                         "message":
                             "Candidate model "
                             "failed promotion gate",
+
+                        **result,
+                    }
+
+                if (
+                    result.get("status")
+                    == "pending_approval"
+                ):
+
+                    return {
+
+                        "status":
+                            "pending_approval",
+
+                        "message":
+                            "Candidate model is "
+                            "waiting for governance approval",
 
                         **result,
                     }

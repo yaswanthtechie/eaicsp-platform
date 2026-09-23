@@ -9,6 +9,8 @@ Reusable helper functions for:
 - Metric logging
 - Model registration
 - Staging and Production alias promotion
+- Governance audit tagging
+- Model rollback
 """
 
 from contextlib import contextmanager
@@ -26,8 +28,190 @@ client = MlflowClient()
 
 
 # ==========================================================
+# Governance Helper
+# ==========================================================
+
+
+def _default_governance():
+    """
+    Return the default governance manager.
+
+    Imported lazily so mlflow_utils has no import-time
+    dependency on governance storage.
+    """
+
+    from src.governance import governance_manager
+
+    return governance_manager
+
+
+# ==========================================================
+# Governance Audit Tags
+# ==========================================================
+
+
+def record_governance_decision(
+    model_name: str,
+    model_version: str,
+    approver: str,
+    decision: str,
+    decision_time: str,
+    reason: str = "",
+) -> None:
+    """
+    Record a governance decision directly on an MLflow
+    model version.
+
+    The application governance state remains persisted in
+    governance.json, while MLflow stores the same decision
+    as model-version metadata.
+
+    Tags recorded:
+
+        governance_approver
+        governance_decision
+        governance_decision_time
+        governance_decision_reason
+
+    Parameters
+    ----------
+    model_name:
+        Registered MLflow model name.
+
+    model_version:
+        Exact MLflow model version.
+
+    approver:
+        Person who approved or rejected the model.
+
+    decision:
+        Either "approved" or "rejected".
+
+    decision_time:
+        UTC timestamp of the governance decision.
+
+    reason:
+        Optional approval/rejection reason.
+
+    Notes
+    -----
+    This function intentionally allows MLflow exceptions to
+    propagate to the caller.
+
+    governance.py handles these exceptions because local
+    governance state must remain available even when a
+    logical/test model version is not registered in MLflow.
+    """
+
+    # ------------------------------------------------------
+    # Validate model name
+    # ------------------------------------------------------
+
+    if not model_name:
+        raise ValueError(
+            "model_name is required"
+        )
+
+    # ------------------------------------------------------
+    # Validate model version
+    # ------------------------------------------------------
+
+    if not model_version:
+        raise ValueError(
+            "model_version is required"
+        )
+
+    # ------------------------------------------------------
+    # Validate approver
+    # ------------------------------------------------------
+
+    if not approver:
+        raise ValueError(
+            "approver is required"
+        )
+
+    # ------------------------------------------------------
+    # Validate decision time
+    # ------------------------------------------------------
+
+    if not decision_time:
+        raise ValueError(
+            "decision_time is required"
+        )
+
+    # ------------------------------------------------------
+    # Normalize decision
+    # ------------------------------------------------------
+
+    normalized_decision = (
+        str(decision)
+        .strip()
+        .lower()
+    )
+
+    if normalized_decision not in {
+        "approved",
+        "rejected",
+    }:
+        raise ValueError(
+            "decision must be 'approved' "
+            "or 'rejected'"
+        )
+
+    model_version = str(
+        model_version
+    )
+
+    # ------------------------------------------------------
+    # Governance approver
+    # ------------------------------------------------------
+
+    client.set_model_version_tag(
+        name=model_name,
+        version=model_version,
+        key="governance_approver",
+        value=str(approver),
+    )
+
+    # ------------------------------------------------------
+    # Governance decision
+    # ------------------------------------------------------
+
+    client.set_model_version_tag(
+        name=model_name,
+        version=model_version,
+        key="governance_decision",
+        value=normalized_decision,
+    )
+
+    # ------------------------------------------------------
+    # Governance decision timestamp
+    # ------------------------------------------------------
+
+    client.set_model_version_tag(
+        name=model_name,
+        version=model_version,
+        key="governance_decision_time",
+        value=str(decision_time),
+    )
+
+    # ------------------------------------------------------
+    # Governance decision reason
+    # ------------------------------------------------------
+
+    if reason:
+        client.set_model_version_tag(
+            name=model_name,
+            version=model_version,
+            key="governance_decision_reason",
+            value=str(reason),
+        )
+
+
+# ==========================================================
 # Alias Helper
 # ==========================================================
+
 
 def _set_alias(
     model_name: str,
@@ -38,13 +222,20 @@ def _set_alias(
     Set an alias for a registered model version.
 
     Tries MLflow's newer alias API first.
+
     Falls back to transition_model_version_stage
     if the alias API is unavailable.
     """
 
-    # Prefer the newer alias API
+    # ------------------------------------------------------
+    # Prefer MLflow's alias API
+    # ------------------------------------------------------
+
     try:
-        if hasattr(client, "set_registered_model_alias"):
+        if hasattr(
+            client,
+            "set_registered_model_alias",
+        ):
             client.set_registered_model_alias(
                 name=model_name,
                 alias=alias,
@@ -53,13 +244,19 @@ def _set_alias(
             return
 
     except Exception:
-        # If the API exists but fails, expose the error
+        # If the API exists but fails, expose the error.
         raise
 
-    # Fallback: map alias to stage name
+    # ------------------------------------------------------
+    # Fallback to model stage
+    # ------------------------------------------------------
+
     stage = alias.capitalize()
 
-    if hasattr(client, "transition_model_version_stage"):
+    if hasattr(
+        client,
+        "transition_model_version_stage",
+    ):
         client.transition_model_version_stage(
             name=model_name,
             version=version,
@@ -79,6 +276,7 @@ def _set_alias(
 # Experiment
 # ==========================================================
 
+
 def set_experiment(
     experiment_name: str,
 ) -> None:
@@ -86,12 +284,15 @@ def set_experiment(
     Create or set an MLflow experiment.
     """
 
-    mlflow.set_experiment(experiment_name)
+    mlflow.set_experiment(
+        experiment_name
+    )
 
 
 # ==========================================================
 # Run
 # ==========================================================
+
 
 @contextmanager
 def start_run(
@@ -101,13 +302,16 @@ def start_run(
     Start MLflow run.
     """
 
-    with mlflow.start_run(run_name=run_name):
+    with mlflow.start_run(
+        run_name=run_name
+    ):
         yield
 
 
 # ==========================================================
 # Logging
 # ==========================================================
+
 
 def log_params(
     params: dict,
@@ -117,7 +321,9 @@ def log_params(
     """
 
     if params:
-        mlflow.log_params(params)
+        mlflow.log_params(
+            params
+        )
 
 
 def log_metrics(
@@ -128,7 +334,9 @@ def log_metrics(
     """
 
     if metrics:
-        mlflow.log_metrics(metrics)
+        mlflow.log_metrics(
+            metrics
+        )
 
 
 def log_artifact(
@@ -138,7 +346,9 @@ def log_artifact(
     Log artifacts.
     """
 
-    mlflow.log_artifact(file_path)
+    return mlflow.log_artifact(
+        file_path
+    )
 
 
 def set_tags(
@@ -149,12 +359,15 @@ def set_tags(
     """
 
     if tags:
-        mlflow.set_tags(tags)
+        mlflow.set_tags(
+            tags
+        )
 
 
 # ==========================================================
 # Model Registration
 # ==========================================================
+
 
 def log_model(
     model,
@@ -179,6 +392,7 @@ def log_model(
 # ==========================================================
 # Registry Helpers
 # ==========================================================
+
 
 def get_latest_version(
     model_name: str,
@@ -217,7 +431,11 @@ def get_model_version_by_alias(
             alias,
         )
 
-        return mv.version if mv is not None else None
+        return (
+            mv.version
+            if mv is not None
+            else None
+        )
 
     except Exception:
         return None
@@ -226,6 +444,7 @@ def get_model_version_by_alias(
 # ==========================================================
 # Staging Workflow
 # ==========================================================
+
 
 def assign_staging(
     model_name: str,
@@ -255,9 +474,19 @@ def assign_staging(
     print("=" * 60)
     print("STAGING ASSIGNED")
     print("=" * 60)
-    print(f"Model Name : {model_name}")
-    print(f"Version    : {latest.version}")
-    print("Alias      : @staging")
+
+    print(
+        f"Model Name : {model_name}"
+    )
+
+    print(
+        f"Version    : {latest.version}"
+    )
+
+    print(
+        "Alias      : @staging"
+    )
+
     print("=" * 60)
 
     return latest.version
@@ -267,11 +496,13 @@ def assign_staging(
 # Production Promotion
 # ==========================================================
 
+
 def promote_model(
     model_name: str,
     from_alias: str = "staging",
     to_alias: str = "production",
     expected_version: str | None = None,
+    governance=None,
 ):
     """
     Promote a model version from one alias to another.
@@ -291,9 +522,16 @@ def promote_model(
         Optional exact model version that is expected to be
         behind the source alias.
 
-        This protects the governance workflow from accidentally
-        promoting a different version if the staging alias
-        changed after approval.
+        This protects the governance workflow from
+        accidentally promoting a different version if the
+        staging alias changed after approval.
+
+    governance:
+        Optional governance manager used for dependency
+        injection in tests or specialized workflows.
+
+        When omitted, the default governance manager is
+        loaded lazily.
 
     Raises
     ------
@@ -303,44 +541,43 @@ def promote_model(
     RuntimeError
         If expected_version is supplied and does not match
         the current source alias version.
+
+    PermissionError
+        If production promotion is requested without
+        governance approval for the exact model version.
     """
 
-    # --------------------------------------------------
+    # ------------------------------------------------------
     # Get source model version
-    # --------------------------------------------------
+    # ------------------------------------------------------
 
-    source_version = client.get_model_version_by_alias(
-        model_name,
-        from_alias,
+    source_version = (
+        client.get_model_version_by_alias(
+            model_name,
+            from_alias,
+        )
     )
 
     if source_version is None:
         raise RuntimeError(
-            f"No version found for alias '{from_alias}' "
-            f"on registered model '{model_name}'."
+            f"No version found for alias "
+            f"'{from_alias}' on registered "
+            f"model '{model_name}'."
         )
 
-    new_version = str(source_version.version)
+    new_version = str(
+        source_version.version
+    )
 
-    # --------------------------------------------------
+    # ------------------------------------------------------
     # Exact version safety check
-    # --------------------------------------------------
-    #
-    # This is important for the governance workflow.
-    #
-    # Example:
-    #
-    #   Governance approved version 12
-    #   staging later changed to version 13
-    #
-    # We must NOT promote version 13 using approval for
-    # version 12.
-    #
-    # --------------------------------------------------
+    # ------------------------------------------------------
 
     if (
         expected_version is not None
-        and new_version != str(expected_version)
+        and new_version != str(
+            expected_version
+        )
     ):
         raise RuntimeError(
             f"Version mismatch: expected version "
@@ -348,33 +585,49 @@ def promote_model(
             f"but found version {new_version}."
         )
 
-    # --------------------------------------------------
+    # ------------------------------------------------------
+    # Governance gate
+    # ------------------------------------------------------
+
+    if to_alias == "production":
+
+        gate = (
+            governance
+            if governance is not None
+            else _default_governance()
+        )
+
+        gate.require_approval(
+            model_name=model_name,
+            model_version=new_version,
+        )
+
+    # ------------------------------------------------------
     # Get current target alias version
-    # --------------------------------------------------
-    #
-    # Do not use get_model_version_by_alias() here because
-    # tests/mock clients may configure the underlying MLflow
-    # client directly.
-    #
-    # --------------------------------------------------
+    # ------------------------------------------------------
 
     target_version = None
 
     try:
-        current_target = client.get_model_version_by_alias(
-            model_name,
-            to_alias,
+
+        current_target = (
+            client.get_model_version_by_alias(
+                model_name,
+                to_alias,
+            )
         )
 
         if current_target is not None:
-            target_version = str(current_target.version)
+            target_version = str(
+                current_target.version
+            )
 
     except Exception:
         target_version = None
 
-    # --------------------------------------------------
+    # ------------------------------------------------------
     # Prevent assigning the same version to the same alias
-    # --------------------------------------------------
+    # ------------------------------------------------------
 
     if (
         target_version is not None
@@ -386,9 +639,9 @@ def promote_model(
             f"the current {to_alias} version."
         )
 
-    # --------------------------------------------------
+    # ------------------------------------------------------
     # Save previous target version
-    # --------------------------------------------------
+    # ------------------------------------------------------
 
     if (
         target_version is not None
@@ -401,9 +654,9 @@ def promote_model(
             value=target_version,
         )
 
-    # --------------------------------------------------
+    # ------------------------------------------------------
     # Set target alias
-    # --------------------------------------------------
+    # ------------------------------------------------------
 
     _set_alias(
         model_name,
@@ -411,9 +664,9 @@ def promote_model(
         new_version,
     )
 
-    # --------------------------------------------------
+    # ------------------------------------------------------
     # Promotion metadata
-    # --------------------------------------------------
+    # ------------------------------------------------------
 
     client.set_model_version_tag(
         name=model_name,
@@ -426,23 +679,39 @@ def promote_model(
         name=model_name,
         version=new_version,
         key="promotion_time",
-        value=datetime.now(timezone.utc).isoformat(),
+        value=datetime.now(
+            timezone.utc
+        ).isoformat(),
     )
 
-    # --------------------------------------------------
+    # ------------------------------------------------------
     # Output
-    # --------------------------------------------------
+    # ------------------------------------------------------
 
     print("=" * 60)
     print("MODEL PROMOTED")
     print("=" * 60)
 
-    print(f"Model Name : {model_name}")
-    print(f"Version    : {new_version}")
-    print(f"From Alias : @{from_alias}")
-    print(f"To Alias   : @{to_alias}")
+    print(
+        f"Model Name : {model_name}"
+    )
 
-    if target_version and target_version != new_version:
+    print(
+        f"Version    : {new_version}"
+    )
+
+    print(
+        f"From Alias : @{from_alias}"
+    )
+
+    print(
+        f"To Alias   : @{to_alias}"
+    )
+
+    if (
+        target_version
+        and target_version != new_version
+    ):
         print(
             f"Previous {to_alias.capitalize()} : "
             f"{target_version}"
@@ -457,14 +726,15 @@ def promote_model(
 # Load Production Model
 # ==========================================================
 
+
 def load_production_model(
     model_name: str,
 ):
     """
     Load production model.
 
-    Uses alias,
-    not file path.
+    Uses the MLflow production alias,
+    not a hardcoded local file path.
     """
 
     model_uri = (
@@ -475,10 +745,12 @@ def load_production_model(
         model_uri
     )
 
-    version = client.get_model_version_by_alias(
-        model_name,
-        "production",
-    ).version
+    version = (
+        client.get_model_version_by_alias(
+            model_name,
+            "production",
+        ).version
+    )
 
     return model, str(version)
 
@@ -486,6 +758,7 @@ def load_production_model(
 # ==========================================================
 # Registry Info
 # ==========================================================
+
 
 def list_versions(
     model_name: str,
@@ -499,6 +772,7 @@ def list_versions(
     )
 
     for version in versions:
+
         print(
             f"Version : {version.version}"
         )
@@ -524,29 +798,48 @@ def current_production(
 
 
 # ==========================================================
-# Rollback Info
+# Rollback
 # ==========================================================
+
 
 def rollback_model(
     model_name: str,
 ):
     """
     Roll Production back to the previous production version.
+
+    Rollback deliberately bypasses the governance promotion
+    gate because the target version was already live in
+    Production.
+
+    This function directly restores the production alias
+    using _set_alias() and does not call promote_model().
     """
 
-    current_version = get_model_version_by_alias(
-        model_name,
-        "production",
+    # ------------------------------------------------------
+    # Get current production version
+    # ------------------------------------------------------
+
+    current_version = (
+        get_model_version_by_alias(
+            model_name,
+            "production",
+        )
     )
 
     if current_version is None:
         raise RuntimeError(
-            f"No production version found for {model_name}"
+            f"No production version found "
+            f"for {model_name}"
         )
 
     current_version = str(
         current_version
     )
+
+    # ------------------------------------------------------
+    # Read current model-version metadata
+    # ------------------------------------------------------
 
     current = client.get_model_version(
         name=model_name,
@@ -567,20 +860,36 @@ def rollback_model(
         previous_version
     )
 
+    # ------------------------------------------------------
+    # Safety check
+    # ------------------------------------------------------
+
     if previous_version == current_version:
         raise RuntimeError(
             "Previous production version cannot "
             "be the current production version"
         )
 
-    # Restore previous Production alias.
+    # ------------------------------------------------------
+    # Restore previous Production alias directly.
+    #
+    # IMPORTANT:
+    # Do NOT call promote_model() here.
+    #
+    # Rollback is intentionally outside the governance
+    # promotion gate because this version was already live.
+    # ------------------------------------------------------
+
     _set_alias(
         model_name,
         "production",
         previous_version,
     )
 
+    # ------------------------------------------------------
     # Record rollback information.
+    # ------------------------------------------------------
+
     client.set_model_version_tag(
         name=model_name,
         version=current_version,

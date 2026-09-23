@@ -3,13 +3,9 @@ Approve a model version for Production promotion.
 
 Usage:
 
-    python -m src.approve_model <model_name> <model_version>
+    python -m src.approve_model <model_name> <model_version> <approved_by> "<reason>"
 
 Example:
-
-    python -m src.approve_model iris_classifier 15
-
-Optional:
 
     python -m src.approve_model iris_classifier 15 reviewer "Approved after review"
 """
@@ -28,17 +24,14 @@ def main():
     # Validate arguments
     # ======================================================
 
-    if len(sys.argv) < 3:
+    if len(sys.argv) < 5:
+        print("Usage:")
         print(
-            "Usage:"
-        )
-
-        print(
-            "python -m src.approve_model "
-            "<model_name> "
-            "<model_version> "
-            "[approved_by] "
-            "[reason]"
+            'python -m src.approve_model '
+            '<model_name> '
+            '<model_version> '
+            '<approved_by> '
+            '"<reason>"'
         )
 
         raise SystemExit(1)
@@ -51,17 +44,9 @@ def main():
 
     model_version = sys.argv[2]
 
-    approved_by = (
-        sys.argv[3]
-        if len(sys.argv) >= 4
-        else "reviewer"
-    )
+    approved_by = sys.argv[3]
 
-    reason = (
-        sys.argv[4]
-        if len(sys.argv) >= 5
-        else "Approved after governance review"
-    )
+    reason = sys.argv[4]
 
     # ======================================================
     # Approve exact model version

@@ -9,6 +9,11 @@ Green:
 
 The deployment manager allows traffic to be switched between
 Blue and Green without changing the model prediction API.
+
+Green promotion requires governance approval.
+
+Blue rollback is always allowed because Blue represents the
+known-good production version.
 """
 
 from __future__ import annotations
@@ -77,10 +82,21 @@ class BlueGreenManager:
 
     The manager does not load models itself. Model loading remains
     centralized in ModelManager.
+
+    When governance is configured, switching traffic to Green
+    requires explicit governance approval for the Green version.
+
+    Switching back to Blue is always allowed as a rollback.
     """
 
-    def __init__(self, model_manager) -> None:
+    def __init__(
+        self,
+        model_manager,
+        governance=None,
+    ) -> None:
         self.model_manager = model_manager
+        self.governance = governance
+
         self.deployments: Dict[
             str,
             BlueGreenDeployment,
@@ -194,8 +210,9 @@ class BlueGreenManager:
 
         version = deployment.active_version
 
+        # Use the normalized model name stored in the deployment.
         result = self.model_manager.predict_version(
-            model_name=model_name,
+            model_name=deployment.model_name,
             version=version,
             payload=payload,
         )
@@ -222,6 +239,12 @@ class BlueGreenManager:
         """
         Switch active traffic to Blue or Green.
 
+        Switching to Green requires governance approval
+        for the exact Green model version.
+
+        Switching back to Blue is always allowed because
+        it is a rollback to the known-good version.
+
         Example:
             switch("forecast", "green")
         """
@@ -245,20 +268,39 @@ class BlueGreenManager:
         if target_color == deployment.active_color:
             return deployment.to_dict()
 
-        # Verify the target version is still loaded.
+        # Determine the exact model version associated
+        # with the requested deployment color.
         target_version = (
             deployment.blue_version
             if target_color == "blue"
             else deployment.green_version
         )
 
+        # Verify the target version is still loaded.
         self.model_manager.get_version_adapter(
-            model_name,
+            deployment.model_name,
             target_version,
         )
 
+        # Going live on the candidate (Green) requires
+        # explicit governance approval.
+        #
+        # Switching back to Blue is a rollback to the
+        # known-good version and does not require approval.
+        if (
+            target_color == "green"
+            and self.governance is not None
+        ):
+            self.governance.require_approval(
+                deployment.model_name,
+                target_version,
+            )
+
+        # Governance passed, so traffic can now switch.
         deployment.active_color = target_color
+
         deployment.status = "switched"
+
         deployment.switched_at = (
             datetime.now(
                 timezone.utc
@@ -275,7 +317,12 @@ class BlueGreenManager:
         self,
         model_name: str,
     ) -> Dict[str, Any]:
-        """Switch production traffic to Blue."""
+        """
+        Switch production traffic to Blue.
+
+        This is the rollback path and does not require
+        governance approval.
+        """
 
         return self.switch(
             model_name,
@@ -286,7 +333,12 @@ class BlueGreenManager:
         self,
         model_name: str,
     ) -> Dict[str, Any]:
-        """Switch production traffic to Green."""
+        """
+        Switch production traffic to Green.
+
+        Green requires governance approval when a governance
+        manager has been configured.
+        """
 
         return self.switch(
             model_name,

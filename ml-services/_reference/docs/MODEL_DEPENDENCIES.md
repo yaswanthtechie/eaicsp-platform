@@ -2,1039 +2,580 @@
 
 ## 1. Purpose
 
-This document defines the dependency relationship between the ML models served by the unified ML serving layer and the business services or capabilities that depend on those models.
+This document records the relationship between the models served by the
+unified ML serving layer and the business services that may consume them.
 
-The main purpose is to identify the potential blast radius when a model is changed, retrained, promoted, rolled back, replaced, or becomes unavailable.
+The purpose is to identify the potential blast radius when a model is:
 
-This documentation allows the team to quickly determine which business capability may be affected by a model change or model-serving incident.
+* retrained
+* versioned
+* promoted
+* rolled back
+* replaced
+* unavailable
+* degraded
 
-**Phase 5 is documentation only. No runtime dependency management or automatic dependency discovery is implemented.**
+Only relationships supported by repository evidence are marked as
+confirmed. Relationships that are suggested by service functionality but
+where no direct ML-serving call was found are marked as **Unverified**.
 
 ---
 
-## 2. Scope
+## 2. Current Service Topology
 
-The unified ML serving layer currently provides four ML model capabilities:
+The API Gateway configuration defines the following downstream services:
 
-1. Demand Forecast
-2. ETA Prediction
-3. Anomaly Detection
-4. Supplier Risk
+| Business Service                 | Port | Gateway Route             |
+| -------------------------------- | ---: | ------------------------- |
+| Inventory Service                | 8001 | `/api/v1/inventory`       |
+| Logistics / Shipments Service    | 8002 | `/api/v1/shipments`       |
+| Compliance Service               | 8003 | `/api/v1/compliance`      |
+| Purchase Order / Supplier Portal | 8004 | `/api/v1/purchase-orders` |
+| Auth Service                     | 8005 | `/api/v1/auth`            |
+| Supplier Risk Service            | 8006 | `/api/v1/supplier-risk`   |
 
-The corresponding serving model names are:
+These routes are configured in:
 
-| Model Capability  | Serving Model Name |
-| ----------------- | ------------------ |
-| Demand Forecast   | `forecast`         |
-| ETA Prediction    | `eta`              |
-| Anomaly Detection | `anomaly`          |
-| Supplier Risk     | `risk`             |
+```text
+services/api-gateway/app/core/config.py
+```
 
-Each model can be independently versioned.
+The gateway therefore confirms the existence of these business-service
+boundaries. It does not, by itself, prove that a business service consumes
+a particular ML model.
+
+---
+
+# 3. Model Dependency Matrix
+
+| Model      | Potential Consumer                   | Evidence                                                                                                                  | Status         | Impact if Model Changes                                                                       |
+| ---------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- | -------------- | --------------------------------------------------------------------------------------------- |
+| `forecast` | Inventory Service                    | Inventory exposes reorder and demand-analysis endpoints, but inspected implementation calculates rolling demand locally   | **Unverified** | Potential impact to demand forecasting and reorder decisions if future integration is enabled |
+| `eta`      | Logistics / Shipments Service        | Logistics exposes shipment and ETA-related endpoints; direct call to unified ETA model has not yet been verified          | **Unverified** | Potential impact to delivery-time estimates and shipment tracking                             |
+| `anomaly`  | Inventory / Alerting / Data Platform | No direct consumer call to the unified anomaly model was identified in the inspected service search                       | **Unverified** | Potential impact to anomaly detection and operational alerts                                  |
+| `risk`     | Supplier Risk / Purchase Order flows | Supplier Risk and Purchase Order routes exist, but direct consumption of the unified risk model has not yet been verified | **Unverified** | Potential impact to supplier-risk decisions and downstream procurement workflows              |
+
+---
+
+# 4. Forecast Model
+
+## Model
+
+```text
+forecast
+```
+
+## Potential Consumer
+
+```text
+Inventory Service :8001
+```
+
+## Relevant Inventory Endpoints
+
+The Inventory Service exposes:
+
+```text
+GET  /api/v1/inventory/reorder-plan
+GET  /api/v1/inventory/low-stock
+POST /api/v1/inventory/what-if
+GET  /api/v1/inventory/simulate
+GET  /api/v1/inventory/{sku_id}/{warehouse_id}/reorder-check
+```
+
+## Verified Implementation
+
+The inspected reorder implementation uses the local:
+
+```text
+app.services.demand_service
+```
+
+For example:
+
+```python
+demand_service.calculate_rolling_average_demand_all(
+    db=db,
+    days=demand_days,
+)
+```
+
+and:
+
+```python
+demand_service.calculate_rolling_average_demand(
+    db=db,
+    sku_id=sku_id,
+    warehouse_id=warehouse_id,
+    days=demand_days,
+)
+```
+
+The reorder point is then calculated locally:
+
+```python
+reorder_point = int(
+    rolling_avg_demand
+    * lead_time_days
+    + adjusted_safety_stock
+)
+```
+
+No direct call to the unified ML serving API was found in the inspected
+Inventory Service files.
+
+## Dependency Status
+
+**Unverified**
+
+The Inventory Service provides demand/reorder functionality, but the
+current inspected implementation does not establish that it consumes the
+unified `forecast` model.
+
+## Blast Radius
+
+If a future integration connects the forecast model to the Inventory
+Service, model changes could affect:
+
+* demand predictions
+* reorder points
+* reorder quantities
+* stock-out prevention
+* inventory planning
+
+Until that integration is confirmed, these effects should not be recorded
+as current production ML dependencies.
+
+---
+
+# 5. ETA Model
+
+## Model
+
+```text
+eta
+```
+
+## Potential Consumer
+
+```text
+Logistics / Shipments Service :8002
+```
+
+## Relevant Service Routes
+
+The Logistics Service exposes shipment APIs under:
+
+```text
+/api/v1/shipments
+```
+
+including an ETA-related route:
+
+```text
+GET /api/v1/shipments/{shipment_id}/eta-explain
+```
+
+## Dependency Status
+
+**Unverified**
+
+The existence of an ETA-related endpoint establishes that the Logistics
+Service has ETA functionality, but it does not establish that the
+functionality currently calls the unified `eta` model.
+
+The actual model dependency must be confirmed from the Logistics service
+implementation or runtime integration configuration.
+
+## Blast Radius
+
+If the Logistics Service is confirmed to consume the unified ETA model,
+model changes could affect:
+
+* estimated delivery dates
+* shipment ETA displays
+* delivery promises
+* logistics planning
+* downstream shipment tracking
+
+---
+
+# 6. Anomaly Model
+
+## Model
+
+```text
+anomaly
+```
+
+## Potential Consumers
+
+Potential consumers may include:
+
+```text
+Inventory
+Alerting
+Data/Platform validation
+Operational monitoring
+```
+
+However, no direct call to the unified anomaly model has been confirmed
+from the inspected business-service search.
+
+## Dependency Status
+
+**Unverified**
+
+The current repository evidence does not establish a confirmed
+business-service-to-anomaly-model dependency.
+
+## Blast Radius
+
+If a consuming service is later confirmed, an anomaly model change could
+affect:
+
+* anomaly detection
+* false-positive rates
+* false-negative rates
+* operational alerts
+* data-quality monitoring
+* incident detection
+
+No current consumer should be treated as confirmed until the actual model
+call is identified.
+
+---
+
+# 7. Risk Model
+
+## Model
+
+```text
+risk
+```
+
+## Potential Consumers
+
+The repository contains the following relevant service boundaries:
+
+```text
+Supplier Risk Service :8006
+Purchase Order Service :8004
+```
+
+The API Gateway maps:
+
+```text
+/api/v1/supplier-risk -> http://localhost:8006
+/api/v1/purchase-orders -> http://localhost:8004
+```
+
+## Dependency Status
+
+**Unverified**
+
+The service topology confirms Supplier Risk and Purchase Order services,
+but the inspected search did not establish a direct call from these
+services to the unified `risk` model.
+
+Risk-scoring logic found elsewhere in the repository must not automatically
+be treated as a unified ML model dependency.
+
+For example, a function such as:
+
+```text
+calculate_risk_score()
+```
+
+does not by itself prove that the function invokes the served `risk`
+model.
+
+## Blast Radius
+
+If the unified risk model is confirmed as a dependency, changes could
+affect:
+
+* supplier risk scores
+* supplier classification
+* procurement decisions
+* purchase-order routing
+* compliance workflows
+* supplier monitoring
+
+These impacts remain conditional until the actual integration is verified.
+
+---
+
+# 8. Confirmed vs Unverified Dependencies
+
+The following distinction is important for model governance.
+
+## Confirmed
+
+The following are confirmed from repository configuration:
+
+```text
+API Gateway
+    |
+    +-- Inventory Service :8001
+    +-- Logistics Service :8002
+    +-- Compliance Service :8003
+    +-- Purchase Order Service :8004
+    +-- Auth Service :8005
+    +-- Supplier Risk Service :8006
+```
+
+## Not Yet Confirmed
+
+The following ML relationships are currently unverified:
+
+```text
+forecast -> Inventory
+eta      -> Logistics
+anomaly  -> Inventory / Alerting
+risk     -> Supplier Risk / Purchase Orders
+```
+
+The absence of a verified dependency means the relationship should not be
+described as a production model dependency without additional code or
+runtime evidence.
+
+---
+
+# 9. Dependency Verification Procedure
+
+Before marking a model dependency as confirmed, verify the complete
+service-to-model path.
+
+### Step 1: Identify the business endpoint
 
 Example:
 
 ```text
-forecast  -> v1, v2, v3
-eta       -> v1, v2
-anomaly   -> v1, v2
-risk      -> v1, v2
+/api/v1/inventory/reorder-plan
 ```
 
----
+### Step 2: Trace the route into the service implementation
 
-## 3. High-Level Dependency Map
+Example:
 
 ```text
-Demand Planning
-       |
-       v
-   forecast
-       |
-       v
-Unified ML Serving
-
-
-Delivery / Logistics
-       |
-       v
-      eta
-       |
-       v
-Unified ML Serving
-
-
-Operations Monitoring
-       |
-       v
-    anomaly
-       |
-       v
-Unified ML Serving
-
-
-Supplier Management
-       |
-       v
-      risk
-       |
-       v
-Unified ML Serving
+services/inventory/app/routes/
+        |
+        v
+services/inventory/app/services/
 ```
 
----
+### Step 3: Identify the prediction call
 
-## 4. Dependency Matrix
+Look for:
 
-| Business Service / Capability | ML Model          | Model Name | Dependency |
-| ----------------------------- | ----------------- | ---------- | ---------- |
-| Demand Planning               | Demand Forecast   | `forecast` | High       |
-| Delivery / Logistics          | ETA Prediction    | `eta`      | High       |
-| Operations Monitoring         | Anomaly Detection | `anomaly`  | High       |
-| Supplier Management           | Supplier Risk     | `risk`     | High       |
+```text
+/models/{model_name}/predict
+/models/batch-predict
+httpx
+requests
+model_name
+MODEL_NAME
+ML service URL
+```
 
-The dependency matrix is the primary reference for determining the potential business impact of model changes.
+### Step 4: Confirm the model name
 
----
-
-## 5. Demand Planning Dependency
-
-### Business Service
-
-Demand Planning
-
-### ML Model
-
-Demand Forecast
-
-### Serving Model
+The dependency should identify the actual model:
 
 ```text
 forecast
-```
-
-### Dependency Flow
-
-```text
-Demand Planning
-       |
-       v
-    forecast
-       |
-       v
-Demand Prediction
-       |
-       v
-Planning Workflow
-```
-
-### Purpose
-
-The Demand Planning capability uses the Demand Forecast model to generate future demand predictions.
-
-### Potential Impact
-
-A change to the `forecast` model may affect:
-
-* Demand predictions
-* Forecast accuracy
-* Planning decisions
-* Inventory planning
-* Demand-related workflows
-
-### Potential Blast Radius
-
-```text
-forecast
-   |
-   +--> Demand Planning
-   |
-   +--> Demand Predictions
-   |
-   +--> Planning Workflows
-```
-
-Any significant change to the `forecast` model should therefore be validated against Demand Planning before Production promotion.
-
----
-
-## 6. Delivery / Logistics Dependency
-
-### Business Service
-
-Delivery / Logistics
-
-### ML Model
-
-ETA Prediction
-
-### Serving Model
-
-```text
 eta
-```
-
-### Dependency Flow
-
-```text
-Delivery / Logistics
-        |
-        v
-       eta
-        |
-        v
-   ETA Prediction
-        |
-        v
-Delivery Workflow
-```
-
-### Purpose
-
-The Delivery / Logistics capability uses the ETA Prediction model to estimate delivery times.
-
-### Potential Impact
-
-A change to the `eta` model may affect:
-
-* Estimated delivery time
-* Delivery planning
-* Logistics monitoring
-* ETA-related workflows
-* Consumers of ETA predictions
-
-### Potential Blast Radius
-
-```text
-eta
- |
- +--> Delivery / Logistics
- |
- +--> ETA Predictions
- |
- +--> Delivery Workflows
-```
-
-Any significant change to the `eta` model should be validated against delivery-related workflows before Production promotion.
-
----
-
-## 7. Operations Monitoring Dependency
-
-### Business Service
-
-Operations Monitoring
-
-### ML Model
-
-Anomaly Detection
-
-### Serving Model
-
-```text
 anomaly
-```
-
-### Dependency Flow
-
-```text
-Operations Monitoring
-        |
-        v
-     anomaly
-        |
-        v
- Anomaly Prediction
-        |
-        v
-Monitoring Workflow
-```
-
-### Purpose
-
-The Operations Monitoring capability uses the Anomaly Detection model to identify unusual operational behavior.
-
-### Potential Impact
-
-A change to the `anomaly` model may affect:
-
-* Anomaly detection results
-* Operational monitoring
-* Detection behavior
-* False-positive behavior
-* False-negative behavior
-* Monitoring workflows
-
-### Potential Blast Radius
-
-```text
-anomaly
-    |
-    +--> Operations Monitoring
-    |
-    +--> Anomaly Results
-    |
-    +--> Monitoring Workflows
-```
-
-Any significant change to the `anomaly` model should be validated against operational monitoring behavior before Production promotion.
-
----
-
-## 8. Supplier Management Dependency
-
-### Business Service
-
-Supplier Management
-
-### ML Model
-
-Supplier Risk
-
-### Serving Model
-
-```text
 risk
 ```
 
-### Dependency Flow
+### Step 5: Confirm runtime configuration
+
+Check:
 
 ```text
-Supplier Management
-        |
-        v
-       risk
-        |
-        v
-  Risk Prediction
-        |
-        v
-Supplier Workflow
+.env
+config.py
+settings
+Docker Compose
+Kubernetes configuration
+service environment variables
 ```
 
-### Purpose
+### Step 6: Confirm the end-to-end path
 
-The Supplier Management capability uses the Supplier Risk model to estimate supplier risk.
-
-### Potential Impact
-
-A change to the `risk` model may affect:
-
-* Supplier risk scores
-* Supplier risk classification
-* Supplier monitoring
-* Supplier-related workflows
-* Consumers of supplier risk predictions
-
-### Potential Blast Radius
+A dependency should be documented only when the following relationship is
+established:
 
 ```text
-risk
- |
- +--> Supplier Management
- |
- +--> Supplier Risk Scores
- |
- +--> Supplier Workflows
-```
-
-Any significant change to the `risk` model should be validated against supplier-management workflows before Production promotion.
-
----
-
-## 9. Cross-Model Dependency Matrix
-
-| Business Capability   | `forecast` | `eta` | `anomaly` | `risk` |
-| --------------------- | ---------: | ----: | --------: | -----: |
-| Demand Planning       |          X |     - |         - |      - |
-| Delivery / Logistics  |          - |     X |         - |      - |
-| Operations Monitoring |          - |     - |         X |      - |
-| Supplier Management   |          - |     - |         - |      X |
-
-### Legend
-
-```text
-X = Direct documented dependency
-- = No direct dependency documented
+Business Endpoint
+      |
+      v
+Business Service
+      |
+      v
+ML Client / HTTP Call
+      |
+      v
+Unified ML Serving Layer
+      |
+      v
+Specific Model
 ```
 
 ---
 
-## 10. Model Change and Blast Radius
+# 10. Model Change Impact Assessment
 
-When a model changes, the affected business capability can be identified using the dependency mapping.
+Before promoting a new model version, check:
 
-The general process is:
+1. Which services consume the model?
+2. Which API routes depend on those services?
+3. What business decision uses the prediction?
+4. What happens if the prediction changes?
+5. What happens if the model becomes unavailable?
+6. Is rollback available?
+7. Are downstream services compatible with the new response schema?
+8. Are latency and error-rate changes acceptable?
+
+Example:
 
 ```text
 Model Change
      |
      v
-Identify Model
+Model Validation
      |
      v
-Lookup Dependency
+Consumer Identification
      |
      v
-Identify Business Capability
+Impact Assessment
      |
      v
-Assess Potential Blast Radius
+Governance Approval
      |
      v
-Validate Affected Capability
+Production Promotion
      |
      v
-Promote or Rollback
+Monitoring
+     |
+     +----> Degradation
+                |
+                v
+             Rollback
 ```
 
 ---
 
-## 11. Forecast Model Change
+# 11. Rollback Considerations
 
-Example:
-
-```text
-forecast v1
-     |
-     | Model Change
-     v
-forecast v2
-```
-
-Dependency:
+If a confirmed consumer experiences problems after model promotion:
 
 ```text
-forecast
-   |
-   v
-Demand Planning
-```
-
-Potential blast radius:
-
-```text
-forecast v2
-     |
-     +--> Demand Planning
-     |
-     +--> Demand Predictions
-     |
-     +--> Planning Workflows
-```
-
-Before promoting the new version, the model should be validated for expected prediction behavior.
-
----
-
-## 12. ETA Model Change
-
-Example:
-
-```text
-eta v1
-   |
-   | Model Change
-   v
-eta v2
-```
-
-Dependency:
-
-```text
-eta
- |
- v
-Delivery / Logistics
-```
-
-Potential blast radius:
-
-```text
-eta v2
-   |
-   +--> Delivery / Logistics
-   |
-   +--> ETA Predictions
-   |
-   +--> Delivery Workflows
-```
-
-The new ETA version should be validated before Production promotion.
-
----
-
-## 13. Anomaly Model Change
-
-Example:
-
-```text
-anomaly v1
-     |
-     | Model Change
-     v
-anomaly v2
-```
-
-Dependency:
-
-```text
-anomaly
-    |
-    v
-Operations Monitoring
-```
-
-Potential blast radius:
-
-```text
-anomaly v2
-     |
-     +--> Operations Monitoring
-     |
-     +--> Anomaly Results
-     |
-     +--> Monitoring Workflows
-```
-
-The new anomaly version should be validated before Production promotion.
-
----
-
-## 14. Supplier Risk Model Change
-
-Example:
-
-```text
-risk v1
-   |
-   | Model Change
-   v
-risk v2
-```
-
-Dependency:
-
-```text
-risk
- |
- v
-Supplier Management
-```
-
-Potential blast radius:
-
-```text
-risk v2
-   |
-   +--> Supplier Management
-   |
-   +--> Supplier Risk Scores
-   |
-   +--> Supplier Workflows
-```
-
-The new risk version should be validated before Production promotion.
-
----
-
-## 15. Model Promotion Impact Assessment
-
-Before promoting a new model version to Production, identify the business capability associated with the model.
-
-Example:
-
-```text
-Model:
-forecast v2
-
+Production Model
        |
        v
-
-Business Dependency:
-Demand Planning
-
+Consumer Service
        |
        v
-
-Potential Impact:
-Demand Predictions and Planning Workflows
+Error / Quality Degradation
+       |
+       v
+Incident Detection
+       |
+       v
+Rollback to Known-Good Model Version
+       |
+       v
+Consumer Verification
+       |
+       v
+Incident Closure
 ```
 
-The same assessment applies to all models.
-
-| Model      | Business Capability   | Potential Impact                 |
-| ---------- | --------------------- | -------------------------------- |
-| `forecast` | Demand Planning       | Demand predictions and planning  |
-| `eta`      | Delivery / Logistics  | ETA and delivery workflows       |
-| `anomaly`  | Operations Monitoring | Anomaly detection and monitoring |
-| `risk`     | Supplier Management   | Supplier risk and monitoring     |
+Rollback should be performed through the model registry/promotion
+mechanism rather than changing application code to point to a hardcoded
+model artifact.
 
 ---
 
-## 16. Model Rollback Impact
+# 12. Evidence Requirements
 
-Rollback should also consider the business capability affected by the model.
+A model dependency should be marked **Confirmed** only when repository or
+runtime evidence identifies the actual relationship.
 
-Example:
+Acceptable evidence includes:
 
-```text
-forecast v2
-     |
-     | Failure
-     v
-Rollback
-     |
-     v
-forecast v1
-     |
-     v
-Demand Planning
-```
+* source-code ML client call
+* configured ML service URL
+* model name configuration
+* integration test showing the model request
+* deployment configuration
+* runtime request/trace showing the model invocation
 
-After rollback, the known-good model should be verified and the affected business capability should be checked.
+The following are **not sufficient by themselves**:
 
-The same principle applies to `eta`, `anomaly`, and `risk`.
-
----
-
-## 17. Incident Response Usage
-
-During a model-serving incident, this dependency document can be used to identify the potential business impact.
-
-Example:
-
-```text
-Incident:
-forecast model unavailable
-
-Dependency:
-forecast
-    |
-    v
-Demand Planning
-
-Potential affected capability:
-Demand Planning
-```
-
-Another example:
-
-```text
-Incident:
-risk model prediction failure
-
-Dependency:
-risk
- |
- v
-Supplier Management
-
-Potential affected capability:
-Supplier Management
-```
-
-The dependency document therefore provides a quick reference during incident investigation and recovery.
+* similar endpoint names
+* README descriptions
+* function names such as `calculate_risk_score`
+* existence of a service on a particular port
+* existence of a `/predict` endpoint somewhere else
+* assumptions based on business functionality
 
 ---
 
-## 18. Blue-Green Deployment Dependency
+# 13. Current Governance Status
 
-The dependency mapping should also be considered during Blue-Green deployment.
+Current repository evidence establishes the business-service topology but
+does not yet establish all four unified ML model consumer relationships.
 
-Example:
-
-```text
-Blue:
-forecast v1
-
-Green:
-forecast v2
-```
-
-Business dependency:
+Therefore the dependency status is:
 
 ```text
-forecast
-   |
-   v
-Demand Planning
+forecast : Unverified
+eta      : Unverified
+anomaly  : Unverified
+risk     : Unverified
 ```
 
-During Green validation:
+This status is intentional and prevents the dependency document from
+claiming architecture relationships that have not been demonstrated by
+the implementation.
 
-```text
-Blue  = forecast v1
-Green = forecast v2
-Active = Blue
-```
+As each direct integration is verified, update the corresponding row from
+**Unverified** to **Confirmed** and add the exact:
 
-After switching:
-
-```text
-Blue  = forecast v1
-Green = forecast v2
-Active = Green
-```
-
-If Green fails:
-
-```text
-Green / forecast v2
-        |
-        | Failure
-        v
-     Rollback
-        |
-        v
-Blue / forecast v1
-```
-
-The business dependency remains:
-
-```text
-forecast
-   |
-   v
-Demand Planning
-```
-
-Therefore, the dependency documentation helps identify the business capability affected during Blue-Green deployment or rollback.
+* consuming service
+* port
+* route
+* source file
+* model endpoint
+* model name
+* business impact
 
 ---
 
-## 19. Model Governance Dependency
+# 14. Repository Evidence Used
 
-Model governance and dependency documentation work together.
-
-Before approving a new model version:
+The current verification used:
 
 ```text
-Model Version
-      |
-      v
-Governance Review
-      |
-      v
-Identify Dependency
-      |
-      v
-Understand Potential Impact
-      |
-      v
-Approve / Reject
+services/api-gateway/app/core/config.py
+services/inventory/app/services/reorder_service.py
+services/inventory/app/routes/inventory.py
+services/logistics/app/routes/shipment.py
 ```
 
-Example:
-
-```text
-Model:
-forecast v2
-
-Business Dependency:
-Demand Planning
-
-Potential Impact:
-Demand predictions and planning workflows
-```
-
-The dependency mapping provides context for understanding the potential impact of a model promotion.
-
----
-
-## 20. Model Availability Dependency
-
-A business capability may be affected when its dependent model becomes unavailable.
-
-Examples:
-
-```text
-forecast unavailable
-        |
-        v
-Demand Planning
-```
-
-```text
-eta unavailable
-     |
-     v
-Delivery / Logistics
-```
-
-```text
-anomaly unavailable
-       |
-       v
-Operations Monitoring
-```
-
-```text
-risk unavailable
-      |
-      v
-Supplier Management
-```
-
----
-
-## 21. Model Version Dependency
-
-Business services depend on the model capability, while the serving layer manages individual model versions.
-
-Example:
-
-```text
-Demand Planning
-       |
-       v
-    forecast
-       |
-       +--> v1
-       +--> v2
-       +--> v3
-```
-
-If `forecast v2` becomes Production:
-
-```text
-Demand Planning
-       |
-       v
-    forecast
-       |
-       v
-   Active v2
-```
-
-The business dependency remains on the `forecast` model capability, while the deployed version changes.
-
----
-
-## 22. Input and Output Dependency
-
-Business services depend on the expected model input and output behavior.
-
-High-level flow:
-
-```text
-Business Service
-       |
-       v
-Model Input
-       |
-       v
-ML Model
-       |
-       v
-Model Output
-       |
-       v
-Business Workflow
-```
-
-Therefore, changes to model input or output contracts should also be considered during impact assessment.
-
-Examples include:
-
-* Adding a required input field
-* Removing an input field
-* Changing an input data type
-* Changing prediction output structure
-* Changing prediction interpretation
-
-Such changes should be reviewed before Production deployment.
-
----
-
-## 23. Change Management
-
-The dependency documentation should be reviewed whenever a model is:
-
-* Retrained
-* Re-versioned
-* Promoted
-* Rolled back
-* Replaced
-* Removed
-* Changed in input schema
-* Changed in output schema
-* Changed in business purpose
-
-The process is:
-
-```text
-Model Change
-     |
-     v
-Identify Model
-     |
-     v
-Lookup Dependency
-     |
-     v
-Identify Business Impact
-     |
-     v
-Validate
-     |
-     v
-Deploy
-     |
-     v
-Monitor
-```
-
----
-
-## 24. New Model Dependency Process
-
-When a new model is added:
-
-1. Identify the model name.
-2. Identify the model purpose.
-3. Identify the business service using it.
-4. Document the model-to-service dependency.
-5. Document the expected impact of model changes.
-6. Add the dependency to the dependency matrix.
-7. Update this document.
-
-Example:
-
-```text
-New Model
-   |
-   v
-Model Purpose
-   |
-   v
-Business Service
-   |
-   v
-Dependency Documentation
-   |
-   v
-Blast Radius Mapping
-```
-
----
-
-## 25. Dependency Documentation Maintenance
-
-This document should be updated whenever:
-
-* A new model is introduced.
-* A new business service starts using an existing model.
-* A model is removed.
-* A business service stops using a model.
-* A model input/output contract changes.
-* A model business purpose changes.
-* A dependency relationship changes.
-
-Update flow:
-
-```text
-Architecture Change
-       |
-       v
-Review MODEL_DEPENDENCIES.md
-       |
-       v
-Update Model Mapping
-       |
-       v
-Update Dependency Matrix
-       |
-       v
-Update Blast Radius
-       |
-       v
-Commit Documentation
-```
-
----
-
-## 26. Phase 5 Completion Criteria
-
-Phase 5 is complete when:
-
-* All currently served ML models are documented.
-* Business services depending on each model are documented.
-* Model names are mapped to business services.
-* Potential blast radius is documented.
-* Dependency matrix is available.
-* Model-change impact is documented.
-* Rollback impact is documented.
-* Incident-response usage is documented.
-* Blue-Green dependency is documented.
-* Governance dependency is documented.
-* Documentation is stored under `docs/`.
-
----
-
-## 27. Final Dependency Map
-
-The current dependency mapping is:
-
-```text
-forecast  -> Demand Planning
-
-eta       -> Delivery / Logistics
-
-anomaly   -> Operations Monitoring
-
-risk      -> Supplier Management
-```
-
-Detailed view:
-
-```text
-                         Unified ML Serving
-                                |
-             +------------------+------------------+
-             |                  |                  |
-             v                  v                  v
-         forecast              eta              anomaly
-             |                  |                  |
-             v                  v                  v
-     Demand Planning     Delivery / Logistics   Operations
-                                                 Monitoring
-
-                                |
-                                v
-                               risk
-                                |
-                                v
-                       Supplier Management
-```
-
----
-
-## 28. Conclusion
-
-The Cross-Model Dependency Documentation provides a clear mapping between the unified ML serving layer and the business capabilities that depend on each model.
-
-Current dependencies are:
-
-```text
-forecast  -> Demand Planning
-eta       -> Delivery / Logistics
-anomaly   -> Operations Monitoring
-risk      -> Supplier Management
-```
-
-When a model is changed, promoted, rolled back, or becomes unavailable, the dependency mapping can be used to identify the potentially affected business capability.
-
-This documentation supports:
-
-* Model governance
-* Model promotion review
-* Blue-Green deployment
-* Rollback planning
-* Incident response
-* Blast-radius identification
-* Change impact assessment
-
-No runtime code is required for this phase.
-
-**Phase 5: COMPLETE**
+The API Gateway configuration confirms the downstream service routes.
+
+The Inventory implementation confirms that its current reorder calculation
+uses local rolling-average demand and safety-stock logic rather than an
+identified unified forecast-model request.
+
+Additional Logistics, Supplier Risk, Supplier Portal, and runtime
+integration evidence should be added when the direct model calls are
+verified.

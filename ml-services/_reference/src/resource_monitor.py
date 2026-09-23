@@ -13,7 +13,7 @@ Tracks:
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from typing import Any
 
 import psutil
@@ -42,17 +42,49 @@ class BatchMetrics:
 
 
 class ResourceMonitor:
-    """Collect lightweight process/system resource metrics."""
+    """Per-batch process resource metrics."""
+
+    def __init__(self) -> None:
+        self._process = psutil.Process()
+
+    def _cpu_seconds(self) -> float:
+        """
+        Return total CPU time consumed by this process.
+
+        This uses user + system CPU time instead of
+        psutil.Process.cpu_percent(interval=None).
+
+        Measuring CPU time at the beginning and end of a batch
+        gives an accurate CPU percentage for that batch and
+        remains independent when multiple batches run concurrently.
+        """
+        times = self._process.cpu_times()
+        return times.user + times.system
+
+    def start(self) -> tuple[float, float]:
+        """
+        Start measuring a batch.
+
+        Returns:
+            tuple[float, float]:
+                (wall-clock start time, CPU start time)
+        """
+        return time.perf_counter(), self._cpu_seconds()
 
     def snapshot(self) -> ResourceSnapshot:
-        process = psutil.Process()
+        """
+        Return the current process resource snapshot.
 
-        memory_info = process.memory_info()
+        Snapshot CPU is based on the current process CPU time.
+        Batch CPU usage should be measured using start() and
+        measure_batch().
+        """
+        memory_info = self._process.memory_info()
         memory_mb = memory_info.rss / (1024 * 1024)
 
         return ResourceSnapshot(
-            cpu_percent=process.cpu_percent(interval=None),
-            memory_percent=process.memory_percent(),
+            cpu_percent=0.0,
+            memory_percent=self._process.memory_percent(),
             memory_mb=memory_mb,
             timestamp=time.time(),
         )
@@ -63,17 +95,39 @@ class ResourceMonitor:
         model_count: int,
         total_predictions: int,
         started_at: float,
+        cpu_started_at: float,
     ) -> BatchMetrics:
-        snapshot = self.snapshot()
+        """
+        Measure resource usage for one completed batch.
 
-        latency_ms = (time.perf_counter() - started_at) * 1000
+        CPU percentage is calculated from CPU time consumed by
+        the process during this batch divided by elapsed wall time.
+
+        The value can exceed 100% when the process uses multiple
+        CPU cores.
+        """
+
+        wall_seconds = time.perf_counter() - started_at
+        cpu_seconds = self._cpu_seconds() - cpu_started_at
+
+        cpu_percent = (
+            (cpu_seconds / wall_seconds) * 100
+            if wall_seconds > 0
+            else 0.0
+        )
+
+        memory_info = self._process.memory_info()
+        memory_mb = memory_info.rss / (1024 * 1024)
 
         return BatchMetrics(
             batch_size=batch_size,
             model_count=model_count,
             total_predictions=total_predictions,
-            latency_ms=round(latency_ms, 3),
-            cpu_percent=round(snapshot.cpu_percent, 3),
-            memory_percent=round(snapshot.memory_percent, 3),
-            memory_mb=round(snapshot.memory_mb, 3),
+            latency_ms=round(wall_seconds * 1000, 3),
+            cpu_percent=round(cpu_percent, 3),
+            memory_percent=round(
+                self._process.memory_percent(),
+                3,
+            ),
+            memory_mb=round(memory_mb, 3),
         )

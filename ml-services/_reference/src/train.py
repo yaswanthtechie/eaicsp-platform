@@ -221,29 +221,52 @@ def train():
             # Governance gate
             # ----------------------------------------------
             #
-            # This intentionally raises PermissionError
-            # when the model has not been approved.
-            #
-            # This proves that an unapproved model cannot
-            # reach Production.
-            #
+            # A freshly trained version is normally still
+            # pending. That is the expected outcome, not
+            # an error: we stop at staging and tell the
+            # operator exactly what to run next.
             # ----------------------------------------------
 
-            governance_manager.require_approval(
+            if governance_manager.is_approved(
                 model_name=MODEL_NAME,
                 model_version=staging_version,
-            )
+            ):
 
-            # ----------------------------------------------
-            # Promote exact approved version
-            # ----------------------------------------------
+                production_version = promote_model(
+                    model_name=MODEL_NAME,
+                    from_alias="staging",
+                    to_alias="production",
+                    expected_version=staging_version,
+                )
 
-            production_version = promote_model(
-                model_name=MODEL_NAME,
-                from_alias="staging",
-                to_alias="production",
-                expected_version=staging_version,
-            )
+            else:
+
+                set_tags(
+                    {
+                        "governance_status": (
+                            governance_request.status
+                        )
+                    }
+                )
+
+                print(
+                    "\nProduction promotion is waiting "
+                    "for governance approval."
+                )
+
+                print(
+                    f"  Approve : python -m src.approve_model "
+                    f"{MODEL_NAME} "
+                    f'{staging_version} '
+                    f'<approver_name> '
+                    f'"<reason>"'
+                )
+
+                print(
+                    f"  Promote : python -m src.promote_approved_model "
+                    f"{MODEL_NAME} "
+                    f"{staging_version}"
+                )
 
         else:
 

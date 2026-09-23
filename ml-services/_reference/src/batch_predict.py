@@ -31,12 +31,16 @@ Example batch:
 
 from __future__ import annotations
 
+import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any
 
 from src.resource_monitor import ResourceMonitor
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -103,6 +107,11 @@ class BatchPredictionService:
                 time.perf_counter() - prediction_started
             ) * 1000
 
+            logger.exception(
+                "Prediction failed for model %s",
+                model_name,
+            )
+
             return BatchPredictionResult(
                 model_name=model_name,
                 success=False,
@@ -129,7 +138,13 @@ class BatchPredictionService:
                 "Batch request cannot be empty"
             )
 
-        started_at = time.perf_counter()
+        # ----------------------------------------------------
+        # Start wall-clock and CPU measurements together.
+        # ----------------------------------------------------
+
+        started_at, cpu_started_at = (
+            self.resource_monitor.start()
+        )
 
         results: list[BatchPredictionResult | None] = [
             None
@@ -226,6 +241,12 @@ class BatchPredictionService:
                             if item[0] == index
                         )
 
+                        logger.exception(
+                            "Unexpected batch worker failure "
+                            "for model %s",
+                            model_name,
+                        )
+
                         results[index] = BatchPredictionResult(
                             model_name=model_name,
                             success=False,
@@ -263,6 +284,7 @@ class BatchPredictionService:
             model_count=len(model_names),
             total_predictions=len(requests),
             started_at=started_at,
+            cpu_started_at=cpu_started_at,
         )
 
         # ----------------------------------------------------
