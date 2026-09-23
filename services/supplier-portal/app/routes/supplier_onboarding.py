@@ -37,7 +37,10 @@ from app.services.supplier_onboarding_service import (
     upload_supplier_document,
     verify_supplier,
 )
-
+from app.services.compliance_client import (
+    ComplianceServiceError,
+    ComplianceServiceUnavailableError,
+)
 
 router = APIRouter(
     prefix="/suppliers",
@@ -376,7 +379,6 @@ def approve_supplier_endpoint(
 # ============================================================
 # 7. ACTIVATE SUPPLIER
 # ============================================================
-
 @router.post(
     "/{supplier_id}/activate",
     response_model=SupplierActivationResponse,
@@ -398,6 +400,18 @@ def activate_supplier_endpoint(
             role=role,
         )
 
+    except ComplianceServiceUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        )
+
+    except ComplianceServiceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        )
+
     except ValueError as exc:
         message = str(exc)
 
@@ -407,11 +421,16 @@ def activate_supplier_endpoint(
                 detail=message,
             )
 
+        if "activation blocked by Compliance Service" in message:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=message,
+            )
+
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=message,
         )
-
 
 # ============================================================
 # 8. LIST ALL SUPPLIERS

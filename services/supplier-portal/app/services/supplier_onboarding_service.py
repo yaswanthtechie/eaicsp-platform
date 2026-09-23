@@ -10,6 +10,11 @@ from app.schemas.supplier_onboarding import (
     SupplierOnboardingStatus,
 )
 
+from app.services.compliance_client import (
+    check_supplier_compliance,
+    ComplianceServiceError,
+    ComplianceServiceUnavailableError,
+)
 
 # ============================================================
 # STORAGE
@@ -179,6 +184,7 @@ def register_supplier(
         "email": registration.email,
         "phone": registration.phone,
         "address": registration.address,
+        "country": registration.country,
         "status": SupplierOnboardingStatus.pending_documents,
         "required_documents": list(
             registration.required_documents
@@ -531,20 +537,41 @@ def approve_supplier(
 # ============================================================
 # 7. ACTIVATE SUPPLIER
 # ============================================================
-
 def activate_supplier(
     supplier_id: str,
     actor_id: str,
     actor_name: str,
     role: str,
 ):
+    supplier = get_supplier(supplier_id)
+
+    compliance_result = check_supplier_compliance(
+        supplier_id=supplier["supplier_id"],
+        supplier_name=supplier["company_name"],
+        country=supplier["country"],
+    )
+
+    decision = compliance_result["decision"]
+
+    if decision != "CLEAR":
+        reason = compliance_result.get(
+            "reason",
+            "Supplier did not pass compliance screening.",
+        )
+
+        raise ValueError(
+            f"Supplier activation blocked by Compliance Service. "
+            f"Decision: {decision}. "
+            f"Reason: {reason}"
+        )
+
     supplier = _transition(
         supplier_id=supplier_id,
         target_status=SupplierOnboardingStatus.active,
         actor_id=actor_id,
         actor_name=actor_name,
         role=role,
-        reason="Supplier activated.",
+        reason="Supplier activated after compliance clearance.",
     )
 
     return {
@@ -553,7 +580,6 @@ def activate_supplier(
         "activated_at": supplier["updated_at"],
         "activated_by": actor_id,
     }
-
 
 # ============================================================
 # 8. LIST SUPPLIERS
