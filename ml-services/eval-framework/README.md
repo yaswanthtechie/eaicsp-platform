@@ -325,3 +325,131 @@ try:
 except LeakageError as e:
     print("Hard failure:", e)
 ```
+
+## Experiment Tracking Dashboard, Regression Detection, and Fairness Testing
+
+### What's included
+
+- **`src/mlflow_dashboard.py`** - `get_all_runs()` reads every finished MLflow
+  run for an experiment, across every model owner who has logged to it, via
+  an explicit `MlflowClient` (never mutates global tracking state).
+  `summarize_dashboard()` groups those runs by owner and model, showing each
+  pair's latest score and total run count -- this is what lets the framework
+  act as a shared, pod-wide quality-control view instead of a single
+  person's local tool.
+- **`src/regression_detection.py`** - `detect_regression()` compares a
+  model's two most recent logged runs and flags whether the latest one is
+  genuinely worse. Scores within floating-point tolerance of each other are
+  never flagged, so trivial numerical noise between two runs of an
+  unchanged model can't trigger a false alarm. Unrecognized metrics require
+  an explicit direction, same rule as `leaderboard.py`.
+- **`src/fairness.py`** - `evaluate_by_slice()` computes a metric
+  separately for each slice of a dataset (e.g. per warehouse, per category)
+  and for the dataset overall, then flags any slice performing meaningfully
+  worse than the aggregate. A model can look fine on average while quietly
+  failing on one subgroup -- this surfaces that instead of hiding it behind
+  a single aggregate number. Slices smaller than `min_slice_size` are
+  reported but never flagged, since too little data can't support a
+  reliable conclusion.
+
+### Why this matters
+
+An aggregate metric and a single retrain comparison can both hide real
+problems: a model can look fine overall while failing badly on one
+subgroup, and a retrain can quietly get worse without anyone noticing
+unless the comparison is automatic. These three modules close that gap --
+they don't replace the existing metrics, they add visibility on top of them.
+
+### How to run the demo
+
+```bash
+cd ml-services/eval-framework
+pip install -r requirements.txt -r requirements-demo.txt
+python run_dashboard_demo.py
+```
+
+This logs real MLflow runs for two simulated model owners (naive and
+Prophet, tagged accordingly), reads them back through the dashboard,
+demonstrates regression detection correctly finding no regression for an
+unchanged model and correctly flagging a deliberately worse retrain, and
+runs a synthetic per-warehouse fairness check.
+
+**Real demo result:** naive's two runs are identical, correctly reported
+as no regression. Prophet's second run was deliberately made much worse
+(MAPE 9.71 -> 63.30), correctly flagged as a regression. The fairness
+check correctly identified warehouse C as underperforming (predictions
+~50% off) while warehouses A and B were within the normal range.
+
+### Design note: contract-first integration (not wired this round)
+
+`get_all_runs()` and `detect_regression()` are deliberately generic --
+they operate on any MLflow experiment and any owner/model tags, not on
+this demo's specific data. The intended integration, once wired:
+
+```python
+# Uday's, Gopi's, or Ajith's training scripts would log runs like this,
+# tagged so this framework's dashboard can read and group them:
+import mlflow
+
+with mlflow.start_run():
+    mlflow.set_tags({"owner": "uday", "model_name": "prophet"})
+    mlflow.log_metric("mape", computed_mape)
+    # ... their existing training/logging code, unchanged otherwise
+```
+
+No changes to anyone else's code are required this round -- only the two
+tag keys (`owner`, `model_name`) and a consistent metric name are needed
+for `get_all_runs()` / `summarize_dashboard()` / `detect_regression()` to
+work against real, shared MLflow data. Actually wiring this against
+Uday/Gopi/Ajith's live training runs is explicitly out of scope this round.
+
+### Getting started (for anyone in the pod adopting this)
+
+**1. Point at a shared MLflow tracking server (not this demo's local store)**
+
+By default, this demo logs to a local `./mlruns` folder, which only your
+own machine can read. For the dashboard to genuinely show everyone's runs,
+MLflow needs to be pointed at wherever the pod's shared tracking server
+lives (a URL like `http://<mlflow-host>:5000`, or a shared file path
+reachable by everyone). Once that's set up pod-wide:
+
+```python
+import mlflow
+mlflow.set_tracking_uri("http://<shared-mlflow-host>:5000")  # once, at the top of your training script
+```
+
+Everything else -- `get_all_runs()`, `summarize_dashboard()`,
+`detect_regression()` -- works unchanged once runs are logged there;
+they were built against a generic MLflow client, not this demo's local
+store specifically.
+
+**2. Tag conventions -- required for your runs to be readable by this framework**
+
+Two tags are required on every run for the dashboard/regression tools to
+find and group it correctly:
+
+- `owner`: your name, lowercase, matching how you're referred to elsewhere
+  in the pod's docs (e.g. `"uday"`, `"gopi"`, `"ajith"`) -- not a display
+  name or email, just a consistent short identifier.
+- `model_name`: the model this run belongs to (e.g. `"prophet"`,
+  `"lstm"`, `"anomaly-isolation-forest"`) -- should stay the same across
+  every retrain of that model, since `detect_regression()` compares runs
+  sharing the same owner + model_name.
+
+**3. Minimal example, once wired against real pod data**
+
+```python
+from src.mlflow_dashboard import get_all_runs, summarize_dashboard
+from src.regression_detection import detect_regression
+
+runs = get_all_runs("pod2-forecasting", tracking_uri="http://<shared-mlflow-host>:5000")
+
+dashboard = summarize_dashboard(runs, metric="mape")
+for (owner, model), info in dashboard["by_owner_model"].items():
+    print(f"{owner}/{model}: {info['latest_score']:.4f} ({info['n_runs']} runs)")
+
+# After a weekly retrain, check nobody's model got worse:
+result = detect_regression(runs, owner="uday", model_name="prophet", metric="mape")
+if result["regressed"]:
+    print(result["message"])  # alert / block promotion / etc.
+```

@@ -25,6 +25,7 @@ from src.report_html import generate_html_report, save_html_report
 from fastapi.testclient import TestClient
 from src.leaderboard_service import app
 from src.significance import wilcoxon_significance_test
+from src.fairness import evaluate_by_slice
 
 client = TestClient(app)
 
@@ -832,3 +833,201 @@ def test_wilcoxon_interpretation_omits_low_power_note_when_significant():
     result = wilcoxon_significance_test(scores_a, scores_b)
     assert result["significant"] is True
     assert "limited power" not in result["interpretation"]
+
+# ---------- fairness.py ----------
+
+def test_evaluate_by_slice_flags_bad_slice():
+    df = pd.DataFrame({
+        "warehouse": ["A"] * 10 + ["B"] * 10 + ["C"] * 10,
+        "actual": [100] * 30,
+        "predicted": [105] * 10 + [98] * 10 + [150] * 10,
+    })
+    result = evaluate_by_slice(df, "warehouse", "actual", "predicted", "mape")
+    assert "C" in result["flagged_slices"]
+    assert "A" not in result["flagged_slices"]
+    assert "B" not in result["flagged_slices"]
+
+
+def test_evaluate_by_slice_no_flags_when_all_similar():
+    df = pd.DataFrame({
+        "warehouse": ["A"] * 10 + ["B"] * 10,
+        "actual": [100] * 20,
+        "predicted": [101] * 10 + [99] * 10,
+    })
+    result = evaluate_by_slice(df, "warehouse", "actual", "predicted", "mape")
+    assert result["flagged_slices"] == []
+
+
+def test_evaluate_by_slice_ignores_tiny_slices():
+    df = pd.DataFrame({
+        "warehouse": ["A"] * 10 + ["B"] * 2,  # B has fewer than min_slice_size
+        "actual": [100] * 12,
+        "predicted": [100] * 10 + [200] * 2,  # B looks terrible, but too small to flag
+    })
+    result = evaluate_by_slice(df, "warehouse", "actual", "predicted", "mape", min_slice_size=5)
+    assert "B" not in result["flagged_slices"]
+
+
+def test_evaluate_by_slice_unsupported_metric_raises():
+    df = pd.DataFrame({"warehouse": ["A"] * 5, "actual": [1] * 5, "predicted": [1] * 5})
+    try:
+        evaluate_by_slice(df, "warehouse", "actual", "predicted", "r2")
+        assert False, "expected ValueError"
+    except ValueError as e:
+        assert "not supported" in str(e)
+
+
+def test_evaluate_by_slice_empty_df_raises():
+    df = pd.DataFrame({"warehouse": [], "actual": [], "predicted": []})
+    try:
+        evaluate_by_slice(df, "warehouse", "actual", "predicted", "mape")
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+
+
+def test_evaluate_by_slice_missing_column_raises():
+    df = pd.DataFrame({"warehouse": ["A"], "actual": [1], "predicted": [1]})
+    try:
+        evaluate_by_slice(df, "region", "actual", "predicted", "mape")
+        assert False, "expected ValueError"
+    except ValueError as e:
+        assert "region" in str(e)
+
+
+def test_evaluate_by_slice_reports_unassigned_rows():
+    df = pd.DataFrame({
+        "warehouse": ["A"] * 5 + [None] * 2,
+        "actual": [100] * 7,
+        "predicted": [100] * 7,
+    })
+    result = evaluate_by_slice(df, "warehouse", "actual", "predicted", "mape")
+    assert result["unassigned_rows"] == 2
+
+
+# ---------- regression_detection.py ----------
+
+def test_regression_detection_flags_worse_run():
+    runs = pd.DataFrame({
+        "run_id": ["r1", "r2"],
+        "start_time": [pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-08")],
+        "tags.owner": ["uday", "uday"],
+        "tags.model_name": ["prophet", "prophet"],
+        "metrics.mape": [9.71, 63.30],
+    })
+    from src.regression_detection import detect_regression
+    result = detect_regression(runs, owner="uday", model_name="prophet", metric="mape")
+    assert result["regressed"] is True
+
+
+def test_regression_detection_no_flag_for_identical_scores():
+    runs = pd.DataFrame({
+        "run_id": ["r1", "r2"],
+        "start_time": [pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-08")],
+        "tags.owner": ["kalyani", "kalyani"],
+        "tags.model_name": ["naive", "naive"],
+        "metrics.mape": [6.78, 6.78],
+    })
+    from src.regression_detection import detect_regression
+    result = detect_regression(runs, owner="kalyani", model_name="naive", metric="mape")
+    assert result["regressed"] is False
+
+
+def test_regression_detection_no_flag_for_floating_point_noise():
+    runs = pd.DataFrame({
+        "run_id": ["r1", "r2"],
+        "start_time": [pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-08")],
+        "tags.owner": ["kalyani", "kalyani"],
+        "tags.model_name": ["naive", "naive"],
+        "metrics.mape": [6.780000000001, 6.780000000002],
+    })
+    from src.regression_detection import detect_regression
+    result = detect_regression(runs, owner="kalyani", model_name="naive", metric="mape")
+    assert result["regressed"] is False
+
+
+def test_regression_detection_improvement_not_flagged():
+    runs = pd.DataFrame({
+        "run_id": ["r1", "r2"],
+        "start_time": [pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-08")],
+        "tags.owner": ["uday", "uday"],
+        "tags.model_name": ["prophet", "prophet"],
+        "metrics.mape": [9.71, 3.20],
+    })
+    from src.regression_detection import detect_regression
+    result = detect_regression(runs, owner="uday", model_name="prophet", metric="mape")
+    assert result["regressed"] is False
+
+
+def test_regression_detection_too_few_runs_raises():
+    runs = pd.DataFrame({
+        "run_id": ["r1"],
+        "start_time": [pd.Timestamp("2024-01-01")],
+        "tags.owner": ["uday"],
+        "tags.model_name": ["prophet"],
+        "metrics.mape": [9.71],
+    })
+    from src.regression_detection import detect_regression
+    try:
+        detect_regression(runs, owner="uday", model_name="prophet", metric="mape")
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+
+
+def test_regression_detection_unknown_metric_requires_direction():
+    runs = pd.DataFrame({
+        "run_id": ["r1", "r2"],
+        "start_time": [pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-08")],
+        "tags.owner": ["uday", "uday"],
+        "tags.model_name": ["prophet", "prophet"],
+        "metrics.r2": [0.5, 0.9],
+    })
+    from src.regression_detection import detect_regression
+    try:
+        detect_regression(runs, owner="uday", model_name="prophet", metric="r2")
+        assert False, "expected ValueError"
+    except ValueError as e:
+        assert "not a recognized metric" in str(e)
+
+
+# ---------- mlflow_dashboard.py ----------
+
+def test_summarize_dashboard_groups_by_owner_and_model():
+    from src.mlflow_dashboard import summarize_dashboard
+    runs = pd.DataFrame({
+        "run_id": ["r1", "r2", "r3"],
+        "start_time": [pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-08"), pd.Timestamp("2024-01-01")],
+        "tags.owner": ["kalyani", "kalyani", "uday"],
+        "tags.model_name": ["naive", "naive", "prophet"],
+        "metrics.mape": [6.78, 6.78, 9.71],
+    })
+    result = summarize_dashboard(runs, metric="mape")
+    assert set(result["owners"]) == {"kalyani", "uday"}
+    assert result["by_owner_model"][("kalyani", "naive")]["n_runs"] == 2
+
+
+def test_summarize_dashboard_missing_metric_raises():
+    from src.mlflow_dashboard import summarize_dashboard
+    runs = pd.DataFrame({
+        "run_id": ["r1"], "start_time": [pd.Timestamp("2024-01-01")],
+        "tags.owner": ["kalyani"], "tags.model_name": ["naive"],
+    })
+    try:
+        summarize_dashboard(runs, metric="mape")
+        assert False, "expected ValueError"
+    except ValueError as e:
+        assert "not found" in str(e)
+
+
+def test_summarize_dashboard_missing_tag_column_raises():
+    from src.mlflow_dashboard import summarize_dashboard
+    runs = pd.DataFrame({
+        "run_id": ["r1"], "start_time": [pd.Timestamp("2024-01-01")],
+        "metrics.mape": [6.78],
+    })
+    try:
+        summarize_dashboard(runs, metric="mape")
+        assert False, "expected ValueError"
+    except ValueError as e:
+        assert "tags.owner" in str(e)
