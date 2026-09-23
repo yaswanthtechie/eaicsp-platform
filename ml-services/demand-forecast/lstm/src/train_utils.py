@@ -2,10 +2,8 @@
 Shared training/evaluation helpers for R4.
 
 train.py intentionally keeps its own inline loop -- it's the reference
-implementation for the headline walk-forward comparison and we don't want to
-touch it. sweep.py and attention_compare.py both need a "train this config on
-this data and score it" primitive, so it lives here once instead of being
-copy-pasted twice.
+implementation for the headline walk-forward comparison. The reusable
+training/evaluation primitives live here instead of being copy-pasted.
 """
 
 from typing import Dict, Type

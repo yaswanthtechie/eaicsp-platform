@@ -271,6 +271,7 @@ def bulk_upsert(
     history_copy_fn=None,
     chunk_size=5000,
     priority_key=None,
+    connection=None,
 ):
     """Generic bulk UPSERT: builds one multi-row
     INSERT ... VALUES (...), (...), ... ON CONFLICT DO UPDATE
@@ -302,8 +303,8 @@ def bulk_upsert(
     # accidental chunk order instead of the explicit priority_key rule.
     records = _dedupe_records(records, conflict_keys, priority_key=priority_key)
 
-    with engine.begin() as connection:
-
+    def _execute(conn):
+        nonlocal rows_inserted, rows_updated
         for i in range(0, len(records), chunk_size):
 
             chunk = records[i:i + chunk_size]
@@ -348,10 +349,16 @@ def bulk_upsert(
                 else:
                     rows_updated += 1
 
+    if connection is not None:
+        _execute(connection)
+    else:
+        with engine.begin() as conn:
+            _execute(conn)
+
     return rows_inserted, rows_updated
 
 
-def load_data_bulk_generic(validated_batches, run_id, source_config):
+def load_data_bulk_generic(validated_batches, run_id, source_config, connection=None):
     """Config-driven bulk loader used by the generic pipeline engine.
     Flattens all batches for this source into one record list and does a
     single bulk_upsert() call (chunked internally).
@@ -361,7 +368,7 @@ def load_data_bulk_generic(validated_batches, run_id, source_config):
     plus a same-day correction), the winner is decided by an explicit rule -
     latest file wins, by explicit filename version/timestamp - not by whichever
     file happened to be processed last. Each record carries its source
-    file's mtime as "_conflict_priority", consumed by bulk_upsert()'s
+    file's deterministic filename precedence as "_conflict_priority", consumed by bulk_upsert()'s
     priority_key and never sent to the database (it isn't in `all_columns`).
     """
 
@@ -397,6 +404,7 @@ def load_data_bulk_generic(validated_batches, run_id, source_config):
         records=records,
         history_copy_fn=history_copy_fn,
         priority_key="_conflict_priority",
+        connection=connection,
     )
 
     elapsed = time.perf_counter() - start

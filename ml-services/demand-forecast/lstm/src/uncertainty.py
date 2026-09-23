@@ -2,17 +2,37 @@ import os
 import mlflow
 import numpy as np
 import torch
-from config import RANDOM_SEED, CONFIDENCE_LEVEL, HIDDEN_SIZE, HORIZON, LOOKBACK, MC_SAMPLES, MODEL_PATH, NUM_LAYERS, SCALER_PATH
+
+from config import (
+    CONFIDENCE_LEVEL,
+    HIDDEN_SIZE,
+    HORIZON,
+    LOOKBACK,
+    MC_SAMPLES,
+    MODEL_PATH,
+    NUM_LAYERS,
+    RANDOM_SEED,
+    SCALER_PATH,
+)
 from data import create_sequences, generate_data, load_scaler
 from model import MultiStepLSTM
 
 
-def predict_with_uncertainty(model, x_input, scaler, n_samples=MC_SAMPLES, conf=CONFIDENCE_LEVEL):
+def predict_with_uncertainty(
+    model,
+    x_input,
+    scaler,
+    n_samples=MC_SAMPLES,
+    conf=CONFIDENCE_LEVEL,
+):
     """
     Batched MC-Dropout inference returning per-sample predictions in real demand units.
     """
     model.eval()
     model.enable_mc_dropout()
+
+    # Make MC-Dropout predictions reproducible
+    torch.manual_seed(RANDOM_SEED)
 
     if isinstance(x_input, np.ndarray):
         if x_input.ndim == 2:
@@ -62,7 +82,7 @@ def run_uncertainty_evaluation():
         raise FileNotFoundError(f"Trained model checkpoint not found at {MODEL_PATH}")
 
     scaler = load_scaler(SCALER_PATH)
-    df = generate_data(1000)
+    df = generate_data()
     scaled_values = scaler.transform(df["Demand"].values.reshape(-1, 1))
 
     X, y = create_sequences(scaled_values, lookback=LOOKBACK, horizon=HORIZON)
@@ -71,7 +91,6 @@ def run_uncertainty_evaluation():
     model = MultiStepLSTM(1, HIDDEN_SIZE, NUM_LAYERS, HORIZON)
     model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu", weights_only=True))
 
-    torch.manual_seed(RANDOM_SEED)
     with mlflow.start_run(run_name="MC-Dropout-Evaluation"):
         mlflow.log_params({
             "mc_samples": MC_SAMPLES,
