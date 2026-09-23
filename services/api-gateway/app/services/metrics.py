@@ -8,6 +8,17 @@ from datetime import datetime, timezone
 
 from app.core.config import settings
 
+DEPENDENCY_CHAINS = {
+    "inventory_to_compliance": {
+        "upstream": "inventory",
+        "dependency": "compliance",
+    },
+    "supplier_portal_to_compliance": {
+        "upstream": "supplier-portal",
+        "dependency": "compliance",
+    },
+}
+
 # ---------------------------------------------------------------------------
 # Percentile Helper
 # ---------------------------------------------------------------------------
@@ -138,7 +149,10 @@ class MetricsCollector:
             "p95_latency_ms": p95,
         }
 
-    def get_all_metrics(self) -> dict:
+    def get_all_metrics(
+        self,
+        health_status: dict[str, str] | None = None,
+    ) -> dict:
         """
         Return aggregated metrics for all services.
         """
@@ -160,6 +174,32 @@ class MetricsCollector:
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "services": services_metrics,
+            "dependency_chains": self.get_dependency_health(health_status or {}),
+        }
+
+    def get_dependency_health(
+        self,
+        health_status: dict[str, str],
+    ) -> dict[str, dict]:
+        """
+        Return health impact for documented downstream dependency chains.
+
+        Compliance is the shared dependency for Inventory and Supplier Portal.
+        If Compliance is down, both dependent services are marked affected.
+        """
+        compliance_healthy = health_status.get("compliance") == "UP"
+
+        return {
+            chain_name: {
+                **chain,
+                "dependency_status": (
+                    "healthy" if compliance_healthy else "down"
+                ),
+                "upstream_status": (
+                    "healthy" if compliance_healthy else "affected"
+                ),
+            }
+            for chain_name, chain in DEPENDENCY_CHAINS.items()
         }
 
     def reset(self):
