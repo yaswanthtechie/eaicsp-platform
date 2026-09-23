@@ -164,7 +164,7 @@ const baseInventory: InventoryItem[] = [
 ];
 
 export const inventory: InventoryItem[] = Array.from(
-  { length: 500 },
+  { length: 12000 },
   (_, index) => {
     const source = baseInventory[index % baseInventory.length];
 

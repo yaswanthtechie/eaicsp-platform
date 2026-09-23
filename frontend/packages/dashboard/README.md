@@ -7,7 +7,7 @@ frontend/
     └── dashboard/
         └── src/
             ├──api/
-            |    ├── dashboard.ts
+            |    └── dashboard.ts
             ├── components/
             │   ├── AlertsPanel.tsx
             |   ├── ErrorBoundary.tsx
@@ -16,12 +16,17 @@ frontend/
             │   ├── InventoryTable.tsx
             │   ├── ForecastAccuracy.tsx
             │   ├── InventoryHealth.tsx
+            |   ├── NarrativeInsights.tsx
             │   ├── SupplierRisk.tsx
             │   ├── ShipmentStatus.tsx
             │   ├── SupplierRiskDistribution.tsx
             │   ├── DashboardFilters.tsx
             │   └── Skeleton.tsx
             │
+            ├── exports/
+            │   ├── ExportCsvButton.tsx
+            |   ├── ExportPdfButton.tsx
+            |
             ├── hooks/
             │   ├── useWebSocket.ts
             │
@@ -33,6 +38,7 @@ frontend/
             │   ├── inventoryHealth.ts
             │   ├── shipments.ts
             │   ├── supplierRisk.ts
+            |   ├── user.ts
             │   └── wsServer.ts
             │
             ├── types/
@@ -51,9 +57,14 @@ frontend/
             |   ├── SupplierRiskDistribution.test.tsx
             │   ├── SupplierRisk.test.tsx
             |   └── useWebSocket.test.ts
+            ├── utils/
+            │   ├── exportCsv.ts
+            |   ├── exportPdf.ts
+            │   └── insights.ts
             │
             ├── App.tsx
             ├── main.tsx
+            ├── index.css
             └── tokens.ts
 # 1. What I Built
 
@@ -97,7 +108,7 @@ It also has SKU search bar and a low-stock filter so users can quickly find item
 
 When no SKU matches the search, the empty state is passed correctly to the shared Table component. However, the empty-state styling currently comes from the shared UI component, so its background/color does not fully match the dashboard theme.
 
-The inventory mock dataset was expanded to 500 rows so that the virtualization implementation is exercised with a meaningful dataset rather than only a small number of records.
+The inventory mock dataset was expanded to 12000 rows so that the **virtualization** implementation is exercised with a meaningful dataset rather than only a small number of records.
 
 The table uses react-window so that only the rows required for the visible scroll area are rendered instead of rendering all 500 rows at once.
 
@@ -113,25 +124,27 @@ It is intentionally not a continuous color-intensity heatmap because the current
 
 The warehouse groups are derived from the available inventory data so SKUs from other warehouses are not silently omitted.
 
+For this round, virtualization was added to the Inventory Heatmap so only the visible rows are rendered instead of rendering the entire inventory list at once. This helps the component handle large datasets more efficiently.
+
+A 10k+ inventory dataset was also used to check that the heatmap remains usable at a larger scale. Memoization was added to avoid unnecessary recalculations and re-renders.
+
 The Inventory Heatmap also has a simulated failure path so its error state can be reached and tested.
 
 I considered adding an Inventory Risk & Reorder Planning view to give executives more actionable information about stock.
 
 The idea is to show:
 
-Current stock
-
-Days remaining
-
-Reorder timing
-
-Recommended reorder quantity
+* Current stock
+* Days remaining
+* Reorder timing
+* Recommended reorder quantity
 
 For example: SKU007 → 8 days remaining → reorder before stock out.
 
-I did not implement this calculation because the current mock data does not include daily sales or average demand, which is required to calculate the remaining days accurately.
+The current inventory data includes average daily demand, so days remaining can be calculated. However, the current dashboard does not yet implement the full reorder planning view or recommended reorder quantity calculation.
 
 This could be added later to help executives plan orders before a stock out instead of reacting only when stock is already low.
+
 
 # 5. WebSocket and Alerts
 
@@ -169,7 +182,8 @@ The mock WebSocket server is used only during development.
 
 It is started only when `import.meta.env.DEV` is true, so the mock server is not started in the production build.
 
-`mock-socket` is kept as a development dependency because it is only required for the mock WebSocket server and tests.1
+`mock-socket` is kept as a development dependency because it is only required for the mock WebSocket server and tests.
+
 
 # 6. KPI Views and Dashboard Filters
 
@@ -253,7 +267,86 @@ This prevents an error in one component from causing the entire dashboard to dis
 Each protected widget also provides a retry action so the user can attempt to render the component again.
 
 
-# 7. Testing
+# 7. Round 7/8/9 Features
+
+### Auto-Generated Narrative Insights
+
+### Narrative Insights
+
+Narrative insights are calculated from the dashboard data and displayed as plain-English summaries.
+
+The insights update automatically when the underlying dashboard data changes. For example, changing the delayed shipment count from 10 to 50 updates the related insight and percentage automatically.
+
+The insight logic is maintained in `src/utils/insights.ts`, while `NarrativeInsights.tsx` displays the generated text.
+
+The insights are generated from the current inventory, supplier, and shipment data instead of using fixed text.
+
+Examples include:
+
+* The percentage of inventory items that need reorder.
+* The number of warehouses contributing to low-stock inventory.
+* Supplier risk information.
+* Shipment status information.
+
+
+### Role-Based Views
+
+The dashboard supports two mock roles:
+
+* `ceo`
+* `warehouse_manager`
+
+The role is mocked locally and does not call a live service.
+
+The dashboard UI changes based on the selected role.
+
+The `ceo` view provides executive-level information such as inventory, supplier risk, shipments, and dashboard insights.
+
+The `warehouse_manager` view focuses on inventory and warehouse-related information and does not display supplier-risk information.
+
+The role structure is kept contract-first so that the mock role can later be replaced by the real role service.
+
+### PDF and CSV Export
+
+The dashboard supports exporting dashboard data in both PDF and CSV formats.
+
+The export functionality is kept inside the `src/exports/` folder.
+
+The exported data follows the currently selected dashboard filters and role where applicable.
+
+CSV export creates a downloadable CSV file.
+
+PDF export creates a downloadable PDF containing the selected dashboard information.
+
+### Accessibility Improvements
+
+The dashboard was reviewed for accessibility issues and updated to improve keyboard and screen-reader usability.
+
+The accessibility work includes:
+
+* Keyboard-accessible interactive elements.
+* Appropriate button and control labels.
+* Focus visibility.
+* Accessible form controls.
+* Meaningful headings and text.
+* Improved handling of interactive dashboard components.
+
+The goal is to make the dashboard usable without relying only on mouse interaction.
+
+### Performance at Real Scale
+
+The inventory mock data was expanded to support a large dataset of more than 12,000 inventory items.
+
+The Inventory Table and Inventory Heatmap use virtualization so that the dashboard does not render every inventory item at the same time.
+
+Memoization is also used where appropriate to reduce unnecessary calculations and renders.
+
+React Profiler measurements are used to record actual render performance while working with the large dataset.
+
+This provides a real performance check at a scale closer to production data instead of testing only with a small mock dataset.
+
+
+# 8. Testing
 
 I added tests using **Vitest** and **React Testing Library**.
 
@@ -310,7 +403,7 @@ afterEach(() => {
 
 This was especially useful for tests that use fake timers and WebSocket reconnection delays.
 
-# 8. Challenges Faced
+# 9. Challenges Faced
 
 ### Loading, Empty, and Error States
 
@@ -324,7 +417,7 @@ The current loading states use simulated delays around locally imported mock dat
 
 When real API integration is added, the loading state should be driven by the actual asynchronous request.
 
-### Virtualized Inventory Table
+### Virtualized Inventory Table and Inventory Heatmap
 
 For the Inventory Table, I used virtualization with `react-window` to handle long lists more efficiently.
 
@@ -346,39 +439,35 @@ The Profiler records both the actual render duration and the base duration for e
 
 #### Recorded Profiler Measurements
 
-The following measurements were recorded from the browser console while interacting with the dashboard and while real-time WebSocket updates were being received:
+The following measurements were recorded from the browser profiler while interacting with the dashboard and while real-time WebSocket updates were being received:
 
-| Component        | Phase         | Actual Duration | Base Duration |
-| ---------------- | ------------- | --------------: | ------------: |
-| ForecastChart    | update        |         0.10 ms |      46.90 ms |
-| InventoryTable   | update        |         0.00 ms |       6.00 ms |
-| InventoryHeatmap | update        |         0.00 ms |     115.10 ms |
-| ForecastChart    | update        |         0.00 ms |      46.90 ms |
-| InventoryTable   | update        |         7.30 ms |       6.20 ms |
-| InventoryHeatmap | update        |       122.80 ms |     122.50 ms |
-| InventoryTable   | nested-update |         0.20 ms |       5.80 ms |
-| InventoryTable   | update        |        10.00 ms |       9.20 ms |
-| InventoryHeatmap | update        |       119.60 ms |     119.40 ms |
+### Performance Measurements
 
-The measurements show that `ForecastChart` and `InventoryTable` generally have low actual render durations, while `InventoryHeatmap` is the most rendering-intensive dashboard component.
+Measured using React DevTools Profiler.
 
-The highest recorded actual render duration in this session was **122.80 ms for the Inventory Heatmap**. This provides a clear performance baseline for future optimization work.
+| Component | Actual Duration |
 
-These are actual runtime measurements captured from the browser using React Profiler. They are not presented as a fabricated before/after benchmark.
+| InventoryTable | 9.50 ms |
+| App | 9.00 ms |
+| InventoryHeatmap | 4.60 ms |
+| CartesianGrid | 3.90 ms |
+| SupplierRisk | 2.50 ms |
+| InventoryHealth | ~2.00 ms |
+
+The profiler results show that the measured dashboard components generally have low actual render durations. `InventoryTable` recorded the highest duration among the components shown in this table at **9.50 ms**, followed by `App` at **9.00 ms**.
+
+`InventoryHeatmap` recorded an actual render duration of **4.60 ms** in this measurement, while the remaining components were below **4 ms**.
+
+These measurements were captured directly using React DevTools Profiler and provide a baseline for future performance monitoring and optimization.
 
 
-
-### Testing
-
-While writing the tests, previous DOM elements were sometimes affecting the next test. Using `cleanup()` after each test fixed the issue and kept the tests isolated.
-
-# 9. TypeScript Strict Mode
+# 10. TypeScript Strict Mode
 
 TypeScript strict mode is enabled for the dashboard.
 
 This ensures that the TypeScript compiler performs stricter type checking during development and builds and helps prevent new type-safety issues from being introduced.
 
-# 10. How to Run
+# 11. How to Run
 
 Open the project in VS Code and run the following commands in the terminal:
 
@@ -405,7 +494,7 @@ The dashboard uses a mock WebSocket server during development:
 
 The mock WebSocket server is development-only and is not started as part of the production build.
 
-# 11. Current UI and Next Steps
+# 12. Current UI and Next Steps
 
 The current dashboard UI is functional and covers the required dashboard features, but the overall visual design and layout still need improvement.
 
@@ -415,9 +504,11 @@ The functionality and dashboard logic are already implemented, so the next focus
 
 #### Profiler Recording Note
 
-While recording the React Profiler measurements, I noticed that the recording stops after completing the interaction when I change the warehouse filter. This is expected because React Profiler records the render activity that occurs during the selected profiling session rather than continuously recording every dashboard update.
+React DevTools Profiler was used to measure the dashboard rendering performance during actual interactions.
 
-The recorded measurements were captured from the Profiler console output during warehouse filtering and real-time WebSocket updates. After the interaction finishes, the dashboard returns to its normal state and further updates can be recorded by starting another profiling session.
+The measurements were captured while changing the warehouse filter, scrolling through the Inventory Heatmap, and receiving dashboard updates.
 
-Therefore, the measurements documented above represent actual render activity captured during the profiling sessions.
+The performance test used the 12,000-item inventory dataset across 4 warehouses with virtualization and memoization enabled.
+
+The recorded profiler measurements represent actual render activity captured during these interactions.
 

@@ -15,12 +15,17 @@ import ForecastChart from "./components/ForecastChart";
 import InventoryHealth from "./components/InventoryHealth";
 import InventoryHeatmap from "./components/InventoryHeatmap";
 import InventoryTable from "./components/InventoryTable";
+import NarrativeInsights from "./components/NarrativeInsights";
 import ShipmentStatus from "./components/ShipmentStatus";
 import SupplierRisk from "./components/SupplierRisk";
 import SupplierRiskDistribution from "./components/SupplierRiskDistribution";
+import ExportCsvButton from "./components/export/ExportCsvButton";
+import ExportPdfButton from "./components/export/ExportPdfButton";
+import { dashboardApi } from "./api/dashboard";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { inventory } from "./mocks/inventory";
 import { startMockWebSocketServer } from "./mocks/wsServer";
+import { mockUser } from "./mocks/user";
 import { colors, radius, space } from "./tokens";
 import type {
   AlertMessage,
@@ -42,6 +47,7 @@ const handleProfilerRender: ProfilerOnRenderCallback = (
 };
 
 function App() {
+  const role = mockUser.role;
   const [alerts, setAlerts] = useState<AlertMessage[]>([]);
   const [liveInventory, setLiveInventory] =
     useState<InventoryItem[]>(inventory);
@@ -298,6 +304,28 @@ function App() {
         onFilterChange={setFilters}
       />
 
+      <div
+        style={{
+          display: "flex",
+          gap: space.md,
+          alignItems: "center",
+          marginBottom: space.lg
+        }}
+      >
+        <ExportCsvButton
+            inventory={filteredInventory}
+        />
+
+        <ExportPdfButton
+            role={role}
+            inventory={filteredInventory}
+            suppliers={dashboardApi.getSupplierRisk()}
+            shipments={dashboardApi.getShipmentStatus()}
+            filters={filters}
+            kpis={kpis}
+        />
+      </div>
+
       <div className="kpi-grid">
         {kpis.map((kpi) => (
           <button
@@ -347,6 +375,25 @@ function App() {
             </div>
           </button>
         ))}
+      </div>
+
+      <div
+        style={{
+          marginTop: space.lg,
+          marginBottom: space.lg,
+          border:`1px solid ${colors.border}`,
+          borderRadius:radius.md,
+          color:colors.text
+        }}
+      >
+        <ErrorBoundary>
+          <NarrativeInsights
+            inventory={baseFilteredInventory}
+            suppliers={dashboardApi.getSupplierRisk()}
+            shipments={dashboardApi.getShipmentStatus()}
+            showSupplierInsight={role === "ceo"}
+          />
+        </ErrorBoundary>
       </div>
 
       {lowStockOnly && (
@@ -421,11 +468,12 @@ function App() {
             category={filters.category}
           />
         </ErrorBoundary>
-
+        
+        {role === "ceo" && (
         <ErrorBoundary>
           <SupplierRisk />
         </ErrorBoundary>
-
+        )}
         <ErrorBoundary>
           <ShipmentStatus />
         </ErrorBoundary>
@@ -482,6 +530,7 @@ function App() {
           </ErrorBoundary>
         </div>
 
+      {role === "ceo" && (
         <div
           style={{
             background: colors.surface,
@@ -491,11 +540,12 @@ function App() {
             width: "100%",
             marginTop: space.lg,
           }}
-        >
+        > 
           <ErrorBoundary>
             <SupplierRiskDistribution />
           </ErrorBoundary>
         </div>
+      )}
       </div>
     </div>
   );

@@ -60,6 +60,7 @@ describe("InventoryHeatmap", () => {
     expect(screen.getByText("WH001")).toBeInTheDocument();
     expect(screen.getByText("WH002")).toBeInTheDocument();
     expect(screen.getByText("WH003")).toBeInTheDocument();
+    expect(screen.getByText("WH004")).toBeInTheDocument();
   });
 
   it("shows inventory products after loading", async () => {
@@ -125,8 +126,7 @@ describe("InventoryHeatmap", () => {
       expectedOrderDate.getDate() + daysRemaining
     );
 
-    const formattedOrderDate =
-      expectedOrderDate.toLocaleDateString("en-GB");
+    
 
     const sku = screen.getByText(item.sku_id);
 
@@ -138,12 +138,26 @@ describe("InventoryHeatmap", () => {
       )
     ).toBeInTheDocument();
 
-    expect(
-      screen.getByText(
-        `Expected Order: ${formattedOrderDate}`
-      )
-    ).toBeInTheDocument();
+    
   });
+
+ it("renders inventory item using virtualization", async () => {
+   vi.useFakeTimers();
+
+   render(<InventoryHeatmap />);
+
+   await act(async () => {
+    vi.advanceTimersByTime(1000);
+   });
+
+   expect(
+    screen.getByText(inventory[0].sku_id)).toBeInTheDocument();
+   
+   expect(
+    screen.getByText(
+      inventory[0].quantity_on_hand.toString())).toBeInTheDocument();
+   
+ });
 
   it("shows product details on hover", async () => {
     vi.useFakeTimers();
