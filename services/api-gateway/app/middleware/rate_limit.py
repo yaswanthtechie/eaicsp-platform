@@ -168,8 +168,15 @@ class PerUserRoleRateLimitMiddleware(BaseHTTPMiddleware):
         request: Request,
         call_next,
     ) -> Response:
+        # Health check prioritization: health check routes NEVER get rate limited
+        # and must not consume any quota bucket.
+        if settings.is_health_check_path(request.url.path):
+            request.state._rate_limiting_complete = True
+            return await call_next(request)
+
         global _load_test_mode_warned
         if getattr(settings, "LOAD_TEST_MODE", False):
+            request.state._rate_limiting_complete = True
             if not _load_test_mode_warned:
                 logger.warning(
                     "LOAD_TEST_MODE is enabled: per-user/per-role rate limiting is bypassed"
@@ -179,19 +186,36 @@ class PerUserRoleRateLimitMiddleware(BaseHTTPMiddleware):
 
         _load_test_mode_warned = False
 
+        # Route-level check: exempt routes bypass rate limiting
+        route_limit, route_pattern = settings.get_route_rate_limit(request.url.path)
+        if route_pattern is not None and route_limit is None:
+            request.state._rate_limiting_complete = True
+            return await call_next(request)
+
         client_ip = get_real_ip(request)
         user_id, role = extract_jwt_identity(request)
 
         # Resolve rate limit key and quota
-        if user_id:
-            identity_key = f"user:{user_id}"
-            limit = settings.get_role_rate_limit(role)
-        elif role:
-            identity_key = f"role:{role}"
-            limit = settings.get_role_rate_limit(role)
+        if route_pattern is not None and route_limit is not None:
+            # Route-specific limit: isolate bucket per route pattern
+            limit = route_limit
+            if user_id:
+                identity_key = f"user:{user_id}:{route_pattern}"
+            elif role:
+                identity_key = f"role:{role}:{route_pattern}"
+            else:
+                identity_key = f"ip:{client_ip}:{route_pattern}"
         else:
-            identity_key = f"ip:{client_ip}"
-            limit = settings.get_role_rate_limit("default")
+            # Normal gateway route: use role quota (or default)
+            if user_id:
+                identity_key = f"user:{user_id}"
+                limit = settings.get_role_rate_limit(role)
+            elif role:
+                identity_key = f"role:{role}"
+                limit = settings.get_role_rate_limit(role)
+            else:
+                identity_key = f"ip:{client_ip}"
+                limit = settings.get_role_rate_limit("default")
 
         window = (
             self.window_seconds
@@ -219,10 +243,9 @@ class PerUserRoleRateLimitMiddleware(BaseHTTPMiddleware):
                 },
             )
 
-        # Coordinate with SlowAPI: mark rate limiting complete for authenticated users
-        # so SlowAPI's default IP limiter does not throttle legitimate authenticated users
-        # (e.g. CEO/VP at 200 req/min) before their role quota is reached.
-        if user_id or role:
+        # Coordinate with SlowAPI: mark rate limiting complete for authenticated users,
+        # roles, or route-specific limits so SlowAPI does not double-throttle requests.
+        if user_id or role or (route_pattern is not None):
             request.state._rate_limiting_complete = True
 
         response = await call_next(request)

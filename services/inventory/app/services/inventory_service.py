@@ -40,6 +40,12 @@ REQUIRED_CSV_COLUMNS = (
 )
 
 
+class InventoryOperationError(Exception):
+    """Raised for inventory operation errors."""
+    pass
+
+
+
 # =========================================================
 # RESPONSE
 # =========================================================
