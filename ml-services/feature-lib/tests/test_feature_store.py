@@ -2,6 +2,7 @@ import pandas as pd
 import pytest
 from src.feature_usefulness import select_top_features
 from src.feature_store import FeatureStore
+from src.build_features import build_all_features
 
 
 def sample_data():
@@ -452,3 +453,36 @@ def test_feature_store_lru_keeps_recently_used_entry(monkeypatch):
 def test_feature_store_rejects_invalid_cache_size():
     with pytest.raises(ValueError, match="max_cache_size"):
         FeatureStore(max_cache_size=0)
+
+def test_feature_version_backward_compatibility():
+    df = pd.DataFrame({
+        "date": pd.date_range("2024-01-01", periods=30),
+        "target": range(30),
+    })
+
+    config = {
+        "lags": [1, 7],
+        "windows": [7],
+    }
+
+    v1_features = build_all_features(
+        df,
+        date_col="date",
+        target_col="target",
+        config=config,
+        feature_version="v1",
+    )
+
+    v2_features = build_all_features(
+        df,
+        date_col="date",
+        target_col="target",
+        config=config,
+        feature_version="v2",
+    )
+
+    assert "target_roll_mean_7" in v1_features.columns
+    assert "target_roll_mean_14" not in v1_features.columns
+
+    assert "target_roll_mean_7" in v2_features.columns
+    assert "target_roll_mean_14" in v2_features.columns

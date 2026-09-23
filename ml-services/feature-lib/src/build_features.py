@@ -10,12 +10,16 @@ def build_all_features(
     date_col,
     target_col,
     config=None,
-    group_cols=None
+    group_cols=None,
+    feature_version="v1"
 ):
     """
     Build all feature engineering features.
     """
-
+    if feature_version not in {"v1", "v2"}:
+        raise ValueError(
+            f"Unsupported feature version: {feature_version}"
+        )
     data = df.copy()
 
     if config is None:
@@ -33,7 +37,16 @@ def build_all_features(
         raise ValueError(
         "config must contain 'lags' and 'windows'."
     )
-
+    # Version-specific feature definition
+    if feature_version == "v1":
+        version_config = config
+    else:  # v2
+        version_config = {
+            "lags": config["lags"],
+            "windows": list(
+                dict.fromkeys(config["windows"] + [14])
+            ),
+        }
     if date_col not in data.columns:
         raise ValueError(f"Date column '{date_col}' not found in dataframe.")
 
@@ -47,14 +60,14 @@ def build_all_features(
     data = add_lag_features(
         data,
         target_col,
-        lags=config["lags"],
+        lags=version_config["lags"],
         group_cols=group_cols
     )
 
     data = add_rolling_features(
         data,
         target_col,
-        windows=config["windows"],
+        windows=version_config["windows"],
         group_cols=group_cols
     )
 

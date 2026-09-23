@@ -57,6 +57,18 @@ Example:
   - Pearson correlation p-values assume independent observations and may be less reliable for autocorrelated time-series data. They are therefore treated as supporting evidence rather than the sole basis for feature selection.
   - For time-series feature selection, first differencing is enabled by default (`use_differencing=True`) to reduce spurious correlation caused by autocorrelation and trends. Set `use_differencing=False` when raw-level correlation is intentionally required.
 
+- **Feature Quality Scoring**
+
+  - Evaluates the null rate of each feature.
+
+  - Flags features as `risky` when their null rate reaches the configured threshold.
+
+  - Evaluates numeric feature variability using the coefficient of variation.
+
+  - Flags numeric features as `risky` when their coefficient of variation reaches the configured instability threshold.
+
+  - Reports the feature name, null rate, risk status, and reason.
+
 - **Feature Store**
   - Provides a simple in-memory feature store for caching engineered features.
   - Computes features when they are not already cached.
@@ -94,7 +106,7 @@ Example:
 
 The library was tested using the Prophet retail sales dataset.
 
-The current test suite contains 82 tests, and the latest full test run passed all 82 tests.
+The current test suite contains 86 tests, and the latest full test run passed all 86 tests.
 
 ---
 
@@ -196,10 +208,21 @@ The test suite covers:
 
 Expected result:
 
-    82 passed
+    86 passed
 
 The test suite may display dependency-related deprecation or statistical warnings. These warnings do not indicate failures in the feature library when all tests pass.
 
+### Performance Benchmark
+
+Feature generation was benchmarked using 100,000 rows.
+
+- Rows processed: **100,000**
+- Features generated: **17**
+- Execution time: **0.5590 seconds**
+
+Run the benchmark with:
+
+    python -m scripts.benchmark_features
 ---
 
 ## 3. Feature Store
@@ -234,7 +257,9 @@ The cache key includes:
 - Feature definition version
 - Group columns
 
-Feature-definition versions allow different versions of feature logic to be cached separately.
+Feature-definition versions allow different versions of feature logic to be used and cached separately.
+
+The existing `v1` feature definition is preserved when `v2` is introduced, so an existing consumer can continue requesting `feature_version="v1"` without receiving the new `v2` feature definition.
 
 For example:
 
@@ -244,7 +269,7 @@ and:
 
     feature_version="v2"
 
-produce separate cache entries.
+produce separate feature definitions and separate cache entries.
 
 The cache uses an LRU (Least Recently Used) policy with a default maximum
 of 10 cached feature sets. When the cache reaches this limit, the least
@@ -525,3 +550,15 @@ The same feature-generation functionality can also be accessed through the API:
     Engineered Features
 
 This provides both a reusable Python library interface and a service-based interface for other AI/ML components.
+
+### Feature Catalog
+
+The library also provides an automated feature catalog that documents every generated feature, including its type, meaning, and feature version.
+
+Generate the catalog with:
+
+    python -m scripts.generate_feature_catalog
+
+The generated catalog is saved to:
+
+    docs/feature_catalog.md

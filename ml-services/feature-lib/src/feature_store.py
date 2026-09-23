@@ -130,6 +130,7 @@ class FeatureStore:
             target_col=target_col,
             config=config,
             group_cols=group_cols,
+            feature_version=feature_version,
         )
 
         self._cache[cache_key] = features.copy()
