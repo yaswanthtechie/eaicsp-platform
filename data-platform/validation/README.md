@@ -1078,6 +1078,45 @@ When validating entire directories of files, use --global-timeout-seconds. This 
 python -m src.validate_folder --folder data/ --config configs/rules.yaml --global-timeout-seconds 600
 ```
 
+# Auto-Generated Data Quality Contracts
+
+## Feature Description
+The **Auto-Generated Documentation** feature bridges the gap between data engineering and business stakeholders. Instead of expecting non-technical users to read complex YAML configurations or Python code, this tool automatically translates your validation rules into human-readable files.
+
+It supports generating a **Zero-Dependency Interactive HTML Dashboard** (a single-page application with tabbed navigation across all profiles) or standard Markdown (`.md`) files. These generated files act as **Data Contracts**, providing a clear, scannable definition of what constitutes a "valid" row in your dataset, alongside the operational SLAs (Service Level Agreements) that govern your pipeline's drift and rejection limits.
+
+## How It Works
+The generator uses a "Documentation-as-Code" architecture to ensure your documentation never drifts from your actual code:
+
+1. **Profile Flattening:** If you use environment profiles (e.g., a `strict` profile that inherits from a `default` profile), the generator automatically resolves the inheritance tree to output a fully flattened view of exactly what runs in that specific environment.
+2. **Two-Tiered Structure:**
+    * **Section 1: Data Shape & Business Rules:** Details the fields, allowed ranges, regex patterns, and nullability for stakeholders.
+    * **Section 2: SLAs & Thresholds:** Extracts pipeline-halting limits (`max_fail_pct`) and anomaly detection bounds (`drift_abs_min`, `drift_rel_min`) for DataOps teams.
+3. **Format Routing:** Based on your CLI arguments, it dynamically compiles the contract into a standalone HTML file with embedded styling, or outputs individual Markdown files per profile.
+4. **Smart Descriptions:** It looks for a human-readable `description` field directly in your YAML rule, auto-generates a description based on standard rule types, or dynamically extracts Python docstrings for `custom` and `transform` rules.
+
+## How to Run
+
+You can generate the documentation using the standalone CLI script. By default, it will read your configuration and output a standalone HTML dashboard into a `docs/` directory.
+
+### Basic Command (HTML Dashboard Default)
+Run the script from your project root, pointing it to your target YAML configuration:
+
+```bash
+python -m src.generate_docs --config configs/sales_rules.yaml
+```
+### Advanced Usage (Format Selection & Custom Directories)
+You can specify the output format (html, markdown, or all) using the --format flag, and customize the output directory using the --output-dir flag:
+```bash
+# Generate only Markdown artifacts
+python -m src.generate_docs --config configs/sales_rules.yaml --format markdown
+
+# Generate both HTML and Markdown in a custom folder
+python -m src.generate_docs --config configs/sales_rules.yaml --format all --output-dir custom_docs_folder/
+```
+### Expected Output
+The default HTML generation creates a single docs/data_contract_dashboard.html file. This zero-dependency file can be opened directly in any browser (no server required) and contains an interactive sidebar to toggle between different data validation profiles. If generating Markdown, the script will output a separate .md file for each discovered profile
+
 
 # Known Limitations
 * **Streaming Memory Growth:** While chunked streaming prevents massive Out-Of-Memory (OOM) crashes, Pass 1 still tracks every unique composite key seen in a set. Memory usage scales linearly O(N) with the number of distinct rows, so it is not strictly "near zero".
