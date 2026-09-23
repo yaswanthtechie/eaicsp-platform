@@ -1249,3 +1249,91 @@ def test_validate_stream_aggregates_remediations(tmp_path):
 
     samples = report.sample_remediations["upper_stream"]
     assert len(samples) == 5  # Strictly capped at 5 across all chunks
+
+
+def test_sla_duration_breach():
+    """Verifies that exceeding the global_max_duration_seconds flags an SLA breach."""
+    df = pd.DataFrame({"A": [1, 2, 3]})
+    rule = ConfigRule(name="r1", field="A", type="not_null", severity="ERROR")
+
+    # Setting max duration to 0.0 forces an immediate breach since execution time > 0
+    val = DataValidator([rule], global_max_duration_seconds=0.0)
+    report = val.validate(df)
+
+    assert report.sla_breached is True
+    assert len(report.sla_violations) == 1
+    assert "Execution time" in report.sla_violations[0]
+    assert "exceeded SLA" in report.sla_violations[0]
+
+
+def test_sla_warning_threshold_breach():
+    """Verifies that exceeding global_warning_fail_pct triggers an SLA breach but does not reject the batch."""
+    df = pd.DataFrame({"A": [1, None, None, 4]})  # 50% failure rate
+    rule = ConfigRule(name="r1", field="A", type="not_null", severity="WARNING")
+
+    # Fails 50%, which is > 25% warning SLA, but < 75% rejection SLA
+    val = DataValidator([rule], global_warning_fail_pct=0.25, global_max_fail_pct=0.75)
+    report = val.validate(df)
+
+    assert report.passed is True  # Only WARNING rules failed, so it passes
+    assert report.batch_rejected is False
+    assert report.sla_breached is True
+    assert len(report.sla_violations) == 1
+    assert "Global failure rate 50.0% exceeds warning SLA (25.0%)" in report.sla_violations[0]
+
+
+def test_validate_skip_sla():
+    """Verifies that the internal skip_sla flag bypasses SLA evaluations during chunk validation."""
+    df = pd.DataFrame({"A": [1, None, None, 4]})
+    rule = ConfigRule(name="r1", field="A", type="not_null", severity="WARNING")
+
+    val = DataValidator([rule], global_warning_fail_pct=0.1, global_max_duration_seconds=0.0)
+    # The streaming engine passes skip_sla=True to avoid false positives on partial chunks
+    report = val.validate(df, skip_sla=True)
+
+    assert report.sla_breached is False
+    assert len(report.sla_violations) == 0
+
+
+def test_stream_sla_evaluation(tmp_path):
+    """Verifies that the streaming engine properly aggregates and evaluates SLAs after the final chunk."""
+    df = pd.DataFrame({"A": [1, None, None, 4]})
+    csv_path = tmp_path / "stream_sla.csv"
+    df.to_csv(csv_path, index=False)
+
+    rule = ConfigRule(name="r1", field="A", type="not_null", severity="WARNING")
+
+    # 0.0 max duration forces a time breach; 0.25 warning threshold forces a failure rate breach
+    val = DataValidator([rule], global_warning_fail_pct=0.25, global_max_duration_seconds=0.0)
+    report = val.validate_stream(str(csv_path), chunksize=2)
+
+    assert report.passed is True
+    assert report.sla_breached is True
+
+    # Both the duration and the warning threshold breaches should be captured
+    assert len(report.sla_violations) == 2
+    violations_text = " ".join(report.sla_violations)
+    assert "Execution time" in violations_text
+    assert "exceeds warning SLA" in violations_text
+
+
+def test_from_config_sla_inheritance(tmp_path):
+    """Verifies that the new SLA properties correctly inherit from parent YAML profiles."""
+    yaml_file = tmp_path / "profiles.yaml"
+    yaml_file.write_text("""
+profiles:
+  base:
+    global_warning_fail_pct: 0.15
+    global_max_duration_seconds: 10.5
+    rules:
+      - name: r1
+        field: col
+        type: not_null
+  strict:
+    inherits: base
+    rules: []
+""")
+    val = DataValidator.from_config(str(yaml_file), profile_name="strict", rules_dir="dummy")
+
+    assert val.global_warning_fail_pct == 0.15
+    assert val.global_max_duration_seconds == 10.5

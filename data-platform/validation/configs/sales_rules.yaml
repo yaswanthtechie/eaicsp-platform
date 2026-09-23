@@ -2,6 +2,9 @@ version: "1.2.0"
 profiles:
   default:
     global_max_fail_pct: 0.20  # Rejects batch if >20% of all rows fail ANY rules
+    # --- SLA Monitoring ---
+    global_warning_fail_pct: 0.20  # Triggers SLA alert if >20% of rows fail, but allows pipeline to continue
+    global_max_duration_seconds: 5.0 # Triggers SLA alert if validation execution exceeds 5 seconds
     global_drift_abs_min: 0.01  # 1% absolute floor
     global_drift_rel_min: 0.50  # 50% relative increase
     rules:
@@ -23,7 +26,7 @@ profiles:
         type: not_null
         severity: ERROR
 
-      # --- NEW: DECLARATIVE CROSS-FIELD CONDITIONAL ---
+      # --- DECLARATIVE CROSS-FIELD CONDITIONAL ---
       # Example: If warehouse is WH-01, the unit price must be at least 15.00
       - name: wh_01_minimum_price
         type: conditional

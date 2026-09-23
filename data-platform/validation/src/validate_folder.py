@@ -3,6 +3,7 @@ import json
 import argparse
 import logging
 import math
+import time
 from pathlib import Path
 from collections import Counter
 from typing import Dict, Any, Union, Optional
@@ -10,12 +11,17 @@ from datetime import datetime
 
 import pandas as pd
 
-# --- PATH RESOLUTION ---
-# Must run BEFORE any `from src...` import (see validate_cli.py).
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.validator import DataValidator
+
+# --- Configuration Constants ---
+EXIT_SUCCESS = 0
+EXIT_VALIDATION_FAILED = 1
+EXIT_TOOL_ERROR = 2
+EXIT_SLA_BREACH = 3
+EXIT_GLOBAL_TIMEOUT = 4
 
 logger = logging.getLogger(__name__)
 
@@ -42,12 +48,10 @@ def setup_logging(log_level: str = "INFO", log_dir: str = "logs") -> None:
     logging.basicConfig(
         level=numeric_level,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler(sys.stdout)
-        ]
+        handlers=[logging.FileHandler(log_file), logging.StreamHandler(sys.stdout)]
     )
     logger.info("Logging initialized. Writing logs to: %s", log_file)
+
 
 def _load_validator(config_path: str, profile_name: Optional[str], cache: dict,
                     rules_dir: Optional[str]) -> DataValidator:
@@ -71,7 +75,8 @@ def validate_folder(
         watermark_col: str = "transaction_id",
         watermark_dir: str = ".watermarks",
         profile_name: Optional[str] = None,
-        rules_dir: Optional[str] = None
+        rules_dir: Optional[str] = None,
+        global_timeout_seconds: Optional[float] = None
 ) -> Dict[str, Any]:
     folder = Path(folder_path)
 
@@ -130,6 +135,8 @@ def validate_folder(
         "passed_files": 0,
         "failed_files": 0,
         "skipped_files": 0,
+        "files_with_sla_breaches": 0,
+        "global_sla_breached": False,
         "total_rows_affected": 0,
         "most_common_issues": Counter()
     }
@@ -140,7 +147,16 @@ def validate_folder(
         wm_dir = Path(watermark_dir)
         wm_dir.mkdir(parents=True, exist_ok=True)
 
+    batch_start_time = time.perf_counter()
+
     for file_path, validator in validation_queue.items():
+        # --- Soft Timeout Check ---
+        if global_timeout_seconds and (time.perf_counter() - batch_start_time) > global_timeout_seconds:
+            logger.warning("Global timeout (%.2fs) reached. Halting folder validation to preserve safety.",
+                           global_timeout_seconds)
+            summary["global_sla_breached"] = True
+            break
+
         logger.info("Validating %s...", file_path.name)
         try:
             df = pd.read_csv(file_path, memory_map=True)
@@ -168,6 +184,11 @@ def validate_folder(
             else:
                 summary["failed_files"] += 1
 
+            # --- NEW: Non-Blocking SLA Breach Track ---
+            if getattr(report, 'sla_breached', False):
+                logger.warning("   -> File processed with SLA breaches: %s", getattr(report, 'sla_violations', []))
+                summary["files_with_sla_breaches"] += 1
+
             summary["total_rows_affected"] += getattr(report, 'total_rows_affected', 0)
 
             for error in getattr(report, 'errors', []):
@@ -180,6 +201,8 @@ def validate_folder(
                 file_report_data = sanitize_for_json({
                     "config_version": getattr(report, "config_version", "1.0.0"),
                     "passed": passed,
+                    "sla_breached": getattr(report, "sla_breached", False),
+                    "sla_violations": getattr(report, "sla_violations", []),
                     "total_rows_affected": getattr(report, "total_rows_affected", 0),
                     "errors": getattr(report, "errors", []),
                     "warnings": getattr(report, "warnings", []),
@@ -208,7 +231,8 @@ def validate_folder(
     summary["most_common_issues"] = dict(summary["most_common_issues"].most_common(top_n_issues))
 
     logger.info("\n--- AGGREGATE SUMMARY ---")
-    logger.info("%d of %d files passed.", summary['passed_files'], summary['total_files'])
+    logger.info("%d of %d files passed. (%d SLA Breaches)", summary['passed_files'], summary['total_files'],
+                summary['files_with_sla_breaches'])
 
     if summary['most_common_issues']:
         top_issue = next(iter(summary['most_common_issues']))
@@ -233,19 +257,17 @@ def main():
     parser.add_argument("--save-reports", action="store_true",
                         help="Enable generating and saving detailed JSON reports.")
     parser.add_argument("--output-dir", type=str, default="reports", help="Directory to save detailed JSON reports.")
-
-    # --- PROFILE ARGUMENTS ---
     parser.add_argument("--profile", type=str, default=None, help="Named validation profile to execute.")
     parser.add_argument("--list-profiles", action="store_true",
                         help="List available profiles in the config(s) and exit.")
-
-    # --- CUSTOM RULES DIRECTORY ---
     parser.add_argument("--rules-dir", type=str, default=None,
                         help="Path to the custom rules directory for auto-discovery.")
-
     parser.add_argument("--incremental", action="store_true", help="Only process new rows since the last run.")
     parser.add_argument("--watermark-col", type=str, default="transaction_id", help="Column for watermarking.")
     parser.add_argument("--watermark-dir", type=str, default=".watermarks", help="Directory for state tracking files.")
+
+    parser.add_argument("--global-timeout-seconds", type=float, default=None,
+                        help="Soft timeout in seconds for the entire batch operation.")
 
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--config", type=str, help="Path to a single validation YAML configuration file.")
@@ -279,10 +301,10 @@ def main():
                         seen_configs.add(cfg_path)
             except Exception as e:
                 logger.error(f"Failed to read mapping file for profiles: {e}")
-        return
+        return EXIT_SUCCESS
 
     try:
-        validate_folder(
+        summary = validate_folder(
             folder_path=args.folder,
             config_path=args.config,
             mapping_path=args.mapping,
@@ -294,11 +316,27 @@ def main():
             save_reports=args.save_reports,
             incremental=args.incremental,
             watermark_col=args.watermark_col,
-            watermark_dir=args.watermark_dir
+            watermark_dir=args.watermark_dir,
+            global_timeout_seconds=args.global_timeout_seconds
         )
+
+        # --- CI/CD Exit Overrides ---
+        if summary.get("failed_files", 0) > 0:
+            logger.error("Batch completed with validation failures.")
+            sys.exit(EXIT_VALIDATION_FAILED)
+        elif summary.get("global_sla_breached", False):
+            logger.warning("Batch halted due to global timeout.")
+            sys.exit(EXIT_GLOBAL_TIMEOUT)
+        elif summary.get("files_with_sla_breaches", 0) > 0:
+            logger.warning("Batch completed with SLA breaches.")
+            sys.exit(EXIT_SLA_BREACH)
+        else:
+            logger.info("Batch completed successfully.")
+            sys.exit(EXIT_SUCCESS)
+
     except Exception as e:
         logger.critical("Validation pipeline failed: %s", e)
-        sys.exit(1)
+        sys.exit(EXIT_TOOL_ERROR)
 
 
 if __name__ == "__main__":

@@ -37,6 +37,8 @@ class ValidationResult(BaseModel):
     passed: bool
     batch_rejected: bool = False
     rejection_reasons: List[str] = Field(default_factory=list)
+    sla_breached: bool = False
+    sla_violations: List[str] = Field(default_factory=list)
     total_rows_affected: int
     errors: List[Dict[str, Any]] = Field(default_factory=list)
     warnings: List[Dict[str, Any]] = Field(default_factory=list)
@@ -205,22 +207,21 @@ class ConfigRule(BaseModel):
 class DataValidator:
     def __init__(self, rules: List[ConfigRule], version: str = 'unknown',
                  allow_rule_failures: bool = False, global_max_fail_pct: Optional[float] = None,
+                 global_warning_fail_pct: Optional[float] = None, global_max_duration_seconds: Optional[float] = None,
                  global_drift_abs_min: float = 0.01, global_drift_rel_min: float = 0.50):
         self.rules = rules
         self.version = version
         self.allow_rule_failures = allow_rule_failures
         self.global_max_fail_pct = global_max_fail_pct
+        self.global_warning_fail_pct = global_warning_fail_pct
+        self.global_max_duration_seconds = global_max_duration_seconds
         self._validate_dependencies()
         self._detect_conflicts()
         self.global_drift_abs_min = global_drift_abs_min
         self.global_drift_rel_min = global_drift_rel_min
 
     def _validate_dependencies(self):
-        """
-            Rejects duplicate names, unknown deps, self-deps and forward references.
-            Requiring every dependency to be declared *before* the rule that uses it
-            makes cycles impossible and matches what validate()/clean() assume at runtime.
-        """
+        """Rejects duplicate names, unknown deps, self-deps and forward references."""
         names = [r.name for r in self.rules]
         duplicates = sorted({n for n in names if names.count(n) > 1})
         if duplicates:
@@ -245,14 +246,7 @@ class DataValidator:
             declared.add(rule.name)
 
     def _detect_conflicts(self):
-        """
-            Detects impossible *numeric range* combinations before execution.
-            Accumulates the tightest min/max across every range rule on a field and
-            rejects contradictory bounds at config-load time.
-
-            Not covered yet: cross-type conflicts (e.g. not_null + an unsatisfiable
-            regex, or unique + a custom duplicate-check on the same field).
-        """
+        """Detects impossible *numeric range* combinations before execution."""
         field_ranges = {}
         for rule in self.rules:
             if rule.type == "range" and rule.field:
@@ -335,8 +329,6 @@ class DataValidator:
     def from_config(cls, yaml_path: str, profile_name: Optional[str] = None,
                     allow_rule_failures: bool = False, rules_dir: Optional[str] = None) -> 'DataValidator':
         """Instantiates the validator from a YAML configuration file and loads custom rules."""
-
-        # --- Trigger dynamic rule discovery before parsing ---
         from src.registry import discover_rules, DEFAULT_RULES_DIR
         discover_rules(rules_dir or DEFAULT_RULES_DIR)
 
@@ -373,29 +365,35 @@ class DataValidator:
 
                 merged_rules = {}
                 merged_max_fail = prof.get('global_max_fail_pct')
+                merged_warn_fail = prof.get('global_warning_fail_pct')
+                merged_max_dur = prof.get('global_max_duration_seconds')
                 merged_abs_min = prof.get('global_drift_abs_min')
                 merged_rel_min = prof.get('global_drift_rel_min')
 
                 if 'inherits' in prof:
-                    parent_rules, p_max, p_abs, p_rel = resolve_profile(prof['inherits'])
+                    parent_rules, p_max, p_warn, p_dur, p_abs, p_rel = resolve_profile(prof['inherits'])
                     merged_rules.update(parent_rules)
                     if merged_max_fail is None: merged_max_fail = p_max
+                    if merged_warn_fail is None: merged_warn_fail = p_warn
+                    if merged_max_dur is None: merged_max_dur = p_dur
                     if merged_abs_min is None: merged_abs_min = p_abs
                     if merged_rel_min is None: merged_rel_min = p_rel
 
                 for r in prof.get('rules', []):
                     merged_rules[r['name']] = r
 
-                return merged_rules, merged_max_fail, merged_abs_min, merged_rel_min
+                return merged_rules, merged_max_fail, merged_warn_fail, merged_max_dur, merged_abs_min, merged_rel_min
 
-            raw_rules, global_max_fail_pct, global_drift_abs_min, global_drift_rel_min = resolve_profile(profile_name)
+            raw_rules, global_max_fail_pct, global_warning_fail_pct, global_max_duration_seconds, global_drift_abs_min, global_drift_rel_min = resolve_profile(
+                profile_name)
 
             abs_min = 0.01 if global_drift_abs_min is None else global_drift_abs_min
             rel_min = 0.50 if global_drift_rel_min is None else global_drift_rel_min
 
             rules = [ConfigRule(**r) for r in raw_rules.values()]
             return cls(rules, version, allow_rule_failures=allow_rule_failures,
-                       global_max_fail_pct=global_max_fail_pct,
+                       global_max_fail_pct=global_max_fail_pct, global_warning_fail_pct=global_warning_fail_pct,
+                       global_max_duration_seconds=global_max_duration_seconds,
                        global_drift_abs_min=abs_min, global_drift_rel_min=rel_min)
 
         except (FileNotFoundError, yaml.YAMLError) as e:
@@ -425,14 +423,8 @@ class DataValidator:
             watermark_col: Optional[str] = None,
             current_watermark: Any = None
     ) -> ValidationResult:
-        """
-        Public entry point for streaming validation.
+        pipeline_start_time = time.perf_counter()
 
-        The composite-key rule is swapped for its streaming variant only for the
-        duration of this call, on a deep copy. self.rules is always restored, so a
-        streaming run never changes how this validator behaves afterward.
-        """
-        # --- Guard against aggregate rules in streaming mode ---
         aggregate_rules = [r.name for r in self.rules if getattr(r, 'requires_full_dataset', False)]
         if aggregate_rules:
             raise RuntimeError(
@@ -453,23 +445,12 @@ class DataValidator:
         self.rules = stream_rules
         try:
             return self._validate_stream_impl(
-                filepath, chunksize, watermark_col, current_watermark
+                filepath, chunksize, watermark_col, current_watermark, pipeline_start_time
             )
         finally:
             self.rules = original_rules
 
     def _composite_keys(self, chunk: pd.DataFrame, composite_subset: List[str]) -> Optional[pd.Series]:
-        """
-        Builds one hashable key per row for composite_pk_unique. Both streaming passes
-        must call this so their keys match.
-
-        - Transforms run first, the same as validate(), so '01/02/2024' and '2024-02-01'
-          count as the same date.
-        - hash_pandas_object treats a missing value like df.duplicated() does: it only
-          matches another missing value in the same column. Joining columns with
-          astype(str) turns the whole key into NaN when any column is missing, and then
-          every such row looks like a duplicate of every other.
-        """
         for r in self.rules:
             if r.type == "transform":
                 try:
@@ -487,7 +468,8 @@ class DataValidator:
             filepath: str,
             chunksize: int,
             watermark_col: Optional[str] = None,
-            current_watermark: Any = None
+            current_watermark: Any = None,
+            pipeline_start_time: Optional[float] = None
     ) -> ValidationResult:
         """Executes the validation pipeline sequentially over chunks."""
         logger.info(f"Starting STREAMING validation pass (chunksize={chunksize:,})...")
@@ -565,57 +547,36 @@ class DataValidator:
                 else:
                     chunk['_global_dup_mask'] = False
 
-            # Evaluate chunk using existing logic
-            chunk_report = self.validate(chunk)
+            chunk_report = self.validate(chunk, skip_sla=True)
 
-            # Aggregate Results
             agg_total_rows += chunk_report.total_rows
-
-            # Combine timings
             for k, v in chunk_report.rule_timings.items():
                 agg_rule_timings[k] += v
-
-            # Aggregate errors
             for error in chunk_report.errors:
                 agg_errors[(error['rule'], error['field'])] += error['count']
-
-            # Aggregate warnings
             for warning in chunk_report.warnings:
                 agg_warnings[(warning['rule'], warning['field'])] += warning['count']
-
-            # Aggregate samples
             for rule_name, samples in chunk_report.sample_bad_rows.items():
                 if len(agg_sample_bad[rule_name]) < 5:
                     agg_sample_bad[rule_name].extend(samples[:5 - len(agg_sample_bad[rule_name])])
-
-            # Aggregate remediations
             for rem in chunk_report.remediations:
                 agg_remediations[(rem['rule'], rem['field'])] += rem['rows_modified']
-
-            # Aggregate sample remediations
             for rule_name, samples in chunk_report.sample_remediations.items():
                 if len(agg_sample_remed[rule_name]) < 5:
                     agg_sample_remed[rule_name].extend(samples[:5 - len(agg_sample_remed[rule_name])])
-
-            # Aggregate skipped rules
             agg_skipped.extend(chunk_report.skipped_rules)
-
             agg_total_affected += chunk_report.total_rows_affected
 
-        # Format aggregated errors/warnings
         final_errors = [{"rule": k[0], "field": k[1], "count": v} for k, v in agg_errors.items()]
         final_warnings = [{"rule": k[0], "field": k[1], "count": v} for k, v in agg_warnings.items()]
         final_remediations = [{"rule": k[0], "field": k[1], "rows_modified": v} for k, v in agg_remediations.items()]
 
-        # Re-calculate thresholds based on aggregates
         rejection_reasons = []
         global_fail_pct = agg_total_affected / agg_total_rows if agg_total_rows > 0 else 0
         if self.global_max_fail_pct is not None and global_fail_pct > self.global_max_fail_pct:
             rejection_reasons.append(
                 f"Global failure rate {global_fail_pct:.1%} exceeds threshold ({self.global_max_fail_pct:.1%})")
 
-        # Per-rule thresholds mirrors _check_thresholds() so a streamed run
-        # reaches the same verdict as an in-memory one on the same file.
         per_rule_counts = collections.defaultdict(int)
         for (rule_name, _field), count in agg_errors.items():
             per_rule_counts[rule_name] += count
@@ -637,13 +598,24 @@ class DataValidator:
         batch_rejected = len(rejection_reasons) > 0
         passed = len(final_errors) == 0 and not batch_rejected and (self.allow_rule_failures or not agg_skipped)
 
-        logger.info("Streaming validation complete. Aggregating final JSON report.")
+        # --- Evaluate SLAs for Streaming ---
+        sla_violations = []
+        pipeline_duration = time.perf_counter() - (pipeline_start_time or time.perf_counter())
+        if self.global_max_duration_seconds is not None and pipeline_duration > self.global_max_duration_seconds:
+            sla_violations.append(
+                f"Execution time ({pipeline_duration:.2f}s) exceeded SLA ({self.global_max_duration_seconds}s)")
+
+        if self.global_warning_fail_pct is not None and global_fail_pct > self.global_warning_fail_pct:
+            sla_violations.append(
+                f"Global failure rate {global_fail_pct:.1%} exceeds warning SLA ({self.global_warning_fail_pct:.1%})")
 
         return ValidationResult(
             config_version=self.version,
             passed=passed,
             batch_rejected=batch_rejected,
             rejection_reasons=rejection_reasons,
+            sla_breached=len(sla_violations) > 0,
+            sla_violations=sla_violations,
             total_rows=agg_total_rows,
             total_rows_affected=agg_total_affected,
             errors=final_errors,
@@ -657,11 +629,6 @@ class DataValidator:
         )
 
     def validate_row(self, row: Union[dict, str]) -> RowLevelResult:
-        """
-        Real-time validation for a single row.
-        Accepts a dictionary or JSON string, evaluates stateless rules, and explicitly skips stateful rules.
-        """
-        # 1. Normalize input to a dictionary
         if isinstance(row, str):
             try:
                 row_dict = json.loads(row)
@@ -670,14 +637,8 @@ class DataValidator:
         else:
             row_dict = row
 
-        # 2. Wrap in a 1-row DataFrame to reuse the existing engine (Option A architecture)
         df_working = pd.DataFrame([row_dict])
 
-        # We cannot use self._validate_schema(df_working) here because a streaming row
-        # might intentionally be missing fields (e.g. partial updates), or we might want to let
-        # not_null rules handle missing fields naturally rather than raising a hard exception.
-
-        # 3. Apply transformations
         for rule in self.rules:
             if rule.type == "transform":
                 try:
@@ -691,23 +652,18 @@ class DataValidator:
         skipped_stateful = []
         rule_failure_masks = {}
 
-        # 4. Evaluate rules
         for rule in self.rules:
             if rule.type == "transform":
                 continue
 
-            # Identify and skip stateful rules
             if rule.type == "unique" or rule.name == "composite_pk_unique":
                 skipped_stateful.append(rule.name)
-                # Mark as 'passed' (False) so dependent rules can still execute if needed
                 rule_failure_masks[rule.name] = pd.Series([False], index=[0])
                 continue
 
             try:
-                # Evaluate the 1-row DataFrame
                 bad_mask = rule.evaluate(df_working)
 
-                # Handle depends_on logic to prevent cascading errors
                 if rule.depends_on:
                     for dep_name in rule.depends_on:
                         if dep_name in rule_failure_masks:
@@ -721,7 +677,6 @@ class DataValidator:
                 logger.error(f"Rule '{rule.name}' crashed during real-time validation: {type(e).__name__}: {e}")
                 continue
 
-            # 5. Route failures to the correct severity bucket
             if bad_mask.iloc[0]:
                 if rule.severity == "ERROR":
                     errors.append(rule.name)
@@ -740,8 +695,10 @@ class DataValidator:
             skipped_stateful=skipped_stateful
         )
 
-    def validate(self, df: pd.DataFrame) -> ValidationResult:
+    def validate(self, df: pd.DataFrame, skip_sla: bool = False) -> ValidationResult:
         """Executes the validation pipeline and generates a report."""
+        pipeline_start_time = time.perf_counter()
+
         if df.empty:
             return ValidationResult(
                 config_version=getattr(self, 'version', 'unknown'),
@@ -758,19 +715,14 @@ class DataValidator:
         for rule in self.rules:
             if rule.type == "transform":
                 try:
-                    # 1. Snapshot Before
                     series_before = df_working[
                         rule.field].copy() if rule.field and rule.field in df_working.columns else None
                     df_before = df_working.copy() if series_before is None else None
 
-                    # 2. Execute Transformation
                     df_working = rule.apply_transform(df_working)
 
-                    # 3. Vectorized Diff & Sampling
                     if series_before is not None:
                         series_after = df_working[rule.field]
-
-                        # Compare, intentionally ignoring cases where both are NaN
                         changed_mask = (series_before != series_after) & ~(series_before.isna() & series_after.isna())
                         changed_count = int(changed_mask.sum())
 
@@ -780,8 +732,6 @@ class DataValidator:
                                 "field": rule.field,
                                 "rows_modified": changed_count
                             })
-
-                            # Grab up to 5 examples for the audit log
                             for idx in df_working[changed_mask].head(5).index:
                                 sample_remediations[rule.name].append({
                                     "row_index": idx,
@@ -790,12 +740,9 @@ class DataValidator:
                                 })
 
                     elif df_before is not None:
-                        # Fallback for cross-field transformations
                         if list(df_before.columns) != list(df_working.columns):
-                            # If columns were added or dropped, count all rows as modified
                             changed_count = len(df_working)
                         else:
-                            # Safe to perform element-wise comparison on identical schemas
                             changed_mask = (df_before != df_working) & ~(df_before.isna() & df_working.isna())
                             changed_rows = changed_mask.any(axis=1)
                             changed_count = int(changed_rows.sum())
@@ -899,11 +846,25 @@ class DataValidator:
         batch_rejected = len(rejection_reasons) > 0
         passed = len(errors) == 0 and not batch_rejected and (self.allow_rule_failures or not skipped)
 
+        # --- Evaluate SLAs for Batch ---
+        sla_violations = []
+        if not skip_sla:
+            pipeline_duration = time.perf_counter() - pipeline_start_time
+            if self.global_max_duration_seconds is not None and pipeline_duration > self.global_max_duration_seconds:
+                sla_violations.append(
+                    f"Execution time ({pipeline_duration:.2f}s) exceeded SLA ({self.global_max_duration_seconds}s)")
+
+            if self.global_warning_fail_pct is not None and global_fail_pct > self.global_warning_fail_pct:
+                sla_violations.append(
+                    f"Global failure rate {global_fail_pct:.1%} exceeds warning SLA ({self.global_warning_fail_pct:.1%})")
+
         return ValidationResult(
             config_version=self.version,
             passed=passed,
             batch_rejected=batch_rejected,
             rejection_reasons=rejection_reasons,
+            sla_breached=len(sla_violations) > 0,
+            sla_violations=sla_violations,
             total_rows=total_rows,
             total_rows_affected=len(affected_indices),
             errors=errors,
@@ -914,14 +875,10 @@ class DataValidator:
             evaluated_rules=[r.name for r in self.rules],
             remediations=remediations,
             sample_remediations=dict(sample_remediations)
-
         )
 
     def clean(self, df: pd.DataFrame, strict: bool = True, target_rules: Optional[List[str]] = None,
               val_report: Optional[ValidationResult] = None) -> pd.DataFrame:
-        """
-            Cleans the dataset by applying transforms and removing invalid rows.
-        """
         if val_report is None:
             val_report = self.validate(df)
 

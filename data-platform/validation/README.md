@@ -1027,6 +1027,58 @@ Because the audit trail is baked directly into the `ValidationResult` Pydantic m
   
 ```
 
+# Service Level Agreements (SLAs) & Alerting
+
+To ensure operational resilience, the validation engine supports a tiered SLA framework. Instead of treating every data issue as a fatal pipeline crash, you can define soft thresholds (SLAs) that trigger orchestrator alerts while allowing valid data to continue flowing to downstream consumers.
+
+## 1. Declarative SLA Configuration
+You can define execution time limits and soft data-quality warning thresholds directly in your YAML configuration profiles.
+
+*   **`global_max_duration_seconds`**: Tracks performance degradation. If the validation engine takes longer than this threshold, it flags a time-based SLA breach.
+*   **`global_warning_fail_pct`**: Acts as a proactive observability monitor. If the percentage of bad rows exceeds this limit, an SLA breach is triggered, but the batch is **not** rejected (unlike the hard `global_max_fail_pct` circuit breaker).
+
+**YAML Configuration Example:**
+```yaml
+profiles:
+  default:
+    global_max_fail_pct: 0.20        # Hard limit: Rejects batch if >20% of rows fail
+    global_warning_fail_pct: 0.10    # Soft limit: Triggers SLA alert if >10% of rows fail
+    global_max_duration_seconds: 5.0 # Time limit: Triggers SLA alert if execution takes >5s
+    rules:
+      - name: date_not_null
+        field: date
+        type: not_null
+        severity: ERROR
+```
+
+## 2. CI/CD Integration & Orchestrator Exit Codes
+- The pipeline is designed to plug directly into enterprise orchestrators (e.g., Airflow, Datadog, GitHub Actions) using standardized POSIX exit codes and JSON payloads.
+
+- When you run the pipeline via the CLI, it evaluates the SLA thresholds and returns specific system codes to help your orchestrator route the alert appropriately:
+  * **0 (Success):** Data passed and all SLAs were met.
+  * **1 (Validation Failed):** Hard data quality rules or rejection thresholds were breached. The batch is unsafe.
+  * **2 (Tool Error):** File not found, invalid YAML, or runtime crash.
+  * **3 (SLA Breach):** Data passed hard validation and is safe to use, but execution time or warning thresholds were violated.
+  * **4 (Global Timeout):** A batch folder process was halted early due to a time limit.
+
+- The generated JSON report explicitly captures these breaches under the sla_breached (boolean) and sla_violations (list of strings) keys for easy parsing by monitoring tools.
+
+## 3. CLI Overrides & Global Folder Timeouts
+Because execution speed relies heavily on the environment (e.g., a slow CI runner vs. a production cluster), time-based SLAs can be overridden at runtime.
+
+### Single File Run:
+Override the YAML configuration for a specific execution using `--sla-time-limit`.
+```bash
+python -m src.validate_cli --file data/messy.csv --config configs/rules.yaml --output report.json --sla-time-limit 15.5
+```
+
+### Batch Folder Processing (Soft Timeouts):
+When validating entire directories of files, use --global-timeout-seconds. This implements a graceful interruption: if the batch takes too long, the engine finishes processing the current file, skips the remaining files, logs an SLA breach, and safely exits with code 4 (EXIT_GLOBAL_TIMEOUT) without corrupting data.
+```bash
+python -m src.validate_folder --folder data/ --config configs/rules.yaml --global-timeout-seconds 600
+```
+
+
 # Known Limitations
 * **Streaming Memory Growth:** While chunked streaming prevents massive Out-Of-Memory (OOM) crashes, Pass 1 still tracks every unique composite key seen in a set. Memory usage scales linearly O(N) with the number of distinct rows, so it is not strictly "near zero".
 * **Watermark Advancement:** The incremental pipeline advances the watermark based on the incoming dataset, *including rows that fail validation*. Failed rows are not automatically queued for reprocessing.
