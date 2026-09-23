@@ -323,15 +323,16 @@ def test_aggregation_request_id_propagation(mock_send, client):
 
 
 # ---------------------------------------------------------------------------
-# 8. X-Caller-Service propagation and default
+# 8. Service identity header protection and X-Caller-Service default
 # ---------------------------------------------------------------------------
 
 @patch("httpx.AsyncClient.send", new_callable=AsyncMock)
 def test_aggregation_caller_service_propagation_and_default(mock_send, client):
     """
     Test scenario 8:
-    Verify that X-Caller-Service is propagated when provided,
-    and defaults to 'api-gateway' when absent.
+    Verify that caller-supplied identity headers (X-Caller-Service, X-API-Key,
+    X-Service-Name, X-Service-API-Key) are stripped/overridden and not passed through,
+    defaulting X-Caller-Service to 'api-gateway'.
     """
     captured_requests: list[httpx.Request] = []
 
@@ -341,19 +342,27 @@ def test_aggregation_caller_service_propagation_and_default(mock_send, client):
 
     mock_send.side_effect = side_effect
 
-    # Case A: Explicit X-Caller-Service provided
+    # Case A: Caller-supplied identity headers must NOT be trusted
     response = client.get(
         "/api/v1/dashboard/summary",
-        headers={"X-Caller-Service": "frontend-portal"},
+        headers={
+            "X-Caller-Service": "frontend-portal",
+            "X-API-Key": "forged-api-key",
+            "X-Service-Name": "forged-service",
+            "X-Service-API-Key": "forged-service-key",
+        },
     )
     assert response.status_code == 200
     assert len(captured_requests) == 3
     for req in captured_requests:
-        assert req.headers.get("x-caller-service") == "frontend-portal"
+        assert req.headers.get("x-caller-service") == "api-gateway"
+        assert req.headers.get("x-api-key") != "forged-api-key"
+        assert req.headers.get("x-service-name") != "forged-service"
+        assert req.headers.get("x-service-api-key") is None
 
     captured_requests.clear()
 
-    # Case B: X-Caller-Service absent -> defaults to api-gateway
+    # Case B: Identity headers absent -> defaults to api-gateway
     response = client.get("/api/v1/dashboard/summary")
     assert response.status_code == 200
     assert len(captured_requests) == 3

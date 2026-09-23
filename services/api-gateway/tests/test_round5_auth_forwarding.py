@@ -250,7 +250,7 @@ def test_circuit_breaker_immune_to_repeated_401_responses(mock_send, client):
     failure_rate, total_reqs, failures = circuit_breaker_manager.get_failure_rate(service_id)
     assert failures == 0
     assert failure_rate == 0.0
-    assert total_reqs == 20
+    assert total_reqs == 0
 
 
 @patch("httpx.AsyncClient.send", new_callable=AsyncMock)
@@ -291,7 +291,7 @@ def test_circuit_breaker_immune_to_repeated_403_responses(mock_send, client):
     failure_rate, total_reqs, failures = circuit_breaker_manager.get_failure_rate(service_id)
     assert failures == 0
     assert failure_rate == 0.0
-    assert total_reqs == 20
+    assert total_reqs == 0
 
 
 @patch("httpx.AsyncClient.send", new_callable=AsyncMock)
@@ -308,7 +308,7 @@ def test_circuit_breaker_preserves_real_5xx_service_failure_tripping(mock_send, 
         window_seconds=60,
     )
 
-    # Step 1: 10 auth 401 requests (recorded as success/healthy service)
+    # Step 1: 10 auth 401 requests (excluded from circuit breaker metrics)
     mock_send.return_value = httpx.Response(
         status_code=401,
         content=b'{"detail": "Unauthorized"}',
@@ -320,29 +320,26 @@ def test_circuit_breaker_preserves_real_5xx_service_failure_tripping(mock_send, 
         assert res.status_code == 401
 
     assert circuit_breaker_manager.get_state(service_id) == "closed"
+    assert circuit_breaker_manager.can_execute(service_id) is True
+    _, total_reqs, failures = circuit_breaker_manager.get_failure_rate(service_id)
+    assert total_reqs == 0
+    assert failures == 0
 
-    # Step 2: Send 10 HTTP 500 downstream internal server errors (10/20 = 50.0% -> still CLOSED)
+    # Step 2: Send HTTP 500 downstream internal server error -> 1/1 = 100% > 50% -> TRIPS to OPEN
     mock_send.return_value = httpx.Response(
         status_code=500,
         content=b'{"error": "Internal Database Crash"}',
         headers={"content-type": "application/json"},
         request=httpx.Request("GET", "http://test/api/v1/inventory/items"),
     )
-    for _ in range(10):
-        res = client.get("/api/v1/inventory/items")
-        assert res.status_code == 500
-
-    assert circuit_breaker_manager.get_state(service_id) == "closed"
-
-    # Step 3: Send 11th HTTP 500 downstream internal server error -> 11/21 = 52.4% > 50% -> TRIPS to OPEN
-    res_11 = client.get("/api/v1/inventory/items")
-    assert res_11.status_code == 500
+    res = client.get("/api/v1/inventory/items")
+    assert res.status_code == 500
 
     # Circuit breaker must now be OPEN
     assert circuit_breaker_manager.get_state(service_id) == "open"
     assert circuit_breaker_manager.can_execute(service_id) is False
 
-    # Step 4: Subsequent request must fail fast with 503 circuit breaker open
+    # Step 3: Subsequent request must fail fast with 503 circuit breaker open
     fast_fail_res = client.get("/api/v1/inventory/items")
     assert fast_fail_res.status_code == 503
     assert fast_fail_res.json()["error"] == "Inventory service circuit breaker open"
@@ -382,3 +379,47 @@ def test_client_cannot_forge_service_identity_headers(mock_send, client):
 
     # The real end-user credential is still forwarded untouched.
     assert downstream_req.headers["authorization"] == "Bearer valid-looking-token"
+
+
+@patch("httpx.AsyncClient.send", new_callable=AsyncMock)
+def test_auth_failures_do_not_delay_breaker_on_real_outage(mock_send, client):
+    """
+    Regression test for the 401/403 exclusion.
+
+    Auth rejections must not enter the breaker's window at all. If they are
+    recorded as successes they pad the denominator, so a real outage needs
+    many more 5xx responses before the failure rate crosses the threshold.
+    """
+    service_id = "inventory"
+    circuit_breaker_manager.configure_service(
+        service_id,
+        failure_rate_threshold=0.50,
+        window_seconds=60,
+    )
+
+    # A burst of legitimate auth rejections (e.g. an expired token fleet-wide).
+    mock_send.return_value = httpx.Response(
+        status_code=401,
+        content=b'{"detail": "Invalid token"}',
+        headers={"content-type": "application/json"},
+        request=httpx.Request("GET", "http://test/api/v1/inventory/items"),
+    )
+    for _ in range(20):
+        assert client.get("/api/v1/inventory/items").status_code == 401
+
+    # The window must still be empty -- these were not service health signals.
+    _, total_reqs, _ = circuit_breaker_manager.get_failure_rate(service_id)
+    assert total_reqs == 0
+
+    # A genuine outage starts. The very first 500 is 1/1 = 100% failure rate,
+    # so the breaker must trip immediately, not 20 requests later.
+    mock_send.return_value = httpx.Response(
+        status_code=500,
+        content=b'{"error": "Internal Database Crash"}',
+        headers={"content-type": "application/json"},
+        request=httpx.Request("GET", "http://test/api/v1/inventory/items"),
+    )
+    assert client.get("/api/v1/inventory/items").status_code == 500
+
+    assert circuit_breaker_manager.get_state(service_id) == "open"
+    assert circuit_breaker_manager.can_execute(service_id) is False

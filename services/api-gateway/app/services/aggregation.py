@@ -17,83 +17,12 @@ import httpx
 from fastapi import Request
 
 from app.core.config import settings
+from app.services.proxy import _build_forward_headers
 
 logger = logging.getLogger("api_gateway.aggregation")
 
-# Hop-by-hop headers that must not be forwarded downstream
-HOP_BY_HOP_HEADERS = {
-    "connection",
-    "keep-alive",
-    "proxy-authenticate",
-    "proxy-authorization",
-    "te",
-    "trailer",
-    "transfer-encoding",
-    "upgrade",
-    "host",
-    "content-length",
-}
-
-
-def _build_downstream_headers(request: Request) -> dict[str, str]:
-    """
-    Build forwarded headers for downstream microservice requests.
-
-    - Strips hop-by-hop headers
-    - Preserves Authorization header
-    - Propagates X-Request-ID
-    - Propagates X-Caller-Service (defaults to 'api-gateway' if absent)
-    - Adds configured gateway service authentication (X-API-Key, X-Service-Name)
-    - Adds client IP tracking (X-Forwarded-For, X-Forwarded-Proto)
-    """
-    headers = {
-        key: value
-        for key, value in request.headers.items()
-        if key.lower() not in HOP_BY_HOP_HEADERS
-    }
-
-    # Track client IP
-    client_ip = (
-        request.client.host
-        if request.client is not None
-        else "unknown"
-    )
-    existing_forwarded_for = headers.get("x-forwarded-for")
-    if existing_forwarded_for:
-        headers["x-forwarded-for"] = f"{existing_forwarded_for}, {client_ip}"
-    else:
-        headers["x-forwarded-for"] = client_ip
-
-    headers["x-forwarded-proto"] = request.url.scheme
-
-    # Forward Authorization header if present
-    auth_header = request.headers.get("authorization")
-    if auth_header:
-        headers["authorization"] = auth_header
-
-    # Propagate or generate X-Request-ID
-    request_id = getattr(request.state, "request_id", None) or request.headers.get("x-request-id")
-    if request_id:
-        headers["x-request-id"] = request_id
-
-    # Propagate or default X-Caller-Service
-    caller_service = request.headers.get("x-caller-service")
-    if caller_service:
-        headers["x-caller-service"] = caller_service
-    else:
-        headers["x-caller-service"] = "api-gateway"
-
-    # Forward service API key if configured and not already provided
-    service_api_key = getattr(settings, "API_GATEWAY_SERVICE_API_KEY", None)
-    if (
-        service_api_key
-        and "x-api-key" not in headers
-        and "x-service-api-key" not in headers
-    ):
-        headers["x-api-key"] = service_api_key
-        headers["x-service-name"] = "api_gateway"
-
-    return headers
+# Alias for backward compatibility while reusing proxy header-building
+_build_downstream_headers = _build_forward_headers
 
 
 async def _fetch_single_service(
@@ -190,7 +119,7 @@ class AggregationService:
         Fan out in parallel to Inventory, Compliance, and Logistics services,
         collect responses concurrently, and return the aggregated summary.
         """
-        headers = _build_downstream_headers(request)
+        headers = _build_forward_headers(request)
 
         inventory_url = f"{settings.INVENTORY_SERVICE_URL.rstrip('/')}/api/v1/inventory"
         compliance_url = f"{settings.COMPLIANCE_SERVICE_URL.rstrip('/')}/api/v1/compliance/audit/summary"
