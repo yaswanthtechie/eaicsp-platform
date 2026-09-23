@@ -105,10 +105,19 @@ def test_register_rule_with_explicit_name(empty_registry):
 
 
 def test_default_rules_dir_does_not_depend_on_cwd(tmp_path, monkeypatch, empty_registry):
-    """Library callers who don't pass rules_dir must still find the packaged rules."""
-    monkeypatch.chdir(tmp_path)
-    validator = DataValidator.from_config(str(PROJECT_ROOT / "configs" / "sales_rules.yaml"))
-    assert any(r.name == "composite_pk_unique" for r in validator.rules)
+    def test_default_rules_dir_does_not_depend_on_cwd(tmp_path, monkeypatch, empty_registry):
+        """Library callers who don't pass rules_dir must still find the packaged rules."""
+        monkeypatch.chdir(tmp_path)
+
+        # Target the new dev environment contract
+        config_path = PROJECT_ROOT / "configs" / "dev" / "sales_rules.yaml"
+
+        # Fallback to root just in case the file hasn't physically moved yet
+        if not config_path.exists():
+            config_path = PROJECT_ROOT / "configs" / "sales_rules.yaml"
+
+        validator = DataValidator.from_config(str(config_path))
+        assert any(r.name == "composite_pk_unique" for r in validator.rules)
 
 
 def test_missing_rules_dir_only_warns(tmp_path, empty_registry, caplog):

@@ -76,6 +76,20 @@ def test_parse_args_missing_required():
         validate_cli.parse_args([])
 
 
+@patch("os.getenv", return_value="prod")
+def test_parse_args_env_default(mock_getenv, mock_args):
+    """Verifies that VALIDATOR_ENV is picked up as the default environment."""
+    args = validate_cli.parse_args(mock_args)
+    assert args.env == "prod"
+    mock_getenv.assert_called_with("VALIDATOR_ENV")
+
+
+def test_parse_args_env_override(mock_args):
+    """Verifies that the --env flag overrides the OS environment variable."""
+    args_with_env = mock_args + ["--env", "staging"]
+    args = validate_cli.parse_args(args_with_env)
+    assert args.env == "staging"
+
 # --- Tests for export_report ---
 
 @patch("pathlib.Path.mkdir")
@@ -349,3 +363,35 @@ def test_main_streaming_incremental_no_rows_processed(
 
     # Ensure it did NOT attempt to stream the watermark column
     mock_read.assert_not_called()
+
+
+# --- Tests for Environment Path Resolution ---
+
+@patch("pathlib.Path.is_file", return_value=True)
+@patch("pandas.read_csv", return_value=pd.DataFrame())
+@patch("src.validator.DataValidator.from_config")
+@patch("src.validate_cli.export_report")
+@patch("src.validate_cli.resolve_env_path")
+def test_main_env_resolution(
+        mock_resolve, mock_export, mock_validator, mock_read, mock_is_file, mock_args, mock_report
+):
+    """Verifies that main() calls resolve_env_path and uses the resolved path."""
+    mock_instance = MagicMock()
+    mock_instance.validate.return_value = mock_report
+    mock_validator.return_value = mock_instance
+
+    # Mock the resolver to return a distinct nested path
+    resolved_path = Path("dummy_staging_dir/dummy.yaml")
+    mock_resolve.return_value = resolved_path
+
+    args = mock_args + ["--env", "staging"]
+
+    assert validate_cli.main(args) == validate_cli.EXIT_SUCCESS
+
+    # Verify the resolver was triggered with the correct CLI argument
+    mock_resolve.assert_called_once()
+    assert mock_resolve.call_args[0][1] == "staging"
+
+    # Verify the validator engine was initialized using the injected path
+    mock_validator.assert_called_once()
+    assert mock_validator.call_args[0][0] == str(resolved_path)

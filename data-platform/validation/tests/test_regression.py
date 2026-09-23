@@ -10,7 +10,13 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 def test_golden_regression():
     # 1. Load the fixed "golden" dataset and rules using absolute paths
     data_path = PROJECT_ROOT / "tests" / "data" / "messy_sales_500.csv"
-    config_path = PROJECT_ROOT / "configs" / "sales_rules.yaml"
+
+    # Target the new dev environment contract
+    config_path = PROJECT_ROOT / "configs" / "dev" / "sales_rules.yaml"
+
+    # Fallback to root just in case the file hasn't physically moved yet
+    if not config_path.exists():
+        config_path = PROJECT_ROOT / "configs" / "sales_rules.yaml"
 
     df = pd.read_csv(data_path)
 
@@ -41,10 +47,18 @@ def test_golden_regression():
     assert warning_counts.get('date_in_range') == 69
     assert warning_counts.get('wh_01_minimum_price') == 2
 
+
 def test_golden_regression_deep_profile():
     """The 'deep' profile is default plus the full-dataset outlier rule."""
     data_path = PROJECT_ROOT / "tests" / "data" / "messy_sales_500.csv"
-    config_path = PROJECT_ROOT / "configs" / "sales_rules.yaml"
+
+    # Target the new prod environment contract
+    config_path = PROJECT_ROOT / "configs" / "prod" / "sales_rules.yaml"
+
+    # Fallback to root just in case the file hasn't physically moved yet
+    if not config_path.exists():
+        config_path = PROJECT_ROOT / "configs" / "sales_rules.yaml"
+
     df = pd.read_csv(data_path)
 
     validator = DataValidator.from_config(

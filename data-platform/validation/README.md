@@ -1117,6 +1117,56 @@ python -m src.generate_docs --config configs/sales_rules.yaml --format all --out
 ### Expected Output
 The default HTML generation creates a single docs/data_contract_dashboard.html file. This zero-dependency file can be opened directly in any browser (no server required) and contains an interactive sidebar to toggle between different data validation profiles. If generating Markdown, the script will output a separate .md file for each discovered profile
 
+# Cross-Environment Rule Versioning
+
+To support enterprise CI/CD workflows, the pipeline supports physically separated data contracts for different environments (`dev`, `staging`, `prod`). This ensures data engineering teams can test relaxed SLAs and experimental rules in `dev` without risking the stability of the strict `prod` pipeline.
+
+Each environment maintains its own independent `version` string at the root of its YAML file. When a contract's rules are updated, the version is bumped in `dev` and safely promoted through the environments as an immutable artifact.
+
+## How It Works: Dynamic Path Resolution
+
+The pipeline uses the `VALIDATOR_ENV` OS environment variable to automatically route execution to the correct configuration subdirectory. If an environment is specified, the pipeline dynamically injects the environment name into the configuration path (e.g., `configs/sales_rules.yaml` resolves to `configs/prod/sales_rules.yaml`). 
+
+This allows you to keep orchestration commands static across all environments while routing to the appropriate ruleset.
+
+### Recommended Directory Structure
+
+```text
+configs/
+├── dev/
+│   ├── sales_rules.yaml    
+│   └── routing_map.json
+├── staging/
+│   ├── sales_rules.yaml    
+│   └── routing_map.json
+└── prod/
+    ├── sales_rules.yaml    
+    └── routing_map.json
+```
+
+## Execution & CLI Arguments
+All core CLI entry points (main.py, validate_cli.py, validate_folder.py) support environment routing.
+* `--env:` Explicitly sets the target environment (e.g., dev, staging, prod). This overrides the VALIDATOR_ENV OS environment variable and is ideal for local testing.
+
+## CI/CD Integration (Using OS Variables)
+In production environments (Airflow, Kubernetes, GitHub Actions), inject the environment variable. The pipeline will automatically resolve to the prod/ subdirectory.
+```bash
+$env:VALIDATOR_ENV="prod"
+
+# The CLI automatically routes to 'configs/prod/sales_rules.yaml'
+python -m src.validate_folder --folder data/ --mapping configs/routing_map.json --rules-dir rules/ --save-reports --output-dir reports/prod_op
+```
+
+## Local Development (Using CLI Overrides)
+When testing a new rule locally, use the `--env` flag to bypass system variables and point the engine to your development contract.
+```bash
+# Explicitly tests the rules located in 'configs/dev/sales_rules.yaml'
+python -m src.validate_folder --file data/messy_sales.csv --config configs/sales_rules.yaml --env dev --save-reports --output-dir reports/dev_op
+
+# Works identically for batch folder validation
+python -m src.validate_folder --folder data/ --mapping configs/routing_map.json --env dev --save-reports --output-dir reports/dev_op
+```
+
 
 # Known Limitations
 * **Streaming Memory Growth:** While chunked streaming prevents massive Out-Of-Memory (OOM) crashes, Pass 1 still tracks every unique composite key seen in a set. Memory usage scales linearly O(N) with the number of distinct rows, so it is not strictly "near zero".

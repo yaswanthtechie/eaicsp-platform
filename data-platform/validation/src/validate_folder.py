@@ -1,4 +1,5 @@
 import sys
+import os
 import json
 import argparse
 import logging
@@ -14,7 +15,7 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.validator import DataValidator
+from src.validator import DataValidator, resolve_env_path
 
 # --- Configuration Constants ---
 EXIT_SUCCESS = 0
@@ -76,7 +77,8 @@ def validate_folder(
         watermark_dir: str = ".watermarks",
         profile_name: Optional[str] = None,
         rules_dir: Optional[str] = None,
-        global_timeout_seconds: Optional[float] = None
+        global_timeout_seconds: Optional[float] = None,
+        env: Optional[str] = None
 ) -> Dict[str, Any]:
     folder = Path(folder_path)
 
@@ -112,6 +114,8 @@ def validate_folder(
             if not cfg_path:
                 logger.error("Mapping pattern '%s' is missing a config path.", pattern)
                 continue
+
+            cfg_path = resolve_env_path(cfg_path, env=env)
 
             validator = _load_validator(str(cfg_path), target_profile, validators_cache, rules_dir)
             for file_path in folder.rglob(pattern):
@@ -265,13 +269,13 @@ def main():
     parser.add_argument("--incremental", action="store_true", help="Only process new rows since the last run.")
     parser.add_argument("--watermark-col", type=str, default="transaction_id", help="Column for watermarking.")
     parser.add_argument("--watermark-dir", type=str, default=".watermarks", help="Directory for state tracking files.")
-
     parser.add_argument("--global-timeout-seconds", type=float, default=None,
                         help="Soft timeout in seconds for the entire batch operation.")
-
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--config", type=str, help="Path to a single validation YAML configuration file.")
     group.add_argument("--mapping", type=str, help="Path to a JSON file mapping glob patterns to config files.")
+    parser.add_argument("--env", type=str, default=os.getenv("VALIDATOR_ENV"),
+                        help="Target environment (e.g., dev, prod). Overrides VALIDATOR_ENV.")
 
     args = parser.parse_args()
     setup_logging(log_level=args.log_level, log_dir=args.log_dir)
@@ -306,8 +310,8 @@ def main():
     try:
         summary = validate_folder(
             folder_path=args.folder,
-            config_path=args.config,
-            mapping_path=args.mapping,
+            config_path = resolve_env_path(args.config, args.env) if args.config else None,
+            mapping_path = resolve_env_path(args.mapping, args.env) if args.mapping else None,
             profile_name=args.profile,
             rules_dir=args.rules_dir,
             default_pattern=args.pattern,
@@ -317,7 +321,8 @@ def main():
             incremental=args.incremental,
             watermark_col=args.watermark_col,
             watermark_dir=args.watermark_dir,
-            global_timeout_seconds=args.global_timeout_seconds
+            global_timeout_seconds=args.global_timeout_seconds,
+            env=args.env
         )
 
         # --- CI/CD Exit Overrides ---

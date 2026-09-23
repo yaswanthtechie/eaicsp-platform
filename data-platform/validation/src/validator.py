@@ -1,15 +1,32 @@
-import logging
 import collections
-import time
-from typing import List, Dict, Any, Optional, Union
 import copy
 import json
+import logging
+import time
+from pathlib import Path
+from typing import List, Dict, Any, Optional, Union
 
 import pandas as pd
 import yaml
 from pydantic import BaseModel, Field, model_validator, ConfigDict
 
 logger = logging.getLogger(__name__)
+
+
+def resolve_env_path(base_path: Union[str, Path], env: Optional[str] = None) -> Path:
+    """
+    Injects the environment subdirectory into the path if an environment is specified.
+    E.g., configs/sales_rules.yaml + env='prod' -> configs/prod/sales_rules.yaml
+    """
+    path = Path(base_path)
+    if not env or env.lower() in ('default', 'local', 'none', ''):
+        return path
+
+    # Avoid double-injecting if the environment is already explicitly in the path
+    if env in path.parts:
+        return path
+
+    return path.parent / env / path.name
 
 
 def is_comparable(a, b):

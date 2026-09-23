@@ -2,6 +2,7 @@ import json
 import logging
 import math
 import sys
+import os
 from unittest.mock import patch, MagicMock
 from pathlib import Path
 
@@ -444,3 +445,66 @@ def test_main_list_profiles_mapping_error(mock_logger_error, mock_setup_logging)
 
     mock_logger_error.assert_called_once()
     assert "Failed to read mapping file for profiles" in mock_logger_error.call_args[0][0]
+
+
+# --- Tests for Environment Routing (Cross-Environment Versioning) ---
+
+@patch("src.validate_folder.resolve_env_path")
+@patch("src.validate_folder.pd.read_csv")
+@patch("src.validate_folder.DataValidator")
+def test_validate_folder_env_mapping_resolution(mock_validator_class, mock_read_csv, mock_resolve_env, temp_env):
+    """Verifies that the target environment is injected into nested mapping paths."""
+    mock_read_csv.return_value = MagicMock()
+    mock_instance = MagicMock()
+    mock_instance.validate.return_value = MockReport(passed=True, total_rows_affected=10)
+    mock_validator_class.from_config.return_value = mock_instance
+
+    # Mock resolve_env_path to return the dummy config file so it passes the subsequent is_file() checks
+    mock_resolve_env.return_value = temp_env["config_file"]
+
+    summary = validate_folder.validate_folder(
+        folder_path=temp_env["data_dir"],
+        mapping_path=temp_env["mapping_file"],
+        env="staging"
+    )
+
+    assert summary["passed_files"] == 1
+    # Assert resolve_env_path was called to inject env="staging" for the nested mapping config
+    mock_resolve_env.assert_called()
+    assert mock_resolve_env.call_args.kwargs.get("env") == "staging"
+
+
+@patch("os.getenv", return_value="prod")
+@patch("src.validate_folder.validate_folder")
+@patch("src.validate_folder.setup_logging")
+def test_main_env_os_variable(mock_setup_logging, mock_validate_folder, mock_getenv):
+    """Verifies that main() picks up the VALIDATOR_ENV OS variable by default."""
+    test_args = ["validate_folder.py", "--folder", "/dummy", "--config", "/dummy.yaml"]
+    mock_validate_folder.return_value = {"failed_files": 0, "global_sla_breached": False, "files_with_sla_breaches": 0}
+
+    with patch.object(sys, 'argv', test_args):
+        with pytest.raises(SystemExit) as exit_exc:
+            validate_folder.main()
+        assert exit_exc.value.code == validate_folder.EXIT_SUCCESS
+
+    # Verify env="prod" was picked up from the OS variable and passed down
+    mock_validate_folder.assert_called_once()
+    assert mock_validate_folder.call_args.kwargs.get("env") == "prod"
+    mock_getenv.assert_any_call("VALIDATOR_ENV")
+
+
+@patch("src.validate_folder.validate_folder")
+@patch("src.validate_folder.setup_logging")
+def test_main_env_cli_override(mock_setup_logging, mock_validate_folder):
+    """Verifies that the --env CLI flag successfully overrides OS variables."""
+    test_args = ["validate_folder.py", "--folder", "/dummy", "--config", "/dummy.yaml", "--env", "dev"]
+    mock_validate_folder.return_value = {"failed_files": 0, "global_sla_breached": False, "files_with_sla_breaches": 0}
+
+    with patch.object(sys, 'argv', test_args):
+        with pytest.raises(SystemExit) as exit_exc:
+            validate_folder.main()
+        assert exit_exc.value.code == validate_folder.EXIT_SUCCESS
+
+    # Verify env="dev" from the CLI flag successfully overwrote any OS defaults
+    mock_validate_folder.assert_called_once()
+    assert mock_validate_folder.call_args.kwargs.get("env") == "dev"

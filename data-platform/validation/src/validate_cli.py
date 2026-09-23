@@ -12,7 +12,7 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.validator import DataValidator, SecurityError
+from src.validator import DataValidator, SecurityError, resolve_env_path
 
 # --- Configuration Constants ---
 EXIT_SUCCESS = 0
@@ -74,7 +74,8 @@ def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
                         help="Enable streaming execution. Specify number of rows per chunk.")
     parser.add_argument("--sla-time-limit", type=float, default=None,
                         help="Override the YAML global_max_duration_seconds SLA.")
-    return parser.parse_args(args)
+    parser.add_argument("--env", type=str, default=os.getenv("VALIDATOR_ENV"),
+                        help="Target environment (e.g., dev, staging, prod). Overrides VALIDATOR_ENV.")
     return parser.parse_args(args)
 
 
@@ -102,7 +103,9 @@ def main(cli_args: Optional[list[str]] = None) -> int:
     setup_logger(os.getenv("LOG_LEVEL", DEFAULT_LOG_LEVEL), enable_file_logging=args.log_to_file)
 
     input_path: Path = args.file
-    config_path: Path = args.config
+    # config_path: Path = args.config
+    # Resolve the config path dynamically based on the environment
+    config_path: Path = resolve_env_path(args.config, args.env)
     output_path: Path = args.output
 
     # Validate file existence strictly as files, not just paths

@@ -1,9 +1,10 @@
 import pytest
 import pandas as pd
 import yaml
+from pathlib import Path
 from pydantic import ValidationError
-from src.validator import ConfigRule, DataValidator, ValidationResult, SecurityError
-from src.registry import RULE_REGISTRY, clear_registry, register_rule
+from src.validator import ConfigRule, DataValidator, ValidationResult, SecurityError, resolve_env_path
+from src.registry import RULE_REGISTRY, clear_registry
 import rules.custom_rules as real_custom_rules
 
 
@@ -1337,3 +1338,38 @@ profiles:
 
     assert val.global_warning_fail_pct == 0.15
     assert val.global_max_duration_seconds == 10.5
+
+
+def test_resolve_env_path_no_env():
+    """Tests that providing no environment returns the exact original path."""
+    original = "configs/sales_rules.yaml"
+
+    assert resolve_env_path(original) == Path(original)
+    assert resolve_env_path(original, env=None) == Path(original)
+
+
+def test_resolve_env_path_ignored_envs():
+    """Tests that internal or local fallback environments do not alter the path."""
+    original = "configs/sales_rules.yaml"
+    ignored_envs = ["", "local", "default", "none", "LOCAL", "None"]
+
+    for env in ignored_envs:
+        assert resolve_env_path(original, env=env) == Path(original)
+
+
+def test_resolve_env_path_injection():
+    """Tests that valid environments are injected perfectly into the parent directory structure."""
+    # Standard nested directory
+    assert resolve_env_path("configs/rules.yaml", env="prod") == Path("configs/prod/rules.yaml")
+
+    # Root level file
+    assert resolve_env_path("rules.yaml", env="dev") == Path("dev/rules.yaml")
+
+    # Deeply nested directory
+    assert resolve_env_path("a/b/c/rules.yaml", env="staging") == Path("a/b/c/staging/rules.yaml")
+
+
+def test_resolve_env_path_already_in_path():
+    """Tests that the resolver prevents 'double-injection' if the environment is already in the path."""
+    assert resolve_env_path("configs/prod/rules.yaml", env="prod") == Path("configs/prod/rules.yaml")
+    assert resolve_env_path("dev/rules.yaml", env="dev") == Path("dev/rules.yaml")

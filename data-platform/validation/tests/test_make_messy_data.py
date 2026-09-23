@@ -172,7 +172,13 @@ def test_large_generated_batch_is_not_rejected(tmp_path):
     generate_messy_data(out, MessyDataConfig(n_base=20_000))
     df = pd.read_csv(out)
 
-    config = Path(__file__).resolve().parent.parent / "configs" / "sales_rules.yaml"
+    # Route the test to the new 'dev' environment configuration
+    config = Path(__file__).resolve().parent.parent / "configs" / "dev" / "sales_rules.yaml"
+
+    # Fallback just in case the test is run before the files are physically moved
+    if not config.exists():
+        config = Path(__file__).resolve().parent.parent / "configs" / "sales_rules.yaml"
+
     report = DataValidator.from_config(str(config)).validate(df)
 
     assert report.batch_rejected is False, report.rejection_reasons

@@ -1,4 +1,4 @@
-version: "1.2.0"
+version: "prod-1.2.0"
 profiles:
   default:
     global_max_fail_pct: 0.20  # Rejects batch if >20% of all rows fail ANY rules
