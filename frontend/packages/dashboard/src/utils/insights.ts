@@ -47,20 +47,34 @@ export function generateWarehouseInsight(
   const totalLowStock = inventory.filter((item) => item.needs_reorder,).length;
 
   let runningCount = 0;
+  let lastIncludedCount = 0;
   const topWarehouses: string[] = [];
 
   for (const [warehouse, count] of rankedWarehouses) {
-    topWarehouses.push(warehouse);
-    runningCount += count;
+    const coveredHalf = runningCount / totalLowStock >= 0.5;
 
-    if (runningCount / totalLowStock >= 0.5) {
+    // Stop once we cover at least half -- but never split a tie:
+    // a warehouse with the same count as the last one included
+    // is included too.
+    if (coveredHalf && count < lastIncludedCount) {
       break;
     }
+
+    topWarehouses.push(warehouse);
+    runningCount += count;
+    lastIncludedCount = count;
   }
 
-  const percentage = Math.round(
-    (runningCount / totalLowStock) * 100,
-  );
+  // Everything tied -> there is no "top" warehouse; say so plainly.
+  if (
+    rankedWarehouses.length > 1 &&
+    topWarehouses.length === rankedWarehouses.length &&
+    rankedWarehouses[0][1] === rankedWarehouses[rankedWarehouses.length - 1][1]
+  ) {
+    return `Low-stock items are spread evenly across ${rankedWarehouses.length} warehouses.`;
+  }
+
+  const percentage = Math.round((runningCount / totalLowStock) * 100);
 
   if (topWarehouses.length === 1) {
     return `${topWarehouses[0]} holds ${percentage}% of low-stock items.`;
@@ -73,7 +87,6 @@ export function generateWarehouseInsight(
   return `${topWarehouses.slice(0, -1).join(", ")}, and ${
     topWarehouses[topWarehouses.length - 1]
   } hold ${percentage}% of low-stock items.`;
-  
 }
 
 export function generateSupplierInsight(

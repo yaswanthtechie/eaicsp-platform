@@ -157,17 +157,16 @@ function App() {
     autoReconnect: true,
     maxRetries: 5,
   });
+  const effectiveWarehouse = 
+    role === "warehouse_manager"
+      ? mockUser.warehouse ?? "All"
+      : filters.warehouse;
 
   const baseFilteredInventory = useMemo(() => {
-    const warehouseFilter =
-      role === "warehouse_manager"
-        ? mockUser.warehouse ?? "All"
-        : filters.warehouse;
-
     return liveInventory.filter((item) => {
       const warehouseMatches =
-        warehouseFilter === "All" ||
-        item.warehouse_id === warehouseFilter;
+        effectiveWarehouse === "All" ||
+        item.warehouse_id === effectiveWarehouse;
 
       const categoryMatches =
         filters.category === "All" ||
@@ -177,9 +176,8 @@ function App() {
     });
   }, [
     liveInventory,
-    filters.warehouse,
+    effectiveWarehouse,
     filters.category,
-    role,
   ]);
 
   const filteredInventory = useMemo(() => {
@@ -343,6 +341,9 @@ function App() {
       <DashboardFilters
         filters={filters}
         onFilterChange={setFilters}
+        lockedWarehouse={
+          role === "warehouse_manager" ? effectiveWarehouse : undefined
+        }
       />
 
       <div
@@ -354,6 +355,7 @@ function App() {
         }}
       >
         <ExportCsvButton
+          role={role}
           inventory={filteredInventory}
           suppliers={dashboardApi.getSupplierRisk()}
           shipments={dashboardApi.getShipmentStatus()}
@@ -364,7 +366,7 @@ function App() {
           inventory={filteredInventory}
           suppliers={dashboardApi.getSupplierRisk()}
           shipments={dashboardApi.getShipmentStatus()}
-          filters={filters}
+          filters={{ ...filters, warehouse: effectiveWarehouse }}
           kpis={kpis}
         />
       </div>

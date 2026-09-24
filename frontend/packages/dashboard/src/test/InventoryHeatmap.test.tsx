@@ -132,22 +132,26 @@ describe("InventoryHeatmap", () => {
     
   });
 
- it("renders inventory item using virtualization", async () => {
+  it("renders only a small window of rows from a 10k+ dataset (virtualization)", async () => {
    vi.useFakeTimers();
 
    render(<InventoryHeatmap />);
 
    await act(async () => {
-    vi.advanceTimersByTime(1000);
+     vi.advanceTimersByTime(1000);
    });
 
-   expect(
-    screen.getByText(inventory[0].sku_id)).toBeInTheDocument();
-   
-   expect(
-    screen.getByText(
-      inventory[0].quantity_on_hand.toString())).toBeInTheDocument();
-   
+   // The dataset really is large...
+   expect(inventory.length).toBeGreaterThanOrEqual(10000);
+
+   // ...but only a small window of item rows is in the DOM.
+   // Each row is a button whose accessible name starts with "SKU ".
+   const renderedRows = screen.getAllByRole("button", { name: /^SKU / });
+
+   expect(renderedRows.length).toBeGreaterThan(0);
+   expect(renderedRows.length).toBeLessThan(500);
+
+   expect(screen.getByText(inventory[0].sku_id)).toBeInTheDocument();
  });
 
   it("shows product details on hover", async () => {

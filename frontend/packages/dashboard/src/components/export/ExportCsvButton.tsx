@@ -8,28 +8,52 @@ import type {
     ShipmentStatus,
     SupplierRiskItem,
 } from "../../types/dashboard";
+import type { UserRole } from "../../mocks/user";
 import { colors, radius, space } from "../../tokens";
 
 interface ExportButtonsProps {
+    role: UserRole;
     inventory: InventoryItem[];
     suppliers: SupplierRiskItem[];
     shipments: ShipmentStatus;
 }
 
+const VIEW_LABELS: Record<CsvExportView, string> = {
+    inventory: "Inventory",
+    suppliers: "Suppliers",
+    shipments: "Shipments",
+};
+
+// Which CSV views each role is allowed to export.
+// Must match what the role can SEE on the dashboard.
+const VIEWS_BY_ROLE: Record<UserRole, CsvExportView[]> = {
+    ceo: ["inventory", "suppliers", "shipments"],
+    warehouse_manager: ["inventory", "shipments"],
+};
+
 const ExportButtons = ({
+    role,
     inventory,
     suppliers,
     shipments,
 }: ExportButtonsProps) => {
     const [view, setView] = useState<CsvExportView>("inventory");
 
+    const allowedViews = VIEWS_BY_ROLE[role];
+
+    // If the role changes while a now-forbidden view is selected,
+    // fall back to inventory instead of exporting it.
+    const activeView: CsvExportView = allowedViews.includes(view)
+        ? view
+        : "inventory";
+
     const handleCsvExport = (): void => {
-        if (view === "inventory") {
+        if (activeView === "inventory") {
             exportDashboardCsv("inventory", inventory);
             return;
         }
 
-        if (view === "suppliers") {
+        if (activeView === "suppliers") {
             exportDashboardCsv("suppliers", suppliers);
             return;
         }
@@ -47,7 +71,7 @@ const ExportButtons = ({
             }}
         >
             <select
-                value={view}
+                value={activeView}
                 onChange={(event) => {
                     setView(event.target.value as CsvExportView);
                 }}
@@ -62,9 +86,11 @@ const ExportButtons = ({
                     fontSize: space.md,
                 }}
             >
-                <option value="inventory">Inventory</option>
-                <option value="suppliers">Suppliers</option>
-                <option value="shipments">Shipments</option>
+                {allowedViews.map((option) => (
+                    <option key={option} value={option}>
+                        {VIEW_LABELS[option]}
+                    </option>
+                ))}
             </select>
 
             <button

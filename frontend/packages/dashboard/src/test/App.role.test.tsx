@@ -47,7 +47,22 @@ vi.mock("../components/AlertsPanel", () => ({
 }));
 
 vi.mock("../components/DashboardFilters", () => ({
-  default: () => <div>Dashboard Filters</div>,
+  default: ({
+    lockedWarehouse,
+  }: {
+    lockedWarehouse?: string;
+  }) => (
+    <select
+      aria-label="Warehouse filter"
+      disabled={lockedWarehouse !== undefined}
+      value={lockedWarehouse ?? "All"}
+      onChange={() => {}}
+    >
+      <option value="All">All Warehouses</option>
+      <option value="WH001">WH001</option>
+      <option value="WH002">WH002</option>
+    </select>
+  ),
 }));
 
 vi.mock("../components/NarrativeInsights", () => ({
@@ -112,5 +127,23 @@ describe("App role-based views", () => {
     expect(screen.getByText("Warehouse Units")).toBeInTheDocument();
     expect(screen.getByText("Reorder Items")).toBeInTheDocument();
     expect(screen.getByText("Warehouse Alerts")).toBeInTheDocument();
+  });
+
+  it("locks the warehouse filter for a warehouse manager", async () => {
+    window.history.replaceState({}, "", "/?role=warehouse_manager");
+
+    render(<App />);
+
+    const warehouseSelect = await screen.findByLabelText("Warehouse filter");
+    expect(warehouseSelect).toBeDisabled();
+  });
+
+  it("lets the CEO change the warehouse filter", async () => {
+    window.history.replaceState({}, "", "/?role=ceo");
+
+    render(<App />);
+
+    const warehouseSelect = await screen.findByLabelText("Warehouse filter");
+    expect(warehouseSelect).not.toBeDisabled();
   });
 });

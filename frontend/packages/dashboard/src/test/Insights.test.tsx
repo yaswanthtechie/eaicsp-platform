@@ -52,6 +52,35 @@ describe("Insights", () => {
     );
   });
 
+    it("never splits a tie at the cut-off", () => {
+    const inventory = [
+      { warehouse_id: "WH001", needs_reorder: true },
+      { warehouse_id: "WH001", needs_reorder: true },
+      { warehouse_id: "WH002", needs_reorder: true },
+      { warehouse_id: "WH003", needs_reorder: true },
+      { warehouse_id: "WH004", needs_reorder: true },
+    ] as InventoryItem[];
+
+    // WH001 alone is 40% (< 50%), so the next count (1) is added --
+    // and WH002, WH003 and WH004 are all tied at 1, so all are included.
+    expect(generateWarehouseInsight(inventory)).toBe(
+      "WH001, WH002, WH003, and WH004 hold 100% of low-stock items.",
+    );
+  });
+
+  it("says items are spread evenly when every warehouse ties", () => {
+    const inventory = [
+      { warehouse_id: "WH001", needs_reorder: true },
+      { warehouse_id: "WH002", needs_reorder: true },
+      { warehouse_id: "WH003", needs_reorder: true },
+      { warehouse_id: "WH004", needs_reorder: true },
+    ] as InventoryItem[];
+
+    expect(generateWarehouseInsight(inventory)).toBe(
+      "Low-stock items are spread evenly across 4 warehouses.",
+    );
+  });
+
   it("generates supplier insight", () => {
     const suppliers = [
       { supplier: "BlinkIt", risk_score: 0.25 },

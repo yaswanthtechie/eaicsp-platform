@@ -280,4 +280,39 @@ describe("exportDashboardCsv", () => {
         expect(csv).toContain("Delayed,10");
         expect(csv).toContain("Cancelled,10");
     });
+
+    it("does not prefix negative numbers", async () => {
+        const inventory: InventoryItem[] = [
+            {
+                sku_id: "SKU001",
+                product_name: "Rice",
+                category: "Food",
+                warehouse_id: "WH001",
+                quantity_on_hand: -5,
+                reorder_point: 20,
+                needs_reorder: true,
+                avg_daily_demand: 10,
+            },
+        ];
+
+        const createObjectURL = vi.fn((blob: Blob) => {
+            expect(blob).toBeInstanceOf(Blob);
+            return "blob:test";
+        });
+
+        vi.stubGlobal("URL", {
+            createObjectURL,
+            revokeObjectURL: vi.fn(),
+        });
+
+        const link = document.createElement("a");
+        vi.spyOn(document, "createElement").mockReturnValue(link);
+
+        exportDashboardCsv("inventory", inventory);
+
+        const csv = await createObjectURL.mock.calls[0][0].text();
+
+        expect(csv).toContain(",-5,");
+        expect(csv).not.toContain("'-5");
+    });
 });

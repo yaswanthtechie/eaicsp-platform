@@ -22,7 +22,7 @@ frontend/
             │   ├── SupplierRiskDistribution.tsx
             │   ├── DashboardFilters.tsx
             │   ├── Skeleton.tsx
-            |   └── exports/
+            |   └── export/
             │       ├── ExportCsvButton.tsx
             |       └── ExportPdfButton.tsx
             |
@@ -280,11 +280,7 @@ The insight logic is maintained in `src/utils/insights.ts`, while `NarrativeInsi
 
 The current implementation generates insights from the inventory, supplier, and shipment data instead of using completely fixed values.
 
-Warehouse low-stock insights now group inventory items by warehouse and identify the warehouse or warehouses contributing the highest number of low-stock items.
-
-When multiple warehouses have the same highest low-stock count, the insight includes all tied warehouses instead of selecting one based on array order.
-
-For example, if WH001 and WH004 have the same highest number of low-stock items, the insight reports both warehouses rather than depending on which warehouse appears first in the dataset.
+The insight names the smallest group of warehouses that together hold at least half of the low-stock items. Warehouses tied at the cut-off are always included together, and if every warehouse is tied, the insight says items are spread evenly.
 
 Examples include:
 
@@ -318,11 +314,13 @@ Role-based tests verify that the dashboard renders the appropriate content for b
 
 The role structure is kept contract-first so that the mock role can later be replaced by the real role service.
 
+`?role=` is a development/demo switch for this contract-first round. In production, the role will come from Platform's JWT (`role` claim), using the same role names as Rahul's `Role` enum.
+
 ### PDF and CSV Export
 
 The dashboard supports exporting dashboard data in both PDF and CSV formats.
 
-The export functionality is kept inside the `src/components/exports/`,while the export logic is maintained in `src/utils/`.
+The export functionality is kept inside the `src/components/export/`,while the export logic is maintained in `src/utils/`.
 
 The exported data follows the currently selected dashboard filters and role where applicable.
 
@@ -330,26 +328,28 @@ CSV export creates a downloadable with specified like invent0ry,supplier,shipmen
 
 PDF export creates a downloadable.The exported PDF contains role-appropriate dashboard information. For example, supplier-risk information is included for the `ceo` role and excluded from the `warehouse_manager` view.
 
-### Accessibility Improvements
+### Accessibility
 
-A full accessibility audit was completed across the dashboard's interactive components.
+**Status: accessibility fixes applied; a full automated audit has not been run yet.**
 
-Accessibility improvements include:
+What was fixed and tested:
 
-aria-busy for loading states.
-Accessible labels for interactive controls and form elements.
-Accessible button names and keyboard interaction.
-Keyboard navigation for interactive dashboard elements.
-Focusable controls where interaction is required.
-Support for both keyboard and mouse interaction.
-Accessible handling of interactive Inventory Heatmap elements.
-Accessible interaction when navigating through heatmap items and other dashboard controls.
+* **Inventory Heatmap rows** are keyboard-reachable (`tabIndex=0`, `role="button"`) with a descriptive `aria-label` (SKU, product, stock, reorder point). Details appear on focus, Enter or Space, and hide on Escape. Covered by 5 tests in `InventoryHeatmap.test.tsx`.
+* The **product details panel** is announced to screen readers (`role="status"`, `aria-live="polite"`).
+* **Loading, error and empty states** are announced (`aria-busy`, `role="alert"`, `role="status"`).
+* All **filter and export controls** have accessible names (`aria-label`).
+* **KPI cards** are real `<button>` elements, so they already work with the keyboard.
 
-The Inventory Heatmap was updated so that product details and row interactions are not dependent only on mouse hover. Keyboard interaction is also supported for the interactive elements.
+Not done yet:
 
-The accessibility behavior was covered with tests, including keyboard interaction and accessible loading/control states.
+* Automated audit (axe / Lighthouse) and a written list of its findings.
+* Colour-contrast check of the status colours in `tokens.ts`.
+* Manual screen-reader walkthrough (NVDA / VoiceOver).
 
-The dashboard was also checked for interactive elements that previously depended on hover-only behavior, and those interactions were updated to support accessible keyboard usage.
+**Next-round accessibility follow-up:**
+
+The remaining items require additional accessibility testing and tooling that I have not worked with yet. They are therefore intentionally kept as **not done** rather than being marked as completed. These will be treated as a **high-priority accessibility follow-up in the next round**.
+
 ### Performance at Real Scale
 
 The inventory mock data was expanded to support a large dataset of more than 12,000 inventory items.
@@ -372,10 +372,15 @@ All component test files are organized inside the `src/test` folder.
 Tests were added for:
 
 * `AlertsPanel`
+* `App.role`
 * `ForecastChart`
 * `InventoryHeatmap`
 * `InventoryTable`
 * `DashboardFilters`
+* `ExportCsvButton`
+* `Insights`
+* `ExportCsv`
+* `ExportPdf`
 * `ForecastAccuracy`
 * `InventoryHealth`
 * `SupplierRisk`
@@ -462,18 +467,19 @@ The following measurements were recorded from the browser profiler while interac
 
 Measured using React DevTools Profiler.
 
-| Component | Actual Duration |
+| **Component** | **Dataset size** | **Interaction measured** |**Actual duration** |
+|---|---:|---|---:|
+| InventoryTable | 12,000 items | Initial render | 9.50 ms |
+| App | 12,000 items | Initial render | 9.00 ms |
+| InventoryHeatmap | 12,000 items | Initial render | 4.60 ms |
+| CartesianGrid | -- | Initial render | 3.90 ms |
+| SupplierRisk | -- | Initial render | 2.50 ms |
+| InventoryHealth | 12,000 items | Initial render | 2.30 ms |
+| ShipmentStatus | -- | Initial render | 1.80 ms |
 
-| InventoryTable | 9.50 ms |
-| App | 9.00 ms |
-| InventoryHeatmap | 4.60 ms |
-| CartesianGrid | 3.90 ms |
-| SupplierRisk | 2.50 ms |
-| InventoryHealth | ~2.00 ms |
+Before virtualization the heatmap measured about 122 ms, after virtualizing the item lists, only about 60 rows are in the DOM at once, which is why it now measures about 4.6 ms.
 
-The profiler results show that the measured dashboard components generally have low actual render durations. `InventoryTable` recorded the highest duration among the components shown in this table at **9.50 ms**, followed by `App` at **9.00 ms**.
-
-`InventoryHeatmap` recorded an actual render duration of **4.60 ms** in this measurement, while the remaining components were below **4 ms**.
+The profiler results show the measured dashboard components and their actual render durations for the recorded runs.
 
 These measurements were captured directly using React DevTools Profiler and provide a baseline for future performance monitoring and optimization.
 

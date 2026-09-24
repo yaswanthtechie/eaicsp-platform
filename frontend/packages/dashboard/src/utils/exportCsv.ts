@@ -9,12 +9,14 @@ export type CsvExportView =
     | "suppliers"
     | "shipments";
 
+const FORMULA_PREFIX = /^[=+\-@\t\r]/;
+
 const escapeCsvValue = (
     value: string | number | boolean
 ): string => {
     let stringValue = String(value);
 
-    if (/^[=+\-@]/.test(stringValue)) {
+    if (typeof value === "string" && FORMULA_PREFIX.test(value)) {
         stringValue = `'${stringValue}`;
     }
 

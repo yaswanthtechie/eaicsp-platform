@@ -1,4 +1,4 @@
-import {jsPDF} from "jspdf";
+import type {jsPDF} from "jspdf";
 import type { InventoryItem } from "../types/forecast";
 import type { SupplierRiskItem, ShipmentStatus } from "../types/dashboard";
 import type { UserRole } from "../mocks/user";
@@ -66,9 +66,9 @@ export const exportDashboardPdf = async ({
     filters,
     kpis
 }: PdfExportData): Promise<void> => {
-    const {jsPDF} = await import("jspdf");
+    const {jsPDF: JsPdf} = await import("jspdf");
     
-    const doc = new jsPDF();
+    const doc = new JsPdf();
 
     let y = 20;
 
