@@ -196,6 +196,7 @@ role_change_history
 service_api_keys
 abuse_event
 ```
+---
 
 ---
 
@@ -225,6 +226,14 @@ POST /api/v1/auth/mfa/verify
 ```
 
 The login endpoint does not directly issue JWT tokens when MFA is enabled. It first creates an MFA challenge. After successful OTP verification, the Platform Service issues the access and refresh tokens.
+
+---
+
+# User Registration
+
+## POST `/api/v1/auth/register`
+
+to protected endpoints.
 
 ---
 
@@ -268,7 +277,7 @@ An administrator can assign the appropriate role later.
 
 This prevents users from assigning privileged roles to themselves during registration.
 
----
+The refresh token is marked as revoked in the database.
 
 ## Login and Multi-Factor Authentication
 
@@ -382,7 +391,7 @@ Stored Hash
 
 Passlib provides the password-hashing interface while BCrypt performs the password hashing.
 
----
+Protected endpoints use FastAPI dependencies to extract and validate the JWT.
 
 # JWT Authentication
 
@@ -526,10 +535,11 @@ require_any_role("ceo", "vp_operations")
 ```python
 require_all_roles(...)
 ```
+a service can check:
 
 This allows other services to use the same authorization pattern.
 
-For example:
+The authorization model becomes:
 
 ```text
 GET /admin/users
@@ -865,6 +875,8 @@ What action happened?
 Which user was affected?
 When did it happen?
 ```
+
+A revoked refresh session cannot be used to obtain new access tokens.
 
 ---
 
@@ -1227,7 +1239,9 @@ Current configuration:
 
 The caller service is identified using the `X-Caller-Service` header.
 
-Example:
+```text
+service_api_keys
+```
 
 ```text
 X-Caller-Service: inventory
@@ -1442,7 +1456,7 @@ The Platform Service uses standard HTTP status codes.
 | 500    | Internal server error                 |
 | 503    | Service unavailable                   |
 
-Example:
+The limit can be adjusted through configuration without changing the rate-limiting logic. For example:
 
 ```json
 {
@@ -1453,6 +1467,7 @@ Example:
 Authentication failures should avoid revealing whether a specific account exists.
 
 ---
+# Token Introspection Caching
 
 # Integration Headers
 
@@ -1472,7 +1487,20 @@ X-API-Key: sk_<service-secret>
 
 `X-Request-ID` helps correlate requests across microservices.
 
----
+```text
+Inventory
+   |
+   +--> /verify
+   +--> /verify
+   +--> /verify
+   +--> /verify
+           |
+           v
+      Platform Service
+           |
+           v
+      JWT verification
+```
 
 # Example cURL
 
@@ -2112,6 +2140,7 @@ LOGIN_BRUTE_FORCE
 MFA_ABUSE
 SSO_ABUSE
 ```
+---
 
 ### Abuse Dashboard
 
@@ -2120,6 +2149,7 @@ Endpoint:
 ```text
 GET /api/v1/admin/abuse/dashboard
 ```
+---
 
 The dashboard provides:
 
@@ -2143,6 +2173,7 @@ Inventory   ──→ Platform /verify
 Supplier    ──→ Platform /verify
 Compliance  ──→ Platform /verify
 ```
+---
 
 Each dependent service sends the user's access token to the Platform Service for centralized JWT verification.
 

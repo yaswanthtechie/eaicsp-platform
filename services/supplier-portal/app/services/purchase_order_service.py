@@ -6,23 +6,48 @@ from app.schemas.purchase_order import (
     PurchaseOrderStatus,
 )
 
+from app.services.po_p2p_state_machine import (
+    P2PState,
+    initialize_p2p_state,
+    remove_p2p_state,
+)
+from app.services.supplier_onboarding_service import (
+    is_supplier_active,
+)
+
 # In-memory po storage
 purchase_orders = {}
 
 # In-memory event storage
 po_events =  {}
-
-
 def create_purchase_order(
     purchase_order: PurchaseOrderCreate,
 ):
     """
     Create a new Purchase Order.
+
+    A Purchase Order can only be created for a supplier
+    that has completed onboarding and is active.
     """
 
     if purchase_order.po_number in purchase_orders:
         raise ValueError(
             "Purchase Order already exists."
+        )
+
+    # Supplier must be fully onboarded and active
+    supplier_id = purchase_order.supplier_id
+
+    if not supplier_id:
+        raise ValueError(
+            "Purchase Order supplier ID is required."
+        )
+
+    if not is_supplier_active(supplier_id):
+        raise ValueError(
+            f"Supplier '{supplier_id}' must complete "
+            "onboarding and be active before creating "
+            "a Purchase Order."
         )
 
     # Calculate total from PO items
@@ -181,30 +206,45 @@ def update_purchase_order(
 
     return existing_po
 
+#delete purchase order and remove p2p state
+
 def delete_purchase_order(po_number: str):
     if po_number not in purchase_orders:
         return False
 
     del purchase_orders[po_number]
 
+    remove_p2p_state(po_number)
+
     return True
 
 
 def acknowledge_purchase_order(po_number: str):
     """
-    Acknowledge an existing Purchase Order
-    using the state machine.
+    Acknowledge an existing Purchase Order.
+
+    Once the PO reaches acknowledged status, the shared
+    P2P workflow starts from the acknowledged stage.
     """
 
-    return transition_purchase_order(
+    purchase_order = transition_purchase_order(
         po_number,
         "supplier",
         PurchaseOrderStatus.acknowledged,
     )
 
+    if purchase_order is None:
+        return None
+
+    initialize_p2p_state(
+        po_number,
+        P2PState.acknowledged,
+    )
+
+    return purchase_order
+
+
 # valid transitions and history tracking
-
-
 
 VALID_TRANSITIONS = {
     PurchaseOrderStatus.draft: [
@@ -246,6 +286,41 @@ def transition_purchase_order(
     # Allowed transitions
     allowed_states = VALID_TRANSITIONS[current_state]
 
+    # --------------------------------------------------------
+    # Supplier onboarding enforcement
+    # --------------------------------------------------------
+    #
+    # A Purchase Order may only be sent to a supplier that
+    # has completed the onboarding workflow and reached
+    # the ACTIVE status.
+    #
+    # This check applies only to draft -> sent.
+    # It therefore does not interfere with acknowledgement,
+    # fulfilment, cancellation, or other existing transitions.
+    #
+    # bulk_send_purchase_orders() also uses this transition
+    # function, so bulk sending is protected automatically.
+    # --------------------------------------------------------
+
+    if (
+        current_state == PurchaseOrderStatus.draft
+        and target_state == PurchaseOrderStatus.sent
+    ):
+        supplier_id = purchase_order.get("supplier_id")
+
+        if not supplier_id:
+            raise ValueError(
+                "Purchase Order supplier ID is required "
+                "before sending."
+            )
+
+        if not is_supplier_active(supplier_id):
+            raise ValueError(
+                f"Supplier '{supplier_id}' must complete "
+                "onboarding and be active before the "
+                "Purchase Order can be sent."
+            )
+
     # Check whether the transition is legal
     if target_state not in allowed_states:
 
@@ -262,9 +337,21 @@ def transition_purchase_order(
             f"Allowed: {allowed}."
         )
 
-    # Set actual delivery date when PO is fulfilled
+    # Set actual delivery date from the latest goods receipt
+    # when the PO is fulfilled.
     if target_state == PurchaseOrderStatus.fulfilled:
-        purchase_order["actual_delivery_date"] = date.today()
+        from app.services.goods_receipt_service import goods_receipts
+
+        receipt_dates = [
+            receipt["receipt_date"]
+            for receipt in goods_receipts.values()
+            if receipt.get("po_number") == po_number
+            and receipt.get("receipt_date") is not None
+        ]
+
+        purchase_order["actual_delivery_date"] = (
+            max(receipt_dates) if receipt_dates else None
+        )
 
     # Create audit event
     event = {

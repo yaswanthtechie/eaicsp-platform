@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Literal
 
 from pydantic import (
     BaseModel,
@@ -15,6 +15,7 @@ class InventoryCreate(BaseModel):
     sku_id: str
     product_name: str
     warehouse_id: str
+    category: str = "Uncategorized"
 
     quantity_on_hand: int = Field(
         ge=0
@@ -28,6 +29,19 @@ class InventoryCreate(BaseModel):
         ge=0
     )
 
+    # M1
+    warehouse_type: Literal[
+        "central",
+        "regional",
+        "local",
+    ] = "local"
+
+    parent_warehouse_id: Optional[str] = None
+    unit_cost: Optional[float] = Field(
+    default=None,
+    ge=0,
+    )
+
 
 class InventoryUpdate(BaseModel):
     model_config = ConfigDict(
@@ -35,6 +49,8 @@ class InventoryUpdate(BaseModel):
     )
 
     product_name: Optional[str] = None
+
+    category: Optional[str] = None
 
     quantity_on_hand: Optional[int] = Field(
         default=None,
@@ -51,16 +67,34 @@ class InventoryUpdate(BaseModel):
         ge=0,
     )
 
+    # M1
+    warehouse_type: Optional[
+        Literal[
+            "central",
+            "regional",
+            "local",
+        ]
+    ] = None
+
+    parent_warehouse_id: Optional[str] = None
+    version:int
+
 
 class InventoryResponse(BaseModel):
     sku_id: str
     product_name: str
     warehouse_id: str
+    category: str
     quantity_on_hand: int
     reorder_point: int
     avg_daily_demand: float
     lead_time_days: int
     safety_stock: int
+
+    # M1
+    warehouse_type: str
+    parent_warehouse_id: Optional[str] = None
+    version:int
 
 
 class ReorderCheckResponse(BaseModel):
@@ -156,4 +190,14 @@ class DeleteResponse(BaseModel):
 class BulkUploadResponse(BaseModel):
     message: str
     total_records: int
-    
+
+
+class MultiEchelonResponse(BaseModel):
+    status: str
+    sku_id: str
+    warehouse_id: str
+    required_quantity: int
+    transferred_quantity: int
+    supplier_quantity: int
+    transfers: list[dict]
+    supplier_po: Optional[dict] = None

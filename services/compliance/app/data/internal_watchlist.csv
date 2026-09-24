@@ -1,0 +1,6 @@
+name,entity_type,country,reason
+ACME TRADING LTD,Organization,India,Previous compliance issue
+GLOBAL EXPORT CORP,Organization,Germany,Suspicious transaction
+XYZ LOGISTICS LTD,Organization,UAE,Internal investigation
+JOHN SMITH,Individual,USA,Previous internal alert
+ABC IMPORTS LTD,Organization,India,Internal compliance concern

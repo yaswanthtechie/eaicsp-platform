@@ -7,7 +7,6 @@ from fastapi.security import (
 )
 from sqlalchemy.orm import Session
 from jose import JWTError
-
 from app.core.security import decode_token
 from app.database import get_db
 from app.models.users import User
@@ -120,6 +119,16 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # 6. Reject access while account is locked
+    if (
+        user.locked_until is not None
+        and user.locked_until > datetime.now(timezone.utc)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
         )
 
     # --------------------------------------------------------
@@ -273,7 +282,6 @@ def require_all_roles(*required_roles):
             )
 
         return user
-
     return dependency
 
 # ============================================================
@@ -305,6 +313,31 @@ def require_role(*allowed_roles):
             )
 
         return user
+    return dependency
+
+def require_permission(permission: str):
+    def checker(
+        current_user: User = Depends(get_current_user),
+    ):
+        user_role = (
+            current_user.role.name
+            if current_user.role
+            else None
+        )
+
+        if user_role is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden:Insufficient permissions",
+            )
+
+        permissions = ROLE_PERMISSIONS.get(user_role, set())
+
+        if permission not in permissions:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden:Insufficient permissions",
+            )
 
     return dependency
 

@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import type { AlertMessage } from "../types/forecast";
+import type {
+    AlertMessage,
+    InventoryUpdate,
+    WebSocketMessage,
+} from "../types/forecast";
 
 interface UseWebSocketOptions {
   url: string;
-  onMessage: (data: AlertMessage) => void;
+  onMessage: (data: WebSocketMessage) => void;
   onError?: (error: Event) => void;
   autoReconnect?: boolean;
   maxRetries?: number;
@@ -84,12 +88,53 @@ export function useWebSocket({
 
           if (
             typeof data !== "object" ||
-            data === null ||
-            typeof (data as Record<string, unknown>).id !== "string" ||
-            typeof (data as Record<string, unknown>).type !== "string" ||
-            typeof (data as Record<string, unknown>).severity !== "string" ||
-            typeof (data as Record<string, unknown>).message !== "string" ||
-            typeof (data as Record<string, unknown>).timestamp !== "string"
+            data === null
+          ) {
+            console.error("Ignoring malformed WebSocket message:", data);
+            return;
+          }
+
+          const message = data as Record<string, unknown>;
+
+          if (message.type === "inventory_update") {
+            const item = message.item;
+
+            if (
+              typeof item !== "object" ||
+              item === null
+            ) {
+              console.error("Ignoring malformed inventory update:", data);
+              return;
+            }
+
+            const inventoryItem = item as Record<string, unknown>;
+
+            if (
+              typeof inventoryItem.sku_id !== "string" ||
+              typeof inventoryItem.product_name !== "string" ||
+              typeof inventoryItem.warehouse_id !== "string" ||
+              typeof inventoryItem.quantity_on_hand !== "number" ||
+              typeof inventoryItem.reorder_point !== "number" ||
+              typeof inventoryItem.needs_reorder !== "boolean" ||
+              typeof inventoryItem.avg_daily_demand !== "number"
+            ) {
+              console.error(
+                "Ignoring malformed inventory update:",
+                data,
+              );
+              return;
+            }
+
+            onMessageRef.current(data as InventoryUpdate);
+            return;
+          }
+
+          if (
+            typeof message.id !== "string" ||
+            typeof message.type !== "string" ||
+            typeof message.severity !== "string" ||
+            typeof message.message !== "string" ||
+            typeof message.timestamp !== "string"
           ) {
             console.error("Ignoring malformed alert:", data);
             return;
@@ -123,7 +168,6 @@ export function useWebSocket({
           autoReconnect &&
           retryCountRef.current < maxRetries
         ) {
-         
           const delay = Math.min(
             1000 * 2 ** retryCountRef.current,
             30000,
@@ -139,7 +183,10 @@ export function useWebSocket({
             }
           }, delay);
         } else {
-          setFailed(true);
+          if (retryCountRef.current >= maxRetries) {
+            setFailed(true);
+          }
+
           clearReconnectTimer();
         }
       };
@@ -157,7 +204,6 @@ export function useWebSocket({
       socketRef.current = null;
 
       if (socket) {
-      
         socket.onopen = null;
         socket.onmessage = null;
         socket.onerror = null;

@@ -35,6 +35,19 @@ logger = logging.getLogger("auth_requests")
 # LOGIN SECURITY CONFIGURATION
 # ============================================================
 
+import secrets
+import threading
+from collections import defaultdict
+import logging
+
+
+logger = logging.getLogger("auth_requests")
+
+
+# ============================================================
+# LOGIN SECURITY CONFIGURATION
+# ============================================================
+
 MAX_ATTEMPTS = 5
 
 # Failed attempts are counted within this window

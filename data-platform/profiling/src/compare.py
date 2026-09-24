@@ -292,7 +292,7 @@ def compare(df_old, df_new):
     categorical_drift = {}
 
     object_cols = list(
-    df_old.select_dtypes(include=["object", "category"]).columns
+    df_old.select_dtypes(include=["object", "category", "str"]).columns
     )
 
     # Threshold for significant proportion change

@@ -6,6 +6,7 @@ from app.core.config import TRUST_PROXY
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.users import User
+from app.core.verify_rate_limiter import verify_rate_limiter
 from app.services.auth_service import (
     register_user,
     login_user,

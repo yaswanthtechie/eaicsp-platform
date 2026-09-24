@@ -1,6 +1,9 @@
 """R5 #4: Automated source-to-target reconciliation."""
 
 import re
+import pandas as pd
+
+from load import _dedupe_records, source_file_priority
 
 from sqlalchemy import text
 
@@ -98,6 +101,22 @@ def evaluate_reconciliation(raw_stats=None, approved_stats=None, transformed_sta
     }
 
 
+def compute_landed_expected_batches(transformed_batches, source_config):
+    """Mirror the loader's cross-batch conflict resolution for reconciliation."""
+    records = []
+    business_columns = list(source_config.columns.keys())
+    for batch in transformed_batches or []:
+        priority = source_file_priority(batch["file_path"])
+        for record in batch["data"].to_dict(orient="records"):
+            record["_conflict_priority"] = priority
+            records.append(record)
+    deduped = _dedupe_records(
+        records, source_config.conflict_keys, priority_key="_conflict_priority"
+    )
+    frame = pd.DataFrame(deduped, columns=business_columns)
+    return [{"data": frame}]
+
+
 def reconcile_load(raw_batches, approved_batches, transformed_batches, source_config,
                    run_id, engine=None, tolerance=DEFAULT_TOLERANCE):
     """Reconcile raw source -> gate-approved -> transformed -> landed data.
@@ -115,7 +134,8 @@ def reconcile_load(raw_batches, approved_batches, transformed_batches, source_co
 
     raw_stats = compute_stats(raw_batches, numeric_column)
     approved_stats = compute_stats(approved_batches, numeric_column)
-    transformed_stats = compute_stats(transformed_batches, numeric_column)
+    deduped_transformed_batches = compute_landed_expected_batches(transformed_batches, source_config)
+    transformed_stats = compute_stats(deduped_transformed_batches, numeric_column)
 
     query = text(f"""
         SELECT COUNT(*) AS row_count,
@@ -149,5 +169,30 @@ def reconcile_load(raw_batches, approved_batches, transformed_batches, source_co
             f"raw={result['raw_rows']} -> approved={result['approved_rows']} -> "
             f"transformed={result['transformed_rows']} -> landed={result['actual_rows']}"
         )
+
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("""
+                INSERT INTO etl_reconciliation_log (
+                    run_id, source_name, status, raw_rows, raw_sum, approved_rows, approved_sum,
+                    transformed_rows, transformed_sum, landed_rows, landed_sum
+                ) VALUES (
+                    :run_id, :source_name, :status, :raw_rows, :raw_sum, :approved_rows, :approved_sum,
+                    :transformed_rows, :transformed_sum, :landed_rows, :landed_sum
+                ) ON CONFLICT (run_id, source_name) DO UPDATE SET
+                    status=EXCLUDED.status, raw_rows=EXCLUDED.raw_rows, raw_sum=EXCLUDED.raw_sum,
+                    approved_rows=EXCLUDED.approved_rows, approved_sum=EXCLUDED.approved_sum,
+                    transformed_rows=EXCLUDED.transformed_rows, transformed_sum=EXCLUDED.transformed_sum,
+                    landed_rows=EXCLUDED.landed_rows, landed_sum=EXCLUDED.landed_sum, created_at=NOW()
+            """), {
+                "run_id": run_id, "source_name": source_config.name,
+                "status": "PASS" if result["matched"] else "FAIL",
+                "raw_rows": result["raw_rows"], "raw_sum": result["raw_sum"],
+                "approved_rows": result["approved_rows"], "approved_sum": result["approved_sum"],
+                "transformed_rows": result["transformed_rows"], "transformed_sum": result["transformed_sum"],
+                "landed_rows": result["actual_rows"], "landed_sum": result["actual_sum"],
+            })
+    except Exception as exc:
+        logger.warning(f"Could not persist reconciliation result: {exc}")
 
     return result
