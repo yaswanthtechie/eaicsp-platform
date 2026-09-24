@@ -107,11 +107,9 @@ sources:
   history_table: null
   schema_evolution: quarantine
 archive:
-  table: sales_fact
-  archive_table: sales_fact_archive
+  table: staging_sales_fact
+  archive_table: staging_sales_fact_archive
   date_column: date
   cutoff_days: 730
 environment: staging
 quality_sla_min_pass_rate: 0.95
-
-

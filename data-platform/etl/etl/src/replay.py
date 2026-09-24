@@ -58,14 +58,14 @@ def replay_run(run_id, source_name="sales", config_path=None):
     original run. Non-sales sources are rejected until restore logic is
     generalized for their schemas/history tables.
     """
-    if source_name != "sales":
-        raise ValueError(
-            "Replay currently supports only source='sales'; "
-            f"'{source_name}' is not supported because restore is sales-specific"
-        )
-
     config = load_pipeline_config(config_path)
     source = config.get_source(source_name)
+
+    if not source.history_table:
+        raise ValueError(
+            f"Replay is only supported for sources with a history_table "
+            f"(currently: sales). '{source.name}' has none."
+        )
     engine = get_engine()
 
     # Read metadata and verify every recorded file before touching the DB.
@@ -162,7 +162,3 @@ def replay_run(run_id, source_name="sales", config_path=None):
         except Exception:
             pass
         raise
-
-
-
-

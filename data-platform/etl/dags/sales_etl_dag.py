@@ -1,3 +1,4 @@
+import os
 """
 R4 Sales + Inventory ETL DAG
 
@@ -691,6 +692,10 @@ def log_run_task(**context):
             rows_inserted=ti.xcom_pull(task_ids=load_id, key="rows_inserted") or 0,
             rows_updated=ti.xcom_pull(task_ids=load_id, key="rows_updated") or 0,
             rows_rejected=rows_rejected,
+            environment=os.getenv("ETL_ENV", "dev"),
+            table=source_config.table,
+            batch_files=ti.xcom_pull(task_ids=load_id, key="batch_files") or [],
+            pipeline_name=f"{source_config.name}_etl",
             min_pass_rate=PIPELINE_CONFIG.quality_sla_min_pass_rate,
         )
 
@@ -897,4 +902,3 @@ with DAG(
         ) >> log_run
 
     log_run >> archive_old_data
-    

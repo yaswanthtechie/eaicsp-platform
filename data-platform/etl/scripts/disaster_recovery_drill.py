@@ -36,19 +36,15 @@ def latest_successful_run(engine):
 
 def recorded_batches(engine, run_id):
     with engine.connect() as conn:
-        return [
-            row.batch_file
-            for row in conn.execute(
-                text("""
-                    SELECT batch_file
-                    FROM etl_run_batches
-                    WHERE run_id = :run_id
-                    ORDER BY source_name, batch_file
-                """),
-                {"run_id": run_id},
-            ).fetchall()
-        ]
-
+        return conn.execute(
+            text("""
+                SELECT source_name, batch_file
+                FROM etl_run_batches
+                WHERE run_id = :run_id
+                ORDER BY source_name, batch_file
+            """),
+            {"run_id": run_id},
+        ).fetchall()
 
 def main():
     parser = argparse.ArgumentParser()
@@ -66,16 +62,17 @@ def main():
     if run_id is None:
         raise SystemExit("No successful ETL run is available for the drill.")
 
-    batch_names = recorded_batches(engine, run_id)
+    batch_rows = recorded_batches(engine, run_id)
+    if not batch_rows:
+        raise SystemExit(f"Run {run_id} has no recorded batches, nothing to recover from.")
+
     config = load_pipeline_config()
+    batch_paths = [
+        Path(config.get_source(row.source_name).path) / row.batch_file
+        for row in batch_rows
+    ]
 
-    batch_paths = []
-    for source in config.sources:
-        for name in batch_names:
-            candidate = Path(source.path) / name
-            if candidate.exists():
-                batch_paths.append(candidate)
-
+    # build_recovery_plan raises FileNotFoundError if any recorded batch is missing
     plan = build_recovery_plan(run_id, args.backup, batch_paths)
 
     backup_path = Path(args.backup)

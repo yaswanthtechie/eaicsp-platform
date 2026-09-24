@@ -232,6 +232,10 @@ def check_quality_sla(
     rows_inserted,
     rows_updated,
     rows_rejected,
+    environment,
+    table,
+    batch_files,
+    pipeline_name,
     min_pass_rate=0.95,
 ):
     """Log a detailed CRITICAL alert when a source falls below its quality SLA."""
@@ -244,15 +248,18 @@ def check_quality_sla(
 
     if result["breached"]:
         message = (
-            f"Data-quality SLA breached for source '{source_name}' in run {run_id}: "
-            f"pass rate={result['pass_rate']:.2%}, required>={min_pass_rate:.2%}; "
-            f"processed={result['processed_rows']}, accepted={result['accepted_rows']}, "
-            f"rejected={result['rejected_rows']}. "
-            f"Check the source batch files and quality-gate rejection reasons."
+            f"Data-quality SLA breached: environment={environment}, "
+            f"source={source_name}, table={table}, run_id={run_id}, "
+            f"pass_rate={result['pass_rate']:.2%}, "
+            f"required>={min_pass_rate:.2%}, "
+            f"processed={result['processed_rows']}, "
+            f"accepted={result['accepted_rows']}, "
+            f"rejected={result['rejected_rows']}, "
+            f"batch_files={batch_files}"
         )
         logger.critical(f"[QUALITY-SLA] {message}")
         write_alert(
-            pipeline="sales_etl",
+            pipeline=pipeline_name,
             severity="CRITICAL",
             message=message,
             run_id=run_id,

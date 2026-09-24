@@ -304,3 +304,34 @@ CREATE TABLE IF NOT EXISTS prod_sales_fact (
     updated_at TIMESTAMP DEFAULT NOW(),
     UNIQUE(date, sku_id, warehouse_id)
 );
+
+-- R9 M1: environment-specific archive tables.
+CREATE TABLE IF NOT EXISTS staging_sales_fact_archive (
+    id BIGINT PRIMARY KEY,
+    date DATE NOT NULL,
+    sku_id VARCHAR(50) NOT NULL,
+    warehouse_id VARCHAR(20) NOT NULL,
+    quantity_sold INTEGER,
+    unit_price NUMERIC(12,2),
+    source_batch VARCHAR(100),
+    run_id BIGINT,
+    pipeline_version VARCHAR(20),
+    loaded_at TIMESTAMP,
+    updated_at TIMESTAMP,
+    archived_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS prod_sales_fact_archive (
+    id BIGINT PRIMARY KEY,
+    date DATE NOT NULL,
+    sku_id VARCHAR(50) NOT NULL,
+    warehouse_id VARCHAR(20) NOT NULL,
+    quantity_sold INTEGER,
+    unit_price NUMERIC(12,2),
+    source_batch VARCHAR(100),
+    run_id BIGINT,
+    pipeline_version VARCHAR(20),
+    loaded_at TIMESTAMP,
+    updated_at TIMESTAMP,
+    archived_at TIMESTAMP DEFAULT NOW()
+);

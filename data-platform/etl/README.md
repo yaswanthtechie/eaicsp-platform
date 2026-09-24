@@ -45,53 +45,53 @@ Project Structure
 
 data-platform/
 
-│
+â”‚
 
-├── dags/
+â”œâ”€â”€ dags/
 
-│   └── sales_etl_dag.py
+â”‚ Â  â””â”€â”€ sales_etl_dag.py
 
-│
+â”‚
 
-├── etl/
+â”œâ”€â”€ etl/
 
-│   └── src/
+â”‚ Â  â””â”€â”€ src/
 
-│       ├── extract.py
+â”‚ Â  Â  Â  â”œâ”€â”€ extract.py
 
-│       ├── transform.py
+â”‚ Â  Â  Â  â”œâ”€â”€ transform.py
 
-│       ├── quality_gate.py
+â”‚ Â  Â  Â  â”œâ”€â”€ quality_gate.py
 
-│       ├── load.py
+â”‚ Â  Â  Â  â”œâ”€â”€ load.py
 
-│       ├── pipeline.py
+â”‚ Â  Â  Â  â”œâ”€â”€ pipeline.py
 
-│       ├── main.py
+â”‚ Â  Â  Â  â”œâ”€â”€ main.py
 
-│       ├── alerts.py
+â”‚ Â  Â  Â  â”œâ”€â”€ alerts.py
 
-│       ├── alerts_api.py
+â”‚ Â  Â  Â  â”œâ”€â”€ alerts_api.py
 
-│       ├── lineage_api.py
+â”‚ Â  Â  Â  â”œâ”€â”€ lineage_api.py
 
-│       ├── alert_service.py
+â”‚ Â  Â  Â  â”œâ”€â”€ alert_service.py
 
-│       ├── data_contract.py
+â”‚ Â  Â  Â  â”œâ”€â”€ data_contract.py
 
-│       ├── pandera_schema.py
+â”‚ Â  Â  Â  â”œâ”€â”€ pandera_schema.py
 
-│       └── schema_drift.py
+â”‚ Â  Â  Â  â””â”€â”€ schema_drift.py
 
-│
+â”‚
 
-├── sql/
+â”œâ”€â”€ sql/
 
-│   └── schema.sql
+â”‚ Â  â””â”€â”€ schema.sql
 
-│
+â”‚
 
-└── docker-compose.yml
+â””â”€â”€ docker-compose.yml
 
 
 ETL Pipeline Flow
@@ -99,41 +99,41 @@ ETL Pipeline Flow
 
 CSV Files
 
-     │
+Â  Â  Â â”‚
 
-     ▼
+Â  Â  Â â–¼
 
- Extract
+Â Extract
 
-     │
+Â  Â  Â â”‚
 
-     ▼
+Â  Â  Â â–¼
 
- Quality Gate
+Â Quality Gate
 
-     │
+Â  Â  Â â”‚
 
-     ▼
+Â  Â  Â â–¼
 
- Transform
+Â Transform
 
-     │
+Â  Â  Â â”‚
 
-     ▼
+Â  Â  Â â–¼
 
- Load
+Â Load
 
-     │
+Â  Â  Â â”‚
 
-     ▼
+Â  Â  Â â–¼
 
- Update Watermark
+Â Update Watermark
 
-     │
+Â  Â  Â â”‚
 
-     ▼
+Â  Â  Â â–¼
 
- Log Pipeline Run
+Â Log Pipeline Run
 
 
 Database Tables
@@ -271,7 +271,7 @@ commands
 
 
 
-SELECT * FROM sales_fact LIMIT 5;  This is the main fact table. It stores the cleaned and validated sales records after the ETL pipeline finishes.
+SELECT * FROM sales_fact LIMIT 5; Â This is the main fact table. It stores the cleaned and validated sales records after the ETL pipeline finishes.
 
 SELECT * FROM etl_run_log ORDER BY run_id DESC LIMIT 5;
 
@@ -453,29 +453,29 @@ What's not done / not fully polished
 
 The generic engine's quality-gate thresholds (null rate, negative rate,
 
-  row count bounds) are per-source config values, not auto-tuned - they're
+Â  row count bounds) are per-source config values, not auto-tuned - they're
 
-  set to match R3's sales defaults for sales, and reasonable-guess
+Â  set to match R3's sales defaults for sales, and reasonable-guess
 
-  defaults for inventory. Worth revisiting once there's real inventory
+Â  defaults for inventory. Worth revisiting once there's real inventory
 
-  data to calibrate against.
+Â  data to calibrate against.
 
 bulk_upsert()'s history-copy step (_bulk_copy_sales_history) is
 
-  sales-specific - it isn't a generic "any table can have history" feature.
+Â  sales-specific - it isn't a generic "any table can have history" feature.
 
-  Fine for now since inventory doesn't need CDC history per the spec, but
+Â  Fine for now since inventory doesn't need CDC history per the spec, but
 
-  if a future source does, that function needs generalizing.
+Â  if a future source does, that function needs generalizing.
 
 No integration with Tharun's validation library or Sandeep's profiling
 
-  library this round - deliberately deferred per the round instructions.
+Â  library this round - deliberately deferred per the round instructions.
 
 Per-round instructions, this stays fully local/mocked - no shared
 
-  Postgres/Redis/Kafka assumed to exist yet.
+Â  Postgres/Redis/Kafka assumed to exist yet.
 
 Round 5: harder edges (conflict resolution, SLA, point-in-time, reconciliation, performance ceiling)
 
@@ -1099,3 +1099,5 @@ Recovery replay successfully restores pipeline processing.
 
 
 
+
+> DR replay currently covers the sales source only; other sources require a history_table and compatible restore logic.
