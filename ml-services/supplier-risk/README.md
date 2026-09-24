@@ -666,8 +666,8 @@ The expanded development dataset is located in `src/supplier_headlines_25.json` 
 
 The 25 companies represent diverse global supply chain tiers:
 - **Low Risk (7)**: Schneider Electric, Siemens, ASML, Texas Instruments, Lockheed Martin, BASF, TSMC
-- **Medium Risk (9)**: Caterpillar, Volvo Group, Rio Tinto, Foxconn, DHL Supply Chain, Nissan, Boeing, ArcelorMittal, Evergreen Marine
-- **High Risk (5)**: Maersk, Tesla, Intel, Glencore, Toshiba
+- **Medium Risk (10)**: Caterpillar, Volvo Group, Rio Tinto, Foxconn, DHL Supply Chain, Nissan, Boeing, Intel, Evergreen Marine, Maersk
+- **High Risk (4)**: Tesla, Glencore, ArcelorMittal, Toshiba
 - **Critical Risk (4)**: Apex Logistics, Northvolt, Evergrande Construction Logistics, Silicon Power Storage
 
 Deep validation confirms:

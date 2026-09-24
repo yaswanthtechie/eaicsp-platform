@@ -12,7 +12,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from src.analyze import app
+from src.analyze import app, TrendAnalysisRequest, TrendResponse
 from src.config import Settings, get_settings
 from src.data import (
     load_25_company_dataset,
@@ -21,6 +21,7 @@ from src.data import (
     load_headlines,
 )
 from src.evaluate import (
+    assign_risk_tier,
     evaluate_25_company_benchmark,
     HUMAN_BENCHMARK_EXPECTATIONS,
     load_validation_dataset,
@@ -293,11 +294,15 @@ def test_scenario_outdated_articles_excluded_from_current_window():
 
 
 # ------------------------------------------------------------------
-# 4. Compliance Integration Contract Documentation Integrity Test
+# 4. Compliance Integration Contract Documentation & Schema Integrity Tests
 # ------------------------------------------------------------------
 
-def test_compliance_contract_documentation_exists():
-    """Verify COMPLIANCE_INTEGRATION_CONTRACT.md exists and contains all required specifications."""
+def test_compliance_contract_documentation_and_real_interface():
+    """
+    Must Fix #3: Verify COMPLIANCE_INTEGRATION_CONTRACT.md exists, references Geethika's
+    real compliance service interface (ComplianceRequest, ComplianceResponse, is_flagged,
+    MATCH_THRESHOLD), and contains no invented models, fields, or threshold bands.
+    """
     contract_path = (
         Path(__file__).resolve().parent.parent / "COMPLIANCE_INTEGRATION_CONTRACT.md"
     )
@@ -305,14 +310,155 @@ def test_compliance_contract_documentation_exists():
 
     content = contract_path.read_text(encoding="utf-8")
 
-    # Verify key structural components
+    # Verify key architectural invariants
     assert "FUTURE WORK" in content or "future work" in content
     assert "NO RUNTIME HTTP" in content or "NO RUNTIME" in content
-    assert "OFAC" in content and "UN" in content and "EU" in content
-    assert "Unified Risk Decision Matrix" in content
     assert "is_deteriorating" in content
     assert "Circuit Breaking" in content or "circuit breaker" in content
-    assert "Fallbacks" in content or "Graceful Service Degradation" in content
+    assert "Graceful Service Degradation" in content
+
+    # Verify real compliance service endpoint and fields (Geethika's service)
+    assert "/api/v1/compliance/screen" in content
+    assert "ComplianceRequest" in content
+    assert "ComplianceResponse" in content
+    assert "entity_name" in content
+    assert "entity_type" in content
+    assert "country" in content
+    assert "is_flagged" in content
+    assert "MATCH_THRESHOLD" in content
+
+    # Verify real Supplier Risk routes
+    assert "/api/v1/supplier-risk/trend/{supplier_name}" in content
+    assert "/api/v1/supplier-risk/trend" in content
+    assert "GET /trend/{supplier_name}" not in content
+
+    # Verify watchlists referenced
+    assert "OFAC" in content and "UN" in content and "EU" in content
+
+    # Verify invented shapes and bands are NOT present in contract schema definitions
+    assert "SanctionsResult" not in content, "Invented model 'SanctionsResult' must be removed from contract"
+    assert '"transaction_value"' not in content, "Invented field 'transaction_value' must not be in contract schemas"
+    assert '"screening_tier"' not in content, "Invented field 'screening_tier' must not be in contract schemas"
+    assert '"enhanced_review_required"' not in content, "Invented field 'enhanced_review_required' must not be in schemas"
+    assert '"screening_action"' not in content, "Invented field 'screening_action' must not be in schemas"
+    assert '"case_id"' not in content, "Invented field 'case_id' must not be in schemas"
+    assert '"case_status"' not in content, "Invented field 'case_status' must not be in schemas"
+
+    # Verify decision matrix distinguishes FLAGGED and UNFLAGGED
+    assert "FLAGGED" in content
+    assert "UNFLAGGED" in content
+
+    # Verify distinction of current vs proposed behavior
+    assert "Current vs. Proposed/Future Behavior" in content or "Documented Current Behavior" in content
+
+
+# Maintain alias for team lead review naming compatibility
+test_compliance_contract_documentation_exists = test_compliance_contract_documentation_and_real_interface
+
+
+def test_compliance_contract_json_examples_schema_validation():
+    """
+    Must Fix #4: Parse JSON blocks from COMPLIANCE_INTEGRATION_CONTRACT.md and validate
+    them against the actual TrendAnalysisRequest and TrendResponse Pydantic models.
+    Ensures documented contract examples cannot drift away from the API schema.
+    """
+    import re
+
+    contract_path = (
+        Path(__file__).resolve().parent.parent / "COMPLIANCE_INTEGRATION_CONTRACT.md"
+    )
+    content = contract_path.read_text(encoding="utf-8")
+
+    # Extract all JSON code blocks
+    json_blocks = re.findall(r"```json\s*(\{[\s\S]*?\})\s*```", content)
+    assert len(json_blocks) >= 2, "Expected at least 2 JSON examples in the contract"
+
+    parsed_blocks = []
+    for block in json_blocks:
+        try:
+            parsed_blocks.append(json.loads(block))
+        except json.JSONDecodeError as exc:
+            pytest.fail(f"Invalid JSON block in contract: {exc}\nBlock:\n{block}")
+
+    # Identify TrendAnalysisRequest example (contains 'supplier_name' and 'articles')
+    trend_req_examples = [b for b in parsed_blocks if "supplier_name" in b and "articles" in b]
+    assert len(trend_req_examples) >= 1, "Must contain a TrendAnalysisRequest example"
+    trend_req = trend_req_examples[0]
+
+    # Validate against Pydantic model
+    validated_req = TrendAnalysisRequest(**trend_req)
+    assert validated_req.supplier_name == "Apex Logistics"
+    assert len(validated_req.articles) == 5
+    assert validated_req.as_of_date == "2026-03-23"
+
+    # Identify TrendResponse example (contains 'supplier', 'current_risk_score', 'risk_trend')
+    trend_resp_examples = [b for b in parsed_blocks if "supplier" in b and "current_risk_score" in b and "risk_trend" in b]
+    assert len(trend_resp_examples) >= 1, "Must contain a TrendResponse example"
+    trend_resp = trend_resp_examples[0]
+
+    # Validate against Pydantic model
+    validated_resp = TrendResponse(**trend_resp)
+    assert validated_resp.supplier == "Apex Logistics"
+    assert validated_resp.current_risk_score == 100.0
+    assert validated_resp.previous_risk_score == 0.0
+    assert validated_resp.risk_delta == 100.0
+    assert validated_resp.is_deteriorating is True
+    assert validated_resp.trend_direction == "rising"
+
+    # Verify self-consistency (no contradictory counts or null window starts when history exists)
+    assert validated_resp.article_count == 5
+    assert validated_resp.current_window_article_count == 3
+    assert validated_resp.historical_article_count == 2
+    assert validated_resp.article_count == validated_resp.current_window_article_count + validated_resp.historical_article_count
+    assert validated_resp.window_end == "2026-03-23"
+    assert validated_resp.window_start == "2026-02-21"
+    assert validated_resp.previous_window_start is not None
+    assert validated_resp.previous_window_end is not None
+
+
+def test_compliance_contract_example_runtime_consistency():
+    """
+    Must Fix #4: Verify that running the documented example request through
+    calculate_supplier_trend exactly matches the documented response fields and scores.
+    """
+    import re
+
+    contract_path = (
+        Path(__file__).resolve().parent.parent / "COMPLIANCE_INTEGRATION_CONTRACT.md"
+    )
+    content = contract_path.read_text(encoding="utf-8")
+
+    json_blocks = re.findall(r"```json\s*(\{[\s\S]*?\})\s*```", content)
+    parsed = [json.loads(b) for b in json_blocks]
+
+    trend_req = [b for b in parsed if "supplier_name" in b and "articles" in b][0]
+    trend_resp = [b for b in parsed if "supplier" in b and "current_risk_score" in b and "risk_trend" in b][0]
+
+    # Execute runtime calculation
+    runtime_result = calculate_supplier_trend(
+        supplier_name=trend_req["supplier_name"],
+        records=trend_req["articles"],
+        as_of_date=trend_req.get("as_of_date"),
+    )
+
+    # Validate exact alignment on all key contractual fields and exact numeric scores
+    assert runtime_result["supplier"] == trend_resp["supplier"]
+    assert runtime_result["current_risk_score"] == trend_resp["current_risk_score"]
+    assert runtime_result["previous_risk_score"] == trend_resp["previous_risk_score"]
+    assert runtime_result["risk_delta"] == trend_resp["risk_delta"]
+    assert runtime_result["trend_direction"] == trend_resp["trend_direction"]
+    assert runtime_result["is_deteriorating"] == trend_resp["is_deteriorating"]
+    assert runtime_result["deterioration_summary"] == trend_resp["deterioration_summary"]
+    assert runtime_result["article_count"] == trend_resp["article_count"]
+    assert runtime_result["current_window_article_count"] == trend_resp["current_window_article_count"]
+    assert runtime_result["historical_article_count"] == trend_resp["historical_article_count"]
+    assert runtime_result["window_days"] == trend_resp["window_days"]
+    assert runtime_result["window_start"] == trend_resp["window_start"]
+    assert runtime_result["window_end"] == trend_resp["window_end"]
+    assert runtime_result["previous_window_start"] == trend_resp["previous_window_start"]
+    assert runtime_result["previous_window_end"] == trend_resp["previous_window_end"]
+    assert runtime_result["overall_confidence"] == trend_resp["overall_confidence"]
+
 
 
 # ------------------------------------------------------------------
@@ -357,3 +503,160 @@ def test_api_trend_response_includes_deterioration_fields():
         assert "trend_direction" in data
         assert "top_evidence" in data
         assert "overall_confidence" in data
+
+
+def test_trend_exact_deterioration_threshold_boundary():
+    """
+    Verify exact deterioration threshold (+-3.0) boundary behavior:
+    - risk_delta == +3.0 => trend_direction='stable', is_deteriorating=False
+    - risk_delta == -3.0 => trend_direction='stable', is_deteriorating=False
+    - risk_delta == +3.01 => trend_direction='rising', is_deteriorating=True
+    - risk_delta == -3.01 => trend_direction='falling', is_deteriorating=False
+    """
+    with patch("src.trend.predict") as mock_predict:
+        def side_effect(supplier_name, headlines, config=None):
+            hl = headlines[0] if headlines else ""
+            if "target_plus_300" in hl:
+                score = 53.0
+            elif "target_minus_300" in hl:
+                score = 47.0
+            elif "target_plus_301" in hl:
+                score = 53.01
+            elif "target_minus_301" in hl:
+                score = 46.99
+            elif "hist_baseline" in hl:
+                score = 50.0
+            else:
+                score = 0.0
+
+            return {
+                "supplier": supplier_name,
+                "risk_score": score,
+                "confidence": 0.85,
+                "sentiment_breakdown": {"negative": 1, "positive": 0, "neutral": 0},
+                "signals": [],
+                "top_worst_3": [{"headline": hl, "score": score, "sentiment": "negative", "signals": []}],
+            }
+
+        mock_predict.side_effect = side_effect
+
+        # 1. Exactly +3.0 delta -> stable, is_deteriorating=False
+        records_plus_3 = [
+            {"date": "2026-01-31", "headline": "hist_baseline"},
+            {"date": "2026-03-31", "headline": "target_plus_300"},
+        ]
+        res_plus_3 = calculate_supplier_trend("BoundaryCorp", records_plus_3)
+        assert res_plus_3["risk_delta"] == 3.0
+        assert res_plus_3["trend_direction"] == "stable"
+        assert res_plus_3["is_deteriorating"] is False
+        assert "Risk is stable" in res_plus_3["deterioration_summary"]
+
+        # 2. Exactly -3.0 delta -> stable, is_deteriorating=False
+        records_minus_3 = [
+            {"date": "2026-01-31", "headline": "hist_baseline"},
+            {"date": "2026-03-31", "headline": "target_minus_300"},
+        ]
+        res_minus_3 = calculate_supplier_trend("BoundaryCorp", records_minus_3)
+        assert res_minus_3["risk_delta"] == -3.0
+        assert res_minus_3["trend_direction"] == "stable"
+        assert res_minus_3["is_deteriorating"] is False
+        assert "Risk is stable" in res_minus_3["deterioration_summary"]
+
+        # 3. Exactly +3.01 delta -> rising, is_deteriorating=True
+        records_plus_301 = [
+            {"date": "2026-01-31", "headline": "hist_baseline"},
+            {"date": "2026-03-31", "headline": "target_plus_301"},
+        ]
+        res_plus_301 = calculate_supplier_trend("BoundaryCorp", records_plus_301)
+        assert res_plus_301["risk_delta"] == 3.01
+        assert res_plus_301["trend_direction"] == "rising"
+        assert res_plus_301["is_deteriorating"] is True
+
+        # 4. Exactly -3.01 delta -> falling, is_deteriorating=False
+        records_minus_301 = [
+            {"date": "2026-01-31", "headline": "hist_baseline"},
+            {"date": "2026-03-31", "headline": "target_minus_301"},
+        ]
+        res_minus_301 = calculate_supplier_trend("BoundaryCorp", records_minus_301)
+        assert res_minus_301["risk_delta"] == -3.01
+        assert res_minus_301["trend_direction"] == "falling"
+        assert res_minus_301["is_deteriorating"] is False
+
+
+def test_25_company_trend_dataset_full_cohort_sweep():
+    """
+    Verify full 25-company trend dataset cohort sweep:
+    - Every supplier calculates without exception
+    - current score is within [0, 100]
+    - previous score is None or within [0, 100]
+    - risk_delta is None or finite
+    - trend_direction is one of rising/falling/stable as defined by implementation
+    - is_deteriorating is boolean
+    """
+    import math
+
+    trend_data = load_25_company_trend_dataset()
+    assert len(trend_data) == 25, f"Expected 25 companies, got {len(trend_data)}"
+
+    for supplier, records in trend_data.items():
+        res = calculate_supplier_trend(supplier, records)
+        assert res["supplier"] == supplier
+        assert 0.0 <= res["current_risk_score"] <= 100.0
+        if res["previous_risk_score"] is not None:
+            assert 0.0 <= res["previous_risk_score"] <= 100.0
+        if res["risk_delta"] is not None:
+            assert isinstance(res["risk_delta"], (int, float))
+            assert not math.isnan(res["risk_delta"])
+            assert not math.isinf(res["risk_delta"])
+        assert res["trend_direction"] in {"rising", "falling", "stable"}
+        assert isinstance(res["is_deteriorating"], bool)
+        assert res["article_count"] == len(records)
+
+
+def test_trend_direction_across_operational_risk_tiers():
+    """
+    Verify representative tier and trend direction combinations:
+    - Rising + Medium
+    - Rising + High
+    - Falling + High
+    - Falling + Critical
+    """
+    # 1. Rising + Medium: Clean past, strike in current window
+    records_rising_medium = [
+        {"date": "2026-01-15", "headline": "Alpha Corp reports positive earnings and strong profit."},
+        {"date": "2026-03-20", "headline": "Alpha Corp workers go on strike over contract disputes."},
+    ]
+    res_rm = calculate_supplier_trend("Alpha Corp", records_rising_medium)
+    assert res_rm["trend_direction"] == "rising"
+    assert res_rm["is_deteriorating"] is True
+    assert assign_risk_tier(res_rm["current_risk_score"]) == "Medium"
+
+    # 2. Rising + High: Clean past, strike and disruption in current window
+    records_rising_high = [
+        {"date": "2026-01-15", "headline": "Beta Corp reports positive earnings and strong profit."},
+        {"date": "2026-03-20", "headline": "Beta Corp workers go on strike amidst severe supply disruption."},
+    ]
+    res_rh = calculate_supplier_trend("Beta Corp", records_rising_high)
+    assert res_rh["trend_direction"] == "rising"
+    assert res_rh["is_deteriorating"] is True
+    assert assign_risk_tier(res_rh["current_risk_score"]) == "High"
+
+    # 3. Falling + High: Catastrophic past (bankruptcy + default), high in current window
+    records_falling_high = [
+        {"date": "2026-01-15", "headline": "Gamma Corp files for bankruptcy following debt default."},
+        {"date": "2026-03-20", "headline": "Gamma Corp workers go on strike amidst severe supply disruption."},
+    ]
+    res_fh = calculate_supplier_trend("Gamma Corp", records_falling_high)
+    assert res_fh["trend_direction"] == "falling"
+    assert res_fh["is_deteriorating"] is False
+    assert assign_risk_tier(res_fh["current_risk_score"]) == "High"
+
+    # 4. Falling + Critical: Multi-catastrophic past, single acute event in current window
+    records_falling_critical = [
+        {"date": "2026-01-15", "headline": "Delta Corp hit with bankruptcy, fraud investigation, and debt default."},
+        {"date": "2026-03-20", "headline": "Delta Corp files for bankruptcy."},
+    ]
+    res_fc = calculate_supplier_trend("Delta Corp", records_falling_critical)
+    assert res_fc["trend_direction"] == "falling"
+    assert res_fc["is_deteriorating"] is False
+    assert assign_risk_tier(res_fc["current_risk_score"]) == "Critical"

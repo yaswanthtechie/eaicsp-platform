@@ -1,9 +1,9 @@
 import logging
 from contextlib import asynccontextmanager
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.config import get_settings
 from src.data import load_headlines, load_trend_headlines, load_active_trend_headlines
@@ -58,6 +58,8 @@ class AnalysisResponse(BaseModel):
 class AnalyzeRequest(BaseModel):
     """Request body for supplier risk analysis and prediction."""
 
+    model_config = ConfigDict(extra="forbid")
+
     supplier_name: str = Field(
         ...,
         min_length=1,
@@ -89,9 +91,12 @@ class AnalyzeRequest(BaseModel):
         for idx, item in enumerate(value):
             if not isinstance(item, str):
                 raise ValueError(f"Headline at index {idx} must be a string")
+            stripped = item.strip()
+            if not stripped:
+                raise ValueError(f"Headline at index {idx} cannot be blank or whitespace-only")
             if len(item) > 2000:
                 raise ValueError(f"Headline at index {idx} exceeds maximum length of 2000 characters")
-            validated.append(item)
+            validated.append(stripped)
         return validated
 
 
@@ -187,6 +192,8 @@ class TrendResponse(BaseModel):
 
 
 class TrendArticleInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     date: str
     headline: str
 
@@ -201,13 +208,18 @@ class TrendArticleInput(BaseModel):
     def validate_article_headline(cls, value: str) -> str:
         if not isinstance(value, str):
             raise ValueError("headline must be a string")
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("headline cannot be blank or whitespace-only")
         if len(value) > 2000:
             raise ValueError("headline exceeds maximum length of 2000 characters")
-        return value
+        return stripped
 
 
 class TrendAnalysisRequest(BaseModel):
     """Request body for date-aware trend analysis."""
+
+    model_config = ConfigDict(extra="forbid")
 
     supplier_name: str = Field(
         ...,
@@ -220,6 +232,10 @@ class TrendAnalysisRequest(BaseModel):
         max_length=100,
         description="List of date-aware articles (maximum 100 items)",
     )
+    as_of_date: Optional[str] = Field(
+        default=None,
+        description="Optional evaluation reference date in ISO format YYYY-MM-DD",
+    )
 
     @field_validator("supplier_name")
     @classmethod
@@ -230,6 +246,14 @@ class TrendAnalysisRequest(BaseModel):
         if len(stripped) > 200:
             raise ValueError("supplier_name cannot exceed 200 characters")
         return stripped
+
+    @field_validator("as_of_date")
+    @classmethod
+    def validate_as_of_date_field(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        from src.trend import validate_date
+        return validate_date(value)
 
 
 class ConfigResponse(BaseModel):
@@ -417,7 +441,10 @@ def analyze_static_dataset():
     response_model=TrendResponse,
     summary="Get supplier risk trend over time",
 )
-def get_supplier_risk_trend(supplier_name: str):
+def get_supplier_risk_trend(
+    supplier_name: str,
+    as_of_date: Optional[str] = None,
+):
     """
     Retrieve chronologically ordered risk trend points for a supplier.
     Supplier lookup is case-insensitive. Unknown suppliers return 404.
@@ -428,6 +455,16 @@ def get_supplier_risk_trend(supplier_name: str):
             status_code=400,
             detail="supplier_name cannot be blank",
         )
+
+    if as_of_date is not None:
+        try:
+            from src.trend import validate_date
+            validate_date(as_of_date)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=str(exc),
+            ) from exc
 
     trend_data = load_active_trend_headlines()
     supplier_key = next(
@@ -447,6 +484,7 @@ def get_supplier_risk_trend(supplier_name: str):
         return calculate_supplier_trend(
             supplier_name=supplier_key,
             records=records,
+            as_of_date=as_of_date,
         )
     except Exception as exc:
         logger.exception("Supplier risk trend calculation failed.")
@@ -471,6 +509,7 @@ def post_supplier_risk_trend(request: TrendAnalysisRequest):
         return calculate_supplier_trend(
             supplier_name=request.supplier_name,
             records=articles_dicts,
+            as_of_date=request.as_of_date,
         )
     except ValueError as exc:
         raise HTTPException(

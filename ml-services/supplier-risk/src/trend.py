@@ -11,7 +11,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 from src.config import Settings, get_settings
-from src.predict import predict
+from src.predict import _aggregate_risk_score, predict
 
 _ISO_DATE_REGEX = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -185,7 +185,7 @@ def calculate_supplier_trend(
 
         stripped_hl = headline.strip()
         if not stripped_hl:
-            continue
+            raise ValueError(f"Record at index {idx} contains an empty or whitespace-only headline")
 
         # Enforce supplier isolation: if record specifies a supplier, it must match
         if "supplier" in record and record["supplier"]:
@@ -261,63 +261,111 @@ def calculate_supplier_trend(
                 prev_articles.append(r)
                 prev_article_dates.append(d)
 
-    # 4. Calculate article-level risk scores using predict() with caching
-    article_score_cache: Dict[str, float] = {}
+    # 4. Calculate article-level risk evaluations using predict() with caching
+    article_eval_cache: Dict[str, Dict[str, Any]] = {}
 
-    def _get_article_risk(hl: str) -> float:
-        if hl not in article_score_cache:
+    def _get_article_eval(hl: str) -> Dict[str, Any]:
+        if hl not in article_eval_cache:
             p = predict(supplier_name=cleaned_supplier, headlines=[hl], config=cfg)
-            article_score_cache[hl] = float(p["risk_score"])
-        return article_score_cache[hl]
+            breakdown = p.get("sentiment_breakdown", {})
+            if breakdown.get("positive", 0) > 0:
+                sentiment_label = "positive"
+            elif breakdown.get("negative", 0) > 0:
+                sentiment_label = "negative"
+            else:
+                sentiment_label = "neutral"
+            article_eval_cache[hl] = {
+                "raw_score": float(p["risk_score"]),
+                "sentiment": sentiment_label,
+                "signals": p.get("signals", []),
+                "evidence": p.get("top_worst_3", []),
+            }
+        return article_eval_cache[hl]
 
-    # Current window aggregate score (recency-weighted)
-    if current_articles:
-        curr_weights: List[float] = []
-        curr_scores: List[float] = []
-        for r, d in zip(current_articles, current_article_dates):
-            age_days = (ref_date - d).days
-            weight = 2.0 ** (-float(age_days) / half_life)
-            score = _get_article_risk(r["headline"])
-            curr_weights.append(weight)
-            curr_scores.append(score)
+    def _calculate_window_aggregate_score(
+        articles: List[Dict[str, Any]],
+        article_dates: List[Any],
+        anchor_date: Any,
+    ) -> float:
+        if not articles:
+            return 0.0
 
-        total_curr_weight = sum(curr_weights)
-        if total_curr_weight > 0:
-            current_risk_score = round(
-                sum(s * w for s, w in zip(curr_scores, curr_weights)) / total_curr_weight,
-                2,
-            )
+        processed_window_headlines: List[Dict[str, Any]] = []
+        for r, d in zip(articles, article_dates):
+            age_days = max(0, (anchor_date - d).days)
+            recency_weight = 2.0 ** (-float(age_days) / half_life)
+            eval_info = _get_article_eval(r["headline"])
+            weighted_score = eval_info["raw_score"] * recency_weight
+            processed_window_headlines.append({
+                "headline": r["headline"],
+                "sentiment": eval_info["sentiment"],
+                "raw_score": eval_info["raw_score"],
+                "score": round(weighted_score, 2),
+                "weight": recency_weight,
+                "signals": eval_info["signals"],
+            })
+
+        risk_scores = [item["score"] for item in processed_window_headlines if item["score"] > 0]
+        if not risk_scores:
+            return 0.0
+
+        strategy = cfg.aggregation_strategy
+        if strategy == "max":
+            raw_score = max(risk_scores)
+        elif strategy == "blend":
+            peak_score = max(risk_scores)
+            avg_score = sum(risk_scores) / len(risk_scores)
+            raw_score = 0.8 * avg_score + 0.2 * peak_score
+        elif strategy == "mean":
+            raw_score = sum(risk_scores) / len(risk_scores)
         else:
-            current_risk_score = 0.0
+            # "top_k_mean" with principled anti-dilution:
+            # Base severity is the top-k mean, guarded by the peak acute event
+            # so that an acute crisis cannot be diluted by older or lower-severity headlines
+            sorted_risk_scores = sorted(risk_scores, reverse=True)
+            top_k = cfg.aggregation_top_k
+            top_k_scores = sorted_risk_scores[:top_k]
+            top_k_mean = sum(top_k_scores) / len(top_k_scores)
 
-        current_window_start_str = current_window_start.strftime("%Y-%m-%d")
-        current_window_end_str = ref_date.strftime("%Y-%m-%d")
+            severity_base = max(sorted_risk_scores[0], top_k_mean)
+
+            num_risk = len(sorted_risk_scores)
+            volume_factor = 1.0 + cfg.volume_weight * (1.0 - 1.0 / num_risk) if num_risk > 1 else 1.0
+
+            positive_headlines = [
+                item for item in processed_window_headlines
+                if item.get("sentiment") == "positive" and item.get("raw_score", 0.0) == 0
+            ]
+            num_pos = len(positive_headlines)
+            num_total = len(processed_window_headlines)
+            positive_ratio = (num_pos / num_total) if num_total > 0 else 0.0
+            mitigation_factor = 1.0 - cfg.mitigation_weight * positive_ratio
+
+            raw_score = severity_base * volume_factor * mitigation_factor
+
+        return round(min(cfg.max_risk_score, max(0.0, raw_score)), 2)
+
+    # Current window aggregate score (recency-weighted with predict anti-dilution logic)
+    if current_articles:
+        current_risk_score = _calculate_window_aggregate_score(
+            current_articles,
+            current_article_dates,
+            ref_date,
+        )
     else:
         current_risk_score = 0.0
-        current_window_start_str = None
-        current_window_end_str = None
+
+    current_window_start_str = current_window_start.strftime("%Y-%m-%d")
+    current_window_end_str = ref_date.strftime("%Y-%m-%d")
 
     # Previous window aggregate score (recency-weighted relative to previous window anchor)
     if prev_articles:
-        prev_anchor_date = ref_date - timedelta(days=window_days)
-        prev_weights: List[float] = []
-        prev_scores: List[float] = []
-        for r, d in zip(prev_articles, prev_article_dates):
-            age_days = max(0, (prev_anchor_date - d).days)
-            weight = 2.0 ** (-float(age_days) / half_life)
-            score = _get_article_risk(r["headline"])
-            prev_weights.append(weight)
-            prev_scores.append(score)
-
-        total_prev_weight = sum(prev_weights)
-        if total_prev_weight > 0:
-            previous_risk_score = round(
-                sum(s * w for s, w in zip(prev_scores, prev_weights)) / total_prev_weight,
-                2,
-            )
-        else:
-            previous_risk_score = None
-
+        prev_anchor_date = max(prev_article_dates)
+        previous_risk_score = _calculate_window_aggregate_score(
+            prev_articles,
+            prev_article_dates,
+            prev_anchor_date,
+        )
         prev_window_start_str = min(prev_article_dates).strftime("%Y-%m-%d")
         prev_window_end_str = max(prev_article_dates).strftime("%Y-%m-%d")
     else:
