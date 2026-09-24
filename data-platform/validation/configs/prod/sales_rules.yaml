@@ -1,12 +1,11 @@
 version: "prod-1.2.0"
 profiles:
   default:
-    global_max_fail_pct: 0.20  # Rejects batch if >20% of all rows fail ANY rules
-    # --- SLA Monitoring ---
-    global_warning_fail_pct: 0.20  # Triggers SLA alert if >20% of rows fail, but allows pipeline to continue
-    global_max_duration_seconds: 5.0 # Triggers SLA alert if validation execution exceeds 5 seconds
-    global_drift_abs_min: 0.01  # 1% absolute floor
-    global_drift_rel_min: 0.50  # 50% relative increase
+    global_max_fail_pct: 0.10  # Strict 10% rejection threshold for prod
+    global_warning_fail_pct: 0.05
+    global_max_duration_seconds: 5.0 # Fails SLA if execution takes >5s
+    global_drift_abs_min: 0.01
+    global_drift_rel_min: 0.50
     rules:
       - name: date_not_null
         field: date

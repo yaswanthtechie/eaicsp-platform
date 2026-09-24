@@ -52,7 +52,7 @@ def main():
     log_filepath = setup_logging()
     # Setup CLI Arguments
     parser = argparse.ArgumentParser(description="Run the Config-Driven Data Validation Pipeline.")
-    parser.add_argument("--config", type=str, default=str(PROJECT_ROOT / "configs" / "sales_rules.yaml"),
+    parser.add_argument("--config", type=str, default=str(PROJECT_ROOT / "configs" / "dev" / "sales_rules.yaml"),
                         help="Path to the YAML rules config.")
     parser.add_argument("--input", type=str, default=str(PROJECT_ROOT / "data" / "messy_sales.csv"),
                         help="Path to input data.")

@@ -219,7 +219,13 @@ def test_validate_folder_hybrid_mapping(mock_validator_class, mock_read_csv, tem
     )
 
     assert summary["passed_files"] == 1
-    mock_validator_class.from_config.assert_called_with(str(temp_env["config_file"]), profile_name="strict",
+
+    # The internal logic correctly routes the mapped config file through resolve_env_path
+    # before instantiating the validator. We must simulate that injection in our assertion.
+    from src.validator import resolve_env_path
+    expected_path = str(resolve_env_path(str(temp_env["config_file"]), env="dev"))
+
+    mock_validator_class.from_config.assert_called_with(expected_path, profile_name="strict",
                                                         rules_dir=None)
 
 

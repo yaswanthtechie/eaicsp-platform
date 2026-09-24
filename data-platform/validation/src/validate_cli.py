@@ -9,6 +9,8 @@ from typing import Any, Optional
 
 import pandas as pd
 
+# --- PATH RESOLUTION ---
+# Must run BEFORE any `from src...` import.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -58,7 +60,8 @@ logger = logging.getLogger(__name__)
 def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Standalone Quality Gate CLI")
     parser.add_argument("--file", type=Path, required=True, help="Path to input CSV")
-    parser.add_argument("--config", type=Path, required=True, help="Path to YAML rules")
+    parser.add_argument("--config", type=Path, default=PROJECT_ROOT / "configs" / "dev" / "sales_rules.yaml",
+                        help="Path to YAML rules")
     parser.add_argument("--output", type=Path, required=True, help="Path for JSON report output")
     parser.add_argument("--rules-dir", type=Path, default=None,
                         help="Path to the custom rules directory for auto-discovery.")

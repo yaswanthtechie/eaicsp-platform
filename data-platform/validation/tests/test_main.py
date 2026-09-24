@@ -161,7 +161,9 @@ def test_main_list_profiles_found(mock_list, mock_args, mock_exists, mock_setup_
     args.env = None
     mock_args.return_value = args
     main.main()
-    mock_list.assert_called_once_with("dummy_config.yaml")
+
+    expected_path = str(Path("dev/dummy_config.yaml"))
+    mock_list.assert_called_once_with(expected_path)
 
 
 @patch("src.main.setup_logging", return_value="dummy_log.log")
@@ -175,7 +177,9 @@ def test_main_list_profiles_not_found(mock_list, mock_args, mock_exists, mock_se
     args.env = None
     mock_args.return_value = args
     main.main()
-    mock_list.assert_called_once_with("dummy_config.yaml")
+
+    expected_path = str(Path("dev/dummy_config.yaml"))
+    mock_list.assert_called_once_with(expected_path)
 
 
 @patch("src.main.setup_logging", return_value="dummy_log.log")

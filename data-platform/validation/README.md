@@ -1,4 +1,4 @@
-# Sales Data Validation Pipeline
+`# Sales Data Validation Pipeline
 
 ## Objective
 
@@ -312,7 +312,7 @@ run_pipeline
 
 ## CLI Arguments:
 - --data-path: Path where test data will be generated and read from (default: data/perf_100k_sales.csv).
-- --config-path: Path to the YAML validation rules (default: configs/sales_rules.yaml).
+- --config: Path to the YAML validation rules (default: configs/dev/sales_rules.yaml).
 - --n-rows: Number of rows to generate (default: 100000).
 - --time-threshold: Maximum acceptable execution duration in seconds (default: 3.0).
 - --log-dir: Directory for saving timestamped log files (default: logs).
@@ -780,7 +780,7 @@ You can generate the documentation using the standalone CLI script. By default, 
 Run the script from your project root, pointing it to your target YAML configuration:
 
 ```commandline
-python -m src.generate_docs --config configs/sales_rules.yaml
+python -m src.generate_docs 
 ```
 
 ### Advanced Usage
@@ -916,7 +916,7 @@ To provide a clean API boundary, `validate_row()` accepts a standard Python dict
 import json
 from src.validator import DataValidator
 
-validator = DataValidator.from_config("configs/sales_rules.yaml")
+validator = DataValidator.from_config("configs/dev/sales_rules.yaml")
 
 # Accept a raw dict (or JSON string) from your consumer
 incoming_event = {

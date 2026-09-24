@@ -20,7 +20,12 @@ def resolve_env_path(base_path: Union[str, Path], env: Optional[str] = None) -> 
     """
     path = Path(base_path)
     if not env or env.lower() in ('default', 'local', 'none', ''):
-        return path
+        env = 'dev'
+
+    # Strict validation against allowed environments
+    allowed_envs = {'dev', 'staging', 'prod'}
+    if env.lower() not in allowed_envs:
+        raise ValueError(f"Invalid environment '{env}'. Must be one of: {allowed_envs}")
 
     # Avoid double-injecting if the environment is already explicitly in the path
     if env in path.parts:
@@ -45,7 +50,7 @@ class RowLevelResult(BaseModel):
     errors: List[str] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
     info: List[str] = Field(default_factory=list)
-    remediations: List[str] = Field(default_factory=list)
+    remediations: List[Dict[str, Any]] = Field(default_factory=list)
     skipped_stateful: List[str] = Field(default_factory=list)
 
 
@@ -656,6 +661,14 @@ class DataValidator:
 
         df_working = pd.DataFrame([row_dict])
 
+        try:
+            self._validate_schema(df_working)
+        except ValueError as e:
+            return RowLevelResult(
+                passed=False,
+                errors=[f"schema_error: {e}"],
+            )
+
         for rule in self.rules:
             if rule.type == "transform":
                 try:
@@ -673,7 +686,7 @@ class DataValidator:
             if rule.type == "transform":
                 continue
 
-            if rule.type == "unique" or rule.name == "composite_pk_unique":
+            if rule.type == "unique" or getattr(rule, 'requires_full_dataset', False):
                 skipped_stateful.append(rule.name)
                 rule_failure_masks[rule.name] = pd.Series([False], index=[0])
                 continue
@@ -692,6 +705,10 @@ class DataValidator:
 
             except Exception as e:
                 logger.error(f"Rule '{rule.name}' crashed during real-time validation: {type(e).__name__}: {e}")
+                if rule.severity == "ERROR":
+                    errors.append(rule.name)
+                elif rule.severity == "WARNING":
+                    warnings.append(rule.name)
                 continue
 
             if bad_mask.iloc[0]:
@@ -738,6 +755,9 @@ class DataValidator:
 
                     df_working = rule.apply_transform(df_working)
 
+                    # Extract the "why" for the audit trail
+                    reason = getattr(rule, "description", None) or f"Applied auto-remediation via '{rule.name}'"
+
                     if series_before is not None:
                         series_after = df_working[rule.field]
                         changed_mask = (series_before != series_after) & ~(series_before.isna() & series_after.isna())
@@ -747,7 +767,8 @@ class DataValidator:
                             remediations.append({
                                 "rule": rule.name,
                                 "field": rule.field,
-                                "rows_modified": changed_count
+                                "rows_modified": changed_count,
+                                "reason": reason
                             })
                             for idx in df_working[changed_mask].head(5).index:
                                 sample_remediations[rule.name].append({
@@ -758,7 +779,8 @@ class DataValidator:
 
                     elif df_before is not None:
                         if list(df_before.columns) != list(df_working.columns):
-                            changed_count = len(df_working)
+                            # A new column was added (e.g., flag_negatives). Do not count as a row modification.
+                            changed_count = 0
                         else:
                             changed_mask = (df_before != df_working) & ~(df_before.isna() & df_working.isna())
                             changed_rows = changed_mask.any(axis=1)
@@ -768,7 +790,8 @@ class DataValidator:
                             remediations.append({
                                 "rule": rule.name,
                                 "field": "cross_field",
-                                "rows_modified": changed_count
+                                "rows_modified": changed_count,
+                                "reason": reason
                             })
 
                 except Exception as e:

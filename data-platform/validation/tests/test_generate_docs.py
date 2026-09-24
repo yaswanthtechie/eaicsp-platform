@@ -39,19 +39,49 @@ def test_get_description_not_null():
 
 
 def test_get_description_regex():
+    """Tests the new dynamic regex-to-plain-English parser."""
+    # 1. Exact match basic
     rule = ConfigRule(name="test", type="regex", field="f1", pattern="^ABC$")
-    assert get_human_readable_description(rule) == "Must strictly match the regex pattern: `^ABC$`"
+    assert get_human_readable_description(rule) == "Must strictly match the format: 'ABC'."
 
+    # 2. Unknown fallback
     rule_no_pattern = ConfigRule(name="test", type="regex", field="f1")
-    assert get_human_readable_description(rule_no_pattern) == "Must strictly match the regex pattern: `unknown`"
+    assert get_human_readable_description(rule_no_pattern) == "Must match a specific format."
+
+    # 3. Dynamic digit class parsing
+    rule_sku = ConfigRule(name="test", type="regex", field="f1", pattern="^SKU-[0-9]{4}$")
+    assert get_human_readable_description(rule_sku) == "Must strictly match the format: 'SKU-exactly 4 digits'."
+
+    # 4. Starts with anchor
+    rule_start = ConfigRule(name="test", type="regex", field="f1", pattern="^PREFIX-")
+    assert get_human_readable_description(rule_start) == "Must start with: 'PREFIX-'."
+
+    # 5. Ends with anchor
+    rule_end = ConfigRule(name="test", type="regex", field="f1", pattern="-SUFFIX$")
+    assert get_human_readable_description(rule_end) == "Must end with: '-SUFFIX'."
+
+    # 6. Contains pattern (No anchors) and letter classes
+    rule_contain = ConfigRule(name="test", type="regex", field="f1", pattern="[a-zA-Z]{2,4}")
+    assert get_human_readable_description(rule_contain) == "Must contain the pattern: '2 to 4 letters'."
+
+    # 7. Plus quantifier
+    rule_plus = ConfigRule(name="test", type="regex", field="f1", pattern="\\d+")
+    assert get_human_readable_description(rule_plus) == "Must contain the pattern: 'one or more digits'."
 
 
 def test_get_description_range():
-    rule = ConfigRule(name="test", type="range", field="f1", min=10, max=100)
-    assert get_human_readable_description(rule) == "Value must be between 10 and 100."
+    """Tests the new open-ended range plain English generator."""
+    rule_both = ConfigRule(name="test", type="range", field="f1", min=10, max=100)
+    assert get_human_readable_description(rule_both) == "Value must be between 10 and 100."
+
+    rule_min_only = ConfigRule(name="test", type="range", field="f1", min=10)
+    assert get_human_readable_description(rule_min_only) == "Value must be at least 10."
+
+    rule_max_only = ConfigRule(name="test", type="range", field="f1", max=100)
+    assert get_human_readable_description(rule_max_only) == "Value must be at most 100."
 
     rule_no_bounds = ConfigRule(name="test", type="range", field="f1")
-    assert get_human_readable_description(rule_no_bounds) == "Value must be between -∞ and ∞."
+    assert get_human_readable_description(rule_no_bounds) == "Must be a valid number."
 
 
 def test_get_description_unique():
@@ -60,11 +90,19 @@ def test_get_description_unique():
 
 
 def test_get_description_conditional():
+    """Tests the dynamic recursive unwrapping of conditional targets."""
     rule = ConfigRule(
         name="test", type="conditional", condition_field="country",
         condition_value="US", target_type="not_null"
     )
-    assert get_human_readable_description(rule) == "If `country` == 'US', secondary validation rules apply."
+    assert get_human_readable_description(rule) == "If `country` is 'US', then must not be empty or null."
+
+    # Test with a missing/unknown target type to ensure lowercase formatting handles it safely
+    rule_unknown = ConfigRule(
+        name="test", type="conditional", condition_field="country",
+        condition_value="US", target_type="unknown_type"
+    )
+    assert get_human_readable_description(rule_unknown) == "If `country` is 'US', then standard validation rule."
 
 
 def test_get_description_custom_with_docstring():
@@ -216,7 +254,8 @@ def test_main_no_profiles_found(mock_list, mock_exists, mock_parse_args):
 @patch("src.validator.DataValidator.list_profiles")
 @patch("src.validator.DataValidator.from_config")
 @patch("pathlib.Path.write_text")
-def test_main_success_all_formats(mock_write_text, mock_from_config, mock_list, mock_mkdir, mock_exists, mock_parse_args):
+def test_main_success_all_formats(mock_write_text, mock_from_config, mock_list, mock_mkdir, mock_exists,
+                                  mock_parse_args):
     mock_args = MagicMock()
     mock_args.config = Path("config.yaml")
     mock_args.output_dir = Path("docs")

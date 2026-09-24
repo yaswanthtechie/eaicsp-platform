@@ -2,6 +2,7 @@ import argparse
 import logging
 import sys
 import html
+import re
 from pathlib import Path
 from typing import Dict
 
@@ -18,29 +19,85 @@ from src.registry import RULE_REGISTRY
 
 def get_human_readable_description(rule) -> str:
     """Gets the description from the YAML or falls back to auto-generated/docstrings."""
+    # 1. Always prioritize explicit descriptions written in the YAML
     if hasattr(rule, 'description') and rule.description:
         return rule.description.strip()
 
     if rule.type == "not_null":
         return "Must not be empty or null."
+
     elif rule.type == "regex":
         pattern = (rule.model_extra or {}).get("pattern", "unknown")
-        return f"Must strictly match the regex pattern: `{pattern}`"
+        if pattern == "unknown":
+            return "Must match a specific format."
+
+        # 2. Dynamically translate regex concepts into plain English
+        exact_match = pattern.startswith('^') and pattern.endswith('$')
+        desc = pattern.lstrip('^').rstrip('$')
+
+        # Translate digit classes with quantifiers (e.g., [0-9]{4} -> exactly 4 digits)
+        desc = re.sub(r'(\[0-9\]|\\d)\{(\d+)\}', r'exactly \2 digits', desc)
+        desc = re.sub(r'(\[0-9\]|\\d)\{(\d+),(\d+)\}', r'\2 to \3 digits', desc)
+        desc = re.sub(r'(\[0-9\]|\\d)\+', r'one or more digits', desc)
+
+        # Translate letter classes with quantifiers
+        desc = re.sub(r'(\[a-zA-Z\]|\[a-z\]|\[A-Z\]|\\w)\{(\d+)\}', r'exactly \2 letters', desc)
+        desc = re.sub(r'(\[a-zA-Z\]|\[a-z\]|\[A-Z\]|\\w)\{(\d+),(\d+)\}', r'\2 to \3 letters', desc)
+
+        # Translate standalone classes
+        desc = re.sub(r'\[0-9\]|\\d', 'a digit', desc)
+        desc = re.sub(r'\[a-zA-Z\]|\[a-z\]|\[A-Z\]|\\w', 'a letter', desc)
+
+        # Format the final sentence based on string anchors
+        if exact_match:
+            return f"Must strictly match the format: '{desc}'."
+        elif pattern.startswith('^'):
+            return f"Must start with: '{desc}'."
+        elif pattern.endswith('$'):
+            return f"Must end with: '{desc}'."
+        else:
+            return f"Must contain the pattern: '{desc}'."
+
     elif rule.type == "range":
         extra = rule.model_extra or {}
-        min_val = extra.get('min', '-∞')
-        max_val = extra.get('max', '∞')
-        return f"Value must be between {min_val} and {max_val}."
+        min_val = extra.get('min')
+        max_val = extra.get('max')
+
+        if min_val is not None and max_val is not None:
+            return f"Value must be between {min_val} and {max_val}."
+        elif min_val is not None:
+            return f"Value must be at least {min_val}."
+        elif max_val is not None:
+            return f"Value must be at most {max_val}."
+        return "Must be a valid number."
+
     elif rule.type == "unique":
         return "Value must be unique across the entire dataset."
+
     elif rule.type == "conditional":
         extra = rule.model_extra or {}
-        cond_f = extra.get('condition_field', 'X')
-        cond_v = extra.get('condition_value', 'Y')
-        return f"If `{cond_f}` == '{cond_v}', secondary validation rules apply."
+        cond_f = extra.get('condition_field', 'unknown_field')
+        cond_v = extra.get('condition_value', 'unknown_value')
+
+        # Dynamically evaluate the target rule to extract its plain English description
+        class MockTargetRule:
+            def __init__(self, t_type, t_extra):
+                self.type = t_type
+                self.model_extra = t_extra
+                self.description = None
+
+        target_rule = MockTargetRule(extra.get('target_type'), extra)
+        target_desc = get_human_readable_description(target_rule)
+
+        if target_desc:
+            target_desc = target_desc[0].lower() + target_desc[1:]
+
+        return f"If `{cond_f}` is '{cond_v}', then {target_desc}"
+
     elif rule.type in ["custom", "transform"]:
         func_path = (rule.model_extra or {}).get('function')
         func_name = func_path.split('.')[-1] if func_path else None
+
         if func_name and func_name in RULE_REGISTRY:
             doc = RULE_REGISTRY[func_name].__doc__
             if doc:
@@ -73,7 +130,7 @@ class MarkdownRenderer:
             "## 2. Operational SLAs & Pipeline Thresholds",
             "### Global Settings"
         ])
-        global_fail = f"{validator.global_max_fail_pct * 100:.2f}%" if validator.global_max_fail_pct else "Not configured"
+        global_fail = f"{validator.global_max_fail_pct * 100:.2f}%" if validator.global_max_fail_pct is not None else "Not configured"
         md.extend([
             f"- **Max Batch Failure (Rejection Limit):** {global_fail}",
             f"- **Global Drift Alert (Absolute):** {validator.global_drift_abs_min * 100:.2f}%",
@@ -179,7 +236,7 @@ class HTMLRenderer:
 
             # SLA Sections
             html_out.append("<h3>2. Operational SLAs & Global Thresholds</h3>")
-            global_fail = f"{validator.global_max_fail_pct * 100:.2f}%" if validator.global_max_fail_pct else "Not configured"
+            global_fail = f"{validator.global_max_fail_pct * 100:.2f}%" if validator.global_max_fail_pct is not None else "Not configured"
 
             html_out.append("<ul class='sla-list'>")
             html_out.append(f"<li><strong>Max Batch Failure (Rejection Limit):</strong> {global_fail}</li>")
@@ -220,7 +277,9 @@ class HTMLRenderer:
 
 def main():
     parser = argparse.ArgumentParser(description="Generate Data Quality Contracts from validation configs.")
-    parser.add_argument("--config", type=Path, required=True, help="Path to the YAML config file.")
+    # parser.add_argument("--config", type=Path, required=True, help="Path to the YAML config file.")
+    parser.add_argument("--config", type=Path, default=PROJECT_ROOT / "configs" / "dev" / "sales_rules.yaml",
+                        help="Path to YAML rules")
     parser.add_argument("--output-dir", type=Path, default=Path("docs"), help="Directory to save the files.")
     parser.add_argument("--rules-dir", type=str, default=None, help="Path to the custom rules directory.")
     parser.add_argument("--format", type=str, choices=["markdown", "html", "all"], default="html",

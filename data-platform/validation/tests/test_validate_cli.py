@@ -148,7 +148,9 @@ def test_main_input_not_file(mock_is_file, mock_args):
 def test_main_list_profiles_found(mock_list, mock_is_file, mock_args):
     args = mock_args + ["--list-profiles"]
     assert validate_cli.main(args) == validate_cli.EXIT_SUCCESS
-    mock_list.assert_called_once_with("dummy.yaml")
+
+    expected_path = str(Path("dev/dummy.yaml"))
+    mock_list.assert_called_once_with(expected_path)
 
 
 @patch("pathlib.Path.is_file", return_value=True)
@@ -156,7 +158,9 @@ def test_main_list_profiles_found(mock_list, mock_is_file, mock_args):
 def test_main_list_profiles_not_found(mock_list, mock_is_file, mock_args):
     args = mock_args + ["--list-profiles"]
     assert validate_cli.main(args) == validate_cli.EXIT_SUCCESS
-    mock_list.assert_called_once_with("dummy.yaml")
+
+    expected_path = str(Path("dev/dummy.yaml"))
+    mock_list.assert_called_once_with(expected_path)
 
 
 @patch("pathlib.Path.is_file", return_value=True)

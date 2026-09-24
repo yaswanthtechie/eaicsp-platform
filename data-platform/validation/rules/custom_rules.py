@@ -93,15 +93,25 @@ def flag_negatives(df: pd.DataFrame, *, field: str = 'quantity_sold', **kwargs) 
         df_c.loc[df_c[field] < 0, 'flagged_for_review'] = True
     return df_c
 
+
 @register_rule()
 def standardize_dates(df: pd.DataFrame, *, field: str = 'order_date', **kwargs) -> pd.DataFrame:
-    """Unifies date string formats; preserves original bad strings for validation."""
+    """Safely unifies strict date strings. Preserves ambiguous or invalid strings for validation."""
     df_c = df.copy()
     if field in df_c.columns:
-        original = df_c[field]
-        iso_dates = pd.to_datetime(original, format='%Y-%m-%d', errors='coerce')
-        mixed_dates = pd.to_datetime(original, format='mixed', dayfirst=True, errors='coerce')
-        df_c[field] = iso_dates.fillna(mixed_dates).dt.strftime('%Y-%m-%d').fillna(original)
+        # 1. Safely strip whitespace (this is a deterministic, safe fix)
+        cleaned_strings = df_c[field].astype(str).str.strip()
+
+        # 2. Strict parsing only. Do not guess day/month order.
+        iso_dates = pd.to_datetime(cleaned_strings, format='%Y-%m-%d', errors='coerce')
+
+        # 3. If it fails strict parsing, keep the cleaned string so the unparseable_dates rule catches it
+        df_c[field] = iso_dates.dt.strftime('%Y-%m-%d').fillna(cleaned_strings)
+
+        # 4. Restore proper nulls
+        null_mask = df_c[field].isin(['nan', 'None', ''])
+        df_c.loc[null_mask, field] = None
+
     return df_c
 
 @register_rule()
@@ -120,3 +130,15 @@ def check_composite_unique_stream(df: pd.DataFrame, **kwargs) -> pd.Series:
     if '_global_dup_mask' in df.columns:
         return df['_global_dup_mask']
     return pd.Series([False] * len(df), index=df.index)
+
+@register_rule()
+def clean_whitespace_and_case(df: pd.DataFrame, *, field: str, target_case: str = 'upper', **kwargs) -> pd.DataFrame:
+    """Safely trims whitespace and standardizes case for string columns."""
+    df_c = df.copy()
+    if field in df_c.columns:
+        mask = df_c[field].notna()
+        if target_case == 'upper':
+            df_c.loc[mask, field] = df_c.loc[mask, field].astype(str).str.strip().str.upper()
+        else:
+            df_c.loc[mask, field] = df_c.loc[mask, field].astype(str).str.strip().str.lower()
+    return df_c
