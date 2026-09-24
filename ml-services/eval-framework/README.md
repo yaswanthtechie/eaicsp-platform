@@ -38,7 +38,7 @@ on the same basis instead of each computing accuracy their own way.
   (not just Python code importing this package) can rank models and get
   the same refusal behavior for incompatible metrics
 - `compare.py` - standalone CLI: `python compare.py --results results.json`
-- `tests/test_metrics.py` - 118 tests covering all of the above, including
+- `tests/test_metrics.py` - 122 tests covering all of the above, including
   edge cases and error/refusal paths
 
 Note: MAPE excludes rows where the actual value is 0, since division by zero
@@ -351,6 +351,8 @@ except LeakageError as e:
   be negative. A run missing the compared metric raises an error rather
   than silently reporting "no regression". Unrecognized metrics require an
   explicit direction, same rule as `leaderboard.py`.
+  Comparing a run against itself when it's the only production-tagged run
+  raises a clear error rather than trivially reporting no regression.
 - **`src/fairness.py`** - `evaluate_by_slice()` computes a metric
   separately for each slice of a dataset (e.g. per warehouse, per category)
   and for the dataset overall, then flags any slice performing meaningfully
@@ -362,6 +364,9 @@ except LeakageError as e:
   falsely flag an objectively tiny slice. Slices smaller than
   `min_slice_size` are reported but never flagged, since too little data
   can't support a reliable conclusion.
+  The absolute-gap floor can be set explicitly per call via
+` min_absolute_gap`, since rmse's real scale is data-dependent and has no
+  safe universal default the way mape and accuracy do.
 
 ### Why this matters
 
