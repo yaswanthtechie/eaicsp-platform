@@ -55,6 +55,7 @@ class SupplierRegistration(BaseModel):
                 "email": "ravi@abcsupplies.com",
                 "phone": "9876543210",
                 "address": "Hyderabad, Telangana",
+                "country": "India",
                 "required_documents": [
                     "gst_certificate",
                     "pan_card",
@@ -101,6 +102,7 @@ class SupplierRegistration(BaseModel):
         max_length=500
     )
 
+    country: str = Field(..., min_length=2, max_length=100)
     required_documents: list[str] = Field(
         ...,
         min_length=1
@@ -118,6 +120,7 @@ class SupplierOnboardingResponse(BaseModel):
     email: str
     phone: str
     address: str
+    country: str
     status: SupplierOnboardingStatus
     required_documents: list[str]
     created_at: datetime

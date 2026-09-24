@@ -252,6 +252,14 @@ def payment_approve_url(
         f"{supplier_id}/{invoice_number}/payment-approve"
     )
 
+def resolution_suggestion_url(
+    supplier_id="SUP001",
+    invoice_number="INV1001",
+):
+    return (
+        f"/api/v1/three-way-matches/"
+        f"{supplier_id}/{invoice_number}/resolution-suggestion"
+    )
 
 # ============================================================
 # 1. EXACT 3-WAY MATCH
@@ -1831,5 +1839,645 @@ def test_procurement_manager_can_get_other_supplier_match(
 
     assert response.status_code == 200
     assert response.json()["supplier_id"] == "SUP002"
+
+# ============================================================
+# TASK 4 — DISPUTE RESOLUTION SUGGESTIONS
+# ============================================================
+
+
+def seed_historical_match(
+    match_id,
+    supplier_id,
+    invoice_number,
+    discrepancies,
+    resolution_reason,
+):
+    """
+    Seed a previously resolved three-way-match record.
+
+    These records represent historical disputes that were
+    already resolved by a compliance officer.
+    """
+
+    three_way_matches[
+        (supplier_id, invoice_number)
+    ] = {
+        "match_id": match_id,
+        "supplier_id": supplier_id,
+        "invoice_number": invoice_number,
+        "status": "matched",
+        "lines": [],
+        "discrepancies": discrepancies,
+        "created_at": None,
+        "created_by": (
+            "procurementmanager@company.com"
+        ),
+        "resolution": {
+            "reason": resolution_reason,
+            "resolved_at": None,
+            "resolved_by": (
+                "complianceofficer@company.com"
+            ),
+            "resolved_role": "compliance_officer",
+        },
+        "resolved_at": None,
+        "resolved_by": (
+            "complianceofficer@company.com"
+        ),
+        "payment_approved": False,
+        "payment_approved_at": None,
+        "payment_approved_by": None,
+        "payment_approved_role": None,
+    }
+
+
+def create_price_discrepancy_match(
+    procurement_client,
+    invoice_number="INV1001",
+):
+    """
+    Create a real current price-mismatch case through
+    the existing three-way-match API.
+    """
+
+    prepare_exact_match(
+        invoice_number=invoice_number,
+    )
+
+    invoices[
+        ("SUP001", invoice_number)
+    ]["items"][0]["unit_price"] = 106.0
+
+    response = procurement_client.post(
+        match_url(
+            supplier_id="SUP001",
+            invoice_number=invoice_number,
+        )
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "discrepancy"
+
+    return response
+
+
+# ============================================================
+# 47. PRICE MISMATCH RESOLUTION SUGGESTION
+# ============================================================
+
+def test_price_mismatch_resolution_suggestion(
+    procurement_client,
+    compliance_client,
+):
+    """
+    Historical price mismatches mostly resulted in
+    corrected invoices.
+
+    The current price mismatch should therefore suggest
+    correcting the invoice.
+    """
+
+    seed_historical_match(
+        match_id="HIST-PRICE-001",
+        supplier_id="SUP001",
+        invoice_number="OLD-PRICE-001",
+        discrepancies=["price_mismatch"],
+        resolution_reason=(
+            "Corrected invoice received from supplier."
+        ),
+    )
+
+    seed_historical_match(
+        match_id="HIST-PRICE-002",
+        supplier_id="SUP002",
+        invoice_number="OLD-PRICE-002",
+        discrepancies=["price_mismatch"],
+        resolution_reason=(
+            "Invoice correction requested."
+        ),
+    )
+
+    seed_historical_match(
+        match_id="HIST-PRICE-003",
+        supplier_id="SUP003",
+        invoice_number="OLD-PRICE-003",
+        discrepancies=["price_mismatch"],
+        resolution_reason=(
+            "Credit note issued."
+        ),
+    )
+
+    create_price_discrepancy_match(
+        procurement_client,
+        invoice_number="INV1001",
+    )
+
+    response = compliance_client.get(
+        resolution_suggestion_url(
+            supplier_id="SUP001",
+            invoice_number="INV1001",
+        )
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["supplier_id"] == "SUP001"
+    assert data["invoice_number"] == "INV1001"
+
+    assert len(data["suggestions"]) == 1
+
+    suggestion = data["suggestions"][0]
+
+    assert suggestion["discrepancy_type"] == (
+        "price_mismatch"
+    )
+
+    assert suggestion["suggested_action"] == (
+        "correct_invoice"
+    )
+
+    assert suggestion["historical_case_count"] == 3
+    assert suggestion["supporting_case_count"] == 2
+
+
+# ============================================================
+# 48. QUANTITY MISMATCH RESOLUTION SUGGESTION
+# ============================================================
+
+def test_quantity_mismatch_resolution_suggestion(
+    procurement_client,
+    compliance_client,
+):
+    """
+    Historical quantity mismatches mostly resulted in
+    credit notes.
+    """
+
+    seed_historical_match(
+        match_id="HIST-QTY-001",
+        supplier_id="SUP001",
+        invoice_number="OLD-QTY-001",
+        discrepancies=["quantity_mismatch"],
+        resolution_reason=(
+            "Credit note issued for excess quantity."
+        ),
+    )
+
+    seed_historical_match(
+        match_id="HIST-QTY-002",
+        supplier_id="SUP002",
+        invoice_number="OLD-QTY-002",
+        discrepancies=["quantity_mismatch"],
+        resolution_reason=(
+            "Credit memo issued."
+        ),
+    )
+
+    seed_historical_match(
+        match_id="HIST-QTY-003",
+        supplier_id="SUP003",
+        invoice_number="OLD-QTY-003",
+        discrepancies=["quantity_mismatch"],
+        resolution_reason=(
+            "Manual compliance review completed."
+        ),
+    )
+
+    prepare_exact_match()
+
+    invoices[
+        ("SUP001", "INV1001")
+    ]["items"][0]["quantity"] = 5
+
+    match_response = procurement_client.post(
+        match_url()
+    )
+
+    assert match_response.status_code == 200
+    assert match_response.json()["status"] == (
+        "discrepancy"
+    )
+
+    response = compliance_client.get(
+        resolution_suggestion_url()
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert len(data["suggestions"]) == 1
+
+    suggestion = data["suggestions"][0]
+
+    assert suggestion["discrepancy_type"] == (
+        "quantity_mismatch"
+    )
+
+    assert suggestion["suggested_action"] == (
+        "credit_note"
+    )
+
+    assert suggestion["historical_case_count"] == 3
+    assert suggestion["supporting_case_count"] == 2
+
+
+# ============================================================
+# 49. MULTIPLE DISCREPANCIES GET MULTIPLE SUGGESTIONS
+# ============================================================
+
+def test_multiple_discrepancies_get_multiple_suggestions(
+    procurement_client,
+    compliance_client,
+):
+    """
+    A dispute containing quantity + price mismatches
+    should receive one suggestion for each discrepancy.
+    """
+
+    seed_historical_match(
+        match_id="HIST-MULTI-001",
+        supplier_id="SUP001",
+        invoice_number="OLD-MULTI-001",
+        discrepancies=["quantity_mismatch"],
+        resolution_reason="Credit note issued.",
+    )
+
+    seed_historical_match(
+        match_id="HIST-MULTI-002",
+        supplier_id="SUP002",
+        invoice_number="OLD-MULTI-002",
+        discrepancies=["price_mismatch"],
+        resolution_reason="Corrected invoice received.",
+    )
+
+    prepare_exact_match()
+
+    invoice = invoices[
+        ("SUP001", "INV1001")
+    ]
+
+    invoice["items"][0]["quantity"] = 5
+    invoice["items"][0]["unit_price"] = 106.0
+
+    match_response = procurement_client.post(
+        match_url()
+    )
+
+    assert match_response.status_code == 200
+
+    assert match_response.json()["status"] == (
+        "discrepancy"
+    )
+
+    response = compliance_client.get(
+        resolution_suggestion_url()
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert len(data["suggestions"]) == 2
+
+    suggestions = {
+        item["discrepancy_type"]: item
+        for item in data["suggestions"]
+    }
+
+    assert (
+        suggestions["quantity_mismatch"][
+            "suggested_action"
+        ]
+        == "credit_note"
+    )
+
+    assert (
+        suggestions["price_mismatch"][
+            "suggested_action"
+        ]
+        == "correct_invoice"
+    )
+
+
+# ============================================================
+# 50. NO HISTORICAL EVIDENCE
+# ============================================================
+
+def test_no_historical_evidence_returns_no_suggestion(
+    procurement_client,
+    compliance_client,
+):
+    """
+    The system must not invent a resolution suggestion
+    when no historical resolved case exists.
+    """
+
+    create_price_discrepancy_match(
+        procurement_client,
+    )
+
+    response = compliance_client.get(
+        resolution_suggestion_url()
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert len(data["suggestions"]) == 1
+
+    suggestion = data["suggestions"][0]
+
+    assert suggestion["discrepancy_type"] == (
+        "price_mismatch"
+    )
+
+    assert suggestion["suggested_action"] is None
+
+    assert suggestion["historical_case_count"] == 0
+
+    assert suggestion["supporting_case_count"] == 0
+
+
+# ============================================================
+# 51. UNRESOLVED HISTORICAL CASE IS IGNORED
+# ============================================================
+
+def test_unresolved_historical_case_is_ignored(
+    procurement_client,
+    compliance_client,
+):
+    """
+    A historical discrepancy that has not been resolved
+    must not be used as resolution evidence.
+    """
+
+    three_way_matches[
+        ("SUP001", "OLD-UNRESOLVED")
+    ] = {
+        "match_id": "HIST-UNRESOLVED-001",
+        "supplier_id": "SUP001",
+        "invoice_number": "OLD-UNRESOLVED",
+        "status": "discrepancy",
+        "lines": [],
+        "discrepancies": ["price_mismatch"],
+        "created_at": None,
+        "created_by": (
+            "procurementmanager@company.com"
+        ),
+        "resolution": None,
+        "resolved_at": None,
+        "resolved_by": None,
+        "payment_approved": False,
+        "payment_approved_at": None,
+        "payment_approved_by": None,
+        "payment_approved_role": None,
+    }
+
+    create_price_discrepancy_match(
+        procurement_client,
+    )
+
+    response = compliance_client.get(
+        resolution_suggestion_url()
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    suggestion = data["suggestions"][0]
+
+    assert suggestion["suggested_action"] is None
+    assert suggestion["historical_case_count"] == 0
+    assert suggestion["supporting_case_count"] == 0
+
+
+# ============================================================
+# 52. CURRENT DISPUTE IS NOT USED AS HISTORY
+# ============================================================
+
+def test_current_dispute_is_not_used_as_history(
+    procurement_client,
+    compliance_client,
+):
+    """
+    The current unresolved dispute must never count as
+    its own historical evidence.
+    """
+
+    create_price_discrepancy_match(
+        procurement_client,
+    )
+
+    current_match = three_way_matches[
+        ("SUP001", "INV1001")
+    ]
+
+    # Add a resolution reason to the current record while
+    # keeping the current status as discrepancy.
+    current_match["resolution"] = {
+        "reason": "Corrected invoice received.",
+        "resolved_at": None,
+        "resolved_by": None,
+        "resolved_role": None,
+    }
+
+    response = compliance_client.get(
+        resolution_suggestion_url()
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    suggestion = data["suggestions"][0]
+
+    assert suggestion["suggested_action"] is None
+    assert suggestion["historical_case_count"] == 0
+    assert suggestion["supporting_case_count"] == 0
+
+
+# ============================================================
+# 53. SUGGESTION DOES NOT RESOLVE DISPUTE
+# ============================================================
+
+def test_suggestion_is_read_only(
+    procurement_client,
+    compliance_client,
+):
+    """
+    Getting a suggestion must not change the discrepancy
+    status or P2P state.
+    """
+
+    seed_historical_match(
+        match_id="HIST-READONLY-001",
+        supplier_id="SUP001",
+        invoice_number="OLD-READONLY-001",
+        discrepancies=["price_mismatch"],
+        resolution_reason=(
+            "Corrected invoice received."
+        ),
+    )
+
+    create_price_discrepancy_match(
+        procurement_client,
+    )
+
+    before_status = three_way_matches[
+        ("SUP001", "INV1001")
+    ]["status"]
+
+    before_p2p_state = p2p_states["PO1001"]
+
+    response = compliance_client.get(
+        resolution_suggestion_url()
+    )
+
+    assert response.status_code == 200
+
+    assert (
+        three_way_matches[
+            ("SUP001", "INV1001")
+        ]["status"]
+        == before_status
+    )
+
+    assert (
+        p2p_states["PO1001"]
+        == before_p2p_state
+        == P2PState.discrepancy
+    )
+
+
+# ============================================================
+# 54. SUPPLIER CANNOT GET RESOLUTION SUGGESTION
+# ============================================================
+
+def test_supplier_cannot_get_resolution_suggestion(
+    procurement_client,
+    supplier_client,
+):
+    """
+    Resolution suggestions are intended for the
+    compliance workflow.
+    """
+
+    create_price_discrepancy_match(
+        procurement_client,
+    )
+
+    response = supplier_client.get(
+        resolution_suggestion_url()
+    )
+
+    assert response.status_code == 403
+
+
+# ============================================================
+# 55. SUPPLIER CANNOT ACCESS OTHER SUPPLIER SUGGESTION
+# ============================================================
+
+def test_supplier_cannot_access_other_supplier_suggestion(
+    procurement_client,
+    supplier_client,
+):
+    """
+    Supplier scoping must still apply to the new endpoint.
+    """
+
+    seed_historical_match(
+        match_id="HIST-CROSS-001",
+        supplier_id="SUP002",
+        invoice_number="OLD-CROSS-001",
+        discrepancies=["price_mismatch"],
+        resolution_reason=(
+            "Corrected invoice received."
+        ),
+    )
+
+    # Build a SUP002 current discrepancy.
+    prepare_exact_match(
+        supplier_id="SUP002",
+    )
+
+    invoices[
+        ("SUP002", "INV1001")
+    ]["items"][0]["unit_price"] = 106.0
+
+    response = procurement_client.post(
+        match_url(
+            supplier_id="SUP002",
+            invoice_number="INV1001",
+        )
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == (
+        "discrepancy"
+    )
+
+    # SUP001 supplier tries to access SUP002.
+    response = supplier_client.get(
+        resolution_suggestion_url(
+            supplier_id="SUP002",
+            invoice_number="INV1001",
+        )
+    )
+
+    assert response.status_code == 403
+
+
+# ============================================================
+# 56. UNKNOWN MATCH RETURNS 404
+# ============================================================
+
+def test_unknown_resolution_suggestion_match_returns_404(
+    compliance_client,
+):
+    response = compliance_client.get(
+        resolution_suggestion_url(
+            supplier_id="SUP001",
+            invoice_number="INV-NOT-FOUND",
+        )
+    )
+
+    assert response.status_code == 404
+
+    assert "three-way match not found" in (
+        response.text.lower()
+    )
+
+
+# ============================================================
+# 57. MATCHED CASE CANNOT GENERATE SUGGESTION
+# ============================================================
+
+def test_matched_case_cannot_generate_resolution_suggestion(
+    procurement_client,
+    compliance_client,
+):
+    prepare_exact_match()
+
+    response = procurement_client.post(
+        match_url()
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "matched"
+
+    response = compliance_client.get(
+        resolution_suggestion_url()
+    )
+
+    assert response.status_code == 400
+
+    assert "unresolved discrepancies" in (
+        response.text.lower()
+    )
 
 
