@@ -38,4 +38,19 @@ describe("ForecastAccuracy", () => {
       ).toBeInTheDocument();
     });
   });
+
+  it("provides an accessible name for the forecast accuracy chart", async () => {
+    render(<ForecastAccuracy startDate="" endDate="" />,);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Forecast Accuracy")).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByRole("img", {
+        name: "Forecast accuracy chart showing historical accuracy and the 90 percent target",
+      }),
+    ).toBeInTheDocument();
+  });
 });

@@ -68,6 +68,8 @@ function ForecastAccuracy({
           boxSizing: "border-box",
           width: "100%",
         }}
+        aria-busy="true"
+        aria-label="Loading forecast accuracy"
       >
         <Skeleton width="35%" height={24} />
 
@@ -89,6 +91,7 @@ function ForecastAccuracy({
   if (error) {
     return (
       <div
+        role="alert"
         style={{
           background: colors.surface,
           border: `1px solid ${colors.danger}`,
@@ -162,7 +165,7 @@ function ForecastAccuracy({
         width: "100%",
       }}
     >
-      <div
+      <h2
         style={{
           color: colors.text,
           fontSize: 18,
@@ -171,7 +174,7 @@ function ForecastAccuracy({
         }}
       >
         Forecast Accuracy
-      </div>
+      </h2>
 
       <div
         style={{
@@ -183,7 +186,10 @@ function ForecastAccuracy({
         Historical forecast accuracy against the 90% target
       </div>
 
-      <div style={{ width: "100%", height: 280 }}>
+      <div 
+        role="img"
+        aria-label="Forecast accuracy chart showing historical accuracy and the 90 percent target"
+        style={{ width: "100%", height: 280 }}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart
             data={filteredForecastAccuracy}

@@ -16,7 +16,7 @@ export function generateInventoryInsight(
     (lowStockCount / inventory.length) * 100,
   );
 
-  return `${percentage}% of inventory items currently need reorder attention.`;
+  return `${percentage}% of the current inventory needs reorder attention.`;
 }
 
 export function generateWarehouseInsight(
@@ -26,13 +26,54 @@ export function generateWarehouseInsight(
     return "No inventory data is currently available.";
   }
 
-  const warehouse = inventory.find((item) => item.needs_reorder);
+  const warehouseCounts = new Map<string, number>();
 
-  if (!warehouse) {
+  inventory
+    .filter((item) => item.needs_reorder)
+    .forEach((item) => {
+      const count = warehouseCounts.get(item.warehouse_id) ?? 0;
+      warehouseCounts.set(item.warehouse_id,count + 1);
+    })
+
+  if (warehouseCounts.size === 0) {
     return "No inventory items currently need reorder.";
   }
 
-  return `${warehouse.warehouse_id} has inventory items that need reorder attention.`;
+  const rankedWarehouses = Array.from(warehouseCounts.entries()).sort(
+    ([warehouseA, countA], [warehouseB, countB]) =>
+      countB - countA || warehouseA.localeCompare(warehouseB),
+  );
+
+  const totalLowStock = inventory.filter((item) => item.needs_reorder,).length;
+
+  let runningCount = 0;
+  const topWarehouses: string[] = [];
+
+  for (const [warehouse, count] of rankedWarehouses) {
+    topWarehouses.push(warehouse);
+    runningCount += count;
+
+    if (runningCount / totalLowStock >= 0.5) {
+      break;
+    }
+  }
+
+  const percentage = Math.round(
+    (runningCount / totalLowStock) * 100,
+  );
+
+  if (topWarehouses.length === 1) {
+    return `${topWarehouses[0]} holds ${percentage}% of low-stock items.`;
+  }
+
+  if (topWarehouses.length === 2) {
+    return `${topWarehouses[0]} and ${topWarehouses[1]} hold ${percentage}% of low-stock items.`;
+  }
+
+  return `${topWarehouses.slice(0, -1).join(", ")}, and ${
+    topWarehouses[topWarehouses.length - 1]
+  } hold ${percentage}% of low-stock items.`;
+  
 }
 
 export function generateSupplierInsight(

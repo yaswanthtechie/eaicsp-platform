@@ -46,6 +46,9 @@ function InventoryTable({
       setError(false);
 
       try {
+        if (shouldFail) {
+          throw new Error("Failed to fetch inventory")
+        }
         const loadedData = await dashboardApi.fetchInventory();
 
         if (!cancelled) {
@@ -71,6 +74,9 @@ function InventoryTable({
   if (loading) {
     return (
       <div
+        role="status"
+        aria-busy="true"
+        aria-label="Loading inventory table"
         style={{
           padding: space.lg,
           background: colors.surface,
@@ -104,6 +110,7 @@ function InventoryTable({
   if (error) {
     return (
       <div
+        role="alert"
         style={{
           minHeight: 350,
           background: colors.surface,
@@ -121,6 +128,7 @@ function InventoryTable({
         <h2>Something went wrong in table.</h2>
 
         <button
+          type="button"
           onClick={() => setRetryCount((count) => count + 1)}
           style={{
             padding: "8px 16px",
@@ -216,6 +224,7 @@ function InventoryTable({
 
     return (
       <div
+        role="row"
         style={{
           ...style,
           display: "grid",
@@ -224,24 +233,21 @@ function InventoryTable({
           color: colors.text,
         }}
       >
-        <div style={cellStyle}>{item.sku_id}</div>
+        <div  role="cell" style={cellStyle}>{item.sku_id}</div>
 
-        <div style={cellStyle}>{item.product_name}</div>
+        <div  role="cell" style={cellStyle}>{item.product_name}</div>
 
-        <div style={cellStyle}>{item.category}</div>
+        <div  role="cell" style={cellStyle}>{item.category}</div>
 
-        <div style={cellStyle}>{item.warehouse_id}</div>
+        <div  role="cell" style={cellStyle}>{item.warehouse_id}</div>
 
-        <div style={cellStyle}>{item.quantity_on_hand}</div>
+        <div  role="cell" style={cellStyle}>{item.quantity_on_hand}</div>
 
-        <div style={cellStyle}>{item.reorder_point}</div>
+        <div  role="cell" style={cellStyle}>{item.reorder_point}</div>
 
-        <div style={cellStyle}>
-          {item.daysRemaining} days
-        </div>
+        <div  role="cell" style={cellStyle}>{item.daysRemaining} days</div>
 
-        <div style={cellStyle}>
-          {item.expectedOrderDate.toLocaleDateString("en-GB")}
+        <div  role="cell" style={cellStyle}>{item.expectedOrderDate.toLocaleDateString("en-GB")}
         </div>
 
         <div
@@ -285,8 +291,12 @@ function InventoryTable({
           marginBottom: space.md,
           flexWrap: "wrap",
         }}
-      >
+      > 
+        <label htmlFor="inventory-search">
+          Search inventory by SKU
+        </label>
         <input
+          id="inventory-search"
           type="text"
           placeholder="Search SKU"
           value={search}
@@ -318,6 +328,8 @@ function InventoryTable({
       </div>
 
       <div
+        role="table"
+        aria-label="Inventory items"
         style={{
           overflowX: "auto",
           border: `1px solid ${colors.border}`,
@@ -326,21 +338,22 @@ function InventoryTable({
       >
         <div style={{ minWidth: 1150 }}>
           <div
+            role="row"
             style={{
               display: "grid",
               gridTemplateColumns:
                 "100px 180px 120px 120px 100px 120px 130px 160px 120px",
             }}
           >
-            <div style={headerStyle}>SKU</div>
-            <div style={headerStyle}>Product</div>
-            <div style={headerStyle}>Category</div>
-            <div style={headerStyle}>Warehouse</div>
-            <div style={headerStyle}>Quantity</div>
-            <div style={headerStyle}>Reorder Point</div>
-            <div style={headerStyle}>Days Remaining</div>
-            <div style={headerStyle}>Expected Order Date</div>
-            <div style={headerStyle}>Status</div>
+            <div role="columnheader" style={headerStyle}>SKU</div>
+            <div role="columnheader" style={headerStyle}>Product</div>
+            <div role="columnheader" style={headerStyle}>Category</div>
+            <div role="columnheader" style={headerStyle}>Warehouse</div>
+            <div role="columnheader" style={headerStyle}>Quantity</div>
+            <div role="columnheader" style={headerStyle}>Reorder Point</div>
+            <div role="columnheader" style={headerStyle}>Days Remaining</div>
+            <div role="columnheader" style={headerStyle}>Expected Order Date</div>
+            <div role="columnheader" style={headerStyle}>Status</div>
           </div>
 
           <List

@@ -99,7 +99,7 @@ describe("InventoryHeatmap", () => {
     ).toBeGreaterThan(0);
   });
 
-  it("shows days remaining and expected order date on hover", async () => {
+  it("shows days remaining on hover", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-09"));
 
@@ -118,15 +118,6 @@ describe("InventoryHeatmap", () => {
               item.avg_daily_demand
           )
         : 0;
-
-    const expectedOrderDate = new Date("2026-09-09");
-
-    expectedOrderDate.setHours(0, 0, 0, 0);
-    expectedOrderDate.setDate(
-      expectedOrderDate.getDate() + daysRemaining
-    );
-
-    
 
     const sku = screen.getByText(item.sku_id);
 
@@ -175,26 +166,134 @@ describe("InventoryHeatmap", () => {
     fireEvent.mouseEnter(sku.parentElement!);
 
     expect(
-      screen.getByText(`SKU: ${item.sku_id}`)
-    ).toBeInTheDocument();
+      screen.getByText(`SKU: ${item.sku_id}`)).toBeInTheDocument();
 
     expect(
       screen.getByText(
-        `Product: ${item.product_name}`
-      )
-    ).toBeInTheDocument();
+        `Product: ${item.product_name}`)).toBeInTheDocument();
 
     expect(
       screen.getByText(
-        `Stock: ${item.quantity_on_hand}`
-      )
-    ).toBeInTheDocument();
+        `Stock: ${item.quantity_on_hand}`)).toBeInTheDocument();
 
     expect(
       screen.getByText(
-        `Reorder Point: ${item.reorder_point}`
-      )
-    ).toBeInTheDocument();
+        `Reorder Point: ${item.reorder_point}`)).toBeInTheDocument();
+  });
+
+  it("makes inventory items keyboard accessible", async () => {
+    vi.useFakeTimers();
+
+    render(<InventoryHeatmap />);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    const item = inventory[0];
+
+    const sku = screen.getByText(item.sku_id);
+    const row = sku.parentElement!;
+
+    expect(row).toHaveAttribute("role", "button");
+    expect(row).toHaveAttribute("tabindex", "0");
+    expect(row).toHaveAttribute(
+      "aria-label",
+      `SKU ${item.sku_id}, ${item.product_name}, stock ${item.quantity_on_hand}, reorder point ${item.reorder_point}`
+    );
+  });
+
+  it("shows product details when an inventory item receives focus", async () => {
+    vi.useFakeTimers();
+
+    render(<InventoryHeatmap />);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    const item = inventory[0];
+
+    const sku = screen.getByText(item.sku_id);
+    const row = sku.parentElement!;
+
+    fireEvent.focus(row);
+
+    expect(
+      screen.getByText(`SKU: ${item.sku_id}`)).toBeInTheDocument();
+
+    expect(
+      screen.getByText(`Product: ${item.product_name}`)).toBeInTheDocument();
+  });
+
+  it("shows product details when Enter is pressed on an inventory item", async () => {
+    vi.useFakeTimers();
+
+    render(<InventoryHeatmap />);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    const item = inventory[0];
+
+    const sku = screen.getByText(item.sku_id);
+    const row = sku.parentElement!;
+
+    fireEvent.keyDown(row, {
+      key: "Enter",
+    });
+
+    expect(
+      screen.getByText(`SKU: ${item.sku_id}`)).toBeInTheDocument();
+  });
+
+  it("shows product details when Space is pressed on an inventory item", async () => {
+    vi.useFakeTimers();
+
+    render(<InventoryHeatmap />);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    const item = inventory[0];
+    const sku = screen.getByText(item.sku_id);
+    const row = sku.parentElement!;
+
+    fireEvent.keyDown(row, {
+      key: " ",
+    });
+
+    expect(
+      screen.getByText(`SKU: ${item.sku_id}`)).toBeInTheDocument();
+  });
+
+  it("hides product details when Escape is pressed", async () => {
+    vi.useFakeTimers();
+
+    render(<InventoryHeatmap />);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    const item = inventory[0];
+
+    const sku = screen.getByText(item.sku_id);
+    const row = sku.parentElement!;
+
+    fireEvent.focus(row);
+
+    expect(
+      screen.getByText(`SKU: ${item.sku_id}`)).toBeInTheDocument();
+
+    fireEvent.keyDown(row, {
+      key: "Escape",
+    });
+
+    expect(
+      screen.queryByText(`SKU: ${item.sku_id}`)).not.toBeInTheDocument();
   });
 });
 

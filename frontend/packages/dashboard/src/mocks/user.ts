@@ -7,5 +7,5 @@ export interface MockUser {
 
 export const mockUser: MockUser = {
     role: "ceo",
-    warehouse: "All"
+    warehouse: "WH001"
 };

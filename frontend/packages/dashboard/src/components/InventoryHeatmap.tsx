@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { List, type RowComponentProps } from "react-window";
 import { dashboardApi } from "../api/dashboard";
 import { colors, radius, space } from "../tokens";
@@ -49,6 +49,18 @@ function InventoryItemRow({
     item.reorder_point
   );
 
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if(event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      setHovered(item.sku_id);
+    }
+
+    if(event.key === "Escape") {
+      event.preventDefault();
+      setHovered(null);
+    }
+  };
+
   return (
     <div
       style={{
@@ -69,9 +81,20 @@ function InventoryItemRow({
         borderRadius: radius.sm,
         cursor: "pointer",
         boxSizing: "border-box",
+
+        outline:
+          hovered === item.sku_id
+            ? `2px solid ${colors.primary}`
+            : "none",
+        outlineOffset: -2
       }}
+      role="button"
+      tabIndex={0}
+      aria-label={`SKU ${item.sku_id}, ${item.product_name}, stock ${item.quantity_on_hand}, reorder point ${item.reorder_point}`}
       onMouseEnter={() => setHovered(item.sku_id)}
       onMouseLeave={() => setHovered(null)}
+      onFocus={() => setHovered(item.sku_id)}
+      onKeyDown={handleKeyDown}
     >
       <span>{item.sku_id}</span>
 
@@ -142,7 +165,7 @@ function InventoryHeatmap({
     };
   }, [shouldFail, retryCount, data]);
 
-  const getStatus = (
+  const getStatus = useCallback((
     quantity: number,
     reorderPoint: number
   ) => {
@@ -155,7 +178,7 @@ function InventoryHeatmap({
     }
 
     return "success";
-  };
+  },[]);
 
   const getStatusLabel = (
     quantity: number,
@@ -172,7 +195,7 @@ function InventoryHeatmap({
     return "Healthy";
   };
 
-  const getStatusColor = (status: string) => {
+  const getStatusColor = useCallback((status: string) => {
     if (status === "danger") {
       return colors.danger;
     }
@@ -182,7 +205,7 @@ function InventoryHeatmap({
     }
 
     return colors.success;
-  };
+  },[]);
 
   const warehouseSummaries = useMemo(() => {
     const warehouseMap = new Map<
@@ -253,7 +276,7 @@ function InventoryHeatmap({
         };
       }
     );
-  }, [inventoryData]);
+  }, [inventoryData,getStatus]);
 
   if (loading) {
     return (
@@ -267,6 +290,8 @@ function InventoryHeatmap({
           width: "100%",
           boxSizing: "border-box",
         }}
+        aria-busy="true"
+        aria-label="Loading inventory heatmap"
       >
         <Skeleton width="35%" height={28} />
 
@@ -321,6 +346,7 @@ function InventoryHeatmap({
           borderRadius: radius.md,
           textAlign: "center",
         }}
+        role="alert"
       >
         <h3>Failed to load inventory data.</h3>
 
@@ -353,6 +379,7 @@ function InventoryHeatmap({
           padding: space.md,
           color: colors.textMuted,
         }}
+        role="status"
       >
         No Inventory Heatmap data available.
       </div>
@@ -619,6 +646,8 @@ function InventoryHeatmap({
                               fontSize: 11,
                               lineHeight: 1.5,
                             }}
+                            role="status"
+                            aria-live="polite"
                           >
                             <div>
                               SKU: {hoveredItem.sku_id}

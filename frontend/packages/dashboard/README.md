@@ -21,11 +21,10 @@ frontend/
             │   ├── ShipmentStatus.tsx
             │   ├── SupplierRiskDistribution.tsx
             │   ├── DashboardFilters.tsx
-            │   └── Skeleton.tsx
-            │
-            ├── exports/
-            │   ├── ExportCsvButton.tsx
-            |   ├── ExportPdfButton.tsx
+            │   ├── Skeleton.tsx
+            |   └── exports/
+            │       ├── ExportCsvButton.tsx
+            |       └── ExportPdfButton.tsx
             |
             ├── hooks/
             │   ├── useWebSocket.ts
@@ -275,16 +274,22 @@ Each protected widget also provides a retry action so the user can attempt to re
 
 Narrative insights are calculated from the dashboard data and displayed as plain-English summaries.
 
-The insights update automatically when the underlying dashboard data changes. For example, changing the delayed shipment count from 10 to 50 updates the related insight and percentage automatically.
+The insights update  when the underlying dashboard data changes. For example, changing the delayed shipment count from 10 to 50 updates the related insight.
 
 The insight logic is maintained in `src/utils/insights.ts`, while `NarrativeInsights.tsx` displays the generated text.
 
-The insights are generated from the current inventory, supplier, and shipment data instead of using fixed text.
+The current implementation generates insights from the inventory, supplier, and shipment data instead of using completely fixed values.
+
+Warehouse low-stock insights now group inventory items by warehouse and identify the warehouse or warehouses contributing the highest number of low-stock items.
+
+When multiple warehouses have the same highest low-stock count, the insight includes all tied warehouses instead of selecting one based on array order.
+
+For example, if WH001 and WH004 have the same highest number of low-stock items, the insight reports both warehouses rather than depending on which warehouse appears first in the dataset.
 
 Examples include:
 
 * The percentage of inventory items that need reorder.
-* The number of warehouses contributing to low-stock inventory.
+* Highest-contributing warehouse or warehouse for low-stock inventory.
 * Supplier risk information.
 * Shipment status information.
 
@@ -298,11 +303,18 @@ The dashboard supports two mock roles:
 
 The role is mocked locally and does not call a live service.
 
-The dashboard UI changes based on the selected role.
+The role can be changed through the URL using the role query parameter:
 
-The `ceo` view provides executive-level information such as inventory, supplier risk, shipments, and dashboard insights.
+    ?role=ceo
+    ?role=warehouse_manager
 
-The `warehouse_manager` view focuses on inventory and warehouse-related information and does not display supplier-risk information.
+The dashboard reads the role from the URL and renders the corresponding view.
+
+The `ceo` view provides executive-level information such as inventory, supplier risk, shipments, and  related dashboard insights.
+
+The `warehouse_manager` view focuses on inventory and warehouse-related information and does not display supplier-risk information that is not relevant to that role.
+
+Role-based tests verify that the dashboard renders the appropriate content for both supported roles and that role-specific content is hidden when it should not be displayed.
 
 The role structure is kept contract-first so that the mock role can later be replaced by the real role service.
 
@@ -310,36 +322,41 @@ The role structure is kept contract-first so that the mock role can later be rep
 
 The dashboard supports exporting dashboard data in both PDF and CSV formats.
 
-The export functionality is kept inside the `src/exports/` folder.
+The export functionality is kept inside the `src/components/exports/`,while the export logic is maintained in `src/utils/`.
 
 The exported data follows the currently selected dashboard filters and role where applicable.
 
-CSV export creates a downloadable CSV file.
+CSV export creates a downloadable with specified like invent0ry,supplier,shipment CSV file separately.CSV export applies proper CSV escaping and security hardening for values that could contain commas, quotes, or line breaks. Formula-injection protection is also applied to values beginning with spreadsheet formula characters.
 
-PDF export creates a downloadable PDF containing the selected dashboard information.
+PDF export creates a downloadable.The exported PDF contains role-appropriate dashboard information. For example, supplier-risk information is included for the `ceo` role and excluded from the `warehouse_manager` view.
 
 ### Accessibility Improvements
 
-The dashboard was reviewed for accessibility issues and updated to improve keyboard and screen-reader usability.
+A full accessibility audit was completed across the dashboard's interactive components.
 
-The accessibility work includes:
+Accessibility improvements include:
 
-* Keyboard-accessible interactive elements.
-* Appropriate button and control labels.
-* Focus visibility.
-* Accessible form controls.
-* Meaningful headings and text.
-* Improved handling of interactive dashboard components.
+aria-busy for loading states.
+Accessible labels for interactive controls and form elements.
+Accessible button names and keyboard interaction.
+Keyboard navigation for interactive dashboard elements.
+Focusable controls where interaction is required.
+Support for both keyboard and mouse interaction.
+Accessible handling of interactive Inventory Heatmap elements.
+Accessible interaction when navigating through heatmap items and other dashboard controls.
 
-The goal is to make the dashboard usable without relying only on mouse interaction.
+The Inventory Heatmap was updated so that product details and row interactions are not dependent only on mouse hover. Keyboard interaction is also supported for the interactive elements.
 
+The accessibility behavior was covered with tests, including keyboard interaction and accessible loading/control states.
+
+The dashboard was also checked for interactive elements that previously depended on hover-only behavior, and those interactions were updated to support accessible keyboard usage.
 ### Performance at Real Scale
 
 The inventory mock data was expanded to support a large dataset of more than 12,000 inventory items.
 
 The Inventory Table and Inventory Heatmap use virtualization so that the dashboard does not render every inventory item at the same time.
 
-Memoization is also used where appropriate to reduce unnecessary calculations and renders.
+Memoization is used to reduce unnecessary calculations and renders. The Inventory Heatmap uses useMemo for grouped and derived data and useCallback for reusable status calculation functions such as getStatus and getStatusColor.
 
 React Profiler measurements are used to record actual render performance while working with the large dataset.
 
@@ -511,4 +528,6 @@ The measurements were captured while changing the warehouse filter, scrolling th
 The performance test used the 12,000-item inventory dataset across 4 warehouses with virtualization and memoization enabled.
 
 The recorded profiler measurements represent actual render activity captured during these interactions.
+
+**Note:** The original tasks assigned to me for this dashboard were **Round 7, Round 8, and Round 9**. In the PDF, the same work is referenced as **Round 9, Round 10, and Round 11** because I started this dashboard two tasks behind the other Workstreams. I have kept **Round 7/8/9** in this README because that is the original round numbering under which I started and tracked this implementation.
 

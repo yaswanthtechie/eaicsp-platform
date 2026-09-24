@@ -31,7 +31,7 @@ const ExportPdfButton = ({
     filters,
     kpis
 }: ExportPdfButtonProps) => {
-    const handlePdfExport = (): void => {
+    const handlePdfExport = async (): Promise<void> => {
         exportDashboardPdf({
             role,
             inventory,

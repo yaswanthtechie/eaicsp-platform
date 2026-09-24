@@ -1,9 +1,10 @@
-import jsPDF from "jspdf";
+import {jsPDF} from "jspdf";
 import type { InventoryItem } from "../types/forecast";
 import type { SupplierRiskItem, ShipmentStatus } from "../types/dashboard";
+import type { UserRole } from "../mocks/user";
 
 interface PdfExportData {
-    role: "ceo" | "warehouse_manager";
+    role: UserRole;
     inventory: InventoryItem[];
     suppliers: SupplierRiskItem[];
     shipments: ShipmentStatus;
@@ -38,9 +39,11 @@ const addText = (
 ): number => {
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
-    doc.text(text, 20, y);
 
-    return y + 6;
+    const lines = doc.splitTextToSize(text, 170);
+    doc.text(lines, 20, y);
+
+    return y + 6 * lines.length;
 };
 
 const checkPageSpace = (
@@ -55,14 +58,16 @@ const checkPageSpace = (
     return y;
 };
 
-export const exportDashboardPdf = ({
+export const exportDashboardPdf = async ({
     role,
     inventory,
     suppliers,
     shipments,
     filters,
     kpis
-}: PdfExportData): void => {
+}: PdfExportData): Promise<void> => {
+    const {jsPDF} = await import("jspdf");
+    
     const doc = new jsPDF();
 
     let y = 20;

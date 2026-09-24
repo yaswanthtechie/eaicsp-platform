@@ -69,11 +69,14 @@ function SupplierRiskDistribution() {
       { risk: "Medium", count: result.Medium },
       { risk: "High", count: result.High },
     ];
-  }, []);
+  }, [supplierRisk]);
 
   if (loading) {
     return (
       <div
+      role="status"
+      aria-busy="true"
+      aria-label="Loading supplier risk distribution"
         style={{
           background: colors.surface,
           borderRadius: radius.md,
@@ -92,6 +95,7 @@ function SupplierRiskDistribution() {
   if (error) {
     return (
       <div
+        role="alert"
         style={{
           background: colors.surface,
           borderRadius: radius.md,
@@ -102,6 +106,7 @@ function SupplierRiskDistribution() {
         <div>Failed to load supplier risk distribution.</div>
 
         <button
+          type="button"
           onClick={() => {
             setError(false);
             setLoading(true);
@@ -146,7 +151,10 @@ function SupplierRiskDistribution() {
         </p>
       </div>
 
-      <div style={{ width: "100%", height: 280 }}>
+      <div
+        role="img"
+        aria-label="Supplier risk distribution chart showing suppliers grouped into low,medium and high risk" 
+        style={{ width: "100%", height: 280 }}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={distribution}>
             <CartesianGrid strokeDasharray="3 3" />

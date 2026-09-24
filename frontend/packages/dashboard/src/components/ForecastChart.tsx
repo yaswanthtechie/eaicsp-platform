@@ -130,6 +130,8 @@ function ForecastChart({
         style={{
           padding: space.lg,
         }}
+        aria-busy="true"
+        aria-label="Loading sales forecast"
       >
         <Skeleton width="35%" height={28} />
         <div style={{ marginTop: space.sm }}>
@@ -149,6 +151,7 @@ function ForecastChart({
   if (error) {
     return (
       <div
+        role="alert"
         style={{
           color: colors.danger,
           padding: space.lg,
@@ -156,7 +159,11 @@ function ForecastChart({
       >
         <p>Something went wrong.</p>
 
-        <button onClick={fetchData}>
+        <button 
+          type="button"
+          onClick={fetchData}
+          aria-label="Retry loading sales forecast"
+        >  
           Retry
         </button>
       </div>
@@ -221,7 +228,9 @@ function ForecastChart({
         </div>
 
         <button
+          type="button"
           onClick={handleResetZoom}
+          aria-label="Reset sales forecast zoom"
           style={{
             padding: "8px 12px",
             borderRadius: 6,
@@ -236,6 +245,8 @@ function ForecastChart({
       </div>
 
       <div
+        role="img"
+        aria-label="Sales forecast chart showing predicted and actual values with a confidence band"
         style={{
           width: "100%",
           height: 400,

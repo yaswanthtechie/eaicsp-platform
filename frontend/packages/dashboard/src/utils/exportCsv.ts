@@ -1,14 +1,28 @@
 import type { InventoryItem } from "../types/forecast";
+import type {
+    SupplierRiskItem,
+    ShipmentStatus,
+} from "../types/dashboard";
+
+export type CsvExportView =
+    | "inventory"
+    | "suppliers"
+    | "shipments";
 
 const escapeCsvValue = (
     value: string | number | boolean
 ): string => {
-    const stringValue = String(value);
+    let stringValue = String(value);
+
+    if (/^[=+\-@]/.test(stringValue)) {
+        stringValue = `'${stringValue}`;
+    }
 
     if (
         stringValue.includes(",") ||
         stringValue.includes('"') ||
-        stringValue.includes("\n")
+        stringValue.includes("\n") ||
+        stringValue.includes("\r")
     ) {
         return `"${stringValue.replace(/"/g, '""')}"`;
     }
@@ -16,34 +30,14 @@ const escapeCsvValue = (
     return stringValue;
 };
 
-export const exportInventoryCsv = (
-    inventory: InventoryItem[]
+const downloadCsv = (
+    headers: string[],
+    rows: (string | number | boolean)[][],
+    filename: string
 ): void => {
-    const headers = [
-        "SKU",
-        "Product",
-        "Category",
-        "Warehouse",
-        "Quantity On Hand",
-        "Reorder Point",
-        "Needs Reorder",
-        "Average Daily Demand"
-    ];
-
-    const rows = inventory.map((item) => [
-        item.sku_id,
-        item.product_name,
-        item.category,
-        item.warehouse_id,
-        item.quantity_on_hand,
-        item.reorder_point,
-        item.needs_reorder,
-        item.avg_daily_demand
-    ]);
-
     const csvContent = [
         headers,
-        ...rows
+        ...rows,
     ]
         .map((row) =>
             row.map(escapeCsvValue).join(",")
@@ -52,7 +46,9 @@ export const exportInventoryCsv = (
 
     const blob = new Blob(
         [csvContent],
-        { type: "text/csv;charset=utf-8;" }
+        {
+            type: "text/csv;charset=utf-8;",
+        }
     );
 
     const url = URL.createObjectURL(blob);
@@ -60,7 +56,7 @@ export const exportInventoryCsv = (
     const link = document.createElement("a");
 
     link.href = url;
-    link.download = "inventory-export.csv";
+    link.download = filename;
 
     document.body.appendChild(link);
     link.click();
@@ -68,3 +64,112 @@ export const exportInventoryCsv = (
 
     URL.revokeObjectURL(url);
 };
+
+export function exportDashboardCsv(
+    view: "inventory",
+    data: InventoryItem[]
+): void;
+
+export function exportDashboardCsv(
+    view: "suppliers",
+    data: SupplierRiskItem[]
+): void;
+
+export function exportDashboardCsv(
+    view: "shipments",
+    data: ShipmentStatus
+): void;
+
+export function exportDashboardCsv(
+    view: CsvExportView,
+    data:
+        | InventoryItem[]
+        | SupplierRiskItem[]
+        | ShipmentStatus
+): void {
+    if (view === "inventory") {
+        const inventory = data as InventoryItem[];
+
+        const headers = [
+            "SKU",
+            "Product",
+            "Category",
+            "Warehouse",
+            "Quantity On Hand",
+            "Reorder Point",
+            "Needs Reorder",
+            "Average Daily Demand",
+        ];
+
+        const rows = inventory.map((item) => [
+            item.sku_id,
+            item.product_name,
+            item.category,
+            item.warehouse_id,
+            item.quantity_on_hand,
+            item.reorder_point,
+            item.needs_reorder,
+            item.avg_daily_demand,
+        ]);
+
+        downloadCsv(
+            headers,
+            rows,
+            "inventory-export.csv"
+        );
+
+        return;
+    }
+
+    if (view === "suppliers") {
+        const suppliers = data as SupplierRiskItem[];
+
+        const headers = [
+            "Supplier",
+            "Risk Score",
+            "Confidence",
+            "Positive Sentiment",
+            "Negative Sentiment",
+            "Neutral Sentiment",
+        ];
+
+        const rows = suppliers.map((supplier) => [
+            supplier.supplier,
+            supplier.risk_score,
+            supplier.confidence,
+            supplier.sentiment_breakdown.positive,
+            supplier.sentiment_breakdown.negative,
+            supplier.sentiment_breakdown.neutral,
+        ]);
+
+        downloadCsv(
+            headers,
+            rows,
+            "suppliers-export.csv"
+        );
+
+        return;
+    }
+
+    const shipments = data as ShipmentStatus;
+
+    const headers = [
+        "Metric",
+        "Value",
+    ];
+
+    const rows = [
+        ["Total Shipments", shipments.total],
+        ["Pending", shipments.pending],
+        ["In Transit", shipments.in_transit],
+        ["Delivered", shipments.delivered],
+        ["Delayed", shipments.delayed],
+        ["Cancelled", shipments.cancelled],
+    ];
+
+    downloadCsv(
+        headers,
+        rows,
+        "shipments-export.csv"
+    );
+}

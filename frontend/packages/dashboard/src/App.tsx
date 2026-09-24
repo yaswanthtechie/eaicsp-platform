@@ -25,7 +25,7 @@ import { dashboardApi } from "./api/dashboard";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { inventory } from "./mocks/inventory";
 import { startMockWebSocketServer } from "./mocks/wsServer";
-import { mockUser } from "./mocks/user";
+import { mockUser, type UserRole } from "./mocks/user";
 import { colors, radius, space } from "./tokens";
 import type {
   AlertMessage,
@@ -39,15 +39,17 @@ const handleProfilerRender: ProfilerOnRenderCallback = (
   actualDuration,
   baseDuration,
 ) => {
-  console.log(
-    `[Profiler] ${id} | ${phase} | actual: ${actualDuration.toFixed(
-      2,
-    )}ms | base: ${baseDuration.toFixed(2)}ms`,
-  );
+  if (import.meta.env.DEV) {
+    console.log(
+      `[Profiler] ${id} | ${phase} | actual: ${actualDuration.toFixed(
+        2,
+      )}ms | base: ${baseDuration.toFixed(2)}ms`,
+    );
+  }
 };
 
 function App() {
-  const role = mockUser.role;
+  const [role, setRole] = useState<UserRole>(mockUser.role);
   const [alerts, setAlerts] = useState<AlertMessage[]>([]);
   const [liveInventory, setLiveInventory] =
     useState<InventoryItem[]>(inventory);
@@ -67,6 +69,14 @@ function App() {
       const params = new URLSearchParams(
         window.location.search,
       );
+
+      const urlRole = params.get("role");
+
+      if (urlRole === "ceo" || urlRole === "warehouse_manager") {
+        setRole(urlRole);
+      } else {
+        setRole(mockUser.role);
+      }
 
       setFilters({
         warehouse: params.get("warehouse") || "All",
@@ -149,10 +159,15 @@ function App() {
   });
 
   const baseFilteredInventory = useMemo(() => {
+    const warehouseFilter =
+      role === "warehouse_manager"
+        ? mockUser.warehouse ?? "All"
+        : filters.warehouse;
+
     return liveInventory.filter((item) => {
       const warehouseMatches =
-        filters.warehouse === "All" ||
-        item.warehouse_id === filters.warehouse;
+        warehouseFilter === "All" ||
+        item.warehouse_id === warehouseFilter;
 
       const categoryMatches =
         filters.category === "All" ||
@@ -164,6 +179,7 @@ function App() {
     liveInventory,
     filters.warehouse,
     filters.category,
+    role,
   ]);
 
   const filteredInventory = useMemo(() => {
@@ -198,24 +214,44 @@ function App() {
 
   const alertCount = alerts.length;
 
-  const kpis = [
-    {
-      title: "SKUs",
-      value: totalSkus,
-    },
-    {
-      title: "Total Units",
-      value: totalUnits,
-    },
-    {
-      title: "Low Stock",
-      value: lowStockCount,
-    },
-    {
-      title: "Alerts",
-      value: alertCount,
-    },
-  ];
+  const kpis =
+    role === "warehouse_manager"
+      ? [
+          {
+            title: "Warehouse SKUs",
+            value: totalSkus,
+          },
+          {
+            title: "Warehouse Units",
+            value: totalUnits,
+          },
+          {
+            title: "Reorder Items",
+            value: lowStockCount,
+          },
+          {
+            title: "Warehouse Alerts",
+            value: alertCount,
+          },
+        ]
+      : [
+          {
+            title: "SKUs",
+            value: totalSkus,
+          },
+          {
+            title: "Total Units",
+            value: totalUnits,
+          },
+          {
+            title: "Low Stock",
+            value: lowStockCount,
+          },
+          {
+            title: "Alerts",
+            value: alertCount,
+          },
+        ];
 
   const handleKpiClick = (title: string) => {
     const params = new URLSearchParams(
@@ -224,11 +260,16 @@ function App() {
 
     let nextLowStock = lowStockOnly;
 
-    if (title === "Low Stock") {
+    if (
+      title === "Low Stock" ||
+      title === "Reorder Items"
+    ) {
       nextLowStock = !lowStockOnly;
     } else if (
       title === "SKUs" ||
-      title === "Total Units"
+      title === "Total Units" ||
+      title === "Warehouse SKUs" ||
+      title === "Warehouse Units"
     ) {
       nextLowStock = false;
     }
@@ -309,20 +350,22 @@ function App() {
           display: "flex",
           gap: space.md,
           alignItems: "center",
-          marginBottom: space.lg
+          marginBottom: space.lg,
         }}
       >
         <ExportCsvButton
-            inventory={filteredInventory}
+          inventory={filteredInventory}
+          suppliers={dashboardApi.getSupplierRisk()}
+          shipments={dashboardApi.getShipmentStatus()}
         />
 
         <ExportPdfButton
-            role={role}
-            inventory={filteredInventory}
-            suppliers={dashboardApi.getSupplierRisk()}
-            shipments={dashboardApi.getShipmentStatus()}
-            filters={filters}
-            kpis={kpis}
+          role={role}
+          inventory={filteredInventory}
+          suppliers={dashboardApi.getSupplierRisk()}
+          shipments={dashboardApi.getShipmentStatus()}
+          filters={filters}
+          kpis={kpis}
         />
       </div>
 
@@ -342,8 +385,10 @@ function App() {
               border: `1px solid ${
                 selectedKpi === kpi.title
                   ? colors.primary
-                  : kpi.title === "Low Stock" &&
-                      lowStockOnly
+                  : (
+                      kpi.title === "Low Stock" ||
+                      kpi.title === "Reorder Items"
+                    ) && lowStockOnly
                     ? colors.warning
                     : colors.border
               }`,
@@ -381,9 +426,9 @@ function App() {
         style={{
           marginTop: space.lg,
           marginBottom: space.lg,
-          border:`1px solid ${colors.border}`,
-          borderRadius:radius.md,
-          color:colors.text
+          border: `1px solid ${colors.border}`,
+          borderRadius: radius.md,
+          color: colors.text,
         }}
       >
         <ErrorBoundary>
@@ -468,12 +513,13 @@ function App() {
             category={filters.category}
           />
         </ErrorBoundary>
-        
+
         {role === "ceo" && (
-        <ErrorBoundary>
-          <SupplierRisk />
-        </ErrorBoundary>
+          <ErrorBoundary>
+            <SupplierRisk />
+          </ErrorBoundary>
         )}
+
         <ErrorBoundary>
           <ShipmentStatus />
         </ErrorBoundary>
@@ -530,22 +576,22 @@ function App() {
           </ErrorBoundary>
         </div>
 
-      {role === "ceo" && (
-        <div
-          style={{
-            background: colors.surface,
-            padding: space.lg,
-            borderRadius: radius.lg,
-            boxSizing: "border-box",
-            width: "100%",
-            marginTop: space.lg,
-          }}
-        > 
-          <ErrorBoundary>
-            <SupplierRiskDistribution />
-          </ErrorBoundary>
-        </div>
-      )}
+        {role === "ceo" && (
+          <div
+            style={{
+              background: colors.surface,
+              padding: space.lg,
+              borderRadius: radius.lg,
+              boxSizing: "border-box",
+              width: "100%",
+              marginTop: space.lg,
+            }}
+          >
+            <ErrorBoundary>
+              <SupplierRiskDistribution />
+            </ErrorBoundary>
+          </div>
+        )}
       </div>
     </div>
   );

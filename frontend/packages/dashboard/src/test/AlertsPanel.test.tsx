@@ -194,4 +194,50 @@ describe("AlertsPanel", () => {
 
     vi.useRealTimers();
   });
+
+  it("has an accessible loading state", () => {
+    render(
+      <AlertsPanel
+        {...defaultProps}
+        isConnecting={true}
+        alerts={[]}
+      />
+   );
+
+    const loadingState = screen.getByRole("status");
+
+    expect(loadingState).toBeInTheDocument();
+    expect(loadingState).toHaveAttribute("aria-busy", "true");
+    expect(loadingState).toHaveAttribute(
+      "aria-label",
+      "Loading live alerts"
+    );
+  });
+
+  it("has an accessible error state", () => {
+    render(
+      <AlertsPanel
+        {...defaultProps}
+        failed={true}
+        alerts={[]}
+      />
+    );
+
+    const errorState = screen.getByRole("alert");
+
+    expect(errorState).toBeInTheDocument();
+    expect(errorState).toHaveTextContent(
+      "Unable to connect to the alerts service."
+    );
+  });
+
+  it("has accessible individual alert", () => {
+    render(<AlertsPanel {...defaultProps} />);
+
+    const alertItem = screen.getByRole("article", {
+      name: "Low Stock Item Alert: Product ABC is running low.",
+    });
+
+    expect(alertItem).toBeInTheDocument();
+  });
 });

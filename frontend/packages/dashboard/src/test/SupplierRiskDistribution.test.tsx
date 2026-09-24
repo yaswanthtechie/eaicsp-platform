@@ -59,4 +59,34 @@ describe("SupplierRiskDistribution", () => {
       screen.getByText("Supplier Risk Distribution")
     ).toBeInTheDocument();
   });
+
+  it("has accessible loading state", () => {
+    render(<SupplierRiskDistribution />);
+
+    const loadingState = screen.getByRole("status");
+
+    expect(loadingState).toHaveAttribute(
+      "aria-busy",
+      "true"
+    );
+
+    expect(loadingState).toHaveAttribute(
+      "aria-label",
+      "Loading supplier risk distribution"
+    );
+  });
+
+  it("has an accessible chart name", async () => {
+    render(<SupplierRiskDistribution />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+
+    const chart = screen.getByRole("img", {
+      name: /Supplier risk distribution chart/i,
+    });
+    expect(chart).toBeInTheDocument();
+    expect(chart).toHaveAttribute("role","img");
+  });
 });
