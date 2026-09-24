@@ -38,7 +38,7 @@ on the same basis instead of each computing accuracy their own way.
   (not just Python code importing this package) can rank models and get
   the same refusal behavior for incompatible metrics
 - `compare.py` - standalone CLI: `python compare.py --results results.json`
-- `tests/test_metrics.py` - 92 tests covering all of the above, including
+- `tests/test_metrics.py` - 118 tests covering all of the above, including
   edge cases and error/refusal paths
 
 Note: MAPE excludes rows where the actual value is 0, since division by zero
@@ -330,27 +330,38 @@ except LeakageError as e:
 
 ### What's included
 
-- **`src/mlflow_dashboard.py`** - `get_all_runs()` reads every finished MLflow
-  run for an experiment, across every model owner who has logged to it, via
-  an explicit `MlflowClient` (never mutates global tracking state).
+- **`src/mlflow_dashboard.py`** - `get_all_runs()` reads every finished
+  MLflow run for an experiment, across every model owner who has logged to
+  it, via an explicit `MlflowClient` (never mutates global tracking state),
+  and paginates automatically past MLflow's default 1000-run page limit.
   `summarize_dashboard()` groups those runs by owner and model, showing each
-  pair's latest score and total run count -- this is what lets the framework
-  act as a shared, pod-wide quality-control view instead of a single
-  person's local tool.
+  pair's latest score and total run count. Runs missing the owner/model tag
+  are grouped under an explicit `"untagged"` bucket and counted -- never
+  silently dropped or allowed to crash the sort -- since real Pod 2 runs
+  won't all have these tags from day one.
 - **`src/regression_detection.py`** - `detect_regression()` compares a
-  model's two most recent logged runs and flags whether the latest one is
-  genuinely worse. Scores within floating-point tolerance of each other are
-  never flagged, so trivial numerical noise between two runs of an
-  unchanged model can't trigger a false alarm. Unrecognized metrics require
-  an explicit direction, same rule as `leaderboard.py`.
+  model's latest logged run against a baseline run and flags whether the
+  latest one is genuinely worse. `baseline="previous"` (default) compares
+  against the immediately prior run; `baseline="production"` compares
+  against the most recent run tagged `stage="production"` instead, for
+  comparing a new retrain against what's actually deployed rather than
+  whatever happened to run most recently. Scores within floating-point
+  tolerance are never flagged. The degradation threshold is computed on the
+  baseline's absolute magnitude, so it works correctly for metrics that can
+  be negative. A run missing the compared metric raises an error rather
+  than silently reporting "no regression". Unrecognized metrics require an
+  explicit direction, same rule as `leaderboard.py`.
 - **`src/fairness.py`** - `evaluate_by_slice()` computes a metric
   separately for each slice of a dataset (e.g. per warehouse, per category)
   and for the dataset overall, then flags any slice performing meaningfully
   worse than the aggregate. A model can look fine on average while quietly
   failing on one subgroup -- this surfaces that instead of hiding it behind
-  a single aggregate number. Slices smaller than `min_slice_size` are
-  reported but never flagged, since too little data can't support a
-  reliable conclusion.
+  a single aggregate number. A slice must clear both a relative threshold
+  AND a minimum absolute gap before being flagged, so a tiny relative
+  difference against a near-zero baseline (e.g. 20% of a 0.05 MAPE) doesn't
+  falsely flag an objectively tiny slice. Slices smaller than
+  `min_slice_size` are reported but never flagged, since too little data
+  can't support a reliable conclusion.
 
 ### Why this matters
 

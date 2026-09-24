@@ -11,7 +11,7 @@ is specific to this local demo.
 """
 import mlflow
 import pandas as pd
-
+from src.fairness import evaluate_by_slice
 from src.mlflow_dashboard import get_all_runs, summarize_dashboard
 from src.regression_detection import detect_regression
 from src.metrics import mape
@@ -69,7 +69,7 @@ print("Uday/prophet:", uday_check["message"])
 
 print("\n=== Fairness/slice check (synthetic per-warehouse example) ===\n")
 
-from src.fairness import evaluate_by_slice
+
 
 slice_df = pd.DataFrame({
     "warehouse": ["A"] * 10 + ["B"] * 10 + ["C"] * 10,

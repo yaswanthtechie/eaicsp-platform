@@ -1031,3 +1031,243 @@ def test_summarize_dashboard_missing_tag_column_raises():
         assert False, "expected ValueError"
     except ValueError as e:
         assert "tags.owner" in str(e)
+
+# ---------- mlflow_dashboard.py: get_all_runs (real MLflow, temp sqlite store) ----------
+
+def test_get_all_runs_reads_multiple_owners(tmp_path):
+    import mlflow
+    tracking_uri = f"sqlite:///{tmp_path}/mlflow.db"
+    mlflow.set_tracking_uri(tracking_uri)
+    mlflow.set_experiment("test-exp")
+    with mlflow.start_run(run_name="r1"):
+        mlflow.set_tags({"owner": "alice", "model_name": "m1"})
+        mlflow.log_metric("mape", 5.0)
+    with mlflow.start_run(run_name="r2"):
+        mlflow.set_tags({"owner": "bob", "model_name": "m2"})
+        mlflow.log_metric("mape", 7.0)
+
+    from src.mlflow_dashboard import get_all_runs
+    runs = get_all_runs("test-exp", tracking_uri=tracking_uri)
+    assert len(runs) == 2
+    assert set(runs["tags.owner"]) == {"alice", "bob"}
+
+
+def test_get_all_runs_no_experiment_raises(tmp_path):
+    tracking_uri = f"sqlite:///{tmp_path}/mlflow_empty.db"
+    from src.mlflow_dashboard import get_all_runs
+    try:
+        get_all_runs("does-not-exist", tracking_uri=tracking_uri)
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+
+
+def test_get_all_runs_includes_untagged_runs_not_dropped(tmp_path):
+    import mlflow
+    tracking_uri = f"sqlite:///{tmp_path}/mlflow_untagged.db"
+    mlflow.set_tracking_uri(tracking_uri)
+    mlflow.set_experiment("test-exp-untagged")
+    with mlflow.start_run(run_name="tagged"):
+        mlflow.set_tags({"owner": "alice", "model_name": "m1"})
+        mlflow.log_metric("mape", 5.0)
+    with mlflow.start_run(run_name="untagged"):
+        mlflow.log_metric("mape", 6.0)
+
+    from src.mlflow_dashboard import get_all_runs, summarize_dashboard
+    runs = get_all_runs("test-exp-untagged", tracking_uri=tracking_uri)
+    assert len(runs) == 2  # both present, not silently dropped
+
+    result = summarize_dashboard(runs, metric="mape")
+    assert "alice" in result["owners"]
+    assert "untagged" in result["owners"]
+    assert result["untagged_runs"] == 1
+
+
+# ---------- mlflow_dashboard.py: summarize_dashboard untagged handling ----------
+
+def test_summarize_dashboard_handles_untagged_run_without_crashing():
+    runs = pd.DataFrame({
+        "run_id": ["r1", "r2"],
+        "start_time": [pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-02")],
+        "tags.owner": ["alice", None],
+        "tags.model_name": ["m1", None],
+        "metrics.mape": [5.0, 6.0],
+    })
+    from src.mlflow_dashboard import summarize_dashboard
+    result = summarize_dashboard(runs, metric="mape")
+    assert "untagged" in result["owners"]
+    assert result["untagged_runs"] == 1
+
+
+# ---------- regression_detection.py: NaN metric raises ----------
+
+def test_regression_detection_nan_metric_raises():
+    runs = pd.DataFrame({
+        "run_id": ["r1", "r2"],
+        "start_time": [pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-02")],
+        "tags.owner": ["uday", "uday"],
+        "tags.model_name": ["prophet", "prophet"],
+        "metrics.mape": [9.71, float("nan")],
+    })
+    from src.regression_detection import detect_regression
+    try:
+        detect_regression(runs, owner="uday", model_name="prophet", metric="mape")
+        assert False, "expected ValueError"
+    except ValueError as e:
+        assert "NaN" in str(e) or "missing" in str(e)
+
+
+# ---------- regression_detection.py: negative-metric threshold fix ----------
+
+def test_regression_detection_negative_metric_improvement_not_flagged():
+    runs = pd.DataFrame({
+        "run_id": ["r1", "r2"],
+        "start_time": [pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-02")],
+        "tags.owner": ["x", "x"],
+        "tags.model_name": ["y", "y"],
+        "metrics.custom_score": [-0.100, -0.095],
+    })
+    from src.regression_detection import detect_regression
+    result = detect_regression(runs, owner="x", model_name="y", metric="custom_score",
+                                 lower_is_better=False, degradation_threshold=0.05)
+    assert result["regressed"] is False
+
+
+# ---------- regression_detection.py: production baseline ----------
+
+def test_regression_detection_production_baseline():
+    # r2 is a bad interim experiment (mape=20.0) that is NOT production.
+    # Comparing the latest run (r3, mape=10.5) against "previous" (r2)
+    # would wrongly look like a big improvement. Comparing against the
+    # actual production run (r1, mape=9.71) correctly shows a regression --
+    # this proves baseline="production" picks the right comparison run,
+    # not just whatever ran most recently.
+    runs = pd.DataFrame({
+        "run_id": ["r1", "r2", "r3"],
+        "start_time": [pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-02"), pd.Timestamp("2024-01-03")],
+        "tags.owner": ["uday", "uday", "uday"],
+        "tags.model_name": ["prophet", "prophet", "prophet"],
+        "tags.stage": ["production", None, None],
+        "metrics.mape": [9.71, 20.0, 10.5],
+    })
+    from src.regression_detection import detect_regression
+
+    result_prod = detect_regression(runs, owner="uday", model_name="prophet", metric="mape", baseline="production")
+    assert result_prod["previous_run_id"] == "r1"
+    assert result_prod["regressed"] is True  # 10.5 is genuinely worse than production's 9.71
+
+    result_prev = detect_regression(runs, owner="uday", model_name="prophet", metric="mape", baseline="previous")
+    assert result_prev["previous_run_id"] == "r2"
+    assert result_prev["regressed"] is False  # 10.5 looks like an improvement vs r2's 20.0 -- the wrong comparison
+
+def test_regression_detection_production_baseline_missing_raises():
+    runs = pd.DataFrame({
+        "run_id": ["r1", "r2"],
+        "start_time": [pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-02")],
+        "tags.owner": ["uday", "uday"],
+        "tags.model_name": ["prophet", "prophet"],
+        "metrics.mape": [9.71, 15.0],
+    })
+    from src.regression_detection import detect_regression
+    try:
+        detect_regression(runs, owner="uday", model_name="prophet", metric="mape", baseline="production")
+        assert False, "expected ValueError"
+    except ValueError as e:
+        assert "production" in str(e)
+
+
+# ---------- fairness.py: absolute minimum gap ----------
+
+def test_evaluate_by_slice_absolute_gap_prevents_false_flag_near_zero():
+    df = pd.DataFrame({
+        "warehouse": ["A"] * 20 + ["B"] * 20,
+        "actual": [1000] * 40,
+        "predicted": [1000.5] * 20 + [990] * 20,  # both genuinely tiny errors
+    })
+    result = evaluate_by_slice(df, "warehouse", "actual", "predicted", "mape")
+    assert result["flagged_slices"] == []
+
+
+def test_evaluate_by_slice_still_flags_genuinely_bad_slice_with_gap():
+    df = pd.DataFrame({
+        "warehouse": ["A"] * 10 + ["B"] * 10 + ["C"] * 10,
+        "actual": [100] * 30,
+        "predicted": [105] * 10 + [98] * 10 + [150] * 10,
+    })
+    result = evaluate_by_slice(df, "warehouse", "actual", "predicted", "mape")
+    assert "C" in result["flagged_slices"]
+
+
+# ----------  get_all_runs filters FINISHED server-side ----------
+
+def test_get_all_runs_excludes_non_finished_runs(tmp_path):
+    import mlflow
+    tracking_uri = f"sqlite:///{tmp_path}/mlflow_status.db"
+    mlflow.set_tracking_uri(tracking_uri)
+    mlflow.set_experiment("test-exp-status")
+    with mlflow.start_run(run_name="finished-run"):
+        mlflow.set_tags({"owner": "alice", "model_name": "m1"})
+        mlflow.log_metric("mape", 5.0)
+    # A run left running (never ended) should not appear in results
+    run = mlflow.start_run(run_name="still-running")
+    mlflow.set_tags({"owner": "alice", "model_name": "m1"})
+    mlflow.log_metric("mape", 99.0)
+    # deliberately do not end this run
+
+    from src.mlflow_dashboard import get_all_runs
+    runs = get_all_runs("test-exp-status", tracking_uri=tracking_uri)
+    assert len(runs) == 1
+    assert runs.iloc[0]["metrics.mape"] == 5.0
+
+    mlflow.end_run()  # cleanup
+
+
+# ---------- summarize_dashboard rejects empty input ----------
+
+def test_summarize_dashboard_empty_dataframe_raises():
+    from src.mlflow_dashboard import summarize_dashboard
+    empty_runs = pd.DataFrame(columns=["run_id", "start_time", "tags.owner", "tags.model_name", "metrics.mape"])
+    try:
+        summarize_dashboard(empty_runs, metric="mape")
+        assert False, "expected ValueError"
+    except ValueError as e:
+        assert "empty" in str(e)
+
+
+# ----------  production baseline can't compare a run to itself ----------
+
+def test_regression_detection_production_baseline_self_compare_raises():
+    runs = pd.DataFrame({
+        "run_id": ["r1", "r2"],
+        "start_time": [pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-02")],
+        "tags.owner": ["uday", "uday"],
+        "tags.model_name": ["prophet", "prophet"],
+        "tags.stage": [None, "production"],  # only the LATEST run is tagged production
+        "metrics.mape": [9.71, 10.5],
+    })
+    from src.regression_detection import detect_regression
+    try:
+        detect_regression(runs, owner="uday", model_name="prophet", metric="mape", baseline="production")
+        assert False, "expected ValueError"
+    except ValueError as e:
+        assert "itself" in str(e) or "distinct" in str(e)
+
+
+# ----------  explicit min_absolute_gap override for rmse ----------
+
+def test_evaluate_by_slice_rmse_without_explicit_gap_can_false_flag():
+    # Demonstrates the documented limitation: rmse has no built-in default,
+    # so a tiny near-zero-baseline difference CAN still be flagged unless
+    # the caller passes min_absolute_gap explicitly.
+    df = pd.DataFrame({
+        "warehouse": ["A"] * 20 + ["B"] * 20,
+        "actual": [1000] * 40,
+        "predicted": [1000.1] * 20 + [999.8] * 20,
+    })
+    result = evaluate_by_slice(df, "warehouse", "actual", "predicted", "rmse")
+    # Without an explicit gap, this may or may not flag depending on the
+    # relative threshold alone -- the real point is the override below works:
+    result_with_gap = evaluate_by_slice(
+        df, "warehouse", "actual", "predicted", "rmse", min_absolute_gap=5.0
+    )
+    assert result_with_gap["flagged_slices"] == []

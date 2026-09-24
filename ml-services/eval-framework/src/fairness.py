@@ -12,10 +12,23 @@ _METRIC_FUNCTIONS = {
     "accuracy": accuracy,
 }
 
+# Minimum ABSOLUTE gap (in the metric's own units) a slice must differ from
+# overall by, in addition to the relative degradation_threshold, before
+# being flagged. Without this, a relative threshold alone breaks when the
+# overall score is near zero: 20% of a 0.05 MAPE baseline is a gap of 0.01,
+# so a slice at 1.0 MAPE (still objectively tiny) gets flagged. rmse is
+# intentionally omitted -- its scale is entirely data-dependent, same
+# reasoning as SUSPICIOUS_THRESHOLDS in metrics.py.
+_MIN_ABSOLUTE_GAP = {
+    "mape": 1.0,       # at least 1 percentage point of MAPE
+    "accuracy": 0.02,  # at least 2 percentage points of accuracy
+}
+
 
 def evaluate_by_slice(df: pd.DataFrame, slice_col: str, actual_col: str, predicted_col: str,
                         metric: str, lower_is_better: bool = None,
-                        degradation_threshold: float = 0.20, min_slice_size: int = 5) -> dict:
+                        degradation_threshold: float = 0.20, min_slice_size: int = 5,
+                        min_absolute_gap: float = None) -> dict:
     """
     Computes a metric separately for each slice of data (e.g. per warehouse,
     per category) and for the dataset overall, then flags any slice that
@@ -35,6 +48,15 @@ def evaluate_by_slice(df: pd.DataFrame, slice_col: str, actual_col: str, predict
         HIGHER_IS_BETTER_METRICS.
     degradation_threshold: fraction worse than overall a slice's score must
         be before it's flagged. Default 0.20 = "20% worse than overall".
+        min_absolute_gap: minimum absolute difference (in the metric's own
+        units) a slice must differ from overall by, IN ADDITION to
+        degradation_threshold, before being flagged. If not given, a
+        built-in default is used for "mape" and "accuracy"; for "rmse" (or
+        any metric without a built-in default) this is 0.0 unless you pass
+        one explicitly -- rmse's real scale is entirely data-dependent, so
+        no universal default is safe, and leaving it at 0.0 leaves rmse
+        exposed to the same near-zero-baseline false-flagging this
+        parameter exists to prevent. Pass one explicitly for rmse.
     min_slice_size: slices with fewer rows than this are reported but never
         flagged -- too few rows to draw a reliable conclusion.
 
@@ -94,9 +116,13 @@ def evaluate_by_slice(df: pd.DataFrame, slice_col: str, actual_col: str, predict
         is_flagged = False
         if n >= min_slice_size:
             if lower_is_better:
-                is_flagged = slice_score > overall_score * (1 + degradation_threshold)
+                relative_flag = slice_score > overall_score * (1 + degradation_threshold)
             else:
-                is_flagged = slice_score < overall_score * (1 - degradation_threshold)
+                relative_flag = slice_score < overall_score * (1 - degradation_threshold)
+
+            min_gap = min_absolute_gap if min_absolute_gap is not None else _MIN_ABSOLUTE_GAP.get(metric_key, 0.0)
+            absolute_gap = abs(slice_score - overall_score)
+            is_flagged = relative_flag and absolute_gap >= min_gap
 
         slices[slice_value] = {"score": slice_score, "n": n, "flagged": is_flagged}
         if is_flagged:
