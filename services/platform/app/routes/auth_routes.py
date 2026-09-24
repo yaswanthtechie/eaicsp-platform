@@ -6,35 +6,45 @@ from app.core.config import TRUST_PROXY
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.users import User
-from app.core.verify_rate_limiter import verify_rate_limiter
 from app.services.auth_service import (
     register_user,
     login_user,
     get_refresh_token,
     save_refresh_token,
     request_password_reset,
-    reset_password
+    reset_password,
 )
 from app.services.audit_service import (
     TOKEN_REVOKED ,
     create_audit_log,
 )
+from app.services.rate_limit_service import ( 
+    MFA_ABUSE,
+    LOGIN_BRUTE_FORCE,
+    SSO_ABUSE,
+    RATE_LIMIT_EXCEEDED,
+)
+
 from app.models.refresh_token import RefreshToken
 from app.core.token_cache import token_cache
 from app.core.permissions import ROLE_PERMISSIONS
 from app.core.service_auth import verify_service_api_key
-from app.schemas.auth import VerifyResponse
 from app.schemas.auth import (
-    TokenResponse,  
+    VerifyResponse,
     RefreshRequest,
     AccessTokenResponse,
     LogoutRequest,
     RegisterRequest,
     PasswordResetRequest,
     PasswordResetConfirm,
-   
+    MFAChallengeResponse,
+    MFAVerifyRequest,
+    MFATokenResponse,
+    SSOLoginRequest,
+    SSOTokenResponse
 )
-
+from app.services.sso_service import mock_sso_login
+from app.services.rate_limit_service import check_rate_limit
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -44,6 +54,8 @@ from app.core.dependencies import(
     get_current_user,
     oauth2_scheme
 )
+from app.services.mfa_service import verify_mfa_challenge
+
 import logging
 router = APIRouter(
     prefix="/api/v1/auth",
@@ -80,18 +92,28 @@ def register(
 
 @router.post(
 "/login",
-response_model=TokenResponse
+response_model=MFAChallengeResponse
 )
 def login(
     request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
+    
+    client_ip = get_client_ip(request)
+
+    check_rate_limit(
+        db=db,
+        ip_address=client_ip,
+        endpoint="/api/v1/auth/login",
+        abuse_event_type=LOGIN_BRUTE_FORCE,
+    )
+
     return login_user(
         db=db,
         username=form_data.username,
         password=form_data.password,
-        client_ip=get_client_ip(request)
+        client_ip=client_ip
     )
 # ============================================================
 # REFRESH TOKEN
@@ -316,6 +338,7 @@ def service_verify(
     response_model=VerifyResponse,
 )
 def verify_access_token(
+    request: Request,
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
     x_caller_service: str | None = Header(
@@ -323,6 +346,8 @@ def verify_access_token(
         alias="X-Caller-Service",
     ),
 ):
+    
+    client_ip = get_client_ip(request)
     
     # The header identifies the calling service for per-service rate
     # limiting. It is optional: callers that omit it share an "unknown"
@@ -333,13 +358,22 @@ def verify_access_token(
         if x_caller_service and x_caller_service.strip()
         else "unknown"
     )
-    
-    if not verify_rate_limiter.check(caller_service):
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many /verify requests for this service. Try again later.",
-        )
-    
+
+    # -------------------------------------------------
+    # ONE rate-limit check
+    # Per-service bucket:
+    # inventory:/api/v1/auth/verify
+    # supplier:/api/v1/auth/verify
+    # compliance:/api/v1/auth/verify
+    # -------------------------------------------------
+    check_rate_limit(
+        db=db,
+        ip_address=client_ip,
+        endpoint="/api/v1/auth/verify",
+        abuse_event_type=RATE_LIMIT_EXCEEDED,
+        caller_service=caller_service,
+    )
+
     # -------------------------------------------------
     # Check cache BEFORE JWT decode and DB query
     # -------------------------------------------------
@@ -484,3 +518,126 @@ def verify_access_token(
         ttl_seconds=cache_ttl,
     )
     return response_data
+
+# ============================================================ 
+# MFA-VERIFY 
+# ============================================================ 
+@router.post( 
+    "/mfa/verify", 
+    response_model=MFATokenResponse, 
+) 
+def verify_mfa( 
+    request: Request, 
+    body: MFAVerifyRequest, 
+    db: Session = Depends(get_db), 
+): 
+    """ 
+    Verify the mock MFA OTP and issue JWT tokens. 
+    """ 
+ 
+    # Get caller IP for rate limiting 
+    client_ip = get_client_ip(request) 
+ 
+    # Rate-limit MFA verification attempts 
+    check_rate_limit( 
+        db=db, 
+        ip_address=client_ip, 
+        endpoint="/api/v1/auth/mfa/verify", 
+        abuse_event_type=MFA_ABUSE, 
+    ) 
+ 
+    # Verify MFA challenge and OTP 
+    user_id = verify_mfa_challenge( 
+        body.challenge_id, 
+        body.otp, 
+    ) 
+ 
+    if user_id is None: 
+        raise HTTPException( 
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Invalid or expired MFA code", 
+        ) 
+ 
+    # Find the user 
+    user = ( 
+        db.query(User) 
+        .filter(User.id == user_id) 
+        .first() 
+    ) 
+ 
+    if not user or not user.is_active: 
+        raise HTTPException( 
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Invalid authentication", 
+        ) 
+ 
+    if user.role is None: 
+        raise HTTPException( 
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Invalid user role", 
+        ) 
+ 
+    # Issue tokens only after successful MFA 
+    access_token = create_access_token( 
+        { 
+            "sub": user.email, 
+            "user_id": user.id, 
+            "role": user.role.name, 
+        } 
+    ) 
+ 
+    refresh_token = create_refresh_token( 
+        { 
+            "sub": user.email, 
+            "user_id": user.id, 
+        } 
+    ) 
+ 
+    # Store refresh token for rotation/revocation 
+    refresh_expires_at = ( 
+        datetime.now(timezone.utc) + timedelta(days=7) 
+    ) 
+ 
+    save_refresh_token( 
+        db=db, 
+        user_id=user.id, 
+        token=refresh_token, 
+        expires_at=refresh_expires_at, 
+    ) 
+ 
+    db.commit() 
+ 
+    return MFATokenResponse( 
+        access_token=access_token, 
+        refresh_token=refresh_token, 
+        token_type="bearer", 
+    ) 
+ 
+# ============================================================ 
+# SSO-LOGIN 
+# ============================================================ 
+@router.post( 
+    "/sso/login", 
+    response_model=SSOTokenResponse, 
+) 
+def sso_login( 
+    request: Request, 
+    body: SSOLoginRequest, 
+    db: Session = Depends(get_db), 
+): 
+    client_ip = get_client_ip(request) 
+ 
+    check_rate_limit( 
+        db=db, 
+        ip_address=client_ip, 
+        endpoint="/api/v1/auth/sso/login", 
+        abuse_event_type=SSO_ABUSE, 
+    ) 
+ 
+    return mock_sso_login( 
+        db=db, 
+        provider=body.provider, 
+        email=body.email, 
+        full_name=body.full_name, 
+        external_id=body.external_id, 
+    ) 

@@ -49,4 +49,30 @@ class VerifyResponse(BaseModel):
     supplier_id: Optional[str] = None
     is_active: bool
     permissions: list[str]
-    
+
+class MFAChallengeResponse(BaseModel):
+    mfa_required: bool
+    challenge_id: str
+    message: str
+
+class MFAVerifyRequest(BaseModel):
+    challenge_id: str
+    otp: str
+
+class MFATokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str
+
+class SSOLoginRequest(BaseModel):
+    provider: str
+    email: EmailStr
+    full_name: str
+    external_id: str
+
+class SSOTokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str
+    auth_type:str
+
