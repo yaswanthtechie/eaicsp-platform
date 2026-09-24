@@ -15,13 +15,27 @@ The purpose is to identify the potential blast radius when a model is:
 * unavailable
 * degraded
 
-Only relationships supported by repository evidence are marked as
-confirmed. Relationships that are suggested by service functionality but
-where no direct ML-serving call was found are marked as **Unverified**.
+The current dependency status is based on repository searches performed on
+**2026-09-24**.
+
+The search confirmed that no service or frontend currently calls the unified
+ML serving API through:
+
+```text
+/models/{model_name}/predict
+/models/batch-predict
+```
+
+Therefore, the four models currently have **no confirmed production
+consumers**.
+
+Intended consumers are documented separately from current consumers so that
+future integrations can be tracked without incorrectly describing them as
+existing production dependencies.
 
 ---
 
-## 2. Current Service Topology
+# 2. Current Service Topology
 
 The API Gateway configuration defines the following downstream services:
 
@@ -40,20 +54,49 @@ These routes are configured in:
 services/api-gateway/app/core/config.py
 ```
 
-The gateway therefore confirms the existence of these business-service
-boundaries. It does not, by itself, prove that a business service consumes
-a particular ML model.
+The gateway confirms the existence of these business-service boundaries.
+
+However, the existence of a business service or route does not by itself
+establish that the service currently consumes a model from the unified ML
+serving layer.
 
 ---
 
 # 3. Model Dependency Matrix
 
-| Model      | Potential Consumer                   | Evidence                                                                                                                  | Status         | Impact if Model Changes                                                                       |
-| ---------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- | -------------- | --------------------------------------------------------------------------------------------- |
-| `forecast` | Inventory Service                    | Inventory exposes reorder and demand-analysis endpoints, but inspected implementation calculates rolling demand locally   | **Unverified** | Potential impact to demand forecasting and reorder decisions if future integration is enabled |
-| `eta`      | Logistics / Shipments Service        | Logistics exposes shipment and ETA-related endpoints; direct call to unified ETA model has not yet been verified          | **Unverified** | Potential impact to delivery-time estimates and shipment tracking                             |
-| `anomaly`  | Inventory / Alerting / Data Platform | No direct consumer call to the unified anomaly model was identified in the inspected service search                       | **Unverified** | Potential impact to anomaly detection and operational alerts                                  |
-| `risk`     | Supplier Risk / Purchase Order flows | Supplier Risk and Purchase Order routes exist, but direct consumption of the unified risk model has not yet been verified | **Unverified** | Potential impact to supplier-risk decisions and downstream procurement workflows              |
+The following matrix reflects the confirmed repository state as of
+**2026-09-24**.
+
+| Model      | Current consumers (confirmed 2026-09-24)                             | Intended consumer                     | Blast radius today | Blast radius once integrated     |
+| ---------- | -------------------------------------------------------------------- | ------------------------------------- | ------------------ | -------------------------------- |
+| `forecast` | **None**: no service or frontend calls the serving API               | Inventory :8001 (reorder levels)      | None               | Wrong reorder points, stock-outs |
+| `eta`      | **None**                                                             | Logistics :8002 (`/api/v1/shipments`) | None               | Wrong delivery promises          |
+| `anomaly`  | **None**                                                             | Inventory / alerting                  | None               | Missed or false alerts           |
+| `risk`     | **None**; Supplier Risk :8006 serves its own NLP model, not this one | Supplier-portal :8004 PO routing      | None               | POs routed to risky suppliers    |
+
+### Verification performed
+
+The repository was searched across `services/` and `frontend/` on `main`
+and all open branches for:
+
+```text
+/models/
+batch-predict
+serving host/port
+```
+
+No current service or frontend invocation of the unified ML serving API was
+identified.
+
+This means the current production blast radius of changes to these four
+unified models is **None from the repository's existing service integrations**.
+
+This search should be repeated whenever a business service or frontend adds
+an ML integration.
+
+When a direct integration is added, move the corresponding model from
+**None** to the actual consuming service and document the exact route and
+model invocation.
 
 ---
 
@@ -65,25 +108,44 @@ a particular ML model.
 forecast
 ```
 
-## Potential Consumer
+## Current Consumer
+
+```text
+None
+```
+
+No service or frontend currently calls the unified ML serving API for the
+`forecast` model.
+
+## Intended Consumer
 
 ```text
 Inventory Service :8001
 ```
 
+The intended business use is demand forecasting for inventory and reorder
+decisions.
+
 ## Relevant Inventory Endpoints
 
-The Inventory Service exposes:
+The Inventory Service exposes endpoints including:
 
 ```text
 GET  /api/v1/inventory/reorder-plan
+
 GET  /api/v1/inventory/low-stock
+
 POST /api/v1/inventory/what-if
+
 GET  /api/v1/inventory/simulate
+
 GET  /api/v1/inventory/{sku_id}/{warehouse_id}/reorder-check
 ```
 
-## Verified Implementation
+These endpoints demonstrate inventory/reorder functionality but do not
+establish a current dependency on the unified `forecast` model.
+
+## Current Implementation
 
 The inspected reorder implementation uses the local:
 
@@ -111,7 +173,7 @@ demand_service.calculate_rolling_average_demand(
 )
 ```
 
-The reorder point is then calculated locally:
+The reorder point is calculated locally:
 
 ```python
 reorder_point = int(
@@ -121,30 +183,35 @@ reorder_point = int(
 )
 ```
 
-No direct call to the unified ML serving API was found in the inspected
-Inventory Service files.
+No direct call to the unified ML serving API was found.
 
 ## Dependency Status
 
-**Unverified**
+**No current consumer.**
 
-The Inventory Service provides demand/reorder functionality, but the
-current inspected implementation does not establish that it consumes the
-unified `forecast` model.
+The Inventory Service is an intended future consumer, but it is not a
+current consumer of the unified `forecast` model.
 
-## Blast Radius
+## Blast Radius Today
 
-If a future integration connects the forecast model to the Inventory
-Service, model changes could affect:
+```text
+None
+```
+
+Because no current service or frontend integration was identified, changing
+the unified `forecast` model does not currently affect the Inventory
+Service through the unified serving layer.
+
+## Blast Radius Once Integrated
+
+Once the forecast model is integrated into inventory workflows, model changes
+could affect:
 
 * demand predictions
 * reorder points
 * reorder quantities
 * stock-out prevention
 * inventory planning
-
-Until that integration is confirmed, these effects should not be recorded
-as current production ML dependencies.
 
 ---
 
@@ -156,13 +223,25 @@ as current production ML dependencies.
 eta
 ```
 
-## Potential Consumer
+## Current Consumer
+
+```text
+None
+```
+
+No service or frontend currently calls the unified ML serving API for the
+`eta` model.
+
+## Intended Consumer
 
 ```text
 Logistics / Shipments Service :8002
 ```
 
-## Relevant Service Routes
+The intended business use is shipment ETA prediction and delivery-time
+estimation.
+
+## Relevant Service Route
 
 The Logistics Service exposes shipment APIs under:
 
@@ -176,21 +255,25 @@ including an ETA-related route:
 GET /api/v1/shipments/{shipment_id}/eta-explain
 ```
 
+The existence of an ETA-related endpoint does not establish a current
+dependency on the unified `eta` model.
+
 ## Dependency Status
 
-**Unverified**
+**No current consumer.**
 
-The existence of an ETA-related endpoint establishes that the Logistics
-Service has ETA functionality, but it does not establish that the
-functionality currently calls the unified `eta` model.
+The Logistics / Shipments Service is an intended consumer, but no direct
+request from that service to the unified `eta` model was identified.
 
-The actual model dependency must be confirmed from the Logistics service
-implementation or runtime integration configuration.
+## Blast Radius Today
 
-## Blast Radius
+```text
+None
+```
 
-If the Logistics Service is confirmed to consume the unified ETA model,
-model changes could affect:
+## Blast Radius Once Integrated
+
+Once the unified `eta` model is integrated, model changes could affect:
 
 * estimated delivery dates
 * shipment ETA displays
@@ -208,31 +291,44 @@ model changes could affect:
 anomaly
 ```
 
-## Potential Consumers
+## Current Consumer
 
-Potential consumers may include:
+```text
+None
+```
+
+No service or frontend currently calls the unified ML serving API for the
+`anomaly` model.
+
+## Intended Consumers
 
 ```text
 Inventory
 Alerting
-Data/Platform validation
+Data / Platform validation
 Operational monitoring
 ```
 
-However, no direct call to the unified anomaly model has been confirmed
-from the inspected business-service search.
+These are intended integration areas rather than current confirmed
+consumers.
 
 ## Dependency Status
 
-**Unverified**
+**No current consumer.**
 
-The current repository evidence does not establish a confirmed
-business-service-to-anomaly-model dependency.
+No direct business-service or frontend invocation of the unified `anomaly`
+model was identified in the repository search.
 
-## Blast Radius
+## Blast Radius Today
 
-If a consuming service is later confirmed, an anomaly model change could
-affect:
+```text
+None
+```
+
+## Blast Radius Once Integrated
+
+Once a service is integrated with the unified anomaly model, model changes
+could affect:
 
 * anomaly detection
 * false-positive rates
@@ -241,8 +337,8 @@ affect:
 * data-quality monitoring
 * incident detection
 
-No current consumer should be treated as confirmed until the actual model
-call is identified.
+The affected consumer should be added to the dependency matrix when the
+integration is implemented.
 
 ---
 
@@ -254,46 +350,69 @@ call is identified.
 risk
 ```
 
-## Potential Consumers
-
-The repository contains the following relevant service boundaries:
+## Current Consumer
 
 ```text
-Supplier Risk Service :8006
-Purchase Order Service :8004
+None
 ```
 
-The API Gateway maps:
+No service or frontend currently calls the unified ML serving API for the
+`risk` model.
+
+The Supplier Risk Service on port `8006` has its own NLP model and should
+not be recorded as a consumer of the unified `risk` model.
+
+## Intended Consumer
+
+```text
+Supplier Portal / Purchase Order Service :8004
+```
+
+The intended business use is supplier-risk information in purchase-order
+routing and procurement workflows.
+
+## Relevant Service Boundaries
+
+The API Gateway contains:
 
 ```text
 /api/v1/supplier-risk -> http://localhost:8006
+
 /api/v1/purchase-orders -> http://localhost:8004
 ```
 
-## Dependency Status
+These routes establish service boundaries but do not establish a current
+dependency on the unified `risk` model.
 
-**Unverified**
+Risk-scoring logic elsewhere in the repository must not automatically be
+treated as a dependency on the unified model.
 
-The service topology confirms Supplier Risk and Purchase Order services,
-but the inspected search did not establish a direct call from these
-services to the unified `risk` model.
-
-Risk-scoring logic found elsewhere in the repository must not automatically
-be treated as a unified ML model dependency.
-
-For example, a function such as:
+For example:
 
 ```text
 calculate_risk_score()
 ```
 
-does not by itself prove that the function invokes the served `risk`
-model.
+does not by itself prove that the function invokes the served `risk` model.
 
-## Blast Radius
+## Dependency Status
 
-If the unified risk model is confirmed as a dependency, changes could
-affect:
+**No current consumer.**
+
+The Supplier Portal / Purchase Order Service is an intended future
+consumer. The Supplier Risk Service :8006 is not considered a current
+consumer of the unified `risk` model.
+
+## Blast Radius Today
+
+```text
+None
+```
+
+## Blast Radius Once Integrated
+
+Once the unified risk model is integrated into the purchase-order workflow,
+model changes could affect:
 
 * supplier risk scores
 * supplier classification
@@ -302,17 +421,25 @@ affect:
 * compliance workflows
 * supplier monitoring
 
-These impacts remain conditional until the actual integration is verified.
-
 ---
 
-# 8. Confirmed vs Unverified Dependencies
+# 8. Confirmed Current Dependencies
 
-The following distinction is important for model governance.
+The current repository evidence establishes the following:
 
-## Confirmed
+```text
+Unified ML Serving Layer
+        |
+        +-- forecast -> No current consumer
+        |
+        +-- eta      -> No current consumer
+        |
+        +-- anomaly  -> No current consumer
+        |
+        +-- risk     -> No current consumer
+```
 
-The following are confirmed from repository configuration:
+The business-service topology is separately confirmed:
 
 ```text
 API Gateway
@@ -325,29 +452,57 @@ API Gateway
     +-- Supplier Risk Service :8006
 ```
 
-## Not Yet Confirmed
-
-The following ML relationships are currently unverified:
-
-```text
-forecast -> Inventory
-eta      -> Logistics
-anomaly  -> Inventory / Alerting
-risk     -> Supplier Risk / Purchase Orders
-```
-
-The absence of a verified dependency means the relationship should not be
-described as a production model dependency without additional code or
-runtime evidence.
+These two facts should not be combined into a claim that the business
+services currently consume the unified ML models.
 
 ---
 
-# 9. Dependency Verification Procedure
+# 9. Intended Future Integrations
 
-Before marking a model dependency as confirmed, verify the complete
+The current intended architecture can be represented as:
+
+```text
+forecast
+    |
+    +----> Inventory :8001
+            |
+            +----> Reorder / demand decisions
+
+
+eta
+    |
+    +----> Logistics :8002
+            |
+            +----> Shipment ETA / delivery promises
+
+
+anomaly
+    |
+    +----> Inventory / Alerting
+            |
+            +----> Operational anomaly detection
+
+
+risk
+    |
+    +----> Purchase Order / Supplier Portal :8004
+            |
+            +----> Supplier-risk-aware PO routing
+```
+
+These relationships represent intended integration areas only.
+
+They should not be treated as active production dependencies until an
+actual service-to-serving-layer request is identified.
+
+---
+
+# 10. Dependency Verification Procedure
+
+Before marking a model dependency as a current consumer, verify the complete
 service-to-model path.
 
-### Step 1: Identify the business endpoint
+## Step 1: Identify the business endpoint
 
 Example:
 
@@ -355,7 +510,7 @@ Example:
 /api/v1/inventory/reorder-plan
 ```
 
-### Step 2: Trace the route into the service implementation
+## Step 2: Trace the route into the service implementation
 
 Example:
 
@@ -366,9 +521,9 @@ services/inventory/app/routes/
 services/inventory/app/services/
 ```
 
-### Step 3: Identify the prediction call
+## Step 3: Identify the prediction call
 
-Look for:
+Search for:
 
 ```text
 /models/{model_name}/predict
@@ -380,9 +535,11 @@ MODEL_NAME
 ML service URL
 ```
 
-### Step 4: Confirm the model name
+Also search for configured serving hosts, ports, or environment variables.
 
-The dependency should identify the actual model:
+## Step 4: Confirm the model name
+
+The dependency must identify the actual model:
 
 ```text
 forecast
@@ -391,7 +548,7 @@ anomaly
 risk
 ```
 
-### Step 5: Confirm runtime configuration
+## Step 5: Confirm runtime configuration
 
 Check:
 
@@ -404,10 +561,10 @@ Kubernetes configuration
 service environment variables
 ```
 
-### Step 6: Confirm the end-to-end path
+## Step 6: Confirm the end-to-end path
 
-A dependency should be documented only when the following relationship is
-established:
+A current dependency should be documented only when the following
+relationship is established:
 
 ```text
 Business Endpoint
@@ -427,11 +584,11 @@ Specific Model
 
 ---
 
-# 10. Model Change Impact Assessment
+# 11. Model Change Impact Assessment
 
 Before promoting a new model version, check:
 
-1. Which services consume the model?
+1. Which services currently consume the model?
 2. Which API routes depend on those services?
 3. What business decision uses the prediction?
 4. What happens if the prediction changes?
@@ -440,40 +597,27 @@ Before promoting a new model version, check:
 7. Are downstream services compatible with the new response schema?
 8. Are latency and error-rate changes acceptable?
 
-Example:
+For the current repository state, the first question currently resolves to:
 
 ```text
-Model Change
-     |
-     v
-Model Validation
-     |
-     v
-Consumer Identification
-     |
-     v
-Impact Assessment
-     |
-     v
-Governance Approval
-     |
-     v
-Production Promotion
-     |
-     v
-Monitoring
-     |
-     +----> Degradation
-                |
-                v
-             Rollback
+forecast -> No current consumer
+eta      -> No current consumer
+anomaly  -> No current consumer
+risk     -> No current consumer
 ```
+
+Therefore the current repository does not establish a production downstream
+blast radius for changes to these four unified models.
+
+Once integrations are added, the impact assessment should be updated with
+the actual consumer and business workflow.
 
 ---
 
-# 11. Rollback Considerations
+# 12. Rollback Considerations
 
-If a confirmed consumer experiences problems after model promotion:
+When a confirmed consumer exists and experiences problems after model
+promotion:
 
 ```text
 Production Model
@@ -497,16 +641,20 @@ Consumer Verification
 Incident Closure
 ```
 
-Rollback should be performed through the model registry/promotion
+Rollback should be performed through the model registry and promotion
 mechanism rather than changing application code to point to a hardcoded
 model artifact.
 
+Because the four current models have no confirmed production consumers,
+there is currently no confirmed downstream service to validate after a
+model-only rollback.
+
 ---
 
-# 12. Evidence Requirements
+# 13. Evidence Requirements
 
-A model dependency should be marked **Confirmed** only when repository or
-runtime evidence identifies the actual relationship.
+A model dependency should be marked as a **current consumer** only when
+repository or runtime evidence identifies the actual relationship.
 
 Acceptable evidence includes:
 
@@ -515,9 +663,9 @@ Acceptable evidence includes:
 * model name configuration
 * integration test showing the model request
 * deployment configuration
-* runtime request/trace showing the model invocation
+* runtime request or trace showing the model invocation
 
-The following are **not sufficient by themselves**:
+The following are not sufficient by themselves:
 
 * similar endpoint names
 * README descriptions
@@ -528,54 +676,127 @@ The following are **not sufficient by themselves**:
 
 ---
 
-# 13. Current Governance Status
+# 14. Current Governance Status
 
-Current repository evidence establishes the business-service topology but
-does not yet establish all four unified ML model consumer relationships.
+As of **2026-09-24**, repository searches across `services/` and `frontend/`
+confirmed that the unified ML serving API does not currently have a
+service or frontend consumer.
 
-Therefore the dependency status is:
+Therefore:
 
 ```text
-forecast : Unverified
-eta      : Unverified
-anomaly  : Unverified
-risk     : Unverified
+forecast : No current consumer
+eta      : No current consumer
+anomaly  : No current consumer
+risk     : No current consumer
 ```
 
-This status is intentional and prevents the dependency document from
-claiming architecture relationships that have not been demonstrated by
-the implementation.
+The intended integration areas are:
 
-As each direct integration is verified, update the corresponding row from
-**Unverified** to **Confirmed** and add the exact:
+```text
+forecast -> Inventory :8001
+eta      -> Logistics :8002
+anomaly  -> Inventory / Alerting
+risk     -> Purchase Order / Supplier Portal :8004
+```
+
+These intended relationships are documented for future integration planning
+and must not be represented as active production dependencies.
+
+When a direct integration is implemented, update the corresponding matrix
+row with:
 
 * consuming service
 * port
 * route
 * source file
-* model endpoint
+* ML client
+* serving endpoint
 * model name
 * business impact
+* rollback considerations
 
 ---
 
-# 14. Repository Evidence Used
+# 15. Repository Verification Record
 
-The current verification used:
+The dependency verification performed on **2026-09-24** searched:
+
+```text
+services/
+frontend/
+```
+
+on:
+
+```text
+main
+all open branches
+```
+
+The search covered:
+
+```text
+/models/
+batch-predict
+serving host
+serving port
+```
+
+No service or frontend call to the unified ML serving API was identified.
+
+Existing service-topology evidence includes:
 
 ```text
 services/api-gateway/app/core/config.py
+
 services/inventory/app/services/reorder_service.py
+
 services/inventory/app/routes/inventory.py
+
 services/logistics/app/routes/shipment.py
 ```
 
-The API Gateway configuration confirms the downstream service routes.
+The API Gateway configuration confirms the business-service routes.
 
 The Inventory implementation confirms that its current reorder calculation
 uses local rolling-average demand and safety-stock logic rather than an
 identified unified forecast-model request.
 
-Additional Logistics, Supplier Risk, Supplier Portal, and runtime
-integration evidence should be added when the direct model calls are
-verified.
+The Supplier Risk Service's own NLP model is separate from the unified
+`risk` model served by the ML serving layer.
+
+---
+
+# 16. Maintenance Rule
+
+Re-run the dependency search whenever a service or frontend adds an ML
+integration.
+
+At minimum, search for:
+
+```text
+/models/
+batch-predict
+predict
+ML service URL
+ML service host
+ML service port
+model name
+```
+
+When a direct integration is found:
+
+1. Identify the consuming service.
+2. Identify the exact business route.
+3. Identify the ML client/request.
+4. Identify the unified model name.
+5. Move the model from **No current consumer** to the actual consumer.
+6. Change the current blast radius from **None** to the relevant business
+   impact.
+7. Record the source file and integration evidence.
+8. Document rollback and verification requirements.
+
+This keeps the dependency document synchronized with the actual repository
+architecture and prevents intended integrations from being represented as
+existing production dependencies.

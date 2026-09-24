@@ -2468,593 +2468,97 @@ Invoke-RestMethod http://localhost:3000/models
 
 ## Round 9, 10 & 11 — Implementation Status
 
-This document summarizes the MLOps and model-serving capabilities implemented for Round 9, 10 and 11.
+This document summarizes the MLOps and model-serving capabilities completed for Rounds 9, 10 and 11.
 
-The work covers five areas:
+### 1. Milestone Status
 
-1. Model Governance Workflow
-2. Serving Cost / Performance Optimization
-3. Blue-Green Model Deployment
-4. Incident Response Runbook and Drill
-5. Cross-Model Dependency Documentation
-
-The implementation has been reviewed and updated based on the required fixes. Some milestones are fully implemented, while others still require demonstration evidence or additional validation.
-
----
-
-# 1. Milestone Status
-
-| Milestone                       | Status                 | What's Left                                                                                                                 |
-| ------------------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| **M1 Governance**               | **Done (after fixes)** | None                                                                                                                        |
-| **M2 Serving Optimization**     | **Partial**            | Same-model requests are not yet grouped into one vectorized call. Before/after cost and latency comparison is also pending. |
-| **M3 Blue-Green Deployment**    | **Partial**            | Implementation is available. Real API demonstration evidence still needs to be added.                                       |
-| **M4 Incident Runbook + Drill** | **Partial**            | Complete the full runbook and execute the drill through the API. Add a `What Worked / What Didn't` section.                 |
-| **M5 Dependency Documentation** | **Partial**            | Confirm the real service consumers for each model with the owning service/pod.                                              |
+| Milestone                   | Status      | What's Left                                                          |
+| --------------------------- | ----------- | -------------------------------------------------------------------- |
+| **M1 Governance**           | **Done**    | None                                                                 |
+| **M2 Serving Optimisation** | **Partial** | Same-model vectorized calls and before/after cost/latency comparison |
+| **M3 Blue-Green**           | **Done**    | None — real traffic switching demonstrated in `docs/BLUE_GREEN.md`   |
+| **M4 Runbook + Drill**      | **Done**    | Follow-ups: prediction health in `GET /models`, automated alerting   |
+| **M5 Dependency Docs**      | **Done**    | No current consumers confirmed; re-check when a service integrates   |
 
 ---
 
-# 2. Phase 1 — Model Governance Workflow
+## 2. Model Governance
 
-## Objective
+Implemented approval-based Production promotion.
 
-Add an approval step before a model can be promoted to Production.
+Key controls:
 
-## Implementation
+* Approval required for the exact model version
+* Central enforcement in `promote_model()`
+* Self-approval blocked
+* Approval/rejection audit information persisted
+* MLflow governance tags recorded
 
-The governance workflow tracks:
-
-* Model name
-* Model version
-* Requester
-* Request reason
-* Approval status
-* Approver/rejector
-* Decision reason
-* Request timestamp
-* Decision timestamp
-
-The workflow is:
-
-```text
-PENDING
-   |
-   +----> APPROVED ----> Production
-   |
-   +----> REJECTED
-```
-
-## Governance Files
-
-```text
-src/governance.py
-src/approve_model.py
-src/promote_approved_model.py
-src/reject_model.py
-```
-
-## Governance Controls
-
-Production promotion now requires approval for the exact model version being promoted.
-
-The governance check is enforced inside the central `promote_model()` function so that callers cannot bypass the approval requirement.
-
-```text
-Training
-   |
-   v
-Staging
-   |
-   v
-Governance Request
-   |
-   +----> Rejected
-   |
-   +----> Pending
-   |
-   +----> Approved
-             |
-             v
-        Production
-```
-
-Emergency rollback is intentionally not blocked by the governance gate because rollback returns to a previously live version.
-
-## Additional Hardening
-
-The governance workflow also includes:
-
-* Self-approval prevention
-* Required approver and approval reason
-* Corrupt governance-file protection
-* Governance decision persistence
-* Model-version-specific approval
-* MLflow governance decision tags
-
-Self-approval is rejected to maintain separation of duties.
-
-Example:
-
-```text
-Requester : ajith
-Approver  : ajith
-Result    : BLOCKED
-Reason    : requester cannot approve their own request
-```
-
-## Demonstration
-
-A newly trained model remains in staging until approval is provided.
-
-Example workflow:
-
-```bash
-python -m src.approve_model iris_classifier 2 reviewer "Approved after governance review"
-
-python -m src.promote_approved_model iris_classifier 2
-```
-
-## Result
-
-**M1 — Governance: DONE**
+**Status: DONE**
 
 ---
 
-# 3. Phase 2 — Serving Cost / Performance Optimization
+## 3. Serving Optimisation
 
-## Objective
+Implemented:
 
-Improve serving efficiency by supporting batch prediction and monitoring resource usage.
+* Batch prediction for `forecast`, `eta`, `anomaly`, and `risk`
+* Concurrent prediction
+* CPU, memory and latency monitoring
+* Batch size validation
 
-## Implementation
+Remaining:
 
-Batch prediction is implemented in:
+* Group same-model requests into vectorized calls
+* Before/after latency and cost benchmark
 
-```text
-src/batch_predict.py
-```
-
-Supported models:
-
-```text
-forecast
-eta
-anomaly
-risk
-```
-
-The batch serving layer supports concurrent execution and collects:
-
-* Batch size
-* Model count
-* Total predictions
-* Latency
-* CPU usage
-* Memory usage
-
-## Batch Flow
-
-```text
-Batch Request
-      |
-      v
-Concurrent Predictions
-      |
-      v
-Prediction Results
-      |
-      v
-Resource Metrics
-      |
-      v
-Batch Summary
-```
-
-## Resource Monitoring
-
-CPU measurement was corrected to calculate process CPU time consumed during the batch instead of relying on a new `psutil.Process().cpu_percent(interval=None)` call.
-
-Metrics include:
-
-```text
-latency_ms
-cpu_percent
-memory_percent
-memory_mb
-```
-
-## Input Protection
-
-The batch endpoint now limits the number of requests:
-
-```text
-Minimum batch size : 1
-Maximum batch size : 100
-```
-
-Invalid batch input returns a client error instead of an internal server error.
-
-Prediction failures are logged internally while clients receive a generic error message rather than raw exception details.
-
-## Current Demonstration
-
-Batch prediction has been implemented and tested across multiple models.
-
-Example previously observed result:
-
-```text
-Batch Size  : 4
-Successful  : 4
-Failed      : 0
-Model Count : 4
-Latency     : 59.392 ms
-Memory      : 242.508 MB
-Memory Usage: 3.041 %
-CPU Usage   : Recorded
-```
-
-## Remaining Work
-
-The current implementation provides concurrent batch execution, but the following optimization work is still pending:
-
-```text
-Same-model requests
-       |
-       v
-Vectorized model call
-       |
-       v
-Before / After benchmark
-       |
-       v
-Cost and latency comparison
-```
-
-A before/after comparison for latency and serving cost has not yet been established.
-
-## Result
-
-**M2 — Serving Optimization: PARTIAL**
+**Status: PARTIAL**
 
 ---
 
-# 4. Phase 3 — Blue-Green Model Deployment
+## 4. Blue-Green Deployment
 
-## Objective
+Implemented:
 
-Allow a candidate model version to be deployed and validated separately before switching it to the active deployment.
+* Blue and Green model versions
+* Traffic switching
+* Governance check for Green
+* Rollback to Blue
+* Blue-Green prediction APIs
 
-## Implementation
-
-Blue-Green deployment management is implemented in:
-
-```text
-src/blue_green.py
-```
-
-The deployment tracks:
-
-* Blue version
-* Green version
-* Active color
-* Active version
-* Inactive version
-* Deployment status
-* Switch timestamp
-
-## Deployment Flow
-
-```text
-Production v1
-      |
-      v
-   Blue v1
-      |
-      +------> Green v2
-                    |
-                    v
-                 Validate
-                    |
-                    v
-             Governance Approval
-                    |
-                    v
-              Switch to Green
-```
-
-## Rollback
-
-```text
-Green v2
-   |
-   v
-Failure
-   |
-   v
-Switch to Blue
-   |
-   v
-Known-good Blue v1
-```
-
-## API Endpoints
-
-```text
-GET  /models/{model_name}/blue-green
-
-POST /models/{model_name}/blue-green
-
-POST /models/{model_name}/blue-green/switch/{color}
-
-POST /models/{model_name}/blue-green/predict
-```
-
-## Governance Integration
-
-Switching to the Green candidate requires governance approval.
-
-Switching back to Blue is treated as rollback to the known-good version and is not blocked by the normal promotion approval gate.
-
-## Example Configuration
-
-```json
-{
-  "blue_version": "v1",
-  "green_version": "v2"
-}
-```
-
-## Demonstration Flow
-
-The intended demonstration is:
-
-```text
-1. Configure Blue-Green
-2. Check deployment status
-3. Predict using Blue
-4. Attempt Green switch
-5. Verify unapproved switch is blocked
-6. Approve Green version
-7. Switch to Green
-8. Predict using Green
-9. Switch back to Blue
-10. Verify rollback
-```
-
-Example API sequence:
-
-```text
-POST /models/forecast/blue-green
-        |
-        v
-GET /models/forecast/blue-green
-        |
-        v
-POST /models/forecast/blue-green/predict
-        |
-        v
-POST /models/forecast/blue-green/switch/green
-        |
-        v
-POST /models/forecast/blue-green/predict
-        |
-        v
-POST /models/forecast/blue-green/switch/blue
-```
-
-## Current Status
-
-The Blue-Green implementation and service endpoints are available.
-
-However, the milestone should not yet be marked complete because the required **real API demonstration responses** still need to be captured and added to the documentation.
-
-The demo must use a model for which both Blue and Green versions are actually loaded by the running unified model-serving service.
-
-## Evidence To Add
-
-Real responses should be added to:
+Documentation:
 
 ```text
 docs/BLUE_GREEN.md
 ```
 
-The evidence should include:
-
-```text
-Configuration response
-Blue prediction response
-Unapproved Green switch response
-Approved Green switch response
-Green prediction response
-Blue rollback response
-```
-
-## Result
-
-**M3 — Blue-Green Deployment: PARTIAL**
+**Status: DONE**
 
 ---
 
-# 5. Phase 4 — Incident Response Runbook and Drill
+## 5. Incident Response
 
-## Objective
+Implemented:
 
-Provide a documented and tested procedure for detecting, containing, diagnosing and recovering from model-serving incidents.
+* Incident runbook
+* Failure injection
+* API-based incident drill
+* Containment and rollback
+* Recovery verification
+* Drill timeline and follow-ups
 
-## Files
+Follow-ups identified:
 
-```text
-docs/INCIDENT_RUNBOOK.md
-docs/INCIDENT_DRILL.md
+* Prediction health status in `GET /models`
+* Automated alerting
 
-src/incident_simulator.py
-src/run_incident_drill.py
-
-tests/test_incident.py
-```
-
-## Incident Lifecycle
-
-```text
-Incident Detection
-       |
-       v
-Containment
-       |
-       v
-Diagnosis
-       |
-       v
-Recovery
-       |
-       v
-Verification
-       |
-       v
-Closure
-```
-
-## Runbook Sections
-
-The completed runbook should cover:
-
-```text
-1. Incident Symptoms
-2. Detection
-3. Containment
-4. Diagnosis
-5. Recovery
-6. Verification
-7. Closure
-8. Drill
-```
-
-## Containment
-
-For a Blue-Green deployment:
-
-```text
-POST /models/<model>/blue-green/switch/blue
-```
-
-can be used to return traffic to the known-good version.
-
-Otherwise, the model registry rollback procedure can be used.
-
-## Diagnosis
-
-The investigation should check:
-
-* Recently promoted model versions
-* Governance records
-* MLflow aliases
-* Model loading failures
-* Invalid input
-* Resource exhaustion
-* Prediction failures
-* Resource metrics
-* First failure timestamp
-
-## Verification
-
-Recovery should verify:
-
-```text
-GET /models
-        |
-        v
-Model is healthy
-        |
-        v
-Known-good prediction
-        |
-        v
-Error rate returns to baseline
-```
-
-## Incident Drill
-
-The drill is intended to follow the real service path rather than only calling a simulator function.
-
-Expected flow:
-
-```text
-Baseline
-   |
-   v
-Failure Injection
-   |
-   v
-Detection Through API
-   |
-   v
-Containment
-   |
-   v
-Recovery
-   |
-   v
-Verification
-```
-
-## Drill Evidence
-
-The drill documentation should contain:
-
-```text
-## Timeline
-
-| Time | Step | Result | Detail |
-|---|---|---|---|
-| ... | Baseline | ... | ... |
-| ... | Failure injection | ... | ... |
-| ... | Detection | ... | ... |
-| ... | Containment | ... | ... |
-| ... | Recovery | ... | ... |
-| ... | Verification | ... | ... |
-```
-
-It should also contain:
-
-```text
-## What Worked
-
-- ...
-
-## What Didn't / Gaps Found
-
-- ...
-
-## Follow-ups
-
-- ...
-```
-
-The purpose of the drill is not only to show a successful result. It should identify gaps in detection, containment, recovery and observability.
-
-## Current Status
-
-The incident simulator and runbook foundation are implemented, but the complete API-driven drill and documented drill observations still need to be completed.
-
-## Result
-
-**M4 — Incident Runbook + Drill: PARTIAL**
+**Status: DONE**
 
 ---
 
-# 6. Phase 5 — Cross-Model Dependency Documentation
+## 6. Model Dependencies
 
-## Objective
-
-Document which business services consume each model and identify the potential blast radius when a model changes, is retrained, promoted, rolled back or becomes unavailable.
-
-## Documentation
-
-```text
-docs/MODEL_DEPENDENCIES.md
-```
-
-## Current Model Set
+Current models:
 
 ```text
 forecast
@@ -3063,297 +2567,77 @@ anomaly
 risk
 ```
 
-## Dependency Mapping
-
-The dependency documentation should use confirmed service consumers rather than only generic business capabilities.
-
-| Model      | Consumed By                                                         | Also Used By                                                | Potential Blast Radius                   |
-| ---------- | ------------------------------------------------------------------- | ----------------------------------------------------------- | ---------------------------------------- |
-| `forecast` | Inventory service / route to be confirmed                           | Frontend demand dashboards                                  | Incorrect demand or reorder calculations |
-| `eta`      | Logistics service / `/api/v1/shipments`                             | Frontend shipment tracking                                  | Incorrect delivery estimates             |
-| `anomaly`  | Inventory/data validation consumer — **unverified until confirmed** | Alerting                                                    | Missed or false anomaly alerts           |
-| `risk`     | Supplier Risk service / `/api/v1/supplier-risk`                     | Supplier portal / purchase-order flow — **to be confirmed** | Incorrect supplier-risk decisions        |
-
-Any dependency that has not been confirmed with the owning service should remain explicitly marked:
+Current confirmed state:
 
 ```text
-UNVERIFIED
+No current consumers of the model-serving API were confirmed.
 ```
 
-rather than being presented as confirmed.
-
-## Dependency Impact Areas
-
-The documentation covers:
-
-* Model version changes
-* Model promotion
-* Model rollback
-* Model availability
-* Blue-Green deployment
-* Governance approval
-* Incident response
-* Input/output contract changes
-* Consumer impact
-* Blast radius
-* Dependency maintenance
-
-## Current Status
-
-The documentation structure is implemented, but the real service consumers need to be confirmed with the owning service/pod before this milestone can be marked complete.
-
-## Result
-
-**M5 — Dependency Documentation: PARTIAL**
-
----
-
-# 7. Overall MLOps Workflow
-
-The current target workflow is:
-
-```text
-Model Development
-       |
-       v
-Model Training
-       |
-       v
-Model Version
-       |
-       v
-Governance Request
-       |
-   +---+---+
-   |       |
- REJECT  APPROVE
-           |
-           v
-       Staging
-           |
-           v
-    Blue-Green Deploy
-           |
-           v
-        Validate
-           |
-           v
-       Production
-           |
-           v
- Batch Serving / Monitoring
-           |
-           v
-        Incident
-        /      \
-   Recover    Rollback
-```
-
-Dependency documentation provides information about affected services throughout the model lifecycle.
-
----
-
-# 8. Testing
-
-The test suite is executed using:
-
-```bash
-python -m pytest -q tests
-```
-
-The previously recorded baseline result was:
-
-```text
-154 passed
-0 failures
-49 warnings
-```
-
-The warnings were dependency/deprecation warnings and did not cause test failures.
-
-Additional tests introduced or recommended by the reviewer include:
-
-```text
-tests/test_resource_monitor.py
-tests/test_governance.py
-tests/test_blue_green.py
-tests/test_incident.py
-```
-
-The final test count should be updated in this README after all reviewer fixes and new tests are executed together.
-
----
-
-# 9. Main Files
-
-## Governance
-
-```text
-src/governance.py
-src/approve_model.py
-src/promote_approved_model.py
-src/reject_model.py
-src/mlflow_utils.py
-```
-
-## Serving Optimization
-
-```text
-src/batch_predict.py
-src/resource_monitor.py
-```
-
-## Blue-Green
-
-```text
-src/blue_green.py
-tests/test_blue_green.py
-```
-
-## Incident Response
-
-```text
-src/incident_simulator.py
-src/run_incident_drill.py
-
-docs/INCIDENT_RUNBOOK.md
-docs/INCIDENT_DRILL.md
-
-tests/test_incident.py
-```
-
-## Dependency Documentation
+Dependency documentation:
 
 ```text
 docs/MODEL_DEPENDENCIES.md
 ```
 
+Re-check when a service integrates with the model-serving API.
+
+**Status: DONE**
+
 ---
 
-# 10. Definition of Done
-
-## Governance
+## 7. Key Files
 
 ```text
-[x] Approval workflow implemented
-[x] Unapproved Production promotion blocked
-[x] Approval enforced centrally in promote_model()
-[x] Self-approval blocked
-[x] Required approver and reason
-[x] Governance audit information persisted
-[x] Governance decisions recorded in MLflow tags
-```
+src/governance.py
+src/batch_predict.py
+src/resource_monitor.py
+src/blue_green.py
+src/incident_simulator.py
+src/run_incident_drill.py
 
-## Serving Optimization
-
-```text
-[x] Batch prediction implemented
-[x] Multiple models supported
-[x] Concurrent prediction supported
-[x] CPU monitoring implemented
-[x] Memory monitoring implemented
-[x] Latency monitoring implemented
-[x] Batch size validation implemented
-[ ] Same-model requests grouped into one vectorized call
-[ ] Before/after cost comparison
-[ ] Before/after latency comparison
-```
-
-## Blue-Green
-
-```text
-[x] Blue version supported
-[x] Green version supported
-[x] Version switching implemented
-[x] Rollback to Blue supported
-[x] Governance gate for Green implemented
-[x] API endpoints implemented
-[ ] Real Swagger/API demonstration captured
-[ ] Demo responses added to docs/BLUE_GREEN.md
-```
-
-## Incident Response
-
-```text
-[x] Incident runbook started
-[x] Failure simulator implemented
-[x] Incident drill framework implemented
-[ ] Full runbook completed
-[ ] Real API-based drill completed
-[ ] Containment demonstrated through the service
-[ ] Drill timeline documented
-[ ] What Worked section documented
-[ ] What Didn't / Gaps section documented
-[ ] Follow-up actions documented
-```
-
-## Dependencies
-
-```text
-[x] Model dependencies documented
-[x] Business impact documented
-[x] Blast-radius concept documented
-[ ] Real service consumers confirmed
-[ ] Owning pods/services confirmed
-[ ] Unverified dependencies resolved
+docs/BLUE_GREEN.md
+docs/INCIDENT_RUNBOOK.md
+docs/INCIDENT_DRILL.md
+docs/MODEL_DEPENDENCIES.md
 ```
 
 ---
 
-# 11. Final Status
+## 8. Testing
+
+Run:
+
+```bash
+python -m pytest -q tests
+```
+
+Previously recorded result:
+
+```text
+177 passed
+0 failures
+49 warnings
+```
+
+---
+
+## 9. Final Status
 
 | Phase                         | Status      |
 | ----------------------------- | ----------- |
 | **Model Governance**          | **DONE**    |
 | **Serving Optimization**      | **PARTIAL** |
-| **Blue-Green Deployment**     | **PARTIAL** |
-| **Incident Response + Drill** | **PARTIAL** |
-| **Cross-Model Dependencies**  | **PARTIAL** |
+| **Blue-Green Deployment**     | **DONE**    |
+| **Incident Response + Drill** | **DONE**    |
+| **Cross-Model Dependencies**  | **DONE**    |
 
----
-
-# 12. Current Validation Summary
+### Remaining Work
 
 ```text
-Governance Implementation       : DONE
-Serving Optimization            : PARTIAL
-Blue-Green Implementation       : PARTIAL
-Incident Runbook + Drill        : PARTIAL
-Dependency Documentation        : PARTIAL
-
-Governance Approval Gate        : IMPLEMENTED
-Central Promotion Gate          : IMPLEMENTED
-Self-Approval Protection        : IMPLEMENTED
-Resource Monitoring             : IMPLEMENTED
-Batch Prediction                : IMPLEMENTED
-Blue-Green API                  : IMPLEMENTED
-Incident Simulator              : IMPLEMENTED
-Dependency Documentation        : IMPLEMENTED
-
-Real Blue-Green Demo             : PENDING
-Full API Incident Drill          : PENDING
-Before/After Optimization        : PENDING
-Real Consumer Verification       : PENDING
+1. Same-model vectorized serving
+2. Before/after cost and latency benchmark
+3. Prediction health status in GET /models
+4. Automated alerting
 ```
 
----
 
-# 13. Conclusion
-
-Round 9, 10 and 11 introduced the required MLOps and model-serving capabilities across governance, serving optimization, Blue-Green deployment, incident response and dependency documentation.
-
-The governance workflow is complete after the reviewer fixes, including centralized Production approval enforcement, self-approval protection and governance audit information.
-
-Serving optimization, Blue-Green deployment, incident response and dependency documentation are implemented at the framework level, but the remaining demonstration and validation work is explicitly tracked rather than being presented as complete.
-
-The remaining work is focused on producing real operational evidence:
-
-```text
-1. Measure before/after serving optimization.
-2. Demonstrate Blue-Green through the real API.
-3. Execute the incident drill through the real API.
-4. Document what worked and what did not during the drill.
-5. Confirm real model consumers with the owning services/pods.
-```
-
-This README therefore reflects the current implementation state without claiming completion for work that still requires operational evidence.

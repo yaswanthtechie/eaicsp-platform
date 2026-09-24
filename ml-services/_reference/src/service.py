@@ -1128,6 +1128,13 @@ class IrisService:
         # --------------------------------------------------
         # Metric direction
         # --------------------------------------------------
+        #
+        # Lower is better:
+        # forecast and eta are error metrics.
+        #
+        # Higher is better:
+        # anomaly and risk are scores.
+        #
 
         higher_is_better = {
             "forecast": False,
@@ -1170,6 +1177,10 @@ class IrisService:
                 """
                 Calculate the current drift decision for
                 one served model.
+
+                Drift is calculated from the model's own
+                recent monitoring inputs and does NOT use
+                a hardcoded drift_score=0.0.
                 """
 
                 recent_inputs = (
@@ -1208,6 +1219,15 @@ class IrisService:
             def retrain(
                 name=model_name,
             ):
+                """
+                Safety boundary for model-specific
+                retraining.
+
+                The real production retraining pipeline
+                remains explicitly guarded until the
+                corresponding production pipeline is
+                connected.
+                """
 
                 raise RuntimeError(
                     f"Real retraining pipeline for "
@@ -1221,6 +1241,15 @@ class IrisService:
             def evaluate_production(
                 name=model_name,
             ):
+                """
+                Safety boundary for model-specific
+                production evaluation.
+
+                The real production evaluation pipeline
+                remains explicitly guarded until the
+                corresponding production pipeline is
+                connected.
+                """
 
                 raise RuntimeError(
                     f"Production evaluation pipeline for "
@@ -1235,6 +1264,15 @@ class IrisService:
                 version,
                 name=model_name,
             ):
+                """
+                Safety boundary for model-specific
+                production promotion.
+
+                The real production promotion pipeline
+                remains explicitly guarded until the
+                corresponding production pipeline is
+                connected.
+                """
 
                 raise RuntimeError(
                     f"Promotion pipeline for "

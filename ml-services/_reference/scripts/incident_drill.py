@@ -1,14 +1,21 @@
 """End-to-end incident drill following docs/INCIDENT_RUNBOOK.md."""
 import sys
 import time
+import tempfile
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
-from src.service import MULTI_MODEL_MANAGER, multi_model_app
+from src.governance import GovernanceManager
+from src.service import (
+    BLUE_GREEN_MANAGER,
+    MULTI_MODEL_MANAGER,
+    multi_model_app,
+)
 
 
 PAYLOAD = {
@@ -72,23 +79,66 @@ def main():
         return
 
     # ============================================================
-    # 2. FAILURE INJECTION
+    # 2. DEPLOY A CANDIDATE (GREEN) THROUGH GOVERNANCE
     # ============================================================
+    # Use a throwaway governance file so the drill never writes
+    # approvals into the real governance.json.
 
-    original_predict = MULTI_MODEL_MANAGER.predict
+    original_governance = BLUE_GREEN_MANAGER.governance
+    drill_governance = GovernanceManager(
+        Path(tempfile.mkdtemp()) / "drill_governance.json"
+    )
+    BLUE_GREEN_MANAGER.governance = drill_governance
 
-    def broken_predict(*args, **kwargs):
-        raise RuntimeError(
-            "SIMULATED_MODEL_SERVING_FAILURE"
-        )
-
-    MULTI_MODEL_MANAGER.predict = broken_predict
+    green_adapter = MULTI_MODEL_MANAGER.get_version_adapter(
+        "forecast",
+        "v2",
+    )
+    original_green_predict = green_adapter.predict
 
     try:
-        # --------------------------------------------------------
-        # Detection
-        # --------------------------------------------------------
+        response = client.post(
+            "/models/forecast/blue-green",
+            json={"blue_version": "v1", "green_version": "v2"},
+        )
+        step(
+            "configure blue=v1 green=v2",
+            response.status_code == 200,
+            response.text[:200],
+        )
 
+        drill_governance.request_approval(
+            "forecast",
+            "v2",
+            requested_by="drill-engineer",
+            reason="Incident drill candidate",
+        )
+        drill_governance.approve(
+            "forecast",
+            "v2",
+            approved_by="drill-lead",
+            reason="Approved for incident drill",
+        )
+
+        response = client.post(
+            "/models/forecast/blue-green/switch/green"
+        )
+        step(
+            "deploy: switch to green (v2)",
+            response.status_code == 200,
+            response.text[:200],
+        )
+
+        # ========================================================
+        # 3. FAILURE INJECTION: the NEW version is broken
+        # ========================================================
+
+        def broken_predict(payload):
+            raise RuntimeError("SIMULATED_MODEL_SERVING_FAILURE")
+
+        green_adapter.predict = broken_predict
+
+        # Runbook section 2: Detection through the real API
         response = client.post(
             "/models/batch-predict",
             json=BATCH,
@@ -96,81 +146,107 @@ def main():
 
         try:
             body = response.json()
-            failed = not body["results"][0]["success"]
+            detected = (
+                response.status_code == 200
+                and not body["results"][0]["success"]
+            )
         except Exception:
-            failed = response.status_code >= 500
+            detected = False
 
         step(
             "detection via /models/batch-predict",
-            failed,
+            detected,
             response.text[:200],
         )
 
-        # --------------------------------------------------------
-        # Health / model state
-        # --------------------------------------------------------
-
+        # Runbook section 2: which version is live?
         response = client.get("/models")
+
+        try:
+            models_body = response.json()
+            forecast = next(
+                model
+                for model in models_body["models"]
+                if model["model"] == "forecast"
+            )
+
+            live_version = forecast["production_version"]
+            live_version_ok = (
+                response.status_code == 200
+                and live_version == "v2"
+            )
+
+            detail = (
+                f"live version = {live_version} "
+                f"(status reported: {forecast['status']})"
+            )
+        except Exception:
+            live_version_ok = False
+            detail = response.text[:200]
 
         step(
             "runbook detection: GET /models",
-            response.status_code == 200,
+            live_version_ok,
+            detail,
+        )
+
+        # ========================================================
+        # 4. CONTAINMENT: runbook section 3, switch back to blue
+        # ========================================================
+        # Note: the broken adapter is NOT restored here. If
+        # verification passes, it is because traffic really
+        # moved back to v1.
+
+        response = client.post(
+            "/models/forecast/blue-green/switch/blue"
+        )
+
+        containment_ok = (
+            response.status_code == 200
+            and response.json()["active_version"] == "v1"
+        )
+
+        step(
+            "containment: POST /blue-green/switch/blue",
+            containment_ok,
             response.text[:200],
         )
 
-        # --------------------------------------------------------
-        # Containment
-        #
-        # Temporary implementation:
-        # restore the known-good prediction path.
-        #
-        # Later replace this with:
-        # blue_green_switch(...)
-        # or rollback_model(...)
-        # --------------------------------------------------------
-
-        MULTI_MODEL_MANAGER.predict = original_predict
+        # ========================================================
+        # 5. VERIFICATION: runbook section 6
+        # ========================================================
 
         response = client.post(
             "/models/batch-predict",
             json=BATCH,
         )
 
-        contained = (
-            response.status_code == 200
-            and response.json()["results"][0]["success"]
-        )
+        try:
+            result = response.json()["results"][0]
+
+            verification_ok = (
+                response.status_code == 200
+                and result["success"]
+                and result["prediction"]["model_version"] == "v1"
+            )
+        except Exception:
+            verification_ok = False
 
         step(
-            "containment: restored known-good path",
-            contained,
+            "verification prediction (served by v1)",
+            verification_ok,
             response.text[:200],
         )
 
     finally:
-        # Safety guarantee:
-        # never leave the service broken after the drill.
-        MULTI_MODEL_MANAGER.predict = original_predict
-
-    # ============================================================
-    # 3. VERIFICATION
-    # ============================================================
-
-    response = client.post(
-        "/models/batch-predict",
-        json=BATCH,
-    )
-
-    verification_ok = (
-        response.status_code == 200
-        and response.json()["results"][0]["success"]
-    )
-
-    step(
-        "verification prediction",
-        verification_ok,
-        response.text[:200],
-    )
+        # Clean-up only: runs after verification.
+        green_adapter.predict = original_green_predict
+        BLUE_GREEN_MANAGER.governance = original_governance
+        BLUE_GREEN_MANAGER.deployments.clear()
+        MULTI_MODEL_MANAGER.set_production_version(
+            "forecast",
+            "v1",
+        )
 
     # ============================================================
     # 4. PRINT TIMELINE

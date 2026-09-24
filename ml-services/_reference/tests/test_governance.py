@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-
 from src.governance import GovernanceManager
 
 
@@ -253,6 +252,43 @@ def test_requester_cannot_self_approve(governance):
             model_version="3",
             approved_by="ajith",
             reason="Self approval",
+        )
+
+
+@pytest.mark.parametrize(
+    "approver",
+    [
+        "Ajith",
+        "AJITH",
+        " ajith ",
+        "ajith\t",
+    ],
+)
+def test_self_approval_cannot_bypass_with_case_or_spaces(
+    governance,
+    approver,
+):
+    """
+    Self-approval must be rejected even when the approver
+    uses different capitalisation or surrounding whitespace.
+    """
+
+    governance.request_approval(
+        model_name="iris_classifier",
+        model_version="3",
+        requested_by="ajith",
+        reason="Model passed the quality gate",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="separation of duties",
+    ):
+        governance.approve(
+            model_name="iris_classifier",
+            model_version="3",
+            approved_by=approver,
+            reason="Self approval attempt",
         )
 
 

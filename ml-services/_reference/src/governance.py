@@ -22,6 +22,8 @@ version tags so that the MLflow registry contains the
 governance audit trail.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 from dataclasses import asdict, dataclass
@@ -88,11 +90,6 @@ class GovernanceManager:
     Every approval/rejection is persisted locally and
     mirrored to the exact MLflow model version as governance
     audit tags.
-
-    The local governance file remains the application
-    source of truth. MLflow provides an additional
-    registry-level audit trail when the model version
-    exists in the MLflow registry.
     """
 
     def __init__(
@@ -146,6 +143,18 @@ class GovernanceManager:
         return datetime.now(
             timezone.utc
         ).isoformat()
+
+    @staticmethod
+    def _same_person(a: str, b: str) -> bool:
+        """
+        Compare identities for separation of duties.
+
+        Case and surrounding whitespace are ignored so that
+        "ajith", "Ajith" and " ajith " are treated as the
+        same person.
+        """
+
+        return a.strip().casefold() == b.strip().casefold()
 
     @staticmethod
     def _record_mlflow_decision(
@@ -463,9 +472,9 @@ class GovernanceManager:
 
             # Requester cannot approve their own request.
             # This enforces separation of duties.
-            if (
-                approved_by
-                == request.requested_by
+            if self._same_person(
+                approved_by,
+                request.requested_by,
             ):
                 raise ValueError(
                     "The requester cannot approve "

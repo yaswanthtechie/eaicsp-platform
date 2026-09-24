@@ -117,6 +117,11 @@ class BlueGreenManager:
 
         Both versions must already be registered with
         ModelManager.
+
+        Blue must also be the version currently serving
+        production traffic. Configuring a different Blue
+        version would silently change the production meaning
+        of the deployment.
         """
 
         model_name = model_name.strip().lower()
@@ -152,6 +157,22 @@ class BlueGreenManager:
             model_name,
             green_version,
         )
+
+        # Blue must be the version that is live right now.
+        # Otherwise "configure" would silently change what
+        # production serves, without governance approval.
+        current_version = (
+            self.model_manager.get_production_version(
+                model_name
+            )
+        )
+
+        if blue_version != current_version:
+            raise ValueError(
+                f"blue_version must be the version currently "
+                f"serving production traffic "
+                f"('{current_version}')."
+            )
 
         deployment = BlueGreenDeployment(
             model_name=model_name,
@@ -296,7 +317,14 @@ class BlueGreenManager:
                 target_version,
             )
 
-        # Governance passed, so traffic can now switch.
+        # Governance passed: move REAL production traffic.
+        # This makes the switch a deployment rather than
+        # a flag that only /blue-green/predict reads.
+        self.model_manager.set_production_version(
+            deployment.model_name,
+            target_version,
+        )
+
         deployment.active_color = target_color
 
         deployment.status = "switched"

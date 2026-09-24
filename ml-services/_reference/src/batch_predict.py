@@ -102,7 +102,7 @@ class BatchPredictionService:
                 ),
             )
 
-        except Exception as exc:
+        except Exception:
             prediction_latency = (
                 time.perf_counter() - prediction_started
             ) * 1000
@@ -115,7 +115,7 @@ class BatchPredictionService:
             return BatchPredictionResult(
                 model_name=model_name,
                 success=False,
-                error=str(exc),
+                error="prediction failed",
                 latency_ms=round(
                     prediction_latency,
                     3,
@@ -230,7 +230,7 @@ class BatchPredictionService:
                     try:
                         results[index] = future.result()
 
-                    except Exception as exc:
+                    except Exception:
                         # Defensive fallback. _predict_one already
                         # catches model errors, but this protects
                         # the batch operation from unexpected
@@ -250,7 +250,7 @@ class BatchPredictionService:
                         results[index] = BatchPredictionResult(
                             model_name=model_name,
                             success=False,
-                            error=str(exc),
+                            error="prediction failed",
                         )
 
         # ----------------------------------------------------

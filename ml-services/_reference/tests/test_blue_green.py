@@ -66,12 +66,30 @@ def create_manager():
             "latency_ms": 1.0,
         }
 
+    # ------------------------------------------------------
+    # Version lookup
+    # ------------------------------------------------------
+
     model_manager.get_version_adapter.side_effect = (
         get_version_adapter
     )
 
+    # ------------------------------------------------------
+    # Blue-Green prediction
+    # ------------------------------------------------------
+
     model_manager.predict_version.side_effect = (
         predict_version
+    )
+
+    # ------------------------------------------------------
+    # Fix 3:
+    # Blue must represent the version currently serving
+    # production traffic.
+    # ------------------------------------------------------
+
+    model_manager.get_production_version.return_value = (
+        "v1"
     )
 
     return model_manager
@@ -183,6 +201,112 @@ def test_blue_is_active_initially():
 
 
 # ==========================================================
+# Fix 3 - Production Version Validation
+# ==========================================================
+
+
+def test_blue_must_be_current_production_version():
+    """
+    Blue must be the version currently serving production.
+
+    This prevents Blue-Green configuration from silently
+    changing the meaning of the known-good Blue version.
+    """
+
+    manager = BlueGreenManager(
+        create_manager()
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="currently serving production",
+    ):
+        manager.configure(
+            "forecast",
+            "v2",
+            "v1",
+        )
+
+
+# ==========================================================
+# Fix 3 - Real Production Traffic Switch
+# ==========================================================
+
+
+def test_switch_moves_real_production_traffic(
+    tmp_path,
+):
+    """
+    Switching Blue -> Green and Green -> Blue must update
+    the ModelManager production adapter.
+
+    This verifies that Blue-Green is a real traffic switch,
+    not only an internal deployment-state flag.
+    """
+
+    model_manager = create_manager()
+
+    governance = GovernanceManager(
+        tmp_path / "governance.json"
+    )
+
+    blue_green = BlueGreenManager(
+        model_manager,
+        governance=governance,
+    )
+
+    blue_green.configure(
+        "forecast",
+        "v1",
+        "v2",
+    )
+
+    # ------------------------------------------------------
+    # Green requires governance approval.
+    # ------------------------------------------------------
+
+    governance.request_approval(
+        "forecast",
+        "v2",
+        requested_by="ajith",
+        reason="candidate",
+    )
+
+    governance.approve(
+        "forecast",
+        "v2",
+        approved_by="lead",
+        reason="reviewed",
+    )
+
+    # ------------------------------------------------------
+    # Switch real production traffic to Green.
+    # ------------------------------------------------------
+
+    blue_green.switch_to_green(
+        "forecast"
+    )
+
+    model_manager.set_production_version.assert_called_with(
+        "forecast",
+        "v2",
+    )
+
+    # ------------------------------------------------------
+    # Roll back real production traffic to Blue.
+    # ------------------------------------------------------
+
+    blue_green.switch_to_blue(
+        "forecast"
+    )
+
+    model_manager.set_production_version.assert_called_with(
+        "forecast",
+        "v1",
+    )
+
+
+# ==========================================================
 # Governance-Aware Green Switch Tests
 # ==========================================================
 
@@ -235,6 +359,9 @@ def test_switch_to_green_is_blocked_until_approved(
         == "v1"
     )
 
+    # Real production traffic must not move.
+    manager.set_production_version.assert_not_called()
+
 
 def test_switch_to_green_succeeds_after_governance_approval(
     tmp_path,
@@ -269,6 +396,12 @@ def test_switch_to_green_succeeds_after_governance_approval(
     assert result["active_color"] == "green"
     assert result["active_version"] == "v2"
     assert result["status"] == "switched"
+
+    # Real production traffic must follow Green.
+    blue_green.model_manager.set_production_version.assert_called_with(
+        "forecast",
+        "v2",
+    )
 
 
 def test_switch_back_to_blue_is_always_allowed(
@@ -309,6 +442,12 @@ def test_switch_back_to_blue_is_always_allowed(
     assert result["active_color"] == "blue"
     assert result["active_version"] == "v1"
     assert result["status"] == "switched"
+
+    # Real production traffic must return to Blue.
+    blue_green.model_manager.set_production_version.assert_called_with(
+        "forecast",
+        "v1",
+    )
 
 
 def test_green_prediction_works_after_approved_switch(
@@ -358,16 +497,16 @@ def test_green_prediction_works_after_approved_switch(
 
 def test_switch_to_green():
     """
-    Green switch requires governance approval.
+    Green switch requires governance approval only when
+    a governance manager has been injected.
+
+    Without governance, the manager preserves the
+    original standalone Blue-Green behavior.
     """
 
     manager = create_manager()
 
     # No governance configured.
-    #
-    # This preserves the original standalone
-    # BlueGreenManager behavior where governance
-    # is optional.
     blue_green = BlueGreenManager(
         manager
     )
@@ -384,6 +523,12 @@ def test_switch_to_green():
 
     assert result["active_color"] == "green"
     assert result["active_version"] == "v2"
+
+    # Real production traffic follows Green.
+    manager.set_production_version.assert_called_with(
+        "forecast",
+        "v2",
+    )
 
 
 def test_green_receives_predictions_after_switch():
@@ -416,6 +561,11 @@ def test_green_receives_predictions_after_switch():
     assert result["model_version"] == "v2"
     assert result["deployment_color"] == "green"
 
+    manager.set_production_version.assert_called_with(
+        "forecast",
+        "v2",
+    )
+
 
 def test_switch_back_to_blue():
     """
@@ -444,6 +594,11 @@ def test_switch_back_to_blue():
 
     assert result["active_color"] == "blue"
     assert result["active_version"] == "v1"
+
+    manager.set_production_version.assert_called_with(
+        "forecast",
+        "v1",
+    )
 
 
 # ==========================================================
@@ -534,6 +689,9 @@ def test_governance_approval_for_wrong_version_does_not_allow_green(
         == "blue"
     )
 
+    # Real traffic must remain unchanged.
+    blue_green.model_manager.set_production_version.assert_not_called()
+
 
 def test_requester_cannot_approve_green_candidate(
     tmp_path,
@@ -587,6 +745,8 @@ def test_requester_cannot_approve_green_candidate(
         == "blue"
     )
 
+    blue_green.model_manager.set_production_version.assert_not_called()
+
 
 def test_green_switch_requires_approval_even_after_configuration(
     tmp_path,
@@ -623,6 +783,8 @@ def test_green_switch_requires_approval_even_after_configuration(
 
     assert status["active_color"] == "blue"
     assert status["active_version"] == "v1"
+
+    blue_green.model_manager.set_production_version.assert_not_called()
 
 
 def test_rollback_to_blue_does_not_require_governance(
@@ -661,6 +823,11 @@ def test_rollback_to_blue_does_not_require_governance(
 
     assert result["active_color"] == "blue"
     assert result["active_version"] == "v1"
+
+    blue_green.model_manager.set_production_version.assert_called_with(
+        "forecast",
+        "v1",
+    )
 
 
 def test_prediction_uses_normalized_deployment_model_name(
