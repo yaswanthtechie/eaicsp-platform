@@ -2174,3 +2174,42 @@ def test_failed_compliance_does_not_create_active_history(
     ]
 
     assert "active" not in statuses
+
+def test_unapproved_supplier_is_rejected_before_compliance_is_called(
+    procurement_client,
+    monkeypatch,
+):
+    assert (
+        register_supplier(
+            procurement_client
+        ).status_code
+        == 201
+    )
+
+    compliance_calls = []
+
+    def fake_check_supplier_compliance(
+        supplier_id,
+        supplier_name,
+        country,
+    ):
+        compliance_calls.append(supplier_id)
+        raise ComplianceServiceUnavailableError(
+            "Compliance Service is unavailable."
+        )
+
+    monkeypatch.setattr(
+        "app.services.supplier_onboarding_service.check_supplier_compliance",
+        fake_check_supplier_compliance,
+    )
+
+    response = procurement_client.post(
+        "/api/v1/suppliers/SUP001/activate"
+    )
+
+    # The real reason (wrong state), not a 503.
+    assert response.status_code == 400
+    assert "Cannot move supplier" in response.json()["detail"]
+
+    # Compliance was never asked to screen this supplier.
+    assert compliance_calls == []

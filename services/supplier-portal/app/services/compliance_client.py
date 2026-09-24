@@ -13,6 +13,26 @@ class ComplianceServiceUnavailableError(
     """Raised when Compliance Service cannot be reached."""
 
 
+class ComplianceBlockedError(Exception):
+    """
+    Raised when Compliance returned a valid decision
+    that does not allow activation (BLOCK or REVIEW).
+
+    Deliberately NOT a subclass of ComplianceServiceError:
+    this is a business decision, not a service failure.
+    """
+
+    def __init__(self, decision: str, reason: str):
+        self.decision = decision
+        self.reason = reason
+
+        super().__init__(
+            f"Supplier activation blocked by Compliance Service. "
+            f"Decision: {decision}. "
+            f"Reason: {reason}"
+        )
+
+
 def check_supplier_compliance(
     supplier_id: str,
     supplier_name: str,
@@ -51,11 +71,7 @@ def check_supplier_compliance(
 
         response.raise_for_status()
 
-    except (
-        httpx.TimeoutException,
-        httpx.ConnectError,
-        httpx.NetworkError,
-    ) as exc:
+    except httpx.TransportError as exc:
         raise ComplianceServiceUnavailableError(
             "Compliance Service is unavailable."
         ) from exc
@@ -72,6 +88,11 @@ def check_supplier_compliance(
             "Compliance Service returned an invalid response."
         ) from exc
 
+    if not isinstance(result, dict):
+        raise ComplianceServiceError(
+            "Compliance Service returned an invalid response."
+        )
+
     decision = result.get("decision")
     cleared = result.get("cleared")
 
@@ -87,6 +108,15 @@ def check_supplier_compliance(
     if not isinstance(cleared, bool):
         raise ComplianceServiceError(
             "Compliance Service returned an invalid clearance value."
+        )
+
+    # Fail-closed: `decision` and `cleared` must agree.
+    # CLEAR must come with cleared=True, and BLOCK/REVIEW
+    # with cleared=False. A contradictory answer is treated
+    # as an unusable response, never as a clearance.
+    if cleared != (decision == "CLEAR"):
+        raise ComplianceServiceError(
+            "Compliance Service returned a contradictory decision."
         )
 
     return result

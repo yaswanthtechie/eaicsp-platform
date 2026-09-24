@@ -11,6 +11,7 @@ from app.schemas.supplier_onboarding import (
 )
 
 from app.services.compliance_client import (
+    ComplianceBlockedError,
     check_supplier_compliance,
     ComplianceServiceError,
     ComplianceServiceUnavailableError,
@@ -102,21 +103,11 @@ def _add_history(
     return history
 
 
-def _transition(
+def _ensure_transition_allowed(
     supplier_id: str,
+    current_status: SupplierOnboardingStatus,
     target_status: SupplierOnboardingStatus,
-    actor_id: str,
-    actor_name: str,
-    role: str,
-    reason: str | None = None,
 ):
-    supplier = suppliers.get(supplier_id)
-
-    if supplier is None:
-        raise ValueError("Supplier not found.")
-
-    current_status = supplier["status"]
-
     allowed_states = SUPPLIER_ONBOARDING_TRANSITIONS.get(
         current_status,
         [],
@@ -136,6 +127,28 @@ def _transition(
             f"to '{target_status.value}'. "
             f"Allowed: {allowed}."
         )
+
+
+def _transition(
+    supplier_id: str,
+    target_status: SupplierOnboardingStatus,
+    actor_id: str,
+    actor_name: str,
+    role: str,
+    reason: str | None = None,
+):
+    supplier = suppliers.get(supplier_id)
+
+    if supplier is None:
+        raise ValueError("Supplier not found.")
+
+    current_status = supplier["status"]
+
+    _ensure_transition_allowed(
+        supplier_id,
+        current_status,
+        target_status,
+    )
 
     supplier["status"] = target_status
     supplier["updated_at"] = _utc_now()
@@ -545,6 +558,17 @@ def activate_supplier(
 ):
     supplier = get_supplier(supplier_id)
 
+    # 1. Check the workflow state FIRST. A supplier that is not
+    #    approved yet must get the real 400, and must never be
+    #    sent for compliance screening.
+    _ensure_transition_allowed(
+        supplier_id,
+        supplier["status"],
+        SupplierOnboardingStatus.active,
+    )
+
+    # 2. Only now ask Compliance. Unavailable/error responses
+    #    raise and leave the supplier APPROVED (fail-closed).
     compliance_result = check_supplier_compliance(
         supplier_id=supplier["supplier_id"],
         supplier_name=supplier["company_name"],
@@ -553,18 +577,16 @@ def activate_supplier(
 
     decision = compliance_result["decision"]
 
-    if decision != "CLEAR":
-        reason = compliance_result.get(
-            "reason",
-            "Supplier did not pass compliance screening.",
+    if decision != "CLEAR" or compliance_result["cleared"] is not True:
+        raise ComplianceBlockedError(
+            decision=decision,
+            reason=compliance_result.get(
+                "reason",
+                "Supplier did not pass compliance screening.",
+            ),
         )
 
-        raise ValueError(
-            f"Supplier activation blocked by Compliance Service. "
-            f"Decision: {decision}. "
-            f"Reason: {reason}"
-        )
-
+    # 3. Cleared: perform the transition.
     supplier = _transition(
         supplier_id=supplier_id,
         target_status=SupplierOnboardingStatus.active,
@@ -580,7 +602,6 @@ def activate_supplier(
         "activated_at": supplier["updated_at"],
         "activated_by": actor_id,
     }
-
 # ============================================================
 # 8. LIST SUPPLIERS
 # ============================================================

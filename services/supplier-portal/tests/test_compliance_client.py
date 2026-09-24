@@ -398,11 +398,9 @@ def test_compliance_client_uses_five_second_timeout(
 
     assert client.kwargs["timeout"] == 5.0
 
-
 # ============================================================
 # SERVICE UNAVAILABLE CASES
 # ============================================================
-
 
 @pytest.mark.parametrize(
     "exception",
@@ -410,6 +408,7 @@ def test_compliance_client_uses_five_second_timeout(
         httpx.TimeoutException("timeout"),
         httpx.ConnectError("connection failed"),
         httpx.NetworkError("network failed"),
+        httpx.RemoteProtocolError("server disconnected"),
     ],
 )
 def test_compliance_client_maps_network_failures_to_503_error(
@@ -443,8 +442,6 @@ def test_compliance_client_maps_network_failures_to_503_error(
             supplier_name=SUPPLIER_NAME,
             country=COUNTRY,
         )
-
-
 # ============================================================
 # HTTP ERROR CASES
 # ============================================================
@@ -669,6 +666,47 @@ def test_compliance_client_rejects_missing_cleared_value(
     with pytest.raises(
         ComplianceServiceError,
         match="Compliance Service returned an invalid clearance value.",
+    ):
+        check_supplier_compliance(
+            supplier_id=SUPPLIER_ID,
+            supplier_name=SUPPLIER_NAME,
+            country=COUNTRY,
+        )
+
+@pytest.mark.parametrize(
+    "decision,cleared",
+    [
+        ("CLEAR", False),
+        ("BLOCK", True),
+        ("REVIEW", True),
+    ],
+)
+def test_compliance_client_rejects_contradictory_decision(
+    monkeypatch,
+    decision,
+    cleared,
+):
+    fake_response = make_response(
+        json_data={
+            "cleared": cleared,
+            "decision": decision,
+            "reason": "Contradictory response.",
+        }
+    )
+
+    class TestClient(FakeClient):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.response = fake_response
+
+    monkeypatch.setattr(
+        "app.services.compliance_client.httpx.Client",
+        TestClient,
+    )
+
+    with pytest.raises(
+        ComplianceServiceError,
+        match="contradictory",
     ):
         check_supplier_compliance(
             supplier_id=SUPPLIER_ID,

@@ -8,6 +8,7 @@ The Supplier Portal Service is part of the **Enterprise AI Cognitive Supply Chai
 
 ---
 
+
 ## Table of Contents
 
 1. [Overview](#1-overview)
@@ -69,6 +70,121 @@ The Supplier Portal Service is part of the **Enterprise AI Cognitive Supply Chai
 29. [Future Enhancements](#29-future-enhancements)
 
 ---
+## How I Wired Business-Logic Integration (Supplier Portal to Compliance)
+
+Read this if you are wiring one service's business decision into another's workflow.
+It assumes zero context.
+
+### 1. What it does, in one sentence
+
+Before a supplier moves `approved -> active`, Supplier Portal asks the Compliance Service whether the supplier is cleared, and only activates on a clean `CLEAR`.
+
+### 2. Where the code is
+
+| File                                                                   | What it does                                                                                               |
+| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `app/services/compliance_client.py`                                    | The only place that talks to Compliance. Makes the HTTP call, validates the response, raises typed errors. |
+| `app/services/supplier_onboarding_service.py` -> `activate_supplier()` | The trigger point. Checks the supplier is `approved`, calls the client, activates only on CLEAR.           |
+| `app/routes/supplier_onboarding.py` -> `activate_supplier_endpoint()`  | Maps the typed errors to HTTP codes (409 / 503 / 502). No business logic.                                  |
+| `app/core/config.py` -> `COMPLIANCE_SERVICE_URL`                       | Where Compliance lives. Default `http://127.0.0.1:8003`.                                                   |
+| `tests/test_compliance_client.py`, `tests/test_supplier_onboarding.py` | Client tests (every failure type) and end-to-end activation tests.                                         |
+
+### 3. The order of operations inside `activate_supplier()`
+
+1. Load the supplier (404 if missing).
+2. **Check the state first**: must be `approved`, otherwise 400. Compliance is *not* called.
+3. Call Compliance.
+4. Activate only if `decision == "CLEAR"` **and** `cleared is True`.
+5. Anything else raises, and the supplier stays `approved`.
+
+Step 2 comes before step 3 on purpose: never screen (or report a Compliance outage for) a supplier who isn't ready to activate.
+
+### 4. The contract
+
+Request:
+
+```text
+POST {COMPLIANCE_SERVICE_URL}/api/v1/compliance/internal-check
+```
+
+```http
+X-Caller-Service: supplier-portal
+Content-Type: application/json
+```
+
+```json
+{
+  "supplier_id": "SUP001",
+  "supplier_name": "ABC Supplies Pvt Ltd",
+  "country": "India"
+}
+```
+
+Expected response:
+
+```json
+{
+  "decision": "CLEAR",
+  "cleared": true,
+  "reason": "No sanctions or watchlist match found."
+}
+```
+
+`decision` is one of `CLEAR` / `BLOCK` / `REVIEW`. `cleared` must be `true` only for `CLEAR`; if they disagree, the response is treated as unusable (502).
+
+> **Dependency status:** `/internal-check` is being built by the Compliance owner (Geethika).
+> The contract above is what Supplier Portal expects; confirm it matches her implementation before relying on it. Until then, the integration is verified with tests only.
+
+### 5. Error types to HTTP codes
+
+| Raised by the client/service        | Meaning                                                            | HTTP |
+| ----------------------------------- | ------------------------------------------------------------------ | ---: |
+| `ComplianceBlockedError`            | Valid BLOCK / REVIEW decision                                      |  409 |
+| `ComplianceServiceUnavailableError` | Timeout, connection or network failure                             |  503 |
+| `ComplianceServiceError`            | Compliance returned an error or an unusable/contradictory response |  502 |
+
+Typed exceptions (not string matching) decide the status code, so a decision's `reason` text can never change the HTTP code.
+
+### 6. Run it locally
+
+```bash
+# Terminal 1: Platform (auth)
+cd services/platform
+uvicorn app.main:app --port 8005
+
+# Terminal 2: Compliance
+cd services/compliance
+uvicorn app.main:app --port 8003
+
+# Terminal 3: Supplier Portal
+cd services/supplier-portal
+uvicorn app.main:app --port 8004
+```
+
+Take a supplier through register, documents, verify, approve, then:
+
+```bash
+curl -X POST http://127.0.0.1:8004/api/v1/suppliers/SUP001/activate \
+  -H "Authorization: Bearer <procurement_manager token>"
+```
+
+Stop the Compliance terminal and call it again with another approved supplier: you should get **503** and the supplier should still be `approved`.
+
+### 7. Run the tests
+
+```bash
+cd services/supplier-portal
+pytest tests/test_compliance_client.py tests/test_supplier_onboarding.py -q
+```
+
+### 8. Cloning this pattern for your own service
+
+1. Put the HTTP call in its own `app/services/<other>_client.py`, never in a route.
+2. Raise **typed exceptions** for: business "no", service unreachable, and service error.
+3. Call the client from your service function **after** your own state checks and **before** you change any state.
+4. Decide explicitly what "unreachable" means for your workflow (block, or proceed with a flag), write down why, and test that path.
+5. Add the URL to `config.py` **and** `.env.example`, using the port from the table in the root README.
+
 
 # 1. Overview
 
@@ -3286,334 +3402,6 @@ submitted
 ```
 
 The P2P state machine represents the broader transaction processing stage.
-# 9. Invoice Document Management
-
-Invoice documents are stored as PDF files on the local filesystem.
-
-The upload directory is:
-
-```text
-uploads/
-```
-
-Invoice documents are stored using a supplier-specific path so that invoice files remain associated with the supplier that owns the invoice.
-
-Example:
-
-```text
-uploads/
-
-├── SUP001/
-│   ├── INV1001.pdf
-│   └── INV1002.pdf
-│
-└── SUP002/
-    └── INV2001.pdf
-```
-
----
-
-## PDF Upload
-
-Endpoint:
-
-```http
-POST /api/v1/invoices/{supplier_id}/{invoice_number}/document
-```
-
-The endpoint is authenticated and supplier-scoped.
-
-For supplier users, the authenticated `supplier_id` must match the supplier associated with the invoice.
-
-A supplier cannot upload a document to another supplier's invoice.
-
----
-
-## PDF Validation
-
-The service performs multiple validation checks before storing an invoice document.
-
-### 1. Content Type
-
-The request must use:
-
-```text
-application/pdf
-```
-
-Other content types such as:
-
-```text
-image/png
-text/plain
-application/json
-```
-
-are rejected.
-
-### 2. PDF Signature
-
-The uploaded file contents must begin with:
-
-```text
-%PDF-
-```
-
-This prevents a non-PDF file from being accepted simply because the request declares:
-
-```text
-Content-Type: application/pdf
-```
-
-### 3. Maximum File Size
-
-The maximum supported PDF size is:
-
-```text
-10 MB
-```
-
-The actual uploaded bytes are checked to ensure the payload does not exceed the configured limit.
-
----
-
-## Document Path and URL
-
-The service intentionally separates the internal filesystem path from the public API URL.
-
-Example internal document path:
-
-```text
-SUP001/INV1001.pdf
-```
-
-This is an internal relative filesystem reference.
-
-The public API endpoint is:
-
-```text
-/api/v1/invoices/SUP001/INV1001/document
-```
-
-Therefore:
-
-```text
-document_path
-      │
-      └── Internal filesystem reference
-
-
-document_url
-      │
-      └── Public API reference
-```
-
-The absolute server filesystem path is not exposed through the API.
-
----
-
-## Path Traversal Protection
-
-The upload root is resolved before filesystem operations:
-
-```python
-upload_root = Path(UPLOAD_DIR).resolve()
-```
-
-The final document path is also resolved:
-
-```python
-final_path = (upload_root / document_path).resolve()
-```
-
-The service verifies that the resolved document path remains inside the configured upload directory:
-
-```python
-final_path.is_relative_to(upload_root)
-```
-
-This prevents path traversal attempts such as:
-
-```text
-../../some-file
-```
-
-The same safe-path validation is applied when retrieving stored documents.
-
----
-
-## PDF Download
-
-Endpoint:
-
-```http
-GET /api/v1/invoices/{supplier_id}/{invoice_number}/document
-```
-
-The endpoint requires authentication.
-
-For supplier users, the authenticated supplier must own the invoice.
-
-Internal authorized users can access invoice documents according to the endpoint's role authorization rules.
-
-The document retrieval flow is:
-
-```text
-Find invoice
-    │
-    ▼
-Check document_path
-    │
-    ▼
-Resolve safe filesystem path
-    │
-    ▼
-Verify path is inside uploads/
-    │
-    ▼
-Check file exists
-    │
-    ▼
-Return FileResponse
-```
-
-The actual PDF is returned using FastAPI's file-response mechanism.
-
----
-
-## Invoice Disputes
-
-An invoice can transition from:
-
-```text
-submitted
-```
-
-to:
-
-```text
-disputed
-```
-
-A dispute requires a reason.
-
-The dispute information records audit details such as:
-
-```text
-reason
-actor_id
-actor_name
-role
-timestamp
-```
-
-Historical dispute information is retained so that a previously disputed invoice remains identifiable as historically disputed even after subsequent adjustment or approval.
-
-This historical information is also used by supplier performance calculations and the historical dispute-resolution suggestion feature.
-
----
-
-## Invoice Adjustment
-
-Endpoint:
-
-```http
-POST /api/v1/invoices/{supplier_id}/{invoice_number}/adjust
-```
-
-Authorization:
-
-```text
-compliance_officer
-```
-
-An adjustment is allowed only when the invoice is currently:
-
-```text
-disputed
-```
-
-The adjustment can update invoice line items and recalculates the invoice amount.
-
-Audit information includes details such as:
-
-```text
-actor
-reason
-timestamp
-old amount
-new amount
-old items
-new items
-```
-
-The invoice then moves:
-
-```text
-disputed
-    │
-    ▼
-adjusted
-```
-
-and can subsequently move to an appropriate final invoice state such as:
-
-```text
-approved
-```
-
-or:
-
-```text
-rejected
-```
-
----
-
-## Invoice Transition
-
-Endpoint:
-
-```http
-POST /api/v1/invoices/{supplier_id}/{invoice_number}/transition
-```
-
-The endpoint requires authentication and applies the appropriate role and supplier-scope rules.
-
-For supplier users, the authenticated supplier must own the invoice.
-
-The service validates:
-
-1. Invoice existence
-2. Current invoice status
-3. Target status
-4. Whether the current-to-target transition is valid
-
-Illegal invoice transitions are rejected with:
-
-```text
-400 Bad Request
-```
-
-Invoice lifecycle management remains separate from the P2P state machine.
-
-The invoice lifecycle represents invoice processing:
-
-```text
-submitted
-    │
-    ├── disputed
-    │      │
-    │      └── adjusted
-    │
-    ├── approved
-    │
-    └── rejected
-```
-
-The P2P state machine represents the broader transaction processing stage.
-
----
 
 # 10. Supplier Statistics
 
@@ -5302,42 +5090,41 @@ The API returns:
 ```
 
 ---
+## Compliance Failure Handling, Why Activation Blocks
 
-## Compliance Failure Handling
+**Decision: if Compliance cannot give a clear answer, activation is blocked
+(fail-closed). The supplier stays `approved` and can be activated later.**
 
-The Compliance integration is intentionally fail-closed.
+Unlike authentication, there were two reasonable options here:
 
-If the Compliance Service is unavailable, the Supplier Portal does not activate the supplier.
+| Option | What happens when Compliance is down |
+|---|---|
+| Block (chosen) | Supplier stays `approved`; procurement retries activation later |
+| Proceed with a flag | Supplier goes `active` immediately, flagged for human review |
 
-Examples include:
+I chose to block because the two failure costs are very unequal for supplier onboarding:
 
-```text
-Connection timeout
-Connection failure
-Network error
-```
+- **Cost of blocking:** a new supplier goes live a few minutes or hours later. Onboarding
+  already takes days (documents, verification, approval), so a short delay is almost free.
+- **Cost of proceeding:** an unscreened supplier becomes `active` and can immediately
+  receive purchase orders and payments. If they turn out to be sanctioned or watch listed,
+  we have already transacted with them, which cannot be undone by a later review flag.
 
-These failures are converted into:
+"Proceed with a flag" only works if someone reliably reviews the flag before any PO is
+sent, and nothing in the current system enforces that. Blocking makes the safe path the default.
 
-```text
-503 Service Unavailable
-```
+**What each outcome means:**
 
-This ensures that:
+| Compliance result | HTTP | Supplier status |
+|---|---|---|
+| `CLEAR` + `cleared: true` | 201 | `active` |
+| `BLOCK` / `REVIEW` | 409 | stays `approved` |
+| Timeout / connection / network error | 503 | stays `approved` |
+| 4xx/5xx, invalid JSON, unknown or contradictory decision | 502 | stays `approved` |
 
-```text
-Compliance Service unavailable
-        │
-        ▼
-Activation blocked
-        │
-        ▼
-Supplier remains approved
-```
-
-The system does not assume that an unavailable Compliance Service means the supplier is compliant.
-
----
+**What an operator does on a 503/502:** check the Compliance Service is running, then call
+`POST /api/v1/suppliers/{id}/activate` again. Nothing needs to be undone, because the supplier
+never left `approved`.
 
 ## Compliance Service Errors
 
@@ -5549,42 +5336,121 @@ P2P Processing
 A supplier that has not completed onboarding and passed Compliance cannot be used for new Purchase Order creation.
 
 ---
+## How I Wired Business-Logic Integration (Supplier Portal to Compliance)
 
-## How the Business-Logic Integration Is Wired
+Read this if you are wiring one service's business decision into another's workflow.
+It assumes zero context.
 
-The Supplier Portal owns the onboarding workflow, while the Compliance Service owns the compliance decision.
+### 1. What it does, in one sentence
 
-The responsibilities are separated:
+Before a supplier moves `approved -> active`, Supplier Portal asks the Compliance Service whether the supplier is cleared, and only activates on a clean `CLEAR`.
+
+### 2. Where the code is
+
+| File                                                                   | What it does                                                                                               |
+| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `app/services/compliance_client.py`                                    | The only place that talks to Compliance. Makes the HTTP call, validates the response, raises typed errors. |
+| `app/services/supplier_onboarding_service.py` -> `activate_supplier()` | The trigger point. Checks the supplier is `approved`, calls the client, activates only on CLEAR.           |
+| `app/routes/supplier_onboarding.py` -> `activate_supplier_endpoint()`  | Maps the typed errors to HTTP codes (409 / 503 / 502). No business logic.                                  |
+| `app/core/config.py` -> `COMPLIANCE_SERVICE_URL`                       | Where Compliance lives. Default `http://127.0.0.1:8003`.                                                   |
+| `tests/test_compliance_client.py`, `tests/test_supplier_onboarding.py` | Client tests (every failure type) and end-to-end activation tests.                                         |
+
+### 3. The order of operations inside `activate_supplier()`
+
+1. Load the supplier (404 if missing).
+2. **Check the state first**: must be `approved`, otherwise 400. Compliance is *not* called.
+3. Call Compliance.
+4. Activate only if `decision == "CLEAR"` **and** `cleared is True`.
+5. Anything else raises, and the supplier stays `approved`.
+
+Step 2 comes before step 3 on purpose: never screen (or report a Compliance outage for) a supplier who isn't ready to activate.
+
+### 4. The contract
+
+Request:
 
 ```text
-Supplier Portal
-    │
-    ├── Registration
-    ├── Documents
-    ├── Verification
-    ├── Approval
-    └── Activation workflow
-             │
-             ▼
-       Compliance Service
-             │
-             └── Compliance decision
+POST {COMPLIANCE_SERVICE_URL}/api/v1/compliance/internal-check
 ```
 
-The Supplier Portal does not duplicate Compliance Service business logic.
+```http
+X-Caller-Service: supplier-portal
+Content-Type: application/json
+```
 
-Instead, it:
+```json
+{
+  "supplier_id": "SUP001",
+  "supplier_name": "ABC Supplies Pvt Ltd",
+  "country": "India"
+}
+```
 
-1. Builds the internal compliance request.
-2. Calls the Compliance Service.
-3. Validates the returned decision.
-4. Allows activation only for `CLEAR`.
-5. Converts upstream failures into explicit API errors.
-6. Keeps the supplier approved when activation is blocked.
+Expected response:
 
-This design keeps compliance ownership inside the Compliance Service while keeping supplier lifecycle ownership inside the Supplier Portal.
+```json
+{
+  "decision": "CLEAR",
+  "cleared": true,
+  "reason": "No sanctions or watchlist match found."
+}
+```
 
----
+`decision` is one of `CLEAR` / `BLOCK` / `REVIEW`. `cleared` must be `true` only for `CLEAR`; if they disagree, the response is treated as unusable (502).
+
+> **Dependency status:** `/internal-check` is being built by the Compliance owner (Geethika).
+> The contract above is what Supplier Portal expects; confirm it matches her implementation before relying on it. Until then, the integration is verified with tests only.
+
+### 5. Error types to HTTP codes
+
+| Raised by the client/service        | Meaning                                                            | HTTP |
+| ----------------------------------- | ------------------------------------------------------------------ | ---: |
+| `ComplianceBlockedError`            | Valid BLOCK / REVIEW decision                                      |  409 |
+| `ComplianceServiceUnavailableError` | Timeout, connection or network failure                             |  503 |
+| `ComplianceServiceError`            | Compliance returned an error or an unusable/contradictory response |  502 |
+
+Typed exceptions (not string matching) decide the status code, so a decision's `reason` text can never change the HTTP code.
+
+### 6. Run it locally
+
+```bash
+# Terminal 1: Platform (auth)
+cd services/platform
+uvicorn app.main:app --port 8005
+
+# Terminal 2: Compliance
+cd services/compliance
+uvicorn app.main:app --port 8003
+
+# Terminal 3: Supplier Portal
+cd services/supplier-portal
+uvicorn app.main:app --port 8004
+```
+
+Take a supplier through register, documents, verify, approve, then:
+
+```bash
+curl -X POST http://127.0.0.1:8004/api/v1/suppliers/SUP001/activate \
+  -H "Authorization: Bearer <procurement_manager token>"
+```
+
+Stop the Compliance terminal and call it again with another approved supplier: you should get **503** and the supplier should still be `approved`.
+
+### 7. Run the tests
+
+```bash
+cd services/supplier-portal
+pytest tests/test_compliance_client.py tests/test_supplier_onboarding.py -q
+```
+
+### 8. Cloning this pattern for your own service
+
+1. Put the HTTP call in its own `app/services/<other>_client.py`, never in a route.
+2. Raise **typed exceptions** for: business "no", service unreachable, and service error.
+3. Call the client from your service function **after** your own state checks and **before** you change any state.
+4. Decide explicitly what "unreachable" means for your workflow (block, or proceed with a flag), write down why, and test that path.
+5. Add the URL to `config.py` **and** `.env.example`, using the port from the table in the root README.
+
 
 # 15. Supplier Contract Lifecycle Management
 
@@ -6852,7 +6718,7 @@ Example:
 
 ```env
 PLATFORM_AUTH_URL=http://127.0.0.1:8005
-COMPLIANCE_SERVICE_URL=http://127.0.0.1:8000
+COMPLIANCE_SERVICE_URL=http://127.0.0.1:8003
 ```
 
 The Platform authentication service and Compliance Service URLs are configurable through environment variables.
@@ -6884,7 +6750,7 @@ Authentication failures and Platform availability failures are handled centrally
 Supplier activation depends on the Compliance Service.
 
 ```env
-COMPLIANCE_SERVICE_URL=http://127.0.0.1:8000
+COMPLIANCE_SERVICE_URL=http://127.0.0.1:8003
 ```
 
 The Supplier Portal calls:
@@ -7032,7 +6898,7 @@ The example configuration should contain the service dependencies:
 PLATFORM_AUTH_URL=http://127.0.0.1:8005
 
 # Compliance Service
-COMPLIANCE_SERVICE_URL=http://127.0.0.1:8000
+COMPLIANCE_SERVICE_URL=http://127.0.0.1:8003
 ```
 
 To create a local `.env` file from the example:
@@ -7121,7 +6987,7 @@ The local configuration should contain:
 
 ```env
 PLATFORM_AUTH_URL=http://127.0.0.1:8005
-COMPLIANCE_SERVICE_URL=http://127.0.0.1:8000
+COMPLIANCE_SERVICE_URL=http://127.0.0.1:8003
 ```
 
 The Platform Service must be available when running authenticated Supplier Portal endpoints.
@@ -7194,7 +7060,7 @@ The Supplier Portal also integrates with the Compliance Service for supplier act
 The configured local endpoint is:
 
 ```text
-http://127.0.0.1:8000
+http://127.0.0.1:8003
 ```
 
 The Supplier Portal calls:
@@ -7238,13 +7104,13 @@ If the Compliance Service is unreachable, times out, or returns an unusable resp
 From the Supplier Portal project directory:
 
 ```powershell
-python -m uvicorn app.main:app --reload --port 8001
+python -m uvicorn app.main:app --reload --port 8004
 ```
 
 The Supplier Portal runs at:
 
 ```text
-http://127.0.0.1:8001
+http://127.0.0.1:8004
 ```
 
 The root endpoint can be used to confirm that the service is running:
@@ -7271,7 +7137,7 @@ GET /
 ┌─────────────────────────────┐
 │      Supplier Portal        │
 │                             │
-│        Port 8001            │
+│        Port 8004           │
 │                             │
 │ PO / Invoice / P2P          │
 │ Statistics / Scorecard      │
@@ -7284,7 +7150,7 @@ GET /
 ┌─────────────────────────────┐
 │     Compliance Service      │
 │                             │
-│        Port 8000            │
+│        Port 8003         │
 │                             │
 │ Supplier Compliance Check   │
 └─────────────────────────────┘
@@ -7426,16 +7292,16 @@ This separation keeps HTTP integration logic out of the core onboarding business
 
 FastAPI automatically provides interactive API documentation for the Supplier Portal.
 
-When the Supplier Portal is running on port `8001`, open Swagger UI at:
+When the Supplier Portal is running on port `8004`, open Swagger UI at:
 
 ```text
-http://127.0.0.1:8001/docs
+http://127.0.0.1:8004/docs
 ```
 
 Alternative ReDoc documentation:
 
 ```text
-http://127.0.0.1:8001/redoc
+http://127.0.0.1:8004/redoc
 ```
 
 ---
