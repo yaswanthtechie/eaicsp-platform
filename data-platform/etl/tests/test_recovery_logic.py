@@ -261,7 +261,8 @@ def test_replay_uses_one_transaction_for_revert_and_reload(
             "sku_id",
             "warehouse_id",
         ],
-        table="sales_fact",
+            table="sales_fact",
+            history_table="sales_fact_history",
         quality_check_column="quantity_sold",
     )
 

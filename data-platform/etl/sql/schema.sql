@@ -184,3 +184,123 @@ CREATE TABLE IF NOT EXISTS etl_run_batches (
     recorded_at TIMESTAMP DEFAULT NOW(),
     PRIMARY KEY (run_id, source_name, batch_file)
 );
+
+CREATE TABLE IF NOT EXISTS staging_sales_fact_history (
+    history_id BIGSERIAL PRIMARY KEY,
+    sales_fact_id BIGINT NOT NULL,
+    date DATE,
+    sku_id VARCHAR(50),
+    warehouse_id VARCHAR(20),
+    quantity_sold INTEGER,
+    unit_price NUMERIC(12,2),
+    source_batch VARCHAR(100),
+    run_id BIGINT,
+    pipeline_version VARCHAR(20),
+    valid_from TIMESTAMP,
+    archived_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS prod_sales_fact_history (
+    history_id BIGSERIAL PRIMARY KEY,
+    sales_fact_id BIGINT NOT NULL,
+    date DATE,
+    sku_id VARCHAR(50),
+    warehouse_id VARCHAR(20),
+    quantity_sold INTEGER,
+    unit_price NUMERIC(12,2),
+    source_batch VARCHAR(100),
+    run_id BIGINT,
+    pipeline_version VARCHAR(20),
+    valid_from TIMESTAMP,
+    archived_at TIMESTAMP DEFAULT NOW()
+);
+
+
+CREATE TABLE IF NOT EXISTS staging_inventory_snapshot (
+    id BIGSERIAL PRIMARY KEY,
+    snapshot_date DATE NOT NULL,
+    sku_id VARCHAR(50) NOT NULL,
+    warehouse_id VARCHAR(20) NOT NULL,
+    quantity_on_hand INTEGER,
+    source_batch VARCHAR(100),
+    run_id BIGINT,
+    pipeline_version VARCHAR(20),
+    loaded_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(snapshot_date, sku_id, warehouse_id)
+);
+
+CREATE TABLE IF NOT EXISTS staging_shipments_fact (
+    id BIGSERIAL PRIMARY KEY,
+    shipment_date DATE NOT NULL,
+    sku_id VARCHAR(50) NOT NULL,
+    warehouse_id VARCHAR(20) NOT NULL,
+    shipped_quantity INTEGER,
+    carrier VARCHAR(50),
+    source_batch VARCHAR(100),
+    run_id BIGINT,
+    pipeline_version VARCHAR(20),
+    loaded_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(shipment_date, sku_id, warehouse_id)
+);
+
+CREATE TABLE IF NOT EXISTS prod_inventory_snapshot (
+    id BIGSERIAL PRIMARY KEY,
+    snapshot_date DATE NOT NULL,
+    sku_id VARCHAR(50) NOT NULL,
+    warehouse_id VARCHAR(20) NOT NULL,
+    quantity_on_hand INTEGER,
+    source_batch VARCHAR(100),
+    run_id BIGINT,
+    pipeline_version VARCHAR(20),
+    loaded_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(snapshot_date, sku_id, warehouse_id)
+);
+
+CREATE TABLE IF NOT EXISTS prod_shipments_fact (
+    id BIGSERIAL PRIMARY KEY,
+    shipment_date DATE NOT NULL,
+    sku_id VARCHAR(50) NOT NULL,
+    warehouse_id VARCHAR(20) NOT NULL,
+    shipped_quantity INTEGER,
+    carrier VARCHAR(50),
+    source_batch VARCHAR(100),
+    run_id BIGINT,
+    pipeline_version VARCHAR(20),
+    loaded_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(shipment_date, sku_id, warehouse_id)
+);
+
+
+CREATE TABLE IF NOT EXISTS staging_sales_fact (
+    id BIGSERIAL PRIMARY KEY,
+    date DATE NOT NULL,
+    sku_id VARCHAR(50) NOT NULL,
+    warehouse_id VARCHAR(20) NOT NULL,
+    quantity_sold INTEGER,
+    unit_price NUMERIC(12,2),
+    source_batch VARCHAR(100),
+    run_id BIGINT,
+    pipeline_version VARCHAR(20),
+    loaded_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(date, sku_id, warehouse_id)
+);
+
+CREATE TABLE IF NOT EXISTS prod_sales_fact (
+    id BIGSERIAL PRIMARY KEY,
+    date DATE NOT NULL,
+    sku_id VARCHAR(50) NOT NULL,
+    warehouse_id VARCHAR(20) NOT NULL,
+    quantity_sold INTEGER,
+    unit_price NUMERIC(12,2),
+    source_batch VARCHAR(100),
+    run_id BIGINT,
+    pipeline_version VARCHAR(20),
+    loaded_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(date, sku_id, warehouse_id)
+);

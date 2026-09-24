@@ -45,6 +45,7 @@ class SourceConfig:
     min_rows: int = 1
     max_rows: int = 1_000_000
     history_table: str = None
+    lineage_keys: list = field(default_factory=list)
     schema_evolution: str = "quarantine"
 
 
@@ -124,6 +125,7 @@ def load_pipeline_config(config_path=None):
                 min_rows=raw_source.get("min_rows", 1),
                 max_rows=raw_source.get("max_rows", 1_000_000),
                 history_table=raw_source.get("history_table"),
+                lineage_keys=raw_source.get("lineage_keys", []),
                 schema_evolution=raw_source.get("schema_evolution", "quarantine"),
             )
         )
@@ -145,3 +147,6 @@ def load_pipeline_config(config_path=None):
     )
     validate_dependency_order(config.sources)
     return config
+
+
+

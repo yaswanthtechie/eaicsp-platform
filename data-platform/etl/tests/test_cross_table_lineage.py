@@ -57,15 +57,15 @@ class Engine:
 def test_lineage_walks_shipments_to_inventory_to_sales():
     sales = SimpleNamespace(
         name="sales", table="sales_fact", date_column="date",
-        depends_on=None,
-    )
+        depends_on=None, lineage_keys=("sku_id", "warehouse_id"),
+        )
     inventory = SimpleNamespace(
         name="inventory", table="inventory_snapshot",
-        date_column="snapshot_date", depends_on="sales",
+        date_column="snapshot_date", depends_on="sales", lineage_keys=("sku_id", "warehouse_id"),
     )
     shipments = SimpleNamespace(
         name="shipments", table="shipments_fact",
-        date_column="shipment_date", depends_on="inventory",
+        date_column="shipment_date", depends_on="inventory", lineage_keys=("sku_id", "warehouse_id"),
     )
 
     config = SimpleNamespace(
@@ -78,3 +78,7 @@ def test_lineage_walks_shipments_to_inventory_to_sales():
         "shipments_fact", "inventory_snapshot", "sales_fact"
     ]
     assert [item["run_id"] for item in lineage] == [300, 200, 100]
+
+
+
+

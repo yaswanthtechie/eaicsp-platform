@@ -792,31 +792,31 @@ Implementation / Proof
 
 M1 Multi-environment configuration
 
-Implemented
+Partial
 
 Dev, staging and prod configurations with configuration-only environment switching
 
 M2 Data Quality SLA Alerting
 
-Implemented + tested
+Partial
 
 Quality pass-rate SLA with CRITICAL alert when threshold is breached
 
 M3 Dependency Visualization
 
-Implemented + tested
+Done
 
 Generates the ETL dependency graph
 
 M4 Cross-table Lineage
 
-Implemented + tested
+Partial
 
 Traces a target row across shipments -> inventory -> sales
 
 M5 Disaster Recovery Drill
 
-Implemented + verified
+Partial
 
 Backup, failure simulation, restore and manifest-based replay
 
@@ -1098,4 +1098,4 @@ Disaster recovery backup and restore drill is completed.
 Recovery replay successfully restores pipeline processing.
 
 
-Failure paths are tested.
+

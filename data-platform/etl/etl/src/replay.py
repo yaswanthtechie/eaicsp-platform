@@ -13,24 +13,24 @@ from load import load_data_bulk_generic
 from logger import create_run, finish_run, mark_run_status, record_run_batch
 
 
-def _restore_run_state(connection, run_id, started_at):
-    rows = connection.execute(text("""
-        SELECT date, sku_id, warehouse_id FROM sales_fact WHERE run_id = :run_id
+def _restore_run_state(connection, run_id, started_at, table_name, history_table):
+    rows = connection.execute(text(f"""
+        SELECT date, sku_id, warehouse_id FROM {table_name} WHERE run_id = :run_id
     """), {"run_id": run_id}).fetchall()
     restored = deleted = 0
     for row in rows:
-        previous = connection.execute(text("""
+        previous = connection.execute(text(f"""
             SELECT sales_fact_id, date, sku_id, warehouse_id, quantity_sold, unit_price,
                    source_batch, run_id, pipeline_version, valid_from
-            FROM sales_fact_history
+            FROM {history_table}
             WHERE date=:date AND sku_id=:sku AND warehouse_id=:wh
               AND run_id <> :run_id AND valid_from <= :started_at
             ORDER BY valid_from DESC LIMIT 1
         """), {"date": row.date, "sku": row.sku_id, "wh": row.warehouse_id,
               "run_id": run_id, "started_at": started_at}).fetchone()
         if previous:
-            connection.execute(text("""
-                UPDATE sales_fact SET quantity_sold=:quantity_sold, unit_price=:unit_price,
+            connection.execute(text(f"""
+                UPDATE {table_name} SET quantity_sold=:quantity_sold, unit_price=:unit_price,
                     source_batch=:source_batch, run_id=:prev_run_id, pipeline_version=:version,
                     updated_at=:valid_from
                 WHERE date=:date AND sku_id=:sku AND warehouse_id=:wh AND run_id=:run_id
@@ -40,8 +40,8 @@ def _restore_run_state(connection, run_id, started_at):
                  "date": row.date, "sku": row.sku_id, "wh": row.warehouse_id, "run_id": run_id})
             restored += 1
         else:
-            connection.execute(text("""
-                DELETE FROM sales_fact
+            connection.execute(text(f"""
+                DELETE FROM {table_name}
                 WHERE date=:date AND sku_id=:sku AND warehouse_id=:wh AND run_id=:run_id
             """), {"date": row.date, "sku": row.sku_id, "wh": row.warehouse_id, "run_id": run_id})
             deleted += 1
@@ -131,7 +131,7 @@ def replay_run(run_id, source_name="sales", config_path=None):
             for batch in approved:
                 record_run_batch(new_run, source.name, batch["file_path"].name, connection=conn)
 
-            restored, deleted = _restore_run_state(conn, run_id, run.started_at)
+            restored, deleted = _restore_run_state(conn, run_id, run.started_at, source.table, source.history_table)
             inserted, updated = load_data_bulk_generic(
                 approved, new_run, source, connection=conn
             )
@@ -162,3 +162,7 @@ def replay_run(run_id, source_name="sales", config_path=None):
         except Exception:
             pass
         raise
+
+
+
+

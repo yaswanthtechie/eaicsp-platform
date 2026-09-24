@@ -8,6 +8,7 @@ sources:
   - date
   - sku_id
   - warehouse_id
+  lineage_keys: [sku_id, warehouse_id]
   depends_on: null
   columns:
     date:
@@ -34,7 +35,7 @@ sources:
   negative_rate_threshold: 0.05
   min_rows: 5
   max_rows: 2000
-  history_table: sales_fact_history
+  history_table: prod_sales_fact_history
   schema_evolution: quarantine
 - name: inventory
   path: data/prod/inventory/
@@ -44,6 +45,7 @@ sources:
   - snapshot_date
   - sku_id
   - warehouse_id
+  lineage_keys: [sku_id, warehouse_id]
   depends_on: sales
   columns:
     snapshot_date:
@@ -76,6 +78,7 @@ sources:
   - shipment_date
   - sku_id
   - warehouse_id
+  lineage_keys: [sku_id, warehouse_id]
   depends_on: inventory
   columns:
     shipment_date:
@@ -110,3 +113,5 @@ archive:
   cutoff_days: 730
 environment: prod
 quality_sla_min_pass_rate: 0.95
+
+

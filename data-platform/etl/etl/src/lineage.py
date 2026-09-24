@@ -6,12 +6,6 @@ from config_loader import load_pipeline_config
 from database import get_engine
 
 
-KEY_COLUMN_MAP = {
-    "sales_fact": ("sku_id", "warehouse_id"),
-    "inventory_snapshot": ("sku", "warehouse"),
-    "shipments_fact": ("sku_id", "warehouse_id"),
-}
-
 
 def _row_for_id(connection, table, row_id):
     return connection.execute(
@@ -21,14 +15,14 @@ def _row_for_id(connection, table, row_id):
 
 
 def _matching_upstream_rows(connection, source, event_date, sku_id, warehouse_id):
-    sku_column, warehouse_column = KEY_COLUMN_MAP[source.table]
+    key_columns = source.lineage_keys
 
     sql = f"""
         SELECT *
         FROM {source.table}
         WHERE {source.date_column} = :event_date
-          AND {sku_column} = :sku_id
-          AND {warehouse_column} = :warehouse_id
+          AND {key_columns[0]} = :sku_id
+          AND {key_columns[1]} = :warehouse_id
         ORDER BY id
     """
 
@@ -79,16 +73,14 @@ def trace_row_lineage(row_id, target_table, config=None, engine=None):
             upstream = config.get_source(current_config.depends_on)
             event_date = current.get(current_config.date_column)
 
-            sku_column, warehouse_column = KEY_COLUMN_MAP[
-                current_config.table
-            ]
+            key_columns = current_config.lineage_keys
 
             upstream_rows = _matching_upstream_rows(
                 connection,
                 upstream,
                 event_date,
-                current.get(sku_column),
-                current.get(warehouse_column),
+                current.get(key_columns[0]),
+                current.get(key_columns[1]),
             )
 
             for row in upstream_rows:
