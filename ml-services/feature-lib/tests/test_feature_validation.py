@@ -366,5 +366,42 @@ def test_build_all_features_does_not_cross_group_boundaries():
     assert pd.isna(result.loc[0, "sales_roll_mean_1"])
     assert pd.isna(result.loc[1, "sales_roll_mean_1"])
     assert result.loc[2, "sales_roll_mean_1"] == 100
-    assert result.loc[3, "sales_roll_mean_1"] == 200    
+    assert result.loc[3, "sales_roll_mean_1"] == 200
+
+def test_v1_does_not_depend_on_shared_lag_rolling_builders(monkeypatch):
+    df = pd.DataFrame({
+        "date": pd.date_range("2024-01-01", periods=30),
+        "target": range(30),
+    })
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError(
+            "v1 must not depend on shared lag/rolling builders"
+        )
+
+    monkeypatch.setattr(
+        "src.build_features.add_lag_features",
+        fail_if_called,
+    )
+
+    monkeypatch.setattr(
+        "src.build_features.add_rolling_features",
+        fail_if_called,
+    )
+
+    features = build_all_features(
+        df,
+        date_col="date",
+        target_col="target",
+        config={
+            "lags": [1, 7],
+            "windows": [7],
+        },
+        feature_version="v1",
+    )
+
+    assert "target_lag_1" in features.columns
+    assert "target_lag_7" in features.columns
+    assert "target_roll_mean_7" in features.columns
+    assert "target_roll_std_7" in features.columns
 

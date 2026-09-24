@@ -27,18 +27,25 @@ def score_feature_quality(
             reason = f"High null rate: {null_rate:.1%}"
 
         elif pd.api.types.is_numeric_dtype(df[column]):
-            mean = df[column].mean()
-            std = df[column].std()
+            non_null_values = df[column].dropna()
 
-            if mean != 0 and pd.notna(mean) and pd.notna(std):
-                coefficient_of_variation = abs(std / mean)
+            if non_null_values.nunique() <= 1:
+                risk = "risky"
+                reason = "No variation: feature contains only one unique value."
 
-                if coefficient_of_variation >= instability_threshold:
-                    risk = "risky"
-                    reason = (
-                        f"High variability: coefficient of variation "
-                        f"{coefficient_of_variation:.2f}"
-                    )
+            else:
+                mean = non_null_values.mean()
+                std = non_null_values.std()
+
+                if pd.notna(mean) and pd.notna(std) and mean != 0:
+                    coefficient_of_variation = abs(std / mean)
+
+                    if coefficient_of_variation >= instability_threshold:
+                        risk = "risky"
+                        reason = (
+                            f"High variability: coefficient of variation "
+                            f"{coefficient_of_variation:.2f}"
+                        )
 
         results.append(
             {

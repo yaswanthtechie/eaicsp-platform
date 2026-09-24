@@ -465,6 +465,7 @@ def test_feature_version_backward_compatibility():
         "windows": [7],
     }
 
+    # Existing consumer was built using v1 features.
     v1_features = build_all_features(
         df,
         date_col="date",
@@ -473,6 +474,15 @@ def test_feature_version_backward_compatibility():
         feature_version="v1",
     )
 
+    v1_columns = [
+        column
+        for column in v1_features.columns
+        if column not in df.columns
+    ]
+
+    v1_consumer_input = v1_features[v1_columns].copy()
+
+    # New feature version is introduced.
     v2_features = build_all_features(
         df,
         date_col="date",
@@ -481,8 +491,154 @@ def test_feature_version_backward_compatibility():
         feature_version="v2",
     )
 
+    # v1 and v2 keep their expected feature definitions.
     assert "target_roll_mean_7" in v1_features.columns
     assert "target_roll_mean_14" not in v1_features.columns
 
     assert "target_roll_mean_7" in v2_features.columns
     assert "target_roll_mean_14" in v2_features.columns
+
+    # v2 changes the definition of the existing standard deviation feature.
+    assert not v1_features["target_roll_std_7"].equals(
+        v2_features["target_roll_std_7"]
+    )
+
+    # v1 keeps the original sample standard deviation definition.
+    expected_v1_std = (
+        df["target"]
+        .shift(1)
+        .rolling(7)
+        .std(ddof=1)
+    )
+
+    pd.testing.assert_series_equal(
+        v1_features["target_roll_std_7"],
+        expected_v1_std,
+        check_names=False,
+    )
+
+    # The old v1 consumer can still request v1 after v2 exists.
+    v1_features_after_v2 = build_all_features(
+        df,
+        date_col="date",
+        target_col="target",
+        config=config,
+        feature_version="v1",
+    )
+
+    # v1 feature values remain unchanged.
+    pd.testing.assert_frame_equal(
+        v1_consumer_input,
+        v1_features_after_v2[v1_columns],
+    )
+
+    # The old consumer still works with the v1 feature set.
+    old_consumer = v1_consumer_input.sum(axis=1)
+
+    new_consumer_input = v1_features_after_v2[v1_columns]
+    new_consumer = new_consumer_input.sum(axis=1)
+
+    pd.testing.assert_series_equal(
+        old_consumer,
+        new_consumer,
+    )
+def test_v1_isolated_from_shared_rolling_builder_changes(monkeypatch):
+    df = pd.DataFrame({
+        "date": pd.date_range("2024-01-01", periods=20),
+        "target": range(20),
+    })
+
+    config = {
+        "lags": [1],
+        "windows": [7],
+    }
+
+    original_v1 = build_all_features(
+        df,
+        date_col="date",
+        target_col="target",
+        config=config,
+        feature_version="v1",
+    )
+
+    def changed_v2_rolling_builder(
+        data,
+        target_col,
+        windows,
+        group_cols=None,
+    ):
+        result = data.copy()
+
+        for window in windows:
+            shifted = result[target_col].shift(1)
+            result[f"{target_col}_roll_mean_{window}"] = (
+                shifted.rolling(window, min_periods=1).mean()
+            )
+            result[f"{target_col}_roll_std_{window}"] = (
+                shifted.rolling(window, min_periods=1).std()
+            )
+
+        return result
+
+    monkeypatch.setitem(
+        __import__("src.build_features", fromlist=["FEATURE_VERSIONS"]).FEATURE_VERSIONS,
+        "v2",
+        {
+            "additional_windows": [14],
+            "lag_builder": __import__(
+                "src.build_features",
+                fromlist=["add_lag_features"],
+            ).add_lag_features,
+            "rolling_builder": changed_v2_rolling_builder,
+        },
+    )
+
+    v1_after_v2_change = build_all_features(
+        df,
+        date_col="date",
+        target_col="target",
+        config=config,
+        feature_version="v1",
+    )
+
+    pd.testing.assert_frame_equal(
+        original_v1,
+        v1_after_v2_change,
+    )
+def test_unsupported_feature_version_raises_error():
+    df = pd.DataFrame({
+        "date": pd.date_range("2024-01-01", periods=10),
+        "target": range(10),
+    })
+
+    with pytest.raises(ValueError, match="Unsupported feature version"):
+        build_all_features(
+            df,
+            date_col="date",
+            target_col="target",
+            feature_version="v3",
+        )
+
+def test_feature_store_passes_feature_version_to_builder(monkeypatch):
+    df = sample_data()
+    store = FeatureStore()
+
+    received = {}
+
+    def fake_build_all_features(*args, **kwargs):
+        received["feature_version"] = kwargs["feature_version"]
+        return df.copy()
+
+    monkeypatch.setattr(
+        "src.feature_store.build_all_features",
+        fake_build_all_features,
+    )
+
+    store.get_or_compute(
+        df=df,
+        date_col="date",
+        target_col="sales",
+        feature_version="v2",
+    )
+
+    assert received["feature_version"] == "v2"

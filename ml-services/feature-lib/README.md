@@ -27,6 +27,7 @@ The library provides the following features:
 - **Holiday Features**
   - Creates an `is_holiday` indicator for common Indian holidays.
   - Helps models capture demand changes associated with holidays.
+  - Uses vectorized date membership checking rather than row-wise `apply()` for holiday detection.
 
 - **Config-Driven Feature Builder**
   - `build_all_features()` accepts a configuration dictionary for lag and rolling-window settings.
@@ -69,6 +70,9 @@ Example:
 
   - Reports the feature name, null rate, risk status, and reason.
 
+  - Feature quality scoring evaluates intrinsic quality issues in the current dataset, such as high null rates, no variation, and high variability. It is separate from feature drift monitoring, which compares feature distributions between reference and current datasets.
+  - In the 100,000-row benchmark, `target_roll_std_7` and `target_roll_std_30` were flagged as `risky` because they contained no variation.
+
 - **Feature Store**
   - Provides a simple in-memory feature store for caching engineered features.
   - Computes features when they are not already cached.
@@ -106,21 +110,33 @@ Example:
 
 The library was tested using the Prophet retail sales dataset.
 
-The current test suite contains 86 tests, and the latest full test run passed all 86 tests.
+The current test suite contains 93 tests, and the latest full test run passed all 93 tests.
 
----
+**---**
 
-## Milestone Status
+**## Previous Milestone Status**
 
 | Milestone | Status |
 |---|---|
-| Milestone 1 – Complete Feature Suite |  Done |
-| Milestone 2 – Automated Feature Selection |  Done |
-| Milestone 3 – Feature Store Pattern |  Done |
-| Milestone 4 – Feature Drift Monitoring |  Done |
-| Milestone 5 – Feature Engineering API |  Done |
+| Milestone 1 – Complete Feature Suite | Done |
+| Milestone 2 – Automated Feature Selection | Done |
+| Milestone 3 – Feature Store Pattern | Done |
+| Milestone 4 – Feature Drift Monitoring | Done |
+| Milestone 5 – Feature Engineering API | Done |
 
-**Notes:** The FeatureStore is currently an in-memory implementation. Feature versions are explicitly supplied by the caller. Statistical significance uses Pearson correlation with Benjamini-Hochberg correction, with the limitation that Pearson p-values may be less reliable for autocorrelated time-series data.
+**\*\*Notes:\*\*** The FeatureStore is currently an in-memory implementation. Feature versions are explicitly supplied by the caller. Statistical significance uses Pearson correlation with Benjamini-Hochberg correction, with the limitation that Pearson p-values may be less reliable for autocorrelated time-series data.
+
+**## Round 9–11 Milestone Status**
+
+| Requirement | Status |
+|---|---|
+| Feature versioning with backward compatibility | Done |
+| Automated feature documentation | Done |
+| Feature quality scoring | Done |
+| Performance at real scale (100k+ rows) | Done |
+| Full test coverage and comprehensive documentation | Done |
+
+**\*\*Round 9–11 Verification:\*\*** Feature versioning is demonstrated with separate `v1` and `v2` definitions and backward-compatible `v1` consumers. The automated feature catalog documents both versions. Feature quality scoring flags real risky features with clear reasons. The performance benchmark processes 100,000 grouped time-series rows and reports execution time. The latest full test run passed all 92 tests.
 
 ## 2. How to Run
 
@@ -208,22 +224,22 @@ The test suite covers:
 
 Expected result:
 
-    86 passed
+    93 passed
 
 The test suite may display dependency-related deprecation or statistical warnings. These warnings do not indicate failures in the feature library when all tests pass.
 
 ### Performance Benchmark
 
-Feature generation was benchmarked using 100,000 rows.
+The feature engineering library was benchmarked on 100,000 rows using a realistic grouped time-series dataset:
 
-- Rows processed: **100,000**
-- Features generated: **17**
-- Execution time: **0.5590 seconds**
+- Rows processed: 100,000
+- Warehouses: 100
+- Days per warehouse: 1,000
+- Features generated: 18
+- Feature version: v1
+- Execution time: 0.5248 seconds
 
-Run the benchmark with:
-
-    python -m scripts.benchmark_features
----
+The benchmark uses grouped time-series data to represent multiple warehouses rather than a single 100,000-day series. Feature generation is vectorized and was timed using `time.perf_counter()`.
 
 ## 3. Feature Store
 
@@ -270,6 +286,21 @@ and:
     feature_version="v2"
 
 produce separate feature definitions and separate cache entries.
+
+### Versioned Feature Definition Changes
+
+Feature versions can change the definition of an existing feature without changing the behavior of older consumers. In v1, `target_roll_std_7` uses the sample standard deviation (`ddof=1`). In v2, the same feature uses the population standard deviation (`ddof=0`). The v1 implementation remains frozen, so existing v1 consumers continue to receive the original feature definition.
+
+### Adding a New Feature Version
+
+When adding a new feature version:
+
+1. Add the new version to the `FEATURE_VERSIONS` registry in `src/build_features.py`.
+2. Keep existing feature-version implementations frozen so existing consumers continue to receive the same calculations.
+3. Define the new version's feature changes independently from older versions.
+4. Add tests confirming that existing versions remain unchanged and that the new version produces the intended features.
+5. Update the feature catalog to document the new version.
+6. Update this README with the new version and its compatibility behavior.
 
 The cache uses an LRU (Least Recently Used) policy with a default maximum
 of 10 cached feature sets. When the cache reaches this limit, the least
@@ -428,6 +459,8 @@ Validation errors such as a missing target column, non-numeric target, or invali
 
 ## 6. What I Would Do Next
 
+The Round 9–11 assignment requirements are complete. Further improvements can be considered as future work:
+
 If I had another day, I would:
 
 - Add more integration tests using different time-series datasets.
@@ -483,7 +516,7 @@ After understanding these concepts, I was able to complete the feature engineeri
 - Different feature-definition versions are cached separately.
 - The `/features/build` API uses the shared `FeatureStore` so repeated requests with the same data, configuration, and version can reuse cached features.
 - Feature drift monitoring currently focuses on numeric features and uses the two-sample KS test with both statistical and effect-size criteria.
-- Holiday detection covers 2001–2035; data outside that range returns `is_holiday=False`, not a computed value.
+- Holiday detection covers 2001–2035; data outside that range returns `is_holiday=0`, not a computed holiday value.
 - The API uses the same feature-building logic as the Python library rather than maintaining a separate feature-generation implementation.
 
 ---
@@ -553,12 +586,16 @@ This provides both a reusable Python library interface and a service-based inter
 
 ### Feature Catalog
 
-The library also provides an automated feature catalog that documents every generated feature, including its type, meaning, and feature version.
+The library provides an automated feature catalog that documents generated features in human-readable form, including the feature name, type, meaning, and feature version.
 
-Generate the catalog with:
+The catalog generator generates entries for both `v1` and `v2`. This ensures that version-specific features, including the additional 14-observation rolling features introduced in `v2`, are documented explicitly.
+
+Generate or regenerate the catalog with:
 
     python -m scripts.generate_feature_catalog
 
 The generated catalog is saved to:
 
     docs/feature_catalog.md
+
+The catalog should be regenerated whenever a feature definition or feature version is added or changed.

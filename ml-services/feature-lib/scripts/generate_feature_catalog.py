@@ -15,15 +15,25 @@ config = {
     "windows": [7, 30],
 }
 
-catalog = generate_feature_catalog(
-    df=df,
-    date_col="date",
-    target_col="target",
-    config=config,
-    feature_version="v1",
+catalogs = []
+
+for feature_version in ["v1", "v2"]:
+    catalog = generate_feature_catalog(
+        df=df,
+        date_col="date",
+        target_col="target",
+        config=config,
+        feature_version=feature_version,
+    )
+    catalogs.append(catalog)
+
+catalog = pd.concat(
+    catalogs,
+    ignore_index=True,
 )
 
-output_path = Path("docs/feature_catalog.md")
+project_root = Path(__file__).resolve().parents[1]
+output_path = project_root / "docs" / "feature_catalog.md"
 output_path.parent.mkdir(parents=True, exist_ok=True)
 
 with output_path.open("w", encoding="utf-8") as file:
