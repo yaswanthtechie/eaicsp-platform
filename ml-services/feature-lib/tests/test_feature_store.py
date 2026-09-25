@@ -1,7 +1,15 @@
+import numpy as np
 import pandas as pd
 import pytest
+from sklearn.linear_model import LinearRegression
 from src.feature_usefulness import select_top_features
 from src.feature_store import FeatureStore
+from src.build_features import (
+    FEATURE_VERSIONS,
+    _build_v1_lag_features,
+    _build_v1_rolling_features,
+    build_all_features,
+)
 
 
 def sample_data():
@@ -324,8 +332,10 @@ def test_feature_code_hash_changes_when_feature_implementation_changes(monkeypat
 
     original_sources = {
         "build_all_features": "build source",
-        "add_lag_features": "lag source",
-        "add_rolling_features": "rolling source",
+        "_build_v1_lag_features": "v1 lag source",
+        "_build_v1_rolling_features": "v1 rolling source",
+        "_build_v2_lag_features": "v2 lag source",
+        "_build_v2_rolling_features": "v2 rolling source",
         "add_calendar_features": "calendar source",
         "create_holiday_features": "holiday source",
         "add_interaction_features": "interaction source",
@@ -347,7 +357,7 @@ def test_feature_code_hash_changes_when_feature_implementation_changes(monkeypat
         feature_version="v1",
     )
 
-    original_sources["add_lag_features"] = "CHANGED lag source"
+    original_sources["_build_v1_lag_features"] = "CHANGED v1 lag source"
 
     key_after = store._create_cache_key(
         df=df,
@@ -452,3 +462,241 @@ def test_feature_store_lru_keeps_recently_used_entry(monkeypatch):
 def test_feature_store_rejects_invalid_cache_size():
     with pytest.raises(ValueError, match="max_cache_size"):
         FeatureStore(max_cache_size=0)
+
+def test_v1_model_still_predicts_after_v2_exists():
+    rng = np.random.default_rng(42)
+
+    df = pd.DataFrame({
+        "date": pd.date_range("2024-01-01", periods=120),
+        "target": rng.poisson(50, 120),
+    })
+
+    config = {
+        "lags": [1, 7],
+        "windows": [7],
+    }
+
+    feature_cols = [
+        "target_lag_1",
+        "target_lag_7",
+        "target_roll_mean_7",
+        "target_roll_std_7",
+    ]
+
+    def features_for(version):
+        features = build_all_features(
+            df,
+            date_col="date",
+            target_col="target",
+            config=config,
+            feature_version=version,
+        )
+        return features.dropna(subset=feature_cols)
+
+    # Existing model was trained using v1 features.
+    v1_before = features_for("v1")
+
+    model = LinearRegression()
+    model.fit(
+        v1_before[feature_cols],
+        v1_before["target"],
+    )
+
+    predictions_before = model.predict(v1_before[feature_cols])
+
+    # A new v2 feature definition is introduced.
+    v2 = features_for("v2")
+
+    # v2 changes the existing rolling standard deviation definition.
+    assert not v1_before["target_roll_std_7"].equals(
+        v2["target_roll_std_7"]
+    )
+
+    # The old v1 feature version is still available.
+    v1_after = features_for("v1")
+
+    predictions_after = model.predict(v1_after[feature_cols])
+
+    # The old model produces exactly the same predictions
+    # when the v1 feature definition is requested again.
+    np.testing.assert_array_equal(
+        predictions_before,
+        predictions_after,
+    )
+
+    # Feeding the model the changed v2 feature values changes predictions.
+    v2_predictions = model.predict(v2[feature_cols])
+
+    assert not np.array_equal(
+        predictions_before,
+        v2_predictions,
+    )
+def test_v1_uses_frozen_builders_not_shared_ones():
+    assert FEATURE_VERSIONS["v1"]["lag_builder"] is _build_v1_lag_features
+    assert FEATURE_VERSIONS["v1"]["rolling_builder"] is _build_v1_rolling_features
+
+    assert FEATURE_VERSIONS["v1"]["lag_builder"] is not FEATURE_VERSIONS["v2"]["lag_builder"]
+    assert FEATURE_VERSIONS["v1"]["rolling_builder"] is not FEATURE_VERSIONS["v2"]["rolling_builder"]
+def test_v1_and_v2_roll_std_pinned_values():
+    df = pd.DataFrame({
+        "date": pd.date_range("2024-01-01", periods=30),
+        "target": range(30),
+    })
+
+    config = {
+        "lags": [1],
+        "windows": [7],
+    }
+
+    v1_features = build_all_features(
+        df,
+        date_col="date",
+        target_col="target",
+        config=config,
+        feature_version="v1",
+    )
+
+    v2_features = build_all_features(
+        df,
+        date_col="date",
+        target_col="target",
+        config=config,
+        feature_version="v2",
+    )
+
+    assert v1_features.loc[10, "target_roll_std_7"] == pytest.approx(
+        2.1602468994692865
+    )
+    assert v2_features.loc[10, "target_roll_std_7"] == pytest.approx(
+        2.0
+    )
+@pytest.mark.parametrize("version", ["v1", "v2"])
+def test_roll_std_matches_registered_ddof(version):
+    df = pd.DataFrame({
+        "date": pd.date_range("2024-01-01", periods=30),
+        "target": range(30),
+    })
+
+    config = {
+        "lags": [1],
+        "windows": [7],
+    }
+
+    features = build_all_features(
+        df,
+        date_col="date",
+        target_col="target",
+        config=config,
+        feature_version=version,
+    )
+
+    ddof = FEATURE_VERSIONS[version]["roll_std_ddof"]
+
+    expected = (
+        df["target"]
+        .shift(1)
+        .rolling(7)
+        .std(ddof=ddof)
+    )
+
+    pd.testing.assert_series_equal(
+        features["target_roll_std_7"],
+        expected,
+        check_names=False,
+    )
+def test_changing_v2_builder_does_not_change_v1_cache_key(monkeypatch):
+    df = sample_data()
+    store = FeatureStore()
+
+    v1_key_before = store._create_cache_key(
+        df=df,
+        date_col="date",
+        target_col="sales",
+        config={"lags": [1], "windows": [1]},
+        feature_version="v1",
+    )
+
+    v2_key_before = store._create_cache_key(
+        df=df,
+        date_col="date",
+        target_col="sales",
+        config={"lags": [1], "windows": [1]},
+        feature_version="v2",
+    )
+
+    original_v2_builder = FEATURE_VERSIONS["v2"]["rolling_builder"]
+
+    def changed_v2_rolling_builder(
+        data,
+        target_col,
+        windows,
+        group_cols=None,
+    ):
+        return original_v2_builder(
+            data,
+            target_col,
+            windows,
+            group_cols,
+        )
+
+    monkeypatch.setitem(
+        FEATURE_VERSIONS["v2"],
+        "rolling_builder",
+        changed_v2_rolling_builder,
+    )
+
+    v1_key_after = store._create_cache_key(
+        df=df,
+        date_col="date",
+        target_col="sales",
+        config={"lags": [1], "windows": [1]},
+        feature_version="v1",
+    )
+
+    v2_key_after = store._create_cache_key(
+        df=df,
+        date_col="date",
+        target_col="sales",
+        config={"lags": [1], "windows": [1]},
+        feature_version="v2",
+    )
+
+    assert v1_key_before == v1_key_after
+    assert v2_key_before != v2_key_after
+def test_unsupported_feature_version_raises_error():
+    df = pd.DataFrame({
+        "date": pd.date_range("2024-01-01", periods=10),
+        "target": range(10),
+    })
+
+    with pytest.raises(ValueError, match="Unsupported feature version"):
+        build_all_features(
+            df,
+            date_col="date",
+            target_col="target",
+            feature_version="v3",
+        )
+
+def test_feature_store_passes_feature_version_to_builder(monkeypatch):
+    df = sample_data()
+    store = FeatureStore()
+
+    received = {}
+
+    def fake_build_all_features(*args, **kwargs):
+        received["feature_version"] = kwargs["feature_version"]
+        return df.copy()
+
+    monkeypatch.setattr(
+        "src.feature_store.build_all_features",
+        fake_build_all_features,
+    )
+
+    store.get_or_compute(
+        df=df,
+        date_col="date",
+        target_col="sales",
+        feature_version="v2",
+    )
+
+    assert received["feature_version"] == "v2"

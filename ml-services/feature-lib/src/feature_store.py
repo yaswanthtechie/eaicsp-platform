@@ -6,8 +6,7 @@ from collections import OrderedDict
 
 from src.build_features import (
     build_all_features,
-    add_lag_features,
-    add_rolling_features,
+    FEATURE_VERSIONS,
     add_calendar_features,
     create_holiday_features,
     add_interaction_features,
@@ -63,10 +62,20 @@ class FeatureStore:
             dataset_content + dataset_schema
         ).hexdigest()
 
+        version_definition = FEATURE_VERSIONS.get(feature_version, {})
+
+        version_builders = [
+            version_definition[key]
+            for key in ("lag_builder", "rolling_builder")
+            if key in version_definition
+        ]
+
         feature_sources = [
             inspect.getsource(build_all_features),
-            inspect.getsource(add_lag_features),
-            inspect.getsource(add_rolling_features),
+            *[
+                inspect.getsource(builder)
+                for builder in version_builders
+            ],
             inspect.getsource(add_calendar_features),
             inspect.getsource(create_holiday_features),
             inspect.getsource(add_interaction_features),
@@ -130,6 +139,7 @@ class FeatureStore:
             target_col=target_col,
             config=config,
             group_cols=group_cols,
+            feature_version=feature_version,
         )
 
         self._cache[cache_key] = features.copy()

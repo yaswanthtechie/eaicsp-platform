@@ -27,6 +27,7 @@ The library provides the following features:
 - **Holiday Features**
   - Creates an `is_holiday` indicator for common Indian holidays.
   - Helps models capture demand changes associated with holidays.
+  - Uses vectorized date membership checking rather than row-wise `apply()` for holiday detection.
 
 - **Config-Driven Feature Builder**
   - `build_all_features()` accepts a configuration dictionary for lag and rolling-window settings.
@@ -56,6 +57,21 @@ Example:
   - Importance values are dataset-dependent and may be less stable on small datasets.
   - Pearson correlation p-values assume independent observations and may be less reliable for autocorrelated time-series data. They are therefore treated as supporting evidence rather than the sole basis for feature selection.
   - For time-series feature selection, first differencing is enabled by default (`use_differencing=True`) to reduce spurious correlation caused by autocorrelation and trends. Set `use_differencing=False` when raw-level correlation is intentionally required.
+
+- **Feature Quality Scoring**
+
+  - Evaluates the null rate of each feature.
+
+  - Flags features as `risky` when their null rate reaches the configured threshold.
+
+  - Evaluates numeric feature variability using the coefficient of variation.
+
+  - Flags numeric features as `risky` when their coefficient of variation reaches the configured instability threshold.
+
+  - Reports the feature name, null rate, risk status, and reason.
+
+  - Feature quality scoring evaluates intrinsic quality issues in the current dataset, such as high null rates, no variation, and high variability. It is separate from feature drift monitoring, which compares feature distributions between reference and current datasets.
+  - In the full 100,000-row benchmark, no features were flagged as risky. In a separate 60-day-history scenario, `target_lag_30`, `target_roll_mean_30`, and `target_roll_std_30` were flagged as `risky` because each contained 50% null values due to the 30-observation history requirement.
 
 - **Feature Store**
   - Provides a simple in-memory feature store for caching engineered features.
@@ -94,21 +110,33 @@ Example:
 
 The library was tested using the Prophet retail sales dataset.
 
-The current test suite contains 82 tests, and the latest full test run passed all 82 tests.
+The current test suite contains 99 tests, and the latest full test run passed all 99 tests.
 
----
+**---**
 
-## Milestone Status
+**## Previous Milestone Status**
 
 | Milestone | Status |
 |---|---|
-| Milestone 1 – Complete Feature Suite |  Done |
-| Milestone 2 – Automated Feature Selection |  Done |
-| Milestone 3 – Feature Store Pattern |  Done |
-| Milestone 4 – Feature Drift Monitoring |  Done |
-| Milestone 5 – Feature Engineering API |  Done |
+| Milestone 1 – Complete Feature Suite | Done |
+| Milestone 2 – Automated Feature Selection | Done |
+| Milestone 3 – Feature Store Pattern | Done |
+| Milestone 4 – Feature Drift Monitoring | Done |
+| Milestone 5 – Feature Engineering API | Done |
 
-**Notes:** The FeatureStore is currently an in-memory implementation. Feature versions are explicitly supplied by the caller. Statistical significance uses Pearson correlation with Benjamini-Hochberg correction, with the limitation that Pearson p-values may be less reliable for autocorrelated time-series data.
+**\*\*Notes:\*\*** The FeatureStore is currently an in-memory implementation. Feature versions are explicitly supplied by the caller. Statistical significance uses Pearson correlation with Benjamini-Hochberg correction, with the limitation that Pearson p-values may be less reliable for autocorrelated time-series data.
+
+**## Round 9–11 Milestone Status**
+
+| Requirement | Status |
+|---|---|
+| Feature versioning with backward compatibility | Done |
+| Automated feature documentation | Done |
+| Feature quality scoring | Done |
+| Performance at real scale (100k+ rows) | Done |
+| Full test coverage and comprehensive documentation | Done |
+
+** **Round 9–11 Verification:** Feature versioning is demonstrated with separate `v1` and `v2` definitions and backward-compatible `v1` consumers. The automated feature catalog documents both versions, including the version-specific rolling standard deviation definitions. Feature quality scoring flags real risky features with clear reasons: the 30-day features are flagged on a 60-day-history scenario because of their high null rate. The performance benchmark processes 100,000 grouped time-series rows and reports execution time. The latest full test run passed all 99 tests.
 
 ## 2. How to Run
 
@@ -196,11 +224,34 @@ The test suite covers:
 
 Expected result:
 
-    82 passed
+    99 passed
 
 The test suite may display dependency-related deprecation or statistical warnings. These warnings do not indicate failures in the feature library when all tests pass.
 
----
+### Performance Benchmark
+
+The feature engineering library was benchmarked on 100,000 rows of grouped time-series data using seeded Poisson daily demand with a weekend uplift:
+
+- Rows processed: 100,000
+- Warehouses: 100
+- Days per warehouse: 1,000
+- Features generated: 18
+- Feature version: v1
+- Execution time: 0.6931 seconds
+
+The benchmark uses grouped time-series data to represent multiple warehouses rather than a single 100,000-day series. Feature generation is vectorized and was timed using `time.perf_counter()`.
+
+Run the benchmark from the `feature-lib` directory with:
+
+    python -m scripts.benchmark_features
+
+A separate 60-day-history scenario is also used to demonstrate feature quality risk. Because 30-observation features require 30 historical observations, the following features contain 50% null values and are flagged as risky:
+
+- `target_lag_30` — High null rate: 50.0%
+- `target_roll_mean_30` — High null rate: 50.0%
+- `target_roll_std_30` — High null rate: 50.0%
+
+The full 1,000-day history scenario does not flag these features as risky.
 
 ## 3. Feature Store
 
@@ -234,7 +285,9 @@ The cache key includes:
 - Feature definition version
 - Group columns
 
-Feature-definition versions allow different versions of feature logic to be cached separately.
+Feature-definition versions allow different versions of feature logic to be used and cached separately.
+
+The existing `v1` feature definition is preserved when `v2` is introduced, so an existing consumer can continue requesting `feature_version="v1"` without receiving the new `v2` feature definition.
 
 For example:
 
@@ -244,7 +297,22 @@ and:
 
     feature_version="v2"
 
-produce separate cache entries.
+produce separate feature definitions and separate cache entries.
+
+### Versioned Feature Definition Changes
+
+Feature versions can change the definition of an existing feature without changing the behavior of older consumers. In v1, `target_roll_std_7` uses the sample standard deviation (`ddof=1`). In v2, the same feature uses the population standard deviation (`ddof=0`). The v1 implementation remains frozen, so existing v1 consumers continue to receive the original feature definition.
+
+### Adding a New Feature Version
+
+When adding a new feature version:
+
+1. Add the new version to the `FEATURE_VERSIONS` registry in `src/build_features.py`.
+2. Keep existing feature-version implementations frozen so existing consumers continue to receive the same calculations.
+3. Define the new version's feature changes independently from older versions.
+4. Add tests confirming that existing versions remain unchanged and that the new version produces the intended features.
+5. Update the feature catalog to document the new version.
+6. Update this README with the new version and its compatibility behavior.
 
 The cache uses an LRU (Least Recently Used) policy with a default maximum
 of 10 cached feature sets. When the cache reaches this limit, the least
@@ -403,6 +471,8 @@ Validation errors such as a missing target column, non-numeric target, or invali
 
 ## 6. What I Would Do Next
 
+The Round 9–11 assignment requirements are complete. Further improvements can be considered as future work:
+
 If I had another day, I would:
 
 - Add more integration tests using different time-series datasets.
@@ -458,7 +528,7 @@ After understanding these concepts, I was able to complete the feature engineeri
 - Different feature-definition versions are cached separately.
 - The `/features/build` API uses the shared `FeatureStore` so repeated requests with the same data, configuration, and version can reuse cached features.
 - Feature drift monitoring currently focuses on numeric features and uses the two-sample KS test with both statistical and effect-size criteria.
-- Holiday detection covers 2001–2035; data outside that range returns `is_holiday=False`, not a computed value.
+- Holiday detection covers 2001–2035; data outside that range returns `is_holiday=0`, not a computed holiday value.
 - The API uses the same feature-building logic as the Python library rather than maintaining a separate feature-generation implementation.
 
 ---
@@ -525,3 +595,19 @@ The same feature-generation functionality can also be accessed through the API:
     Engineered Features
 
 This provides both a reusable Python library interface and a service-based interface for other AI/ML components.
+
+### Feature Catalog
+
+The library provides an automated feature catalog that documents generated features in human-readable form, including the feature name, type, meaning, and feature version.
+
+The catalog generator generates entries for both `v1` and `v2`. This ensures that version-specific features, including the additional 14-observation rolling features introduced in `v2`, are documented explicitly.
+
+Generate or regenerate the catalog with:
+
+    python -m scripts.generate_feature_catalog
+
+The generated catalog is saved to:
+
+    docs/feature_catalog.md
+
+The catalog should be regenerated whenever a feature definition or feature version is added or changed.

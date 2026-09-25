@@ -1,7 +1,11 @@
 import pandas as pd
 import numpy as np
 import pytest
-from src.build_features import build_all_features
+from src.build_features import (
+    build_all_features,
+    _build_v1_lag_features,
+    _build_v1_rolling_features,
+)
 from src.lag_features import add_lag_features
 from src.rolling_features import add_rolling_features
 
@@ -366,5 +370,5 @@ def test_build_all_features_does_not_cross_group_boundaries():
     assert pd.isna(result.loc[0, "sales_roll_mean_1"])
     assert pd.isna(result.loc[1, "sales_roll_mean_1"])
     assert result.loc[2, "sales_roll_mean_1"] == 100
-    assert result.loc[3, "sales_roll_mean_1"] == 200    
+    assert result.loc[3, "sales_roll_mean_1"] == 200
 
