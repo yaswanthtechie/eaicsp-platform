@@ -312,7 +312,7 @@ run_pipeline
 
 ## CLI Arguments:
 - --data-path: Path where test data will be generated and read from (default: data/perf_100k_sales.csv).
-- --config-path: Path to the YAML validation rules (default: configs/sales_rules.yaml).
+- --config: Path to the YAML validation rules (default: configs/dev/sales_rules.yaml).
 - --n-rows: Number of rows to generate (default: 100000).
 - --time-threshold: Maximum acceptable execution duration in seconds (default: 3.0).
 - --log-dir: Directory for saving timestamped log files (default: logs).
@@ -780,7 +780,7 @@ You can generate the documentation using the standalone CLI script. By default, 
 Run the script from your project root, pointing it to your target YAML configuration:
 
 ```commandline
-python -m src.generate_docs --config configs/sales_rules.yaml
+python -m src.generate_docs 
 ```
 
 ### Advanced Usage
@@ -903,6 +903,291 @@ python -m src.validate_folder --folder data/ --mapping configs/routing_map.json 
 python -m src.generate_docs --config configs/sales_rules.yaml --output-dir docs/ --rules-dir rules/
 ```
 
+
+# Real-Time (Row-Level) Validation Mode
+
+## Feature Description
+Beyond batch and streaming file validation, the `DataValidator` supports real-time, single-row validation via the `validate_row()` method. This is designed for event-driven architectures where data arrives one record at a time (e.g., via Kafka, Kinesis, or an HTTP endpoint).
+
+To provide a clean API boundary, `validate_row()` accepts a standard Python dictionary or a JSON string. You do not need to wrap your data in a Pandas DataFrame; the engine handles this internally.
+
+## POC of validate_row:
+```python
+import json
+from src.validator import DataValidator
+
+validator = DataValidator.from_config("configs/dev/sales_rules.yaml")
+
+# Accept a raw dict (or JSON string) from your consumer
+incoming_event = {
+    "transaction_id": 9912,
+    "date": "2024-04-10",
+    "sku_id": "SKU-9999",
+    "warehouse_id": "WH-01",
+    "quantity_sold": -5,
+    "unit_price": 12.50
+}
+
+# Execute the row-level validation
+result = validator.validate_row(incoming_event)
+
+# Print the lightweight RealtimeResult payload as JSON
+print(json.dumps(result.model_dump(), indent=2))
+```
+## Expected Output:
+- You will see the lightweight RealtimeResult JSON payload print to your console, indicating whether the row passed, which specific rules failed, and explicitly listing any stateful rules (like composite_pk_unique) that were bypassed.
+```json
+{
+  "passed": true,
+  "errors": [],
+  "warnings": [
+    "wh_01_minimum_price",
+    "quantity_positive",
+    "date_in_range"
+  ],
+  "info": [],
+  "skipped_stateful": [
+    "composite_pk_unique"
+  ]
+}
+```
+
+## Architectural Decisions & Limitations
+
+### Engine Implementation:"Option A" (Pandas Wrapper) vs. "Option B" (Dual Engine)
+To process single rows, validate_row() wraps the incoming dictionary into a 1-row Pandas DataFrame and utilizes the existing vectorized rules engine (Option A) rather than building a separate, native Python scalar engine (Option B).
+
+#### Reasoning:
+While Option B would yield better per-row latency by avoiding Pandas' initialization overhead, it requires building a dual-evaluation engine. Every rule would need two implementations that must stay behaviorally identical, introducing significant correctness risks and doubling the rule-execution surface area.
+
+By choosing Option A, we guarantee 100% behavioral consistency with the batch engine. We designed the public function signature (validate_row(row) -> RealtimeResult) so that if actual measured latency fails to meet future SLAs, the internals can be swapped to Option B transparently without breaking any downstream callers.
+
+### Stateful Rules: Skip vs. Cache
+Rules that evaluate row uniqueness (unique, composite_pk_unique) inherently require visibility across a dataset. In an isolated, single-row event, this context is missing.
+
+#### Reasoning:
+We chose to explicitly skip these rules rather than evaluating them (which would yield false positives/negatives) or silently ignoring them. Because pretending a rule was evaluated is worse than skipping it, skipped rules are explicitly listed in the skipped_stateful array in the response payload. This ensures no downstream consumer mistakes "not checked" for "passed."
+
+
+# Auto-Remediation & Audit Trails
+
+## Objective
+Moving beyond simply flagging bad data, the pipeline now supports **Safe Auto-Remediation** (e.g., trimming whitespace, standardizing case, formatting dates). To meet strict enterprise compliance and data governance standards, the engine automatically generates a comprehensive **Audit Trail** detailing exactly what was changed, by which rule, and how many rows were affected. 
+
+Dates are only reformatted when they can mean exactly one date (`Mar 18 2024`, `24/03/2024`, `05/05/2024`).
+A date like `02/01/2024` could be 1 Feb or 2 Jan, so it is never changed; it is left as-is and flagged by `unparseable_dates`.
+
+Importantly, ambiguous issues (like replacing a negative quantity with a zero) should still be handled via `range` rules that flag/drop rows, reserving auto-remediation exclusively for deterministic data standardization.
+
+## How It Works: Engine-Level Vectorized Diffing
+The audit trail is generated automatically by the core `DataValidator` engine, requiring **Zero Boilerplate** from developers writing custom rules.
+
+1. **Snapshot & Execute:** Before a `transform` rule runs, the engine snapshots the target column. It then executes your standard Pandas transformation logic.
+2. **Vectorized Diffing:** The engine compares the "before" and "after" states using highly optimized vectorized Pandas operations. It explicitly ignores `NaN` to `NaN` comparisons to prevent false positives.
+3. **Schema-Safe Cross-Field Tracking:** If a rule modifies the entire DataFrame (e.g., adding or dropping columns), the engine detects the structural schema change and logs it as a `cross_field` remediation.
+4. **Bounded Sampling:** To prevent massive JSON payloads and memory bloat on multi-million row datasets, the engine captures the exact "before" and "after" values for up to **5 representative rows** per rule.
+
+## Output (JSON Report & Console)
+Because the audit trail is baked directly into the `ValidationResult` Pydantic model, all remediations automatically appear in the JSON reports generated by the CLI. 
+
+**JSON Payload Example:**
+```json
+"remediations": [
+    {
+      "rule": "standardize_dates_transform",
+      "field": "date",
+      "rows_modified": 661
+    }
+  ],
+  "sample_remediations": {
+    "standardize_dates_transform": [
+      {
+        "row_index": 0,
+        "original": "23/03/2024",
+        "remediated": "2024-03-23"
+      },
+      {
+        "row_index": 1,
+        "original": "07/02/2024",
+        "remediated": "2024-02-07"
+      },
+      {
+        "row_index": 2,
+        "original": "Jan 24 2024",
+        "remediated": "2024-01-24"
+      },
+      {
+        "row_index": 4,
+        "original": "Mar 24 2024",
+        "remediated": "2024-03-24"
+      },
+      {
+        "row_index": 6,
+        "original": "Mar 14 2024",
+        "remediated": "2024-03-14"
+      }
+    ]
+  
+```
+
+# Service Level Agreements (SLAs) & Alerting
+
+To ensure operational resilience, the validation engine supports a tiered SLA framework. Instead of treating every data issue as a fatal pipeline crash, you can define soft thresholds (SLAs) that trigger orchestrator alerts while allowing valid data to continue flowing to downstream consumers.
+
+## 1. Declarative SLA Configuration
+You can define execution time limits and soft data-quality warning thresholds directly in your YAML configuration profiles.
+
+*   **`global_max_duration_seconds`**: Tracks performance degradation. If the validation engine takes longer than this threshold, it flags a time-based SLA breach.
+*   **`global_warning_fail_pct`**: Acts as a proactive observability monitor. If the percentage of bad rows exceeds this limit, an SLA breach is triggered, but the batch is **not** rejected (unlike the hard `global_max_fail_pct` circuit breaker).
+
+**YAML Configuration Example:**
+```yaml
+profiles:
+  default:
+    global_max_fail_pct: 0.30  # Very relaxed rejection threshold for dirty dev data
+    global_warning_fail_pct: 0.15
+    global_max_duration_seconds: 30.0 # High timeout limit for local/dev execution
+    rules:
+      - name: date_not_null
+        field: date
+        type: not_null
+        severity: ERROR
+```
+
+The shipped values per environment are:
+
+| Setting | dev | staging | prod |
+|---|---|---|---|
+| `global_max_fail_pct` (reject batch) | 30% | 10% | 10% |
+| `global_warning_fail_pct` (SLA warning) | 15% | 5% | 5% |
+| `global_max_duration_seconds` (SLA warning) | 30s | 8s | 5s |
+| `strict` profile rejection limit | 10% | 5% | 5% |
+
+## 2. CI/CD Integration & Orchestrator Exit Codes
+- The pipeline is designed to plug directly into enterprise orchestrators (e.g., Airflow, Datadog, GitHub Actions) using standardized POSIX exit codes and JSON payloads.
+
+- When you run the pipeline via the CLI, it evaluates the SLA thresholds and returns specific system codes to help your orchestrator route the alert appropriately:
+  * **0 (Success):** Data passed and all SLAs were met.
+  * **1 (Validation Failed):** Hard data quality rules or rejection thresholds were breached. The batch is unsafe.
+  * **2 (Tool Error):** File not found, invalid YAML, or runtime crash.
+  * **3 (SLA Breach):** Data passed hard validation and is safe to use, but execution time or warning thresholds were violated.
+  * **4 (Global Timeout):** A batch folder process was halted early due to a time limit.
+
+- The generated JSON report explicitly captures these breaches under the sla_breached (boolean) and sla_violations (list of strings) keys for easy parsing by monitoring tools.
+
+## 3. CLI Overrides & Global Folder Timeouts
+Because execution speed relies heavily on the environment (e.g., a slow CI runner vs. a production cluster), time-based SLAs can be overridden at runtime.
+
+### Single File Run:
+Override the YAML configuration for a specific execution using `--sla-time-limit`.
+```bash
+python -m src.validate_cli --file data/messy.csv --config configs/rules.yaml --output report.json --sla-time-limit 15.5
+```
+
+### Batch Folder Processing (Soft Timeouts):
+When validating entire directories of files, use --global-timeout-seconds. This implements a graceful interruption: if the batch takes too long, the engine finishes processing the current file, skips the remaining files, logs an SLA breach, and safely exits with code 4 (EXIT_GLOBAL_TIMEOUT) without corrupting data.
+```bash
+python -m src.validate_folder --folder data/ --config configs/rules.yaml --global-timeout-seconds 600
+```
+
+# Auto-Generated Data Quality Contracts
+
+## Feature Description
+The **Auto-Generated Documentation** feature bridges the gap between data engineering and business stakeholders. Instead of expecting non-technical users to read complex YAML configurations or Python code, this tool automatically translates your validation rules into human-readable files.
+
+It supports generating a **Zero-Dependency Interactive HTML Dashboard** (a single-page application with tabbed navigation across all profiles) or standard Markdown (`.md`) files. These generated files act as **Data Contracts**, providing a clear, scannable definition of what constitutes a "valid" row in your dataset, alongside the operational SLAs (Service Level Agreements) that govern your pipeline's drift and rejection limits.
+
+## How It Works
+The generator uses a "Documentation-as-Code" architecture to ensure your documentation never drifts from your actual code:
+
+1. **Profile Flattening:** If you use environment profiles (e.g., a `strict` profile that inherits from a `default` profile), the generator automatically resolves the inheritance tree to output a fully flattened view of exactly what runs in that specific environment.
+2. **Two-Tiered Structure:**
+    * **Section 1: Data Shape & Business Rules:** Details the fields, allowed ranges, regex patterns, and nullability for stakeholders.
+    * **Section 2: SLAs & Thresholds:** Extracts pipeline-halting limits (`max_fail_pct`) and anomaly detection bounds (`drift_abs_min`, `drift_rel_min`) for DataOps teams.
+3. **Format Routing:** Based on your CLI arguments, it dynamically compiles the contract into a standalone HTML file with embedded styling, or outputs individual Markdown files per profile.
+4. **Smart Descriptions:** It looks for a human-readable `description` field directly in your YAML rule, auto-generates a description based on standard rule types, or dynamically extracts Python docstrings for `custom` and `transform` rules.
+
+## How to Run
+
+You can generate the documentation using the standalone CLI script. By default, it will read your configuration and output a standalone HTML dashboard into a `docs/` directory.
+
+### Basic Command (HTML Dashboard Default)
+Run the script from your project root, pointing it to your target YAML configuration:
+
+```bash
+python -m src.generate_docs --config configs/sales_rules.yaml
+```
+### Advanced Usage (Format Selection & Custom Directories)
+You can specify the output format (html, markdown, or all) using the --format flag, and customize the output directory using the --output-dir flag:
+```bash
+# Generate only Markdown artifacts
+python -m src.generate_docs --config configs/sales_rules.yaml --format markdown
+
+# Generate both HTML and Markdown in a custom folder
+python -m src.generate_docs --config configs/sales_rules.yaml --format all --output-dir custom_docs_folder/
+```
+### Expected Output
+The default HTML generation creates a single docs/data_contract_dashboard.html file. This zero-dependency file can be opened directly in any browser (no server required) and contains an interactive sidebar to toggle between different data validation profiles. If generating Markdown, the script will output a separate .md file for each discovered profile
+
+# Cross-Environment Rule Versioning
+
+To support enterprise CI/CD workflows, the pipeline supports physically separated data contracts for different environments (`dev`, `staging`, `prod`). This ensures data engineering teams can test relaxed SLAs and experimental rules in `dev` without risking the stability of the strict `prod` pipeline.
+
+Each environment maintains its own independent `version` string at the root of its YAML file. When a contract's rules are updated, the version is bumped in `dev` and safely promoted through the environments as an immutable artifact.
+
+## How It Works: Dynamic Path Resolution
+
+The pipeline uses the `VALIDATOR_ENV` OS environment variable to automatically route execution to the correct configuration subdirectory. If an environment is specified, the pipeline dynamically injects the environment name into the configuration path (e.g., `configs/sales_rules.yaml` resolves to `configs/prod/sales_rules.yaml`). 
+
+This allows you to keep orchestration commands static across all environments while routing to the appropriate ruleset.
+
+### Recommended Directory Structure
+
+```text
+configs/
+├── dev/
+│   ├── sales_rules.yaml    
+│   └── routing_map.json
+├── staging/
+│   ├── sales_rules.yaml    
+│   └── routing_map.json
+└── prod/
+    ├── sales_rules.yaml    
+    └── routing_map.json
+```
+
+## Execution & CLI Arguments
+All core CLI entry points (main.py, validate_cli.py, validate_folder.py) support environment routing.
+* `--env:` Explicitly sets the target environment (e.g., dev, staging, prod). This overrides the VALIDATOR_ENV OS environment variable and is ideal for local testing.
+
+## CI/CD Integration (Using OS Variables)
+In production environments (Airflow, Kubernetes, GitHub Actions), inject the environment variable. The pipeline will automatically resolve to the prod/ subdirectory.
+```bash
+$env:VALIDATOR_ENV="prod"
+
+# The CLI automatically routes to 'configs/prod/sales_rules.yaml'
+python -m src.validate_folder --folder data/ --mapping configs/routing_map.json --rules-dir rules/ --save-reports --output-dir reports/prod_op
+```
+
+## Local Development (Using CLI Overrides)
+When testing a new rule locally, use the `--env` flag to bypass system variables and point the engine to your development contract.
+```bash
+# Explicitly tests the rules located in 'configs/dev/sales_rules.yaml'
+python -m src.validate_folder --file data/messy_sales.csv --config configs/sales_rules.yaml --env dev --save-reports --output-dir reports/dev_op
+
+# Works identically for batch folder validation
+python -m src.validate_folder --folder data/ --mapping configs/routing_map.json --env dev --save-reports --output-dir reports/dev_op
+```
+
+# Current Status (Round 9-11)
+
+| Milestone | Status | What is built | Not built yet |
+|---|---|---|---|
+| M1 Row-level validation | Done | `validate_row()` takes a dict or JSON string. A row missing a required field is rejected with `schema_error`. A rule that crashes counts as a failure of that rule's severity, never as a pass. Dataset-wide rules (uniqueness, outliers) are skipped and listed in `skipped_stateful`. | Duplicate detection across separate `validate_row()` calls. |
+| M2 Auto-fix + audit trail | Done | Two safe fixes: `clean_whitespace_and_case` (SKU) and `standardize_dates` (unambiguous dates only). Batch reports record rule, field, rows changed, reason and up to 5 before/after samples. `validate_row()` records original, fixed value and reason. Negative quantities are flagged (`quantity_positive` warning, `flagged_for_review` column), never changed. | Fixes for other columns (e.g. warehouse_id case). |
+| M3 Validation SLA + alerting | Mostly done | Duration SLA and failure-rate warning SLA per environment, `sla_violations` in the JSON report, exit code 3 on an SLA breach. | Alerts only go to the log, JSON report and exit code; nothing is written to an alerts table or sent as a notification. |
+| M4 Docs site | Done | `python -m src.generate_docs --config configs/prod/sales_rules.yaml` writes an HTML page per profile with every rule in plain English and every SLA setting. | Custom rules are described using their docstrings, so those docstrings must be written for a non-technical reader. |
+| M5 Per-environment rules | Done | `configs/dev`, `configs/staging`, `configs/prod`, chosen with `--env` or `VALIDATOR_ENV` (default `dev`; anything else is rejected). Thresholds differ per environment (table above), and a test shows the same file is accepted in dev and rejected in staging and prod. | The rules themselves are the same in every environment; only the thresholds differ. |
 
 # Known Limitations
 * **Streaming Memory Growth:** While chunked streaming prevents massive Out-Of-Memory (OOM) crashes, Pass 1 still tracks every unique composite key seen in a set. Memory usage scales linearly O(N) with the number of distinct rows, so it is not strictly "near zero".

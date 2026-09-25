@@ -1,9 +1,11 @@
-version: "1.2.0"
+version: "staging-1.3.0-rc1"
 profiles:
   default:
-    global_max_fail_pct: 0.20  # Rejects batch if >20% of all rows fail ANY rules
-    global_drift_abs_min: 0.01  # 1% absolute floor
-    global_drift_rel_min: 0.50  # 50% relative increase
+    global_max_fail_pct: 0.10
+    global_warning_fail_pct: 0.05
+    global_max_duration_seconds: 8.0 # Slightly relaxed SLA for staging environments
+    global_drift_abs_min: 0.01
+    global_drift_rel_min: 0.50
     rules:
       - name: date_not_null
         field: date
@@ -23,7 +25,7 @@ profiles:
         type: not_null
         severity: ERROR
 
-      # --- NEW: DECLARATIVE CROSS-FIELD CONDITIONAL ---
+      # --- DECLARATIVE CROSS-FIELD CONDITIONAL ---
       # Example: If warehouse is WH-01, the unit price must be at least 15.00
       - name: wh_01_minimum_price
         type: conditional
@@ -81,6 +83,15 @@ profiles:
         severity: WARNING
         depends_on: [ "unparseable_dates" ]
 
+
+      - name: clean_sku_whitespace
+        field: sku_id
+        type: transform
+        function: clean_whitespace_and_case
+        target_case: upper
+        description: "Stripped accidental whitespace and enforced uppercase formatting"
+        severity: INFO
+
   deep:
     inherits: default
     rules:
@@ -96,7 +107,7 @@ profiles:
 
   strict:
     inherits: default
-    global_max_fail_pct: 0.10  # Overrides the default 20% backstop to a stricter 10%
+    global_max_fail_pct: 0.05  # Tightens the default 10% backstop to 5%
     rules:
       # Overrides the default warning with a strict error and tighter bounds
       - name: quantity_positive
@@ -108,7 +119,7 @@ profiles:
 
   bulk:
     inherits: default
-    global_max_fail_pct: 0.25  # Overrides the default 20% backstop to a bulk 25%
+    global_max_fail_pct: 0.25  # Relaxes the default 10% backstop to 25% for bulk loads
     rules:
       - name: sku_format
         field: sku_id

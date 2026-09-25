@@ -1,0 +1,130 @@
+version: "prod-1.2.0"
+profiles:
+  default:
+    global_max_fail_pct: 0.10  # Strict 10% rejection threshold for prod
+    global_warning_fail_pct: 0.05
+    global_max_duration_seconds: 5.0 # Fails SLA if execution takes >5s
+    global_drift_abs_min: 0.01
+    global_drift_rel_min: 0.50
+    rules:
+      - name: date_not_null
+        field: date
+        type: not_null
+        severity: ERROR
+        # Uses global drift defaults
+
+      - name: sku_format
+        field: sku_id
+        type: regex
+        pattern: "^SKU-[0-9]{4}$"
+        severity: ERROR
+        max_fail_pct: 0.05     # Reject batch if >5% of rows fail THIS specific rule
+
+      - name: warehouse_id_not_null
+        field: warehouse_id
+        type: not_null
+        severity: ERROR
+
+      # --- DECLARATIVE CROSS-FIELD CONDITIONAL ---
+      # Example: If warehouse is WH-01, the unit price must be at least 15.00
+      - name: wh_01_minimum_price
+        type: conditional
+        condition_field: warehouse_id
+        condition_value: "WH-01"
+        field: unit_price
+        target_type: range
+        min: 15.0
+        severity: WARNING
+
+      - name: quantity_positive
+        field: quantity_sold
+        type: range
+        min: 0
+        max: 100000
+        severity: WARNING
+        drift_abs_min: 0.05  # Looser absolute floor for this specific rule
+        drift_rel_min: 1.00  # Requires a 100% (2x) relative jump to trigger
+
+      - name: unit_price_valid
+        field: unit_price
+        type: range
+        min: 0.01
+        severity: ERROR
+
+      - name: composite_pk_unique
+        type: custom
+        function: check_composite_unique
+        subset: ['date', 'sku_id', 'warehouse_id']
+        severity: ERROR
+
+      - name: unparseable_dates
+        field: date
+        type: custom
+        function: check_unparseable_dates
+        severity: ERROR
+
+      - name: flag_negative_quantities
+        field: quantity_sold
+        type: transform
+        function: flag_negatives
+        severity: INFO
+
+      - name: standardize_dates_transform
+        field: date
+        type: transform
+        function: standardize_dates
+        severity: INFO
+
+      - name: date_in_range
+        field: date
+        type: range
+        min: '2024-01-01'
+        max: '2024-03-29'
+        severity: WARNING
+        depends_on: [ "unparseable_dates" ]
+
+
+      - name: clean_sku_whitespace
+        field: sku_id
+        type: transform
+        function: clean_whitespace_and_case
+        target_case: upper
+        description: "Stripped accidental whitespace and enforced uppercase formatting"
+        severity: INFO
+
+  deep:
+    inherits: default
+    rules:
+      - name: detect_quantity_outliers
+        type: custom
+        field: quantity_sold
+        severity: WARNING
+        function: check_outliers
+        lower_q: 0.25
+        upper_q: 0.75
+        multiplier: 1.5
+        requires_full_dataset: true
+
+  strict:
+    inherits: default
+    global_max_fail_pct: 0.05  # Tightens the default 10% backstop to 5%
+    rules:
+      # Overrides the default warning with a strict error and tighter bounds
+      - name: quantity_positive
+        field: quantity_sold
+        type: range
+        min: 1
+        max: 12
+        severity: ERROR
+
+  bulk:
+    inherits: default
+    global_max_fail_pct: 0.25  # Relaxes the default 10% backstop to 25% for bulk loads
+    rules:
+      - name: sku_format
+        field: sku_id
+        type: regex
+        pattern: "^SKU-[0-9]{4,7}$"
+        severity: ERROR
+        max_fail_pct: 0.05     # Reject batch if >5% of rows fail THIS specific rule
+

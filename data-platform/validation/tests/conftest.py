@@ -42,3 +42,23 @@ def reset_dynamic_rule_registry():
 
     # 3. Teardown: clear the registry after the test completes
     clear_registry()
+
+
+@pytest.fixture(autouse=True)
+def clean_environment_variables():
+    """
+    Prevents terminal environment variables (like VALIDATOR_ENV)
+    from leaking into the test suite and altering path resolution.
+    """
+    env_var = "VALIDATOR_ENV"
+    original_value = os.environ.get(env_var)
+
+    # Clear the variable so tests run in a clean, default state
+    if env_var in os.environ:
+        del os.environ[env_var]
+
+    yield  # Run the test
+
+    # Restore the variable after the test finishes
+    if original_value is not None:
+        os.environ[env_var] = original_value
