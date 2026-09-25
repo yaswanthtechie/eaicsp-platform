@@ -19,27 +19,23 @@ http://127.0.0.1:8005
 ```
 ---
 
-# Key Responsibilities
+## Key Responsibilities
 
-The Platform Service provides:
-
-* User registration and login
-* JWT access-token authentication
-* Refresh-token rotation and revocation
+* User registration and secure password management
+* Login with mock MFA (password + OTP)
+* JWT access and refresh token management
+* Refresh token rotation and revocation
 * Role-Based Access Control (RBAC)
-* Fine-grained permissions
-* User session management
-* Password validation and reset
-* Login rate limiting
-* Account lockout
-* Forced password rotation
-* User activation/deactivation
-* Security audit logging
-* Security dashboard
-* JWT-based service-to-service verification
-* API-key-based service authentication
-* Service API-key issuance, tracking and revocation
+* Fine-grained permission management
+* Account lockout and login brute-force protection
+* Rate limiting and abuse detection
+* Mock enterprise SSO integration
+* Authentication audit logging
+* Compliance-ready audit export
+* Service-to-service JWT verification
+* Service API-key authentication
 * Token introspection caching
+* Security and abuse monitoring dashboards
 
 ---
 
@@ -82,20 +78,25 @@ app/
 ├── services/
 │   ├── auth_service.py
 │   ├── audit_service.py
-│   └── email_service.py
+│   ├── email_service.py
+│   ├── audit_export_service.py
+│   ├── mfa_service.py
+│   ├── rate_limit_service.py
+│   ├── sso_service.py
 │
 ├── core/
 │   ├── config.py
 │   ├── security.py
 │   ├── dependencies.py
 │   ├── password_validator.py
-│   └── service_auth.py
-│   └── token_cache.py
-│   └── permissions.py
-│   └── verify_rate_limiter.py
+│   ├── service_auth.py
+│   ├── token_cache.py
+│   ├── permissions.py
+│   ├── verify_rate_limiter.py
 │
 ├── models/
 │   ├── auth_audit_logs.py
+│   ├── abuse_event.py
 │   ├── password_reset_tokens.py
 │   ├── failed_login_attempts.py
 │   ├── refresh_token.py
@@ -109,7 +110,8 @@ app/
 
 tests/
 ├── test_auth.py
-└── test_integration.py
+├── test_integration.py
+├── test_verify_load.py
 ```
 ---
 
@@ -125,8 +127,24 @@ DATABASE_URL=sqlite:///./platform.db
 TRUST_PROXY=false
 ```
 
+# /verify load-test configuration
+PLATFORM_BASE_URL=http://127.0.0.1:8005
+ACCESS_TOKEN="<your-token>"
+TOTAL_REQUESTS=150
+CONCURRENCY=20
+TIMEOUT_SECONDS=10
+
 Production should use PostgreSQL and a securely managed secret.
 The JWT signing secret must never be hardcoded in source code.
+The ACCESS_TOKEN must be a valid user access token obtained after
+successful MFA verification. Do not commit a real access token or
+other secrets to source control.
+
+The remaining load-test variables have the following defaults:
+
+TOTAL_REQUESTS=150
+CONCURRENCY=20
+TIMEOUT_SECONDS=10
 ---
 
 # Roles
@@ -176,47 +194,44 @@ password_reset_tokens
 auth_audit_logs
 role_change_history
 service_api_keys
+abuse_event
 ```
 ---
 
-# Authentication Flow
+---
 
-The normal user authentication flow is:
 
-```text
-Client
-  |
-  | Register
-  v
-Platform Service
-  |
-  | Validate request
-  | Hash password
-  v
-Database
-```
-
-After registration:
+## Authentication Flow
 
 ```text
 Client
-  |
-  | username + password
-  v
+  │
+  │ username + password
+  ▼
 POST /api/v1/auth/login
-  |
-  | Validate credentials
-  | Check account status
-  | Check role assignment
-  v
-JWT Access Token + Refresh Token
+  │
+  ├── Validate credentials
+  ├── Check account status / lockout
+  └── Create MFA challenge
+          │
+          ▼
+POST /api/v1/auth/mfa/verify
+  │
+  ├── Validate challenge
+  ├── Validate OTP
+  └── Issue JWT tokens
+          │
+          ├── Access Token
+          └── Refresh Token
 ```
 
-The client then sends:
+The login endpoint does not directly issue JWT tokens when MFA is enabled. It first creates an MFA challenge. After successful OTP verification, the Platform Service issues the access and refresh tokens.
 
-```http
-Authorization: Bearer <access_token>
-```
+---
+
+# User Registration
+
+## POST `/api/v1/auth/register`
 
 to protected endpoints.
 
@@ -264,71 +279,83 @@ This prevents users from assigning privileged roles to themselves during registr
 
 The refresh token is marked as revoked in the database.
 
-After logout, the revoked refresh token cannot be used to obtain another access token.
+## Login and Multi-Factor Authentication
 
----
+The current login flow uses MFA.
 
-# Login
-
-## POST `/api/v1/auth/login`
-
-Login uses username/email and password.
-
-The login process is:
+### Step 1 – Login
 
 ```text
-Request
-   |
-   v
-Pydantic validation
-   |
-   v
-Find user
-   |
-   v
-Check account status
-   |
-   v
-Check role assignment
-   |
-   v
-Verify BCrypt password hash
-   |
-   v
-Generate JWT access token
-   |
-   v
-Generate refresh token
-   |
-   v
-Store refresh-token information
-   |
-   v
-Return tokens
+POST /api/v1/auth/login
 ```
 
-### JWT generation
+The user provides:
 
-`python-jose` is used for JWT creation and verification.
+* Email
+* Password
 
-The access token contains information such as:
+The Platform Service:
+
+1. Validates the request.
+2. Checks whether the account is active or locked.
+3. Applies login rate limiting.
+4. Verifies the password.
+5. Creates an MFA challenge.
+6. Sends a mock OTP.
+7. Returns the MFA challenge ID.
+
+Example response:
+
+```json
+{
+  "mfa_required": true,
+  "challenge_id": "<challenge-id>",
+  "message": "OTP sent for verification"
+}
+```
+
+At this stage, access and refresh tokens are **not returned yet**.
+
+### Step 2 – MFA Verification
 
 ```text
-sub
-email
-role
-type
-exp
+POST /api/v1/auth/mfa/verify
 ```
 
-The access token is short-lived.
+The client sends:
 
-Current configuration:
+```json
+{
+  "challenge_id": "<challenge-id>",
+  "otp": "<mock-otp>"
+}
+```
+
+After successful OTP verification, the Platform Service generates:
+
+* Access token
+* Refresh token
+
+Example:
+
+```json
+{
+  "access_token": "<access-token>",
+  "refresh_token": "<refresh-token>",
+  "token_type": "bearer"
+}
+```
+
+### MFA Configuration
 
 ```text
-Access token: 15 minutes
-Refresh token: 7 days
+OTP expiration: 5 minutes
+MFA rate limit: 5 requests / 300 seconds
+Abuse event: MFA_ABUSE
 ```
+
+The current OTP implementation is a **mock MFA flow for development/testing**.
+
 ---
 
 # Password Hashing
@@ -364,7 +391,7 @@ Stored Hash
 
 Passlib provides the password-hashing interface while BCrypt performs the password hashing.
 
----
+Protected endpoints use FastAPI dependencies to extract and validate the JWT.
 
 # JWT Authentication
 
@@ -508,10 +535,11 @@ require_any_role("ceo", "vp_operations")
 ```python
 require_all_roles(...)
 ```
+a service can check:
 
 This allows other services to use the same authorization pattern.
 
-For example:
+The authorization model becomes:
 
 ```text
 GET /admin/users
@@ -848,6 +876,8 @@ Which user was affected?
 When did it happen?
 ```
 
+A revoked refresh session cannot be used to obtain new access tokens.
+
 ---
 
 # Security Dashboard
@@ -918,17 +948,26 @@ X-Request-ID: <unique-request-id>
 
 Example response:
 
+### `/verify` Response
+
 ```json
 {
   "valid": true,
-  "user_id": 123,
-  "email": "supplier@company.com",
-  "full_name": "Supplier User",
-  "role": "supplier",
-  "supplier_id": "101",
-  "is_active": true
+  "user_id": 1,
+  "email": "user@company.com",
+  "full_name": "Example User",
+  "role": "warehouse_manager",
+  "supplier_id": null,
+  "is_active": true,
+  "permissions": [
+    "inventory:read",
+    "inventory:write"
+  ]
 }
 ```
+
+The `/verify` endpoint validates the access token, checks the user's account status, and returns the authenticated user's identity, role, account status, and permissions.
+
 
 This allows another service to validate a user token without implementing JWT verification logic independently.
 
@@ -1188,66 +1227,51 @@ Invalid or missing keys return:
 401 Unauthorized
 ```
 
-# API-Key Rate Limiting
+## `/verify` Rate Limiting
 
-An optional extension for service authentication is rate limiting `/verify` requests by the calling service.
+Rate limiting is implemented for the `/api/v1/auth/verify` endpoint.
 
-The calling service identifies itself using the `X-Caller-Service` header:
+Current configuration:
 
-```http
-X-Caller-Service: inventory-service
-```
+| Endpoint              |        Limit |     Window |
+| --------------------- | -----------: | ---------: |
+| `/api/v1/auth/verify` | 100 requests | 60 seconds |
 
-The Platform Service maintains a separate rate-limit bucket for each calling service.
-
-For example, with:
-
-```python
-VERIFY_MAX_REQUESTS = 100
-VERIFY_WINDOW_SECONDS = 60
-```
-
-`inventory-service` can make a maximum of **100 `/verify` requests within a rolling 60-second window**.
+The caller service is identified using the `X-Caller-Service` header.
 
 ```text
-Request 1 → Allowed
-Request 2 → Allowed
-Request 3 → Allowed
-Request 4 → Allowed
-Request 5 → Allowed
-Request 101 → 429 Too Many Requests
+service_api_keys
 ```
-
-After requests fall outside the 60-second window, new requests can be accepted again.
-
-Different calling services have independent limits:
 
 ```text
-inventory-service  → 100 requests / 60 seconds
-logistics-service  → 100 requests / 60 seconds
-compliance-service → 100 requests / 60 seconds
-supplier-service → 100 requests / 60 seconds
+X-Caller-Service: inventory
 ```
 
-When the configured limit is exceeded, the Platform Service returns:
+The rate-limit bucket is maintained per:
 
-```http
-429 Too Many Requests
+```text
+caller_service + endpoint
 ```
 
-This helps prevent excessive `/verify` traffic and limits the impact if a service credential is compromised.
+If the `X-Caller-Service` header is missing, the caller is recorded as `unknown`.
 
-The limit can be adjusted through configuration without changing the rate-limiting logic. For example:
+When the limit is exceeded:
 
-```python
-VERIFY_MAX_REQUESTS = 300
-VERIFY_WINDOW_SECONDS = 100
+* HTTP `429 Too Many Requests` is returned.
+* A `RATE_LIMIT_EXCEEDED` audit event is created.
+* An abuse event is recorded.
+* The response includes a `Retry-After` header.
+
+Example:
+
+```text
+HTTP/1.1 429 Too Many Requests
+Retry-After: 60
 ```
 
-would allow **300 `/verify` requests per calling service within a rolling 100-second window**.
 
 ---
-# Token Introspection Caching
+# Token Verification Caching
 
 Multiple services may repeatedly call:
 
@@ -1293,6 +1317,29 @@ Cache lookup
                            v
                        Store result
 ```
+### Rate-Limit and Cache Ordering
+
+The `/verify` rate limiter executes before the cache lookup.
+
+Therefore, cached verification results cannot bypass `/verify`
+rate limits.
+
+The request flow is:
+
+Request
+   |
+   v
+/verify rate limiter
+   |
+   v
+Cache lookup
+   |
+   +---- Cache hit ----> Return cached result
+   |
+   +---- Cache miss ---> JWT verification
+                              |
+                              v
+                         Cache result
 
 Current target TTL:
 
@@ -1350,8 +1397,11 @@ POST   /api/v1/admin/service-keys
 GET    /api/v1/admin/service-keys
 
 DELETE /api/v1/admin/service-keys/{key_id}
-```
 
+GET /api/v1/admin/audit/export
+
+GET /api/v1/admin/abuse/dashboard
+```
 ---
 
 # Authentication Endpoints
@@ -1374,8 +1424,11 @@ GET  /api/v1/auth/me/permissions
 POST /api/v1/auth/password-reset/request
 
 POST /api/v1/auth/password-reset/reset
-```
 
+POST /api/v1/auth/mfa/verify
+
+POST /api/v1/auth/sso/login
+```
 ---
 
 # User Endpoints
@@ -1383,7 +1436,6 @@ POST /api/v1/auth/password-reset/reset
 ```text
 GET /api/v1/users/me
 ```
-
 ---
 
 # Request and Error Contract
@@ -1404,7 +1456,7 @@ The Platform Service uses standard HTTP status codes.
 | 500    | Internal server error                 |
 | 503    | Service unavailable                   |
 
-Example:
+The limit can be adjusted through configuration without changing the rate-limiting logic. For example:
 
 ```json
 {
@@ -1415,6 +1467,7 @@ Example:
 Authentication failures should avoid revealing whether a specific account exists.
 
 ---
+# Token Introspection Caching
 
 # Integration Headers
 
@@ -1434,7 +1487,20 @@ X-API-Key: sk_<service-secret>
 
 `X-Request-ID` helps correlate requests across microservices.
 
----
+```text
+Inventory
+   |
+   +--> /verify
+   +--> /verify
+   +--> /verify
+   +--> /verify
+           |
+           v
+      Platform Service
+           |
+           v
+      JWT verification
+```
 
 # Example cURL
 
@@ -1594,47 +1660,29 @@ The default configuration excludes integration tests:
 [tool.pytest.ini_options]
 addopts = "-m 'not integration'"
 ```
-
 ---
 
-# End-to-End Service Flow
-
-A realistic EAICSP flow can look like this:
+## End-to-End Service Flow
 
 ```text
-                    User
-                     |
-                     v
-                API Gateway
-                     |
-                     v
-              Platform Service
-                     |
-              Login / JWT
-                     |
-          +----------+----------+
-          |                     |
-          v                     v
-     Inventory              Compliance
-          |                     |
-          |                     |
-          +----------+----------+
-                     |
-                     v
-                 Logistics
-```
-
-For a user request:
-
-```text
-1. User logs in
-2. Platform generates JWT
-3. Gateway receives request
-4. Gateway/service sends JWT
-5. Platform verifies JWT when required
-6. Service checks role/permission
-7. Service performs business operation
-8. Response returns to client
+1. User registers with the Platform Service
+        ↓
+2. User submits username/password to /auth/login
+        ↓
+3. Platform validates credentials and creates MFA challenge
+        ↓
+4. User submits OTP to /auth/mfa/verify
+        ↓
+5. Platform issues Access Token + Refresh Token
+        ↓
+6. Client calls Inventory / Logistics / Compliance / Supplier services
+        ↓
+7. Calling service sends the Access Token to Platform /auth/verify
+        ↓
+8. Platform validates the token and returns user identity,
+   role, account status, and permissions
+        ↓
+9. Calling service performs its business operation
 ```
 ---
 
@@ -1663,7 +1711,6 @@ Raw JWTs
 Raw API keys
 Password reset secrets
 ```
-
 ---
 
 # Concurrency and Performance
@@ -1958,6 +2005,9 @@ Registration
 Login
      |
      v
+MFA/OTP
+     |
+     v
 JWT Access + Refresh Tokens
      |
      v
@@ -1990,3 +2040,335 @@ Token Introspection Caching
 
 This allows the other EAICSP microservices to focus on their business responsibilities while using a common authentication and authorization foundation.
 
+
+## 1. Mock Enterprise SSO
+
+A mock enterprise SSO integration has been added:
+
+```text
+Enterprise Identity
+       ↓
+Platform SSO
+       ↓
+Validate Provider + External ID
+       ↓
+Cross-check EAICSP User
+       ↓
+EAICSP JWT Tokens
+```
+
+Endpoint:
+
+```text
+POST /api/v1/auth/sso/login
+```
+
+Only identities matching the configured mock enterprise directory and an existing EAICSP user are allowed to authenticate.
+
+SSO rate-limit violations are recorded as `SSO_ABUSE`.
+
+---
+
+## 2. Compliance-Ready Audit Export
+
+Authentication and security events can be exported as CSV.
+
+Endpoint:
+
+```text
+GET /api/v1/admin/audit/export
+```
+
+Supported filters:
+
+```text
+from_date
+to_date
+event_type
+```
+
+The export contains:
+
+```text
+timestamp
+actor_id
+actor_email
+action
+ip_address
+details
+```
+
+Audit records are stored in:
+
+```text
+auth_audit_logs
+```
+
+Examples of tracked events include:
+
+```text
+LOGIN_SUCCESS
+LOGIN_FAILED
+TOKEN_REVOKED
+PASSWORD_RESET
+ACCOUNT_LOCKED
+ROLE_CHANGED
+SERVICE_KEY_CREATED
+SERVICE_KEY_REVOKED
+```
+Audit export access is restricted to:
+
+```text
+ceo
+vp_operations
+```
+---
+
+## 3. Abuse Detection and Rate Limiting
+
+This introduces centralized abuse-event tracking through:
+
+```text
+abuse_event
+```
+
+Tracked abuse types include:
+
+```text
+RATE_LIMIT_EXCEEDED
+LOGIN_BRUTE_FORCE
+MFA_ABUSE
+SSO_ABUSE
+```
+---
+
+### Abuse Dashboard
+
+Endpoint:
+
+```text
+GET /api/v1/admin/abuse/dashboard
+```
+---
+
+The dashboard provides:
+
+```text
+Total abuse events
+Rate-limit violations
+MFA abuse events
+Login abuse events
+SSO abuse events
+Suspicious IPs
+Top IP addresses
+Top endpoints
+```
+
+## 4. `/verify` Combined Call-Graph Load Test
+
+The load test represents the current dependent-service call graph:
+
+```text
+Inventory   ──→ Platform /verify
+Supplier    ──→ Platform /verify
+Compliance  ──→ Platform /verify
+```
+---
+
+Each dependent service sends the user's access token to the Platform Service for centralized JWT verification.
+
+### Test Configuration
+
+```text
+Total requests : 150
+Concurrency    : 20
+Callers        : inventory, supplier, compliance
+Endpoint       : POST /api/v1/auth/verify
+```
+
+The test measures:
+
+```text
+Success/failure rate
+HTTP status codes
+Throughput
+Average latency
+Median latency
+P95 latency
+P99 latency
+Maximum latency
+Per-service results
+```
+
+### Manual `/verify` Testing
+
+First, obtain an access token after successful MFA verification.
+
+Set the token in PowerShell:
+
+```powershell
+$env:ACCESS_TOKEN="<your_access_token>"
+```
+
+To verify that the environment variable is set:
+
+```powershell
+echo $env:ACCESS_TOKEN
+```
+
+Then call the Platform `/verify` endpoint:
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:8005/api/v1/auth/verify" `
+  -H "Authorization: Bearer $env:ACCESS_TOKEN" `
+  -H "Content-Type: application/json" `
+  -H "X-Caller-Service: inventory"
+```
+
+The `X-Caller-Service` header identifies the dependent service making the verification request.
+
+Example callers:
+
+```text
+X-Caller-Service: inventory
+X-Caller-Service: supplier
+X-Caller-Service: compliance
+```
+
+Expected response:
+
+```json
+{
+  "valid": true,
+  "user_id": 1,
+  "email": "user@company.com",
+  "full_name": "Example User",
+  "role": "warehouse_manager",
+  "supplier_id": null,
+  "is_active": true,
+  "permissions": [
+    "inventory:read",
+    "inventory:write"
+  ]
+}
+```
+
+### Automated Load Test
+
+The automated load test is implemented in:
+
+```text
+tests/test_verify_load.py
+```
+
+Run it with:
+
+```powershell
+pytest tests/test_verify_load.py -s
+```
+
+The Platform Service must be running on:
+
+```text
+http://127.0.0.1:8005
+```
+
+The load test sends requests using the three current callers:
+
+```text
+Inventory
+Supplier
+Compliance
+```
+
+The caller is identified through:
+
+```http
+X-Caller-Service
+```
+
+### Latest Test Result
+
+```text
+Total requests      : 150
+Successful          : 150
+Failed              : 0
+Success rate        : 100.00%
+Total test time     : 1.598 sec
+Throughput          : 93.86 requests/sec
+Average latency     : 122.72 ms
+Median latency      : 90.68 ms
+P95 latency         : 321.97 ms
+P99 latency         : 385.78 ms
+Maximum latency     : 437.66 ms
+HTTP 200            : 150
+```
+### Caller Results
+
+```text
+Inventory   : 50/50 successful
+Supplier    : 50/50 successful
+Compliance  : 50/50 successful
+```
+
+These results were obtained in the local development environment using the configured test parameters. They provide a functional and baseline performance measurement and should not be interpreted as production capacity benchmarks.
+
+### Security and Rate-Limit Behavior
+
+The `/verify` endpoint is rate-limited to:
+
+```text
+100 requests / 60 seconds
+```
+
+The rate-limit bucket is maintained per:
+
+```text
+caller_service + endpoint
+```
+
+For example:
+
+```text
+inventory + /api/v1/auth/verify
+supplier  + /api/v1/auth/verify
+compliance + /api/v1/auth/verify
+```
+
+If a caller exceeds its configured limit, the Platform Service returns:
+
+```text
+HTTP 429 Too Many Requests
+```
+
+and records the corresponding security/abuse event.
+
+The rate limiter executes before the token-cache lookup, so cached verification results cannot bypass `/verify` rate limiting.
+
+### Access Token Security
+
+Use a valid access token obtained after successful MFA verification when performing manual tests.
+
+For documentation, use only a placeholder or clearly fake/truncated token:
+
+```powershell
+$env:ACCESS_TOKEN="<your_access_token>"
+```
+
+Do not commit a real access token to GitHub or any other source-control repository. A valid unexpired token could potentially be used to authenticate requests.
+
+---
+
+## 5. Swagger Authentication
+
+Swagger/OpenAPI uses the configured FastAPI authentication scheme.
+
+For protected endpoints such as `/auth/verify`, provide the issued access token using:
+
+Authorization: Bearer <access_token>
+
+The access token must be obtained after successful MFA verification.
+
+The Swagger authentication configuration must match the security dependency used by the Platform Service.
+
+**Centralized authentication, authorization, security, auditing, and service-to-service identity verification.**

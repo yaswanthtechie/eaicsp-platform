@@ -3,8 +3,6 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 from app.core.password_validator import validate_password
 from app.core.security import (
-    create_access_token,
-    create_refresh_token,
     hash_password,
     verify_password,
 )
@@ -22,6 +20,20 @@ from app.services.audit_service import (
     PASSWORD_RESET,
     create_audit_log,
 )
+from app.services.mfa_service import create_mfa_challenge
+
+import secrets
+import threading
+from collections import defaultdict
+import logging
+
+
+logger = logging.getLogger("auth_requests")
+
+
+# ============================================================
+# LOGIN SECURITY CONFIGURATION
+# ============================================================
 
 import secrets
 import threading
@@ -528,44 +540,26 @@ def login_user(
                         "Password has expired. ""Please reset your password."
                     ),
                 )
-                    
+        
         # ----------------------------------------------------
-        # 10. Create access token
-        # ----------------------------------------------------
-
-        access_token = create_access_token(
-            {
-                "sub": user.email,
-                "role": user.role.name,
-                "user_id": user.id,
-            }
-        )
-
-        # ----------------------------------------------------
-        # 11. Create refresh token
+        # 10. Create MFA challenge
         # ----------------------------------------------------
 
-        refresh_token = create_refresh_token(
-            {
-                "sub": user.email,
-                "user_id": user.id,
-            }
-        )
-
-        refresh_expires_at = (
-            datetime.now(timezone.utc)
-            + timedelta(days=7)
-        )
-
-        save_refresh_token(
-            db=db,
+        challenge_id, otp = create_mfa_challenge(
             user_id=user.id,
-            token=refresh_token,
-            expires_at=refresh_expires_at,
         )
 
         # ----------------------------------------------------
-        # 12. Successful login audit
+        # 11. Send mock OTP
+        # ----------------------------------------------------
+
+        MockEmailService.send_mfa_otp(
+            email=user.email,
+            otp=otp,
+        )
+
+        # ----------------------------------------------------
+        # 12. Successful password authentication audit
         # ----------------------------------------------------
 
         create_audit_log(
@@ -574,18 +568,18 @@ def login_user(
             user_id=user.id,
             email=user.email,
             ip_address=client_ip,
-            details="Login Successful",
+            details="Password authentication successful; MFA required",
         )
 
         logger.info(
-            "User logged in | user_id=%s | role=%s | email=%s | endpoint=/api/v1/auth/login",
+            "MFA challenge created | "
+            "user_id=%s | email=%s | endpoint=/api/v1/auth/login",
             user.id,
-            user.role.name,
             user.email,
         )
 
         # ----------------------------------------------------
-        # 13. Clear failed attempts for this email
+        # 13. Clear failed attempts
         # ----------------------------------------------------
 
         db.query(FailedLoginAttempt).filter(
@@ -597,13 +591,13 @@ def login_user(
         db.commit()
 
         # ----------------------------------------------------
-        # 14. Return tokens
+        # 14. Return MFA challenge
         # ----------------------------------------------------
 
         return {
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-            "token_type": "bearer",
+            "mfa_required": True,
+            "challenge_id": challenge_id,
+            "message": "OTP sent. Verify the OTP to complete login.",
         }
 
 # ============================================================

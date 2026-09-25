@@ -6,8 +6,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-VERIFY_MAX_REQUESTS = 100
-VERIFY_WINDOW_SECONDS = 60
+VERIFY_MAX_REQUESTS =100
+VERIFY_WINDOW_SECONDS =60
 
 class VerifyRateLimiter:
     def __init__(
@@ -38,7 +38,7 @@ class VerifyRateLimiter:
                 if now - timestamp < self.window_seconds
             ]
 
-            logger.debug(
+            logger.info(
                 "Verify rate limit | service=%s current=%s max=%s",
                 caller_service,
                 len(requests),
