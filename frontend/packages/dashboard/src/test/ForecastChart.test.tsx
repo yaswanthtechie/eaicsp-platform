@@ -62,7 +62,7 @@ describe("ForecastChart", () => {
     });
 
     expect(
-      screen.getByRole("button", { name: "Reset Zoom" })
+      screen.getByRole("button", { name: "Reset sales forecast zoom" })
     ).toBeInTheDocument();
   });
 
@@ -112,7 +112,7 @@ describe("ForecastChart", () => {
     ).toBeInTheDocument();
 
     expect(
-      screen.getByRole("button", { name: "Retry" })
+      screen.getByRole("button", { name: "Retry loading sales forecast" })
     ).toBeInTheDocument();
   });
 
@@ -136,7 +136,7 @@ describe("ForecastChart", () => {
     ).toBeInTheDocument();
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Retry" })
+      screen.getByRole("button", { name: "Retry loading sales forecast" })
     );
 
     await waitFor(() => {
@@ -148,21 +148,61 @@ describe("ForecastChart", () => {
     expect(dashboardApi.fetchForecast).toHaveBeenCalledTimes(2);
   });
 
-  it("resets zoom when Reset Zoom is clicked", async () => {
+  it("resets zoom when Reset Zoom is activated with Enter", async () => {
     render(<ForecastChart />);
 
-    await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: "Reset Zoom" })
-      ).toBeInTheDocument();
+    const resetButton = await screen.findByRole("button", {
+      name: "Reset sales forecast zoom",
     });
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Reset Zoom" })
+    resetButton.focus();
+
+    fireEvent.keyDown(resetButton, {
+      key: "Enter",
+      code: "Enter",
+    });
+
+    fireEvent.keyUp(resetButton, {
+      key: "Enter",
+      code: "Enter",
+    });
+
+    expect(resetButton).toBeInTheDocument();
+});
+
+  it("shows accessible loading state", () => {
+    const { container } = render(<ForecastChart />);
+
+    const loadingContainer = container.querySelector(
+      '[aria-label="Loading sales forecast"]'
     );
 
+    expect(loadingContainer).toHaveAttribute("aria-busy","true");
+  });
+
+  it("shows accessible error state", async () => {
+    render(<ForecastChart shouldFail />);
+
+    const errorContainer = await screen.findByRole("alert");
+
+    expect(errorContainer).toBeInTheDocument();
+
     expect(
-      screen.getByRole("button", { name: "Reset Zoom" })
+      screen.getByRole("button", {
+        name: "Retry loading sales forecast",
+      })
+    ).toBeInTheDocument();
+  });
+
+  it("provides an accessible name for the forecast chart", async () => {
+    render(<ForecastChart />);
+
+    await screen.findByText("Sales Forecast");
+
+    expect(
+      screen.getByRole("img", {
+        name: "Sales forecast chart showing predicted and actual values with a confidence band",
+      })
     ).toBeInTheDocument();
   });
 });

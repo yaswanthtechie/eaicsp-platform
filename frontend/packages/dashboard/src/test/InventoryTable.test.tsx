@@ -112,4 +112,86 @@ describe("InventoryTable", () => {
       screen.getByText("Expected Order Date")
     ).toBeInTheDocument();
   });
+
+  
+  it("has accessible loading state", () => {
+    render(<InventoryTable />);
+
+    const loadingContainer = screen.getByRole("status");
+
+    expect(loadingContainer).toHaveAttribute(
+      "aria-busy",
+      "true"
+    );
+
+    expect(loadingContainer).toHaveAttribute(
+      "aria-label",
+      "Loading inventory table"
+    );
+  });
+
+  it("has an accessible search input", async () => {
+    await loadTable();
+
+    const searchInput = screen.getByLabelText(
+      "Search inventory by SKU"
+    );
+
+    expect(searchInput).toBeInTheDocument();
+    expect(searchInput).toHaveAttribute("id","inventory-search");
+  });
+
+  it("has an accessible low stock checkbox", async () => {
+    await loadTable();
+
+    const checkbox = screen.getByLabelText(
+      "Show only low stock items"
+    );
+
+    expect(checkbox).toBeInTheDocument();
+    expect(checkbox).toHaveAttribute("type", "checkbox");
+  });
+
+  it("has accessible table structure", async () => {
+    await loadTable();
+
+    const table = screen.getByRole("table", {
+      name: "Inventory items",
+    });
+
+    expect(table).toBeInTheDocument();
+
+    expect(
+      screen.getAllByRole("columnheader")
+    ).toHaveLength(9);
+
+    expect(screen.getAllByRole("row").length).toBeGreaterThan(0);
+  });
+
+  it("has accessible table cells", async () => {
+    await loadTable();
+
+    expect(
+      screen.getAllByRole("cell").length
+    ).toBeGreaterThan(0);
+  });
+
+  it("shows accessible error state with retry button", async () => {
+    render(<InventoryTable shouldFail />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+
+    const alert = screen.getByRole("alert");
+
+    expect(alert).toBeInTheDocument();
+
+    const retryButton = screen.getByRole("button", {
+      name: "Retry",
+    });
+
+    expect(retryButton).toBeInTheDocument();
+  });
+
 });

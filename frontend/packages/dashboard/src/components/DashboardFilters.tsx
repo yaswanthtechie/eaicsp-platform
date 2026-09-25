@@ -15,11 +15,13 @@ interface DashboardFiltersProps {
     startDate: string;
     endDate: string;
   }) => void;
+  lockedWarehouse?: string;
 }
 
 function DashboardFilters({
   filters,
   onFilterChange,
+  lockedWarehouse,
 }: DashboardFiltersProps) {
 
   const [inventoryData, setInventoryData] = useState<
@@ -124,7 +126,8 @@ function DashboardFilters({
       }}
     >
       <select
-        value={filters.warehouse}
+        value={lockedWarehouse ?? filters.warehouse}
+        disabled={lockedWarehouse !== undefined}
         onChange={(event) => {
           const value = event.target.value;
 

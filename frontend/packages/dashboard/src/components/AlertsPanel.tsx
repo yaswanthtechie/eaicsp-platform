@@ -122,6 +122,9 @@ export default function AlertsPanel({
   if (isConnecting) {
     return (
       <div
+        role="status"
+        aria-busy="true"
+        aria-label="Loading live alerts"
         style={{
           background: colors.surface,
           padding: space.md,
@@ -164,6 +167,7 @@ export default function AlertsPanel({
   if (failed) {
     return (
       <div
+        role="alert"
         style={{
           background: colors.surface,
           padding: space.md,
@@ -216,6 +220,7 @@ export default function AlertsPanel({
 
   return (
     <div
+      aria-label="Live alerts"
       style={{
         background: colors.surface,
         padding: space.md,
@@ -266,6 +271,8 @@ export default function AlertsPanel({
         return (
           <div
             key={alert.id}
+            role="article"
+            aria-label={`${getTitle(alert.type)}: ${alert.message}`}
             style={{
               opacity: isFading ? 0 : 1,
               transition: "opacity 0.5s ease",
