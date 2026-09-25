@@ -18,6 +18,9 @@ from app.core.auth import (
 )
 from app.database import get_db
 from app.models.inventory import Inventory
+from app.services.network_optimization_service import (
+    optimize_network_safety_stock,
+)
 
 from app.schemas.inventory import (
     InventoryCreate,
@@ -820,3 +823,24 @@ def delete_inventory_route(
     except Exception:
         db.rollback()
         raise
+@router.get(
+    "/network-optimization",
+)
+def network_optimization(
+    days: int = 30,
+    db: Session = Depends(get_db),
+    auth=Depends(
+        require_permission("inventory:read")
+    ),
+):
+    try:
+        return optimize_network_safety_stock(
+            db=db,
+            days=days,
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc

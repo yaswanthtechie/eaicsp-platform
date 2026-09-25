@@ -7,7 +7,10 @@ from fastapi import (
 
 from sqlalchemy.orm import Session
 
-from app.core.auth import require_permission
+from app.core.auth import (
+    require_permission,
+    require_roles,
+)
 from app.database import get_db
 
 from app.schemas.purchase_order import (
@@ -15,7 +18,13 @@ from app.schemas.purchase_order import (
     PurchaseOrderResponse,
 )
 
+from app.services.compliance_client import (
+    ComplianceServiceError,
+    ComplianceServiceUnavailableError,
+)
+
 from app.services.purchase_order_service import (
+    approve_purchase_order,
     create_automatic_draft_po,
     receive_purchase_order,
 )
@@ -45,11 +54,48 @@ def create_purchase_order(
             data=data,
         )
 
+    except ComplianceServiceUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+
+    except ComplianceServiceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+
     except ValueError as exc:
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
+        ) from exc
+
+
+@router.post(
+    "/{po_id}/approve",
+    response_model=PurchaseOrderResponse,
+    status_code=status.HTTP_200_OK,
+)
+def approve_purchase_order_endpoint(
+    po_id: str,
+    db: Session = Depends(get_db),
+    auth=Depends(
+        require_roles("vp_operations")
+    ),
+):
+    try:
+        return approve_purchase_order(
+            db=db,
+            po_id=po_id,
         )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
 
 @router.post(
@@ -72,6 +118,6 @@ def receive_purchase_order_endpoint(
 
     except ValueError as exc:
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
-        )
+        ) from exc
