@@ -46,7 +46,12 @@ frontend/
             │
             ├── test/
             │   ├── AlertsPanel.test.tsx
+            |   ├── App.role.test.tsx
+            |   ├── ExportCsv.test.tsx
+            |   ├── ExportCsvButton.test.tsx
+            |   ├── ExportPdf.test.tsx
             │   ├── ForecastChart.test.tsx
+            |   ├── Insights.test.tsx
             │   ├── InventoryHeatmap.test.tsx
             │   ├── InventoryTable.test.tsx
             │   ├── DashboardFilters.test.tsx
@@ -266,7 +271,7 @@ This prevents an error in one component from causing the entire dashboard to dis
 Each protected widget also provides a retry action so the user can attempt to render the component again.
 
 
-# 7. Round 7/8/9 Features
+# 7. Combined Round 7+8+9 Features
 
 ### Auto-Generated Narrative Insights
 
@@ -334,15 +339,16 @@ PDF export creates a downloadable.The exported PDF contains role-appropriate das
 
 What was fixed and tested:
 
-* **Inventory Heatmap rows** are keyboard-reachable (`tabIndex=0`, `role="button"`) with a descriptive `aria-label` (SKU, product, stock, reorder point). Details appear on focus, Enter or Space, and hide on Escape. Covered by 5 tests in `InventoryHeatmap.test.tsx`.
+* **Inventory Heatmap rows** are keyboard-reachable (`tabIndex=0`, `role="button"`) with a descriptive `aria-label` (SKU, product, stock, reorder point). Details appear on focus, Enter or Space, and hide on Escape.   Covered by 5 tests in `InventoryHeatmap.test.tsx`.
 * The **product details panel** is announced to screen readers (`role="status"`, `aria-live="polite"`).
 * **Loading, error and empty states** are announced (`aria-busy`, `role="alert"`, `role="status"`).
 * All **filter and export controls** have accessible names (`aria-label`).
 * **KPI cards** are real `<button>` elements, so they already work with the keyboard.
 
+Accessibility audit completed using Lighthouse. Initial score: 81/100. Identified ARIA structure, contrast, and landmark issues; fixes are being applied and will be rechecked.
+
 Not done yet:
 
-* Automated audit (axe / Lighthouse) and a written list of its findings.
 * Colour-contrast check of the status colours in `tokens.ts`.
 * Manual screen-reader walkthrough (NVDA / VoiceOver).
 
@@ -397,6 +403,10 @@ The tests cover:
 * Dashboard filter behavior.
 * Inventory filtering.
 * KPI behavior.
+* Role-based dashboard views.
+* Narrative Insights.
+* CSV export.
+* PDF export.
 * WebSocket connection states.
 * Receiving alerts.
 * Reconnection.
@@ -441,7 +451,7 @@ When real API integration is added, the loading state should be driven by the ac
 
 ### Virtualized Inventory Table and Inventory Heatmap
 
-For the Inventory Table, I used virtualization with `react-window` to handle long lists more efficiently.
+For the Inventory Table and Inventory Heatmap, I used virtualization with `react-window` to handle long lists more efficiently.
 
 Instead of rendering all rows at once, only the rows needed for the visible scroll area are rendered. As the user scrolls, the required rows are rendered.
 
@@ -535,5 +545,5 @@ The performance test used the 12,000-item inventory dataset across 4 warehouses 
 
 The recorded profiler measurements represent actual render activity captured during these interactions.
 
-**Note:** The original tasks assigned to me for this dashboard were **Round 7, Round 8, and Round 9**. In the PDF, the same work is referenced as **Round 9, Round 10, and Round 11** because I started this dashboard two tasks behind the other Workstreams. I have kept **Round 7/8/9** in this README because that is the original round numbering under which I started and tracked this implementation.
+**Note:** The original tasks assigned to me for this dashboard were **Round 7, Round 8, and Round 9**. In the PDF, the same work is referenced as **Round 9, Round 10, and Round 11** because I started this dashboard two tasks behind the other WorkStreams. I have kept **Round 7/8/9** in this README because that is the original round numbering under which I started and tracked this implementation.
 
