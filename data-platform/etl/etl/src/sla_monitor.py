@@ -185,3 +185,84 @@ def check_run_duration_sla(
         )
 
     return result
+
+
+def evaluate_quality_sla(
+    rows_inserted,
+    rows_updated,
+    rows_rejected,
+    min_pass_rate=0.95,
+):
+    """Evaluate the data-quality SLA for a completed source/run.
+
+    Pass rate is the fraction of processed rows that were accepted for load.
+    A run with no processed rows is not evaluable, avoiding false alarms on
+    empty/no-op runs.
+    """
+    accepted = int(rows_inserted or 0) + int(rows_updated or 0)
+    rejected = int(rows_rejected or 0)
+    processed = accepted + rejected
+
+    if processed <= 0:
+        return {
+            "evaluable": False,
+            "breached": False,
+            "pass_rate": None,
+            "threshold": min_pass_rate,
+            "processed_rows": 0,
+            "accepted_rows": accepted,
+            "rejected_rows": rejected,
+        }
+
+    pass_rate = accepted / processed
+    return {
+        "evaluable": True,
+        "breached": pass_rate < min_pass_rate,
+        "pass_rate": pass_rate,
+        "threshold": min_pass_rate,
+        "processed_rows": processed,
+        "accepted_rows": accepted,
+        "rejected_rows": rejected,
+    }
+
+
+def check_quality_sla(
+    run_id,
+    source_name,
+    rows_inserted,
+    rows_updated,
+    rows_rejected,
+    environment,
+    table,
+    batch_files,
+    pipeline_name,
+    min_pass_rate=0.95,
+):
+    """Log a detailed CRITICAL alert when a source falls below its quality SLA."""
+    result = evaluate_quality_sla(
+        rows_inserted,
+        rows_updated,
+        rows_rejected,
+        min_pass_rate=min_pass_rate,
+    )
+
+    if result["breached"]:
+        message = (
+            f"Data-quality SLA breached: environment={environment}, "
+            f"source={source_name}, table={table}, run_id={run_id}, "
+            f"pass_rate={result['pass_rate']:.2%}, "
+            f"required>={min_pass_rate:.2%}, "
+            f"processed={result['processed_rows']}, "
+            f"accepted={result['accepted_rows']}, "
+            f"rejected={result['rejected_rows']}, "
+            f"batch_files={batch_files}"
+        )
+        logger.critical(f"[QUALITY-SLA] {message}")
+        write_alert(
+            pipeline=pipeline_name,
+            severity="CRITICAL",
+            message=message,
+            run_id=run_id,
+        )
+
+    return result

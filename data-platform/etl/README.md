@@ -1,4 +1,4 @@
-Sales ETL Pipeline
+﻿Sales ETL Pipeline
 
 Overview
 
@@ -45,53 +45,53 @@ Project Structure
 
 data-platform/
 
-│
+â”‚
 
-├── dags/
+â”œâ”€â”€ dags/
 
-│   └── sales_etl_dag.py
+â”‚ Â  â””â”€â”€ sales_etl_dag.py
 
-│
+â”‚
 
-├── etl/
+â”œâ”€â”€ etl/
 
-│   └── src/
+â”‚ Â  â””â”€â”€ src/
 
-│       ├── extract.py
+â”‚ Â  Â  Â  â”œâ”€â”€ extract.py
 
-│       ├── transform.py
+â”‚ Â  Â  Â  â”œâ”€â”€ transform.py
 
-│       ├── quality_gate.py
+â”‚ Â  Â  Â  â”œâ”€â”€ quality_gate.py
 
-│       ├── load.py
+â”‚ Â  Â  Â  â”œâ”€â”€ load.py
 
-│       ├── pipeline.py
+â”‚ Â  Â  Â  â”œâ”€â”€ pipeline.py
 
-│       ├── main.py
+â”‚ Â  Â  Â  â”œâ”€â”€ main.py
 
-│       ├── alerts.py
+â”‚ Â  Â  Â  â”œâ”€â”€ alerts.py
 
-│       ├── alerts_api.py
+â”‚ Â  Â  Â  â”œâ”€â”€ alerts_api.py
 
-│       ├── lineage_api.py
+â”‚ Â  Â  Â  â”œâ”€â”€ lineage_api.py
 
-│       ├── alert_service.py
+â”‚ Â  Â  Â  â”œâ”€â”€ alert_service.py
 
-│       ├── data_contract.py
+â”‚ Â  Â  Â  â”œâ”€â”€ data_contract.py
 
-│       ├── pandera_schema.py
+â”‚ Â  Â  Â  â”œâ”€â”€ pandera_schema.py
 
-│       └── schema_drift.py
+â”‚ Â  Â  Â  â””â”€â”€ schema_drift.py
 
-│
+â”‚
 
-├── sql/
+â”œâ”€â”€ sql/
 
-│   └── schema.sql
+â”‚ Â  â””â”€â”€ schema.sql
 
-│
+â”‚
 
-└── docker-compose.yml
+â””â”€â”€ docker-compose.yml
 
 
 ETL Pipeline Flow
@@ -99,41 +99,41 @@ ETL Pipeline Flow
 
 CSV Files
 
-     │
+Â  Â  Â â”‚
 
-     ▼
+Â  Â  Â â–¼
 
- Extract
+Â Extract
 
-     │
+Â  Â  Â â”‚
 
-     ▼
+Â  Â  Â â–¼
 
- Quality Gate
+Â Quality Gate
 
-     │
+Â  Â  Â â”‚
 
-     ▼
+Â  Â  Â â–¼
 
- Transform
+Â Transform
 
-     │
+Â  Â  Â â”‚
 
-     ▼
+Â  Â  Â â–¼
 
- Load
+Â Load
 
-     │
+Â  Â  Â â”‚
 
-     ▼
+Â  Â  Â â–¼
 
- Update Watermark
+Â Update Watermark
 
-     │
+Â  Â  Â â”‚
 
-     ▼
+Â  Â  Â â–¼
 
- Log Pipeline Run
+Â Log Pipeline Run
 
 
 Database Tables
@@ -271,7 +271,7 @@ commands
 
 
 
-SELECT * FROM sales_fact LIMIT 5;  This is the main fact table. It stores the cleaned and validated sales records after the ETL pipeline finishes.
+SELECT * FROM sales_fact LIMIT 5; Â This is the main fact table. It stores the cleaned and validated sales records after the ETL pipeline finishes.
 
 SELECT * FROM etl_run_log ORDER BY run_id DESC LIMIT 5;
 
@@ -453,29 +453,29 @@ What's not done / not fully polished
 
 The generic engine's quality-gate thresholds (null rate, negative rate,
 
-  row count bounds) are per-source config values, not auto-tuned - they're
+Â  row count bounds) are per-source config values, not auto-tuned - they're
 
-  set to match R3's sales defaults for sales, and reasonable-guess
+Â  set to match R3's sales defaults for sales, and reasonable-guess
 
-  defaults for inventory. Worth revisiting once there's real inventory
+Â  defaults for inventory. Worth revisiting once there's real inventory
 
-  data to calibrate against.
+Â  data to calibrate against.
 
 bulk_upsert()'s history-copy step (_bulk_copy_sales_history) is
 
-  sales-specific - it isn't a generic "any table can have history" feature.
+Â  sales-specific - it isn't a generic "any table can have history" feature.
 
-  Fine for now since inventory doesn't need CDC history per the spec, but
+Â  Fine for now since inventory doesn't need CDC history per the spec, but
 
-  if a future source does, that function needs generalizing.
+Â  if a future source does, that function needs generalizing.
 
 No integration with Tharun's validation library or Sandeep's profiling
 
-  library this round - deliberately deferred per the round instructions.
+Â  library this round - deliberately deferred per the round instructions.
 
 Per-round instructions, this stays fully local/mocked - no shared
 
-  Postgres/Redis/Kafka assumed to exist yet.
+Â  Postgres/Redis/Kafka assumed to exist yet.
 
 Round 5: harder edges (conflict resolution, SLA, point-in-time, reconciliation, performance ceiling)
 
@@ -779,3 +779,322 @@ Replay is transaction-safe.
 Wrong-source replay is rejected.
 
 Failure paths are tested.
+
+## Combined Round 9 + 10 + 11 (ETL)
+
+Milestone Status
+
+Milestone
+
+Status
+
+Implementation / Proof
+
+M1 Multi-environment configuration
+
+Partial
+
+Dev, staging and prod configurations with configuration-only environment switching
+
+M2 Data Quality SLA Alerting
+
+Partial
+
+Quality pass-rate SLA with CRITICAL alert when threshold is breached
+
+M3 Dependency Visualization
+
+Done
+
+Generates the ETL dependency graph
+
+M4 Cross-table Lineage
+
+Partial
+
+Traces a target row across shipments -> inventory -> sales
+
+M5 Disaster Recovery Drill
+
+Partial
+
+Backup, failure simulation, restore and manifest-based replay
+
+M1 Multi-environment Configuration
+
+The ETL pipeline supports separate environment configurations:
+
+pipeline_config.yaml - development
+
+pipeline_config.staging.yaml - staging
+
+pipeline_config.prod.yaml - production
+
+The same ETL pipeline code is reused across environments.
+
+Environment switching is configuration-driven using:
+
+ETL_ENV=dev
+ETL_ENV=staging
+ETL_ENV=prod
+
+No pipeline code changes are required when switching environments.
+
+Environment-specific configuration
+
+Development:
+
+Environment: dev
+
+Staging:
+
+Environment: staging
+Schedule: 0 3 * * *
+
+Production:
+
+Environment: prod
+Schedule: 0 1 * * *
+
+The Docker services mount the environment configuration files so the scheduler, webserver, worker and triggerer use the same configuration model.
+
+M1 Verification
+
+The configuration loader successfully switches between:
+
+dev
+staging
+prod
+
+The final dependency configuration is:
+
+SOURCE -> sales -> inventory -> shipments
+
+M2 Data Quality SLA Alerting
+
+The pipeline includes data-quality SLA monitoring in:
+
+etl/src/sla_monitor.py
+
+The quality SLA evaluates:
+
+Processed rows
+
+Accepted rows
+
+Rejected rows
+
+Pass rate
+
+Configured minimum pass-rate threshold
+
+The pass rate is calculated as:
+
+pass_rate = accepted_rows / processed_rows
+
+A CRITICAL alert is generated when the pass rate falls below the configured SLA threshold.
+
+M2 Verification
+
+A deliberate degraded test was executed:
+
+Processed: 100
+Accepted: 80
+Rejected: 20
+Pass rate: 80%
+Required: 95%
+
+The pipeline generated a CRITICAL quality-SLA alert.
+
+Result:
+
+QUALITY-SLA Data-quality SLA breached
+pass rate=80.00%
+required>=95.00%
+
+M3 Dependency Visualization
+
+Dependency visualization is implemented in:
+
+etl/src/dependency_graph.py
+
+The configured ETL dependencies are generated as a graph.
+
+Generated graph:
+
+digraph pipeline_dependencies {
+  rankdir=LR;
+  "SOURCE" [shape=box];
+  "SOURCE" -> "sales";
+  "sales" -> "inventory";
+  "inventory" -> "shipments";
+}
+
+This represents the execution dependency:
+
+SOURCE
+   |
+   v
+sales
+   |
+   v
+inventory
+   |
+   v
+shipments
+
+M3 Verification
+
+The dependency graph was generated successfully from the pipeline configuration.
+
+M4 Cross-table Lineage
+
+Cross-table lineage is implemented in:
+
+etl/src/lineage.py
+
+The lineage traversal follows the configured dependency chain:
+
+shipments_fact
+      |
+      v
+inventory_snapshot
+      |
+      v
+sales_fact
+
+Lineage matching uses the business keys:
+
+date / snapshot_date / shipment_date
+sku
+warehouse
+
+The lineage result includes:
+
+Table
+
+Row ID
+
+Run ID
+
+Source batch
+
+Lineage level
+
+Row role
+
+M4 Verification
+
+An end-to-end lineage test was successfully executed.
+
+Example result:
+
+Level 0:
+shipments_fact
+row_id = 1
+run_id = 34
+source_batch = shipments_2024-01-01.csv
+
+Level 1:
+inventory_snapshot
+row_id = 7
+
+Level 2:
+sales_fact
+row_id = 12148
+run_id = 999999
+source_batch = m4_test_sales.csv
+
+This proves that a target shipment row can be traced through the upstream inventory and sales tables.
+
+M5 Disaster Recovery Drill
+
+Disaster recovery is implemented using:
+
+etl/src/dr_recovery.py
+scripts/disaster_recovery_drill.py
+
+The recovery process supports:
+
+Creating a database backup.
+
+Recording the recovery manifest.
+
+Simulating a pipeline failure.
+
+Restoring the database backup.
+
+Replaying the recorded source batches.
+
+Verifying the recovered data.
+
+Recording the replay result.
+
+Backup artifact:
+
+docs/dr_drill_backup.dump
+
+Recovery documentation:
+
+docs/disaster_recovery_drill.md
+
+M5 Recovery Flow
+
+Normal Pipeline
+      |
+      v
+Database Backup
+      |
+      v
+Simulated Failure
+      |
+      v
+Database Restore
+      |
+      v
+Recovery Manifest
+      |
+      v
+Replay Source Batches
+      |
+      v
+Successful Recovery
+
+M5 Verification
+
+The recovery drill successfully restored the recorded pipeline state and replayed the required source batches.
+
+Recovery result:
+
+Original run: 11
+Replay run: 33
+Inserted: 1929
+Updated: 0
+Restored: 0
+Deleted: 0
+
+Final run status:
+
+run_id  status
+11      REPLAYED
+33      SUCCESS
+
+The recovery completed without manual reconstruction of the source data.
+
+Round 9-11 Definition of Done
+
+Multi-environment configuration is implemented and verified.
+
+Environment switching is configuration-only.
+
+Data-quality SLA breach generates a CRITICAL alert.
+
+Dependency graph is generated successfully.
+
+Cross-table lineage works end-to-end.
+
+Disaster recovery backup and restore drill is completed.
+
+Recovery replay successfully restores pipeline processing.
+
+> DR replay currently covers the sales source only; other sources require a history_table and compatible restore logic.

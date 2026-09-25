@@ -1,0 +1,7 @@
+digraph pipeline_dependencies {
+  rankdir=LR;
+  "SOURCE" [shape=box];
+  "SOURCE" -> "sales";
+  "sales" -> "inventory";
+  "inventory" -> "shipments";
+}
