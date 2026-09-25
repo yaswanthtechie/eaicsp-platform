@@ -4,6 +4,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routes.supplier_onboarding import (
     router as supplier_onboarding_router,
 )
+from app.routes.supplier_contract import (
+    router as supplier_contract_router,
+)
 from app.routes.purchase_order import router as purchase_order_router
 from app.routes.shipment import router as shipment_router
 from app.routes.goods_receipt import router as goods_receipt_router

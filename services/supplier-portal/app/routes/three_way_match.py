@@ -5,14 +5,17 @@ from app.core.auth import require_roles, verify_token
 from app.schemas.three_way_match import (
     ThreeWayMatchResponse,
     ThreeWayMatchResolution,
+    DisputeResolutionSuggestionResponse,
     PaymentApprovalResponse,
 )
-
 from app.services.three_way_match_service import (
     execute_three_way_match,
     get_three_way_match,
     resolve_three_way_discrepancy,
     approve_payment,
+)
+from app.services.dispute_resolution_service import (
+    get_dispute_resolution_suggestions,
 )
 
 router = APIRouter()
@@ -314,6 +317,57 @@ def resolve_match(
         raise HTTPException(
             status_code=400,
             detail=message,
+        )
+    
+
+@router.get(
+    "/three-way-matches/{supplier_id}/{invoice_number}/resolution-suggestion",
+    response_model=DisputeResolutionSuggestionResponse,
+)
+def get_resolution_suggestion(
+    supplier_id: str,
+    invoice_number: str,
+    user: dict = Depends(verify_token),
+):
+    """
+    Generate automated dispute-resolution suggestions
+    from historical resolved disputes.
+
+    Suggestions are advisory only. They do not resolve
+    the current discrepancy or change its state.
+    """
+
+    role = user.get("role")
+
+    if role != "compliance_officer":
+        raise HTTPException(
+            status_code=403,
+            detail="Insufficient permissions.",
+        )
+
+    validate_supplier_identity(user)
+
+    check_supplier_access(
+        supplier_id,
+        user,
+    )
+
+    try:
+        return get_dispute_resolution_suggestions(
+            supplier_id=supplier_id,
+            invoice_number=invoice_number,
+        )
+
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
         )
 
 

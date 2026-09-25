@@ -2044,3 +2044,60 @@ def test_cross_supplier_scorecard_unknown_supplier_returns_403(
     )
 
     assert response.status_code == 403
+
+# ============================================================
+# TASK 5 - SUPPLIER SELF-SERVICE ANALYTICS
+# ============================================================
+
+
+def test_task5_supplier_can_view_own_scorecard_metrics():
+    """
+    Task 5:
+
+    A supplier can view its own performance analytics
+    through its authenticated supplier portal access.
+
+    The response must expose the supplier's:
+        - on-time delivery percentage
+        - dispute rate percentage
+    """
+
+    create_sample_data()
+
+    authenticate_as(SUPPLIER_1_USER)
+
+    try:
+        response = client.get(
+            "/api/v1/suppliers/SUP001/scorecard"
+        )
+
+        assert response.status_code == 200
+
+        body = response.json()
+
+        assert body["supplier_id"] == "SUP001"
+
+        scorecard = body["scorecard"]
+
+        assert (
+            "on_time_delivery_percentage"
+            in scorecard
+        )
+
+        assert (
+            "dispute_rate_percentage"
+            in scorecard
+        )
+
+        assert (
+            scorecard["on_time_delivery_percentage"]
+            == 100.0
+        )
+
+        assert (
+            scorecard["dispute_rate_percentage"]
+            == 0.0
+        )
+
+    finally:
+        app.dependency_overrides.clear()

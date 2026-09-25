@@ -203,13 +203,6 @@ thread-safe per-service state machine:
 exceeds 50% (`failure_rate > 0.50`), the breaker transitions CLOSED to OPEN.
 A service with <= 50% failure rate (e.g. 40%) will not trip.
 
-**Auth outcomes are excluded**: HTTP `401` and `403` responses from a downstream
-service are client authentication/authorization outcomes, not service health
-signals. They are recorded neither as failures nor as successes, so they cannot
-trip the breaker *and* cannot dilute the failure rate that real `5xx` errors need
-to reach. A burst of expired tokens therefore leaves the breaker exactly as
-sensitive to a genuine outage as it was before.
-
 ### In-Memory Cache
 
 `InMemoryCache` (in `app/services/cache.py`) is a thread-safe, in-process cache:
@@ -438,16 +431,6 @@ Platform DB                             Rahul Platform (:8005)
 
 ### 3. Running Live Integration Tests
 
-**Prerequisite:** seed the platform database before running the live suites:
-
-```bash
-cd services/platform
-python -m app.seed
-```
-
-Without this, the four login-based tests fail with `401`; this is missing
-fixture data, not a gateway failure.
-
 Start the services in three separate terminals:
 
 ```powershell
@@ -473,38 +456,6 @@ python -m pytest tests/test_real_platform_integration.py -v
 # Live Inventory Integration
 python -m pytest tests/test_real_inventory_integration.py -v
 ```
-
-### 4. PR Verification
-
-The baseline gateway suite reports `139 passed, 11 skipped (live tests skip
-when downstream services are not running)`; with the new regression test, this
-checkout reports `140 passed, 11 skipped`. The skipped count is expected when
-the live downstream services are unavailable; a green suite alone does not
-prove that the live demo ran.
-
-```bash
-cd services/api-gateway
-pytest -q
-```
-
-For the auth circuit-breaker check, with Platform on port `8005` and the
-gateway on port `8000`, send 20 invalid-token requests and inspect the
-dashboard:
-
-```bash
-for i in $(seq 1 20); do
-  curl -s -o /dev/null -X POST http://localhost:8000/api/v1/auth/verify -H "Authorization: Bearer bad"
-done
-curl -s http://localhost:8000/gateway/dashboard | grep -i "circuit\|failure"
-```
-
-The auth service's breaker stats should show zero requests recorded. `401`
-responses are excluded from breaker accounting, so the 20 invalid-token calls
-must not be counted as successful requests.
-
-**PR scope note:** Includes a one-line unblock in `services/inventory` (adds
-the missing `InventoryOperationError`), agreed with the owner as required for
-the Round 5 live demo.
 
 ---
 

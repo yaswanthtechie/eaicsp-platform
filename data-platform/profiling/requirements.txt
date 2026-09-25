@@ -1,5 +1,8 @@
-pandas
+pandas>=3.0
 numpy
 matplotlib
 pytest
 pyyaml
+fastapi
+uvicorn
+python-multipart

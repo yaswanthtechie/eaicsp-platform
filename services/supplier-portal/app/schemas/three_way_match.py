@@ -80,6 +80,30 @@ class ThreeWayMatchResolution(BaseModel):
         max_length=1000,
     )
 
+class ResolutionSuggestion(BaseModel):
+    discrepancy_type: DiscrepancyType
+
+    suggested_action: str | None = None
+
+    historical_case_count: int = Field(
+        ge=0,
+    )
+
+    supporting_case_count: int = Field(
+        ge=0,
+    )
+
+    rationale: str
+
+
+class DisputeResolutionSuggestionResponse(BaseModel):
+    match_id: str
+    supplier_id: str
+    invoice_number: str
+
+    suggestions: list[ResolutionSuggestion] = Field(
+        default_factory=list
+    )
 
 # ============================================================
 # PAYMENT APPROVAL RESPONSE

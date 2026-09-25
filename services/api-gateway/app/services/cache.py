@@ -40,6 +40,8 @@ class InMemoryCache:
                 if expire_at is None or now < expire_at:
                     if service_name:
                         metrics_collector.record_cache_hit(service_name)
+                    else:
+                        metrics_collector.record_cache_hit("global")
                     return value
 
                 # Expired -> delete
@@ -47,7 +49,15 @@ class InMemoryCache:
 
             if service_name:
                 metrics_collector.record_cache_miss(service_name)
+            else:
+                metrics_collector.record_cache_miss("global")
             return None
+
+    def get_stats(self) -> dict[str, Any]:
+        """
+        Get aggregated cache hit/miss statistics from the metrics collector.
+        """
+        return metrics_collector.get_cache_metrics()
 
     def set(
         self,

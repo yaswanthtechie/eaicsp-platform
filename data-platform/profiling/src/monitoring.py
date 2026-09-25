@@ -39,6 +39,7 @@ class MonitoringHistory:
         batch = {
             "timestamp": datetime.now().isoformat(),
             "quality_score": report["quality_score"]["score"],
+            "quality_scorecard": report.get("quality_scorecard", {}),
             "missing_values": report["quality_score"]["missing_values"],
             "duplicate_rows": report["quality_score"]["duplicate_rows"],
             "total_outliers": report["quality_score"]["total_outliers"],
@@ -131,6 +132,68 @@ class MonitoringHistory:
             "drop": drop,
         }
 
+    def get_scorecard_trend(self):
+        history = self.load_history()
+
+        if not history:
+            return {
+                "batches": 0,
+                "overall_scores": [],
+                "components": {
+                    "completeness": [],
+                    "validity": [],
+                    "consistency": [],
+                    "uniqueness": []
+                },
+                "trend": "No Data"
+            }
+
+        overall_scores = []
+        components = {
+            "completeness": [],
+            "validity": [],
+            "consistency": [],
+            "uniqueness": []
+        }
+
+        for batch in history:
+            scorecard = batch.get("quality_scorecard", {})
+
+            if not scorecard:
+                continue
+
+            overall_score = scorecard.get("overall_score")
+
+            if overall_score is not None:
+                overall_scores.append(overall_score)
+
+            component_scores = scorecard.get("components", {})
+
+            for component in components:
+                value = component_scores.get(component)
+
+                if value is not None:
+                    components[component].append(value)
+
+        if len(overall_scores) < 2:
+            trend = "Not Enough Data"
+
+        elif overall_scores[-1] > overall_scores[0]:
+            trend = "Improving"
+
+        elif overall_scores[-1] < overall_scores[0]:
+            trend = "Declining"
+
+        else:
+            trend = "Stable"
+
+        return {
+            "batches": len(overall_scores),
+            "overall_scores": overall_scores,
+            "components": components,
+            "trend": trend
+        }
+
     def get_column_trend(self, column_name):
         history = self.load_history()
 
@@ -151,4 +214,82 @@ class MonitoringHistory:
         return {
             "column": column_name,
             "values": values
+        }
+
+    def compare_runs(
+        self,
+        metric,
+        last_n=5,
+        slope_threshold=0.3,
+        min_runs_for_drift=5,
+    ):
+        history = self.load_history()
+
+        if not history:
+            return {
+                "metric": metric,
+                "runs": 0,
+                "values": [],
+                "change": None,
+                "slope": None,
+                "trend": "No Data",
+                "gradual_drift": False
+            }
+
+        recent_history = history[-last_n:]
+
+        values = []
+
+        for batch in recent_history:
+            if metric in batch:
+                values.append(batch[metric])
+
+        if len(values) < 2:
+            return {
+                "metric": metric,
+                "runs": len(values),
+                "values": values,
+                "change": None,
+                "slope": None,
+                "trend": "Not Enough Data",
+                "gradual_drift": False
+            }
+
+        change = values[-1] - values[0]
+
+        # Calculate least-squares slope across all runs.
+        x_values = list(range(len(values)))
+        x_mean = sum(x_values) / len(x_values)
+        y_mean = sum(values) / len(values)
+
+        numerator = sum(
+            (x - x_mean) * (y - y_mean)
+            for x, y in zip(x_values, values)
+        )
+
+        denominator = sum(
+            (x - x_mean) ** 2
+            for x in x_values
+        )
+
+        slope = numerator / denominator
+
+        if slope > slope_threshold:
+            trend = "Increasing"
+        elif slope < -slope_threshold:
+            trend = "Decreasing"
+        else:
+            trend = "Stable"
+
+        return {
+            "metric": metric,
+            "runs": len(values),
+            "values": values,
+            "change": change,
+            "slope": slope,
+            "trend": trend,
+            "gradual_drift": (
+                trend == "Decreasing"
+                and len(values) >= min_runs_for_drift
+            )
         }
