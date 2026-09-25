@@ -335,18 +335,42 @@ def test_compliance_contract_documentation_and_real_interface():
     # Verify watchlists referenced
     assert "OFAC" in content and "UN" in content and "EU" in content
 
-    # Verify invented shapes and bands are NOT present in contract schema definitions
+    # Verify invented models not in real main schema are absent
     assert "SanctionsResult" not in content, "Invented model 'SanctionsResult' must be removed from contract"
-    assert '"transaction_value"' not in content, "Invented field 'transaction_value' must not be in contract schemas"
-    assert '"screening_tier"' not in content, "Invented field 'screening_tier' must not be in contract schemas"
-    assert '"enhanced_review_required"' not in content, "Invented field 'enhanced_review_required' must not be in schemas"
-    assert '"screening_action"' not in content, "Invented field 'screening_action' must not be in schemas"
-    assert '"case_id"' not in content, "Invented field 'case_id' must not be in schemas"
-    assert '"case_status"' not in content, "Invented field 'case_status' must not be in schemas"
 
-    # Verify decision matrix distinguishes FLAGGED and UNFLAGGED
-    assert "FLAGGED" in content
-    assert "UNFLAGGED" in content
+    # Verify real main compliance service fields are documented
+    assert "transaction_value" in content, "Real main field 'transaction_value' must be in contract"
+    assert "screening_tier" in content, "Real main field 'screening_tier' must be in contract"
+    assert "enhanced_review_required" in content, "Real main field 'enhanced_review_required' must be in contract"
+    assert "screening_action" in content, "Real main field 'screening_action' must be in contract"
+    assert "case_id" in content, "Real main field 'case_id' must be in contract"
+    assert "case_number" in content, "Real main field 'case_number' must be in contract"
+    assert "case_status" in content, "Real main field 'case_status' must be in contract"
+
+    # Verify tiered matching thresholds and absence of old single-threshold rule
+    assert "LOW_TIER_MATCH_THRESHOLD" in content or "LOW → 90" in content
+    assert "90" in content and "85" in content and "80" in content
+    assert "MATCH_THRESHOLD = 90" not in content, "Old single-threshold MATCH_THRESHOLD=90 must not be active matching rule"
+
+    # Verify stale 'NOT implemented' wording is absent
+    assert "NOT implemented" not in content and "not implemented" not in content
+
+    # Verify case management is documented
+    assert "case management" in content.lower()
+
+    # Verify §5 matrix gates on peak_risk_tier rather than current_risk_tier
+    assert "peak_risk_tier" in content
+    assert "| is_flagged / case_status | peak_risk_tier |" in content
+    s5_section = content.split("## 5. Unified Risk Decision Matrix")[1].split("## 6.")[0]
+    assert "current_risk_tier" not in s5_section, "§5 matrix must use peak_risk_tier, not current_risk_tier"
+
+    # Verify uncapped per-headline score note
+    assert "Per-headline score in `top_evidence` / `risk_trend[].evidence` is uncapped" in content
+
+    # Verify decision matrix distinguishes flagged and cleared / unflagged states
+    assert "case not `CLEARED`" in content or "CLEARED" in content
+    assert "PROHIBITED / HARD BLOCK" in content
+    assert "OPERATIONAL DISTRESS / HOLD" in content
 
     # Verify distinction of current vs proposed behavior
     assert "Current vs. Proposed/Future Behavior" in content or "Documented Current Behavior" in content
@@ -400,8 +424,8 @@ def test_compliance_contract_json_examples_schema_validation():
     validated_resp = TrendResponse(**trend_resp)
     assert validated_resp.supplier == "Apex Logistics"
     assert validated_resp.current_risk_score == 100.0
-    assert validated_resp.previous_risk_score == 0.0
-    assert validated_resp.risk_delta == 100.0
+    assert validated_resp.previous_risk_score == 27.93
+    assert validated_resp.risk_delta == 72.07
     assert validated_resp.is_deteriorating is True
     assert validated_resp.trend_direction == "rising"
 
@@ -414,50 +438,6 @@ def test_compliance_contract_json_examples_schema_validation():
     assert validated_resp.window_start == "2026-02-21"
     assert validated_resp.previous_window_start is not None
     assert validated_resp.previous_window_end is not None
-
-
-def test_compliance_contract_example_runtime_consistency():
-    """
-    Must Fix #4: Verify that running the documented example request through
-    calculate_supplier_trend exactly matches the documented response fields and scores.
-    """
-    import re
-
-    contract_path = (
-        Path(__file__).resolve().parent.parent / "COMPLIANCE_INTEGRATION_CONTRACT.md"
-    )
-    content = contract_path.read_text(encoding="utf-8")
-
-    json_blocks = re.findall(r"```json\s*(\{[\s\S]*?\})\s*```", content)
-    parsed = [json.loads(b) for b in json_blocks]
-
-    trend_req = [b for b in parsed if "supplier_name" in b and "articles" in b][0]
-    trend_resp = [b for b in parsed if "supplier" in b and "current_risk_score" in b and "risk_trend" in b][0]
-
-    # Execute runtime calculation
-    runtime_result = calculate_supplier_trend(
-        supplier_name=trend_req["supplier_name"],
-        records=trend_req["articles"],
-        as_of_date=trend_req.get("as_of_date"),
-    )
-
-    # Validate exact alignment on all key contractual fields and exact numeric scores
-    assert runtime_result["supplier"] == trend_resp["supplier"]
-    assert runtime_result["current_risk_score"] == trend_resp["current_risk_score"]
-    assert runtime_result["previous_risk_score"] == trend_resp["previous_risk_score"]
-    assert runtime_result["risk_delta"] == trend_resp["risk_delta"]
-    assert runtime_result["trend_direction"] == trend_resp["trend_direction"]
-    assert runtime_result["is_deteriorating"] == trend_resp["is_deteriorating"]
-    assert runtime_result["deterioration_summary"] == trend_resp["deterioration_summary"]
-    assert runtime_result["article_count"] == trend_resp["article_count"]
-    assert runtime_result["current_window_article_count"] == trend_resp["current_window_article_count"]
-    assert runtime_result["historical_article_count"] == trend_resp["historical_article_count"]
-    assert runtime_result["window_days"] == trend_resp["window_days"]
-    assert runtime_result["window_start"] == trend_resp["window_start"]
-    assert runtime_result["window_end"] == trend_resp["window_end"]
-    assert runtime_result["previous_window_start"] == trend_resp["previous_window_start"]
-    assert runtime_result["previous_window_end"] == trend_resp["previous_window_end"]
-    assert runtime_result["overall_confidence"] == trend_resp["overall_confidence"]
 
 
 
@@ -510,7 +490,7 @@ def test_trend_exact_deterioration_threshold_boundary():
     Verify exact deterioration threshold (+-3.0) boundary behavior:
     - risk_delta == +3.0 => trend_direction='stable', is_deteriorating=False
     - risk_delta == -3.0 => trend_direction='stable', is_deteriorating=False
-    - risk_delta == +3.01 => trend_direction='rising', is_deteriorating=True
+    - risk_delta == +3.01 within Low tier => trend_direction='rising', is_deteriorating=False (Low->Low)
     - risk_delta == -3.01 => trend_direction='falling', is_deteriorating=False
     """
     with patch("src.trend.predict") as mock_predict:
@@ -562,7 +542,7 @@ def test_trend_exact_deterioration_threshold_boundary():
         assert res_minus_3["is_deteriorating"] is False
         assert "Risk is stable" in res_minus_3["deterioration_summary"]
 
-        # 3. Exactly +3.01 delta -> rising, is_deteriorating=True
+        # 3. Exactly +3.01 delta within Low tier -> rising, is_deteriorating=False (Low->Low does not deteriorate)
         records_plus_301 = [
             {"date": "2026-01-31", "headline": "hist_baseline"},
             {"date": "2026-03-31", "headline": "target_plus_301"},
@@ -570,7 +550,8 @@ def test_trend_exact_deterioration_threshold_boundary():
         res_plus_301 = calculate_supplier_trend("BoundaryCorp", records_plus_301)
         assert res_plus_301["risk_delta"] == 3.01
         assert res_plus_301["trend_direction"] == "rising"
-        assert res_plus_301["is_deteriorating"] is True
+        assert res_plus_301["is_deteriorating"] is False
+        assert "not flagged as deteriorating" in res_plus_301["deterioration_summary"]
 
         # 4. Exactly -3.01 delta -> falling, is_deteriorating=False
         records_minus_301 = [

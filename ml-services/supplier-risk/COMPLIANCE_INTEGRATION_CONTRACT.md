@@ -13,13 +13,16 @@ In modern enterprise procurement and supply chain governance, supplier complianc
 1. **Deterministic Sanctions & Regulatory Screening** (owned by Geethika's Compliance Screening Service in `services/compliance`):
    - Screens supplier corporate names against official global watchlists: **OFAC** (Office of Foreign Assets Control), **UN** (United Nations Security Council), and **EU** (European Union Consolidated Sanctions).
    - Utilizes exact string matching and fuzzy matching (RapidFuzz WRatio).
-   - Operates on strict binary flag semantics governed by `MATCH_THRESHOLD = 90`:
-     - Exact or high-confidence match => flagged (`is_flagged: true`, `match_score: 100`)
-     - Fuzzy match with score $\ge 90$ => flagged (`is_flagged: true`, `match_score >= 90`)
-     - Match score below 90 => unflagged (`is_flagged: false`, `match_score: 0`)
+   - Match threshold depends on the screening tier (`app/services/screening_tier_service.py`):
+     `screening_tier = max(country risk tier, transaction value tier)`, then
+     LOW → 90, MEDIUM → 85, HIGH → 80 (`LOW/MEDIUM/HIGH_TIER_MATCH_THRESHOLD`).
+     A high-value transaction is therefore flagged at a lower fuzzy score.
+   - Every response carries `screening_tier` (LOW/MEDIUM/HIGH), `enhanced_review_required`
+     (true when HIGH) and `screening_action`
+     (`STANDARD_SCREENING` / `ADDITIONAL_COMPLIANCE_REVIEW` / `ENHANCED_REVIEW_AND_MANUAL_APPROVAL`).
+   - When `is_flagged` is true, the service opens a case and returns `case_id`, `case_number`
+     and `case_status` (OPEN / UNDER_REVIEW / CLEARED / CONFIRMED).
    - Records match score, matched lists, entity aliases, and calculated risk factors (`match_confidence`, `source_coverage`, `recency`).
-   - Note: The compliance service operates strictly on `MATCH_THRESHOLD = 90`. It does NOT use tiered thresholds (`LOW_TIER_MATCH_THRESHOLD`, `MEDIUM_TIER_MATCH_THRESHOLD`, `HIGH_TIER_MATCH_THRESHOLD`) or arbitrary intermediate bands (such as 75–89 "potential match").
-   - Note: Automated case management (`case_id`, `case_status = "OPEN"`) is not implemented by the current compliance service.
 
 2. **Dynamic Adverse Media & Supplier Risk NLP Analysis** (owned by the Supplier Risk ML Service in `ml-services/supplier-risk`):
    - Continuously analyzes real-world news headlines and adverse media streams using FinBERT sentiment analysis (`ProsusAI/finbert`) and config-driven keyword signal detection (financial distress, operational paralysis, legal/fraud/cyber risks).
@@ -128,6 +131,8 @@ When Compliance requests Supplier Risk intelligence for an entity:
 | `articles[].headline` | `string` | Yes | 1–2000 chars, non-blank | Cleaned news headline or adverse media snippet. Empty or whitespace-only headlines are rejected with HTTP 422. |
 | `as_of_date` | `string` | No | ISO 8601 `YYYY-MM-DD` | Optional evaluation reference date (defaults to latest article date). Controls rolling window boundaries: current window ends at `as_of_date` and starts at `as_of_date - 30 days`. Articles published after `as_of_date` are excluded. |
 
+> Per-headline score in `top_evidence` / `risk_trend[].evidence` is uncapped and can exceed 100. Only aggregate scores are capped at 100.
+
 ---
 
 ### 4.2 Outbound Intelligence Response (from Supplier Risk to Compliance)
@@ -139,11 +144,15 @@ When Compliance requests Supplier Risk intelligence for an entity:
 {
   "supplier": "Apex Logistics",
   "current_risk_score": 100.0,
-  "previous_risk_score": 0.0,
+  "previous_risk_score": 27.93,
+  "current_risk_tier": "Critical",
+  "previous_risk_tier": "Low",
+  "peak_risk_score": 100.0,
+  "peak_risk_tier": "Critical",
   "trend_direction": "rising",
   "is_deteriorating": true,
-  "risk_delta": 100.0,
-  "deterioration_summary": "Risk is deteriorating: score increased by +100.00 points (from 0.00 to 100.00) exceeding the sensitivity threshold of 3.0.",
+  "risk_delta": 72.07,
+  "deterioration_summary": "Risk is deteriorating: score increased by +72.07 points (from 27.93 Low to 100.00 Critical).",
   "article_count": 5,
   "current_window_article_count": 3,
   "historical_article_count": 2,
@@ -300,35 +309,8 @@ The sanctions screening service in `services/compliance` exposes:
   {
     "entity_name": "Apex Logistics",
     "entity_type": "supplier",
-    "country": "United States"
-  }
-  ```
-- **Response Model**: `ComplianceResponse`
-  ```json
-  {
-    "entity_name": "Apex Logistics",
-    "entity_type": "supplier",
     "country": "United States",
-    "is_flagged": false,
-    "matched_lists": [],
-    "matched_count": 0,
-    "matched_name": null,
-    "aliases": [],
-    "match_score": 0,
-    "confidence": 0.0,
-    "risk_score": 0.0,
-    "risk_factors": {
-      "match_confidence": 0.0,
-      "source_coverage": 0.0,
-      "recency": 0.0
-    },
-    "country_risk_score": 20.0,
-    "overall_supplier_risk": 4.0,
-    "duration_ms": 1.25,
-    "source": [],
-    "override_applied": false,
-    "override_reason": null,
-    "reviewed_by": null
+    "transaction_value": 2500000.0
   }
   ```
 
@@ -338,8 +320,117 @@ The sanctions screening service in `services/compliance` exposes:
 | `entity_name` | `string` | Yes | 1+ chars, non-blank | Legal name of entity to screen. |
 | `entity_type` | `string` | Yes | `"supplier"` or `"customer"` | Entity category. |
 | `country` | `string` | Yes | 1+ chars, non-blank | Operating or incorporation country. |
+| `transaction_value` | `float` | No | $\ge 0.0$, default `0.0` | Transaction value in INR. Combined with country risk to determine the screening tier. |
 
-*(Note: `transaction_value`, `screening_tier`, `enhanced_review_required`, `screening_action`, `case_id`, `case_number`, and `case_status` are NOT implemented by the current compliance service.)*
+- **Response Model**: `ComplianceResponse`
+
+##### Illustrative Response — Standard Screening (Unflagged):
+```json
+{
+  "entity_name": "Apex Logistics",
+  "entity_type": "supplier",
+  "country": "United States",
+  "transaction_value": 2500000.0,
+  "screening_tier": "MEDIUM",
+  "enhanced_review_required": false,
+  "screening_action": "ADDITIONAL_COMPLIANCE_REVIEW",
+  "is_flagged": false,
+  "matched_lists": [],
+  "matched_count": 0,
+  "matched_name": null,
+  "aliases": [],
+  "match_score": 0,
+  "confidence": 0.0,
+  "risk_score": 0.0,
+  "risk_factors": {
+    "match_confidence": 0.0,
+    "source_coverage": 0.0,
+    "recency": 0.0
+  },
+  "country_risk_score": 20.0,
+  "overall_supplier_risk": 4.0,
+  "duration_ms": 0.21,
+  "source": [],
+  "override_applied": false,
+  "override_reason": null,
+  "reviewed_by": null,
+  "case_id": null,
+  "case_number": null,
+  "case_status": null
+}
+```
+
+##### Illustrative Response — High Tier Sanctions Match (Flagged with Automated Case Creation):
+```json
+{
+  "entity_name": "HAMAS",
+  "entity_type": "supplier",
+  "country": "India",
+  "transaction_value": 6000000.0,
+  "screening_tier": "HIGH",
+  "enhanced_review_required": true,
+  "screening_action": "ENHANCED_REVIEW_AND_MANUAL_APPROVAL",
+  "is_flagged": true,
+  "matched_lists": [
+    "OFAC"
+  ],
+  "matched_count": 1,
+  "matched_name": "HAMAS",
+  "aliases": [],
+  "match_score": 100,
+  "confidence": 1.0,
+  "risk_score": 66.0,
+  "risk_factors": {
+    "match_confidence": 100.0,
+    "source_coverage": 20.0,
+    "recency": 0.0
+  },
+  "country_risk_score": 30.0,
+  "overall_supplier_risk": 58.8,
+  "duration_ms": 0.0,
+  "source": [
+    "OFAC"
+  ],
+  "override_applied": false,
+  "override_reason": null,
+  "reviewed_by": null,
+  "case_id": 1,
+  "case_number": "CASE-000001",
+  "case_status": "OPEN"
+}
+```
+
+#### Field Specifications (`ComplianceResponse`):
+*(Field definitions copied directly from `ComplianceResponse` in `services/compliance/app/schemas/compliance.py`; example values are illustrative)*
+
+| Field Name | Type | Description | Illustrative Value |
+| :--- | :--- | :--- | :--- |
+| `entity_name` | `string \| null` | Screened entity name. | `"Apex Logistics"` |
+| `entity_type` | `string` | Entity category (`"supplier"` or `"customer"`). | `"supplier"` |
+| `country` | `string` | Country associated with the entity. | `"United States"` |
+| `transaction_value` | `float` | Transaction value in INR (min: 0.0, default: 0.0). | `2500000.0` |
+| `screening_tier` | `string` | Screening tier: `"LOW"`, `"MEDIUM"`, or `"HIGH"`. | `"MEDIUM"` |
+| `enhanced_review_required` | `boolean` | True when screening tier is `"HIGH"`. | `false` |
+| `screening_action` | `string` | Screening action (`"STANDARD_SCREENING"`, `"ADDITIONAL_COMPLIANCE_REVIEW"`, or `"ENHANCED_REVIEW_AND_MANUAL_APPROVAL"`). | `"ADDITIONAL_COMPLIANCE_REVIEW"` |
+| `is_flagged` | `boolean` | True if sanctions match score exceeds tier threshold. | `false` |
+| `matched_lists` | `array[string]` | Watchlists where entity matched (e.g. `["OFAC"]`). | `[]` |
+| `matched_count` | `integer` | Count of matched lists. | `0` |
+| `matched_name` | `string \| null` | Official watchlist entry name matched. | `null` |
+| `aliases` | `array[string]` | Known aliases from watchlist record. | `[]` |
+| `match_score` | `integer` | Fuzzy match score (0–100). | `0` |
+| `confidence` | `float` | Composite match confidence score (0.0–1.0). | `0.0` |
+| `risk_score` | `float` | Calculated sanctions risk score (0.0–100.0). | `0.0` |
+| `risk_factors` | `object` | Detailed risk components (`match_confidence`, `source_coverage`, `recency`). | `{"match_confidence": 0.0, "source_coverage": 0.0, "recency": 0.0}` |
+| `country_risk_score` | `float` | Base country risk score from country index. | `20.0` |
+| `overall_supplier_risk` | `float` | Weighted overall risk combining sanctions and country risk. | `4.0` |
+| `duration_ms` | `float` | Screening execution latency in milliseconds. | `0.21` |
+| `source` | `array[string]` | Synonymous with matched_lists for audit persistence. | `[]` |
+| `override_applied` | `boolean` | True if a human analyst compliance override was applied. | `false` |
+| `override_reason` | `string \| null` | Justification note if override applied. | `null` |
+| `reviewed_by` | `string \| null` | Officer identity if override applied. | `null` |
+| `case_id` | `integer \| null` | Database ID of the created/assigned compliance case. Populated when `is_flagged` is true. | `null` (or `1` if flagged) |
+| `case_number` | `string \| null` | Unique case reference number (e.g. `"CASE-000001"`). Populated when `is_flagged` is true. | `null` (or `"CASE-000001"` if flagged) |
+| `case_status` | `string \| null` | Case lifecycle state: `"OPEN"`, `"UNDER_REVIEW"`, `"CLEARED"`, `"CONFIRMED"`. Populated when `is_flagged` is true. | `null` (or `"OPEN"` if flagged) |
 
 ---
 
@@ -351,20 +442,23 @@ Compliance synthesizes both screening dimensions to determine the final procurem
 Sanctions Screening Flag + Supplier Risk Score / Deterioration = Unified Compliance Decision
 ```
 
-The table below is **exhaustive** for the combinations supported by the real services:
+Inputs:
 
-| Sanctions Screening Result (`is_flagged`) | Supplier Risk Score & Tier | Risk Deterioration (`is_deteriorating`) | Unified Compliance Status | Recommended Automated Procurement Action |
-| :--- | :--- | :---: | :--- | :--- |
-| **FLAGGED (`is_flagged: true`)** | Any Score (0–100) | Any | **PROHIBITED / HARD BLOCK** | Immediate transaction freeze; supplier deactivation. Mandatory compliance and audit logging. |
-| **UNFLAGGED (`is_flagged: false`)** | Critical ($\ge 85.0$) | Any (`true` or `false`) | **OPERATIONAL DISTRESS / HOLD** | Procurement freeze: Supplier at acute insolvency, bankruptcy, or fraud risk. Hold pending POs; activate alternate suppliers. |
-| **UNFLAGGED (`is_flagged: false`)** | High ($72.0 - 84.9$) | `true` | **ELEVATED RISK / EDD** | Enhanced Due Diligence (EDD): Require audited financial statements and contingency supply contracts before approving orders. |
-| **UNFLAGGED (`is_flagged: false`)** | High ($72.0 - 84.9$) | `false` (Stable / Improving) | **MONITORED** | Weekly automated adverse media re-screening; limit single-order contract value exposure. |
-| **UNFLAGGED (`is_flagged: false`)** | Medium ($60.0 - 71.9$) | `true` | **WATCHLIST** | Flag for monthly review; notify category procurement manager of deteriorating risk trajectory. |
-| **UNFLAGGED (`is_flagged: false`)** | Medium ($60.0 - 71.9$) | `false` (Stable / Improving) | **APPROVED / ROUTINE REVIEW** | Standard procurement clearance with routine periodic adverse media screening. |
-| **UNFLAGGED (`is_flagged: false`)** | Low ($< 60.0$) | Any | **APPROVED / AUTO-CLEAR** | Standard procurement clearance; routine scheduled re-screening (e.g. quarterly). |
+- Compliance: `is_flagged`, `case_status`, `screening_action`
+- Supplier Risk: `peak_risk_tier`, `is_deteriorating`
 
-> [!NOTE]
-> **Implementation Scope Note**: The compliance service currently implements binary sanctions screening (`is_flagged: true` vs `is_flagged: false`, `MATCH_THRESHOLD = 90`). Concepts such as automated case creation (`case_status = "OPEN"`), screening tiers (`screening_tier`), enhanced review flags (`enhanced_review_required`), and transaction value threshold triggers are not implemented in the current compliance service.
+| is_flagged / case_status | peak_risk_tier | is_deteriorating | Unified status | Action |
+| --- | --- | --- | --- | --- |
+| true, case not `CLEARED` | Any | Any | PROHIBITED / HARD BLOCK | Freeze transactions until the compliance case is CLEARED. |
+| false (or case `CLEARED`) | Critical | Any | OPERATIONAL DISTRESS / HOLD | Hold pending POs; activate alternate suppliers. |
+| false (or case `CLEARED`) | High | true | ELEVATED RISK / EDD | Enhanced due diligence before approving orders. |
+| false (or case `CLEARED`) | High | false | MONITORED | Weekly re-screening; cap single-order value. |
+| false (or case `CLEARED`) | Medium | true | WATCHLIST | Monthly review; notify category manager. |
+| false (or case `CLEARED`) | Medium | false | ROUTINE REVIEW | Standard clearance with periodic screening. |
+| false (or case `CLEARED`) | Low | false | AUTO-CLEAR | Standard clearance. |
+
+- Final action = the stricter of this table's action and Compliance's own `screening_action` (for example, Low plus `ENHANCED_REVIEW_AND_MANUAL_APPROVAL` still requires manual approval).
+- `peak_risk_tier = Low` with `is_deteriorating = true` cannot occur, because deterioration requires a tier increase or a High/Critical current tier.
 
 ---
 
@@ -410,6 +504,6 @@ In accordance with compliance audit standards (SOX, ISO 27001):
 | Dimension | Documented Current Behavior (Implemented) | Proposed / Future Orchestration (Phase 2+) |
 | :--- | :--- | :--- |
 | **Supplier Risk Trend Endpoints** | Implemented as `POST /api/v1/supplier-risk/trend` and `GET /api/v1/supplier-risk/trend/{supplier_name}` with `as_of_date` cutoff, `top_k_mean` anti-dilution, and deterioration detection. | Invoked concurrently by API Gateway during composite screening workflows. |
-| **Compliance Screening Endpoint** | Implemented as `POST /api/v1/compliance/screen` in `services/compliance` with OFAC/UN/EU matching and `MATCH_THRESHOLD = 90`. | Extended with composite screening endpoint joining sanctions hits with adverse media risk. |
+| **Compliance Screening Endpoint** | Implemented as `POST /api/v1/compliance/screen` in `services/compliance` with OFAC/UN/EU matching, tiered match thresholds (90/85/80), and case management. | Extended with composite screening endpoint joining sanctions hits with adverse media risk. |
 | **Cross-Service Communication** | Fully decoupled; no runtime HTTP clients or shared libraries. | Orchestrated through API Gateway (`services/api-gateway`) or message broker. |
 | **Audit Record Persistence** | Individual services maintain their own database audit records independently. | Unified audit table storing combined sanctions and adverse media snapshots. |

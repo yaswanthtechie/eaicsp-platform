@@ -811,5 +811,29 @@ def run_evaluation(
     print("=" * 95 + "\n")
 
 
+def print_25_company_trend_table(config: Optional[Settings] = None) -> None:
+    """Print the §4 sanity-doc trend table using the REAL model (no mocks)."""
+    # Local imports: trend.py imports assign_risk_tier from this module.
+    from src.data import load_active_trend_headlines
+    from src.trend import calculate_supplier_trend
+
+    cfg = config if config is not None else get_settings()
+    init_model()
+
+    print("| Supplier | Prev | Current | Delta | Direction | Current tier | Peak tier "
+          "| Expected | Deteriorating |")
+    print("|---|---|---|---|---|---|---|---|---|")
+
+    for name, records in load_active_trend_headlines().items():
+        t = calculate_supplier_trend(name, records, config=cfg)
+        expected = HUMAN_BENCHMARK_EXPECTATIONS.get(name, {}).get("expected_tier", "?")
+
+        print(
+            f"| {name} | {t['previous_risk_score']} | {t['current_risk_score']} "
+            f"| {t['risk_delta']} | {t['trend_direction']} | {t['current_risk_tier']} "
+            f"| {t['peak_risk_tier']} | {expected} | {t['is_deteriorating']} |"
+        )
+
+
 if __name__ == "__main__":
     run_evaluation()

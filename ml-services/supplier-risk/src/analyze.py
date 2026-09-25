@@ -129,6 +129,22 @@ class TrendResponse(BaseModel):
         default=None,
         description="Time-aware aggregate risk score for previous historical window",
     )
+    current_risk_tier: str | None = Field(
+        default=None,
+        description="Tier of current_risk_score: Low / Medium / High / Critical",
+    )
+    previous_risk_tier: str | None = Field(
+        default=None,
+        description="Tier of previous_risk_score, or null when there is no history",
+    )
+    peak_risk_score: float | None = Field(
+        default=None,
+        description="Worst of current and previous window scores (~60-day peak)",
+    )
+    peak_risk_tier: str | None = Field(
+        default=None,
+        description="Tier of peak_risk_score; compliance gates on this",
+    )
     trend_direction: str | None = Field(
         default=None,
         description="Trend direction: 'rising', 'falling', or 'stable'",

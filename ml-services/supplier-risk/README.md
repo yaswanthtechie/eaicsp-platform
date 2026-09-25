@@ -369,6 +369,8 @@ POST /predict
 
 Retrieve chronologically ordered risk trend points for a supplier over time.
 
+Trend responses include current_risk_tier, previous_risk_tier, peak_risk_score, and peak_risk_tier; a rising score is considered deteriorating only when the risk tier worsens or the current tier is High/Critical.
+
 ```http
 GET /api/v1/supplier-risk/trend/{supplier_name}
 ```
