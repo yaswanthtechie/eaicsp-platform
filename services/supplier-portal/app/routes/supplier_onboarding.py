@@ -37,7 +37,11 @@ from app.services.supplier_onboarding_service import (
     upload_supplier_document,
     verify_supplier,
 )
-
+from app.services.compliance_client import (
+    ComplianceBlockedError,
+    ComplianceServiceError,
+    ComplianceServiceUnavailableError,
+)
 
 router = APIRouter(
     prefix="/suppliers",
@@ -372,7 +376,6 @@ def approve_supplier_endpoint(
             detail=message,
         )
 
-
 # ============================================================
 # 7. ACTIVATE SUPPLIER
 # ============================================================
@@ -398,6 +401,31 @@ def activate_supplier_endpoint(
             role=role,
         )
 
+    # Compliance returned BLOCK or REVIEW.
+    # This must always be 409, even if the reason contains
+    # words such as "not found".
+    except ComplianceBlockedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        )
+
+    # Compliance could not be reached.
+    except ComplianceServiceUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        )
+
+    # Compliance returned an HTTP error, invalid response,
+    # invalid decision, or contradictory result.
+    except ComplianceServiceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        )
+
+    # Supplier not found or invalid onboarding transition.
     except ValueError as exc:
         message = str(exc)
 

@@ -11,6 +11,38 @@ from src.config import DEFAULT_SIGNAL_WEIGHTS, get_settings
 SIGNAL_WEIGHTS = DEFAULT_SIGNAL_WEIGHTS
 
 
+# Whole-word mitigation dictionary to prevent false prefix matches (e.g. "clearly", "clearance")
+MITIGATION_WORDS: Set[str] = {
+    # deny
+    "deny",
+    "denies",
+    "denied",
+    "denying",
+    "denial",
+    "denials",
+    # clear
+    "clear",
+    "cleared",
+    "clears",
+    "clearing",
+    # resolve
+    "resolve",
+    "resolves",
+    "resolved",
+    "resolving",
+    # dismiss
+    "dismiss",
+    "dismisses",
+    "dismissed",
+    "dismissing",
+    # avoid
+    "avoid",
+    "avoids",
+    "avoided",
+    "avoiding",
+}
+
+
 def detect_signals(
     text: str,
     weights: Optional[Dict[str, int]] = None,
@@ -42,17 +74,13 @@ def detect_signals(
     active_weights = weights if weights is not None else get_settings().signal_weights
     detected_signals: List[Dict[str, Any]] = []
 
-    # Mitigation stems and clause boundaries
-    mitigation_stems = {"deni", "deny", "avoid", "clear", "resolv", "dismiss"}
+    # Mitigation words and clause boundaries
     clause_boundaries = {"but", "however", "although", "yet", "while", "though", "nevertheless"}
 
     words = re.findall(r"[a-z0-9-]+", text.lower())
 
     def is_mitigating_word(w: str) -> bool:
-        for stem in mitigation_stems:
-            if w.startswith(stem):
-                return True
-        return False
+        return w in MITIGATION_WORDS
 
     # Known inflection variants for standard signal keywords
     keyword_variants: Dict[str, Set[str]] = {

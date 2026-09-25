@@ -11,7 +11,10 @@ from app.services.supplier_onboarding_service import (
     supplier_onboarding_history,
 )
 
-
+from app.services.compliance_client import (
+    ComplianceServiceError,
+    ComplianceServiceUnavailableError,
+)
 # ============================================================
 # TEST USERS
 # ============================================================
@@ -71,6 +74,7 @@ SUPPLIER_A_REGISTRATION = {
     "email": "ravi@abcsupplies.com",
     "phone": "9876543210",
     "address": "Hyderabad, Telangana",
+    "country": "India",
     "required_documents": [
         "gst_certificate",
         "pan_card",
@@ -86,6 +90,7 @@ SUPPLIER_B_REGISTRATION = {
     "email": "suresh@xyzsupplies.com",
     "phone": "9876543211",
     "address": "Hyderabad, Telangana",
+    "country": "India",
     "required_documents": [
         "gst_certificate",
         "pan_card",
@@ -157,6 +162,31 @@ def clean_onboarding_storage():
     suppliers.clear()
     supplier_documents.clear()
     supplier_onboarding_history.clear()
+
+@pytest.fixture(autouse=True)
+def mock_compliance_clear(monkeypatch):
+    """
+    Default Compliance response for onboarding tests.
+
+    Individual tests can override this mock when testing
+    BLOCK, REVIEW, unavailable, or error scenarios.
+    """
+
+    def fake_check_supplier_compliance(
+        supplier_id,
+        supplier_name,
+        country,
+    ):
+        return {
+            "cleared": True,
+            "decision": "CLEAR",
+            "reason": "No sanctions or watchlist match found.",
+        }
+
+    monkeypatch.setattr(
+        "app.services.supplier_onboarding_service.check_supplier_compliance",
+        fake_check_supplier_compliance,
+    )
 
 
 @pytest.fixture
@@ -1790,4 +1820,396 @@ def test_document_larger_than_10_mb_rejected(
     assert response.json()["detail"] == (
         "Uploaded document exceeds the 10 MB size limit."
     )
+# ============================================================
+# 20A. COMPLIANCE CLEAR ALLOWS ACTIVATION
+# ============================================================
 
+def test_activation_allows_supplier_after_compliance_clear(
+    procurement_client,
+    supplier_client,
+):
+    complete_approval(
+        procurement_client,
+        supplier_client,
+    )
+
+    response = procurement_client.post(
+        "/api/v1/suppliers/SUP001/activate"
+    )
+
+    assert response.status_code == 201
+
+    data = response.json()
+
+    assert data["supplier_id"] == "SUP001"
+    assert data["status"] == "active"
+
+    assert suppliers["SUP001"]["status"] == "active"
+
+
+# ============================================================
+# 20B. COMPLIANCE BLOCK PREVENTS ACTIVATION
+# ============================================================
+
+def test_activation_blocked_when_compliance_returns_block(
+    procurement_client,
+    supplier_client,
+    monkeypatch,
+):
+    complete_approval(
+        procurement_client,
+        supplier_client,
+    )
+
+    def fake_check_supplier_compliance(
+        supplier_id,
+        supplier_name,
+        country,
+    ):
+        return {
+            "cleared": False,
+            "decision": "BLOCK",
+            "reason": "Supplier matched a sanctions record.",
+        }
+
+    monkeypatch.setattr(
+        "app.services.supplier_onboarding_service.check_supplier_compliance",
+        fake_check_supplier_compliance,
+    )
+
+    response = procurement_client.post(
+        "/api/v1/suppliers/SUP001/activate"
+    )
+
+    assert response.status_code == 409
+
+    detail = response.json()["detail"]
+
+    assert "BLOCK" in detail
+    assert "Supplier matched a sanctions record." in detail
+
+    # Supplier must remain APPROVED.
+    assert suppliers["SUP001"]["status"] == "approved"
+
+
+# ============================================================
+# 20C. COMPLIANCE REVIEW PREVENTS ACTIVATION
+# ============================================================
+
+def test_activation_blocked_when_compliance_returns_review(
+    procurement_client,
+    supplier_client,
+    monkeypatch,
+):
+    complete_approval(
+        procurement_client,
+        supplier_client,
+    )
+
+    def fake_check_supplier_compliance(
+        supplier_id,
+        supplier_name,
+        country,
+    ):
+        return {
+            "cleared": False,
+            "decision": "REVIEW",
+            "reason": "Supplier requires manual compliance review.",
+        }
+
+    monkeypatch.setattr(
+        "app.services.supplier_onboarding_service.check_supplier_compliance",
+        fake_check_supplier_compliance,
+    )
+
+    response = procurement_client.post(
+        "/api/v1/suppliers/SUP001/activate"
+    )
+
+    assert response.status_code == 409
+
+    detail = response.json()["detail"]
+
+    assert "REVIEW" in detail
+    assert "manual compliance review" in detail
+
+    # Supplier must remain APPROVED.
+    assert suppliers["SUP001"]["status"] == "approved"
+
+
+# ============================================================
+# 20D. COMPLIANCE SERVICE UNAVAILABLE
+# ============================================================
+
+def test_activation_returns_503_when_compliance_unavailable(
+    procurement_client,
+    supplier_client,
+    monkeypatch,
+):
+    complete_approval(
+        procurement_client,
+        supplier_client,
+    )
+
+    def fake_check_supplier_compliance(
+        supplier_id,
+        supplier_name,
+        country,
+    ):
+        raise ComplianceServiceUnavailableError(
+            "Compliance Service is unavailable."
+        )
+
+    monkeypatch.setattr(
+        "app.services.supplier_onboarding_service.check_supplier_compliance",
+        fake_check_supplier_compliance,
+    )
+
+    response = procurement_client.post(
+        "/api/v1/suppliers/SUP001/activate"
+    )
+
+    assert response.status_code == 503
+
+    assert response.json()["detail"] == (
+        "Compliance Service is unavailable."
+    )
+
+    # Fail-closed:
+    # supplier must remain APPROVED.
+    assert suppliers["SUP001"]["status"] == "approved"
+
+
+# ============================================================
+# 20E. COMPLIANCE SERVICE ERROR
+# ============================================================
+
+def test_activation_returns_502_when_compliance_returns_error(
+    procurement_client,
+    supplier_client,
+    monkeypatch,
+):
+    complete_approval(
+        procurement_client,
+        supplier_client,
+    )
+
+    def fake_check_supplier_compliance(
+        supplier_id,
+        supplier_name,
+        country,
+    ):
+        raise ComplianceServiceError(
+            "Compliance Service returned an error."
+        )
+
+    monkeypatch.setattr(
+        "app.services.supplier_onboarding_service.check_supplier_compliance",
+        fake_check_supplier_compliance,
+    )
+
+    response = procurement_client.post(
+        "/api/v1/suppliers/SUP001/activate"
+    )
+
+    assert response.status_code == 502
+
+    assert response.json()["detail"] == (
+        "Compliance Service returned an error."
+    )
+
+    # Supplier must remain APPROVED.
+    assert suppliers["SUP001"]["status"] == "approved"
+
+
+# ============================================================
+# 20F. CORRECT SUPPLIER DATA IS SENT TO COMPLIANCE
+# ============================================================
+
+def test_activation_sends_correct_supplier_data_to_compliance(
+    procurement_client,
+    supplier_client,
+    monkeypatch,
+):
+    complete_approval(
+        procurement_client,
+        supplier_client,
+    )
+
+    captured = {}
+
+    def fake_check_supplier_compliance(
+        supplier_id,
+        supplier_name,
+        country,
+    ):
+        captured["supplier_id"] = supplier_id
+        captured["supplier_name"] = supplier_name
+        captured["country"] = country
+
+        return {
+            "cleared": True,
+            "decision": "CLEAR",
+            "reason": "Supplier cleared.",
+        }
+
+    monkeypatch.setattr(
+        "app.services.supplier_onboarding_service.check_supplier_compliance",
+        fake_check_supplier_compliance,
+    )
+
+    response = procurement_client.post(
+        "/api/v1/suppliers/SUP001/activate"
+    )
+
+    assert response.status_code == 201
+
+    assert captured == {
+        "supplier_id": "SUP001",
+        "supplier_name": "ABC Supplies Pvt Ltd",
+        "country": "India",
+    }
+
+
+# ============================================================
+# 20G. COMPLIANCE IS CHECKED BEFORE ACTIVATION
+# ============================================================
+
+def test_compliance_is_checked_before_supplier_becomes_active(
+    procurement_client,
+    supplier_client,
+    monkeypatch,
+):
+    complete_approval(
+        procurement_client,
+        supplier_client,
+    )
+
+    assert suppliers["SUP001"]["status"] == "approved"
+
+    observed_status = {}
+
+    def fake_check_supplier_compliance(
+        supplier_id,
+        supplier_name,
+        country,
+    ):
+        observed_status["before_compliance"] = (
+            suppliers["SUP001"]["status"]
+        )
+
+        return {
+            "cleared": True,
+            "decision": "CLEAR",
+            "reason": "Supplier cleared.",
+        }
+
+    monkeypatch.setattr(
+        "app.services.supplier_onboarding_service.check_supplier_compliance",
+        fake_check_supplier_compliance,
+    )
+
+    response = procurement_client.post(
+        "/api/v1/suppliers/SUP001/activate"
+    )
+
+    assert response.status_code == 201
+
+    assert observed_status["before_compliance"] == (
+        "approved"
+    )
+
+    assert suppliers["SUP001"]["status"] == "active"
+
+# ============================================================
+# 20H. FAILED COMPLIANCE DOES NOT CREATE ACTIVE HISTORY
+# ============================================================
+
+def test_failed_compliance_does_not_create_active_history(
+    procurement_client,
+    supplier_client,
+    monkeypatch,
+):
+    complete_approval(
+        procurement_client,
+        supplier_client,
+    )
+
+    def fake_check_supplier_compliance(
+        supplier_id,
+        supplier_name,
+        country,
+    ):
+        return {
+            "cleared": False,
+            "decision": "BLOCK",
+            "reason": "Supplier blocked by compliance.",
+        }
+
+    monkeypatch.setattr(
+        "app.services.supplier_onboarding_service.check_supplier_compliance",
+        fake_check_supplier_compliance,
+    )
+
+    response = procurement_client.post(
+        "/api/v1/suppliers/SUP001/activate"
+    )
+
+    assert response.status_code == 409
+
+    assert suppliers["SUP001"]["status"] == "approved"
+
+    history = supplier_onboarding_history["SUP001"]
+
+    statuses = [
+        item["to_status"]
+        for item in history
+    ]
+
+    assert statuses == [
+        "pending_documents",
+        "documents_submitted",
+        "verified",
+        "approved",
+    ]
+
+    assert "active" not in statuses
+
+def test_unapproved_supplier_is_rejected_before_compliance_is_called(
+    procurement_client,
+    monkeypatch,
+):
+    assert (
+        register_supplier(
+            procurement_client
+        ).status_code
+        == 201
+    )
+
+    compliance_calls = []
+
+    def fake_check_supplier_compliance(
+        supplier_id,
+        supplier_name,
+        country,
+    ):
+        compliance_calls.append(supplier_id)
+        raise ComplianceServiceUnavailableError(
+            "Compliance Service is unavailable."
+        )
+
+    monkeypatch.setattr(
+        "app.services.supplier_onboarding_service.check_supplier_compliance",
+        fake_check_supplier_compliance,
+    )
+
+    response = procurement_client.post(
+        "/api/v1/suppliers/SUP001/activate"
+    )
+
+    # The real reason (wrong state), not a 503.
+    assert response.status_code == 400
+    assert "Cannot move supplier" in response.json()["detail"]
+
+    # Compliance was never asked to screen this supplier.
+    assert compliance_calls == []

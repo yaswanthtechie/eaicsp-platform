@@ -6,42 +6,38 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any
 
-# ---------------------------------------------------------
-# PATH RESOLUTION & MODULE FIX
-# ---------------------------------------------------------
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
-# Ensure Python can find the 'src' module no matter where you run this from
 sys.path.append(str(PROJECT_ROOT))
 
+from src.drift import ReportComparator
 from src.make_messy_data import generate_messy_data
 from src.validator import DataValidator
 
-# ---------------------------------------------------------
-# LOGGER SETUP
-# ---------------------------------------------------------
-LOG_DIR = PROJECT_ROOT / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
-
-timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-log_filepath = LOG_DIR / f"validation_{timestamp}.log"
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-    handlers=[
-        logging.FileHandler(log_filepath, mode="w", encoding="utf-8"),
-        logging.StreamHandler()
-    ]
-)
 logger = logging.getLogger(__name__)
+
+def setup_logging() -> str:
+    """Configures logging and creates the file only when the pipeline runs."""
+    log_dir = PROJECT_ROOT / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_filepath = log_dir / f"validation_{timestamp}.log"
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+        handlers=[
+            logging.FileHandler(log_filepath, mode="w", encoding="utf-8"),
+            logging.StreamHandler(sys.stdout)
+        ],
+        force=True
+    )
+    return str(log_filepath)
 
 
 def log_issues(issues: List[Dict[str, Any]], severity_label: str, report: Dict[str, Any]):
-    """Helper to cleanly log both errors and warnings without repeating code."""
     log_func = logger.error if severity_label == "ERROR" else logger.warning
-
     for item in issues:
         log_func(f"{severity_label} -> Rule: {item['rule']} | Field: {item['field']} | Count: {item['count']}")
         if item['rule'] in report.get('sample_bad_rows', {}):
@@ -51,6 +47,8 @@ def log_issues(issues: List[Dict[str, Any]], severity_label: str, report: Dict[s
 
 
 def main():
+    # Initialize Logger
+    log_filepath = setup_logging()
     # Setup CLI Arguments
     parser = argparse.ArgumentParser(description="Run the Config-Driven Data Validation Pipeline.")
     parser.add_argument("--config", type=str, default=str(PROJECT_ROOT / "configs" / "sales_rules.yaml"),
@@ -62,6 +60,15 @@ def main():
     parser.add_argument("--skip-generate", action="store_true",
                         help="Skip auto-generating data and use existing input file.")
     parser.add_argument("--no-strict", action="store_false", dest="strict", help="Disable strict cleaning mode.")
+    # --- PROFILE ARGUMENTS ---
+    parser.add_argument("--profile", type=str, default=None,
+                        help="Named validation profile to execute (e.g., 'strict').")
+    parser.add_argument("--list-profiles", action="store_true",
+                        help="List available profiles in the config and exit.")
+
+    # --- CUSTOM RULES DIRECTORY ---
+    parser.add_argument("--rules-dir", type=str, default=None,
+                        help="Path to the custom rules directory for auto-discovery.")
 
     # Incremental Arguments
     parser.add_argument("--incremental", action="store_true", help="Only process new rows since the last run.")
@@ -80,6 +87,15 @@ def main():
 
     if not config_path.exists():
         logger.error(f"FATAL ERROR: Config file not found at {config_path}")
+        return
+
+    # --- INTERCEPT: LIST PROFILES ---
+    if getattr(args, 'list_profiles', False):
+        profiles = DataValidator.list_profiles(str(config_path))
+        if profiles:
+            logger.info(f"Available profiles in {config_path.name}: {', '.join(profiles)}")
+        else:
+            logger.warning(f"No profiles found in {config_path.name}.")
         return
 
     # 1. Simulate the client data (Auto-generate by default unless skipped)
@@ -128,7 +144,11 @@ def main():
     # 3. Initialize the config-driven Validator
     logger.info(f"Loading rules from {config_path.name}...")
     try:
-        dv = DataValidator.from_config(str(config_path))
+        dv = DataValidator.from_config(
+            str(config_path),
+            profile_name=args.profile,
+            rules_dir=args.rules_dir
+        )
     except Exception as e:
         logger.error(f"FATAL ERROR: Failed to initialize validator: {e}")
         return
@@ -147,6 +167,16 @@ def main():
     log_issues(report.errors, "ERROR", report.model_dump())
     log_issues(report.warnings, "WARNING", report.model_dump())
 
+    # --- DRIFT DETECTION ---
+    logger.info("Evaluating historical drift...")
+    comparator = ReportComparator()
+    drift_alerts = comparator.evaluate_drift(report, dv)
+
+    for alert in drift_alerts:
+        logger.warning(alert)
+
+    comparator.save_report(report)
+
     # --- RULE PERFORMANCE PROFILING ---
     if hasattr(report, "rule_timings") and report.rule_timings:
         logger.info("--- RULE TIMINGS (Slowest First) ---")
@@ -157,7 +187,7 @@ def main():
     # 5. Clean the data
     logger.info(f"Executing cleaning sequence (Strict Mode: {args.strict})...")
     try:
-        clean_df = dv.clean(df, strict=args.strict)
+        clean_df = dv.clean(df, strict=args.strict, val_report=report)
         logger.info(f"Cleaning complete. {len(clean_df)} rows remain.")
     except Exception as e:
         logger.error(f"FATAL ERROR: Cleaning crashed during execution: {e}")
