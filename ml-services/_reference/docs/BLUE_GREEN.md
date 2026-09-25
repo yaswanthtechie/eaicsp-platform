@@ -984,6 +984,17 @@ Test Blue
 ```
 
 ---
+## Scope and limitations
+
+- Switching colour changes what **all** production routes serve:
+  `/models/{name}/predict`, `/models/batch-predict` and `GET /models`.
+  `/models/{name}/blue-green/predict` is no longer the only path affected.
+- Blue-green state is held in memory. **A service restart resets every
+  model to its default version (blue)**, even after an approved switch to
+  green. Re-run the switch after a restart until this state is persisted.
+- Approvals are read from `data/governance.json`, relative to the folder
+  the service is started from. In Docker, mount `data/` as a volume or
+  approvals are lost on redeploy.
 
 ## 28. Completion Criteria
 

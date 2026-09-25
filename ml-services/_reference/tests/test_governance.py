@@ -335,3 +335,84 @@ def test_corrupt_governance_file_fails_closed(tmp_path):
         match="audit trail is not overwritten",
     ):
         GovernanceManager(governance_file)
+
+
+def test_running_instance_sees_approval_made_by_another_process(
+    tmp_path,
+):
+    """
+    The service's GovernanceManager must see approvals written
+    by the approve_model CLI (a separate process) without a restart.
+    """
+
+    path = tmp_path / "governance.json"
+
+    server = GovernanceManager(path)
+    cli = GovernanceManager(path)
+
+    cli.request_approval(
+        model_name="forecast",
+        model_version="v2",
+        requested_by="ajith",
+        reason="Candidate v2",
+    )
+
+    cli.approve(
+        model_name="forecast",
+        model_version="v2",
+        approved_by="lead",
+        reason="Reviewed",
+    )
+
+    assert server.is_approved(
+        "forecast",
+        "v2",
+    ) is True
+
+
+def test_write_from_one_instance_does_not_erase_another_approval(
+    tmp_path,
+):
+    """
+    A save from one instance must not overwrite approvals
+    written by another instance.
+    """
+
+    path = tmp_path / "governance.json"
+
+    server = GovernanceManager(path)
+    cli = GovernanceManager(path)
+
+    cli.request_approval(
+        model_name="forecast",
+        model_version="v2",
+        requested_by="ajith",
+        reason="Candidate v2",
+    )
+
+    cli.approve(
+        model_name="forecast",
+        model_version="v2",
+        approved_by="lead",
+        reason="Reviewed",
+    )
+
+    # The server writes after the CLI approved.
+    server.request_approval(
+        model_name="forecast",
+        model_version="v3",
+        requested_by="auto_retraining",
+        reason="Retrained candidate",
+    )
+
+    fresh = GovernanceManager(path)
+
+    assert fresh.is_approved(
+        "forecast",
+        "v2",
+    ) is True
+
+    assert fresh.get_request(
+        "forecast",
+        "v3",
+    ) is not None

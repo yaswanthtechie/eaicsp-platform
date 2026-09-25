@@ -1287,6 +1287,13 @@ class IrisService:
                 previous_version,
                 name=model_name,
             ):
+                """
+                Roll back a failed multi-model promotion.
+
+                The actual registry implementation must be
+                connected before a real production rollback
+                can occur.
+                """
 
                 raise RuntimeError(
                     f"Rollback pipeline for "
@@ -1320,6 +1327,10 @@ class IrisService:
     # ======================================================
 
     def _run_multimodel_retraining(self):
+        """
+        Execute one Milestone 3 multi-model
+        orchestration cycle.
+        """
 
         logger.warning(
             "=========================================="
@@ -1512,6 +1523,9 @@ class IrisService:
             "model_version":
                 str(self.model_version),
 
+            # ------------------------------------------------
+            # Per-model A/B metrics
+            # ------------------------------------------------
             "multi_model_metrics": {
                 model_name:
                     MULTI_MODEL_MANAGER.get_ab_metrics(

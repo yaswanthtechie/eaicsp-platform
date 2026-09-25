@@ -79,6 +79,7 @@ def test_failed_model_does_not_break_entire_batch():
     assert result["summary"]["failed_predictions"] == 1
 
     assert result["results"][0]["success"] is True
+    assert result["results"][1]["success"] is False
     assert result["results"][1]["error"] == "prediction failed"
     assert "model unavailable" not in result["results"][1]["error"]
 

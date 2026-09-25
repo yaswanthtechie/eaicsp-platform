@@ -90,6 +90,11 @@ class GovernanceManager:
     Every approval/rejection is persisted locally and
     mirrored to the exact MLflow model version as governance
     audit tags.
+
+    The local governance file remains the application
+    source of truth. MLflow provides an additional
+    registry-level audit trail when the model version
+    exists in the MLflow registry.
     """
 
     def __init__(
@@ -239,7 +244,6 @@ class GovernanceManager:
             return
 
         try:
-
             with self.storage_path.open(
                 "r",
                 encoding="utf-8",
@@ -397,6 +401,15 @@ class GovernanceManager:
 
         with self._lock:
 
+            # Re-read from disk first. Another process
+            # (for example the approve_model CLI) may have
+            # changed governance.json since this instance
+            # last read it.
+            #
+            # Without this, _save() could overwrite
+            # governance decisions written by another process.
+            self._load()
+
             existing = self._requests.get(
                 key
             )
@@ -458,6 +471,10 @@ class GovernanceManager:
         )
 
         with self._lock:
+
+            # Re-read from disk before evaluating or
+            # modifying the governance request.
+            self._load()
 
             request = self._requests.get(
                 key
@@ -590,6 +607,10 @@ class GovernanceManager:
 
         with self._lock:
 
+            # Re-read from disk before evaluating or
+            # modifying the governance request.
+            self._load()
+
             request = self._requests.get(
                 key
             )
@@ -692,6 +713,10 @@ class GovernanceManager:
 
         with self._lock:
 
+            # Re-read from disk so a long-running service
+            # sees approvals made by another process.
+            self._load()
+
             request = self._requests.get(
                 key
             )
@@ -767,6 +792,10 @@ class GovernanceManager:
 
         with self._lock:
 
+            # Re-read from disk so this instance always
+            # returns the latest governance state.
+            self._load()
+
             return self._requests.get(
                 key
             )
@@ -783,6 +812,10 @@ class GovernanceManager:
         """
 
         with self._lock:
+
+            # Re-read from disk so the list reflects
+            # decisions made by other processes.
+            self._load()
 
             return list(
                 self._requests.values()
