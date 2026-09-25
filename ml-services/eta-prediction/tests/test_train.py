@@ -1,5 +1,7 @@
 import numpy as np
 import pandas as pd
+import joblib
+import pytest
 from sklearn.compose import ColumnTransformer
 from sklearn.metrics import mean_absolute_error
 from sklearn.pipeline import Pipeline
@@ -13,14 +15,37 @@ from src.preprocess import (
     TARGET_COLUMN,
 )
 from src.pipeline import create_pipeline
-from src.train import train_model
+from src.train import (
+    MIN_PRODUCTION_CALIBRATION_ROWS,
+    check_production_calibration,
+    train_model,
+)
 from src.xg_boost_model import XGBoostModel
 
 
 def test_model_training_and_prediction_lifecycle(
     sample_model_data,
+    tmp_path,
+    monkeypatch,
 ):
     """Test complete XGBoost training and prediction lifecycle."""
+
+    # train_model() persists to MODEL_PATH. Without redirecting it, this
+    # test overwrites the committed production artifacts in models/ with a
+    # model fitted on the 8-row fixture.
+    from src import train
+
+    monkeypatch.setattr(
+        train,
+        "MODEL_PATH",
+        tmp_path / "eta_pipeline.joblib",
+    )
+
+    monkeypatch.setattr(
+        train,
+        "CALIBRATION_MODEL_PATH",
+        tmp_path / "eta_prediction_interval.joblib",
+    )
 
     # ---------------------------------------------------------
     # 1. Get reusable training/test data from conftest
@@ -463,3 +488,102 @@ def test_single_feature_removal_leakage_sanity(
         "of the model's improvement "
         "over the naive baseline."
     )
+
+
+# ---------------------------------------------------------------------
+# Production calibration guard tests
+#
+# train_model() intentionally remains permissive so unit tests can use
+# tiny fixtures. check_production_calibration() is the publishing guard
+# that prevents those tiny calibration artifacts from being shipped.
+# ---------------------------------------------------------------------
+
+
+def test_production_calibration_accepts_sufficient_rows():
+    """Production calibration passes when enough rows were used."""
+
+    calibration = {
+        "calibration_rows": MIN_PRODUCTION_CALIBRATION_ROWS,
+    }
+
+    check_production_calibration(
+        calibration
+    )
+
+
+def test_production_calibration_rejects_too_few_rows():
+    """Production calibration rejects an undersized calibration sample."""
+
+    calibration = {
+        "calibration_rows": (
+            MIN_PRODUCTION_CALIBRATION_ROWS - 1
+        ),
+    }
+
+    with pytest.raises(
+        ValueError,
+        match="below the production minimum",
+    ):
+        check_production_calibration(
+            calibration
+        )
+
+
+def test_production_calibration_rejects_missing_row_count():
+    """Missing calibration provenance must not pass the production guard."""
+
+    calibration = {}
+
+    with pytest.raises(
+        ValueError,
+        match="below the production minimum",
+    ):
+        check_production_calibration(
+            calibration
+        )
+def test_production_gate_blocks_artifact_write(
+    sample_model_data,
+    tmp_path,
+    monkeypatch,
+):
+    """
+    A run that fails the production gate must not write artifacts.
+    Otherwise a bad run overwrites the good model in models/ even
+    though it raises.
+    """
+    from src import train
+
+    model_path = tmp_path / "eta_pipeline.joblib"
+    calibration_path = tmp_path / "eta_prediction_interval.joblib"
+
+    monkeypatch.setattr(train, "MODEL_PATH", model_path)
+    monkeypatch.setattr(train, "CALIBRATION_MODEL_PATH", calibration_path)
+
+    X_train = sample_model_data["X_train"].copy()
+    y_train = sample_model_data["y_train"].copy()
+
+    with pytest.raises(ValueError, match="below the production minimum"):
+        train_model(X_train, y_train, enforce_production_gate=True)
+
+    assert not model_path.exists()
+    assert not calibration_path.exists()
+
+
+def test_committed_artifact_passes_production_gate():
+    """
+    The artifact actually shipped in models/ must pass the same gate
+    main.py enforces. This is the test that catches a fixture-trained
+    model being committed.
+    """
+    from src.train import CALIBRATION_MODEL_PATH
+
+    if not CALIBRATION_MODEL_PATH.exists():
+        pytest.skip("No committed calibration artifact")
+
+    calibration = joblib.load(CALIBRATION_MODEL_PATH)
+
+    check_production_calibration(calibration)
+
+    assert "training_rows" in calibration, (
+        "Artifact predates provenance tracking; retrain with python main.py"
+    )        
