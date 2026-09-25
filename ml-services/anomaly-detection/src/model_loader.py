@@ -78,9 +78,32 @@ def make_prediction(model):
 _models = None
 _background = None
 masker = None
+_incident_library = None
 explainers = {}
 
 _adaptive_thresholds_initialized = False
+
+
+def get_incident_library():
+    """
+    Load the M4 incident library built at training time.
+
+    Returns None if it has not been built yet, so /detect still
+    works (it just returns no root_cause_hint).
+    """
+
+    global _incident_library
+
+    if _incident_library is None:
+
+        library_path = models_dir / "incident_library.joblib"
+
+        if not library_path.exists():
+            return None
+
+        _incident_library = joblib.load(library_path)
+
+    return _incident_library
 
 
 def get_models():

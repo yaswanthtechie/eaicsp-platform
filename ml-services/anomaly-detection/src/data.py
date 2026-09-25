@@ -227,6 +227,94 @@ def inject_combined_anomalies(
     df.loc[anomaly_idx,"is_anomaly"] = 1
 
     return df
+# ============================================================
+# M3: CORRELATED NORMAL DATA + RELATIONSHIP BREAKS
+# ============================================================
+#
+# generate_normal_data() draws temperature and humidity
+# independently, so there is no relationship between them for a
+# model to learn - and nothing for M3 to detect.
+#
+# In a real warehouse, relative humidity FALLS as temperature
+# RISES (warm air holds more moisture, so the same water content
+# reads as a lower %RH). These generators model that.
+
+HUMIDITY_TEMP_SLOPE = -2.5    # %RH change per +1 degree C
+HUMIDITY_NOISE_SD = 3.3       # keeps humidity's overall sd ~5, same as before
+
+
+def generate_correlated_normal_data(
+    n: int = 5000,
+    seed: int = 42,
+) -> pd.DataFrame:
+    """
+    Normal readings where humidity follows temperature.
+
+    Each feature on its own has the same distribution as
+    generate_normal_data(); only the relationship is new.
+    """
+
+    rng = np.random.default_rng(seed)
+
+    temperature = rng.normal(22, 1.5, n)
+
+    humidity = (
+        45
+        + HUMIDITY_TEMP_SLOPE * (temperature - 22)
+        + rng.normal(0, HUMIDITY_NOISE_SD, n)
+    )
+
+    df = pd.DataFrame(
+        {
+            "timestamp": pd.date_range(
+                start="2026-01-01",
+                periods=n,
+                freq="5min",
+            ),
+            "temperature": temperature,
+            "humidity": humidity,
+            "stock_count": rng.normal(500, 30, n).round().astype(int),
+        }
+    )
+
+    df["is_anomaly"] = 0
+
+    return df
+
+
+def inject_relationship_breaks(
+    df: pd.DataFrame,
+    n_anomalies: int = 20,
+    seed: int = 42,
+) -> pd.DataFrame:
+    """
+    Inject readings where every feature is individually normal
+    (|z| <= 2) but humidity moves the WRONG way for the
+    temperature: hot AND humid, or cold AND dry.
+
+    A per-feature threshold cannot catch these. Only a model that
+    has learned the temperature-humidity relationship can.
+    """
+
+    rng = np.random.default_rng(seed)
+
+    df = df.copy()
+
+    anomaly_idx = rng.choice(df.index, size=n_anomalies, replace=False)
+
+    # 1.5 - 2.0 standard deviations from mean temperature,
+    # randomly above or below.
+    direction = rng.choice([-1.0, 1.0], size=n_anomalies)
+    temp_offset = direction * rng.uniform(1.5, 2.0, n_anomalies) * 1.5
+
+    df.loc[anomaly_idx, "temperature"] = 22 + temp_offset
+
+    # Normal humidity here would be 45 + SLOPE * offset. Flip the sign.
+    df.loc[anomaly_idx, "humidity"] = 45 - HUMIDITY_TEMP_SLOPE * temp_offset
+
+    df.loc[anomaly_idx, "is_anomaly"] = 1
+
+    return df
 
 
 # Save dataset
@@ -307,6 +395,17 @@ def generate_all_datasets():
     # of this same normal dataset.
 
     test_normal = generate_normal_data(n=5000,seed=456)
+        # M3: CORRELATED NORMAL DATA
+
+    correlated_normal = generate_correlated_normal_data(
+        n=5000,
+        seed=456,
+    )
+
+    save_dataset(
+        correlated_normal,
+        "correlated_normal.csv",
+    )
 
     # 3. TEMPERATURE SPIKE TEST
 
@@ -359,6 +458,20 @@ def generate_all_datasets():
     )
 
     save_dataset(test_combined_anomaly,"test_combined_anomaly.csv")
+        # 6B. RELATIONSHIP BREAK TEST
+
+    test_relationship_break = (
+        inject_relationship_breaks(
+            correlated_normal,
+            n_anomalies=20,
+            seed=1005,
+        )
+    )
+
+    save_dataset(
+        test_relationship_break,
+        "test_relationship_break.csv",
+    )
 
     # 7. SEASONAL NORMAL TEST
 
@@ -402,7 +515,9 @@ def generate_all_datasets():
     print()
     print("TEST")
     print("-" * 60)
-
+    print(
+        "test_relationship_break.csv"
+    )
 
     print(
         "test_temperature_spike.csv"
