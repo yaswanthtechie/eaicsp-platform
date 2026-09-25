@@ -1,5 +1,7 @@
+import numpy as np
 import pandas as pd
 
+from src.build_features import build_all_features
 from src.feature_quality import score_feature_quality
 
 
@@ -77,3 +79,38 @@ def test_feature_quality_flags_single_unique_value():
 
     assert single_value_feature["risk"] == "risky"
     assert "No variation" in single_value_feature["reason"]
+
+def test_feature_quality_flags_high_null_lag_feature():
+    rng = np.random.default_rng(42)
+
+    df = pd.DataFrame({
+        "date": pd.date_range("2024-01-01", periods=60),
+        "target": rng.poisson(50, 60),
+    })
+
+    config = {
+        "lags": [1, 30],
+        "windows": [7],
+    }
+
+    features = build_all_features(
+        df,
+        date_col="date",
+        target_col="target",
+        config=config,
+        feature_version="v1",
+    )
+
+    quality = score_feature_quality(features)
+
+    risky = quality[quality["risk"] == "risky"]
+
+    lag_30 = risky[risky["feature"] == "target_lag_30"]
+
+    assert not lag_30.empty
+    assert lag_30.iloc[0]["null_rate"] >= 0.20
+
+    lag_1 = quality[quality["feature"] == "target_lag_1"]
+
+    assert not lag_1.empty
+    assert lag_1.iloc[0]["risk"] == "safe"

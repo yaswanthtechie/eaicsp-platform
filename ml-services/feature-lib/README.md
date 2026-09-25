@@ -71,7 +71,7 @@ Example:
   - Reports the feature name, null rate, risk status, and reason.
 
   - Feature quality scoring evaluates intrinsic quality issues in the current dataset, such as high null rates, no variation, and high variability. It is separate from feature drift monitoring, which compares feature distributions between reference and current datasets.
-  - In the 100,000-row benchmark, `target_roll_std_7` and `target_roll_std_30` were flagged as `risky` because they contained no variation.
+  - In the full 100,000-row benchmark, no features were flagged as risky. In a separate 60-day-history scenario, `target_lag_30`, `target_roll_mean_30`, and `target_roll_std_30` were flagged as `risky` because each contained 50% null values due to the 30-observation history requirement.
 
 - **Feature Store**
   - Provides a simple in-memory feature store for caching engineered features.
@@ -110,7 +110,7 @@ Example:
 
 The library was tested using the Prophet retail sales dataset.
 
-The current test suite contains 93 tests, and the latest full test run passed all 93 tests.
+The current test suite contains 99 tests, and the latest full test run passed all 99 tests.
 
 **---**
 
@@ -136,7 +136,7 @@ The current test suite contains 93 tests, and the latest full test run passed al
 | Performance at real scale (100k+ rows) | Done |
 | Full test coverage and comprehensive documentation | Done |
 
-**\*\*Round 9–11 Verification:\*\*** Feature versioning is demonstrated with separate `v1` and `v2` definitions and backward-compatible `v1` consumers. The automated feature catalog documents both versions. Feature quality scoring flags real risky features with clear reasons. The performance benchmark processes 100,000 grouped time-series rows and reports execution time. The latest full test run passed all 92 tests.
+** **Round 9–11 Verification:** Feature versioning is demonstrated with separate `v1` and `v2` definitions and backward-compatible `v1` consumers. The automated feature catalog documents both versions, including the version-specific rolling standard deviation definitions. Feature quality scoring flags real risky features with clear reasons: the 30-day features are flagged on a 60-day-history scenario because of their high null rate. The performance benchmark processes 100,000 grouped time-series rows and reports execution time. The latest full test run passed all 99 tests.
 
 ## 2. How to Run
 
@@ -224,22 +224,34 @@ The test suite covers:
 
 Expected result:
 
-    93 passed
+    99 passed
 
 The test suite may display dependency-related deprecation or statistical warnings. These warnings do not indicate failures in the feature library when all tests pass.
 
 ### Performance Benchmark
 
-The feature engineering library was benchmarked on 100,000 rows using a realistic grouped time-series dataset:
+The feature engineering library was benchmarked on 100,000 rows of grouped time-series data using seeded Poisson daily demand with a weekend uplift:
 
 - Rows processed: 100,000
 - Warehouses: 100
 - Days per warehouse: 1,000
 - Features generated: 18
 - Feature version: v1
-- Execution time: 0.5248 seconds
+- Execution time: 0.6931 seconds
 
 The benchmark uses grouped time-series data to represent multiple warehouses rather than a single 100,000-day series. Feature generation is vectorized and was timed using `time.perf_counter()`.
+
+Run the benchmark from the `feature-lib` directory with:
+
+    python -m scripts.benchmark_features
+
+A separate 60-day-history scenario is also used to demonstrate feature quality risk. Because 30-observation features require 30 historical observations, the following features contain 50% null values and are flagged as risky:
+
+- `target_lag_30` — High null rate: 50.0%
+- `target_roll_mean_30` — High null rate: 50.0%
+- `target_roll_std_30` — High null rate: 50.0%
+
+The full 1,000-day history scenario does not flag these features as risky.
 
 ## 3. Feature Store
 

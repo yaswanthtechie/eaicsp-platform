@@ -1,5 +1,4 @@
 from .lag_features import add_lag_features
-from .rolling_features import add_rolling_features
 from .calendar_features import add_calendar_features
 from .holiday_features import create_holiday_features
 from .interaction_features import add_interaction_features
@@ -188,11 +187,13 @@ def _build_v2_rolling_features(
 FEATURE_VERSIONS = {
     "v1": {
         "additional_windows": [],
+        "roll_std_ddof": 1,
         "lag_builder": _build_v1_lag_features,
         "rolling_builder": _build_v1_rolling_features,
     },
     "v2": {
         "additional_windows": [14],
+        "roll_std_ddof": 0,
         "lag_builder": add_lag_features,
         "rolling_builder": _build_v2_rolling_features,
     },

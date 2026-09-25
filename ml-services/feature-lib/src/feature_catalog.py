@@ -1,7 +1,11 @@
 import re
-from .build_features import build_all_features
+from .build_features import FEATURE_VERSIONS, build_all_features
 import pandas as pd
 
+STD_DESCRIPTIONS = {
+    1: "Sample standard deviation (ddof=1)",
+    0: "Population standard deviation (ddof=0)",
+}
 
 def generate_feature_catalog(
     df: pd.DataFrame,
@@ -23,6 +27,9 @@ def generate_feature_catalog(
         feature_version=feature_version,
         group_cols=group_cols,
     )
+
+    std_ddof = FEATURE_VERSIONS[feature_version]["roll_std_ddof"]
+    std_kind = STD_DESCRIPTIONS[std_ddof]
 
     catalog = []
 
@@ -65,7 +72,7 @@ def generate_feature_catalog(
             )
 
             meaning = (
-                f"Standard deviation of the previous {window} observations; "
+                f"{std_kind} of the previous {window} observations; "
                 "the rolling calculation is shifted by one observation "
                 "to avoid using the current target and prevent data leakage."
             )
@@ -134,8 +141,6 @@ def generate_feature_catalog(
                 f"No catalog definition found for generated feature "
                 f"'{column}'. Add an explicit catalog definition."
             )
-            feature_type = "Other"
-
         catalog.append(
             {
                 "feature": column,
