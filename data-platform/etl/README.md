@@ -1,4 +1,4 @@
-Sales ETL Pipeline
+﻿Sales ETL Pipeline
 
 Overview
 
@@ -1096,8 +1096,5 @@ Cross-table lineage works end-to-end.
 Disaster recovery backup and restore drill is completed.
 
 Recovery replay successfully restores pipeline processing.
-
-
-
 
 > DR replay currently covers the sales source only; other sources require a history_table and compatible restore logic.

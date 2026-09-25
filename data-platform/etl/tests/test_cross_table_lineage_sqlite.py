@@ -1,4 +1,3 @@
-import os
 from types import SimpleNamespace
 import pytest
 from sqlalchemy import create_engine, text
@@ -42,8 +41,8 @@ def test_every_env_config_has_lineage_keys(env, monkeypatch):
     for source in config.sources:
         assert source.lineage_keys == ["sku_id", "warehouse_id"], (env, source.name)
 
-def test_lineage_with_real_dev_config():
-    os.environ["ETL_ENV"] = "dev"
+def test_lineage_with_real_dev_config(monkeypatch):
+    monkeypatch.setenv("ETL_ENV", "dev")
     lineage = trace_row_lineage(30, "shipments_fact",
                                 config=load_pipeline_config(), engine=_engine())
     assert [r["run_id"] for r in lineage] == [300, 200, 100]

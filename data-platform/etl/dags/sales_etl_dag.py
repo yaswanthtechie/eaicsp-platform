@@ -165,6 +165,14 @@ def make_extract_task(source_config, extract_task_id):
             value=len(extracted_batches),
         )
 
+        ti.xcom_push(
+            key="batch_files",
+            value=[
+                str(batch["file_path"])
+                for batch in extracted_batches
+            ],
+        )
+
         if not extracted_batches:
 
             logger.warning(
@@ -264,31 +272,11 @@ def make_quality_gate_task(
             source_config,
         )
 
-        rejected_by_quality = (
-            len(schema_valid_batches)
-            - len(validated_batches)
-        )
-
-        ti.xcom_push(
-            key="rows_rejected_pre_load",
-            value=rejected_by_quality,
-        )
-
-        if not validated_batches:
-
-            logger.warning(
-                f"[{source_config.name}] "
-                "All batches rejected by quality gate"
-            )
-
-            return reject_task_id
-
-        ti.xcom_push(
-            key="validated_batches",
-            value=_serialize_batches(
-                validated_batches
-            ),
-        )
+        raw_rows = sum(len(item["data"]) for item in ti.xcom_pull(task_ids=extract_task_id, key="raw_batches") or [])
+        schema_valid_rows = sum(len(batch["data"]) for batch in schema_valid_batches)
+        passed_files = {batch["file_path"].name for batch in validated_batches}
+        rows_in_rejected_files = sum(len(batch["data"]) for batch in schema_valid_batches if batch["file_path"].name not in passed_files)
+        rejected_by_quality = (raw_rows - schema_valid_rows) + rows_in_rejected_files
 
         return load_task_id
 
@@ -544,9 +532,11 @@ def make_reject_task(
             run_id=run_id,
         )
 
+        rows_rejected = sum(len(item["data"]) for item in ti.xcom_pull(task_ids=extract_task_id, key="raw_batches") or [])
+
         ti.xcom_push(
             key="rows_rejected",
-            value=batches_seen,
+            value=rows_rejected,
         )
 
         ti.xcom_push(
@@ -694,7 +684,7 @@ def log_run_task(**context):
             rows_rejected=rows_rejected,
             environment=os.getenv("ETL_ENV", "dev"),
             table=source_config.table,
-            batch_files=ti.xcom_pull(task_ids=load_id, key="batch_files") or [],
+            batch_files=ti.xcom_pull(task_ids=extract_id, key="batch_files") or [],
             pipeline_name=f"{source_config.name}_etl",
             min_pass_rate=PIPELINE_CONFIG.quality_sla_min_pass_rate,
         )

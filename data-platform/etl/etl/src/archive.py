@@ -1,3 +1,15 @@
+﻿"""
+R4 #4: archival.
+
+Rows in the live sales table older than a configurable cutoff move to the
+archive table instead of the live table growing forever. Both table names
+come from the `archive:` block of the active environment's config.
+
+Idempotency: within one transaction we (1) copy old rows into the archive
+table with ON CONFLICT (id) DO NOTHING, then (2) delete those same rows from
+the live table.
+"""
+
 from datetime import date, timedelta
 
 from sqlalchemy import text
@@ -5,15 +17,15 @@ from sqlalchemy import text
 from database import get_engine
 from logging_config import logger
 from alert_service import write_alert
-from etl.src.config_loader import load_pipeline_config
+from config_loader import load_pipeline_config
 
 
-def archive_old_sales(cutoff_days=730, run_id=None):
+def archive_old_sales(cutoff_days=730, run_id=None, config=None):
     engine = get_engine()
-    config = load_pipeline_config()
-    source = config.get_source("sales")
-    live_table = source.table
-    archive_table = source.archive_table
+    config = config or load_pipeline_config()
+
+    live_table = config.archive.table
+    archive_table = config.archive.archive_table
     cutoff_date = date.today() - timedelta(days=cutoff_days)
 
     archive_query = text(f"""
@@ -46,14 +58,27 @@ def archive_old_sales(cutoff_days=730, run_id=None):
             )
             deleted_count = deleted_result.rowcount
 
-        return archived_count, deleted_count
+        logger.info(
+            f"Archive: env={config.environment} "
+            f"{live_table} -> {archive_table} cutoff={cutoff_date} "
+            f"archived={archived_count} deleted_from_live={deleted_count}"
+        )
+
+        return {
+            "cutoff_date": cutoff_date,
+            "live_table": live_table,
+            "archive_table": archive_table,
+            "archived_count": archived_count,
+            "deleted_count": deleted_count,
+        }
 
     except Exception as exc:
         logger.exception("Archive failed for run %s", run_id)
         write_alert(
             pipeline="sales_etl",
             severity="CRITICAL",
-            message=f"Archive failed for run {run_id}: {exc}",
+            message=f"Archive failed for run {run_id} "
+                    f"({live_table} -> {archive_table}): {exc}",
             run_id=run_id,
         )
         raise
