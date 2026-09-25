@@ -46,17 +46,34 @@ Milestone 4:
 - Average latency
 - A/B testing metrics
 - Dashboard auto-refresh
+
+Round 10:
+- Unified cross-model batch prediction
+- Concurrent model execution
+- Batch latency monitoring
+- CPU monitoring
+- Memory monitoring
+- Batch success/failure metrics
+
+Round 11:
+- Blue-Green model deployment
+- Blue/Green model version configuration
+- Governance-gated Green deployment
+- Blue rollback
+- Blue-Green prediction endpoint
+- Blue-Green deployment status
 """
 
 import logging
 import os
 import time
 import uuid
+from typing import Any
 
 import bentoml
 import numpy as np
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 
 from pydantic import (
     BaseModel,
@@ -82,6 +99,28 @@ from src.adapters import (
     ETAAdapter,
     AnomalyAdapter,
     RiskAdapter,
+)
+
+
+# ==========================================================
+# Round 10 Batch Prediction
+# ==========================================================
+
+from src.batch_predict import (
+    BatchPredictionService,
+)
+
+
+# ==========================================================
+# Round 11 Blue-Green Deployment
+# ==========================================================
+
+from src.blue_green import (
+    BlueGreenManager,
+)
+
+from src.governance import (
+    governance_manager,
 )
 
 
@@ -261,6 +300,83 @@ class IrisBatchRequest(BaseModel):
 
 
 # ==========================================================
+# Round 10 Multi-Model Batch Request Models
+# ==========================================================
+
+
+class MultiModelBatchItem(BaseModel):
+    """
+    One model prediction inside a unified batch.
+    """
+
+    model_name: str = Field(
+        ...,
+        description=(
+            "Model name: forecast, eta, "
+            "anomaly or risk"
+        ),
+    )
+
+    features: dict[str, Any] = Field(
+        ...,
+        description="Model-specific input features",
+    )
+
+
+class MultiModelBatchRequest(BaseModel):
+    """
+    Unified cross-model batch request.
+
+    A single request can contain predictions for
+    multiple independently served models.
+
+    Batch size is limited to 100 items to prevent
+    excessively large requests from consuming
+    excessive serving resources.
+    """
+
+    requests: list[MultiModelBatchItem] = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description=(
+            "List of model predictions to execute "
+            "as one batch"
+        ),
+    )
+
+
+# ==========================================================
+# Round 11 Blue-Green Request Model
+# ==========================================================
+
+
+class BlueGreenConfigureRequest(BaseModel):
+    """
+    Configure Blue-Green deployment for a model.
+
+    Blue:
+        Current known-good model version.
+
+    Green:
+        Candidate model version that requires
+        governance approval before activation.
+    """
+
+    blue_version: str = Field(
+        ...,
+        min_length=1,
+        description="Current Blue model version",
+    )
+
+    green_version: str = Field(
+        ...,
+        min_length=1,
+        description="Candidate Green model version",
+    )
+
+
+# ==========================================================
 # Retraining Check Request
 # ==========================================================
 
@@ -419,6 +535,34 @@ for model_name in MULTI_MODEL_NAMES:
 
 
 # ==========================================================
+# Round 10 Batch Prediction Service
+# ==========================================================
+
+BATCH_PREDICTION_SERVICE = BatchPredictionService(
+    model_manager=MULTI_MODEL_MANAGER
+)
+
+
+# ==========================================================
+# Round 11 Blue-Green Manager
+# ==========================================================
+#
+# Governance is injected into the Blue-Green manager.
+#
+# Switching to Green:
+#     governance approval required
+#
+# Switching to Blue:
+#     always allowed as rollback
+# ==========================================================
+
+BLUE_GREEN_MANAGER = BlueGreenManager(
+    MULTI_MODEL_MANAGER,
+    governance=governance_manager,
+)
+
+
+# ==========================================================
 # FastAPI Multi-Model Application
 # ==========================================================
 
@@ -430,6 +574,279 @@ multi_model_app = FastAPI(
         "anomaly detection and supplier risk models."
     ),
 )
+
+
+# ==========================================================
+# Round 10 Unified Batch Prediction Endpoint
+# ==========================================================
+
+
+@multi_model_app.post(
+    "/models/batch-predict",
+    tags=["Multi-Model Serving"],
+)
+def batch_predict(
+    request: MultiModelBatchRequest,
+) -> dict:
+    """
+    Run multiple model predictions as one batch.
+
+    Predictions for independent models are executed
+    concurrently.
+
+    Resource metrics include:
+
+    - batch size
+    - model count
+    - total predictions
+    - CPU usage
+    - memory usage
+    - total latency
+
+    Invalid batch requests that reach the service layer
+    as ValueError are returned as HTTP 400 responses.
+    Pydantic validation errors such as an empty batch or
+    a batch larger than 100 items are returned by FastAPI
+    as HTTP 422 responses before this function executes.
+    """
+
+    logger.info(
+        "Round 10 batch prediction requested: "
+        "batch_size=%s",
+        len(request.requests),
+    )
+
+    try:
+
+        batch_requests = [
+            {
+                "model_name": (
+                    item.model_name.strip().lower()
+                ),
+                "features": item.features,
+            }
+            for item in request.requests
+        ]
+
+        result = (
+            BATCH_PREDICTION_SERVICE.predict(
+                batch_requests
+            )
+        )
+
+        logger.info(
+            "Round 10 batch prediction completed: "
+            "batch_size=%s latency_ms=%s",
+            result["summary"]["batch_size"],
+            result["resource_metrics"]["latency_ms"],
+        )
+
+        return result
+
+    except ValueError as exc:
+
+        logger.warning(
+            "Invalid batch prediction request: %s",
+            exc,
+        )
+
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+
+
+# ==========================================================
+# Round 11 Blue-Green Configuration Endpoint
+# ==========================================================
+
+
+@multi_model_app.post(
+    "/models/{model_name}/blue-green",
+    tags=["Blue-Green"],
+)
+def configure_blue_green(
+    model_name: str,
+    body: BlueGreenConfigureRequest,
+) -> dict:
+    """
+    Configure Blue-Green deployment for a model.
+
+    The configured Blue version is the currently active
+    known-good version.
+
+    The configured Green version is the candidate version.
+
+    Configuration itself does not switch traffic.
+    """
+
+    try:
+
+        normalized_model_name = (
+            model_name.strip().lower()
+        )
+
+        return BLUE_GREEN_MANAGER.configure(
+            normalized_model_name,
+            body.blue_version,
+            body.green_version,
+        )
+
+    except (ValueError, KeyError) as exc:
+
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+
+
+# ==========================================================
+# Round 11 Blue-Green Status Endpoint
+# ==========================================================
+
+
+@multi_model_app.get(
+    "/models/{model_name}/blue-green",
+    tags=["Blue-Green"],
+)
+def blue_green_status(
+    model_name: str,
+) -> dict:
+    """
+    Return the current Blue-Green deployment state.
+    """
+
+    try:
+
+        normalized_model_name = (
+            model_name.strip().lower()
+        )
+
+        return BLUE_GREEN_MANAGER.status(
+            normalized_model_name
+        )
+
+    except KeyError as exc:
+
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        ) from exc
+
+
+# ==========================================================
+# Round 11 Blue-Green Switch Endpoint
+# ==========================================================
+
+
+@multi_model_app.post(
+    "/models/{model_name}/blue-green/switch/{color}",
+    tags=["Blue-Green"],
+)
+def blue_green_switch(
+    model_name: str,
+    color: str,
+) -> dict:
+    """
+    Switch active traffic between Blue and Green.
+
+    Green:
+        Requires governance approval.
+
+    Blue:
+        Always allowed because it is the rollback
+        destination.
+    """
+
+    try:
+
+        normalized_model_name = (
+            model_name.strip().lower()
+        )
+
+        return BLUE_GREEN_MANAGER.switch(
+            normalized_model_name,
+            color,
+        )
+
+    except PermissionError as exc:
+
+        logger.warning(
+            "Blue-Green switch blocked by governance: "
+            "model=%s color=%s reason=%s",
+            model_name,
+            color,
+            exc,
+        )
+
+        raise HTTPException(
+            status_code=403,
+            detail=str(exc),
+        ) from exc
+
+    except KeyError as exc:
+
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        ) from exc
+
+    except ValueError as exc:
+
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+
+
+# ==========================================================
+# Round 11 Blue-Green Prediction Endpoint
+# ==========================================================
+
+
+@multi_model_app.post(
+    "/models/{model_name}/blue-green/predict",
+    tags=["Blue-Green"],
+)
+def blue_green_predict(
+    model_name: str,
+    payload: dict[str, Any],
+) -> dict:
+    """
+    Run prediction against the currently active
+    Blue-Green model version.
+
+    The response identifies:
+
+    - active model version
+    - deployment color
+    - deployment status
+    """
+
+    try:
+
+        normalized_model_name = (
+            model_name.strip().lower()
+        )
+
+        return BLUE_GREEN_MANAGER.predict(
+            normalized_model_name,
+            payload,
+        )
+
+    except KeyError as exc:
+
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        ) from exc
+
+    except ValueError as exc:
+
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
 
 
 # ==========================================================
@@ -669,6 +1086,16 @@ class IrisService:
             "/mlops/dashboard"
         )
 
+        logger.info(
+            "Round 10 unified batch prediction available at "
+            "/models/batch-predict"
+        )
+
+        logger.info(
+            "Round 11 Blue-Green deployment available at "
+            "/models/{model_name}/blue-green"
+        )
+
     # ======================================================
     # Milestone 3 Orchestrator Creation
     # ======================================================
@@ -703,16 +1130,11 @@ class IrisService:
         # --------------------------------------------------
         #
         # Lower is better:
-        #   forecast -> error metric
-        #   eta      -> error metric
+        # forecast and eta are error metrics.
         #
         # Higher is better:
-        #   anomaly -> quality/performance score
-        #   risk    -> quality/performance score
+        # anomaly and risk are scores.
         #
-        # The orchestrator uses this information to avoid
-        # incorrectly promoting a worse candidate.
-        # --------------------------------------------------
 
         higher_is_better = {
             "forecast": False,
@@ -756,12 +1178,9 @@ class IrisService:
                 Calculate the current drift decision for
                 one served model.
 
-                Unlike the previous implementation, this does
-                NOT use a hardcoded drift_score=0.0.
-
-                Recent prediction inputs are loaded from the
-                model-specific monitoring records and passed
-                into the drift calculator.
+                Drift is calculated from the model's own
+                recent monitoring inputs and does NOT use
+                a hardcoded drift_score=0.0.
                 """
 
                 recent_inputs = (
@@ -804,9 +1223,10 @@ class IrisService:
                 Safety boundary for model-specific
                 retraining.
 
-                Do not silently fake a successful retraining
-                operation. The corresponding production
-                pipeline must be connected here.
+                The real production retraining pipeline
+                remains explicitly guarded until the
+                corresponding production pipeline is
+                connected.
                 """
 
                 raise RuntimeError(
@@ -822,11 +1242,13 @@ class IrisService:
                 name=model_name,
             ):
                 """
-                Evaluate the currently deployed production
-                version for one model.
+                Safety boundary for model-specific
+                production evaluation.
 
-                This remains explicitly guarded until the
-                model-specific evaluation pipeline is wired.
+                The real production evaluation pipeline
+                remains explicitly guarded until the
+                corresponding production pipeline is
+                connected.
                 """
 
                 raise RuntimeError(
@@ -843,11 +1265,13 @@ class IrisService:
                 name=model_name,
             ):
                 """
-                Promote a validated candidate version.
+                Safety boundary for model-specific
+                production promotion.
 
-                This remains explicitly guarded until the
-                corresponding model registry/promotion
-                pipeline is connected.
+                The real production promotion pipeline
+                remains explicitly guarded until the
+                corresponding production pipeline is
+                connected.
                 """
 
                 raise RuntimeError(
@@ -884,7 +1308,9 @@ class IrisService:
                 "get_version": get_version,
                 "check_drift": check_model_drift,
                 "retrain": retrain,
-                "evaluate_production": evaluate_production,
+                "evaluate_production": (
+                    evaluate_production
+                ),
                 "promote": promote,
                 "rollback": rollback,
                 "higher_is_better": (
@@ -1100,7 +1526,6 @@ class IrisService:
             # ------------------------------------------------
             # Per-model A/B metrics
             # ------------------------------------------------
-
             "multi_model_metrics": {
                 model_name:
                     MULTI_MODEL_MANAGER.get_ab_metrics(
@@ -1503,6 +1928,8 @@ class IrisService:
              ↓
         staging
              ↓
+        governance approval
+             ↓
         production
         """
 
@@ -1581,6 +2008,8 @@ class IrisService:
         compare with production
           ↓
         staging
+          ↓
+        governance approval
           ↓
         production
           ↓
@@ -1729,20 +2158,66 @@ class IrisService:
             MODEL_NAME
         )
 
+        staging_version = str(
+            staging_version
+        )
+
         logger.info(
             "New model assigned to staging: %s",
             staging_version,
         )
 
         # --------------------------------------------------
-        # Promote staging → production
+        # Governance request
         # --------------------------------------------------
 
-        production_version = promote_model(
-            MODEL_NAME,
-            from_alias="staging",
-            to_alias="production",
+        from src.governance import governance_manager
+
+        governance_manager.request_approval(
+            model_name=MODEL_NAME,
+            model_version=staging_version,
+            requested_by="auto_retraining",
+            reason=(
+                f"Retrained candidate "
+                f"accuracy={candidate_accuracy:.4f}"
+            ),
         )
+
+        # --------------------------------------------------
+        # Promote staging -> production
+        # --------------------------------------------------
+
+        try:
+
+            production_version = promote_model(
+                MODEL_NAME,
+                from_alias="staging",
+                to_alias="production",
+                expected_version=staging_version,
+            )
+
+        except PermissionError as exc:
+
+            logger.warning(
+                "Retrained model awaiting governance approval: %s",
+                exc,
+            )
+
+            return {
+
+                "status":
+                    "pending_approval",
+
+                "staging_version":
+                    staging_version,
+
+                "candidate_accuracy":
+                    candidate_accuracy,
+            }
+
+        # --------------------------------------------------
+        # Production promotion succeeded
+        # --------------------------------------------------
 
         logger.warning(
             "New model promoted to production: %s",
@@ -1947,6 +2422,23 @@ class IrisService:
                         "message":
                             "Candidate model "
                             "failed promotion gate",
+
+                        **result,
+                    }
+
+                if (
+                    result.get("status")
+                    == "pending_approval"
+                ):
+
+                    return {
+
+                        "status":
+                            "pending_approval",
+
+                        "message":
+                            "Candidate model is "
+                            "waiting for governance approval",
 
                         **result,
                     }

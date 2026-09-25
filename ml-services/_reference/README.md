@@ -2463,6 +2463,181 @@ Invoke-RestMethod http://localhost:3000/models
 * [ ] Final multi-model Docker image
 
 
+# MLOps + Model Serving
+# MLOps + Model Serving
 
+## Round 9, 10 & 11 — Implementation Status
+
+This document summarizes the MLOps and model-serving capabilities completed for Rounds 9, 10 and 11.
+
+### 1. Milestone Status
+
+| Milestone                   | Status      | What's Left                                                          |
+| --------------------------- | ----------- | -------------------------------------------------------------------- |
+| **M1 Governance**           | **Done**    | None                                                                 |
+| **M2 Serving Optimisation** | **Partial** | Same-model vectorized calls and before/after cost/latency comparison |
+| **M3 Blue-Green**           | **Done**    | None — real traffic switching demonstrated in `docs/BLUE_GREEN.md`   |
+| **M4 Runbook + Drill**      | **Done**    | Follow-ups: prediction health in `GET /models`, automated alerting   |
+| **M5 Dependency Docs**      | **Done**    | No current consumers confirmed; re-check when a service integrates   |
+
+---
+
+## 2. Model Governance
+
+Implemented approval-based Production promotion.
+
+Key controls:
+
+* Approval required for the exact model version
+* Central enforcement in `promote_model()`
+* Self-approval blocked
+* Approval/rejection audit information persisted
+* MLflow governance tags recorded
+
+**Status: DONE**
+
+---
+
+## 3. Serving Optimisation
+
+Implemented:
+
+* Batch prediction for `forecast`, `eta`, `anomaly`, and `risk`
+* Concurrent prediction
+* CPU, memory and latency monitoring
+* Batch size validation
+
+Remaining:
+
+* Group same-model requests into vectorized calls
+* Before/after latency and cost benchmark
+
+**Status: PARTIAL**
+
+---
+
+## 4. Blue-Green Deployment
+
+Implemented:
+
+* Blue and Green model versions
+* Traffic switching
+* Governance check for Green
+* Rollback to Blue
+* Blue-Green prediction APIs
+
+Documentation:
+
+```text
+docs/BLUE_GREEN.md
+```
+
+**Status: DONE**
+
+---
+
+## 5. Incident Response
+
+Implemented:
+
+* Incident runbook
+* Failure injection
+* API-based incident drill
+* Containment and rollback
+* Recovery verification
+* Drill timeline and follow-ups
+
+Follow-ups identified:
+
+* Prediction health status in `GET /models`
+* Automated alerting
+
+**Status: DONE**
+
+---
+
+## 6. Model Dependencies
+
+Current models:
+
+```text
+forecast
+eta
+anomaly
+risk
+```
+
+Current confirmed state:
+
+```text
+No current consumers of the model-serving API were confirmed.
+```
+
+Dependency documentation:
+
+```text
+docs/MODEL_DEPENDENCIES.md
+```
+
+Re-check when a service integrates with the model-serving API.
+
+**Status: DONE**
+
+---
+
+## 7. Key Files
+
+```text
+src/governance.py
+src/batch_predict.py
+src/resource_monitor.py
+src/blue_green.py
+src/incident_simulator.py
+src/run_incident_drill.py
+
+docs/BLUE_GREEN.md
+docs/INCIDENT_RUNBOOK.md
+docs/INCIDENT_DRILL.md
+docs/MODEL_DEPENDENCIES.md
+```
+
+---
+
+## 8. Testing
+
+Run:
+
+```bash
+python -m pytest -q tests
+```
+
+Previously recorded result:
+
+```text
+177 passed
+0 failures
+49 warnings
+```
+
+---
+
+## 9. Final Status
+
+| Phase                         | Status      |
+| ----------------------------- | ----------- |
+| **Model Governance**          | **DONE**    |
+| **Serving Optimization**      | **PARTIAL** |
+| **Blue-Green Deployment**     | **DONE**    |
+| **Incident Response + Drill** | **DONE**    |
+| **Cross-Model Dependencies**  | **DONE**    |
+
+### Remaining Work
+
+```text
+1. Same-model vectorized serving
+2. Before/after cost and latency benchmark
+3. Prediction health status in GET /models
+4. Automated alerting
+```
 
 

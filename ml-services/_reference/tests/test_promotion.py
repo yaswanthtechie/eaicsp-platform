@@ -8,6 +8,7 @@ Verifies:
 3. Prediction follows the production alias
 4. Promotion of a non-existent version fails
 5. Production -> Staging demotion
+6. Production promotion is blocked without governance approval
 """
 
 from unittest import mock
@@ -15,6 +16,36 @@ from unittest import mock
 import pytest
 
 from src.config import MODEL_NAME
+
+
+# ==========================================================
+# Test Governance Override
+# ==========================================================
+
+class _ApproveAll:
+    """
+    Test-only governance implementation.
+
+    Existing promotion tests are focused on alias behavior,
+    auditing, and promotion mechanics. This allows those tests
+    to bypass the real governance approval requirement.
+    """
+
+    def require_approval(self, model_name, model_version):
+        return None
+
+
+@pytest.fixture(autouse=True)
+def _allow_promotion(monkeypatch):
+    """
+    Allow existing promotion tests to exercise alias logic
+    without requiring a real governance approval.
+    """
+
+    monkeypatch.setattr(
+        "src.mlflow_utils._default_governance",
+        lambda: _ApproveAll(),
+    )
 
 
 @pytest.fixture
@@ -173,3 +204,44 @@ def test_demote_production_back_to_staging(fake_client):
         alias="staging",
         version="2",
     )
+
+
+# ==========================================================
+# Governance Gate
+# ==========================================================
+
+def test_promote_to_production_is_blocked_without_approval(
+    tmp_path,
+    fake_client,
+):
+    """
+    Production promotion must be blocked when the model version
+    has not received governance approval.
+    """
+
+    from src.governance import GovernanceManager
+    from src.mlflow_utils import promote_model
+
+    # Empty governance store means nothing is approved.
+    governance = GovernanceManager(
+        tmp_path / "governance.json"
+    )
+
+    # The staging alias points to version 2.
+    fake_client.get_model_version_by_alias.return_value = mock.Mock(
+        version="2"
+    )
+
+    with pytest.raises(
+        PermissionError,
+        match="Production promotion blocked",
+    ):
+        promote_model(
+            MODEL_NAME,
+            from_alias="staging",
+            to_alias="production",
+            governance=governance,
+        )
+
+    # Verify that the production alias was NOT changed.
+    fake_client.set_registered_model_alias.assert_not_called()
