@@ -9,6 +9,17 @@ from typing import Any
 
 from app.core.config import settings
 
+DEPENDENCY_CHAINS = {
+    "inventory_to_compliance": {
+        "upstream": "inventory",
+        "dependency": "compliance",
+    },
+    "supplier_portal_to_compliance": {
+        "upstream": "supplier-portal",
+        "dependency": "compliance",
+    },
+}
+
 # ---------------------------------------------------------------------------
 # Percentile Helper
 # ---------------------------------------------------------------------------
@@ -319,53 +330,10 @@ class MetricsCollector:
             "p95_latency_ms": p95,
         }
 
-    def get_route_metrics(self, route: str) -> dict[str, Any]:
-        """
-        Get aggregated metrics for a single route pattern.
-        """
-        norm_route = normalize_route(route)
-        with self._lock:
-            self._init_route_if_missing(norm_route)
-            r = self._routes[norm_route]
-            return {
-                "requests": r["requests"],
-                "errors": r["errors"],
-                "error_rate": r["error_rate"],
-                "latency_histogram": dict(r["latency_histogram"]),
-            }
-
-    def get_cache_metrics(self) -> dict[str, Any]:
-        """
-        Return aggregated cache statistics across all services.
-        """
-        with self._lock:
-            hits = sum(s["cache_hits"] for s in self._services.values())
-            misses = sum(s["cache_misses"] for s in self._services.values())
-
-        total = hits + misses
-        hit_rate = round((hits / total) * 100.0, 2) if total > 0 else 0.0
-        return {
-            "hits": hits,
-            "misses": misses,
-            "hit_rate": hit_rate,
-        }
-
-    def get_top_callers(self, limit: int | None = None) -> list[dict[str, Any]]:
-        """
-        Return caller services ordered descending by request count.
-        """
-        with self._lock:
-            items = sorted(self._callers.items(), key=lambda x: x[1], reverse=True)
-
-        if limit is not None:
-            items = items[:limit]
-
-        return [
-            {"caller": caller, "requests": count, "count": count}
-            for caller, count in items
-        ]
-
-    def get_all_metrics(self) -> dict[str, Any]:
+    def get_all_metrics(
+        self,
+        health_status: dict[str, str] | None = None,
+    ) -> dict:
         """
         Return aggregated metrics for all services and routes.
         Preserves all existing fields while adding structured M4 observability.
@@ -432,12 +400,32 @@ class MetricsCollector:
             "status": "healthy",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "services": services_metrics,
-            "metrics": observability_metrics,
-            # Top-level aliases for direct consumer access
-            "routes": routes_metrics,
-            "circuit_breakers": circuit_breakers_metrics,
-            "cache": cache_metrics,
-            "top_callers": top_callers,
+            "dependency_chains": self.get_dependency_health(health_status or {}),
+        }
+
+    def get_dependency_health(
+        self,
+        health_status: dict[str, str],
+    ) -> dict[str, dict]:
+        """
+        Return health impact for documented downstream dependency chains.
+
+        Compliance is the shared dependency for Inventory and Supplier Portal.
+        If Compliance is down, both dependent services are marked affected.
+        """
+        compliance_healthy = health_status.get("compliance") == "UP"
+
+        return {
+            chain_name: {
+                **chain,
+                "dependency_status": (
+                    "healthy" if compliance_healthy else "down"
+                ),
+                "upstream_status": (
+                    "healthy" if compliance_healthy else "affected"
+                ),
+            }
+            for chain_name, chain in DEPENDENCY_CHAINS.items()
         }
 
     def reset(self):

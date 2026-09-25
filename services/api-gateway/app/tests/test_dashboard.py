@@ -4,6 +4,7 @@ Tests for the Aggregated Health Dashboard (/gateway/dashboard).
 
 import pytest
 from fastapi.testclient import TestClient
+from unittest.mock import AsyncMock, patch
 
 from app.main import app
 from app.middleware.ratelimit import limiter
@@ -131,3 +132,65 @@ def test_dashboard_100_percent_cache_hit_rate(client):
 
     auth_svc = response.json()["services"]["auth"]
     assert auth_svc["cache_hit_rate"] == 100.0
+
+
+def test_dashboard_compliance_dependency_healthy(client):
+    """
+    Compliance UP means both documented dependency chains are healthy.
+    """
+    health = {
+        "inventory": "UP",
+        "shipments": "UP",
+        "compliance": "UP",
+        "purchase-orders": "UP",
+        "auth": "UP",
+        "supplier-risk": "UP",
+    }
+
+    with patch(
+        "app.routes.dashboard.get_system_health",
+        new=AsyncMock(return_value=health),
+    ):
+        response = client.get("/gateway/dashboard")
+
+    assert response.status_code == 200
+
+    chains = response.json()["dependency_chains"]
+
+    assert chains["inventory_to_compliance"]["dependency_status"] == "healthy"
+    assert chains["inventory_to_compliance"]["upstream_status"] == "healthy"
+
+    assert chains["supplier_portal_to_compliance"]["dependency_status"] == "healthy"
+    assert chains["supplier_portal_to_compliance"]["upstream_status"] == "healthy"
+
+
+def test_dashboard_compliance_down_affects_both_upstreams(client):
+    """
+    Compliance DOWN must mark both Inventory and Supplier Portal as affected.
+    """
+    health = {
+        "inventory": "UP",
+        "shipments": "UP",
+        "compliance": "DOWN",
+        "purchase-orders": "UP",
+        "auth": "UP",
+        "supplier-risk": "UP",
+    }
+
+    with patch(
+        "app.routes.dashboard.get_system_health",
+        new=AsyncMock(return_value=health),
+    ):
+        response = client.get("/gateway/dashboard")
+
+    assert response.status_code == 200
+
+    chains = response.json()["dependency_chains"]
+
+    inventory_chain = chains["inventory_to_compliance"]
+    assert inventory_chain["dependency_status"] == "down"
+    assert inventory_chain["upstream_status"] == "affected"
+
+    supplier_portal_chain = chains["supplier_portal_to_compliance"]
+    assert supplier_portal_chain["dependency_status"] == "down"
+    assert supplier_portal_chain["upstream_status"] == "affected"
