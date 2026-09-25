@@ -1248,6 +1248,17 @@ def test_validate_row_crashing_evaluate(caplog):
     assert "crashed during real-time validation" in caplog.text
 
 
+def test_validate_row_crashing_warning_rule_is_reported_as_warning(caplog):
+    rule = ConfigRule(name="crash_w", type="custom", function="crashing_custom_rule", severity="WARNING")
+    validator = DataValidator([rule])
+
+    result = validator.validate_row({"A": 1})
+
+    assert result.passed is True          # a WARNING never blocks the row...
+    assert "crash_w" in result.warnings   # ...but it must not disappear silently
+    assert "crashed during real-time validation" in caplog.text
+
+
 def test_validate_row_dependencies():
     """Tests that dependent rules are masked out if the parent rule fails."""
     r_a = ConfigRule(name="r_a", field="qty", type="not_null", severity="ERROR")

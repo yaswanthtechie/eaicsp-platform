@@ -16,10 +16,6 @@ from src.validator import DataValidator
 # Target the new dev environment contract
 CONFIG = Path(__file__).resolve().parent.parent / "configs" / "dev" / "sales_rules.yaml"
 
-# Fallback to root just in case the file hasn't physically moved yet
-if not CONFIG.exists():
-    CONFIG = Path(__file__).resolve().parent.parent / "configs" / "sales_rules.yaml"
-
 
 def _counts(report):
     return {(e["rule"], e["field"]): e["count"] for e in report.errors + report.warnings}

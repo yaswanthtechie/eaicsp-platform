@@ -95,27 +95,27 @@ def test_get_description_conditional():
         name="test", type="conditional", condition_field="country",
         condition_value="US", target_type="not_null"
     )
-    assert get_human_readable_description(rule) == "If `country` is 'US', then must not be empty or null."
+    assert get_human_readable_description(rule) == "If country is 'US', then must not be empty or null."
 
     # Test with a missing/unknown target type to ensure lowercase formatting handles it safely
     rule_unknown = ConfigRule(
         name="test", type="conditional", condition_field="country",
         condition_value="US", target_type="unknown_type"
     )
-    assert get_human_readable_description(rule_unknown) == "If `country` is 'US', then standard validation rule."
+    assert get_human_readable_description(rule_unknown) == "If country is 'US', then standard validation rule."
 
 
 def test_get_description_custom_with_docstring():
     rule = ConfigRule(name="test", type="custom", function="check_unparseable_dates")
     desc = get_human_readable_description(rule)
-    assert "*(Custom)*" in desc
+    assert desc.startswith("(Custom) ")
     assert "Flags dates that failed standard parsing" in desc
 
 
 def test_get_description_transform():
     rule = ConfigRule(name="test", type="transform", function="standardize_products")
     desc = get_human_readable_description(rule)
-    assert "*(Custom)*" in desc
+    assert desc.startswith("(Custom) ")
     assert "Cleans text columns" in desc
 
 
@@ -144,6 +144,8 @@ def test_markdown_renderer():
     mock_validator.global_max_fail_pct = 0.25
     mock_validator.global_drift_abs_min = 0.01
     mock_validator.global_drift_rel_min = 0.50
+    mock_validator.global_warning_fail_pct = None
+    mock_validator.global_max_duration_seconds = None
 
     rule_with_sla = ConfigRule(
         name="rule_1", type="not_null", field="f1", severity="ERROR",
@@ -170,6 +172,8 @@ def test_markdown_renderer_no_sla_rules():
     mock_validator.global_max_fail_pct = None
     mock_validator.global_drift_abs_min = 0.0
     mock_validator.global_drift_rel_min = 0.0
+    mock_validator.global_warning_fail_pct = None
+    mock_validator.global_max_duration_seconds = None
     mock_validator.rules = [ConfigRule(name="rule_1", type="not_null", field="f1")]
 
     markdown = MarkdownRenderer.render(mock_validator, "strict")
@@ -187,6 +191,8 @@ def test_html_renderer_with_slas():
     mock_validator.global_max_fail_pct = 0.20
     mock_validator.global_drift_abs_min = 0.01
     mock_validator.global_drift_rel_min = 0.50
+    mock_validator.global_warning_fail_pct = 0.10
+    mock_validator.global_max_duration_seconds = 5.0
 
     rule = ConfigRule(name="rule_1", type="not_null", field="f1", severity="ERROR", max_fail_pct=0.05)
     mock_validator.rules = [rule]
@@ -198,6 +204,25 @@ def test_html_renderer_with_slas():
     assert "20.00%" in html
     assert "5.00%" in html
     assert "<em>(Global)</em>" in html
+    assert "Send an SLA warning if more than this share of rows fail:</strong> 10.00%" in html
+    assert "Send an SLA warning if validation takes longer than:</strong> 5 seconds" in html
+
+
+def test_html_renderer_escapes_profile_names():
+    mock_validator = MagicMock()
+    mock_validator.version = "1.0.0"
+    mock_validator.global_max_fail_pct = 0.0          # 0% is a real setting, not "Not configured"
+    mock_validator.global_drift_abs_min = 0.0
+    mock_validator.global_drift_rel_min = 0.0
+    mock_validator.global_warning_fail_pct = None
+    mock_validator.global_max_duration_seconds = None
+    mock_validator.rules = [ConfigRule(name="rule_1", type="not_null", field="f1", max_fail_pct=0.0)]
+
+    html = HTMLRenderer.render({"<script>alert(1)</script>": mock_validator})
+
+    assert "<script>alert(1)</script>" not in html
+    assert "&lt;script&gt;" in html
+    assert "0.00%" in html
 
 
 def test_html_renderer_no_slas():
@@ -206,6 +231,8 @@ def test_html_renderer_no_slas():
     mock_validator.global_max_fail_pct = None
     mock_validator.global_drift_abs_min = 0.0
     mock_validator.global_drift_rel_min = 0.0
+    mock_validator.global_warning_fail_pct = None
+    mock_validator.global_max_duration_seconds = None
 
     rule = ConfigRule(name="rule_1", type="not_null", field="f1", severity="WARNING")
     mock_validator.rules = [rule]
@@ -271,6 +298,8 @@ def test_main_success_all_formats(mock_write_text, mock_from_config, mock_list, 
     mock_validator.global_max_fail_pct = 0.1
     mock_validator.global_drift_abs_min = 0.1
     mock_validator.global_drift_rel_min = 0.1
+    mock_validator.global_warning_fail_pct = None
+    mock_validator.global_max_duration_seconds = None
     mock_from_config.return_value = mock_validator
 
     main()

@@ -91,8 +91,7 @@ def get_human_readable_description(rule) -> str:
 
         if target_desc:
             target_desc = target_desc[0].lower() + target_desc[1:]
-
-        return f"If `{cond_f}` is '{cond_v}', then {target_desc}"
+        return f"If {cond_f} is '{cond_v}', then {target_desc}"
 
     elif rule.type in ["custom", "transform"]:
         func_path = (rule.model_extra or {}).get('function')
@@ -101,10 +100,29 @@ def get_human_readable_description(rule) -> str:
         if func_name and func_name in RULE_REGISTRY:
             doc = RULE_REGISTRY[func_name].__doc__
             if doc:
-                return f"*(Custom)* {doc.strip()}"
+                return f"(Custom) {doc.strip()}"
         return f"Applies custom {rule.type} logic."
 
     return "Standard validation rule."
+
+
+def _pct(value, missing="Not configured") -> str:
+    return f"{value * 100:.2f}%" if value is not None else missing
+
+
+def _seconds(value) -> str:
+    return f"{value:g} seconds" if value is not None else "Not configured"
+
+
+def _global_settings(validator: DataValidator) -> list:
+    """(label, value) pairs for every batch-level SLA, in plain English."""
+    return [
+        ("Reject the whole batch if more than this share of rows fail", _pct(validator.global_max_fail_pct)),
+        ("Send an SLA warning if more than this share of rows fail", _pct(validator.global_warning_fail_pct)),
+        ("Send an SLA warning if validation takes longer than", _seconds(validator.global_max_duration_seconds)),
+        ("Drift alert: absolute increase in failure rate", _pct(validator.global_drift_abs_min)),
+        ("Drift alert: relative increase in failure rate", _pct(validator.global_drift_rel_min)),
+    ]
 
 
 class MarkdownRenderer:
@@ -131,10 +149,9 @@ class MarkdownRenderer:
             "### Global Settings"
         ])
         global_fail = f"{validator.global_max_fail_pct * 100:.2f}%" if validator.global_max_fail_pct is not None else "Not configured"
+        md.extend(f"- **{label}:** {value}" for label, value in _global_settings(validator))
         md.extend([
-            f"- **Max Batch Failure (Rejection Limit):** {global_fail}",
-            f"- **Global Drift Alert (Absolute):** {validator.global_drift_abs_min * 100:.2f}%",
-            f"- **Global Drift Alert (Relative):** {validator.global_drift_rel_min * 100:.2f}%\n",
+            "",
             "### Rule-Specific Thresholds",
             "| Rule Name | Max Fail Limit | Drift Abs Limit | Drift Rel Limit |",
             "|---|---|---|---|"
@@ -144,9 +161,9 @@ class MarkdownRenderer:
         for rule in validator.rules:
             if rule.max_fail_pct is not None or rule.drift_abs_min is not None or rule.drift_rel_min is not None:
                 has_sla = True
-                m_fail = f"{rule.max_fail_pct * 100:.2f}%" if rule.max_fail_pct else "*(Global)*"
-                d_abs = f"{rule.drift_abs_min * 100:.2f}%" if rule.drift_abs_min else "*(Global)*"
-                d_rel = f"{rule.drift_rel_min * 100:.2f}%" if rule.drift_rel_min else "*(Global)*"
+                m_fail = _pct(rule.max_fail_pct, "*(Global)*")
+                d_abs = _pct(rule.drift_abs_min, "*(Global)*")
+                d_rel = _pct(rule.drift_rel_min, "*(Global)*")
                 md.append(f"| `{rule.name}` | {m_fail} | {d_abs} | {d_rel} |")
 
         if not has_sla:
@@ -206,19 +223,19 @@ class HTMLRenderer:
 
         # Generate Sidebar Navigation
         first = True
-        for prof_name in validators.keys():
+        for idx, prof_name in enumerate(validators.keys()):
             active_cls = " active" if first else ""
             html_out.append(
-                f"<button id='btn-{prof_name}' class='nav-btn{active_cls}' onclick=\"showProfile('{prof_name}')\">{prof_name}</button>")
+                f"<button id='btn-{idx}' class='nav-btn{active_cls}' onclick=\"showProfile('{idx}')\">{html.escape(prof_name)}</button>")
             first = False
         html_out.append("</div><div class='content'>")
 
         # Generate Profile Content Sections
         first = True
-        for prof_name, validator in validators.items():
+        for idx, (prof_name, validator) in enumerate(validators.items()):
             active_cls = " active" if first else ""
-            html_out.append(f"<div id='profile-{prof_name}' class='profile-section{active_cls}'>")
-            html_out.append(f"<h1>Data Quality Contract: <code>{prof_name}</code></h1>")
+            html_out.append(f"<div id='profile-{idx}' class='profile-section{active_cls}'>")
+            html_out.append(f"<h1>Data Quality Contract: <code>{html.escape(prof_name)}</code></h1>")
             html_out.append(f"<p><strong>Config Version:</strong> {html.escape(str(validator.version))}</p>")
 
             # Table 1: Business Rules
@@ -236,14 +253,9 @@ class HTMLRenderer:
 
             # SLA Sections
             html_out.append("<h3>2. Operational SLAs & Global Thresholds</h3>")
-            global_fail = f"{validator.global_max_fail_pct * 100:.2f}%" if validator.global_max_fail_pct is not None else "Not configured"
-
             html_out.append("<ul class='sla-list'>")
-            html_out.append(f"<li><strong>Max Batch Failure (Rejection Limit):</strong> {global_fail}</li>")
-            html_out.append(
-                f"<li><strong>Global Drift Alert (Absolute):</strong> {validator.global_drift_abs_min * 100:.2f}%</li>")
-            html_out.append(
-                f"<li><strong>Global Drift Alert (Relative):</strong> {validator.global_drift_rel_min * 100:.2f}%</li>")
+            for label, value in _global_settings(validator):
+                html_out.append(f"<li><strong>{html.escape(label)}:</strong> {html.escape(value)}</li>")
             html_out.append("</ul>")
 
             # Table 2: Rule-Specific SLAs
@@ -255,9 +267,9 @@ class HTMLRenderer:
             for rule in validator.rules:
                 if rule.max_fail_pct is not None or rule.drift_abs_min is not None or rule.drift_rel_min is not None:
                     has_sla = True
-                    m_fail = f"{rule.max_fail_pct * 100:.2f}%" if rule.max_fail_pct else "<em>(Global)</em>"
-                    d_abs = f"{rule.drift_abs_min * 100:.2f}%" if rule.drift_abs_min else "<em>(Global)</em>"
-                    d_rel = f"{rule.drift_rel_min * 100:.2f}%" if rule.drift_rel_min else "<em>(Global)</em>"
+                    m_fail = _pct(rule.max_fail_pct, "<em>(Global)</em>")
+                    d_abs = _pct(rule.drift_abs_min, "<em>(Global)</em>")
+                    d_rel = _pct(rule.drift_rel_min, "<em>(Global)</em>")
                     html_out.append(
                         f"<tr><td><code>{html.escape(rule.name)}</code></td><td>{m_fail}</td><td>{d_abs}</td><td>{d_rel}</td></tr>")
 
@@ -277,7 +289,6 @@ class HTMLRenderer:
 
 def main():
     parser = argparse.ArgumentParser(description="Generate Data Quality Contracts from validation configs.")
-    # parser.add_argument("--config", type=Path, required=True, help="Path to the YAML config file.")
     parser.add_argument("--config", type=Path, default=PROJECT_ROOT / "configs" / "dev" / "sales_rules.yaml",
                         help="Path to YAML rules")
     parser.add_argument("--output-dir", type=Path, default=Path("docs"), help="Directory to save the files.")

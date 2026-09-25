@@ -30,7 +30,7 @@ def sample_df():
     data = {
         'order_date': [
             '2026-07-31',  # 0: Valid ISO date
-            '15/08/2026',  # 1: Invalid strict format (will be preserved for validation)
+            '02/01/2026',  # 1: Ambiguous (Feb 1 or Jan 2?) - must be preserved and flagged
             'NOT_A_DATE',  # 2: Invalid string (Unparseable)
             None,  # 3: Null value
             '2026-07-31'  # 4: Exact duplicate of Row 0
@@ -64,7 +64,7 @@ def test_check_unparseable_dates(sample_df):
 
     result = check_unparseable_dates(df_working, field='order_date')
 
-    # Row 1 is '15/08/2026' (now safely preserved as unparseable)
+    # Row 1 is '02/01/2026' (ambiguous, so preserved and flagged).
     # Row 2 is 'NOT_A_DATE'
     expected = [False, True, True, False, False]
     assert list(result) == expected
@@ -141,9 +141,34 @@ def test_standardize_dates(sample_df):
     dates = clean_df['order_date']
 
     assert dates[0] == '2026-07-31'  # Kept valid ISO
-    assert dates[1] == '15/08/2026'  # Intentionally failed strict parsing, safely preserved
+    assert dates[1] == '02/01/2026'  # Ambiguous: preserved, never guessed
     assert dates[2] == 'NOT_A_DATE'  # Preserved invalid string for validation
     assert pd.isna(dates[3])  # Handled Nulls properly
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        (" 2024-03-18 ", "2024-03-18"),  # only whitespace needed fixing
+        ("Mar 18 2024", "2024-03-18"),   # month written as a word
+        ("March 18 2024", "2024-03-18"),
+        ("24/03/2024", "2024-03-24"),    # 24 can't be a month -> day first
+        ("03/24/2024", "2024-03-24"),    # 24 can't be a month -> month first
+        ("05/05/2024", "2024-05-05"),    # same date either way
+        ("02/01/2024", "02/01/2024"),    # ambiguous -> left for unparseable_dates
+        ("31/02/2024", "31/02/2024"),    # not a real date -> left for unparseable_dates
+        ("NOT_A_DATE", "NOT_A_DATE"),
+        (pd.Timestamp("2024-03-18"), "2024-03-18"),  # already a real date object
+    ],
+)
+def test_standardize_dates_only_fixes_unambiguous_dates(raw, expected):
+    out = standardize_dates(pd.DataFrame({"d": [raw]}), field="d")["d"].iloc[0]
+    assert out == expected
+
+
+def test_standardize_dates_keeps_nulls_as_nulls():
+    out = standardize_dates(pd.DataFrame({"d": [None, float("nan"), "  "]}), field="d")["d"]
+    assert out.isna().all()
 
 
 def test_drop_duplicate_rows(sample_df):

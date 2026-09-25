@@ -83,6 +83,15 @@ profiles:
         severity: WARNING
         depends_on: [ "unparseable_dates" ]
 
+
+      - name: clean_sku_whitespace
+        field: sku_id
+        type: transform
+        function: clean_whitespace_and_case
+        target_case: upper
+        description: "Stripped accidental whitespace and enforced uppercase formatting"
+        severity: INFO
+
   deep:
     inherits: default
     rules:
@@ -98,7 +107,7 @@ profiles:
 
   strict:
     inherits: default
-    global_max_fail_pct: 0.10  # Overrides the default 20% backstop to a stricter 10%
+    global_max_fail_pct: 0.05  # Tightens the default 10% backstop to 5%
     rules:
       # Overrides the default warning with a strict error and tighter bounds
       - name: quantity_positive
@@ -110,7 +119,7 @@ profiles:
 
   bulk:
     inherits: default
-    global_max_fail_pct: 0.25  # Overrides the default 20% backstop to a bulk 25%
+    global_max_fail_pct: 0.25  # Relaxes the default 10% backstop to 25% for bulk loads
     rules:
       - name: sku_format
         field: sku_id

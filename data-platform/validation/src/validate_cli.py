@@ -106,7 +106,6 @@ def main(cli_args: Optional[list[str]] = None) -> int:
     setup_logger(os.getenv("LOG_LEVEL", DEFAULT_LOG_LEVEL), enable_file_logging=args.log_to_file)
 
     input_path: Path = args.file
-    # config_path: Path = args.config
     # Resolve the config path dynamically based on the environment
     config_path: Path = resolve_env_path(args.config, args.env)
     output_path: Path = args.output

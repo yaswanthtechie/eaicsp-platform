@@ -1,4 +1,4 @@
-`# Sales Data Validation Pipeline
+# Sales Data Validation Pipeline
 
 ## Objective
 
@@ -974,6 +974,9 @@ We chose to explicitly skip these rules rather than evaluating them (which would
 ## Objective
 Moving beyond simply flagging bad data, the pipeline now supports **Safe Auto-Remediation** (e.g., trimming whitespace, standardizing case, formatting dates). To meet strict enterprise compliance and data governance standards, the engine automatically generates a comprehensive **Audit Trail** detailing exactly what was changed, by which rule, and how many rows were affected. 
 
+Dates are only reformatted when they can mean exactly one date (`Mar 18 2024`, `24/03/2024`, `05/05/2024`).
+A date like `02/01/2024` could be 1 Feb or 2 Jan, so it is never changed; it is left as-is and flagged by `unparseable_dates`.
+
 Importantly, ambiguous issues (like replacing a negative quantity with a zero) should still be handled via `range` rules that flag/drop rows, reserving auto-remediation exclusively for deterministic data standardization.
 
 ## How It Works: Engine-Level Vectorized Diffing
@@ -1041,15 +1044,24 @@ You can define execution time limits and soft data-quality warning thresholds di
 ```yaml
 profiles:
   default:
-    global_max_fail_pct: 0.20        # Hard limit: Rejects batch if >20% of rows fail
-    global_warning_fail_pct: 0.10    # Soft limit: Triggers SLA alert if >10% of rows fail
-    global_max_duration_seconds: 5.0 # Time limit: Triggers SLA alert if execution takes >5s
+    global_max_fail_pct: 0.30  # Very relaxed rejection threshold for dirty dev data
+    global_warning_fail_pct: 0.15
+    global_max_duration_seconds: 30.0 # High timeout limit for local/dev execution
     rules:
       - name: date_not_null
         field: date
         type: not_null
         severity: ERROR
 ```
+
+The shipped values per environment are:
+
+| Setting | dev | staging | prod |
+|---|---|---|---|
+| `global_max_fail_pct` (reject batch) | 30% | 10% | 10% |
+| `global_warning_fail_pct` (SLA warning) | 15% | 5% | 5% |
+| `global_max_duration_seconds` (SLA warning) | 30s | 8s | 5s |
+| `strict` profile rejection limit | 10% | 5% | 5% |
 
 ## 2. CI/CD Integration & Orchestrator Exit Codes
 - The pipeline is designed to plug directly into enterprise orchestrators (e.g., Airflow, Datadog, GitHub Actions) using standardized POSIX exit codes and JSON payloads.
@@ -1167,6 +1179,15 @@ python -m src.validate_folder --file data/messy_sales.csv --config configs/sales
 python -m src.validate_folder --folder data/ --mapping configs/routing_map.json --env dev --save-reports --output-dir reports/dev_op
 ```
 
+# Current Status (Round 9-11)
+
+| Milestone | Status | What is built | Not built yet |
+|---|---|---|---|
+| M1 Row-level validation | Done | `validate_row()` takes a dict or JSON string. A row missing a required field is rejected with `schema_error`. A rule that crashes counts as a failure of that rule's severity, never as a pass. Dataset-wide rules (uniqueness, outliers) are skipped and listed in `skipped_stateful`. | Duplicate detection across separate `validate_row()` calls. |
+| M2 Auto-fix + audit trail | Done | Two safe fixes: `clean_whitespace_and_case` (SKU) and `standardize_dates` (unambiguous dates only). Batch reports record rule, field, rows changed, reason and up to 5 before/after samples. `validate_row()` records original, fixed value and reason. Negative quantities are flagged (`quantity_positive` warning, `flagged_for_review` column), never changed. | Fixes for other columns (e.g. warehouse_id case). |
+| M3 Validation SLA + alerting | Mostly done | Duration SLA and failure-rate warning SLA per environment, `sla_violations` in the JSON report, exit code 3 on an SLA breach. | Alerts only go to the log, JSON report and exit code; nothing is written to an alerts table or sent as a notification. |
+| M4 Docs site | Done | `python -m src.generate_docs --config configs/prod/sales_rules.yaml` writes an HTML page per profile with every rule in plain English and every SLA setting. | Custom rules are described using their docstrings, so those docstrings must be written for a non-technical reader. |
+| M5 Per-environment rules | Done | `configs/dev`, `configs/staging`, `configs/prod`, chosen with `--env` or `VALIDATOR_ENV` (default `dev`; anything else is rejected). Thresholds differ per environment (table above), and a test shows the same file is accepted in dev and rejected in staging and prod. | The rules themselves are the same in every environment; only the thresholds differ. |
 
 # Known Limitations
 * **Streaming Memory Growth:** While chunked streaming prevents massive Out-Of-Memory (OOM) crashes, Pass 1 still tracks every unique composite key seen in a set. Memory usage scales linearly O(N) with the number of distinct rows, so it is not strictly "near zero".

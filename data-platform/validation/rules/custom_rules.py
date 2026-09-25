@@ -1,3 +1,5 @@
+import re
+from datetime import datetime
 import pandas as pd
 from typing import Optional, Literal
 from src.registry import register_rule
@@ -93,25 +95,70 @@ def flag_negatives(df: pd.DataFrame, *, field: str = 'quantity_sold', **kwargs) 
         df_c.loc[df_c[field] < 0, 'flagged_for_review'] = True
     return df_c
 
+_MONTH_NAME_FORMATS = ("%b %d %Y", "%B %d %Y")
+_NUMERIC_DATE = re.compile(r"^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$")
+
+def _normalize_one_date(value):
+    """Return an ISO 'YYYY-MM-DD' string when the date can only mean ONE thing.
+
+    Returns None for nulls. Returns the (stripped) original string when the
+    date is ambiguous or invalid, so the unparseable_dates rule flags it.
+
+    Unambiguous:  2024-03-18, Mar 18 2024, 24/03/2024 (24 can't be a month),
+                  03/24/2024 (24 can't be a month), 05/05/2024 (same either way)
+    Ambiguous:    02/01/2024 (Feb 1 or Jan 2?)  -> left as-is and flagged
+    """
+    if value is None or (not isinstance(value, str) and pd.isna(value)):
+        return None
+    if isinstance(value, (pd.Timestamp, datetime)):
+        return value.strftime("%Y-%m-%d")
+
+    text = str(value).strip()
+    if text == "":
+        return None
+
+    # 1. Already ISO.
+    try:
+        return datetime.strptime(text, "%Y-%m-%d").strftime("%Y-%m-%d")
+    except ValueError:
+        pass
+
+    # 2. Month written as a word - no day/month confusion possible.
+    for fmt in _MONTH_NAME_FORMATS:
+        try:
+            return datetime.strptime(text, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+
+    # 3. Numeric A/B/YYYY - only safe when exactly one reading is possible.
+    match = _NUMERIC_DATE.match(text)
+    if match:
+        a, b, year = (int(part) for part in match.groups())
+        if a == b:
+            day, month = a, b          # 05/05/2024: same date either way
+        elif a > 12 >= b:
+            day, month = a, b          # 24/03/2024: a must be the day
+        elif b > 12 >= a:
+            day, month = b, a          # 03/24/2024: b must be the day
+        else:
+            return text                # 02/01/2024: genuinely ambiguous -> flag, never guess
+        try:
+            return datetime(year, month, day).strftime("%Y-%m-%d")
+        except ValueError:
+            return text                # e.g. 31/02/2024: not a real date -> flag
+
+    # 4. Anything else (e.g. 'NOT_A_DATE') is left for unparseable_dates to flag.
+    return text
+
 
 @register_rule()
 def standardize_dates(df: pd.DataFrame, *, field: str = 'order_date', **kwargs) -> pd.DataFrame:
-    """Safely unifies strict date strings. Preserves ambiguous or invalid strings for validation."""
+    """Converts dates to YYYY-MM-DD only when they can mean exactly one date.
+    Ambiguous dates (like 02/01/2024) and invalid strings are left unchanged
+    so the unparseable_dates rule flags them for a human."""
     df_c = df.copy()
     if field in df_c.columns:
-        # 1. Safely strip whitespace (this is a deterministic, safe fix)
-        cleaned_strings = df_c[field].astype(str).str.strip()
-
-        # 2. Strict parsing only. Do not guess day/month order.
-        iso_dates = pd.to_datetime(cleaned_strings, format='%Y-%m-%d', errors='coerce')
-
-        # 3. If it fails strict parsing, keep the cleaned string so the unparseable_dates rule catches it
-        df_c[field] = iso_dates.dt.strftime('%Y-%m-%d').fillna(cleaned_strings)
-
-        # 4. Restore proper nulls
-        null_mask = df_c[field].isin(['nan', 'None', ''])
-        df_c.loc[null_mask, field] = None
-
+        df_c[field] = df_c[field].map(_normalize_one_date).astype(object)
     return df_c
 
 @register_rule()
@@ -133,12 +180,12 @@ def check_composite_unique_stream(df: pd.DataFrame, **kwargs) -> pd.Series:
 
 @register_rule()
 def clean_whitespace_and_case(df: pd.DataFrame, *, field: str, target_case: str = 'upper', **kwargs) -> pd.DataFrame:
-    """Safely trims whitespace and standardizes case for string columns."""
+    """Trims leading/trailing spaces and converts the text to one consistent case (upper or lower)."""
+    if target_case not in ('upper', 'lower'):
+        raise ValueError(f"target_case must be 'upper' or 'lower', got '{target_case}'")
     df_c = df.copy()
     if field in df_c.columns:
         mask = df_c[field].notna()
-        if target_case == 'upper':
-            df_c.loc[mask, field] = df_c.loc[mask, field].astype(str).str.strip().str.upper()
-        else:
-            df_c.loc[mask, field] = df_c.loc[mask, field].astype(str).str.strip().str.lower()
+        cleaned = df_c.loc[mask, field].astype(str).str.strip()
+        df_c.loc[mask, field] = cleaned.str.upper() if target_case == 'upper' else cleaned.str.lower()
     return df_c

@@ -19,13 +19,14 @@ def resolve_env_path(base_path: Union[str, Path], env: Optional[str] = None) -> 
     E.g., configs/sales_rules.yaml + env='prod' -> configs/prod/sales_rules.yaml
     """
     path = Path(base_path)
-    if not env or env.lower() in ('default', 'local', 'none', ''):
+    env = (env or '').strip().lower()
+    if env in ('default', 'local', 'none', ''):
         env = 'dev'
 
     # Strict validation against allowed environments
     allowed_envs = {'dev', 'staging', 'prod'}
-    if env.lower() not in allowed_envs:
-        raise ValueError(f"Invalid environment '{env}'. Must be one of: {allowed_envs}")
+    if env not in allowed_envs:
+        raise ValueError(f"Invalid environment '{env}'. Must be one of: {sorted(allowed_envs)}")
 
     # Avoid double-injecting if the environment is already explicitly in the path
     if env in path.parts:
@@ -436,7 +437,7 @@ class DataValidator:
 
         missing_fields = required_fields - set(df.columns)
         if missing_fields:
-            raise ValueError(f"Pipeline failed to start. Missing required columns: {', '.join(missing_fields)}")
+            raise ValueError(f"Missing required columns: {', '.join(sorted(missing_fields))}")
 
     def validate_stream(
             self,
@@ -661,6 +662,7 @@ class DataValidator:
 
         df_working = pd.DataFrame([row_dict])
 
+        # A row we can't fully check must never pass.
         try:
             self._validate_schema(df_working)
         except ValueError as e:
@@ -669,12 +671,30 @@ class DataValidator:
                 errors=[f"schema_error: {e}"],
             )
 
+        remediations = []
+
         for rule in self.rules:
             if rule.type == "transform":
+                before = df_working[rule.field].iloc[0] if rule.field in df_working.columns else None
                 try:
                     df_working = rule.apply_transform(df_working)
                 except Exception as e:
                     logger.error(f"Transform '{rule.name}' crashed during real-time setup: {e}")
+                    continue
+
+                if rule.field in df_working.columns:
+                    after = df_working[rule.field].iloc[0]
+                    both_null = pd.isna(before) and pd.isna(after)
+                    if not both_null and before != after:
+                        # Audit trail: what changed, and why.
+                        remediations.append({
+                            "rule": rule.name,
+                            "field": rule.field,
+                            "original": before,
+                            "remediated": after,
+                            "reason": getattr(rule, "description", None)
+                                      or f"Applied auto-remediation via '{rule.name}'",
+                        })
 
         errors = []
         warnings = []
@@ -726,6 +746,7 @@ class DataValidator:
             errors=errors,
             warnings=warnings,
             info=infos,
+            remediations=remediations,
             skipped_stateful=skipped_stateful
         )
 
