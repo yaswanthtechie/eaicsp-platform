@@ -17,7 +17,11 @@ def mock_sentiment():
     with patch("src.predict.analyze_sentiment") as mock:
         def side_effect(text):
             lower_text = text.lower()
-            if any(w in lower_text for w in ["bankruptcy", "fraud", "strike", "lawsuit", "sanction", "disruption", "recall", "layoff"]):
+            if any(w in lower_text for w in [
+                "bankruptcy", "fraud", "strike", "lawsuit", "sanction",
+                "disruption", "recall", "layoff", "default", "insolvency",
+                "downgrade", "restructuring"
+            ]):
                 return {"label": "negative", "confidence": 0.99}
             if "positive" in lower_text or "record" in lower_text or "profit" in lower_text:
                 return {"label": "positive", "confidence": 0.95}
@@ -370,7 +374,7 @@ def test_trend_multi_article_aggregation():
 
 
 def test_trend_recency_decay_weighting():
-    """Verify newer articles carry strictly higher weight than older articles within the window."""
+    """Verify that inside a rolling window, predict() aggregates without artificial recency decay."""
     # Two identical-severity events placed at different times relative to anchor date (2026-03-30)
     # Event A: High risk today (2026-03-30), Low risk 28 days ago (2026-03-02)
     records_recent_bad = [
@@ -386,8 +390,8 @@ def test_trend_recency_decay_weighting():
     res_recent_bad = calculate_supplier_trend("Beta Corp", records_recent_bad)
     res_old_bad = calculate_supplier_trend("Beta Corp", records_old_bad)
 
-    # Since the high-risk event is newer in records_recent_bad, its current score must be strictly higher
-    assert res_recent_bad["current_risk_score"] > res_old_bad["current_risk_score"]
+    # Inside a window, scores are not decayed; the window itself is the recency boundary
+    assert res_recent_bad["current_risk_score"] == res_old_bad["current_risk_score"]
 
 
 def test_trend_window_exclusion():
@@ -418,15 +422,16 @@ def test_trend_changing_recency_half_life_deterministic():
         {"date": "2026-03-01", "headline": "Delta Corp announces major recall due to defect."},
         {"date": "2026-03-31", "headline": "Delta Corp reports routine positive earnings."},
     ]
-    # Shorter half-life (5 days) decays the older bad news faster -> lower current risk score
+    # Current window score uses predict() without internal decay
     cfg_short = Settings(recency_half_life_days=5.0)
     res_short = calculate_supplier_trend("Delta Corp", records, config=cfg_short)
 
-    # Longer half-life (60 days) retains more weight on older bad news -> higher current risk score
     cfg_long = Settings(recency_half_life_days=60.0)
     res_long = calculate_supplier_trend("Delta Corp", records, config=cfg_long)
 
-    assert res_short["current_risk_score"] < res_long["current_risk_score"]
+    assert res_short["current_risk_score"] == res_long["current_risk_score"]
+    # Overall timeline confidence is recency-weighted by half-life
+    assert res_short["overall_confidence"] != res_long["overall_confidence"]
 
 
 def test_trend_rising_direction_detected():
@@ -515,3 +520,793 @@ def test_aggregate_supplier_trends_multi_supplier():
     assert "SupplierB" in results
     assert results["SupplierA"]["current_risk_score"] < results["SupplierB"]["current_risk_score"]
     assert results["SupplierA"]["trend_direction"] == "stable"
+
+
+# ------------------------------------------------------------------
+# 7. Regression & Validation Tests (Must Fix #1 & Must Fix #2)
+# ------------------------------------------------------------------
+
+def test_trend_apex_logistics_acute_risk_not_diluted():
+    """
+    Regression Test (Must Fix #1): Verify acute distress signals for Apex Logistics
+    are not diluted to Low tier when neutral/routine headlines are present in the window.
+    """
+    acute_headline = "Apex Logistics files for bankruptcy and emergency restructuring following severe debt default."
+    records = [
+        {"date": "2026-03-22", "headline": acute_headline},
+        {"date": "2026-03-10", "headline": "Apex Logistics continues routine warehouse inventory operations."},
+        {"date": "2026-03-12", "headline": "Apex Logistics conducts annual fleet safety inspection."},
+        {"date": "2026-03-15", "headline": "Apex Logistics maintains standard regional distribution routes."},
+        {"date": "2026-03-18", "headline": "Apex Logistics publishes quarterly corporate logistics report."},
+        {"date": "2026-03-20", "headline": "Apex Logistics participates in annual freight carrier conference."},
+    ]
+
+    res = calculate_supplier_trend("Apex Logistics", records)
+
+    # Must remain elevated in Critical tier (>= 85.0) and NEVER diluted down to Low (< 60.0)
+    assert res["current_risk_score"] >= 85.0, (
+        f"Expected Apex Logistics acute risk score >= 85.0, got {res['current_risk_score']}"
+    )
+    assert res["current_window_article_count"] == 6
+    # Verify top evidence captures the acute bankruptcy/default event
+    top_headlines = [item["headline"] for item in res["top_evidence"]]
+    assert acute_headline in top_headlines
+
+
+def test_trend_apex_logistics_real_30_day_headlines_not_diluted():
+    """
+    Team Lead Review Regression Test (Round 9 M1 & Fix 1):
+    Verify that calculating trend on Apex Logistics' headlines from the benchmark
+    dataset produces a peak risk score across both windows (~60 days) in the Critical
+    tier (>= 85.0) and that acute distress (bankruptcy/restructuring/shutdown)
+    is preserved in peak_risk_score and top evidence.
+    """
+    from src.data import load_25_company_trend_dataset
+    dataset = load_25_company_trend_dataset()
+    apex_records = dataset["Apex Logistics"]
+
+    res = calculate_supplier_trend("Apex Logistics", apex_records)
+
+    # 1. Apex peak risk score across both windows (~60 days) remains in Critical tier (>= 85.0)
+    assert res["peak_risk_score"] >= 85.0, (
+        f"Expected Apex Logistics peak risk score >= 85.0 (Critical tier), "
+        f"got {res['peak_risk_score']}"
+    )
+    assert res["peak_risk_tier"] == "Critical"
+    assert res["current_risk_score"] > 60.0
+
+    # 2. Window article count reflects active rolling window
+    assert res["current_window_article_count"] > 0
+    assert res["article_count"] == len(apex_records)
+
+    # 3. Top evidence must contain the severe acute distress headlines
+    assert len(res["top_evidence"]) > 0
+    evidence_signals = [
+        s["keyword"]
+        for item in res["top_evidence"]
+        for s in item.get("signals", [])
+    ]
+    assert any(sig in evidence_signals for sig in ["bankruptcy", "shutdown", "layoff", "default", "restructuring"])
+
+
+def test_25_company_trend_anti_dilution_and_low_supplier_safeguards():
+    """
+    Round 9 M1 Validation Test:
+    Verify across the 25-company trend dataset:
+    1. Critical suppliers (e.g. Apex Logistics) maintain High/Critical peak window scores.
+    2. Routine Low-tier suppliers (Siemens, ASML, Texas Instruments, Schneider Electric)
+       remain with current_risk_score and peak_risk_score in the Low tier (< 60.0).
+    3. Low tier suppliers do not trigger severe compliance deterioration actions.
+    """
+    from src.data import load_25_company_trend_dataset
+    dataset = load_25_company_trend_dataset()
+
+    # Apex Logistics peak window score must be High or Critical
+    apex_res = calculate_supplier_trend("Apex Logistics", dataset["Apex Logistics"])
+    assert apex_res["peak_risk_score"] >= 85.0
+    assert apex_res["peak_risk_tier"] == "Critical"
+
+    # Low suppliers must remain firmly in Low tier (< 60.0)
+    low_suppliers = ["Siemens", "ASML", "Texas Instruments", "Schneider Electric"]
+    for supp in low_suppliers:
+        res = calculate_supplier_trend(supp, dataset[supp])
+        assert res["current_risk_score"] < 60.0, (
+            f"Expected {supp} current risk score < 60.0 (Low tier), got {res['current_risk_score']}"
+        )
+        assert res["peak_risk_tier"] == "Low"
+
+
+def test_trend_as_of_date_historical_cutoff():
+    """
+    Must Fix #2: Verify as_of_date enforces a historical cutoff and excludes future articles.
+    """
+    records = [
+        {"date": "2026-01-15", "headline": "SupplierCorp reports quarterly earnings."},
+        {"date": "2026-02-15", "headline": "SupplierCorp faces supply disruption and delivery delay."},
+        {"date": "2026-03-25", "headline": "SupplierCorp files for bankruptcy after fraud scandal."},
+    ]
+
+    # As of 2026-02-28, the March 25 article should be excluded from current window
+    res = calculate_supplier_trend("SupplierCorp", records, as_of_date="2026-02-28")
+    assert res["window_end"] == "2026-02-28"
+    assert res["window_start"] == "2026-01-29"
+    # March 25 article is in the future relative to cutoff
+    assert res["current_window_article_count"] == 1
+    # Current risk score reflects the Feb 15 disruption, NOT the March 25 bankruptcy
+    assert res["current_risk_score"] < 80.0
+
+
+def test_trend_as_of_date_omitted_defaults_to_latest():
+    """
+    Must Fix #2: Verify omitting as_of_date anchors to the latest available article date.
+    """
+    records = [
+        {"date": "2026-01-10", "headline": "SupplierCorp holds shareholder meeting."},
+        {"date": "2026-03-20", "headline": "SupplierCorp announces expansion into Asia."},
+    ]
+
+    res = calculate_supplier_trend("SupplierCorp", records)
+    assert res["window_end"] == "2026-03-20"
+
+
+def test_trend_as_of_date_later_than_data():
+    """
+    Must Fix #2: Verify as_of_date later than available data cleanly sets boundaries.
+    """
+    records = [
+        {"date": "2026-01-10", "headline": "SupplierCorp holds shareholder meeting."},
+    ]
+
+    # as_of_date is 90 days after the only article
+    res = calculate_supplier_trend("SupplierCorp", records, as_of_date="2026-04-10")
+    assert res["window_end"] == "2026-04-10"
+    assert res["window_start"] == "2026-03-11"
+    assert res["current_window_article_count"] == 0
+    assert res["current_risk_score"] == 0.0
+    assert res["historical_article_count"] == 1
+
+
+def test_trend_as_of_date_invalid_format():
+    """
+    Must Fix #2: Invalid date format in as_of_date raises ValueError.
+    """
+    records = [{"date": "2026-01-10", "headline": "SupplierCorp reports positive earnings."}]
+    with pytest.raises(ValueError, match="Invalid calendar date"):
+        calculate_supplier_trend("SupplierCorp", records, as_of_date="2026-99-99")
+
+
+def test_api_trend_post_with_as_of_date():
+    """
+    Must Fix #2: POST /api/v1/supplier-risk/trend respects as_of_date in request body.
+    """
+    with TestClient(app) as client:
+        payload = {
+            "supplier_name": "CutoffSupplier",
+            "articles": [
+                {"date": "2026-02-10", "headline": "CutoffSupplier reports normal operations."},
+                {"date": "2026-03-30", "headline": "CutoffSupplier faces severe strike and disruption."},
+            ],
+            "as_of_date": "2026-02-28",
+        }
+        response = client.post("/api/v1/supplier-risk/trend", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["window_end"] == "2026-02-28"
+        assert data["current_window_article_count"] == 1
+
+
+def test_api_trend_extra_fields_forbidden():
+    """
+    Must Fix #2: Extra unsupported fields in TrendAnalysisRequest must return 422.
+    """
+    with TestClient(app) as client:
+        payload = {
+            "supplier_name": "TestSupplier",
+            "articles": [
+                {"date": "2026-02-10", "headline": "TestSupplier reports normal operations."},
+            ],
+            "unsupported_field": "disallowed",
+        }
+        response = client.post("/api/v1/supplier-risk/trend", json=payload)
+        assert response.status_code == 422
+
+
+def test_api_predict_empty_headline_rejected():
+    """
+    Must Fix #2: Empty or whitespace-only headline in POST /predict must return 422.
+    """
+    with TestClient(app) as client:
+        # Whitespace-only headline
+        response = client.post("/predict", json={
+            "supplier_name": "TestCorp",
+            "headlines": ["   "],
+        })
+        assert response.status_code == 422
+
+        # Empty string headline
+        response = client.post("/predict", json={
+            "supplier_name": "TestCorp",
+            "headlines": [""],
+        })
+        assert response.status_code == 422
+
+
+def test_api_trend_empty_headline_rejected():
+    """
+    Must Fix #2: Empty or whitespace-only headline in POST trend must return 422.
+    """
+    with TestClient(app) as client:
+        response = client.post("/api/v1/supplier-risk/trend", json={
+            "supplier_name": "TestCorp",
+            "articles": [{"date": "2026-01-01", "headline": "   "}],
+        })
+        assert response.status_code == 422
+
+
+def test_api_headline_max_length_validation():
+    """
+    Must Fix #2: Headline of 2000 chars passes, >2000 chars returns 422.
+    """
+    with TestClient(app) as client:
+        valid_headline = "A" * 2000
+        response = client.post("/predict", json={
+            "supplier_name": "TestCorp",
+            "headlines": [valid_headline],
+        })
+        assert response.status_code == 200
+
+        too_long_headline = "A" * 2001
+        response = client.post("/predict", json={
+            "supplier_name": "TestCorp",
+            "headlines": [too_long_headline],
+        })
+        assert response.status_code == 422
+
+
+def test_trend_exact_30_day_rolling_window_boundary():
+    """
+    Verify exact 30-day rolling-window boundary:
+    - Article exactly ref_date - 30 days is included in current window
+    - Article ref_date - 31 days is excluded from current window / belongs to previous window
+    """
+    from datetime import datetime, timedelta
+
+    ref_date_str = "2026-03-31"
+    ref_d = datetime.strptime(ref_date_str, "%Y-%m-%d").date()
+    d_30_days_ago = (ref_d - timedelta(days=30)).strftime("%Y-%m-%d")  # 2026-03-01
+    d_31_days_ago = (ref_d - timedelta(days=31)).strftime("%Y-%m-%d")  # 2026-02-28
+
+    records = [
+        {"date": d_31_days_ago, "headline": "BoundaryCorp faces bankruptcy and default."},
+        {"date": d_30_days_ago, "headline": "BoundaryCorp hit with strike and walkout."},
+        {"date": ref_date_str, "headline": "BoundaryCorp reports positive earnings."},
+    ]
+
+    res = calculate_supplier_trend("BoundaryCorp", records, as_of_date=ref_date_str)
+
+    # 1. Total articles evaluated
+    assert res["article_count"] == 3
+    # 2. Exactly 30-day article is included in current rolling window (total: 2 articles)
+    assert res["current_window_article_count"] == 2
+    # 3. Exactly 31-day article is excluded from current window and captured in previous window
+    assert res["historical_article_count"] == 1
+    # 4. Current window start is ref_date - 30 days
+    assert res["window_end"] == ref_date_str
+    assert res["window_start"] == d_30_days_ago
+    # 5. Previous window score captures the 31-day bankruptcy event
+    assert res["previous_risk_score"] is not None
+    assert res["previous_risk_score"] > 50.0
+
+
+def test_api_trend_article_headline_length_validation():
+    """
+    Verify TrendArticleInput headline length constraints via POST /api/v1/supplier-risk/trend:
+    - 1-character headline succeeds (200)
+    - exactly 2000-character headline succeeds (200)
+    - 2001-character headline returns 422
+    """
+    with TestClient(app) as client:
+        # 1-char headline
+        resp_1 = client.post("/api/v1/supplier-risk/trend", json={
+            "supplier_name": "LengthSupplier",
+            "articles": [{"date": "2026-01-01", "headline": "A"}],
+        })
+        assert resp_1.status_code == 200
+
+        # exactly 2000-char headline
+        resp_2000 = client.post("/api/v1/supplier-risk/trend", json={
+            "supplier_name": "LengthSupplier",
+            "articles": [{"date": "2026-01-01", "headline": "A" * 2000}],
+        })
+        assert resp_2000.status_code == 200
+
+        # 2001-char headline
+        resp_2001 = client.post("/api/v1/supplier-risk/trend", json={
+            "supplier_name": "LengthSupplier",
+            "articles": [{"date": "2026-01-01", "headline": "A" * 2001}],
+        })
+        assert resp_2001.status_code == 422
+
+
+def test_api_trend_missing_required_fields_rejected():
+    """
+    Verify POST /api/v1/supplier-risk/trend returns 422 when required top-level fields are missing:
+    - missing supplier_name returns 422
+    - missing articles returns 422
+    """
+    with TestClient(app) as client:
+        # missing supplier_name
+        resp_no_supplier = client.post("/api/v1/supplier-risk/trend", json={
+            "articles": [{"date": "2026-01-01", "headline": "Valid headline."}],
+        })
+        assert resp_no_supplier.status_code == 422
+
+        # missing articles
+        resp_no_articles = client.post("/api/v1/supplier-risk/trend", json={
+            "supplier_name": "TestSupplier",
+        })
+        assert resp_no_articles.status_code == 422
+
+
+def test_api_trend_invalid_as_of_date_rejected():
+    """
+    Verify POST /api/v1/supplier-risk/trend with invalid as_of_date returns 422.
+    """
+    with TestClient(app) as client:
+        response = client.post("/api/v1/supplier-risk/trend", json={
+            "supplier_name": "TestSupplier",
+            "articles": [{"date": "2026-01-01", "headline": "Valid headline."}],
+            "as_of_date": "2026-99-99",
+        })
+        assert response.status_code == 422
+
+
+def test_api_trend_non_string_headline_rejected():
+    """
+    Verify POST /api/v1/supplier-risk/trend with non-string headline returns 422.
+    """
+    with TestClient(app) as client:
+        response = client.post("/api/v1/supplier-risk/trend", json={
+            "supplier_name": "TestSupplier",
+            "articles": [{"date": "2026-01-01", "headline": 12345}],
+        })
+        assert response.status_code == 422
+
+
+def test_api_trend_too_many_articles_rejected():
+    """
+    Verify POST /api/v1/supplier-risk/trend with >100 articles returns 422.
+    """
+    with TestClient(app) as client:
+        articles = [{"date": "2026-01-01", "headline": f"Headline {i}"} for i in range(101)]
+        response = client.post("/api/v1/supplier-risk/trend", json={
+            "supplier_name": "TestSupplier",
+            "articles": articles,
+        })
+        assert response.status_code == 422
+
+
+def test_api_get_trend_with_as_of_date_query_param():
+    """
+    Verify GET /api/v1/supplier-risk/trend/{supplier_name}?as_of_date=YYYY-MM-DD:
+    - valid as_of_date is accepted and sets the window cutoff
+    - invalid as_of_date returns 422 validation error
+    """
+    with TestClient(app) as client:
+        # Valid as_of_date
+        resp_valid = client.get("/api/v1/supplier-risk/trend/Tesla?as_of_date=2026-01-15")
+        assert resp_valid.status_code == 200
+        data = resp_valid.json()
+        assert data["supplier"] == "Tesla"
+        assert data["window_end"] == "2026-01-15"
+
+        # Invalid as_of_date format
+        resp_invalid = client.get("/api/v1/supplier-risk/trend/Tesla?as_of_date=not-a-valid-date")
+        assert resp_invalid.status_code == 422
+
+        # Invalid calendar date
+        resp_bad_date = client.get("/api/v1/supplier-risk/trend/Tesla?as_of_date=2026-02-30")
+        assert resp_bad_date.status_code == 422
+
+
+# ------------------------------------------------------------------
+# 8. Team Lead FIX 1: Trend Scoring & Peak Window Tier Tests
+# ------------------------------------------------------------------
+
+def test_trend_window_score_uses_predict_aggregation():
+    """Prove trend window score uses predict() aggregation directly."""
+    from src.predict import predict
+    supplier = "Beta Corp"
+    records = [
+        {"date": "2026-03-10", "headline": "Beta Corp faces severe supply disruption."},
+        {"date": "2026-03-20", "headline": "Beta Corp hit with major recall due to defect."},
+    ]
+    res = calculate_supplier_trend(supplier, records)
+    direct_predict = predict(supplier, [r["headline"] for r in records])
+    assert res["current_risk_score"] == round(float(direct_predict["risk_score"]), 2)
+
+
+def test_trend_no_recency_decay_inside_window():
+    """Prove recency decay is NOT applied inside a window."""
+    # Two identical-severity events placed at different times within the same 30-day window
+    records_recent_bad = [
+        {"date": "2026-03-02", "headline": "Beta Corp reports positive earnings and strong demand."},
+        {"date": "2026-03-30", "headline": "Beta Corp hit with severe sanction and product recall."},
+    ]
+    records_old_bad = [
+        {"date": "2026-03-02", "headline": "Beta Corp hit with severe sanction and product recall."},
+        {"date": "2026-03-30", "headline": "Beta Corp reports positive earnings and strong demand."},
+    ]
+    res_recent_bad = calculate_supplier_trend("Beta Corp", records_recent_bad)
+    res_old_bad = calculate_supplier_trend("Beta Corp", records_old_bad)
+    assert res_recent_bad["current_risk_score"] == res_old_bad["current_risk_score"]
+
+
+def test_trend_current_and_previous_tiers_returned():
+    """Prove current and previous risk tiers are returned and match assign_risk_tier."""
+    from src.evaluate import assign_risk_tier
+    records = [
+        {"date": "2026-01-15", "headline": "Alpha Corp reports positive earnings and strong demand."},
+        {"date": "2026-03-20", "headline": "Alpha Corp hit with severe strike and production disruption."},
+    ]
+    res = calculate_supplier_trend("Alpha Corp", records)
+    assert "current_risk_tier" in res
+    assert "previous_risk_tier" in res
+    assert res["current_risk_tier"] == assign_risk_tier(res["current_risk_score"])
+    assert res["previous_risk_tier"] == assign_risk_tier(res["previous_risk_score"])
+
+
+def test_trend_peak_risk_score_is_max_current_previous():
+    """Prove peak_risk_score is max(current, previous)."""
+    # Case 1: current > previous
+    records_rising = [
+        {"date": "2026-01-15", "headline": "Alpha Corp reports positive earnings."},
+        {"date": "2026-03-20", "headline": "Alpha Corp hit with severe strike and default."},
+    ]
+    res_rising = calculate_supplier_trend("Alpha Corp", records_rising)
+    assert res_rising["current_risk_score"] > res_rising["previous_risk_score"]
+    assert res_rising["peak_risk_score"] == res_rising["current_risk_score"]
+
+    # Case 2: previous > current
+    records_falling = [
+        {"date": "2026-01-15", "headline": "Alpha Corp hit with severe strike and default."},
+        {"date": "2026-03-20", "headline": "Alpha Corp reports positive earnings."},
+    ]
+    res_falling = calculate_supplier_trend("Alpha Corp", records_falling)
+    assert res_falling["previous_risk_score"] > res_falling["current_risk_score"]
+    assert res_falling["peak_risk_score"] == res_falling["previous_risk_score"]
+
+
+def test_trend_peak_risk_tier_matches_peak_risk_score():
+    """Prove peak_risk_tier matches peak_risk_score."""
+    from src.evaluate import assign_risk_tier
+    records = [
+        {"date": "2026-01-15", "headline": "Gamma Corp declares bankruptcy and emergency restructuring."},
+        {"date": "2026-03-20", "headline": "Gamma Corp reports routine administrative meeting."},
+    ]
+    res = calculate_supplier_trend("Gamma Corp", records)
+    assert res["peak_risk_tier"] == assign_risk_tier(res["peak_risk_score"])
+
+
+def test_trend_low_to_low_rise_not_deterioration():
+    """Prove Low -> Low score increase is NOT flagged as deterioration."""
+    # Both in Low tier (< 60.0), delta > 3.0
+    with patch("src.trend.predict") as mock_p:
+        mock_p.side_effect = lambda supplier_name, headlines, config=None: {
+            "supplier": supplier_name,
+            "risk_score": 50.0 if "current" in headlines[0] else 40.0,
+            "confidence": 0.8,
+            "sentiment_breakdown": {},
+            "signals": [],
+            "top_worst_3": [],
+        }
+        records = [
+            {"date": "2026-01-15", "headline": "previous headline"},
+            {"date": "2026-03-20", "headline": "current headline"},
+        ]
+        res = calculate_supplier_trend("LowCorp", records)
+        assert res["current_risk_tier"] == "Low"
+        assert res["previous_risk_tier"] == "Low"
+        assert res["risk_delta"] == 10.0
+        assert res["trend_direction"] == "rising"
+        assert res["is_deteriorating"] is False
+        assert "not flagged as deteriorating" in res["deterioration_summary"]
+
+
+def test_trend_medium_to_medium_rise_not_deterioration():
+    """Prove Medium -> Medium score increase is NOT flagged as deterioration."""
+    # Both in Medium tier (60.0 <= score < 72.0), delta > 3.0
+    with patch("src.trend.predict") as mock_p:
+        mock_p.side_effect = lambda supplier_name, headlines, config=None: {
+            "supplier": supplier_name,
+            "risk_score": 68.0 if "current" in headlines[0] else 62.0,
+            "confidence": 0.8,
+            "sentiment_breakdown": {},
+            "signals": [],
+            "top_worst_3": [],
+        }
+        records = [
+            {"date": "2026-01-15", "headline": "previous headline"},
+            {"date": "2026-03-20", "headline": "current headline"},
+        ]
+        res = calculate_supplier_trend("MedCorp", records)
+        assert res["current_risk_tier"] == "Medium"
+        assert res["previous_risk_tier"] == "Medium"
+        assert res["risk_delta"] == 6.0
+        assert res["trend_direction"] == "rising"
+        assert res["is_deteriorating"] is False
+        assert "not flagged as deteriorating" in res["deterioration_summary"]
+
+
+def test_trend_low_to_medium_rise_is_deterioration():
+    """Prove Low -> Medium rise (tier worsened) IS flagged as deterioration."""
+    with patch("src.trend.predict") as mock_p:
+        mock_p.side_effect = lambda supplier_name, headlines, config=None: {
+            "supplier": supplier_name,
+            "risk_score": 65.0 if "current" in headlines[0] else 50.0,
+            "confidence": 0.8,
+            "sentiment_breakdown": {},
+            "signals": [],
+            "top_worst_3": [],
+        }
+        records = [
+            {"date": "2026-01-15", "headline": "previous headline"},
+            {"date": "2026-03-20", "headline": "current headline"},
+        ]
+        res = calculate_supplier_trend("WorseningCorp", records)
+        assert res["current_risk_tier"] == "Medium"
+        assert res["previous_risk_tier"] == "Low"
+        assert res["trend_direction"] == "rising"
+        assert res["is_deteriorating"] is True
+        assert "Risk is deteriorating" in res["deterioration_summary"]
+
+
+def test_trend_medium_to_high_rise_is_deterioration():
+    """Prove Medium -> High rise (tier worsened) IS flagged as deterioration."""
+    with patch("src.trend.predict") as mock_p:
+        mock_p.side_effect = lambda supplier_name, headlines, config=None: {
+            "supplier": supplier_name,
+            "risk_score": 76.0 if "current" in headlines[0] else 65.0,
+            "confidence": 0.8,
+            "sentiment_breakdown": {},
+            "signals": [],
+            "top_worst_3": [],
+        }
+        records = [
+            {"date": "2026-01-15", "headline": "previous headline"},
+            {"date": "2026-03-20", "headline": "current headline"},
+        ]
+        res = calculate_supplier_trend("WorseningCorp", records)
+        assert res["current_risk_tier"] == "High"
+        assert res["previous_risk_tier"] == "Medium"
+        assert res["trend_direction"] == "rising"
+        assert res["is_deteriorating"] is True
+        assert "Risk is deteriorating" in res["deterioration_summary"]
+
+
+def test_trend_high_critical_rise_is_deterioration():
+    """Prove score increase when already High or Critical IS flagged as deterioration."""
+    # High -> High rise (already elevated)
+    with patch("src.trend.predict") as mock_p:
+        mock_p.side_effect = lambda supplier_name, headlines, config=None: {
+            "supplier": supplier_name,
+            "risk_score": 82.0 if "current" in headlines[0] else 74.0,
+            "confidence": 0.8,
+            "sentiment_breakdown": {},
+            "signals": [],
+            "top_worst_3": [],
+        }
+        records = [
+            {"date": "2026-01-15", "headline": "previous headline"},
+            {"date": "2026-03-20", "headline": "current headline"},
+        ]
+        res = calculate_supplier_trend("HighCorp", records)
+        assert res["current_risk_tier"] == "High"
+        assert res["previous_risk_tier"] == "High"
+        assert res["trend_direction"] == "rising"
+        assert res["is_deteriorating"] is True
+
+    # Critical -> Critical rise (already elevated)
+    with patch("src.trend.predict") as mock_p:
+        mock_p.side_effect = lambda supplier_name, headlines, config=None: {
+            "supplier": supplier_name,
+            "risk_score": 95.0 if "current" in headlines[0] else 87.0,
+            "confidence": 0.8,
+            "sentiment_breakdown": {},
+            "signals": [],
+            "top_worst_3": [],
+        }
+        res_crit = calculate_supplier_trend("CritCorp", records)
+        assert res_crit["current_risk_tier"] == "Critical"
+        assert res_crit["previous_risk_tier"] == "Critical"
+        assert res_crit["trend_direction"] == "rising"
+        assert res_crit["is_deteriorating"] is True
+
+
+def test_trend_no_history_response():
+    """Prove no-history response has expected tier and peak fields."""
+    records = [
+        {"date": "2026-03-20", "headline": "SoloCorp reports positive earnings."},
+    ]
+    res = calculate_supplier_trend("SoloCorp", records)
+    assert res["previous_risk_score"] is None
+    assert res["previous_risk_tier"] is None
+    assert res["peak_risk_score"] == res["current_risk_score"]
+    assert res["peak_risk_tier"] == res["current_risk_tier"]
+
+
+# ------------------------------------------------------------------
+# 9. Team Lead FIX 2: As-Of-Date Filtering & Future-Data Leakage Tests
+# ------------------------------------------------------------------
+
+def test_trend_future_articles_do_not_leak_into_outputs():
+    """
+    Must Fix #2: Future articles past as_of_date must NOT leak into:
+    - article_count
+    - current_risk_score
+    - top_evidence
+    - risk_trend
+    - overall_confidence
+    """
+    past_records = [
+        {"date": "2026-01-10", "headline": "SupplierCorp faces supply chain delays."},
+        {"date": "2026-02-15", "headline": "SupplierCorp signs major distribution agreement."},
+    ]
+    future_records = [
+        {"date": "2026-03-10", "headline": "SupplierCorp hit by catastrophic factory explosion and bankruptcy scandal."},
+        {"date": "2026-04-05", "headline": "SupplierCorp executive arrested for widespread fraud."},
+    ]
+    all_records = past_records + future_records
+
+    cutoff = "2026-02-28"
+    res_past = calculate_supplier_trend("SupplierCorp", past_records, as_of_date=cutoff)
+    res_all = calculate_supplier_trend("SupplierCorp", all_records, as_of_date=cutoff)
+
+    # 1. article_count: exactly equals past articles count, future articles excluded
+    assert res_all["article_count"] == res_past["article_count"] == 2
+
+    # 2. current_risk_score: identical to past-only run; catastrophic future events do NOT inflate score
+    assert res_all["current_risk_score"] == res_past["current_risk_score"]
+
+    # 3. top_evidence: identical to past-only run; no future headlines in top evidence
+    assert res_all["top_evidence"] == res_past["top_evidence"]
+    future_headline_texts = {r["headline"].lower() for r in future_records}
+    for ev in res_all["top_evidence"]:
+        assert ev["headline"].lower() not in future_headline_texts
+
+    # 4. risk_trend: identical chronological points to past-only run; no future dates exist
+    assert res_all["risk_trend"] == res_past["risk_trend"]
+    for point in res_all["risk_trend"]:
+        assert point["date"] <= cutoff
+
+    # 5. overall_confidence: identical to past-only run; future articles do not weight or alter confidence
+    assert res_all["overall_confidence"] == res_past["overall_confidence"]
+
+
+def test_trend_exact_cutoff_date_included():
+    """Must Fix #2: Exact cutoff date (d == ref_date) is INCLUDED in trend evaluation."""
+    cutoff = "2026-02-28"
+    records = [
+        {"date": "2026-02-15", "headline": "SupplierCorp reports steady quarter."},
+        {"date": "2026-02-28", "headline": "SupplierCorp suffers severe operational shutdown."},
+        {"date": "2026-03-01", "headline": "SupplierCorp resumes partial operations."},
+    ]
+    res = calculate_supplier_trend("SupplierCorp", records, as_of_date=cutoff)
+
+    # 2026-02-15 and 2026-02-28 included; 2026-03-01 excluded
+    assert res["article_count"] == 2
+    trend_dates = [p["date"] for p in res["risk_trend"]]
+    assert "2026-02-28" in trend_dates
+    assert "2026-03-01" not in trend_dates
+
+    # The exact cutoff headline appears in evidence
+    evidence_headlines = [e["headline"] for e in res["top_evidence"]]
+    assert any("severe operational shutdown" in h for h in evidence_headlines)
+
+
+def test_trend_all_future_articles_returns_empty_response():
+    """Must Fix #2: When all records are in the future, return exact empty response."""
+    records = [
+        {"date": "2026-04-01", "headline": "SupplierCorp hit by severe factory strike."},
+        {"date": "2026-05-15", "headline": "SupplierCorp defaults on debt obligation."},
+    ]
+    res = calculate_supplier_trend("SupplierCorp", records, as_of_date="2026-03-15")
+
+    assert res["article_count"] == 0
+    assert res["current_window_article_count"] == 0
+    assert res["historical_article_count"] == 0
+    assert res["current_risk_score"] == 0.0
+    assert res["previous_risk_score"] is None
+    assert res["current_risk_tier"] == "Low"
+    assert res["previous_risk_tier"] is None
+    assert res["peak_risk_score"] == 0.0
+    assert res["peak_risk_tier"] == "Low"
+    assert res["trend_direction"] == "stable"
+    assert res["is_deteriorating"] is False
+    assert res["risk_delta"] is None
+    assert res["overall_confidence"] == 0.0
+    assert res["top_evidence"] == []
+    assert res["risk_trend"] == []
+
+
+def test_trend_window_start_uses_cutoff_and_window_end_equals_cutoff():
+    """Must Fix #2: window_end equals cutoff and window_start is cutoff - window_days."""
+    cutoff = "2026-03-15"
+    records = [
+        {"date": "2026-02-01", "headline": "SupplierCorp historical notice."},
+        {"date": "2026-03-01", "headline": "SupplierCorp recent update."},
+    ]
+    res = calculate_supplier_trend("SupplierCorp", records, as_of_date=cutoff)
+
+    assert res["window_end"] == cutoff
+    assert res["window_start"] == "2026-02-13"  # 2026-03-15 minus 30 days
+
+
+def test_trend_omitted_as_of_date_preserves_behavior():
+    """Must Fix #2: Omitted as_of_date anchors to max(date_objs) and preserves behavior."""
+    records = [
+        {"date": "2026-01-10", "headline": "SupplierCorp January report."},
+        {"date": "2026-02-20", "headline": "SupplierCorp February report."},
+        {"date": "2026-03-25", "headline": "SupplierCorp March report."},
+    ]
+    res_omitted = calculate_supplier_trend("SupplierCorp", records)
+    res_none = calculate_supplier_trend("SupplierCorp", records, as_of_date=None)
+
+    assert res_omitted["window_end"] == "2026-03-25"
+    assert res_none["window_end"] == "2026-03-25"
+    assert res_omitted["article_count"] == 3
+    assert res_none["article_count"] == 3
+    assert res_omitted == res_none
+
+
+def test_as_of_date_excludes_later_articles_everywhere():
+    records = [
+        {
+            "date": "2026-01-15",
+            "headline": "SupplierCorp reports quarterly earnings.",
+        },
+        {
+            "date": "2026-02-15",
+            "headline": "SupplierCorp faces supply disruption and delivery delay.",
+        },
+        {
+            "date": "2026-03-25",
+            "headline": "SupplierCorp files for bankruptcy after fraud scandal.",
+        },
+    ]
+
+    res = calculate_supplier_trend(
+        "SupplierCorp",
+        records,
+        as_of_date="2026-02-28",
+    )
+
+    assert res["article_count"] == 2
+    assert all(
+        point["date"] <= "2026-02-28"
+        for point in res["risk_trend"]
+    )
+    assert all(
+        "bankruptcy" not in e["headline"].lower()
+        for e in res["top_evidence"]
+    )
+
+
+def test_as_of_date_before_all_articles_returns_empty():
+    records = [
+        {
+            "date": "2026-03-25",
+            "headline": "SupplierCorp files for bankruptcy.",
+        }
+    ]
+
+    res = calculate_supplier_trend(
+        "SupplierCorp",
+        records,
+        as_of_date="2025-01-01",
+    )
+
+    assert res["article_count"] == 0
+    assert res["top_evidence"] == []
+    assert res["risk_trend"] == []
+    assert res["window_end"] == "2025-01-01"

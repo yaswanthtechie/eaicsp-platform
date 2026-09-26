@@ -181,6 +181,8 @@ def _aggregate_risk_score(
     return min(config.max_risk_score, max(0.0, raw_score))
 
 
+
+
 def _empty_response(supplier_name: str) -> Dict[str, Any]:
     """
     Return an empty response when no headlines are available.

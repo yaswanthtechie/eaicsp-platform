@@ -360,22 +360,68 @@ def load_15_company_trend_dataset(
     return load_trend_headlines(target_path)
 
 
+def load_25_company_dataset(json_path: Path | None = None) -> Dict[str, List[str]]:
+    """
+    Load the 25-company calibration benchmark dataset grouped by supplier.
+
+    Returns:
+        Dict[str, List[str]]:
+            Dictionary where the key is the supplier name and
+            the value is a list of associated news headlines.
+    """
+    target_path = json_path or (Path(__file__).parent / "supplier_headlines_25.json")
+
+    if not target_path.exists():
+        return {}
+
+    with target_path.open("r", encoding="utf-8") as file:
+        data = json.load(file)
+
+    grouped: Dict[str, List[str]] = {}
+    for item in data:
+        supplier = item.get("supplier")
+        headline = item.get("headline")
+        if supplier and headline:
+            grouped.setdefault(supplier, []).append(headline)
+
+    return grouped
+
+
+def load_25_company_trend_dataset(
+    json_path: Path | None = None,
+) -> Dict[str, List[Dict[str, str]]]:
+    """
+    Load the 25-company date-aware trend dataset grouped by supplier.
+
+    Returns:
+        Dict[str, List[Dict[str, str]]]:
+            Dictionary where the key is supplier name and value is a list of
+            date-aware records: [{'date': 'YYYY-MM-DD', 'headline': '...'}]
+    """
+    target_path = json_path or (Path(__file__).parent / "supplier_trend_headlines_25.json")
+    return load_trend_headlines(target_path)
+
+
 def load_active_trend_headlines() -> Dict[str, List[Dict[str, str]]]:
     """
     Load date-aware supplier news headlines with fallback hierarchy:
-        1. 15-company benchmark trend dataset (supplier_trend_headlines_15.json) when available.
-        2. Fall back to the 10-company baseline trend dataset (supplier_trend_headlines.json).
-        3. Fall back to inline sample (TREND_HEADLINES_DATA).
+        1. 25-company benchmark trend dataset (supplier_trend_headlines_25.json) when available.
+        2. 15-company benchmark trend dataset (supplier_trend_headlines_15.json).
+        3. Fall back to the 10-company baseline trend dataset (supplier_trend_headlines.json).
+        4. Fall back to inline sample (TREND_HEADLINES_DATA).
 
     Returns:
         Dict[str, List[Dict[str, str]]]:
             Dictionary where key is supplier name and value is list of date-aware records.
     """
+    h25 = Path(__file__).parent / "supplier_trend_headlines_25.json"
+    if h25.exists():
+        data_25 = load_25_company_trend_dataset(h25)
+        if data_25:
+            return data_25
     h15 = Path(__file__).parent / "supplier_trend_headlines_15.json"
     if h15.exists():
         data_15 = load_15_company_trend_dataset(h15)
         if data_15:
             return data_15
     return load_trend_headlines()
-
-

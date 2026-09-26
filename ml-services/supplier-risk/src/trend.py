@@ -11,7 +11,10 @@ import re
 from typing import Any, Dict, List, Optional
 
 from src.config import Settings, get_settings
+from src.evaluate import assign_risk_tier
 from src.predict import predict
+
+_TIER_RANK = {"Low": 0, "Medium": 1, "High": 2, "Critical": 3}
 
 _ISO_DATE_REGEX = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -146,7 +149,14 @@ def calculate_supplier_trend(
             "supplier": cleaned_supplier,
             "current_risk_score": 0.0,
             "previous_risk_score": None,
+            "current_risk_tier": assign_risk_tier(0.0, cfg),
+            "previous_risk_tier": None,
+            "peak_risk_score": 0.0,
+            "peak_risk_tier": assign_risk_tier(0.0, cfg),
             "trend_direction": "stable",
+            "is_deteriorating": False,
+            "risk_delta": None,
+            "deterioration_summary": "No headline records provided.",
             "article_count": 0,
             "current_window_article_count": 0,
             "historical_article_count": 0,
@@ -182,7 +192,7 @@ def calculate_supplier_trend(
 
         stripped_hl = headline.strip()
         if not stripped_hl:
-            continue
+            raise ValueError(f"Record at index {idx} contains an empty or whitespace-only headline")
 
         # Enforce supplier isolation: if record specifies a supplier, it must match
         if "supplier" in record and record["supplier"]:
@@ -202,17 +212,33 @@ def calculate_supplier_trend(
         })
 
     if not valid_records:
+        ref_end = None
+        ref_start = None
+        if as_of_date is not None:
+            try:
+                r_date = datetime.strptime(validate_date(as_of_date), "%Y-%m-%d").date()
+                ref_end = r_date.strftime("%Y-%m-%d")
+                ref_start = (r_date - timedelta(days=window_days)).strftime("%Y-%m-%d")
+            except Exception:
+                pass
         return {
             "supplier": cleaned_supplier,
             "current_risk_score": 0.0,
             "previous_risk_score": None,
+            "current_risk_tier": assign_risk_tier(0.0, cfg),
+            "previous_risk_tier": None,
+            "peak_risk_score": 0.0,
+            "peak_risk_tier": assign_risk_tier(0.0, cfg),
             "trend_direction": "stable",
+            "is_deteriorating": False,
+            "risk_delta": None,
+            "deterioration_summary": "No valid headline records found for supplier.",
             "article_count": 0,
             "current_window_article_count": 0,
             "historical_article_count": 0,
             "window_days": window_days,
-            "window_start": None,
-            "window_end": None,
+            "window_start": ref_start,
+            "window_end": ref_end,
             "previous_window_start": None,
             "previous_window_end": None,
             "overall_confidence": 0.0,
@@ -224,8 +250,37 @@ def calculate_supplier_trend(
     date_objs = [datetime.strptime(r["date"], "%Y-%m-%d").date() for r in valid_records]
     if as_of_date is not None:
         ref_date = datetime.strptime(validate_date(as_of_date), "%Y-%m-%d").date()
+        kept = [(r, d) for r, d in zip(valid_records, date_objs) if d <= ref_date]
+        valid_records = [r for r, _ in kept]
+        date_objs = [d for _, d in kept]
     else:
         ref_date = max(date_objs)
+
+    if not valid_records:
+        return {
+            "supplier": cleaned_supplier,
+            "current_risk_score": 0.0,
+            "previous_risk_score": None,
+            "current_risk_tier": assign_risk_tier(0.0, cfg),
+            "previous_risk_tier": None,
+            "peak_risk_score": 0.0,
+            "peak_risk_tier": assign_risk_tier(0.0, cfg),
+            "trend_direction": "stable",
+            "is_deteriorating": False,
+            "risk_delta": None,
+            "deterioration_summary": "No valid headline records found for supplier.",
+            "article_count": 0,
+            "current_window_article_count": 0,
+            "historical_article_count": 0,
+            "window_days": window_days,
+            "window_start": (ref_date - timedelta(days=window_days)).strftime("%Y-%m-%d") if as_of_date is not None else None,
+            "window_end": ref_date.strftime("%Y-%m-%d") if as_of_date is not None else None,
+            "previous_window_start": None,
+            "previous_window_end": None,
+            "overall_confidence": 0.0,
+            "top_evidence": [],
+            "risk_trend": [],
+        }
 
     current_window_start = ref_date - timedelta(days=window_days)
 
@@ -255,63 +310,26 @@ def calculate_supplier_trend(
                 prev_articles.append(r)
                 prev_article_dates.append(d)
 
-    # 4. Calculate article-level risk scores using predict() with caching
-    article_score_cache: Dict[str, float] = {}
+    # 4. Score each window with exactly the same aggregation /predict uses
+    #    (top_k_mean anti-dilution). The window itself is the recency control,
+    #    so scores are NOT decayed inside a window - decaying before taking the
+    #    peak is what let a 4-week-old default shrink to "Low".
+    def _window_score(articles: List[Dict[str, Any]]) -> float:
+        if not articles:
+            return 0.0
+        result = predict(
+            supplier_name=cleaned_supplier,
+            headlines=[a["headline"] for a in articles],
+            config=cfg,
+        )
+        return round(float(result["risk_score"]), 2)
 
-    def _get_article_risk(hl: str) -> float:
-        if hl not in article_score_cache:
-            p = predict(supplier_name=cleaned_supplier, headlines=[hl], config=cfg)
-            article_score_cache[hl] = float(p["risk_score"])
-        return article_score_cache[hl]
+    current_risk_score = _window_score(current_articles)
+    current_window_start_str = current_window_start.strftime("%Y-%m-%d")
+    current_window_end_str = ref_date.strftime("%Y-%m-%d")
 
-    # Current window aggregate score (recency-weighted)
-    if current_articles:
-        curr_weights: List[float] = []
-        curr_scores: List[float] = []
-        for r, d in zip(current_articles, current_article_dates):
-            age_days = (ref_date - d).days
-            weight = 2.0 ** (-float(age_days) / half_life)
-            score = _get_article_risk(r["headline"])
-            curr_weights.append(weight)
-            curr_scores.append(score)
-
-        total_curr_weight = sum(curr_weights)
-        if total_curr_weight > 0:
-            current_risk_score = round(
-                sum(s * w for s, w in zip(curr_scores, curr_weights)) / total_curr_weight,
-                2,
-            )
-        else:
-            current_risk_score = 0.0
-
-        current_window_start_str = current_window_start.strftime("%Y-%m-%d")
-        current_window_end_str = ref_date.strftime("%Y-%m-%d")
-    else:
-        current_risk_score = 0.0
-        current_window_start_str = None
-        current_window_end_str = None
-
-    # Previous window aggregate score (recency-weighted relative to previous window anchor)
     if prev_articles:
-        prev_anchor_date = ref_date - timedelta(days=window_days)
-        prev_weights: List[float] = []
-        prev_scores: List[float] = []
-        for r, d in zip(prev_articles, prev_article_dates):
-            age_days = max(0, (prev_anchor_date - d).days)
-            weight = 2.0 ** (-float(age_days) / half_life)
-            score = _get_article_risk(r["headline"])
-            prev_weights.append(weight)
-            prev_scores.append(score)
-
-        total_prev_weight = sum(prev_weights)
-        if total_prev_weight > 0:
-            previous_risk_score = round(
-                sum(s * w for s, w in zip(prev_scores, prev_weights)) / total_prev_weight,
-                2,
-            )
-        else:
-            previous_risk_score = None
-
+        previous_risk_score = _window_score(prev_articles)
         prev_window_start_str = min(prev_article_dates).strftime("%Y-%m-%d")
         prev_window_end_str = max(prev_article_dates).strftime("%Y-%m-%d")
     else:
@@ -319,17 +337,72 @@ def calculate_supplier_trend(
         prev_window_start_str = None
         prev_window_end_str = None
 
-    # 5. Determine trend direction algorithmically from current vs previous aggregate
+    current_risk_tier = assign_risk_tier(current_risk_score, cfg)
+    previous_risk_tier = (
+        assign_risk_tier(previous_risk_score, cfg)
+        if previous_risk_score is not None else None
+    )
+
+    # Worst score across both windows (~60 days). Compliance gates on this so a
+    # supplier that was Critical last month isn't auto-cleared the moment its
+    # latest month is quieter.
+    peak_risk_score = max(current_risk_score, previous_risk_score or 0.0)
+    peak_risk_tier = assign_risk_tier(peak_risk_score, cfg)
+
+    # 5. Determine trend direction and deterioration flag algorithmically
     if previous_risk_score is None:
         trend_direction = "stable"
+        is_deteriorating = False
+        risk_delta = None
+        deterioration_summary = (
+            f"Insufficient historical data to establish trend direction. "
+            f"Current window score is {current_risk_score:.2f} across {len(current_articles)} articles."
+        )
     else:
-        score_diff = current_risk_score - previous_risk_score
+        score_diff = round(current_risk_score - previous_risk_score, 2)
+        risk_delta = score_diff
         if score_diff > threshold:
             trend_direction = "rising"
+
+            # A rise only counts as deterioration if it moves the supplier into a
+            # worse tier, or it is already High/Critical.
+            tier_worsened = (
+                _TIER_RANK[current_risk_tier]
+                > _TIER_RANK[previous_risk_tier]
+            )
+            already_elevated = (
+                _TIER_RANK[current_risk_tier] >= _TIER_RANK["High"]
+            )
+
+            is_deteriorating = tier_worsened or already_elevated
+
+            if is_deteriorating:
+                deterioration_summary = (
+                    f"Risk is deteriorating: score increased by +{score_diff:.2f} points "
+                    f"(from {previous_risk_score:.2f} {previous_risk_tier} to "
+                    f"{current_risk_score:.2f} {current_risk_tier})."
+                )
+            else:
+                deterioration_summary = (
+                    f"Risk is rising by +{score_diff:.2f} points but remains "
+                    f"{current_risk_tier} (from {previous_risk_score:.2f} to "
+                    f"{current_risk_score:.2f}); not flagged as deteriorating."
+                )
         elif score_diff < -threshold:
             trend_direction = "falling"
+            is_deteriorating = False
+            deterioration_summary = (
+                f"Risk is improving: score decreased by {score_diff:.2f} points "
+                f"(from {previous_risk_score:.2f} to {current_risk_score:.2f})."
+            )
         else:
             trend_direction = "stable"
+            is_deteriorating = False
+            deterioration_summary = (
+                f"Risk is stable: score delta of {score_diff:+.2f} points "
+                f"(from {previous_risk_score:.2f} to {current_risk_score:.2f}) "
+                f"is within the steady-state margin of ±{threshold}."
+            )
 
     # 6. Chronological risk_trend points (backward compatible timeline)
     date_grouped: Dict[str, List[str]] = defaultdict(list)
@@ -396,7 +469,14 @@ def calculate_supplier_trend(
         "supplier": cleaned_supplier,
         "current_risk_score": current_risk_score,
         "previous_risk_score": previous_risk_score,
+        "current_risk_tier": current_risk_tier,
+        "previous_risk_tier": previous_risk_tier,
+        "peak_risk_score": peak_risk_score,
+        "peak_risk_tier": peak_risk_tier,
         "trend_direction": trend_direction,
+        "is_deteriorating": is_deteriorating,
+        "risk_delta": risk_delta,
+        "deterioration_summary": deterioration_summary,
         "article_count": len(valid_records),
         "current_window_article_count": len(current_articles),
         "historical_article_count": len(prev_articles),
@@ -446,3 +526,24 @@ def aggregate_supplier_trends(
             as_of_date=as_of_date,
         )
     return results
+
+
+def detect_deteriorating_suppliers(
+    records: List[Dict[str, Any]],
+    config: Optional[Settings] = None,
+    as_of_date: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Scan records across multiple suppliers, compute risk trends, and detect/flag
+    all suppliers whose risk profile is deteriorating over time.
+
+    Returns a list of trend summary dictionaries for deteriorating suppliers, sorted by
+    risk_delta descending (highest deteriorating increase first).
+    """
+    all_trends = aggregate_supplier_trends(records, config=config, as_of_date=as_of_date)
+    deteriorating = [
+        summary for summary in all_trends.values()
+        if summary.get("is_deteriorating")
+    ]
+    deteriorating.sort(key=lambda s: s.get("risk_delta") or 0.0, reverse=True)
+    return deteriorating

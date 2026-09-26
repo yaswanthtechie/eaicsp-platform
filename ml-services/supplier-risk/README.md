@@ -11,7 +11,9 @@ The service combines:
 - **Anti-Dilution Architecture** (protecting acute risks from high-volume neutral dilution)
 - **REST API Serving** via FastAPI (`/predict`, `/health`, `/api/v1/supplier-risk/*`)
 - **Automated Unit & Integration Testing** with Pytest
-- **15-Company Calibration & Benchmark Dataset** (180 headlines)
+- **25-Company Calibration & Benchmark Dataset** (300 headlines)
+- **Historical Risk Trend & Deterioration Detection** (`is_deteriorating`, `risk_delta`, `deterioration_summary`)
+- **Compliance Integration Contract** (Contract-first future consumption specification)
 
 ---
 
@@ -28,7 +30,9 @@ The service combines:
 - REST API using FastAPI with full request/response schemas
 - Automatic Model Loading with startup lifespan management
 - Comprehensive Unit & Integration Test Suite with Pytest
-- 15-Company Benchmark Dataset Evaluation
+- 25-Company Benchmark Dataset Evaluation
+- Historical Risk Trend with Time-Series Deterioration Detection
+- Compliance Integration Contract Specification (Documentation-Only)
 
 ---
 
@@ -365,6 +369,8 @@ POST /predict
 
 Retrieve chronologically ordered risk trend points for a supplier over time.
 
+Trend responses include current_risk_tier, previous_risk_tier, peak_risk_score, and peak_risk_tier; a rising score is considered deteriorating only when the risk tier worsens or the current tier is High/Critical.
+
 ```http
 GET /api/v1/supplier-risk/trend/{supplier_name}
 ```
@@ -381,6 +387,9 @@ GET /api/v1/supplier-risk/trend/Tesla
   "current_risk_score": 39.66,
   "previous_risk_score": 30.71,
   "trend_direction": "rising",
+  "is_deteriorating": true,
+  "risk_delta": 8.95,
+  "deterioration_summary": "Risk is deteriorating: score increased by +8.95 points (from 30.71 to 39.66) exceeding the sensitivity threshold of 3.0.",
   "article_count": 12,
   "current_window_article_count": 5,
   "historical_article_count": 4,
@@ -653,13 +662,44 @@ Critical               |      0 |      0 |      0 |        3 |       3
 
 ---
 
-## 3. 15-Company Development Benchmark & Trend Dataset (Regression Baselines)
+## 3. 25-Company Expanded Development Benchmark & Trend Dataset (Round 9)
 
-The exploratory development dataset is located in `src/supplier_headlines_15.json` and contains **180 authored headlines across 15 suppliers**. The date-aware trend evaluation dataset is located in `src/supplier_trend_headlines_15.json` and contains **180 dated headlines across 15 suppliers** spanning 12 weekly intervals.
+The expanded development dataset is located in `src/supplier_headlines_25.json` and contains **300 authored headlines across 25 suppliers** (12 headlines each). The date-aware trend evaluation dataset is located in `src/supplier_trend_headlines_25.json` and contains **300 dated headlines across 25 suppliers** spanning 12 weekly intervals.
+
+The 25 companies represent diverse global supply chain tiers:
+- **Low Risk (7)**: Schneider Electric, Siemens, ASML, Texas Instruments, Lockheed Martin, BASF, TSMC
+- **Medium Risk (10)**: Caterpillar, Volvo Group, Rio Tinto, Foxconn, DHL Supply Chain, Nissan, Boeing, Intel, Evergreen Marine, Maersk
+- **High Risk (4)**: Tesla, Glencore, ArcelorMittal, Toshiba
+- **Critical Risk (4)**: Apex Logistics, Northvolt, Evergrande Construction Logistics, Silicon Power Storage
+
+Deep validation confirms:
+- **Score Spread**: 57.79 points (Min: 42.21, Max: 100.00)
+- **Mean Score**: 67.75, **Std Dev**: 18.60
+- **Human Operational Tier Match Rate**: 18 / 25 (72.0%)
+- **Scenario Checks**: Verified positive mitigation, acute negative alerts, duplicate suppression, and rolling window date exclusion.
+
+For the complete written analysis, see: [docs/25_COMPANY_VALIDATION_SANITY_CHECK.md](docs/25_COMPANY_VALIDATION_SANITY_CHECK.md).
 
 > [!WARNING]
 > **Synthetic / Authored Dataset Disclaimer**:
-> These datasets were authored during initial pipeline prototyping alongside model development. Real company names (Boeing, Tesla, Intel, Siemens, etc.) were used solely for illustrative scenario design and temporal trajectory demonstration (rising, falling, and stable trends). **These headlines are entirely synthetic and authored for regression testing and trend demonstration; they do NOT represent actual real-world news, events, or official corporate disclosures.** These datasets serve as development regression baselines, not independent validation sets.
+> These datasets were authored during pipeline prototyping alongside model development. Real company names were used solely for illustrative scenario design and temporal trajectory demonstration (rising, falling, and stable trends). **These headlines are entirely synthetic and authored for regression testing and trend demonstration; they do NOT represent actual real-world news, events, or official corporate disclosures.** These datasets serve as development regression baselines, not independent validation sets.
+
+---
+
+# Compliance Service Integration Contract (Future Work)
+
+The Supplier Risk NLP Service defines a formal architectural integration specification with Geethika's Compliance Screening Service:
+
+> [!IMPORTANT]
+> **Contract / Documentation Only**:
+> No runtime HTTP clients, service wiring, imports, URLs, or shared libraries are implemented in this round. The actual integration is scheduled for future rounds.
+
+### Contract Highlights:
+- **Sanctions + Adverse Media Synthesis**: How OFAC/UN/EU sanctions checks combine with FinBERT sentiment scores, keyword severity, and time-series deterioration flags (`is_deteriorating: true`).
+- **Unified Risk Decision Matrix**: Detailed triage rules combining sanctions hit/miss with NLP risk tiers (Low, Medium, High, Critical) for automated procurement decisions (Auto-Clear, Watchlist, Enhanced Due Diligence, Immediate Hard Block).
+- **Resilience Protocols**: Graceful degradation (sanctions-only screening continues if Supplier Risk NLP times out), circuit breaking, and complete audit logging.
+
+For the full specification, see: [COMPLIANCE_INTEGRATION_CONTRACT.md](COMPLIANCE_INTEGRATION_CONTRACT.md).
 
 ---
 
