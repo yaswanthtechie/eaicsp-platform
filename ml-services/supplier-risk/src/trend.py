@@ -104,7 +104,7 @@ def calculate_supplier_trend(
 
     Groups multiple dated articles by supplier, computes article-level risk scores
     using the core predict() engine, aggregates articles across a configurable
-    rolling window (default 30 days) with exponential recency decay weighting,
+    rolling window (default 30 days) using the same aggregation as predict(),
     compares against a previous historical window, and algorithmically classifies
     trend direction as 'rising', 'falling', or 'stable'.
 
@@ -147,12 +147,12 @@ def calculate_supplier_trend(
     if not records:
         return {
             "supplier": cleaned_supplier,
-            "current_risk_score": 0.0,
+            "current_risk_score": None,
             "previous_risk_score": None,
-            "current_risk_tier": assign_risk_tier(0.0, cfg),
+            "current_risk_tier": None,
             "previous_risk_tier": None,
-            "peak_risk_score": 0.0,
-            "peak_risk_tier": assign_risk_tier(0.0, cfg),
+            "peak_risk_score": None,
+            "peak_risk_tier": None,
             "trend_direction": "stable",
             "is_deteriorating": False,
             "risk_delta": None,
@@ -223,12 +223,12 @@ def calculate_supplier_trend(
                 pass
         return {
             "supplier": cleaned_supplier,
-            "current_risk_score": 0.0,
+            "current_risk_score": None,
             "previous_risk_score": None,
-            "current_risk_tier": assign_risk_tier(0.0, cfg),
+            "current_risk_tier": None,
             "previous_risk_tier": None,
-            "peak_risk_score": 0.0,
-            "peak_risk_tier": assign_risk_tier(0.0, cfg),
+            "peak_risk_score": None,
+            "peak_risk_tier": None,
             "trend_direction": "stable",
             "is_deteriorating": False,
             "risk_delta": None,
@@ -259,12 +259,12 @@ def calculate_supplier_trend(
     if not valid_records:
         return {
             "supplier": cleaned_supplier,
-            "current_risk_score": 0.0,
+            "current_risk_score": None,
             "previous_risk_score": None,
-            "current_risk_tier": assign_risk_tier(0.0, cfg),
+            "current_risk_tier": None,
             "previous_risk_tier": None,
-            "peak_risk_score": 0.0,
-            "peak_risk_tier": assign_risk_tier(0.0, cfg),
+            "peak_risk_score": None,
+            "peak_risk_tier": None,
             "trend_direction": "stable",
             "is_deteriorating": False,
             "risk_delta": None,
@@ -302,13 +302,18 @@ def calculate_supplier_trend(
             prev_articles.append(r)
             prev_article_dates.append(d)
 
-    # If the immediately preceding window is empty, fall back to all prior historical articles
+    # If the immediately preceding window is empty, fall back to all prior
+    # historical articles. This keeps a trend comparison possible, but the
+    # fallback reaches back without limit, so it must NOT feed peak_risk_score
+    # (see step 4): one old event would otherwise gate a supplier forever.
+    previous_is_fallback = False
     if not prev_articles:
         for r, d in zip(valid_records, date_objs):
             delta_days = (ref_date - d).days
             if delta_days > window_days:
                 prev_articles.append(r)
                 prev_article_dates.append(d)
+        previous_is_fallback = bool(prev_articles)
 
     # 4. Score each window with exactly the same aggregation /predict uses
     #    (top_k_mean anti-dilution). The window itself is the recency control,
@@ -324,7 +329,11 @@ def calculate_supplier_trend(
         )
         return round(float(result["risk_score"]), 2)
 
-    current_risk_score = _window_score(current_articles)
+    # No articles in the current window means "no recent evidence",
+    # not "zero risk". Report None instead of a fake 0.0.
+    current_risk_score = (
+        _window_score(current_articles) if current_articles else None
+    )
     current_window_start_str = current_window_start.strftime("%Y-%m-%d")
     current_window_end_str = ref_date.strftime("%Y-%m-%d")
 
@@ -337,20 +346,45 @@ def calculate_supplier_trend(
         prev_window_start_str = None
         prev_window_end_str = None
 
-    current_risk_tier = assign_risk_tier(current_risk_score, cfg)
+    current_risk_tier = (
+        assign_risk_tier(current_risk_score, cfg)
+        if current_risk_score is not None else None
+    )
     previous_risk_tier = (
         assign_risk_tier(previous_risk_score, cfg)
         if previous_risk_score is not None else None
     )
 
-    # Worst score across both windows (~60 days). Compliance gates on this so a
-    # supplier that was Critical last month isn't auto-cleared the moment its
-    # latest month is quieter.
-    peak_risk_score = max(current_risk_score, previous_risk_score or 0.0)
-    peak_risk_tier = assign_risk_tier(peak_risk_score, cfg)
+    # Worst score across the current and the immediately preceding window
+    # (~60 days). A fallback previous score is older than that, so it is
+    # excluded. Compliance gates on this so a supplier that was Critical last
+    # month isn't auto-cleared the moment its latest month is quieter.
+    window_scores = [current_risk_score]
+    if not previous_is_fallback:
+        window_scores.append(previous_risk_score)
+    window_scores = [
+        score for score in window_scores
+        if score is not None
+    ]
+    if window_scores:
+        peak_risk_score = max(window_scores)
+        peak_risk_tier = assign_risk_tier(peak_risk_score, cfg)
+    else:
+        # Nothing in either window (~60 days): no recent evidence at all.
+        peak_risk_score = None
+        peak_risk_tier = None
 
     # 5. Determine trend direction and deterioration flag algorithmically
-    if previous_risk_score is None:
+    if current_risk_score is None:
+        trend_direction = "stable"
+        is_deteriorating = False
+        risk_delta = None
+        deterioration_summary = (
+            f"No articles in the current {window_days}-day window "
+            f"(latest article: {max(date_objs).isoformat()}). "
+            f"Recent risk cannot be assessed; this is not evidence of improvement."
+        )
+    elif previous_risk_score is None:
         trend_direction = "stable"
         is_deteriorating = False
         risk_delta = None
@@ -361,15 +395,15 @@ def calculate_supplier_trend(
     else:
         score_diff = round(current_risk_score - previous_risk_score, 2)
         risk_delta = score_diff
+        tier_worsened = (
+            _TIER_RANK[current_risk_tier]
+            > _TIER_RANK[previous_risk_tier]
+        )
         if score_diff > threshold:
             trend_direction = "rising"
 
             # A rise only counts as deterioration if it moves the supplier into a
             # worse tier, or it is already High/Critical.
-            tier_worsened = (
-                _TIER_RANK[current_risk_tier]
-                > _TIER_RANK[previous_risk_tier]
-            )
             already_elevated = (
                 _TIER_RANK[current_risk_tier] >= _TIER_RANK["High"]
             )
@@ -394,6 +428,15 @@ def calculate_supplier_trend(
             deterioration_summary = (
                 f"Risk is improving: score decreased by {score_diff:.2f} points "
                 f"(from {previous_risk_score:.2f} to {current_risk_score:.2f})."
+            )
+        elif tier_worsened:
+            # A tier worsening is deterioration even inside the steady-state margin.
+            trend_direction = "rising"
+            is_deteriorating = True
+            deterioration_summary = (
+                f"Risk is deteriorating: tier worsened from {previous_risk_tier} "
+                f"to {current_risk_tier} (score {previous_risk_score:.2f} -> "
+                f"{current_risk_score:.2f}, delta {score_diff:+.2f})."
             )
         else:
             trend_direction = "stable"

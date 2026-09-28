@@ -455,10 +455,13 @@ Inputs:
 | false (or case `CLEARED`) | High | false | MONITORED | Weekly re-screening; cap single-order value. |
 | false (or case `CLEARED`) | Medium | true | WATCHLIST | Monthly review; notify category manager. |
 | false (or case `CLEARED`) | Medium | false | ROUTINE REVIEW | Standard clearance with periodic screening. |
+| false (or case `CLEARED`) | `null` (no articles in ~60 days) | false | **INSUFFICIENT DATA / ROUTINE REVIEW** | No recent adverse-media evidence either way; standard clearance with periodic re-screening. Never treat as a confirmed Low. |
 | false (or case `CLEARED`) | Low | false | AUTO-CLEAR | Standard clearance. |
 
 - Final action = the stricter of this table's action and Compliance's own `screening_action` (for example, Low plus `ENHANCED_REVIEW_AND_MANUAL_APPROVAL` still requires manual approval).
 - `peak_risk_tier = Low` with `is_deteriorating = true` cannot occur, because deterioration requires a tier increase or a High/Critical current tier.
+- When there are no articles in the relevant window, the current score and its tier, and the peak score and its tier, are `null`. `null` means "no evidence", not "low risk".
+- `peak_risk_score` covers only the current window and the immediately preceding window (~60 days). Older history can still set `previous_risk_score` for the trend comparison, but never the peak.
 
 ---
 
