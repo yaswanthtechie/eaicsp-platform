@@ -1,3 +1,0 @@
-data/calendar.csv filter=lfs diff=lfs merge=lfs -text
-data/sales_train_validation.csv filter=lfs diff=lfs merge=lfs -text
-data/sell_prices.csv filter=lfs diff=lfs merge=lfs -text

@@ -1,0 +1,28 @@
+{
+  "interval_label": "80% empirical interval",
+  "ratio_quantiles": {
+    "1_day": {
+      "low": 0.879555,
+      "high": 1.120445
+    },
+    "7_day": {
+      "low": 0.879555,
+      "high": 1.120445
+    },
+    "30_day": {
+      "low": 0.879555,
+      "high": 1.120445
+    },
+    "90_day": {
+      "low": 0.879555,
+      "high": 1.120445
+    }
+  },
+  "backtest_cutoffs": 24,
+  "backtest_step_days": 30,
+  "min_training_days": 730,
+  "quantiles": {
+    "low": 0.1,
+    "high": 0.9
+  }
+}

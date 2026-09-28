@@ -16,6 +16,10 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import holidays
+import xgboost as xgb
+
+_US_HOLIDAYS = holidays.US()
 
 
 # ---------------------------------------------------------------------------
@@ -37,8 +41,6 @@ FEATURES = [
     "rolling_mean_30",
     "rolling_std_7",
     "is_holiday",
-    "promotion",
-    "weather_index",
     "day_of_week",
     "month",
     "quarter",
@@ -172,38 +174,6 @@ def _validate_history(history_df: pd.DataFrame) -> pd.DataFrame:
     ].copy()
 
 # ---------------------------------------------------------------------------
-# Default regressors
-# ---------------------------------------------------------------------------
-
-def _add_default_regressors(
-    df: pd.DataFrame,
-) -> pd.DataFrame:
-    """
-    Add deterministic placeholder regressors when they are not supplied.
-
-    These defaults keep Task 1 inference compatible with the M5-derived
-    daily dataset. Real external regressors can be introduced later in
-    Track A Task 2.
-    """
-
-    result = df.copy()
-
-    if "is_holiday" not in result.columns:
-        result["is_holiday"] = (
-            (result[DATE_COLUMN].dt.month.isin([11, 12]))
-            | (result[DATE_COLUMN].dt.day.isin([1, 25]))
-        ).astype(int)
-
-    if "promotion" not in result.columns:
-        result["promotion"] = 0
-
-    if "weather_index" not in result.columns:
-        result["weather_index"] = 0.0
-
-    return result
-
-
-# ---------------------------------------------------------------------------
 # Feature engineering
 # ---------------------------------------------------------------------------
 
@@ -222,8 +192,6 @@ def create_daily_features(
         rolling_mean_30
         rolling_std_7
         is_holiday
-        promotion
-        weather_index
         day_of_week
         month
         quarter
@@ -259,7 +227,11 @@ def create_daily_features(
         DATE_COLUMN
     ).reset_index(drop=True)
 
-    result = _add_default_regressors(result)
+    result["is_holiday"] = (
+        result[DATE_COLUMN].dt.date.map(
+            lambda d: int(d in _US_HOLIDAYS)
+        )
+    )
 
     # -------------------------------------------------------
     # Lag features
@@ -443,8 +415,6 @@ def _predict_single_day(
         ignore_index=True,
     )
 
-    combined = _add_default_regressors(combined)
-
     # -------------------------------------------------------
     # Feature generation
     # -------------------------------------------------------
@@ -536,6 +506,21 @@ def _predict_single_day(
     )
 
     # -------------------------------------------------------
+    # SHAP feature contributions
+    # -------------------------------------------------------
+
+    contribs = model.get_booster().predict(
+        xgb.DMatrix(X),
+        pred_contribs=True,
+    )[0]
+
+    contributions = {
+        name: float(value)
+        for name, value in zip(feature_names, contribs[:-1])
+    }
+    contributions["bias"] = float(contribs[-1])
+
+    # -------------------------------------------------------
     # Prediction interval
     # -------------------------------------------------------
 
@@ -565,6 +550,7 @@ def _predict_single_day(
             upper,
             2,
         ),
+        "contributions": contributions,
     }
 
 

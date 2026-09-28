@@ -1604,3 +1604,34 @@ Scenario Forecasting
 Automated Retraining
    ↓
 Validation Guardrails
+
+## Round 9-11, Multi horizon forecasting (Track A, Milestone 1)
+
+**Status:** Milestone 1 in progress. M2 through M5 not started.
+
+### What it does
+One 90-day daily forecast (0.7 x Prophet + 0.3 x XGBoost, weights from
+`models/promoted/ensemble_weights.json`) is summed into 1/7/30/90-day totals.
+Because every horizon comes from the same daily path, they cannot contradict each other.
+
+### Run
+    python -m src.prepare_m5_daily        # rebuild data/m5_daily_sales.csv (needs data/raw/)
+    python -m src.train_multi_horizon     # backtest + train + MLflow + interval calibration
+    python -m src.multi_horizon           # forecast
+
+### Output (per horizon)
+predicted total, 80% empirical interval (from rolling-origin backtest errors),
+top drivers (Prophet components + XGBoost SHAP contributions).
+
+### Accuracy (out-of-sample, 24 rolling origins)
+| Horizon | MAPE |
+|---|---:|
+| 1-day | 12.04% |
+| 7-day | 12.04% |
+| 30-day | 12.04% |
+| 90-day | 12.04% |
+
+### Known limitations
+- Aggregate (all-SKU) daily demand only.
+- Holidays = US federal calendar; M5 events/SNAP not yet used (Task 2).
+- Forecasts start from the training end date; retrain to forecast from newer data.
