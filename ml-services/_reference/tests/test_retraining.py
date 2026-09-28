@@ -6,6 +6,7 @@ from src.retraining import (
     DRIFT_THRESHOLD,
     calculate_drift,
     check_retraining_needed,
+    automated_retrain,
     manual_retrain_trigger,
 )
 
@@ -275,6 +276,71 @@ def test_manual_retrain_trigger():
     assert result["status"] == "retraining_triggered"
     assert "message" in result
     assert "manually" in result["message"].lower()
+
+
+# ============================================================
+# Fix B - Automated Retraining Outcome Tests
+# ============================================================
+
+
+def test_pending_approval_is_not_reported_as_promoted(monkeypatch):
+    """
+    A retraining result waiting for governance approval must
+    not be reported as a production promotion.
+    """
+
+    monkeypatch.setattr(
+        "src.retraining.check_retraining_needed",
+        lambda inputs: {
+            "retrain_needed": True,
+            "reason": "drift",
+            "drift_score": 1.0,
+            "threshold": 0.5,
+            "sample_count": 3,
+        },
+    )
+
+    result = automated_retrain(
+        [[1.0, 2.0, 3.0, 4.0]],
+        retrain_callback=lambda: {
+            "status": "pending_approval",
+            "staging_version": "16",
+            "candidate_accuracy": 0.97,
+        },
+    )
+
+    assert result["outcome"] == "pending_approval"
+    assert result["new_model_version"] is None
+    assert result["staging_version"] == "16"
+
+
+def test_promoted_retrain_reports_production_version(monkeypatch):
+    """
+    A retraining result that was actually promoted must report
+    the production model version.
+    """
+
+    monkeypatch.setattr(
+        "src.retraining.check_retraining_needed",
+        lambda inputs: {
+            "retrain_needed": True,
+            "reason": "drift",
+            "drift_score": 1.0,
+            "threshold": 0.5,
+            "sample_count": 3,
+        },
+    )
+
+    result = automated_retrain(
+        [[1.0, 2.0, 3.0, 4.0]],
+        retrain_callback=lambda: {
+            "status": "promoted",
+            "production_version": "16",
+        },
+    )
+
+    assert result["outcome"] == "promoted"
+    assert result["new_model_version"] == "16"
 
 
 # ============================================================
