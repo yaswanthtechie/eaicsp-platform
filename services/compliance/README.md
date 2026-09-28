@@ -210,6 +210,27 @@ Risk-related information can include:
 * Transaction value
 * Overall supplier risk
 
+### Risk Score Source Count
+
+The source-coverage component of the sanctions risk score uses `TOTAL_SOURCES=5`.
+
+The current screening process aggregates five compliance sources:
+
+- OFAC
+- UN
+- EU
+- Internal Watchlist
+- PEP
+
+The earlier implementation used three sanctions sources (OFAC, UN, and EU). The addition of Internal Watchlist and PEP changed the source-count denominator from 3 to 5.
+
+As a result, the source-coverage contribution, and therefore the overall sanctions risk score, may differ from scores produced by the earlier three-source implementation.
+
+The current default is:
+
+```env
+TOTAL_SOURCES=5
+
 ---
 
 ## Sanctions Risk Score
@@ -726,88 +747,14 @@ ABC COMPANY → matched
 
 The latest result is `matched`, so the entity is not treated as previously cleared.
 
-Therefore, it should not be selected as a previously-cleared entity.
-
-Another example:
+If:
 
 ```text
 ABC COMPANY → clean
 ABC COMPANY → clean
 ```
 
-The latest result is clean, so the entity can be selected for re-screening.
-
-### Newly Flagged Entity
-
-An entity is considered newly flagged when:
-
-```text
-Previous latest result = clean
-Current re-screening result = matched
-```
-
-The new audit record is stored as:
-
-```text
-screening_type = RESCREEN
-newly_flagged = true
-```
-
-If the entity remains clean after re-screening, the result is recorded as still clean.
-
----
-
-## 10. Scheduled Re-Screening Job
-
-A scheduled re-screening job is provided using **APScheduler**.
-
-The current development/test configuration uses a 30-second interval to simulate a nightly re-screening process.
-
-The scheduled job:
-
-1. Runs inside the Compliance Service process.
-2. Refreshes the sanctions data.
-3. Re-screens previously cleared entities.
-4. Stores the new results in the audit database.
-5. Identifies newly flagged entities.
-
-### Scheduled Job Authentication
-
-The nightly re-screening job runs **in-process through APScheduler**.
-
-It directly calls:
-
-```python
-nightly_rescreen_job()
-```
-
-from the service layer.
-
-It does **not** make an HTTP request to the Compliance API.
-
-Therefore:
-
-* It does not call the Compliance API endpoints.
-* It does not pass through `verify_token`.
-* It does not use a JWT.
-* It does not require a separate credential.
-* It is treated as a trusted internal process because it runs inside the Compliance Service itself.
-
-This is an intentional design decision for the current architecture.
-
-If the scheduled job is moved to a separate worker, container, or external cron service in the future, it will need its own authenticated identity before calling protected APIs.
-
-Possible approaches include:
-
-```text
-Service account registered in Platform Service
-```
-
-or, if introduced by the platform architecture:
-
-```text
-API key
-```
+the entity can be selected for re-screening.
 
 ---
 
@@ -1047,7 +994,287 @@ This information helps trace requests between the Compliance Service and Platfor
 
 ---
 
+Internal Service-to-Service Compliance Contract
+
+The Compliance Service exposes a dedicated lightweight endpoint for other internal services.
+
+This endpoint is intentionally separate from the richer human-facing screening APIs.
+
+Endpoint
+POST /api/v1/compliance/internal-check
+
+The endpoint is designed for services such as supplier/inventory/business workflows that need a quick compliance decision before continuing an operation.
+
+Request
+
+The request supports supplier identification and basic supplier information:
+
+{
+  "supplier_id": "SUP-001",
+  "supplier_name": "ABC COMPANY",
+  "country": "India"
+}
+
+The service normalizes the supplied information before performing the compliance check.
+
+Response
+
+The internal contract uses three possible decisions:
+
+CLEAR
+BLOCK
+REVIEW
+
+Example:
+
+{
+  "cleared": true,
+  "decision": "CLEAR",
+  "reason": "No sanctions or watchlist match found."
+}
+
+A blocked result can look like:
+
+{
+  "cleared": false,
+  "decision": "BLOCK",
+  "reason": "Entity matched a sanctions or compliance list."
+}
+
+An ambiguous result can look like:
+
+{
+  "cleared": false,
+  "decision": "REVIEW",
+  "reason": "Potential compliance match requires human review."
+}
+
+The decision field is the authoritative indicator for callers.
+
+Internal Compliance Cache
+
+Internal compliance checks use a 300-second / 5-minute TTL cache.
+
+Configuration:
+
+TTL = 300 seconds
+
+The cache key is based on the normalized supplier information, including:
+
+supplier_id
+supplier_name
+country
+
+The purpose is to reduce redundant screening when multiple internal services request the same supplier within a short period.
+
+Example:
+
+Request 1
+   ↓
+SUP-001
+   ↓
+Perform screening
+   ↓
+Store result in cache
+
+
+Request 2
+   ↓
+SUP-001
+   ↓
+Cache hit
+   ↓
+Return cached result
+
+The cache is short-lived so that compliance decisions are not retained indefinitely.
+
+
+
+SLA Monitoring
+
+Because other internal services depend on the Compliance Service, the service monitors its own request performance.
+
+The service records request metrics including:
+
+Request count
+Request latency
+Request duration
+Errors
+Service health information
+
+A health endpoint is available:
+
+GET /root
+
+SLA information is available through:
+
+GET /api/v1/compliance/sla
+
+The service also monitors request latency.
+
+A request taking more than the configured warning threshold is logged for operational investigation.
+
+The current warning threshold is:
+
+500 ms
+
+
+Regulatory Reporting and Multi-Jurisdiction Rules
+
+The Compliance Service also provides country-specific regulatory information instead of assuming that every jurisdiction has identical requirements.
+
+Regulatory rules can be retrieved using:
+
+GET /api/v1/compliance/reports/regulatory/{country}
+
+Regulatory rules can also be evaluated using:
+
+GET /api/v1/compliance/reports/regulatory/{country}/evaluate
+
+The implementation exposes country-specific regulatory rule retrieval and evaluation through the compliance reporting layer.
+
+Conceptually:
+
+Country
+   ↓
+Identify applicable regulatory rules
+   ↓
+Evaluate entity/business context
+   ↓
+Return applicable compliance requirements
+
+This provides a foundation for handling different jurisdictional requirements independently rather than applying one universal rule set.
+
+The current implementation should be considered a regulatory rules/reporting foundation. It should not be described as complete coverage of every country's regulatory requirements.
+
+
+# Ambiguous Compliance Decisions
+
+Not every compliance screening result can be safely represented as a simple pass/fail decision.
+
+The internal Compliance Service therefore supports three explicit decisions:
+
+```text
+CLEAR
+BLOCK
+REVIEW
+```
+
+## Decision Definitions
+
+### CLEAR
+
+The screening did not identify a compliance concern requiring further action.
+
+```json
+{
+  "cleared": true,
+  "decision": "CLEAR",
+  "reason": "No sanctions or watchlist match found."
+}
+```
+
+The calling service may continue the business operation.
+
+### BLOCK
+
+The screening identified a compliance result that requires the calling service to stop or reject the operation.
+
+```json
+{
+  "cleared": false,
+  "decision": "BLOCK",
+  "reason": "Entity matched a sanctions list."
+}
+```
+
+The calling service must not continue the protected business operation.
+
+### REVIEW
+
+The screening result is ambiguous or requires human investigation.
+
+```json
+{
+  "cleared": false,
+  "decision": "REVIEW",
+  "reason": "Potential compliance match requires human review."
+}
+```
+
+`REVIEW` does **not** mean that the entity has been confirmed as a prohibited entity.
+
+It means that the Compliance Service cannot safely provide an automatic `CLEAR` decision and the entity must be reviewed by an authorized compliance officer.
+
+## Caller Behavior
+
+Internal services must evaluate the `decision` field rather than interpreting `cleared=false` as an automatic block.
+
+```text
+CLEAR
+  ↓
+Continue operation
+
+BLOCK
+  ↓
+Stop / reject operation
+
+REVIEW
+  ↓
+Pause operation
+  ↓
+Send to compliance review
+  ↓
+Wait for compliance decision
+```
+
+The expected caller behavior is:
+
+| Decision | Caller Action                            |
+| -------- | ---------------------------------------- |
+| `CLEAR`  | Continue                                 |
+| `BLOCK`  | Stop/reject                              |
+| `REVIEW` | Hold and request human compliance review |
+
+## Review Workflow
+
+A `REVIEW` result can enter the Compliance case-management workflow:
+
+```text
+REVIEW
+  ↓
+OPEN
+  ↓
+UNDER_REVIEW
+  ↓
+┌───────────┐
+↓           ↓
+CLEARED   CONFIRMED
+```
+
+A compliance officer investigates the potential match and records the final resolution and resolution reason.
+
+## Important Contract Rule
+
+Callers must **not** implement:
+
+```text
+cleared == false → BLOCK
+```
+
+Instead they must use:
+
+```text
+decision == "CLEAR"
+decision == "BLOCK"
+decision == "REVIEW"
+```
+
+This ensures that an ambiguous screening result is not incorrectly treated as either a clean result or a confirmed compliance violation.
+
+
 # Configuration
+
 
 Create a `.env` file in the project root.
 
@@ -1112,13 +1339,13 @@ Fixture mode provides:
 Enable fixture mode in PowerShell:
 
 ```powershell
-python -m venv venv
+$env:USE_FIXTURES="true"
 ```
 
 Check the value:
 
 ```powershell
-.\venv\Scripts\Activate.ps1
+$env:USE_FIXTURES
 ```
 
 Expected:
@@ -1148,6 +1375,14 @@ python -m pytest -q
 The Round 6 test suite has been verified successfully.
 
 ---
+## Regulatory rules
+python -m pytest -q tests/test_regulatory_rules.py
+
+## internal check
+python -m pytest -q tests/test_internaL_compliance.py
+
+## SLA
+python -m pytest -q tests/test_sla_services.py
 
 ## Authentication Tests
 
@@ -1223,12 +1458,6 @@ python -m pytest --collect-only -q
 
 
 
-Re-screen completed:
-
-1 checked
-0 newly flagged
-1 still clean
-```
 
 ```powershell
 python -m venv venv
@@ -1267,13 +1496,13 @@ python -m uvicorn app.main:app --reload
 The service runs locally on:
 
 ```text
-http://127.0.0.1:8000
+http://127.0.0.1:8003
 ```
 
 Swagger documentation:
 
 ```text
-http://127.0.0.1:8000/docs
+http://127.0.0.1:8003/docs
 ```
 
 The Platform/Auth Service should run separately on:
@@ -1425,6 +1654,20 @@ The real service API key must remain outside source control.
 
 Automated tests should use mocked/dummy credentials rather than real secrets.
 
+
+
+Regulatory Coverage
+
+Country-specific regulatory retrieval and evaluation are implemented, but this should not be interpreted as complete regulatory coverage for every jurisdiction.
+
+Additional jurisdictions and rules can be added to the regulatory rules layer as requirements expand.
+
+SLA Alert Delivery
+
+The service currently records SLA/latency information and logs warnings when latency exceeds the configured threshold.
+
+An external alerting/notification system is not currently part of the implemented Compliance Service.
+
 ---
 
 # Development Notes
@@ -1434,7 +1677,7 @@ For local development:
 ```text
 Compliance Service
     ↓
-127.0.0.1:8000
+127.0.0.1:8003
 
 Platform/Auth Service
     ↓
