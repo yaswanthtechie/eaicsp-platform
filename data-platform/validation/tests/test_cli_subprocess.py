@@ -10,7 +10,10 @@ CLI_SCRIPT = PROJECT_ROOT / "src" / "validate_cli.py"
 @pytest.fixture
 def test_config(tmp_path):
     """Provides a basic YAML config with a single 'not_null' rule for testing."""
-    config_file = tmp_path / "test_rules.yaml"
+    dev_dir = tmp_path / "dev"
+    dev_dir.mkdir(parents=True, exist_ok=True)
+    config_file = dev_dir / "test_rules.yaml"
+
     config_file.write_text("""
 version: "1.0.0"
 rules:
