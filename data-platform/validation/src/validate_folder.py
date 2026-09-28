@@ -282,30 +282,41 @@ def main():
 
     # --- INTERCEPT: LIST PROFILES ---
     if args.list_profiles:
+        # Resolve --env exactly like a real validation run does, so listing
+        # and running always read the same config files.
+        found_any = False
         if args.config:
-            profiles = DataValidator.list_profiles(args.config)
+            config_path = resolve_env_path(args.config, args.env)
+            profiles = DataValidator.list_profiles(str(config_path))
             if profiles:
-                logger.info(f"Available profiles in {Path(args.config).name}: {', '.join(profiles)}")
+                found_any = True
+                logger.info(f"Available profiles in {config_path}: {', '.join(profiles)}")
             else:
-                logger.warning(f"No profiles found in {Path(args.config).name}.")
+                logger.warning(f"No profiles found in {config_path}.")
         elif args.mapping:
             try:
-                with open(args.mapping, 'r') as f:
+                with open(resolve_env_path(args.mapping, args.env), 'r') as f:
                     mapping_rules = json.load(f)
 
                 seen_configs = set()
                 for rule_target in mapping_rules.values():
                     cfg_path = rule_target.get("config") if isinstance(rule_target, dict) else rule_target
-                    if cfg_path and cfg_path not in seen_configs:
-                        profiles = DataValidator.list_profiles(cfg_path)
-                        if profiles:
-                            logger.info(f"Profiles in {Path(cfg_path).name}: {', '.join(profiles)}")
-                        else:
-                            logger.warning(f"No profiles found in {Path(cfg_path).name}.")
-                        seen_configs.add(cfg_path)
+                    if not cfg_path:
+                        continue
+                    cfg_path = resolve_env_path(cfg_path, args.env)
+                    if cfg_path in seen_configs:
+                        continue
+                    seen_configs.add(cfg_path)
+                    profiles = DataValidator.list_profiles(str(cfg_path))
+                    if profiles:
+                        found_any = True
+                        logger.info(f"Profiles in {cfg_path}: {', '.join(profiles)}")
+                    else:
+                        logger.warning(f"No profiles found in {cfg_path}.")
             except Exception as e:
                 logger.error(f"Failed to read mapping file for profiles: {e}")
-        return EXIT_SUCCESS
+        # Finding nothing means the config could not be read: that is a tool error.
+        return EXIT_SUCCESS if found_any else EXIT_TOOL_ERROR
 
     try:
         summary = validate_folder(

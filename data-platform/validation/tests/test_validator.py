@@ -1254,9 +1254,21 @@ def test_validate_row_crashing_warning_rule_is_reported_as_warning(caplog):
 
     result = validator.validate_row({"A": 1})
 
-    assert result.passed is True          # a WARNING never blocks the row...
-    assert "crash_w" in result.warnings   # ...but it must not disappear silently
+    # The rule never checked the row, so the row cannot pass - same as validate().
+    assert result.passed is False
+    assert "crash_w" in result.warnings   # still reported under its own severity
+    assert [s["rule"] for s in result.skipped_rules] == ["crash_w"]
     assert "crashed during real-time validation" in caplog.text
+
+
+def test_validate_row_crashing_rule_allowed_when_allow_rule_failures():
+    rule = ConfigRule(name="crash_w", type="custom", function="crashing_custom_rule", severity="WARNING")
+    validator = DataValidator([rule], allow_rule_failures=True)
+
+    result = validator.validate_row({"A": 1})
+
+    assert result.passed is True
+    assert [s["rule"] for s in result.skipped_rules] == ["crash_w"]
 
 
 def test_validate_row_dependencies():

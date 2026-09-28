@@ -234,6 +234,20 @@ def test_main_injects_sla_time_limit(mock_export, mock_validator, mock_read, moc
 @patch("pandas.read_csv", return_value=pd.DataFrame())
 @patch("src.validator.DataValidator.from_config")
 @patch("src.validate_cli.export_report")
+def test_main_sla_time_limit_zero_is_not_ignored(mock_export, mock_validator, mock_read, mock_is_file, mock_args, mock_report):
+    """0 is a real value, not "not set"."""
+    mock_instance = MagicMock()
+    mock_instance.validate.return_value = mock_report
+    mock_validator.return_value = mock_instance
+
+    validate_cli.main(mock_args + ["--sla-time-limit", "0"])
+    assert mock_instance.global_max_duration_seconds == 0.0
+
+
+@patch("pathlib.Path.is_file", return_value=True)
+@patch("pandas.read_csv", return_value=pd.DataFrame())
+@patch("src.validator.DataValidator.from_config")
+@patch("src.validate_cli.export_report")
 def test_main_validation_passed_true_with_profile(mock_export, mock_validator, mock_read, mock_is_file, mock_args,
                                                   mock_report):
     mock_instance = MagicMock()

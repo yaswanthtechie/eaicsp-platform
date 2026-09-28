@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+import json
 
 from src.validator import ConfigRule, DataValidator, resolve_env_path
 
@@ -127,3 +128,117 @@ def test_resolve_env_path_normalises_env_names(env, expected):
 def test_resolve_env_path_rejects_path_tricks():
     with pytest.raises(ValueError, match="Invalid environment"):
         resolve_env_path("configs/sales_rules.yaml", "../../x")
+
+
+# ------------------------------------------------------------------
+# --env must work with the CLI's default config path
+# ------------------------------------------------------------------
+
+@pytest.mark.parametrize("base, env, expected", [
+    # The CLI default is configs/dev/...; --env prod must switch folders.
+    ("configs/dev/sales_rules.yaml", "prod", "configs/prod/sales_rules.yaml"),
+    ("configs/dev/sales_rules.yaml", "staging", "configs/staging/sales_rules.yaml"),
+    # No --env: a path already inside an environment folder is used as given.
+    ("configs/prod/sales_rules.yaml", None, "configs/prod/sales_rules.yaml"),
+    # Only the folder directly above the file counts, not e.g. C:/Users/dev/...
+    ("home/dev/proj/configs/sales_rules.yaml", "dev", "home/dev/proj/configs/dev/sales_rules.yaml"),
+])
+def test_resolve_env_path_switches_env_folder(base, env, expected):
+    assert resolve_env_path(base, env) == Path(expected)
+
+
+def test_cli_env_prod_uses_prod_config_with_default_config_path(tmp_path):
+    from src import validate_cli
+
+    output = tmp_path / "report.json"
+    code = validate_cli.main([
+        "--file", str(PROJECT_ROOT / "tests" / "data" / "messy_sales_500.csv"),
+        "--output", str(output),
+        "--env", "prod",
+    ])
+
+    assert code != validate_cli.EXIT_TOOL_ERROR  # config was found
+    report = json.loads(output.read_text())
+    assert report["config_version"].startswith("prod")
+
+
+# ------------------------------------------------------------------
+# M1: a crashed rule fails the row in validate_row AND validate()
+# ------------------------------------------------------------------
+
+def test_crashed_rule_fails_row_same_as_batch():
+    validator = DataValidator.from_config(_config("prod"), rules_dir=RULES_DIR)
+    bad_row = {**GOOD_ROW, "quantity_sold": "abc"}  # makes quantity_positive crash
+
+    row_result = validator.validate_row(bad_row)
+    batch_result = validator.validate(pd.DataFrame([bad_row]), skip_sla=True)
+
+    assert row_result.passed is False
+    assert "quantity_positive" in [s["rule"] for s in row_result.skipped_rules]
+    assert batch_result.passed is False
+
+
+# ------------------------------------------------------------------
+# M2: the audit trail can always be turned into JSON
+# ------------------------------------------------------------------
+
+def test_row_audit_is_json_serialisable_for_numeric_input():
+    validator = DataValidator.from_config(_config("prod"), rules_dir=RULES_DIR)
+
+    result = validator.validate_row({**GOOD_ROW, "sku_id": 1234})
+
+    payload = json.loads(result.model_dump_json())
+    fix = next(r for r in payload["remediations"] if r["rule"] == "clean_sku_whitespace")
+    assert fix["original"] == 1234
+    assert fix["remediated"] == "1234"
+
+
+@pytest.mark.parametrize("env", ["dev", "staging", "prod"])
+def test_date_fix_reason_is_documented_in_every_env(env):
+    validator = DataValidator.from_config(_config(env), rules_dir=RULES_DIR)
+
+    result = validator.validate_row({**GOOD_ROW, "date": "Mar 18 2024"})
+
+    fix = next(r for r in result.remediations if r["rule"] == "standardize_dates_transform")
+    assert "exactly one possible meaning" in fix["reason"]
+
+
+def test_dev_bulk_profile_is_looser_than_dev_default():
+    default = DataValidator.from_config(_config("dev"), rules_dir=RULES_DIR)
+    bulk = DataValidator.from_config(_config("dev"), profile_name="bulk", rules_dir=RULES_DIR)
+
+    assert bulk.global_max_fail_pct > default.global_max_fail_pct
+
+
+# ------------------------------------------------------------------
+# M2: date_order is opt-in, set from the config, and audited
+# ------------------------------------------------------------------
+
+def test_dayfirst_source_fixes_ambiguous_date_with_audit():
+    rules = [
+        ConfigRule(
+            name="standardize_dates_transform",
+            field="date",
+            type="transform",
+            function="standardize_dates",
+            date_order="dayfirst",
+            description="Source writes DD/MM/YYYY, so 02/01/2024 is read as 2 January 2024",
+            severity="INFO",
+        ),
+    ]
+    validator = DataValidator(rules)
+
+    result = validator.validate_row({**GOOD_ROW, "date": "02/01/2024"})
+
+    fix = result.remediations[0]
+    assert fix["original"] == "02/01/2024"
+    assert fix["remediated"] == "2024-01-02"
+    assert "DD/MM/YYYY" in fix["reason"]
+
+
+def test_shipped_configs_never_guess_ambiguous_dates():
+    """No environment turns on date_order by accident."""
+    for env in ["dev", "staging", "prod"]:
+        validator = DataValidator.from_config(_config(env), rules_dir=RULES_DIR)
+        result = validator.validate_row({**GOOD_ROW, "date": "02/01/2024"})
+        assert "unparseable_dates" in result.errors, env

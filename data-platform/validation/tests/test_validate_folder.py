@@ -412,7 +412,8 @@ def test_main_list_profiles_config(mock_setup_logging, mock_list_profiles):
         # Assert return value directly without expecting SystemExit
         assert validate_folder.main() == validate_folder.EXIT_SUCCESS
 
-    mock_list_profiles.assert_called_once_with("/dummy/config.yaml")
+    # Listing resolves --env (default dev) exactly like a real run does.
+    mock_list_profiles.assert_called_once_with(str(Path("/dummy/dev/config.yaml")))
 
 
 @patch("src.validate_folder.DataValidator.list_profiles", return_value=[])
@@ -420,15 +421,18 @@ def test_main_list_profiles_config(mock_setup_logging, mock_list_profiles):
 def test_main_list_profiles_config_empty(mock_setup_logging, mock_list_profiles):
     test_args = ["validate_folder.py", "--folder", "/dummy", "--config", "/dummy/config.yaml", "--list-profiles"]
     with patch.object(sys, 'argv', test_args):
-        assert validate_folder.main() == validate_folder.EXIT_SUCCESS
+        # No profiles means the config could not be read: a tool error, not success.
+        assert validate_folder.main() == validate_folder.EXIT_TOOL_ERROR
 
-    mock_list_profiles.assert_called_once_with("/dummy/config.yaml")
+    mock_list_profiles.assert_called_once_with(str(Path("/dummy/dev/config.yaml")))
 
 
 @patch("src.validate_folder.DataValidator.list_profiles", return_value=["strict"])
 @patch("src.validate_folder.setup_logging")
 def test_main_list_profiles_mapping_success(mock_setup_logging, mock_list_profiles, temp_env):
-    mapping_file = temp_env["root"] / "map.json"
+    # --env defaults to dev, so the mapping is read from the dev folder.
+    (temp_env["root"] / "dev").mkdir()
+    mapping_file = temp_env["root"] / "dev" / "map.json"
     mapping_file.write_text(json.dumps({
         "*.csv": "cfg1.yaml",
         "*.tsv": {"config": "cfg2.yaml"},
@@ -439,6 +443,8 @@ def test_main_list_profiles_mapping_success(mock_setup_logging, mock_list_profil
     with patch.object(sys, 'argv', test_args):
         assert validate_folder.main() == validate_folder.EXIT_SUCCESS
 
+    mock_list_profiles.assert_any_call(str(Path("dev/cfg1.yaml")))
+    mock_list_profiles.assert_any_call(str(Path("dev/cfg2.yaml")))
     assert mock_list_profiles.call_count == 2
 
 
@@ -447,7 +453,7 @@ def test_main_list_profiles_mapping_success(mock_setup_logging, mock_list_profil
 def test_main_list_profiles_mapping_error(mock_logger_error, mock_setup_logging):
     test_args = ["validate_folder.py", "--folder", "/dummy", "--mapping", "non_existent_map.json", "--list-profiles"]
     with patch.object(sys, 'argv', test_args):
-        assert validate_folder.main() == validate_folder.EXIT_SUCCESS
+        assert validate_folder.main() == validate_folder.EXIT_TOOL_ERROR
 
     mock_logger_error.assert_called_once()
     assert "Failed to read mapping file for profiles" in mock_logger_error.call_args[0][0]

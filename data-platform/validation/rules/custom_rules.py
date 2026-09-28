@@ -97,8 +97,9 @@ def flag_negatives(df: pd.DataFrame, *, field: str = 'quantity_sold', **kwargs) 
 
 _MONTH_NAME_FORMATS = ("%b %d %Y", "%B %d %Y")
 _NUMERIC_DATE = re.compile(r"^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$")
+_DATE_ORDERS = ("strict", "dayfirst", "monthfirst")
 
-def _normalize_one_date(value):
+def _normalize_one_date(value, date_order="strict"):
     """Return an ISO 'YYYY-MM-DD' string when the date can only mean ONE thing.
 
     Returns None for nulls. Returns the (stripped) original string when the
@@ -107,6 +108,10 @@ def _normalize_one_date(value):
     Unambiguous:  2024-03-18, Mar 18 2024, 24/03/2024 (24 can't be a month),
                   03/24/2024 (24 can't be a month), 05/05/2024 (same either way)
     Ambiguous:    02/01/2024 (Feb 1 or Jan 2?)  -> left as-is and flagged
+    date_order only matters for ambiguous numeric dates:
+      "strict"     (default) never guess; leave them for unparseable_dates
+      "dayfirst"   the source is KNOWN to write DD/MM/YYYY -> 02/01/2024 = 2 Jan
+      "monthfirst" the source is KNOWN to write MM/DD/YYYY -> 02/01/2024 = 1 Feb
     """
     if value is None or (not isinstance(value, str) and pd.isna(value)):
         return None
@@ -135,30 +140,39 @@ def _normalize_one_date(value):
     if match:
         a, b, year = (int(part) for part in match.groups())
         if a == b:
-            day, month = a, b          # 05/05/2024: same date either way
+            day, month = a, b           # 05/05/2024: same date either way
         elif a > 12 >= b:
-            day, month = a, b          # 24/03/2024: a must be the day
+            day, month = a, b           # 24/03/2024: a must be the day
         elif b > 12 >= a:
-            day, month = b, a          # 03/24/2024: b must be the day
+            day, month = b, a           # 03/24/2024: b must be the day
+        elif date_order == "dayfirst":
+            day, month = a, b           # source documented as DD/MM/YYYY
+        elif date_order == "monthfirst":
+            day, month = b, a           # source documented as MM/DD/YYYY
         else:
-            return text                # 02/01/2024: genuinely ambiguous -> flag, never guess
+            return text                 # 02/01/2024: genuinely ambiguous -> flag, never guess
         try:
             return datetime(year, month, day).strftime("%Y-%m-%d")
         except ValueError:
-            return text                # e.g. 31/02/2024: not a real date -> flag
+            return text                 # e.g. 31/02/2024: not a real date -> flag
 
     # 4. Anything else (e.g. 'NOT_A_DATE') is left for unparseable_dates to flag.
     return text
 
 
 @register_rule()
-def standardize_dates(df: pd.DataFrame, *, field: str = 'order_date', **kwargs) -> pd.DataFrame:
+def standardize_dates(df: pd.DataFrame, *, field: str = 'order_date', date_order: str = 'strict', **kwargs) -> pd.DataFrame:
     """Converts dates to YYYY-MM-DD only when they can mean exactly one date.
     Ambiguous dates (like 02/01/2024) and invalid strings are left unchanged
-    so the unparseable_dates rule flags them for a human."""
+    so the unparseable_dates rule flags them for a human, unless the source's
+    date order is known and configured with date_order: dayfirst or monthfirst."""
+    if date_order not in _DATE_ORDERS:
+        raise ValueError(f"date_order must be one of {_DATE_ORDERS}, got '{date_order}'")
     df_c = df.copy()
     if field in df_c.columns:
-        df_c[field] = df_c[field].map(_normalize_one_date).astype(object)
+        df_c[field] = df_c[field].map(
+            lambda value: _normalize_one_date(value, date_order)
+        ).astype(object)
     return df_c
 
 @register_rule()
@@ -185,6 +199,10 @@ def clean_whitespace_and_case(df: pd.DataFrame, *, field: str, target_case: str 
         raise ValueError(f"target_case must be 'upper' or 'lower', got '{target_case}'")
     df_c = df.copy()
     if field in df_c.columns:
+        # Cast the column to object first to prevent dtype insertion crashes
+        # when the input data was purely numeric (e.g., int64).
+        df_c[field] = df_c[field].astype(object)
+
         mask = df_c[field].notna()
         cleaned = df_c.loc[mask, field].astype(str).str.strip()
         df_c.loc[mask, field] = cleaned.str.upper() if target_case == 'upper' else cleaned.str.lower()

@@ -20,7 +20,8 @@ def resolve_env_path(base_path: Union[str, Path], env: Optional[str] = None) -> 
     """
     path = Path(base_path)
     env = (env or '').strip().lower()
-    if env in ('default', 'local', 'none', ''):
+    env_was_given = env not in ('default', 'local', 'none', '')
+    if not env_was_given:
         env = 'dev'
 
     # Strict validation against allowed environments
@@ -28,9 +29,14 @@ def resolve_env_path(base_path: Union[str, Path], env: Optional[str] = None) -> 
     if env not in allowed_envs:
         raise ValueError(f"Invalid environment '{env}'. Must be one of: {sorted(allowed_envs)}")
 
-    # Avoid double-injecting if the environment is already explicitly in the path
-    if env in path.parts:
-        return path
+    # Only the folder directly above the file can be an environment folder.
+    # Checking every part of the path would match e.g. C:/Users/dev/... and
+    # silently skip the environment lookup.
+    if path.parent.name in allowed_envs:
+        if not env_was_given or path.parent.name == env:
+            return path  # e.g. configs/prod/x.yaml with no --env: use as given
+        # e.g. default configs/dev/x.yaml + --env prod -> configs/prod/x.yaml
+        return path.parent.parent / env / path.name
 
     return path.parent / env / path.name
 
@@ -53,6 +59,13 @@ class RowLevelResult(BaseModel):
     info: List[str] = Field(default_factory=list)
     remediations: List[Dict[str, Any]] = Field(default_factory=list)
     skipped_stateful: List[str] = Field(default_factory=list)
+    # Rules that crashed and therefore never checked this row.
+    skipped_rules: List[Dict[str, Any]] = Field(default_factory=list)
+
+def _to_builtin(value):
+    """Convert numpy scalars (np.int64, np.float64, ...) to plain Python
+    values so the audit trail can always be serialised to JSON."""
+    return value.item() if hasattr(value, "item") else value
 
 
 class ValidationResult(BaseModel):
@@ -675,7 +688,7 @@ class DataValidator:
 
         for rule in self.rules:
             if rule.type == "transform":
-                before = df_working[rule.field].iloc[0] if rule.field in df_working.columns else None
+                before = _to_builtin(df_working[rule.field].iloc[0]) if rule.field in df_working.columns else None
                 try:
                     df_working = rule.apply_transform(df_working)
                 except Exception as e:
@@ -683,7 +696,7 @@ class DataValidator:
                     continue
 
                 if rule.field in df_working.columns:
-                    after = df_working[rule.field].iloc[0]
+                    after = _to_builtin(df_working[rule.field].iloc[0])
                     both_null = pd.isna(before) and pd.isna(after)
                     if not both_null and before != after:
                         # Audit trail: what changed, and why.
@@ -700,6 +713,7 @@ class DataValidator:
         warnings = []
         infos = []
         skipped_stateful = []
+        skipped_rules = []
         rule_failure_masks = {}
 
         for rule in self.rules:
@@ -723,23 +737,34 @@ class DataValidator:
 
                 rule_failure_masks[rule.name] = bad_mask
 
+                # --- Actually record the evaluation failures ---
+                if bad_mask.any():
+                    if rule.severity == "ERROR":
+                        errors.append(rule.name)
+                    elif rule.severity == "WARNING":
+                        warnings.append(rule.name)
+                    else:
+                        infos.append(rule.name)
+
             except Exception as e:
                 logger.error(f"Rule '{rule.name}' crashed during real-time validation: {type(e).__name__}: {e}")
-                if rule.severity == "ERROR":
-                    errors.append(rule.name)
-                elif rule.severity == "WARNING":
-                    warnings.append(rule.name)
-                continue
-
-            if bad_mask.iloc[0]:
+                # Same as validate(): a crashed rule never checked this row,
+                # so the row cannot pass (unless allow_rule_failures=True).
+                skipped_rules.append({
+                    "rule": rule.name,
+                    "field": rule.field,
+                    "reason": f"{type(e).__name__}: {e}",
+                })
                 if rule.severity == "ERROR":
                     errors.append(rule.name)
                 elif rule.severity == "WARNING":
                     warnings.append(rule.name)
                 else:
                     infos.append(rule.name)
+                continue
 
-        passed = len(errors) == 0
+        # A row we can't fully check must never pass.
+        passed = len(errors) == 0 and (self.allow_rule_failures or not skipped_rules)
 
         return RowLevelResult(
             passed=passed,
@@ -747,7 +772,8 @@ class DataValidator:
             warnings=warnings,
             info=infos,
             remediations=remediations,
-            skipped_stateful=skipped_stateful
+            skipped_stateful=skipped_stateful,
+            skipped_rules=skipped_rules,
         )
 
     def validate(self, df: pd.DataFrame, skip_sla: bool = False) -> ValidationResult:

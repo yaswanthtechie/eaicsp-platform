@@ -144,7 +144,7 @@ def main(cli_args: Optional[list[str]] = None) -> int:
         if args.chunk_size:
             validator = DataValidator.from_config(str(config_path), profile_name=args.profile, rules_dir=args.rules_dir)
             # Override the YAML config if the CLI flag is provided
-            if args.sla_time_limit:
+            if args.sla_time_limit is not None:
                 validator.global_max_duration_seconds = args.sla_time_limit
             logger.info(f"Streaming mode enabled (chunk size: {args.chunk_size})")
             report = validator.validate_stream(filepath=str(input_path), chunksize=args.chunk_size,
@@ -162,7 +162,7 @@ def main(cli_args: Optional[list[str]] = None) -> int:
 
             validator = DataValidator.from_config(str(config_path), profile_name=args.profile, rules_dir=args.rules_dir)
             # Override the YAML config if the CLI flag is provided
-            if args.sla_time_limit:
+            if args.sla_time_limit is not None:
                 validator.global_max_duration_seconds = args.sla_time_limit
             report = validator.validate(df)
 

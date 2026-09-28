@@ -73,6 +73,7 @@ profiles:
         field: date
         type: transform
         function: standardize_dates
+        date_order: strict
         description: "Converted to YYYY-MM-DD only where the date has exactly one possible meaning; ambiguous dates like 02/01/2024 are left unchanged and flagged"
         severity: INFO
 
@@ -119,7 +120,7 @@ profiles:
 
   bulk:
     inherits: default
-    global_max_fail_pct: 0.25 # Relaxes dev's default 30% backstop to 25% for bulk loads
+    global_max_fail_pct: 0.40  # Relaxes dev's default 30% backstop to 40% for bulk loads
     rules:
       - name: sku_format
         field: sku_id

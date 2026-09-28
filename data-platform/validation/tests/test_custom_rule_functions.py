@@ -193,3 +193,27 @@ def test_clean_whitespace_and_case():
     assert df_lower['sku'].iloc[0] == 'sku-123'
     assert df_lower['sku'].iloc[1] == 'sku-456'
     assert pd.isna(df_lower['sku'].iloc[2])  # Properly checks for NaN/None
+
+
+@pytest.mark.parametrize(
+    "date_order, raw, expected",
+    [
+        ("strict", "02/01/2024", "02/01/2024"),      # default: never guess
+        ("dayfirst", "02/01/2024", "2024-01-02"),    # source known to be DD/MM/YYYY
+        ("monthfirst", "02/01/2024", "2024-02-01"),  # source known to be MM/DD/YYYY
+        # Unambiguous dates are unaffected by date_order...
+        ("monthfirst", "24/03/2024", "2024-03-24"),
+        ("dayfirst", "03/24/2024", "2024-03-24"),
+        # ...and impossible dates are still left for unparseable_dates.
+        ("dayfirst", "31/02/2024", "31/02/2024"),
+        ("dayfirst", "NOT_A_DATE", "NOT_A_DATE"),
+    ],
+)
+def test_standardize_dates_date_order(date_order, raw, expected):
+    out = standardize_dates(pd.DataFrame({"d": [raw]}), field="d", date_order=date_order)["d"].iloc[0]
+    assert out == expected
+
+
+def test_standardize_dates_rejects_unknown_date_order():
+    with pytest.raises(ValueError, match="date_order"):
+        standardize_dates(pd.DataFrame({"d": ["02/01/2024"]}), field="d", date_order="guess")

@@ -977,6 +977,12 @@ Moving beyond simply flagging bad data, the pipeline now supports **Safe Auto-Re
 Dates are only reformatted when they can mean exactly one date (`Mar 18 2024`, `24/03/2024`, `05/05/2024`).
 A date like `02/01/2024` could be 1 Feb or 2 Jan, so it is never changed; it is left as-is and flagged by `unparseable_dates`.
 
+If a source is known to write dates in one order, its config can say so with
+`date_order: dayfirst` (DD/MM/YYYY) or `date_order: monthfirst` (MM/DD/YYYY) on the
+`standardize_dates` rule. Ambiguous dates are then converted, and the rule's
+`description` is recorded as the reason in the audit trail. The default, `strict`,
+never guesses.
+
 Importantly, ambiguous issues (like replacing a negative quantity with a zero) should still be handled via `range` rules that flag/drop rows, reserving auto-remediation exclusively for deterministic data standardization.
 
 ## How It Works: Engine-Level Vectorized Diffing

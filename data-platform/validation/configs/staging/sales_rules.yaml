@@ -73,6 +73,8 @@ profiles:
         field: date
         type: transform
         function: standardize_dates
+#        date_order: dayfirst
+        description: "Converted to YYYY-MM-DD only where the date has exactly one possible meaning; ambiguous dates like 02/01/2024 are left unchanged and flagged"
         severity: INFO
 
       - name: date_in_range
