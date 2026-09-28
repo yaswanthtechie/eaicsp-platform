@@ -14,7 +14,10 @@ from tests.conftest import seed_sales_history
 # ============================================================
 
 
-def test_m1_create_inventory_hierarchy(client, db_session):
+def test_m1_create_inventory_hierarchy(
+    client,
+    db_session,
+):
     """
     Create a central -> regional -> local warehouse hierarchy.
     """
@@ -203,7 +206,8 @@ def test_m1_fulfill_shortage_from_parent_warehouse(
         quantity_received=100,
         quantity_remaining=100,
         unit_cost=50.0,
-        received_at=datetime.utcnow() - timedelta(days=1),
+        received_at=datetime.utcnow()
+        - timedelta(days=1),
     )
 
     db_session.add_all(
@@ -461,7 +465,8 @@ def add_m3_cost_layer(
         db_session.query(Inventory)
         .filter(
             Inventory.sku_id == sku_id,
-            Inventory.warehouse_id == warehouse_id,
+            Inventory.warehouse_id
+            == warehouse_id,
         )
         .first()
     )
@@ -857,7 +862,8 @@ def test_m3_receive_purchase_order_creates_cost_layer(
         db_session.query(Inventory)
         .filter(
             Inventory.sku_id == sku,
-            Inventory.warehouse_id == warehouse,
+            Inventory.warehouse_id
+            == warehouse,
         )
         .first()
     )
@@ -873,7 +879,8 @@ def test_m3_receive_purchase_order_creates_cost_layer(
         db_session.query(InventoryCostLayer)
         .filter(
             InventoryCostLayer.sku_id == sku,
-            InventoryCostLayer.warehouse_id == warehouse,
+            InventoryCostLayer.warehouse_id
+            == warehouse,
         )
         .all()
     )

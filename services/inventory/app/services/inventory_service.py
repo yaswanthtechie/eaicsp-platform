@@ -1,5 +1,6 @@
 import csv
 import io
+import logging
 
 from fastapi import HTTPException, UploadFile
 from pydantic import ValidationError
@@ -15,6 +16,10 @@ from app.services.reorder_service import (
     calculate_reorder_point,
     calculate_urgency_score,
 )
+from app.services.compliance_client import (
+    ComplianceBlockedError,
+    ComplianceServiceError,
+)
 from app.services.purchase_order_service import (
     create_draft_po_for_inventory,
 )
@@ -25,6 +30,7 @@ from app.services.valuation_service import (
 )
 
 
+logger = logging.getLogger(__name__)
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
 REQUIRED_CSV_COLUMNS = (
@@ -94,24 +100,52 @@ def generate_draft_po_if_required(
     """
     Automatically generate a draft purchase order
     when the inventory quantity is below its reorder point.
-
-    The purchase_order_service handles:
-    - reorder-point validation
-    - suggested quantity
-    - cheapest supplier selection
-    - unit cost
-    - expected cost
-    - duplicate draft-PO prevention
-
+    ...
     Returns:
         PurchaseOrder object when a PO is created/existing.
         None when reorder is not required.
     """
 
-    return create_draft_po_for_inventory(
-        db=db,
-        inventory=inventory,
-    )
+    # -----------------------------------------------------
+    # ROUND 9 - COMPLIANCE FAILURE MODE
+    #
+    # Fail closed on the PO, never on the stock movement.
+    # Every caller runs this after (or as part of) a stock
+    # change, so a Compliance problem must not turn that
+    # change into an error. No PO is created, and the
+    # warning makes the skipped reorder visible.
+    # -----------------------------------------------------
+
+    try:
+        return create_draft_po_for_inventory(
+            db=db,
+            inventory=inventory,
+        )
+
+    except ComplianceBlockedError as exc:
+        logger.warning(
+            "Automatic PO not created for %s at %s: "
+            "Compliance returned %s for supplier %s (%s). "
+            "Stock is below reorder point; manual follow-up "
+            "required.",
+            inventory.sku_id,
+            inventory.warehouse_id,
+            exc.decision,
+            exc.supplier_id,
+            exc.reason,
+        )
+        return None
+
+    except ComplianceServiceError as exc:
+        logger.warning(
+            "Automatic PO not created for %s at %s: "
+            "Compliance check failed (%s). It will be retried "
+            "on the next stock movement for this SKU.",
+            inventory.sku_id,
+            inventory.warehouse_id,
+            exc,
+        )
+        return None
 
 
 # =========================================================
