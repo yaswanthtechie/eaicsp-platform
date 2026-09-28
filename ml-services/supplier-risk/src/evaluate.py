@@ -153,6 +153,79 @@ HUMAN_BENCHMARK_EXPECTATIONS: Dict[str, Dict[str, str]] = {
             "canceled automotive contracts, massive layoffs, and emergency creditor restructuring."
         ),
     },
+    # ------------------------------------------------------------------
+    # Round 9: 10 Expanded Benchmark Companies (25 Companies Total)
+    # ------------------------------------------------------------------
+    "Texas Instruments": {
+        "expected_tier": "Low",
+        "reason": (
+            "10/12 positive headlines with $11B wafer fab groundbreakings, robust analog revenue, "
+            "and OEM supplier excellence awards. Minor transient winter delays and legacy shortage."
+        ),
+    },
+    "Schneider Electric": {
+        "expected_tier": "Low",
+        "reason": (
+            "10/12 positive headlines driven by AI data center microgrid contracts, top global "
+            "sustainability awards, and smart factory expansion. Transient European logistics delays."
+        ),
+    },
+    "Caterpillar": {
+        "expected_tier": "Medium",
+        "reason": (
+            "8 positive and 4 negative headlines. Strong infrastructure demand and mining contracts "
+            "counterbalanced by hydraulic valve shortage, equipment delays, and minor union talks."
+        ),
+    },
+    "Volvo Group": {
+        "expected_tier": "Medium",
+        "reason": (
+            "8 positive and 4 negative headlines. 1,500 electric truck order and charging JV "
+            "counterweighted by Gothenburg transmission shortage, steering recall, and strike threat."
+        ),
+    },
+    "Rio Tinto": {
+        "expected_tier": "Medium",
+        "reason": (
+            "7 positive and 5 negative/neutral headlines. High-grade Simandou project and resilient "
+            "iron ore output balanced by copper tailings investigation, rail delays, and port disruption."
+        ),
+    },
+    "ArcelorMittal": {
+        "expected_tier": "High",
+        "reason": (
+            "2 positive and 10 negative headlines. Energy-driven blast furnace shutdowns, emissions "
+            "investigation, water contamination lawsuit, debt downgrade warning, and plant walkout strike."
+        ),
+    },
+    "Toshiba": {
+        "expected_tier": "High",
+        "reason": (
+            "2 positive, 1 neutral, 9 negative headlines. Subsidiary accounting fraud probe, investor "
+            "lawsuit, junk bond downgrade, ransomware cyberattack, 4,000 layoffs, and debt restructuring."
+        ),
+    },
+    "DHL Supply Chain": {
+        "expected_tier": "Medium",
+        "reason": (
+            "7 positive and 5 negative headlines. Global robotics expansion and pharmaceutical hubs "
+            "balanced by airport ground warning strike, customs system outage, and ocean port disruption."
+        ),
+    },
+    "Evergrande Construction Logistics": {
+        "expected_tier": "Critical",
+        "reason": (
+            "12/12 negative headlines with catastrophic offshore bond default, bankruptcy liquidation "
+            "petitions, criminal fraud investigation, 120 depot shutdowns, and massive unpaid invoices."
+        ),
+    },
+    "Silicon Power Storage": {
+        "expected_tier": "Critical",
+        "reason": (
+            "12/12 negative headlines with emergency bankruptcy filing, debt default, trade sanctions, "
+            "balance sheet fraud scandal, SSD plant shutdown, worker strike, and customer contract cancellations."
+        ),
+    },
 }
 
 VALID_TIERS: List[str] = ["Low", "Medium", "High", "Critical"]
@@ -354,6 +427,138 @@ def evaluate_dataset(
         "tier_counts": tier_counts,
         "spread_target_met": spread_target_met,
         "std_dev_target_met": std_dev_target_met,
+        "distribution_explanation": distribution_explanation,
+    }
+
+
+def evaluate_25_company_benchmark(
+    filepath: Optional[str] = None,
+    config: Optional[Settings] = None,
+) -> Dict[str, Any]:
+    """
+    Evaluate the expanded 25-company development benchmark dataset.
+
+    Performs deeper validation across all 25 suppliers (300 headlines):
+    - Validates positive, negative, duplicate, and mitigated headline behavior.
+    - Computes per-tier distribution, score spread, standard deviation, and human expectation match rate.
+    - Validates that acute distress suppliers land in High/Critical and resilient suppliers land in Low.
+
+    Args:
+        filepath: Path to 25-company dataset JSON. Defaults to src/supplier_headlines_25.json.
+        config: Optional Settings instance. Defaults to active get_settings().
+
+    Returns:
+        Dictionary containing company reports, match counts, distribution statistics,
+        and scenario validation checks.
+    """
+    cfg = config if config is not None else get_settings()
+
+    if filepath:
+        target_path = Path(filepath)
+    else:
+        target_path = Path(__file__).parent / "supplier_headlines_25.json"
+
+    if not target_path.exists():
+        raise FileNotFoundError(f"25-company benchmark dataset not found at {target_path}")
+
+    dataset = load_dataset(str(target_path))
+
+    grouped_headlines: Dict[str, List[str]] = defaultdict(list)
+    for item in dataset:
+        grouped_headlines[item["supplier"]].append(item["headline"])
+
+    company_reports: List[Dict[str, Any]] = []
+    scores: List[float] = []
+    tier_counts: Dict[str, int] = {"Low": 0, "Medium": 0, "High": 0, "Critical": 0}
+    matches: int = 0
+    total_evaluated: int = 0
+
+    for supplier, headlines in grouped_headlines.items():
+        summary = predict(
+            supplier_name=supplier,
+            headlines=headlines,
+            config=cfg,
+        )
+
+        score = summary["risk_score"]
+        conf = summary["confidence"]
+        scores.append(score)
+
+        model_tier = assign_risk_tier(score, config=cfg)
+        tier_counts[model_tier] = tier_counts.get(model_tier, 0) + 1
+
+        expectation = HUMAN_BENCHMARK_EXPECTATIONS.get(
+            supplier,
+            {"expected_tier": "Unknown", "reason": "No human benchmark baseline specified."},
+        )
+        human_tier = expectation["expected_tier"]
+
+        is_match = (model_tier == human_tier)
+        match_status = "MATCH" if is_match else "MISMATCH"
+        if is_match:
+            matches += 1
+        total_evaluated += 1
+
+        top_signals = [f"{s['keyword']} ({s['weight']})" for s in summary.get("signals", [])[:3]]
+
+        company_reports.append(
+            {
+                "supplier": supplier,
+                "headline_count": len(headlines),
+                "risk_score": score,
+                "confidence": conf,
+                "top_signals": top_signals,
+                "human_expected_tier": human_tier,
+                "model_tier": model_tier,
+                "match_status": match_status,
+                "reason": expectation["reason"],
+                "sentiment_breakdown": summary.get("sentiment_breakdown", {}),
+            }
+        )
+
+    min_score = min(scores) if scores else 0.0
+    max_score = max(scores) if scores else 0.0
+    spread = max_score - min_score
+    mean_score = sum(scores) / len(scores) if scores else 0.0
+    variance = (
+        sum((x - mean_score) ** 2 for x in scores) / len(scores)
+        if scores
+        else 0.0
+    )
+    std_dev = math.sqrt(variance)
+
+    low_scores = [r["risk_score"] for r in company_reports if r["human_expected_tier"] == "Low"]
+    critical_scores = [r["risk_score"] for r in company_reports if r["human_expected_tier"] == "Critical"]
+
+    # Deeper scenario validation
+    scenario_checks = {
+        "all_25_suppliers_present": total_evaluated == 25,
+        "critical_suppliers_high_risk": (sum(critical_scores) / len(critical_scores) >= 80.0) if critical_scores else False,
+        "low_suppliers_controlled_risk": (sum(low_scores) / len(low_scores) < 65.0) if low_scores else False,
+        "score_spread_sufficient": spread >= 40.0,
+        "all_four_tiers_represented": all(count > 0 for count in tier_counts.values()),
+    }
+
+    distribution_explanation = (
+        f"The expanded 25-company benchmark evaluates 25 global suppliers across 4 operational tiers "
+        f"(Low < {cfg.tier_low_ceiling}, Med < {cfg.tier_medium_ceiling}, High < {cfg.tier_high_ceiling}). "
+        f"Scoring leverages FinBERT sentiment penalties, mitigated whole-word keyword signals, "
+        f"and top-k mean anti-dilution risk aggregation."
+    )
+
+    return {
+        "dataset_type": "25_COMPANY_DEVELOPMENT_BENCHMARK",
+        "company_reports": company_reports,
+        "total_evaluated": total_evaluated,
+        "matches": matches,
+        "match_percentage": (matches / total_evaluated * 100.0) if total_evaluated else 0.0,
+        "min_score": min_score,
+        "max_score": max_score,
+        "spread": spread,
+        "mean_score": mean_score,
+        "std_dev": std_dev,
+        "tier_counts": tier_counts,
+        "scenario_checks": scenario_checks,
         "distribution_explanation": distribution_explanation,
     }
 
@@ -586,6 +791,48 @@ def run_evaluation(
     for tier, count in dev_results["tier_counts"].items():
         print(f"  - {tier:<9}: {count} suppliers")
     print("=" * 95 + "\n")
+
+    # 3. Expanded 25-Company Benchmark Evaluation (Round 9)
+    print("\n" + "=" * 95)
+    print("             SUPPLIER RISK 25-COMPANY EXPANDED VALIDATION BENCHMARK (ROUND 9)")
+    print("=" * 95)
+    h25_results = evaluate_25_company_benchmark(config=cfg)
+    print(f"Total Evaluated       : {h25_results['total_evaluated']} suppliers")
+    print(f"Human Matches         : {h25_results['matches']} / {h25_results['total_evaluated']} ({h25_results['match_percentage']:.1f}%)")
+    print(f"Score Spread          : {h25_results['spread']:.2f} (Min: {h25_results['min_score']:.2f}, Max: {h25_results['max_score']:.2f})")
+    print(f"Mean Score            : {h25_results['mean_score']:.2f}")
+    print(f"Standard Deviation    : {h25_results['std_dev']:.2f}")
+    print("\n25-Company Tier Distribution:")
+    for tier, count in h25_results["tier_counts"].items():
+        print(f"  - {tier:<9}: {count} suppliers")
+    print("\nScenario Validations:")
+    for check_name, passed in h25_results["scenario_checks"].items():
+        print(f"  - {check_name:<32}: {'PASSED' if passed else 'FAILED'}")
+    print("=" * 95 + "\n")
+
+
+def print_25_company_trend_table(config: Optional[Settings] = None) -> None:
+    """Print the §4 sanity-doc trend table using the REAL model (no mocks)."""
+    # Local imports: trend.py imports assign_risk_tier from this module.
+    from src.data import load_active_trend_headlines
+    from src.trend import calculate_supplier_trend
+
+    cfg = config if config is not None else get_settings()
+    init_model()
+
+    print("| Supplier | Prev | Current | Delta | Direction | Current tier | Peak tier "
+          "| Expected | Deteriorating |")
+    print("|---|---|---|---|---|---|---|---|---|")
+
+    for name, records in load_active_trend_headlines().items():
+        t = calculate_supplier_trend(name, records, config=cfg)
+        expected = HUMAN_BENCHMARK_EXPECTATIONS.get(name, {}).get("expected_tier", "?")
+
+        print(
+            f"| {name} | {t['previous_risk_score']} | {t['current_risk_score']} "
+            f"| {t['risk_delta']} | {t['trend_direction']} | {t['current_risk_tier']} "
+            f"| {t['peak_risk_tier']} | {expected} | {t['is_deteriorating']} |"
+        )
 
 
 if __name__ == "__main__":
