@@ -1,724 +1,205 @@
-﻿﻿# Inventory Service
+﻿# Inventory Service
 
-FastAPI microservice for managing inventory across multiple warehouses, including multi-echelon inventory, automated purchase orders, inventory valuation, authentication, compliance checks, approval workflows, and network optimization.
+FastAPI microservice for multi-echelon inventory management, automated purchase orders, FIFO valuation, compliance checks, approval workflows, and network optimization.
 
-## Technology
+## Technology Stack
 
-* Python 3.12
-* FastAPI
-* PostgreSQL
-* SQLAlchemy
-* Pydantic
-* HTTPX
-* Pytest
+- **Runtime & Framework:** Python 3.11+, FastAPI, Pydantic v2
+- **Persistence:** PostgreSQL, SQLAlchemy, Psycopg2
+- **Testing & HTTP:** Pytest, HTTPX, Coverage
 
 ---
 
 ## Quick Start
 
-From the repository root:
+From `services/inventory`:
 
 ```powershell
-cd services\inventory
-
 .\myenv\Scripts\Activate.ps1
-
 python -m pip install -r requirements.txt
-
 python -m pytest -q
-
 python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
 ```
 
-Swagger:
-
-```text
-http://localhost:8001/docs
-```
-
-Platform Auth Service:
-
-```text
-http://localhost:8005
-```
+- **Swagger UI:** `http://localhost:8001/docs`
+- **Platform Auth Service:** `http://localhost:8005`
+- **Compliance Service:** `http://localhost:8003`
 
 ---
 
-# 1. Multi-Echelon Inventory
+## 1. Multi-Echelon Inventory
 
-Inventory supports a warehouse hierarchy:
+Supports hierarchical distribution across warehouse tiers: **Central → Regional → Local**.
 
-```text
-Central
-   ↓
-Regional
-   ↓
-Local
-```
-
-Supported functionality:
-
-* Central → Regional → Local hierarchy
-* Reorder point calculation
-* Low-stock detection
-* Warehouse-to-warehouse transfers
-* Parent warehouse shortage fulfillment
-* Self-parent validation
-* Circular hierarchy validation
-* Hierarchy-aware transfer suggestions
-
-### Reorder Point
-
-```text
-Reorder Point =
-Average Daily Demand × Lead Time
-+ Adjusted Safety Stock
-```
-
-### Main APIs
-
-```text
-GET  /api/v1/inventory/reorder-plan
-POST /api/v1/inventory/transfer
-POST /api/v1/inventory/multi-echelon/fulfill
-```
+- **Reorder Point:** $\text{ROP} = (\text{Avg Daily Demand} \times \text{Lead Time}) + \text{Safety Stock}$
+- **Core Features:** Low-stock detection, circular hierarchy validation, parent warehouse shortage fulfillment, and cross-warehouse stock transfers.
+- **Key Endpoints:** `GET /api/v1/inventory/reorder-plan`, `POST /api/v1/inventory/transfer`, `POST /api/v1/inventory/multi-echelon/fulfill`
 
 ---
 
-# 2. Demand-Driven Automatic Purchase Orders
+## 2. Demand-Driven Automatic Purchase Orders
 
-When inventory reaches the reorder condition, Inventory can generate a structured draft purchase order.
-
-The process is:
-
-```text
-Inventory
-   ↓
-Demand / Reorder Calculation
-   ↓
-Supplier Selection
-   ↓
-Compliance Check
-   ↓
-Draft Purchase Order
-```
-
-The service:
-
-* Calculates suggested order quantity
-* Selects a supplier
-* Determines unit cost
-* Calculates expected cost
-* Creates a structured draft PO
-* Prevents duplicate draft POs
-* Checks supplier compliance before automatic PO creation
-
-### Draft PO API
-
-```text
-POST /api/v1/inventory/purchase-orders/draft
-```
-
-Required permission:
-
-```text
-inventory:write
-```
-
-Draft PO generation is integrated with inventory reorder processing.
+When stock falls below the reorder point, a structured draft purchase order is generated for the lowest-cost compliant supplier:
+- Calculates suggested order quantity and expected purchase cost.
+- Checks supplier compliance before PO creation and prevents duplicate draft POs.
+- **Manual Draft Endpoint:** `POST /api/v1/inventory/purchase-orders/draft` (Permission: `inventory:write`).
 
 ---
 
-# 3. Inventory Valuation
+## 3. Inventory Valuation
 
-Inventory supports cost-layer based valuation.
-
-Supported methods:
-
-```text
-fifo
-weighted_average
-```
-
-### API
-
-```text
-GET /api/v1/inventory/reports/inventory-value
-```
-
-Example:
-
-```text
-GET /api/v1/inventory/reports/inventory-value?valuation_method=fifo
-```
-
-### Cost Layers
-
-The service supports:
-
-* Opening inventory cost layers
-* Purchase order cost layers
-* FIFO consumption
-* Weighted-average valuation
-* Warehouse-level valuation
-* Category-level valuation
-
-When opening inventory has both quantity and `unit_cost`, an opening cost layer is created.
-
-Example:
-
-```json
-{
-    "sku_id": "SKU001",
-    "product_name": "Example Product",
-    "warehouse_id": "WH001",
-    "category": "Electronics",
-    "quantity_on_hand": 40,
-    "lead_time_days": 5,
-    "safety_stock": 10,
-    "warehouse_type": "local",
-    "unit_cost": 12.50
-}
-```
-
-Physical stock movement is still allowed when cost history is incomplete. The uncovered quantity remains uncosted for valuation.
+Supports cost-layer based inventory valuation using FIFO and weighted average:
+- Inbound stock received against purchase orders creates new FIFO cost layers.
+- Outbound stock movements consume cost layers in FIFO sequence.
+- **Valuation Endpoint:** `GET /api/v1/inventory/reports/inventory-value?method=fifo`
 
 ---
 
-# 4. Optimistic Locking
+## 4. Optimistic Locking
 
-Inventory records contain a `version` field.
-
-```text
-Version 1
-   ↓
-Successful Update
-   ↓
-Version 2
-```
-
-Updates use the expected version.
-
-If the supplied version is stale, the update is rejected instead of silently overwriting newer data.
-
-This protects inventory from concurrent stale updates.
+Inventory records track an integer `version` column. Concurrent updates validate that the provided version matches the database version before committing, returning `409 Conflict` on version mismatch to prevent lost updates.
 
 ---
 
-# 5. Authentication and Permissions
+## 5. Authentication & Permissions
 
-Inventory uses the real Platform Auth Service.
-
-```text
-Client
-   ↓
-Inventory Service
-   ↓
-Platform Auth Service
-   ↓
-Token + Role + Permission
-   ↓
-Allow / Reject
-```
-
-### Permissions
-
-```text
-inventory:read
-inventory:write
-```
-
-### Protected Operations
-
-| Operation       | Access                                       |
-| --------------- | -------------------------------------------- |
-| Inventory read  | `inventory:read`                             |
-| Inventory write | `inventory:write`                            |
-| Bulk update     | `warehouse_manager` or `procurement_manager` |
-| Bulk upload     | `warehouse_manager` or `procurement_manager` |
-| Draft PO        | `inventory:write`                            |
-| Receive PO      | `inventory:write`                            |
-| What-if         | `ceo` or `vp_operations`                     |
-| PO approval     | `vp_operations`                              |
-
-Authentication requests include:
-
-```text
-Authorization: Bearer <token>
-X-Caller-Service: inventory-service
-X-Request-ID: <request-id>
-```
-
-### Authentication Responses
-
-```text
-401 → Missing or invalid token
-403 → Insufficient role or permission
-503 → Authentication service unavailable
-```
+Integrates with Platform Auth Service (`http://localhost:8005`) for role-based access control:
+- **Permissions:** `inventory:read`, `inventory:write`
+- **Roles:** `warehouse_manager`, `procurement_manager`, `ceo`, `vp_operations`
+- Service calls require `Authorization: Bearer <token>` and `X-Caller-Service: inventory-service`.
 
 ---
 
-# 6. Compliance Integration
+## 6. Compliance Integration
 
-Automatic purchase orders perform a real Compliance Service check before PO creation.
-
-```text
-Inventory
-   ↓
-Supplier Selection
-   ↓
-Compliance Service
-   ↓
-CLEAR / BLOCK / REVIEW
-   ↓
-Create or Reject PO
-```
-
-Inventory calls:
-
-```text
-POST /api/v1/compliance/internal-check
-```
-
-with:
-
-```text
-supplier_id
-supplier_name
-country
-```
-
-and:
-
-```text
-X-Caller-Service: inventory-service
-```
+Automatic and manual draft purchase orders perform screening checks with the Compliance Service.
 
 ### Decision Handling
 
-| Compliance result      | Inventory behavior |
-| ---------------------- | ------------------ |
-| `CLEAR`                | Create draft PO    |
-| `BLOCK`                | Reject PO creation |
-| `REVIEW`               | Reject PO creation |
-| Service unavailable    | Reject PO creation |
-| Invalid/error response | Reject PO creation |
+| Compliance Result | Automatic PO (Stock Movements) | Manual `POST /purchase-orders/draft` |
+|---|---|---|
+| `CLEAR` | Draft PO created | 201 Created, draft PO returned |
+| `BLOCK` / `REVIEW` | Skipped, warning logged with decision & supplier | 409 Conflict with decision and reason |
+| Service Unavailable | Skipped, warning logged, retried on next movement | 503 Service Unavailable |
+| Invalid / Error Response | Skipped, warning logged, retried on next movement | 502 Bad Gateway |
 
-The integration uses a **fail-closed** approach because automatic PO creation creates a commercial commitment. A delayed PO is preferable to creating an automatic PO without a successful compliance decision.
+**Failure Mode:** Fail closed on the PO, never on physical stock movements. Physical stock operations (sales, decrements, bulk uploads) always succeed and commit. Skipped reorders leave warning logs for manual follow-up.
 
----
-
-# 7. Automated PO Approval Workflow
-
-Purchase orders are automatically classified according to expected cost.
-
-Configuration:
-
-```text
-PO_AUTO_APPROVAL_THRESHOLD
-```
-
-Default:
-
-```text
-1000.0
-```
-
-### Approval Rules
-
-```text
-Expected Cost <= Threshold
-        ↓
-     Approved
-```
-
-```text
-Expected Cost > Threshold
-        ↓
-Pending VP Approval
-```
-
-### Approval Status
-
-|  Expected Cost | Status                |
-| -------------: | --------------------- |
-| `<= threshold` | `approved`            |
-|  `> threshold` | `pending_vp_approval` |
-
-Large POs require approval from:
-
-```text
-vp_operations
-```
-
-### Approve PO
-
-```text
-POST /api/v1/inventory/purchase-orders/{po_id}/approve
-```
-
-### Receive PO
-
-```text
-POST /api/v1/inventory/purchase-orders/{po_id}/receive
-```
-
-A large PO cannot be received until VP approval is completed.
-
-Workflow:
-
-```text
-Draft PO
-   ↓
-Expected Cost Check
-   ↓
- ┌───────────────────────┐
- │                       │
- ≤ Threshold        > Threshold
- │                       │
- ↓                       ↓
-Approved          Pending VP Approval
-                         ↓
-                   VP Operations
-                         ↓
-                      Approved
-                         ↓
-                      Receive
-```
+**Known Gap:** `/api/v1/compliance/internal-check` is not yet exposed by the Compliance Service (which currently exposes `/screen`). Until implemented, automatic POs are safely skipped with visible warnings.
 
 ---
 
-# 8. Supply-Network Optimization
+## 7. Automated PO Approval Workflow
 
-Inventory provides network-level optimization across the multi-echelon warehouse hierarchy.
-
-The optimization considers:
-
-* Warehouse hierarchy
-* Own demand
-* Downstream demand
-* Lead time
-* Current safety stock
-* Optimized safety stock
-* Current inventory
-* Target inventory
-* Surplus quantity
-* Shortage quantity
-
-### API
-
-```text
-GET /api/v1/inventory/network-optimization
-```
-
-Example:
-
-```text
-GET /api/v1/inventory/network-optimization?days=30
-```
-
-### Example Demand Flow
-
-```text
-Central Demand  = 2/day
-Regional Demand = 3/day
-Local Demand    = 5/day
-```
-
-Central downstream demand:
-
-```text
-2 + 3 + 5 = 10/day
-```
-
-The service aggregates demand through the warehouse hierarchy and returns warehouse-level optimization recommendations.
-
-### Response Information
-
-Each warehouse result contains:
-
-```text
-sku_id
-warehouse_id
-warehouse_type
-parent_warehouse_id
-hierarchy_depth
-own_daily_demand
-downstream_daily_demand
-current_safety_stock
-optimized_safety_stock
-current_quantity
-target_quantity
-surplus_quantity
-shortage_quantity
-```
-
-Circular warehouse hierarchies are detected and rejected.
+Purchase orders are classified according to expected cost against `PO_AUTO_APPROVAL_THRESHOLD` (default: `1000.0`):
+- **$\le 1000.0$:** Automatically approved (`approval_status = "approved"`).
+- **$> 1000.0$:** Marked `approval_status = "pending_vp_approval"`.
+- **Approve Endpoint:** `POST /api/v1/inventory/purchase-orders/{po_id}/approve` (Role: `vp_operations`). Approving a non-existent PO returns `404 Not Found`.
+- **Receive Endpoint:** `POST /api/v1/inventory/purchase-orders/{po_id}/receive`. Pending POs cannot be received until VP approval is granted.
 
 ---
 
-# 9. Forecast Contract — Contract First
+## 8. Supply-Network Optimization
 
-Inventory now defines a versioned contract for consuming forecast data in the future.
+Calculates network-level safety-stock recommendations across the multi-echelon hierarchy without modifying physical quantities.
 
-Current contract version:
-
+### Safety-Stock Formula
 ```text
-v1
+safety stock = max(baseline_safety_stock, ceil(z × σ_pooled × √lead_time))
+target       = safety stock + ceil(downstream_demand × lead_time)
 ```
-
-The contract contains:
-
-```text
-contract_version
-sku_id
-warehouse_id
-forecast_date
-forecast_quantity
-horizon_days
-generated_at
-confidence
-```
-
-Example:
-
-```json
-{
-    "contract_version": "v1",
-    "sku_id": "SKU001",
-    "warehouse_id": "WH001",
-    "forecast_date": "2026-10-01",
-    "forecast_quantity": 125.5,
-    "horizon_days": 30,
-    "generated_at": "2026-09-24T10:00:00Z",
-    "confidence": 0.92
-}
-```
-
-Validation includes:
-
-* Non-negative forecast quantity
-* Positive forecast horizon
-* Confidence between `0` and `1`
-* Required SKU and warehouse identifiers
-* Supported contract version
-* Rejection of unexpected fields
-
-### Forecast Service Status
-
-The current implementation is **contract-only**.
-
-Inventory does **not** make an HTTP call to the Forecast Service yet.
-
-```text
-Forecast Service
-      ↓
-  Future API
-      ↓
-Forecast Contract v1
-      ↓
-Inventory
-```
-
-The actual Forecast Service integration will be implemented after the Forecast Service API/output contract is finalized.
+- $\sigma_{\text{pooled}} = \sqrt{\sum \sigma_i^2}$: Variances add across locations, providing risk-pooling benefits upstream.
+- $z$: Set via `NETWORK_SERVICE_LEVEL_Z` (default `1.65` $\approx$ 95% cycle service level).
+- Baseline configured `safety_stock` acts as an enforced floor.
+- **Endpoint:** `GET /api/v1/inventory/network-optimization?days=30`
 
 ---
 
-# 10. Concurrency and Bulk Operations
+## 9. Forecast Contract — Contract First
 
-Bulk updates use database row-level locking.
+Versioned contract v1 aligned to the Forecast Service's output:
+- **Shape:** Monthly `{date, predicted, lower, upper}` points, `interval_level`, `model_version`, and `generated_at`.
+- **Tolerant Reader:** `extra="ignore"` ensures additional fields (such as `latency_ms`) are ignored without breaking Inventory.
 
-```text
-SELECT ... FOR UPDATE
-```
+### Contract Gaps to Agree with Forecast Owner
 
-Rows are locked consistently using:
+| Field | Forecast Service Today | Why Inventory Needs It |
+|---|---|---|
+| `sku_id`, `warehouse_id` | Accepted in request, but forecast is aggregate | Reorder points are per SKU and warehouse |
+| `generated_at` | Not returned | Stale forecasts must fall back to history |
+| `interval_level` | Not returned | Required to convert prediction bands to standard deviation |
+| `granularity`, `contract_version` | Not returned | Explicit units and contract versioning |
 
-```text
-sku_id + warehouse_id
-```
-
-This reduces the risk of concurrent updates overwriting each other.
-
-### Bulk Upload
-
-```text
-POST /api/v1/inventory/bulk-upload
-```
-
-### Bulk Update
-
-```text
-POST /api/v1/inventory/bulk-update
-```
+### Forecast Consumption Adapter (`forecast_adapter.py`)
+1. Only use forecast if SKU and warehouse match.
+2. Only use fresh forecast (`age <= FORECAST_MAX_AGE_DAYS`, default 35 days).
+3. Only use forecast covering the target date.
+4. Otherwise, fall back to historical rolling average demand and record fallback reason.
 
 ---
 
-# 11. What-If Simulation
+## 10. Database & Migration
 
-Inventory supports demand-change simulations without permanently modifying inventory.
+- **Primary Models:** `Inventory` (composite key: `sku_id` + `warehouse_id`), `SalesHistory`, `Supplier`, `PurchaseOrder`, `InventoryCostLayer`.
 
-```text
-POST /api/v1/inventory/what-if
+### Upgrading an Existing Database (Round 10)
+SQLAlchemy `create_all()` does not add columns to existing tables. For pre-Round-10 databases, run the one-off migration:
+```powershell
+python -m scripts.migrate_add_approval_status
 ```
-
-Allowed roles:
-
-```text
-ceo
-vp_operations
-```
+Adds `approval_status` (VARCHAR NOT NULL DEFAULT 'approved') so existing draft POs remain receivable.
 
 ---
 
-# Main API Reference
+## 11. Testing
 
-| Method | Endpoint                                            |
-| ------ | --------------------------------------------------- |
-| POST   | `/api/v1/inventory`                                 |
-| GET    | `/api/v1/inventory`                                 |
-| GET    | `/api/v1/inventory/{sku_id}/{warehouse_id}`         |
-| PUT    | `/api/v1/inventory/{sku_id}/{warehouse_id}`         |
-| DELETE | `/api/v1/inventory/{sku_id}/{warehouse_id}`         |
-| GET    | `/api/v1/inventory/reorder-plan`                    |
-| GET    | `/api/v1/inventory/low-stock`                       |
-| POST   | `/api/v1/inventory/decrement`                       |
-| POST   | `/api/v1/inventory/bulk-upload`                     |
-| POST   | `/api/v1/inventory/bulk-update`                     |
-| POST   | `/api/v1/inventory/what-if`                         |
-| POST   | `/api/v1/inventory/transfer`                        |
-| POST   | `/api/v1/inventory/multi-echelon/fulfill`           |
-| GET    | `/api/v1/inventory/network-optimization`            |
-| POST   | `/api/v1/inventory/purchase-orders/draft`           |
-| POST   | `/api/v1/inventory/purchase-orders/{po_id}/approve` |
-| POST   | `/api/v1/inventory/purchase-orders/{po_id}/receive` |
-| GET    | `/api/v1/inventory/reports/inventory-value`         |
-
----
-
-# Database
-
-Main tables:
-
-```text
-inventory
-sales_history
-suppliers
-purchase_orders
-inventory_cost_layers
-```
-
-Inventory uses:
-
-```text
-sku_id + warehouse_id
-```
-
-as the composite primary key.
-
----
-
-# Testing
-
-Run the complete test suite:
-
+Run the test suite from `services/inventory`:
 ```powershell
 python -m pytest -q
 ```
+**Current Result: 162 passed, 13 skipped** (175 total collected)
 
-Current result:
-
-```text
-108 passed
-```
-
-### Feature-specific tests
-
-Forecast contract:
-
-```powershell
-python -m pytest tests/test_forecast_contract.py -v
-```
-
-Network optimization:
-
-```powershell
-python -m pytest tests/test_network_optimization.py -v
-```
-
-PO approval:
-
-```powershell
-python -m pytest tests/test_purchase_order_approval.py -v
-```
-
-Coverage:
-
-```powershell
-python -m pytest --cov=app --cov-report=term-missing
-```
+*(The 13 skipped tests in `test_auth_integration.py` require the live Platform Auth service on port 8005. All mock, unit, and business-logic integration tests pass 100%).*
 
 ---
 
-# Environment Configuration
+## 12. Main API Reference
 
-Example configuration:
-
-```text
-.env.example
-```
-
-Local configuration:
-
-```text
-.env
-```
-
-The real `.env` file must not be committed.
-
-Important configuration:
-
-```text
-DATABASE_URL
-TEST_DATABASE_URL
-PLATFORM_AUTH_URL
-COMPLIANCE_SERVICE_URL
-PO_AUTO_APPROVAL_THRESHOLD
-WAREHOUSE_MANAGER_TOKEN
-PROCUREMENT_MANAGER_TOKEN
-CEO_TOKEN
-VP_OPERATIONS_TOKEN
-EXPIRED_TOKEN
-```
+| Method | Endpoint | Description | Access / Role |
+|---|---|---|---|
+| `GET` | `/api/v1/inventory` | List all inventory items | `inventory:read` |
+| `POST` | `/api/v1/inventory` | Create new inventory item | `inventory:write` |
+| `POST` | `/api/v1/inventory/decrement` | Decrement stock & FIFO layers | `inventory:write` |
+| `GET` | `/api/v1/inventory/reorder-plan` | View SKU reorder status | `inventory:read` |
+| `POST` | `/api/v1/inventory/transfer` | Warehouse-to-warehouse transfer | `inventory:write` |
+| `GET` | `/api/v1/inventory/network-optimization` | Network safety-stock calculation | `inventory:read` |
+| `POST` | `/api/v1/inventory/purchase-orders/draft` | Create draft purchase order | `inventory:write` |
+| `POST` | `/api/v1/inventory/purchase-orders/{id}/approve` | Approve draft purchase order | `vp_operations` |
+| `POST` | `/api/v1/inventory/purchase-orders/{id}/receive` | Receive approved purchase order | `inventory:write` |
+| `POST` | `/api/v1/inventory/what-if` | Run demand-spike simulation | `ceo` / `vp_operations` |
+| `GET` | `/api/v1/inventory/reports/inventory-value` | Inventory valuation report (FIFO) | `inventory:read` |
 
 ---
 
-# Completion Status
+## 13. Completion Status
 
-## Original Inventory Milestones
+### Original Milestones
+| Milestone | Status |
+|---|---|
+| M1 — Multi-Echelon Inventory | Completed |
+| M2 — Automatic Draft PO | Completed |
+| M3 — Inventory Valuation | Completed |
+| M4 — Optimistic Locking | Completed |
+| M5 — Permissions and Authentication | Completed |
 
-| Milestone                           | Status      |
-| ----------------------------------- | ----------- |
-| M1 — Multi-Echelon Inventory        | ✅ Completed |
-| M2 — Automatic Draft PO             | ✅ Completed |
-| M3 — Inventory Valuation            | ✅ Completed |
-| M4 — Optimistic Locking             | ✅ Completed |
-| M5 — Permissions and Authentication | ✅ Completed |
-
-## Round 9–11 Work
-
-| Requirement                    | Status                 |
-| ------------------------------ | ---------------------- |
-| Compliance integration pattern | ✅ Completed            |
-| Real Compliance Service call   | ✅ Completed            |
-| Compliance failure handling    | ✅ Completed            |
-| Automated PO approval workflow | ✅ Completed            |
-| Value-based approval threshold | ✅ Completed            |
-| VP Operations approval         | ✅ Completed            |
-| Supply-network optimization    | ✅ Completed            |
-| Forecast contract v1           | ✅ Completed            |
-| Forecast Service HTTP wiring   | completed |
-| Full test suite                | ✅ **108 passed**       |
-
-**The Forecast Service is intentionally not wired yet. The current scope is contract-first design only.**
+### Round 9–11 Work
+| Requirement | Status |
+|---|---|
+| Compliance integration pattern | Completed |
+| Compliance failure handling | Completed (fail closed on PO, never on stock movement) |
+| Real Compliance Service call | Partial (Client ready; `/internal-check` not yet in Compliance) |
+| Automated PO approval workflow | Completed (threshold, VP approval, missing PO 404) |
+| Supply-network optimization | Completed ($z \cdot \sigma \cdot \sqrt{L}$ with risk pooling) |
+| Forecast contract v1 | Completed (schema + adapter matching forecast output) |
+| Forecast Service HTTP wiring | Not started (contract-first by design) |
+| Full test suite | 162 passed, 13 skipped |

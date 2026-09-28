@@ -1,8 +1,12 @@
 from collections import defaultdict
+from datetime import date, timedelta
+from math import ceil, sqrt
 
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.inventory import Inventory
+from app.models.sales_history import SalesHistory
 from app.services import demand_service
 
 
@@ -40,13 +44,83 @@ def _build_inventory_tree(db: Session):
     return inventory_map, children
 
 
-def _calculate_downstream_demand(
-    sku_id: str,
+def _daily_demand_std_all(
+    db: Session,
+    days: int,
+):
+    """
+    Standard deviation of daily demand per (sku, warehouse).
+
+    Uses the same window as the rolling average in
+    demand_service: from the first sale inside the window
+    to today, with days that have no sales counted as zero.
+    """
+
+    end_date = date.today()
+    start_date = end_date - timedelta(days=days - 1)
+
+    records = (
+        db.query(SalesHistory)
+        .filter(
+            SalesHistory.sale_date >= start_date,
+            SalesHistory.sale_date <= end_date,
+        )
+        .all()
+    )
+
+    daily = defaultdict(lambda: defaultdict(float))
+
+    for record in records:
+        key = (
+            record.sku_id,
+            record.warehouse_id,
+        )
+
+        daily[key][record.sale_date] += record.quantity_sold
+
+    result = {}
+
+    for key, by_day in daily.items():
+        first_day = min(by_day)
+        observed_days = (end_date - first_day).days + 1
+
+        values = [
+            by_day.get(first_day + timedelta(days=offset), 0.0)
+            for offset in range(observed_days)
+        ]
+
+        if len(values) < 2:
+            result[key] = 0.0
+            continue
+
+        mean = sum(values) / len(values)
+
+        result[key] = sqrt(
+            sum((value - mean) ** 2 for value in values)
+            / (len(values) - 1)
+        )
+
+    return result
+
+
+def _aggregate_downstream(
     warehouse_key,
     children,
     demand_by_location,
+    std_by_location,
     visited=None,
 ):
+    """
+    Return (daily demand, daily demand variance) for a
+    warehouse plus everything below it.
+
+    Demand adds up. Variance also adds up (assuming
+    independent locations), so the pooled standard
+    deviation sqrt(sum of variances) is smaller than the
+    sum of the individual standard deviations. That gap
+    is the risk-pooling benefit of holding stock upstream.
+    """
+
     if visited is None:
         visited = set()
 
@@ -58,26 +132,37 @@ def _calculate_downstream_demand(
     current_visited = set(visited)
     current_visited.add(warehouse_key)
 
-    own_demand = demand_by_location.get(
+    total_demand = demand_by_location.get(
         warehouse_key,
         0.0,
     )
 
-    total_demand = own_demand
+    total_variance = (
+        std_by_location.get(
+            warehouse_key,
+            0.0,
+        )
+        ** 2
+    )
 
     for child_key in children.get(
         warehouse_key,
         [],
     ):
-        total_demand += _calculate_downstream_demand(
-            sku_id=sku_id,
+        child_demand, child_variance = _aggregate_downstream(
             warehouse_key=child_key,
             children=children,
             demand_by_location=demand_by_location,
+            std_by_location=std_by_location,
             visited=current_visited,
         )
 
-    return total_demand
+        total_demand += child_demand
+        total_variance += child_variance
+
+    return total_demand, total_variance
+
+
 def _get_depth(
     warehouse_key,
     inventory_map,
@@ -123,10 +208,16 @@ def optimize_network_safety_stock(
     """
     Calculate network-level safety-stock recommendations.
 
-    The existing warehouse safety stock is treated as the
-    baseline requirement. Downstream demand is aggregated
-    through the hierarchy so parent warehouses can carry
-    protection for their dependent warehouses.
+    For each warehouse:
+
+        safety stock = z * sigma_pooled * sqrt(lead time)
+        target       = safety stock + lead-time demand
+
+    sigma_pooled is the pooled standard deviation of daily
+    demand for the warehouse and everything downstream of it.
+    z comes from NETWORK_SERVICE_LEVEL_Z (1.65 ~ 95% cycle
+    service level). The configured safety_stock is kept as
+    a floor.
 
     No inventory quantities are changed.
     """
@@ -141,6 +232,7 @@ def optimize_network_safety_stock(
     if not inventory_map:
         return {
             "demand_window_days": days,
+            "service_level_z": settings.NETWORK_SERVICE_LEVEL_Z,
             "total_network_safety_stock": 0,
             "warehouses": [],
         }
@@ -153,6 +245,13 @@ def optimize_network_safety_stock(
         )
     )
 
+    demand_std = _daily_demand_std_all(
+        db=db,
+        days=days,
+    )
+
+    z = settings.NETWORK_SERVICE_LEVEL_Z
+
     results = []
 
     for key, inventory in inventory_map.items():
@@ -161,12 +260,16 @@ def optimize_network_safety_stock(
             0.0,
         )
 
-        downstream_demand = _calculate_downstream_demand(
-            sku_id=inventory.sku_id,
-            warehouse_key=key,
-            children=children,
-            demand_by_location=demand,
+        downstream_demand, downstream_variance = (
+            _aggregate_downstream(
+                warehouse_key=key,
+                children=children,
+                demand_by_location=demand,
+                std_by_location=demand_std,
+            )
         )
+
+        downstream_std = sqrt(downstream_variance)
 
         depth = _get_depth(
             warehouse_key=key,
@@ -183,14 +286,20 @@ def optimize_network_safety_stock(
             0,
         )
 
-        demand_buffer = (
-            downstream_demand
-            * lead_time
+        statistical_safety_stock = ceil(
+            z
+            * downstream_std
+            * sqrt(lead_time)
         )
 
         optimized_safety_stock = max(
             baseline_safety_stock,
-            int(demand_buffer),
+            statistical_safety_stock,
+        )
+
+        lead_time_demand = ceil(
+            downstream_demand
+            * lead_time
         )
 
         current_stock = max(
@@ -200,7 +309,7 @@ def optimize_network_safety_stock(
 
         target_stock = (
             optimized_safety_stock
-            + int(downstream_demand * lead_time)
+            + lead_time_demand
         )
 
         surplus = max(
@@ -230,8 +339,16 @@ def optimize_network_safety_stock(
                     downstream_demand,
                     2,
                 ),
+                "downstream_demand_std": round(
+                    downstream_std,
+                    2,
+                ),
+                "lead_time_demand": lead_time_demand,
                 "current_safety_stock": (
                     baseline_safety_stock
+                ),
+                "statistical_safety_stock": (
+                    statistical_safety_stock
                 ),
                 "optimized_safety_stock": (
                     optimized_safety_stock
@@ -250,6 +367,7 @@ def optimize_network_safety_stock(
 
     return {
         "demand_window_days": days,
+        "service_level_z": z,
         "total_network_safety_stock": (
             total_safety_stock
         ),

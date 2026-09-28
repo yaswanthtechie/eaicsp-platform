@@ -20,6 +20,7 @@ from app.services.valuation_service import (
 )
 
 from app.services.compliance_client import (
+    ComplianceBlockedError,
     check_supplier_compliance,
 )
 
@@ -69,29 +70,31 @@ def determine_approval_status(
 
 
 def check_supplier_before_po(
-    supplier: Supplier,
+    supplier_id: str,
+    supplier_name: str,
 ):
     """
     Check the selected supplier with Compliance Service
     before creating an automatic purchase order.
+
+    Raises ComplianceBlockedError for BLOCK / REVIEW, and
+    ComplianceServiceError when no usable decision came back.
     """
 
     compliance_result = check_supplier_compliance(
-        supplier_id=supplier.supplier_id,
-        supplier_name=supplier.supplier_name,
-        country="India",
+        supplier_id=supplier_id,
+        supplier_name=supplier_name,
+        country=settings.DEFAULT_SUPPLIER_COUNTRY,
     )
 
-    decision = compliance_result["decision"]
-    cleared = compliance_result["cleared"]
-
-    if (
-        decision != "CLEAR"
-        or cleared is not True
-    ):
-        raise ValueError(
-            "Supplier compliance check did not clear "
-            f"supplier {supplier.supplier_id}: {decision}"
+    if compliance_result["decision"] != "CLEAR":
+        raise ComplianceBlockedError(
+            supplier_id=supplier_id,
+            decision=compliance_result["decision"],
+            reason=(
+                compliance_result.get("reason")
+                or "No reason given"
+            ),
         )
 
     return compliance_result
@@ -200,13 +203,9 @@ def create_draft_po_for_inventory(
     if existing_po is not None:
         return existing_po
 
-    supplier = select_supplier(
-        db=db,
-        sku_id=inventory.sku_id,
-    )
-
     check_supplier_before_po(
-        supplier=supplier,
+        supplier_id=po_details["supplier_id"],
+        supplier_name=po_details["supplier_name"],
     )
 
     approval_status = determine_approval_status(
@@ -274,13 +273,9 @@ def create_automatic_draft_po(
             "Reorder is not required for this inventory"
         )
 
-    supplier = select_supplier(
-        db=db,
-        sku_id=inventory.sku_id,
-    )
-
     check_supplier_before_po(
-        supplier=supplier,
+        supplier_id=po_details["supplier_id"],
+        supplier_name=po_details["supplier_name"],
     )
 
     approval_status = determine_approval_status(
@@ -331,7 +326,7 @@ def approve_purchase_order(
     )
 
     if purchase_order is None:
-        raise ValueError(
+        raise LookupError(
             "Purchase order not found"
         )
 

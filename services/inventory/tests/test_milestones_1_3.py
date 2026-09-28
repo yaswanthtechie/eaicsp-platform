@@ -10,42 +10,6 @@ from tests.conftest import seed_sales_history
 
 
 # ============================================================
-# TEST-ONLY COMPLIANCE MOCK
-# ============================================================
-
-
-@pytest.fixture(autouse=True)
-def mock_compliance_clear(monkeypatch):
-    """
-    Mock the external Compliance Service for M1-M3 tests.
-
-    Production code continues to use the real Compliance Service.
-
-    These tests verify Inventory business logic and should not
-    require the Compliance Service process to be running.
-    """
-
-    def fake_check_supplier_compliance(
-        supplier_id,
-        supplier_name,
-        country,
-    ):
-        return {
-            "cleared": True,
-            "decision": "CLEAR",
-            "reason": (
-                "Test supplier cleared by mocked "
-                "Compliance Service."
-            ),
-        }
-
-    monkeypatch.setattr(
-        "app.services.purchase_order_service.check_supplier_compliance",
-        fake_check_supplier_compliance,
-    )
-
-
-# ============================================================
 # MILESTONE 1 — MULTI-ECHELON INVENTORY
 # ============================================================
 

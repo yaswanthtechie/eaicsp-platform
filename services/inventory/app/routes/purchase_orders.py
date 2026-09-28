@@ -19,6 +19,7 @@ from app.schemas.purchase_order import (
 )
 
 from app.services.compliance_client import (
+    ComplianceBlockedError,
     ComplianceServiceError,
     ComplianceServiceUnavailableError,
 )
@@ -53,6 +54,12 @@ def create_purchase_order(
             db=db,
             data=data,
         )
+
+    except ComplianceBlockedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
 
     except ComplianceServiceUnavailableError as exc:
         raise HTTPException(
@@ -90,6 +97,12 @@ def approve_purchase_order_endpoint(
             db=db,
             po_id=po_id,
         )
+
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
 
     except ValueError as exc:
         raise HTTPException(
