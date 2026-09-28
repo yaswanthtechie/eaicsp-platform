@@ -1,99 +1,64 @@
 from datetime import datetime, timedelta, timezone
 import secrets
+import threading
 import uuid
 
-# ---------------------------------------------------------
-# Mock MFA configuration
-# ---------------------------------------------------------
+from app.core import config as app_config
 
 OTP_EXPIRE_MINUTES = 5
-# Fixed OTP for development/demo purposes.
-# DO NOT use a fixed OTP in production.
-MOCK_OTP = "123456"
-# In-memory MFA challenge store.
-# This is intentionally a mock implementation for R9-R11.
-# In production, use Redis or a database so that challenges
-# work correctly across multiple Platform Service instances.
-_mfa_challenges = {}
+MAX_OTP_ATTEMPTS = 5
 
-# ---------------------------------------------------------
-# Create MFA challenge
-# ---------------------------------------------------------
+# In-memory challenge store (mock for R9-R11). Production would use
+# Redis/DB so challenges work across multiple Platform instances.
+_mfa_challenges: dict[str, dict] = {}
+_lock = threading.Lock()
+
+
+def _generate_otp() -> str:
+    # Fixed OTP ONLY when explicitly configured for dev/demo.
+    if app_config.MFA_MOCK_OTP:
+        return app_config.MFA_MOCK_OTP
+    return f"{secrets.randbelow(10**6):06d}"
+
 
 def create_mfa_challenge(user_id: int) -> tuple[str, str]:
-    """
-    Create a mock MFA challenge.
-
-    Returns:
-        tuple[str, str]:
-            challenge_id, otp
-    """
-
     challenge_id = str(uuid.uuid4())
+    otp = _generate_otp()
 
-    expires_at = (
-        datetime.now(timezone.utc)
-        + timedelta(minutes=OTP_EXPIRE_MINUTES)
-    )
+    with _lock:
+        _mfa_challenges[challenge_id] = {
+            "user_id": user_id,
+            "otp": otp,
+            "expires_at": datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRE_MINUTES),
+            "attempts": 0,
+        }
 
-    _mfa_challenges[challenge_id] = {
-        "user_id": user_id,
-        "otp": MOCK_OTP,
-        "expires_at": expires_at,
-        "verified": False,
-    }
+    return challenge_id, otp
 
-    return challenge_id, MOCK_OTP
 
-# ---------------------------------------------------------
-# Verify MFA challenge
-# ---------------------------------------------------------
-
-def verify_mfa_challenge(
-    challenge_id: str,
-    otp: str,
-) -> int | None:
+def verify_mfa_challenge(challenge_id: str, otp: str) -> int | None:
     """
-    Verify an MFA challenge.
+    Returns user_id on success, otherwise None.
 
-    Returns:
-        user_id:
-            If the OTP is valid.
-
-        None:
-            If the challenge is invalid, expired,
-            already used, or the OTP is incorrect.
+    A challenge is single-use, expires after OTP_EXPIRE_MINUTES, and is
+    destroyed after MAX_OTP_ATTEMPTS wrong guesses.
     """
+    with _lock:
+        challenge = _mfa_challenges.get(challenge_id)
 
-    challenge = _mfa_challenges.get(challenge_id)
+        if challenge is None:
+            return None
 
-    if challenge is None:
-        return None
+        if datetime.now(timezone.utc) > challenge["expires_at"]:
+            _mfa_challenges.pop(challenge_id, None)
+            return None
 
-    # Prevent replay of an already-used challenge.
-    if challenge["verified"]:
-        return None
+        if not secrets.compare_digest(str(otp), str(challenge["otp"])):
+            challenge["attempts"] += 1
+            if challenge["attempts"] >= MAX_OTP_ATTEMPTS:
+                _mfa_challenges.pop(challenge_id, None)
+            return None
 
-    # Check expiration.
-    now = datetime.now(timezone.utc)
-
-    if now > challenge["expires_at"]:
+        # Success: single use.
         _mfa_challenges.pop(challenge_id, None)
-        return None
-
-    # Constant-time OTP comparison.
-    if not secrets.compare_digest(
-        str(otp),
-        str(challenge["otp"]),
-    ):
-        return None
-
-    user_id = challenge["user_id"]
-
-    # Mark as verified before removing it.
-    challenge["verified"] = True
-
-    # Make the challenge single-use.
-    _mfa_challenges.pop(challenge_id, None)
-
-    return user_id
+        return challenge["user_id"]

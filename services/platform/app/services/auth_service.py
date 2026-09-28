@@ -3,9 +3,12 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 from app.core.password_validator import validate_password
 from app.core.security import (
+    create_access_token,
+    create_refresh_token,
     hash_password,
     verify_password,
 )
+from app.core import config as app_config
 from app.core.token_cache import token_cache
 from app.models.users import User
 from app.models.password_reset_tokens import PasswordResetToken
@@ -19,8 +22,11 @@ from app.services.audit_service import (
     LOGIN_FAILED,
     PASSWORD_RESET,
     create_audit_log,
+    MFA_FAILED,
+    MFA_VERIFIED,
 )
 from app.services.mfa_service import create_mfa_challenge
+from app.services.mfa_service import verify_mfa_challenge
 
 import secrets
 import threading
@@ -542,21 +548,41 @@ def login_user(
                 )
         
         # ----------------------------------------------------
-        # 10. Create MFA challenge
+        # 10-11. MFA challenge (if enabled) OR tokens (default)
         # ----------------------------------------------------
 
-        challenge_id, otp = create_mfa_challenge(
-            user_id=user.id,
-        )
+        if app_config.MFA_ENABLED:
+            challenge_id, otp = create_mfa_challenge(user_id=user.id)
 
-        # ----------------------------------------------------
-        # 11. Send mock OTP
-        # ----------------------------------------------------
+            MockEmailService.send_mfa_otp(email=user.email, otp=otp)
 
-        MockEmailService.send_mfa_otp(
-            email=user.email,
-            otp=otp,
-        )
+            login_response = {
+                "mfa_required": True,
+                "challenge_id": challenge_id,
+                "message": "OTP sent. Verify the OTP to complete login.",
+            }
+            audit_details = "Password authentication successful; MFA required"
+
+        else:
+            access_token = create_access_token(
+                {"sub": user.email, "role": user.role.name, "user_id": user.id}
+            )
+            refresh_token = create_refresh_token(
+                {"sub": user.email, "user_id": user.id}
+            )
+            save_refresh_token(
+                db=db,
+                user_id=user.id,
+                token=refresh_token,
+                expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+            )
+
+            login_response = {
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "token_type": "bearer",
+            }
+            audit_details = "Login Successful"
 
         # ----------------------------------------------------
         # 12. Successful password authentication audit
@@ -568,7 +594,7 @@ def login_user(
             user_id=user.id,
             email=user.email,
             ip_address=client_ip,
-            details="Password authentication successful; MFA required",
+            details=audit_details
         )
 
         logger.info(
@@ -593,12 +619,8 @@ def login_user(
         # ----------------------------------------------------
         # 14. Return MFA challenge
         # ----------------------------------------------------
-
-        return {
-            "mfa_required": True,
-            "challenge_id": challenge_id,
-            "message": "OTP sent. Verify the OTP to complete login.",
-        }
+        
+        return login_response
 
 # ============================================================
 # PASSWORD RESET REQUEST
@@ -756,3 +778,58 @@ def reset_password(
     )
 
     db.commit()
+
+
+def complete_mfa_login(db: Session, challenge_id: str, otp: str, client_ip: str) -> dict:
+    """Verify the OTP for a pending MFA challenge and issue tokens."""
+
+    user_id = verify_mfa_challenge(challenge_id, otp)
+
+    user = (
+        db.query(User).filter(User.id == user_id).first()
+        if user_id is not None
+        else None
+    )
+
+    if user is None or not user.is_active or user.role is None:
+        create_audit_log(
+            db=db,
+            event_type=MFA_FAILED,
+            user_id=user.id if user else None,
+            email=user.email if user else None,
+            ip_address=client_ip,
+            details="MFA verification failed (invalid, expired, reused or wrong OTP)",
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired MFA code",
+        )
+
+    access_token = create_access_token(
+        {"sub": user.email, "user_id": user.id, "role": user.role.name}
+    )
+    refresh_token = create_refresh_token({"sub": user.email, "user_id": user.id})
+
+    save_refresh_token(
+        db=db,
+        user_id=user.id,
+        token=refresh_token,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+    )
+
+    create_audit_log(
+        db=db,
+        event_type=MFA_VERIFIED,
+        user_id=user.id,
+        email=user.email,
+        ip_address=client_ip,
+        details="MFA verification successful; tokens issued",
+    )
+    db.commit()
+
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+    }

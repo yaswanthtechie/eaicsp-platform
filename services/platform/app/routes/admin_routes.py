@@ -34,13 +34,9 @@ from app.services.audit_service import (
     SERVICE_KEY_CREATED,
     SERVICE_KEY_REVOKED,
 )
-from app.services.rate_limit_service import ( 
-    MFA_ABUSE,
-    LOGIN_BRUTE_FORCE,
-    SSO_ABUSE,
-    RATE_LIMIT_EXCEEDED,
-)
-
+import json
+from fastapi.responses import JSONResponse, StreamingResponse
+from app.services.abuse_dashboard_service import get_abuse_dashboard
 from app.services.audit_export_service import export_audit_logs
 from app.models.refresh_token import RefreshToken
 from app.models.abuse_event import AbuseEvent
@@ -914,9 +910,73 @@ def audit_export(
         },
     )
 
+@router.get("/audit/export")
+def audit_export(
+    from_date: datetime | None = Query(
+        default=None,
+        description="Export events from this timestamp",
+    ),
+    to_date: datetime | None = Query(
+        default=None,
+        description="Export events up to this timestamp",
+    ),
+    event_type: str | None = Query(
+        default=None,
+        description="Filter by authentication event type",
+    ),
+    limit: int = Query(
+        default=1000,
+        ge=1,
+        le=5000,
+        description="Maximum number of audit records to export",
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+        description="Number of audit records to skip",
+    ),
+    output_format: str = Query(
+        default="csv",
+        pattern="^(csv|json)$",
+        description="Export format",
+    ),
+    current_user: User = Depends(
+        require_any_role(
+            "ceo",
+            "vp_operations",
+        )
+    ),
+    db: Session = Depends(get_db),
+):
+    result = export_audit_logs(
+        db=db,
+        from_date=from_date,
+        to_date=to_date,
+        event_type=event_type,
+        limit=limit,
+        offset=offset,
+        output_format=output_format,
+    )
+
+    if output_format.lower() == "json":
+        return JSONResponse(
+            content=json.loads(result)
+        )
+
+    return StreamingResponse(
+        iter([result]),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": (
+                "attachment; "
+                "filename=auth_audit_export.csv"
+            )
+        },
+    )
 # ============================================================
-# RATELIMITING/ABUSE DETECTION DASHBOARD
+# RATELIMITING / ABUSE DETECTION DASHBOARD
 # ============================================================
+
 @router.get("/abuse/dashboard")
 def abuse_dashboard(
     db: Session = Depends(get_db),
@@ -924,90 +984,4 @@ def abuse_dashboard(
         require_any_role("ceo", "vp_operations")
     ),
 ):
-    now = datetime.now(timezone.utc)
-
-    last_24_hours = now - timedelta(hours=24)
-
-    events = (
-        db.query(AbuseEvent)
-        .filter(
-            AbuseEvent.detected_at >= last_24_hours
-        )
-        .all()
-    )
-
-    total_events = len(events)
-
-    rate_limit_violations = sum(
-        1
-        for event in events
-        if event.event_type == RATE_LIMIT_EXCEEDED
-    )
-
-    mfa_abuse_events = sum(
-        1
-        for event in events
-        if event.event_type == MFA_ABUSE
-    )
-
-    login_abuse_events = sum(
-        1
-        for event in events
-        if event.event_type == LOGIN_BRUTE_FORCE
-    )
-
-    ip_counts = {}
-
-    for event in events:
-        ip_counts[event.ip_address] = (
-            ip_counts.get(event.ip_address, 0) + 1
-        )
-
-    endpoint_counts = {}
-
-    for event in events:
-        endpoint_counts[event.endpoint] = (
-            endpoint_counts.get(event.endpoint, 0) + 1
-        )
-
-    sso_abuse_events = sum(
-    1
-    for event in events
-    if event.event_type == SSO_ABUSE
-)
-
-    top_ips = [
-        {
-            "ip_address": ip,
-            "events": count,
-        }
-        for ip, count in sorted(
-            ip_counts.items(),
-            key=lambda item: item[1],
-            reverse=True,
-        )[:10]
-    ]
-
-    top_endpoints = [
-        {
-            "endpoint": endpoint,
-            "events": count,
-        }
-        for endpoint, count in sorted(
-            endpoint_counts.items(),
-            key=lambda item: item[1],
-            reverse=True,
-        )[:10]
-    ]
-
-    return {
-        "period": "last_24_hours",
-        "total_events": total_events,
-        "rate_limit_violations": rate_limit_violations,
-        "suspicious_ips": len(ip_counts),
-        "mfa_abuse_events": mfa_abuse_events,
-        "login_abuse_events": login_abuse_events,
-        "sso_abuse_events": sso_abuse_events,
-        "top_ips": top_ips,
-        "top_endpoints": top_endpoints,
-    }
+    return get_abuse_dashboard(db)

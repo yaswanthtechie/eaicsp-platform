@@ -22,7 +22,7 @@ http://127.0.0.1:8005
 ## Key Responsibilities
 
 * User registration and secure password management
-* Login with mock MFA (password + OTP)
+* Optional mock MFA (password + OTP)
 * JWT access and refresh token management
 * Refresh token rotation and revocation
 * Role-Based Access Control (RBAC)
@@ -74,7 +74,6 @@ app/
 │   ├── auth.py
 │   ├── user.py
 │   └── admin.py
-│
 ├── services/
 │   ├── auth_service.py
 │   ├── audit_service.py
@@ -83,6 +82,7 @@ app/
 │   ├── mfa_service.py
 │   ├── rate_limit_service.py
 │   ├── sso_service.py
+│   ├── abuse_dashboard_service.py
 │
 ├── core/
 │   ├── config.py
@@ -111,7 +111,10 @@ app/
 tests/
 ├── test_auth.py
 ├── test_integration.py
-├── test_verify_load.py
+├── test_security.py
+
+scripts/
+├── load_test_verify.py
 ```
 ---
 
@@ -125,26 +128,36 @@ Example:
 SECRET_KEY=<strong-secret-key>
 DATABASE_URL=sqlite:///./platform.db
 TRUST_PROXY=false
+# MFA
+MFA_ENABLED=false
+MFA_MOCK_OTP=
+# Mock enterprise SSO
+MOCK_SSO_ENABLED=false
+MOCK_SSO_SECRET=
 ```
 
 # /verify load-test configuration
 PLATFORM_BASE_URL=http://127.0.0.1:8005
-ACCESS_TOKEN="<your-token>"
-TOTAL_REQUESTS=150
+# For real testing, provide 5-10 different valid access tokens locally.
+ACCESS_TOKENS="token1,token2,token3,token4,token5"
+# Used by the sustained load-test script
+DURATION_SECONDS=120
 CONCURRENCY=20
+REQUESTS_PER_SECOND=5
 TIMEOUT_SECONDS=10
 
 Production should use PostgreSQL and a securely managed secret.
 The JWT signing secret must never be hardcoded in source code.
-The ACCESS_TOKEN must be a valid user access token obtained after
+The ACCESS_TOKENS must be a valid user access token obtained after
 successful MFA verification. Do not commit a real access token or
 other secrets to source control.
 
 The remaining load-test variables have the following defaults:
 
-TOTAL_REQUESTS=150
 CONCURRENCY=20
 TIMEOUT_SECONDS=10
+DURATION_SECONDS=120
+REQUESTS_PER_SECOND=5
 ---
 
 # Roles
@@ -220,9 +233,13 @@ POST /api/v1/auth/mfa/verify
   ├── Validate challenge
   ├── Validate OTP
   └── Issue JWT tokens
-          │
-          ├── Access Token
-          └── Refresh Token
+
+When MFA_ENABLED=false:
+
+POST /api/v1/auth/login
+  │
+  ├── Validate credentials
+  └── Issue JWT access + refresh tokens
 ```
 
 The login endpoint does not directly issue JWT tokens when MFA is enabled. It first creates an MFA challenge. After successful OTP verification, the Platform Service issues the access and refresh tokens.
@@ -281,7 +298,7 @@ The refresh token is marked as revoked in the database.
 
 ## Login and Multi-Factor Authentication
 
-The current login flow uses MFA.
+The login flow supports optional mock MFA. MFA is enabled only when MFA_ENABLED=true.
 
 ### Step 1 – Login
 
@@ -865,6 +882,10 @@ ACCOUNT_LOCKED
 ROLE_CHANGED
 USER_DEACTIVATED
 USER_ACTIVATED
+MFA_FAILED
+MFA_VERIFIED
+SSO_REJECTED
+SSO_LOGIN
 ```
 
 Audit logs help answer:
@@ -1216,7 +1237,7 @@ Example successful response:
 ```json
 {
   "authenticated": true,
-  "service": "inventory-service",
+  "service": "compliance-service",
   "auth_type": "api_key"
 }
 ```
@@ -1244,7 +1265,7 @@ service_api_keys
 ```
 
 ```text
-X-Caller-Service: inventory
+X-Caller-Service: compliance
 ```
 
 The rate-limit bucket is maintained per:
@@ -1268,8 +1289,6 @@ Example:
 HTTP/1.1 429 Too Many Requests
 Retry-After: 60
 ```
-
-
 ---
 # Token Verification Caching
 
@@ -1519,8 +1538,7 @@ curl -X POST \
 curl -X POST \
   http://127.0.0.1:8005/api/v1/auth/verify \
   -H "Authorization: Bearer <access_token>" \
-  -H "X-Caller-Service: inventory-service" \
-  -H "X-Request-ID: request-123"
+  -H "X-Caller-Service: compliance-service" \
 ```
 
 ### Verify Service API Key
@@ -1609,6 +1627,7 @@ Tests should cover both normal and security-sensitive scenarios.
 * Role changes
 * Lockout events
 
+
 ## Service API-Key Tests 
 
 * API-key creation
@@ -1631,6 +1650,25 @@ Tests should cover both normal and security-sensitive scenarios.
 * Repeated-token verification
 * Cache performance measurement
 * Security-sensitive invalidation behavior where applicable
+
+## MFA Tests
+* test_login_without_mfa_still_returns_tokens
+* test_mfa_end_to_end_and_audited
+* test_challenge_destroyed_after_max_wrong_attempts
+* test_otp_is_random_when_no_mock_otp
+
+## Rate Limiting Tests
+* test_rate_limit_is_per_ip_not_global
+
+## SSO Tests
+* test_sso_accepts_signed_assertion_and_is_audited
+* test_sso_rejects_assertion_signed_with_wrong_secret
+* test_sso_rejects_plain_client_fields
+* test_sso_disabled_by_default
+
+## Audit Export / Abuse Dashboard Tests
+* test_audit_export_has_compliance_columns
+* test_supplier_cannot_export_or_view_abuse_dashboard
 
 ---
 
@@ -1669,7 +1707,18 @@ addopts = "-m 'not integration'"
         ↓
 2. User submits username/password to /auth/login
         ↓
-3. Platform validates credentials and creates MFA challenge
+3. Platform validates credentials
+        ↓
+4.MFA_ENABLED?
+      /       \
+    YES        NO
+     ↓          ↓
+ Create MFA    Issue JWT
+ Challenge
+     ↓
+ OTP Verify
+     ↓
+ Issue JWT
         ↓
 4. User submits OTP to /auth/mfa/verify
         ↓
@@ -1684,6 +1733,7 @@ addopts = "-m 'not integration'"
         ↓
 9. Calling service performs its business operation
 ```
+
 ---
 
 # Logging
@@ -1917,6 +1967,10 @@ Production should use PostgreSQL.
 Password-reset email delivery may use a mock/local implementation during development.
 
 Production should integrate with a secure email provider.
+
+* **MFA challenge storage:** MFA challenges are currently stored in memory. They are lost when the Platform Service restarts and are not shared between multiple Platform Service instances. A production deployment should use a shared store such as Redis or a database-backed challenge store.
+* **SSO trust model:** The current SSO implementation uses a signed mock enterprise assertion for development/testing. It does not integrate with a real enterprise Identity Provider (IdP). Production SSO should use a properly configured and validated enterprise IdP with appropriate issuer, audience, signature, expiry, and MFA/assurance (`amr`) validation.
+* **`MFA_MOCK_OTP`:** `MFA_MOCK_OTP` is provided only for local development/testing. It must not be used as a fixed OTP mechanism in production. Production MFA should use a real secure OTP generation and delivery mechanism.
 ---
 
 ## Database Schema Update
@@ -1991,6 +2045,18 @@ pytest -m integration -q
 
 > **Do not delete the database in shared, staging, or production environments. Use a database migration instead.**
 
+## Round 9 to 11 Status
+
+| Milestone                           | Status   | Notes                                                                                               |
+| ----------------------------------- | -------- | --------------------------------------------------------------------------------------------------- |
+| **M1 MFA (mock)**                   | **Done** | MFA is opt-in via `MFA_ENABLED`; OTP delivery is mocked                                             |
+| **M2 SSO stub**                     | **Done** | Signed short-lived mock assertion; no real IdP                                                      |
+| **M3 Audit export**                 | **Done** | CSV export includes outcome and supports paging                                                     |
+| **M4 Rate limit + abuse dashboard** | **Done** | Rate-limit violations plus MFA/SSO/login abuse signals are tracked                                  |
+| **M5 /verify load test**            | **Done** | Sustained 120-second run with multiple tokens, real caller services, and 429 threshold demonstrated |
+
+**M5 Load Test Note:** `/verify` was also tested at **2, 3, 5, and 10 requests/sec**. The 5 req/sec test achieved **98.83% success**, while the 10 req/sec test confirmed the rate limiter by returning controlled **429 responses** after the configured limit was reached.
+
 
 # Summary
 
@@ -2004,38 +2070,41 @@ Registration
      v
 Login
      |
-     v
-MFA/OTP
-     |
-     v
-JWT Access + Refresh Tokens
-     |
-     v
-RBAC
-     |
-     v
-Fine-Grained Permissions
-     |
-     v
-Sessions
-     |
-     v
-Account Lifecycle
-     |
-     v
-Audit Logging
-     |
-     v
-Security Dashboard
-     |
-     v
-Service-to-Service JWT Verification
-     |
-     v
-Service API-Key Authentication
-     |
-     v
-Token Introspection Caching
+     +---- MFA enabled ----> MFA/OTP
+     |                         |
+     |                         v
+     +---- MFA disabled ----> JWT
+                               |
+                               v
+                    Access + Refresh Tokens
+                               |
+                               v
+                             RBAC
+                               |
+                               v
+                    Fine-Grained Permissions
+                               |
+                               v
+                         Session Management
+                               |
+                               v
+                       Account Lifecycle
+                               |
+                               v
+                         Audit Logging
+                               |
+                               v
+                     Security Monitoring
+                               |
+                               v
+                  Service-to-Service Verification
+                               |
+                               v
+                    Service API-Key Authentication
+                               |
+                               v
+                    Token Introspection Caching 
+    
 ```
 
 This allows the other EAICSP microservices to focus on their business responsibilities while using a common authentication and authorization foundation.
@@ -2048,9 +2117,13 @@ A mock enterprise SSO integration has been added:
 ```text
 Enterprise Identity
        ↓
-Platform SSO
+Signed Short-Lived SSO Assertion
        ↓
-Validate Provider + External ID
+Platform verifies signature
+       ↓
+Validate issuer + audience + expiry
+       ↓
+Extract identity from verified assertion
        ↓
 Cross-check EAICSP User
        ↓
@@ -2063,7 +2136,7 @@ Endpoint:
 POST /api/v1/auth/sso/login
 ```
 
-Only identities matching the configured mock enterprise directory and an existing EAICSP user are allowed to authenticate.
+The Platform Service does not trust client-supplied email, full_name, or external_id values. Identity information is derived only from the verified signed assertion. The assertion is short-lived and validated for signature, issuer, audience, and expiration before the EAICSP user is identified.
 
 SSO rate-limit violations are recorded as `SSO_ABUSE`.
 
@@ -2085,6 +2158,8 @@ Supported filters:
 from_date
 to_date
 event_type
+limit
+offset
 ```
 
 The export contains:
@@ -2094,6 +2169,7 @@ timestamp
 actor_id
 actor_email
 action
+outcome
 ip_address
 details
 ```
@@ -2139,9 +2215,14 @@ RATE_LIMIT_EXCEEDED
 LOGIN_BRUTE_FORCE
 MFA_ABUSE
 SSO_ABUSE
+MFA_FAILED
+MFA_VERIFIED
+SSO_REJECTED
+SSO_LOGIN
 ```
----
-
+The abuse/security dashboard also monitors authentication failure
+signals such as repeated MFA_FAILED and SSO_REJECTED events per IP,
+in addition to explicit rate-limit abuse events.
 ### Abuse Dashboard
 
 Endpoint:
@@ -2169,8 +2250,8 @@ Top endpoints
 The load test represents the current dependent-service call graph:
 
 ```text
-Inventory   ──→ Platform /verify
-Supplier    ──→ Platform /verify
+API-Gateway    ──→ Platform /verify
+Supplier-Portal   ──→ Platform /verify
 Compliance  ──→ Platform /verify
 ```
 ---
@@ -2180,12 +2261,13 @@ Each dependent service sends the user's access token to the Platform Service for
 ### Test Configuration
 
 ```text
-Total requests : 150
+Duration       : 120 seconds
 Concurrency    : 20
-Callers        : inventory, supplier, compliance
-Endpoint       : POST /api/v1/auth/verify
-```
+Tokens         : 5
+Callers        : api gateway, supplier portal, compliance
+Target rate    : 5 requests/sec
 
+```
 The test measures:
 
 ```text
@@ -2207,22 +2289,22 @@ First, obtain an access token after successful MFA verification.
 Set the token in PowerShell:
 
 ```powershell
-$env:ACCESS_TOKEN="<your_access_token>"
+$env:ACCESS_TOKENS="token1,token2,token3,token4,token5"
 ```
 
 To verify that the environment variable is set:
 
 ```powershell
-echo $env:ACCESS_TOKEN
+echo $env:ACCESS_TOKENS
 ```
 
 Then call the Platform `/verify` endpoint:
 
 ```powershell
 curl.exe -X POST "http://127.0.0.1:8005/api/v1/auth/verify" `
-  -H "Authorization: Bearer $env:ACCESS_TOKEN" `
+  -H "Authorization: Bearer $env:ACCESS_TOKENS" `
   -H "Content-Type: application/json" `
-  -H "X-Caller-Service: inventory"
+  -H "X-Caller-Service: compliance"
 ```
 
 The `X-Caller-Service` header identifies the dependent service making the verification request.
@@ -2230,8 +2312,8 @@ The `X-Caller-Service` header identifies the dependent service making the verifi
 Example callers:
 
 ```text
-X-Caller-Service: inventory
-X-Caller-Service: supplier
+X-Caller-Service: api-gateway
+X-Caller-Service: supplier-portal
 X-Caller-Service: compliance
 ```
 
@@ -2258,13 +2340,13 @@ Expected response:
 The automated load test is implemented in:
 
 ```text
-tests/test_verify_load.py
+scripts/load_test_verify.py
 ```
 
 Run it with:
 
 ```powershell
-pytest tests/test_verify_load.py -s
+python scripts/load_test_verify.py
 ```
 
 The Platform Service must be running on:
@@ -2276,8 +2358,8 @@ http://127.0.0.1:8005
 The load test sends requests using the three current callers:
 
 ```text
-Inventory
-Supplier
+Api-Gateway
+Supplier-Portal
 Compliance
 ```
 
@@ -2287,28 +2369,92 @@ The caller is identified through:
 X-Caller-Service
 ```
 
-### Latest Test Result
+Starting sustained /verify load test...
+----------------------------------------
+Platform URL       : http://127.0.0.1:8005
+Verify endpoint    : http://127.0.0.1:8005/api/v1/auth/verify
+Duration            : 120 seconds
+Concurrency         : 20
+Target rate         : 5.00 requests/sec
+User tokens         : 5
+Caller services     : supplier-portal, compliance, api-gateway
+----------------------------------------
 
-```text
-Total requests      : 150
-Successful          : 150
-Failed              : 0
-Success rate        : 100.00%
-Total test time     : 1.598 sec
-Throughput          : 93.86 requests/sec
-Average latency     : 122.72 ms
-Median latency      : 90.68 ms
-P95 latency         : 321.97 ms
-P99 latency         : 385.78 ms
-Maximum latency     : 437.66 ms
-HTTP 200            : 150
-```
-### Caller Results
+======================================================================
+/VERIFY SUSTAINED LOAD TEST REPORT
+======================================================================
 
-```text
-Inventory   : 50/50 successful
-Supplier    : 50/50 successful
-Compliance  : 50/50 successful
+TEST CONFIGURATION
+----------------------------------------------------------------------
+Endpoint              : http://127.0.0.1:8005/api/v1/auth/verify
+Duration              : 120.00 seconds
+Configured duration   : 120 seconds
+Concurrency           : 20
+Target request rate   : 5.00 requests/sec
+Different tokens      : 5
+Caller services       : supplier-portal, compliance, api-gateway
+
+OVERALL RESULTS
+----------------------------------------------------------------------
+Total requests        : 600
+Successful requests   : 593
+Failed requests       : 7
+Success rate          : 98.83%
+Failure rate          : 1.17%
+Total test time       : 120.00 seconds
+Actual throughput     : 5.00 requests/sec
+
+HTTP STATUS CODES
+----------------------------------------------------------------------
+200        : 593
+429        : 7
+
+429 RATE-LIMIT ANALYSIS
+----------------------------------------------------------------------
+Total 429 responses   : 7
+First 429 after       : 60.07 seconds
+First 429 request     : #301
+First 429 caller      : supplier-portal
+First 429 token       : token-1
+
+CALLER SERVICE DISTRIBUTION
+----------------------------------------------------------------------
+supplier-portal    requests=200    success=197    failed=3      429=3      success_rate=98.50%
+compliance         requests=200    success=198    failed=2      429=2      success_rate=99.00%
+api-gateway        requests=200    success=198    failed=2      429=2      success_rate=99.00%
+
+TOKEN DISTRIBUTION
+----------------------------------------------------------------------
+token-1   : 120 requests
+token-2   : 120 requests
+token-3   : 120 requests
+token-4   : 120 requests
+token-5   : 120 requests
+
+LATENCY
+----------------------------------------------------------------------
+Min latency           : 4.66 ms
+Average latency       : 16.96 ms
+Median latency        : 17.43 ms
+P95 latency           : 29.46 ms
+P99 latency           : 54.79 ms
+Max latency           : 128.32 ms
+
+FAILURE DETAILS
+----------------------------------------------------------------------
+Request #301 | caller=supplier-portal | token=token-1 | status=429 | time=60.07s | error={"detail":"Too many requests. Please try again later."}
+Request #302 | caller=compliance | token=token-2 | status=429 | time=60.26s | error={"detail":"Too many requests. Please try again later."}
+Request #303 | caller=api-gateway | token=token-3 | status=429 | time=60.44s | error={"detail":"Too many requests. Please try again later."}
+Request #304 | caller=supplier-portal | token=token-4 | status=429 | time=60.62s | error={"detail":"Too many requests. Please try again later."}
+Request #305 | caller=compliance | token=token-5 | status=429 | time=60.83s | error={"detail":"Too many requests. Please try again later."}
+Request #306 | caller=api-gateway | token=token-1 | status=429 | time=61.02s | error={"detail":"Too many requests. Please try again later."}
+Request #307 | caller=supplier-portal | token=token-2 | status=429 | time=61.24s | error={"detail":"Too many requests. Please try again later."}
+
+FINAL RESULT
+----------------------------------------------------------------------
+ATTENTION: Rate limiting was triggered.
+Use the first-429 timing and per-caller 429 counts when evaluating the /verify limit.
+======================================================================
 ```
 
 These results were obtained in the local development environment using the configured test parameters. They provide a functional and baseline performance measurement and should not be interpreted as production capacity benchmarks.
@@ -2330,8 +2476,8 @@ caller_service + endpoint
 For example:
 
 ```text
-inventory + /api/v1/auth/verify
-supplier  + /api/v1/auth/verify
+api gateway + /api/v1/auth/verify
+supplier portal  + /api/v1/auth/verify
 compliance + /api/v1/auth/verify
 ```
 
@@ -2345,6 +2491,7 @@ and records the corresponding security/abuse event.
 
 The rate limiter executes before the token-cache lookup, so cached verification results cannot bypass `/verify` rate limiting.
 
+
 ### Access Token Security
 
 Use a valid access token obtained after successful MFA verification when performing manual tests.
@@ -2352,7 +2499,7 @@ Use a valid access token obtained after successful MFA verification when perform
 For documentation, use only a placeholder or clearly fake/truncated token:
 
 ```powershell
-$env:ACCESS_TOKEN="<your_access_token>"
+$env:ACCESS_TOKENS="token1,token2,token3,token4,token5"
 ```
 
 Do not commit a real access token to GitHub or any other source-control repository. A valid unexpired token could potentially be used to authenticate requests.

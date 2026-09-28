@@ -48,7 +48,7 @@ RATE_LIMITS = {
 # =========================================================
 
 _request_buckets = defaultdict(list)
-
+_last_abuse_event_at = {}
 _bucket_lock = threading.Lock()
 
 # =========================================================
@@ -60,8 +60,9 @@ def check_rate_limit(
     ip_address: str,
     endpoint: str,
     abuse_event_type: str = RATE_LIMIT_EXCEEDED,
-    caller_service: str = "unknown",
+    caller_service: str | None = None,
 ):
+    
     """
     Check whether a caller service has exceeded the configured
     request limit for an endpoint.
@@ -99,7 +100,7 @@ def check_rate_limit(
     # Create caller-specific bucket
     # -----------------------------------------------------
 
-    key = f"{caller_service}:{endpoint}"
+    key = f"{caller_service}:{ip_address}:{endpoint}"
 
     with _bucket_lock:
 
@@ -148,18 +149,26 @@ def check_rate_limit(
             # 2. Abuse event
             # -------------------------------------------------
 
-            event = AbuseEvent(
-                ip_address=ip_address,
-                endpoint=endpoint,
-                event_type=abuse_event_type,
-                request_count=len(timestamps),
-                detected_at=now,
-                details=details,
+            last_recorded = _last_abuse_event_at.get(key)
+
+            should_record_abuse_event = (
+                last_recorded is None
+                or (now - last_recorded).total_seconds() >= window_seconds
             )
 
-            db.add(event)
+            if should_record_abuse_event:
+                event = AbuseEvent(
+                    ip_address=ip_address,
+                    endpoint=endpoint,
+                    event_type=abuse_event_type,
+                    request_count=len(timestamps),
+                    detected_at=now,
+                    details=details,
+                )
 
-            # Save audit + abuse event
+                db.add(event)
+                _last_abuse_event_at[key] = now
+
             db.commit()
 
             # -------------------------------------------------

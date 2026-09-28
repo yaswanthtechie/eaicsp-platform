@@ -18,22 +18,26 @@ from app.core.permissions import ROLE_PERMISSIONS
 # Kept for backward compatibility because other files may
 # import oauth2_scheme.
 oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl="/api/v1/auth/login"
+    tokenUrl="/api/v1/auth/login",
+    auto_error=False,
 )
 
 # Used by protected endpoints.
 # This allows Swagger to accept an already-issued access token
 # after MFA verification.
-bearer_scheme = HTTPBearer()
+bearer_scheme = HTTPBearer(
+    auto_error=False,
+)
 
 # ============================================================
 # Authentication
 # ============================================================
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(
-        bearer_scheme
-    ),
+    credentials: HTTPAuthorizationCredentials | None = Depends(
+    bearer_scheme
+),
+
     db: Session = Depends(get_db),
 ):
     """
@@ -44,20 +48,30 @@ def get_current_user(
         Authorization: Bearer <access_token>
     """
     # --------------------------------------------------------
-    # 1. Extract Bearer token
+    # 1. Check whether Authorization header exists
+    # --------------------------------------------------------
+
+    if credentials is None:
+        raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Not authenticated",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    # --------------------------------------------------------
+    # 2. Extract Bearer token
     # --------------------------------------------------------
 
     token = credentials.credentials
 
     try:
         # ----------------------------------------------------
-        # 2. Decode and validate JWT
+        # 3. Decode and validate JWT
         # ----------------------------------------------------
 
         payload = decode_token(token)
-
         # ----------------------------------------------------
-        # 3. Only access tokens are allowed
+        # 4. Only access tokens are allowed
         # ----------------------------------------------------
 
         if payload.get("type") != "access":
@@ -68,7 +82,7 @@ def get_current_user(
             )
 
         # ----------------------------------------------------
-        # 4. Get user identity from JWT subject
+        # 5. Get user identity from JWT subject
         # ----------------------------------------------------
 
         email = payload.get("sub")
@@ -101,7 +115,7 @@ def get_current_user(
         )
 
     # --------------------------------------------------------
-    # 5. Find user using JWT subject
+    # 6. Find user using JWT subject
     # --------------------------------------------------------
 
     user = (
@@ -111,7 +125,7 @@ def get_current_user(
     )
 
     # --------------------------------------------------------
-    # 6. Reject missing or inactive users
+    # 7. Reject missing or inactive users
     # --------------------------------------------------------
 
     if user is None or not user.is_active:
@@ -132,7 +146,7 @@ def get_current_user(
         )
 
     # --------------------------------------------------------
-    # 7. Reject locked accounts
+    # 8. Reject locked accounts
     # --------------------------------------------------------
 
     if user.locked_until is not None:
@@ -154,7 +168,7 @@ def get_current_user(
             )
 
     # --------------------------------------------------------
-    # 8. Cross-check JWT subject with DB user
+    # 9. Cross-check JWT subject with DB user
     # --------------------------------------------------------
 
     if user.email.lower() != email:
@@ -165,7 +179,7 @@ def get_current_user(
         )
 
     # --------------------------------------------------------
-    # 9. Return authenticated user
+    # 10. Return authenticated user
     # --------------------------------------------------------
 
     return user

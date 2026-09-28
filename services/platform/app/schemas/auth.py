@@ -66,9 +66,7 @@ class MFATokenResponse(BaseModel):
 
 class SSOLoginRequest(BaseModel):
     provider: str
-    email: EmailStr
-    full_name: str
-    external_id: str
+    assertion: str   # signed by the (mock) enterprise identity provider
 
 class SSOTokenResponse(BaseModel):
     access_token: str

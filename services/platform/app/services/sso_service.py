@@ -1,128 +1,118 @@
 from datetime import datetime, timedelta, timezone
+
 from fastapi import HTTPException, status
+from jose import JWTError, jwt
 from sqlalchemy.orm import Session
+
+from app.core import config as app_config
+from app.core.security import create_access_token, create_refresh_token
 from app.models.users import User
-from app.core.security import (
-    create_access_token,
-    create_refresh_token,
-)
+from app.services.audit_service import SSO_LOGIN, SSO_REJECTED, create_audit_log
 from app.services.auth_service import save_refresh_token
 
 MOCK_SSO_PROVIDER = "mock-enterprise-sso"
+ASSERTION_AUDIENCE = "eaicsp-platform"
+ASSERTION_TTL_SECONDS = 120
 
 # ------------------------------------------------------------
-# Mock Enterprise Directory
+# Mock enterprise directory: this is the IDENTITY PROVIDER's data,
+# used only to ISSUE assertions (tests/demo). The login endpoint
+# never trusts these values from a client.
 # ------------------------------------------------------------
 MOCK_SSO_USERS = {
-    "enterprise-001": {
-        "email": "ceo@company.com",
-        "full_name": "CEO User",
-    },
-    "enterprise-002": {
-            "email": "vpoperations@company.com",
-            "full_name": "Vpoperations User",
-    },
+    "enterprise-001": {"email": "ceo@company.com", "full_name": "CEO User"},
+    "enterprise-002": {"email": "vpoperations@company.com", "full_name": "Vpoperations User"},
 }
-# ------------------------------------------------------------
-# Mock SSO Login
-# ------------------------------------------------------------
 
-def mock_sso_login(
-    db: Session,
-    provider: str,
-    email: str,
-    full_name: str,
-    external_id: str,
-):
-    # 1. Validate provider
+
+def _require_enabled() -> str:
+    if not app_config.MOCK_SSO_ENABLED:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+    return app_config.MOCK_SSO_SECRET
+
+
+# ------------------------------------------------------------
+# Mock IdP side: issue a signed, short-lived assertion.
+# ------------------------------------------------------------
+def create_mock_sso_assertion(external_id: str) -> str:
+    secret = _require_enabled()
+    user = MOCK_SSO_USERS[external_id]
+    now = datetime.now(timezone.utc)
+    claims = {
+        "iss": MOCK_SSO_PROVIDER,
+        "aud": ASSERTION_AUDIENCE,
+        "sub": external_id,
+        "email": user["email"],
+        "name": user["full_name"],
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(seconds=ASSERTION_TTL_SECONDS)).timestamp()),
+    }
+    return jwt.encode(claims, secret, algorithm="HS256")
+
+
+# ------------------------------------------------------------
+# Platform side: verify the assertion, then issue our tokens.
+# ------------------------------------------------------------
+def mock_sso_login(db: Session, provider: str, assertion: str, client_ip: str):
+    secret = _require_enabled()
+
+    def reject(reason: str):
+        create_audit_log(
+            db=db,
+            event_type=SSO_REJECTED,
+            ip_address=client_ip,
+            details=f"SSO rejected: {reason}",
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="SSO authentication failed",
+        )
+
     if provider != MOCK_SSO_PROVIDER:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Unsupported SSO provider",
+        reject("unsupported provider")
+
+    try:
+        claims = jwt.decode(
+            assertion,
+            secret,
+            algorithms=["HS256"],
+            audience=ASSERTION_AUDIENCE,
+            issuer=MOCK_SSO_PROVIDER,
         )
+    except JWTError:
+        reject("invalid, expired or tampered assertion")
 
-    # 2. Validate external enterprise identity
-    enterprise_user = MOCK_SSO_USERS.get(external_id)
-
-    if enterprise_user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid enterprise identity",
-        )
-
-    # 3. Cross-check identity data
-    if (
-        enterprise_user["email"].lower() != email.lower()
-        or enterprise_user["full_name"] != full_name
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Enterprise identity mismatch",
-        )
-
-    # 4. Normalize email
-    email = email.lower()
-
-    # 5. Find existing user
-    user = (
-        db.query(User)
-        .filter(User.email == email)
-        .first()
-    )
+    email = str(claims.get("email", "")).lower()
+    user = db.query(User).filter(User.email == email).first()
 
     if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Enterprise SSO user is not registered in EAICSP",
-        )
+        reject("identity not registered in EAICSP")
+    if not user.is_active or user.role is None:
+        reject("inactive account or no role")
 
-    # 6. Check active account
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User account is inactive",
-        )
-
-    # 7. Check role
-    if user.role is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User role is not assigned",
-        )
-
-    # 8. Create access token
     access_token = create_access_token(
-        {
-            "sub": user.email,
-            "user_id": user.id,
-            "role": user.role.name,
-        }
+        {"sub": user.email, "user_id": user.id, "role": user.role.name}
     )
-
-    # 9. Create refresh token
-    refresh_token = create_refresh_token(
-        {
-            "sub": user.email,
-            "user_id": user.id,
-        }
-    )
-
-    # 10. Store refresh token
-    refresh_expires_at = (
-        datetime.now(timezone.utc)
-        + timedelta(days=7)
-    )
+    refresh_token = create_refresh_token({"sub": user.email, "user_id": user.id})
 
     save_refresh_token(
         db=db,
         user_id=user.id,
         token=refresh_token,
-        expires_at=refresh_expires_at,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=7),
     )
 
+    create_audit_log(
+        db=db,
+        event_type=SSO_LOGIN,
+        user_id=user.id,
+        email=user.email,
+        ip_address=client_ip,
+        details=f"Federated SSO login via {MOCK_SSO_PROVIDER} (external_id={claims.get('sub')})",
+    )
     db.commit()
 
-    # 11. Return tokens
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,

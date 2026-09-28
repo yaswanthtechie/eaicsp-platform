@@ -45,3 +45,14 @@ def setup_test_database():
     yield
  
     Base.metadata.drop_all(bind=engine)
+
+@pytest.fixture(autouse=True)
+def reset_in_memory_security_state():
+    from app.services.rate_limit_service import _request_buckets
+    from app.services.mfa_service import _mfa_challenges
+
+    _request_buckets.clear()
+    _mfa_challenges.clear()
+    yield
+    _request_buckets.clear()
+    _mfa_challenges.clear()

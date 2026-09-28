@@ -31,6 +31,7 @@ from app.core.token_cache import token_cache
 from app.core.permissions import ROLE_PERMISSIONS
 from app.core.service_auth import verify_service_api_key
 from app.schemas.auth import (
+    TokenResponse,
     VerifyResponse,
     RefreshRequest,
     AccessTokenResponse,
@@ -55,8 +56,7 @@ from app.core.dependencies import(
     get_current_user,
     oauth2_scheme
 )
-from app.services.mfa_service import verify_mfa_challenge
-
+from app.services.auth_service import complete_mfa_login
 import logging
 router = APIRouter(
     prefix="/api/v1/auth",
@@ -93,8 +93,9 @@ def register(
 
 @router.post(
 "/login",
-response_model=MFAChallengeResponse
+response_model=TokenResponse | MFAChallengeResponse
 )
+
 def login(
     request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
@@ -522,97 +523,28 @@ def verify_access_token(
 
 # ============================================================ 
 # MFA-VERIFY 
-# ============================================================ 
-@router.post( 
-    "/mfa/verify", 
-    response_model=MFATokenResponse, 
-) 
-def verify_mfa( 
-    request: Request, 
-    body: MFAVerifyRequest, 
-    db: Session = Depends(get_db), 
-): 
-    """ 
-    Verify the mock MFA OTP and issue JWT tokens. 
-    """ 
- 
-    # Get caller IP for rate limiting 
-    client_ip = get_client_ip(request) 
- 
-    # Rate-limit MFA verification attempts 
-    check_rate_limit( 
-        db=db, 
-        ip_address=client_ip, 
-        endpoint="/api/v1/auth/mfa/verify", 
-        abuse_event_type=MFA_ABUSE, 
-    ) 
- 
-    # Verify MFA challenge and OTP 
-    user_id = verify_mfa_challenge( 
-        body.challenge_id, 
-        body.otp, 
-    ) 
- 
-    if user_id is None: 
-        raise HTTPException( 
-            status_code=status.HTTP_401_UNAUTHORIZED, 
-            detail="Invalid or expired MFA code", 
-        ) 
- 
-    # Find the user 
-    user = ( 
-        db.query(User) 
-        .filter(User.id == user_id) 
-        .first() 
-    ) 
- 
-    if not user or not user.is_active: 
-        raise HTTPException( 
-            status_code=status.HTTP_401_UNAUTHORIZED, 
-            detail="Invalid authentication", 
-        ) 
- 
-    if user.role is None: 
-        raise HTTPException( 
-            status_code=status.HTTP_401_UNAUTHORIZED, 
-            detail="Invalid user role", 
-        ) 
- 
-    # Issue tokens only after successful MFA 
-    access_token = create_access_token( 
-        { 
-            "sub": user.email, 
-            "user_id": user.id, 
-            "role": user.role.name, 
-        } 
-    ) 
- 
-    refresh_token = create_refresh_token( 
-        { 
-            "sub": user.email, 
-            "user_id": user.id, 
-        } 
-    ) 
- 
-    # Store refresh token for rotation/revocation 
-    refresh_expires_at = ( 
-        datetime.now(timezone.utc) + timedelta(days=7) 
-    ) 
- 
-    save_refresh_token( 
-        db=db, 
-        user_id=user.id, 
-        token=refresh_token, 
-        expires_at=refresh_expires_at, 
-    ) 
- 
-    db.commit() 
- 
-    return MFATokenResponse( 
-        access_token=access_token, 
-        refresh_token=refresh_token, 
-        token_type="bearer", 
-    ) 
+# ============================================================
+@router.post("/mfa/verify", response_model=MFATokenResponse)
+def verify_mfa(
+    request: Request,
+    body: MFAVerifyRequest,
+    db: Session = Depends(get_db),
+):
+    client_ip = get_client_ip(request)
+
+    check_rate_limit(
+        db=db,
+        ip_address=client_ip,
+        endpoint="/api/v1/auth/mfa/verify",
+        abuse_event_type=MFA_ABUSE,
+    )
+
+    return complete_mfa_login(
+        db=db,
+        challenge_id=body.challenge_id,
+        otp=body.otp,
+        client_ip=client_ip,
+    )
  
 # ============================================================ 
 # SSO-LOGIN 
@@ -634,11 +566,10 @@ def sso_login(
         endpoint="/api/v1/auth/sso/login", 
         abuse_event_type=SSO_ABUSE, 
     ) 
- 
-    return mock_sso_login( 
-        db=db, 
-        provider=body.provider, 
-        email=body.email, 
-        full_name=body.full_name, 
-        external_id=body.external_id, 
-    ) 
+    
+    return mock_sso_login(
+        db=db,
+        provider=body.provider,
+        assertion=body.assertion,
+        client_ip=client_ip,
+    )

@@ -16,19 +16,10 @@ class MockEmailService:
         )
 
     @staticmethod
-    def send_mfa_otp(
-        email: str,
-        otp: str,
-    ) -> None:
+    def send_mfa_otp(email: str, otp: str) -> None:
         """
         Mock MFA OTP delivery.
 
-       this only logs the OTP instead of
-        sending a real email.
+        The OTP itself is never logged, it is a live credential.
         """
-        logger.info(
-            "MOCK MFA OTP EMAIL | "
-            "recipient=%s | otp=%s",
-            email,
-            otp,
-        )
+        logger.info("MOCK MFA OTP EMAIL | recipient=%s | otp=<redacted>", email)
