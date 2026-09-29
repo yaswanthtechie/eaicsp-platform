@@ -1648,3 +1648,24 @@ Prophet and XGBoost models are trained only on data before it, then forecast
   error. Coverage is 75% rather than 80% because there are only 24 backtests;
   it is measured on the same errors used for calibration, so treat it as a
   sanity check.
+
+  ### M2 — External Regressor Ablation Study
+
+A Prophet regressor ablation study was performed to measure the individual impact of the external regressors:
+
+* `is_holiday`
+* `promotion`
+* `weather_index`
+
+The baseline uses all three regressors. Each regressor was then removed individually while keeping the same dataset, train/test split, Prophet configuration, and evaluation procedure.
+
+| Configuration             |  MAPE |      RMSE |
+| ------------------------- | ----: | --------: |
+| Baseline — all regressors | 3.42% | 17,213.04 |
+| Remove `is_holiday`       | 3.46% | 17,347.33 |
+| Remove `promotion`        | 3.56% | 17,801.02 |
+| Remove `weather_index`    | 3.52% | 17,634.20 |
+
+**Result:** Removing any individual regressor increased both MAPE and RMSE on the current 17-point holdout evaluation. Therefore, the full-regressor Prophet configuration is retained for this experiment.
+
+**Important caveat:** `weather_index` is currently a deterministic synthetic/mock feature, not real weather data. Therefore, this experiment does not establish that real weather information improves forecasting. The results only describe the measured impact of the current feature on this dataset and evaluation split.
