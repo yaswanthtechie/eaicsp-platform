@@ -64,7 +64,7 @@ const Login = () => {
       );
 
       saveSupplierId(
-        response.supplier_id,
+        response.supplier_id ?? null,
         data.rememberMe,
       );
 
@@ -99,8 +99,6 @@ const Login = () => {
 
       navigate(nextPage);
     } catch (error) {
-      console.error("LOGIN ERROR:", error);
-
       const errorMessage =
         error instanceof Error
           ? error.message

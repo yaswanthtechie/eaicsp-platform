@@ -188,10 +188,6 @@ export default function Documents() {
           `${file.name} uploaded successfully.`,
         );
 
-        if (inputRef.current) {
-          inputRef.current.value = "";
-        }
-
         reset({
           documentType:
             data.documentType,
@@ -203,7 +199,9 @@ export default function Documents() {
     });
   };
 
-  const processFile = (file: File | undefined) => {
+  const processFile = (
+    file: File | undefined,
+  ) => {
     setSuccess("");
     clearErrors("file");
 
@@ -226,13 +224,22 @@ export default function Documents() {
     void handleSubmit(onSubmit)();
   };
 
-  const handleInputChange = (
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) => {
-    processFile(
-      event.target.files?.[0],
-    );
-  };
+const handleInputChange = (
+  event: React.ChangeEvent<HTMLInputElement>,
+) => {
+  const file = event.target.files?.[0];
+
+  /*
+   * Reset the native input value here, in the event
+   * handler, so picking the same file twice still
+   * fires onChange. Doing it via inputRef inside
+   * onSubmit made the submit handler read a ref,
+   * which the React Compiler lint rule rejects.
+   */
+  event.target.value = "";
+
+  processFile(file);
+};
 
   const handleDrop = (
     event: React.DragEvent<HTMLDivElement>,

@@ -120,6 +120,39 @@ export default function Shipments() {
     );
   }
 
+  /*
+   * The supplier ID is unknown when the login response did not
+   * carry one. Filtering would hide every row, which is correct
+   * but looks identical to "you have no shipments". Say so
+   * instead of showing a misleading empty state.
+   */
+  if (currentSupplierId === null) {
+    return (
+      <main className="shipments-page">
+        <header className="page-header">
+          <h1>
+            Shipment Tracking
+          </h1>
+
+          <p>
+            Track purchase order
+            deliveries and shipment
+            progress.
+          </p>
+        </header>
+
+        <div
+          className="error-state"
+          role="alert"
+        >
+          We could not identify your supplier account, so
+          shipments cannot be shown. Please sign in again,
+          and contact support if this keeps happening.
+        </div>
+      </main>
+    );
+  }
+
   if (error) {
     return (
       <main className="shipments-page">
@@ -311,3 +344,4 @@ export default function Shipments() {
     </main>
   );
 }
+

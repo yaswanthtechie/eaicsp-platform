@@ -1,4 +1,8 @@
-import { render, screen } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -142,26 +146,26 @@ describe("Documents", () => {
     );
   });
 
-it("supports keyboard focus on the upload drop zone", async () => {
-  const user = userEvent.setup();
+  it("supports keyboard focus on the upload drop zone", async () => {
+    const user = userEvent.setup();
 
-  render(<Documents />);
+    render(<Documents />);
 
-  const dropZone =
-    screen.getByLabelText(
-      "Upload PDF document",
+    const dropZone =
+      screen.getByLabelText(
+        "Upload PDF document",
+      );
+
+    expect(dropZone).toHaveAttribute(
+      "tabindex",
+      "0",
     );
 
-  expect(dropZone).toHaveAttribute(
-    "tabindex",
-    "0",
-  );
+    await user.tab();
+    await user.tab();
 
-  await user.tab();
-  await user.tab();
-
-  expect(dropZone).toHaveFocus();
-});
+    expect(dropZone).toHaveFocus();
+  });
 
   it("renders uploaded document statuses", async () => {
     render(<Documents />);
@@ -224,5 +228,79 @@ it("supports keyboard focus on the upload drop zone", async () => {
         name: "test-document.pdf",
       }),
     ).toBeInTheDocument();
+  });
+
+  it("rejects a non-PDF dropped on the upload zone", async () => {
+    render(<Documents />);
+
+    const dropZone = screen.getByRole("button", {
+      name: "Upload PDF document",
+    });
+
+    const file = new File(
+      ["not a pdf"],
+      "notes.txt",
+      {
+        type: "text/plain",
+      },
+    );
+
+    fireEvent.drop(dropZone, {
+      dataTransfer: {
+        files: [file],
+      },
+    });
+
+    expect(
+      await screen.findByText(
+        "Only PDF files are allowed.",
+      ),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.queryByText(
+        "notes.txt uploaded successfully.",
+      ),
+    ).not.toBeInTheDocument();
+  });
+
+  it("rejects a PDF larger than 5 MB", async () => {
+    const user = userEvent.setup();
+
+    render(<Documents />);
+
+    const fileInput =
+      document.getElementById(
+        "document-file",
+      ) as HTMLInputElement;
+
+    const oversized = new File(
+      [
+        new Uint8Array(
+          5 * 1024 * 1024 + 1,
+        ),
+      ],
+      "huge.pdf",
+      {
+        type: "application/pdf",
+      },
+    );
+
+    await user.upload(
+      fileInput,
+      oversized,
+    );
+
+    expect(
+      await screen.findByText(
+        "File size must be 5 MB or less.",
+      ),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.queryByText(
+        "huge.pdf uploaded successfully.",
+      ),
+    ).not.toBeInTheDocument();
   });
 });

@@ -27,14 +27,11 @@ import {
   getSupplierId,
 } from "../auth/tokenStorage";
 
-
 vi.mock("../api/auth", () => ({
   login: vi.fn(),
 }));
 
-
 const mockedLogin = vi.mocked(login);
-
 
 describe("Login → supplier identity integration", () => {
   afterEach(() => {
@@ -42,7 +39,6 @@ describe("Login → supplier identity integration", () => {
     clearTokens();
     vi.clearAllMocks();
   });
-
 
   it("persists the supplier ID returned by login", async () => {
     mockedLogin.mockResolvedValue({
@@ -52,13 +48,11 @@ describe("Login → supplier identity integration", () => {
       supplier_id: "SUP001",
     });
 
-
     render(
       <MemoryRouter>
         <Login />
       </MemoryRouter>,
     );
-
 
     fireEvent.change(
       screen.getByLabelText("Email"),
@@ -69,6 +63,54 @@ describe("Login → supplier identity integration", () => {
       },
     );
 
+    fireEvent.change(
+      screen.getByLabelText("Password"),
+      {
+        target: {
+          value: "password123",
+        },
+      },
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Login",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(mockedLogin).toHaveBeenCalledWith(
+        "supplier@company.com",
+        "password123",
+      );
+    });
+
+    await waitFor(() => {
+      expect(getSupplierId()).toBe("SUP001");
+    });
+  });
+
+  it("stores nothing when the login response omits the supplier ID", async () => {
+    mockedLogin.mockResolvedValue({
+      access_token: "access-token",
+      refresh_token: "refresh-token",
+      token_type: "bearer",
+    });
+
+    render(
+      <MemoryRouter>
+        <Login />
+      </MemoryRouter>,
+    );
+
+    fireEvent.change(
+      screen.getByLabelText("Email"),
+      {
+        target: {
+          value: "supplier@company.com",
+        },
+      },
+    );
 
     fireEvent.change(
       screen.getByLabelText("Password"),
@@ -79,24 +121,16 @@ describe("Login → supplier identity integration", () => {
       },
     );
 
-
     fireEvent.click(
       screen.getByRole("button", {
         name: "Login",
       }),
     );
 
-
     await waitFor(() => {
-      expect(mockedLogin).toHaveBeenCalledWith(
-        "supplier@company.com",
-        "password123",
-      );
+      expect(mockedLogin).toHaveBeenCalled();
     });
 
-
-    await waitFor(() => {
-      expect(getSupplierId()).toBe("SUP001");
-    });
+    expect(getSupplierId()).toBeNull();
   });
 });

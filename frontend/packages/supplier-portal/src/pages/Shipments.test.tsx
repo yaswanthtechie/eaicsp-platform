@@ -282,4 +282,24 @@ describe("Shipments", () => {
       screen.getAllByText("In Transit"),
     ).toHaveLength(2);
   });
+
+  it("explains itself when the supplier identity is unknown", async () => {
+    mockedGetShipments.mockResolvedValue(
+      mockShipments,
+    );
+
+    mockedGetSupplierId.mockReturnValue(null);
+
+    renderShipments();
+
+    expect(
+      await screen.findByRole("alert"),
+    ).toHaveTextContent(
+      /could not identify your supplier account/i,
+    );
+
+    expect(
+      screen.queryByText("Laptop"),
+    ).not.toBeInTheDocument();
+  });
 });

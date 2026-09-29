@@ -5,7 +5,13 @@ export interface LoginResponse {
   access_token: string;
   refresh_token: string;
   token_type: string;
-  supplier_id: string;
+
+  /*
+   * Optional until the platform service adds supplier_id to
+   * TokenResponse (services/platform/app/schemas/auth.py).
+   * Until then this is undefined at runtime.
+   */
+  supplier_id?: string;
 }
 
 export const login = async (

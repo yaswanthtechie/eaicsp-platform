@@ -1667,39 +1667,57 @@ When a supplier acknowledges a Purchase Order while offline:
 # Milestones 1–5 Implementation Summary
 
 ## Overview
-
 ## What I Found Broken vs What I Built
 
 ### Existing issues found
 
 During the initial review of the existing supplier portal flow, the following issues were identified:
 
-- **Supplier identity was not persisted after login.**
-  The login response contained a supplier ID, but the frontend did not save it. As a result, the Shipments page could not determine the logged-in supplier and displayed no supplier-specific shipments.
+* **Supplier identity was not persisted after login.**
+  The Shipments page filters by the logged-in supplier, but nothing stored a
+  supplier ID, so `getSupplierId()` always returned null and the page showed
+  its empty state permanently.
 
-- **Offline purchase-order acknowledgement replay used an inconsistent payload key.**
-  The queued acknowledgement was written using `poNumber`, while the replay logic expected `po_number`. This prevented queued acknowledgements from being replayed correctly.
+* **Offline purchase-order acknowledgement replay used an inconsistent payload key.**
+  The queued acknowledgement was written using `poNumber`, while the replay
+  logic expected `po_number`. This prevented queued acknowledgements from being
+  replayed correctly.
 
-- **Queued acknowledgement deduplication was too broad.**
-  The acknowledgement queue logic could discard previously queued acknowledgements when multiple purchase orders were waiting to be synchronized.
+* **Queued acknowledgement deduplication was too broad.**
+  The acknowledgement queue logic could discard previously queued acknowledgements
+  when multiple purchase orders were waiting to be synchronized.
 
 ### Fixes and features built
 
-- Persisted the supplier ID returned by the authentication API after successful login.
-- Updated the authentication backend login response to provide the supplier ID required by supplier-specific screens.
-- Verified supplier filtering in the Shipments page using the persisted supplier ID.
-- Fixed the offline acknowledgement payload contract to consistently use `poNumber`.
-- Updated offline acknowledgement replay to send the expected GraphQL variable.
-- Updated acknowledgement queue deduplication so acknowledgements for different purchase orders are preserved.
-- Added integration coverage verifying that the supplier ID returned during login is persisted.
-- Converted the Documents upload form to React Hook Form with Zod validation while preserving the existing automatic-upload experience.
-- Added validation for PDF file type and the 5 MB file-size limit.
-- Preserved loading, empty, error, upload-progress, and success states.
+* Persisted the supplier ID from the login response, and made the portal
+  fail safely when it is absent.
 
+**Known gap, supplier scoping is not live yet.** The platform login endpoint
+(`/api/v1/auth/login`) returns only `access_token`, `refresh_token` and
+`token_type`; `TokenResponse` in `services/platform/app/schemas/auth.py` has no
+`supplier_id`, and it is the endpoint's `response_model`, so any extra field
+would be stripped. Until that is added, the portal stores no supplier ID and
+the Shipments page shows an explanatory message instead of a shipment list.
+Tracked with the platform team (Rahul).
+
+* Fixed the offline acknowledgement payload contract to consistently use
+  `poNumber`.
+* Updated offline acknowledgement replay to send the expected GraphQL variable.
+* Updated acknowledgement queue deduplication so acknowledgements for different
+  purchase orders are preserved.
+* Added integration coverage verifying that the supplier ID returned during login
+  is persisted.
+* Converted the Documents upload form to React Hook Form with Zod validation while
+  preserving the existing automatic-upload experience.
+* Added validation for PDF file type and the 5 MB file-size limit.
+* Preserved loading, empty, error, upload-progress, and success states.
 
 The implementation completed the Supplier Portal requirements across Milestones 1–5.
 
-The work included stabilizing the inherited supplier workflow, adding the remaining supplier-facing screens, implementing real form validation, improving application robustness, and completing responsive and accessibility improvements.
+The work included stabilizing the inherited supplier workflow, adding the remaining
+supplier-facing screens, implementing real form validation, improving application
+robustness, and completing responsive and accessibility improvements.
+
 
 ## Milestone 1 – Existing Supplier Flow Stabilization
 
