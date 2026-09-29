@@ -2,27 +2,55 @@
   "interval_label": "80% empirical interval",
   "ratio_quantiles": {
     "1_day": {
-      "low": 0.879555,
-      "high": 1.120445
+      "low": 0.891658,
+      "high": 1.129306
     },
     "7_day": {
-      "low": 0.879555,
-      "high": 1.120445
+      "low": 0.999759,
+      "high": 1.110162
     },
     "30_day": {
-      "low": 0.879555,
-      "high": 1.120445
+      "low": 0.970798,
+      "high": 1.046833
     },
     "90_day": {
-      "low": 0.879555,
-      "high": 1.120445
+      "low": 0.989001,
+      "high": 1.060241
     }
+  },
+  "backtest_metrics": {
+    "1_day": {
+      "mape": 8.49,
+      "bias_pct": 1.47,
+      "coverage": 0.75,
+      "observations": 24
+    },
+    "7_day": {
+      "mape": 5.15,
+      "bias_pct": 4.78,
+      "coverage": 0.75,
+      "observations": 24
+    },
+    "30_day": {
+      "mape": 2.74,
+      "bias_pct": 1.57,
+      "coverage": 0.75,
+      "observations": 24
+    },
+    "90_day": {
+      "mape": 2.84,
+      "bias_pct": 2.44,
+      "coverage": 0.75,
+      "observations": 24
+    }
+  },
+  "quantiles": {
+    "low": 0.1,
+    "high": 0.9
   },
   "backtest_cutoffs": 24,
   "backtest_step_days": 30,
   "min_training_days": 730,
-  "quantiles": {
-    "low": 0.1,
-    "high": 0.9
-  }
+  "first_cutoff": "2014-03-06",
+  "last_cutoff": "2016-01-25"
 }

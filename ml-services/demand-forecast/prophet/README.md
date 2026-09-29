@@ -1622,16 +1622,29 @@ Because every horizon comes from the same daily path, they cannot contradict eac
 ### Output (per horizon)
 predicted total, 80% empirical interval (from rolling-origin backtest errors),
 top drivers (Prophet components + XGBoost SHAP contributions).
+### Accuracy (out-of-sample rolling-origin backtest)
 
-### Accuracy (out-of-sample, 24 rolling origins)
-| Horizon | MAPE |
-|---|---:|
-| 1-day | 12.04% |
-| 7-day | 12.04% |
-| 30-day | 12.04% |
-| 90-day | 12.04% |
+24 cutoffs, one every 30 days, from 2014-03-06 to 2016-01-25 (anchored at the
+end of the data, so the most recent year is included). At each cutoff, fresh
+Prophet and XGBoost models are trained only on data before it, then forecast
+90 days recursively. Every backtest total is saved in
+`models/multi_horizon/backtest_results.csv`, and the run is logged to MLflow
+(experiment `demand_forecast_multi_horizon`).
 
-### Known limitations
-- Aggregate (all-SKU) daily demand only.
-- Holidays = US federal calendar; M5 events/SNAP not yet used (Task 2).
-- Forecasts start from the training end date; retrain to forecast from newer data.
+| Horizon | MAPE | Bias | 80% interval (multiplier) | Backtest coverage |
+|---|---:|---:|---|---:|
+| 1-day  | 8.49% | +1.47% | 0.892 - 1.129 | 75% |
+| 7-day  | 5.15% | +4.78% | 1.000 - 1.110 | 75% |
+| 30-day | 2.74% | +1.57% | 0.971 - 1.047 | 75% |
+| 90-day | 2.84% | +2.44% | 0.989 - 1.060 | 75% |
+
+- MAPE = mean(|actual - predicted| / actual). Error shrinks as the horizon
+  grows because daily ups and downs cancel out in totals.
+- Bias is positive at every horizon, indicating under-forecasting on average.
+  The largest positive bias is on the 7-day horizon (+4.78%).
+  The 7-day under-forecast is so consistent that its interval barely goes
+  below the prediction.
+- The interval is the 10th-90th percentile of each horizon's own backtest
+  error. Coverage is 75% rather than 80% because there are only 24 backtests;
+  it is measured on the same errors used for calibration, so treat it as a
+  sanity check.

@@ -15,7 +15,7 @@ from sklearn.metrics import (
 )
 
 from src.ensemble import weighted_ensemble
-from src.multi_horizon import prepare_history
+from src.multi_horizon import load_ensemble_weights, prepare_history
 from src.multi_horizon_config import (
     MODEL_DIR,
     PROPHET_MODEL_PATH,
@@ -25,12 +25,12 @@ from src.multi_horizon_config import (
     INTERVALS_PATH,
     BACKTEST_CUTOFFS,
     BACKTEST_STEP_DAYS,
+    BACKTEST_RESULTS_PATH,
+    MLFLOW_EXPERIMENT,
     MIN_TRAINING_DAYS,
     INTERVAL_QUANTILES,
     PROPHET_PARAMS,
-    WEIGHTS_PATH,
 )
-
 from src.multi_horizon_data import load_daily_data
 
 from src.multi_horizon_inference import (
@@ -416,26 +416,90 @@ def _train_backtest_xgboost(train_df):
     }
 
 
+def summarise_backtest(backtest: pd.DataFrame) -> dict:
+    """
+    Turn per-cutoff backtest results into honest metrics and intervals.
+
+    `backtest` has one row per (cutoff, horizon) with columns
+    horizon, actual, predicted.
+
+    For each horizon:
+      - mape: mean(|actual - predicted| / actual) * 100, a real MAPE.
+      - bias_pct: mean((actual - predicted) / predicted) * 100.
+      - low/high: multipliers from the INTERVAL_QUANTILES of the SIGNED
+        error (actual / predicted - 1). With (0.10, 0.90) this is a real
+        80% interval, and it can be asymmetric. The multipliers are
+        widened to include 1.0 so the interval always contains the
+        prediction.
+      - coverage: share of backtest totals inside the interval. It is
+        measured on the same errors used to calibrate, so it is
+        optimistic; it is a sanity check, not a validation score.
+
+    Intervals are NOT forced to be equal across horizons: each horizon
+    is calibrated on its own errors.
+    """
+
+    low_q, high_q = INTERVAL_QUANTILES
+    coverage_pct = round((high_q - low_q) * 100)
+
+    ratio_quantiles = {}
+    metrics = {}
+
+    for horizon_name in HORIZONS:
+        rows = backtest[backtest["horizon"] == horizon_name]
+
+        if len(rows) < 3:
+            raise ValueError(
+                f"Not enough calibration observations "
+                f"for {horizon_name}: {len(rows)}"
+            )
+
+        actual = rows["actual"].to_numpy(dtype=float)
+        predicted = rows["predicted"].to_numpy(dtype=float)
+        signed_error = actual / predicted - 1.0
+
+        low = max(0.0, min(1.0, 1.0 + float(np.quantile(signed_error, low_q))))
+        high = max(1.0, 1.0 + float(np.quantile(signed_error, high_q)))
+
+        inside = (actual >= predicted * low) & (actual <= predicted * high)
+
+        ratio_quantiles[horizon_name] = {
+            "low": round(low, 6),
+            "high": round(high, 6),
+        }
+
+        metrics[horizon_name] = {
+            "mape": round(float(np.mean(np.abs(actual - predicted) / actual)) * 100, 2),
+            "bias_pct": round(float(np.mean(signed_error)) * 100, 2),
+            "coverage": round(float(np.mean(inside)), 3),
+            "observations": int(len(rows)),
+        }
+
+    return {
+        "interval_label": f"{coverage_pct}% empirical interval",
+        "ratio_quantiles": ratio_quantiles,
+        "backtest_metrics": metrics,
+        "quantiles": {
+            "low": low_q,
+            "high": high_q,
+        },
+    }
+
+
 def calibrate_horizon_intervals(df):
     """
     Calibrate empirical prediction intervals using
     rolling-origin backtesting.
 
-    Each cutoff:
+    Cutoffs are anchored at the END of the data and step backwards, so
+    the most recent behaviour is always included. Each cutoff:
 
-      1. Trains fresh Prophet and XGBoost models.
-      2. Forecasts the next 90 days.
-      3. Builds 1/7/30/90-day totals.
-      4. Calculates absolute relative error for each horizon.
-      5. Uses the empirical upper error quantile.
-      6. Converts the error into prediction-centered
-         lower and upper multipliers.
-      7. Prevents uncertainty from shrinking as the
-         forecast horizon increases.
+      1. Trains fresh Prophet and XGBoost models on data before it.
+      2. Forecasts the next 90 days (recursively, like production).
+      3. Builds 1/7/30/90-day totals and records actual vs predicted.
 
-    The calibrated multipliers are saved to
-    horizon_intervals.json and later used by
-    src.multi_horizon.py.
+    summarise_backtest() then turns those records into per-horizon
+    MAPE, bias, coverage and interval multipliers.
     """
 
     print(
@@ -449,11 +513,8 @@ def calibrate_horizon_intervals(df):
     )
 
     total_rows = len(df)
-
-    required_rows = (
-        MIN_TRAINING_DAYS
-        + max(HORIZONS.values())
-    )
+    max_forecast_days = max(HORIZONS.values())
+    required_rows = MIN_TRAINING_DAYS + max_forecast_days
 
     if total_rows < required_rows:
         raise ValueError(
@@ -461,85 +522,20 @@ def calibrate_horizon_intervals(df):
             f"Need at least {required_rows}, got {total_rows}."
         )
 
-    if not WEIGHTS_PATH.exists():
-        raise FileNotFoundError(
-            f"Ensemble weights not found: {WEIGHTS_PATH}"
-        )
+    weights = load_ensemble_weights()
 
-    with WEIGHTS_PATH.open(
-        "r",
-        encoding="utf-8",
-    ) as file:
-        weight_data = json.load(file)
-
-    prophet_weight = float(
-        weight_data["prophet"]
-    )
-
-    xgb_weight = float(
-        weight_data["xgb"]
-    )
-
-    weights_total = (
-        prophet_weight
-        + xgb_weight
-    )
-
-    if not np.isfinite(
-        prophet_weight
-    ) or not np.isfinite(
-        xgb_weight
-    ):
-        raise ValueError(
-            "Ensemble weights must be finite."
-        )
-
-    if prophet_weight < 0 or xgb_weight < 0:
-        raise ValueError(
-            "Ensemble weights must be non-negative."
-        )
-
-    if not np.isclose(
-        weights_total,
-        1.0,
-    ):
-        raise ValueError(
-            f"Ensemble weights must sum to 1.0, "
-            f"got {weights_total}"
-        )
-
-    # Store absolute relative errors rather than
-    # actual/predicted ratios.
-    errors = {
-        horizon_name: []
-        for horizon_name in HORIZONS
-    }
-
-    max_forecast_days = max(
-        HORIZONS.values()
-    )
-
-    max_cutoff = (
-        total_rows
-        - max_forecast_days
-    )
-
+    # Latest possible cutoff first, then step backwards.
     cutoff_positions = []
-
-    position = MIN_TRAINING_DAYS
+    position = total_rows - max_forecast_days
 
     while (
-        position <= max_cutoff
-        and len(cutoff_positions)
-        < BACKTEST_CUTOFFS
+        position >= MIN_TRAINING_DAYS
+        and len(cutoff_positions) < BACKTEST_CUTOFFS
     ):
-        cutoff_positions.append(
-            position
-        )
+        cutoff_positions.append(position)
+        position -= BACKTEST_STEP_DAYS
 
-        position += (
-            BACKTEST_STEP_DAYS
-        )
+    cutoff_positions.sort()
 
     if not cutoff_positions:
         raise ValueError(
@@ -551,68 +547,37 @@ def calibrate_horizon_intervals(df):
         len(cutoff_positions),
     )
 
+    records = []
+
     for cycle, cutoff_position in enumerate(
         cutoff_positions,
         start=1,
     ):
-        print(
-            f"\nBacktest "
-            f"{cycle}/{len(cutoff_positions)}"
-        )
-
-        train_df = df.iloc[
-            :cutoff_position
-        ].copy()
-
+        train_df = df.iloc[:cutoff_position].copy()
         test_df = df.iloc[
             cutoff_position:
             cutoff_position + max_forecast_days
         ].copy()
 
-        if len(test_df) < max_forecast_days:
-            continue
-
-        # ----------------------------------------------
-        # Train fresh Prophet
-        # ----------------------------------------------
-
-        prophet_model = (
-            _train_backtest_prophet(
-                train_df
-            )
+        print(
+            f"Backtest {cycle}/{len(cutoff_positions)} "
+            f"(cutoff {train_df[DATE_COLUMN].max().date()})"
         )
 
-        prophet_predictions = (
-            _forecast_backtest_prophet(
-                prophet_model,
-                train_df,
-                max_forecast_days,
-            )
+        prophet_predictions = _forecast_backtest_prophet(
+            _train_backtest_prophet(train_df),
+            train_df,
+            max_forecast_days,
         )
 
-        # ----------------------------------------------
-        # Train fresh XGBoost
-        # ----------------------------------------------
-
-        xgb_package = (
-            _train_backtest_xgboost(
-                train_df
-            )
-        )
-
-        xgb_forecast = (
-            predict_future_xgboost(
-                model_info=xgb_package,
-                history_df=train_df,
-                horizon_days=max_forecast_days,
-            )
+        xgb_forecast = predict_future_xgboost(
+            model_info=_train_backtest_xgboost(train_df),
+            history_df=train_df,
+            horizon_days=max_forecast_days,
         )
 
         xgb_predictions = np.asarray(
-            [
-                float(row["prediction"])
-                for row in xgb_forecast
-            ],
+            [float(row["prediction"]) for row in xgb_forecast],
             dtype=float,
         )
 
@@ -626,181 +591,65 @@ def calibrate_horizon_intervals(df):
                 "XGBoost backtest forecast length mismatch."
             )
 
-        # ----------------------------------------------
-        # Ensemble forecast
-        # ----------------------------------------------
-
         ensemble_predictions = np.asarray(
             [
                 weighted_ensemble(
-                    prophet_prediction,
-                    xgb_prediction,
-                    prophet_weight,
-                    xgb_weight,
+                    p,
+                    x,
+                    weights["prophet"],
+                    weights["xgb"],
                 )
-                for prophet_prediction, xgb_prediction
-                in zip(
-                    prophet_predictions,
-                    xgb_predictions,
-                )
+                for p, x in zip(prophet_predictions, xgb_predictions)
             ],
             dtype=float,
         )
 
-        actual_values = test_df[
-            TARGET_COLUMN
-        ].to_numpy(
-            dtype=float
-        )
-
-        # ----------------------------------------------
-        # Calculate horizon relative errors
-        # ----------------------------------------------
+        actual_values = test_df[TARGET_COLUMN].to_numpy(dtype=float)
 
         for horizon_name, horizon_days in HORIZONS.items():
+            predicted_total = float(np.sum(ensemble_predictions[:horizon_days]))
+            actual_total = float(np.sum(actual_values[:horizon_days]))
 
-            predicted_total = float(
-                np.sum(
-                    ensemble_predictions[
-                        :horizon_days
-                    ]
-                )
-            )
-
-            actual_total = float(
-                np.sum(
-                    actual_values[
-                        :horizon_days
-                    ]
-                )
-            )
-
-            if predicted_total <= 0:
+            if predicted_total <= 0 or actual_total <= 0:
                 continue
 
-            relative_error = (
-                abs(
-                    actual_total
-                    - predicted_total
-                )
-                / predicted_total
+            records.append(
+                {
+                    "cutoff": str(train_df[DATE_COLUMN].max().date()),
+                    "horizon": horizon_name,
+                    "actual": actual_total,
+                    "predicted": predicted_total,
+                }
             )
 
-            if not np.isfinite(
-                relative_error
-            ):
-                continue
+    backtest = pd.DataFrame(records)
+    calibration = summarise_backtest(backtest)
 
-            errors[
-                horizon_name
-            ].append(
-                float(relative_error)
-            )
-
-    # ----------------------------------------------
-    # Empirical error quantiles
-    # ----------------------------------------------
-
-    ratio_quantiles = {}
-
-    _, high_quantile = (
-        INTERVAL_QUANTILES
-    )
-
-    previous_error = 0.0
-
-    for horizon_name in HORIZONS:
-
-        values = np.asarray(
-            errors[horizon_name],
-            dtype=float,
-        )
-
-        if len(values) < 3:
-            raise ValueError(
-                f"Not enough calibration observations "
-                f"for {horizon_name}: {len(values)}"
-            )
-
-        error_quantile = float(
-            np.quantile(
-                values,
-                high_quantile,
-            )
-        )
-
-        # Do not allow interval uncertainty
-        # to shrink at a longer horizon.
-        error_quantile = max(
-            previous_error,
-            error_quantile,
-        )
-
-        previous_error = error_quantile
-
-        low = max(
-            0.0,
-            1.0 - error_quantile,
-        )
-
-        high = 1.0 + error_quantile
-
-        ratio_quantiles[
-            horizon_name
-        ] = {
-            "low": round(
-                low,
-                6,
-            ),
-            "high": round(
-                high,
-                6,
-            ),
+    calibration.update(
+        {
+            "backtest_cutoffs": len(cutoff_positions),
+            "backtest_step_days": BACKTEST_STEP_DAYS,
+            "min_training_days": MIN_TRAINING_DAYS,
+            "first_cutoff": backtest["cutoff"].min(),
+            "last_cutoff": backtest["cutoff"].max(),
         }
-
-        print(
-            f"{horizon_name}: "
-            f"observations={len(values)}, "
-            f"error={error_quantile:.6f}, "
-            f"low={low:.6f}, "
-            f"high={high:.6f}"
-        )
-
-    calibration = {
-        "interval_label": (
-            "80% empirical interval"
-        ),
-        "ratio_quantiles": ratio_quantiles,
-        "backtest_cutoffs": len(
-            cutoff_positions
-        ),
-        "backtest_step_days": (
-            BACKTEST_STEP_DAYS
-        ),
-        "min_training_days": (
-            MIN_TRAINING_DAYS
-        ),
-        "quantiles": {
-            "low": INTERVAL_QUANTILES[0],
-            "high": INTERVAL_QUANTILES[1],
-        },
-    }
-
-    MODEL_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
     )
 
-    with INTERVALS_PATH.open(
-        "w",
-        encoding="utf-8",
-    ) as file:
-
-        json.dump(
-            calibration,
-            file,
-            indent=2,
+    for horizon_name, m in calibration["backtest_metrics"].items():
+        q = calibration["ratio_quantiles"][horizon_name]
+        print(
+            f"{horizon_name}: MAPE={m['mape']:.2f}%, "
+            f"bias={m['bias_pct']:+.2f}%, "
+            f"interval=[{q['low']:.4f}, {q['high']:.4f}], "
+            f"coverage={m['coverage']:.0%}"
         )
+
+    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+    backtest.to_csv(BACKTEST_RESULTS_PATH, index=False)
+
+    with INTERVALS_PATH.open("w", encoding="utf-8") as file:
+        json.dump(calibration, file, indent=2)
 
     print(
         "\nHorizon interval calibration saved:",
@@ -809,70 +658,87 @@ def calibrate_horizon_intervals(df):
 
     return calibration
 
+def log_training_run(calibration: dict, weights: dict, n_rows: int) -> None:
+    """
+    Log the multi-horizon training run to MLflow: parameters,
+    per-horizon backtest metrics, and every model/calibration artifact.
+
+    Must be called inside an active MLflow run.
+    """
+
+    mlflow.log_params(
+        {
+            **{f"xgb_{k}": v for k, v in XGB_PARAMS.items()},
+            **{f"prophet_{k}": v for k, v in PROPHET_PARAMS.items()},
+            "weight_prophet": weights["prophet"],
+            "weight_xgb": weights["xgb"],
+            "backtest_cutoffs": calibration["backtest_cutoffs"],
+            "backtest_step_days": BACKTEST_STEP_DAYS,
+            "min_training_days": MIN_TRAINING_DAYS,
+            "interval_quantiles": str(INTERVAL_QUANTILES),
+            "training_rows": n_rows,
+        }
+    )
+
+    for horizon_name, m in calibration["backtest_metrics"].items():
+        mlflow.log_metrics(
+            {
+                f"{horizon_name}_mape": m["mape"],
+                f"{horizon_name}_bias_pct": m["bias_pct"],
+                f"{horizon_name}_interval_coverage": m["coverage"],
+            }
+        )
+
+    for path in (
+        PROPHET_MODEL_PATH,
+        XGB_MODEL_PATH,
+        INTERVALS_PATH,
+        BACKTEST_RESULTS_PATH,
+    ):
+        mlflow.log_artifact(str(path), artifact_path="multi_horizon")
+
 
 def train_all():
     """
-    Train both daily models and calibrate
-    empirical multi-horizon intervals.
+    Train both daily models, calibrate empirical multi-horizon
+    intervals, and log everything to MLflow.
     """
 
     df = load_daily_data()
 
-    print(
-        "\nDataset:"
-    )
+    print("\nDataset:")
+    print(f"Rows : {len(df)}")
+    print(f"Start: {df[DATE_COLUMN].min().date()}")
+    print(f"End  : {df[DATE_COLUMN].max().date()}")
 
-    print(
-        f"Rows : {len(df)}"
-    )
+    mlflow.set_experiment(MLFLOW_EXPERIMENT)
 
-    print(
-        f"Start: {df[DATE_COLUMN].min().date()}"
-    )
+    with mlflow.start_run(run_name="multi_horizon_training"):
+        evaluate_xgboost_daily(
+            df,
+            test_days=90,
+        )
 
-    print(
-        f"End  : {df[DATE_COLUMN].max().date()}"
-    )
+        prophet_model = train_prophet_daily(df)
+        xgb_package = train_xgboost_daily(df)
+        calibration = calibrate_horizon_intervals(df)
 
-    evaluate_xgboost_daily(
-        df,
-        test_days=90,
-    )
+        log_training_run(
+            calibration,
+            load_ensemble_weights(),
+            len(df),
+        )
 
-    prophet_model = train_prophet_daily(
-        df
-    )
-
-    xgb_package = train_xgboost_daily(
-        df
-    )
-
-    calibration = calibrate_horizon_intervals(
-        df
-    )
-
-    print(
-        "\n========================================"
-    )
-
-    print(
-        "Daily multi-horizon models trained."
-    )
-
-    print(
-        "Horizon intervals calibrated."
-    )
-
-    print(
-        "========================================"
-    )
+    print("\n========================================")
+    print("Daily multi-horizon models trained.")
+    print("Horizon intervals calibrated and logged to MLflow.")
+    print("========================================")
 
     return {
         "prophet": prophet_model,
         "xgb": xgb_package,
         "interval_calibration": calibration,
     }
-
 
 if __name__ == "__main__":
     train_all()

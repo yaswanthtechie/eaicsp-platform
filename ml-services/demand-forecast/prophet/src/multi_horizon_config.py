@@ -51,7 +51,8 @@ BACKTEST_CUTOFFS = 24
 BACKTEST_STEP_DAYS = 30
 MIN_TRAINING_DAYS = 730
 
-# 80% empirical prediction interval.
+# 80% empirical prediction interval: 10th and 90th percentile of the
+# signed backtest error (actual / predicted - 1), per horizon.
 INTERVAL_QUANTILES = (0.10, 0.90)
 
 MLFLOW_EXPERIMENT = "demand_forecast_multi_horizon"

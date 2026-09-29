@@ -114,3 +114,119 @@ def test_end_to_end_predict_on_committed_models():
         horizon = result["horizons"][name]
         assert horizon["lower"] <= horizon["upper"]
         assert horizon["explanation"]["top_drivers"]
+
+
+# ---------------------------------------------------------------------------
+# Calibration: real MAPE, real 80% interval, per-horizon (not copied)
+# ---------------------------------------------------------------------------
+
+from src.multi_horizon import parse_ensemble_weights
+from src.train_multi_horizon import summarise_backtest
+
+
+def _backtest(errors_by_horizon, predicted=1000.0):
+    """One row per (cutoff, horizon) with actual = predicted * (1 + error)."""
+    rows = []
+    for horizon, errors in errors_by_horizon.items():
+        for e in errors:
+            rows.append({"horizon": horizon, "predicted": predicted, "actual": predicted * (1 + e)})
+    return pd.DataFrame(rows)
+
+
+def test_summarise_backtest_reports_real_mape_and_80_percent_label():
+    errors = np.linspace(-0.2, 0.2, 21)  # symmetric errors from -20% to +20%
+    result = summarise_backtest(_backtest({name: errors for name in HORIZONS}))
+
+    assert result["interval_label"] == "80% empirical interval"
+    for name in HORIZONS:
+        q = result["ratio_quantiles"][name]
+        assert q["low"] == pytest.approx(1 + np.quantile(errors, 0.10))
+        assert q["high"] == pytest.approx(1 + np.quantile(errors, 0.90))
+        expected_mape = np.mean(np.abs(errors) / (1 + errors)) * 100  # |a - p| / a
+        assert result["backtest_metrics"][name]["mape"] == pytest.approx(expected_mape, abs=0.01)
+
+
+def test_each_horizon_is_calibrated_on_its_own_errors():
+    result = summarise_backtest(_backtest({
+        "1_day": np.linspace(-0.20, 0.20, 21),
+        "7_day": np.linspace(-0.10, 0.10, 21),
+        "30_day": np.linspace(-0.05, 0.05, 21),
+        "90_day": np.linspace(-0.03, 0.03, 21),
+    }))
+
+    highs = [result["ratio_quantiles"][name]["high"] for name in HORIZONS]
+    assert len(set(highs)) == 4  # not copied from the 1-day horizon
+
+
+def test_interval_always_contains_the_prediction():
+    # The model always under-forecasts, so every error is positive.
+    result = summarise_backtest(_backtest({name: np.linspace(0.05, 0.15, 11) for name in HORIZONS}))
+
+    for name in HORIZONS:
+        assert result["ratio_quantiles"][name]["low"] == 1.0
+        assert result["ratio_quantiles"][name]["high"] > 1.0
+        assert result["backtest_metrics"][name]["bias_pct"] > 0
+
+
+def test_summarise_backtest_needs_enough_observations():
+    with pytest.raises(ValueError, match="Not enough calibration observations"):
+        summarise_backtest(_backtest({name: [0.1, -0.1] for name in HORIZONS}))
+
+
+# ---------------------------------------------------------------------------
+# Weights: both formats that exist in the repo are accepted
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("weights", [
+    {"prophet": 0.7, "xgb": 0.3},                 # this PR
+    {"prophet_weight": 0.7, "xgb_weight": 0.3},   # automated_retraining.py
+])
+def test_parse_ensemble_weights_accepts_both_formats(weights):
+    assert parse_ensemble_weights(weights) == {"prophet": 0.7, "xgb": 0.3}
+
+
+@pytest.mark.parametrize("weights, message", [
+    ({"a": 1}, "must contain"),
+    ({"prophet": 0.8, "xgb": 0.3}, "sum to 1.0"),
+    ({"prophet": 1.2, "xgb": -0.2}, "negative"),
+])
+def test_parse_ensemble_weights_rejects_bad_input(weights, message):
+    with pytest.raises(ValueError, match=message):
+        parse_ensemble_weights(weights)
+
+
+# ---------------------------------------------------------------------------
+# MLflow: the training run is actually logged
+# ---------------------------------------------------------------------------
+
+def test_log_training_run_logs_params_metrics_and_artifacts(tmp_path, monkeypatch):
+    import mlflow
+    import src.train_multi_horizon as tmh
+
+    artifacts = {}
+    for attr in ("PROPHET_MODEL_PATH", "XGB_MODEL_PATH", "INTERVALS_PATH", "BACKTEST_RESULTS_PATH"):
+        path = tmp_path / f"{attr.lower()}.txt"
+        path.write_text("x", encoding="utf-8")
+        monkeypatch.setattr(tmh, attr, path)
+        artifacts[attr] = path.name
+
+    calibration = summarise_backtest(_backtest({name: np.linspace(-0.1, 0.1, 11) for name in HORIZONS}))
+    calibration["backtest_cutoffs"] = 11
+
+    # Keep the tracking DB and artifacts inside tmp_path, never in the repo.
+    mlflow.set_tracking_uri(f"sqlite:///{(tmp_path / 'mlflow.db').as_posix()}")
+    experiment_id = mlflow.create_experiment(
+        "test_multi_horizon",
+        artifact_location=(tmp_path / "artifacts").as_uri(),
+    )
+    with mlflow.start_run(experiment_id=experiment_id) as run:
+        tmh.log_training_run(calibration, {"prophet": 0.7, "xgb": 0.3}, n_rows=1913)
+
+    logged = mlflow.get_run(run.info.run_id).data
+    assert logged.params["weight_prophet"] == "0.7"
+    for name in HORIZONS:
+        assert f"{name}_mape" in logged.metrics
+        assert f"{name}_interval_coverage" in logged.metrics
+
+    listed = {a.path for a in mlflow.MlflowClient().list_artifacts(run.info.run_id, "multi_horizon")}
+    assert {f"multi_horizon/{n}" for n in artifacts.values()} <= listed

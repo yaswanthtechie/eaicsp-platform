@@ -40,7 +40,9 @@ PROPHET_COMPONENTS = (
     "trend",
     "weekly",
     "yearly",
-    "holidays",
+    # Prophet was trained with add_regressor("is_holiday"), so its
+    # holiday effect is the "is_holiday" column, not "holidays".
+    "is_holiday",
 )
 
 _US_HOLIDAYS = holidays.US()
@@ -78,48 +80,36 @@ def load_xgb_model():
     with XGB_MODEL_PATH.open("rb") as f:
         return pickle.load(f)
 
+def parse_ensemble_weights(weights) -> dict[str, float]:
+    """
+    Validate ensemble weights and return {"prophet": w, "xgb": w}.
 
-def load_ensemble_weights() -> dict[str, float]:
-    """Load promoted Prophet/XGBoost ensemble weights."""
-
-    if not WEIGHTS_PATH.exists():
-        raise FileNotFoundError(
-            f"Ensemble weights not found: {WEIGHTS_PATH}."
-        )
-
-    with WEIGHTS_PATH.open(
-        "r",
-        encoding="utf-8",
-    ) as f:
-        weights = json.load(f)
+    Accepts both formats that exist in this repo:
+      - {"prophet": 0.7, "xgb": 0.3}               (this PR)
+      - {"prophet_weight": 0.7, "xgb_weight": 0.3}  (written by
+        automated_retraining.py when it promotes a model)
+    """
 
     if not isinstance(weights, dict):
         raise ValueError(
             "Ensemble weights must be a dictionary."
         )
 
-    if "prophet" not in weights or "xgb" not in weights:
+    if "prophet" in weights and "xgb" in weights:
+        prophet_weight = float(weights["prophet"])
+        xgb_weight = float(weights["xgb"])
+    elif "prophet_weight" in weights and "xgb_weight" in weights:
+        prophet_weight = float(weights["prophet_weight"])
+        xgb_weight = float(weights["xgb_weight"])
+    else:
         raise ValueError(
-            "Ensemble weights must contain "
-            "'prophet' and 'xgb'."
+            "Ensemble weights must contain 'prophet'/'xgb' "
+            "or 'prophet_weight'/'xgb_weight'."
         )
 
-    prophet_weight = float(
-        weights["prophet"]
-    )
-
-    xgb_weight = float(
-        weights["xgb"]
-    )
-
-    if not np.isfinite(prophet_weight):
+    if not (np.isfinite(prophet_weight) and np.isfinite(xgb_weight)):
         raise ValueError(
-            "Prophet ensemble weight must be finite."
-        )
-
-    if not np.isfinite(xgb_weight):
-        raise ValueError(
-            "XGBoost ensemble weight must be finite."
+            "Ensemble weights must be finite."
         )
 
     if prophet_weight < 0 or xgb_weight < 0:
@@ -142,6 +132,20 @@ def load_ensemble_weights() -> dict[str, float]:
         "xgb": xgb_weight,
     }
 
+
+def load_ensemble_weights() -> dict[str, float]:
+    """Load promoted Prophet/XGBoost ensemble weights (either format)."""
+
+    if not WEIGHTS_PATH.exists():
+        raise FileNotFoundError(
+            f"Ensemble weights not found: {WEIGHTS_PATH}."
+        )
+
+    with WEIGHTS_PATH.open(
+        "r",
+        encoding="utf-8",
+    ) as f:
+        return parse_ensemble_weights(json.load(f))
 
 # ---------------------------------------------------------------------------
 # History preparation
