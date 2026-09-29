@@ -1,4 +1,4 @@
-﻿Sales ETL Pipeline
+Sales ETL Pipeline
 
 Overview
 
@@ -45,53 +45,53 @@ Project Structure
 
 data-platform/
 
-â”‚
+│
 
-â”œâ”€â”€ dags/
+├── dags/
 
-â”‚ Â  â””â”€â”€ sales_etl_dag.py
+│   └── sales_etl_dag.py
 
-â”‚
+│
 
-â”œâ”€â”€ etl/
+├── etl/
 
-â”‚ Â  â””â”€â”€ src/
+│   └── src/
 
-â”‚ Â  Â  Â  â”œâ”€â”€ extract.py
+│       ├── extract.py
 
-â”‚ Â  Â  Â  â”œâ”€â”€ transform.py
+│       ├── transform.py
 
-â”‚ Â  Â  Â  â”œâ”€â”€ quality_gate.py
+│       ├── quality_gate.py
 
-â”‚ Â  Â  Â  â”œâ”€â”€ load.py
+│       ├── load.py
 
-â”‚ Â  Â  Â  â”œâ”€â”€ pipeline.py
+│       ├── pipeline.py
 
-â”‚ Â  Â  Â  â”œâ”€â”€ main.py
+│       ├── main.py
 
-â”‚ Â  Â  Â  â”œâ”€â”€ alerts.py
+│       ├── alerts.py
 
-â”‚ Â  Â  Â  â”œâ”€â”€ alerts_api.py
+│       ├── alerts_api.py
 
-â”‚ Â  Â  Â  â”œâ”€â”€ lineage_api.py
+│       ├── lineage_api.py
 
-â”‚ Â  Â  Â  â”œâ”€â”€ alert_service.py
+│       ├── alert_service.py
 
-â”‚ Â  Â  Â  â”œâ”€â”€ data_contract.py
+│       ├── data_contract.py
 
-â”‚ Â  Â  Â  â”œâ”€â”€ pandera_schema.py
+│       ├── pandera_schema.py
 
-â”‚ Â  Â  Â  â””â”€â”€ schema_drift.py
+│       └── schema_drift.py
 
-â”‚
+│
 
-â”œâ”€â”€ sql/
+├── sql/
 
-â”‚ Â  â””â”€â”€ schema.sql
+│   └── schema.sql
 
-â”‚
+│
 
-â””â”€â”€ docker-compose.yml
+└── docker-compose.yml
 
 
 ETL Pipeline Flow
@@ -99,41 +99,41 @@ ETL Pipeline Flow
 
 CSV Files
 
-Â  Â  Â â”‚
+     │
 
-Â  Â  Â â–¼
+     ▼
 
-Â Extract
+ Extract
 
-Â  Â  Â â”‚
+     │
 
-Â  Â  Â â–¼
+     ▼
 
-Â Quality Gate
+ Quality Gate
 
-Â  Â  Â â”‚
+     │
 
-Â  Â  Â â–¼
+     ▼
 
-Â Transform
+ Transform
 
-Â  Â  Â â”‚
+     │
 
-Â  Â  Â â–¼
+     ▼
 
-Â Load
+ Load
 
-Â  Â  Â â”‚
+     │
 
-Â  Â  Â â–¼
+     ▼
 
-Â Update Watermark
+ Update Watermark
 
-Â  Â  Â â”‚
+     │
 
-Â  Â  Â â–¼
+     ▼
 
-Â Log Pipeline Run
+ Log Pipeline Run
 
 
 Database Tables
@@ -271,7 +271,7 @@ commands
 
 
 
-SELECT * FROM sales_fact LIMIT 5; Â This is the main fact table. It stores the cleaned and validated sales records after the ETL pipeline finishes.
+SELECT * FROM sales_fact LIMIT 5;  This is the main fact table. It stores the cleaned and validated sales records after the ETL pipeline finishes.
 
 SELECT * FROM etl_run_log ORDER BY run_id DESC LIMIT 5;
 
@@ -453,29 +453,29 @@ What's not done / not fully polished
 
 The generic engine's quality-gate thresholds (null rate, negative rate,
 
-Â  row count bounds) are per-source config values, not auto-tuned - they're
+  row count bounds) are per-source config values, not auto-tuned - they're
 
-Â  set to match R3's sales defaults for sales, and reasonable-guess
+  set to match R3's sales defaults for sales, and reasonable-guess
 
-Â  defaults for inventory. Worth revisiting once there's real inventory
+  defaults for inventory. Worth revisiting once there's real inventory
 
-Â  data to calibrate against.
+  data to calibrate against.
 
 bulk_upsert()'s history-copy step (_bulk_copy_sales_history) is
 
-Â  sales-specific - it isn't a generic "any table can have history" feature.
+  sales-specific - it isn't a generic "any table can have history" feature.
 
-Â  Fine for now since inventory doesn't need CDC history per the spec, but
+  Fine for now since inventory doesn't need CDC history per the spec, but
 
-Â  if a future source does, that function needs generalizing.
+  if a future source does, that function needs generalizing.
 
 No integration with Tharun's validation library or Sandeep's profiling
 
-Â  library this round - deliberately deferred per the round instructions.
+  library this round - deliberately deferred per the round instructions.
 
 Per-round instructions, this stays fully local/mocked - no shared
 
-Â  Postgres/Redis/Kafka assumed to exist yet.
+  Postgres/Redis/Kafka assumed to exist yet.
 
 Round 5: harder edges (conflict resolution, SLA, point-in-time, reconciliation, performance ceiling)
 
@@ -1096,5 +1096,8 @@ Cross-table lineage works end-to-end.
 Disaster recovery backup and restore drill is completed.
 
 Recovery replay successfully restores pipeline processing.
+
+
+
 
 > DR replay currently covers the sales source only; other sources require a history_table and compatible restore logic.

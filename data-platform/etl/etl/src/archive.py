@@ -1,13 +1,20 @@
-﻿"""
+"""
 R4 #4: archival.
 
 Rows in the live sales table older than a configurable cutoff move to the
 archive table instead of the live table growing forever. Both table names
-come from the `archive:` block of the active environment's config.
+come from the `archive:` block of the active environment's config
+(sales_fact / staging_sales_fact / prod_sales_fact and their _archive twins).
 
 Idempotency: within one transaction we (1) copy old rows into the archive
 table with ON CONFLICT (id) DO NOTHING, then (2) delete those same rows from
-the live table.
+the live table. After a successful run there is nothing left in the live
+table older than the cutoff, so running archive_old_sales() again simply
+finds zero matching rows and does nothing - it does not re-archive or
+duplicate anything. The ON CONFLICT guard only matters if a previous run
+crashed between steps 1 and 2 (archived but not yet deleted); the run after
+that will insert 0 new archive rows (conflict) and pick up the leftover
+deletes.
 """
 
 from datetime import date, timedelta
