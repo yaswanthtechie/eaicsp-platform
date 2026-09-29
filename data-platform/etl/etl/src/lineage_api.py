@@ -1,71 +1,39 @@
-from flask import Flask, jsonify
-from sqlalchemy import text
 
+from flask import Flask, jsonify
+
+from config_loader import load_pipeline_config
 from database import get_engine
+from lineage import trace_row_lineage
 
 app = Flask(__name__)
 
-engine = get_engine()
-
 
 @app.route("/lineage/row/<int:row_id>", methods=["GET"])
-def get_lineage(row_id):
+def get_sales_lineage(row_id):
+    return get_table_lineage("sales_fact", row_id)
 
-    query = text("""
-        SELECT
-            sf.id,
-            sf.date,
-            sf.sku_id,
-            sf.warehouse_id,
-            sf.quantity_sold,
-            sf.unit_price,
-            sf.source_batch,
-            sf.loaded_at,
-            sf.updated_at,
-            sf.run_id,
-            sf.pipeline_version,
 
-            erl.pipeline_name,
-            erl.started_at,
-            erl.finished_at,
-            erl.status,
-            erl.batches_seen,
-            erl.rows_inserted,
-            erl.rows_updated,
-            erl.rows_rejected,
-            erl.error_message
+@app.route("/lineage/<table_name>/row/<int:row_id>", methods=["GET"])
+def get_table_lineage(table_name, row_id):
+    try:
+        lineage = trace_row_lineage(
+            row_id,
+            table_name,
+            config=load_pipeline_config(),
+            engine=get_engine(),
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
 
-        FROM sales_fact sf
+    if not lineage:
+        return jsonify({"error": "Row not found"}), 404
 
-        LEFT JOIN etl_run_log erl
-        ON sf.run_id = erl.run_id
-
-        WHERE sf.id = :row_id;
-    """)
-
-    with engine.connect() as connection:
-
-        result = connection.execute(
-            query,
-            {
-                "row_id": row_id
-            }
-        ).mappings().first()
-
-    if result is None:
-
-        return jsonify(
-            {
-                "error": "Row not found"
-            }
-        ), 404
-
-    return jsonify(dict(result))
+    return jsonify({
+        "target_table": table_name,
+        "target_row_id": row_id,
+        "lineage": lineage,
+    })
 
 
 if __name__ == "__main__":
-
-    app.run(
-        debug=True,
-        port=5002
-    )
+    app.run(debug=False, port=5002)

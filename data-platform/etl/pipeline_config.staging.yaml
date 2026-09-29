@@ -1,15 +1,15 @@
-schedule: 0 2 * * *
+schedule: 0 3 * * *
 sources:
 - name: sales
-  path: data/batches/sales/
-  table: sales_fact
+  path: data/staging/sales/
+  table: staging_sales_fact
   date_column: date
   conflict_keys:
   - date
   - sku_id
   - warehouse_id
-  depends_on: null
   lineage_keys: [sku_id, warehouse_id]
+  depends_on: null
   columns:
     date:
       category: datetime
@@ -35,18 +35,18 @@ sources:
   negative_rate_threshold: 0.05
   min_rows: 5
   max_rows: 2000
-  history_table: sales_fact_history
+  history_table: staging_sales_fact_history
   schema_evolution: quarantine
 - name: inventory
-  path: data/batches/inventory/
-  table: inventory_snapshot
+  path: data/staging/inventory/
+  table: staging_inventory_snapshot
   date_column: snapshot_date
   conflict_keys:
   - snapshot_date
   - sku_id
   - warehouse_id
-  depends_on: sales
   lineage_keys: [sku_id, warehouse_id]
+  depends_on: sales
   columns:
     snapshot_date:
       category: datetime
@@ -71,15 +71,15 @@ sources:
   history_table: null
   schema_evolution: quarantine
 - name: shipments
-  path: data/batches/shipments/
-  table: shipments_fact
+  path: data/staging/shipments/
+  table: staging_shipments_fact
   date_column: shipment_date
   conflict_keys:
   - shipment_date
   - sku_id
   - warehouse_id
-  depends_on: inventory
   lineage_keys: [sku_id, warehouse_id]
+  depends_on: inventory
   columns:
     shipment_date:
       category: datetime
@@ -107,9 +107,9 @@ sources:
   history_table: null
   schema_evolution: quarantine
 archive:
-  table: sales_fact
-  archive_table: sales_fact_archive
+  table: staging_sales_fact
+  archive_table: staging_sales_fact_archive
   date_column: date
   cutoff_days: 730
-environment: dev
+environment: staging
 quality_sla_min_pass_rate: 0.95
