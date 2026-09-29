@@ -598,10 +598,12 @@ def login_user(
         )
 
         logger.info(
-            "MFA challenge created | "
-            "user_id=%s | email=%s | endpoint=/api/v1/auth/login",
+            "Password authentication succeeded | "
+            "user_id=%s | email=%s | role=%s | %s",
             user.id,
             user.email,
+            user.role.name,
+            audit_details,
         )
 
         # ----------------------------------------------------

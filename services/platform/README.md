@@ -1668,17 +1668,32 @@ Tests should cover both normal and security-sensitive scenarios.
 
 ## Rate Limiting Tests
 * test_rate_limit_is_per_ip_not_global
+* test_changing_caller_header_does_not_reset_the_limit
+* test_rejected_requests_write_one_audit_row_per_window
+* test_login_brute_force_shows_on_abuse_dashboard
+* test_login_request_does_not_clear_an_active_mfa_bucket
 
 ## SSO Tests
 * test_sso_accepts_signed_assertion_and_is_audited
 * test_sso_rejects_assertion_signed_with_wrong_secret
 * test_sso_rejects_plain_client_fields
 * test_sso_disabled_by_default
+* test_sso_refuses_blank_secret
+* test_env_example_does_not_ship_a_usable_sso_secret
+* test_sso_refuses_a_locked_account
 
 ## Audit Export / Abuse Dashboard Tests
 * test_audit_export_has_compliance_columns
 * test_supplier_cannot_export_or_view_abuse_dashboard
+* test_audit_export_limit_is_applied
+* test_audit_export_json_format
+* test_audit_export_csv_neutralises_formulas
+* test_login_brute_force_shows_on_abuse_dashboard
 
+## Account Lockout Security Tests
+
+* test_locked_user_with_valid_token_gets_401_not_500
+* test_sso_refuses_a_locked_account
 ---
 
 # Integration Testing

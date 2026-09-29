@@ -93,6 +93,15 @@ def mock_sso_login(db: Session, provider: str, assertion: str, client_ip: str):
         reject("identity not registered in EAICSP")
     if not user.is_active or user.role is None:
         reject("inactive account or no role")
+        
+    # Same lockout the password login enforces. SQLite returns naive
+    # datetimes, so treat a naive locked_until as UTC.
+    locked_until = user.locked_until
+    if locked_until is not None:
+        if locked_until.tzinfo is None:
+            locked_until = locked_until.replace(tzinfo=timezone.utc)
+        if locked_until > datetime.now(timezone.utc):
+            reject("account is locked")
 
     access_token = create_access_token(
         {"sub": user.email, "user_id": user.id, "role": user.role.name}

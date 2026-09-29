@@ -5,6 +5,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 from app.models.abuse_event import AbuseEvent
 from app.services.audit_service import create_audit_log
+from app.core.config import KNOWN_CALLER_SERVICES
 
 # =========================================================
 # Abuse Event Types
@@ -48,6 +49,7 @@ RATE_LIMITS = {
 # =========================================================
 
 _request_buckets = defaultdict(list)
+_MAX_WINDOW_SECONDS = max(window for _, window in RATE_LIMITS.values())
 _last_abuse_event_at = {}
 _bucket_lock = threading.Lock()
 
@@ -96,6 +98,13 @@ def check_rate_limit(
         else "unknown"
     )
 
+    # The header is supplied by the client, so it is only trusted to pick
+    # a bucket when it names a known service. Anything else shares the
+    # "unknown" bucket for this IP; otherwise a new header value on every
+    # request would get a fresh bucket and bypass the limit.
+    if caller_service not in KNOWN_CALLER_SERVICES:
+        caller_service = "unknown"
+
     # -----------------------------------------------------
     # Create caller-specific bucket
     # -----------------------------------------------------
@@ -119,6 +128,16 @@ def check_rate_limit(
             for timestamp in timestamps
             if timestamp > cutoff
         ]
+        # Drop idle buckets so memory does not grow with every IP seen.
+        # Use the LONGEST configured window: a /login request must never
+        # delete a /mfa/verify bucket that is still inside its 300s window.
+        idle_cutoff = now - timedelta(seconds=_MAX_WINDOW_SECONDS)
+        for stale_key in [
+            k for k, v in _request_buckets.items()
+            if k != key and (not v or v[-1] <= idle_cutoff)
+        ]:
+            del _request_buckets[stale_key]
+            _last_abuse_event_at.pop(stale_key, None)
 
         # -------------------------------------------------
         # Rate limit exceeded
@@ -135,18 +154,9 @@ def check_rate_limit(
             )
 
             # -------------------------------------------------
-            # 1. Audit / compliance log
-            # -------------------------------------------------
-
-            create_audit_log(
-                db=db,
-                event_type=RATE_LIMIT_EXCEEDED,
-                ip_address=ip_address,
-                details=details,
-            )
-
-            # -------------------------------------------------
-            # 2. Abuse event
+            # 1 + 2. Audit log and abuse event, at most once per
+            # window per bucket. Writing a row for every rejected
+            # request would turn a flood into a flood of DB writes.
             # -------------------------------------------------
 
             last_recorded = _last_abuse_event_at.get(key)
@@ -157,6 +167,13 @@ def check_rate_limit(
             )
 
             if should_record_abuse_event:
+                create_audit_log(
+                    db=db,
+                    event_type=RATE_LIMIT_EXCEEDED,
+                    ip_address=ip_address,
+                    details=details,
+                )
+
                 event = AbuseEvent(
                     ip_address=ip_address,
                     endpoint=endpoint,
@@ -168,9 +185,7 @@ def check_rate_limit(
 
                 db.add(event)
                 _last_abuse_event_at[key] = now
-
-            db.commit()
-
+                db.commit()
             # -------------------------------------------------
             # 3. Reject request
             # -------------------------------------------------
@@ -188,3 +203,4 @@ def check_rate_limit(
         # -------------------------------------------------
 
         timestamps.append(now)
+

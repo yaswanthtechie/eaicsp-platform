@@ -17,6 +17,19 @@ REFRESH_TOKEN_EXPIRE_DAYS = 7
 # that sets X-Forwarded-For itself.
 TRUST_PROXY = os.getenv("TRUST_PROXY", "false").lower() == "true"
 
+# Services allowed their own /verify rate-limit bucket (X-Caller-Service).
+# Any other value shares the "unknown" bucket for that IP, so a client
+# cannot reset its limit by sending a new header value on each request.
+KNOWN_CALLER_SERVICES = {
+    name.strip().lower()
+    for name in os.getenv(
+        "KNOWN_CALLER_SERVICES",
+        "inventory-service,supplier-portal,compliance-service,"
+        "procurement-service,frontend,frontend-portal,api-gateway",
+    ).split(",")
+    if name.strip()
+}
+
 # ---- MFA / SSO -----------------------------------------
 MFA_ENABLED = os.environ.get("MFA_ENABLED", "false").strip().lower() == "true"
 

@@ -5,7 +5,19 @@ from sqlalchemy.orm import Session
 from app.models.abuse_event import AbuseEvent
 from app.models.auth_audit_logs import AuthAuditLog
 from app.services.audit_service import LOGIN_FAILED
-from app.services.rate_limit_service import RATE_LIMIT_EXCEEDED
+from app.services.rate_limit_service import (
+    LOGIN_BRUTE_FORCE,
+    MFA_ABUSE,
+    RATE_LIMIT_EXCEEDED,
+    SSO_ABUSE,
+)
+
+RATE_LIMIT_EVENT_TYPES = (
+    RATE_LIMIT_EXCEEDED,
+    LOGIN_BRUTE_FORCE,
+    MFA_ABUSE,
+    SSO_ABUSE,
+)
 
 MFA_FAILED = "MFA_FAILED"
 SSO_REJECTED = "SSO_REJECTED"
@@ -39,13 +51,25 @@ def get_abuse_dashboard(
         .all()
     )
 
+    # Every AbuseEvent is a rate-limit hit. check_rate_limit() stores it
+    # under the endpoint's type: RATE_LIMIT_EXCEEDED (/verify),
+    # LOGIN_BRUTE_FORCE (/login), MFA_ABUSE (/mfa/verify) or
+    # SSO_ABUSE (/sso/login). Count all of them.
     rate_limit_events = [
         event
         for event in abuse_events
-        if event.event_type == RATE_LIMIT_EXCEEDED
+        if event.event_type in RATE_LIMIT_EVENT_TYPES
     ]
 
     rate_limit_violations = len(rate_limit_events)
+
+    rate_limit_violations_by_type = {
+        event_type: sum(
+            1 for event in rate_limit_events
+            if event.event_type == event_type
+        )
+        for event_type in RATE_LIMIT_EVENT_TYPES
+    }
 
     # --------------------------------------------------------
     # 2. Authentication abuse events
@@ -202,6 +226,7 @@ def get_abuse_dashboard(
         "period": "last_24_hours",
         "total_events": total_events,
         "rate_limit_violations": rate_limit_violations,
+        "rate_limit_violations_by_type": rate_limit_violations_by_type,
         "suspicious_ips": len(suspicious_ips),
         "mfa_abuse_events": mfa_abuse_events,
         "login_abuse_events": login_abuse_events,

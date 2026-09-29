@@ -14,6 +14,17 @@ SUCCESS_EVENTS = {
     "ROLE_CHANGED",
     "SERVICE_KEY_CREATED",
 }
+# A cell starting with one of these is run as a formula by Excel /
+# Google Sheets. Failed-login rows contain the raw username an attacker
+# typed, so exported CSV cells must be neutralised.
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_safe(value):
+    """Prefix formula-like text with ' so spreadsheets show it as text."""
+    if isinstance(value, str) and value.startswith(_FORMULA_PREFIXES):
+        return "'" + value
+    return value
 
 FAILURE_EVENTS = {
     "LOGIN_FAILED",
@@ -101,6 +112,9 @@ def export_audit_logs(
     output = io.StringIO()
     writer = csv.DictWriter(output, fieldnames=columns)
     writer.writeheader()
-    writer.writerows(rows)
+    writer.writerows(
+        {key: _csv_safe(value) for key, value in row.items()}
+        for row in rows
+    )
 
     return output.getvalue()

