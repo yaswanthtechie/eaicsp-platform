@@ -163,6 +163,16 @@ def test_sso_refuses_blank_secret(monkeypatch):
     )
     r = client.post("/api/v1/auth/sso/login", json={"provider": "mock-enterprise-sso", "assertion": forged})
     assert r.status_code == 503
+
+def test_env_example_does_not_ship_a_usable_sso_secret():
+    from pathlib import Path
+
+    env_example = Path(__file__).resolve().parents[1] / ".env.example"
+    for line in env_example.read_text(encoding="utf-8").splitlines():
+        if line.startswith("MOCK_SSO_SECRET="):
+            # Must be blank so the startup check forces a real secret.
+            assert line.split("=", 1)[1].strip() == ""
+            
 # ---------------- Audit export / abuse dashboard ----------------
 
 def test_audit_export_has_compliance_columns():

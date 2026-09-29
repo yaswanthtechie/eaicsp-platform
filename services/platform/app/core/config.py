@@ -33,3 +33,9 @@ if MOCK_SSO_ENABLED and len(MOCK_SSO_SECRET or "") < 32:
     raise RuntimeError(
         "MOCK_SSO_SECRET must be set to at least 32 characters when MOCK_SSO_ENABLED=true"
     )
+
+_KNOWN_PLACEHOLDER_SECRETS = {"replace-with-a-random-secret-at-least-32-characters"}
+if MOCK_SSO_ENABLED and MOCK_SSO_SECRET in _KNOWN_PLACEHOLDER_SECRETS:
+    raise RuntimeError(
+        "MOCK_SSO_SECRET is still the example value; generate a random secret"
+    )

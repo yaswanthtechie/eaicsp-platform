@@ -133,10 +133,10 @@ MFA_ENABLED=false
 MFA_MOCK_OTP=
 # Mock enterprise SSO
 MOCK_SSO_ENABLED=false
-# Required only when MOCK_SSO_ENABLED=true.
-# Must be at least 32 characters.
-# Example only — replace with a strong random secret.
-MOCK_SSO_SECRET=replace-with-a-random-secret-at-least-32-characters
+# Required only when MOCK_SSO_ENABLED=true: at least 32 random characters.
+# Generate one with:  python -c "import secrets; print(secrets.token_urlsafe(48))"
+# Never commit a real value, and never reuse an example value.
+MOCK_SSO_SECRET=
 ```
 
 # /verify load-test configuration
@@ -161,7 +161,7 @@ This prevents forged assertions from being accepted with an empty or weak key.
 Example:
 
 MOCK_SSO_ENABLED=true
-MOCK_SSO_SECRET=replace-with-a-random-secret-at-least-32-characters
+MOCK_SSO_SECRET=
 
 Production should use PostgreSQL and a securely managed secret.
 The JWT signing secret must never be hardcoded in source code.
