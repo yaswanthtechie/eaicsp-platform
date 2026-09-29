@@ -30,8 +30,7 @@ def mfa_on(monkeypatch):
 @pytest.fixture
 def sso_on(monkeypatch):
     monkeypatch.setattr(app_config, "MOCK_SSO_ENABLED", True)
-    monkeypatch.setattr(app_config, "MOCK_SSO_SECRET", "test-sso-secret")
-
+    monkeypatch.setattr(app_config, "MOCK_SSO_SECRET",  "test-sso-secret-0123456789abcdef-xyz",)
 
 def _export(admin_token):
     r = client.get(
@@ -129,7 +128,7 @@ def test_sso_rejects_assertion_signed_with_wrong_secret(sso_on, monkeypatch):
     from app.services.sso_service import create_mock_sso_assertion
 
     forged = create_mock_sso_assertion("enterprise-001")
-    monkeypatch.setattr(app_config, "MOCK_SSO_SECRET", "a-different-secret")
+    monkeypatch.setattr(app_config, "MOCK_SSO_SECRET", "different-sso-secret-0123456789abcdef")
 
     r = client.post("/api/v1/auth/sso/login", json={"provider": "mock-enterprise-sso", "assertion": forged})
     assert r.status_code == 401
@@ -153,7 +152,17 @@ def test_sso_disabled_by_default():
     r = client.post("/api/v1/auth/sso/login", json={"provider": "mock-enterprise-sso", "assertion": "x"})
     assert r.status_code == 404
 
-
+def test_sso_refuses_blank_secret(monkeypatch):
+    monkeypatch.setattr(app_config, "MOCK_SSO_ENABLED", True)
+    monkeypatch.setattr(app_config, "MOCK_SSO_SECRET", "")
+    from jose import jwt
+    forged = jwt.encode(
+        {"iss": "mock-enterprise-sso", "aud": "eaicsp-platform", "sub": "x",
+         "email": "ceo@company.com", "exp": 9999999999},
+        "", algorithm="HS256",
+    )
+    r = client.post("/api/v1/auth/sso/login", json={"provider": "mock-enterprise-sso", "assertion": forged})
+    assert r.status_code == 503
 # ---------------- Audit export / abuse dashboard ----------------
 
 def test_audit_export_has_compliance_columns():
@@ -167,3 +176,17 @@ def test_supplier_cannot_export_or_view_abuse_dashboard():
 
     assert client.get("/api/v1/admin/audit/export", headers=headers).status_code == 403
     assert client.get("/api/v1/admin/abuse/dashboard", headers=headers).status_code == 403
+
+def test_audit_export_limit_is_applied():
+    admin = _token(CEO)
+    _token(CEO)  # at least two audit rows
+    r = client.get("/api/v1/admin/audit/export?limit=1", headers={"Authorization": f"Bearer {admin}"})
+    assert len(r.text.strip().splitlines()) == 2   # header + 1 row
+
+
+def test_audit_export_json_format():
+    admin = _token(CEO)
+    r = client.get("/api/v1/admin/audit/export?output_format=json", headers={"Authorization": f"Bearer {admin}"})
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("application/json")
+    assert {"timestamp", "actor_email", "action", "outcome"} <= set(r.json()[0])

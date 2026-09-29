@@ -133,7 +133,10 @@ MFA_ENABLED=false
 MFA_MOCK_OTP=
 # Mock enterprise SSO
 MOCK_SSO_ENABLED=false
-MOCK_SSO_SECRET=
+# Required only when MOCK_SSO_ENABLED=true.
+# Must be at least 32 characters.
+# Example only — replace with a strong random secret.
+MOCK_SSO_SECRET=replace-with-a-random-secret-at-least-32-characters
 ```
 
 # /verify load-test configuration
@@ -145,6 +148,20 @@ DURATION_SECONDS=120
 CONCURRENCY=20
 REQUESTS_PER_SECOND=5
 TIMEOUT_SECONDS=10
+
+Mock SSO is disabled by default.
+
+When MOCK_SSO_ENABLED=true, MOCK_SSO_SECRET is required and must be at least
+32 characters long. The application fails at startup if the secret is missing,
+blank, or shorter than 32 characters.
+
+The SSO verification path also rejects a weak secret at runtime with HTTP 503.
+This prevents forged assertions from being accepted with an empty or weak key.
+
+Example:
+
+MOCK_SSO_ENABLED=true
+MOCK_SSO_SECRET=replace-with-a-random-secret-at-least-32-characters
 
 Production should use PostgreSQL and a securely managed secret.
 The JWT signing secret must never be hardcoded in source code.
@@ -243,14 +260,6 @@ POST /api/v1/auth/login
 ```
 
 The login endpoint does not directly issue JWT tokens when MFA is enabled. It first creates an MFA challenge. After successful OTP verification, the Platform Service issues the access and refresh tokens.
-
----
-
-# User Registration
-
-## POST `/api/v1/auth/register`
-
-to protected endpoints.
 
 ---
 

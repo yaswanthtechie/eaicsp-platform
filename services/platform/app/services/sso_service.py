@@ -28,8 +28,11 @@ MOCK_SSO_USERS = {
 def _require_enabled() -> str:
     if not app_config.MOCK_SSO_ENABLED:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
-    return app_config.MOCK_SSO_SECRET
-
+    secret = app_config.MOCK_SSO_SECRET or ""
+    if len(secret) < 32:
+        # Never verify with an empty or guessable key.
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="SSO is not configured")
+    return secret
 
 # ------------------------------------------------------------
 # Mock IdP side: issue a signed, short-lived assertion.

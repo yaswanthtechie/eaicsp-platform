@@ -884,46 +884,6 @@ def audit_export(
         default=None,
         description="Filter by authentication event type",
     ),
-    current_user: User = Depends(
-        require_any_role(
-            "ceo",
-            "vp_operations",
-        )
-    ),
-    db: Session = Depends(get_db),
-):
-    csv_content = export_audit_logs(
-        db=db,
-        from_date=from_date,
-        to_date=to_date,
-        event_type=event_type,
-    )
-
-    return StreamingResponse(
-        iter([csv_content]),
-        media_type="text/csv",
-        headers={
-            "Content-Disposition": (
-                "attachment; "
-                "filename=auth_audit_export.csv"
-            )
-        },
-    )
-
-@router.get("/audit/export")
-def audit_export(
-    from_date: datetime | None = Query(
-        default=None,
-        description="Export events from this timestamp",
-    ),
-    to_date: datetime | None = Query(
-        default=None,
-        description="Export events up to this timestamp",
-    ),
-    event_type: str | None = Query(
-        default=None,
-        description="Filter by authentication event type",
-    ),
     limit: int = Query(
         default=1000,
         ge=1,

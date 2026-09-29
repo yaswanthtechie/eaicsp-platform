@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 from sqlalchemy.orm import Session
 from app.models.auth_audit_logs import AuthAuditLog
 
@@ -67,12 +68,7 @@ def export_audit_logs(
     .all()
 )
 
-    output = io.StringIO()    
-
-    writer = csv.writer(output)
-
-    # Compliance-oriented column names
-    writer.writerow([
+    columns = [
         "timestamp",
         "actor_id",
         "actor_email",
@@ -80,19 +76,31 @@ def export_audit_logs(
         "outcome",
         "ip_address",
         "details",
-    ])
+    ]
 
-    for audit in audit_logs:
-        writer.writerow([
-            audit.created_at.isoformat()
+    rows = [
+        {
+            "timestamp": audit.created_at.isoformat()
             if audit.created_at
             else "",
-            audit.user_id if audit.user_id is not None else "",
-            audit.email or "",
-            audit.event_type,
-            get_audit_outcome(audit.event_type),
-            audit.ip_address or "",
-            audit.details or "",
-        ])
+            "actor_id": audit.user_id
+            if audit.user_id is not None
+            else "",
+            "actor_email": audit.email or "",
+            "action": audit.event_type,
+            "outcome": get_audit_outcome(audit.event_type),
+            "ip_address": audit.ip_address or "",
+            "details": audit.details or "",
+        }
+        for audit in audit_logs
+    ]
+
+    if output_format.lower() == "json":
+        return json.dumps(rows)
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=columns)
+    writer.writeheader()
+    writer.writerows(rows)
 
     return output.getvalue()

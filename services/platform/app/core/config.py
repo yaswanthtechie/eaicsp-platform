@@ -26,5 +26,10 @@ MFA_MOCK_OTP = os.environ.get("MFA_MOCK_OTP") or None
 
 MOCK_SSO_ENABLED = os.environ.get("MOCK_SSO_ENABLED", "false").strip().lower() == "true"
 
-# Required only when mock SSO is on; fails loudly at startup if missing.
-MOCK_SSO_SECRET = os.environ["MOCK_SSO_SECRET"] if MOCK_SSO_ENABLED else None
+# Required only when mock SSO is on. Fails loudly at startup if missing,
+# blank or too short: an empty key would let anyone sign assertions.
+MOCK_SSO_SECRET = os.environ.get("MOCK_SSO_SECRET", "") if MOCK_SSO_ENABLED else None
+if MOCK_SSO_ENABLED and len(MOCK_SSO_SECRET or "") < 32:
+    raise RuntimeError(
+        "MOCK_SSO_SECRET must be set to at least 32 characters when MOCK_SSO_ENABLED=true"
+    )
