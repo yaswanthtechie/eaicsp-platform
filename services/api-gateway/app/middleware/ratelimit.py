@@ -1,4 +1,4 @@
-"""
+﻿"""
 Global SlowAPI rate limiter configuration and real IP extraction for the API Gateway.
 
 Architecture & Responsibilities:
@@ -53,4 +53,5 @@ __all__ = (
     "SlowAPIMiddleware",
     "_rate_limit_exceeded_handler",
     "limiter",
+    "get_real_ip",
 )
