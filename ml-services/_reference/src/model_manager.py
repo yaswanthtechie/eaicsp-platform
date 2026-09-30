@@ -285,6 +285,47 @@ class ModelManager:
             version
         ]
 
+    def get_production_version(
+        self,
+        model_name: str,
+    ) -> str:
+        """Return the version currently serving production traffic."""
+
+        return self.get_adapter(
+            model_name
+        ).model_version
+
+    def set_production_version(
+        self,
+        model_name: str,
+        version: str,
+    ) -> None:
+        """
+        Point production traffic at an already-loaded version.
+
+        Used by Blue-Green deployment. All production paths
+        (predict, batch-predict, GET /models) read self.adapters,
+        so they follow the switch immediately.
+
+        Governance is enforced by the caller (BlueGreenManager),
+        not here.
+        """
+
+        model_name = model_name.strip().lower()
+
+        adapter = self.get_version_adapter(
+            model_name,
+            version,
+        )
+
+        self.adapters[model_name] = adapter
+
+        logger.warning(
+            "Production traffic for %s now served by version %s",
+            model_name,
+            version,
+        )
+
     # ========================================================
     # Production Prediction
     # ========================================================

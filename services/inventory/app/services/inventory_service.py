@@ -62,6 +62,7 @@ def check_and_record_low_stock(db: Session, item: Inventory) -> None:
         logger.debug("Could not calculate reorder point for low stock event: %s", exc)
 
 
+logger = logging.getLogger(__name__)
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
 REQUIRED_CSV_COLUMNS = (

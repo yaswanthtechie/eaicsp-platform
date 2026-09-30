@@ -388,14 +388,13 @@ class ProxyService:
                         stream=True,
                     )
                     elapsed_ms = (time.perf_counter() - start_time) * 1000.0
-                    is_err = response.status_code >= 500
                     metrics_collector.record_request(
-                        service_name=service_id,
-                        latency_ms=elapsed_ms,
-                        route=route_prefix,
+                        service_id,
+                        elapsed_ms,
                         status_code=response.status_code,
-                        is_error=is_err,
+                        is_error=response.status_code >= 500,
                         caller_service=caller_service,
+                        route=request.url.path,
                     )
 
                     if response.status_code >= 500:
@@ -411,12 +410,12 @@ class ProxyService:
         except httpx.TimeoutException:
             elapsed_ms = (time.perf_counter() - start_time) * 1000.0
             metrics_collector.record_request(
-                service_name=service_id,
-                latency_ms=elapsed_ms,
-                route=route_prefix,
-                status_code=504,
+                service_id,
+                elapsed_ms,
                 is_error=True,
+                status_code=504,
                 caller_service=caller_service,
+                route=request.url.path,
             )
             circuit_breaker_manager.record_failure(service_id)
             return JSONResponse(
@@ -429,12 +428,12 @@ class ProxyService:
         except httpx.RequestError:
             elapsed_ms = (time.perf_counter() - start_time) * 1000.0
             metrics_collector.record_request(
-                service_name=service_id,
-                latency_ms=elapsed_ms,
-                route=route_prefix,
-                status_code=503,
+                service_id,
+                elapsed_ms,
                 is_error=True,
+                status_code=503,
                 caller_service=caller_service,
+                route=request.url.path,
             )
             circuit_breaker_manager.record_failure(service_id)
             return JSONResponse(

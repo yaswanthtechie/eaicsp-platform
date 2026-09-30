@@ -5,13 +5,14 @@ import pandas as pd
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any
+import os
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT))
 
 from src.drift import ReportComparator
 from src.make_messy_data import generate_messy_data
-from src.validator import DataValidator
+from src.validator import DataValidator, resolve_env_path
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ def main():
     log_filepath = setup_logging()
     # Setup CLI Arguments
     parser = argparse.ArgumentParser(description="Run the Config-Driven Data Validation Pipeline.")
-    parser.add_argument("--config", type=str, default=str(PROJECT_ROOT / "configs" / "sales_rules.yaml"),
+    parser.add_argument("--config", type=str, default=str(PROJECT_ROOT / "configs" / "dev" / "sales_rules.yaml"),
                         help="Path to the YAML rules config.")
     parser.add_argument("--input", type=str, default=str(PROJECT_ROOT / "data" / "messy_sales.csv"),
                         help="Path to input data.")
@@ -76,10 +77,13 @@ def main():
                         help="Column to use for watermarking (e.g., 'date' or 'transaction_id').")
     parser.add_argument("--watermark-file", type=str, default=str(PROJECT_ROOT / ".watermark.json"),
                         help="Path to state tracking file.")
+    parser.add_argument("--env", type=str, default=os.getenv("VALIDATOR_ENV"),
+                        help="Target environment (e.g., dev, prod). Overrides VALIDATOR_ENV.")
 
     args = parser.parse_args()
 
-    config_path = Path(args.config)
+    # config_path = Path(args.config)
+    config_path = resolve_env_path(args.config, args.env)
     input_path = Path(args.input)
     output_path = Path(args.output)
 
@@ -142,7 +146,7 @@ def main():
             logger.info("No previous watermark found. Processing entire dataset (First run).")
 
     # 3. Initialize the config-driven Validator
-    logger.info(f"Loading rules from {config_path.name}...")
+    logger.info(f"Loading rules from {config_path.name} of '{args.env}' environment")
     try:
         dv = DataValidator.from_config(
             str(config_path),
@@ -166,6 +170,20 @@ def main():
 
     log_issues(report.errors, "ERROR", report.model_dump())
     log_issues(report.warnings, "WARNING", report.model_dump())
+
+    # --- Log Remediations ---
+    if getattr(report, "remediations", []):
+        logger.info("--- AUTO-REMEDIATIONS APPLIED ---")
+
+        for rem in report.remediations:
+            logger.info(
+                f"REMEDIATED -> Rule: {rem['rule']} | Field: {rem['field']} | Modified: {rem['rows_modified']} rows")
+
+            # Optionally print the samples to the console
+            if rem['rule'] in report.sample_remediations:
+                for sample in report.sample_remediations[rem['rule']]:
+                    logger.info(
+                        f"     -> Row {sample['row_index']}: [{sample['original']}] -> [{sample['remediated']}]")
 
     # --- DRIFT DETECTION ---
     logger.info("Evaluating historical drift...")

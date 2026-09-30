@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status,Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from datetime import datetime, timezone,timedelta
@@ -7,7 +8,6 @@ from app.models.users import User
 from app.models.roles import Role as RoleModel
 from app.models.role_change_history import RoleChangeHistory
 from app.core.token_cache import token_cache
-from app.schemas import user
 from app.schemas.user import (
     AdminCreateUserRequest,
     RoleChangeRequest,
@@ -32,9 +32,14 @@ from app.services.audit_service import (
     LOGIN_FAILED,
     ACCOUNT_LOCKED,
     SERVICE_KEY_CREATED,
-    SERVICE_KEY_REVOKED
+    SERVICE_KEY_REVOKED,
 )
+import json
+from fastapi.responses import JSONResponse, StreamingResponse
+from app.services.abuse_dashboard_service import get_abuse_dashboard
+from app.services.audit_export_service import export_audit_logs
 from app.models.refresh_token import RefreshToken
+from app.models.abuse_event import AbuseEvent
 from app.schemas.auth import SessionResponse
 from app.core.dependencies import require_role,get_current_user,require_any_role
 from app.core.password_validator import validate_password
@@ -861,3 +866,82 @@ def revoke_service_api_key(
         "message": "Service API key revoked successfully",
         "key_id": key_id,
     }
+
+# ============================================================
+# AUDIT EXPORT 
+# ============================================================
+@router.get("/audit/export")
+def audit_export(
+    from_date: datetime | None = Query(
+        default=None,
+        description="Export events from this timestamp",
+    ),
+    to_date: datetime | None = Query(
+        default=None,
+        description="Export events up to this timestamp",
+    ),
+    event_type: str | None = Query(
+        default=None,
+        description="Filter by authentication event type",
+    ),
+    limit: int = Query(
+        default=1000,
+        ge=1,
+        le=5000,
+        description="Maximum number of audit records to export",
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+        description="Number of audit records to skip",
+    ),
+    output_format: str = Query(
+        default="csv",
+        pattern="^(csv|json)$",
+        description="Export format",
+    ),
+    current_user: User = Depends(
+        require_any_role(
+            "ceo",
+            "vp_operations",
+        )
+    ),
+    db: Session = Depends(get_db),
+):
+    result = export_audit_logs(
+        db=db,
+        from_date=from_date,
+        to_date=to_date,
+        event_type=event_type,
+        limit=limit,
+        offset=offset,
+        output_format=output_format,
+    )
+
+    if output_format.lower() == "json":
+        return JSONResponse(
+            content=json.loads(result)
+        )
+
+    return StreamingResponse(
+        iter([result]),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": (
+                "attachment; "
+                "filename=auth_audit_export.csv"
+            )
+        },
+    )
+# ============================================================
+# RATELIMITING / ABUSE DETECTION DASHBOARD
+# ============================================================
+
+@router.get("/abuse/dashboard")
+def abuse_dashboard(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_any_role("ceo", "vp_operations")
+    ),
+):
+    return get_abuse_dashboard(db)

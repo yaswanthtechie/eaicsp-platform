@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 
 import StatusBadge from "./StatusBadge";
+import { colors } from "../tokens";
 
 describe("StatusBadge", () => {
   it("renders SENT status", () => {
@@ -58,8 +59,8 @@ describe("StatusBadge", () => {
     const badge = screen.getByText("SENT");
 
     expect(badge).toHaveStyle({
-      background: "#F59E0B",
-      color: "#000000",
+      background: colors.warning,
+      color: colors.black,
     });
   });
 
@@ -72,8 +73,8 @@ describe("StatusBadge", () => {
       screen.getByText("ACKNOWLEDGED");
 
     expect(badge).toHaveStyle({
-      background: "#3B82F6",
-      color: "#E6EAF2",
+      background: colors.primary,
+      color: colors.text,
     });
   });
 
@@ -86,8 +87,8 @@ describe("StatusBadge", () => {
       screen.getByText("FULFILLED");
 
     expect(badge).toHaveStyle({
-      background: "#10B981",
-      color: "#E6EAF2",
+      background: colors.success,
+      color: colors.text,
     });
   });
 
@@ -100,8 +101,8 @@ describe("StatusBadge", () => {
       screen.getByText("CANCELLED");
 
     expect(badge).toHaveStyle({
-      background: "#EF4444",
-      color: "#E6EAF2",
+      background: colors.danger,
+      color: colors.text,
     });
   });
 

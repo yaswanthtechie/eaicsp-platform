@@ -121,8 +121,8 @@ def main() -> None:
 
     parser.add_argument("--data-path", type=Path, default=Path("data/perf_100k_sales.csv"),
                         help="Path where test data will be generated and read from.")
-    parser.add_argument("--config-path", type=Path, default=Path("configs/sales_rules.yaml"),
-                        help="Path to the validation rules YAML configuration.")
+    parser.add_argument("--config", type=Path, default=PROJECT_ROOT / "configs" / "dev" / "sales_rules.yaml",
+                        help="Path to YAML rules")
     parser.add_argument("--n-rows", type=int, default=100000,
                         help="Number of rows to generate for the test.")
     parser.add_argument("--time-threshold", type=float, default=3.0,
@@ -140,7 +140,7 @@ def main() -> None:
 
     exit_code = run_performance_test(
         data_path=args.data_path,
-        config_path=args.config_path,
+        config_path=args.config,
         n_rows=args.n_rows,
         time_threshold=args.time_threshold
     )

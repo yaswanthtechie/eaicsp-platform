@@ -181,9 +181,12 @@ class TestMainCLI:
 
         assert exc_info.value.code == 0
         mock_setup_logging.assert_called_once()
+
+        # Import PROJECT_ROOT dynamically and assert the new dev environment default
+        from src.perf_test import PROJECT_ROOT
         mock_run_test.assert_called_once_with(
             data_path=Path("data/perf_100k_sales.csv"),
-            config_path=Path("configs/sales_rules.yaml"),
+            config_path=PROJECT_ROOT / "configs" / "dev" / "sales_rules.yaml",
             n_rows=5000,
             time_threshold=1.5,
         )
