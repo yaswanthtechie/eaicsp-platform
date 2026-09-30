@@ -30,6 +30,10 @@ The project includes dataset profiling, data quality scoring, outlier detection,
 * Rule configuration validation
 * Relationship discovery across datasets
 * Relationship-based validation rule suggestions
+* Root-cause suggestion for detected drift
+* Expected-profile benchmarking
+* Executive summary generation from static platform outputs
+* Persistent historical audit archive with query support
 * Automated plain-English insight generation
 * Batch monitoring and quality trend tracking
 * Quality-score drop alerts
@@ -472,6 +476,158 @@ The rule configuration validator validates:
 
 ---
 
+# Round 9–11 Enhancements
+
+## 1. Root-Cause Suggestion for Drift
+
+The `root_cause` module analyzes detected drift and uses discovered relationships between datasets to suggest a plausible upstream factor that may be associated with the observed downstream change.
+
+The root-cause analysis:
+
+* Identifies drifted downstream metrics
+* Discovers relationships between upstream and downstream datasets
+* Checks whether related upstream columns also changed
+* Measures the association between upstream and downstream changes
+* Returns supporting evidence for each candidate
+* Clearly treats the result as a plausible explanation rather than proof of causation
+
+Example:
+
+```text
+Downstream metric: quantity_sold
+Upstream metric: unit_price
+Relationship: sku_id ↔ sku_id
+Overlap: 100%
+Correlation: -0.971
+
+Suggestion:
+unit_price change is a plausible factor associated with
+the observed quantity_sold drift.
+This does not prove causation.
+```
+
+## 2. Expected-Profile Benchmarking
+
+The `expected_profile` module defines a trusted baseline profile for a dataset and compares future profiling runs against that expected state.
+
+The expected profile can capture:
+
+* Expected row count with tolerance
+* Minimum quality score
+* Expected column data types
+* Expected column roles
+* Expected cardinality
+* Maximum allowed null percentage
+* Expected numeric mean with tolerance
+
+The benchmarking process reports deviations between the expected baseline and the current profiling run.
+
+Example:
+
+```text
+Expected null percentage for quantity_sold: 5.34%
+Current null percentage: 22.60%
+
+Status: fail
+
+Reason:
+Current null percentage exceeds the expected maximum.
+```
+
+## 3. Executive Summary Generation
+
+The `executive_summary` module generates a single-paragraph, plain-English summary of the latest data quality state.
+
+The summary can combine signals from:
+
+* Profiling results
+* ETL pipeline output
+* Data validation output
+
+The profiling library reads ETL and validation results from static published output files rather than calling their code directly. This keeps the profiling library independent from the other platform components.
+
+The summary can report:
+
+* Overall data quality score
+* Missing values
+* Detected outliers
+* ETL pipeline status
+* ETL SLA status
+* ETL warnings and errors
+* Validation status
+* Validation failures and warnings
+
+Example:
+
+```text
+The latest profiling run has an overall quality score of 70/100.
+It contains 334 missing values.
+It contains 50 detected outliers.
+The ETL pipeline status is success.
+Its SLA status is met.
+It reported 1 ETL warning.
+Validation status is pass.
+3 rows are invalid.
+It reported 1 validation failure.
+It reported 1 validation warning.
+```
+
+## 4. Full Historical Audit Archive
+
+The `audit_archive` module permanently stores profiling run records so that historical profiling results can be retained and queried independently from short-term monitoring history.
+
+Each archived run contains:
+
+* Unique run ID
+* UTC timestamp
+* Schema version
+* Complete profiling report
+* Associated drift report, when available
+
+The audit archive supports querying historical runs by:
+
+* Drift status
+* Minimum quality score
+* Maximum quality score
+* Start time
+* End time
+
+Unlike `MonitoringHistory`, which retains only the latest 10 batches by default, the audit archive keeps all saved profiling runs.
+
+The feature is integrated into the reusable `Profiler.monitor()` workflow, so each monitoring run creates an audit record automatically.
+
+Example:
+
+```text
+Audit Archive Demo
+
+Dataset rows: 5000
+Run ID: <unique-run-id>
+Quality score: 70
+Total archived runs: 1
+Queryable runs: 1
+```
+
+## 5. Performance at Real Scale
+
+The current profiling implementation was benchmarked against large synthetic datasets to verify profiling performance at 500,000+ rows.
+
+Each dataset size was profiled 3 times, and the average execution time was recorded.
+
+### Benchmark Results
+
+| Dataset Size | Run 1 | Run 2 | Run 3 | Average |
+|--------------|------:|------:|------:|--------:|
+| 500,000 | 2.2504s | 1.6072s | 1.4665s | 1.7747s |
+| 750,000 | 2.3982s | 2.4859s | 2.2558s | 2.3800s |
+| 1,000,000 | 3.1542s | 3.3004s | 3.0635s | 3.1727s |
+
+The benchmark results are stored in:
+
+```text
+reports/scale_performance_results.csv
+```
+
 # Limitations
 
 The current implementation has the following limitations:
@@ -545,11 +701,22 @@ The column summary table uses DataTables.js for sorting and filtering.
 # Project Structure
 
 ```text
+
 profiling/
 │
 ├── benchmark.py
 ├── profile_diff.py
+│
 ├── data/
+│   ├── sales_data.csv
+│   └── products_data.csv
+│
+├── examples/
+│   ├── root_cause_demo.py
+│   ├── expected_profile_demo.py
+│   ├── executive_summary_demo.py
+│   ├── audit_archive_demo.py
+│   └── scale_performance_demo.py
 │
 ├── reports/
 │   ├── profile_report.html
@@ -557,11 +724,20 @@ profiling/
 │   ├── histogram_after.png
 │   ├── boxplot.png
 │   ├── suggested_rules.yaml
-│   └── performance_benchmark.csv
+│   ├── performance_benchmark.csv
+│   ├── expected_profile.json
+│   ├── executive_summary.txt
+│   ├── demo_etl_output.json
+│   ├── demo_validation_output.json
+│   ├── audit_archive.json
+│   └── scale_performance_results.csv
 │
 ├── src/
 │   ├── api.py
+│   ├── audit_archive.py
 │   ├── compare.py
+│   ├── executive_summary.py
+│   ├── expected_profile.py
 │   ├── insights.py
 │   ├── main.py
 │   ├── make_sample_data.py
@@ -571,25 +747,32 @@ profiling/
 │   ├── profiler.py
 │   ├── relationships.py
 │   ├── report.py
+│   ├── root_cause.py
 │   └── rules_suggestions.py
 │
 ├── tests/
 │   ├── test_api.py
+│   ├── test_audit_archive.py
 │   ├── test_compare.py
+│   ├── test_executive_summary.py
+│   ├── test_expected_profile.py
 │   ├── test_insights.py
 │   ├── test_monitoring.py
 │   ├── test_monitoring_many_runs.py
 │   ├── test_outliers.py
 │   ├── test_pii_leakage.py
 │   ├── test_profile.py
-│   ├── test_profiler.py
 │   ├── test_profile_diff.py
+│   ├── test_profiler.py
+│   ├── test_profiler_expected_profile.py
 │   ├── test_relationship_rules.py
+│   ├── test_root_cause.py
 │   └── test_rules_suggestions.py
 │
 ├── pytest.ini
 ├── README.md
 └── requirements.txt
+
 ```
 
 ---
@@ -598,9 +781,47 @@ profiling/
 
 From the `profiling` directory:
 
+---
+
+# Round 9–11 Demos
+
+The following examples demonstrate the Round 9–11 profiling capabilities.
+
+### Root-Cause Suggestion
+
 ```bash
-python -m src.main
+python -m examples.root_cause_demo
 ```
+
+### Expected-Profile Benchmarking
+
+```bash
+python -m examples.expected_profile_demo
+```
+
+### Executive Summary Generation
+
+```bash
+python -m examples.executive_summary_demo
+```
+
+### Historical Audit Archive
+
+```bash
+python -m examples.audit_archive_demo
+```
+
+### Real-Scale Performance
+
+```bash
+python -m examples.scale_performance_demo
+```
+
+---
+
+The performance demo benchmarks the current profiling implementation at 500,000, 750,000, and 1,000,000 rows and records three runs plus the average execution time.
+
+---
 
 This generates the sample dataset, runs profiling, generates suggested data-quality rules, saves the monitoring history, checks the quality alert, creates the HTML report, and generates the visualizations.
 
@@ -665,6 +886,21 @@ print(result["drift"])
 print(result["history"])
 ```
 
+
+## Expected-Profile Benchmarking     
+
+python -m examples.expected_profile_demo
+
+## Executive Summary                 
+
+python -m examples.executive_summary_demo
+
+## Query Historical Audit Runs
+
+python -m examples.audit_archive_demo
+
+## Real-Scale Performance
+python -m examples.scale_performance_demo
 ---
 
 
@@ -723,7 +959,7 @@ print(drift)
 
 # Generated Reports
 
-The reporting workflow can generate:
+The profiling workflow can generate the following reports and artifacts:
 
 ```text
 reports/profile_report.html
@@ -732,6 +968,10 @@ reports/histogram_after.png
 reports/boxplot.png
 reports/suggested_rules.yaml
 reports/performance_benchmark.csv
+reports/expected_profile.json
+reports/executive_summary.txt
+reports/audit_archive.json
+reports/scale_performance_results.csv
 ```
 
 ---
@@ -747,7 +987,7 @@ python -m pytest -q
 Current test result:
 
 ```text
-127 passed
+162 passed, 1 warning
 ```
 
 The test suite covers:
@@ -797,11 +1037,20 @@ The test suite covers:
 * Rule YAML generation
 * Rule configuration validation
 * Profile snapshot comparison
-
+* Root-cause drift analysis
+* Root-cause candidate detection and evidence
+* Expected-profile creation and benchmarking
+* Expected-profile validation through the Profiler API
+* Executive summary generation
+* Static ETL and validation output integration
+* Historical audit archive persistence
+* Audit archive retention across multiple runs
+* Audit archive querying by quality score, drift status, and time range
+* Profiler audit archive integration
 The latest complete test run completed successfully with:
 
 ```text
-127 passed
+162 passed, 1 warning
 ```
 
 ---
