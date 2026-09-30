@@ -1649,23 +1649,63 @@ Prophet and XGBoost models are trained only on data before it, then forecast
   it is measured on the same errors used for calibration, so treat it as a
   sanity check.
 
-  ### M2 — External Regressor Ablation Study
+  ## Round 9-11, Milestone 2: External Regressor Ablation Study
 
-A Prophet regressor ablation study was performed to measure the individual impact of the external regressors:
+**Status:** M1 done. M2 done with this PR. M3,M4 completed doc. M5 Full test coverage completed
 
-* `is_holiday`
-* `promotion`
-* `weather_index`
+### Question
 
-The baseline uses all three regressors. Each regressor was then removed individually while keeping the same dataset, train/test split, Prophet configuration, and evaluation procedure.
+Do the Round 6-8 external regressors (`is_holiday`, `promotion`, `weather_index`) make the Prophet forecast more accurate?
 
-| Configuration             |  MAPE |      RMSE |
-| ------------------------- | ----: | --------: |
-| Baseline — all regressors | 3.42% | 17,213.04 |
-| Remove `is_holiday`       | 3.46% | 17,347.33 |
-| Remove `promotion`        | 3.56% | 17,801.02 |
-| Remove `weather_index`    | 3.52% | 17,634.20 |
+### Method
 
-**Result:** Removing any individual regressor increased both MAPE and RMSE on the current 17-point holdout evaluation. Therefore, the full-regressor Prophet configuration is retained for this experiment.
+* **Rolling-origin backtest:** 5 cutoffs from June 2011 to June 2015, each forecasting the next 12 months using a model trained only on data before the cutoff. This gives **60 scored months** across the study.
+* **Experiments:** all regressors (baseline); each regressor removed individually; and no regressors at all (plain Prophet).
+* **Noise band:** the baseline was re-run using 5 different random draws of `weather_index`. Baseline MAPE varied by approximately **0.05 percentage points** due to the random feature alone. Therefore, an ablation effect must exceed the full **±0.05pp noise band** to be considered measurable in this study.
+* **Unrounded metrics:** MAPE and RMSE were kept unrounded during calculations so small differences were not lost or changed by rounding.
+* **MLflow:** every experiment is logged under the `demand_forecast_regressor_ablation` experiment.
+* **Artifacts:** results are saved to `models/regressor_ablation/ablation_results.csv` and `models/regressor_ablation/noise_band.csv`.
 
-**Important caveat:** `weather_index` is currently a deterministic synthetic/mock feature, not real weather data. Therefore, this experiment does not establish that real weather information improves forecasting. The results only describe the measured impact of the current feature on this dataset and evaluation split.
+### Results
+
+Mean metrics across the 5 rolling-origin cutoffs:
+
+| Configuration                     |      MAPE | Change vs baseline | Verdict          |
+| --------------------------------- | --------: | -----------------: | ---------------- |
+| Baseline, all regressors          |     4.51% |                  — | Reference        |
+| Remove `is_holiday`               |     4.52% |            +0.01pp | Within noise     |
+| Remove `promotion`                |     4.46% |            -0.04pp | Within noise     |
+| Remove `weather_index`            |     4.55% |            +0.04pp | Within noise     |
+| **No regressors (plain Prophet)** | **4.48%** |        **-0.03pp** | **Within noise** |
+
+### Conclusion
+
+**None of the three regressors has a measurable effect on accuracy in this study.**
+
+Removing any individual regressor, or removing all three regressors, changed MAPE by less than the ±0.05pp noise band. Therefore, this experiment does **not provide sufficient evidence that any of the three external regressors adds independent predictive value** over plain Prophet on this dataset.
+
+The result is consistent with the current construction of the regressors:
+
+* `is_holiday` is derived from the month: November and December are marked as `1`.
+* `promotion` is also derived from the month: March, June, September and December are marked as `1`.
+* Because the dataset is monthly, these calendar-derived signals overlap with information already represented by Prophet's yearly seasonality.
+* `weather_index` is generated using `rng.uniform` and is therefore a synthetic random placeholder rather than real weather information.
+
+### Recommendation
+
+* **`weather_index`:** do not treat the current synthetic random feature as evidence of useful production information. Replace it with real weather data before using weather as a production regressor.
+* **`is_holiday` and `promotion`:** keep them optional rather than claiming that they improve accuracy. Their current versions do not show a measurable benefit in this ablation.
+* Re-run the ablation when real promotion information and/or real weather data are available. Those real external signals can then be evaluated using the same rolling-origin methodology.
+
+### Limitations
+
+* The dataset contains monthly aggregate observations only.
+* The study uses 5 rolling-origin cutoffs and 12-month forecast horizons, giving 60 scored months.
+* The noise band is estimated from 5 random `weather_index` draws; additional draws could provide a more stable estimate of random variation.
+* At prediction time, the study uses the available future regressor values. This is appropriate for deterministic calendar features, but real weather would require weather forecasts rather than observed future weather.
+* The study establishes the measured result for the current dataset, feature definitions and evaluation setup; it does not establish causality or prove that these regressors can never help with a different dataset or real external data.
+
+### Verification
+
+* `python -m src.regressor_ablation` completed successfully.
+* `python -m pytest -q` → **83 passed**.

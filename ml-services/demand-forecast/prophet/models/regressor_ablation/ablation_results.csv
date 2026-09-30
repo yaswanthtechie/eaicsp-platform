@@ -1,5 +1,6 @@
-experiment,removed_regressor,regressors_used,MAPE,RMSE,delta_MAPE,delta_RMSE,interpretation
-baseline,,"is_holiday, promotion, weather_index",3.42,17213.04,0.0,0.0,Baseline with all regressors.
-remove_is_holiday,is_holiday,"promotion, weather_index",3.46,17347.33,0.040000000000000036,134.29000000000087,Removing this regressor worsened both MAPE and RMSE in this experiment.
-remove_promotion,promotion,"is_holiday, weather_index",3.56,17801.02,0.14000000000000012,587.9799999999996,Removing this regressor worsened both MAPE and RMSE in this experiment.
-remove_weather_index,weather_index,"is_holiday, promotion",3.52,17634.2,0.10000000000000009,421.15999999999985,Removing this regressor worsened both MAPE and RMSE in this experiment.
+experiment,removed_regressor,regressors_used,MAPE,RMSE,delta_MAPE,delta_RMSE,noise_band_pp,interpretation
+baseline,,"is_holiday, promotion, weather_index",4.508,20360.9549,0.0,0.0,0.0498,Baseline with all regressors.
+remove_is_holiday,is_holiday,"promotion, weather_index",4.5194,20378.9694,0.0114,18.0146,0.0498,"Removing is_holiday changed MAPE by +0.01pp, within the +/-0.05pp noise band: no measurable effect."
+remove_promotion,promotion,"is_holiday, weather_index",4.4639,20151.1009,-0.0441,-209.8539,0.0498,"Removing promotion changed MAPE by -0.04pp, within the +/-0.05pp noise band: no measurable effect."
+remove_weather_index,weather_index,"is_holiday, promotion",4.548,20502.7569,0.04,141.8021,0.0498,"Removing weather_index changed MAPE by +0.04pp, within the +/-0.05pp noise band: no measurable effect."
+no_regressors,all,none,4.4827,20219.9434,-0.0253,-141.0115,0.0498,"Removing all regressors changed MAPE by -0.03pp, within the +/-0.05pp noise band: no measurable effect."
