@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Button} from "@/components/ui/button";
 import {
   CartesianGrid,
   Line,
@@ -126,23 +127,17 @@ function ForecastAccuracy({
           Unable to load forecast accuracy data.
         </p>
 
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="lg" 
           onClick={() => {
             setLoading(true);
             setRetryCount((count) => count + 1);
           }}
-          style={{
-            padding: "7px 14px",
-            border: "none",
-            borderRadius: radius.sm,
-            background: colors.danger,
-            color: colors.text,
-            cursor: "pointer",
-          }}
         >
           Retry
-        </button>
+        </Button>
       </div>
     );
   }

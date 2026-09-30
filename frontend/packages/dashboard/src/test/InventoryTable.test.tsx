@@ -74,9 +74,9 @@ describe("InventoryTable", () => {
   it("filters low stock items", async () => {
     await loadTable();
 
-    const checkbox = screen.getByLabelText(
-      "Show only low stock items"
-    );
+    const checkbox = screen.getByRole("checkbox", {
+      name: "Show only low stock items"
+    });
 
     expect(checkbox).not.toBeChecked();
 
@@ -134,7 +134,7 @@ describe("InventoryTable", () => {
     await loadTable();
 
     const searchInput = screen.getByLabelText(
-      "Search inventory by SKU"
+      "Search inventory items by SKU No"
     );
 
     expect(searchInput).toBeInTheDocument();
@@ -144,12 +144,11 @@ describe("InventoryTable", () => {
   it("has an accessible low stock checkbox", async () => {
     await loadTable();
 
-    const checkbox = screen.getByLabelText(
-      "Show only low stock items"
-    );
+    const checkbox = screen.getByRole("checkbox", {
+      name: "Show only low stock items"
+    });
 
     expect(checkbox).toBeInTheDocument();
-    expect(checkbox).toHaveAttribute("type", "checkbox");
   });
 
   it("has accessible table structure", async () => {
@@ -195,3 +194,4 @@ describe("InventoryTable", () => {
   });
 
 });
+

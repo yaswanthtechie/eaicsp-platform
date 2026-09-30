@@ -349,7 +349,7 @@ Accessibility audit completed using Lighthouse. Initial score: 81/100. Identifie
 
 Not done yet:
 
-* Colour-contrast check of the status colours in `tokens.ts`.
+* Colorr-contrast check of the status colors in `tokens.ts`.
 * Manual screen-reader walkthrough (NVDA / VoiceOver).
 
 **Next-round accessibility follow-up:**
@@ -546,4 +546,323 @@ The performance test used the 12,000-item inventory dataset across 4 warehouses 
 The recorded profiler measurements represent actual render activity captured during these interactions.
 
 **Note:** The original tasks assigned to me for this dashboard were **Round 7, Round 8, and Round 9**. In the PDF, the same work is referenced as **Round 9, Round 10, and Round 11** because I started this dashboard two tasks behind the other WorkStreams. I have kept **Round 7/8/9** in this README because that is the original round numbering under which I started and tracked this implementation.
+
+# Round 12-13
+
+# 13. Milestone 1 — Progressive Web App
+
+The Executive Dashboard was converted into a Progressive Web App (PWA) with an installable app manifest, service worker caching, offline KPI snapshot support, and automatic refresh when the connection returns.
+
+### PWA Manifest
+
+The dashboard uses `vite-plugin-pwa` to generate the web app manifest and service worker during the production build.
+
+The manifest includes:
+
+* Application name: **Executive Dashboard**
+* Short name: **Dashboard**
+* Standalone display mode.
+* PWA icons at **192x192** and **512x512**.
+* Theme and background colors taken from the shared `tokens.ts` file.
+
+This keeps the PWA configuration aligned with the existing dashboard design tokens.
+
+### Service Worker and App Shell
+
+A production service worker is generated during the Vite build.
+
+The service worker precaches the dashboard application shell so the application resources can still be loaded when the device is offline.
+
+The production build generated:
+
+* `dist/sw.js`
+* `dist/workbox-*.js`
+* `dist/manifest.webmanifest`
+* `dist/registerSW.js`
+
+The service worker uses the PWA plugin's generated Workbox configuration rather than requiring a manually maintained service-worker implementation.
+
+### Offline KPI Snapshot
+
+The dashboard stores the most recently loaded KPI values and their timestamp in `localStorage`.
+
+The snapshot contains:
+
+* KPI title
+* KPI value
+* Last saved timestamp
+
+The complete 12,000-item inventory dataset is not stored in localStorage. Only the KPI snapshot required by the offline requirement is persisted.
+
+When the application is offline and a saved snapshot is available, the dashboard displays the saved KPI values and shows a clear status message such as:
+
+> Offline — showing data from 07:10 PM
+
+The timestamp is generated from the saved snapshot time rather than being hard-coded.
+
+### Online Recovery
+
+The dashboard listens for browser online/offline events.
+
+When the application changes from offline to online, it automatically calls the dashboard API layer to refresh the inventory data.
+
+After the refreshed data is received, the dashboard recalculates the KPI values and saves the latest snapshot.
+
+This provides the following flow:
+
+```text
+Online
+  ↓
+Dashboard loads data
+  ↓
+KPI snapshot saved locally
+  ↓
+Connection lost
+  ↓
+Offline banner + last KPI snapshot displayed
+  ↓
+Connection restored
+  ↓
+Dashboard automatically refreshes
+  ↓
+New KPI snapshot saved
+```
+
+### PWA Verification
+
+The PWA behavior was manually verified using the production preview build.
+
+Verification included:
+
+* Production build completed successfully.
+* Generated PWA manifest was present.
+* Service worker files were generated in `dist/`.
+* KPI snapshot was saved in browser Local Storage.
+* Dashboard was switched to offline mode.
+* Previously saved KPI values remained available.
+* Offline banner displayed the saved timestamp.
+* Connection was restored without manually refreshing the page.
+* Dashboard automatically triggered a data refresh when the connection returned.
+
+### Lighthouse Audit
+
+A Lighthouse audit was run against the production preview of the dashboard using Lighthouse **13.4.1** with mobile emulation.
+
+| Category       |                                               Score |
+| -------------- | --------------------------------------------------: |
+| Performance    |                                          **79/100** |
+| Accessibility  |                                          **90/100** |
+| Best Practices |                                          **96/100** |
+| SEO            |                                          **82/100** |
+
+
+
+# Milestone 2 — GraphQL Client Layer
+
+The Executive Dashboard data layer was migrated to **Apollo Client** using a mocked GraphQL schema served through **MSW (Mock Service Worker)**.
+
+### GraphQL Schema
+
+A GraphQL schema was added under:
+
+`src/graphql/schema.graphql`
+
+The schema defines the dashboard data required by the application, including:
+
+* KPIs
+* Inventory health
+* Forecast series
+* Forecast accuracy
+* Supplier risk
+* Shipment status
+
+The schema uses GraphQL non-null fields where the dashboard requires a value and nullable fields where the existing TypeScript model allows optional data.
+
+### Apollo Client
+
+Apollo Client was configured in:
+
+`src/graphql/client.ts`
+
+The application uses Apollo's `HttpLink` to send GraphQL requests to:
+
+`/graphql`
+
+Apollo's `InMemoryCache` is used for client-side GraphQL caching.
+
+The application is wrapped with `ApolloProvider` in `main.tsx`.
+
+### MSW Mock GraphQL Layer
+
+MSW was selected for the mocked GraphQL layer because the dashboard already uses browser-based service-worker functionality for its PWA and offline requirements.
+
+The GraphQL request is intercepted by MSW during development and resolved using the existing dashboard mock data.
+
+The request flow is:
+
+```text
+Dashboard Component
+        ↓
+Apollo useQuery
+        ↓
+GraphQL GET_DASHBOARD query
+        ↓
+/graphql
+        ↓
+MSW GraphQL handler
+        ↓
+dashboardMock
+        ↓
+Apollo response
+        ↓
+Dashboard Component
+```
+
+This allows the dashboard to use a GraphQL contract without requiring a live backend service.
+
+### Existing Mock Data Reuse
+
+The GraphQL mock layer reuses the existing dashboard mock data instead of creating a second copy of the data.
+
+The mock data is aggregated through:
+
+`src/mocks/dashboardMock.ts`
+
+This keeps the GraphQL mock response consistent with the existing dashboard data and makes it easier to replace the mock resolver with a real backend later.
+
+### Component Data Access
+
+Apollo queries are used by dashboard components instead of directly importing GraphQL mock data.
+
+For example, the Forecast Chart uses:
+
+`GET_DASHBOARD`
+
+and reads the forecast series from the Apollo response.
+
+The KPI section also reads KPI values from the GraphQL response.
+
+This keeps the components independent of whether the underlying data is eventually provided by mocked GraphQL responses or a real backend service.
+
+### Loading, Empty and Error States
+
+The dashboard continues to support the required loading, empty, and error states.
+
+Apollo's query state is used for loading and error handling.
+
+For example:
+
+* `loading` displays the loading state.
+* `error` displays the error state.
+* Empty GraphQL result arrays continue to display the appropriate empty state.
+
+The Forecast Chart was migrated to Apollo while preserving its existing loading, empty, and error behavior.
+
+### GraphQL Test Coverage
+
+Apollo's `MockedProvider` is used in component tests where GraphQL data is required.
+
+The Forecast Chart tests verify the GraphQL-driven states and behavior, including:
+
+* Loading state.
+* Successful GraphQL response.
+* Date filtering.
+* Empty forecast data.
+* Empty filtered result.
+* Zoom reset.
+* Accessible loading state.
+* Accessible error state.
+* Accessible chart name.
+
+The Forecast Chart test suite currently contains:
+
+**9 tests — 9 passing**
+
+### Verification
+
+The Apollo + MSW integration was manually verified through the dashboard.
+
+The GraphQL response successfully returned:
+
+* **12,000** SKUs
+* **45,800** total units
+* **1,300** reorder items
+* **2** alerts
+* **16** forecast points
+* **4** suppliers
+
+This confirms that the dashboard can successfully request the mocked GraphQL endpoint through Apollo Client and render the returned data.
+
+### Backend Replacement
+
+The GraphQL mock layer is structured so that the mock implementation can later be replaced with a real backend GraphQL service.
+
+The dashboard components do not need to know whether the response comes from MSW or the real backend. The GraphQL query and response contract remain the boundary between the UI and the data source.
+
+The intended production flow is:
+
+```text
+Dashboard Component
+        ↓
+Apollo Client
+        ↓
+GraphQL API
+        ↓
+Real Backend
+```
+
+The current development flow is:
+
+```text
+Dashboard Component
+        ↓
+Apollo Client
+        ↓
+MSW
+        ↓
+Existing Mock Data
+```
+## Milestone 3 — Testing
+
+The dashboard uses Vitest + React Testing Library for component and unit tests, and Playwright for end-to-end testing.
+
+### Test coverage
+
+* **Vitest:** 16 test files / 124 tests
+* **Playwright:** 3 end-to-end tests
+* **Total:** 127 tests
+
+### Main E2E journeys
+
+1. Open the dashboard and verify that KPIs are displayed.
+2. Filter the dashboard by warehouse and drill into the Low Stock KPI.
+3. Go offline and verify that the last saved KPI snapshot is displayed.
+
+### Run all tests
+
+Run the complete test suite, including component tests and headless E2E tests, with one command:
+
+```powershell
+npm run test:all
+```
+
+This runs:
+
+```powershell
+npm run test
+npm run test:e2e
+```
+
+Playwright is configured to run headlessly.
+
+### Latest verification
+
+* Vitest: **124/124 passing**
+* Playwright: **3/3 passing**
+* Combined: **127/127 passing**
+
+
+
+
+
 

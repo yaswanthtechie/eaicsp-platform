@@ -3,10 +3,11 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ProfilerOnRenderCallback,
 } from "react";
-
+import { useDashboardData } from "./api/dashboardGraphql";
 import AlertsPanel from "./components/AlertsPanel";
 import DashboardFilters from "./components/DashboardFilters";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -21,17 +22,18 @@ import SupplierRisk from "./components/SupplierRisk";
 import SupplierRiskDistribution from "./components/SupplierRiskDistribution";
 import ExportCsvButton from "./components/export/ExportCsvButton";
 import ExportPdfButton from "./components/export/ExportPdfButton";
-import { dashboardApi } from "./api/dashboard";
+import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { inventory } from "./mocks/inventory";
-import { startMockWebSocketServer } from "./mocks/wsServer";
 import { mockUser, type UserRole } from "./mocks/user";
+import { startMockWebSocketServer } from "./mocks/wsServer";
 import { colors, radius, space } from "./tokens";
 import type {
   AlertMessage,
   InventoryItem,
   WebSocketMessage,
 } from "./types/forecast";
+import { getKpiSnapshot, saveKpiSnapshot } from "./utils/kpiSnapshot";
 
 const handleProfilerRender: ProfilerOnRenderCallback = (
   id,
@@ -49,11 +51,18 @@ const handleProfilerRender: ProfilerOnRenderCallback = (
 };
 
 function App() {
+  const {
+    data: dashboardData,
+    loading: dashboardLoading,
+    error: dashboardError,
+    refetch,
+  } = useDashboardData();
   const [role, setRole] = useState<UserRole>(mockUser.role);
   const [alerts, setAlerts] = useState<AlertMessage[]>([]);
   const [liveInventory, setLiveInventory] =
-    useState<InventoryItem[]>(inventory);
-
+    useState<InventoryItem[]>(dashboardData?.dashboard.inventory ?? inventory);
+  const isOnline = useOnlineStatus();
+  const wasOffline = useRef(false);
   const [filters, setFilters] = useState({
     warehouse: "All",
     category: "All",
@@ -147,6 +156,26 @@ function App() {
     );
   }, []);
 
+  const refreshDashboardData = useCallback(async () => {
+    try {
+      await refetch();
+    } catch {
+      // Keep the current data if refresh fails.
+    }
+  }, [refetch]);
+
+  useEffect(() => {
+    if (!isOnline) {
+      wasOffline.current = true;
+      return;
+    }
+
+    if (wasOffline.current) {
+      wasOffline.current = false;
+      void refreshDashboardData();
+    }
+  }, [isOnline, refreshDashboardData]);
+
   const {
     connected,
     isConnecting,
@@ -157,7 +186,7 @@ function App() {
     autoReconnect: true,
     maxRetries: 5,
   });
-  const effectiveWarehouse = 
+  const effectiveWarehouse =
     role === "warehouse_manager"
       ? mockUser.warehouse ?? "All"
       : filters.warehouse;
@@ -190,29 +219,14 @@ function App() {
     );
   }, [baseFilteredInventory, lowStockOnly]);
 
-  const totalSkus = baseFilteredInventory.length;
+  const totalSkus = dashboardData?.dashboard.kpis.totalSkus ?? 0;
 
-  const totalUnits = useMemo(
-    () =>
-      baseFilteredInventory.reduce(
-        (total, item) =>
-          total + item.quantity_on_hand,
-        0,
-      ),
-    [baseFilteredInventory],
-  );
+  const totalUnits = dashboardData?.dashboard.kpis.totalUnits ?? 0;
 
-  const lowStockCount = useMemo(
-    () =>
-      baseFilteredInventory.filter(
-        (item) => item.needs_reorder,
-      ).length,
-    [baseFilteredInventory],
-  );
+  const lowStockCount = dashboardData?.dashboard.kpis.reorderItems ?? 0;
+  const alertCount = dashboardData?.dashboard.kpis.alerts ?? 0;
 
-  const alertCount = alerts.length;
-
-  const kpis =
+  const kpis = useMemo( () => 
     role === "warehouse_manager"
       ? [
           {
@@ -249,13 +263,32 @@ function App() {
             title: "Alerts",
             value: alertCount,
           },
-        ];
+        ],
+    [
+      role,
+      totalSkus,
+      totalUnits,
+      lowStockCount,
+      alertCount
+    ],
+  );
+  
+  const offlineSnapshot = !isOnline
+    ? getKpiSnapshot()
+    : null;
+
+  const displayedKpis = offlineSnapshot?.kpis ?? kpis;
+
+  useEffect(() => {
+    if (isOnline) {
+      saveKpiSnapshot(kpis);
+    }
+  }, [isOnline, kpis]);
 
   const handleKpiClick = (title: string) => {
     const params = new URLSearchParams(
       window.location.search,
     );
-
     let nextLowStock = lowStockOnly;
 
     if (
@@ -308,6 +341,36 @@ function App() {
     }, 0);
   };
 
+  if (dashboardLoading) {
+    return (
+      <div
+        style={{
+        background: colors.bg,
+        minHeight: "100vh",
+        padding: space.lg,
+        color: colors.text,
+      }}
+      >
+        Loading dashboard data...
+      </div>
+    );
+  }
+
+  if (dashboardError) {
+    return (
+      <div
+        style={{
+        background: colors.bg,
+        minHeight: "100vh",
+        padding: space.lg,
+        color: colors.text,
+      }}
+      >
+        Failed to load dashboard data.
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
@@ -357,22 +420,60 @@ function App() {
         <ExportCsvButton
           role={role}
           inventory={filteredInventory}
-          suppliers={dashboardApi.getSupplierRisk()}
-          shipments={dashboardApi.getShipmentStatus()}
+          suppliers={dashboardData?.dashboard.supplierRisk ?? []}
+          shipments=
+            {dashboardData?.dashboard.shipmentStatus ?? {
+              total: 0,
+              pending: 0,
+              delivered: 0,
+              in_transit: 0,
+              delayed: 0,
+              cancelled: 0,
+            }
+          }
         />
 
         <ExportPdfButton
           role={role}
           inventory={filteredInventory}
-          suppliers={dashboardApi.getSupplierRisk()}
-          shipments={dashboardApi.getShipmentStatus()}
+          suppliers={dashboardData?.dashboard.supplierRisk ?? []}
+          shipments=
+            {dashboardData?.dashboard.shipmentStatus ?? {
+              total: 0,
+              pending: 0,
+              delivered: 0,
+              in_transit: 0,
+              delayed: 0,
+              cancelled: 0,
+            }
+          }
           filters={{ ...filters, warehouse: effectiveWarehouse }}
           kpis={kpis}
         />
       </div>
-
+      {!isOnline && offlineSnapshot && (
+        <div
+          style={{
+          background: colors.surface,
+          border: `1px solid ${colors.warning}`,
+          borderRadius: radius.md,
+          padding: space.sm,
+          marginBottom: space.lg,
+          color: colors.text,
+          fontSize: 14,
+        }}
+          role="status"
+          aria-live="polite"
+        >
+          Offline — showing data from{" "}
+          {new Date(offlineSnapshot.savedAt).toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+        </div>
+      )}
       <div className="kpi-grid">
-        {kpis.map((kpi) => (
+        {displayedKpis.map((kpi) => (
           <button
             key={kpi.title}
             type="button"
@@ -436,8 +537,17 @@ function App() {
         <ErrorBoundary>
           <NarrativeInsights
             inventory={baseFilteredInventory}
-            suppliers={dashboardApi.getSupplierRisk()}
-            shipments={dashboardApi.getShipmentStatus()}
+            suppliers={dashboardData?.dashboard.supplierRisk ?? []}
+            shipments=
+              {dashboardData?.dashboard.shipmentStatus ?? {
+                total: 0,
+                pending: 0,
+                delivered: 0,
+                in_transit: 0,
+                delayed: 0,
+                cancelled: 0,
+              }
+            }
             showSupplierInsight={role === "ceo"}
           />
         </ErrorBoundary>
@@ -478,6 +588,10 @@ function App() {
                 <ForecastChart
                   startDate={filters.startDate}
                   endDate={filters.endDate}
+                  data={dashboardData?.dashboard.forecast ?? []}
+                  loading={dashboardLoading}
+                  error={Boolean(dashboardError)}
+                  onRetry={() => void refetch()}
                 />
               </Profiler>
             </ErrorBoundary>
@@ -510,7 +624,7 @@ function App() {
 
         <ErrorBoundary>
           <InventoryHealth
-            inventory={liveInventory}
+            inventory={dashboardData?.dashboard.inventory ?? []}
             warehouse={filters.warehouse}
             category={filters.category}
           />
@@ -518,12 +632,22 @@ function App() {
 
         {role === "ceo" && (
           <ErrorBoundary>
-            <SupplierRisk />
+            <SupplierRisk
+              supplierRisk={dashboardData?.dashboard.supplierRisk ?? []}
+              loading={dashboardLoading}
+              error={Boolean(dashboardError)}
+              onRetry={() => void refetch()}
+            />
           </ErrorBoundary>
         )}
 
         <ErrorBoundary>
-          <ShipmentStatus />
+          <ShipmentStatus
+              shipmentStatus={dashboardData?.dashboard.shipmentStatus}
+              loading={dashboardLoading}
+              error={Boolean(dashboardError)}
+              onRetry={() => void refetch()}
+          />
         </ErrorBoundary>
       </div>
 
@@ -594,6 +718,7 @@ function App() {
             </ErrorBoundary>
           </div>
         )}
+
       </div>
     </div>
   );

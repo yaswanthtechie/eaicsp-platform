@@ -3,6 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "../App";
 
+vi.mock("../api/dashboardGraphql", () => ({
+  useDashboardData: vi.fn(),
+}));
+
+import { useDashboardData } from "../api/dashboardGraphql";
+
 vi.mock("../mocks/user", () => ({
   mockUser: {
     role: "ceo",
@@ -90,9 +96,39 @@ vi.mock("../components/export/ExportPdfButton", () => ({
   default: () => <button>Export PDF</button>,
 }));
 
+const mockDashboardData = {
+  dashboard: {
+    kpis: {
+      totalSkus: 12000,
+      totalUnits: 45800,
+      reorderItems: 1300,
+      alerts: 2,
+    },
+    inventory: [],
+    forecast: [],
+    supplierRisk: [],
+    shipmentStatus: {
+      total: 100,
+      pending: 20,
+      delivered: 50,
+      in_transit: 15,
+      delayed: 10,
+      cancelled: 5,
+    },
+    inventoryHealth: [],
+  },
+};
+
 describe("App role-based views", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+
+    vi.mocked(useDashboardData).mockReturnValue({
+      data: mockDashboardData,
+      loading: false,
+      error: undefined,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useDashboardData>);
   });
 
   it("shows supplier risk and CEO KPIs for CEO", () => {
@@ -147,3 +183,4 @@ describe("App role-based views", () => {
     expect(warehouseSelect).not.toBeDisabled();
   });
 });
+

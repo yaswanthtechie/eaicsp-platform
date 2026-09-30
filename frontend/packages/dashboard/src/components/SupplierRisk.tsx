@@ -1,41 +1,23 @@
-import { useEffect, useState } from "react";
-import { dashboardApi } from "../api/dashboard";
+import { Card, CardContent, CardHeader, CardTitle} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { colors, radius, space } from "../tokens";
+import type { SupplierRiskItem } from "../types/dashboard";
 import Skeleton from "./Skeleton";
 
-function SupplierRisk() {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
-  const supplierRisk = dashboardApi.getSupplierRisk();
-  
-  useEffect(() => {
-    let mounted = true;
+interface SupplierRiskProps {
+  supplierRisk: SupplierRiskItem[];
+  loading: boolean;
+  error: boolean;
+  onRetry: () => void;
+}
 
-    const loadData = async () => {
-      try {
-        await new Promise<void>((resolve) => {
-          setTimeout(resolve, 1000);
-        });
+function SupplierRisk({
+  supplierRisk,
+  loading,
+  error,
+  onRetry,
+}: SupplierRiskProps) {
 
-        if (mounted) {
-          setError(false);
-          setLoading(false);
-        }
-      } catch {
-        if (mounted) {
-          setError(true);
-          setLoading(false);
-        }
-      }
-    };
-
-    loadData();
-
-    return () => {
-      mounted = false;
-    };
-  }, [retryCount]);
 
   if (loading) {
     return (
@@ -67,16 +49,14 @@ function SupplierRisk() {
       >
         <div>Failed to load supplier risk.</div>
 
-        <button
-          onClick={() => {
-            setError(false);
-            setLoading(true);
-            setRetryCount((count) => count + 1);
-          }}
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onRetry}
           style={{ marginTop: space.md }}
         >
           Retry
-        </button>
+        </Button>
       </div>
     );
   }
@@ -106,172 +86,159 @@ function SupplierRisk() {
   };
 
   return (
-    <div
-      style={{
-        background: colors.surface,
-        border: `1px solid ${colors.border}`,
-        borderRadius: radius.lg,
-        padding: space.lg,
-        boxSizing: "border-box",
-        width: "100%",
-      }}
-    >
-      <div
-        style={{
-          color: colors.text,
-          fontSize: 18,
-          fontWeight: 600,
-          marginBottom: space.xs,
-        }}
-      >
-        Supplier Risk Summary
-      </div>
+    <Card className="w-full">
+      <CardHeader>
+        <CardTitle>Supplier Risk Summary</CardTitle>
 
-      <div
-        style={{
-          color: colors.textMuted,
-          fontSize: 14,
-          marginBottom: space.lg,
-        }}
-      >
-        Risk score and model confidence by supplier
-      </div>
+        <p className="text-sm text-muted-foreground">
+          Risk score and model confidence by supplier
+        </p>
+      </CardHeader>
 
-      <div
-        style={{
-          display: "grid",
-          gap: space.sm,
-        }}
-      >
-        {supplierRisk.map((supplier) => {
-          const riskColor = getRiskColor(supplier.risk_score);
-          const riskLevel = getRiskLevel(supplier.risk_score);
+      <CardContent>
+        <div
+          style={{
+            display: "grid",
+            gap: space.sm,
+          }}
+        >
+          {supplierRisk.map((supplier) => {
+            const riskColor = getRiskColor(supplier.risk_score);
+            const riskLevel = getRiskLevel(supplier.risk_score);
 
-          return (
-            <div
-              key={supplier.supplier}
-              style={{
-                border: `1px solid ${colors.border}`,
-                borderRadius: radius.md,
-                padding: space.md,
-              }}
-            >
+            return (
               <div
+                key={supplier.supplier}
                 style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  marginBottom: space.md,
+                  border: `1px solid ${colors.border}`,
+                  borderRadius: radius.md,
+                  padding: space.md,
                 }}
               >
                 <div
                   style={{
-                    color: colors.text,
-                    fontWeight: 600,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    marginBottom: space.md,
                   }}
                 >
-                  {supplier.supplier}
-                </div>
-
-                <div
-                  style={{
-                    color: riskColor,
-                    fontSize: 13,
-                    fontWeight: 600,
-                  }}
-                >
-                  {riskLevel} Risk
-                </div>
-              </div>
-
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: space.md,
-                }}
-              >
-                <div>
                   <div
                     style={{
                       color: colors.textMuted,
-                      fontSize: 12,
+                      fontWeight: 700,
                     }}
                   >
-                    Risk Score
+                    {supplier.supplier}
                   </div>
 
                   <div
                     style={{
                       color: riskColor,
+                      fontSize: 13,
                       fontWeight: 600,
-                      marginTop: space.xs,
                     }}
                   >
-                    {(supplier.risk_score * 100).toFixed(0)}%
+                    {riskLevel} Risk
                   </div>
                 </div>
 
-                <div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: space.md,
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        color: colors.textMuted,
+                        fontSize: 12,
+                      }}
+                    >
+                      Risk Score
+                    </div>
+
+                    <div
+                      style={{
+                        color: riskColor,
+                        fontWeight: 600,
+                        marginTop: space.xs,
+                      }}
+                    >
+                      {(supplier.risk_score * 100).toFixed(0)}%
+                    </div>
+                  </div>
+
+                  <div>
+                    <div
+                      style={{
+                        color: colors.textMuted,
+                        fontSize: 12,
+                      }}
+                    >
+                      Confidence
+                    </div>
+
+                    <div
+                      style={{
+                        color: colors.textMuted,
+                        fontWeight: 700,
+                        marginTop: space.xs,
+                      }}
+                    >
+                      {(supplier.confidence * 100).toFixed(0)}%
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: space.md }}>
                   <div
                     style={{
                       color: colors.textMuted,
                       fontSize: 12,
+                      marginBottom: space.xs,
                     }}
                   >
-                    Confidence
+                    Sentiment
                   </div>
 
                   <div
                     style={{
-                      color: colors.text,
-                      fontWeight: 600,
-                      marginTop: space.xs,
+                      display: "flex",
+                      gap: space.md,
+                      fontSize: 12,
                     }}
                   >
-                    {(supplier.confidence * 100).toFixed(0)}%
+                    <span style={{ color: colors.success }}>
+                      Positive{" "}
+                      {(supplier.sentiment_breakdown.positive * 100).toFixed(
+                        0,
+                      )}
+                      %
+                    </span>
+
+                    <span style={{ color: colors.danger }}>
+                      Negative{" "}
+                      {(supplier.sentiment_breakdown.negative * 100).toFixed(
+                        0,
+                      )}
+                      %
+                    </span>
+
+                    <span style={{ color: colors.textMuted }}>
+                      Neutral{" "}
+                      {(supplier.sentiment_breakdown.neutral * 100).toFixed(0)}
+                      %
+                    </span>
                   </div>
                 </div>
               </div>
-
-              <div style={{ marginTop: space.md }}>
-                <div
-                  style={{
-                    color: colors.textMuted,
-                    fontSize: 12,
-                    marginBottom: space.xs,
-                  }}
-                >
-                  Sentiment
-                </div>
-
-                <div
-                  style={{
-                    display: "flex",
-                    gap: space.md,
-                    fontSize: 12,
-                  }}
-                >
-                  <span style={{ color: colors.success }}>
-                    Positive{" "}
-                    {(supplier.sentiment_breakdown.positive * 100).toFixed(0)}%
-                  </span>
-
-                  <span style={{ color: colors.danger }}>
-                    Negative{" "}
-                    {(supplier.sentiment_breakdown.negative * 100).toFixed(0)}%
-                  </span>
-
-                  <span style={{ color: colors.textMuted }}>
-                    Neutral{" "}
-                    {(supplier.sentiment_breakdown.neutral * 100).toFixed(0)}%
-                  </span>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

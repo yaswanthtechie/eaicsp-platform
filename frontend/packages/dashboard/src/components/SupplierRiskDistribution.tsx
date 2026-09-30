@@ -8,7 +8,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-
+import { Button } from "@/components/ui/button";
 import { dashboardApi } from "../api/dashboard";
 import { colors, radius, space } from "../tokens";
 import Skeleton from "./Skeleton";
@@ -105,8 +105,10 @@ function SupplierRiskDistribution() {
       >
         <div>Failed to load supplier risk distribution.</div>
 
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="lg"
           onClick={() => {
             setError(false);
             setLoading(true);
@@ -115,7 +117,7 @@ function SupplierRiskDistribution() {
           style={{ marginTop: space.md }}
         >
           Retry
-        </button>
+        </Button>
       </div>
     );
   }

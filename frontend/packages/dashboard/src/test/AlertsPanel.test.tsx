@@ -49,7 +49,7 @@ describe("AlertsPanel", () => {
   it("shows connected status", () => {
     render(<AlertsPanel {...defaultProps} />);
 
-    expect(screen.getByText("🟢 Connected")).toBeInTheDocument();
+    expect(screen.getByText("Connected")).toBeInTheDocument();
   });
 
   it("shows disconnected status", () => {
@@ -60,7 +60,7 @@ describe("AlertsPanel", () => {
       />
     );
 
-    expect(screen.getByText("🔴 Disconnected")).toBeInTheDocument();
+    expect(screen.getByText("Disconnected")).toBeInTheDocument();
   });
 
   it("shows connecting status", () => {
@@ -202,7 +202,7 @@ describe("AlertsPanel", () => {
         isConnecting={true}
         alerts={[]}
       />
-   );
+    );
 
     const loadingState = screen.getByRole("status");
 
@@ -241,3 +241,4 @@ describe("AlertsPanel", () => {
     expect(alertItem).toBeInTheDocument();
   });
 });
+

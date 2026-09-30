@@ -10,83 +10,32 @@ import {
     XAxis,
     YAxis,
 } from "recharts";
-
-import { memo, useEffect, useMemo, useState } from "react";
-import { dashboardApi } from "../api/dashboard";
+import { Button } from "@/components/ui/button";
+import { memo, useMemo, useState } from "react";
 import { colors, space } from "../tokens";
 import type { ForecastPoint } from "../types/forecast";
 import Skeleton from "./Skeleton";
 interface ForecastChartProps {
   startDate?: string;
   endDate?: string;
-  shouldFail?: boolean;
+  data: ForecastPoint[];
+  loading: boolean;
+  error: boolean;
+  onRetry: () => void;
 }
 
 function ForecastChart({
   startDate = "",
   endDate = "",
-  shouldFail = false,
+  data,
+  loading,
+  error,
+  onRetry,
 }: ForecastChartProps) {
-  const [forecastData, setForecastData] = useState<ForecastPoint[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-
+  
   const [zoomStart, setZoomStart] = useState<number | null>(null);
   const [zoomEnd, setZoomEnd] = useState<number | null>(null);
-
-  const fetchData = async () => {
-    setLoading(true);
-    setError(false);
-
-    try {
-      if (shouldFail) {
-        throw new Error("Failed to load forecast data");
-      }
-
-      const data = await dashboardApi.fetchForecast();
-      setForecastData(data);
-    } catch {
-      setForecastData([]);
-      setError(true);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadData = async () => {
-      setLoading(true);
-      setError(false);
-
-      try {
-        if (shouldFail) {
-          throw new Error("Failed to load forecast data");
-        }
-
-        const data = await dashboardApi.fetchForecast();
-
-        if (!cancelled) {
-          setForecastData(data);
-          setLoading(false);
-        }
-      } catch {
-        if (!cancelled) {
-          setForecastData([]);
-          setError(true);
-          setLoading(false);
-        }
-      }
-    };
-
-    loadData();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [shouldFail]);
-
+  const forecastData = data;
   const filteredData = useMemo(() => {
     return forecastData.filter((item) => {
       const matchesStart =
@@ -159,13 +108,15 @@ function ForecastChart({
       >
         <p>Something went wrong.</p>
 
-        <button 
+        <Button 
           type="button"
-          onClick={fetchData}
+          variant="outline"
+          size="lg" 
+          onClick={onRetry}
           aria-label="Retry loading sales forecast"
         >  
           Retry
-        </button>
+        </Button>
       </div>
     );
   }
@@ -227,21 +178,15 @@ function ForecastChart({
           </div>
         </div>
 
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="lg"
           onClick={handleResetZoom}
           aria-label="Reset sales forecast zoom"
-          style={{
-            padding: "8px 12px",
-            borderRadius: 6,
-            border: `1px solid ${colors.border}`,
-            background: colors.surface,
-            color: colors.text,
-            cursor: "pointer",
-          }}
         >
           Reset Zoom
-        </button>
+        </Button>
       </div>
 
       <div

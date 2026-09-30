@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 
 import DashboardFilters from "../components/DashboardFilters";
 import { dashboardApi } from "../api/dashboard";
@@ -89,11 +90,13 @@ describe("DashboardFilters", () => {
     ).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(dashboardApi.fetchInventory).toHaveBeenCalled();
+      expect(
+        dashboardApi.fetchInventory,
+      ).toHaveBeenCalled();
     });
   });
 
-  it("shows default values", async () => {
+  it("shows default values", () => {
     render(
       <DashboardFilters
         filters={defaultFilters}
@@ -101,18 +104,22 @@ describe("DashboardFilters", () => {
       />,
     );
 
-    await waitFor(() => {
-      expect(
-        screen.getByLabelText("Warehouse filter"),
-      ).toHaveValue("All");
+    expect(
+      screen.getByRole("combobox", {
+        name: "Warehouse filter",
+      }),
+    ).toHaveTextContent("All");
 
-      expect(
-        screen.getByLabelText("Category filter"),
-      ).toHaveValue("All");
-    });
+    expect(
+      screen.getByRole("combobox", {
+        name: "Category filter",
+      }),
+    ).toHaveTextContent("All");
   });
 
   it("loads warehouse and category options", async () => {
+    const user = userEvent.setup();
+
     render(
       <DashboardFilters
         filters={defaultFilters}
@@ -120,40 +127,52 @@ describe("DashboardFilters", () => {
       />,
     );
 
-    await waitFor(() => {
-      expect(
-        screen.getByRole("option", {
-          name: "WH001",
-        }),
-      ).toBeInTheDocument();
-
-      expect(
-        screen.getByRole("option", {
-          name: "WH002",
-        }),
-      ).toBeInTheDocument();
-
-      expect(
-        screen.getByRole("option", {
-          name: "WH003",
-        }),
-      ).toBeInTheDocument();
-
-      expect(
-        screen.getByRole("option", {
-          name: "Food",
-        }),
-      ).toBeInTheDocument();
-
-      expect(
-        screen.getByRole("option", {
-          name: "Personal Care",
-        }),
-      ).toBeInTheDocument();
+    const warehouseFilter = screen.getByRole("combobox", {
+      name: "Warehouse filter",
     });
+
+    await user.click(warehouseFilter);
+
+    expect(
+      screen.getByRole("option", {
+        name: "WH001",
+      }),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByRole("option", {
+        name: "WH002",
+      }),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByRole("option", {
+        name: "WH003",
+      }),
+    ).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("combobox", {
+        name: "Category filter",
+      }),
+    );
+
+    expect(
+      screen.getByRole("option", {
+        name: "Food",
+      }),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByRole("option", {
+        name: "Personal Care",
+      }),
+    ).toBeInTheDocument();
   });
 
   it("changes warehouse", async () => {
+    const user = userEvent.setup();
+
     render(
       <DashboardFilters
         filters={defaultFilters}
@@ -161,21 +180,16 @@ describe("DashboardFilters", () => {
       />,
     );
 
-    await waitFor(() => {
-      expect(
-        screen.getByRole("option", {
-          name: "WH001",
-        }),
-      ).toBeInTheDocument();
-    });
+    await user.click(
+      screen.getByRole("combobox", {
+        name: "Warehouse filter",
+      }),
+    );
 
-    fireEvent.change(
-      screen.getByLabelText("Warehouse filter"),
-      {
-        target: {
-          value: "WH001",
-        },
-      },
+    await user.click(
+      await screen.findByRole("option", {
+        name: "WH001",
+      }),
     );
 
     await waitFor(() => {
@@ -189,6 +203,8 @@ describe("DashboardFilters", () => {
   });
 
   it("changes category", async () => {
+    const user = userEvent.setup();
+
     render(
       <DashboardFilters
         filters={defaultFilters}
@@ -196,21 +212,16 @@ describe("DashboardFilters", () => {
       />,
     );
 
-    await waitFor(() => {
-      expect(
-        screen.getByRole("option", {
-          name: "Food",
-        }),
-      ).toBeInTheDocument();
-    });
+    await user.click(
+      screen.getByRole("combobox", {
+        name: "Category filter",
+      }),
+    );
 
-    fireEvent.change(
-      screen.getByLabelText("Category filter"),
-      {
-        target: {
-          value: "Food",
-        },
-      },
+    await user.click(
+      await screen.findByRole("option", {
+        name: "Food",
+      }),
     );
 
     await waitFor(() => {
@@ -232,7 +243,9 @@ describe("DashboardFilters", () => {
     );
 
     await waitFor(() => {
-      expect(dashboardApi.fetchInventory).toHaveBeenCalled();
+      expect(
+        dashboardApi.fetchInventory,
+      ).toHaveBeenCalled();
     });
 
     fireEvent.change(
@@ -263,7 +276,9 @@ describe("DashboardFilters", () => {
     );
 
     await waitFor(() => {
-      expect(dashboardApi.fetchInventory).toHaveBeenCalled();
+      expect(
+        dashboardApi.fetchInventory,
+      ).toHaveBeenCalled();
     });
 
     fireEvent.change(
@@ -286,6 +301,8 @@ describe("DashboardFilters", () => {
   });
 
   it("updates URL", async () => {
+    const user = userEvent.setup();
+
     render(
       <DashboardFilters
         filters={defaultFilters}
@@ -293,21 +310,16 @@ describe("DashboardFilters", () => {
       />,
     );
 
-    await waitFor(() => {
-      expect(
-        screen.getByRole("option", {
-          name: "WH001",
-        }),
-      ).toBeInTheDocument();
-    });
+    await user.click(
+      screen.getByRole("combobox", {
+        name: "Warehouse filter",
+      }),
+    );
 
-    fireEvent.change(
-      screen.getByLabelText("Warehouse filter"),
-      {
-        target: {
-          value: "WH001",
-        },
-      },
+    await user.click(
+      screen.getByRole("option", {
+        name: "WH001",
+      }),
     );
 
     await waitFor(() => {
@@ -317,7 +329,7 @@ describe("DashboardFilters", () => {
     });
   });
 
-  it("reads filters from URL", async () => {
+  it("reads filters from URL", () => {
     window.history.pushState(
       {},
       "",
@@ -338,23 +350,25 @@ describe("DashboardFilters", () => {
       />,
     );
 
-    await waitFor(() => {
-      expect(
-        screen.getByLabelText("Warehouse filter"),
-      ).toHaveValue("WH001");
+    expect(
+      screen.getByRole("combobox", {
+        name: "Warehouse filter",
+      }),
+    ).toHaveTextContent("WH001");
 
-      expect(
-        screen.getByLabelText("Category filter"),
-      ).toHaveValue("Food");
+    expect(
+      screen.getByRole("combobox", {
+        name: "Category filter",
+      }),
+    ).toHaveTextContent("Food");
 
-      expect(
-        screen.getByLabelText("Start date"),
-      ).toHaveValue("2026-08-01");
+    expect(
+      screen.getByLabelText("Start date"),
+    ).toHaveValue("2026-08-01");
 
-      expect(
-        screen.getByLabelText("End date"),
-      ).toHaveValue("2026-08-31");
-    });
+    expect(
+      screen.getByLabelText("End date"),
+    ).toHaveValue("2026-08-31");
   });
 
   it("removes warehouse from URL when All is selected", async () => {
@@ -371,6 +385,8 @@ describe("DashboardFilters", () => {
       endDate: "",
     };
 
+    const user = userEvent.setup();
+
     render(
       <DashboardFilters
         filters={filters}
@@ -378,21 +394,16 @@ describe("DashboardFilters", () => {
       />,
     );
 
-    await waitFor(() => {
-      expect(
-        screen.getByRole("option", {
-          name: "WH001",
-        }),
-      ).toBeInTheDocument();
-    });
+    await user.click(
+      screen.getByRole("combobox", {
+        name: "Warehouse filter",
+      }),
+    );
 
-    fireEvent.change(
-      screen.getByLabelText("Warehouse filter"),
-      {
-        target: {
-          value: "All",
-        },
-      },
+    await user.click(
+      screen.getByRole("option", {
+        name: "All Warehouses",
+      }),
     );
 
     await waitFor(() => {
@@ -401,9 +412,13 @@ describe("DashboardFilters", () => {
   });
 
   it("handles inventory error", async () => {
-    vi.mocked(dashboardApi.fetchInventory).mockRejectedValue(
+    vi.mocked(
+      dashboardApi.fetchInventory,
+    ).mockRejectedValue(
       new Error("Failed"),
     );
+
+    const user = userEvent.setup();
 
     render(
       <DashboardFilters
@@ -414,11 +429,15 @@ describe("DashboardFilters", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByRole("option", {
-          name: "All Warehouses",
-        }),
-      ).toBeInTheDocument();
+        dashboardApi.fetchInventory,
+      ).toHaveBeenCalled();
     });
+
+    await user.click(
+      screen.getByRole("combobox", {
+        name: "Warehouse filter",
+      }),
+    );
 
     expect(
       screen.queryByRole("option", {
@@ -427,3 +446,4 @@ describe("DashboardFilters", () => {
     ).not.toBeInTheDocument();
   });
 });
+

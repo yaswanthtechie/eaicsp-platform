@@ -1,3 +1,8 @@
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Button } from "@/components/ui/button";
+
 import { memo, useEffect, useState } from "react";
 import { List, type RowComponentProps } from "react-window";
 import { dashboardApi } from "../api/dashboard";
@@ -127,8 +132,10 @@ function InventoryTable({
       >
         <h2>Something went wrong in table.</h2>
 
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="lg"
           onClick={() => setRetryCount((count) => count + 1)}
           style={{
             padding: "8px 16px",
@@ -136,7 +143,7 @@ function InventoryTable({
           }}
         >
           Retry
-        </button>
+        </Button>
       </div>
     );
   }
@@ -203,6 +210,8 @@ function InventoryTable({
 
   const cellStyle = {
     padding: space.sm,
+    background:colors.surface,
+    color:colors.text,
     border: `1px solid ${colors.border}`,
     textAlign: "left" as const,
     whiteSpace: "nowrap" as const,
@@ -266,25 +275,13 @@ function InventoryTable({
   }
 
   return (
-    <div
-      style={{
-        background: colors.surface,
-        padding: space.md,
-        borderRadius: radius.md,
-        marginTop: space.sm,
-      }}
-    >
-      <h2
-        style={{
-          color: colors.text,
-          marginTop: 0,
-        }}
-      >
-        Inventory Table
-      </h2>
-
-      <div
-        style={{
+    <Card className="w-full mt-2">
+      <CardHeader>
+        <CardTitle>Inventory Table</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div
+          style={{
           display: "flex",
           alignItems: "center",
           gap: space.md,
@@ -292,36 +289,41 @@ function InventoryTable({
           flexWrap: "wrap",
         }}
       > 
-        <label htmlFor="inventory-search">
-          Search inventory by SKU
+        <label htmlFor="inventory-search"
+          style={{
+            display: "block",
+            marginBottom: space.sm,
+            color: colors.textMuted,
+            fontSize: "13px",
+            fontWeight: 600,
+          }}
+        >
+          Search inventory items by SKU No
         </label>
-        <input
+        <Input
           id="inventory-search"
           type="text"
           placeholder="Search SKU"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          style={{
-            padding: "8px",
-            border: `1px solid ${colors.border}`,
-            borderRadius: radius.sm,
-            background: colors.bg,
-            color: colors.text,
-          }}
+          className="w-[180px]"
         />
-
         <label
+          htmlFor="low-stock"
           style={{
-            color: colors.text,
+            color: colors.textMuted,
             display: "flex",
             alignItems: "center",
             gap: space.sm,
           }}
         >
-          <input
-            type="checkbox"
+          <Checkbox
+            id = "low-stock"
             checked={showLowStock}
-            onChange={(e) => setShowLowStock(e.target.checked)}
+            onCheckedChange={(checked: boolean | "indeterminate") => setShowLowStock(checked === true)}
+            style={{
+              border: `1px solid ${colors.border}`,
+            }}
           />
           Show only low stock items
         </label>
@@ -377,7 +379,8 @@ function InventoryTable({
           SKU Number Not Available
         </div>
       )}
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
