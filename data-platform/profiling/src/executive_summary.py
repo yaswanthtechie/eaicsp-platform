@@ -173,13 +173,76 @@ def _extract_etl_signals(etl_output):
         signals["status"] = etl_output["status"]
 
     if "warnings" in etl_output:
-        signals["warnings"] = etl_output["warnings"]
+        signals["warnings"] = _count(etl_output["warnings"])
 
     if "errors" in etl_output:
-        signals["errors"] = etl_output["errors"]
+        signals["errors"] = _count(etl_output["errors"])
 
     if "sla_status" in etl_output:
         signals["sla_status"] = etl_output["sla_status"]
+
+    return signals
+
+def _count(value):
+    """
+    Turn a count-or-list into a number.
+
+    Real reports list each issue (Tharun's validator writes `errors` as a
+    list of {"rule", "field", "count"}); simple summaries give a number.
+    Either way the summary must say "6 errors", never print the list.
+    """
+    if isinstance(value, bool):
+        return int(value)
+
+    if isinstance(value, (int, float)):
+        return int(value)
+
+    if isinstance(value, (list, tuple, dict)):
+        return len(value)
+
+    return 0
+
+
+def _extract_real_validation_report(report):
+    """
+    Read the report Tharun's validator actually publishes
+    (data-platform/validation, `validate_cli --output report.json`).
+
+    Its fields: passed (bool), total_rows_affected (int), errors and
+    warnings (lists of {"rule", "field", "count"}), sla_breached (bool),
+    batch_rejected (bool). We only READ this file; we never import or
+    call the validator, so the two stay independent.
+    """
+    errors = report.get("errors") or []
+    warnings = report.get("warnings") or []
+
+    signals = {
+        "status": "pass" if report["passed"] else "fail",
+        "invalid_rows": _count(report.get("total_rows_affected", 0)),
+        "errors": _count(errors),
+        "warnings": _count(warnings),
+    }
+
+    # The rules that hit the most rows are what an executive needs to
+    # know first, so name the top three instead of listing everything.
+    worst = sorted(
+        (issue for issue in errors if isinstance(issue, dict)),
+        key=lambda issue: issue.get("count", 0),
+        reverse=True,
+    )[:3]
+
+    if worst:
+        signals["top_error_rules"] = [
+            f"{issue.get('rule', 'unknown rule')} "
+            f"({_count(issue.get('count', 0))} rows)"
+            for issue in worst
+        ]
+
+    if report.get("sla_breached"):
+        signals["sla_breached"] = True
+
+    if report.get("batch_rejected"):
+        signals["batch_rejected"] = True
 
     return signals
 
@@ -187,10 +250,16 @@ def _extract_etl_signals(etl_output):
 def _extract_validation_signals(validation_output):
     """
     Extract important signals from a static validation output.
+
+    Accepts Tharun's real validator report (it has a "passed" field) or
+    the simple summary shape {"status", "invalid_rows", ...}.
     """
 
     if not isinstance(validation_output, dict):
         return {}
+
+    if "passed" in validation_output:
+        return _extract_real_validation_report(validation_output)
 
     signals = {}
 
@@ -208,10 +277,11 @@ def _extract_validation_signals(validation_output):
         )
 
     if "errors" in validation_output:
-        signals["errors"] = validation_output["errors"]
+        signals["errors"] = _count(validation_output["errors"])
 
     if "warnings" in validation_output:
-        signals["warnings"] = validation_output["warnings"]
+        signals["warnings"] = _count(validation_output["warnings"])
+
 
     return signals
 
@@ -295,10 +365,23 @@ def _build_validation_summary(signals):
         )
         parts.append(f"It reported {count} {label}")
 
+    if signals.get("top_error_rules"):
+        parts.append(
+            "The most frequent validation errors were "
+            + ", ".join(signals["top_error_rules"])
+        )
+
+    if signals.get("batch_rejected"):
+        parts.append("The validated batch was rejected")
+
+    if signals.get("sla_breached"):
+        parts.append("The validation SLA was breached")
+
     if not parts:
         return ""
 
     return ". ".join(parts) + "."
+
 
 def _load_static_output(source):
     """

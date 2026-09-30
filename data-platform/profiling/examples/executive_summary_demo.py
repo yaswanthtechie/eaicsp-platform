@@ -17,10 +17,17 @@ def main():
 
     profiling_report = profiler.profile(df)
 
+    Path("reports").mkdir(exist_ok=True)
+
     # ---------------------------------
-    # 2. Create demo static ETL output
+    # 2. ETL output (PROPOSED CONTRACT - not yet published by the ETL)
     # ---------------------------------
-    etl_output_path = Path("reports/demo_etl_output.json")
+    # Vivek's ETL does not publish a run-summary file yet; its results
+    # live in the etl_run_log / etl_alerts tables and in logs. This is
+    # the small file we have asked it to publish (see README, "ETL run
+    # summary contract"). Until it exists, this sample stands in for it
+    # and the summary is clearly a demo for the ETL part.
+    etl_output_path = Path("reports/demo_etl_run_summary.json")
 
     etl_output = {
         "status": "success",
@@ -35,23 +42,14 @@ def main():
     )
 
     # ---------------------------------
-    # 3. Create demo static validation output
+    # 3. Validation output (REAL - Tharun's published report)
     # ---------------------------------
+    # Produced by data-platform/validation:
+    #   python -m src.validate_cli --file tests/data/messy_sales_500.csv \
+    #       --output <path> --config configs/sales_rules.yaml
+    # We only read the file; we never import or call the validator.
     validation_output_path = Path(
-        "reports/demo_validation_output.json"
-    )
-
-    validation_output = {
-        "status": "pass",
-        "invalid_rows": 3,
-        "validation_failures": 1,
-        "errors": 0,
-        "warnings": 1,
-    }
-
-    validation_output_path.write_text(
-        json.dumps(validation_output, indent=2),
-        encoding="utf-8",
+        "tests/fixtures/validation_report_tharun.json"
     )
 
     # ---------------------------------

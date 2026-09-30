@@ -1,6 +1,12 @@
 import pandas as pd
 from .compare import compare
 
+# A correlation needs enough keys to mean anything. With 2 keys it is
+# always exactly +1 or -1, so any two keys that happen to move would be
+# reported as a "perfect" root cause. Below this many matched keys we
+# make no suggestion at all.
+MIN_MATCHED_KEYS = 5
+
 def suggest_root_causes(
     downstream_old,
     downstream_new,
@@ -199,28 +205,6 @@ def suggest_root_causes(
     )
 
     return candidates
-def _find_related_upstream_columns(
-    downstream_column,
-    relationships,
-):
-    """
-    Find relationship candidates connected to a downstream column.
-    """
-
-    related_columns = []
-
-    for relationship in relationships:
-        left_column = relationship["left_column"]
-        right_column = relationship["right_column"]
-
-        if left_column == downstream_column:
-            related_columns.append(right_column)
-
-        elif right_column == downstream_column:
-            related_columns.append(left_column)
-
-    return related_columns
-
 def _find_relationship_keys(
     relationships,
     downstream_columns,
@@ -388,7 +372,7 @@ def _calculate_association(changes):
     Calculate the correlation between upstream and downstream changes.
     """
 
-    if len(changes) < 2:
+    if len(changes) < MIN_MATCHED_KEYS:
         return None
 
     changes_df = pd.DataFrame(changes)

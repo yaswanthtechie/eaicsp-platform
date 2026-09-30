@@ -301,3 +301,80 @@ def test_benchmark_profile_fails_on_dtype_change():
     }
 
     assert "quantity_sold.dtype" in metrics
+
+def _trusted_profile():
+    return {
+        "shape": [1000, 2],
+        "quality_score": {"score": 90},
+        "column_summary": [
+            {
+                "column": "sku_id",
+                "dtype": "object",
+                "role": "identifier",
+                "cardinality": 50,
+                "null_percent": 0.0,
+            },
+            {
+                "column": "quantity_sold",
+                "dtype": "int64",
+                "role": "numeric",
+                "cardinality": 100,
+                "null_percent": 1.0,
+            },
+        ],
+        "statistics": {"quantity_sold": {"mean": 50.0}},
+    }
+
+
+def test_benchmark_flags_unexpected_new_column():
+    expected_profile = create_expected_profile(_trusted_profile())
+
+    current_profile = _trusted_profile()
+    current_profile["column_summary"].append(
+        {
+            "column": "discount_code",
+            "dtype": "object",
+            "role": "categorical",
+            "cardinality": 5,
+            "null_percent": 0.0,
+        }
+    )
+
+    result = benchmark_profile(expected_profile, current_profile)
+
+    assert result["status"] == "fail"
+    new_column = [
+        deviation
+        for deviation in result["deviations"]
+        if deviation["metric"] == "discount_code"
+    ]
+    assert len(new_column) == 1
+    assert "Unexpected column" in new_column[0]["reason"]
+
+
+def test_benchmark_fails_when_quality_score_is_missing():
+    expected_profile = create_expected_profile(_trusted_profile())
+
+    current_profile = _trusted_profile()
+    del current_profile["quality_score"]
+
+    result = benchmark_profile(expected_profile, current_profile)
+
+    assert result["status"] == "fail"
+    quality = [
+        deviation
+        for deviation in result["deviations"]
+        if deviation["metric"] == "quality_score"
+    ]
+    assert len(quality) == 1
+    assert quality[0]["current"] is None
+
+
+def test_identical_profile_still_passes():
+    """The new checks must not fail a run that matches the baseline."""
+    expected_profile = create_expected_profile(_trusted_profile())
+
+    result = benchmark_profile(expected_profile, _trusted_profile())
+
+    assert result["status"] == "pass"
+    assert result["deviations"] == []

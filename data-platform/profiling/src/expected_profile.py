@@ -297,7 +297,26 @@ def benchmark_profile(
         ).get("score")
     )
 
+    # A run with no quality score cannot be checked, so it must not
+    # quietly count as meeting the minimum.
     if (
+        minimum_quality is not None
+        and current_quality is None
+    ):
+        deviations.append(
+            {
+                "metric": "quality_score",
+                "expected_minimum": minimum_quality,
+                "current": None,
+                "status": "fail",
+                "reason": (
+                    "Current profile has no quality score, so it "
+                    "cannot be checked against the expected minimum"
+                ),
+            }
+        )
+
+    elif (
         minimum_quality is not None
         and current_quality is not None
         and current_quality < minimum_quality
@@ -498,6 +517,26 @@ def benchmark_profile(
                         }
                     )
 
+    # ---------------------------------
+# Unexpected new columns
+# ---------------------------------
+# A column nobody expected is a schema change; it breaks downstream
+# consumers just as often as a missing column does. Only checked when
+# the expected profile actually lists its columns.
+    if expected_columns:
+        for column_name in sorted(
+            set(current_columns) - set(expected_columns)
+        ):
+            deviations.append(
+                {
+                    "metric": column_name,
+                    "status": "fail",
+                    "reason": (
+                        "Unexpected column is not in "
+                        "the expected profile"
+                    ),
+                }
+            )
     # ---------------------------------
     # Final benchmark result
     # ---------------------------------

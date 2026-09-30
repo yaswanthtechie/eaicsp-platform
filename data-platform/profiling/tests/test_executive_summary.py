@@ -1,5 +1,16 @@
+import json
+from pathlib import Path
+
 from src.executive_summary import _extract_profiling_signals
 from src import executive_summary
+
+# A real report produced by Tharun's validator (data-platform/validation):
+#   python -m src.validate_cli --file tests/data/messy_sales_500.csv \
+#       --output <this file> --config configs/sales_rules.yaml
+# We only read the file; we never import or call the validator.
+THARUN_REPORT = (
+    Path(__file__).parent / "fixtures" / "validation_report_tharun.json"
+)
 
 def test_extract_profiling_signals():
     profiling_report = {
@@ -266,3 +277,74 @@ def test_load_static_output_missing_file():
         assert False, "Expected FileNotFoundError"
     except FileNotFoundError as exc:
         assert "Static output file not found" in str(exc)
+
+def test_real_validation_report_is_summarised_correctly():
+    """
+    Tharun's real report says validation FAILED. The summary must say so,
+    give counts (not raw lists), and name the worst rules.
+    """
+    report = json.loads(THARUN_REPORT.read_text(encoding="utf-8"))
+    assert report["passed"] is False  # the fixture is a real failure
+
+    summary = executive_summary.generate_executive_summary(
+        profiling_report={"quality_score": {"score": 70}},
+        validation_output=THARUN_REPORT,
+    )
+
+    assert "Validation status is fail" in summary
+    assert f"{report['total_rows_affected']} rows are invalid" in summary
+    assert f"It reported {len(report['errors'])} validation errors" in summary
+    assert f"It reported {len(report['warnings'])} validation warnings" in summary
+
+    worst_rule = max(report["errors"], key=lambda issue: issue["count"])
+    assert "The most frequent validation errors were" in summary
+    assert f"{worst_rule['rule']} ({worst_rule['count']} rows)" in summary
+
+    # Never dump raw Python lists/dicts into an executive paragraph.
+    assert "[" not in summary and "{" not in summary
+
+
+def test_passed_real_validation_report_says_pass():
+    summary = executive_summary.generate_executive_summary(
+        profiling_report={"quality_score": {"score": 95}},
+        validation_output={
+            "passed": True,
+            "total_rows_affected": 0,
+            "errors": [],
+            "warnings": [],
+        },
+    )
+
+    assert "Validation status is pass" in summary
+    assert "rows are invalid" not in summary
+
+
+def test_rejected_batch_and_sla_breach_are_reported():
+    summary = executive_summary.generate_executive_summary(
+        profiling_report={"quality_score": {"score": 40}},
+        validation_output={
+            "passed": False,
+            "total_rows_affected": 900,
+            "errors": [{"rule": "not_null", "field": "sku_id", "count": 900}],
+            "warnings": [],
+            "batch_rejected": True,
+            "sla_breached": True,
+        },
+    )
+
+    assert "The validated batch was rejected" in summary
+    assert "The validation SLA was breached" in summary
+
+
+def test_list_valued_etl_counts_are_counted_not_printed():
+    summary = executive_summary.generate_executive_summary(
+        profiling_report={"quality_score": {"score": 90}},
+        etl_output={
+            "status": "success",
+            "warnings": [{"message": "slow batch"}, {"message": "late file"}],
+            "errors": [],
+        },
+    )
+
+    assert "It reported 2 ETL warnings" in summary
+    assert "[" not in summary and "{" not in summary

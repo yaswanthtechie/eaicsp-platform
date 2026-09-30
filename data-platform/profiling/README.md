@@ -478,6 +478,23 @@ The rule configuration validator validates:
 
 # Round 9–11 Enhancements
 
+### Round 9-11 status
+
+| Milestone | Status | What's left |
+|---|---|---|
+| M1 Root-cause suggestion | Done | Shown on a constructed price -> quantity case; not yet on a real production drift. Suggestions need at least 5 matched keys. |
+| M2 Expected-profile benchmarking | Done | -- |
+| M3 Executive summary | Partial | Validation reads Tharun's real report. The ETL part uses a proposed file format until the ETL publishes a run summary (see below). |
+| M4 Historical audit archive | Done | Append-only JSON Lines file; damaged lines are reported, never silently dropped. Single-machine file, not a shared database. |
+| M5 Performance at scale | Done | 500k / 750k / 1M rows, reproducible with `examples/scale_performance_demo.py`. |
+
+### ETL run summary contract (proposed to the ETL owner)
+
+The executive summary reads one static file from the ETL and nothing else:
+`{"run_id": 58, "status": "success" | "failed", "warnings": <int>,
+"errors": <int>, "sla_status": "met" | "breached", "finished_at": "<UTC ISO time>"}`.
+The ETL does not publish this file yet, so the demo uses a sample of it.
+
 ## 1. Root-Cause Suggestion for Drift
 
 The `root_cause` module analyzes detected drift and uses discovered relationships between datasets to suggest a plausible upstream factor that may be associated with the observed downstream change.
@@ -639,6 +656,10 @@ The current implementation has the following limitations:
 * Relationship discovery is based on value overlap and compatible data types and does not guarantee that a discovered relationship represents a true business or database foreign-key relationship.
 * Automated insights are rule-based and depend on the available profiling results.
 * The profiling API currently accepts CSV uploads.
+* Root-cause suggestions show association, not causation, and need at least 5 matched keys.
+* The audit archive is a local append-only file (`reports/audit_archive.jsonl`), safe against partial writes but not shared across machines.
+* The executive summary's ETL section depends on a run-summary file the ETL does not publish yet.
+* The profiler requires pandas 3.0 or newer; with pandas 2.x several tests fail.
 
 ---
 

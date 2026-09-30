@@ -1,7 +1,30 @@
+"""
+Permanent, append-only audit archive of profiling runs.
+
+Storage is JSON Lines: one run per line. A new run is APPENDED and old
+lines are never rewritten, so a crash, a full disk or a bad manual edit
+can at worst damage the line being written, never the history before it.
+
+Reads fail closed: if any existing line cannot be parsed, an
+AuditArchiveError is raised instead of pretending the archive is empty.
+(Pretending it was empty is what used to let the next save wipe history.)
+"""
+
 import json
+import os
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+
+SCHEMA_VERSION = "1.0"
+
+# Stops two threads in the same process interleaving half-written lines.
+_write_lock = threading.Lock()
+
+
+class AuditArchiveError(RuntimeError):
+    """The archive exists but cannot be read safely."""
 
 
 class AuditArchive:
@@ -11,14 +34,22 @@ class AuditArchive:
 
         if archive_file is None:
             self.archive_file = (
-                base_dir / "reports" / "audit_archive.json"
+                base_dir / "reports" / "audit_archive.jsonl"
             )
         else:
             self.archive_file = Path(archive_file)
 
     def load_archive(self):
+        """
+        Return every archived run, oldest first.
+
+        Raises AuditArchiveError if the file cannot be read or any line is
+        damaged, so the problem is noticed and repaired, never hidden.
+        """
         if not self.archive_file.exists():
             return []
+
+        records = []
 
         try:
             with open(
@@ -26,57 +57,90 @@ class AuditArchive:
                 "r",
                 encoding="utf-8",
             ) as file:
-                data = json.load(file)
+                for line_number, line in enumerate(file, start=1):
+                    line = line.strip()
 
-            if not isinstance(data, list):
-                return []
+                    if not line:
+                        continue
 
-            return data
+                    try:
+                        record = json.loads(line)
+                    except json.JSONDecodeError as exc:
+                        raise AuditArchiveError(
+                            f"Audit archive {self.archive_file} is damaged "
+                            f"at line {line_number}. Refusing to continue so "
+                            "no history is lost. Restore the file from "
+                            "backup, or remove only the damaged line."
+                        ) from exc
 
-        except (json.JSONDecodeError, OSError):
-            return []
+                    if (
+                        not isinstance(record, dict)
+                        or "run_id" not in record
+                    ):
+                        raise AuditArchiveError(
+                            f"Audit archive {self.archive_file} line "
+                            f"{line_number} is not a valid audit record."
+                        )
+
+                    records.append(record)
+
+        except OSError as exc:
+            raise AuditArchiveError(
+                f"Audit archive {self.archive_file} cannot be read: {exc}"
+            ) from exc
+
+        return records
 
     def save_run(self, report, drift=None):
+        """
+        Append one run to the archive. Existing records are never rewritten.
+        """
         if not isinstance(report, dict):
             raise TypeError(
                 "report must be a dictionary"
             )
-
-        archive = self.load_archive()
 
         run_record = {
             "run_id": str(uuid.uuid4()),
             "timestamp": datetime.now(
                 timezone.utc
             ).isoformat(),
-            "schema_version": "1.0",
+            "schema_version": SCHEMA_VERSION,
             "profile_report": report,
             "drift_report": drift,
         }
 
-        archive.append(run_record)
+        line = json.dumps(run_record)
 
         self.archive_file.parent.mkdir(
             parents=True,
             exist_ok=True,
         )
 
-        temp_file = self.archive_file.with_suffix(
-            ".tmp"
-        )
+        with _write_lock:
+            # If a previous write was cut off mid-line, start on a fresh
+            # line so the new record is not glued onto the broken one.
+            needs_newline = False
 
-        with open(
-            temp_file,
-            "w",
-            encoding="utf-8",
-        ) as file:
-            json.dump(
-                archive,
-                file,
-                indent=4,
-            )
+            if (
+                self.archive_file.exists()
+                and self.archive_file.stat().st_size > 0
+            ):
+                with open(self.archive_file, "rb") as existing:
+                    existing.seek(-1, os.SEEK_END)
+                    needs_newline = existing.read(1) != b"\n"
 
-        temp_file.replace(self.archive_file)
+            with open(
+                self.archive_file,
+                "a",
+                encoding="utf-8",
+            ) as file:
+                if needs_newline:
+                    file.write("\n")
+
+                file.write(line + "\n")
+                file.flush()
+                os.fsync(file.fileno())
 
         return run_record
 
@@ -105,7 +169,13 @@ class AuditArchive:
     ):
         """
         Query historical audit records using simple filters.
+
+        start_time / end_time without a timezone are treated as UTC,
+        because every record is stored in UTC.
         """
+        start_time = _as_utc(start_time)
+        end_time = _as_utc(end_time)
+
         archive = self.load_archive()
 
         results = []
@@ -169,3 +239,11 @@ class AuditArchive:
             results.append(record)
 
         return results
+
+
+def _as_utc(value):
+    """Treat a naive datetime as UTC so comparisons never raise TypeError."""
+    if value is not None and value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+
+    return value

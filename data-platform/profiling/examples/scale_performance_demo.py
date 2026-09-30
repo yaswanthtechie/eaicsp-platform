@@ -1,5 +1,5 @@
 import time
-
+from pathlib import Path
 import numpy as np
 import pandas as pd
 
@@ -80,7 +80,13 @@ def main():
             f"-> Average: {average_time:.4f} seconds\n"
         )
 
-    output_path = "reports/scale_performance_results.csv"
+    # reports/ is gitignored, so it does not exist on a fresh clone.
+    output_path = (
+        Path(__file__).resolve().parents[1]
+        / "reports"
+        / "scale_performance_results.csv"
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     pd.DataFrame(results).to_csv(
         output_path,
