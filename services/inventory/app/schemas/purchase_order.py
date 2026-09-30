@@ -22,4 +22,5 @@ class PurchaseOrderResponse(BaseModel):
     unit_cost: float
     expected_cost: float
     status: str
+    approval_status: str
     created_at: datetime

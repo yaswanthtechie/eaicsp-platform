@@ -2,8 +2,9 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 
-# Database ORM
+# Database ORM and Migrations
 sqlalchemy==2.0.36
+alembic>=1.13.0
 
 # PostgreSQL Driver
 psycopg2-binary>=2.9.10

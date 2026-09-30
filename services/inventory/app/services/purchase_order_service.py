@@ -1,7 +1,9 @@
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.inventory import Inventory
 from app.models.purchase_order import PurchaseOrder
 from app.models.supplier import Supplier
@@ -17,6 +19,13 @@ from app.services.reorder_service import (
 from app.services.valuation_service import (
     add_cost_layer,
 )
+
+from app.services.compliance_client import (
+    ComplianceBlockedError,
+    check_supplier_compliance,
+)
+from app.services.outbox_service import record_event
+from app.services.cache_service import invalidate_inventory_cache
 
 
 def generate_po_id():
@@ -44,6 +53,54 @@ def select_supplier(
         )
 
     return suppliers[0]
+
+
+def determine_approval_status(
+    expected_cost: float,
+) -> str:
+    """
+    Determine whether a purchase order can be
+    automatically approved or requires VP Operations approval.
+    """
+
+    if (
+        expected_cost
+        <= settings.PO_AUTO_APPROVAL_THRESHOLD
+    ):
+        return "approved"
+
+    return "pending_vp_approval"
+
+
+def check_supplier_before_po(
+    supplier_id: str,
+    supplier_name: str,
+):
+    """
+    Check the selected supplier with Compliance Service
+    before creating an automatic purchase order.
+
+    Raises ComplianceBlockedError for BLOCK / REVIEW, and
+    ComplianceServiceError when no usable decision came back.
+    """
+
+    compliance_result = check_supplier_compliance(
+        supplier_id=supplier_id,
+        supplier_name=supplier_name,
+        country=settings.DEFAULT_SUPPLIER_COUNTRY,
+    )
+
+    if compliance_result["decision"] != "CLEAR":
+        raise ComplianceBlockedError(
+            supplier_id=supplier_id,
+            decision=compliance_result["decision"],
+            reason=(
+                compliance_result.get("reason")
+                or "No reason given"
+            ),
+        )
+
+    return compliance_result
 
 
 def calculate_draft_po_details(
@@ -93,6 +150,7 @@ def calculate_draft_po_details(
     return {
         "quantity": suggested_quantity,
         "supplier_id": supplier.supplier_id,
+        "supplier_name": supplier.supplier_name,
         "unit_cost": supplier.unit_cost,
         "expected_cost": expected_cost,
     }
@@ -106,8 +164,6 @@ def find_existing_draft_po(
     """
     Find an existing draft PO for the same SKU
     and warehouse.
-
-    This prevents duplicate draft POs.
     """
 
     return (
@@ -131,11 +187,6 @@ def create_draft_po_for_inventory(
     """
     Automatically create a draft PO when inventory
     falls below its reorder point.
-
-    If a draft PO already exists for the same
-    SKU and warehouse, return the existing PO.
-
-    Returns None when reorder is not required.
     """
 
     po_details = calculate_draft_po_details(
@@ -155,6 +206,15 @@ def create_draft_po_for_inventory(
     if existing_po is not None:
         return existing_po
 
+    check_supplier_before_po(
+        supplier_id=po_details["supplier_id"],
+        supplier_name=po_details["supplier_name"],
+    )
+
+    approval_status = determine_approval_status(
+        expected_cost=po_details["expected_cost"],
+    )
+
     purchase_order = PurchaseOrder(
         po_id=generate_po_id(),
         sku_id=inventory.sku_id,
@@ -164,9 +224,30 @@ def create_draft_po_for_inventory(
         unit_cost=po_details["unit_cost"],
         expected_cost=po_details["expected_cost"],
         status="draft",
+        approval_status=approval_status,
     )
 
     db.add(purchase_order)
+
+    # Transactional Outbox: Write inventory.po.drafted in the same transaction
+    record_event(
+        db=db,
+        event_type="inventory.po.drafted",
+        aggregate_type="purchase_order",
+        aggregate_id=purchase_order.po_id,
+        payload={
+            "po_id": purchase_order.po_id,
+            "sku_id": purchase_order.sku_id,
+            "warehouse_id": purchase_order.warehouse_id,
+            "supplier_id": purchase_order.supplier_id,
+            "quantity": purchase_order.quantity,
+            "unit_cost": purchase_order.unit_cost,
+            "expected_cost": purchase_order.expected_cost,
+            "status": purchase_order.status,
+            "approval_status": purchase_order.approval_status,
+            "created_at": datetime.now(UTC).isoformat(),
+        },
+    )
 
     try:
         db.commit()
@@ -185,6 +266,9 @@ def create_automatic_draft_po(
 ):
     """
     Existing request-driven PO endpoint.
+
+    Compliance must clear the selected supplier
+    before the draft PO is created.
     """
 
     inventory = (
@@ -212,6 +296,15 @@ def create_automatic_draft_po(
             "Reorder is not required for this inventory"
         )
 
+    check_supplier_before_po(
+        supplier_id=po_details["supplier_id"],
+        supplier_name=po_details["supplier_name"],
+    )
+
+    approval_status = determine_approval_status(
+        expected_cost=po_details["expected_cost"],
+    )
+
     purchase_order = PurchaseOrder(
         po_id=generate_po_id(),
         sku_id=inventory.sku_id,
@@ -221,9 +314,79 @@ def create_automatic_draft_po(
         unit_cost=po_details["unit_cost"],
         expected_cost=po_details["expected_cost"],
         status="draft",
+        approval_status=approval_status,
     )
 
     db.add(purchase_order)
+
+    # Transactional Outbox: Write inventory.po.drafted in the same transaction
+    record_event(
+        db=db,
+        event_type="inventory.po.drafted",
+        aggregate_type="purchase_order",
+        aggregate_id=purchase_order.po_id,
+        payload={
+            "po_id": purchase_order.po_id,
+            "sku_id": purchase_order.sku_id,
+            "warehouse_id": purchase_order.warehouse_id,
+            "supplier_id": purchase_order.supplier_id,
+            "quantity": purchase_order.quantity,
+            "unit_cost": purchase_order.unit_cost,
+            "expected_cost": purchase_order.expected_cost,
+            "status": purchase_order.status,
+            "approval_status": purchase_order.approval_status,
+            "created_at": datetime.now(UTC).isoformat(),
+        },
+    )
+
+    try:
+        db.commit()
+        db.refresh(purchase_order)
+
+    except Exception:
+        db.rollback()
+        raise
+
+    return purchase_order
+
+
+def approve_purchase_order(
+    db: Session,
+    po_id: str,
+):
+    """
+    Approve a purchase order that requires
+    VP Operations approval.
+    """
+
+    purchase_order = (
+        db.query(PurchaseOrder)
+        .filter(
+            PurchaseOrder.po_id == po_id
+        )
+        .with_for_update()
+        .first()
+    )
+
+    if purchase_order is None:
+        raise LookupError(
+            "Purchase order not found"
+        )
+
+    if purchase_order.status != "draft":
+        raise ValueError(
+            "Only draft purchase orders can be approved"
+        )
+
+    if (
+        purchase_order.approval_status
+        != "pending_vp_approval"
+    ):
+        raise ValueError(
+            "Purchase order does not require VP Operations approval"
+        )
+
+    purchase_order.approval_status = "approved"
 
     try:
         db.commit()
@@ -241,14 +404,7 @@ def receive_purchase_order(
     po_id: str,
 ):
     """
-    Receive a draft purchase order.
-
-    Receiving a PO:
-    1. Increases inventory quantity.
-    2. Creates a new inventory cost layer.
-    3. Uses the PO unit cost for the new layer.
-    4. Increments inventory version.
-    5. Changes PO status to received.
+    Receive a purchase order.
     """
 
     purchase_order = (
@@ -268,6 +424,14 @@ def receive_purchase_order(
     if purchase_order.status != "draft":
         raise ValueError(
             "Only draft purchase orders can be received"
+        )
+
+    if (
+        purchase_order.approval_status
+        != "approved"
+    ):
+        raise ValueError(
+            "Purchase order requires VP Operations approval"
         )
 
     inventory = (
@@ -312,6 +476,7 @@ def receive_purchase_order(
     try:
         db.commit()
         db.refresh(purchase_order)
+        invalidate_inventory_cache(inventory.sku_id, inventory.warehouse_id)
 
     except Exception:
         db.rollback()

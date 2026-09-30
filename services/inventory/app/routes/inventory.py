@@ -18,6 +18,9 @@ from app.core.auth import (
 )
 from app.database import get_db
 from app.models.inventory import Inventory
+from app.services.network_optimization_service import (
+    optimize_network_safety_stock,
+)
 
 from app.schemas.inventory import (
     InventoryCreate,
@@ -71,6 +74,13 @@ from app.services.multi_echelon_service import (
 
 from app.services.valuation_service import (
     consume_cost_layers,
+)
+from app.services.cache_service import (
+    get_cached_inventory,
+    set_cached_inventory,
+    get_cached_all_inventory,
+    set_cached_all_inventory,
+    invalidate_inventory_cache,
 )
 
 
@@ -140,15 +150,20 @@ def create_inventory_route(
 def get_all_inventory_route(
     db: Session = Depends(get_db),
 ):
-    items = get_all_inventory(db)
+    cached = get_cached_all_inventory()
+    if cached is not None:
+        return cached
 
-    return [
+    items = get_all_inventory(db)
+    result = [
         inventory_response(
             inventory=item,
             db=db,
         )
         for item in items
     ]
+    set_cached_all_inventory(result)
+    return result
 
 
 # =========================================================
@@ -511,6 +526,7 @@ def decrement_inventory_route(
 
         db.commit()
         db.refresh(item)
+        invalidate_inventory_cache(sku_id, warehouse_id)
 
         # -----------------------------------------------------
         # MILESTONE 2:
@@ -755,6 +771,10 @@ def get_inventory_route(
     warehouse_id: str,
     db: Session = Depends(get_db),
 ):
+    cached = get_cached_inventory(sku_id=sku_id, warehouse_id=warehouse_id)
+    if cached is not None:
+        return cached
+
     item = get_inventory(
         db=db,
         sku_id=sku_id,
@@ -768,10 +788,16 @@ def get_inventory_route(
         )
 
     try:
-        return inventory_response(
+        response_data = inventory_response(
             inventory=item,
             db=db,
         )
+        set_cached_inventory(
+            sku_id=sku_id,
+            warehouse_id=warehouse_id,
+            data=response_data,
+        )
+        return response_data
 
     except ValueError as exc:
         raise HTTPException(
@@ -820,3 +846,24 @@ def delete_inventory_route(
     except Exception:
         db.rollback()
         raise
+@router.get(
+    "/network-optimization",
+)
+def network_optimization(
+    days: int = 30,
+    db: Session = Depends(get_db),
+    auth=Depends(
+        require_permission("inventory:read")
+    ),
+):
+    try:
+        return optimize_network_safety_stock(
+            db=db,
+            days=days,
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc

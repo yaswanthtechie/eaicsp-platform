@@ -1,4 +1,4 @@
-﻿﻿# Inventory Service
+# Inventory Service
 
 FastAPI microservice for managing inventory across multiple warehouses.
 
