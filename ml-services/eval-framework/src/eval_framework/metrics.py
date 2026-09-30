@@ -1,17 +1,29 @@
 import numpy as np
 
+from ._validation import check_same_length, to_float_array
+
 # Metrics where a HIGHER value is better. Every other known metric (mape, rmse,
 # false_positive_rate, etc.) is treated as lower-is-better by default. This is
 # the single source of truth used by both report.py and leaderboard.py, so
 # adding a new metric here automatically fixes its winner-direction everywhere.
-HIGHER_IS_BETTER_METRICS = {"precision", "recall", "f1", "balanced_accuracy", "specificity", "accuracy"}
+HIGHER_IS_BETTER_METRICS = {
+    "precision", "recall", "f1", "balanced_accuracy", "specificity", "accuracy",
+    "pr_auc", "precision_at_k", "event_precision", "event_recall", "event_f1",
+}
 
 # Metrics where a LOWER value is better. Combined with HIGHER_IS_BETTER_METRICS,
 # this is the full set of metric names this framework recognizes. A metric
 # name outside both sets is UNKNOWN -- callers must say explicitly which
 # direction it goes, rather than the framework silently guessing (guessing
 # wrong previously ranked r2 backwards and let auc get incorrectly flagged).
-LOWER_IS_BETTER_METRICS = {"mape", "rmse", "false_positive_rate"}
+LOWER_IS_BETTER_METRICS = {"mape", "rmse", "false_positive_rate", "mae", "mean_interval_width"}
+
+# Metrics that are neither higher- nor lower-is-better: the ideal is a TARGET
+# value (e.g. a 90% interval should cover ~0.90; 0.99 means intervals are too
+# wide). Deliberately NOT part of KNOWN_METRICS: consumers that assume
+# "known and not higher-is-better => lower-is-better" would rank these
+# backwards, so they must instead be handled explicitly (target required).
+TARGET_METRICS = {"interval_coverage"}
 
 KNOWN_METRICS = HIGHER_IS_BETTER_METRICS | LOWER_IS_BETTER_METRICS
 
@@ -21,7 +33,8 @@ KNOWN_METRICS = HIGHER_IS_BETTER_METRICS | LOWER_IS_BETTER_METRICS
 # would never fire on real MAPE values -- its low threshold is on the
 # percentage scale instead. RMSE is intentionally omitted: its scale is
 # entirely data-dependent (units of the forecasted quantity), so no single
-# universal threshold is meaningful across different datasets.
+# universal threshold is meaningful across different datasets. MAE is omitted
+# for the same reason.
 # false_positive_rate is also intentionally omitted: a LOW false positive
 # rate is genuinely good in a real detector (correctly leaving normal points
 # alone), not a leakage red flag the way near-zero MAPE/RMSE is.
@@ -32,6 +45,8 @@ SUSPICIOUS_THRESHOLDS = {
     "f1": {"high": 0.98},
     "specificity": {"high": 0.98},
     "balanced_accuracy": {"high": 0.98},
+    "pr_auc": {"high": 0.98},
+    "event_f1": {"high": 0.98},
     "mape": {"low": 0.5},
 }
 
@@ -51,6 +66,20 @@ def rmse(actual, predicted) -> float:
     """Root Mean Squared Error."""
     actual, predicted = np.array(actual), np.array(predicted)
     return float(np.sqrt(np.mean((actual - predicted) ** 2)))
+
+
+def mae(actual, predicted) -> float:
+    """Mean Absolute Error, in the same units as the target.
+
+    Why: for ETA-style models the error in minutes is what operations teams
+    understand, and unlike RMSE one large miss does not dominate it. Empty,
+    mismatched-length, NaN or infinite input raises instead of returning a
+    misleading number.
+    """
+    a = to_float_array(actual, "actual")
+    p = to_float_array(predicted, "predicted")
+    check_same_length(actual=a, predicted=p)
+    return float(np.mean(np.abs(a - p)))
 
 
 def confusion_matrix(y_true, y_pred) -> dict:
