@@ -62,12 +62,19 @@ Round 11:
 - Blue rollback
 - Blue-Green prediction endpoint
 - Blue-Green deployment status
+
+Round 12/13 - Milestone 1:
+- BentoML model packaging
+- Standalone bundled model artifact
+- Container-safe model loading
+- Preserve existing request/response contract
 """
 
 import logging
 import os
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
 import bentoml
@@ -237,6 +244,50 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ==========================================================
+# BentoML Bundled Model Configuration
+# ==========================================================
+#
+# Round 12/13:
+#
+# The Bento contains:
+#
+#     /app/models/model.pkl
+#
+# The standalone model is used inside the Bento container
+# instead of depending on a fresh/empty MLflow registry.
+#
+# Local development continues to use MLflow.
+#
+# ==========================================================
+
+BENTO_BUNDLED_MODEL_PATH = Path(
+    "/app/models/model.pkl"
+)
+
+
+def is_bento_bundled_model_available() -> bool:
+    """
+    Return True when the standalone model artifact is
+    available inside the Bento container.
+    """
+
+    enabled_by_environment = (
+        os.getenv(
+            "BENTO_BUNDLED_MODEL",
+            "",
+        )
+        .strip()
+        .lower()
+        == "true"
+    )
+
+    return (
+        enabled_by_environment
+        or BENTO_BUNDLED_MODEL_PATH.exists()
+    )
 
 
 # ==========================================================
@@ -546,15 +597,6 @@ BATCH_PREDICTION_SERVICE = BatchPredictionService(
 # ==========================================================
 # Round 11 Blue-Green Manager
 # ==========================================================
-#
-# Governance is injected into the Blue-Green manager.
-#
-# Switching to Green:
-#     governance approval required
-#
-# Switching to Blue:
-#     always allowed as rollback
-# ==========================================================
 
 BLUE_GREEN_MANAGER = BlueGreenManager(
     MULTI_MODEL_MANAGER,
@@ -671,13 +713,6 @@ def configure_blue_green(
 ) -> dict:
     """
     Configure Blue-Green deployment for a model.
-
-    The configured Blue version is the currently active
-    known-good version.
-
-    The configured Green version is the candidate version.
-
-    Configuration itself does not switch traffic.
     """
 
     try:
@@ -815,12 +850,6 @@ def blue_green_predict(
     """
     Run prediction against the currently active
     Blue-Green model version.
-
-    The response identifies:
-
-    - active model version
-    - deployment color
-    - deployment status
     """
 
     try:
@@ -884,6 +913,53 @@ multi_model_app.include_router(
 class IrisService:
 
     # ======================================================
+    # BentoML Model Loading Helpers
+    # ======================================================
+
+    def _load_serving_canary_models(self):
+        """
+        Load canary models for the current serving environment.
+
+        Local development:
+            Use the existing MLflow-backed canary loader.
+
+        Bento container:
+            Use the bundled standalone model for both
+            production and staging/canary routes.
+
+        This prevents the Bento container from depending on
+        a separate MLflow registry during startup.
+        """
+
+        if is_bento_bundled_model_available():
+
+            bundled_models = {
+                "production": (
+                    self.model,
+                    self.model_version,
+                ),
+                "staging": (
+                    self.model,
+                    self.model_version,
+                ),
+            }
+
+            logger.info(
+                "Bento bundled-model mode enabled. "
+                "Using standalone model for production "
+                "and staging/canary routes."
+            )
+
+            return bundled_models
+
+        logger.info(
+            "Local MLflow model mode enabled. "
+            "Loading canary models from MLflow."
+        )
+
+        return load_canary_models()
+
+    # ======================================================
     # Initialization
     # ======================================================
 
@@ -900,9 +976,14 @@ class IrisService:
         # --------------------------------------------------
         # Load Canary Models
         # --------------------------------------------------
+        #
+        # IMPORTANT:
+        # In the Bento container this uses the bundled
+        # model instead of the MLflow registry.
+        # --------------------------------------------------
 
         self.canary_models = (
-            load_canary_models()
+            self._load_serving_canary_models()
         )
 
         # --------------------------------------------------
@@ -1096,6 +1177,11 @@ class IrisService:
             "/models/{model_name}/blue-green"
         )
 
+        logger.info(
+            "Bento bundled model available: %s",
+            is_bento_bundled_model_available(),
+        )
+
     # ======================================================
     # Milestone 3 Orchestrator Creation
     # ======================================================
@@ -1125,17 +1211,6 @@ class IrisService:
 
         models = {}
 
-        # --------------------------------------------------
-        # Metric direction
-        # --------------------------------------------------
-        #
-        # Lower is better:
-        # forecast and eta are error metrics.
-        #
-        # Higher is better:
-        # anomaly and risk are scores.
-        #
-
         higher_is_better = {
             "forecast": False,
             "eta": False,
@@ -1144,10 +1219,6 @@ class IrisService:
         }
 
         for model_name in MULTI_MODEL_NAMES:
-
-            # --------------------------------------------------
-            # Production version callback
-            # --------------------------------------------------
 
             def get_version(
                 name=model_name,
@@ -1167,20 +1238,12 @@ class IrisService:
                     adapter.model_version
                 )
 
-            # --------------------------------------------------
-            # Drift callback
-            # --------------------------------------------------
-
             def check_model_drift(
                 name=model_name,
             ):
                 """
                 Calculate the current drift decision for
                 one served model.
-
-                Drift is calculated from the model's own
-                recent monitoring inputs and does NOT use
-                a hardcoded drift_score=0.0.
                 """
 
                 recent_inputs = (
@@ -1212,21 +1275,12 @@ class IrisService:
 
                 return result
 
-            # --------------------------------------------------
-            # Retraining callback
-            # --------------------------------------------------
-
             def retrain(
                 name=model_name,
             ):
                 """
                 Safety boundary for model-specific
                 retraining.
-
-                The real production retraining pipeline
-                remains explicitly guarded until the
-                corresponding production pipeline is
-                connected.
                 """
 
                 raise RuntimeError(
@@ -1234,31 +1288,18 @@ class IrisService:
                     f"'{name}' is not connected yet."
                 )
 
-            # --------------------------------------------------
-            # Production evaluation callback
-            # --------------------------------------------------
-
             def evaluate_production(
                 name=model_name,
             ):
                 """
                 Safety boundary for model-specific
                 production evaluation.
-
-                The real production evaluation pipeline
-                remains explicitly guarded until the
-                corresponding production pipeline is
-                connected.
                 """
 
                 raise RuntimeError(
                     f"Production evaluation pipeline for "
                     f"'{name}' is not connected yet."
                 )
-
-            # --------------------------------------------------
-            # Promotion callback
-            # --------------------------------------------------
 
             def promote(
                 version,
@@ -1267,11 +1308,6 @@ class IrisService:
                 """
                 Safety boundary for model-specific
                 production promotion.
-
-                The real production promotion pipeline
-                remains explicitly guarded until the
-                corresponding production pipeline is
-                connected.
                 """
 
                 raise RuntimeError(
@@ -1279,30 +1315,18 @@ class IrisService:
                     f"'{name}' is not connected yet."
                 )
 
-            # --------------------------------------------------
-            # Rollback callback
-            # --------------------------------------------------
-
             def rollback(
                 previous_version,
                 name=model_name,
             ):
                 """
                 Roll back a failed multi-model promotion.
-
-                The actual registry implementation must be
-                connected before a real production rollback
-                can occur.
                 """
 
                 raise RuntimeError(
                     f"Rollback pipeline for "
                     f"'{name}' is not connected yet."
                 )
-
-            # --------------------------------------------------
-            # Model configuration
-            # --------------------------------------------------
 
             models[model_name] = {
                 "get_version": get_version,
@@ -1388,10 +1412,6 @@ class IrisService:
                 [5.1, 3.5, 1.4, 0.2]
             ]
 
-            # ------------------------------------------------
-            # Production model
-            # ------------------------------------------------
-
             prediction = self.model.predict(
                 sample
             )[0]
@@ -1399,10 +1419,6 @@ class IrisService:
             self.model.predict_proba(
                 sample
             )
-
-            # ------------------------------------------------
-            # Canary model
-            # ------------------------------------------------
 
             (
                 canary_model,
@@ -1419,10 +1435,6 @@ class IrisService:
                     sample
                 )[0]
             )
-
-            # ------------------------------------------------
-            # Unified model health
-            # ------------------------------------------------
 
             multi_model_health = (
                 MULTI_MODEL_MANAGER.health()
@@ -1523,9 +1535,6 @@ class IrisService:
             "model_version":
                 str(self.model_version),
 
-            # ------------------------------------------------
-            # Per-model A/B metrics
-            # ------------------------------------------------
             "multi_model_metrics": {
                 model_name:
                     MULTI_MODEL_MANAGER.get_ab_metrics(
@@ -1551,10 +1560,6 @@ class IrisService:
 
         try:
 
-            # ------------------------------------------------
-            # Existing Iris Canary Selection
-            # ------------------------------------------------
-
             (
                 model,
                 selected_alias,
@@ -1573,10 +1578,6 @@ class IrisService:
                 bucket,
             )
 
-            # ------------------------------------------------
-            # Prediction
-            # ------------------------------------------------
-
             prediction = model.predict(
                 [request.features]
             )[0]
@@ -1591,18 +1592,10 @@ class IrisService:
                 np.max(probabilities)
             )
 
-            # ------------------------------------------------
-            # Latency
-            # ------------------------------------------------
-
             latency = (
                 time.perf_counter()
                 - start
             ) * 1000
-
-            # ------------------------------------------------
-            # Monitoring
-            # ------------------------------------------------
 
             request_id = str(
                 uuid.uuid4()
@@ -1623,19 +1616,11 @@ class IrisService:
                 ),
             )
 
-            # ------------------------------------------------
-            # Runtime Metrics
-            # ------------------------------------------------
-
             self.total_predictions += 1
 
             self.total_single_predictions += 1
 
             self.total_single_latency += latency
-
-            # ------------------------------------------------
-            # Probability Response
-            # ------------------------------------------------
 
             probability_dict = {
                 TARGET_NAMES[i]:
@@ -1697,10 +1682,6 @@ class IrisService:
 
             for features in request.features:
 
-                # --------------------------------------------
-                # Canary Model Selection
-                # --------------------------------------------
-
                 (
                     model,
                     selected_alias,
@@ -1718,10 +1699,6 @@ class IrisService:
                     selected_version,
                     bucket,
                 )
-
-                # --------------------------------------------
-                # Prediction timing
-                # --------------------------------------------
 
                 prediction_start = (
                     time.perf_counter()
@@ -1742,10 +1719,6 @@ class IrisService:
                     - prediction_start
                 ) * 1000
 
-                # --------------------------------------------
-                # Monitoring
-                # --------------------------------------------
-
                 request_id = str(
                     uuid.uuid4()
                 )
@@ -1764,10 +1737,6 @@ class IrisService:
                     ],
                     input_features=features,
                 )
-
-                # --------------------------------------------
-                # Response
-                # --------------------------------------------
 
                 probability_dict = {
                     TARGET_NAMES[i]:
@@ -1809,18 +1778,10 @@ class IrisService:
                         selected_alias,
                 })
 
-            # --------------------------------------------
-            # Batch latency
-            # --------------------------------------------
-
             batch_latency = (
                 time.perf_counter()
                 - batch_start
             ) * 1000
-
-            # --------------------------------------------
-            # Runtime metrics
-            # --------------------------------------------
 
             self.total_predictions += (
                 len(request.features)
@@ -1909,28 +1870,6 @@ class IrisService:
     ):
         """
         Scheduled R5 Iris workflow.
-
-        monitoring.db
-             ↓
-        recent Iris inputs
-             ↓
-        drift calculation
-             ↓
-        threshold exceeded?
-             ↓
-            YES
-             ↓
-        retraining
-             ↓
-        evaluation
-             ↓
-        promotion gate
-             ↓
-        staging
-             ↓
-        governance approval
-             ↓
-        production
         """
 
         logger.info(
@@ -1945,10 +1884,6 @@ class IrisService:
             "R5 scheduler found %s recent inputs",
             len(recent_inputs),
         )
-
-        # --------------------------------------------------
-        # Enough data?
-        # --------------------------------------------------
 
         if (
             len(recent_inputs)
@@ -1973,10 +1908,6 @@ class IrisService:
 
             return result
 
-        # --------------------------------------------------
-        # Automated Retraining
-        # --------------------------------------------------
-
         result = automated_retrain(
             recent_inputs=recent_inputs,
             retrain_callback=(
@@ -1998,22 +1929,6 @@ class IrisService:
     def _run_retraining_pipeline(self):
         """
         Execute the actual Iris retraining workflow.
-
-        train
-          ↓
-        evaluate candidate
-          ↓
-        promotion threshold
-          ↓
-        compare with production
-          ↓
-        staging
-          ↓
-        governance approval
-          ↓
-        production
-          ↓
-        reload service model
         """
 
         logger.warning(
@@ -2028,10 +1943,6 @@ class IrisService:
             "=========================================="
         )
 
-        # --------------------------------------------------
-        # Train candidate model
-        # --------------------------------------------------
-
         from src.train import train
 
         candidate_model = train()
@@ -2040,10 +1951,6 @@ class IrisService:
             "Training completed: %s",
             type(candidate_model).__name__,
         )
-
-        # --------------------------------------------------
-        # Evaluation dataset
-        # --------------------------------------------------
 
         iris = load_iris()
 
@@ -2057,10 +1964,6 @@ class IrisService:
             )
         )
 
-        # --------------------------------------------------
-        # Candidate evaluation
-        # --------------------------------------------------
-
         candidate_accuracy = float(
             candidate_model.score(
                 X_test,
@@ -2072,10 +1975,6 @@ class IrisService:
             "Candidate model accuracy: %.4f",
             candidate_accuracy,
         )
-
-        # --------------------------------------------------
-        # Promotion threshold
-        # --------------------------------------------------
 
         if not should_promote(
             candidate_accuracy
@@ -2103,10 +2002,6 @@ class IrisService:
                     PROMOTION_ACCURACY_THRESHOLD,
             }
 
-        # --------------------------------------------------
-        # Current production evaluation
-        # --------------------------------------------------
-
         production_accuracy = float(
             self.model.score(
                 X_test,
@@ -2118,10 +2013,6 @@ class IrisService:
             "Current production model accuracy: %.4f",
             production_accuracy,
         )
-
-        # --------------------------------------------------
-        # Candidate must not be worse
-        # --------------------------------------------------
 
         if (
             candidate_accuracy
@@ -2150,10 +2041,6 @@ class IrisService:
                     production_accuracy,
             }
 
-        # --------------------------------------------------
-        # Assign staging
-        # --------------------------------------------------
-
         staging_version = assign_staging(
             MODEL_NAME
         )
@@ -2167,10 +2054,6 @@ class IrisService:
             staging_version,
         )
 
-        # --------------------------------------------------
-        # Governance request
-        # --------------------------------------------------
-
         from src.governance import governance_manager
 
         governance_manager.request_approval(
@@ -2182,10 +2065,6 @@ class IrisService:
                 f"accuracy={candidate_accuracy:.4f}"
             ),
         )
-
-        # --------------------------------------------------
-        # Promote staging -> production
-        # --------------------------------------------------
 
         try:
 
@@ -2215,29 +2094,19 @@ class IrisService:
                     candidate_accuracy,
             }
 
-        # --------------------------------------------------
-        # Production promotion succeeded
-        # --------------------------------------------------
-
         logger.warning(
             "New model promoted to production: %s",
             production_version,
         )
 
-        # --------------------------------------------------
-        # Reload production model
-        # --------------------------------------------------
-
         self.model, self.model_version = (
             load_model()
         )
 
-        # --------------------------------------------------
-        # Reload canary models
-        # --------------------------------------------------
-
+        # Reload canary models according to the
+        # current serving environment.
         self.canary_models = (
-            load_canary_models()
+            self._load_serving_canary_models()
         )
 
         logger.warning(
@@ -2284,13 +2153,6 @@ class IrisService:
         """
         Run one Milestone 3 multi-model retraining
         orchestration cycle.
-
-        Models checked independently:
-
-        - forecast
-        - eta
-        - anomaly
-        - risk
         """
 
         logger.warning(
@@ -2329,10 +2191,6 @@ class IrisService:
         self,
         model_name: str,
     ) -> dict:
-        """
-        Run Milestone 3 orchestration for one
-        specific served model.
-        """
 
         model_name = (
             model_name.strip().lower()
@@ -2581,9 +2439,17 @@ class IrisService:
         # --------------------------------------------------
         # Reload canary models
         # --------------------------------------------------
+        #
+        # IMPORTANT:
+        # The old implementation loaded MLflow canary
+        # models here even in the Bento container.
+        #
+        # This version keeps bundled-model mode isolated
+        # from the container's MLflow registry.
+        # --------------------------------------------------
 
         self.canary_models = (
-            load_canary_models()
+            self._load_serving_canary_models()
         )
 
         # --------------------------------------------------

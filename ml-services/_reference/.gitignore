@@ -1,0 +1,20 @@
+/metrics.json
+
+# Local MLflow tracking data
+/mlruns/
+
+# Local model artifacts
+/models/
+
+# Generated reports
+/reports/
+
+# DVC cache
+/.dvc/cache/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Local environment
+.venv/

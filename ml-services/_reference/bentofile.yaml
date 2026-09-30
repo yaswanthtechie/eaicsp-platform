@@ -2,11 +2,17 @@ service: "src.service:IrisService"
 
 include:
   - "src"
+  - "models"
+
+envs:
+  - name: BENTO_BUNDLED_MODEL
+    value: "true"
 
 python:
   packages:
-    - bentoml
-    - mlflow
-    - scikit-learn
-    - numpy
-    - pydantic
+    - "bentoml==1.4.39"
+    - "mlflow"
+    - "scikit-learn==1.7.1"
+    - "numpy"
+    - "pydantic"
+    - "starlette"

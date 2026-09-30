@@ -1,0 +1,25 @@
+stages:
+  prepare:
+    cmd: python scripts/dvc_prepare.py
+    deps:
+      - data/reference/iris.csv
+      - scripts/dvc_prepare.py
+    outs:
+      - data/reference/processed.csv
+
+  train:
+    cmd: python scripts/dvc_train.py
+    deps:
+      - data/reference/processed.csv
+      - scripts/dvc_train.py
+    outs:
+      - models/dvc_model.pkl
+
+  evaluate:
+    cmd: python scripts/dvc_evaluate.py
+    deps:
+      - data/reference/processed.csv
+      - models/dvc_model.pkl
+      - scripts/dvc_evaluate.py
+    metrics:
+      - metrics.json

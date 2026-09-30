@@ -1,0 +1,54 @@
+schema: '2.0'
+stages:
+  prepare:
+    cmd: python scripts/dvc_prepare.py
+    deps:
+    - path: data/reference/iris.csv
+      hash: md5
+      md5: 10f5f61b137fa708403ea5c480386bfe
+      size: 2908
+    - path: scripts/dvc_prepare.py
+      hash: md5
+      md5: d24b5055a497e1fa1bb916db9ef6a932
+      size: 946
+    outs:
+    - path: data/reference/processed.csv
+      hash: md5
+      md5: 10f5f61b137fa708403ea5c480386bfe
+      size: 2908
+  train:
+    cmd: python scripts/dvc_train.py
+    deps:
+    - path: data/reference/processed.csv
+      hash: md5
+      md5: 10f5f61b137fa708403ea5c480386bfe
+      size: 2908
+    - path: scripts/dvc_train.py
+      hash: md5
+      md5: cdc64cc65a79be3d371d6cff33d89634
+      size: 1239
+    outs:
+    - path: models/dvc_model.pkl
+      hash: md5
+      md5: 844028033283d458d6859946ea25f5d6
+      size: 168017
+  evaluate:
+    cmd: python scripts/dvc_evaluate.py
+    deps:
+    - path: data/reference/processed.csv
+      hash: md5
+      md5: 10f5f61b137fa708403ea5c480386bfe
+      size: 2908
+    - path: models/dvc_model.pkl
+      hash: md5
+      md5: 844028033283d458d6859946ea25f5d6
+      size: 168017
+    - path: scripts/dvc_evaluate.py
+      hash: md5
+      md5: cced4526295e0f4818c645cf3b9ee2df
+      size: 1399
+    outs:
+    - path: metrics.json
+      hash: md5
+      md5: 21870e1fcb81fdbb2b5d9b4a91c9eb31
+      size: 46

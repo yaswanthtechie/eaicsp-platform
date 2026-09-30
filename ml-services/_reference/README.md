@@ -2639,5 +2639,85 @@ Previously recorded result:
 3. Prediction health status in GET /models
 4. Automated alerting
 ```
+Round 12,13
+# Round 12–13 — MLOps + Model Serving
+
+## Overview
+
+Round 12–13 focused on improving the reference ML model serving, model monitoring, and data versioning.
+
+### Milestone 1 — BentoML Model Serving
+
+Implemented BentoML-based serving for the Iris reference model.
+
+* Packaged the existing Iris model as a BentoML service.
+* Maintained the existing request and response contract.
+* Created `bentofile.yaml` for BentoML packaging.
+* Added a bundled model for container deployment.
+* Built the BentoML container successfully.
+* Verified prediction output parity between the existing service and BentoML service.
+* Compared serving latency between the two services.
+
+### Milestone 2 — Evidently Monitoring
+
+Implemented Evidently-based data and prediction drift monitoring.
+
+* Added Evidently `0.7.23`.
+* Added data drift detection for model input features.
+* Added prediction drift detection.
+* Generated HTML drift reports.
+* Added deliberately shifted data to verify drift detection.
+* Integrated Evidently drift detection with the existing retraining workflow.
+* Added tests for drift detection and retraining integration.
+
+### Milestone 3 — DVC Data Versioning
+
+Implemented DVC-based versioning for the reference model training data.
+
+* Added the Iris reference dataset to DVC.
+* Created a DVC pipeline with three stages:
+
+  * `prepare`
+  * `train`
+  * `evaluate`
+* Added `dvc.yaml` and generated `dvc.lock`.
+* Added DVC dataset metadata to MLflow runs.
+* Linked the MLflow training run with the DVC dataset hash.
+* Added DVC evaluation metrics.
+* Verified the pipeline using `dvc status`, `dvc repro`, and `dvc metrics show`.
+
+### Testing
+
+The complete test suite was executed successfully:
+
+```text
+188 passed, 59 warnings
+```
+
+DVC validation:
+
+```text
+Data and pipelines are up to date.
+```
+
+DVC metrics:
+
+```text
+Accuracy     : 0.90
+Test Samples : 30
+```
+
+## Result
+
+Round 12–13 adds:
+
+* BentoML containerized model serving
+* Serving output parity validation
+* Latency comparison
+* Evidently drift monitoring
+* Drift-based retraining integration
+* DVC dataset and pipeline versioning
+* MLflow and DVC dataset linkage
+* Automated tests for the new functionality
 
 
