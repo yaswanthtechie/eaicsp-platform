@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.feature_catalog import generate_feature_catalog
+from feature_lib.feature_catalog import generate_feature_catalog
 
 
 df = pd.DataFrame({

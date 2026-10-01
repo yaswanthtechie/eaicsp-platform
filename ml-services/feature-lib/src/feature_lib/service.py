@@ -4,7 +4,7 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from src.feature_store import FeatureStore
+from .feature_store import FeatureStore
 
 
 app = FastAPI(
