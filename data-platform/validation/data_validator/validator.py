@@ -146,7 +146,7 @@ class ConfigRule(BaseModel):
     @staticmethod
     def _load_function(func_path: str):
         """Safely loads a function exclusively from the dynamic registry."""
-        from src.registry import RULE_REGISTRY
+        from data_validator.registry import RULE_REGISTRY
         clean_name = func_path.split('.')[-1]
 
         if clean_name not in RULE_REGISTRY:
@@ -365,7 +365,7 @@ class DataValidator:
     def from_config(cls, yaml_path: str, profile_name: Optional[str] = None,
                     allow_rule_failures: bool = False, rules_dir: Optional[str] = None) -> 'DataValidator':
         """Instantiates the validator from a YAML configuration file and loads custom rules."""
-        from src.registry import discover_rules, DEFAULT_RULES_DIR
+        from data_validator.registry import discover_rules, DEFAULT_RULES_DIR
         discover_rules(rules_dir or DEFAULT_RULES_DIR)
 
         try:

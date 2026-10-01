@@ -2,9 +2,8 @@
 
 ## Objective
 
-This project simulates receiving messy sales data from a client, validates the data quality, 
-cleans what can be safely corrected, and reports issues before the data is used for downstream forecasting. 
-The data schema aligns perfectly with the target `sales_fact` table (`date`, `sku_id`, `warehouse_id`, `quantity_sold`, `unit_price`).
+This project simulates receiving messy sales data from a client, validates the data quality,
+cleans what can be safely corrected, and reports issues before the data is used for downstream forecasting.
 
 ## Project Structure
 
@@ -18,13 +17,51 @@ The data schema aligns perfectly with the target `sales_fact` table (`date`, `sk
 ├── logs/
 │   └── validation_*.log       # Timestamps logs tracking rule failures and data drift
 ├── src/
+│   ├── __init__.py            # Frozen public API namespace
 │   ├── main.py                # Pipeline orchestrator and CLI entrypoint
 │   ├── make_messy_data.py     # Generates synthetic client data mapped to the sales_fact schema
 │   ├── validator.py           # Core Pydantic-powered validation engine (Quality Gate)
+│   └── registry.py            # Dynamic custom rule registry
+├── rules/
 │   └── custom_rules.py        # User-defined validation and transformation functions
-├── requirements.txt           # Project dependencies
+├── pyproject.toml             # Project build configuration and dependencies
+├── CHANGELOG.md               # Semantic versioning history
 └── README.md                  # This documentation
 ```
+
+## Installation & Setup
+
+To install the library and register the CLI commands locally, run:
+```bash
+# Install core runtime dependencies and CLI tools
+pip install -e .
+
+# If you are developing or running tests, include the dev dependencies:
+pip install -e ".[dev]"
+
+```
+
+## Public API & Versioning Policy
+
+This project strictly adheres to **Semantic Versioning (SemVer 2.0)**. To guarantee stability for downstream consumers (e.g., orchestrators, DAGs), only the objects explicitly exposed in `src/__init__.py` are considered part of the public API:
+
+*   `DataValidator`
+*   `ConfigRule` 
+*   `ValidationResult`
+*   `RowLevelResult`
+*   `resolve_env_path`
+*   `ReportComparator`
+*   `register_rule`
+*   `SecurityError`
+
+**What constitutes a Breaking Change (Major Version Bump `X.0.0`)?**
+1. **Configuration Schema:** Removing or renaming keys in the YAML specification (`profiles`, `rules`, `depends_on`, etc.).
+2. **Method Signatures:** Changing parameters or return types of the public API methods (e.g., `DataValidator.validate()`, `validate_row()`).
+3. **Output Payloads:** Deleting or renaming fields in the `ValidationResult` or `RowLevelResult` payload.
+4. **Rule Extension Contract:** Altering the `func(df, *, field, **kwargs)` signature requirement for `@register_rule` functions.
+5. **Python Support:** Dropping support for previously supported Python versions.
+6. **Import Path:** Renaming or moving the importable package (e.g. `src` → `data_validator`).
+
 
 ## Pipeline
 
@@ -1194,6 +1231,98 @@ python -m src.validate_folder --folder data/ --mapping configs/routing_map.json 
 | M3 Validation SLA + alerting | Mostly done | Duration SLA and failure-rate warning SLA per environment, `sla_violations` in the JSON report, exit code 3 on an SLA breach. | Alerts only go to the log, JSON report and exit code; nothing is written to an alerts table or sent as a notification. |
 | M4 Docs site | Done | `python -m src.generate_docs --config configs/prod/sales_rules.yaml` writes an HTML page per profile with every rule in plain English and every SLA setting. | Custom rules are described using their docstrings, so those docstrings must be written for a non-technical reader. |
 | M5 Per-environment rules | Done | `configs/dev`, `configs/staging`, `configs/prod`, chosen with `--env` or `VALIDATOR_ENV` (default `dev`; anything else is rejected). Thresholds differ per environment (table above), and a test shows the same file is accepted in dev and rejected in staging and prod. | The rules themselves are the same in every environment; only the thresholds differ. |
+
+
+# Real-Time Streaming Validation (Kafka)
+
+The pipeline supports event-driven architectures by directly integrating with Apache Kafka. Using the `validate_row()` engine, the consumer reads individual records, validates them in real-time, and routes them to target topics.
+
+*   **`sales.raw`:** The ingestion topic for incoming unvalidated events.
+*   **`sales.valid`:** The destination topic for events that pass all rules.
+*   **`sales.dlq`:** The Dead-Letter Queue. Bad records are routed here along with their original payload and the specific rules that failed. A bad record never crashes the consumer.
+
+### Fault Tolerance (at-least-once)
+- The input offset is committed only **after** the broker confirms the write to
+  `sales.valid` or `sales.dlq`. If that write fails (for example, Kafka is down),
+  the offset is not committed and the same record is retried, so **no record is lost**.
+- A bad record (invalid JSON, failing rules, or a crashing rule) goes to the DLQ
+  with `failed_rules` and a human-readable `reasons` entry per rule. It never stops the consumer.
+- If the consumer is killed after a write but before its commit, that record is
+  processed again on restart and appears twice downstream. Consumers of
+  `sales.valid` must de-duplicate by `transaction_id`. Kafka's idempotent producer
+  does **not** prevent this; it only removes the producer's own retries.
+- Proof: `tests/test_integration_postgres_metrics.py::test_restart_mid_stream_loses_nothing_and_skips_committed_records`.
+
+## Local Infrastructure & Execution
+
+To maintain independence and avoid conflicts with shared environments, **all required infrastructure must be run locally using Docker Compose.** Do not use the shared `infra/` directory.
+
+### 1. Start Local Infrastructure
+```bash
+cp .env.example .env          # then set POSTGRES_USER, POSTGRES_PASSWORD and DATABASE_URL
+docker compose -f docker-compose.dev.yml up -d
+set -a; source .env; set +a   # export the variables into this Git Bash session
+```
+If Postgres was started before `infra/postgres/init.sql` existed, recreate it once:
+`docker compose -f docker-compose.dev.yml down -v`
+
+### 2. Run the Streaming Pipeline
+Once the container is healthy, you can use the natively installed CLI commands to test the routing.
+
+```bash
+# In terminal 1, start the consumer (it will listen indefinitely):
+validate_stream_kafka
+
+# In terminal 2, inject a mix of clean and messy records to trigger the routing:
+produce_kafka_test_data
+```
+
+## Testing Protocol
+Tests are strictly divided into Unit Tests and Integration Tests to ensure CI/CD pipelines can run instantly without requiring heavy Docker containers.
+* **Unit Tests:** Must pass cleanly on a fresh machine without any external infrastructure.
+* **Integration Tests:** Require the `docker-compose.dev.yml` stack to be running (e.g., testing the actual Kafka consumer/producer). These are decorated with `@pytest.mark.integration`.
+```bash
+# Run ONLY unit tests (skips Kafka tests)
+pytest -m "not integration"
+
+# Run the complete suite (requires local Docker infrastructure to be running)
+pytest
+```
+
+# Observability & Persistence
+
+## 1. Prometheus `/metrics`
+The streaming consumer starts a Prometheus endpoint on `METRICS_PORT` (default 8000)
+and updates it from real traffic:
+
+* `validation_pass_rate`: fraction of records that passed (stream so far)
+* `validation_records_per_second`: throughput
+* `validation_dlq_total`: records routed to the DLQ
+* `validation_persist_failures_total`: runs that could NOT be saved to Postgres
+
+Check it while the consumer is running: `curl http://localhost:8000/metrics`
+
+## 2. PostgreSQL run history
+Every batch run (`validate_data`) and every streaming window (each
+`STREAM_PERSIST_EVERY` records, plus once on shutdown) is saved to `validation_runs`
+with run id, mode, dataset, rules applied, pass/fail counts and duration.
+
+```sql
+SELECT run_id, mode, dataset_name, total_rows, total_rows_affected, duration_seconds, created_at
+FROM validation_runs ORDER BY run_id DESC LIMIT 10;
+```
+
+If saving fails, the batch CLI exits with code 2 and the consumer logs it and
+increments `validation_persist_failures_total`. A run is never silently "mock saved".
+If `DATABASE_URL` is not set, the CLI logs that the run was **not** saved.
+
+# Current Status (Round 12-13)
+
+| Milestone | Status | What is built | Not built yet |
+|---|---|---|---|
+| M1 Library Packaging | Done | `pip install -e .` from a clean venv; package `data_validator`; frozen public API; versioning rule; single version source. | - |
+| M2 Kafka Streaming | Done (at-least-once) | Routes to `.valid` / `.dlq` with reasons; commits only after a confirmed write; restart tested. | Exactly-once (Kafka transactions); standard event envelope. |
+| M3 Postgres + Prometheus | Done | Batch and streaming runs saved to `validation_runs`; `/metrics` serves real numbers; failures are counted, never hidden. | Alert routing (Slack/PagerDuty) from Prometheus. |
 
 # Known Limitations
 * **Streaming Memory Growth:** While chunked streaming prevents massive Out-Of-Memory (OOM) crashes, Pass 1 still tracks every unique composite key seen in a set. Memory usage scales linearly O(N) with the number of distinct rows, so it is not strictly "near zero".

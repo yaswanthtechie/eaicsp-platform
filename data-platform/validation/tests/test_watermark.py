@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pandas as pd
 
 # Adjust the import path if your module structure is different
-from src.watermark import WatermarkManager
+from data_validator.watermark import WatermarkManager
 
 
 def test_get_watermark_file_not_exists(tmp_path):

@@ -4,7 +4,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any
 
-from src.validator import DataValidator, ValidationResult
+from data_validator.validator import DataValidator, ValidationResult
 
 logger = logging.getLogger(__name__)
 

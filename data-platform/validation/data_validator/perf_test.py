@@ -9,12 +9,12 @@ from typing import Optional
 import pandas as pd
 
 # --- PATH RESOLUTION ---
-# Must run BEFORE any `from src...` import (see validate_cli.py).
+# Must run BEFORE any `from data_validator...` import (see validate_cli.py).
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.make_messy_data import generate_messy_data, MessyDataConfig
-from src.validator import DataValidator
+from data_validator.make_messy_data import generate_messy_data, MessyDataConfig
+from data_validator.validator import DataValidator
 
 logger = logging.getLogger(__name__)
 
