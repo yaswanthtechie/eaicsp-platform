@@ -16,6 +16,10 @@ from app.services.compliance_client import (
     ComplianceServiceError,
     ComplianceServiceUnavailableError,
 )
+from app.services.document_storage_service import (
+    DocumentUploadError,
+    document_storage_service,
+)
 
 # ============================================================
 # STORAGE
@@ -345,24 +349,15 @@ def upload_supplier_document(
             "File extension does not match the uploaded file type."
         )
 
-    upload_directory = (
-        Path("uploads")
-        / "supplier_onboarding"
-        / supplier_id
-    )
-
-    upload_directory.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    # --------------------------------------------------------
+    # DOCUMENT ID
+    # --------------------------------------------------------
 
     document_id = str(uuid.uuid4())
 
-    safe_name = (
-        f"{document_id}_{Path(original_name).name}"
-    )
-
-    document_path = upload_directory / safe_name
+    # --------------------------------------------------------
+    # FILE CONTENT VALIDATION
+    # --------------------------------------------------------
 
     content = file.file.read()
 
@@ -380,7 +375,27 @@ def upload_supplier_document(
             "Uploaded document exceeds the 10 MB size limit."
         )
 
-    document_path.write_bytes(content)
+    # Reset file pointer because the content was read above.
+    file.file.seek(0)
+
+    # --------------------------------------------------------
+    # MINIO STORAGE
+    # --------------------------------------------------------
+
+    try:
+        document_path = (
+            document_storage_service.upload_onboarding_document(
+                supplier_id=supplier_id,
+                document_id=document_id,
+                file=file,
+            )
+        )
+
+    except DocumentUploadError as exc:
+        raise ValueError(
+            "Unable to store the uploaded document."
+        ) from exc
+
 
     document = {
         "document_id": document_id,

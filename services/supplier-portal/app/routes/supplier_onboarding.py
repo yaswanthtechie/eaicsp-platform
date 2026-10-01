@@ -13,10 +13,13 @@ from app.core.auth import (
     verify_token,
 )
 
+from app.core.config import settings
+
 from app.schemas.supplier_onboarding import (
     SupplierApprovalRequest,
     SupplierApprovalResponse,
     SupplierDocumentResponse,
+    SupplierDocumentDownloadResponse,
     SupplierOnboardingHistory,
     SupplierOnboardingResponse,
     SupplierRegistration,
@@ -36,7 +39,14 @@ from app.services.supplier_onboarding_service import (
     register_supplier,
     upload_supplier_document,
     verify_supplier,
+    supplier_documents,
 )
+
+from app.services.document_storage_service import (
+    DocumentDownloadError,
+    document_storage_service,
+)
+
 from app.services.compliance_client import (
     ComplianceBlockedError,
     ComplianceServiceError,
@@ -293,7 +303,67 @@ def list_documents_endpoint(
         )
 
     return documents
+@router.get(
+    "/{supplier_id}/documents/{document_id}/download",
+    response_model=SupplierDocumentDownloadResponse,
+)
+def download_document_endpoint(
+    supplier_id: str,
+    document_id: str,
+    user=Depends(verify_token),
+):
+    # Supplier users must have a resolved supplier identity.
+    validate_supplier_identity(user)
 
+    # Supplier users can access only their own supplier.
+    check_supplier_access(
+        supplier_id,
+        user,
+    )
+
+    # Find the document by ID across the in-memory document store.
+    # supplier_documents is keyed by supplier_id.
+    document = None
+
+    for documents in supplier_documents.values():
+        for item in documents:
+            if item["document_id"] == document_id:
+                document = item
+                break
+
+        if document is not None:
+            break
+
+    # Unknown document OR document belonging to another supplier
+    # must return the same not-found response.
+    if document is None or document["supplier_id"] != supplier_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Supplier document not found.",
+        )
+
+    # Generate the download URL only after authorization
+    # and document ownership checks have succeeded.
+    try:
+        download_url = (
+            document_storage_service.generate_download_url(
+                object_key=document["document_path"],
+            )
+        )
+
+    except DocumentDownloadError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        )
+
+    return {
+        "document_id": document["document_id"],
+        "supplier_id": document["supplier_id"],
+        "file_name": document["file_name"],
+        "download_url": download_url,
+        "expires_in_seconds": settings.MINIO_PRESIGNED_EXPIRY_SECONDS,
+    }
 
 # ============================================================
 # 5. MOCK VERIFICATION
