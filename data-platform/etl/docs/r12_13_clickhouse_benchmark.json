@@ -1,0 +1,41 @@
+{
+  "rows": 1200000,
+  "runs_per_query": 5,
+  "generation_seconds": 146.26,
+  "environment": {
+    "python": "3.12.9",
+    "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.36",
+    "cpu_count": 4
+  },
+  "note": "Wall-clock, client-side, warm cache, single node, default configs.",
+  "queries": {
+    "full_year_2024": {
+      "postgres": {
+        "min_s": 4.7191,
+        "median_s": 10.0536,
+        "runs": 5
+      },
+      "clickhouse": {
+        "min_s": 0.2832,
+        "median_s": 1.65,
+        "runs": 5
+      },
+      "results_match": true,
+      "speedup_median_x": 6.1
+    },
+    "one_quarter_q2_2024": {
+      "postgres": {
+        "min_s": 0.6074,
+        "median_s": 1.1506,
+        "runs": 5
+      },
+      "clickhouse": {
+        "min_s": 0.1713,
+        "median_s": 0.2197,
+        "runs": 5
+      },
+      "results_match": true,
+      "speedup_median_x": 5.2
+    }
+  }
+}

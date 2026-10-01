@@ -335,3 +335,26 @@ CREATE TABLE IF NOT EXISTS prod_sales_fact_archive (
     updated_at TIMESTAMP,
     archived_at TIMESTAMP DEFAULT NOW()
 );
+
+-- R12-13 M3: transactional outbox for reliable Kafka publication.
+-- The ETL load is never rolled back because Kafka is unavailable. Events remain
+-- PENDING and are retried by the etl_event_outbox_retry DAG.
+CREATE TABLE IF NOT EXISTS etl_event_outbox (
+    event_id UUID PRIMARY KEY,
+    run_id BIGINT,
+    event_type VARCHAR(100) NOT NULL,
+    event_version INTEGER NOT NULL,
+    occurred_at TIMESTAMPTZ NOT NULL,
+    producer VARCHAR(100) NOT NULL,
+    payload JSONB NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_attempt_at TIMESTAMPTZ,
+    last_error TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    published_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_etl_event_outbox_pending
+    ON etl_event_outbox (status, created_at)
+    WHERE status = 'PENDING';
