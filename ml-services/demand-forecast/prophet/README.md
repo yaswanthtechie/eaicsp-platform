@@ -1709,3 +1709,348 @@ The result is consistent with the current construction of the regressors:
 
 * `python -m src.regressor_ablation` completed successfully.
 * `python -m pytest -q` → **83 passed**.
+
+
+
+Milestone 1 — Prediction Interval Calibration
+Objective
+
+Validate whether the model's prediction intervals actually contain the expected percentage of future observations.
+
+The pipeline evaluates:
+
+80% prediction intervals
+95% prediction intervals
+Held-out time windows
+Interval coverage
+Pinball loss
+Conformal calibration
+Problem
+
+A model can have a good point forecast while producing unreliable prediction intervals.
+
+For example, if a model claims a 95% prediction interval but only 81% of actual values fall inside that interval, the interval is under-covering.
+
+Therefore, interval quality must be measured separately from point-forecast accuracy.
+
+Approach
+
+The forecasting pipeline uses time-ordered rolling-origin backtesting.
+
+The data is never randomly shuffled because this is a time-series forecasting problem.
+
+The evaluation process is:
+
+Historical Data
+      ↓
+Rolling-Origin Backtesting
+      ↓
+Calibration Windows
+      ↓
+Held-Out Evaluation Windows
+      ↓
+Measure Interval Coverage
+      ↓
+Conformal Calibration
+      ↓
+Measure Coverage Again
+      ↓
+Compare Before vs After
+Conformal Calibration
+
+Split conformal calibration is applied using a time-ordered calibration window.
+
+The nonconformity score is based on the relative prediction error:
+
+score = |actual - prediction| / |prediction|
+
+The calibration scores are used to calculate a conformal radius.
+
+The calibrated interval is then constructed around the point forecast.
+
+Evaluation
+
+The pipeline evaluates multiple forecasting horizons:
+
+1 day
+7 days
+30 days
+90 days
+
+For each horizon the system tracks:
+
+MAPE
+Prediction interval coverage
+Conformal coverage before calibration
+Conformal coverage after calibration
+Pinball loss
+Calibration radius
+Result
+
+Milestone 1 implementation and test coverage were completed successfully.
+
+The implementation includes:
+
+src/conformal.py
+tests/test_conformal.py
+tests/test_conformal_calibration.py
+
+The conformal calibration and interval evaluation logic is integrated into the multi-horizon forecasting evaluation pipeline.
+
+Milestone 2 — Intermittent Demand Forecasting
+Objective
+
+Identify SKUs with intermittent or lumpy demand and route them to an appropriate forecasting method.
+
+Traditional forecasting models can perform poorly when demand contains many zero-demand periods.
+
+Demand Classification
+
+Two metrics are used:
+
+ADI — Average Demand Interval
+
+ADI measures how frequently non-zero demand occurs.
+
+ADI = Number of observations / Number of non-zero observations
+CV² — Squared Coefficient of Variation
+
+CV² measures the variability of non-zero demand.
+
+CV² = (standard deviation / mean)²
+
+The classification thresholds are:
+
+ADI threshold = 1.32
+CV² threshold = 0.49
+
+The demand types are classified using ADI and CV²:
+
+                CV²
+                 |
+          Erratic|   Lumpy
+                 |
+ADI > 1.32 ------+------
+                 |
+          Smooth | Intermittent
+                 |
+Croston Forecasting
+
+Croston forecasting is used for intermittent demand because it separately estimates:
+
+demand size
+demand interval
+
+The forecast is based on the estimated demand size divided by the estimated interval between non-zero demands.
+
+Evaluation Metric
+
+MAPE is not appropriate for intermittent demand because actual demand can be zero.
+
+Therefore, the pipeline uses:
+
+MASE
+
+Mean Absolute Scaled Error compares the model error against a naive forecasting scale.
+
+Lower MASE indicates lower scaled forecast error.
+
+Automatic Routing
+
+The pipeline evaluates Croston against a naive baseline.
+
+The routing decision is based on validation MASE:
+
+if Croston MASE <= Naive MASE:
+    select Croston
+else:
+    select Naive
+
+This prevents the system from assuming that Croston must always win for every intermittent/lumpy SKU.
+
+Validation Dataset
+
+Because the available real hierarchy dataset contains no zero-demand observations, an intermittent-demand sample dataset was created for validation:
+
+data/intermittent_demand_sample.csv
+
+It contains examples representing:
+
+Smooth demand
+Intermittent demand
+Erratic demand
+Lumpy demand
+Example Result
+sku_id   classification   ADI   CV²       Croston MASE   Naive MASE   Selected
+SKU002   intermittent     3.0   0.039448   0.813333       1.166667     Croston
+SKU004   lumpy            4.0   0.617729   0.690556       0.666667     Naive
+Interpretation
+
+For SKU002:
+
+Croston MASE = 0.8133
+Naive MASE   = 1.1667
+
+Croston has lower MASE, so Croston is selected.
+
+For SKU004:
+
+Croston MASE = 0.6906
+Naive MASE   = 0.6667
+
+Naive has lower MASE, so Naive is selected.
+
+This demonstrates that the routing logic is evaluation-driven rather than hard-coded.
+
+Implementation
+src/intermittent_demand.py
+tests/test_intermittent_demand.py
+data/intermittent_demand_sample.csv
+
+The intermittent-demand pipeline supports:
+
+ADI calculation
+CV² calculation
+Demand classification
+Croston forecasting
+MASE calculation
+Chronological train/test splitting
+Croston vs naive evaluation
+Automatic model routing
+Milestone 3 — Cold-Start Forecasting
+Objective
+
+Forecast demand for a new SKU when the SKU itself has little or no historical demand.
+
+Instead of relying on the target SKU's own history, the system uses similar existing SKUs.
+
+Similarity Strategy
+
+The available hierarchy dataset contains:
+
+SKU
+Category
+Region
+Quantity sold
+
+The repository does not currently contain reliable SKU-level:
+
+price
+price band
+warehouse metadata
+
+Therefore, the current cold-start similarity strategy uses:
+
+Category + Region
+
+Price and warehouse similarity are not fabricated because the required source data is not available.
+
+Cold-Start Evaluation
+
+The evaluation simulates a genuinely new SKU using existing SKUs.
+
+For each existing SKU:
+
+Full SKU History
+       ↓
+Hide Last 3 Periods
+       ↓
+Pretend SKU Is New
+       ↓
+Find Similar Existing SKUs
+       ↓
+Forecast Hidden Periods
+       ↓
+Compare With Actual Hidden Demand
+
+The target SKU is excluded from the reference pool to prevent data leakage.
+
+Similar SKU Forecast
+
+The primary fallback is:
+
+Category + Region average
+
+If no matching category+region SKU exists, the implementation can fall back to:
+
+Category average
+Baseline
+
+The cold-start forecast is compared against a simpler:
+
+Category-average baseline
+
+This is important because the similarity method should demonstrate value over a simple baseline rather than being evaluated in isolation.
+
+Evaluation Metrics
+
+The current cold-start evaluation reports:
+
+MAE
+RMSE
+Real Dataset Evaluation
+
+The evaluation was performed using:
+
+data/hierarchy_sales.csv
+
+with:
+
+hidden_periods = 3
+
+Result:
+
+Eligible SKUs: 100
+
+All 100 SKUs had usable reference data.
+
+Forecast Source
+category_region    100
+
+All 100 eligible SKUs were evaluated using the category+region similarity pool.
+
+Average MAE
+Cold-start category+region MAE : 139.072083
+Category-average baseline MAE  : 126.392310
+SKU-level comparison
+Cold-start better           : 44 / 100 SKUs
+Category baseline better    : 56 / 100 SKUs
+Honest Result
+
+The current category+region similarity strategy does not outperform the category-average baseline overall.
+
+The results show:
+
+Category + Region MAE = 139.07
+Category Baseline MAE = 126.39
+
+Although the similarity method performs better for 44 SKUs, the category baseline performs better for 56 SKUs.
+
+Therefore, the current implementation is treated as a validated cold-start baseline rather than claiming an overall improvement that the evaluation does not support.
+
+Implementation
+src/cold_start.py
+tests/test_cold_start.py
+data/hierarchy_sales.csv
+
+The implementation supports:
+
+Similar SKU discovery
+Category + region matching
+Category fallback
+Hidden-history evaluation
+MAE
+RMSE
+SKU-level evaluation
+Forecast-source tracking
+
+### verification
+
+python -m pytest -q
+151 passed
+
+python -m src.intermittent_demand
+
+python -m src.cold_start
+
+
