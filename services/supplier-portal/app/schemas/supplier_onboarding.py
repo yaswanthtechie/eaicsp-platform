@@ -40,6 +40,13 @@ class SupplierDocumentResponse(BaseModel):
     uploaded_at: datetime
     uploaded_by: str
 
+class SupplierDocumentDownloadResponse(BaseModel):
+    document_id: str
+    supplier_id: str
+    file_name: str
+    download_url: str
+    expires_in_seconds: int
+
 
 # ============================================================
 # SUPPLIER REGISTRATION

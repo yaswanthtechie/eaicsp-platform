@@ -6,8 +6,11 @@ A **FastAPI-based microservice** for managing supplier-facing Purchase Orders, i
 
 The Supplier Portal Service is part of the **Enterprise AI Cognitive Supply Chain Platform** and integrates with the Platform Service for authentication and role-based authorization.
 
----
+The portal also exposes a **Strawberry GraphQL API** for Purchase Orders, invoices, and supplier documents, intended for consumption by the supplier portal frontend through Apollo Client.
 
+Invoice PDFs and supplier onboarding documents are stored in **MinIO**, an S3-compatible object-storage service. Document downloads use short-lived **presigned URLs** after supplier ownership authorization.
+
+---
 
 ## Table of Contents
 
@@ -70,10 +73,29 @@ The Supplier Portal Service is part of the **Enterprise AI Cognitive Supply Chai
 29. [Future Enhancements](#29-future-enhancements)
 
 ---
+## How I Wired MinIO with Docker in r(12,13)
+
+MinIO is used as the S3-compatible object storage for supplier onboarding documents and invoice PDFs, running locally in the existing supplier-portal-minio Docker container.
+
+Before running MinIO-dependent tests, ensure Docker Desktop is running, then verify Docker with docker info and check the MinIO container with docker ps -a.
+
+If supplier-portal-minio is stopped, start it with docker start supplier-portal-minio and verify that docker ps shows the container as Up with ports 9000-9001.
+
+Keep Docker Desktop and MinIO running for the complete test suite and run python -m pytest -q from services/supplier-portal; tests that do not access MinIO can run without Docker.
+
 ## How I Wired Business-Logic Integration (Supplier Portal to Compliance)
 
 Read this if you are wiring one service's business decision into another's workflow.
+
 It assumes zero context.
+
+Quick commands
+---------------------------------------------------------
+docker info
+docker ps -a
+docker start supplier-portal-minio
+docker ps
+python -m pytest -q
 
 ### 1. What it does, in one sentence
 
@@ -81,13 +103,13 @@ Before a supplier moves `approved -> active`, Supplier Portal asks the Complianc
 
 ### 2. Where the code is
 
-| File                                                                   | What it does                                                                                               |
-| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `app/services/compliance_client.py`                                    | The only place that talks to Compliance. Makes the HTTP call, validates the response, raises typed errors. |
-| `app/services/supplier_onboarding_service.py` -> `activate_supplier()` | The trigger point. Checks the supplier is `approved`, calls the client, activates only on CLEAR.           |
-| `app/routes/supplier_onboarding.py` -> `activate_supplier_endpoint()`  | Maps the typed errors to HTTP codes (409 / 503 / 502). No business logic.                                  |
-| `app/core/config.py` -> `COMPLIANCE_SERVICE_URL`                       | Where Compliance lives. Default `http://127.0.0.1:8003`.                                                   |
-| `tests/test_compliance_client.py`, `tests/test_supplier_onboarding.py` | Client tests (every failure type) and end-to-end activation tests.                                         |
+| File | What it does |
+| --- | --- |
+| `app/services/compliance_client.py` | The only place that talks to Compliance. Makes the HTTP call, validates the response, and raises typed errors. |
+| `app/services/supplier_onboarding_service.py` -> `activate_supplier()` | The trigger point. Checks the supplier is `approved`, calls the client, and activates only on CLEAR. |
+| `app/routes/supplier_onboarding.py` -> `activate_supplier_endpoint()` | Maps typed errors to HTTP codes (409 / 503 / 502). No business logic. |
+| `app/core/config.py` -> `COMPLIANCE_SERVICE_URL` | Where Compliance lives. Default `http://127.0.0.1:8003`. |
+| `tests/test_compliance_client.py`, `tests/test_supplier_onboarding.py` | Client tests and activation integration tests. |
 
 ### 3. The order of operations inside `activate_supplier()`
 
@@ -97,13 +119,13 @@ Before a supplier moves `approved -> active`, Supplier Portal asks the Complianc
 4. Activate only if `decision == "CLEAR"` **and** `cleared is True`.
 5. Anything else raises, and the supplier stays `approved`.
 
-Step 2 comes before step 3 on purpose: never screen (or report a Compliance outage for) a supplier who isn't ready to activate.
+Step 2 comes before step 3 on purpose: never screen, or report a Compliance outage for, a supplier who is not ready to activate.
 
 ### 4. The contract
 
 Request:
 
-```text
+```http
 POST {COMPLIANCE_SERVICE_URL}/api/v1/compliance/internal-check
 ```
 
@@ -130,25 +152,26 @@ Expected response:
 }
 ```
 
-`decision` is one of `CLEAR` / `BLOCK` / `REVIEW`. `cleared` must be `true` only for `CLEAR`; if they disagree, the response is treated as unusable (502).
+`decision` is one of `CLEAR` / `BLOCK` / `REVIEW`.
 
-> **Dependency status:** `/internal-check` is being built by the Compliance owner (Geethika).
-> The contract above is what Supplier Portal expects; confirm it matches her implementation before relying on it. Until then, the integration is verified with tests only.
+`cleared` must be `true` only for `CLEAR`. If the decision and cleared flag contradict each other, the response is treated as unusable and results in a `502`.
+
+> **Dependency status:** The Compliance `/internal-check` contract must remain aligned with the Compliance Service implementation. Supplier Portal expects the fields and decision values documented above.
 
 ### 5. Error types to HTTP codes
 
-| Raised by the client/service        | Meaning                                                            | HTTP |
-| ----------------------------------- | ------------------------------------------------------------------ | ---: |
-| `ComplianceBlockedError`            | Valid BLOCK / REVIEW decision                                      |  409 |
-| `ComplianceServiceUnavailableError` | Timeout, connection or network failure                             |  503 |
-| `ComplianceServiceError`            | Compliance returned an error or an unusable/contradictory response |  502 |
+| Raised by the client/service | Meaning | HTTP |
+| --- | --- | ---: |
+| `ComplianceBlockedError` | Valid BLOCK / REVIEW decision | 409 |
+| `ComplianceServiceUnavailableError` | Timeout, connection or network failure | 503 |
+| `ComplianceServiceError` | Compliance returned an error or an unusable/contradictory response | 502 |
 
-Typed exceptions (not string matching) decide the status code, so a decision's `reason` text can never change the HTTP code.
+Typed exceptions decide the status code, so a decision's `reason` text cannot change the HTTP status.
 
 ### 6. Run it locally
 
 ```bash
-# Terminal 1: Platform (auth)
+# Terminal 1: Platform
 cd services/platform
 uvicorn app.main:app --port 8005
 
@@ -161,14 +184,7 @@ cd services/supplier-portal
 uvicorn app.main:app --port 8004
 ```
 
-Take a supplier through register, documents, verify, approve, then:
-
-```bash
-curl -X POST http://127.0.0.1:8004/api/v1/suppliers/SUP001/activate \
-  -H "Authorization: Bearer <procurement_manager token>"
-```
-
-Stop the Compliance terminal and call it again with another approved supplier: you should get **503** and the supplier should still be `approved`.
+For document storage, a local MinIO instance must also be running and configured through the Supplier Portal environment settings.
 
 ### 7. Run the tests
 
@@ -180,11 +196,12 @@ pytest tests/test_compliance_client.py tests/test_supplier_onboarding.py -q
 ### 8. Cloning this pattern for your own service
 
 1. Put the HTTP call in its own `app/services/<other>_client.py`, never in a route.
-2. Raise **typed exceptions** for: business "no", service unreachable, and service error.
-3. Call the client from your service function **after** your own state checks and **before** you change any state.
-4. Decide explicitly what "unreachable" means for your workflow (block, or proceed with a flag), write down why, and test that path.
-5. Add the URL to `config.py` **and** `.env.example`, using the port from the table in the root README.
+2. Raise **typed exceptions** for business "no", service unreachable, and service error.
+3. Call the client from your service function **after** your own state checks and **before** changing state.
+4. Decide explicitly what "unreachable" means for your workflow, write down why, and test that path.
+5. Add the service URL to configuration and `.env.example`.
 
+---
 
 # 1. Overview
 
@@ -194,91 +211,53 @@ The service manages the following major functional areas:
 
 ```text
 1. Purchase Order Management
-
 2. Procure-to-Pay Processing
-
 3. Shipment Notice Management
-
 4. Goods Receipt Management
-
 5. Invoice Management
-
 6. Three-Way Match Processing
-
 7. Payment Approval Workflow
-
 8. Supplier Onboarding
-
 9. Supplier Contract Lifecycle Management
-
 10. Supplier Statistics
-
 11. Supplier Performance Scorecard
-
 12. Supplier Self-Service Analytics
-
 13. Invoice Document Management
-
 14. Historical Dispute-Resolution Suggestions
-
 15. Authentication, Authorization, and Supplier Scoping
-
 16. Compliance Business-Logic Integration
+17. MinIO Document Storage
+18. GraphQL API for Portal Read/Mutation Operations
 ```
 
 The implemented procure-to-pay flow is:
 
 ```text
 Purchase Order
-
       │
-
       ▼
-
 Acknowledgement
-
       │
-
       ▼
-
 Shipment Notice
-
       │
-
       ▼
-
 Goods Receipt
-
       │
-
       ▼
-
 Invoice
-
       │
-
       ▼
-
 Three-Way Match
-
       │
-
       ├── Matched
-
       │
-
       └── Discrepancy
-
               │
-
               ▼
-
          Human Review
-
               │
-
               ▼
-
        Payment Approval
 ```
 
@@ -286,67 +265,38 @@ Three-way matching compares:
 
 ```text
 Purchase Order
-
       +
-
 Goods Receipt
-
       +
-
 Invoice
-
       │
-
       ▼
-
 Match Result
-
       │
-
       ├── Matched
-
       │
-
       └── Discrepancy
-
             ├── Quantity Difference
-
             └── Price Difference
 ```
 
-Discrepancies are identified by the matching process and are not automatically treated as approved transactions.
-
-Supplier onboarding is implemented as a separate supplier lifecycle:
+Supplier onboarding is implemented as:
 
 ```text
 Registration
-
       │
-
       ▼
-
 Document Collection
-
       │
-
       ▼
-
 Mock Verification
-
       │
-
       ▼
-
 Approval
-
       │
-
       ▼
-
 Compliance Check
-
       │
-
       ├── CLEAR ───────► Active
       │
       ├── BLOCK ───────► Activation Blocked
@@ -360,7 +310,11 @@ A supplier must be **registered, approved, and active** before a Purchase Order 
 
 Supplier-level authorization introduced in Round 5 remains enforced throughout supplier-facing workflows.
 
-Rounds 9–11 extend the onboarding and supplier lifecycle with business-logic integration, contract management, dispute-resolution assistance, and supplier self-service analytics.
+**Rounds 9–11** introduced compliance integration, contract lifecycle management, dispute-resolution assistance, and supplier self-service analytics.
+
+**Round 12 (Milestone 2)** introduced MinIO-backed document storage and presigned document downloads.
+
+**Round 13 (Milestone 3)** introduced the Strawberry GraphQL API with cursor pagination, the acknowledge-PO mutation, and resolver-level supplier scoping.
 
 ---
 
@@ -369,108 +323,98 @@ Rounds 9–11 extend the onboarding and supplier lifecycle with business-logic i
 The current Supplier Portal implementation includes:
 
 * Platform Service authentication
-
 * Role-based authorization
-
 * Supplier-level resource scoping
-
 * Purchase Order management
-
 * Purchase Order lifecycle management
-
 * Shipment notices
-
 * Goods Receipt processing
-
 * Invoice processing
-
 * Three-way matching
-
 * Quantity and price discrepancy detection
-
 * Human-review handling for discrepancies
-
 * Payment approval workflow states
-
 * Supplier onboarding
-
 * Compliance Service integration during supplier activation
-
 * Fail-closed handling when Compliance Service is unavailable
-
 * Active-supplier enforcement during PO creation
-
 * Supplier statistics
-
 * Supplier performance scorecards
-
 * Supplier self-service analytics
-
 * Supplier contract lifecycle management
-
 * Contract renewal and expiry tracking
-
 * Contract term-change audit history
-
 * Historical dispute-resolution suggestions
-
 * Invoice document security
-
+* MinIO document storage
+* Short-lived presigned document downloads
+* GraphQL Purchase Order queries
+* GraphQL invoice queries
+* GraphQL supplier document queries
+* GraphQL cursor pagination
+* GraphQL acknowledge-PO mutation
+* Resolver-level supplier scoping
 * Automated business-rule testing
-
 * Supplier isolation and cross-supplier security testing
 
-The five reviewer-identified functional issues were addressed:
+### Reviewer-identified functional issues
 
 ```text
 1. Three-way match discrepancy reachability       → Fixed
-
 2. Scorecard invoice metrics                      → Fixed
-
-3. Supplier ID existence leak                    → Fixed
-
+3. Supplier ID existence leak                     → Fixed
 4. Supplier onboarding enforcement                → Fixed
-
 5. Future-due PO handling in on-time metrics      → Fixed
 ```
 
-Rounds 9–11 additionally introduced:
+### Rounds 9–11
 
 ```text
-1. Compliance business-logic integration         → Implemented
-
-2. Compliance failure-path handling               → Implemented
-
-3. Supplier contract lifecycle management         → Implemented
-
-4. Contract expiry/renewal tracking               → Implemented
-
+1. Compliance business-logic integration          → Implemented
+2. Compliance failure-path handling                → Implemented
+3. Supplier contract lifecycle management          → Implemented
+4. Contract expiry/renewal tracking                → Implemented
 5. Contract term-change audit history              → Implemented
-
-6. Historical dispute-resolution suggestions      → Implemented
-
-7. Supplier self-service scorecard access         → Implemented
-
-8. Compliance integration test coverage            → Implemented
+6. Historical dispute-resolution suggestions       → Implemented
+7. Supplier self-service scorecard access          → Implemented
+8. Compliance integration test coverage             → Implemented
 ```
 
-The remaining limitations are primarily related to persistence, infrastructure, and future workflow enhancements.
+### Round 12 — Milestone 2
+
+```text
+1. MinIO document storage                          → Implemented
+2. Invoice PDF object storage                      → Implemented
+3. Supplier onboarding document storage             → Implemented
+4. Presigned document download URLs                 → Implemented
+5. Supplier ownership before URL generation         → Implemented
+6. Cross-supplier document access protection        → Implemented
+7. MinIO unit and integration test coverage         → Implemented
+```
+
+### Round 13 — Milestone 3
+
+```text
+1. Strawberry GraphQL endpoint                      → Implemented
+2. Purchase Order GraphQL queries                   → Implemented
+3. Invoice GraphQL queries                          → Implemented
+4. Supplier document GraphQL queries                → Implemented
+5. Cursor pagination                                → Implemented
+6. Acknowledge-Purchase-Order mutation              → Implemented
+7. Resolver-level supplier scoping                  → Implemented
+8. Cross-supplier GraphQL isolation tests           → Implemented
+```
 
 Current infrastructure limitations include:
 
-* Purchase Orders, invoices, P2P records, onboarding data, contract data, and audit events use in-memory storage.
-
+* Purchase Orders, invoices, P2P records, onboarding data, contract data, and audit events use in-memory business storage.
 * In-memory business data is not persistent across service restarts.
-
-* Invoice PDF documents use local filesystem storage.
-
+* **Invoice PDFs and supplier onboarding documents are stored in MinIO rather than the local filesystem.**
 * Authentication depends on the availability of the Platform Service.
-
 * Supplier activation depends on the availability of the Compliance Service.
+* Production deployment requires persistent business storage and additional operational hardening.
 
-* Production deployment requires persistent storage and additional operational hardening.
-
-The current implementation is suitable for development, functional validation, API testing, and workflow verification. Production deployment requires additional infrastructure and operational controls.
+The current implementation is suitable for development, functional validation, API testing, integration testing, and workflow verification. Production deployment requires additional infrastructure and operational controls.
 
 ---
 
@@ -479,178 +423,152 @@ The current implementation is suitable for development, functional validation, A
 ## Purchase Orders
 
 * Create Purchase Orders
-
 * Retrieve all Purchase Orders
-
 * Retrieve a Purchase Order by PO number
-
 * Update Purchase Orders
-
 * Delete Purchase Orders
-
 * Supplier acknowledgement
-
 * Controlled PO state transitions
-
 * PO cancellation
-
 * Illegal transition rejection
-
 * Transition audit history
-
 * Event retrieval
-
 * Actor tracking
-
 * Transition timestamps
-
 * Expected delivery tracking
-
 * Actual delivery tracking
-
 * Duplicate PO protection
-
 * Bulk Purchase Order sending
-
 * Supplier onboarding validation during PO creation
-
 * Active supplier enforcement
 
 ## Invoices
 
 * Create invoices
-
 * Retrieve invoices
-
 * Validate invoice data
-
 * Validate Purchase Order existence
-
 * Validate Purchase Order status
-
 * Validate supplier ownership
-
 * Validate invoice line items
-
 * Validate invoice amounts
-
 * Duplicate invoice protection
-
 * Partial invoice creation support
-
 * Multiple invoice items
-
 * Invoice state transitions
-
 * Invoice disputes
-
 * Invoice adjustments
-
 * Compliance-officer dispute adjustment
-
 * Invoice history
-
 * Invoice/P2P integration
-
 * Price discrepancy support for three-way matching
-
 * Quantity discrepancy support for three-way matching
-
 * Historical dispute-resolution suggestions
 
-> The invoice service does not block a price difference merely because it exceeds the three-way-match tolerance. Price differences must be allowed to reach the matching stage so that the matching process can identify and flag the discrepancy.
+> The invoice service does not block a price difference merely because it exceeds the three-way-match tolerance. Price differences must reach the matching stage so that the matching process can identify and flag the discrepancy.
 
 ## Invoice Documents
 
-* PDF-only upload
-
+* PDF-only invoice upload
 * Content-Type validation
-
 * PDF signature validation
-
 * 10 MB file-size limit
+* MinIO object storage
+* Supplier-scoped object-key generation
+* Object existence validation
+* Short-lived presigned download URLs
+* Supplier ownership verification before URL generation
+* Cross-supplier document-access protection
+* MinIO storage failure handling
+* Missing-object handling
+* Document storage unit testing
+* MinIO integration testing
 
-* Secure relative document paths
+Documents are no longer stored as local filesystem files.
 
-* Path traversal protection
+The security flow is:
 
-* Supplier-specific document directories
+```text
+Authenticated Request
+        │
+        ▼
+Document Lookup
+        │
+        ▼
+Supplier Ownership Check
+        │
+        ├── Not Owner ─────► 403 Forbidden
+        │
+        └── Owner
+             │
+             ▼
+        MinIO Object Check
+             │
+             ├── Missing ───► 404 Not Found
+             │
+             └── Exists
+                  │
+                  ▼
+          Generate Presigned URL
+                  │
+                  ▼
+                 200
+```
 
-* PDF download
+The key security rule is:
 
-* Orphaned invoice-file detection
-
-* Orphaned invoice-file cleanup
+```text
+Never generate a presigned URL before verifying
+that the authenticated supplier owns the document.
+```
 
 ## Supplier Statistics
 
 * Purchase Order count
-
 * On-time delivery percentage
-
 * Average invoice cycle time
-
 * Invoice performance metrics
-
 * Date normalization
-
 * Missing delivery-data handling
-
 * Invalid date handling
-
 * Supplier existence validation
-
 * Future-due PO exclusion from on-time calculations
-
 * Past-due unfulfilled PO handling
 
 The on-time delivery denominator uses a common delivery-eligibility rule:
 
 ```text
 Fulfilled PO
-      → Eligible
+     → Eligible
 
 Past-due unfulfilled PO
-      → Eligible and counted as late
+     → Eligible and counted as late
 
 Future-due unfulfilled PO
-      → Not eligible
+     → Not eligible
 
 Cancelled PO
-      → Not eligible
+     → Not eligible
 
 PO without expected delivery date
-      → Not eligible
+     → Not eligible
 ```
 
 ## Supplier Scorecard
 
 * On-time delivery percentage
-
 * Invoice accuracy percentage
-
 * Dispute rate percentage
-
 * Dispute performance
-
 * Overall supplier score
-
 * Performance rating
-
 * Performance status
-
 * Purchase Order performance details
-
 * Invoice performance details
-
 * Historical dispute tracking
-
 * Invoice cycle-time calculation
-
 * Monthly performance trend
-
 * Supplier-scoped scorecard access
-
 * Supplier self-service scorecard access
 
 Invoice-related scorecard calculations use the `po_number` stored on invoice line items.
@@ -658,54 +576,34 @@ Invoice-related scorecard calculations use the `po_number` stored on invoice lin
 ## Procure-to-Pay
 
 * Complete PO-to-payment workflow
-
 * PO acknowledgement
-
 * Shipment notice processing
-
 * Goods Receipt processing
-
 * Partial/short Goods Receipt support
-
 * P2P state transitions
-
 * Invoice integration with P2P state
-
 * Three-way PO/Receipt/Invoice matching
-
 * Quantity discrepancy detection
-
 * Price discrepancy detection
-
 * Human-review handling for discrepancies
-
 * Payment approval workflow
-
 * Out-of-order transition rejection
 
 ## Supplier Onboarding
 
 * Supplier registration
-
 * Supplier document collection
-
 * Mock supplier verification
-
 * Supplier approval workflow
-
 * Supplier activation
-
 * Supplier-scoped onboarding access
-
 * Onboarding lifecycle state management
-
 * Compliance Service activation check
-
 * CLEAR/BLOCK/REVIEW compliance decisions
-
 * Fail-closed Compliance Service failure handling
-
 * Active supplier validation before PO creation
+* MinIO-backed onboarding document storage
+* Presigned onboarding-document downloads
 
 ### Compliance Business-Logic Integration
 
@@ -735,106 +633,45 @@ X-Caller-Service: supplier-portal
 
 A five-second timeout is used for the Compliance Service call.
 
-The supported Compliance decisions are:
+Supported decisions:
 
 ```text
 CLEAR
-   → Supplier activation allowed
+  → Supplier activation allowed
 
 BLOCK
-   → Supplier activation rejected
+  → Supplier activation rejected
 
 REVIEW
-   → Supplier activation rejected and requires review
+  → Supplier activation rejected and requires review
 ```
 
-If the Compliance Service is unavailable, times out, or cannot be reached, the activation does not proceed.
+If the Compliance Service is unavailable, times out, or cannot be reached, activation does not proceed.
 
-The integration intentionally follows a **fail-closed** approach:
-
-```text
-Supplier Approved
-       │
-       ▼
-Compliance Check
-       │
-       ├── CLEAR ─────► Active
-       │
-       ├── BLOCK ─────► Activation blocked
-       │
-       ├── REVIEW ────► Activation blocked
-       │
-       └── Unavailable ► Activation blocked
-```
-
-This prevents a supplier from becoming active without a successful compliance decision.
+The integration intentionally follows a **fail-closed** approach.
 
 ## Supplier Contract Lifecycle Management
 
 * Create supplier contracts
-
 * Retrieve supplier contracts
-
 * Retrieve a contract by contract ID
-
 * Update contract terms
-
 * Contract status tracking
-
 * Draft-to-active lifecycle
-
 * Contract expiry detection
-
 * Expiring-contract listing
-
 * Renewal processing
-
 * Renewal date validation
-
 * Renewal reason tracking
-
 * Contract payment terms tracking
-
 * Contract delivery terms tracking
-
 * Contract pricing terms tracking
-
 * Minimum order value tracking
-
 * Renewal notice period tracking
-
 * Auto-renew configuration tracking
-
 * Supplier-scoped contract access
-
 * Contract lifecycle history
-
 * Contract term-change audit history
-
-Contract lifecycle states are:
-
-```text
-draft
-  │
-  ▼
-active
-  │
-  └──► renewed
-          │
-          ▼
-        active
-
-active
-  │
-  ▼
-expired
-```
-
-Contract updates record the changed terms in the contract history when an actual value changes.
-
-A no-op update does not create unnecessary audit history.
-
-The current implementation stores `auto_renew` as a contract configuration value; automatic scheduled renewal is not performed by the current in-memory implementation.
 
 ## Supplier Self-Service Analytics
 
@@ -844,304 +681,235 @@ Supplier users can access their own supplier performance scorecard through:
 GET /api/v1/suppliers/{supplier_id}/scorecard
 ```
 
-The endpoint exposes supplier-specific performance information such as:
-
-* On-time delivery percentage
-
-* Dispute rate percentage
-
-* Invoice accuracy
-
-* Overall score
-
-* Performance rating
-
-* Performance status
-
-* Performance breakdown
-
-* Historical/monthly trends
-
 Supplier ownership is enforced before returning the scorecard.
 
-Therefore:
-
-```text
-SUP001 token
-     │
-     ▼
-SUP001 scorecard
-     │
-     ▼
-Allowed
-
-SUP001 token
-     │
-     ▼
-SUP002 scorecard
-     │
-     ▼
-403 Forbidden
-```
-
-Supplier self-service analytics are read-only and do not allow a supplier to modify its performance data.
+Supplier self-service analytics are read-only.
 
 ## Three-Way Match
 
 * Purchase Order matching
-
 * Goods Receipt matching
-
 * Invoice matching
-
 * Quantity validation
-
 * Price validation
-
 * Match/discrepancy determination
-
 * Quantity discrepancy detection
-
 * Price discrepancy detection
-
 * Human-review handling for discrepancies
-
 * Prevention of automatic approval when a discrepancy exists
 
 ### Historical Dispute-Resolution Suggestions
 
 The Supplier Portal provides advisory resolution suggestions based on previously resolved three-way-match disputes.
 
-Endpoint:
-
-```http
-GET /api/v1/three-way-matches/{supplier_id}/{invoice_number}/resolution-suggestion
-```
-
-The service analyzes historical resolved disputes and identifies recurring resolution patterns.
-
-Examples include:
-
-```text
-Historical price mismatch
-        │
-        ▼
-Suggested action:
-correct_invoice
-```
-
-```text
-Historical quantity mismatch
-        │
-        ▼
-Suggested action:
-credit_note
-```
-
-If historical disputes do not contain enough classified evidence, the service returns no suggested action rather than inventing a recommendation.
-
-The suggestion service is **read-only** and advisory:
-
-```text
-Historical Disputes
-        │
-        ▼
-Pattern Analysis
-        │
-        ▼
-Resolution Suggestion
-        │
-        ▼
-Human Decision
-```
-
-The system does not automatically modify invoices, approve disputes, or change three-way-match state based on the suggestion.
+The service does not automatically modify invoices, approve disputes, or change three-way-match state based on a suggestion.
 
 ---
 
 # 3. Architecture
 
-The Supplier Portal follows a layered FastAPI architecture.
+The Supplier Portal follows a layered FastAPI architecture with separate REST, GraphQL, business-service, authentication, and object-storage responsibilities.
 
 ```text
                          Client
-
                            │
-
+             ┌─────────────┴─────────────┐
+             │                           │
+             ▼                           ▼
+       REST API                       GraphQL
+             │                           │
+             └─────────────┬─────────────┘
                            ▼
-
-                   FastAPI Application
-
+                Authentication /
+                Authorization
                            │
-
                            ▼
-
-                         Routes
-
+                    Service Layer
                            │
-
-          ┌────────────────┼────────────────┐
-
-          │                │                │
-
-          ▼                ▼                ▼
-
-     Purchase          Invoice          Supplier
-
-      Orders             Routes           Routes
-
-          │                │                │
-
-          └────────────────┼────────────────┘
-
+          ┌────────────────┼─────────────────┐
+          │                │                 │
+          ▼                ▼                 ▼
+      PO Services     Invoice Services   Supplier
+                                           Services
+          │                │                 │
+          └────────────────┼─────────────────┘
+                           │
                            ▼
-
-                    Authentication /
-
-                    Authorization
-
+                 Business State / Stores
                            │
-
-                           ▼
-
-                     Service Layer
-
-                           │
-
-          ┌────────────────┼─────────────────────────┐
-
-          │                │                         │
-
-          ▼                ▼                         ▼
-
-      PO Store       Invoice Store          Supplier Stores
-
-                                                   │
-
-                                                   ▼
-
-                                      Contract / Onboarding /
-
-                                      Performance Services
-
-                           │
-
-                           ▼
-
-                    P2P State Management
-
-                           │
-
-          ┌────────────────┼────────────────┐
-
-          │                │                │
-
-          ▼                ▼                ▼
-
-      Shipment       Goods Receipt       Invoice
-
-          │                │                │
-
-          └────────────────┼────────────────┘
-
-                           ▼
-
-                    Three-Way Match
-
-                           │
-
-                  ┌────────┴────────┐
-
-                  │                 │
-
-                  ▼                 ▼
-
-               Matched        Discrepancy
-
-                                    │
-
-                                    ▼
-
-                               Human Review
-
-                                    │
-
-                                    ▼
-
-                            Payment Approval
+              ┌────────────┼─────────────┐
+              │            │             │
+              ▼            ▼             ▼
+          PO/P2P       Invoice       Supplier Data
+                                        │
+                                        ▼
+                              Contract / Onboarding /
+                              Performance Services
 ```
 
-Authentication is handled through the Platform Service:
+### MinIO Document Architecture
 
 ```text
-Client
-
- │
-
- │ Bearer Token
-
- ▼
-
 Supplier Portal
-
- │
-
- │ Token Verification Request
-
- ▼
-
-Platform Service
-
- │
-
- ▼
-
-User Identity
-
-+ Role
-
-+ Supplier ID
-
-+ Active Status
-
- │
-
- ▼
-
-Supplier Portal Authorization
-
- │
-
- ▼
-
-Resource Access
+      │
+      ▼
+Document Storage Service
+      │
+      ├── Validate metadata
+      ├── Validate content
+      ├── Build supplier-scoped object key
+      └── Store / retrieve object
+      │
+      ▼
+MinIO
+      │
+      ▼
+S3-Compatible Object
 ```
+
+For downloads:
+
+```text
+Authenticated Supplier
+        │
+        ▼
+Document Resolver / REST Endpoint
+        │
+        ▼
+Ownership Check
+        │
+        ├── Cross-supplier → 403
+        │
+        ▼
+MinIO Object Check
+        │
+        ▼
+Short-Lived Presigned URL
+```
+
+Supplier A therefore cannot obtain a presigned URL for Supplier B's document.
+
+### GraphQL Architecture
+
+```text
+Apollo Client
+      │
+      ▼
+POST /graphql
+      │
+      ▼
+GraphQL Context
+      │
+      ▼
+Authenticated User
+      │
+      ▼
+GraphQL Resolver
+      │
+      ▼
+Supplier Scope Check
+      │
+      ▼
+Existing Business Service
+      │
+      ▼
+GraphQL Type / Connection
+```
+
+GraphQL resolvers enforce supplier ownership **inside the resolver layer**.
+
+Supplier scoping is not dependent only on a surrounding REST route.
+
+### GraphQL Query Operations
+
+The GraphQL API provides operations for:
+
+```text
+purchaseOrder
+purchaseOrders
+invoice
+invoices
+documents
+```
+
+Collection operations support cursor pagination using:
+
+```text
+first
+after
+hasNextPage
+endCursor
+```
+
+The implementation limits `first` to a maximum of 100 records.
+
+### GraphQL Mutation
+
+The current mutation surface includes:
+
+```text
+acknowledgePurchaseOrder
+```
+
+The mutation:
+
+1. Reads the authenticated user from GraphQL context.
+2. Loads the requested Purchase Order.
+3. Checks supplier ownership for supplier users.
+4. Calls the existing Purchase Order service.
+5. Returns the updated GraphQL representation.
+
+A supplier cannot acknowledge another supplier's Purchase Order.
+
+### GraphQL Supplier Isolation
+
+```text
+SUP001 authenticated user
+          │
+          ▼
+GraphQL purchaseOrder(id)
+          │
+          ▼
+Requested PO supplier_id
+          │
+          ▼
+Compare with authenticated supplier_id
+          │
+     ┌────┴────┐
+     │         │
+   Match    Mismatch
+     │         │
+     ▼         ▼
+ Return      null
+```
+
+This prevents cross-supplier data exposure through GraphQL.
 
 ### Compliance Business-Logic Integration
 
-Rounds 9–11 introduce a service-to-service business-logic integration between Supplier Portal and Compliance Service.
+The Supplier Portal calls the Compliance Service during supplier activation:
 
 ```text
 Supplier Portal
-      │
-      │ Supplier activation request
-      ▼
+     │
+     │ Supplier activation request
+     ▼
 Supplier Onboarding Service
-      │
-      │ Compliance check
-      ▼
+     │
+     │ Compliance check
+     ▼
 Compliance Service
-      │
-      ├── CLEAR
-      ├── BLOCK
-      └── REVIEW
-      │
-      ▼
+     │
+     ├── CLEAR
+     ├── BLOCK
+     └── REVIEW
+     │
+     ▼
 Supplier Portal
-      │
-      ├── CLEAR → Activate supplier
-      │
-      └── BLOCK/REVIEW/Failure → Do not activate
+     │
+     ├── CLEAR → Activate supplier
+     │
+     └── BLOCK/REVIEW/Failure → Do not activate
 ```
 
 The integration is isolated in:
@@ -1150,73 +918,65 @@ The integration is isolated in:
 app/services/compliance_client.py
 ```
 
-The onboarding service therefore owns the supplier lifecycle decision, while the Compliance Service owns the compliance decision.
-
-The integration does not decode or manage authentication tokens locally. The Supplier Portal continues to use the Platform Service for user authentication and authorization.
-
 ### Supplier Contract Architecture
 
-Supplier contract management is implemented as an independent business service:
+Supplier contract management remains an independent business service:
 
 ```text
 Supplier Contract Route
-        │
-        ▼
+       │
+       ▼
 Authentication / Authorization
-        │
-        ▼
+       │
+       ▼
 Supplier Contract Service
-        │
-        ├── Contract Validation
-        ├── Lifecycle Transition
-        ├── Renewal Processing
-        ├── Expiry Calculation
-        └── History / Audit
-        │
-        ▼
+       │
+       ├── Contract Validation
+       ├── Lifecycle Transition
+       ├── Renewal Processing
+       ├── Expiry Calculation
+       └── History / Audit
+       │
+       ▼
 In-Memory Contract Store
 ```
-
-This keeps contract lifecycle rules separate from Purchase Order and Invoice lifecycle rules.
 
 ### Historical Dispute-Resolution Architecture
 
 ```text
 Three-Way Match Records
-        │
-        ▼
+       │
+       ▼
 Dispute Resolution Service
-        │
-        ├── Historical dispute filtering
-        ├── Resolution reason classification
-        ├── Pattern counting
-        └── Suggestion generation
-        │
-        ▼
+       │
+       ├── Historical dispute filtering
+       ├── Resolution reason classification
+       ├── Pattern counting
+       └── Suggestion generation
+       │
+       ▼
 Advisory Resolution Suggestion
 ```
-
-The service does not mutate the underlying dispute, invoice, or three-way-match records.
 
 ### Supplier Self-Service Architecture
 
 ```text
 Supplier User
-      │
-      ▼
+     │
+     ▼
 Scorecard Endpoint
-      │
-      ▼
+     │
+     ▼
 Supplier Ownership Check
-      │
-      ▼
+     │
+     ▼
 Supplier Performance Service
-      │
-      ▼
+     │
+     ▼
 Supplier Scorecard
 ```
 
-Supplier users can read only their own scorecard.
+---
 
 ## Procure-to-Pay Architecture
 
@@ -1224,214 +984,66 @@ The Supplier Portal extends the existing layered architecture with a dedicated p
 
 ```text
                          Client
-
                            │
-
                            ▼
-
                    FastAPI Application
-
                            │
-
+                    ┌──────┴──────┐
+                    │             │
+                    ▼             ▼
+                 REST          GraphQL
+                    │             │
+                    └──────┬──────┘
                            ▼
-
-                         Routes
-
+                Authentication /
+                Authorization
                            │
-
-          ┌────────────────┼────────────────┐
-
-          │                │                │
-
-          ▼                ▼                ▼
-
-       PO Routes      Invoice Routes   Supplier Routes
-
-          │                │                │
-
-          ▼                ▼                ▼
-
-       PO Service      Invoice Service   Supplier Services
-
-          │                │                │
-
-          └────────────────┼────────────────┘
-
-                           │
-
                            ▼
-
-                  P2P State Management
-
+                    Business Services
                            │
-
+                           ▼
+                 P2P State Management
+                           │
           ┌────────────────┼────────────────┐
-
           │                │                │
-
           ▼                ▼                ▼
-
        Shipment       Goods Receipt       Invoice
-
           │                │                │
-
           └────────────────┼────────────────┘
-
                            │
-
                            ▼
-
                     Three-Way Match
-
                            │
-
-                  ┌────────┴────────┐
-
-                  │                 │
-
-                  ▼                 ▼
-
-               Matched        Discrepancy
-
-                                    │
-
-                                    ▼
-
-                               Human Review
-
-                                    │
-
-                                    ▼
-
-                            Payment Approval
+                 ┌─────────┴─────────┐
+                 │                   │
+                 ▼                   ▼
+              Matched          Discrepancy
+                                      │
+                                      ▼
+                                 Human Review
+                                      │
+                                      ▼
+                              Payment Approval
 ```
 
 The P2P state machine is separate from the existing Purchase Order lifecycle state machine.
-
-### Purchase Order Lifecycle
-
-The Purchase Order lifecycle represents the business status of the Purchase Order itself:
-
-```text
-draft
-
-  │
-
-  ▼
-
-sent
-
-  │
-
-  ▼
-
-acknowledged
-
-  │
-
-  ▼
-
-fulfilled
-```
-
-Cancellation is available through the legal PO transition rules.
-
-### P2P State Machine
-
-The P2P state machine represents the Purchase Order's progress through the procure-to-pay process:
-
-```text
-acknowledged
-
-      │
-
-      ▼
-
-shipped
-
-      │
-
-      ▼
-
-received
-
-      │
-
-      ▼
-
-invoiced
-
-      │
-
-      ▼
-
-matched / discrepancy
-
-      │
-
-      ▼
-
-payment_approved
-```
-
-These state models serve different purposes and must not be treated as the same state machine.
-
-### Layer Responsibilities
-
-```text
-Routes
-
-   │
-
-   ▼
-
-Authentication / Authorization
-
-   │
-
-   ▼
-
-Business Services
-
-   │
-
-   ├── Supplier Onboarding
-   ├── Supplier Contracts
-   ├── Supplier Performance
-   ├── Dispute Resolution
-   └── Compliance Integration
-
-   │
-
-   ▼
-
-P2P State Management
-
-   │
-
-   ▼
-
-In-Memory Business Stores
-```
-
-The P2P workflow reuses the existing Purchase Order and Invoice business objects rather than creating an unrelated parallel PO/invoice system.
 
 ---
 
 # 4. Technology Stack
 
-| Technology        | Purpose                         |
-| ----------------- | ------------------------------- |
-| Python            | Backend programming language    |
-| FastAPI           | REST API framework              |
-| Pydantic          | Request and response validation |
-| Pydantic Settings | Environment configuration       |
-| Uvicorn           | ASGI application server         |
-| HTTPX             | HTTP client and FastAPI testing |
-| Pytest            | Automated testing               |
-| python-multipart  | Multipart file upload support   |
-| pathlib           | Filesystem path handling        |
-| FileResponse      | Invoice PDF downloads           |
+| Technology | Purpose |
+| --- | --- |
+| Python | Backend programming language |
+| FastAPI | REST API framework |
+| Strawberry GraphQL | GraphQL API implementation |
+| Pydantic | Request and response validation |
+| Pydantic Settings | Environment configuration |
+| Uvicorn | ASGI application server |
+| HTTPX | HTTP client and FastAPI testing |
+| Pytest | Automated testing |
+| python-multipart | Multipart file upload support |
+| MinIO / S3-compatible API | Object storage for documents |
 
 The current dependency versions are maintained in `requirements.txt`.
 
@@ -1439,133 +1051,89 @@ The current dependency versions are maintained in `requirements.txt`.
 
 # 5. Project Structure
 
-The Supplier Portal Service follows a layered FastAPI architecture separating application configuration, authentication, API routes, validation schemas, business logic, external business-service integration, and automated tests.
+The Supplier Portal Service follows a layered architecture separating application configuration, authentication, REST routes, GraphQL operations, validation schemas, business logic, document storage, external business-service integration, and automated tests.
 
 ```text
 supplier-portal/
 
 │
-
 ├── app/
-
 │   ├── main.py
-
 │   │
-
 │   ├── core/
-
 │   │   ├── auth.py
-
 │   │   └── config.py
-
 │   │
-
+│   ├── graphql/
+│   │   ├── __init__.py
+│   │   ├── context.py
+│   │   ├── queries.py
+│   │   ├── mutations.py
+│   │   ├── schema.py
+│   │   └── types.py
+│   │
 │   ├── routes/
-
 │   │   ├── purchase_order.py
-
 │   │   ├── shipment.py
-
 │   │   ├── goods_receipt.py
-
 │   │   ├── invoice.py
-
 │   │   ├── three_way_match.py
-
 │   │   ├── supplier_onboarding.py
-
 │   │   ├── supplier_contract.py
-
 │   │   └── supplier_stats_routes.py
-
 │   │
-
 │   ├── schemas/
-
 │   │   ├── purchase_order.py
-
 │   │   ├── shipment.py
-
 │   │   ├── goods_receipt.py
-
 │   │   ├── invoice.py
-
 │   │   ├── three_way_match.py
-
 │   │   ├── supplier_onboarding.py
-
 │   │   ├── supplier_contract.py
-
 │   │   └── supplier_stats.py
-
 │   │
-
 │   └── services/
-
 │       ├── purchase_order_service.py
-
 │       ├── shipment_service.py
-
 │       ├── goods_receipt_service.py
-
 │       ├── invoice_service.py
-
 │       ├── three_way_match_service.py
-
 │       ├── supplier_onboarding_service.py
-
 │       ├── supplier_contract_service.py
-
 │       ├── supplier_stats_service.py
-
 │       ├── dispute_resolution_service.py
-
 │       ├── compliance_client.py
-
+│       ├── document_storage_service.py
 │       └── po_p2p_state_machine.py
-
 │
-
 ├── tests/
-
 │   ├── conftest.py
-
 │   ├── test_purchase_order.py
-
 │   ├── test_invoices.py
-
 │   ├── test_auth.py
-
 │   ├── test_requires_auth.py
-
 │   ├── test_supplier_stats.py
-
 │   ├── test_shipment.py
-
 │   ├── test_goods_receipt.py
-
 │   ├── test_three_way_match.py
-
 │   ├── test_supplier_onboarding.py
-
 │   ├── test_supplier_contract.py
-
-│   └── test_dispute_resolution.py
-
+│   ├── test_dispute_resolution.py
+│   ├── test_document_storage_service.py
+│   ├── test_supplier_document_download.py
+│   ├── test_invoice_document_download.py
+│   ├── test_graphql.py
+│   │
+│   └── integration/
+│       └── test_minio_document_storage.py
 │
-
-├── uploads/
-
-│
-
 ├── .env.example
-
 ├── requirements.txt
-
 ├── pytest.ini
-
 └── README.md
 ```
+
+The old local `uploads/` directory is no longer part of the document-storage architecture.
 
 ### Application Layer
 
@@ -1574,14 +1142,10 @@ supplier-portal/
 Responsible for:
 
 * Creating and configuring the FastAPI application
-
-* Registering application routers
-
+* Registering REST routers
+* Mounting the GraphQL router at `/graphql`
 * Defining the root endpoint
-
 * Initializing the application entry point
-
-* Exposing the Supplier Portal API modules
 
 ### Core Layer
 
@@ -1590,111 +1154,87 @@ Responsible for:
 Responsible for:
 
 * Bearer-token extraction and handling
-
 * Authentication with the Platform Service
-
 * Role-based authorization
-
 * Authenticated user identity propagation
-
 * Supplier identity propagation
-
 * Supplier-level access control
-
 * Request ID generation and propagation
-
 * Authentication error handling
-
-* Handling Platform Service timeout, unavailable, and invalid authentication responses
+* Platform Service failure handling
 
 `app/core/config.py`
 
 Responsible for:
 
 * Environment-based configuration
-
 * Platform authentication service URL
-
 * Compliance Service URL
-
-* Upload directory configuration
-
+* MinIO configuration
 * Application configuration values
+
+### GraphQL Layer
+
+`app/graphql/`
+
+Responsible for:
+
+* GraphQL schema definition
+* Query definitions
+* Mutation definitions
+* GraphQL type definitions
+* Request-scoped authentication context
+* Cursor pagination
+* Resolver-level supplier authorization
+* Conversion of existing business objects to GraphQL types
+
+The GraphQL layer reuses the existing Supplier Portal service layer rather than duplicating Purchase Order or Invoice business logic.
 
 ### Routes
 
 The route layer is responsible for:
 
 * Defining HTTP endpoints
-
 * Processing incoming requests
-
 * Dependency injection
-
 * Authentication and authorization dependencies
-
 * Supplier ownership and scoping checks
-
 * HTTP status-code handling
-
 * Resource existence validation
-
 * Calling the appropriate service-layer functions
 
-The Supplier Portal currently exposes routes for:
+The Supplier Portal exposes REST routes for:
 
 * Purchase-order management
-
 * Shipment notices
-
 * Goods receipts
-
 * Invoice management and invoice documents
-
 * Three-way matching and payment approval
-
 * Supplier onboarding and activation
-
 * Supplier contract lifecycle management
-
 * Supplier statistics and performance scorecards
-
 * Supplier self-service analytics
-
 * Historical dispute-resolution suggestions
 
-For supplier-scoped detail endpoints, ownership authorization is performed before exposing resource existence to the supplier caller. This prevents a supplier from distinguishing another supplier's existing resource from a missing resource through different response statuses.
+For supplier-scoped detail endpoints, ownership authorization is performed before exposing resource existence to the supplier caller.
 
 ### Schemas
 
 The schema layer is responsible for:
 
 * Request validation
-
 * Response validation
-
 * Field constraints
-
 * Regex validation
-
 * Percentage and numeric boundaries
-
 * Purchase-order data models
-
 * Shipment data models
-
 * Goods-receipt data models
-
 * Invoice data models
-
 * Three-way-match data models
-
 * Supplier-onboarding data models
-
 * Supplier-contract data models
-
 * Supplier-statistics and scorecard data models
-
 * Dispute-resolution suggestion response models
 
 ### Services
@@ -1702,54 +1242,49 @@ The schema layer is responsible for:
 The service layer is responsible for:
 
 * Business rules and validation
-
 * Purchase-order processing
-
 * Purchase-order lifecycle state transitions
-
 * Procure-to-pay state transitions
-
 * Shipment processing
-
 * Goods-receipt processing
-
 * Invoice processing
-
 * Invoice lifecycle state transitions
-
 * Three-way matching
-
 * Discrepancy detection and resolution
-
 * Payment-approval processing
-
 * Supplier onboarding workflow
-
 * Supplier activation checks
-
 * Compliance Service integration
-
 * Supplier contract lifecycle management
-
 * Contract expiry and renewal processing
-
 * Contract lifecycle audit history
-
 * Supplier performance calculations
-
 * Supplier scorecard calculations
-
 * Supplier self-service analytics
-
 * Historical dispute pattern analysis
-
 * Advisory dispute-resolution suggestions
-
-* Invoice and purchase-order processing
-
 * Invoice document handling
-
+* MinIO object-storage operations
+* Presigned URL generation
+* Supplier-scoped document authorization
 * Supplier-scoped business operations
+
+### Document Storage Service
+
+`app/services/document_storage_service.py`
+
+The document storage service provides the storage abstraction between business services and MinIO.
+
+Its responsibilities include:
+
+* Uploading document objects
+* Checking object existence
+* Generating short-lived presigned URLs
+* Handling missing objects
+* Handling storage failures
+* Keeping storage-specific implementation out of route handlers
+
+Business endpoints must perform supplier ownership checks before requesting a presigned URL.
 
 ---
 
@@ -1769,83 +1304,40 @@ POST /api/v1/auth/verify
 
 ```text
 Client
-
-   │
-
-   │ Authorization: Bearer <token>
-
-   ▼
-
+  │
+  │ Authorization: Bearer <token>
+  ▼
 Supplier Portal
-
-   │
-
-   │ Verify token with Platform Service
-
-   ▼
-
+  │
+  │ Verify token with Platform Service
+  ▼
 Platform Service
-
-   │
-
-   ├── valid
-
-   ├── user_id
-
-   ├── email
-
-   ├── full_name
-
-   ├── role
-
-   ├── supplier_id
-
-   └── is_active
-
-   │
-
-   ▼
-
+  │
+  ├── valid
+  ├── user_id
+  ├── email
+  ├── full_name
+  ├── role
+  ├── supplier_id
+  └── is_active
+  │
+  ▼
 Supplier Portal
-
-   │
-
-   ▼
-
+  │
+  ▼
 Authentication
-
-   │
-
-   ▼
-
+  │
+  ▼
 Role Authorization
-
-   │
-
-   ▼
-
+  │
+  ▼
 Supplier Ownership Check
-
-   │
-
-   ▼
-
+  │
+  ▼
 Endpoint / Resource
 ```
 
 The Platform Service provides the authenticated supplier's `supplier_id` as part of the authentication response.
-
-The authentication request also includes:
-
-```text
-X-Caller-Service
-
-X-Caller-Endpoint
-
-X-Request-ID
-```
-
-If the client does not provide an `X-Request-ID`, the Supplier Portal generates a request ID before calling the Platform Service.
 
 ## Authentication Configuration
 
@@ -1861,30 +1353,20 @@ The default development value is:
 http://127.0.0.1:8005
 ```
 
-### Starting the Platform Service
-
-The Platform Service can be started locally using:
-
-```powershell
-python -m uvicorn app.main:app --reload --port 8005
-```
-
-The Supplier Portal communicates with the Platform Service using the configured `PLATFORM_AUTH_URL`.
-
 ## Authentication Errors
 
-| Situation                            | Response |
-| ------------------------------------ | -------: |
-| Missing token                        |      401 |
-| Invalid token                        |      401 |
-| Expired token                        |      401 |
-| Missing user role                    |      401 |
-| Unauthorized role                    |      403 |
-| Supplier identity missing            |      403 |
-| Supplier resource ownership mismatch |      403 |
-| Authentication timeout               |      503 |
-| Authentication service unavailable   |      503 |
-| Invalid authentication response      |      503 |
+| Situation | Response |
+| --- | ---: |
+| Missing token | 401 |
+| Invalid token | 401 |
+| Expired token | 401 |
+| Missing user role | 401 |
+| Unauthorized role | 403 |
+| Supplier identity missing | 403 |
+| Supplier resource ownership mismatch | 403 |
+| Authentication timeout | 503 |
+| Authentication service unavailable | 503 |
+| Invalid authentication response | 503 |
 
 ## Supplier Scoping
 
@@ -1896,129 +1378,137 @@ For example:
 
 ```text
 Authenticated Supplier
-
-        │
-
-        ▼
-
+       │
+       ▼
 supplier_id = SUP001
-
-        │
-
-        ▼
-
+       │
+       ▼
 Requested Resource
-
 supplier_id = SUP002
-
-        │
-
-        ▼
-
+       │
+       ▼
 HTTP 403 Forbidden
 ```
 
 A supplier authenticated as `SUP001` cannot access a resource owned by `SUP002`.
 
-This applies to supplier-scoped resources such as:
+This applies to:
 
 * Purchase Orders
-
 * Purchase Order events
-
 * Invoices
-
 * Invoice documents
-
 * Supplier statistics
-
 * Supplier scorecards
-
 * Shipments
-
 * Goods Receipts
-
 * Three-way match records
-
 * Supplier onboarding records
-
 * Supplier contracts
-
 * Supplier contract history
 
-A supplier user without a valid `supplier_id` is rejected from supplier-scoped resources:
+## MinIO Document Scoping
+
+Document ownership is checked **before** generating a presigned URL.
 
 ```text
-Supplier Role
-
-     │
-
-     ▼
-
-supplier_id missing
-
-     │
-
-     ▼
-
-HTTP 403 Forbidden
+Supplier A
+    │
+    ▼
+Requests Supplier B document
+    │
+    ▼
+Authenticate Supplier A
+    │
+    ▼
+Compare document supplier_id
+    │
+    ▼
+Mismatch
+    │
+    ▼
+403 Forbidden
 ```
 
-For affected supplier-scoped detail endpoints, authorization is checked before resource existence is revealed. This avoids leaking whether another supplier's resource ID exists.
+The system must not generate a presigned URL first and perform authorization afterward.
+
+This ensures that knowing another supplier's document ID or object reference is insufficient to obtain access.
+
+## GraphQL Scoping
+
+GraphQL applies supplier authorization inside each resolver.
+
+For a supplier user:
+
+```text
+GraphQL Request
+      │
+      ▼
+GraphQL Context
+      │
+      ▼
+Authenticated supplier_id
+      │
+      ▼
+Resolver
+      │
+      ▼
+Requested resource supplier_id
+      │
+      ├── Same supplier → Return resource
+      │
+      └── Different supplier → Return null / no data
+```
+
+For example:
+
+```text
+SUP001 token
+     │
+     ▼
+purchaseOrder(SUP002 PO)
+     │
+     ▼
+Resolver ownership check
+     │
+     ▼
+null
+```
+
+This rule is enforced inside the resolver rather than relying only on the REST route.
+
+Collection resolvers also apply supplier filtering **before pagination**.
+
+This prevents unauthorized records from affecting:
+
+* returned edges
+* cursors
+* page boundaries
+* `hasNextPage`
+* `endCursor`
 
 ## Supplier List Filtering
 
 Collection endpoints are protected by authentication and supplier-level filtering.
 
-The following endpoints require authentication:
+The following REST endpoints require authentication:
 
 ```http
 GET /api/v1/purchase-orders
-
 GET /api/v1/invoices
 ```
 
-When the authenticated user has the `supplier` role, the Supplier Portal returns only records belonging to that supplier.
+When the authenticated user has the `supplier` role, only records belonging to that supplier are returned.
 
-Internal authorized users can access broader data according to the current role-based access implementation.
-
-### Purchase Order List Scoping
+The GraphQL collection operations follow the same security principle:
 
 ```text
-Supplier SUP001
-
-      │
-
-      ▼
-
-GET /api/v1/purchase-orders
-
-      │
-
-      ▼
-
-Only SUP001 Purchase Orders
+purchaseOrders
+invoices
+documents
 ```
 
-### Invoice List Scoping
-
-```text
-Supplier SUP001
-
-      │
-
-      ▼
-
-GET /api/v1/invoices
-
-      │
-
-      ▼
-
-Only SUP001 Invoices
-```
-
-This ensures authenticated supplier users cannot retrieve another supplier's records through collection endpoints.
+Supplier filtering occurs before cursor pagination.
 
 ## Role-Based Authorization
 
@@ -2032,127 +1522,41 @@ Important roles include:
 
 ```text
 procurement_manager
-
 compliance_officer
-
 warehouse_manager
-
 supplier
 ```
 
-Examples of role-based restrictions include:
+Examples:
 
 * Purchase Order creation requires `procurement_manager`
-
 * Purchase Order transition requires `procurement_manager`
-
 * Bulk Purchase Order sending requires `procurement_manager`
-
 * Invoice adjustment requires `compliance_officer`
-
 * Goods Receipt creation requires `warehouse_manager`
-
 * Supplier contract creation/update/activation/renewal requires `procurement_manager`
-
 * Supplier-specific resources require the authenticated supplier to own the resource
-
 * Supplier collection endpoints return only the authenticated supplier's resources
-
 * Supplier scorecards are restricted to the authenticated supplier
+* GraphQL supplier resolvers enforce the same supplier ownership rules
+* GraphQL acknowledge-PO mutation checks supplier ownership before changing PO state
 
 Role authorization and supplier ownership are **separate security checks**.
 
 ```text
 Authentication
-
-      │
-
-      ▼
-
+     │
+     ▼
 Role Authorization
-
-      │
-
-      ▼
-
+     │
+     ▼
 Supplier Ownership
-
-      │
-
-      ▼
-
+     │
+     ▼
 Resource Access
 ```
 
 A valid token therefore does not automatically grant access to every resource.
-
-## Supplier Contract Authorization
-
-Supplier contract operations apply both role authorization and supplier scoping.
-
-Internal contract-management operations are restricted to the appropriate internal role, while supplier users are limited to contracts belonging to their own supplier.
-
-The contract service validates the authenticated supplier identity before returning or modifying supplier-scoped contract data.
-
-Contract lifecycle operations include:
-
-```text
-Create
-  │
-  ▼
-Update
-  │
-  ▼
-Activate
-  │
-  ▼
-Renew
-  │
-  ▼
-Expire
-  │
-  ▼
-History
-```
-
-Contract history is read-only audit information and cannot be directly modified by the caller.
-
-## Supplier Self-Service Scorecard Authorization
-
-Supplier self-service analytics use the same supplier ownership model.
-
-```text
-Supplier Token
-      │
-      ▼
-supplier_id = SUP001
-      │
-      ▼
-GET /api/v1/suppliers/SUP001/scorecard
-      │
-      ▼
-Allowed
-```
-
-A cross-supplier request is rejected:
-
-```text
-supplier_id = SUP001
-
-       │
-
-       ▼
-
-GET /api/v1/suppliers/SUP002/scorecard
-
-       │
-
-       ▼
-
-403 Forbidden
-```
-
-The scorecard endpoint is read-only for supplier users.
 
 ## Round 5 Security Requirement
 
@@ -2168,51 +1572,40 @@ Examples:
 
 ```text
 SUP001 token → SUP001 PO          → Allowed
-
 SUP001 token → SUP002 PO          → 403 Forbidden
 
 SUP001 token → SUP001 Invoice     → Allowed
-
 SUP001 token → SUP002 Invoice     → 403 Forbidden
 
 SUP001 token → SUP001 Scorecard   → Allowed
-
 SUP001 token → SUP002 Scorecard   → 403 Forbidden
 
 SUP001 token → SUP001 Contract    → Allowed
-
 SUP001 token → SUP002 Contract    → 403 Forbidden
+
+SUP001 token → SUP001 Document    → Presigned URL
+SUP001 token → SUP002 Document    → 403 Forbidden
 ```
 
-The same ownership principle applies to supplier-scoped Purchase Order events, invoice documents, statistics, shipments, goods receipts, three-way matches, onboarding resources, and contract resources.
+For GraphQL:
 
-Supplier-level authorization is enforced at the API layer and covered by automated tests, including:
+```text
+SUP001 token → SUP001 PO          → PO returned
+SUP001 token → SUP002 PO          → null
 
-* Supplier cannot view another supplier's Purchase Order
+SUP001 token → SUP001 Invoice     → Invoice returned
+SUP001 token → SUP002 Invoice     → null
 
-* Supplier cannot acknowledge another supplier's Purchase Order
+SUP001 token → SUP001 Document    → Document returned
+SUP001 token → SUP002 Document    → not returned
+```
 
-* Supplier cannot view another supplier's Invoice
+The same ownership principle applies to supplier-scoped Purchase Order events, invoice documents, statistics, shipments, goods receipts, three-way matches, onboarding resources, contracts, and GraphQL resources.
 
-* Supplier cannot access another supplier's Scorecard
-
-* Supplier cannot access another supplier's Statistics
-
-* Supplier cannot access another supplier's Contract
-
-* Supplier cannot access another supplier's Contract History
-
-* Supplier token without `supplier_id` is rejected
-
-* Supplier collection endpoints return only the authenticated supplier's resources
-
-* Supplier detail endpoints do not reveal another supplier's resource existence through different missing/existing responses
-
----
-
+Supplier-level authorization is enforced at both the REST API and GraphQL resolver layers and is covered by automated tests.
 # 7. Purchase Order Management
 
-Purchase Orders are managed through a controlled lifecycle.
+Purchase Orders are managed through a controlled lifecycle and are integrated with the broader procure-to-pay workflow.
 
 ## PO Data Model
 
@@ -2220,21 +1613,13 @@ A Purchase Order contains:
 
 ```text
 po_number
-
 supplier_id
-
 items
-
 total_amount
-
 status
-
 created_at
-
 expected_delivery
-
 actual_delivery_date
-
 history
 ```
 
@@ -2246,39 +1631,65 @@ draft
 
 ## PO Lifecycle
 
+The legacy Purchase Order lifecycle is:
+
 ```text
              ┌─────────────┐
-
              │  Cancelled  │
-
              └─────────────┘
-
-                  ▲
-
-                  │
-
+                    ▲
+                    │
 Draft ───────► Sent ───────► Acknowledged ───────► Fulfilled
 ```
 
 The legal transitions are:
 
-| Current State  | Allowed Transitions         |
-| -------------- | --------------------------- |
-| `draft`        | `sent`, `cancelled`         |
-| `sent`         | `acknowledged`, `cancelled` |
-| `acknowledged` | `fulfilled`, `cancelled`    |
-| `fulfilled`    | None                        |
-| `cancelled`    | None                        |
+| Current State | Allowed Transitions |
+|---|---|
+| `draft` | `sent`, `cancelled` |
+| `sent` | `acknowledged`, `cancelled` |
+| `acknowledged` | `fulfilled`, `cancelled` |
+| `fulfilled` | None |
+| `cancelled` | None |
 
 Terminal states:
 
 ```text
 fulfilled
-
 cancelled
 ```
 
 cannot transition to another state.
+
+The Supplier Portal also contains a separate P2P state machine for the complete transaction workflow:
+
+```text
+PO
+ │
+ ▼
+Acknowledged
+ │
+ ▼
+Shipped
+ │
+ ▼
+Goods Receipt
+ │
+ ▼
+Invoice
+ │
+ ▼
+Three-Way Match
+ │
+ ├── Matched
+ │
+ └── Discrepancy
+ │
+ ▼
+Payment Approval
+```
+
+The legacy PO lifecycle and the P2P state machine serve different purposes and are intentionally kept separate.
 
 ## PO Creation
 
@@ -2304,47 +1715,29 @@ Therefore:
 
 ```text
 Unregistered Supplier
-
         │
-
         ▼
-
 PO Creation
-
         │
-
         ▼
-
 Rejected
 
 
-Pending/Inactive Supplier
-
+Pending / Inactive Supplier
         │
-
         ▼
-
 PO Creation
-
         │
-
         ▼
-
 Rejected
 
 
 Active Supplier
-
         │
-
         ▼
-
 PO Creation
-
         │
-
         ▼
-
 Allowed
 ```
 
@@ -2352,23 +1745,15 @@ This prevents Purchase Orders from being created for suppliers that have not com
 
 The service validates:
 
-* PO number
-
-* Supplier ID
-
-* Supplier onboarding/active status
-
-* Items
-
-* Quantity
-
-* Unit price
-
-* Total amount
-
-* Expected delivery
-
-* Duplicate PO number
+- PO number
+- Supplier ID
+- Supplier onboarding / active status
+- Items
+- Quantity
+- Unit price
+- Total amount
+- Expected delivery
+- Duplicate PO number
 
 The calculated item total must match the submitted `total_amount`.
 
@@ -2386,27 +1771,20 @@ For supplier users, the response is filtered using the authenticated `supplier_i
 
 ```text
 Supplier SUP001
-
       │
-
       ▼
-
 Authenticated request
-
       │
-
       ▼
-
 Filter supplier_id = SUP001
-
       │
-
       ▼
-
 Only SUP001 Purchase Orders
 ```
 
 Internal authorized users can access the broader Purchase Order collection according to the current role-based access implementation.
+
+The same supplier-scoping principle is also enforced by the GraphQL Purchase Order resolvers.
 
 ## Get PO
 
@@ -2427,6 +1805,8 @@ A supplier attempting to access another supplier's Purchase Order receives:
 ```text
 403 Forbidden
 ```
+
+The GraphQL equivalent also enforces ownership inside the resolver. An unauthorized supplier querying another supplier's PO by ID receives no PO object rather than another supplier's data.
 
 ## PO Update
 
@@ -2460,7 +1840,7 @@ Historical PO events remain retained after deletion.
 
 ## PO Acknowledgement
 
-Endpoint:
+REST endpoint:
 
 ```http
 POST /api/v1/purchase-orders/{po_number}/acknowledge
@@ -2472,11 +1852,8 @@ The acknowledgement performs:
 
 ```text
 sent
-
  │
-
  ▼
-
 acknowledged
 ```
 
@@ -2485,6 +1862,26 @@ A supplier attempting to acknowledge another supplier's Purchase Order is reject
 ```text
 403 Forbidden
 ```
+
+### GraphQL Acknowledgement
+
+The portal also exposes an acknowledge-PO mutation through:
+
+```text
+/graphql
+```
+
+The GraphQL mutation:
+
+1. Obtains the authenticated user from the GraphQL context.
+2. Finds the requested Purchase Order.
+3. Verifies supplier ownership when the user is a supplier.
+4. Calls the existing PO acknowledgement service only after authorization succeeds.
+5. Returns the updated Purchase Order.
+
+A supplier cannot acknowledge another supplier's PO through GraphQL.
+
+The mutation therefore follows the same authorization rules as the REST endpoint.
 
 ## PO State Transition
 
@@ -2553,9 +1950,7 @@ Therefore:
 
 ```text
 PO1001 → Success
-
 PO1002 → Success
-
 PO9999 → Failure
 ```
 
@@ -2565,11 +1960,8 @@ The response contains:
 
 ```text
 total
-
 successful
-
 failed
-
 results
 ```
 
@@ -2579,15 +1971,10 @@ Every successful state transition creates an event containing:
 
 ```text
 po_number
-
 supplier_id
-
 actor
-
 from_status
-
 to_status
-
 timestamp
 ```
 
@@ -2619,17 +2006,11 @@ Therefore:
 
 ```text
 Delete PO
-
    │
-
    ▼
-
 PO record removed
-
    │
-
    ▼
-
 Historical events retained
 ```
 
@@ -2651,7 +2032,7 @@ actual_delivery_date
 
 The actual delivery date is derived from the related Goods Receipt rather than simply using the date on which the PO status changes to `fulfilled`.
 
-For multiple Goods Receipts, the latest applicable receipt date is used as the actual delivery date.
+For multiple Goods Receipts, the latest applicable `receipt_date` is used as the actual delivery date.
 
 Delivery performance uses:
 
@@ -2669,7 +2050,15 @@ Expected date        → On time
 After expected date  → Late
 ```
 
-For supplier statistics and scorecards, future-due unfulfilled POs are excluded from the on-time denominator, while past-due unfulfilled POs are treated as late.
+For supplier statistics and scorecards:
+
+- fulfilled POs are eligible;
+- past-due unfulfilled POs are eligible and counted as late;
+- future-due unfulfilled POs are excluded;
+- cancelled POs are excluded;
+- POs without an applicable expected delivery date are excluded.
+
+This same delivery eligibility definition is reused by supplier statistics, supplier scorecards, and monthly delivery trends.
 
 ---
 
@@ -2679,33 +2068,26 @@ Invoices are linked to Purchase Orders and suppliers.
 
 An invoice can only be created when its referenced PO satisfies the required business rules.
 
+The invoice lifecycle remains separate from the broader P2P state machine.
+
 ## Invoice Data Model
 
 An invoice contains:
 
 ```text
 invoice_number
-
 supplier_id
-
 items
-
 amount
-
 invoice_date
-
 status
-
 dispute
-
 adjustment
-
 document_url
-
 history
 ```
 
-Invoice line items contain the PO reference used by supplier performance calculations and matching.
+Invoice line items contain the PO reference used by supplier performance calculations and three-way matching.
 
 The invoice lookup key is:
 
@@ -2721,45 +2103,31 @@ The implemented invoice state machine is:
 
 ```text
                 ┌───────────► Approved
-
                 │
-
 Submitted ──────┼───────────► Rejected
-
                 │
-
                 ▼
-
              Disputed
-
                 │
-
           ┌─────┼─────┐
-
           │     │     │
-
           ▼     ▼     ▼
-
       Approved Rejected Adjusted
-
-                        │
-
-                    ┌───┴───┐
-
-                    ▼       ▼
-
-                Approved  Rejected
+                         │
+                     ┌───┴───┐
+                     ▼       ▼
+                 Approved  Rejected
 ```
 
 The legal transitions are:
 
-| Current Status | Allowed Status                     |
-| -------------- | ---------------------------------- |
-| `submitted`    | `approved`, `disputed`, `rejected` |
-| `disputed`     | `approved`, `adjusted`, `rejected` |
-| `adjusted`     | `approved`, `rejected`             |
-| `approved`     | None                               |
-| `rejected`     | None                               |
+| Current Status | Allowed Status |
+|---|---|
+| `submitted` | `approved`, `disputed`, `rejected` |
+| `disputed` | `approved`, `adjusted`, `rejected` |
+| `adjusted` | `approved`, `rejected` |
+| `approved` | None |
+| `rejected` | None |
 
 `approved` and `rejected` are terminal states.
 
@@ -2799,7 +2167,7 @@ Invoice amount
 Duplicate invoice
 ```
 
-Invoice price differences are allowed to reach the three-way matching stage. The matching process is responsible for determining whether the price difference is within tolerance or represents a discrepancy.
+Invoice price differences are allowed to reach the three-way matching stage. The matching process determines whether the price difference is within the configured tolerance or represents a discrepancy.
 
 ## Invoice List
 
@@ -2819,17 +2187,11 @@ Example:
 
 ```text
 Supplier SUP001
-
       │
-
       ▼
-
 GET /api/v1/invoices
-
       │
-
       ▼
-
 Only SUP001 invoices
 ```
 
@@ -2855,7 +2217,7 @@ A supplier attempting to access another supplier's invoice receives:
 403 Forbidden
 ```
 
-Supplier authorization is evaluated before exposing whether another supplier's invoice exists.
+Supplier authorization is evaluated before exposing another supplier's protected invoice data.
 
 ## PO Requirements for Invoices
 
@@ -2863,7 +2225,6 @@ An invoice can only reference a PO whose status is:
 
 ```text
 acknowledged
-
 fulfilled
 ```
 
@@ -2871,7 +2232,6 @@ Invoices cannot be created against:
 
 ```text
 draft
-
 sent
 ```
 
@@ -2879,27 +2239,19 @@ Therefore:
 
 ```text
 Draft
-
   │
-
   └── Invoice rejected
 
 Sent
-
   │
-
   └── Invoice rejected
 
 Acknowledged
-
   │
-
   └── Invoice allowed
 
 Fulfilled
-
   │
-
   └── Invoice allowed
 ```
 
@@ -2921,7 +2273,7 @@ is rejected.
 
 This prevents invoices from being associated with another supplier's Purchase Order.
 
-R5 additionally ensures that the authenticated supplier identity must match the supplier being acted upon.
+R5 supplier scoping additionally ensures that the authenticated supplier identity must match the supplier being acted upon.
 
 ## Invoice Line-Item Validation
 
@@ -2929,49 +2281,32 @@ Each invoice item is validated against the Purchase Order.
 
 The service validates:
 
-* Item exists on the PO
-
-* Quantity is positive
-
-* Quantity does not exceed remaining PO quantity
-
-* Duplicate `(po_number, item_code)` lines are not allowed within one invoice
-
-* Invoice amount matches the calculated line-item total
+- Item exists on the PO
+- Quantity is positive
+- Quantity does not exceed remaining PO quantity
+- Duplicate `(po_number, item_code)` lines are not allowed within one invoice
+- Invoice amount matches the calculated line-item total
 
 Invoice quantity and price differences that are valid from an invoice-data perspective are allowed to reach the three-way match process.
 
-The three-way match applies the configured tolerance when comparing invoice prices against Purchase Order prices.
+The three-way match applies the configured **5% price tolerance** when comparing invoice prices against Purchase Order prices.
 
 This separation is intentional:
 
 ```text
 Invoice Creation
-
       │
-
       ▼
-
 Validate invoice structure and quantities
-
       │
-
       ▼
-
 Invoice accepted
-
       │
-
       ▼
-
 Three-Way Match
-
       │
-
       ├── Within tolerance → Matched
-
       │
-
       └── Outside tolerance → Price Discrepancy
 ```
 
@@ -2996,15 +2331,10 @@ compliance_officer
 The service:
 
 1. Identifies relevant historical three-way-match records.
-
 2. Ignores the current unresolved dispute when generating its historical pattern.
-
 3. Ignores unresolved historical disputes.
-
 4. Classifies known resolution reasons.
-
 5. Counts recurring resolution actions.
-
 6. Returns the resulting suggestion as advisory information.
 
 Known patterns include:
@@ -3021,53 +2351,81 @@ If there is insufficient classified historical evidence, the service returns no 
 
 The endpoint does not automatically:
 
-* Adjust an invoice
-
-* Approve an invoice
-
-* Reject an invoice
-
-* Change three-way-match status
-
-* Resolve the dispute
+- Adjust an invoice
+- Approve an invoice
+- Reject an invoice
+- Change three-way-match status
+- Resolve the dispute
 
 The final business decision remains with the authorized human user.
 
-# 9. Invoice Document Management
-
-Invoice documents are stored as PDF files on the local filesystem.
-
-The upload directory is:
-
-```text
-uploads/
-```
-
-Supplier-specific directories are used:
-
-```text
-uploads/
-
-├── SUP001/
-
-│   ├── INV1001.pdf
-
-│   └── INV1002.pdf
-
-│
-
-└── SUP002/
-
-    └── INV2001.pdf
-```
-
-Invoice documents are stored using a supplier-specific path so that invoice files remain associated with the supplier that owns the invoice.
-
 ---
+
+# 9. Invoice and Onboarding Document Management
+
+Invoice PDFs and supplier onboarding documents are stored in **MinIO**, an S3-compatible object-storage service running locally in the development environment.
+
+The implementation no longer uses the local filesystem as the document-storage backend.
+
+The architecture is:
+
+```text
+Supplier Portal
+      │
+      ▼
+Document Storage Service
+      │
+      ▼
+MinIO / S3-Compatible Object Storage
+      │
+      ▼
+PDF / onboarding document object
+```
+
+Application data stores the document reference/object key required to retrieve the object from MinIO.
+
+The actual document binary is stored in MinIO rather than in the application database.
+
+## Object Storage
+
+The local development environment uses MinIO as the object-storage server.
+
+Conceptually:
+
+```text
+Windows Development Machine
+          │
+          ▼
+Docker Desktop
+          │
+          ▼
+MinIO Container
+          │
+          ▼
+MinIO Server
+          │
+          ▼
+Stored Documents
+```
+
+Docker Desktop provides the local container runtime. MinIO provides the S3-compatible object-storage service.
+
+The Supplier Portal communicates with MinIO through the document storage service rather than directly exposing storage credentials or internal storage details to clients.
+
+## Supported Documents
+
+The document-storage implementation covers:
+
+```text
+Invoice PDFs
+Supplier onboarding documents
+```
+
+The storage layer is responsible for storing and retrieving document objects while the application remains responsible for authentication, authorization, and supplier ownership checks.
 
 ## PDF Upload
 
-Endpoint:
+Invoice document endpoint:
 
 ```http
 POST /api/v1/invoices/{supplier_id}/{invoice_number}/document
@@ -3079,7 +2437,7 @@ For supplier users, the authenticated `supplier_id` must match the supplier asso
 
 A supplier cannot upload a document to another supplier's invoice.
 
----
+The document is validated before being stored in MinIO.
 
 ## PDF Validation
 
@@ -3087,7 +2445,7 @@ The service performs multiple validation checks before storing an invoice docume
 
 ### 1. Content Type
 
-The request must use:
+The request must declare:
 
 ```text
 application/pdf
@@ -3097,9 +2455,7 @@ Other content types such as:
 
 ```text
 image/png
-
 text/plain
-
 application/json
 ```
 
@@ -3127,79 +2483,70 @@ The maximum supported PDF size is:
 10 MB
 ```
 
-The actual uploaded bytes are checked to ensure the payload does not exceed the configured limit.
+The uploaded bytes are checked so that payloads exceeding the configured limit are rejected.
 
----
+## Document Object Reference
 
-## Document Path and URL
+The application uses an object reference/object key to identify the stored document.
 
-The service intentionally separates the internal filesystem path from the public API URL.
-
-Example internal document path:
+Conceptually:
 
 ```text
-SUP001/INV1001.pdf
+Supplier
+   │
+   ▼
+Invoice / Onboarding Document
+   │
+   ▼
+Object Key
+   │
+   ▼
+MinIO Object
 ```
 
-This is an internal relative filesystem reference.
+The object key is an internal storage reference.
 
-The public API endpoint is:
+It is not treated as a public downloadable URL.
+
+The application does not expose MinIO credentials or storage-internal authentication information to suppliers.
+
+## Presigned URL Downloads
+
+Document downloads use short-lived **presigned URLs**.
+
+The download flow is:
 
 ```text
-/api/v1/invoices/SUP001/INV1001/document
+Authenticated Request
+        │
+        ▼
+Identify requested document
+        │
+        ▼
+Verify supplier ownership / authorization
+        │
+        ▼
+Verify object exists in MinIO
+        │
+        ▼
+Generate short-lived presigned URL
+        │
+        ▼
+Return URL to authorized caller
 ```
 
-Therefore:
+The important security rule is:
 
 ```text
-document_path
-
+Authorize first
       │
-
-      └── Internal filesystem reference
-
-
-
-document_url
-
-      │
-
-      └── Public API reference
+      ▼
+Generate presigned URL second
 ```
 
-The absolute server filesystem path is not exposed through the API.
+A presigned URL is never generated before the application has verified that the authenticated user is authorized to access the requested document.
 
----
-
-## Path Traversal Protection
-
-The upload root is resolved before filesystem operations:
-
-```python
-upload_root = Path(UPLOAD_DIR).resolve()
-```
-
-The final document path is also resolved:
-
-```python
-final_path = (upload_root / document_path).resolve()
-```
-
-The service verifies that the resolved document path remains inside the configured upload directory:
-
-```python
-final_path.is_relative_to(upload_root)
-```
-
-This prevents path traversal attempts such as:
-
-```text
-../../some-file
-```
-
-The same safe-path validation is applied when retrieving stored documents.
-
----
+This prevents an unauthorized supplier from obtaining a valid storage URL simply by knowing another supplier's document identifier or object key.
 
 ## PDF Download
 
@@ -3218,40 +2565,165 @@ Internal authorized users can access invoice documents according to the endpoint
 The document retrieval flow is:
 
 ```text
-Find invoice
-
-    │
-
-    ▼
-
-Check document_path
-
-    │
-
-    ▼
-
-Resolve safe filesystem path
-
-    │
-
-    ▼
-
-Verify path is inside uploads/
-
-    │
-
-    ▼
-
-Check file exists
-
-    │
-
-    ▼
-
-Return FileResponse
+Find invoice/document
+        │
+        ▼
+Check authenticated user
+        │
+        ▼
+Check supplier ownership
+        │
+        ▼
+Check MinIO object
+        │
+        ▼
+Generate short-lived presigned URL
+        │
+        ▼
+Return authorized URL
 ```
 
-The actual PDF is returned using FastAPI's file-response mechanism.
+The application does not return the PDF through FastAPI `FileResponse`. The client receives a temporary signed URL for authorized access to the object stored in MinIO.
+
+## Cross-Supplier Document Protection
+
+Supplier scoping is enforced before generating a presigned URL.
+
+Example:
+
+```text
+Supplier A
+   │
+   ├── Requests own document
+   │
+   └── Ownership verified
+           │
+           ▼
+       URL generated
+```
+
+But:
+
+```text
+Supplier A
+   │
+   ├── Requests Supplier B document
+   │
+   └── Ownership check fails
+           │
+           ▼
+       403 Forbidden
+```
+
+Supplier A must never receive a presigned URL for Supplier B's document through any Supplier Portal endpoint.
+
+This applies even when Supplier A knows or guesses:
+
+- another supplier's document identifier;
+- invoice number;
+- supplier ID;
+- object key/reference.
+
+The authorization check is performed before URL generation.
+
+## Document Error Handling
+
+The document-storage implementation distinguishes different failure conditions.
+
+### Unauthorized Supplier Access
+
+```text
+403 Forbidden
+```
+
+Returned when the authenticated supplier does not own the requested document.
+
+### Document Not Found
+
+```text
+404 Not Found
+```
+
+Returned when the requested application document/object cannot be found.
+
+### Storage Dependency Failure
+
+```text
+503 Service Unavailable
+```
+
+Returned when the Supplier Portal cannot use the required MinIO storage dependency.
+
+This allows clients and operators to distinguish:
+
+```text
+Wrong supplier
+    → 403
+
+Missing document
+    → 404
+
+Storage unavailable
+    → 503
+```
+
+## Onboarding Document Storage
+
+Supplier onboarding documents follow the same MinIO-backed storage model.
+
+Conceptually:
+
+```text
+Supplier Onboarding
+        │
+        ▼
+Document Upload
+        │
+        ▼
+Document Storage Service
+        │
+        ▼
+MinIO
+```
+
+Supplier ownership is checked before a document download URL is generated.
+
+This prevents one supplier from obtaining another supplier's onboarding-document URL.
+
+## Document Storage Security
+
+The document-storage implementation follows these principles:
+
+- Store document binaries in MinIO rather than the local filesystem.
+- Keep application document references separate from public URLs.
+- Authenticate every protected document request.
+- Enforce supplier ownership before storage access.
+- Generate presigned URLs only after authorization succeeds.
+- Keep presigned URLs short-lived.
+- Never expose MinIO credentials to suppliers.
+- Return `403` for cross-supplier document access.
+- Return `404` for missing objects/documents.
+- Return `503` when the storage dependency is unavailable.
+
+## Document Storage Testing
+
+Document storage is covered by unit and integration tests.
+
+The test coverage includes:
+
+```text
+Document storage service
+Invoice document downloads
+Supplier onboarding document downloads
+MinIO integration
+Cross-supplier access rejection
+Missing object handling
+Storage dependency failures
+Presigned URL generation
+PDF validation
+```
+
+The integration tests use a local MinIO instance so that the storage behavior is tested against an actual S3-compatible object-storage service.
 
 ---
 
@@ -3275,19 +2747,13 @@ The dispute information records audit details such as:
 
 ```text
 reason
-
 actor_id
-
 actor_name
-
 role
-
 timestamp
 ```
 
 Historical dispute information is retained so that a previously disputed invoice remains identifiable as historically disputed even after subsequent adjustment or approval.
-
----
 
 ## Invoice Adjustment
 
@@ -3315,17 +2781,11 @@ Audit information includes details such as:
 
 ```text
 actor
-
 reason
-
 timestamp
-
 old amount
-
 new amount
-
 old items
-
 new items
 ```
 
@@ -3333,11 +2793,8 @@ The invoice then moves:
 
 ```text
 disputed
-
     │
-
     ▼
-
 adjusted
 ```
 
@@ -3352,8 +2809,6 @@ or:
 ```text
 rejected
 ```
-
----
 
 ## Invoice Transition
 
@@ -3370,11 +2825,8 @@ For supplier users, the authenticated supplier must own the invoice.
 The service validates:
 
 1. Invoice existence
-
 2. Current invoice status
-
 3. Target status
-
 4. Whether the current-to-target transition is valid
 
 Illegal invoice transitions are rejected with:
@@ -3389,9 +2841,7 @@ The invoice lifecycle represents invoice processing:
 
 ```text
 submitted
-
     │
-
     ├── disputed
     │      │
     │      └── adjusted
@@ -3402,6 +2852,8 @@ submitted
 ```
 
 The P2P state machine represents the broader transaction processing stage.
+
+---
 
 # 10. Supplier Statistics
 
@@ -3423,8 +2875,6 @@ po_count
 on_time_percentage
 average_invoice_cycle_time
 ```
-
----
 
 ## Supplier-Level Access Control
 
@@ -3470,8 +2920,6 @@ A supplier user without a `supplier_id` is rejected from supplier-scoped statist
 
 Internal authorized users can access supplier statistics according to their assigned role permissions.
 
----
-
 ## Purchase Order Count
 
 The PO count includes all Purchase Orders belonging to the supplier:
@@ -3489,8 +2937,6 @@ acknowledged
 fulfilled
 cancelled
 ```
-
----
 
 ## Delivery Eligibility and On-Time Percentage
 
@@ -3575,8 +3021,6 @@ Supplier Monthly Trend
 
 so that the same business definition is used consistently.
 
----
-
 ## Average Invoice Cycle Time
 
 The service calculates invoice cycle time using the relationship between the invoice date and the associated Purchase Order creation date.
@@ -3610,8 +3054,6 @@ Negative cycle times are ignored.
 
 Invalid or unusable date records are ignored rather than causing the entire supplier-statistics calculation to fail.
 
----
-
 ## Date Normalization
 
 The statistics service supports common date representations including:
@@ -3625,8 +3067,6 @@ ISO datetime with Z
 ```
 
 These values are normalized before calculations are performed.
-
----
 
 ## Supplier Not Found
 
@@ -3643,8 +3083,6 @@ Example:
   "detail": "Supplier 'SUP999' not found."
 }
 ```
-
----
 
 ## R5 Supplier-Scoping Security
 
@@ -3673,11 +3111,24 @@ This prevents an unauthorized supplier from accessing another supplier's statist
 
 The same supplier-scoping principle is applied across protected supplier detail and analytics endpoints.
 
----
+## GraphQL Supplier Statistics Scope
 
+The Round 13 GraphQL API currently exposes GraphQL operations for:
+
+```text
+Purchase Orders
+Invoices
+Documents
+```
+
+Supplier statistics remain available through their REST endpoint.
+
+Where GraphQL resources are supplier-scoped, authorization is enforced inside the corresponding resolver rather than relying only on the `/graphql` route.
+
+This ensures that a supplier cannot bypass REST-level supplier-scoping rules by querying another supplier's protected Purchase Order, invoice, or document through GraphQL.
 # 11. Supplier Performance Scorecard
 
-The Supplier Performance Scorecard provides a higher-level view of supplier performance.
+The Supplier Performance Scorecard provides a higher-level view of supplier performance using Purchase Order, invoice, and dispute history.
 
 Endpoint:
 
@@ -3706,7 +3157,7 @@ Detailed invoice metrics
 Monthly trends
 ```
 
-The same scorecard endpoint also provides the supplier self-service analytics capability introduced in R9–11.
+The same scorecard endpoint provides the supplier self-service analytics functionality introduced during R9–R11.
 
 ---
 
@@ -3743,7 +3194,7 @@ rating
 performance status
 PO performance details
 invoice performance details
-trends
+monthly trends
 ```
 
 This allows suppliers to view their own performance without exposing another supplier's operational data.
@@ -3774,11 +3225,35 @@ Cancelled POs
 +
 
 Future-due unfulfilled POs
+
++
+
+POs without an applicable expected delivery date
 ```
 
-The actual delivery date for fulfilled Purchase Orders is derived from the related Goods Receipt records.
+For fulfilled Purchase Orders, the actual delivery date is derived from the related Goods Receipt records.
 
-When multiple receipts exist, the latest receipt date is used.
+When multiple Goods Receipts exist, the latest applicable `receipt_date` is used.
+
+The comparison is:
+
+```text
+actual_delivery_date <= expected_delivery
+```
+
+Therefore:
+
+```text
+Before expected date → On time
+
+Expected date        → On time
+
+After expected date  → Late
+```
+
+Past-due unfulfilled POs are counted as late.
+
+Future-due unfulfilled POs are excluded because their delivery deadline has not yet passed.
 
 Weight:
 
@@ -3891,6 +3366,8 @@ Calculation:
 = 80
 ```
 
+The resulting score is calculated from the implemented metric definitions and weights.
+
 ---
 
 ## Scorecard Details
@@ -3934,6 +3411,8 @@ invoice.items[].po_number
 
 to associate invoices with their Purchase Orders.
 
+The service also supports the legacy/top-level PO reference where present.
+
 ---
 
 ## Historical Dispute Tracking
@@ -3963,7 +3442,7 @@ This prevents supplier performance calculations from losing the history of previ
 
 ## Monthly Supplier Trends
 
-Supplier performance trends are grouped by the Purchase Order creation month.
+Supplier performance trends are grouped by Purchase Order creation month.
 
 Trend calculations use the same delivery eligibility and actual Goods Receipt date rules used by the main scorecard.
 
@@ -3983,6 +3462,8 @@ Monthly Trends
 
 use consistent business definitions for delivery performance.
 
+The same Goods Receipt-based actual delivery date is used instead of the current system date.
+
 ---
 
 ## Invoice-Only Suppliers
@@ -4000,6 +3481,31 @@ Invoice data
 ```
 
 This prevents an invoice-only supplier from incorrectly receiving a `404 Not Found` solely because it currently has no Purchase Orders.
+
+---
+
+## Scorecard Supplier Scoping
+
+Supplier scorecards follow the R5 supplier-scoping model:
+
+```text
+Authenticated supplier
+        │
+        ▼
+Requested supplier_id
+        │
+        ▼
+Ownership check
+        │
+   ┌────┴────┐
+   │         │
+ Owner    Not owner
+   │         │
+   ▼         ▼
+Continue   403 Forbidden
+```
+
+A supplier cannot use the scorecard endpoint to inspect another supplier's performance.
 
 ---
 
@@ -4140,7 +3646,7 @@ matched / discrepancy
 payment_approved
 ```
 
-This separation allows the existing Purchase Order lifecycle to remain intact while the new P2P workflow controls end-to-end transaction progression.
+This separation allows the existing Purchase Order lifecycle to remain intact while the P2P workflow controls end-to-end transaction progression.
 
 ---
 
@@ -4206,6 +3712,8 @@ received
 ```
 
 Invalid state transitions are rejected.
+
+The `receipt_date` is also used as the source of the actual delivery date for supplier delivery-performance calculations.
 
 ---
 
@@ -4289,9 +3797,39 @@ Invalid or duplicate invoice submissions do not advance the P2P state.
 
 ---
 
+## Three-Way Match Integration
+
+After the invoice stage, the transaction progresses to three-way matching.
+
+The match compares:
+
+```text
+Purchase Order
++
+Goods Receipt
++
+Invoice
+```
+
+The result is either:
+
+```text
+matched
+```
+
+or:
+
+```text
+discrepancy
+```
+
+A discrepancy requires human review.
+
+---
+
 ## Payment Approval
 
-After invoice processing and three-way matching, a successfully matched transaction can progress toward:
+After invoice processing and a successful three-way match, the transaction can progress toward:
 
 ```text
 payment_approved
@@ -4323,15 +3861,15 @@ This prevents quantity or price mismatches from being automatically approved for
 
 The P2P workflow maintains state integrity by:
 
-* Validating the current P2P state before transition
-* Allowing only legal state transitions
-* Preventing invalid duplicate processing
-* Validating Purchase Order ownership
-* Validating related business records
-* Requiring the appropriate supplier context
-* Requiring an appropriate Goods Receipt before P2P invoicing
-* Preventing invalid invoice submissions from advancing the state
-* Routing match discrepancies for human review
+- Validating the current P2P state before transition
+- Allowing only legal state transitions
+- Preventing invalid duplicate processing
+- Validating Purchase Order ownership
+- Validating related business records
+- Requiring the appropriate supplier context
+- Requiring an appropriate Goods Receipt before P2P invoicing
+- Preventing invalid invoice submissions from advancing the state
+- Routing match discrepancies for human review
 
 ---
 
@@ -4399,7 +3937,21 @@ Invoice
 
 The purpose of the match is to determine whether the invoice agrees with what was ordered and what was actually received.
 
-The matching process evaluates item codes, quantities, and unit prices.
+The matching process evaluates:
+
+```text
+Item codes
+
+Ordered quantities
+
+Received quantities
+
+Invoiced quantities
+
+Purchase Order prices
+
+Invoice prices
+```
 
 Quantity and price discrepancies are identified and flagged for human review.
 
@@ -4510,34 +4062,42 @@ Human Review
 The configured price tolerance is:
 
 ```text
-PRICE_TOLERANCE_PERCENT = 5.0
+5.0%
 ```
 
 The tolerance is inclusive.
 
-Therefore, a price difference of up to and including 5% is considered within tolerance.
-
-For example, when the Purchase Order price is:
+For example, when the Purchase Order unit price is:
 
 ```text
-PO unit price = 100
+100
 ```
 
-the following range is within the configured tolerance:
+a price difference within:
 
 ```text
-95 through 105
+±5%
 ```
 
-A price of:
+is within the configured tolerance.
+
+Therefore, the following values are within tolerance:
+
+```text
+95
+100
+105
+```
+
+while:
 
 ```text
 106
 ```
 
-is outside the configured tolerance and can be reported as a price discrepancy.
+is outside the configured tolerance.
 
-The tolerance is therefore a three-way matching rule, not an invoice-creation rejection rule.
+The tolerance is a three-way matching rule, not an invoice-creation rejection rule.
 
 ---
 
@@ -4546,6 +4106,8 @@ The tolerance is therefore a three-way matching rule, not an invoice-creation re
 A successful match indicates that the relevant Purchase Order, Goods Receipt, and Invoice information satisfies the implemented matching rules.
 
 A matched transaction can continue toward payment approval according to the P2P state machine.
+
+A transaction containing a material quantity or price discrepancy is marked for further review.
 
 ---
 
@@ -4638,7 +4200,15 @@ compliance_officer
 
 The service analyzes historical resolved disputes and identifies previously used resolution patterns.
 
-The suggestion engine does not modify the invoice, three-way match, or payment state.
+The suggestion engine does not modify:
+
+```text
+Invoice state
+
+Three-way-match state
+
+Payment state
+```
 
 It provides an advisory result for human review.
 
@@ -4687,7 +4257,7 @@ The system does not automatically execute the suggested action.
 
 ## Real-Flow Discrepancy Support
 
-The implementation supports discrepancy scenarios through the actual API workflow.
+The implementation supports discrepancy scenarios through the actual P2P workflow.
 
 ### Quantity Discrepancy
 
@@ -4755,21 +4325,13 @@ This prevents invoice validation from hiding a price exception before the matchi
 
 ## Matching Tolerance Configuration
 
-The three-way match uses the centralized configuration value:
+The three-way match uses the centralized price-tolerance configuration.
 
-```python
+```text
 PRICE_TOLERANCE_PERCENT = 5.0
 ```
 
-This value is maintained in:
-
-```text
-app/core/config.py
-```
-
-The three-way match service uses this configuration rather than maintaining a separate hardcoded tolerance.
-
-This keeps the matching rule centralized and avoids different parts of the application applying different price-tolerance values.
+The tolerance is maintained centrally so that the matching logic does not use different tolerance values in different locations.
 
 ---
 
@@ -4882,14 +4444,18 @@ Documents Collected
 Verification
 ```
 
-Supplier onboarding document uploads currently support:
+Supplier onboarding documents are stored through the MinIO-backed document storage layer.
+
+The document-storage implementation supports the configured onboarding document types and validates:
 
 ```text
-PDF
-JPG / JPEG
-PNG
-DOC
-DOCX
+Content type
+
+File extension
+
+File content
+
+File size
 ```
 
 The maximum supported document size is:
@@ -4898,23 +4464,7 @@ The maximum supported document size is:
 10 MB
 ```
 
-The implementation validates both the uploaded content type and the corresponding file extension.
-
-The following validation failures are rejected:
-
-```text
-Unsupported document type
-    → 400 Bad Request
-
-File extension does not match content type
-    → 400 Bad Request
-
-Empty document
-    → 400 Bad Request
-
-Document larger than 10 MB
-    → 400 Bad Request
-```
+Invalid document uploads are rejected.
 
 Supplier ownership is validated separately from file validation:
 
@@ -4928,6 +4478,8 @@ Requested onboarding supplier
         │
         └── Different → 403 Forbidden
 ```
+
+Onboarding documents are also protected during download. An authorized supplier receives a short-lived presigned URL only after ownership has been verified.
 
 ---
 
@@ -4971,15 +4523,13 @@ The supplier must pass the Compliance Service check before activation.
 
 Before an approved supplier can become active, the Supplier Portal calls the Compliance Service.
 
-The integration exists to ensure that supplier activation is dependent on the required compliance decision.
+The integration ensures that supplier activation depends on an actual compliance decision.
 
 The Supplier Portal calls:
 
 ```http
 POST /api/v1/compliance/internal-check
 ```
-
-The configured Compliance Service URL is used as the base URL.
 
 Conceptually:
 
@@ -5005,12 +4555,12 @@ Active  Block   Keep Approved
 
 ## Compliance Request
 
-The Supplier Portal sends the following supplier information:
+The Supplier Portal sends supplier information such as:
 
 ```json
 {
   "supplier_id": "SUP001",
-  "supplier_name": "Example Supplier",
+  "supplier_name": "ABC Supplies Pvt Ltd",
   "country": "India"
 }
 ```
@@ -5021,19 +4571,25 @@ The internal service request includes:
 X-Caller-Service: supplier-portal
 ```
 
-The Compliance Service call uses a timeout of:
+The Compliance Service URL is configurable through:
 
 ```text
-5 seconds
+COMPLIANCE_SERVICE_URL
 ```
 
-The Supplier Portal does not decode or independently interpret authentication tokens for this integration.
+The current local development default is:
+
+```text
+http://127.0.0.1:8003
+```
+
+The Supplier Portal uses a dedicated Compliance client rather than putting the HTTP call directly inside the route handler.
 
 ---
 
 ## Compliance Decisions
 
-The Compliance Service can return:
+The expected Compliance decisions are:
 
 ```text
 CLEAR
@@ -5043,7 +4599,13 @@ REVIEW
 
 ### CLEAR
 
-A `CLEAR` decision allows the supplier to become active.
+A `CLEAR` decision with:
+
+```text
+cleared = true
+```
+
+allows the supplier to become active.
 
 ```text
 Approved
@@ -5090,70 +4652,55 @@ The API returns:
 ```
 
 ---
-## Compliance Failure Handling, Why Activation Blocks
 
-**Decision: if Compliance cannot give a clear answer, activation is blocked
-(fail-closed). The supplier stays `approved` and can be activated later.**
+## Compliance Failure Handling
 
-Unlike authentication, there were two reasonable options here:
+The Supplier Portal uses a fail-closed activation policy.
 
-| Option | What happens when Compliance is down |
-|---|---|
-| Block (chosen) | Supplier stays `approved`; procurement retries activation later |
-| Proceed with a flag | Supplier goes `active` immediately, flagged for human review |
+If the Compliance Service cannot provide a usable clearance decision, the supplier is **not activated**.
 
-I chose to block because the two failure costs are very unequal for supplier onboarding:
+The supplier remains:
 
-- **Cost of blocking:** a new supplier goes live a few minutes or hours later. Onboarding
-  already takes days (documents, verification, approval), so a short delay is almost free.
-- **Cost of proceeding:** an unscreened supplier becomes `active` and can immediately
-  receive purchase orders and payments. If they turn out to be sanctioned or watch listed,
-  we have already transacted with them, which cannot be undone by a later review flag.
+```text
+approved
+```
 
-"Proceed with a flag" only works if someone reliably reviews the flag before any PO is
-sent, and nothing in the current system enforces that. Blocking makes the safe path the default.
+This separates a Compliance business decision from a Compliance service failure.
 
-**What each outcome means:**
-
-| Compliance result | HTTP | Supplier status |
-|---|---|---|
+| Compliance result | HTTP response | Supplier status |
+|---|---:|---|
 | `CLEAR` + `cleared: true` | 201 | `active` |
-| `BLOCK` / `REVIEW` | 409 | stays `approved` |
-| Timeout / connection / network error | 503 | stays `approved` |
-| 4xx/5xx, invalid JSON, unknown or contradictory decision | 502 | stays `approved` |
+| `BLOCK` | 409 | stays `approved` |
+| `REVIEW` | 409 | stays `approved` |
+| Timeout / connection / network failure | 503 | stays `approved` |
+| Compliance service error / unusable response | 502 | stays `approved` |
 
-**What an operator does on a 503/502:** check the Compliance Service is running, then call
-`POST /api/v1/suppliers/{id}/activate` again. Nothing needs to be undone, because the supplier
-never left `approved`.
+The operator can retry activation after the Compliance dependency becomes available.
+
+Nothing needs to be rolled back because the supplier was never moved to `active`.
+
+---
 
 ## Compliance Service Errors
 
-If the Compliance Service responds with an unexpected HTTP/service failure, the Supplier Portal returns:
+The Supplier Portal uses typed exceptions from the Compliance client.
+
+The mapping is:
 
 ```text
-502 Bad Gateway
+ComplianceBlockedError
+    → 409 Conflict
+
+ComplianceServiceUnavailableError
+    → 503 Service Unavailable
+
+ComplianceServiceError
+    → 502 Bad Gateway
 ```
 
-This distinguishes an upstream Compliance Service failure from the Compliance business decision itself.
+Typed exceptions are used instead of matching error-message strings.
 
-The error handling is therefore:
-
-```text
-CLEAR
-  → Activation allowed
-
-BLOCK
-  → 409 Conflict
-
-REVIEW
-  → 409 Conflict
-
-Compliance unavailable
-  → 503 Service Unavailable
-
-Compliance service error
-  → 502 Bad Gateway
-```
+This prevents a free-form Compliance `reason` from changing the HTTP behavior.
 
 ---
 
@@ -5168,20 +4715,26 @@ Supplier must be approved
 
 Compliance decision must be CLEAR
 
+        AND
+
+cleared must be true
+
         ↓
 
 Supplier becomes active
 ```
 
-There is no fallback path such as:
+There is no fallback such as:
 
 ```text
 Compliance unavailable
         ↓
 Assume CLEAR
+        ↓
+Activate
 ```
 
-This prevents activation when the required compliance decision cannot be obtained.
+This prevents an unscreened supplier from becoming active when the required Compliance decision cannot be obtained.
 
 ---
 
@@ -5206,16 +4759,16 @@ Correct internal caller header
 
 Activation ordering
 
-No active-state history when compliance fails
+No activation when Compliance fails
 ```
 
-The failure-path tests verify that a failed compliance check does not partially activate the supplier.
+The failure-path tests verify that a failed Compliance check does not partially activate the supplier.
 
 ---
 
 ## Active Supplier
 
-An approved supplier reaches the active state only after the Compliance Service returns `CLEAR`:
+An approved supplier reaches the active state only after the Compliance Service returns a valid clear decision:
 
 ```text
 Approved
@@ -5224,13 +4777,13 @@ Approved
 Compliance Check
    │
    ▼
-CLEAR
+CLEAR + cleared=true
    │
    ▼
 Active
 ```
 
-The onboarding service exposes an active-supplier check that is used by Purchase Order creation.
+The active-supplier check is then used by Purchase Order creation.
 
 Therefore:
 
@@ -5250,13 +4803,13 @@ Unregistered / inactive supplier
 PO creation rejected
 ```
 
-This makes onboarding enforcement part of the actual procurement business flow rather than documentation-only behavior.
+This makes onboarding enforcement part of the actual procurement business flow.
 
 ---
 
 ## Supplier Scoping
 
-Supplier onboarding follows the same supplier-level security principles established in Round 5.
+Supplier onboarding follows the supplier-level security principles established in Round 5.
 
 Authentication, role authorization, and supplier ownership are separate controls:
 
@@ -5276,6 +4829,45 @@ Onboarding Resource Access
 Supplier users cannot access another supplier's onboarding resources.
 
 A supplier token without a valid `supplier_id` cannot access supplier-scoped onboarding resources.
+
+---
+
+## Onboarding Document Security
+
+Onboarding documents are stored in MinIO.
+
+The download flow is:
+
+```text
+Authenticated Request
+        │
+        ▼
+Verify supplier ownership
+        │
+        ▼
+Check MinIO object
+        │
+        ▼
+Generate short-lived presigned URL
+        │
+        ▼
+Return URL
+```
+
+The application performs authorization before generating the presigned URL.
+
+Therefore:
+
+```text
+Supplier A
+    │
+    └── Supplier B document request
+              │
+              ▼
+          403 Forbidden
+```
+
+Supplier A cannot obtain Supplier B's onboarding document URL.
 
 ---
 
@@ -5336,36 +4928,75 @@ P2P Processing
 A supplier that has not completed onboarding and passed Compliance cannot be used for new Purchase Order creation.
 
 ---
-## How I Wired Business-Logic Integration (Supplier Portal to Compliance)
 
-Read this if you are wiring one service's business decision into another's workflow.
-It assumes zero context.
+# How I Wired Business-Logic Integration (Supplier Portal to Compliance)
 
-### 1. What it does, in one sentence
+This integration connects the Supplier Portal activation workflow to the Compliance Service.
 
-Before a supplier moves `approved -> active`, Supplier Portal asks the Compliance Service whether the supplier is cleared, and only activates on a clean `CLEAR`.
+### 1. What it does
+
+Before a supplier moves:
+
+```text
+approved → active
+```
+
+the Supplier Portal asks the Compliance Service whether the supplier is cleared.
+
+The supplier is activated only when:
+
+```text
+decision == CLEAR
+
+AND
+
+cleared == true
+```
+
+---
 
 ### 2. Where the code is
 
-| File                                                                   | What it does                                                                                               |
-| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `app/services/compliance_client.py`                                    | The only place that talks to Compliance. Makes the HTTP call, validates the response, raises typed errors. |
-| `app/services/supplier_onboarding_service.py` -> `activate_supplier()` | The trigger point. Checks the supplier is `approved`, calls the client, activates only on CLEAR.           |
-| `app/routes/supplier_onboarding.py` -> `activate_supplier_endpoint()`  | Maps the typed errors to HTTP codes (409 / 503 / 502). No business logic.                                  |
-| `app/core/config.py` -> `COMPLIANCE_SERVICE_URL`                       | Where Compliance lives. Default `http://127.0.0.1:8003`.                                                   |
-| `tests/test_compliance_client.py`, `tests/test_supplier_onboarding.py` | Client tests (every failure type) and end-to-end activation tests.                                         |
+| File | Responsibility |
+|---|---|
+| `app/services/compliance_client.py` | Makes the Compliance HTTP call, validates the response, and raises typed exceptions. |
+| `app/services/supplier_onboarding_service.py` → `activate_supplier()` | Checks the supplier state, calls Compliance, and activates only after a valid CLEAR result. |
+| `app/routes/supplier_onboarding.py` → activation endpoint | Maps typed service errors to HTTP responses. |
+| `app/core/config.py` → `COMPLIANCE_SERVICE_URL` | Configures the Compliance Service base URL. |
+| `tests/test_compliance_client.py` | Tests Compliance client success and failure behavior. |
+| `tests/test_supplier_onboarding.py` | Tests activation behavior and failure paths. |
 
-### 3. The order of operations inside `activate_supplier()`
+The HTTP integration is intentionally isolated in the dedicated Compliance client rather than being embedded directly in the route.
 
-1. Load the supplier (404 if missing).
-2. **Check the state first**: must be `approved`, otherwise 400. Compliance is *not* called.
-3. Call Compliance.
-4. Activate only if `decision == "CLEAR"` **and** `cleared is True`.
-5. Anything else raises, and the supplier stays `approved`.
+---
 
-Step 2 comes before step 3 on purpose: never screen (or report a Compliance outage for) a supplier who isn't ready to activate.
+### 3. Order of Operations Inside `activate_supplier()`
 
-### 4. The contract
+The activation flow is:
+
+```text
+1. Load supplier
+       │
+       ▼
+2. Verify current state is approved
+       │
+       ▼
+3. Call Compliance
+       │
+       ▼
+4. Validate CLEAR + cleared=true
+       │
+       ▼
+5. Change supplier to active
+```
+
+If the supplier is not already `approved`, the Compliance Service is not called.
+
+This prevents unnecessary external calls for suppliers that are not yet eligible for activation.
+
+---
+
+### 4. Integration Contract
 
 Request:
 
@@ -5373,10 +5004,14 @@ Request:
 POST {COMPLIANCE_SERVICE_URL}/api/v1/compliance/internal-check
 ```
 
+Headers:
+
 ```http
 X-Caller-Service: supplier-portal
 Content-Type: application/json
 ```
+
+Request body:
 
 ```json
 {
@@ -5386,7 +5021,7 @@ Content-Type: application/json
 }
 ```
 
-Expected response:
+Expected decision structure:
 
 ```json
 {
@@ -5396,25 +5031,70 @@ Expected response:
 }
 ```
 
-`decision` is one of `CLEAR` / `BLOCK` / `REVIEW`. `cleared` must be `true` only for `CLEAR`; if they disagree, the response is treated as unusable (502).
+Supported decisions:
 
-> **Dependency status:** `/internal-check` is being built by the Compliance owner (Geethika).
-> The contract above is what Supplier Portal expects; confirm it matches her implementation before relying on it. Until then, the integration is verified with tests only.
+```text
+CLEAR
+BLOCK
+REVIEW
+```
 
-### 5. Error types to HTTP codes
+A contradictory response such as:
 
-| Raised by the client/service        | Meaning                                                            | HTTP |
-| ----------------------------------- | ------------------------------------------------------------------ | ---: |
-| `ComplianceBlockedError`            | Valid BLOCK / REVIEW decision                                      |  409 |
-| `ComplianceServiceUnavailableError` | Timeout, connection or network failure                             |  503 |
-| `ComplianceServiceError`            | Compliance returned an error or an unusable/contradictory response |  502 |
+```text
+decision = CLEAR
+cleared = false
+```
 
-Typed exceptions (not string matching) decide the status code, so a decision's `reason` text can never change the HTTP code.
+is not treated as a successful activation response.
 
-### 6. Run it locally
+---
+
+### 5. Error Types to HTTP Codes
+
+| Client/service error | Meaning | HTTP |
+|---|---|---:|
+| `ComplianceBlockedError` | Valid `BLOCK` or `REVIEW` decision | 409 |
+| `ComplianceServiceUnavailableError` | Timeout, connection, or network failure | 503 |
+| `ComplianceServiceError` | Compliance service error or unusable response | 502 |
+
+Typed exceptions decide the HTTP response.
+
+The Compliance `reason` text does not determine the status code.
+
+---
+
+### 6. Dependency Ownership
+
+The `/internal-check` endpoint belongs to the Compliance Service.
+
+The Supplier Portal owns:
+
+```text
+Calling Compliance
+Validating the response contract
+Applying the activation rule
+Handling failures
+```
+
+The Compliance Service owns:
+
+```text
+The actual compliance decision
+Sanctions/watchlist evaluation
+CLEAR / BLOCK / REVIEW determination
+```
+
+The two services therefore have clear responsibilities.
+
+---
+
+### 7. Local Development
+
+Run the services separately:
 
 ```bash
-# Terminal 1: Platform (auth)
+# Terminal 1: Platform Authentication
 cd services/platform
 uvicorn app.main:app --port 8005
 
@@ -5427,30 +5107,94 @@ cd services/supplier-portal
 uvicorn app.main:app --port 8004
 ```
 
-Take a supplier through register, documents, verify, approve, then:
+After taking a supplier through:
+
+```text
+register
+   ↓
+documents
+   ↓
+verify
+   ↓
+approve
+```
+
+the activation request can be performed against the Supplier Portal.
+
+Example:
 
 ```bash
 curl -X POST http://127.0.0.1:8004/api/v1/suppliers/SUP001/activate \
-  -H "Authorization: Bearer <procurement_manager token>"
+  -H "Authorization: Bearer <procurement_manager_token>"
 ```
 
-Stop the Compliance terminal and call it again with another approved supplier: you should get **503** and the supplier should still be `approved`.
+When Compliance is available and returns a valid CLEAR decision, activation succeeds.
 
-### 7. Run the tests
+If Compliance is unavailable, the Supplier Portal returns:
+
+```text
+503 Service Unavailable
+```
+
+and the supplier remains:
+
+```text
+approved
+```
+
+---
+
+### 8. Run the Integration Tests
 
 ```bash
 cd services/supplier-portal
-pytest tests/test_compliance_client.py tests/test_supplier_onboarding.py -q
+
+python -m pytest \
+  tests/test_compliance_client.py \
+  tests/test_supplier_onboarding.py \
+  -q
 ```
 
-### 8. Cloning this pattern for your own service
+The tests verify both the happy path and failure behavior.
 
-1. Put the HTTP call in its own `app/services/<other>_client.py`, never in a route.
-2. Raise **typed exceptions** for: business "no", service unreachable, and service error.
-3. Call the client from your service function **after** your own state checks and **before** you change any state.
-4. Decide explicitly what "unreachable" means for your workflow (block, or proceed with a flag), write down why, and test that path.
-5. Add the URL to `config.py` **and** `.env.example`, using the port from the table in the root README.
+---
 
+### 9. Pattern for Future Business Integrations
+
+The Supplier Portal uses the following pattern for inter-service business calls:
+
+```text
+Route
+  │
+  ▼
+Business Service
+  │
+  ▼
+Dedicated External-Service Client
+  │
+  ▼
+Other Microservice
+```
+
+The external client:
+
+1. Owns the HTTP communication.
+2. Validates the external response.
+3. Raises typed exceptions.
+4. Distinguishes business rejection from dependency failure.
+5. Keeps transport details out of the route.
+
+The business service:
+
+1. Performs its own state checks first.
+2. Calls the external service at the required business decision point.
+3. Changes state only after the external decision succeeds.
+4. Applies an explicit failure policy.
+5. Tests both success and failure paths.
+
+This pattern can be reused when another Supplier Portal workflow needs to integrate with another service.
+
+---
 
 # 15. Supplier Contract Lifecycle Management
 
@@ -5476,7 +5220,7 @@ Renewed          Expired
 Active
 ```
 
-Contracts are associated with a supplier and contain commercial and operational terms.
+Contracts are associated with suppliers and contain commercial and operational terms.
 
 ---
 
@@ -5515,25 +5259,17 @@ renewed
 expired
 ```
 
-The implemented transition rules are:
+The implemented lifecycle supports:
 
 ```text
 draft
   ↓
 active
-
-active
-  ↓
-renewed / expiry handling
-
-renewed
-  ↓
-active
-
-expired
-  ↓
-renewal can create an active renewed period
 ```
+
+and renewal/expiry handling around the active contract period.
+
+A renewed contract continues into its next active period while the renewal history records the previous period and renewal action.
 
 Invalid status transitions are rejected.
 
@@ -5734,7 +5470,13 @@ GET /api/v1/supplier-contracts/expiring
 
 The endpoint returns contracts approaching their expiry date.
 
-The configured `renewal_notice_days` value determines the contract's normal renewal-warning window.
+The configured:
+
+```text
+renewal_notice_days
+```
+
+value determines the normal renewal-warning window.
 
 An optional supplier filter can be used to retrieve expiring contracts for a particular supplier.
 
@@ -5766,7 +5508,7 @@ reason
 
 The service validates the new dates before renewing the contract.
 
-The renewal records:
+The renewal records information such as:
 
 ```text
 previous_end_date
@@ -5842,7 +5584,7 @@ Each history event identifies the actor and timestamp where applicable.
 
 Supplier contracts follow the same supplier-scoping principles established in Round 5.
 
-Supplier users can access only contract resources belonging to their authenticated supplier where supplier-facing contract access is permitted.
+Where supplier-facing contract access is permitted, supplier users can access only contract resources belonging to their authenticated supplier.
 
 The core ownership rule is:
 
@@ -5894,7 +5636,7 @@ This makes contract lifecycle changes traceable.
 
 ## Contract Lifecycle Limitations
 
-The current implementation intentionally has several limitations:
+The current implementation intentionally has several limitations.
 
 ### In-Memory Storage
 
@@ -5920,6 +5662,8 @@ auto_renew = true
 ```
 
 does not by itself execute an automatic renewal.
+
+Renewal remains an explicit business operation.
 
 ### Contract Versioning
 
@@ -5973,41 +5717,95 @@ Supplier Scoping
 
 ---
 
+## GraphQL Scope for Round 13
+
+The Round 13 Strawberry GraphQL API is intentionally focused on the portal resources required by the frontend:
+
+```text
+Purchase Orders
+Invoices
+Documents
+```
+
+GraphQL currently provides:
+
+```text
+Purchase Order queries
+Invoice queries
+Document queries
+Cursor pagination
+Acknowledge-PO mutation
+Resolver-level supplier scoping
+```
+
+Supplier contracts continue to use their REST API endpoints.
+
+This means the Round 13 GraphQL implementation does not imply that every existing REST resource has been converted to GraphQL.
+
+The architecture currently supports both interfaces:
+
+```text
+Frontend / Client
+       │
+   ┌───┴───────────────┐
+   │                   │
+   ▼                   ▼
+REST API          GraphQL API
+   │                   │
+   │              GraphQL Resolvers
+   │                   │
+   └──────────┬────────┘
+              ▼
+       Existing Service Layer
+              │
+       ┌──────┴──────┐
+       │             │
+   Business Data   MinIO
+```
+
+This allows the existing REST functionality to remain available while the frontend consumes the required portal resources through GraphQL.
+
 # 16. API Reference
 
-All application APIs use the `/api/v1` prefix unless otherwise noted.
+All REST application APIs use the `/api/v1` prefix unless otherwise noted.
 
 The service root endpoint `/` is not under the `/api/v1` prefix.
 
-Protected application endpoints authenticate users through the Platform Service.
+The Supplier Portal also exposes a Strawberry GraphQL endpoint at:
 
-Supplier-facing endpoints additionally enforce supplier-level ownership and data scoping.
+```text
+/graphql
+```
 
-Authentication, role authorization, supplier ownership, and business-state validation are enforced according to each endpoint's requirements.
+Protected REST and GraphQL operations authenticate users through the Platform Service.
+
+Supplier-facing operations additionally enforce supplier-level ownership and data scoping.
+
+Authentication, role authorization, supplier ownership, and business-state validation are enforced according to each operation's requirements.
 
 ---
 
 ## Root
 
-| Method | Endpoint | Authentication / Role | Description            |
-| ------ | -------- | --------------------- | ---------------------- |
-| GET    | `/`      | Public                | Service health/message |
+| Method | Endpoint | Authentication / Role | Description |
+| ------ | -------- | --------------------- | ----------- |
+| GET | `/` | Public | Service health/message |
 
 ---
 
 ## Purchase Order APIs
 
-| Method | Endpoint                                          | Authentication / Role | Description                    |
-| ------ | ------------------------------------------------- | --------------------- | ------------------------------ |
-| POST   | `/api/v1/purchase-orders`                         | `procurement_manager` | Create Purchase Order          |
-| GET    | `/api/v1/purchase-orders`                         | Authenticated         | List Purchase Orders           |
-| GET    | `/api/v1/purchase-orders/{po_number}`             | Authenticated         | Get Purchase Order             |
-| PUT    | `/api/v1/purchase-orders/{po_number}`             | Authenticated         | Update Purchase Order          |
-| DELETE | `/api/v1/purchase-orders/{po_number}`             | Authenticated         | Delete Purchase Order          |
-| POST   | `/api/v1/purchase-orders/{po_number}/acknowledge` | Owning supplier       | Acknowledge Purchase Order     |
-| POST   | `/api/v1/purchase-orders/{po_number}/transition`  | `procurement_manager` | Transition Purchase Order      |
-| GET    | `/api/v1/purchase-orders/{po_number}/events`      | Authenticated         | Retrieve Purchase Order events |
-| POST   | `/api/v1/purchase-orders/bulk-send`               | `procurement_manager` | Bulk send Purchase Orders      |
+| Method | Endpoint | Authentication / Role | Description |
+| ------ | -------- | --------------------- | ----------- |
+| POST | `/api/v1/purchase-orders` | `procurement_manager` | Create Purchase Order |
+| GET | `/api/v1/purchase-orders` | Authenticated | List Purchase Orders |
+| GET | `/api/v1/purchase-orders/{po_number}` | Authenticated | Get Purchase Order |
+| PUT | `/api/v1/purchase-orders/{po_number}` | Authenticated | Update Purchase Order |
+| DELETE | `/api/v1/purchase-orders/{po_number}` | Authenticated | Delete Purchase Order |
+| POST | `/api/v1/purchase-orders/{po_number}/acknowledge` | Owning supplier | Acknowledge Purchase Order |
+| POST | `/api/v1/purchase-orders/{po_number}/transition` | `procurement_manager` | Transition Purchase Order |
+| GET | `/api/v1/purchase-orders/{po_number}/events` | Authenticated | Retrieve Purchase Order events |
+| POST | `/api/v1/purchase-orders/bulk-send` | `procurement_manager` | Bulk send Purchase Orders |
 
 For supplier users, supplier ownership is enforced on supplier-facing Purchase Order operations.
 
@@ -6067,15 +5865,21 @@ Only SUP001 Purchase Orders
 
 ## Invoice APIs
 
-| Method | Endpoint                                                     | Authentication / Role                           | Description             |
-| ------ | ------------------------------------------------------------ | ----------------------------------------------- | ----------------------- |
-| GET    | `/api/v1/invoices`                                           | Authenticated                                   | List invoices           |
-| POST   | `/api/v1/invoices`                                           | Authenticated                                   | Create invoice          |
-| GET    | `/api/v1/invoices/{supplier_id}/{invoice_number}`            | Authenticated                                   | Get invoice             |
-| POST   | `/api/v1/invoices/{supplier_id}/{invoice_number}/transition` | Authenticated / endpoint-specific authorization | Transition invoice      |
-| POST   | `/api/v1/invoices/{supplier_id}/{invoice_number}/adjust`     | `compliance_officer`                            | Adjust disputed invoice |
-| POST   | `/api/v1/invoices/{supplier_id}/{invoice_number}/document`   | Owning supplier                                 | Upload invoice PDF      |
-| GET    | `/api/v1/invoices/{supplier_id}/{invoice_number}/document`   | Authenticated                                   | Download invoice PDF    |
+| Method | Endpoint | Authentication / Role | Description |
+| ------ | -------- | --------------------- | ----------- |
+| GET | `/api/v1/invoices` | Authenticated | List invoices |
+| POST | `/api/v1/invoices` | Authenticated | Create invoice |
+| GET | `/api/v1/invoices/{supplier_id}/{invoice_number}` | Authenticated | Get invoice |
+| POST | `/api/v1/invoices/{supplier_id}/{invoice_number}/transition` | Authenticated / endpoint-specific authorization | Transition invoice |
+| POST | `/api/v1/invoices/{supplier_id}/{invoice_number}/adjust` | `compliance_officer` | Adjust disputed invoice |
+| POST | `/api/v1/invoices/{supplier_id}/{invoice_number}/document` | Owning supplier | Upload invoice PDF |
+| GET | `/api/v1/invoices/{supplier_id}/{invoice_number}/document` | Authenticated / supplier-scoped | Obtain invoice document URL |
+
+Invoice identity is scoped by:
+
+```text
+(supplier_id, invoice_number)
+```
 
 For supplier users, invoice ownership is enforced.
 
@@ -6111,16 +5915,16 @@ Therefore, a supplier token cannot be used to retrieve another supplier's invoic
 
 ## Invoice Document APIs
 
-Invoice documents are managed through:
+Invoice documents are stored in **MinIO**, an S3-compatible object storage service.
+
+The actual PDF binary is stored in MinIO rather than the local application filesystem.
+
+The application keeps the document/object reference needed to locate the file.
+
+### Upload
 
 ```http
 POST /api/v1/invoices/{supplier_id}/{invoice_number}/document
-```
-
-and:
-
-```http
-GET /api/v1/invoices/{supplier_id}/{invoice_number}/document
 ```
 
 Invoice document uploads are restricted to PDF documents.
@@ -6134,11 +5938,9 @@ Supplier ownership
 
 Content type
 
-PDF signature
+PDF file signature
 
 Maximum file size
-
-Safe filesystem path
 ```
 
 The current invoice PDF size limit is:
@@ -6147,21 +5949,69 @@ The current invoice PDF size limit is:
 10 MB
 ```
 
-The download operation validates:
+A valid PDF is then stored as an object in MinIO.
 
-```text
-Authentication
+### Download
 
-Supplier ownership where applicable
-
-Stored document path
-
-Path traversal protection
-
-File existence
+```http
+GET /api/v1/invoices/{supplier_id}/{invoice_number}/document
 ```
 
-Invoice document validation is separate from supplier onboarding document validation.
+The download operation does not stream the PDF through the Supplier Portal application.
+
+Instead, after authentication and authorization, the service generates a **short-lived presigned URL** for the stored MinIO object.
+
+The flow is:
+
+```text
+Authenticated Request
+        │
+        ▼
+Find Invoice
+        │
+        ▼
+Verify Supplier Ownership
+        │
+        ▼
+Find Stored Object Reference
+        │
+        ▼
+Check Object Exists in MinIO
+        │
+        ▼
+Generate Short-Lived Presigned URL
+        │
+        ▼
+Return URL
+```
+
+The security rule is:
+
+```text
+Authorize first
+      ↓
+Generate presigned URL second
+```
+
+A presigned URL must never be generated before the authenticated user is authorized to access the requested document.
+
+Expected behavior:
+
+```text
+Own document
+    → 200 + presigned URL
+
+Other supplier's document
+    → 403 Forbidden
+
+Document does not exist in MinIO
+    → 404 Not Found
+
+MinIO unavailable
+    → 503 Service Unavailable
+```
+
+Invoice documents and supplier onboarding documents use different validation rules.
 
 Supplier onboarding supports:
 
@@ -6173,7 +6023,230 @@ DOC
 DOCX
 ```
 
-while invoice documents are PDF-only.
+Invoice documents are:
+
+```text
+PDF only
+Maximum 10 MB
+```
+
+---
+
+## Supplier Onboarding Document APIs
+
+Supplier onboarding documents are also stored in MinIO.
+
+The onboarding document flow follows the same storage principle:
+
+```text
+Upload
+  ↓
+Validate file
+  ↓
+Authorize supplier
+  ↓
+Store object in MinIO
+  ↓
+Store object reference
+```
+
+Downloads are authorized against the authenticated supplier before a presigned URL is generated.
+
+Supplier A cannot obtain a presigned URL for Supplier B's onboarding document.
+
+---
+
+## GraphQL API
+
+The Supplier Portal exposes a Strawberry GraphQL API at:
+
+```http
+/graphql
+```
+
+GraphQL authentication uses the same Platform Service authentication mechanism as the protected REST APIs.
+
+The GraphQL context contains the authenticated user information.
+
+The GraphQL layer currently provides operations for:
+
+```text
+Purchase Orders
+
+Invoices
+
+Supplier Documents
+```
+
+The GraphQL API also provides the Purchase Order acknowledgement mutation.
+
+### GraphQL Query Operations
+
+The available query areas include:
+
+```text
+purchaseOrder
+purchaseOrders
+
+invoice
+invoices
+
+documents
+```
+
+Conceptually:
+
+```text
+Frontend / Apollo Client
+        │
+        ▼
+     /graphql
+        │
+        ▼
+GraphQL Resolver
+        │
+        ├── Authentication
+        ├── Supplier Scope Check
+        ├── Business Logic
+        │
+        ▼
+Existing Supplier Portal Services
+        │
+        ▼
+GraphQL Response
+```
+
+### Purchase Order Query
+
+A single Purchase Order can be queried by Purchase Order number.
+
+Supplier users can only retrieve a Purchase Order belonging to their authenticated supplier.
+
+Example:
+
+```text
+Authenticated supplier = SUP001
+
+Requested PO = PO-SUP002-001
+PO supplier = SUP002
+
+        ↓
+
+Resolver supplier-scope check
+
+        ↓
+
+No Purchase Order returned
+```
+
+This supplier check is performed inside the GraphQL resolver.
+
+### Purchase Order Collection
+
+Purchase Orders support cursor-based pagination.
+
+The pagination model uses:
+
+```text
+first
+after
+hasNextPage
+endCursor
+```
+
+The `first` value is bounded by the GraphQL implementation.
+
+The resolver applies supplier filtering before pagination so that supplier users cannot infer or receive another supplier's records through pagination.
+
+Conceptually:
+
+```text
+All Purchase Orders
+        │
+        ▼
+Supplier Scope Filter
+        │
+        ▼
+Authorized Purchase Orders
+        │
+        ▼
+Cursor Pagination
+        │
+        ▼
+GraphQL Connection
+```
+
+### Invoice Queries
+
+GraphQL supports invoice queries and invoice collections.
+
+Supplier users are automatically scoped to invoices belonging to their authenticated supplier.
+
+The resolver applies authorization before returning invoice data.
+
+### Document Query
+
+GraphQL exposes supplier document data through the document query.
+
+Supplier users can only retrieve documents belonging to their authenticated supplier.
+
+The resolver performs supplier-level authorization before returning document information.
+
+### Acknowledge Purchase Order Mutation
+
+The GraphQL API provides a Purchase Order acknowledgement mutation.
+
+Conceptually:
+
+```text
+acknowledgePurchaseOrder
+        │
+        ▼
+Authenticate User
+        │
+        ▼
+Find Purchase Order
+        │
+        ▼
+Verify Supplier Ownership
+        │
+        ▼
+Call Existing PO Acknowledge Service
+        │
+        ▼
+Return Updated Purchase Order
+```
+
+A supplier cannot acknowledge another supplier's Purchase Order.
+
+A cross-supplier acknowledgement request returns no Purchase Order result and does not modify the protected Purchase Order.
+
+### Resolver-Level Supplier Scoping
+
+Supplier scoping is enforced inside every applicable resolver.
+
+The GraphQL security model is therefore:
+
+```text
+GraphQL Request
+      │
+      ▼
+Authenticated User
+      │
+      ▼
+Resolver
+      │
+      ▼
+Supplier Scope Check
+      │
+      ├── Same supplier → Continue
+      │
+      └── Different supplier → No resource returned
+```
+
+Supplier scoping is not delegated only to the `/graphql` route.
+
+This prevents a resolver from accidentally exposing another supplier's data.
 
 ---
 
@@ -6181,12 +6254,12 @@ while invoice documents are PDF-only.
 
 The Supplier Portal exposes P2P operations covering:
 
-| Stage            | Purpose                                                            |
+| Stage | Purpose |
 | ---------------- | ------------------------------------------------------------------ |
-| Shipment         | Progress an acknowledged P2P transaction to shipped                |
-| Goods Receipt    | Record received goods and progress the P2P state                   |
-| Invoice          | Submit an invoice after the required receipt state                 |
-| Three-Way Match  | Compare PO, receipt, and invoice data                              |
+| Shipment | Progress an acknowledged P2P transaction to shipped |
+| Goods Receipt | Record received goods and progress the P2P state |
+| Invoice | Submit an invoice after the required receipt state |
+| Three-Way Match | Compare PO, receipt, and invoice data |
 | Payment Approval | Progress successfully matched transactions toward payment approval |
 
 P2P operations require the appropriate authentication, role authorization, supplier ownership, and current-state validation.
@@ -6229,10 +6302,10 @@ Invalid P2P state transitions are rejected and do not partially advance the work
 
 ## Supplier Statistics and Scorecard APIs
 
-| Method | Endpoint                                    | Authentication / Scope | Description                                     |
+| Method | Endpoint | Authentication / Scope | Description |
 | ------ | ------------------------------------------- | ---------------------- | ----------------------------------------------- |
-| GET    | `/api/v1/suppliers/{supplier_id}/stats`     | Authenticated          | Supplier operational statistics                 |
-| GET    | `/api/v1/suppliers/{supplier_id}/scorecard` | Authenticated          | Supplier performance and self-service scorecard |
+| GET | `/api/v1/suppliers/{supplier_id}/stats` | Authenticated | Supplier operational statistics |
+| GET | `/api/v1/suppliers/{supplier_id}/scorecard` | Authenticated | Supplier performance and self-service scorecard |
 
 For supplier users, the authenticated `supplier_id` must match the requested `supplier_id`.
 
@@ -6253,7 +6326,7 @@ Requested supplier_id
         403 Forbidden
 ```
 
-Supplier users without a valid `supplier_id` are rejected:
+Supplier users without a valid `supplier_id` are rejected with:
 
 ```text
 403 Forbidden
@@ -6285,9 +6358,9 @@ Status
 History
 ```
 
-Supplier onboarding detail operations are supplier-scoped.
+Onboarding detail operations are supplier-scoped where supplier ownership applies.
 
-The onboarding service also exposes the active-supplier state internally so that business operations such as Purchase Order creation can enforce onboarding completion.
+The onboarding service also exposes the supplier's active state so that business operations such as Purchase Order creation can enforce onboarding completion.
 
 Onboarding document uploads validate:
 
@@ -6303,7 +6376,7 @@ Maximum file size
 Supplier ownership
 ```
 
-The supported onboarding document types are:
+Supported onboarding document types are:
 
 ```text
 PDF
@@ -6349,7 +6422,7 @@ and identifies itself using:
 X-Caller-Service: supplier-portal
 ```
 
-The integration timeout is:
+The configured client timeout is:
 
 ```text
 5 seconds
@@ -6357,13 +6430,13 @@ The integration timeout is:
 
 Decision handling:
 
-| Compliance result      | Supplier Portal behavior                          |
-| ---------------------- | ------------------------------------------------- |
-| `CLEAR`                | Supplier can become active                        |
-| `BLOCK`                | Activation rejected with `409 Conflict`           |
-| `REVIEW`               | Activation rejected with `409 Conflict`           |
-| Service unavailable    | Activation blocked with `503 Service Unavailable` |
-| Upstream service error | `502 Bad Gateway`                                 |
+| Compliance result | Supplier Portal behavior |
+| ----------------- | ------------------------ |
+| `CLEAR` | Supplier can become active |
+| `BLOCK` | Activation rejected with `409 Conflict` |
+| `REVIEW` | Activation rejected with `409 Conflict` |
+| Service unavailable | Activation blocked with `503 Service Unavailable` |
+| Unusable/unsuccessful upstream response | `502 Bad Gateway` |
 
 The integration is fail-closed.
 
@@ -6429,6 +6502,10 @@ A partial receipt can contain fewer quantities than the original Purchase Order.
 
 Receipt quantities must be greater than zero and cannot exceed the corresponding Purchase Order quantity.
 
+Goods Receipt `receipt_date` is also used as the actual delivery date for supplier delivery-performance calculations.
+
+When multiple receipts exist, the applicable/latest receipt date is used by the scorecard/statistics implementation.
+
 ---
 
 ## Three-Way Match APIs
@@ -6482,7 +6559,11 @@ Quantity mismatch
 Price mismatch
 ```
 
-Discrepancies are flagged for human review and do not automatically result in payment approval.
+Discrepancies are flagged for human review.
+
+A discrepancy does not automatically approve payment.
+
+A successfully matched transaction can continue toward payment approval through the P2P state machine.
 
 ---
 
@@ -6536,16 +6617,16 @@ Unresolved historical disputes and unclassified resolution reasons are ignored.
 
 ## Supplier Contract APIs
 
-| Method | Endpoint                                            | Authentication / Role  | Description               |
-| ------ | --------------------------------------------------- | ---------------------- | ------------------------- |
-| POST   | `/api/v1/supplier-contracts`                        | `procurement_manager`  | Create supplier contract  |
-| GET    | `/api/v1/supplier-contracts`                        | Authenticated / scoped | List supplier contracts   |
-| GET    | `/api/v1/supplier-contracts/expiring`               | Authenticated / scoped | List expiring contracts   |
-| GET    | `/api/v1/supplier-contracts/{contract_id}`          | Authenticated / scoped | Get contract              |
-| PUT    | `/api/v1/supplier-contracts/{contract_id}`          | `procurement_manager`  | Update contract           |
-| POST   | `/api/v1/supplier-contracts/{contract_id}/activate` | `procurement_manager`  | Activate draft contract   |
-| POST   | `/api/v1/supplier-contracts/{contract_id}/renew`    | `procurement_manager`  | Renew contract            |
-| GET    | `/api/v1/supplier-contracts/{contract_id}/history`  | Authenticated / scoped | Retrieve contract history |
+| Method | Endpoint | Authentication / Role | Description |
+| ------ | --------------------------------------------------- | ------------------------- | ------------------------- |
+| POST | `/api/v1/supplier-contracts` | `procurement_manager` | Create supplier contract |
+| GET | `/api/v1/supplier-contracts` | Authenticated / scoped | List supplier contracts |
+| GET | `/api/v1/supplier-contracts/expiring` | Authenticated / scoped | List expiring contracts |
+| GET | `/api/v1/supplier-contracts/{contract_id}` | Authenticated / scoped | Get contract |
+| PUT | `/api/v1/supplier-contracts/{contract_id}` | `procurement_manager` | Update contract |
+| POST | `/api/v1/supplier-contracts/{contract_id}/activate` | `procurement_manager` | Activate draft contract |
+| POST | `/api/v1/supplier-contracts/{contract_id}/renew` | `procurement_manager` | Renew contract |
+| GET | `/api/v1/supplier-contracts/{contract_id}/history` | Authenticated / scoped | Retrieve contract history |
 
 Contract operations enforce supplier ownership where supplier-facing access applies.
 
@@ -6553,52 +6634,27 @@ Contract lifecycle operations are restricted according to the configured procure
 
 ---
 
-## Maintenance APIs
-
-Maintenance endpoints perform administrative operations on invoice files.
-
-| Method | Endpoint                                     | Authentication / Role | Description                 |
-| ------ | -------------------------------------------- | --------------------- | --------------------------- |
-| GET    | `/api/v1/maintenance/orphaned-invoice-files` | `compliance_officer`  | Find orphaned invoice PDFs  |
-| DELETE | `/api/v1/maintenance/orphaned-invoice-files` | `compliance_officer`  | Purge orphaned invoice PDFs |
-
-Optional query parameter:
-
-```text
-older_than_days
-```
-
-Default:
-
-```text
-1
-```
-
-These endpoints require authentication and administrative authorization and are not intended for anonymous or supplier access.
-
----
-
 ## R5 API Security Summary
 
 The protected API model is:
 
-| Resource                                   | Supplier Access | Internal Role Access                              |
-| ------------------------------------------ | --------------- | ------------------------------------------------- |
-| Own PO                                     | Allowed         | According to role                                 |
-| Other supplier PO                          | `403 Forbidden` | According to role                                 |
-| Own invoice                                | Allowed         | According to role                                 |
-| Other supplier invoice                     | `403 Forbidden` | According to role                                 |
-| Own invoice document                       | Allowed         | According to role                                 |
-| Other supplier document                    | `403 Forbidden` | According to role                                 |
-| Own statistics                             | Allowed         | According to role                                 |
-| Other supplier statistics                  | `403 Forbidden` | According to role                                 |
-| Own scorecard                              | Allowed         | According to role                                 |
-| Other supplier scorecard                   | `403 Forbidden` | According to role                                 |
-| Own contract where supplier access applies | Allowed         | According to role                                 |
-| Other supplier contract                    | `403 Forbidden` | According to role                                 |
-| Missing supplier identity                  | `403 Forbidden` | Not applicable to supplier-scoped supplier access |
+| Resource | Supplier Access | Internal Role Access |
+| ------------------------------------------ | --------------- | ----------------------------------------------- |
+| Own PO | Allowed | According to role |
+| Other supplier PO | `403 Forbidden` | According to role |
+| Own invoice | Allowed | According to role |
+| Other supplier invoice | `403 Forbidden` | According to role |
+| Own invoice document | Allowed | According to role |
+| Other supplier document | `403 Forbidden` | According to role |
+| Own statistics | Allowed | According to role |
+| Other supplier statistics | `403 Forbidden` | According to role |
+| Own scorecard | Allowed | According to role |
+| Other supplier scorecard | `403 Forbidden` | According to role |
+| Own contract where supplier access applies | Allowed | According to role |
+| Other supplier contract | `403 Forbidden` | According to role |
+| Missing supplier identity | `403 Forbidden` | Not applicable to supplier-scoped supplier access |
 
-The R5 security model therefore combines:
+The R5 security model combines:
 
 ```text
 Authentication
@@ -6616,17 +6672,21 @@ A successful token verification alone is not sufficient for supplier access.
 
 The authenticated supplier identity must match the supplier associated with the requested supplier-scoped resource.
 
+For document downloads, authorization occurs before a MinIO presigned URL is generated.
+
+For GraphQL, supplier scoping is enforced inside the applicable resolver.
+
 ---
 
 ## API Error Handling Summary
 
-The Supplier Portal uses explicit HTTP responses for authentication, authorization, validation, resource, and integration failures.
+The Supplier Portal uses explicit HTTP responses for authentication, authorization, validation, resource, storage, and integration failures.
 
 Common responses include:
 
 ```text
 400 Bad Request
-    → Invalid request, invalid state transition, invalid file, or validation failure
+    → Invalid request, invalid state transition, invalid file, or business validation failure
 
 401 Unauthorized
     → Missing or invalid authentication
@@ -6635,38 +6695,41 @@ Common responses include:
     → Insufficient role or supplier-scope violation
 
 404 Not Found
-    → Requested resource does not exist
+    → Requested resource or stored document does not exist
 
 409 Conflict
     → Business-rule conflict such as Compliance BLOCK/REVIEW or duplicate resource
 
+422 Unprocessable Entity
+    → FastAPI request/schema validation failure
+
 502 Bad Gateway
-    → Upstream Compliance Service error
+    → Upstream Compliance Service returned an unusable or unsuccessful response
 
 503 Service Unavailable
-    → Compliance Service unavailable or unreachable
+    → Platform authentication, Compliance, or MinIO dependency unavailable
 ```
 
-This keeps authentication, authorization, business validation, and cross-service failure conditions distinguishable to API consumers.
+The exact response depends on the operation and failure condition.
+
+---
 
 # 17. HTTP Response Codes
 
-| Status | Meaning                                                                                      |
+| Status | Meaning |
 | -----: | -------------------------------------------------------------------------------------------- |
-|    200 | Successful request                                                                           |
-|    201 | Resource created                                                                             |
-|    400 | Business-rule or input validation failure                                                    |
-|    401 | Authentication required, invalid, or expired                                                 |
-|    403 | Authenticated user is not authorized or supplier scope does not match                        |
-|    404 | Resource not found                                                                           |
-|    409 | Duplicate resource, conflicting resource state, or business-rule conflict                    |
-|    422 | FastAPI request/schema validation failure                                                    |
-|    502 | Downstream Compliance Service returned an unusable or unsuccessful business/service response |
-|    503 | Platform authentication service or Compliance Service unavailable                            |
+| 200 | Successful request |
+| 201 | Resource created |
+| 400 | Business-rule or input validation failure |
+| 401 | Authentication required, invalid, or expired |
+| 403 | Authenticated user is not authorized or supplier scope does not match |
+| 404 | Resource not found |
+| 409 | Duplicate resource, conflicting resource state, or business-rule conflict |
+| 422 | FastAPI request/schema validation failure |
+| 502 | Downstream Compliance Service returned an unusable or unsuccessful response |
+| 503 | Platform authentication, Compliance, or MinIO service unavailable |
 
-For protected supplier-scoped resources, the implementation applies supplier ownership checks on affected detail endpoints.
-
-This prevents unauthorized supplier users from accessing resources belonging to another supplier.
+For protected supplier-scoped resources, the implementation applies supplier ownership checks on affected detail operations.
 
 Typical examples are:
 
@@ -6700,6 +6763,12 @@ Compliance Service returned an unsuccessful/unusable response
 
 Compliance decision = BLOCK / REVIEW
         → 409 Conflict
+
+MinIO unavailable
+        → 503 Service Unavailable
+
+Requested stored document does not exist
+        → 404 Not Found
 ```
 
 The Compliance Service integration is intentionally fail-closed.
@@ -6721,7 +6790,9 @@ PLATFORM_AUTH_URL=http://127.0.0.1:8005
 COMPLIANCE_SERVICE_URL=http://127.0.0.1:8003
 ```
 
-The Platform authentication service and Compliance Service URLs are configurable through environment variables.
+The application also requires configuration for the MinIO/S3-compatible document-storage dependency according to the project's environment configuration.
+
+Environment-specific values should be supplied through `.env` or the deployment environment rather than hard-coded in application code.
 
 ---
 
@@ -6809,6 +6880,66 @@ Activation blocked
 
 ---
 
+## MinIO Document Storage Configuration
+
+Round 12 uses MinIO as the object-storage backend for Supplier Portal documents.
+
+The storage architecture is:
+
+```text
+Supplier Portal
+      │
+      ▼
+MinIO / S3-compatible API
+      │
+      ▼
+Object Storage
+```
+
+MinIO is used for:
+
+```text
+Invoice PDFs
+
+Supplier onboarding documents
+```
+
+The application stores object references/metadata while the actual document binary is stored in MinIO.
+
+For local development, MinIO runs as a separate service/container.
+
+The application should use the configured MinIO endpoint, bucket, and credentials supplied through the project's environment configuration.
+
+The storage dependency must not be replaced with local filesystem storage.
+
+The important storage principle is:
+
+```text
+Document binary
+      →
+MinIO
+
+Document reference / metadata
+      →
+Supplier Portal application state
+```
+
+Document downloads use short-lived presigned URLs.
+
+The authorization order is:
+
+```text
+Authenticate
+      ↓
+Check supplier ownership
+      ↓
+Locate object
+      ↓
+Generate presigned URL
+```
+
+---
+
 ## Three-Way Match Configuration
 
 The three-way matching price tolerance is centrally configured in:
@@ -6875,11 +7006,47 @@ renewed
 expired
 ```
 
-The current implementation stores the contract configuration in application memory.
+The current implementation stores contract state in application memory.
 
-`auto_renew` is currently stored as a contract configuration value.
+`auto_renew` is stored as a contract configuration value.
 
 It does not currently trigger an automatic background renewal process.
+
+---
+
+## GraphQL Configuration
+
+The GraphQL API is mounted by the Supplier Portal application at:
+
+```text
+/graphql
+```
+
+The GraphQL layer uses:
+
+```text
+Strawberry GraphQL
+```
+
+and is integrated with FastAPI through a GraphQL router.
+
+The GraphQL context receives the authenticated user from the existing Supplier Portal authentication dependency.
+
+The GraphQL layer does not introduce a separate authentication mechanism.
+
+Conceptually:
+
+```text
+Authorization Header
+        ↓
+Platform Verification
+        ↓
+Supplier Portal Auth Context
+        ↓
+GraphQL Context
+        ↓
+Resolver-Level Authorization
+```
 
 ---
 
@@ -6891,7 +7058,7 @@ The project provides:
 .env.example
 ```
 
-The example configuration should contain the service dependencies:
+The example configuration should contain the required service dependencies, including:
 
 ```env
 # Platform Service
@@ -6900,6 +7067,8 @@ PLATFORM_AUTH_URL=http://127.0.0.1:8005
 # Compliance Service
 COMPLIANCE_SERVICE_URL=http://127.0.0.1:8003
 ```
+
+MinIO/object-storage settings should also be supplied according to the project's `.env.example` configuration.
 
 To create a local `.env` file from the example:
 
@@ -6960,18 +7129,13 @@ Pydantic
 python-multipart
 Pytest
 HTTPX
+Strawberry GraphQL
+S3-compatible object-storage client
 ```
-
-The test environment uses:
-
-```text
-pytest==8.4.1
-pytest-asyncio==1.2.0
-```
-
-`pytest==8.4.1` is used because the configured `pytest-asyncio` version requires a pytest version below 9.
 
 `python-multipart` is required for multipart file-upload handling.
+
+The exact test dependency versions should be taken from the project's dependency configuration rather than hard-coded in the README.
 
 ---
 
@@ -6983,7 +7147,9 @@ Create `.env` from `.env.example`:
 Copy-Item .env.example .env
 ```
 
-The local configuration should contain:
+Configure the required service and storage settings.
+
+At minimum, the local service configuration includes:
 
 ```env
 PLATFORM_AUTH_URL=http://127.0.0.1:8005
@@ -6994,11 +7160,13 @@ The Platform Service must be available when running authenticated Supplier Porta
 
 The Compliance Service must be available when activating suppliers.
 
+MinIO must be available when uploading or downloading stored documents.
+
 ---
 
 # 20. Running the Services
 
-The Supplier Portal depends on two service-level integrations:
+The Supplier Portal depends on multiple service-level integrations:
 
 ```text
 Platform Service
@@ -7008,6 +7176,10 @@ Authentication
 Compliance Service
       ↓
 Supplier Activation Compliance Check
+
+MinIO
+      ↓
+Document Object Storage
 ```
 
 Therefore, the dependent services run separately.
@@ -7077,7 +7249,7 @@ The integration is performed by:
 app/services/compliance_client.py
 ```
 
-The Compliance Service returns a decision such as:
+The Compliance Service decision model uses:
 
 ```text
 CLEAR
@@ -7091,11 +7263,71 @@ Only:
 CLEAR
 ```
 
-allows activation.
+with a successful clearance allows activation.
 
 `BLOCK` and `REVIEW` leave the supplier outside the `active` state.
 
 If the Compliance Service is unreachable, times out, or returns an unusable response, activation is blocked.
+
+---
+
+## MinIO Object Storage
+
+MinIO provides S3-compatible object storage for Supplier Portal documents.
+
+For local development, MinIO runs separately from the Supplier Portal application.
+
+The architecture is:
+
+```text
+Supplier Portal
+      │
+      │ S3-compatible API
+      ▼
+MinIO
+      │
+      ▼
+Stored Document Objects
+```
+
+Documents stored through the Supplier Portal include:
+
+```text
+Invoice PDFs
+
+Supplier onboarding documents
+```
+
+The application does not use the old local `uploads/` directory as the document-storage mechanism.
+
+Document download flow:
+
+```text
+Client
+   │
+   ▼
+Supplier Portal
+   │
+   ├── Authenticate
+   │
+   ├── Verify supplier ownership
+   │
+   ├── Locate MinIO object
+   │
+   └── Generate short-lived presigned URL
+             │
+             ▼
+          MinIO
+             │
+             ▼
+       Document Download
+```
+
+If MinIO is unavailable, document operations that require storage access fail with an appropriate service-unavailable response.
+
+If the requested object does not exist, the document operation returns `404 Not Found`.
+
+Cross-supplier document access is rejected before a presigned URL is generated.
 
 ---
 
@@ -7119,9 +7351,19 @@ The root endpoint can be used to confirm that the service is running:
 GET /
 ```
 
+The GraphQL endpoint is:
+
+```http
+POST /graphql
+```
+
+Protected GraphQL requests require authentication.
+
 ---
 
 ## Three-Service Business Architecture
+
+The Supplier Portal business architecture is:
 
 ```text
 ┌─────────────────────────────┐
@@ -7134,23 +7376,34 @@ GET /
                │
                │ /api/v1/auth/verify
                ▼
+┌──────────────────────────────────┐
+│        Supplier Portal           │
+│                                  │
+│          Port 8004               │
+│                                  │
+│ REST API + GraphQL                │
+│ PO / Invoice / P2P               │
+│ Statistics / Scorecard           │
+│ Contracts / Onboarding           │
+│ Disputes / Analytics             │
+└───────────┬──────────────┬───────┘
+            │              │
+            │              │
+            │              │ S3-compatible API
+            │              ▼
+            │       ┌───────────────┐
+            │       │    MinIO      │
+            │       │               │
+            │       │ Document      │
+            │       │ Object Store  │
+            │       └───────────────┘
+            │
+            │ /api/v1/compliance/internal-check
+            ▼
 ┌─────────────────────────────┐
-│      Supplier Portal        │
+│      Compliance Service     │
 │                             │
-│        Port 8004           │
-│                             │
-│ PO / Invoice / P2P          │
-│ Statistics / Scorecard      │
-│ Contracts / Onboarding      │
-│ Disputes / Analytics        │
-└──────────────┬──────────────┘
-               │
-               │ /api/v1/compliance/internal-check
-               ▼
-┌─────────────────────────────┐
-│     Compliance Service      │
-│                             │
-│        Port 8003         │
+│        Port 8003            │
 │                             │
 │ Supplier Compliance Check   │
 └─────────────────────────────┘
@@ -7190,6 +7443,59 @@ Supplier Portal Authorization
   │
   └── Business Rule Validation
 ```
+
+The same authenticated identity is made available to GraphQL resolvers through the GraphQL context.
+
+---
+
+## GraphQL Request Flow
+
+```text
+Frontend / Apollo Client
+          │
+          │ GraphQL Query / Mutation
+          ▼
+       /graphql
+          │
+          ▼
+   GraphQL Context
+          │
+          ▼
+   Authenticated User
+          │
+          ▼
+       Resolver
+          │
+          ├── Supplier Scope Check
+          │
+          ├── Business Validation
+          │
+          ▼
+ Existing Supplier Portal Service
+          │
+          ▼
+   GraphQL Response
+```
+
+The important security property is that supplier authorization is performed at the resolver level.
+
+```text
+Supplier SUP001
+      │
+      ▼
+GraphQL Resolver
+      │
+      ▼
+Requested Resource SUP002
+      │
+      ▼
+Scope mismatch
+      │
+      ▼
+Resource not returned
+```
+
+This prevents the GraphQL layer from bypassing the R5 supplier-isolation rules.
 
 ---
 
@@ -7247,6 +7553,71 @@ The activation operation is fail-closed so that a supplier cannot become active 
 
 ---
 
+## Document Storage Flow
+
+Round 12 uses MinIO instead of local filesystem storage.
+
+```text
+Client
+   │
+   ▼
+Supplier Portal
+   │
+   ├── Validate document
+   │
+   ├── Authenticate
+   │
+   ├── Verify supplier ownership
+   │
+   ▼
+Document Storage Service
+   │
+   ▼
+MinIO
+   │
+   ▼
+Object Stored
+```
+
+For downloads:
+
+```text
+Client
+   │
+   ▼
+Supplier Portal
+   │
+   ├── Authenticate
+   │
+   ├── Verify ownership
+   │
+   ├── Check object
+   │
+   ▼
+Generate Presigned URL
+   │
+   ▼
+Client accesses MinIO object
+```
+
+The presigned URL is short-lived.
+
+A supplier cannot obtain a presigned URL for another supplier's document.
+
+The key security rule is:
+
+```text
+Supplier authorization
+        ↓
+Object lookup
+        ↓
+Presigned URL generation
+```
+
+Never reverse this order.
+
+---
+
 ## Business-Logic Integration Design
 
 The Supplier Portal keeps the external Compliance integration isolated in:
@@ -7288,9 +7659,129 @@ This separation keeps HTTP integration logic out of the core onboarding business
 
 ---
 
+## GraphQL Implementation Structure
+
+The GraphQL implementation is organized under:
+
+```text
+app/graphql/
+```
+
+Core files include:
+
+```text
+app/graphql/__init__.py
+app/graphql/context.py
+app/graphql/queries.py
+app/graphql/schema.py
+app/graphql/types.py
+app/graphql/mutations.py
+```
+
+Responsibilities:
+
+```text
+context.py
+    → Authenticated GraphQL request context
+
+queries.py
+    → Purchase Order, Invoice, and Document resolvers
+    → Supplier scoping
+    → Cursor pagination
+
+mutations.py
+    → Purchase Order acknowledgement mutation
+
+types.py
+    → GraphQL types and enums
+
+schema.py
+    → Strawberry GraphQL schema
+
+main.py
+    → Mounts GraphQL at /graphql
+```
+
+The GraphQL layer reuses the existing Supplier Portal business services instead of duplicating business logic.
+
+---
+
+## Testing the Main Integrations
+
+The Supplier Portal test suite covers:
+
+```text
+REST API authentication
+
+Supplier ownership and scoping
+
+Purchase Orders
+
+Invoices
+
+Invoice documents
+
+MinIO document storage
+
+Presigned URL generation
+
+Cross-supplier document access rejection
+
+Supplier onboarding
+
+Compliance integration
+
+P2P lifecycle
+
+Three-way matching
+
+Supplier statistics
+
+Supplier scorecard
+
+Supplier contracts
+
+GraphQL queries
+
+GraphQL cursor pagination
+
+GraphQL Purchase Order acknowledgement
+
+GraphQL resolver-level supplier scoping
+```
+
+Examples of focused test commands:
+
+```powershell
+python -m pytest -q tests/test_graphql.py
+```
+
+```powershell
+python -m pytest -q tests/test_document_storage_service.py
+```
+
+```powershell
+python -m pytest -q tests/test_invoice_document_download.py
+```
+
+```powershell
+python -m pytest -q tests/test_supplier_document_download.py
+```
+
+```powershell
+python -m pytest -q tests/integration/test_minio_document_storage.py
+```
+
+The full regression suite should be run before merging changes:
+
+```powershell
+python -m pytest -q
+```
+
+The Round 12 and Round 13 implementation has been regression-tested together with the existing Supplier Portal functionality.
 # 21. Swagger Documentation
 
-FastAPI automatically provides interactive API documentation for the Supplier Portal.
+FastAPI automatically provides interactive REST API documentation for the Supplier Portal.
 
 When the Supplier Portal is running on port `8004`, open Swagger UI at:
 
@@ -7304,11 +7795,21 @@ Alternative ReDoc documentation:
 http://127.0.0.1:8004/redoc
 ```
 
+Swagger documents the REST APIs exposed by the Supplier Portal.
+
+The Strawberry GraphQL API is available separately at:
+
+```text
+http://127.0.0.1:8004/graphql
+```
+
+GraphQL operations are not represented as individual REST endpoints in Swagger.
+
 ---
 
 ## Swagger API Coverage
 
-Swagger can be used to inspect and test supported Supplier Portal operations, including:
+Swagger can be used to inspect and test supported Supplier Portal REST operations, including:
 
 ```text
 Purchase Orders
@@ -7325,10 +7826,13 @@ Invoice retrieval
 Invoice transitions
 Invoice disputes
 Invoice adjustments
+
 Invoice document upload
-Invoice document download
+Invoice document URL generation
 
 Supplier onboarding
+Supplier onboarding documents
+
 Supplier statistics
 Supplier scorecard
 Supplier self-service analytics
@@ -7399,7 +7903,63 @@ Request SUP002 resource
 403 Forbidden
 ```
 
-Swagger therefore exposes the same authorization and supplier-scoping rules as normal API clients.
+Swagger therefore exposes the same REST authorization and supplier-scoping rules as normal API clients.
+
+---
+
+## Swagger Document-Storage Behavior
+
+Invoice and supplier-onboarding documents are stored in MinIO.
+
+Swagger can be used to test document upload and document-download operations.
+
+For invoice documents:
+
+```http
+POST /api/v1/invoices/{supplier_id}/{invoice_number}/document
+```
+
+uploads the PDF to MinIO.
+
+The corresponding download operation:
+
+```http
+GET /api/v1/invoices/{supplier_id}/{invoice_number}/document
+```
+
+returns a short-lived presigned URL after authorization.
+
+The download flow is:
+
+```text
+Authenticated Request
+        │
+        ▼
+Supplier Ownership Check
+        │
+        ▼
+Object Lookup in MinIO
+        │
+        ▼
+Generate Presigned URL
+        │
+        ▼
+Return URL
+```
+
+Supplier authorization occurs before presigned URL generation.
+
+Cross-supplier access is rejected:
+
+```text
+SUP001 token
+      │
+      ▼
+Request SUP002 document
+      │
+      ▼
+403 Forbidden
+```
 
 ---
 
@@ -7407,38 +7967,62 @@ Swagger therefore exposes the same authorization and supplier-scoping rules as n
 
 The Supplier Portal uses **Pytest** for automated testing.
 
-The test suite covers:
+The test suite covers the application's REST APIs, business services, integrations, document storage, and GraphQL layer.
 
-* Core business logic
-* Purchase Order lifecycle
-* P2P state transitions
-* Shipment processing
-* Goods Receipt processing
-* Partial Goods Receipt support
-* Invoice lifecycle
-* P2P invoice integration
-* Three-way matching
-* Quantity discrepancy detection
-* Price discrepancy detection
-* Supplier onboarding
-* Compliance Service integration
-* Compliance failure handling
-* Supplier onboarding document validation
-* Supplier statistics and scorecards
-* Supplier self-service scorecard access
-* Supplier contract lifecycle
-* Contract renewal and expiry handling
-* Contract term-change audit history
-* Historical dispute-resolution suggestions
-* Authentication
-* Role-based authorization
-* Supplier-level resource ownership
-* Collection-level supplier filtering
-* Invoice document security
-* Authentication-required endpoint protection
-* Round 5 supplier-scoping requirements
-* Rounds 6–8 functional milestones
-* Rounds 9–11 functional requirements
+Major test areas include:
+
+```text
+Core business logic
+
+Purchase Order lifecycle
+P2P state transitions
+Shipment processing
+Goods Receipt processing
+Partial Goods Receipt support
+
+Invoice lifecycle
+P2P invoice integration
+
+Three-way matching
+Quantity discrepancy detection
+Price discrepancy detection
+
+Supplier onboarding
+Compliance Service integration
+Compliance failure handling
+
+Supplier onboarding document validation
+
+Invoice document storage
+MinIO object storage
+Presigned URL generation
+Document download authorization
+Cross-supplier document protection
+Missing-object handling
+MinIO availability failures
+
+Supplier statistics
+Supplier scorecards
+Supplier self-service analytics
+
+Supplier contract lifecycle
+Contract renewal
+Contract expiry handling
+Contract term-change audit history
+
+Historical dispute-resolution suggestions
+
+Authentication
+Role-based authorization
+Supplier-level resource ownership
+Collection-level supplier filtering
+
+Round 5 supplier-scoping requirements
+Rounds 6–8 functional milestones
+Rounds 9–11 functional requirements
+Round 12 MinIO document-storage requirements
+Round 13 GraphQL requirements
+```
 
 Run the complete test suite with:
 
@@ -7446,70 +8030,86 @@ Run the complete test suite with:
 python -m pytest -v
 ```
 
-The test suite uses `python -m pytest` so that tests execute using the active Python environment.
+The test suite should be executed using the active Python environment.
 
-The project uses:
-
-```text
-pytest==8.4.1
-```
-
-This version is compatible with the configured `pytest-asyncio` dependency.
+The README intentionally does not hard-code a particular pytest version. Dependency versions should be taken from the project's current dependency configuration.
 
 ---
 
 ## Purchase Order Tests
 
-Run:
-
-```powershell
-python -m pytest tests/test_purchase_order.py -v
-```
+Run the Purchase Order test suite using the project's Purchase Order test module.
 
 The Purchase Order tests cover:
 
-* PO creation
-* PO retrieval
-* PO listing
-* PO update
-* PO deletion
-* Duplicate PO handling
-* PO acknowledgement
-* Legal state transitions
-* Illegal state transitions
-* Cancellation
-* Terminal states
-* Transition history
-* Event retrieval
-* Actor tracking
-* Timestamp tracking
-* Delivery tracking
-* Actual delivery date from Goods Receipt
-* Bulk PO sending
-* Active supplier enforcement
-* Unregistered supplier rejection
-* Inactive supplier rejection
+```text
+PO creation
+PO retrieval
+PO listing
+PO update
+PO deletion
+Duplicate PO handling
+
+PO acknowledgement
+
+Legal state transitions
+Illegal state transitions
+Cancellation
+Terminal states
+
+Transition history
+Event retrieval
+Actor tracking
+Timestamp tracking
+
+Delivery tracking
+Actual delivery date from Goods Receipt
+Multiple Goods Receipt handling
+
+Bulk PO sending
+
+Active supplier enforcement
+Unregistered supplier rejection
+Inactive supplier rejection
+```
 
 ### R5 Authorization and Supplier-Scoping Tests
 
 The Purchase Order tests additionally validate:
 
-* Supplier can access its own Purchase Order
-* Supplier cannot access another supplier's Purchase Order
-* Supplier can acknowledge its own Purchase Order
-* Supplier cannot acknowledge another supplier's Purchase Order
-* Supplier can view its own Purchase Order events
-* Supplier cannot view another supplier's Purchase Order events
-* Supplier can view only its own Purchase Orders through the PO list endpoint
-* Supplier cannot retrieve another supplier's Purchase Orders through the PO list endpoint
-* Supplier can update its own Purchase Order
-* Supplier cannot update another supplier's Purchase Order
-* Supplier can delete its own Purchase Order
-* Supplier cannot delete another supplier's Purchase Order
-* Supplier cannot perform procurement-manager-only PO transitions
-* Supplier cannot perform procurement-manager-only bulk PO sending
-* Unauthorized roles are rejected
-* Supplier ownership is validated using authenticated `supplier_id`
+```text
+Supplier can access its own Purchase Order
+
+Supplier cannot access another supplier's Purchase Order
+
+Supplier can acknowledge its own Purchase Order
+
+Supplier cannot acknowledge another supplier's Purchase Order
+
+Supplier can view its own Purchase Order events
+
+Supplier cannot view another supplier's Purchase Order events
+
+Supplier can view only its own Purchase Orders through the PO list endpoint
+
+Supplier cannot retrieve another supplier's Purchase Orders through the PO list endpoint
+
+Supplier can update its own Purchase Order
+
+Supplier cannot update another supplier's Purchase Order
+
+Supplier can delete its own Purchase Order
+
+Supplier cannot delete another supplier's Purchase Order
+
+Supplier cannot perform procurement-manager-only PO transitions
+
+Supplier cannot perform procurement-manager-only bulk PO sending
+
+Unauthorized roles are rejected
+
+Supplier ownership is validated using authenticated supplier_id
+```
 
 ---
 
@@ -7523,32 +8123,39 @@ python -m pytest tests/test_invoices.py -v
 
 The Invoice tests cover:
 
-* Valid invoice creation
-* Invoice retrieval
-* Invoice listing
-* Duplicate invoice protection
-* Invalid invoice number
-* Invalid supplier ID
-* Missing Purchase Order
-* Invalid Purchase Order status
-* Purchase Order supplier mismatch
-* Invoice item validation
-* Quantity validation
-* Unit-price validation
-* Invoice amount validation
-* Partial invoicing
-* Invoice transitions
-* Disputes
-* Adjustments
-* PDF upload
-* PDF signature validation
-* Content-Type validation
-* 10 MB file-size limit
-* PDF download
-* Missing document handling
-* Path traversal protection
-* Supplier scoping
-* Compliance-officer authorization
+```text
+Valid invoice creation
+Invoice retrieval
+Invoice listing
+Duplicate invoice protection
+
+Invalid invoice number
+Invalid supplier ID
+Missing Purchase Order
+Invalid Purchase Order status
+Purchase Order supplier mismatch
+
+Invoice item validation
+Quantity validation
+Unit-price validation
+Invoice amount validation
+Partial invoicing
+
+Invoice transitions
+Disputes
+Adjustments
+
+Invoice document upload
+PDF signature validation
+Content-Type validation
+10 MB file-size limit
+
+Invoice document retrieval
+Missing document handling
+
+Supplier scoping
+Compliance-officer authorization
+```
 
 Invoice creation does **not** reject price differences solely because they exceed the three-way-match tolerance.
 
@@ -7558,18 +8165,250 @@ The configured `5%` tolerance is used by the **three-way matching process** to i
 
 The Invoice tests additionally validate:
 
-* Supplier can access its own invoice
-* Supplier cannot access another supplier's invoice
-* Supplier can view only its own invoices through the invoice list endpoint
-* Supplier cannot retrieve another supplier's invoices through the invoice list endpoint
-* Supplier cannot transition another supplier's invoice
-* Supplier cannot upload a document for another supplier's invoice
-* Supplier cannot download another supplier's invoice document
-* Supplier cannot create an invoice for another supplier
-* Supplier cannot perform compliance-only invoice adjustment
-* Compliance officer can perform authorized invoice adjustment
-* Authenticated supplier identity is matched against invoice `supplier_id`
-* Supplier ownership is enforced for supplier-facing invoice endpoints
+```text
+Supplier can access its own invoice
+
+Supplier cannot access another supplier's invoice
+
+Supplier can view only its own invoices through the invoice list endpoint
+
+Supplier cannot retrieve another supplier's invoices through the invoice list endpoint
+
+Supplier cannot transition another supplier's invoice
+
+Supplier cannot upload a document for another supplier's invoice
+
+Supplier cannot download another supplier's invoice document
+
+Supplier cannot create an invoice for another supplier
+
+Supplier cannot perform compliance-only invoice adjustment
+
+Compliance officer can perform authorized invoice adjustment
+
+Authenticated supplier identity is matched against invoice supplier_id
+
+Supplier ownership is enforced for supplier-facing invoice endpoints
+```
+
+---
+
+## Invoice Document Storage Tests
+
+Round 12 introduced MinIO-backed document storage.
+
+The document-storage test coverage validates:
+
+```text
+MinIO object creation
+
+Object existence checks
+
+Object retrieval
+
+Object storage references
+
+Presigned URL generation
+
+Missing object handling
+
+MinIO service failures
+
+Invoice document upload
+
+Invoice document download
+
+Supplier onboarding document storage
+
+Supplier onboarding document download
+```
+
+The document tests also validate that authorization happens before URL generation.
+
+The important security requirement is:
+
+```text
+Authenticate
+    ↓
+Authorize supplier ownership
+    ↓
+Locate object
+    ↓
+Generate presigned URL
+```
+
+A supplier must never receive a presigned URL for another supplier's document.
+
+### Cross-Supplier Document Test
+
+The security test explicitly attempts:
+
+```text
+Supplier A
+    ↓
+Request Supplier B document
+    ↓
+Supplier ownership check
+    ↓
+403 Forbidden
+```
+
+The test verifies that no unauthorized document URL is returned.
+
+### Missing Object Test
+
+When the MinIO service is available but the requested object does not exist:
+
+```text
+Document request
+      ↓
+MinIO lookup
+      ↓
+Object not found
+      ↓
+404 Not Found
+```
+
+### MinIO Unavailable Test
+
+When MinIO cannot be reached:
+
+```text
+Document request
+      ↓
+MinIO unavailable
+      ↓
+503 Service Unavailable
+```
+
+These tests distinguish:
+
+```text
+Authorization failure
+        ≠
+Missing object
+        ≠
+Storage dependency failure
+```
+
+---
+
+## MinIO Integration Tests
+
+The MinIO integration tests use a real local MinIO service/container rather than only mocking the storage client.
+
+Run:
+
+```powershell
+python -m pytest -q tests/integration/test_minio_document_storage.py
+```
+
+The integration coverage validates the complete storage path:
+
+```text
+Supplier Portal
+      ↓
+Document Storage Service
+      ↓
+MinIO
+      ↓
+Stored Object
+```
+
+and the retrieval path:
+
+```text
+Supplier Portal
+      ↓
+Authorize Supplier
+      ↓
+Locate MinIO Object
+      ↓
+Generate Presigned URL
+      ↓
+Document Access
+```
+
+This verifies that the application is using object storage rather than falling back to local filesystem storage.
+
+---
+
+## Document Storage Service Tests
+
+Run:
+
+```powershell
+python -m pytest -q tests/test_document_storage_service.py
+```
+
+These tests cover the storage-service behavior independently from the HTTP routes.
+
+Coverage includes:
+
+```text
+Object upload
+Object existence
+Object retrieval
+Object deletion where supported
+Missing-object behavior
+MinIO/S3 error handling
+Presigned URL generation
+Storage dependency failure handling
+```
+
+---
+
+## Invoice Document Download Tests
+
+Run:
+
+```powershell
+python -m pytest -q tests/test_invoice_document_download.py
+```
+
+The tests validate:
+
+```text
+Authenticated document access
+
+Supplier ownership
+
+Valid document URL generation
+
+Missing document behavior
+
+Storage error behavior
+
+Cross-supplier access rejection
+
+Short-lived presigned URL behavior
+```
+
+---
+
+## Supplier Document Download Tests
+
+Run:
+
+```powershell
+python -m pytest -q tests/test_supplier_document_download.py
+```
+
+The tests validate:
+
+```text
+Supplier onboarding document ownership
+
+Authenticated access
+
+Cross-supplier access rejection
+
+Missing document handling
+
+Presigned URL generation
+
+MinIO-backed document retrieval
+```
 
 ---
 
@@ -7581,29 +8420,41 @@ The test suite validates the implemented procure-to-pay and supplier workflow mi
 
 The P2P tests validate:
 
-* P2P state initialization
-* Valid P2P transitions
-* Invalid P2P transitions
-* Shipment progression
-* Goods Receipt creation
-* Partial Goods Receipt support
-* Goods Receipt validation
-* Purchase Order existence validation
-* Supplier ownership validation
-* Item validation
-* Quantity validation
-* Duplicate Goods Receipt item protection
-* Extra item rejection
-* Invoice submission after the required receipt state
-* Invoice submission advancing the P2P workflow
-* Invalid invoice submission not advancing P2P state
-* Duplicate invoice protection
-* Three-way match processing
-* Quantity discrepancy detection
-* Price discrepancy detection
-* Discrepancy routing for human review
-* Prevention of automatic payment approval for discrepancies
-* Payment approval progression after successful matching
+```text
+P2P state initialization
+
+Valid P2P transitions
+Invalid P2P transitions
+
+Shipment progression
+
+Goods Receipt creation
+Partial Goods Receipt support
+Goods Receipt validation
+
+Purchase Order existence validation
+Supplier ownership validation
+
+Item validation
+Quantity validation
+Duplicate Goods Receipt item protection
+Extra item rejection
+
+Invoice submission after the required receipt state
+Invoice submission advancing the P2P workflow
+Invalid invoice submission not advancing P2P state
+Duplicate invoice protection
+
+Three-way match processing
+Quantity discrepancy detection
+Price discrepancy detection
+
+Discrepancy routing for human review
+
+Prevention of automatic payment approval for discrepancies
+
+Payment approval progression after successful matching
+```
 
 The P2P state sequence is:
 
@@ -7627,31 +8478,41 @@ payment_approved
 
 The onboarding workflow tests validate:
 
-* Supplier registration
-* Document collection
-* Mock verification
-* Approval
-* Compliance Service check
-* Compliance CLEAR decision
-* Compliance BLOCK decision
-* Compliance REVIEW decision
-* Compliance Service unavailable
-* Compliance timeout
-* Compliance service error
-* Invalid Compliance response
-* Fail-closed activation
-* Approval preservation when activation is blocked
-* Activation only after Compliance CLEAR
-* Valid onboarding state transitions
-* Invalid onboarding transitions
-* Supplier-level authorization
-* Cross-supplier access protection
-* Active-supplier enforcement for Purchase Order creation
-* Supported onboarding document types
-* Empty document rejection
-* File-extension validation
-* MIME-type validation
-* 10 MB document-size limit
+```text
+Supplier registration
+Document collection
+Mock verification
+Approval
+
+Compliance Service check
+
+Compliance CLEAR decision
+Compliance BLOCK decision
+Compliance REVIEW decision
+
+Compliance Service unavailable
+Compliance timeout
+Compliance service error
+Invalid Compliance response
+
+Fail-closed activation
+Approval preservation when activation is blocked
+Activation only after Compliance CLEAR
+
+Valid onboarding state transitions
+Invalid onboarding transitions
+
+Supplier-level authorization
+Cross-supplier access protection
+
+Active-supplier enforcement for Purchase Order creation
+
+Supported onboarding document types
+Empty document rejection
+File-extension validation
+MIME-type validation
+10 MB document-size limit
+```
 
 The onboarding lifecycle is:
 
@@ -7700,7 +8561,7 @@ Compliance connection failure
 Compliance service error
         → 502
 
-Invalid Compliance JSON
+Invalid Compliance response
         → Activation blocked
 
 Invalid decision
@@ -7732,6 +8593,8 @@ Activation
 occurs in that order.
 
 Failed Compliance checks do not create an active onboarding state/history entry.
+
+The integration is fail-closed.
 
 ---
 
@@ -7772,7 +8635,16 @@ The matching implementation uses:
 PRICE_TOLERANCE_PERCENT = 5.0
 ```
 
-The tolerance is inclusive.
+The tolerance is inclusive:
+
+```text
+PO price = 100
+
+95  → Match
+100 → Match
+105 → Match
+106 → Price discrepancy
+```
 
 ---
 
@@ -7782,19 +8654,33 @@ Historical dispute-resolution suggestions are tested independently from current 
 
 The tests validate:
 
-* Historical resolved matches are considered
-* Current unresolved disputes are not treated as historical evidence
-* Unresolved historical disputes are ignored
-* Price mismatch patterns can produce `correct_invoice`
-* Quantity mismatch patterns can produce `credit_note`
-* Unclassified historical reasons are ignored
-* No-evidence cases return no suggested action
-* Current resolved/matched cases cannot be treated as unresolved suggestions
-* Unknown matches return `404`
-* Supplier scope is enforced
-* Compliance-officer authorization is enforced
-* Suggestions are read-only
-* Suggestion generation does not mutate three-way-match state
+```text
+Historical resolved matches are considered
+
+Current unresolved disputes are not treated as historical evidence
+
+Unresolved historical disputes are ignored
+
+Price mismatch patterns can produce correct_invoice
+
+Quantity mismatch patterns can produce credit_note
+
+Unclassified historical reasons are ignored
+
+No-evidence cases return no suggested action
+
+Current resolved/matched cases cannot be treated as unresolved suggestions
+
+Unknown matches return 404
+
+Supplier scope is enforced
+
+Compliance-officer authorization is enforced
+
+Suggestions are read-only
+
+Suggestion generation does not mutate three-way-match state
+```
 
 The endpoint is:
 
@@ -7828,37 +8714,50 @@ python -m pytest tests/test_supplier_stats.py -v
 
 The tests cover:
 
-* Supplier statistics
-* Supplier not found
-* Purchase Order count
-* On-time delivery
-* Late delivery
-* Mixed delivery performance
-* Unfulfilled Purchase Orders
-* Future-due Purchase Orders
-* Past-due unfulfilled Purchase Orders
-* Delivery exactly on expected date
-* Actual delivery date from Goods Receipt
-* Missing delivery date
-* Average invoice cycle time
-* Invoice line-level `po_number` handling
-* Date normalization
-* Invalid dates
-* Negative cycle times
-* Scorecard calculation
-* Dispute rate
-* Invoice accuracy
-* Dispute performance
-* Overall score
-* Scorecard details
-* Invoice-only suppliers
-* Supplier scoping
-* Schema validation
-* Percentage boundaries
-* Monthly trend calculations
-* Supplier self-service scorecard access
+```text
+Supplier statistics
+Supplier not found
 
-For fulfilled Purchase Orders, the actual delivery date is derived from the latest applicable Goods Receipt `receipt_date`.
+Purchase Order count
+
+On-time delivery
+Late delivery
+Mixed delivery performance
+
+Unfulfilled Purchase Orders
+Future-due Purchase Orders
+Past-due unfulfilled Purchase Orders
+
+Delivery exactly on expected date
+
+Actual delivery date from Goods Receipt
+Missing delivery date
+
+Average invoice cycle time
+Invoice line-level po_number handling
+
+Date normalization
+Invalid dates
+Negative cycle times
+
+Scorecard calculation
+Dispute rate
+Invoice accuracy
+Dispute performance
+Overall score
+
+Scorecard details
+Invoice-only suppliers
+
+Supplier scoping
+Schema validation
+Percentage boundaries
+Monthly trend calculations
+
+Supplier self-service scorecard access
+```
+
+For fulfilled Purchase Orders, the actual delivery date is derived from the applicable/latest Goods Receipt `receipt_date`.
 
 Therefore:
 
@@ -7884,36 +8783,49 @@ The Supplier Contract Lifecycle is covered by dedicated tests.
 
 The tests validate:
 
-* Contract creation
-* Contract retrieval
-* Contract listing
-* Duplicate contract-number protection
-* Active-supplier validation
-* Contract date validation
-* Draft-to-active transition
-* Contract updates
-* Expiry detection
-* Expiring-contract queries
-* Renewal
-* Renewal date validation
-* Renewal history
-* Contract transition history
-* Term-change audit history
-* Actor information in history
-* Reason information in history
-* No-op update without unnecessary history entry
-* Supplier ownership and scoping
-* Procurement-manager authorization
+```text
+Contract creation
+Contract retrieval
+Contract listing
+
+Duplicate contract-number protection
+
+Active-supplier validation
+Contract date validation
+
+Draft-to-active transition
+
+Contract updates
+
+Expiry detection
+Expiring-contract queries
+
+Renewal
+Renewal date validation
+Renewal history
+
+Contract transition history
+Term-change audit history
+
+Actor information in history
+Reason information in history
+
+No-op update without unnecessary history entry
+
+Supplier ownership and scoping
+
+Procurement-manager authorization
+```
 
 The lifecycle is:
 
 ```text
 draft
-   ↓
+  ↓
 active
-   ↓
+  ↓
 renewed
-   ↓
+  ↓
 active
 ```
 
@@ -7937,17 +8849,27 @@ GET /api/v1/suppliers/{supplier_id}/scorecard
 
 The tests validate that:
 
-* Supplier can view its own scorecard
-* Supplier cannot view another supplier's scorecard
-* Supplier identity is matched against authenticated `supplier_id`
-* Supplier without `supplier_id` is rejected
-* Scorecard contains on-time delivery percentage
-* Scorecard contains dispute rate percentage
-* Scorecard contains invoice accuracy
-* Scorecard contains overall performance information
-* Internal authorized roles can access supplier data according to their role permissions
+```text
+Supplier can view its own scorecard
 
-Example supplier-scoped behavior:
+Supplier cannot view another supplier's scorecard
+
+Supplier identity is matched against authenticated supplier_id
+
+Supplier without supplier_id is rejected
+
+Scorecard contains on-time delivery percentage
+
+Scorecard contains dispute rate percentage
+
+Scorecard contains invoice accuracy
+
+Scorecard contains overall performance information
+
+Internal authorized roles can access supplier data according to their role permissions
+```
+
+Example:
 
 ```text
 SUP001 token
@@ -7971,56 +8893,54 @@ GET /api/v1/suppliers/SUP002/scorecard
 
 ## Authentication and Authorization Tests
 
-Run:
-
-```powershell
-python -m pytest tests/test_auth.py -v
-```
-
 The authentication and authorization tests validate the authentication path between the Supplier Portal and Platform Service.
 
 Tests cover:
 
-* Valid access-token verification
-* Missing authentication token
-* Invalid authentication token
-* Expired authentication token
-* Authentication service unavailable
-* Authentication service timeout
-* Unexpected authentication-service response
-* Invalid authentication-service JSON response
-* Authentication response with `valid = false`
-* Missing `user_id`
-* Missing user role
-* Supplier identity returned by Platform Service
-* `supplier_id` propagation
-* `X-Request-ID` generation and forwarding
-* Allowed role authorization
-* Unauthorized role rejection
-* Procurement-manager role authorization
-* Compliance-officer authorization
-* Role-based access control
-* Authentication failure handling
+```text
+Valid access-token verification
+Missing authentication token
+Invalid authentication token
+Expired authentication token
+
+Authentication service unavailable
+Authentication service timeout
+Unexpected authentication-service response
+Invalid authentication-service response
+
+Authentication response with valid = false
+
+Missing user_id
+Missing user role
+
+Supplier identity returned by Platform Service
+supplier_id propagation
+
+X-Request-ID generation and forwarding
+
+Allowed role authorization
+Unauthorized role rejection
+
+Procurement-manager authorization
+Compliance-officer authorization
+
+Role-based access control
+Authentication failure handling
+```
 
 ---
 
 ## Authentication-Required Endpoint Tests
 
-The project includes:
+The project includes dedicated protection tests for authentication-required routes.
 
-```text
-tests/test_requires_auth.py
-```
+These tests verify that protected endpoints cannot be accessed without authentication.
 
-This module verifies that protected endpoints cannot be accessed without authentication.
+The tests use the real authentication dependency rather than relying only on the normal authenticated test overrides.
 
-The test removes the authentication dependency override used by the normal test suite and executes the real authentication dependency.
+The protected-route checks confirm that requests without an `Authorization` header are rejected.
 
-Protected routes are discovered automatically from the Supplier Portal API routers rather than maintaining a hardcoded endpoint list.
-
-The test confirms that discovered protected endpoints reject requests without an `Authorization` header.
-
-Expected unauthenticated responses are:
+Expected unauthenticated responses depend on the endpoint/authentication configuration and may be:
 
 ```text
 401 Unauthorized
@@ -8031,8 +8951,6 @@ or:
 ```text
 403 Forbidden
 ```
-
-depending on the authentication dependency and endpoint configuration.
 
 ---
 
@@ -8057,16 +8975,23 @@ PO Events
 PO Updates
 PO Deletions
 Purchase Order Listing
+
 Invoices
 Invoice Listing
 Invoice Transitions
+
 Invoice Documents
+
 Supplier Statistics
 Supplier Scorecards
+
 Supplier Onboarding Resources
+
 Shipment Resources
 Goods Receipt Resources
+
 Three-Way Match Resources
+
 Supplier Contract Resources
 Supplier Contract History
 ```
@@ -8074,20 +8999,219 @@ Supplier Contract History
 It also validates:
 
 ```text
-Supplier without supplier_id → 403 Forbidden
+Supplier without supplier_id
+        → 403 Forbidden
 
 Supplier accessing another supplier's resource
-                             → 403 Forbidden
+        → 403 Forbidden
 
-Unauthorized role             → 403 Forbidden
+Unauthorized role
+        → 403 Forbidden
 
-Missing token                 → 401 Unauthorized
+Missing token
+        → 401 Unauthorized
 
-Invalid token                 → 401 Unauthorized
+Invalid token
+        → 401 Unauthorized
 
 Authentication service failure
-                             → 503 Service Unavailable
+        → 503 Service Unavailable
 ```
+
+---
+
+## R12 MinIO Security Validation
+
+Round 12 adds object-storage-specific security tests.
+
+The tests verify that:
+
+```text
+Documents are stored in MinIO
+
+Documents are not served from the old local filesystem path
+
+Supplier ownership is checked before document access
+
+Cross-supplier document access is rejected
+
+Presigned URLs are generated only after authorization
+
+Missing MinIO objects return 404
+
+MinIO availability failures return 503
+```
+
+The most important security test is:
+
+```text
+Supplier A
+    ↓
+Requests Supplier B document
+    ↓
+Supplier ownership check
+    ↓
+403 Forbidden
+    ↓
+No presigned URL generated
+```
+
+This prevents a supplier from using a known document identifier or object reference to bypass supplier isolation.
+
+---
+
+## R13 GraphQL Tests
+
+Round 13 adds dedicated GraphQL test coverage.
+
+Run:
+
+```powershell
+python -m pytest -q tests/test_graphql.py
+```
+
+The GraphQL tests validate:
+
+```text
+GraphQL schema creation
+
+GraphQL authentication
+
+Purchase Order queries
+
+Purchase Order collection queries
+
+Cursor pagination
+
+first pagination argument
+
+after cursor handling
+
+hasNextPage
+
+endCursor
+
+Invoice queries
+
+Invoice collection queries
+
+Supplier document queries
+
+Purchase Order acknowledgement mutation
+
+Resolver-level supplier authorization
+
+Cross-supplier Purchase Order protection
+
+Cross-supplier invoice protection
+
+Cross-supplier document protection
+```
+
+### GraphQL Supplier-Scoping Test
+
+The key R13 security requirement is tested directly inside the resolver.
+
+Example:
+
+```text
+Authenticated supplier
+        ↓
+SUP001
+        ↓
+GraphQL purchaseOrder query
+        ↓
+Requested PO belongs to SUP002
+        ↓
+Resolver supplier-scope check
+        ↓
+No Purchase Order returned
+```
+
+The test confirms that Supplier A cannot retrieve Supplier B's Purchase Order by ID.
+
+### GraphQL Mutation Scoping
+
+The acknowledgement mutation also performs supplier ownership validation before invoking the existing Purchase Order service.
+
+Example:
+
+```text
+SUP001
+  ↓
+acknowledgePurchaseOrder(SUP002 PO)
+  ↓
+Resolver scope check
+  ↓
+No mutation performed
+```
+
+The protected Purchase Order remains unchanged.
+
+---
+
+## R13 GraphQL Pagination Tests
+
+GraphQL Purchase Order, invoice, and document collections use cursor-based pagination.
+
+The tests validate:
+
+```text
+First page retrieval
+
+after cursor retrieval
+
+Correct edge ordering
+
+hasNextPage
+
+endCursor
+
+Pagination limits
+
+Invalid cursor handling
+
+Supplier filtering before pagination
+```
+
+The important security ordering is:
+
+```text
+All records
+    ↓
+Supplier scope filter
+    ↓
+Authorized records
+    ↓
+Cursor pagination
+    ↓
+GraphQL response
+```
+
+This prevents pagination from exposing another supplier's records.
+
+---
+
+## R13 GraphQL Authentication Tests
+
+GraphQL requests use the existing Supplier Portal authentication dependency.
+
+The tests verify:
+
+```text
+Missing token
+    → Authentication failure
+
+Invalid token
+    → Authentication failure
+
+Valid token
+    → GraphQL context receives authenticated user
+```
+
+The GraphQL context contains the authenticated user and request information required by the resolvers.
+
+GraphQL does not introduce an independent authentication system.
 
 ---
 
@@ -8095,24 +9219,24 @@ Authentication service failure
 
 The expected access behavior is:
 
-| Request                                            | Expected Result           |
+| Request | Expected Result |
 | -------------------------------------------------- | ------------------------- |
-| Supplier → Own PO                                  | Allowed                   |
-| Supplier → Other supplier PO                       | `403 Forbidden`           |
-| Supplier → Own invoice                             | Allowed                   |
-| Supplier → Other supplier invoice                  | `403 Forbidden`           |
-| Supplier → Own invoice document                    | Allowed                   |
-| Supplier → Other supplier document                 | `403 Forbidden`           |
-| Supplier → Own statistics                          | Allowed                   |
-| Supplier → Other supplier statistics               | `403 Forbidden`           |
-| Supplier → Own scorecard                           | Allowed                   |
-| Supplier → Other supplier scorecard                | `403 Forbidden`           |
-| Supplier → Own contract                            | Allowed                   |
-| Supplier → Other supplier contract                 | `403 Forbidden`           |
-| Supplier → Own contract history                    | Allowed                   |
-| Supplier → Other supplier contract history         | `403 Forbidden`           |
-| Supplier without `supplier_id` → Supplier resource | `403 Forbidden`           |
-| Internal authorized role → Other supplier data     | Allowed according to role |
+| Supplier → Own PO | Allowed |
+| Supplier → Other supplier PO | `403 Forbidden` |
+| Supplier → Own invoice | Allowed |
+| Supplier → Other supplier invoice | `403 Forbidden` |
+| Supplier → Own invoice document | Allowed |
+| Supplier → Other supplier document | `403 Forbidden` |
+| Supplier → Own statistics | Allowed |
+| Supplier → Other supplier statistics | `403 Forbidden` |
+| Supplier → Own scorecard | Allowed |
+| Supplier → Other supplier scorecard | `403 Forbidden` |
+| Supplier → Own contract | Allowed |
+| Supplier → Other supplier contract | `403 Forbidden` |
+| Supplier → Own contract history | Allowed |
+| Supplier → Other supplier contract history | `403 Forbidden` |
+| Supplier without `supplier_id` → Supplier resource | `403 Forbidden` |
+| Internal authorized role → Other supplier data | Allowed according to role |
 
 ---
 
@@ -8137,6 +9261,81 @@ Supplier Self-Service Analytics
 ```
 
 The test strategy verifies both successful business paths and failure/security paths.
+
+---
+
+## R12–13 Test Coverage Summary
+
+Round 12 validates the migration of document storage to MinIO:
+
+```text
+MinIO storage
+Presigned URLs
+Document ownership
+Cross-supplier rejection
+Missing-object handling
+Storage dependency failures
+Invoice PDF storage
+Supplier onboarding document storage
+```
+
+Round 13 validates the GraphQL portal API:
+
+```text
+Strawberry GraphQL schema
+Authenticated context
+Purchase Order queries
+Invoice queries
+Document queries
+Cursor pagination
+Purchase Order acknowledgement mutation
+Resolver-level supplier scoping
+Cross-supplier resource protection
+```
+
+Together, these milestones extend the existing R5 security model into both object storage and GraphQL.
+
+---
+
+## Full Regression Testing
+
+Run the complete Supplier Portal test suite with:
+
+```powershell
+python -m pytest -q
+```
+
+The full regression suite should be executed after changes to:
+
+```text
+Authentication
+
+Supplier scoping
+
+Purchase Orders
+
+Invoices
+
+P2P workflow
+
+Supplier onboarding
+
+Compliance integration
+
+Document storage
+
+MinIO integration
+
+GraphQL resolvers
+
+Supplier statistics
+
+Supplier scorecards
+
+Supplier contracts
+```
+
+The goal is to verify that the R12 and R13 additions do not regress the existing Supplier Portal functionality.
 
 ---
 
@@ -8166,11 +9365,7 @@ sent
 acknowledged
 ```
 
-Invalid transitions return:
-
-```text
-400 Bad Request
-```
+Invalid transitions return a business-rule validation error.
 
 Purchase Order creation requires:
 
@@ -8190,7 +9385,7 @@ active
 
 ## Invoice Rules
 
-Invoices require an existing PO.
+Invoices require an existing Purchase Order.
 
 The legacy invoice service accepts POs in applicable invoice-processing states:
 
@@ -8219,6 +9414,88 @@ Rejected invoices do not consume the Purchase Order's available invoice quantity
 Invoice creation does not reject price differences solely because they exceed the three-way-match tolerance.
 
 Price discrepancies are evaluated by the three-way matching process.
+
+---
+
+## Invoice Document Rules
+
+Invoice documents must satisfy:
+
+```text
+PDF format
+Valid PDF signature
+application/pdf content type
+Maximum 10 MB
+Authenticated access
+Supplier ownership where supplier scope applies
+```
+
+Invoice documents are stored in MinIO.
+
+The actual PDF binary is not stored in the application database.
+
+The application maintains the object reference required to locate the document.
+
+Download access uses:
+
+```text
+Authentication
+    ↓
+Supplier ownership validation
+    ↓
+MinIO object lookup
+    ↓
+Short-lived presigned URL
+```
+
+A supplier cannot receive a presigned URL for another supplier's invoice document.
+
+Expected failure behavior:
+
+```text
+Other supplier document
+    → 403 Forbidden
+
+Missing object
+    → 404 Not Found
+
+MinIO unavailable
+    → 503 Service Unavailable
+```
+
+---
+
+## Supplier Onboarding Document Rules
+
+Supplier onboarding documents support:
+
+```text
+PDF
+JPG
+JPEG
+PNG
+DOC
+DOCX
+```
+
+Maximum size:
+
+```text
+10 MB
+```
+
+The upload operation validates:
+
+```text
+Authentication
+Supplier ownership
+File extension
+Content type
+File content requirements
+File size
+```
+
+Onboarding documents are stored in MinIO.
 
 ---
 
@@ -8272,11 +9549,17 @@ Validation includes:
 
 ```text
 PO exists
+
 Supplier ownership is valid
+
 Item codes are valid
+
 Receipt quantity > 0
+
 Receipt quantity <= corresponding PO quantity
+
 Duplicate receipt items are rejected
+
 Extra item codes not present on the PO are rejected
 ```
 
@@ -8423,24 +9706,6 @@ Compliance unavailable / unusable
         → Fail closed
 ```
 
-### Supplier Onboarding Document Rules
-
-Supported document types are:
-
-```text
-PDF
-JPG / JPEG
-PNG
-DOC
-DOCX
-```
-
-Maximum document size:
-
-```text
-10 MB
-```
-
 ---
 
 ## Supplier Contract Rules
@@ -8464,7 +9729,11 @@ active → renewed
 renewed → active
 ```
 
-Expired contracts are terminal until a renewal operation explicitly updates the contract.
+Expired contracts are represented as:
+
+```text
+expired
+```
 
 Contract creation requires an active supplier.
 
@@ -8486,7 +9755,7 @@ Renewal requires valid new dates and records the renewal reason.
 
 Meaningful contract term changes create an audit-history entry.
 
-Audited changes include changed contract fields such as:
+Audited changes include fields such as:
 
 ```text
 Title
@@ -8585,8 +9854,6 @@ Suggested Action
 Human Decision
 ```
 
-The endpoint requires the appropriate authorization and supplier scope.
-
 ---
 
 ## Supplier Self-Service Analytics Rules
@@ -8623,7 +9890,7 @@ Performance breakdown
 Trend information
 ```
 
-The endpoint is self-service, but remains protected by the same supplier-scoping rules as other supplier-facing resources.
+The endpoint is self-service but remains protected by the same supplier-scoping rules as other supplier-facing resources.
 
 ---
 
@@ -8650,7 +9917,7 @@ PO without a usable expected-delivery date
         → Excluded
 ```
 
-For fulfilled Purchase Orders, the actual delivery date is based on the latest applicable Goods Receipt `receipt_date`.
+For fulfilled Purchase Orders, the actual delivery date is based on the applicable/latest Goods Receipt `receipt_date`.
 
 ```text
 Goods Receipt
@@ -8734,7 +10001,137 @@ Invoice cycle-time calculations identify the related Purchase Order from invoice
 invoice.items[].po_number
 ```
 
-This supports invoices whose PO relationship is stored at line-item level.
+This supports invoices whose Purchase Order relationship is stored at line-item level.
+
+Date values are normalized before cycle-time calculations.
+
+Invalid or negative cycle-time values are not treated as valid operational cycle times.
+
+---
+
+## GraphQL Business Rules
+
+The GraphQL API exposes the existing Supplier Portal business data through a GraphQL interface.
+
+GraphQL does not bypass the existing business rules.
+
+Resolvers must apply:
+
+```text
+Authentication
++
+Supplier Scope
++
+Business Validation
++
+Existing Service Logic
+```
+
+### GraphQL Purchase Order Rule
+
+A supplier can query only Purchase Orders belonging to the authenticated supplier.
+
+Example:
+
+```text
+Authenticated supplier = SUP001
+
+Requested PO supplier = SUP002
+
+        ↓
+
+Resolver scope validation
+
+        ↓
+
+Purchase Order not returned
+```
+
+### GraphQL Invoice Rule
+
+Supplier invoice queries are filtered using the authenticated supplier identity.
+
+A supplier cannot retrieve another supplier's invoice through GraphQL.
+
+### GraphQL Document Rule
+
+Supplier document queries are supplier-scoped.
+
+A supplier cannot retrieve another supplier's document through GraphQL.
+
+### GraphQL Acknowledgement Rule
+
+The Purchase Order acknowledgement mutation must verify supplier ownership before calling the existing acknowledgement service.
+
+Therefore:
+
+```text
+Supplier owns PO
+    → Acknowledgement can proceed
+
+Supplier does not own PO
+    → Mutation does not modify PO
+```
+
+### GraphQL Pagination Rule
+
+Collection queries use cursor-based pagination.
+
+The implementation applies supplier filtering before pagination:
+
+```text
+Source records
+      ↓
+Authorization / Supplier filtering
+      ↓
+Cursor pagination
+      ↓
+GraphQL response
+```
+
+This prevents pagination from becoming a data-leak mechanism.
+
+---
+
+## Document Storage Security Rule
+
+Round 12 introduces an explicit object-storage security rule:
+
+```text
+Never generate a presigned URL before verifying authorization.
+```
+
+The required order is:
+
+```text
+Authenticate
+      ↓
+Identify authenticated supplier
+      ↓
+Identify requested resource owner
+      ↓
+Compare supplier identities
+      ↓
+Locate MinIO object
+      ↓
+Generate short-lived presigned URL
+```
+
+For example:
+
+```text
+SUP001 token
+      ↓
+Request SUP002 document
+      ↓
+Supplier mismatch
+      ↓
+403 Forbidden
+      ↓
+No presigned URL
+```
+
+Knowing a document ID, invoice number, or object reference does not bypass supplier authorization.
 
 ---
 
@@ -8754,10 +10151,23 @@ Supplier Ownership
 
 A valid token alone does not authorize a supplier to access another supplier's resources.
 
+The same principle applies across:
+
+```text
+REST endpoints
+GraphQL resolvers
+Invoice documents
+Supplier onboarding documents
+Purchase Orders
+Invoices
+Statistics
+Scorecards
+Contracts
+P2P resources
+```
+
 Internal authorized users are governed by their assigned role permissions.
-
 ---
-
 # 24. Security Controls
 
 The service implements multiple security controls.
@@ -8805,6 +10215,10 @@ Protected resource categories include:
 * Three-way match resources
 * Supplier contracts
 * Supplier contract history
+* GraphQL purchase-order queries
+* GraphQL invoice queries
+* GraphQL document queries
+* GraphQL acknowledge-PO mutation
 
 Cross-supplier access by supplier users is rejected with:
 
@@ -8819,6 +10233,26 @@ A supplier without a valid `supplier_id` is also rejected from supplier-scoped r
 ```
 
 Collection endpoints are filtered so supplier users do not receive other suppliers' records.
+
+GraphQL applies the same supplier-scoping rules **inside each resolver**.
+
+For example:
+
+```text
+Supplier A
+   ↓
+GraphQL purchaseOrder(id)
+   ↓
+Resolver identifies authenticated supplier
+   ↓
+Resolver checks PO supplier_id
+   ↓
+Supplier IDs do not match
+   ↓
+No PO returned
+```
+
+Supplier authorization is therefore not dependent only on a REST route-level check.
 
 ---
 
@@ -8861,6 +10295,8 @@ The service validates:
 * Contract dates
 * Contract number uniqueness
 * Contract renewal dates
+* GraphQL pagination limits
+* GraphQL cursor validity
 
 Allowed identifier format:
 
@@ -8868,34 +10304,83 @@ Allowed identifier format:
 ^[A-Za-z0-9_-]+$
 ```
 
+GraphQL pagination limits are bounded so clients cannot request an unbounded collection in a single query.
+
 ---
 
 ## Document Security
 
 ### Invoice Documents
 
-Invoice documents are protected through:
+Invoice documents are stored in MinIO using S3-compatible object storage.
+
+Document access is protected through:
 
 * PDF Content-Type validation
 * PDF signature validation
 * 10 MB size limit
-* Safe filename handling
-* Relative filesystem paths
-* Upload-root resolution
-* Path traversal protection
-* Supplier-specific directories
-* Supplier-scoped document access
+* Supplier ownership validation
+* Supplier-scoped object references
+* Object existence validation
+* Short-lived presigned download URLs
+* Authorization before presigned URL generation
+
+The application does **not** expose the MinIO object directly through a permanent public URL.
+
+The download flow is:
+
+```text
+Authenticated Request
+        ↓
+Document Lookup
+        ↓
+Supplier Ownership Check
+        ↓
+Object Existence Check
+        ↓
+Short-Lived Presigned URL
+        ↓
+Client Downloads From MinIO
+```
+
+The critical security rule is:
+
+```text
+Never generate a presigned URL
+before verifying document ownership.
+```
+
+Therefore:
+
+```text
+Supplier A requests Supplier B document
+        ↓
+Ownership validation
+        ↓
+403 Forbidden
+        ↓
+No presigned URL generated
+```
+
+A missing object while MinIO is available results in a not-found response rather than an authorization bypass.
+
+---
 
 ### Supplier Onboarding Documents
 
-Supplier onboarding documents are protected through:
+Supplier onboarding documents are stored in MinIO.
+
+They are protected through:
 
 * Supported MIME-type validation
 * File-extension validation
 * 10 MB size limit
 * Empty-file validation
 * Supplier ownership validation
-* Supplier-specific storage paths
+* Supplier-scoped object keys
+* Object existence validation
+* Short-lived presigned download URLs
+* Authorization before URL generation
 
 Supported onboarding document types:
 
@@ -8905,6 +10390,89 @@ JPG / JPEG
 PNG
 DOC
 DOCX
+```
+
+---
+
+## MinIO Storage Security
+
+The application uses MinIO as an S3-compatible object-storage service.
+
+The application keeps document metadata/reference information separately from the actual binary object.
+
+The storage flow is:
+
+```text
+Supplier Portal
+      ↓
+Document Validation
+      ↓
+Supplier Authorization
+      ↓
+MinIO Object Upload
+      ↓
+Object Reference Stored
+      ↓
+Later Download Request
+      ↓
+Supplier Authorization
+      ↓
+Short-Lived Presigned URL
+```
+
+A supplier knowing another supplier's document identifier or object key does not bypass supplier ownership validation.
+
+MinIO unavailability is treated as a storage dependency failure rather than as a successful upload/download.
+
+---
+
+## GraphQL Security
+
+GraphQL authentication uses the same Platform Service authentication mechanism as protected REST operations.
+
+The GraphQL context contains the authenticated request identity.
+
+Each supplier-scoped resolver performs its own authorization.
+
+Examples include:
+
+```text
+purchaseOrder
+purchaseOrders
+invoice
+invoices
+documents
+acknowledgePurchaseOrder
+```
+
+Supplier collection queries apply authorization filtering **before pagination**.
+
+This prevents unauthorized supplier records from entering the paginated result set.
+
+For a single-resource query:
+
+```text
+Supplier A
+   ↓
+purchaseOrder(Supplier B PO)
+   ↓
+Resolver ownership check
+   ↓
+null
+```
+
+For a collection query:
+
+```text
+Supplier A
+   ↓
+purchaseOrders
+   ↓
+Filter to Supplier A records
+   ↓
+Pagination
+   ↓
+Supplier A results only
 ```
 
 ---
@@ -8919,11 +10487,20 @@ Internal users can access contract information according to their assigned permi
 
 Contract history captures the actor and reason for meaningful lifecycle and term changes, supporting accountability for contract modifications.
 
----
 
 # 25. Storage
 
-The current implementation intentionally uses in-memory business storage.
+The current implementation uses two different storage approaches:
+
+```text
+Business / workflow data
+        ↓
+In-memory application stores
+
+Uploaded documents
+        ↓
+MinIO object storage
+```
 
 Purchase Orders:
 
@@ -8957,17 +10534,120 @@ supplier_contract_history = {}
 
 Other workflow and supplier business data is also maintained in application memory.
 
-Invoice documents and supplier onboarding documents are stored locally under:
+---
+
+## Document Object Storage
+
+Round 12 moves uploaded documents from local filesystem storage to MinIO.
+
+The application stores:
+
+```text
+Invoice PDF documents
+Supplier onboarding documents
+```
+
+in MinIO buckets/objects.
+
+The application does not rely on:
 
 ```text
 uploads/
+```
+
+for the active document-storage implementation.
+
+The architecture is:
+
+```text
+Windows Development Environment
+          ↓
+Docker Desktop
+          ↓
+MinIO Container
+          ↓
+MinIO S3-Compatible Server
+          ↓
+Object Storage
+```
+
+The actual document binary is stored as an object in MinIO.
+
+The application retains the necessary document metadata/object reference required to locate the object.
+
+---
+
+## Presigned Download URLs
+
+Documents are downloaded through short-lived presigned URLs.
+
+The application first verifies authorization and ownership.
+
+Only after successful authorization does it generate the signed URL.
+
+```text
+Download Request
+      ↓
+Authenticate
+      ↓
+Validate Supplier Ownership
+      ↓
+Check Object
+      ↓
+Generate Short-Lived URL
+      ↓
+Client Download
+```
+
+This prevents a supplier from obtaining a reusable public URL to another supplier's document.
+
+---
+
+## MinIO Failure Behaviour
+
+When MinIO is unavailable:
+
+```text
+Application
+      ↓
+MinIO Request
+      ↓
+Storage Dependency Failure
+      ↓
+Service Error
+```
+
+The application does not treat the operation as successful.
+
+A storage dependency failure is surfaced as an appropriate service-unavailable response.
+
+When MinIO is running but the requested object does not exist:
+
+```text
+MinIO Available
+      ↓
+Object Lookup
+      ↓
+Object Missing
+      ↓
+404 Not Found
+```
+
+Cross-supplier access remains an authorization failure:
+
+```text
+Wrong Supplier
+      ↓
+Ownership Check
+      ↓
+403 Forbidden
 ```
 
 ---
 
 ## Application Restart Behaviour
 
-Because business data is stored in memory:
+Business data remains in memory:
 
 ```text
 Application running
@@ -8979,24 +10659,11 @@ Application restart
 In-memory business data cleared
 ```
 
-Files stored under `uploads/` are filesystem-based and are not automatically removed by an application restart.
+MinIO objects are managed independently from the application's in-memory business stores.
 
-A production deployment should replace in-memory business storage with persistent storage.
+Therefore, restarting the Supplier Portal process does not by itself remove documents already stored in MinIO.
 
----
-
-## File Storage
-
-The current development implementation stores uploaded documents under the local upload directory.
-
-The application currently manages:
-
-```text
-Invoice PDF documents
-Supplier onboarding documents
-```
-
-Production deployments should replace local filesystem storage with durable document or object storage.
+Production deployments should still provide durable database persistence for business metadata and appropriate MinIO backup, retention, and recovery controls.
 
 ---
 
@@ -9026,9 +10693,8 @@ Renewal records
 Audit records
 ```
 
-in durable storage.
+in durable database storage.
 
----
 
 # 26. End-to-End Workflow
 
@@ -9103,18 +10769,6 @@ Discrepancy
 Human Review
 ```
 
-Historical dispute suggestions can support the human-review stage:
-
-```text
-Historical Dispute Data
-        ↓
-Pattern Analysis
-        ↓
-Resolution Suggestion
-        ↓
-Human Review / Decision
-```
-
 ---
 
 ## Supplier Onboarding Workflow
@@ -9125,6 +10779,8 @@ Supplier onboarding is implemented as:
 Supplier Registration
           ↓
 Document Collection
+          ↓
+Document Storage in MinIO
           ↓
 Mock Verification
           ↓
@@ -9158,6 +10814,97 @@ Activation blocked
 ```
 
 This ensures the Supplier Portal does not bypass the required Compliance business-logic integration.
+
+---
+
+## Document Download Workflow
+
+Both invoice PDFs and onboarding documents follow the same security pattern:
+
+```text
+Authenticated Supplier
+          ↓
+Request Document
+          ↓
+Find Document Metadata
+          ↓
+Validate Supplier Ownership
+          ↓
+Check MinIO Object
+          ↓
+Generate Short-Lived Presigned URL
+          ↓
+Client Downloads Document
+```
+
+Cross-supplier request:
+
+```text
+Supplier A
+    ↓
+Supplier B Document
+    ↓
+Ownership Check
+    ↓
+403 Forbidden
+```
+
+No presigned URL is generated for the unauthorized request.
+
+---
+
+## GraphQL Workflow
+
+Round 13 introduces a GraphQL API for the supplier portal.
+
+The flow is:
+
+```text
+Supplier Portal Frontend
+          ↓
+      Apollo Client
+          ↓
+       /graphql
+          ↓
+GraphQL Context / Authentication
+          ↓
+       Resolver
+          ↓
+Supplier Ownership Check
+          ↓
+Existing Service Layer
+          ↓
+GraphQL Type Conversion
+          ↓
+       Response
+```
+
+Supported GraphQL operations include:
+
+```text
+Purchase Order Queries
+Invoice Queries
+Document Queries
+Acknowledge Purchase Order Mutation
+```
+
+Collection queries support cursor pagination.
+
+The pagination model is:
+
+```text
+first
+after
+  ↓
+Edges
+  ↓
+PageInfo
+  ↓
+hasNextPage
+endCursor
+```
+
+Supplier authorization is applied before pagination.
 
 ---
 
@@ -9231,66 +10978,6 @@ For fulfilled Purchase Orders, delivery performance uses Goods Receipt dates to 
 
 Supplier users can view their own scorecard while remaining restricted from other suppliers' scorecards.
 
----
-
-## Complete Business Architecture
-
-The overall business flow can be represented as:
-
-```text
-                         SUPPLIER PORTAL
-                              │
-        ┌─────────────────────┼─────────────────────┐
-        │                     │                     │
-        ▼                     ▼                     ▼
-   Procurement           Onboarding            Analytics
-        │                     │                     │
-        ▼                     ▼                     ▼
- Purchase Order         Registration          Statistics
-        │                     │                     │
-        ▼                     ▼                     ▼
- Acknowledgement        Documents             Scorecard
-        │                     │                     │
-        ▼                     ▼                     ▼
-     Shipment           Verification       Self-Service
-        │                     │
-        ▼                     ▼
- Goods Receipt           Approval
-        │                     │
-        ▼                     ▼
-      Invoice        Compliance Check
-        │                     │
-        ▼                     ▼
- Three-Way Match            Active
-        │
-    ┌───┴────┐
-    ▼        ▼
- Matched  Discrepancy
-    │        │
-    ▼        ▼
- Payment   Human Review
- Approval     │
-              ▼
-       Resolution Suggestion
-```
-
-Additional contract management operates alongside the core P2P workflow:
-
-```text
-Supplier
-   ↓
-Contract
-   ↓
-Terms
-   ↓
-Expiry / Renewal
-   ↓
-Contract History / Audit
-```
-
-R5 authentication and supplier-level authorization apply throughout supplier-facing operations.
-
----
 
 # 27. Current Implementation Status
 
@@ -9337,48 +11024,20 @@ R5 authentication and supplier-level authorization apply throughout supplier-fac
 | Dispute Suggestion Testing                  | Complete |
 | Self-Service Scorecard Testing              | Complete |
 | Authentication-Required Endpoint Testing    | Complete |
+| MinIO Document Storage                      | Complete |
+| MinIO Invoice Document Download             | Complete |
+| MinIO Supplier Document Download            | Complete |
+| Presigned Document URLs                     | Complete |
+| Cross-Supplier Document Isolation           | Complete |
+| GraphQL API                                 | Complete |
+| GraphQL Purchase Order Queries              | Complete |
+| GraphQL Invoice Queries                     | Complete |
+| GraphQL Document Queries                    | Complete |
+| GraphQL Cursor Pagination                   | Complete |
+| GraphQL Acknowledge-PO Mutation             | Complete |
+| GraphQL Resolver-Level Supplier Scoping     | Complete |
+| GraphQL Cross-Supplier PO Testing            | Complete |
 
----
-
-## R5 Completion Status
-
-Round 5 supplier authentication, role authorization, and supplier-level data-scoping requirements have been implemented and covered by automated tests.
-
-The implemented security model ensures:
-
-```text
-Valid supplier token
-
-      ≠
-
-Unrestricted supplier access
-```
-
-Instead, access follows:
-
-```text
-Valid Token
-     ↓
-Platform Service Verification
-     ↓
-Authenticated Identity
-     ↓
-Role Check
-     ↓
-supplier_id Ownership Check
-     ↓
-Resource Access
-```
-
-For supplier users, the authenticated `supplier_id` must match the supplier associated with the requested supplier-scoped resource.
-
-Cross-supplier access attempts are rejected with:
-
-```text
-403 Forbidden
-```
-
----
 
 # Rounds 6–8 Completion Status
 
@@ -9450,6 +11109,7 @@ Registration
 → Documents
 → Mock Verification
 → Approval
+→ Compliance Check
 → Active
 ```
 
@@ -9470,8 +11130,6 @@ Supplier performance is available through:
 ```http
 GET /api/v1/suppliers/{supplier_id}/scorecard
 ```
-
-The scorecard includes implemented delivery, invoice, dispute, cycle-time, and overall performance metrics.
 
 For fulfilled Purchase Orders, actual delivery is derived from applicable Goods Receipt dates.
 
@@ -9499,55 +11157,19 @@ Collection Filtering
 
 Cross-supplier access is explicitly tested across supported supplier-facing resource paths.
 
----
 
 # Rounds 9–11 Completion Status
 
-The Rounds 9–11 implementation extends the Supplier Portal with business-logic integration, contract lifecycle management, dispute intelligence, and supplier self-service analytics.
+The Rounds 9–11 implementation extended the Supplier Portal with business-logic integration, contract lifecycle management, dispute intelligence, and supplier self-service analytics.
 
-## Task 1 — Compliance Business-Logic Integration
+The previously completed R9–11 functionality remains implemented and tested.
 
-Status:
+[Existing R9–11 Task 1–6 sections remain unchanged.]
 
-```text
-Complete
-```
 
-The Supplier Portal integrates with the Compliance Service before supplier activation.
+# Round 12 — Milestone 2 Completion Status
 
-Integration endpoint:
-
-```http
-POST /api/v1/compliance/internal-check
-```
-
-The Supplier Portal sends:
-
-```text
-supplier_id
-supplier_name
-country
-```
-
-with:
-
-```http
-X-Caller-Service: supplier-portal
-```
-
-The Compliance decision is:
-
-```text
-CLEAR
-BLOCK
-REVIEW
-```
-
-Only `CLEAR` permits activation.
-
----
-
-## Task 2 — Compliance Failure Handling
+## Milestone 2 — MinIO Document Storage
 
 Status:
 
@@ -9555,65 +11177,92 @@ Status:
 Complete
 ```
 
-The integration explicitly handles:
-
-```text
-Timeout
-Connection Failure
-Network Failure
-HTTP Service Error
-Invalid JSON
-Invalid Decision
-Unusable Response
-```
-
-The behavior is fail-closed:
-
-```text
-Compliance unavailable
-        ↓
-Supplier activation blocked
-```
-
-This prevents a technical dependency failure from being interpreted as successful compliance.
-
----
-
-## Task 3 — Supplier Contract Lifecycle Management
-
-Status:
-
-```text
-Complete
-```
+Round 12 moves invoice PDFs and supplier onboarding documents from local filesystem storage to MinIO.
 
 Implemented capabilities include:
 
 ```text
-Contract creation
-Contract retrieval
-Contract listing
-Contract updates
-Contract activation
-Contract renewal
-Contract expiry tracking
-Expiring-contract queries
-Contract history
-Term-change audit history
+MinIO object storage
+Invoice PDF object storage
+Supplier onboarding document object storage
+Supplier-scoped object references
+Object existence validation
+Short-lived presigned download URLs
+Supplier ownership validation before URL generation
+Cross-supplier document rejection
+MinIO failure handling
 ```
 
-Contract states include:
+The document architecture is:
 
 ```text
-draft
-active
-renewed
-expired
+Supplier Portal
+      ↓
+Document Validation
+      ↓
+Supplier Ownership
+      ↓
+MinIO
+      ↓
+Object Storage
 ```
 
----
+Downloads use:
 
-## Task 4 — Historical Dispute-Resolution Suggestions
+```text
+Authenticated Request
+      ↓
+Ownership Validation
+      ↓
+Object Lookup
+      ↓
+Short-Lived Presigned URL
+```
+
+The key security requirement is:
+
+```text
+Supplier A must never receive a presigned URL
+for Supplier B's document.
+```
+
+This is enforced before URL generation.
+
+### Round 12 Test Coverage
+
+Dedicated document-storage tests include:
+
+```text
+Invoice document download tests
+Document storage service tests
+MinIO integration tests
+Supplier document download tests
+Cross-supplier document access tests
+Missing-object tests
+MinIO failure tests
+Presigned URL tests
+```
+
+Verified test counts include:
+
+```text
+tests/test_invoice_document_download.py
+17 passed
+
+tests/test_document_storage_service.py
+28 passed
+
+tests/integration/test_minio_document_storage.py
+10 passed
+
+tests/test_supplier_document_download.py
+11 passed
+```
+
+
+# Round 13 — Milestone 3 Completion Status
+
+## Milestone 3 — GraphQL API
 
 Status:
 
@@ -9621,94 +11270,192 @@ Status:
 Complete
 ```
 
-The Supplier Portal analyzes historical dispute-resolution patterns and produces advisory suggestions.
-
-Examples include:
-
-```text
-Price mismatch
-      →
-correct_invoice
-
-Quantity mismatch
-      →
-credit_note
-```
-
-Suggestions are advisory only and do not automatically modify business state.
-
----
-
-## Task 5 — Supplier Self-Service Analytics
-
-Status:
-
-```text
-Complete
-```
-
-Supplier users can access their own scorecard through:
+The Supplier Portal now provides a Strawberry GraphQL endpoint:
 
 ```http
-GET /api/v1/suppliers/{supplier_id}/scorecard
+POST /graphql
 ```
 
-The endpoint remains protected by supplier ownership validation.
-
----
-
-## Task 6 — Full R9–11 Test Coverage
-
-Status:
+The GraphQL API supports:
 
 ```text
-Complete
+Purchase Order queries
+Invoice queries
+Document queries
+Acknowledge Purchase Order mutation
+Cursor pagination
+Supplier-level resolver authorization
+```
+
+GraphQL is implemented using:
+
+```text
+Strawberry
+FastAPI
+Existing Supplier Portal service layer
+Platform Service authentication
+```
+
+The architecture is:
+
+```text
+Apollo Client
+      ↓
+GraphQL /graphql
+      ↓
+GraphQL Context
+      ↓
+Authenticated User
+      ↓
+Resolver
+      ↓
+Supplier Scope Check
+      ↓
+Existing Service
+      ↓
+GraphQL Type
+```
+
+### GraphQL Supplier Scoping
+
+Supplier authorization is implemented inside the GraphQL resolvers.
+
+For example:
+
+```text
+Supplier A
+      ↓
+Query Supplier B PO
+      ↓
+Resolver checks supplier_id
+      ↓
+Mismatch
+      ↓
+null
+```
+
+Collection queries filter supplier data before pagination:
+
+```text
+All POs
+  ↓
+Supplier authorization filter
+  ↓
+Authorized POs
+  ↓
+Cursor pagination
+  ↓
+GraphQL response
+```
+
+This prevents unauthorized records from appearing through pagination.
+
+### GraphQL Cursor Pagination
+
+Collection queries support:
+
+```text
+first
+after
+```
+
+and return:
+
+```text
+edges
+pageInfo
+```
+
+with:
+
+```text
+hasNextPage
+endCursor
+```
+
+The requested page size is bounded to prevent unbounded collection retrieval.
+
+### Acknowledge-PO Mutation
+
+The acknowledge mutation:
+
+```text
+Receives PO identifier
+        ↓
+Authenticates user
+        ↓
+Finds PO
+        ↓
+Checks supplier ownership
+        ↓
+Calls existing acknowledgement service
+        ↓
+Returns updated GraphQL PO
+```
+
+A supplier cannot acknowledge another supplier's PO.
+
+### Round 13 Test Coverage
+
+The dedicated GraphQL test suite contains:
+
+```text
+48 passed
 ```
 
 Coverage includes:
 
 ```text
-Compliance CLEAR
-Compliance BLOCK
-Compliance REVIEW
-Compliance unavailable
-Compliance timeout
-Compliance service error
-Invalid Compliance response
-Fail-closed activation
-
-Contract creation
-Contract update
-Contract renewal
-Contract expiry
-Contract history
-Term-change audit
-
-Historical dispute pattern analysis
-Resolution suggestions
-Suggestion authorization
-Suggestion supplier scoping
-
-Supplier self-service scorecard
-Cross-supplier scorecard rejection
+GraphQL authentication
+Purchase Order queries
+Purchase Order collections
+Invoice queries
+Invoice collections
+Document queries
+Cursor pagination
+Invalid cursor handling
+Acknowledge-PO mutation
+Supplier authorization
+Cross-supplier PO rejection
+Collection-level supplier filtering
 ```
 
----
 
-## R9–11 Milestone Summary
+# Rounds 12–13 Test Completion
+
+The complete Supplier Portal regression suite was verified after the Round 12 and Round 13 implementation:
 
 ```text
-Task 1 → Compliance Business-Logic Integration
-Task 2 → Compliance Failure Handling
-Task 3 → Supplier Contract Lifecycle
-Task 4 → Historical Dispute Suggestions
-Task 5 → Supplier Self-Service Analytics
-Task 6 → Full Test Coverage
+735 passed
 ```
 
-All planned R9–11 functional requirements are implemented.
+The milestone-specific verification therefore includes:
 
----
+```text
+Round 12
+MinIO document storage
+Presigned URLs
+Document supplier isolation
+Storage failure handling
+
++
+
+Round 13
+GraphQL API
+Cursor pagination
+PO acknowledgement mutation
+Resolver-level supplier scoping
+
++
+
+Existing
+R5 authentication/scoping
+R6–8 P2P
+R9–11 business integrations
+```
+
+The complete regression suite passes without requiring changes to the Platform Service.
+
 
 # 28. Known Limitations
 
@@ -9716,18 +11463,18 @@ The current implementation is primarily designed for development, functional val
 
 The core R5 authentication, role-based authorization, and supplier-level data-scoping requirements are implemented.
 
-Rounds 6–8 and Rounds 9–11 functional requirements are also implemented.
+Rounds 6–8, Rounds 9–11, Round 12, and Round 13 functional requirements are also implemented.
 
 Remaining limitations are primarily related to:
 
 ```text
-Production Persistence
-Durable File Storage
+Production Database Persistence
 Automatic Contract Renewal
 Partial-Invoice Lifecycle Expansion
 Production Operational Hardening
 External Supplier Verification
 Payment-Service Integration
+Advanced GraphQL Features
 ```
 
 ---
@@ -9746,25 +11493,11 @@ However, the current P2P state model represents the PO at a single `invoiced` st
 
 Therefore, repeated partial invoicing against the same Purchase Order requires additional lifecycle support.
 
-Future enhancement:
-
-```text
-PO quantity = 10
-
-Invoice 1 = 5
-      ↓
-Remaining quantity = 5
-      ↓
-Invoice 2 = 5
-      ↓
-Fully invoiced
-```
-
 ---
 
 ## In-Memory Business Storage
 
-Purchase Orders, invoices, workflow data, supplier onboarding data, contract data, dispute data, and related business events are currently maintained in Python in-memory data structures.
+Purchase Orders, invoices, workflow data, supplier onboarding metadata, contract data, dispute data, and related business events are currently maintained in Python in-memory data structures.
 
 As a result, application restarts clear business data.
 
@@ -9780,24 +11513,30 @@ A production deployment should use persistent database storage.
 
 ---
 
-## Local File Storage
+## Document Storage
 
-Invoice PDF documents and supplier onboarding documents are currently stored locally under:
+Round 12 has completed the migration of invoice PDFs and supplier onboarding documents to MinIO.
+
+Therefore, local:
 
 ```text
 uploads/
 ```
 
-A production implementation should use durable object or document storage.
+storage is no longer the active document-storage mechanism.
 
-Recommended production capabilities include:
+The remaining production considerations are:
 
-* Durable document storage
-* Appropriate access controls
-* Backup and recovery
-* Encryption at rest
-* Retention management
-* Scalable storage
+```text
+MinIO backup
+Object retention
+Encryption at rest
+Lifecycle management
+Disaster recovery
+Production access policies
+```
+
+These are production-hardening considerations rather than unfinished Round 12 functionality.
 
 ---
 
@@ -9826,16 +11565,6 @@ Supplier activation is blocked
 ```
 
 The current implementation intentionally fails closed.
-
-Production deployments should provide:
-
-* Compliance Service availability monitoring
-* Timeout monitoring
-* Dependency health monitoring
-* Alerting
-* Operational recovery mechanisms
-
-The fail-closed business rule should remain in place unless the compliance architecture is formally changed.
 
 ---
 
@@ -9866,19 +11595,7 @@ Therefore, renewal currently requires an explicit renewal operation.
 
 Contract renewal currently updates the existing contract record and records renewal history.
 
-A future implementation may introduce explicit immutable contract versions:
-
-```text
-Contract
-   ↓
-Version 1
-   ↓
-Version 2
-   ↓
-Version 3
-```
-
-This would provide stronger historical reconstruction of every contract version.
+A future implementation may introduce explicit immutable contract versions.
 
 ---
 
@@ -9898,25 +11615,34 @@ Change match status
 
 The suggestion is intended to support human review.
 
-Future versions may improve the pattern engine using richer historical data and more detailed resolution classifications.
-
 ---
 
-## Administrative and Maintenance Endpoint Hardening
+## GraphQL Expansion
 
-Core supplier-facing authentication, role-based authorization, and supplier-level data scoping are implemented.
-
-Maintenance operations remain separate from normal supplier-facing business operations.
-
-The maintenance endpoints are:
+The Round 13 GraphQL requirements are complete for the currently defined scope:
 
 ```text
-GET    /api/v1/maintenance/orphaned-invoice-files
-
-DELETE /api/v1/maintenance/orphaned-invoice-files
+Purchase Orders
+Invoices
+Documents
+Cursor Pagination
+Acknowledge-PO Mutation
+Supplier Scoping
 ```
 
-These endpoints remain restricted to the designated administrative authorization implemented by the service and must not be exposed to anonymous callers.
+Future GraphQL enhancements may include:
+
+```text
+Additional mutations
+Additional business domains
+Richer pagination metadata
+Subscriptions
+More granular GraphQL permissions
+GraphQL query complexity controls
+Production GraphQL observability
+```
+
+These are future enhancements rather than gaps in the defined Round 13 milestone.
 
 ---
 
@@ -9932,183 +11658,15 @@ A production implementation should introduce:
 * Durable supplier records
 * Durable contract records
 * Durable contract history
-* Durable document/object storage
+* Durable document/object-storage lifecycle management
 * Backup and recovery procedures
 
 The production persistence architecture should preserve the existing authorization model so that moving from in-memory storage to persistent storage does not weaken supplier-level data isolation.
 
----
-
-## Production Operational Hardening
-
-Before production deployment, the service should additionally be evaluated for:
-
-* Centralized logging and monitoring
-* Health and readiness checks
-* Database connection management
-* Distributed request tracing
-* Secure secret management
-* TLS configuration
-* Rate limiting where appropriate
-* Backup and recovery procedures
-* File-storage lifecycle management
-* Platform authentication availability monitoring
-* Compliance Service availability monitoring
-
-These are production-readiness considerations rather than failures of the implemented milestones.
-
----
-
-## Onboarding Document Validation Status
-
-Supplier onboarding document validation is implemented.
-
-The current implementation validates:
-
-```text
-Supported MIME type
-File extension
-Empty file
-Maximum file size
-Supplier ownership
-```
-
-Supported types:
-
-```text
-PDF
-JPG / JPEG
-PNG
-DOC
-DOCX
-```
-
-Maximum size:
-
-```text
-10 MB
-```
-
-Future production hardening may still include:
-
-* Malware scanning
-* Durable document storage
-* Document retention policies
-* Stronger external verification integrations
-
----
-
-## End-to-End Test Expansion
-
-The test suite covers individual P2P services, state transitions, validation rules, authorization behavior, discrepancy scenarios, Compliance failure paths, contract lifecycle behavior, dispute suggestions, and self-service analytics.
-
-A future enhancement would add one comprehensive HTTP integration test that drives:
-
-```text
-Supplier Onboarding
-→ Compliance CLEAR
-→ Active Supplier
-→ Create PO
-→ Send
-→ Acknowledge
-→ Shipment
-→ Goods Receipt
-→ Invoice
-→ Three-Way Match
-→ Payment Approval
-```
-
-This would complement the existing focused service and API tests.
-
----
-
-## Configuration and Maintainability Status
-
-The three-way match price tolerance is already centralized in:
-
-```text
-app/core/config.py
-```
-
-using:
-
-```python
-PRICE_TOLERANCE_PERCENT = 5.0
-```
-
-The Compliance Service URL is also environment-configured through:
-
-```text
-COMPLIANCE_SERVICE_URL
-```
-
-Other business constants may still be centralized further in future iterations, including:
-
-```text
-Scorecard weights
-Upload limits
-Contract defaults
-Workflow configuration
-```
-
----
-
-## R5 Security Status
-
-The implemented R5 security model is:
-
-```text
-Platform Service Authentication
-            ↓
-Role-Based Authorization
-            ↓
-Supplier Ownership Validation
-            ↓
-Collection-Level Supplier Filtering
-            ↓
-Protected Resource Access
-```
-
-The key R5 security requirement is satisfied:
-
-```text
-A valid supplier token does not provide unrestricted supplier access.
-```
-
-A supplier authenticated as `SUP001` cannot access supplier-scoped resources belonging to `SUP002`.
-
-Cross-supplier access is rejected with:
-
-```text
-403 Forbidden
-```
-
----
-
-## Current Remaining Limitations Summary
-
-The remaining limitations are primarily:
-
-```text
-Production Persistence
-Durable File Storage
-Partial-Invoice Lifecycle Expansion
-Automatic Contract Renewal
-Explicit Contract Versioning
-External Supplier Verification
-Payment-Service Integration
-Production Operational Hardening
-Expanded End-to-End Integration Testing
-Advanced Dispute Intelligence
-```
-
-These limitations are documented separately from the completed R5, R6–8, and R9–11 functionality.
-
----
 
 # 29. Future Enhancements
 
-The following enhancements are outside the currently completed R5, R6–8, and R9–11 scope.
+The following enhancements are outside the currently completed R5, R6–8, R9–11, Round 12, and Round 13 scope.
 
 ## Persistent Database Storage
 
@@ -10132,24 +11690,20 @@ Audit History
 
 ---
 
-## Durable Document Storage
+## Advanced Document Storage Operations
 
-Replace local:
+Round 12 already uses MinIO for active document storage.
 
-```text
-uploads/
-```
+Future production capabilities may include:
 
-storage with durable object or document storage.
-
-Future capabilities may include:
-
-* Object storage
 * Encryption at rest
-* Access policies
+* Object lifecycle policies
 * Retention policies
 * Backup and recovery
-* Document versioning
+* Object versioning
+* Malware scanning
+* Document classification
+* Disaster recovery
 
 ---
 
@@ -10170,8 +11724,6 @@ Invoice 2 = 5
       ↓
 Fully invoiced
 ```
-
-The future state model should distinguish between partially invoiced and fully invoiced quantities.
 
 ---
 
@@ -10203,67 +11755,11 @@ Audit History
 
 Introduce immutable contract versions so that historical terms can be reconstructed.
 
-Example:
-
-```text
-Contract
-   ↓
-Version 1
-   ↓
-Version 2
-   ↓
-Version 3
-```
-
-Each version could retain:
-
-```text
-Terms
-Start Date
-End Date
-Created By
-Created At
-Change Reason
-```
-
 ---
 
 ## Production Supplier Verification
 
 Replace mock verification with an actual supplier verification integration.
-
-Potential future flow:
-
-```text
-Supplier Registration
-        ↓
-Document Collection
-        ↓
-External Verification
-        ↓
-Verification Result
-        ↓
-Compliance Check
-        ↓
-Approval
-        ↓
-Active
-```
-
-The existing Compliance Service integration should remain a separate business-logic check.
-
----
-
-## Document Security Enhancements
-
-Future production document security may include:
-
-* Malware scanning
-* Content inspection
-* Stronger file-type verification
-* Document retention policies
-* Document versioning
-* Secure object-storage integration
 
 ---
 
@@ -10271,17 +11767,7 @@ Future production document security may include:
 
 The current payment approval workflow is represented within the Supplier Portal P2P state model.
 
-A future implementation could integrate payment approval with a dedicated payment or finance service:
-
-```text
-Three-Way Match
-       ↓
-Payment Approval
-       ↓
-Finance / Payment Service
-       ↓
-Payment Execution
-```
+A future implementation could integrate payment approval with a dedicated payment or finance service.
 
 ---
 
@@ -10298,8 +11784,6 @@ Three-Way Match Completed
 Payment Approved
 ```
 
-These events could be consumed by other supply-chain services.
-
 ---
 
 ## Advanced Supplier Analytics
@@ -10312,8 +11796,6 @@ Future analytics may include:
 * Supplier benchmarking
 * Historical scorecard trends
 * Predictive supplier performance analytics
-
-These would extend the current operational statistics, scorecard, and supplier self-service implementation.
 
 ---
 
@@ -10331,7 +11813,35 @@ Future enhancements may include:
 * Human feedback capture
 * Resolution effectiveness tracking
 
-The future system should continue to keep final dispute decisions under authorized human control unless business requirements explicitly introduce automated resolution.
+---
+
+## Expanded GraphQL API
+
+Round 13 currently covers:
+
+```text
+Purchase Orders
+Invoices
+Documents
+Acknowledge PO
+Cursor Pagination
+Supplier Scoping
+```
+
+Future GraphQL capabilities may include:
+
+```text
+Additional Queries
+Additional Mutations
+Contract GraphQL APIs
+Shipment GraphQL APIs
+Goods Receipt GraphQL APIs
+Scorecard GraphQL APIs
+GraphQL Subscriptions
+Richer Connection Metadata
+Query Complexity Protection
+GraphQL Observability
+```
 
 ---
 
@@ -10344,7 +11854,7 @@ Supplier Registration
         ↓
 Documents
         ↓
-Verification
+MinIO Document Storage
         ↓
 Compliance CLEAR
         ↓
@@ -10367,7 +11877,7 @@ Three-Way Match
 Payment Approval
 ```
 
-This would complement the existing focused service and API tests.
+This would complement the existing focused service, REST API, MinIO, and GraphQL tests.
 
 ---
 
@@ -10382,8 +11892,10 @@ Future production deployment should introduce:
 * Readiness checks
 * Platform authentication dependency monitoring
 * Compliance dependency monitoring
+* MinIO availability monitoring
 * P2P workflow monitoring
 * Contract expiry monitoring
+* GraphQL request monitoring
 * Alerting
 
 ---
@@ -10402,16 +11914,7 @@ Workflow-Specific Permissions
 Audit Controls
 ```
 
-This can provide more granular separation between:
-
-```text
-Procurement
-Invoice Management
-Compliance
-Three-Way Matching
-Payment Approval
-Contract Management
-```
+The existing supplier ownership model should remain the foundation of these enhancements.
 
 ---
 
@@ -10429,21 +11932,31 @@ Future versions may provide persistent audit history for:
 * Payment approvals
 * Contract term changes
 * Contract renewals
+* Document access events
+* GraphQL mutations
 * Administrative maintenance operations
-
-The existing event and authorization concepts can be extended into a durable audit subsystem.
 
 ---
 
 ## Summary of Future Scope
 
-The current implementation completes the defined R5, R6–8, and R9–11 functional requirements.
+The current implementation completes the defined:
+
+```text
+R5
+R6–8
+R9–11
+Round 12
+Round 13
+```
+
+functional requirements.
 
 Future work primarily focuses on:
 
 ```text
-Production Persistence
-Durable Document Storage
+Production Database Persistence
+Advanced MinIO Operations
 Complete Multi-Invoice Lifecycle
 Automatic Contract Renewal
 Explicit Contract Versioning
@@ -10452,10 +11965,11 @@ Payment-Service Integration
 Event-Driven Processing
 Advanced Analytics
 Advanced Dispute Intelligence
+Expanded GraphQL API
 Expanded Integration Testing
 Production Observability
 Advanced Authorization
 Persistent Audit Controls
 ```
 
-These enhancements build on the implemented Supplier Portal rather than replacing the existing authentication, supplier-scoping, P2P, Compliance, contract, dispute-suggestion, or self-service analytics functionality.
+These enhancements build on the implemented authentication, supplier-scoping, P2P, Compliance, contract, dispute-suggestion, self-service analytics, MinIO document-storage, and GraphQL functionality.

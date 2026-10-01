@@ -33,6 +33,16 @@ class Settings(BaseSettings):
     PLATFORM_AUTH_URL: str = "http://127.0.0.1:8005"
     COMPLIANCE_SERVICE_URL: str = "http://127.0.0.1:8003"
 
+
+    # MinIO Object Storage
+    MINIO_ENDPOINT: str = "127.0.0.1:9000"
+    MINIO_ACCESS_KEY: str = "minioadmin"
+    MINIO_SECRET_KEY: str = "minioadmin"
+    MINIO_BUCKET: str = "supplier-documents"
+    MINIO_SECURE: bool = False
+    MINIO_PRESIGNED_EXPIRY_SECONDS: int = 300
+
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
