@@ -1,0 +1,48 @@
+{
+  "ceo": [
+    "compliance:read",
+    "compliance:write",
+    "inventory:read",
+    "inventory:write",
+    "logistics:read",
+    "logistics:write",
+    "supplier:read",
+    "supplier:write"
+  ],
+  "vp_operations": [
+    "compliance:read",
+    "compliance:write",
+    "inventory:read",
+    "inventory:write",
+    "logistics:read",
+    "logistics:write",
+    "supplier:read",
+    "supplier:write"
+  ],
+  "procurement_manager": [
+    "supplier:read",
+    "supplier:write"
+  ],
+  "logistics_manager": [
+    "logistics:read",
+    "logistics:write"
+  ],
+  "compliance_officer": [
+    "compliance:read",
+    "compliance:write"
+  ],
+  "warehouse_manager": [
+    "inventory:read",
+    "inventory:write"
+  ],
+  "analyst": [
+    "compliance:read",
+    "inventory:read",
+    "logistics:read",
+    "supplier:read"
+  ],
+  "supplier": [
+    "supplier:read",
+    "supplier:write"
+  ]
+}
