@@ -5,7 +5,16 @@ import math
 from src.profile import profile, ProfileReport
 from src.compare import compare, DriftReport
 from src.monitoring import MonitoringHistory
-from src.relationships import discover_relationships as discover_relationships_between
+from src.audit_archive import AuditArchive
+from src.expected_profile import (
+    create_expected_profile,
+    benchmark_profile,
+)
+from src.relationships import (
+    discover_relationships as discover_relationships_between,
+)
+from src.executive_summary import generate_executive_summary
+
 
 def make_json_serializable(obj):
     if isinstance(obj, dict):
@@ -15,16 +24,10 @@ def make_json_serializable(obj):
         }
 
     if isinstance(obj, list):
-        return [
-            make_json_serializable(value)
-            for value in obj
-        ]
+        return [make_json_serializable(value) for value in obj]
 
     if isinstance(obj, tuple):
-        return [
-            make_json_serializable(value)
-            for value in obj
-        ]
+        return [make_json_serializable(value) for value in obj]
 
     if isinstance(obj, pd.Timestamp):
         return obj.isoformat()
@@ -33,12 +36,13 @@ def make_json_serializable(obj):
         return int(obj)
 
     if isinstance(obj, (float, np.floating)):
-        # NaN and infinity are not valid JSON; FastAPI would return a 500.
+        # NaN and infinity are not valid JSON.
         if not math.isfinite(obj):
             return None
         return float(obj)
 
     return obj
+
 
 class Profiler:
 
@@ -55,31 +59,90 @@ class Profiler:
     def discover_relationships(self, df_left, df_right):
         relationships = discover_relationships_between(
             df_left,
-            df_right
+            df_right,
         )
-
         return make_json_serializable(relationships)
 
+    def create_expected_profile(
+        self,
+        profile_report,
+        row_count_tolerance_percent=5.0,
+        quality_score_tolerance=5.0,
+        null_rate_tolerance_points=2.0,
+        numeric_tolerance_percent=10.0,
+    ):
+        expected_profile = create_expected_profile(
+            profile_report=profile_report,
+            row_count_tolerance_percent=row_count_tolerance_percent,
+            quality_score_tolerance=quality_score_tolerance,
+            null_rate_tolerance_points=null_rate_tolerance_points,
+            numeric_tolerance_percent=numeric_tolerance_percent,
+        )
+        return make_json_serializable(expected_profile)
+
+    def benchmark_profile(self, expected_profile, current_profile):
+        result = benchmark_profile(
+            expected_profile=expected_profile,
+            current_profile=current_profile,
+        )
+        return make_json_serializable(result)
+
+    def executive_summary(
+        self,
+        profiling_report,
+        etl_output=None,
+        validation_output=None,
+    ):
+        """Generate a one-paragraph executive summary."""
+        return generate_executive_summary(
+            profiling_report=profiling_report,
+            etl_output=etl_output,
+            validation_output=validation_output,
+        )
+
     def monitor(self, df, previous_df=None):
-        # Profile current batch
         report = self.profile(df)
 
-        # Compare with previous batch if available
+        # Compare with previous batch if available.
         drift = None
-
         if previous_df is not None:
             drift = self.compare(previous_df, df)
 
-        # Save monitoring history
+        # Save short-term monitoring history.
         monitoring = MonitoringHistory()
-
         history = monitoring.save_batch(
             report=report,
-            drift=drift
+            drift=drift,
+        )
+
+        # Save a permanent audit record.
+        audit_archive = AuditArchive()
+        audit_record = audit_archive.save_run(
+            report=report,
+            drift=drift,
         )
 
         return {
             "report": report,
             "drift": drift,
-            "history": history
+            "history": history,
+            "audit": audit_record,
         }
+
+    def query_audit_runs(
+        self,
+        drift_status=None,
+        min_quality_score=None,
+        max_quality_score=None,
+        start_time=None,
+        end_time=None,
+    ):
+        archive = AuditArchive()
+        results = archive.query_runs(
+            drift_status=drift_status,
+            min_quality_score=min_quality_score,
+            max_quality_score=max_quality_score,
+            start_time=start_time,
+            end_time=end_time,
+        )
+        return make_json_serializable(results)
