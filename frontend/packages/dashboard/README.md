@@ -5,8 +5,11 @@
 frontend/
 └── packages/
     └── dashboard/
+        └── e2e/
+              └── dashboard.spec.ts
         └── src/
             ├──api/
+            |    ├── dashboardGraphql.ts
             |    └── dashboard.ts
             ├── components/
             │   ├── AlertsPanel.tsx
@@ -22,17 +25,34 @@ frontend/
             │   ├── SupplierRiskDistribution.tsx
             │   ├── DashboardFilters.tsx
             │   ├── Skeleton.tsx
-            |   └── export/
-            │       ├── ExportCsvButton.tsx
-            |       └── ExportPdfButton.tsx
-            |
+            |   ├── export/
+            │   |   ├── ExportCsvButton.tsx
+            |   |   └── ExportPdfButton.tsx
+            |   └── ui/
+            │       ├── badge.tsx
+            │       ├── button.tsx
+            |       ├── calendar.tsx
+            |       ├── card.tsx
+            |       ├── checkbox.tsx
+            |       ├── input.tsx
+            |       ├── popover.tsx
+            |       └── select.tsx
+            ├── graphql/
+            │   ├── client.ts
+            |   ├── queries.ts
+            |   ├── schema.graphql
+            |   └── types.tsx
             ├── hooks/
             │   ├── useWebSocket.ts
+            |   └── useOnlineStatus.tsx
             │
             ├── mocks/
             |   ├── api.ts
+            |   ├── browser.ts
+            |   ├── dashboardMock.ts
             │   ├── forecast.ts
             |   ├── forecastAccuracy.ts
+            |   ├── handlers.ts
             │   ├── inventory.ts
             │   ├── inventoryHealth.ts
             │   ├── shipments.ts
@@ -64,7 +84,8 @@ frontend/
             ├── utils/
             │   ├── exportCsv.ts
             |   ├── exportPdf.ts
-            │   └── insights.ts
+            |   ├── insights.ts
+            │   └── kpiSnapshot.ts
             │
             ├── App.tsx
             ├── main.tsx
@@ -106,7 +127,7 @@ The forecast also safely handles an empty dataset. Default values are calculated
 
 # 3. Inventory Table
 
-The Inventory Table shows inventory details for each SKU. I used the shared Table and Badge components from the UI library.
+The Inventory Table shows inventory details for each SKU. I used the shared  shadcn/ui Table and Badge components from the UI library.
 
 It also has SKU search bar and a low-stock filter so users can quickly find items that need attention.
 
@@ -241,13 +262,35 @@ It is started only when `import.meta.env.DEV` is true, so the mock server is not
 
 * Filter and drill-down state is preserved when the dashboard is refreshed or shared through its URL.
 
+
 ### Dashboard API Layer
 
-A thin API layer was added under `src/api/` so that dashboard components do not depend directly on mock data    files.
+A thin API layer was added under `src/api/` to provide a clear data-access boundary between the dashboard and its data sources.
 
-The API layer currently wraps the local mock data and provides the data-access boundary required by the dashboard.
+The dashboard now uses **Apollo Client with GraphQL** for dashboard data. During development, GraphQL requests are intercepted by **MSW (Mock Service Worker)** and resolved using the existing mock data from `src/mocks/dashboardMock.ts`.
 
-This keeps the components separated from the current mock-data implementation and makes it easier to replace the mock sources with real backend APIs later without changing every component individually.
+The current flow is:
+
+```text
+Dashboard Component
+        ↓
+Apollo Client
+        ↓
+GraphQL Query
+        ↓
+/graphql
+        ↓
+MSW GraphQL Handler
+        ↓
+dashboardMock.ts
+        ↓
+Apollo Response
+        ↓
+Dashboard Component
+```
+
+This keeps the dashboard components independent of the mock-data implementation. When the real GraphQL backend is available, the MSW mock layer can be replaced with the real GraphQL endpoint while keeping the GraphQL query and response contract unchanged.
+
 
 ### KPI Cross-Filtering Limitation
 
@@ -329,7 +372,7 @@ The export functionality is kept inside the `src/components/export/`,while the e
 
 The exported data follows the currently selected dashboard filters and role where applicable.
 
-CSV export creates a downloadable with specified like invent0ry,supplier,shipment CSV file separately.CSV export applies proper CSV escaping and security hardening for values that could contain commas, quotes, or line breaks. Formula-injection protection is also applied to values beginning with spreadsheet formula characters.
+CSV export creates a downloadable with specified like inventory,supplier,shipment CSV file separately.CSV export applies proper CSV escaping and security hardening for values that could contain commas, quotes, or line breaks. Formula-injection protection is also applied to values beginning with spreadsheet formula characters.
 
 PDF export creates a downloadable.The exported PDF contains role-appropriate dashboard information. For example, supplier-risk information is included for the `ceo` role and excluded from the `warehouse_manager` view.
 
@@ -349,7 +392,7 @@ Accessibility audit completed using Lighthouse. Initial score: 81/100. Identifie
 
 Not done yet:
 
-* Colorr-contrast check of the status colors in `tokens.ts`.
+* Color-contrast check of the status colors in `tokens.ts`.
 * Manual screen-reader walkthrough (NVDA / VoiceOver).
 
 **Next-round accessibility follow-up:**
@@ -529,9 +572,13 @@ The mock WebSocket server is development-only and is not started as part of the 
 
 # 12. Current UI and Next Steps
 
-The current dashboard UI is functional and covers the required dashboard features, but the overall visual design and layout still need improvement.
+`src/components/ui/` contains the shadcn/ui-based reusable components used throughout the dashboard.
 
-In the next round, I will work on the UI using the available **UI component library** to improve consistency, spacing, alignment, responsiveness, and overall visual polish.
+The current dashboard UI is functional and uses **shadcn/ui components** for common ui elements such as buttons, cards, badges, inputs, checkboxes, popovers, selects, and calendar controls.
+
+The existing shadcn/ui components are used to maintain consistent UI behavior and styling across the dashboard.
+
+The current focus is on improving the overall UI consistency, spacing, alignment, responsiveness, and visual polish while continuing to reuse the existing shadcn/ui components where appropriate.
 
 The functionality and dashboard logic are already implemented, so the next focus will be on improving the user experience and making the dashboard look more professional.
 
@@ -545,11 +592,10 @@ The performance test used the 12,000-item inventory dataset across 4 warehouses 
 
 The recorded profiler measurements represent actual render activity captured during these interactions.
 
-**Note:** The original tasks assigned to me for this dashboard were **Round 7, Round 8, and Round 9**. In the PDF, the same work is referenced as **Round 9, Round 10, and Round 11** because I started this dashboard two tasks behind the other WorkStreams. I have kept **Round 7/8/9** in this README because that is the original round numbering under which I started and tracked this implementation.
 
 # Round 12-13
 
-# 13. Milestone 1 — Progressive Web App
+# Milestone 1 — Progressive Web App
 
 The Executive Dashboard was converted into a Progressive Web App (PWA) with an installable app manifest, service worker caching, offline KPI snapshot support, and automatic refresh when the connection returns.
 
@@ -644,6 +690,26 @@ Verification included:
 * Connection was restored without manually refreshing the page.
 * Dashboard automatically triggered a data refresh when the connection returned.
 
+### PWA Run and Installation
+
+To test the PWA installation, first create the production build and then start the Vite production preview:
+
+```bash
+npm run build
+npm run preview
+```
+
+Open the preview URL shown in the terminal, usually:
+
+```text
+http://localhost:4173
+```
+
+The browser will show the PWA install option when the application meets the browser's installability requirements.
+
+> **Note:** `npm run dev` is used for normal development, but PWA installation and service-worker behavior should be verified using the production build with `npm run preview`.
+
+
 ### Lighthouse Audit
 
 A Lighthouse audit was run against the production preview of the dashboard using Lighthouse **13.4.1** with mobile emulation.
@@ -670,6 +736,7 @@ A GraphQL schema was added under:
 The schema defines the dashboard data required by the application, including:
 
 * KPIs
+* Inventory
 * Inventory health
 * Forecast series
 * Forecast accuracy
@@ -859,7 +926,7 @@ Playwright is configured to run headlessly.
 
 * Vitest: **124/124 passing**
 * Playwright: **3/3 passing**
-* Combined: **127/127 passing**
+* Combined: **124/124 Vitest + 3/3 Playwright = 127/127 passing**
 
 
 
