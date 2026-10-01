@@ -1,6 +1,11 @@
 import joblib
 
 from src.data import load_dataset
+from src.route_insights import (
+    build_route_insights,
+    get_slowest_routes,
+    generate_route_findings,
+)
 from src.features import (
     build_eta_features,
     save_eta_features,
@@ -13,10 +18,13 @@ from src.preprocess import (
 from src.split import chronological_split
 from src.train import (
     train_model,
+    check_production_calibration,
     CALIBRATION_MODEL_PATH,
 )
+
 from src.evaluate import evaluate_model
 from src.paths import ensure_directories
+
 from src.mlflow_tracking import (
     setup_mlflow,
     start_run,
@@ -50,14 +58,45 @@ def main():
         datasets = load_dataset()
 
         # -----------------------------------------------------
-        # 5. Extract ETA features
+        # 5. Generate route-level insights
+        # -----------------------------------------------------
+        route_insights = build_route_insights(
+            datasets,
+            min_orders=10,
+        )
+
+        print("\nTop Slowest Routes")
+        print("==================")
+
+        slowest_routes = get_slowest_routes(
+            route_insights,
+            top_n=10,
+        )
+
+        print(
+            slowest_routes.to_string(index=False)
+        )
+
+        print("\nRoute Findings")
+        print("==============")
+
+        findings = generate_route_findings(
+            route_insights,
+            top_n=5,
+        )
+
+        for finding in findings:
+            print(f"- {finding}")
+
+        # -----------------------------------------------------
+        # 6. Extract ETA features
         # -----------------------------------------------------
         features = build_eta_features(
             datasets
         )
 
         # -----------------------------------------------------
-        # 6. Save extracted feature dataset
+        # 7. Save extracted feature dataset
         # -----------------------------------------------------
         output_path = save_eta_features(
             features
@@ -67,14 +106,14 @@ def main():
         print(f"  {output_path}")
 
         # -----------------------------------------------------
-        # 7. Inspect, validate and clean
+        # 8. Inspect, validate and clean
         # -----------------------------------------------------
         features = preprocess_features(
             features
         )
 
         # -----------------------------------------------------
-        # 8. Chronological 80/20 split
+        # 9. Chronological 80/20 split
         # -----------------------------------------------------
         split = chronological_split(
             features=features,
@@ -83,7 +122,7 @@ def main():
         )
 
         # -----------------------------------------------------
-        # 9. Prepare training data
+        # 10. Prepare training data
         # -----------------------------------------------------
         X_train = split.train[
             MODEL_FEATURES
@@ -94,7 +133,7 @@ def main():
         ].copy()
 
         # -----------------------------------------------------
-        # 10. Train and save model
+        # 11. Train and save model
         #
         # train_model() also creates the prediction
         # interval calibration artifact.
@@ -105,7 +144,7 @@ def main():
         )
 
         # -----------------------------------------------------
-        # 11. Log actual trained model parameters
+        # 12. Log actual trained model parameters
         #
         # MLflow reads the parameters from the trained model
         # instead of maintaining a separate hardcoded copy.
@@ -115,7 +154,7 @@ def main():
         )
 
         # -----------------------------------------------------
-        # 12. Load calibration metadata
+        # 13. Load calibration metadata
         # -----------------------------------------------------
         if not CALIBRATION_MODEL_PATH.exists():
             raise FileNotFoundError(
@@ -129,14 +168,25 @@ def main():
         )
 
         # -----------------------------------------------------
-        # 13. Log calibration metadata to MLflow
+        # 14. Production calibration safety gate
+        #
+        # Refuse to continue if the prediction interval was
+        # calibrated on too few rows, which could indicate
+        # accidental training on test fixture data.
+        # -----------------------------------------------------
+        check_production_calibration(
+            calibration
+        )
+
+        # -----------------------------------------------------
+        # 15. Log calibration metadata to MLflow
         # -----------------------------------------------------
         log_calibration_metadata(
             calibration
         )
 
         # -----------------------------------------------------
-        # 14. Log trained model to MLflow
+        # 16. Log trained model to MLflow
         # -----------------------------------------------------
         model_info = log_model(
             model
@@ -148,7 +198,7 @@ def main():
         )
 
         # -----------------------------------------------------
-        # 15. Evaluate model against naive baseline
+        # 17. Evaluate model against naive baseline
         # -----------------------------------------------------
         results = evaluate_model(
             model,
@@ -157,14 +207,14 @@ def main():
         )
 
         # -----------------------------------------------------
-        # 16. Log evaluation metrics
+        # 18. Log evaluation metrics
         # -----------------------------------------------------
         log_metrics(
             results
         )
 
         # -----------------------------------------------------
-        # 17. Log dataset/split metadata
+        # 19. Log dataset/split metadata
         # -----------------------------------------------------
         log_dataset_metadata(
             features=features,
@@ -174,7 +224,7 @@ def main():
         )
 
         # -----------------------------------------------------
-        # 18. Report prediction interval calibration
+        # 20. Report prediction interval calibration
         # -----------------------------------------------------
         print("\nPrediction Interval Calibration")
         print("================================")
@@ -195,6 +245,11 @@ def main():
         )
 
         print(
+            "\nTraining rows:"
+            f" {calibration['training_rows']}"
+        )
+
+        print(
             "\nResidual lower bound:"
             f" {calibration['residual_lower']:.4f} days"
         )
@@ -205,7 +260,7 @@ def main():
         )
 
         # -----------------------------------------------------
-        # 19. Report chronological split
+        # 21. Report chronological split
         # -----------------------------------------------------
         print("\nChronological Split")
         print("===================")
