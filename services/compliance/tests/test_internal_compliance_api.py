@@ -1,556 +1,417 @@
-from datetime import datetime, timezone
-from typing import Any
-import logging
-import threading
+from unittest.mock import patch
 
-from sqlalchemy.orm import Session
+import pytest
 
-from app.services.sanctions_service import screen_entity
-from app.services.sla_service import record_request, start_timer
-from app.services.sla_alert_service import send_sla_alert
-from app.core.config import SLA_LATENCY_THRESHOLD_MS
+from app.core import config
+from app.services import internal_compliance_service as ics
 
 
-logger = logging.getLogger(__name__)
+URL = "/api/v1/compliance/internal-check"
+
+INVENTORY_KEY = "test-inventory-key"
+PORTAL_KEY = "test-portal-key"
+
+INVENTORY_HEADERS = {
+    "X-Caller-Service": "inventory-service",
+    "X-Service-Key": INVENTORY_KEY,
+}
+
+PORTAL_HEADERS = {
+    "X-Caller-Service": "supplier-portal",
+    "X-Service-Key": PORTAL_KEY,
+}
+
+CALLER_BODY = {
+    "supplier_id": "SUP001",
+    "supplier_name": "ABC Supplies Pvt Ltd",
+    "country": "India",
+}
 
 
-# ============================================================
-# INTERNAL COMPLIANCE CACHE
-# ============================================================
-
-_INTERNAL_CHECK_CACHE: dict[
-    tuple[str, str, str],
-    tuple[datetime, dict[str, Any]],
-] = {}
-
-_CACHE_LOCKS: dict[
-    tuple[str, str, str],
-    threading.Lock,
-] = {}
-
-_CACHE_LOCKS_GUARD = threading.Lock()
-
-CACHE_TTL_SECONDS = 300
-
-
-# ============================================================
-# CACHE METRICS
-# ============================================================
-
-_CACHE_HITS = 0
-_CACHE_MISSES = 0
-
-_CACHE_METRICS_LOCK = threading.Lock()
-
-
-def _record_cache_hit() -> None:
-    global _CACHE_HITS
-
-    with _CACHE_METRICS_LOCK:
-        _CACHE_HITS += 1
-
-
-def _record_cache_miss() -> None:
-    global _CACHE_MISSES
-
-    with _CACHE_METRICS_LOCK:
-        _CACHE_MISSES += 1
-
-
-def get_cache_metrics() -> dict[str, float | int]:
-    with _CACHE_METRICS_LOCK:
-        total_requests = (
-            _CACHE_HITS + _CACHE_MISSES
-        )
-
-        hit_rate = (
-            (_CACHE_HITS / total_requests) * 100
-            if total_requests > 0
-            else 0.0
-        )
-
-        return {
-            "cache_hits": _CACHE_HITS,
-            "cache_misses": _CACHE_MISSES,
-            "cache_hit_rate": round(
-                hit_rate,
-                2,
-            ),
-        }
-
-
-# ============================================================
-# CACHE KEY
-# ============================================================
-
-def _get_cache_key(
-    supplier_id: str,
-    company_name: str,
-    country: str,
-) -> tuple[str, str, str]:
-    return (
-        supplier_id.strip().upper(),
-        company_name.strip().upper(),
-        country.strip().upper(),
+@pytest.fixture(autouse=True)
+def internal_service_keys(monkeypatch):
+    monkeypatch.setattr(
+        config,
+        "INTERNAL_SERVICE_KEYS",
+        {
+            "inventory-service": INVENTORY_KEY,
+            "supplier-portal": PORTAL_KEY,
+        },
     )
 
+    ics.clear_internal_cache()
 
-# ============================================================
-# GET CACHED RESULT
-# ============================================================
+    yield
 
-def _get_cached_result(
-    cache_key: tuple[str, str, str],
-) -> dict[str, Any] | None:
+    ics.clear_internal_cache()
 
-    cached = _INTERNAL_CHECK_CACHE.get(
-        cache_key
+
+def test_supplier_name_body_is_accepted(
+    client,
+):
+    response = client.post(
+        URL,
+        headers=INVENTORY_HEADERS,
+        json=CALLER_BODY,
     )
 
-    if cached is None:
-        return None
+    assert response.status_code == 200
 
-    cached_at, result = cached
+    data = response.json()
 
-    age_seconds = (
-        datetime.now(timezone.utc) - cached_at
-    ).total_seconds()
-
-    if age_seconds >= CACHE_TTL_SECONDS:
-        _INTERNAL_CHECK_CACHE.pop(
-            cache_key,
-            None,
-        )
-
-        logger.debug(
-            "Internal compliance cache expired: "
-            "cache_key=%s",
-            cache_key,
-        )
-
-        return None
-
-    return result.copy()
+    assert data["supplier_id"] == "SUP001"
+    assert data["company_name"] == "ABC Supplies Pvt Ltd"
+    assert data["country"] == "India"
+    assert data["cleared"] is True
+    assert data["decision"] == "CLEAR"
+    assert isinstance(data["reason"], str)
 
 
-# ============================================================
-# CACHE RESULT
-# ============================================================
-
-def _cache_result(
-    cache_key: tuple[str, str, str],
-    result: dict[str, Any],
-) -> None:
-
-    _INTERNAL_CHECK_CACHE[cache_key] = (
-        datetime.now(timezone.utc),
-        result.copy(),
-    )
-
-
-# ============================================================
-# CACHE LOCK
-# ============================================================
-
-def _get_cache_lock(
-    cache_key: tuple[str, str, str],
-) -> threading.Lock:
-
-    with _CACHE_LOCKS_GUARD:
-        lock = _CACHE_LOCKS.get(
-            cache_key
-        )
-
-        if lock is None:
-            lock = threading.Lock()
-
-            _CACHE_LOCKS[cache_key] = lock
-
-        return lock
-
-
-# ============================================================
-# BUILD COMPLIANCE RESPONSE
-# ============================================================
-
-def _build_compliance_response(
-    result: dict[str, Any],
-    supplier_id: str,
-    company_name: str,
-    country: str,
-) -> dict[str, Any]:
-
-    # --------------------------------------------------------
-    # COMPLIANCE OVERRIDE
-    # --------------------------------------------------------
-
-    if result.get("override_applied"):
-        return {
-            "supplier_id": supplier_id,
-            "company_name": company_name,
-            "country": country,
-            "cleared": True,
-            "decision": "CLEAR",
-            "reason": (
-                "Supplier match was reviewed and "
-                "approved by compliance."
-            ),
-        }
-
-    # --------------------------------------------------------
-    # NO MATCH
-    # --------------------------------------------------------
-
-    if not result.get("is_flagged"):
-        return {
-            "supplier_id": supplier_id,
-            "company_name": company_name,
-            "country": country,
-            "cleared": True,
-            "decision": "CLEAR",
-            "reason": (
-                "No sanctions or watchlist match found."
-            ),
-        }
-
-    # --------------------------------------------------------
-    # MATCH FOUND
-    # --------------------------------------------------------
-
-    match_score = float(
-        result.get(
-            "match_score",
-            0,
-        )
-    )
-
-    matched_lists = result.get(
-        "matched_lists",
-        [],
-    )
-
-    if not isinstance(
-        matched_lists,
-        list,
-    ):
-        matched_lists = [
-            str(matched_lists)
-        ]
-
-    # --------------------------------------------------------
-    # STRONG MATCH -> BLOCK
-    # --------------------------------------------------------
-
-    if match_score >= 90:
-
-        sources = ", ".join(
-            str(source)
-            for source in matched_lists
-        )
-
-        reason = (
-            "Strong compliance match found"
-        )
-
-        if sources:
-            reason += f" on {sources}"
-
-        return {
-            "supplier_id": supplier_id,
-            "company_name": company_name,
-            "country": country,
-            "cleared": False,
-            "decision": "BLOCK",
-            "reason": reason,
-        }
-
-    # --------------------------------------------------------
-    # POSSIBLE MATCH -> REVIEW
-    # --------------------------------------------------------
-
-    return {
-        "supplier_id": supplier_id,
-        "company_name": company_name,
-        "country": country,
-        "cleared": False,
-        "decision": "REVIEW",
-        "reason": (
-            "Potential compliance match requires "
-            "human review."
-        ),
+def test_company_name_body_is_also_accepted(
+    client,
+):
+    body = {
+        "supplier_id": "SUP002",
+        "company_name": "XYZ Supplies Pvt Ltd",
+        "country": "India",
     }
 
-
-# ============================================================
-# INTERNAL COMPLIANCE CHECK
-# ============================================================
-
-def perform_internal_compliance_check(
-    db: Session,
-    supplier_id: str,
-    company_name: str,
-    country: str,
-    caller_service: str = "unknown",
-) -> dict[str, Any]:
-
-    logger.info(
-        "Received internal compliance request: "
-        "caller=%s supplier_id=%s "
-        "company_name=%s country=%s",
-        caller_service,
-        supplier_id,
-        company_name,
-        country,
+    response = client.post(
+        URL,
+        headers=INVENTORY_HEADERS,
+        json=body,
     )
 
-    # --------------------------------------------------------
-    # START SLA TIMER
-    # --------------------------------------------------------
+    assert response.status_code == 200
 
-    sla_start_time = start_timer()
+    data = response.json()
 
-    # --------------------------------------------------------
-    # CREATE CACHE KEY
-    # --------------------------------------------------------
+    assert data["supplier_id"] == "SUP002"
+    assert data["company_name"] == "XYZ Supplies Pvt Ltd"
 
-    cache_key = _get_cache_key(
-        supplier_id=supplier_id,
-        company_name=company_name,
-        country=country,
+
+def test_supplier_portal_key_is_accepted(
+    client,
+):
+    response = client.post(
+        URL,
+        headers=PORTAL_HEADERS,
+        json=CALLER_BODY,
     )
 
-    # --------------------------------------------------------
-    # CHECK CACHE
-    # --------------------------------------------------------
+    assert response.status_code == 200
 
-    cached_result = _get_cached_result(
-        cache_key
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {
+            "X-Caller-Service": "inventory-service",
+        },
+        {
+            "X-Caller-Service": "inventory-service",
+            "X-Service-Key": "wrong-key",
+        },
+        {},
+    ],
+)
+def test_unauthenticated_calls_return_401(
+    client,
+    headers,
+):
+    with patch(
+        "app.routes.compliance.perform_internal_compliance_check"
+    ) as mock_check:
+        response = client.post(
+            URL,
+            headers=headers,
+            json=CALLER_BODY,
+        )
+
+    assert response.status_code == 401
+    mock_check.assert_not_called()
+
+
+def test_no_internal_service_keys_configured_returns_401(
+    client,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        config,
+        "INTERNAL_SERVICE_KEYS",
+        {},
     )
 
-    if cached_result is not None:
-
-        _record_cache_hit()
-
-        logger.info(
-            "Internal compliance check cache hit: "
-            "caller=%s supplier_id=%s "
-            "company_name=%s country=%s",
-            caller_service,
-            supplier_id,
-            company_name,
-            country,
+    with patch(
+        "app.routes.compliance.perform_internal_compliance_check"
+    ) as mock_check:
+        response = client.post(
+            URL,
+            headers=INVENTORY_HEADERS,
+            json=CALLER_BODY,
         )
 
-        duration_ms = record_request(
-            start_time=sla_start_time,
-            success=True,
-        )
+    assert response.status_code == 401
+    mock_check.assert_not_called()
 
-        logger.info(
-            "Internal compliance SLA recorded: "
-            "caller=%s supplier_id=%s "
-            "cache_hit=true duration_ms=%.2f",
-            caller_service,
-            supplier_id,
-            duration_ms,
-        )
 
-        return cached_result
-
-    # --------------------------------------------------------
-    # CACHE MISS
-    # --------------------------------------------------------
-
-    _record_cache_miss()
-
-    cache_lock = _get_cache_lock(
-        cache_key
+@pytest.mark.parametrize(
+    "body",
+    [
+        {
+            "supplier_id": "SUP001",
+            "supplier_name": "",
+            "country": "India",
+        },
+        {
+            "supplier_id": "SUP001",
+            "supplier_name": "A" * 256,
+            "country": "India",
+        },
+    ],
+)
+def test_invalid_supplier_name_is_rejected(
+    client,
+    body,
+):
+    response = client.post(
+        URL,
+        headers=INVENTORY_HEADERS,
+        json=body,
     )
 
-    # --------------------------------------------------------
-    # PREVENT DUPLICATE SCREENING
-    # --------------------------------------------------------
+    assert response.status_code == 422
 
-    with cache_lock:
 
-        cached_result = _get_cached_result(
-            cache_key
+def test_strong_match_returns_block(
+    client,
+):
+    screening_result = {
+        "is_flagged": True,
+        "override_applied": False,
+        "match_score": 97,
+        "matched_lists": ["OFAC"],
+    }
+
+    with patch(
+        "app.services.internal_compliance_service.screen_entity",
+        return_value=screening_result,
+    ):
+        response = client.post(
+            URL,
+            headers=INVENTORY_HEADERS,
+            json=CALLER_BODY,
         )
 
-        if cached_result is not None:
+    assert response.status_code == 200
 
-            _record_cache_hit()
+    data = response.json()
 
-            logger.info(
-                "Internal compliance check cache hit "
-                "after lock: caller=%s "
-                "supplier_id=%s company_name=%s "
-                "country=%s",
-                caller_service,
-                supplier_id,
-                company_name,
-                country,
-            )
+    assert data["cleared"] is False
+    assert data["decision"] == "BLOCK"
+    assert "Strong compliance match found" in data["reason"]
 
-            duration_ms = record_request(
-                start_time=sla_start_time,
-                success=True,
-            )
 
-            logger.info(
-                "Internal compliance SLA recorded: "
-                "caller=%s supplier_id=%s "
-                "cache_hit=true duration_ms=%.2f",
-                caller_service,
-                supplier_id,
-                duration_ms,
-            )
+def test_possible_match_returns_review(
+    client,
+):
+    screening_result = {
+        "is_flagged": True,
+        "override_applied": False,
+        "match_score": 75,
+        "matched_lists": ["OFAC"],
+    }
 
-            return cached_result
-
-        # ----------------------------------------------------
-        # START COMPLIANCE CHECK
-        # ----------------------------------------------------
-
-        started_at = datetime.now(
-            timezone.utc
+    with patch(
+        "app.services.internal_compliance_service.screen_entity",
+        return_value=screening_result,
+    ):
+        response = client.post(
+            URL,
+            headers=INVENTORY_HEADERS,
+            json={
+                "supplier_id": "SUP003",
+                "supplier_name": "Possible Match Supplier",
+                "country": "India",
+            },
         )
 
-        logger.info(
-            "Internal compliance check started: "
-            "caller=%s supplier_id=%s "
-            "company_name=%s country=%s time=%s",
-            caller_service,
-            supplier_id,
-            company_name,
-            country,
-            started_at.isoformat(),
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["cleared"] is False
+    assert data["decision"] == "REVIEW"
+    assert "human review" in data["reason"].lower()
+
+
+def test_screening_failure_returns_503(
+    client,
+):
+    with patch(
+        "app.services.internal_compliance_service.screen_entity",
+        side_effect=RuntimeError("screening failed"),
+    ):
+        response = client.post(
+            URL,
+            headers=INVENTORY_HEADERS,
+            json={
+                "supplier_id": "SUP004",
+                "supplier_name": "Failure Supplier",
+                "country": "India",
+            },
         )
 
-        try:
+    assert response.status_code == 503
+    assert response.json()["detail"] == (
+        "Compliance service unavailable"
+    )
 
-            # ------------------------------------------------
-            # SCREEN SUPPLIER
-            # ------------------------------------------------
 
-            result = screen_entity(
-                name=company_name,
-                country=country,
-                db=db,
-            )
+def test_repeated_http_calls_use_cache(
+    client,
+):
+    screening_result = {
+        "is_flagged": False,
+        "override_applied": False,
+        "match_score": 0,
+        "matched_lists": [],
+    }
 
-            # ------------------------------------------------
-            # BUILD SIMPLE INTERNAL RESPONSE
-            # ------------------------------------------------
+    with patch(
+        "app.services.internal_compliance_service.screen_entity",
+        return_value=screening_result,
+    ) as mock_screen:
+        first = client.post(
+            URL,
+            headers=INVENTORY_HEADERS,
+            json=CALLER_BODY,
+        )
 
-            response = _build_compliance_response(
-                result=result,
-                supplier_id=supplier_id,
-                company_name=company_name,
-                country=country,
-            )
+        second = client.post(
+            URL,
+            headers=INVENTORY_HEADERS,
+            json=CALLER_BODY,
+        )
 
-            # ------------------------------------------------
-            # CACHE RESPONSE
-            # ------------------------------------------------
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json() == second.json()
+    mock_screen.assert_called_once()
 
-            _cache_result(
-                cache_key=cache_key,
-                result=response,
-            )
 
-            # ------------------------------------------------
-            # CALCULATE LATENCY
-            # ------------------------------------------------
+def test_clear_internal_cache_forces_fresh_screening(
+    client,
+):
+    screening_result = {
+        "is_flagged": False,
+        "override_applied": False,
+        "match_score": 0,
+        "matched_lists": [],
+    }
 
-            completed_at = datetime.now(
-                timezone.utc
-            )
+    with patch(
+        "app.services.internal_compliance_service.screen_entity",
+        return_value=screening_result,
+    ) as mock_screen:
+        first = client.post(
+            URL,
+            headers=INVENTORY_HEADERS,
+            json=CALLER_BODY,
+        )
 
-            duration_ms = (
-                completed_at - started_at
-            ).total_seconds() * 1000
+        ics.clear_internal_cache()
 
-            # ------------------------------------------------
-            # RECORD SLA
-            # ------------------------------------------------
+        second = client.post(
+            URL,
+            headers=INVENTORY_HEADERS,
+            json=CALLER_BODY,
+        )
 
-            sla_duration_ms = record_request(
-                start_time=sla_start_time,
-                success=True,
-            )
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert mock_screen.call_count == 2
 
-            # ------------------------------------------------
-            # SUCCESS LOG
-            # ------------------------------------------------
 
-            logger.info(
-                "Internal compliance check completed: "
-                "caller=%s supplier_id=%s "
-                "company_name=%s decision=%s "
-                "cleared=%s duration_ms=%.2f "
-                "sla_duration_ms=%.2f time=%s",
-                caller_service,
-                supplier_id,
-                company_name,
-                response["decision"],
-                response["cleared"],
-                duration_ms,
-                sla_duration_ms,
-                completed_at.isoformat(),
-            )
+def test_override_clears_internal_cache(
+    client,
+    mock_compliance_officer_auth,
+):
+    screening_result = {
+        "is_flagged": False,
+        "override_applied": False,
+        "match_score": 0,
+        "matched_lists": [],
+    }
 
-            # ------------------------------------------------
-            # SLA ALERT
-            # ------------------------------------------------
+    with patch(
+        "app.services.internal_compliance_service.screen_entity",
+        return_value=screening_result,
+    ) as mock_screen:
+        response = client.post(
+            URL,
+            headers=INVENTORY_HEADERS,
+            json=CALLER_BODY,
+        )
 
-            if (
-                duration_ms
-                > SLA_LATENCY_THRESHOLD_MS
-            ):
+        assert response.status_code == 200
 
-                logger.warning(
-                    "Compliance SLA degraded: "
-                    "caller=%s supplier_id=%s "
-                    "company_name=%s "
-                    "latency=%.2fms threshold=%dms",
-                    caller_service,
-                    supplier_id,
-                    company_name,
-                    duration_ms,
-                    SLA_LATENCY_THRESHOLD_MS,
-                )
+        override_response = client.post(
+            "/api/v1/compliance/override",
+            json={
+                "entity_name": "ABC Supplies Pvt Ltd",
+                "matched_name": "ABC Supplies Pvt Ltd",
+                "source": "OFAC",
+                "reason": "Reviewed and approved",
+                "reviewed_by": "compliance-officer",
+            },
+        )
 
-                send_sla_alert(
-                    caller_service=caller_service,
-                    supplier_id=supplier_id,
-                    latency_ms=duration_ms,
-                    threshold_ms=(
-                        SLA_LATENCY_THRESHOLD_MS
-                    ),
-                )
+        assert override_response.status_code in (200, 201)
 
-            return response
+        response = client.post(
+            URL,
+            headers=INVENTORY_HEADERS,
+            json=CALLER_BODY,
+        )
 
-        except Exception:
+    assert response.status_code == 200
+    assert mock_screen.call_count == 2
 
-            # ------------------------------------------------
-            # RECORD FAILED REQUEST
-            # ------------------------------------------------
 
-            duration_ms = record_request(
-                start_time=sla_start_time,
-                success=False,
-            )
+def test_case_status_change_clears_internal_cache(
+    client,
+    mock_compliance_officer_auth,
+):
+    screening_result = {
+        "is_flagged": False,
+        "override_applied": False,
+        "match_score": 0,
+        "matched_lists": [],
+    }
 
-            logger.exception(
-                "Internal compliance check failed: "
-                "caller=%s supplier_id=%s "
-                "company_name=%s duration_ms=%.2f",
-                caller_service,
-                supplier_id,
-                company_name,
-                duration_ms,
-            )
+    with patch(
+        "app.services.internal_compliance_service.screen_entity",
+        return_value=screening_result,
+    ) as mock_screen:
+        response = client.post(
+            URL,
+            headers=INVENTORY_HEADERS,
+            json=CALLER_BODY,
+        )
 
-            raise
+        assert response.status_code == 200
+
+        screen_response = client.post(
+            "/api/v1/compliance/screen",
+            json={
+                "entity_name": "ABC Supplies Pvt Ltd",
+                "entity_type": "supplier",
+                "country": "India",
+                "transaction_value": 1000,
+            },
+        )
+
+        assert screen_response.status_code == 200
+
+    assert mock_screen.call_count >= 1

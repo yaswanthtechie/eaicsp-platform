@@ -214,6 +214,35 @@ SLA_ALERT_WEBHOOK_URL = os.getenv(
     "SLA_ALERT_WEBHOOK_URL",
 )
 
+SLA_ALERT_COOLDOWN_SECONDS = float(
+    os.getenv(
+        "SLA_ALERT_COOLDOWN_SECONDS",
+        "300",
+    )
+)
+
+
+INTERNAL_BLOCK_MATCH_SCORE = float(
+    os.getenv(
+        "INTERNAL_BLOCK_MATCH_SCORE",
+        "90",
+    )
+)
+
+
+INTERNAL_SERVICE_KEYS = {
+    name.strip(): key.strip()
+    for name, _, key in (
+        item.partition(":")
+        for item in os.getenv(
+            "INTERNAL_SERVICE_KEYS",
+            "",
+        ).split(",")
+        if item.strip()
+    )
+    if name.strip() and key.strip()
+}
+
 OFAC_DOWNLOAD_URL = os.getenv(
     "OFAC_DOWNLOAD_URL",
     "https://sanctionslistservice.ofac.treas.gov/"

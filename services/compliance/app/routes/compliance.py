@@ -4,13 +4,15 @@ from fastapi import (
     Depends,
     Query,
     HTTPException,
-    Request,
 )
 
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.dependency import require_roles
+from app.core.dependency import (
+    require_roles,
+    verify_internal_caller,
+)
 
 from app.schemas.compliance import (
     ComplianceRequest,
@@ -62,6 +64,7 @@ from app.services.reporting_service import (
 )
 
 from app.services.internal_compliance_service import (
+    clear_internal_cache,
     perform_internal_compliance_check,
 )
 
@@ -167,33 +170,12 @@ def bulk_screen(
     response_model=InternalComplianceResponse,
     tags=["Internal Integration"],
 )
-async def internal_compliance_check(
+def internal_compliance_check(
     request: InternalComplianceRequest,
-    http_request: Request,
     db: Session = Depends(get_db),
+    caller_service: str = Depends(verify_internal_caller),
 ):
-    caller_service = http_request.headers.get(
-        "X-Caller-Service"
-    )
-
-    if not caller_service:
-        logger.warning(
-            "Internal compliance request missing "
-            "X-Caller-Service"
-        )
-
-        caller_service = "unknown"
-
-    caller_service = caller_service.strip()
-
-    if not caller_service:
-        logger.warning(
-            "Internal compliance request provided "
-            "an empty X-Caller-Service"
-        )
-
-        caller_service = "unknown"
-
+   
     logger.info(
         "Internal compliance request received: "
         "caller=%s supplier_id=%s",
@@ -211,7 +193,6 @@ async def internal_compliance_check(
         )
 
     except HTTPException:
-        # Preserve intentional HTTP errors raised by the service.
         raise
 
     except Exception:
@@ -298,6 +279,8 @@ def add_override(
         reason=request.reason,
         reviewed_by=request.reviewed_by,
     )
+
+    clear_internal_cache()
 
     return override
 
@@ -507,7 +490,7 @@ def update_case_status(
         )
 
     try:
-        return transition_case(
+        updated_case = transition_case(
             db=db,
             case=case,
             new_status=new_status.strip().upper(),
@@ -521,6 +504,11 @@ def update_case_status(
             status_code=400,
             detail=str(exc),
         )
+
+    
+    clear_internal_cache()
+
+    return updated_case
 
 
 @router.get(

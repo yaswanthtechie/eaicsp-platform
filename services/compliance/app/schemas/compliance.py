@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Literal
 
 from pydantic import (
+    AliasChoices,
     BaseModel,
     Field,
     field_validator,
@@ -358,10 +359,16 @@ class ComplianceSummaryResponse(BaseModel):
     average_resolution_time_hours: float
 
 class InternalComplianceRequest(BaseModel):
+    """
+    Internal contract used by Inventory (Balaji) and Supplier Portal
+    (Rashida). Both send the supplier's name as `supplier_name`;
+    `company_name` is also accepted so older callers keep working.
+    """
 
     supplier_id: str = Field(
         ...,
         min_length=1,
+        max_length=100,
         json_schema_extra={
             "example": "SUP-001",
         },
@@ -370,6 +377,11 @@ class InternalComplianceRequest(BaseModel):
     company_name: str = Field(
         ...,
         min_length=1,
+        max_length=255,
+        validation_alias=AliasChoices(
+            "supplier_name",
+            "company_name",
+        ),
         json_schema_extra={
             "example": "ABC Supplies",
         },
@@ -378,11 +390,11 @@ class InternalComplianceRequest(BaseModel):
     country: str = Field(
         ...,
         min_length=1,
+        max_length=100,
         json_schema_extra={
             "example": "India",
         },
     )
-
 
 class InternalComplianceResponse(BaseModel):
 

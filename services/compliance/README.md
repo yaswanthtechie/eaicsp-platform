@@ -1,14 +1,33 @@
 # Compliance Screening Service
 
-A **FastAPI-based Compliance Screening Service** for screening supplier and customer entities against sanctions lists, internal watchlists, and PEP data.
+A **FastAPI-based Compliance Screening Service** for screening suppliers and customers against sanctions lists, internal watchlists, and PEP data.
 
-The service supports multi-source screening, exact and fuzzy name matching, risk-based screening tiers, compliance case management, audit history, reporting, sanctions-data refresh, scheduled re-screening, and service-to-service authentication.
+The service provides:
 
+* Multi-source sanctions screening
+* Exact and fuzzy name matching
+* Risk-based screening tiers
+* Country and transaction-value risk assessment
+* Compliance case management
+* Audit history and reporting
+* False-positive overrides
+* Sanctions-data refresh
+* Scheduled re-screening
+* Newly flagged detection
+* Human authentication and role-based authorization
+* Service-to-service authentication
+* Internal compliance checks for business workflows
+* Internal compliance caching
+* SLA and latency monitoring
+* SLA alerting
+* Regulatory reporting and jurisdiction-specific rules
+* Fixture-based and integration testing
 
+---
 
-# Overview
+# 1. Overview
 
-The Compliance Screening Service is responsible for identifying potentially risky suppliers and customers before or during business operations.
+The Compliance Service identifies potentially risky suppliers and customers before or during business operations.
 
 The service screens entities against:
 
@@ -52,25 +71,33 @@ Save Audit Record
 Return Response
 ```
 
-The service uses:
+---
 
-* FastAPI
-* SQLAlchemy
-* SQLite
-* RapidFuzz
-* APScheduler
-* HTTPX
-* JWT-based authentication
-* Platform Service authentication
-* Service API-key authentication
+# 2. Technology Stack
+
+The service currently uses:
+
+```text
+Python
+FastAPI
+SQLAlchemy
+SQLite
+RapidFuzz
+APScheduler
+HTTPX
+Pydantic
+JWT authentication
+Service API-key authentication
+Pytest
+```
+
+SQLite is currently used for development and testing.
 
 ---
 
+# 3. Features
 
-
-# Features
-
-The service currently supports:
+## Screening
 
 * OFAC screening
 * UN screening
@@ -82,36 +109,61 @@ The service currently supports:
 * Fuzzy name matching
 * Match deduplication
 * Confidence calculation
-* Sanctions risk scoring
-* Country risk assessment
-* Transaction-value risk assessment
+
+## Risk Assessment
+
+* Match confidence
+* Source coverage
+* Listing recency
+* Country risk
+* Transaction-value risk
+* Overall supplier risk
 * Risk-based screening tiers
 * Tier-specific matching thresholds
-* False-positive overrides
-* Bulk screening
-* Audit history
-* Audit analytics
+* Configurable risk weights
+
+## Compliance Operations
+
 * Compliance case management
 * Case assignment
 * Case state machine
 * Case history
 * Resolution reasons
+* False-positive overrides
+* Bulk screening
+* Audit history
+* Audit analytics
 * Compliance reporting
-* Sanctions data refresh
-* Re-screening
-* Newly flagged detection
+
+## Data Management
+
+* Sanctions-data refresh
 * Scheduled re-screening
-* JWT authentication
+* Newly flagged detection
+* Newly flagged case creation
+
+## Integration
+
+* Platform/Auth Service integration
+* Human JWT authentication
 * Role-based authorization
-* Platform Service integration
+* Internal service-to-service authentication
 * Service API-key authentication
-* Fixture-based testing
-* Integration testing
-* Performance testing
+* Internal compliance endpoint
+* Internal compliance caching
+* Caller-service logging
 
+## Monitoring
 
+* Request latency tracking
+* Request count
+* Error tracking
+* SLA monitoring
+* Rate-limited background SLA alerts
 
-# Multi-Source Screening
+---
+
+# 4. Multi-Source Screening
 
 The service combines multiple compliance data sources into a single screening process.
 
@@ -125,9 +177,9 @@ Internal Watchlist
 PEP
 ```
 
-A single entity can match more than one source.
+A single entity can match multiple sources.
 
-For example:
+Example:
 
 ```json
 {
@@ -139,27 +191,27 @@ For example:
 }
 ```
 
-This allows downstream compliance users to understand which sources contributed to the match.
+Source attribution is preserved so downstream users can determine which compliance sources contributed to a match.
 
 ---
 
-# Matching and Deduplication
+# 5. Matching and Deduplication
 
 ## Name Normalization
 
 Entity names are normalized before matching.
 
-Examples of normalization include:
+Examples:
 
 ```text
-CORPORATION → CORP
-COMPANY     → CO
-LIMITED     → LTD
+CORPORATION  → CORP
+COMPANY      → CO
+LIMITED      → LTD
 INCORPORATED → INC
-&           → AND
+&            → AND
 ```
 
-Normalization helps reduce formatting differences between user input and sanctions records.
+Normalization reduces formatting differences between submitted entities and sanctions records.
 
 ## Exact Matching
 
@@ -179,11 +231,11 @@ The default matching threshold is configurable:
 MATCH_THRESHOLD=90
 ```
 
-A higher score represents a stronger similarity between the submitted entity and a sanctions/watchlist record.
+A higher score represents stronger similarity between the submitted entity and a sanctions/watchlist record.
 
 ## Deduplication
 
-Matches from different sources can represent the same underlying entity.
+Matches from different sources may represent the same underlying entity.
 
 The service deduplicates similar records using:
 
@@ -191,17 +243,15 @@ The service deduplicates similar records using:
 DEDUPE_THRESHOLD=90
 ```
 
-Source attribution is preserved after deduplication.
-
-This prevents the same entity from being counted as multiple unrelated matches.
+Source attribution is retained after deduplication.
 
 ---
 
-# Risk-Based Screening
+# 6. Risk-Based Screening
 
-The service calculates risk information in addition to the screening match result.
+The service calculates risk information in addition to the screening result.
 
-Risk-related information can include:
+Risk factors include:
 
 * Match confidence
 * Source coverage
@@ -210,32 +260,28 @@ Risk-related information can include:
 * Transaction value
 * Overall supplier risk
 
-### Risk Score Source Count
+## Risk Source Count
 
-The source-coverage component of the sanctions risk score uses `TOTAL_SOURCES=5`.
-
-The current screening process aggregates five compliance sources:
-
-- OFAC
-- UN
-- EU
-- Internal Watchlist
-- PEP
-
-The earlier implementation used three sanctions sources (OFAC, UN, and EU). The addition of Internal Watchlist and PEP changed the source-count denominator from 3 to 5.
-
-As a result, the source-coverage contribution, and therefore the overall sanctions risk score, may differ from scores produced by the earlier three-source implementation.
-
-The current default is:
+The source-coverage component uses:
 
 ```env
 TOTAL_SOURCES=5
+```
 
+The five configured sources are:
+
+```text
+OFAC
+UN
+EU
+Internal Watchlist
+PEP
+```
 ---
 
-## Sanctions Risk Score
+# 7. Sanctions Risk Score
 
-The sanctions risk score uses the following configurable weights:
+The sanctions risk score uses configurable weights.
 
 | Risk Factor      | Weight |
 | ---------------- | -----: |
@@ -255,11 +301,11 @@ The weights can be changed through environment variables.
 
 ---
 
-## Overall Supplier Risk
+# 8. Overall Supplier Risk
 
 For supplier screening, sanctions risk can be combined with country risk.
 
-Current configuration:
+Configuration:
 
 ```env
 SANCTIONS_WEIGHT=0.80
@@ -277,9 +323,9 @@ Overall Supplier Risk =
 
 ---
 
-# Screening Tiers
+# 9. Screening Tiers
 
-The service uses screening tiers to adjust screening behavior according to:
+Screening tiers are calculated using:
 
 * Country risk
 * Transaction value
@@ -288,11 +334,7 @@ The tier is calculated **before entity matching**.
 
 The higher-risk tier between country risk and transaction value is selected.
 
-
-
-## Tier Rules
-
-Country risk:
+## Country Risk Tiers
 
 ```text
 LOW
@@ -305,7 +347,7 @@ HIGH
     Country risk > 69
 ```
 
-Transaction value:
+## Transaction-Value Tiers
 
 ```text
 LOW
@@ -318,21 +360,17 @@ HIGH
     Transaction value > 5,000,000
 ```
 
-The final screening tier is the higher of the country-risk tier and transaction-value tier.
-
 ---
 
-## Tier-Specific Matching
+# 10. Tier-Specific Matching
 
-The selected tier affects the fuzzy matching threshold.
+The selected tier controls the fuzzy matching threshold.
 
 | Tier   | Match Threshold | Screening Action                      |
 | ------ | --------------: | ------------------------------------- |
 | LOW    |              90 | `STANDARD_SCREENING`                  |
 | MEDIUM |              85 | `ADDITIONAL_COMPLIANCE_REVIEW`        |
 | HIGH   |              80 | `ENHANCED_REVIEW_AND_MANUAL_APPROVAL` |
-
-A lower matching threshold makes screening more sensitive for higher-risk entities.
 
 Configuration:
 
@@ -341,8 +379,6 @@ LOW_TIER_MATCH_THRESHOLD=90
 MEDIUM_TIER_MATCH_THRESHOLD=85
 HIGH_TIER_MATCH_THRESHOLD=80
 ```
-
-The selected tier is calculated before screening and its threshold is passed to the matching engine.
 
 The screening result can include:
 
@@ -356,7 +392,7 @@ enhanced_review_required
 
 ---
 
-# Country Risk
+# 11. Country Risk
 
 Country risk is calculated for the submitted entity country.
 
@@ -367,7 +403,7 @@ The screening result can contain:
 * Country risk factors
 * Overall supplier risk
 
-Unknown countries use the configured default:
+Unknown countries use:
 
 ```env
 UNKNOWN_COUNTRY_RISK=50.0
@@ -377,7 +413,7 @@ Country risk contributes to overall supplier risk for supplier screening.
 
 ---
 
-# Case Management
+# 12. Compliance Cases
 
 Flagged screening results can create compliance cases.
 
@@ -393,11 +429,7 @@ Case management supports:
 * Tracking assignment timestamps
 * Tracking resolution timestamps
 
----
-
 ## Case Workflow
-
-Cases follow the state machine:
 
 ```text
 OPEN
@@ -417,15 +449,11 @@ UNDER_REVIEW
 CONFIRMED
 ```
 
-Invalid state transitions are rejected.
-
----
+Invalid transitions are rejected.
 
 ## Case Assignment
 
 Open and under-review cases can be assigned to compliance officers.
-
-Blank assignments are rejected.
 
 Closed cases cannot be reassigned.
 
@@ -435,8 +463,6 @@ Closed statuses are:
 CLEARED
 CONFIRMED
 ```
-
----
 
 ## Case Resolution
 
@@ -448,10 +474,6 @@ The following transitions require a reason:
 UNDER_REVIEW → CLEARED
 UNDER_REVIEW → CONFIRMED
 ```
-
-This ensures that the compliance decision contains an explanation.
-
----
 
 ## Case History
 
@@ -466,11 +488,144 @@ History can contain:
 * Comments
 * Timestamp
 
-The actor is taken from the authenticated request where applicable rather than using a fixed user identity.
+---
+
+# 13. False-Positive Overrides
+
+Fuzzy matching can produce false positives because similar names do not necessarily represent the same entity.
+
+The service supports approved false-positive overrides.
+
+Override information can include:
+
+* Entity name
+* Matched name
+* Source
+* Reason
+* Reviewed by
+* Created timestamp
+
+Available endpoints include:
+
+```text
+POST   /api/v1/compliance/override
+GET    /api/v1/compliance/override
+GET    /api/v1/compliance/overrides
+DELETE /api/v1/compliance/override
+```
+
+Override operations require:
+
+```text
+compliance_officer
+```
+
+When an override is created or changed, the internal compliance cache is cleared so callers do not continue receiving stale decisions.
 
 ---
 
-# Compliance Reporting
+# 14. Bulk Screening
+
+The service supports screening multiple entities in one request.
+
+
+Example:
+
+```powershell
+python -m pytest tests/test_sanctions.py::test_bulk_screen_500_entities -s -v
+```
+
+The target performance is:
+
+```text
+< 100 ms
+```
+
+Actual performance depends on:
+
+* Machine hardware
+* Python version
+* Dataset size
+* Database state
+* System load
+
+---
+
+# 15. Audit
+
+Each screening request is stored in the audit database.
+
+Audit records can contain:
+
+* Entity name
+* Entity type
+* Country
+* Match status
+* Matched name
+* Matched lists
+* Match score
+* Confidence
+* Sanctions risk score
+* Risk factors
+* Country risk score
+* Overall supplier risk
+* Screening type
+* Newly flagged status
+* Screening run ID
+* Service name
+* Screening duration
+* Created timestamp
+
+The current development database is:
+
+```text
+SQLite
+```
+
+---
+
+# 16. Screening Types
+
+The service supports:
+
+```text
+INITIAL
+RESCREEN
+```
+
+Re-screening records can additionally identify whether an entity became newly flagged.
+
+---
+
+# 17. Audit Summary
+
+Endpoint:
+
+```text
+GET /api/v1/compliance/audit/summary
+```
+
+The endpoint requires:
+
+```text
+compliance_officer
+```
+
+The summary can provide:
+
+* Total screenings
+* Total flagged screenings
+* Flag rate
+* Newly flagged entities
+* Initial screenings
+* Re-screenings
+* Flag rate over time
+* Frequently flagged entities
+* Country-level statistics
+
+---
+
+# 18. Compliance Reporting
 
 The service provides a compliance summary report.
 
@@ -508,153 +663,7 @@ compliance_officer
 
 ---
 
-# Audit
-
-Each screening request is stored in the audit database.
-
-The service uses:
-
-```text
-SQLite
-SQLAlchemy
-```
-
-Audit records can contain:
-
-* Entity name
-* Entity type
-* Country
-* Match status
-* Matched name
-* Matched lists
-* Match score
-* Confidence
-* Sanctions risk score
-* Risk factors
-* Country risk score
-* Overall supplier risk
-* Screening type
-* Newly flagged status
-* Screening run ID
-* Service name
-* Screening duration
-* Created timestamp
-
----
-
-## Screening Types
-
-The service supports:
-
-```text
-INITIAL
-RESCREEN
-```
-
-Re-screening records can additionally identify whether the entity became newly flagged.
-
----
-
-# Audit Summary
-
-Endpoint:
-
-```text
-GET /api/v1/compliance/audit/summary
-```
-
-The endpoint requires:
-
-```text
-compliance_officer
-```
-
-The summary can provide:
-
-* Total screenings
-* Total flagged screenings
-* Flag rate
-* Newly flagged entities
-* Initial screenings
-* Re-screenings
-* Flag rate over time
-* Frequently flagged entities
-* Country-level statistics
-
----
-
-# False-Positive Overrides
-
-Fuzzy matching can produce false positives because similar names do not always represent the same entity.
-
-The service supports approved false-positive overrides.
-
-Override information can include:
-
-* Entity name
-* Matched name
-* Source
-* Reason
-* Reviewed by
-* Created timestamp
-
-Available endpoints include:
-
-```text
-POST   /api/v1/compliance/override
-GET    /api/v1/compliance/override
-GET    /api/v1/compliance/overrides
-DELETE /api/v1/compliance/override
-```
-
-Override operations require the:
-
-```text
-compliance_officer
-```
-
-role.
-
----
-
-# Bulk Screening
-
-The service supports screening multiple entities in one request.
-
-Bulk screening:
-
-* Screens multiple entities
-* Preserves input order
-* Applies risk-based screening tiers
-* Uses the tier-specific matching threshold
-* Supports case creation for flagged entities
-* Records screening results
-
-Performance testing is included for large batches.
-
-Example:
-
-```powershell
-python -m pytest tests/test_sanctions.py::test_bulk_screen_500_entities -s -v
-```
-
-The target performance is:
-
-```text
-< 100 ms
-```
-
-Actual performance depends on:
-
-* Machine hardware
-* Python version
-* Dataset size
-* Database state
-* System load
-
----
-
-# Sanctions Data
+# 19. Sanctions Data
 
 The service supports sanctions data from:
 
@@ -683,9 +692,7 @@ app/data/fixtures/
 
 ---
 
-# Sanctions Data Refresh
-
-Sanctions data can be refreshed before re-screening.
+# 20. Sanctions Data Refresh
 
 The refresh flow is:
 
@@ -705,13 +712,13 @@ Build Index
 Ready for Screening
 ```
 
-Download URLs are configured using environment variables.
+Download URLs are configured through environment variables.
 
-The application should fail when required sanctions data cannot be loaded rather than silently treating missing data as clean.
+The application is designed to fail when required sanctions data cannot be loaded rather than silently treating missing data as clean.
 
 ---
 
-# Re-Screening
+# 21. Re-Screening
 
 The service supports re-screening entities that were previously cleared.
 
@@ -737,7 +744,7 @@ Create Case if Required
 
 The latest audit result is used when determining whether an entity is currently cleared.
 
-For example:
+Example:
 
 ```text
 ABC COMPANY → clean
@@ -747,18 +754,9 @@ ABC COMPANY → matched
 
 The latest result is `matched`, so the entity is not treated as previously cleared.
 
-If:
-
-```text
-ABC COMPANY → clean
-ABC COMPANY → clean
-```
-
-the entity can be selected for re-screening.
-
 ---
 
-## Newly Flagged Detection
+# 22. Newly Flagged Detection
 
 An entity is newly flagged when:
 
@@ -778,13 +776,13 @@ A newly flagged entity can also result in an open compliance case.
 
 ---
 
-# Scheduled Re-Screening
+# 23. Scheduled Re-Screening
 
 The service uses **APScheduler** to run re-screening automatically.
 
 The scheduled process:
 
-1. Authenticates with the Platform Service.
+1. Authenticates with the Platform/Auth Service.
 2. Refreshes sanctions data.
 3. Finds previously cleared entities.
 4. Re-screens those entities.
@@ -804,29 +802,15 @@ max_instances=1
 
 to prevent multiple instances of the same scheduled job from running simultaneously.
 
-For development and testing, a short interval can be configured.
-
-Production deployments should use an appropriate nightly schedule.
-
 ---
 
-# Service-to-Service Authentication
+# 24. Service-to-Service Authentication
 
-Scheduled re-screening is a system process rather than a human user.
+Scheduled re-screening is a system process rather than a human-user operation.
 
-Therefore, the scheduled job does not use a human JWT.
+Therefore, the scheduled job uses a service API key instead of a human JWT.
 
-Instead, the Compliance Service authenticates with the Platform/Auth Service using a service API key.
-
-The Platform/Auth Service is configured separately.
-
-Default local configuration:
-
-```text
-http://127.0.0.1:8005
-```
-
-The Compliance Service calls:
+The Compliance Service authenticates with the Platform/Auth Service using:
 
 ```text
 POST /api/v1/auth/service-verify
@@ -836,28 +820,6 @@ The API key is sent using:
 
 ```text
 X-API-Key
-```
-
----
-
-## Service Authentication Flow
-
-```text
-Scheduled Job
-      ↓
-Read Service API Key
-      ↓
-Authenticate with Platform
-      ↓
-Platform verifies API key
-      ↓
-Authentication successful?
-      ↓
-   ┌──┴──┐
-  Yes    No
-   ↓      ↓
-Run     Stop Job
-Job
 ```
 
 A successful response is expected to contain information similar to:
@@ -870,47 +832,410 @@ A successful response is expected to contain information similar to:
 }
 ```
 
-If authentication fails, the re-screening process stops.
+If authentication fails, the scheduled re-screening process stops.
 
-This provides **fail-closed behavior**.
-
----
-
-# Service API Key Configuration
-
-The real service API key must be stored outside source control.
-
-Local `.env`:
-
-```env
-PLATFORM_AUTH_URL=http://127.0.0.1:8005
-PLATFORM_SERVICE_API_KEY=<real-secret>
-```
-
-The real API key must **never be committed to Git**.
-
-The `.env.example` file should contain only a placeholder:
-
-```env
-PLATFORM_AUTH_URL=http://127.0.0.1:8005
-PLATFORM_SERVICE_API_KEY=your-compliance-service-api-key
-```
-
-The `.env` file should be included in `.gitignore`.
-
-The API key must not be:
-
-* Printed in logs
-* Added to README files
-* Added to test source code
-* Committed to Git
-* Included in API examples
-
-Automated tests use dummy values through mocking rather than requiring the developer's real API key.
+This provides fail-closed behavior.
 
 ---
 
-# Authentication and Authorization
+# 25. Internal Service-to-Service Compliance Contract
+
+The Compliance Service exposes a dedicated lightweight endpoint for internal business services.
+
+The endpoint is intentionally separate from the richer human-facing screening APIs.
+
+## Endpoint
+
+```text
+POST /api/v1/compliance/internal-check
+```
+
+Typical callers include:
+
+```text
+inventory-service
+supplier-portal
+```
+
+The endpoint is intended to provide a quick compliance decision before a protected business operation continues.
+
+---
+
+# 26. Internal Check Authentication
+
+Every internal caller must send both:
+
+```http
+X-Caller-Service: inventory-service
+X-Service-Key: <this service's key>
+Content-Type: application/json
+```
+
+For Supplier Portal:
+
+```http
+X-Caller-Service: supplier-portal
+X-Service-Key: <this service's key>
+Content-Type: application/json
+```
+
+The Compliance Service validates:
+
+```text
+X-Caller-Service
+X-Service-Key
+```
+
+before performing the compliance screening.
+
+Missing, unknown, or invalid service keys return:
+
+```text
+401 Unauthorized
+```
+
+The actual service keys must be stored securely in environment variables.
+
+They must never be committed to source control.
+
+---
+
+# 27. Internal Check Request
+
+The current request contract is:
+
+```json
+{
+  "supplier_id": "SUP001",
+  "company_name": "ABC Supplies Pvt Ltd",
+  "country": "India"
+}
+```
+
+The request supports both:
+
+```text
+supplier_name
+company_name
+```
+
+as compatible input names for the company-name field.
+
+The service normalizes the supplied information before screening.
+
+---
+
+# 28. Internal Check Response
+
+The response contains:
+
+```text
+supplier_id
+company_name
+country
+cleared
+decision
+reason
+```
+
+The decision can be:
+
+```text
+CLEAR
+BLOCK
+REVIEW
+```
+
+Example:
+
+```json
+{
+  "supplier_id": "SUP001",
+  "company_name": "ABC Supplies Pvt Ltd",
+  "country": "India",
+  "cleared": true,
+  "decision": "CLEAR",
+  "reason": "No sanctions or watchlist match found."
+}
+```
+
+Blocked result:
+
+```json
+{
+  "supplier_id": "SUP001",
+  "company_name": "ABC Supplies Pvt Ltd",
+  "country": "India",
+  "cleared": false,
+  "decision": "BLOCK",
+  "reason": "Entity matched a sanctions or compliance list."
+}
+```
+
+Review result:
+
+```json
+{
+  "supplier_id": "SUP001",
+  "company_name": "ABC Supplies Pvt Ltd",
+  "country": "India",
+  "cleared": false,
+  "decision": "REVIEW",
+  "reason": "Potential compliance match requires human review."
+}
+```
+
+The `decision` field is the authoritative field for callers.
+
+---
+
+# 29. Internal Decision Semantics
+
+## CLEAR
+
+The screening did not identify a compliance concern requiring further action.
+
+The caller may continue the business operation.
+
+## BLOCK
+
+The screening identified a result that requires the caller to stop or reject the protected operation.
+
+The caller must not continue the protected operation.
+
+## REVIEW
+
+The screening result is ambiguous or requires human investigation.
+
+`REVIEW` does **not** mean that the entity has been confirmed as prohibited.
+
+It means that the Compliance Service cannot safely provide an automatic `CLEAR` decision.
+
+The entity must be reviewed by an authorized compliance officer.
+
+---
+
+# 30. Caller Behavior
+
+Internal callers must evaluate the `decision` field.
+
+They must **not** interpret:
+
+```text
+cleared=false
+```
+
+as an automatic block.
+
+Expected behavior:
+
+| Decision | Caller Action                                      |
+| -------- | -------------------------------------------------- |
+| `CLEAR`  | Continue operation                                 |
+| `BLOCK`  | Stop / reject operation                            |
+| `REVIEW` | Hold operation and request human compliance review |
+
+Callers must not implement:
+
+```text
+cleared == false → BLOCK
+```
+
+Instead:
+
+```text
+decision == "CLEAR"
+decision == "BLOCK"
+decision == "REVIEW"
+```
+
+---
+
+# 31. Internal Compliance Cache
+
+Internal compliance checks use a short-lived cache.
+
+Default TTL:
+
+```text
+300 seconds
+```
+
+Configuration:
+
+```env
+CACHE_TTL_SECONDS=300
+```
+
+The cache key is based on normalized supplier information:
+
+```text
+supplier_id
+company_name
+country
+```
+
+Example:
+
+```text
+Request 1
+   ↓
+SUP-001
+   ↓
+Perform screening
+   ↓
+Store result
+
+Request 2
+   ↓
+SUP-001
+   ↓
+Cache hit
+   ↓
+Return cached result
+```
+
+The cache reduces redundant screening when multiple internal services request the same supplier within a short period.
+
+---
+
+# 32. Internal Cache Invalidation
+
+The cache is cleared when a compliance officer changes a decision through supported officer operations.
+
+Cache invalidation occurs after:
+
+```text
+Override changes
+Case-status changes
+```
+
+This prevents callers from receiving stale `CLEAR`, `BLOCK`, or `REVIEW` decisions after a compliance decision changes.
+
+The cache can also be explicitly cleared by the internal service implementation when required.
+
+---
+
+# 33. Internal Caller Logging
+
+The verified caller identity from:
+
+```text
+X-Caller-Service
+```
+
+is recorded in internal compliance request and response logs.
+
+This allows requests to be traced back to the calling service.
+
+Examples:
+
+```text
+inventory-service
+supplier-portal
+```
+
+Service keys themselves are not logged.
+
+---
+
+# 34. Internal Contract Status
+
+| Milestone                   | Status                               | Notes                                                                                         |
+| --------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------- |
+| M1 Internal contract        | Done once Balaji and Rashida confirm | `POST /internal-check`, service-key authentication, accepts `supplier_name`                   |
+| M2 Caching + caller logging | Done                                 | 5-minute TTL, per-supplier lock, cleared on override/case change, verified `X-Caller-Service` |
+| M3 Ambiguous result         | Done                                 | `CLEAR` / `BLOCK` / `REVIEW`; `REVIEW` requires human compliance review                       |
+| M4 SLA monitoring           | Partial                              | Latency tracked for `/internal-check`; alerts are rate-limited                                |
+| M5 Multi-jurisdiction rules | Started                              | Country-specific regulatory rules are exposed through the reporting layer                     |
+
+---
+
+# 35. SLA Monitoring
+
+Because other internal services depend on the Compliance Service, the service monitors its own performance.
+
+The service tracks:
+
+* Request count
+* Request latency
+* Request duration
+* Errors
+* SLA threshold violations
+
+SLA information is available through:
+
+```text
+GET /api/v1/compliance/sla
+```
+
+The service monitors `/internal-check` latency against the configured threshold.
+
+Default threshold:
+
+```env
+SLA_LATENCY_THRESHOLD_MS=500
+```
+
+Requests exceeding the threshold are recorded for operational investigation.
+
+---
+
+# 36. SLA Alerting
+
+When `/internal-check` latency exceeds the configured SLA threshold, the service can trigger an SLA alert in the background.
+
+Alerts are rate-limited using a configurable cooldown period.
+
+Configuration:
+
+```env
+SLA_LATENCY_THRESHOLD_MS=500
+SLA_ALERT_COOLDOWN_SECONDS=300
+SLA_ALERT_WEBHOOK_URL=
+```
+
+The alert is dispatched in the background so alert delivery does not block the compliance response.
+
+If no webhook URL is configured, SLA degradation continues to be recorded and logged without requiring an external notification system.
+
+---
+
+# 37. Regulatory Reporting and Multi-Jurisdiction Rules
+
+The Compliance Service provides a foundation for country-specific regulatory information instead of assuming identical requirements across all jurisdictions.
+
+Regulatory rules can be retrieved using:
+
+```text
+GET /api/v1/compliance/reports/regulatory/{country}
+```
+
+Regulatory rules can be evaluated using:
+
+```text
+GET /api/v1/compliance/reports/regulatory/{country}/evaluate
+```
+
+Conceptually:
+
+```text
+Country
+   ↓
+Identify applicable regulatory rules
+   ↓
+Evaluate entity/business context
+   ↓
+Return applicable requirements
+```
+
+The regulatory layer should be considered a foundation for jurisdiction-specific compliance rules rather than complete regulatory coverage for every country.
+
+Additional jurisdictions and rules can be added as requirements expand.
+
+---
+
+# 38. Human Authentication and Authorization
 
 The Compliance Service integrates with the Platform/Auth Service for human authentication and authorization.
 
@@ -934,7 +1259,7 @@ Role Check
 Allow / Reject
 ```
 
-The primary role used by protected Compliance operations is:
+The primary protected role is:
 
 ```text
 compliance_officer
@@ -942,9 +1267,9 @@ compliance_officer
 
 ---
 
-## Authentication Responses
+# 39. Authentication Responses
 
-Typical responses are:
+Typical authentication responses are:
 
 ```text
 Missing token
@@ -962,7 +1287,7 @@ Platform unavailable
 
 ---
 
-# Protected Compliance Operations
+# 40. Protected Compliance Operations
 
 Role-protected operations use:
 
@@ -970,11 +1295,17 @@ Role-protected operations use:
 compliance_officer
 ```
 
-This includes protected screening, audit, override, case-management, and reporting operations as configured by the application.
+This includes protected:
+
+* Screening operations
+* Audit operations
+* Override operations
+* Case-management operations
+* Reporting operations
 
 ---
 
-# Authentication Request Logging
+# 41. Authentication Request Logging
 
 Authentication-related requests can include tracing information such as:
 
@@ -990,293 +1321,13 @@ User ID
 Role
 ```
 
-This information helps trace requests between the Compliance Service and Platform Service.
+Service credentials and secret API keys must not be written to logs.
 
 ---
 
-Internal Service-to-Service Compliance Contract
+# 42. Configuration
 
-The Compliance Service exposes a dedicated lightweight endpoint for other internal services.
-
-This endpoint is intentionally separate from the richer human-facing screening APIs.
-
-Endpoint
-POST /api/v1/compliance/internal-check
-
-The endpoint is designed for services such as supplier/inventory/business workflows that need a quick compliance decision before continuing an operation.
-
-Request
-
-The request supports supplier identification and basic supplier information:
-
-{
-  "supplier_id": "SUP-001",
-  "supplier_name": "ABC COMPANY",
-  "country": "India"
-}
-
-The service normalizes the supplied information before performing the compliance check.
-
-Response
-
-The internal contract uses three possible decisions:
-
-CLEAR
-BLOCK
-REVIEW
-
-Example:
-
-{
-  "cleared": true,
-  "decision": "CLEAR",
-  "reason": "No sanctions or watchlist match found."
-}
-
-A blocked result can look like:
-
-{
-  "cleared": false,
-  "decision": "BLOCK",
-  "reason": "Entity matched a sanctions or compliance list."
-}
-
-An ambiguous result can look like:
-
-{
-  "cleared": false,
-  "decision": "REVIEW",
-  "reason": "Potential compliance match requires human review."
-}
-
-The decision field is the authoritative indicator for callers.
-
-Internal Compliance Cache
-
-Internal compliance checks use a 300-second / 5-minute TTL cache.
-
-Configuration:
-
-TTL = 300 seconds
-
-The cache key is based on the normalized supplier information, including:
-
-supplier_id
-supplier_name
-country
-
-The purpose is to reduce redundant screening when multiple internal services request the same supplier within a short period.
-
-Example:
-
-Request 1
-   ↓
-SUP-001
-   ↓
-Perform screening
-   ↓
-Store result in cache
-
-
-Request 2
-   ↓
-SUP-001
-   ↓
-Cache hit
-   ↓
-Return cached result
-
-The cache is short-lived so that compliance decisions are not retained indefinitely.
-
-
-
-SLA Monitoring
-
-Because other internal services depend on the Compliance Service, the service monitors its own request performance.
-
-The service records request metrics including:
-
-Request count
-Request latency
-Request duration
-Errors
-Service health information
-
-A health endpoint is available:
-
-GET /root
-
-SLA information is available through:
-
-GET /api/v1/compliance/sla
-
-The service also monitors request latency.
-
-A request taking more than the configured warning threshold is logged for operational investigation.
-
-The current warning threshold is:
-
-500 ms
-
-
-Regulatory Reporting and Multi-Jurisdiction Rules
-
-The Compliance Service also provides country-specific regulatory information instead of assuming that every jurisdiction has identical requirements.
-
-Regulatory rules can be retrieved using:
-
-GET /api/v1/compliance/reports/regulatory/{country}
-
-Regulatory rules can also be evaluated using:
-
-GET /api/v1/compliance/reports/regulatory/{country}/evaluate
-
-The implementation exposes country-specific regulatory rule retrieval and evaluation through the compliance reporting layer.
-
-Conceptually:
-
-Country
-   ↓
-Identify applicable regulatory rules
-   ↓
-Evaluate entity/business context
-   ↓
-Return applicable compliance requirements
-
-This provides a foundation for handling different jurisdictional requirements independently rather than applying one universal rule set.
-
-The current implementation should be considered a regulatory rules/reporting foundation. It should not be described as complete coverage of every country's regulatory requirements.
-
-
-# Ambiguous Compliance Decisions
-
-Not every compliance screening result can be safely represented as a simple pass/fail decision.
-
-The internal Compliance Service therefore supports three explicit decisions:
-
-```text
-CLEAR
-BLOCK
-REVIEW
-```
-
-## Decision Definitions
-
-### CLEAR
-
-The screening did not identify a compliance concern requiring further action.
-
-```json
-{
-  "cleared": true,
-  "decision": "CLEAR",
-  "reason": "No sanctions or watchlist match found."
-}
-```
-
-The calling service may continue the business operation.
-
-### BLOCK
-
-The screening identified a compliance result that requires the calling service to stop or reject the operation.
-
-```json
-{
-  "cleared": false,
-  "decision": "BLOCK",
-  "reason": "Entity matched a sanctions list."
-}
-```
-
-The calling service must not continue the protected business operation.
-
-### REVIEW
-
-The screening result is ambiguous or requires human investigation.
-
-```json
-{
-  "cleared": false,
-  "decision": "REVIEW",
-  "reason": "Potential compliance match requires human review."
-}
-```
-
-`REVIEW` does **not** mean that the entity has been confirmed as a prohibited entity.
-
-It means that the Compliance Service cannot safely provide an automatic `CLEAR` decision and the entity must be reviewed by an authorized compliance officer.
-
-## Caller Behavior
-
-Internal services must evaluate the `decision` field rather than interpreting `cleared=false` as an automatic block.
-
-```text
-CLEAR
-  ↓
-Continue operation
-
-BLOCK
-  ↓
-Stop / reject operation
-
-REVIEW
-  ↓
-Pause operation
-  ↓
-Send to compliance review
-  ↓
-Wait for compliance decision
-```
-
-The expected caller behavior is:
-
-| Decision | Caller Action                            |
-| -------- | ---------------------------------------- |
-| `CLEAR`  | Continue                                 |
-| `BLOCK`  | Stop/reject                              |
-| `REVIEW` | Hold and request human compliance review |
-
-## Review Workflow
-
-A `REVIEW` result can enter the Compliance case-management workflow:
-
-```text
-REVIEW
-  ↓
-OPEN
-  ↓
-UNDER_REVIEW
-  ↓
-┌───────────┐
-↓           ↓
-CLEARED   CONFIRMED
-```
-
-A compliance officer investigates the potential match and records the final resolution and resolution reason.
-
-## Important Contract Rule
-
-Callers must **not** implement:
-
-```text
-cleared == false → BLOCK
-```
-
-Instead they must use:
-
-```text
-decision == "CLEAR"
-decision == "BLOCK"
-decision == "REVIEW"
-```
-
-This ensures that an ambiguous screening result is not incorrectly treated as either a clean result or a confirmed compliance violation.
-
-
-# Configuration
-
-
-Create a `.env` file in the project root.
+Create a `.env` file in the Compliance Service directory.
 
 Example:
 
@@ -1311,29 +1362,78 @@ MEDIUM_TRANSACTION_VALUE_MAX=5000000
 
 PLATFORM_AUTH_URL=http://127.0.0.1:8005
 PLATFORM_SERVICE_API_KEY=<real-secret>
+
+INTERNAL_SERVICE_KEYS=
+
+SLA_LATENCY_THRESHOLD_MS=500
+SLA_ALERT_WEBHOOK_URL=
+SLA_ALERT_COOLDOWN_SECONDS=300
+
+INTERNAL_BLOCK_MATCH_SCORE=90
+
+USE_FIXTURES=false
 ```
 
-Do not place the real API key in:
-
-```text
-.env.example
-README.md
-Git
-Tests
-Logs
-```
+Do not put real secrets in `.env.example`.
 
 ---
 
-# Fixture Data
+# 43. Internal Service Keys
 
-Automated tests use local fixture data.
+The Compliance Service stores expected service keys for authorized internal callers.
+
+Example structure:
+
+```env
+INTERNAL_SERVICE_KEYS=inventory-service:<secret>,supplier-portal:<secret>
+```
+
+The actual values must remain in the local `.env` or secure deployment configuration.
+
+Never commit real service keys to Git.
+
+Do not:
+
+* Put real keys in README files
+* Put real keys in `.env.example`
+* Put real keys in test source
+* Print keys in logs
+* Include keys in API examples
+* Commit keys to Git
+
+---
+
+# 44. Security
+
+Secrets must remain outside source control.
+
+Do not commit:
+
+```text
+.env
+Real API keys
+Passwords
+JWT secrets
+Production credentials
+```
+
+Use placeholders in `.env.example`.
+
+Automated tests should use mocked or dummy credentials rather than production secrets.
+
+If a real credential is accidentally exposed, it should be rotated.
+
+---
+
+# 45. Fixture Mode
+
+Automated tests can use local fixture data.
 
 Fixture mode provides:
 
 * Faster tests
 * Stable test results
-* No dependency on external internet access
+* No dependency on external sanctions providers
 * Reproducible test data
 
 Enable fixture mode in PowerShell:
@@ -1356,9 +1456,120 @@ true
 
 ---
 
-# Testing
+# 46. Testing
+
+Tests should be run from:
+
+```text
+services/compliance
+```
 
 ## Run All Tests
+
+```powershell
+python -m pytest -q
+```
+
+## Internal Compliance API Tests
+
+```powershell
+python -m pytest tests/test_internal_compliance_api.py -q
+```
+
+These tests verify:
+
+* Internal endpoint availability
+* Service-key authentication
+* `supplier_name` support
+* `company_name` compatibility
+* Invalid-key rejection
+* Missing-key rejection
+* `CLEAR`
+* `BLOCK`
+* `REVIEW`
+* Screening failure handling
+* Internal caching
+* Cache invalidation
+
+## Internal Compliance Service Tests
+
+```powershell
+python -m pytest tests/test_internal_compliance.py -q
+```
+
+## SLA Alert Tests
+
+```powershell
+python -m pytest tests/test_sla_alert_service.py -q
+```
+
+## Authentication Tests
+
+```powershell
+python -m pytest -q tests/test_auth_integration.py
+```
+
+## Scheduled Job Authentication Tests
+
+```powershell
+python -m pytest tests/test_rescreen_auth.py -v
+```
+
+These tests use mocked service credentials and do not require a real API key.
+
+## Re-Screening Tests
+
+```powershell
+python -m pytest tests/test_rescreen.py -v
+```
+
+## Risk Configuration Tests
+
+```powershell
+python -m pytest -q tests/test_risk_config.py
+```
+
+## Reporting Tests
+
+```powershell
+python -m pytest tests/test_reporting.py -q
+```
+
+## Regulatory Rules Tests
+
+```powershell
+python -m pytest -q tests/test_regulatory_rules.py
+```
+
+## Bulk Performance Test
+
+```powershell
+python -m pytest tests/test_sanctions.py::test_bulk_screen_500_entities -s -v
+```
+
+## Integration Tests
+
+For live sanctions downloads:
+
+```powershell
+$env:USE_FIXTURES="false"
+
+python -m pytest -m integration -v -s
+```
+
+Integration tests depend on external sanctions providers and network availability.
+
+## Collect Tests
+
+```powershell
+python -m pytest --collect-only -q
+```
+
+---
+
+# 47. Local Setup
+
+## Create Virtual Environment
 
 From:
 
@@ -1369,111 +1580,22 @@ services/compliance
 run:
 
 ```powershell
-python -m pytest -q
-```
-
-The Round 6 test suite has been verified successfully.
-
----
-## Regulatory rules
-python -m pytest -q tests/test_regulatory_rules.py
-
-## internal check
-python -m pytest -q tests/test_internaL_compliance.py
-
-## SLA
-python -m pytest -q tests/test_sla_services.py
-
-## Authentication Tests
-
-```powershell
-python -m pytest -q tests/test_auth_integration.py
-```
-
----
-
-## Scheduled Job Authentication Tests
-
-```powershell
-python -m pytest tests/test_rescreen_auth.py -v
-```
-
-These tests mock the service API key so they do not depend on a real secret in `.env`.
-
----
-
-## Re-Screening Tests
-
-```powershell
-python -m pytest tests/test_rescreen.py -v
-```
-
----
-
-## Risk Configuration Tests
-
-```powershell
-python -m pytest -q tests/test_risk_config.py
-```
-
----
-
-## Reporting Tests
-
-```powershell
-python -m pytest tests/test_reporting.py -q
-```
-
----
-
-## Bulk Performance Test
-
-```powershell
-python -m pytest tests/test_sanctions.py::test_bulk_screen_500_entities -s -v
-```
-
----
-
-## Integration Tests
-
-To test live sanctions downloads:
-
-```powershell
-$env:USE_FIXTURES="false"
-
-python -m pytest -m integration -v -s
-```
-
-Live integration tests depend on external sanctions providers and network availability.
-
----
-
-## Collect Tests
-
-To see the tests collected by pytest:
-
-```powershell
-python -m pytest --collect-only -q
-```
-
-
-
-
-```powershell
 python -m venv venv
 ```
+
+## Activate Virtual Environment
+
 ```powershell
 .\venv\Scripts\Activate.ps1
 ```
-## 4. Install Dependencies
+
+## Install Dependencies
 
 ```powershell
 pip install -r requirements.txt
 ```
 
----
-
-## 5. Configure Environment Variables
+## Configure Environment
 
 Create:
 
@@ -1481,19 +1603,19 @@ Create:
 .env
 ```
 
-and configure the required values described in the [Configuration](#configuration) section.
+and configure the required values described in the Configuration section.
 
 ---
 
-# Running the Application
+# 48. Running the Application
 
 Start the Compliance Service:
 
 ```powershell
-python -m uvicorn app.main:app --reload
+python -m uvicorn app.main:app --reload-port-8003
 ```
 
-The service runs locally on:
+Default local service:
 
 ```text
 http://127.0.0.1:8003
@@ -1505,17 +1627,17 @@ Swagger documentation:
 http://127.0.0.1:8003/docs
 ```
 
-The Platform/Auth Service should run separately on:
+The Platform/Auth Service is expected separately at:
 
 ```text
 http://127.0.0.1:8005
 ```
 
-when authentication or service-to-service authentication is being tested.
+when authentication or scheduled service authentication is being tested.
 
 ---
 
-# Running the Scheduler
+# 49. Running the Scheduler
 
 Run:
 
@@ -1525,7 +1647,7 @@ python -m app.jobs.scheduler
 
 The scheduler starts the re-screening process according to its configured schedule.
 
-Example flow:
+Example:
 
 ```text
 Starting scheduled re-screen...
@@ -1557,15 +1679,15 @@ Job stops
 
 ---
 
-# Database
+# 50. Database
 
-The project currently uses:
+The current development database is:
 
 ```text
 SQLite
 ```
 
-Default database:
+Default database file:
 
 ```text
 compliance.db
@@ -1579,38 +1701,19 @@ The database stores:
 * Case history
 * Override information
 
-SQLite is primarily intended for development and testing.
-
-
-# Environment and Security
-
-Secrets must remain outside source control.
-
-Recommended local setup:
-
-```text
-.env
-    ↓
-Environment variables
-    ↓
-Application configuration
-```
-
-Do not commit:
-
-```text
-.env
-Real API keys
-Passwords
-JWT secrets
-Production credentials
-```
-
-Use placeholders in `.env.example`.
+SQLite is currently intended primarily for development and testing.
 
 ---
 
-# Known Limitations
+# 51. Database Limitations
+
+A production deployment should use a production-grade database and an appropriate migration strategy.
+
+The current implementation should therefore be treated as the development/testing database configuration.
+
+---
+
+# 52. Known Limitations
 
 ## External Sanctions Providers
 
@@ -1620,15 +1723,11 @@ If a provider is unavailable or changes its format, the refresh process may fail
 
 The service is designed to fail rather than silently treat missing required sanctions data as clean.
 
----
-
 ## SQLite
 
 SQLite is currently used for development and testing.
 
-A production deployment should use a production-grade database and an appropriate migration strategy.
-
----
+A production deployment should use a production-grade database.
 
 ## Re-Screening Data
 
@@ -1636,72 +1735,69 @@ Re-screening depends on existing audit records.
 
 If there are no previously cleared entities, the job correctly reports zero entities to re-screen.
 
----
-
 ## Fuzzy Matching
 
 Fuzzy matching can produce false positives because similar names do not always represent the same entity.
 
-The matching threshold, risk-based thresholds, deduplication, and false-positive override mechanisms help manage these cases.
+The service provides:
 
----
+* Matching thresholds
+* Risk-based thresholds
+* Deduplication
+* False-positive overrides
+* Human review through compliance cases
 
-## Service API Key
+to manage ambiguous matches.
 
-Scheduled re-screening requires successful authentication with the Platform/Auth Service.
-
-The real service API key must remain outside source control.
-
-Automated tests should use mocked/dummy credentials rather than real secrets.
-
-
-
-Regulatory Coverage
+## Regulatory Coverage
 
 Country-specific regulatory retrieval and evaluation are implemented, but this should not be interpreted as complete regulatory coverage for every jurisdiction.
 
-Additional jurisdictions and rules can be added to the regulatory rules layer as requirements expand.
+Additional jurisdictions and rules can be added to the regulatory rules layer.
 
-SLA Alert Delivery
+## SLA Alert Delivery
 
-The service currently records SLA/latency information and logs warnings when latency exceeds the configured threshold.
+SLA degradation can trigger a background alert when configured.
 
-An external alerting/notification system is not currently part of the implemented Compliance Service.
+External notification delivery depends on the configured webhook.
+
+Without a webhook URL, SLA violations continue to be recorded and logged without external notification.
 
 ---
 
-# Development Notes
+# 53. Development Notes
 
-For local development:
+Local development typically uses:
 
 ```text
 Compliance Service
-    ↓
+        ↓
 127.0.0.1:8003
 
 Platform/Auth Service
-    ↓
+        ↓
 127.0.0.1:8005
 ```
 
-Fixture mode can be used for deterministic local testing:
+Fixture mode can be used for deterministic testing:
 
 ```powershell
 $env:USE_FIXTURES="true"
 ```
 
-Live sanctions downloads can be tested using:
+Live sanctions downloads can be tested with:
 
 ```powershell
 $env:USE_FIXTURES="false"
+
 python -m pytest -m integration -v -s
 ```
 
 ---
 
-# Current Implementation Summary
+# 54. Current Implementation Summary
 
-The current Round 6 implementation includes:
+The current Compliance Service includes:
 
 ```text
 ✓ OFAC screening
@@ -1709,12 +1805,11 @@ The current Round 6 implementation includes:
 ✓ EU screening
 ✓ Internal Watchlist screening
 ✓ PEP screening
-
 ✓ Source attribution
-✓ Match deduplication
 ✓ Exact matching
 ✓ Fuzzy matching
-
+✓ Match deduplication
+✓ Confidence calculation
 ✓ Sanctions risk scoring
 ✓ Country risk
 ✓ Transaction-value risk
@@ -1726,14 +1821,12 @@ The current Round 6 implementation includes:
 ✓ Audit analytics
 ✓ False-positive overrides
 ✓ Bulk screening
-
 ✓ Compliance case management
 ✓ Case assignment
 ✓ Case state machine
 ✓ Case history
 ✓ Resolution reasons
 ✓ Closed-case reassignment protection
-
 ✓ Compliance reporting
 
 ✓ Sanctions data refresh
@@ -1746,11 +1839,26 @@ The current Round 6 implementation includes:
 ✓ Role-based authorization
 ✓ Platform Service integration
 ✓ Service API-key authentication
-✓ Fail-closed authentication
+✓ Internal service-key authentication
+✓ Verified caller logging
+✓ Fail-closed internal authentication
 
+✓ Internal /internal-check contract
+✓ CLEAR / BLOCK / REVIEW decisions
+✓ 5-minute internal compliance cache
+✓ Cache invalidation after officer decisions
+✓ Per-key cache locking
+✓ SLA latency monitoring
+✓ Rate-limited background SLA alerts
+
+✓ Regulatory rules foundation
 ✓ Fixture-based testing
 ✓ Authentication testing
+✓ Internal API contract testing
 ✓ Re-screening testing
 ✓ Integration testing
 ✓ Performance testing
 ```
+
+---
+
