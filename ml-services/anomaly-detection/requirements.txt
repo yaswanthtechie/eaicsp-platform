@@ -8,4 +8,5 @@ fastapi
 uvicorn
 pytest
 httpx
-requests
+requestsmlflow
+mlflow

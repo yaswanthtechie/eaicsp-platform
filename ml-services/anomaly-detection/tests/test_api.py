@@ -186,7 +186,59 @@ def test_reason_fields():
         == expected_features
     )
 
+def _detect(temperature, humidity, stock_count, model="lof"):
+    return client.post(
+        "/detect",
+        json={
+            "model": model,
+            "reading": {
+                "reading_id": 1,
+                "temperature": temperature,
+                "humidity": humidity,
+                "stock_count": stock_count,
+            },
+        },
+    )
 
+
+def test_m4_primary_reason_is_top_ranked_reason():
+    body = client.post("/detect", json=VALID_REQUEST).json()
+
+    contributions = [r["contribution"] for r in body["reasons"]]
+
+    # reasons must be ranked, and primary_reason must be the top one
+    assert contributions == sorted(contributions, reverse=True)
+    assert body["primary_reason"] == body["reasons"][0]
+
+
+def test_m4_normal_reading_is_not_described_as_anomaly():
+    response = _detect(22.0, 45.0, 500)
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert body["is_anomaly"] is False
+    assert "anomal" not in body["explanation"].lower()
+    assert body["root_cause_hint"] is None
+
+
+def test_m4_temperature_spike_matches_past_spike_incidents():
+    body = _detect(30.0, 45.0, 500).json()
+
+    assert body["is_anomaly"] is True
+    assert body["root_cause_hint"]["incident_type"] == "temperature_spike"
+    assert body["root_cause_hint"]["similarity"] >= 0.8
+    assert "temperature" in body["explanation"]
+
+
+def test_m4_unseen_pattern_is_reported_as_unknown():
+    # Stock far BELOW normal. The library only has past stock
+    # incidents ABOVE normal, so it must not pretend to recognise it.
+    body = _detect(22.0, 45.0, 100).json()
+
+    assert body["is_anomaly"] is True
+    assert body["root_cause_hint"]["incident_type"] == "unknown"
 def test_contributions_sum_to_one():
     response = client.post(
         "/detect",

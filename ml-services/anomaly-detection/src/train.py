@@ -3,6 +3,12 @@ from pathlib import Path
 
 import joblib
 import pandas as pd
+from src.data import generate_normal_data
+from src.incident_library import (
+    build_incident_library,
+    default_history,
+    save_incident_library,
+)
 
 project_root = Path(__file__).resolve().parent.parent
 if str(project_root) not in sys.path:
@@ -69,6 +75,10 @@ def train_models(df: pd.DataFrame):
     features = df[feature_names].to_numpy()
 
     save_background_sample(df)
+    # M4: labeled past-incident library for root-cause hints.
+    save_incident_library(
+        build_incident_library(df, default_history())
+    )
 
     models = {}
 
@@ -129,3 +139,18 @@ def save_models(models):
     print("Models deployed successfully.")
     print("SHAP background sample saved.")
     print("=" * 50)
+if __name__ == "__main__":
+    print("Starting anomaly detection model training...")
+
+    df = generate_normal_data(
+        n=5000,
+        seed=42,
+    )
+
+    models = train_models(df)
+
+    save_models(models)
+
+    print("Incident library saved.")
+    print("Training completed successfully.")    
+    
