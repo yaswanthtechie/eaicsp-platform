@@ -1,4 +1,4 @@
-﻿# Inventory Service
+# Inventory Service
 
 FastAPI microservice for multi-echelon inventory management, automated purchase orders, FIFO valuation, compliance checks, approval workflows, and network optimization.
 

@@ -28,6 +28,38 @@ from app.services.valuation_service import (
     consume_cost_layers,
     latest_unit_cost,
 )
+from app.services.outbox_service import record_event
+from app.services.cache_service import invalidate_inventory_cache
+
+
+logger = logging.getLogger(__name__)
+
+
+def check_and_record_low_stock(db: Session, item: Inventory) -> None:
+    """
+    Check if inventory level is below reorder point and record an
+    inventory.stock.low event in the transactional outbox table.
+    """
+    try:
+        calculation = calculate_reorder_point(db=db, inventory=item)
+        reorder_point = calculation.get("reorder_point", 0)
+        if item.quantity_on_hand < reorder_point:
+            record_event(
+                db=db,
+                event_type="inventory.stock.low",
+                aggregate_type="inventory",
+                aggregate_id=f"{item.sku_id}:{item.warehouse_id}",
+                payload={
+                    "sku_id": item.sku_id,
+                    "warehouse_id": item.warehouse_id,
+                    "quantity_on_hand": item.quantity_on_hand,
+                    "reorder_point": reorder_point,
+                    "safety_stock": calculation.get("adjusted_safety_stock", item.safety_stock),
+                    "avg_daily_demand": calculation.get("rolling_avg_demand", item.avg_daily_demand),
+                },
+            )
+    except Exception as exc:
+        logger.debug("Could not calculate reorder point for low stock event: %s", exc)
 
 
 logger = logging.getLogger(__name__)
@@ -253,8 +285,11 @@ def create_inventory(
             # Inventory creation should still succeed.
             pass
 
+        check_and_record_low_stock(db=db, item=item)
+
         db.commit()
         db.refresh(item)
+        invalidate_inventory_cache(item.sku_id, item.warehouse_id)
 
     except Exception:
         db.rollback()
@@ -449,8 +484,11 @@ def update_inventory(
 
         item.version += 1
 
+        check_and_record_low_stock(db=db, item=item)
+
         db.commit()
         db.refresh(item)
+        invalidate_inventory_cache(item.sku_id, item.warehouse_id)
 
     except HTTPException:
         db.rollback()
@@ -505,6 +543,7 @@ def delete_inventory(
     try:
         db.delete(item)
         db.commit()
+        invalidate_inventory_cache(sku_id, warehouse_id)
 
     except Exception:
         db.rollback()
@@ -775,14 +814,14 @@ def bulk_update_inventory(
 
             updated_items.append(item)
 
-        # -----------------------------------------------------
-        # Commit only after every inventory item succeeds.
-        # -----------------------------------------------------
+        for item in updated_items:
+            check_and_record_low_stock(db=db, item=item)
 
         db.commit()
 
         for item in updated_items:
             db.refresh(item)
+            invalidate_inventory_cache(item.sku_id, item.warehouse_id)
 
     except Exception:
         db.rollback()
@@ -954,6 +993,7 @@ def bulk_upload_csv(
 
         db.add_all(new_items)
         db.commit()
+        invalidate_inventory_cache()
 
     except Exception:
         db.rollback()
