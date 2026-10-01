@@ -1,0 +1,23 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+env/
+
+# Pytest & test coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# MLflow local tracking files & sqlite databases
+mlruns/
+mlflow.db
+*.db
+*.sqlite
+*.sqlite3
+
+# Local logs
+*.log
+logs/
