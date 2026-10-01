@@ -1,10 +1,10 @@
-/metrics.json
-
-# Local MLflow tracking data
 /mlruns/
 
-# Local model artifacts
 /models/
+
+# Runtime state written by the service and by training
+/data/monitoring.db
+/data/governance.json
 
 # Generated reports
 /reports/

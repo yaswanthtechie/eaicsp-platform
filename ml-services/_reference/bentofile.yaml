@@ -3,6 +3,8 @@ service: "src.service:IrisService"
 include:
   - "src"
   - "models"
+  # In-service retraining reads the DVC-built training data.
+  - "data/reference/processed.csv"
 
 envs:
   - name: BENTO_BUNDLED_MODEL
@@ -11,8 +13,9 @@ envs:
 python:
   packages:
     - "bentoml==1.4.39"
-    - "mlflow"
+    - "mlflow==3.4.0"
     - "scikit-learn==1.7.1"
-    - "numpy"
-    - "pydantic"
+    - "numpy==2.3.2"
+    - "pandas"
+    - "pydantic==2.11.7"
     - "starlette"

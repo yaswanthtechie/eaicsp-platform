@@ -1,4 +1,3 @@
-
 """
 Milestone 1 - BentoML parity tests.
 
@@ -150,3 +149,41 @@ def test_reference_and_bento_have_parity():
 
     assert matches == 100
 
+
+# ------------------------------------------------------------------
+# Fix 8b: Parity inputs cover all three Iris classes
+# ------------------------------------------------------------------
+
+
+def test_parity_inputs_cover_all_three_classes():
+    from sklearn.datasets import load_iris
+
+    iris = load_iris()
+
+    row_to_class = {
+        tuple(map(float, row)): int(target)
+        for row, target in zip(
+            iris.data,
+            iris.target,
+        )
+    }
+
+    classes = {
+        row_to_class[tuple(features)]
+        for features in generate_inputs(100)
+    }
+
+    assert classes == {0, 1, 2}
+
+
+def test_latency_summary():
+    from scripts.bentoml_benchmark import summarise_latencies
+
+    summary = summarise_latencies(
+        [10.0, 20.0, 30.0, 40.0]
+    )
+
+    assert summary["requests"] == 4
+    assert summary["mean_ms"] == 25.0
+    assert summary["min_ms"] == 10.0
+    assert summary["max_ms"] == 40.0

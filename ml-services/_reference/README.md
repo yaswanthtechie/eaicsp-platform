@@ -2639,85 +2639,486 @@ Previously recorded result:
 3. Prediction health status in GET /models
 4. Automated alerting
 ```
-Round 12,13
-# Round 12–13 — MLOps + Model Serving
+Round 12–13 — MLOps + Model Serving
+Overview
 
-## Overview
+Round 12–13 focused on improving the reference ML model serving, monitoring, training-data versioning, reproducibility, and validation. The implementation was divided into three milestones:
 
-Round 12–13 focused on improving the reference ML model serving, model monitoring, and data versioning.
+Milestone 1 — BentoML Model Serving
+Milestone 2 — Evidently Monitoring
+Milestone 3 — DVC Data Versioning and Reproducibility
+The work also includes automated tests, Docker validation, model/data lineage, and serving performance validation.
+Milestone 1 — BentoML Model Serving
+Objective
 
-### Milestone 1 — BentoML Model Serving
+Package the existing Iris reference model as a BentoML service while maintaining the same prediction request and response contract as the existing reference service. The BentoML service should produce the same predictions as the existing reference implementation.
 
-Implemented BentoML-based serving for the Iris reference model.
+Implementation
 
-* Packaged the existing Iris model as a BentoML service.
-* Maintained the existing request and response contract.
-* Created `bentofile.yaml` for BentoML packaging.
-* Added a bundled model for container deployment.
-* Built the BentoML container successfully.
-* Verified prediction output parity between the existing service and BentoML service.
-* Compared serving latency between the two services.
+The following functionality was implemented:
 
-### Milestone 2 — Evidently Monitoring
+Added BentoML service configuration.
+Created bentofile.yaml.
+Packaged the existing Iris model as a BentoML service.
+Maintained the existing /predict request and response contract.
+Added standalone model packaging using models/model.pkl.
+Added Docker-based BentoML serving.
+Configured BentoML version 1.4.39.
+Added deterministic parity inputs.
+Added prediction comparison between the reference service and BentoML.
+Added client-side latency measurement.
+Added a real benchmark script.
+Added BentoML unit and integration tests.
+Added pytest integration marker configuration.
+BentoML Configuration
 
-Implemented Evidently-based data and prediction drift monitoring.
+File: bentofile.yaml
+Service: src.service:IrisService
+BentoML version: bentoml==1.4.39
 
-* Added Evidently `0.7.23`.
-* Added data drift detection for model input features.
-* Added prediction drift detection.
-* Generated HTML drift reports.
-* Added deliberately shifted data to verify drift detection.
-* Integrated Evidently drift detection with the existing retraining workflow.
-* Added tests for drift detection and retraining integration.
+Docker Implementation
 
-### Milestone 3 — DVC Data Versioning
+The Docker image builds the training data and model during image creation.
+The Docker build performs:
+Create reference dataset → Prepare processed dataset → Train model → Package model → Start BentoML service
+Dockerfile: Dockerfile
+The container uses the standalone model: models/model.pkl
+The following environment variable enables bundled-model loading:
+BENTO_BUNDLED_MODEL=true
+This allows the BentoML container to run without requiring an MLflow Production alias. The normal MLflow production and governance workflow remains unchanged.
 
-Implemented DVC-based versioning for the reference model training data.
+Docker Build
 
-* Added the Iris reference dataset to DVC.
-* Created a DVC pipeline with three stages:
+Command:
+docker build --no-cache -t iris-ml-service:round12-13 .
+Result:
 
-  * `prepare`
-  * `train`
-  * `evaluate`
-* Added `dvc.yaml` and generated `dvc.lock`.
-* Added DVC dataset metadata to MLflow runs.
-* Linked the MLflow training run with the DVC dataset hash.
-* Added DVC evaluation metrics.
-* Verified the pipeline using `dvc status`, `dvc repro`, and `dvc metrics show`.
+Docker Build: PASS
+Image: iris-ml-service:round12-13
+The image was successfully created with the model and serving code.
+Container Startup
 
-### Testing
+Command:
+docker run --rm -p 3001:3000 iris-ml-service:round12-13
+Container port: 3000
+Host port: 3001
+Therefore the BentoML service is available at:
+http://localhost:3001
+The service successfully started with:
+Service iris_service initialized
+Starting production HTTP BentoServer
+listening on [http://localhost:3000](http://localhost:3000)
 
-The complete test suite was executed successfully:
+Reference Service
 
-```text
-188 passed, 59 warnings
-```
+The existing reference service runs on:
+http://localhost:3000
+The BentoML container runs on:
+http://localhost:3001
+Both services expose the same prediction endpoint:
+POST /predict
 
-DVC validation:
+Prediction Parity
 
-```text
+A deterministic set of 100 Iris inputs was generated using a fixed random seed.
+Seed: 42
+The input set contains all three Iris classes.
+Class coverage:
+
+setosa: 33
+versicolor: 35
+virginica: 32
+The same 100 inputs were sent to both services.
+Result:
+Total inputs: 100
+Prediction matches: 100
+Prediction parity: 100.00%
+Output:
+Parity: 100/100
+This confirms that the BentoML service produces the same predictions as the existing reference service for the validation input set.
+BentoML Benchmark
+
+A real client-side benchmark was added:
+scripts/bentoml_benchmark.py
+Command:
+python -m scripts.bentoml_benchmark
+The benchmark measures round-trip request latency from the client.
+Warm-up requests: 10
+Benchmark requests: 100
+
+Benchmark Output
+Server	Mean (ms)	P50 (ms)	P95 (ms)	Min (ms)	Max (ms)
+Reference	27.07	24.76	41.42	14.94	95.01
+BentoML	27.38	24.78	45.58	16.42	82.43
+The benchmark report is stored in:
+reports/bentoml_benchmark.json
+BentoML Tests
+
+Test file:
+tests/test_bentoml_parity.py
+Command:
+python -m pytest tests\test_bentoml_parity.py -q
+Output:
+4 passed, 1 deselected
+The tests validate:
+
+deterministic input generation
+prediction comparison
+latency-independent prediction matching
+all three Iris classes are represented
+latency summary calculation
+live container integration testing
+The integration test can be executed separately:
+python -m pytest tests\test_bentoml_parity.py -m integration -s -q
+Milestone 2 — Evidently Monitoring
+Objective
+
+Add Evidently-based monitoring for:
+
+input data drift
+prediction drift
+retraining decisions
+The Evidently result is used as the primary drift signal while the existing home-grown drift calculation remains available as a complementary monitoring signal.
+Evidently Version
+
+The project uses:
+evidently==0.7.23
+
+Data Drift Detection
+
+File:
+src/evidently_drift.py
+The implementation uses Evidently's own drift verdict instead of hard-coding the drift result. The generated Evidently snapshot is analysed to determine whether input features have drifted.
+The drift summary includes:
+
+data_drift_detected
+drifted_feature_share
+prediction_drift_detected
+prediction_drift_p_value
+evidently_columns
+Evidently Drift Verdict
+
+The implementation reads Evidently's ValueDrift metrics and evaluates the configured method and threshold.
+Configured data drift share:
+0.5
+This means the data drift verdict is triggered when the required proportion of monitored features is detected as drifted.
+The prediction drift check uses the existing configured prediction drift threshold.
+
+Prediction Label Consistency
+
+The model prediction output is converted to the same Iris class names used by the service.
+Supported classes:
+
+setosa
+versicolor
+virginica
+Numeric predictions are mapped as follows:
+0 → setosa
+1 → versicolor
+2 → virginica
+This prevents mismatches between the serving layer and the monitoring layer.
+Drift Validation
+
+Tests were added for:
+
+deliberately shifted data
+unchanged/same-distribution data
+prediction label mapping
+logged numeric prediction mapping
+retraining threshold configuration
+Evidently verdict integration
+Test file:
+tests/test_evidently_drift.py
+Command:
+python -m pytest tests\test_evidently_drift.py -q
+Output:
+10 passed
+Retraining Integration
+
+File:
+src/retraining.py
+The retraining workflow now uses the Evidently drift result.
+The retraining threshold is loaded from the central configuration:
+src/config.py
+Configured threshold:
+DRIFT_THRESHOLD = 0.3
+The local duplicate threshold was removed from the retraining module. This ensures that the retraining decision uses the central configuration rather than maintaining a separate hard-coded value.
+
+Evidently Output Records
+
+The drift result records include:
+
+data_drift_detected
+drifted_feature_share
+prediction_drift_detected
+prediction_drift_p_value
+evidently_columns
+
+Example structure:
+
+{
+  "data_drift_detected": true,
+  "drifted_feature_share": 0.5,
+  "prediction_drift_detected": false,
+  "prediction_drift_p_value": 0.123,
+  "evidently_columns": [
+    "sepal_length",
+    "sepal_width",
+    "petal_length",
+    "petal_width"
+  ]
+}
+
+The actual values depend on the dataset used for the monitoring run.
+
+Milestone 3 — DVC Data Versioning
+Objective
+
+Version the exact training dataset used by the ML training pipeline and provide reproducible training. The goal is to ensure that the model can always be traced back to the exact dataset used during training.
+
+DVC Pipeline
+
+The training pipeline contains four stages:
+fetch → prepare → train → evaluate
+Pipeline configuration:
+dvc.yaml
+
+Stage 1 — Fetch
+
+The fetch stage creates the reference Iris dataset.
+Script:
+scripts/create_reference_dataset.py
+Output:
+data/reference/iris.csv
+The generated dataset contains:
+150 rows
+
+Stage 2 — Prepare
+
+The prepare stage converts the reference dataset into the processed training dataset.
+Script:
+scripts/dvc_prepare.py
+Output:
+data/reference/processed.csv
+The processed dataset contains the four Iris features and the target:
+
+sepal_length
+sepal_width
+petal_length
+petal_width
+target
+Stage 3 — Train
+
+The training stage uses the DVC-generated processed dataset.
+Training script:
+src/train.py
+Training data:
+data/reference/processed.csv
+The previous duplicate training path was removed. There is now one training path for the reference model.
+
+Training Data Lineage
+
+The training process records the dataset version using MD5 hashes.
+The following information is recorded:
+
+Training dataset path
+Training dataset MD5
+DVC lock MD5
+DVC lock match status
+
+Example training output:
+
+Training data version:
+  Dataset          : data/reference/processed.csv
+  MD5              : 4224576f0267bf88902f87f0f6200967
+  Matches dvc.lock : true
+
+This creates a direct link between:
+DVC dataset → DVC lock → Training run → MLflow model
+
+MLflow Lineage
+
+The training process records DVC dataset metadata in the MLflow run.
+The MLflow run includes:
+
+training_data_path
+training_data_md5
+dvc_lock_md5
+matches_dvc_lock
+dvc_pipeline
+The DVC lock file is also logged as an MLflow artifact.
+This provides traceability from the trained model back to the exact training dataset.
+Stage 4 — Evaluate
+
+The evaluation stage validates the trained model.
+Script:
+scripts/dvc_evaluate.py
+Metrics are written to:
+metrics.json
+Evaluation output:
+
+Accuracy: 0.9333333333333333
+Test Samples: 30
+The metrics file is used by DVC as an evaluation metric.
+DVC Reproducibility
+
+The complete pipeline can be rebuilt using:
+dvc repro
+The pipeline successfully executed all four stages:
+fetch → prepare → train → evaluate
+A second execution confirmed that the pipeline was already up to date.
+Output:
 Data and pipelines are up to date.
-```
+The generated dvc.lock was also compared after the rebuild.
+Result:
+dvc.lock reproducibility: PASS
+This confirms that the pipeline produces a stable dependency lock when the same inputs are used.
 
-DVC metrics:
+DVC Tests
 
-```text
-Accuracy     : 0.90
-Test Samples : 30
-```
+Test file:
+tests/test_dvc_lineage.py
+The tests validate:
 
-## Result
+training data is loaded from the DVC processed dataset
+missing training data fails with a clear error
+dataset MD5 matches the DVC lock
+changed dataset is detected as different from the DVC lock
+DVC lineage information is correctly calculated
+Full Test Validation
 
-Round 12–13 adds:
+The complete test suite was executed using:
+python -m pytest -q
+Result:
+199 passed, 1 deselected, 59 warnings
+The deselected test is the live integration test that requires the BentoML/reference services to be running.
 
-* BentoML containerized model serving
-* Serving output parity validation
-* Latency comparison
-* Evidently drift monitoring
-* Drift-based retraining integration
-* DVC dataset and pipeline versioning
-* MLflow and DVC dataset linkage
-* Automated tests for the new functionality
+Pytest Configuration
 
+File:
+pytest.ini
+Integration tests are marked with:
+integration
+By default:
+-m "not integration"
+is used so that the normal test suite does not require running external services.
+Integration tests can be executed explicitly:
+python -m pytest -m integration -s -q
 
+Important Files Added or Updated
+BentoML
+Dockerfile
+bentofile.yaml
+scripts/bentoml_parity.py
+scripts/bentoml_benchmark.py
+tests/test_bentoml_parity.py
+Evidently
+src/evidently_drift.py
+src/retraining.py
+tests/test_evidently_drift.py
+DVC
+dvc.yaml
+dvc.lock
+src/data.py
+src/dvc_utils.py
+src/train.py
+scripts/create_reference_dataset.py
+scripts/dvc_prepare.py
+scripts/dvc_evaluate.py
+tests/test_dvc_lineage.py
+metrics.json
+Testing
+pytest.ini
+Output Records
+BentoML Parity
+Total inputs: 100
+Prediction matches: 100/100
+Prediction parity: 100.00%
+BentoML Benchmark
+Reference Mean: 27.07 ms
+Reference P50: 24.76 ms
+Reference P95: 41.42 ms
+BentoML Mean: 27.38 ms
+BentoML P50: 24.78 ms
+BentoML P95: 45.58 ms
+Evidently Tests
+
+10 passed
+
+DVC Evaluation
+Accuracy: 0.9333333333333333
+Test Samples: 30
+Full Test Suite
+
+199 passed, 1 deselected, 59 warnings
+
+DVC Reproducibility
+First dvc repro: PASS
+Second dvc repro: UP TO DATE
+dvc.lock check: PASS
+Docker
+Docker Build: PASS
+Container Start: PASS
+Model Load: PASS
+API Availability: PASS
+Final Round 12–13 Status
+============================================================
+ROUND 12–13 VALIDATION
+============================================================
+Milestone 1 — BentoML
+  Docker Build          : PASS
+  Container Startup     : PASS
+  API Availability      : PASS
+  Prediction Parity     : 100/100
+  Prediction Parity     : 100.00%
+  Latency Benchmark     : PASS
+
+Milestone 2 — Evidently
+  Data Drift Detection  : PASS
+  Prediction Drift      : PASS
+  Label Mapping         : PASS
+  Retraining Integration: PASS
+  Evidently Tests       : 10 passed
+
+Milestone 3 — DVC
+  DVC Pipeline           : PASS
+  Dataset Versioning     : PASS
+  MLflow Lineage         : PASS
+  Evaluation Metrics     : PASS
+  Reproducibility        : PASS
+
+Testing
+  Full Test Suite        : 199 passed
+  Integration Tests      : Available
+============================================================
+Conclusion
+
+Round 12–13 completed the reference model serving and MLOps improvements. The implementation now provides:
+
+BentoML-based model serving
+Docker containerized serving
+Standalone model packaging
+100-input prediction parity validation
+Client-side latency benchmarking
+Evidently data drift monitoring
+Evidently prediction drift monitoring
+Consistent prediction labels
+Evidently-based retraining decisions
+DVC-managed training data
+Reproducible DVC training pipeline
+MLflow and DVC dataset lineage
+DVC evaluation metrics
+Automated unit and integration tests
+Docker and serving validation
+
+The three milestones are implemented and validated successfully.
+
+Simple TL Explanation
+
+Round 12–13 lo main ga 3 things chesam:
+
+Milestone 1 — BentoML: Existing model ni BentoML lo package chesi Docker container lo run chesam. Existing service vs BentoML predictions 100/100 same vachayi. Latency kuda measure chesam.
+Milestone 2 — Evidently: Model input data/predictions lo drift unda leda Evidently tho detect chesam. Drift vachinappudu retraining workflow ki signal ivvadam implement chesam. Same prediction labels (setosa, versicolor, virginica) maintain chesam.
+Milestone 3 — DVC: Training data ni DVC tho version chesam. fetch → prepare → train → evaluate pipeline create chesam. Dataset MD5 ni MLflow tho link chesi which exact data was used to train the model ane traceability create chesam. dvc repro tho reproducibility verify chesam.
+
+Final proof: 199 passed, 1 deselected, BentoML parity 100/100, Docker PASS, DVC reproducibility PASS.

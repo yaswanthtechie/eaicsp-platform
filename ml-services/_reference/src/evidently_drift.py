@@ -1,4 +1,3 @@
-
 """
 Evidently-based drift detection for the Iris reference service.
 
@@ -39,6 +38,21 @@ FEATURE_NAMES = [
 ]
 
 TARGET_NAME = "prediction"
+
+# Class names exactly as the service logs them in monitoring.db.
+# service.py stores TARGET_NAMES[prediction], e.g. "setosa".
+CLASS_NAMES = [
+    str(name)
+    for name in load_iris().target_names
+]
+
+# The dataset counts as drifted when at least this share of the
+# input features drift (Evidently's own DataDriftPreset default).
+DATA_DRIFT_SHARE = 0.5
+
+# Home-grown prediction-drift check, kept only as a comparison
+# with Evidently: total-variation distance between class frequencies.
+HOMEGROWN_PREDICTION_DRIFT_THRESHOLD = 0.10
 
 DEFAULT_REPORT_PATH = (
     Path(__file__).resolve().parent.parent
@@ -105,7 +119,7 @@ def create_shifted_inputs(
     )
 
 
-def _build_reference_model():
+def _build_reference_model() -> RandomForestClassifier:
     """Build the same deterministic Iris reference model."""
 
     iris = load_iris()
@@ -129,6 +143,12 @@ def add_predictions(
     """
     Add deterministic model predictions to an input DataFrame.
 
+    Predictions are converted to the same class names used by the
+    serving service and monitoring.db, for example:
+        0 -> setosa
+        1 -> versicolor
+        2 -> virginica
+
     Used for controlled Evidently validation windows.
     Production monitoring uses predictions already logged
     in monitoring.db.
@@ -142,8 +162,10 @@ def add_predictions(
 
     result = inputs.copy()
 
+    # Use class NAMES, the same labels monitoring.db stores,
+    # otherwise reference and recent windows never overlap.
     result[TARGET_NAME] = [
-        str(value)
+        CLASS_NAMES[int(value)]
         for value in predictions
     ]
 
@@ -153,23 +175,41 @@ def add_predictions(
 def _prediction_to_value(
     prediction: Any,
 ) -> str:
-    """Convert a logged prediction into a stable categorical value."""
+    """
+    Convert a logged prediction into a stable categorical value.
+
+    Monitoring data may contain:
+    - "setosa"
+    - "versicolor"
+    - "virginica"
+    - "0"
+    - "1"
+    - "2"
+    - JSON strings such as '{"prediction": "setosa"}'
+    - JSON strings such as '{"prediction": 0}'
+
+    Older numeric class indices are normalized to the same
+    class names used by the current service.
+    """
 
     if isinstance(prediction, str):
         try:
             decoded = json.loads(prediction)
         except json.JSONDecodeError:
-            return prediction
+            decoded = prediction
     else:
         decoded = prediction
 
-    if isinstance(decoded, dict):
-        if "prediction" in decoded:
-            return str(
-                decoded["prediction"]
-            )
+    if isinstance(decoded, dict) and "prediction" in decoded:
+        decoded = decoded["prediction"]
 
-    return str(decoded)
+    value = str(decoded)
+
+    # Older rows may hold the class index; map it to the class name.
+    if value.isdigit() and int(value) < len(CLASS_NAMES):
+        return CLASS_NAMES[int(value)]
+
+    return value
 
 
 def load_logged_monitoring_data(
@@ -346,9 +386,9 @@ def calculate_prediction_drift(
         for label in labels
     )
 
-    # Prediction drift threshold.
-    # 0.10 means a 10 percentage-point total-distribution shift.
-    threshold = 0.10
+    threshold = (
+        HOMEGROWN_PREDICTION_DRIFT_THRESHOLD
+    )
 
     return {
         "score": round(float(score), 4),
@@ -356,8 +396,101 @@ def calculate_prediction_drift(
         "drift_detected": bool(
             score >= threshold
         ),
-        "reference_distribution": reference_distribution,
-        "recent_distribution": recent_distribution,
+        "reference_distribution": (
+            reference_distribution
+        ),
+        "recent_distribution": (
+            recent_distribution
+        ),
+    }
+
+
+def summarise_snapshot(
+    snapshot,
+) -> dict[str, Any]:
+    """
+    Read Evidently's OWN drift verdicts from a DataDriftPreset snapshot.
+
+    Evidently runs one ValueDrift test per column. For p-value based
+    tests, a column is considered drifted when p < threshold.
+
+    For distance based tests, a column is considered drifted when
+    distance >= threshold.
+
+    The four Iris feature columns are used to determine the overall
+    data-drift verdict. The prediction column is reported separately.
+    """
+
+    columns: dict[str, dict[str, Any]] = {}
+
+    snapshot_dict = snapshot.dict()
+
+    for metric in snapshot_dict["metrics"]:
+        config = metric["config"]
+
+        if not config["type"].endswith(
+            "ValueDrift"
+        ):
+            continue
+
+        value = float(metric["value"])
+        threshold = float(
+            config["threshold"]
+        )
+
+        if "p_value" in config["method"]:
+            drifted = value < threshold
+        else:
+            drifted = value >= threshold
+
+        columns[config["column"]] = {
+            "method": config["method"],
+            "value": value,
+            "threshold": threshold,
+            "drift_detected": bool(
+                drifted
+            ),
+        }
+
+    features = [
+        name
+        for name in FEATURE_NAMES
+        if name in columns
+    ]
+
+    if not features:
+        raise ValueError(
+            "Evidently snapshot has no feature drift results."
+        )
+
+    drifted_share = (
+        sum(
+            columns[name]["drift_detected"]
+            for name in features
+        )
+        / len(features)
+    )
+
+    prediction = columns.get(
+        TARGET_NAME,
+        {},
+    )
+
+    return {
+        "data_drift_detected": (
+            drifted_share >= DATA_DRIFT_SHARE
+        ),
+        "drifted_feature_share": drifted_share,
+        "prediction_drift_detected": bool(
+            prediction.get(
+                "drift_detected",
+                False,
+            )
+        ),
+        "prediction_drift_p_value": (
+            prediction.get("value")
+        ),
+        "evidently_columns": columns,
     }
 
 
@@ -392,6 +525,10 @@ def generate_drift_report(
         reference_data=reference_with_predictions,
     )
 
+    evidently_summary = summarise_snapshot(
+        snapshot
+    )
+
     report_path.parent.mkdir(
         parents=True,
         exist_ok=True,
@@ -417,6 +554,7 @@ def generate_drift_report(
             recent_data
         ),
         "prediction_drift": prediction_drift,
+        **evidently_summary,
     }
 
 
@@ -428,8 +566,8 @@ def calculate_evidently_drift(
     Calculate Evidently data drift plus prediction drift.
 
     The Evidently snapshot is returned for reporting/debugging.
-    The normalized prediction drift result is returned separately
-    for use by the retraining trigger.
+    Evidently's own drift verdicts are returned separately and
+    can be consumed by the retraining trigger.
     """
 
     reference_with_predictions = (
@@ -451,6 +589,10 @@ def calculate_evidently_drift(
         reference_data=reference_with_predictions,
     )
 
+    evidently_summary = summarise_snapshot(
+        snapshot
+    )
+
     prediction_drift = (
         calculate_prediction_drift(
             reference_with_predictions,
@@ -461,6 +603,7 @@ def calculate_evidently_drift(
     return {
         "snapshot": snapshot,
         "prediction_drift": prediction_drift,
+        **evidently_summary,
         "reference_samples": len(
             reference_data
         ),
@@ -524,25 +667,16 @@ def calculate_logged_evidently_drift(
         reference_data=reference_with_predictions,
     )
 
+    evidently_summary = summarise_snapshot(
+        snapshot
+    )
+
     prediction_drift = (
         calculate_prediction_drift(
             reference_with_predictions,
             recent_for_report,
         )
     )
-
-    data_drift_detected = False
-
-    # Evidently 0.7.23 provides the drift report through
-    # the snapshot. Keep the exact snapshot object available
-    # for inspection/reporting rather than depending on
-    # version-specific internal dictionary keys.
-    #
-    # Prediction drift is explicitly available through our
-    # normalized calculation above.
-    #
-    # The HTML report remains the source for detailed
-    # feature-level Evidently drift inspection.
 
     return {
         "status": "ok",
@@ -553,8 +687,14 @@ def calculate_logged_evidently_drift(
         "recent_samples": len(
             recent_for_report
         ),
+
+        # Home-grown check, kept only for comparison
+        # with Evidently.
         "prediction_drift": prediction_drift,
-        "data_drift_detected": data_drift_detected,
+
+        # Evidently's own verdicts drive the
+        # retraining trigger.
+        **evidently_summary,
     }
 
 
@@ -590,8 +730,11 @@ def run_deliberate_shift_test() -> dict[str, Any]:
         "reference": reference,
         "recent": recent,
         "shifted": shifted,
-        "normal_with_predictions": normal_with_predictions,
-        "shifted_with_predictions": shifted_with_predictions,
+        "normal_with_predictions": (
+            normal_with_predictions
+        ),
+        "shifted_with_predictions": (
+            shifted_with_predictions
+        ),
         "prediction_drift": prediction_drift,
     }
-

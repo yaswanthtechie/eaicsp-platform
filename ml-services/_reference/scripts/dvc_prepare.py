@@ -9,7 +9,9 @@ OUTPUT_PATH = Path("data/reference/processed.csv")
 
 def main():
     if not INPUT_PATH.exists():
-        raise FileNotFoundError(f"Input dataset not found: {INPUT_PATH}")
+        raise FileNotFoundError(
+            f"Input dataset not found: {INPUT_PATH}"
+        )
 
     df = pd.read_csv(INPUT_PATH)
 
@@ -29,8 +31,19 @@ def main():
     if df.empty:
         raise ValueError("Dataset is empty")
 
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(OUTPUT_PATH, index=False)
+    OUTPUT_PATH.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    # Save with fixed Unix line endings.
+    # This guarantees identical file bytes and DVC hashes
+    # on Windows and Linux.
+    df.to_csv(
+        OUTPUT_PATH,
+        index=False,
+        lineterminator="\n",
+    )
 
     print(f"Prepared dataset: {OUTPUT_PATH}")
     print(f"Rows: {len(df)}")

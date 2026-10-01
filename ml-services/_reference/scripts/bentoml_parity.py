@@ -1,4 +1,3 @@
-
 """
 Reusable helpers for BentoML parity testing.
 
@@ -18,7 +17,11 @@ from dataclasses import dataclass
 import time
 
 import httpx
+import numpy as np
 from sklearn.datasets import load_iris
+
+
+PARITY_SEED = 42
 
 
 @dataclass
@@ -36,7 +39,8 @@ def generate_inputs(count: int = 100) -> list[list[float]]:
     """
     Generate deterministic Iris inputs.
 
-    The same first `count` Iris samples are used for both
+    A seeded sample is used so all three Iris classes are covered.
+    The same inputs are produced on every run and are shared by
     the reference server and BentoML server.
     """
 
@@ -48,9 +52,21 @@ def generate_inputs(count: int = 100) -> list[list[float]]:
             f"but only {len(iris.data)} Iris samples exist."
         )
 
+    # iris.data is sorted by class, so the first 100 rows would contain
+    # no virginica. A seeded sample covers all three classes and is
+    # still identical on every run.
+    rng = np.random.default_rng(PARITY_SEED)
+    indices = np.sort(
+        rng.choice(
+            len(iris.data),
+            size=count,
+            replace=False,
+        )
+    )
+
     return [
-        [float(value) for value in row]
-        for row in iris.data[:count]
+        [float(value) for value in iris.data[index]]
+        for index in indices
     ]
 
 
@@ -92,9 +108,9 @@ def predict(
             str(name): float(value)
             for name, value in data["probabilities"].items()
         },
-        latency_ms=float(
-            data.get("latency_ms", elapsed_ms)
-        ),
+        # Client-side round trip, measured the same way for both
+        # servers (not each server's own self-reported timing).
+        latency_ms=float(elapsed_ms),
     )
 
 
@@ -136,4 +152,3 @@ def prediction_match(
             return False
 
     return True
-

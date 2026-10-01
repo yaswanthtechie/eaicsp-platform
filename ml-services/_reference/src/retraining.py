@@ -1,10 +1,9 @@
-
 """
 Model retraining and drift detection utilities.
 
 This module provides:
 - Home-grown input drift detection
-- Optional Evidently prediction-drift integration
+- Evidently drift integration
 - Retraining decision logic
 - Manual retraining trigger
 - Automated retraining workflow
@@ -27,7 +26,8 @@ logger = logging.getLogger(__name__)
 # Configuration
 # ============================================================
 
-DRIFT_THRESHOLD = 0.20
+# Single source of truth for the home-grown drift threshold.
+from src.config import DRIFT_THRESHOLD
 
 # Reference mean for the Iris training data.
 TRAINING_MEAN = np.array(
@@ -75,21 +75,32 @@ def calculate_drift(
     """
 
     if not recent_inputs:
-        raise ValueError("recent_inputs cannot be empty")
+        raise ValueError(
+            "recent_inputs cannot be empty"
+        )
 
-    if not isinstance(recent_inputs, list):
+    if not isinstance(
+        recent_inputs,
+        list,
+    ):
         raise ValueError(
             "recent_inputs must be a list of feature lists"
         )
 
     # Make sure every item is itself a feature list.
     for row in recent_inputs:
-        if not isinstance(row, (list, tuple, np.ndarray)):
+        if not isinstance(
+            row,
+            (list, tuple, np.ndarray),
+        ):
             raise ValueError(
                 "recent_inputs must be a list of feature lists"
             )
 
-    inputs = np.asarray(recent_inputs, dtype=float)
+    inputs = np.asarray(
+        recent_inputs,
+        dtype=float,
+    )
 
     if inputs.ndim != 2:
         raise ValueError(
@@ -102,22 +113,32 @@ def calculate_drift(
         )
 
     reference_mean = (
-        np.asarray(training_mean, dtype=float)
+        np.asarray(
+            training_mean,
+            dtype=float,
+        )
         if training_mean is not None
         else TRAINING_MEAN
     )
 
     if reference_mean.shape[0] != EXPECTED_FEATURE_COUNT:
         raise ValueError(
-            f"Expected {EXPECTED_FEATURE_COUNT} features in training_mean"
+            f"Expected {EXPECTED_FEATURE_COUNT} "
+            "features in training_mean"
         )
 
-    recent_mean = np.mean(inputs, axis=0)
+    recent_mean = np.mean(
+        inputs,
+        axis=0,
+    )
 
     # Relative absolute difference.
-    denominator = np.abs(reference_mean)
+    denominator = np.abs(
+        reference_mean
+    )
 
-    # Protect against division by zero if a custom mean contains zero.
+    # Protect against division by zero if a custom mean
+    # contains zero.
     denominator = np.where(
         denominator == 0,
         1.0,
@@ -125,10 +146,15 @@ def calculate_drift(
     )
 
     relative_difference = (
-        np.abs(recent_mean - reference_mean) / denominator
+        np.abs(
+            recent_mean - reference_mean
+        )
+        / denominator
     )
 
-    drift_score = float(np.mean(relative_difference))
+    drift_score = float(
+        np.mean(relative_difference)
+    )
 
     # Preserve the expected severe-failure behavior.
     # All-zero input represents a clear input pipeline failure.
@@ -156,12 +182,14 @@ def _calculate_homegrown_drift(
         recent_inputs,
         training_mean=training_mean,
     )
-    #use a tiny tolerance so floating point representation
-    #does not cause an exact-threshold value into a false result.
+
+    # Use a tiny tolerance so floating-point representation
+    # does not cause an exact-threshold value to become false.
     epsilon = 1e-9
 
-    drift_detected = drift_score >=(threshold - epsilon)
-    
+    drift_detected = (
+        drift_score >= (threshold - epsilon)
+    )
 
     return {
         "drift_score": drift_score,
@@ -212,16 +240,22 @@ def _run_evidently_check(
     """
     Run the Evidently monitoring integration.
 
-    The Evidently implementation is kept behind this helper so
-    the existing retraining workflow remains stable when
-    Evidently is unavailable or disabled.
+    Evidently's own drift verdicts are used as the source of
+    truth for Evidently-based retraining decisions.
+
+    The home-grown prediction-drift calculation returned by
+    calculate_logged_evidently_drift() is intentionally kept
+    only as a comparison metric and does NOT drive the
+    Evidently retraining trigger.
 
     Returns a normalized result containing:
+
         enabled
         available
         data_drift_detected
         prediction_drift_detected
         prediction_drift_score
+        drifted_feature_share
         error
     """
 
@@ -231,6 +265,7 @@ def _run_evidently_check(
         "data_drift_detected": False,
         "prediction_drift_detected": False,
         "prediction_drift_score": None,
+        "drifted_feature_share": None,
         "error": None,
     }
 
@@ -239,34 +274,69 @@ def _run_evidently_check(
             calculate_logged_evidently_drift,
         )
 
-        evidently_result = calculate_logged_evidently_drift()
-
-        result["available"] = True
-
-        if not isinstance(evidently_result, dict):
-            return result
-
-        prediction_drift = evidently_result.get(
-            "prediction_drift",
-            {},
+        evidently_result = (
+            calculate_logged_evidently_drift()
         )
 
-        if isinstance(prediction_drift, dict):
-            result["prediction_drift_detected"] = bool(
-                prediction_drift.get(
-                    "drift_detected",
-                    False,
-                )
+        if not isinstance(
+            evidently_result,
+            dict,
+        ):
+            result["error"] = (
+                "Evidently returned an invalid result."
             )
+            return result
 
-            result["prediction_drift_score"] = (
-                prediction_drift.get("score")
+        # A valid Evidently response was returned.
+        result["available"] = (
+            evidently_result.get(
+                "status"
             )
+            != "insufficient_data"
+        )
+
+        # ----------------------------------------------------
+        # IMPORTANT:
+        #
+        # Both verdicts below come directly from Evidently's
+        # own ValueDrift tests.
+        #
+        # Do NOT use:
+        #
+        #     evidently_result["prediction_drift"]
+        #
+        # for the retraining decision.
+        #
+        # That value is the home-grown total-variation check
+        # and is retained only for comparison/reporting.
+        # ----------------------------------------------------
 
         result["data_drift_detected"] = bool(
             evidently_result.get(
                 "data_drift_detected",
                 False,
+            )
+        )
+
+        result["prediction_drift_detected"] = bool(
+            evidently_result.get(
+                "prediction_drift_detected",
+                False,
+            )
+        )
+
+        # For Evidently's prediction ValueDrift metric,
+        # the value is the p-value for the default categorical
+        # drift test.
+        result["prediction_drift_score"] = (
+            evidently_result.get(
+                "prediction_drift_p_value"
+            )
+        )
+
+        result["drifted_feature_share"] = (
+            evidently_result.get(
+                "drifted_feature_share"
             )
         )
 
@@ -296,18 +366,22 @@ def check_retraining_needed(
     """
     Determine whether model retraining is required.
 
-    Existing home-grown input drift remains the primary signal.
+    Existing home-grown input drift remains a retraining signal.
 
-    When ENABLE_EVIDENTLY_RETRAINING=true, Evidently prediction
-    drift is added as an additional signal.
+    When ENABLE_EVIDENTLY_RETRAINING=true, Evidently's own
+    data-drift and prediction-drift verdicts are added as
+    additional retraining signals.
 
     Retraining is triggered when:
+
         home-grown input drift >= threshold
 
     OR, when Evidently is enabled:
+
         Evidently data drift is detected
 
     OR:
+
         Evidently prediction drift is detected
     """
 
@@ -317,10 +391,14 @@ def check_retraining_needed(
         threshold=threshold,
     )
 
-    drift_score = homegrown_result["drift_score"]
+    drift_score = homegrown_result[
+        "drift_score"
+    ]
 
     input_drift_detected = bool(
-        homegrown_result["drift_detected"]
+        homegrown_result[
+            "drift_detected"
+        ]
     )
 
     evidently_result: Dict[str, Any] = {
@@ -329,10 +407,11 @@ def check_retraining_needed(
         "data_drift_detected": False,
         "prediction_drift_detected": False,
         "prediction_drift_score": None,
+        "drifted_feature_share": None,
         "error": None,
     }
 
-    # Evidently is optional so existing R5 behavior remains
+    # Evidently is optional so existing behavior remains
     # compatible unless explicitly enabled.
     if _evidently_enabled():
         evidently_result = _run_evidently_check(
@@ -373,21 +452,31 @@ def check_retraining_needed(
         "reason": reason,
         "drift_score": drift_score,
         "threshold": threshold,
-        "sample_count": len(recent_inputs),
+        "sample_count": len(
+            recent_inputs
+        ),
 
         # Existing/home-grown signal.
-        "input_drift_detected": input_drift_detected,
+        "input_drift_detected": (
+            input_drift_detected
+        ),
 
         # Evidently signals.
-        "evidently_enabled": evidently_result.get(
-            "enabled",
-            False,
+        "evidently_enabled": (
+            evidently_result.get(
+                "enabled",
+                False,
+            )
         ),
-        "evidently_available": evidently_result.get(
-            "available",
-            False,
+        "evidently_available": (
+            evidently_result.get(
+                "available",
+                False,
+            )
         ),
-        "evidently_data_drift_detected": evidently_data_drift,
+        "evidently_data_drift_detected": (
+            evidently_data_drift
+        ),
         "evidently_prediction_drift_detected": (
             evidently_prediction_drift
         ),
@@ -396,8 +485,15 @@ def check_retraining_needed(
                 "prediction_drift_score"
             )
         ),
-        "evidently_error": evidently_result.get(
-            "error"
+        "evidently_drifted_feature_share": (
+            evidently_result.get(
+                "drifted_feature_share"
+            )
+        ),
+        "evidently_error": (
+            evidently_result.get(
+                "error"
+            )
         ),
     }
 
@@ -419,7 +515,9 @@ def manual_retrain_trigger() -> Dict[str, Any]:
     return {
         "status": "retraining_triggered",
         "retraining_triggered": True,
-        "message": "Retraining was manually triggered successfully",
+        "message": (
+            "Retraining was manually triggered successfully"
+        ),
     }
 
 
@@ -430,7 +528,9 @@ def manual_retrain_trigger() -> Dict[str, Any]:
 
 def automated_retrain(
     recent_inputs: List[List[float]],
-    retrain_callback: Optional[Callable[[], Dict[str, Any]]] = None,
+    retrain_callback: Optional[
+        Callable[[], Dict[str, Any]]
+    ] = None,
 ) -> Dict[str, Any]:
     """
     Run the automated retraining decision workflow.
@@ -490,11 +590,16 @@ def automated_retrain(
         }
 
     logger.warning(
-        "Retraining triggered. Reason=%s, input_drift=%s, "
+        "Retraining triggered. Reason=%s, "
+        "input_drift=%s, evidently_data_drift=%s, "
         "evidently_prediction_drift=%s",
         drift_result.get("reason"),
         drift_result.get(
             "input_drift_detected",
+            False,
+        ),
+        drift_result.get(
+            "evidently_data_drift_detected",
             False,
         ),
         drift_result.get(
@@ -524,6 +629,7 @@ def automated_retrain(
 
     try:
         # Callback is intentionally called without arguments.
+        #
         # Existing service/tests use callbacks such as:
         #
         #     lambda: {...}
@@ -559,13 +665,14 @@ def automated_retrain(
                 "outcome": "pending_approval",
                 "retraining_triggered": True,
 
-                # Critical compatibility field:
-                # model has NOT reached production.
+                # Model has NOT reached production.
                 "new_model_version": None,
                 "production_version": None,
 
-                "staging_version": callback_result.get(
-                    "staging_version"
+                "staging_version": (
+                    callback_result.get(
+                        "staging_version"
+                    )
                 ),
             }
 
@@ -574,8 +681,10 @@ def automated_retrain(
         # ----------------------------------------------------
 
         if callback_status == "promoted":
-            production_version = callback_result.get(
-                "production_version"
+            production_version = (
+                callback_result.get(
+                    "production_version"
+                )
             )
 
             return {
@@ -585,13 +694,18 @@ def automated_retrain(
                 "outcome": "promoted",
                 "retraining_triggered": True,
 
-                # Critical compatibility field:
-                # production version is the new model version.
-                "new_model_version": production_version,
-                "production_version": production_version,
+                # Production version is the new model version.
+                "new_model_version": (
+                    production_version
+                ),
+                "production_version": (
+                    production_version
+                ),
 
-                "staging_version": callback_result.get(
-                    "staging_version"
+                "staging_version": (
+                    callback_result.get(
+                        "staging_version"
+                    )
                 ),
             }
 
@@ -608,8 +722,10 @@ def automated_retrain(
                 "retraining_triggered": True,
                 "new_model_version": None,
                 "production_version": None,
-                "staging_version": callback_result.get(
-                    "staging_version"
+                "staging_version": (
+                    callback_result.get(
+                        "staging_version"
+                    )
                 ),
             }
 
@@ -617,8 +733,10 @@ def automated_retrain(
         # Other callback outcomes.
         # ----------------------------------------------------
 
-        production_version = callback_result.get(
-            "production_version"
+        production_version = (
+            callback_result.get(
+                "production_version"
+            )
         )
 
         return {
@@ -629,8 +747,10 @@ def automated_retrain(
             "retraining_triggered": True,
             "new_model_version": production_version,
             "production_version": production_version,
-            "staging_version": callback_result.get(
-                "staging_version"
+            "staging_version": (
+                callback_result.get(
+                    "staging_version"
+                )
             ),
         }
 
@@ -653,4 +773,3 @@ def automated_retrain(
             "staging_version": None,
             "error": str(exc),
         }
-
