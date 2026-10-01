@@ -1,0 +1,84 @@
+version: 2
+
+models:
+  - name: stg_sales_fact
+    columns:
+      - name: sale_date
+        tests: [not_null]
+      - name: sku_id
+        tests: [not_null]
+      - name: warehouse_id
+        tests: [not_null]
+      - name: quantity_sold
+        tests: [not_null]
+      - name: unit_price
+        tests: [not_null]
+
+  - name: stg_inventory_snapshot
+    tests:
+      - unique:
+          column_name: "snapshot_date || '|' || sku_id || '|' || warehouse_id"
+    columns:
+      - name: snapshot_date
+        tests: [not_null]
+      - name: sku_id
+        tests: [not_null]
+      - name: warehouse_id
+        tests: [not_null]
+
+  - name: stg_shipments_fact
+    tests:
+      - unique:
+          column_name: "shipment_date || '|' || sku_id || '|' || warehouse_id"
+    columns:
+      - name: shipment_date
+        tests: [not_null]
+      - name: sku_id
+        tests: [not_null]
+      - name: warehouse_id
+        tests: [not_null]
+
+  - name: mart_daily_sales_by_warehouse
+    tests:
+      - unique:
+          column_name: "sale_date || '|' || warehouse_id"
+    columns:
+      - name: sale_date
+        tests: [not_null]
+      - name: warehouse_id
+        tests: [not_null]
+      - name: units_sold
+        tests: [not_null]
+      - name: sales_amount
+        tests: [not_null]
+      - name: warehouse_id
+        tests:
+          - relationships:
+              to: ref('stg_sales_fact')
+              field: warehouse_id
+
+  - name: mart_inventory_position
+    tests:
+      - unique:
+          column_name: "sku_id || '|' || warehouse_id"
+    columns:
+      - name: snapshot_date
+        tests: [not_null]
+      - name: sku_id
+        tests: [not_null]
+      - name: warehouse_id
+        tests: [not_null]
+      - name: quantity_on_hand
+        tests: [not_null]
+
+  - name: mart_daily_shipments_by_warehouse
+    tests:
+      - unique:
+          column_name: "shipment_date || '|' || warehouse_id"
+    columns:
+      - name: shipment_date
+        tests: [not_null]
+      - name: warehouse_id
+        tests: [not_null]
+      - name: units_shipped
+        tests: [not_null]
