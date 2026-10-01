@@ -1,0 +1,578 @@
+[
+  {
+    "supplier": "BioPharma Solutions",
+    "headline": "BioPharma Solutions secures FDA fast-track clearance for new automated manufacturing line.",
+    "expected_tier": "Low",
+    "rationale": "FDA regulatory clearance for advanced automated line indicates strong operational compliance."
+  },
+  {
+    "supplier": "BioPharma Solutions",
+    "headline": "BioPharma Solutions announces record positive annual revenue growth of twenty percent.",
+    "expected_tier": "Low",
+    "rationale": "Record financial performance and revenue expansion indicate robust operational stability."
+  },
+  {
+    "supplier": "BioPharma Solutions",
+    "headline": "BioPharma Solutions expands cleanroom capacity with modern facility opening in Ireland.",
+    "expected_tier": "Low",
+    "rationale": "Capital expansion and modern facility opening demonstrate ongoing growth."
+  },
+  {
+    "supplier": "BioPharma Solutions",
+    "headline": "BioPharma Solutions enters long-term commercial supply contract with leading oncology developer.",
+    "expected_tier": "Low",
+    "rationale": "Long-term multi-year customer partnership strengthens commercial baseline."
+  },
+  {
+    "supplier": "BioPharma Solutions",
+    "headline": "BioPharma Solutions receives excellence award for zero contamination across production runs.",
+    "expected_tier": "Low",
+    "rationale": "Industry recognition for quality assurance confirms minimal risk profile."
+  },
+  {
+    "supplier": "BioPharma Solutions",
+    "headline": "BioPharma Solutions completes successful regulatory inspection with zero critical observations.",
+    "expected_tier": "Low",
+    "rationale": "Clean regulatory audit demonstrates exceptional compliance."
+  },
+  {
+    "supplier": "BioPharma Solutions",
+    "headline": "BioPharma Solutions signs strategic distribution agreement across Asia-Pacific markets.",
+    "expected_tier": "Low",
+    "rationale": "Commercial market expansion signals commercial health."
+  },
+  {
+    "supplier": "BioPharma Solutions",
+    "headline": "BioPharma Solutions reports positive operating margins and robust balance sheet.",
+    "expected_tier": "Low",
+    "rationale": "Healthy liquidity and profitability mitigate operational shocks."
+  },
+  {
+    "supplier": "Nordic Steel Group",
+    "headline": "Nordic Steel Group signs landmark twenty-year green steel supply agreement with automotive manufacturers.",
+    "expected_tier": "Low",
+    "rationale": "Long-term anchor customer contract stabilizes long-term demand."
+  },
+  {
+    "supplier": "Nordic Steel Group",
+    "headline": "Nordic Steel Group reports record positive profit following hydrogen-powered furnace commissioning.",
+    "expected_tier": "Low",
+    "rationale": "Record net profitability following successful capital innovation."
+  },
+  {
+    "supplier": "Nordic Steel Group",
+    "headline": "Nordic Steel Group receives international sustainability certification for zero-emissions manufacturing.",
+    "expected_tier": "Low",
+    "rationale": "Environmental compliance milestone minimizes regulatory friction."
+  },
+  {
+    "supplier": "Nordic Steel Group",
+    "headline": "Nordic Steel Group completes major plant expansion ahead of schedule and under budget.",
+    "expected_tier": "Low",
+    "rationale": "Flawless project execution affirms managerial excellence."
+  },
+  {
+    "supplier": "Nordic Steel Group",
+    "headline": "Nordic Steel Group experiences minor rail freight delay affecting regional deliveries for two days.",
+    "expected_tier": "Low",
+    "rationale": "Minor transient rail delay represents isolated operational friction."
+  },
+  {
+    "supplier": "Nordic Steel Group",
+    "headline": "Nordic Steel Group resolves logistics delay as port freight flows normalize.",
+    "expected_tier": "Low",
+    "rationale": "Prompt logistics resolution prevents lingering exposure."
+  },
+  {
+    "supplier": "Nordic Steel Group",
+    "headline": "Nordic Steel Group announces positive third-quarter financial results driven by infrastructure demand.",
+    "expected_tier": "Low",
+    "rationale": "Quarterly financial strength reinforces low risk profile."
+  },
+  {
+    "supplier": "Nordic Steel Group",
+    "headline": "Nordic Steel Group secures ten-year renewable energy contract to power rolling mills.",
+    "expected_tier": "Low",
+    "rationale": "Long-term power purchase agreement insulates operations from energy volatility."
+  },
+  {
+    "supplier": "Precision Optical Dynamics",
+    "headline": "Precision Optical Dynamics secures forty-million-dollar aerospace defense sensor contract.",
+    "expected_tier": "Low",
+    "rationale": "High-value government defense sensor award anchors order book."
+  },
+  {
+    "supplier": "Precision Optical Dynamics",
+    "headline": "Precision Optical Dynamics reports record positive earnings driven by satellite optics demand.",
+    "expected_tier": "Low",
+    "rationale": "Commercial satellite demand drives record financial performance."
+  },
+  {
+    "supplier": "Precision Optical Dynamics",
+    "headline": "Precision Optical Dynamics awarded new international patents for advanced infrared lens coatings.",
+    "expected_tier": "Low",
+    "rationale": "Proprietary technology patents protect competitive positioning."
+  },
+  {
+    "supplier": "Precision Optical Dynamics",
+    "headline": "Precision Optical Dynamics opens new optical calibration laboratory in Munich.",
+    "expected_tier": "Low",
+    "rationale": "Laboratory expansion demonstrates operational investment."
+  },
+  {
+    "supplier": "Precision Optical Dynamics",
+    "headline": "Precision Optical Dynamics announces major joint venture with industrial laser fabricator.",
+    "expected_tier": "Low",
+    "rationale": "Joint venture expands manufacturing capabilities."
+  },
+  {
+    "supplier": "Precision Optical Dynamics",
+    "headline": "Precision Optical Dynamics achieves record positive order backlog for fiscal year.",
+    "expected_tier": "Low",
+    "rationale": "Multi-year commercial backlog assures continuous cash flows."
+  },
+  {
+    "supplier": "Precision Optical Dynamics",
+    "headline": "Precision Optical Dynamics receives outstanding supplier certification from aerospace prime contractor.",
+    "expected_tier": "Low",
+    "rationale": "Top-tier supplier quality rating from customer."
+  },
+  {
+    "supplier": "Precision Optical Dynamics",
+    "headline": "Precision Optical Dynamics completes facility modernization ahead of production schedule.",
+    "expected_tier": "Low",
+    "rationale": "Facility modernization completed ahead of milestones."
+  },
+  {
+    "supplier": "Continental Freightlines",
+    "headline": "Continental Freightlines warehouse workers organize strike demanding higher shift premiums.",
+    "expected_tier": "Medium",
+    "rationale": "Warehouse labor strike introduces supply chain delivery friction."
+  },
+  {
+    "supplier": "Continental Freightlines",
+    "headline": "Continental Freightlines encounters diesel fuel delivery shortage causing transit delays.",
+    "expected_tier": "Medium",
+    "rationale": "Fuel shortage creates localized network delays."
+  },
+  {
+    "supplier": "Continental Freightlines",
+    "headline": "Continental Freightlines reports persistent freight delivery delays across southern hub.",
+    "expected_tier": "Medium",
+    "rationale": "Hub transit delays impact regional delivery SLAs."
+  },
+  {
+    "supplier": "Continental Freightlines",
+    "headline": "State transportation department opens investigation into Continental driver rest-break compliance.",
+    "expected_tier": "Medium",
+    "rationale": "Regulatory scrutiny on safety regulations introduces compliance risk."
+  },
+  {
+    "supplier": "Continental Freightlines",
+    "headline": "Continental Freightlines faces customer lawsuit over delayed perishable cargo shipments.",
+    "expected_tier": "Medium",
+    "rationale": "Commercial lawsuit for late shipment penalties."
+  },
+  {
+    "supplier": "Continental Freightlines",
+    "headline": "Continental Freightlines signs five-year regional freight contract with supermarket chain.",
+    "expected_tier": "Medium",
+    "rationale": "Major commercial contract provides mitigating revenue stream."
+  },
+  {
+    "supplier": "Continental Freightlines",
+    "headline": "Continental Freightlines opens automated cross-dock hub in Kansas City.",
+    "expected_tier": "Medium",
+    "rationale": "New terminal efficiency moderates operational disruptions."
+  },
+  {
+    "supplier": "Continental Freightlines",
+    "headline": "Continental Freightlines reports positive operating revenue for third quarter.",
+    "expected_tier": "Medium",
+    "rationale": "Operating profitability counterbalances active labor and legal friction."
+  },
+  {
+    "supplier": "Helios Microelectronics",
+    "headline": "Helios Microelectronics hit with competitor lawsuit alleging patent infringement.",
+    "expected_tier": "Medium",
+    "rationale": "Patent lawsuit creates intellectual property litigation exposure."
+  },
+  {
+    "supplier": "Helios Microelectronics",
+    "headline": "Helios Microelectronics initiates voluntary product recall on industrial diode batch.",
+    "expected_tier": "Medium",
+    "rationale": "Product defect recall creates operational replacement cost."
+  },
+  {
+    "supplier": "Helios Microelectronics",
+    "headline": "Helios Microelectronics faces unexpected raw material shortage in specialty ceramic substrates.",
+    "expected_tier": "Medium",
+    "rationale": "Substrate shortage delays component assembly."
+  },
+  {
+    "supplier": "Helios Microelectronics",
+    "headline": "Helios Microelectronics reports factory production delays due to equipment maintenance.",
+    "expected_tier": "Medium",
+    "rationale": "Maintenance delays temporarily reduce weekly yield."
+  },
+  {
+    "supplier": "Helios Microelectronics",
+    "headline": "Automotive supplier files dispute over delayed power module shipments from Helios.",
+    "expected_tier": "Medium",
+    "rationale": "Customer dispute over delivery timeliness."
+  },
+  {
+    "supplier": "Helios Microelectronics",
+    "headline": "Helios Microelectronics announces major power module supply agreement with commercial OEM.",
+    "expected_tier": "Medium",
+    "rationale": "Substantial customer contract mitigates downside risk."
+  },
+  {
+    "supplier": "Helios Microelectronics",
+    "headline": "Helios Microelectronics opens new packaging cleanroom facility in Dresden.",
+    "expected_tier": "Medium",
+    "rationale": "Capacity expansion demonstrates underlying commercial demand."
+  },
+  {
+    "supplier": "Helios Microelectronics",
+    "headline": "Helios Microelectronics reports positive operating margin for quarterly period.",
+    "expected_tier": "Medium",
+    "rationale": "Operating profitability offsets recall and litigation liabilities."
+  },
+  {
+    "supplier": "Atlas Heavy Industries",
+    "headline": "Atlas Heavy Industries machinists vote to strike over multi-year wage negotiations.",
+    "expected_tier": "Medium",
+    "rationale": "Labor union strike halts heavy machinery assembly line."
+  },
+  {
+    "supplier": "Atlas Heavy Industries",
+    "headline": "State safety board opens investigation into crane component failure at shipyard.",
+    "expected_tier": "Medium",
+    "rationale": "Workplace safety investigation into equipment integrity."
+  },
+  {
+    "supplier": "Atlas Heavy Industries",
+    "headline": "Atlas Heavy Industries encounters parts delivery delays from overseas foundries.",
+    "expected_tier": "Medium",
+    "rationale": "Foundry component delays slow structural fabrication."
+  },
+  {
+    "supplier": "Atlas Heavy Industries",
+    "headline": "Port authority threatens penalty over delayed gantry crane installations by Atlas.",
+    "expected_tier": "Medium",
+    "rationale": "Customer penalty threats reflect installation delivery friction."
+  },
+  {
+    "supplier": "Atlas Heavy Industries",
+    "headline": "Atlas Heavy Industries reports skilled labor shortage impacting assembly operations.",
+    "expected_tier": "Medium",
+    "rationale": "Staffing shortages constrain peak capacity."
+  },
+  {
+    "supplier": "Atlas Heavy Industries",
+    "headline": "Atlas Heavy Industries completes delivery of high-speed rail equipment ahead of schedule.",
+    "expected_tier": "Medium",
+    "rationale": "Successful project milestone offsets ongoing labor disputes."
+  },
+  {
+    "supplier": "Atlas Heavy Industries",
+    "headline": "Atlas Heavy Industries secures ninety-million-dollar maritime crane contract.",
+    "expected_tier": "Medium",
+    "rationale": "Major commercial order wins sustain cash flows."
+  },
+  {
+    "supplier": "Atlas Heavy Industries",
+    "headline": "Atlas Heavy Industries announces positive operating profit and dividend stability.",
+    "expected_tier": "Medium",
+    "rationale": "Financial health balances operational and labor frictions."
+  },
+  {
+    "supplier": "OmniChem Global",
+    "headline": "Environmental protection agency issues severe sanction against OmniChem Global following industrial solvent spill.",
+    "expected_tier": "High",
+    "rationale": "Regulatory environmental sanctions threaten operating permits."
+  },
+  {
+    "supplier": "OmniChem Global",
+    "headline": "Regulators mandate temporary shutdown of OmniChem chemical synthesis plant in Louisiana.",
+    "expected_tier": "High",
+    "rationale": "Mandatory facility shutdown halts key product line production."
+  },
+  {
+    "supplier": "OmniChem Global",
+    "headline": "Commercial customer files twenty-five-million-dollar lawsuit against OmniChem Global alleging toxic batch supply.",
+    "expected_tier": "High",
+    "rationale": "Substantial customer litigation alleging defective chemical supply."
+  },
+  {
+    "supplier": "OmniChem Global",
+    "headline": "Independent credit rating agency issues downgrade of OmniChem Global senior corporate debt to junk.",
+    "expected_tier": "High",
+    "rationale": "Credit downgrade sharply elevates corporate borrowing costs."
+  },
+  {
+    "supplier": "OmniChem Global",
+    "headline": "State environmental agency launches formal investigation into chemical waste disposal practices at OmniChem.",
+    "expected_tier": "High",
+    "rationale": "Formal regulatory investigation creates legal exposure."
+  },
+  {
+    "supplier": "OmniChem Global",
+    "headline": "OmniChem Global announces five hundred worker layoff across specialty polymers manufacturing unit.",
+    "expected_tier": "High",
+    "rationale": "Substantial workforce reduction reflects contraction."
+  },
+  {
+    "supplier": "OmniChem Global",
+    "headline": "OmniChem Global faces severe raw material shortage as suppliers halt credit lines.",
+    "expected_tier": "High",
+    "rationale": "Upstream credit freezes cause severe input shortages."
+  },
+  {
+    "supplier": "OmniChem Global",
+    "headline": "OmniChem Global reports minor positive revenue from agricultural fertilizer segment.",
+    "expected_tier": "High",
+    "rationale": "Marginal positive revenues insufficient to counterbalance multiple severe disruptions."
+  },
+  {
+    "supplier": "Vanguard Advanced Materials",
+    "headline": "Commerce department issues formal sanction against Vanguard Advanced Materials over export violations.",
+    "expected_tier": "High",
+    "rationale": "Trade export sanctions restrict international sales channels."
+  },
+  {
+    "supplier": "Vanguard Advanced Materials",
+    "headline": "Regulators order temporary shutdown of Vanguard chemical processing facility following inspection.",
+    "expected_tier": "High",
+    "rationale": "Government-mandated shutdown halts key production output."
+  },
+  {
+    "supplier": "Vanguard Advanced Materials",
+    "headline": "Defense prime contractor files thirty-million-dollar lawsuit against Vanguard over defective composite panels.",
+    "expected_tier": "High",
+    "rationale": "Major commercial customer litigation threatens key defense revenue."
+  },
+  {
+    "supplier": "Vanguard Advanced Materials",
+    "headline": "Credit rating agency issues downgrade of Vanguard Advanced Materials corporate debt.",
+    "expected_tier": "High",
+    "rationale": "Credit rating downgrade reflects impaired balance sheet."
+  },
+  {
+    "supplier": "Vanguard Advanced Materials",
+    "headline": "Vanguard Advanced Materials announces four hundred employee layoff amidst restructuring.",
+    "expected_tier": "High",
+    "rationale": "Large workforce reduction amid ongoing operational restructuring."
+  },
+  {
+    "supplier": "Vanguard Advanced Materials",
+    "headline": "Aerospace manufacturer announces recall of structural brackets produced by Vanguard.",
+    "expected_tier": "High",
+    "rationale": "Critical component recall damages supplier standing."
+  },
+  {
+    "supplier": "Vanguard Advanced Materials",
+    "headline": "Vanguard Advanced Materials reports localized titanium alloy shortage across manufacturing units.",
+    "expected_tier": "High",
+    "rationale": "Key alloy supply shortage impairs manufacturing throughput."
+  },
+  {
+    "supplier": "Vanguard Advanced Materials",
+    "headline": "Vanguard Advanced Materials secures minor positive commercial grant for recycling research.",
+    "expected_tier": "High",
+    "rationale": "Minor grant does not mitigate compounding structural distress."
+  },
+  {
+    "supplier": "Zenith Dynamics Corp",
+    "headline": "Federal prosecutors initiate formal investigation into Zenith Dynamics aerospace hardware certification.",
+    "expected_tier": "High",
+    "rationale": "Criminal federal investigation into equipment quality certification."
+  },
+  {
+    "supplier": "Zenith Dynamics Corp",
+    "headline": "Commercial aircraft manufacturer announces parts recall of Zenith Dynamics titanium brackets.",
+    "expected_tier": "High",
+    "rationale": "Widespread product recall creates massive liability."
+  },
+  {
+    "supplier": "Zenith Dynamics Corp",
+    "headline": "Aviation authority threatens formal sanction against Zenith Dynamics over quality audits.",
+    "expected_tier": "High",
+    "rationale": "Imminent regulatory sanctions threaten commercial operating license."
+  },
+  {
+    "supplier": "Zenith Dynamics Corp",
+    "headline": "Zenith Dynamics hit with thirty-million-dollar lawsuit over defective hydraulic pumps.",
+    "expected_tier": "High",
+    "rationale": "Major customer breach of contract lawsuit."
+  },
+  {
+    "supplier": "Zenith Dynamics Corp",
+    "headline": "Zenith Dynamics announces temporary shutdown of Michigan machining line following inspection.",
+    "expected_tier": "High",
+    "rationale": "Machining plant shutdown disrupts deliveries."
+  },
+  {
+    "supplier": "Zenith Dynamics Corp",
+    "headline": "Rating agency issues credit downgrade on Zenith Dynamics bonds.",
+    "expected_tier": "High",
+    "rationale": "Bond downgrade reflects severely elevated credit risk."
+  },
+  {
+    "supplier": "Zenith Dynamics Corp",
+    "headline": "Zenith Dynamics machinists union plans strike over safety concerns.",
+    "expected_tier": "High",
+    "rationale": "Labor strike plans exacerbate operational disruption."
+  },
+  {
+    "supplier": "Zenith Dynamics Corp",
+    "headline": "Zenith Dynamics announces restructuring plan and management layoff.",
+    "expected_tier": "High",
+    "rationale": "Emergency restructuring and layoffs indicate deep operational turmoil."
+  },
+  {
+    "supplier": "Cascade Energy Corp",
+    "headline": "Cascade Energy Corp prepares Chapter eleven bankruptcy filing following liquidity collapse.",
+    "expected_tier": "Critical",
+    "rationale": "Imminent bankruptcy filing indicates acute insolvency crisis."
+  },
+  {
+    "supplier": "Cascade Energy Corp",
+    "headline": "Cascade Energy Corp defaults on forty-million-dollar syndicated credit facility repayment.",
+    "expected_tier": "Critical",
+    "rationale": "Direct debt default on institutional credit facility."
+  },
+  {
+    "supplier": "Cascade Energy Corp",
+    "headline": "Syndicated lenders issue formal default notice to Cascade Energy Corp amidst insolvency crisis.",
+    "expected_tier": "Critical",
+    "rationale": "Formal default acceleration by lenders."
+  },
+  {
+    "supplier": "Cascade Energy Corp",
+    "headline": "Cascade Energy Corp announces emergency shutdown of central battery pack production plant.",
+    "expected_tier": "Critical",
+    "rationale": "Total production shutdown of core battery manufacturing operations."
+  },
+  {
+    "supplier": "Cascade Energy Corp",
+    "headline": "Cascade Energy Corp slashes four hundred jobs in massive across-the-board workforce layoff.",
+    "expected_tier": "Critical",
+    "rationale": "Mass layoffs indicate operational collapse."
+  },
+  {
+    "supplier": "Cascade Energy Corp",
+    "headline": "Federal regulatory agency opens urgent fraud investigation into Cascade Energy balance sheet discrepancies.",
+    "expected_tier": "Critical",
+    "rationale": "Government fraud investigation into accounting misstatements."
+  },
+  {
+    "supplier": "Cascade Energy Corp",
+    "headline": "Creditors reject debt restructuring proposal leaving Cascade Energy facing imminent liquidation.",
+    "expected_tier": "Critical",
+    "rationale": "Restructuring failure forces liquidation."
+  },
+  {
+    "supplier": "Cascade Energy Corp",
+    "headline": "Commercial partners cancel grid storage contracts with Cascade Energy amidst bankruptcy fears.",
+    "expected_tier": "Critical",
+    "rationale": "Widespread commercial contract cancellations amid insolvency."
+  },
+  {
+    "supplier": "Solaria Technologies",
+    "headline": "Solaria Technologies declares formal bankruptcy in federal court after debt negotiations disintegrate.",
+    "expected_tier": "Critical",
+    "rationale": "Formal federal bankruptcy filing confirms terminal failure."
+  },
+  {
+    "supplier": "Solaria Technologies",
+    "headline": "Solaria Technologies enters emergency insolvency proceedings as liquidators seize assembly plants.",
+    "expected_tier": "Critical",
+    "rationale": "Insolvency receivership and asset seizures by creditors."
+  },
+  {
+    "supplier": "Solaria Technologies",
+    "headline": "State court appoints receiver following total default on sixty-million-dollar convertible debentures.",
+    "expected_tier": "Critical",
+    "rationale": "Total default on commercial debentures triggers receivership."
+  },
+  {
+    "supplier": "Solaria Technologies",
+    "headline": "Regulatory authorities impose international sanction against Solaria Technologies over illegal supply diversion.",
+    "expected_tier": "Critical",
+    "rationale": "International trade sanctions restrict commercial viability."
+  },
+  {
+    "supplier": "Solaria Technologies",
+    "headline": "Securities commission launches major fraud investigation into Solaria executives over hidden debt.",
+    "expected_tier": "Critical",
+    "rationale": "Securities fraud investigation into hidden corporate liabilities."
+  },
+  {
+    "supplier": "Solaria Technologies",
+    "headline": "Solaria Technologies orders immediate shutdown of solar module manufacturing operations worldwide.",
+    "expected_tier": "Critical",
+    "rationale": "Worldwide manufacturing shutdown halts operations."
+  },
+  {
+    "supplier": "Solaria Technologies",
+    "headline": "Solaria Technologies terminates ninety percent of manufacturing staff in immediate emergency layoff.",
+    "expected_tier": "Critical",
+    "rationale": "Near-total workforce liquidation."
+  },
+  {
+    "supplier": "Solaria Technologies",
+    "headline": "Commercial customers file multi-million-dollar lawsuit against bankrupt Solaria Technologies for breach of contract.",
+    "expected_tier": "Critical",
+    "rationale": "Mass customer lawsuits against bankrupt entity."
+  },
+  {
+    "supplier": "Meridian Maritime Services",
+    "headline": "Meridian Maritime Services declares emergency bankruptcy following maritime container fleet arrest.",
+    "expected_tier": "Critical",
+    "rationale": "Bankruptcy declaration following maritime court vessel arrests."
+  },
+  {
+    "supplier": "Meridian Maritime Services",
+    "headline": "Syndicated creditors issue formal debt default notice to Meridian Maritime Services.",
+    "expected_tier": "Critical",
+    "rationale": "Accelerated debt default on marine vessel mortgages."
+  },
+  {
+    "supplier": "Meridian Maritime Services",
+    "headline": "High court orders insolvency receivership over Meridian Maritime cargo vessels.",
+    "expected_tier": "Critical",
+    "rationale": "Judicial insolvency receivership over core operating assets."
+  },
+  {
+    "supplier": "Meridian Maritime Services",
+    "headline": "Port authorities seize Meridian container ships following prolonged fuel payment default.",
+    "expected_tier": "Critical",
+    "rationale": "Physical vessel seizures following fuel payment defaults."
+  },
+  {
+    "supplier": "Meridian Maritime Services",
+    "headline": "International maritime safety agency issues sweeping sanction against Meridian fleet.",
+    "expected_tier": "Critical",
+    "rationale": "Fleet-wide maritime sanctions halt international port entries."
+  },
+  {
+    "supplier": "Meridian Maritime Services",
+    "headline": "Meridian Maritime Services orders immediate shutdown of commercial cargo operations.",
+    "expected_tier": "Critical",
+    "rationale": "Immediate operational shutdown of shipping lines."
+  },
+  {
+    "supplier": "Meridian Maritime Services",
+    "headline": "Federal authorities launch fraud probe into Meridian Maritime cargo billing practices.",
+    "expected_tier": "Critical",
+    "rationale": "Federal criminal fraud probe into maritime billing."
+  },
+  {
+    "supplier": "Meridian Maritime Services",
+    "headline": "Meridian Maritime Services terminates all port crew contracts in emergency workforce layoff.",
+    "expected_tier": "Critical",
+    "rationale": "Total crew layoff confirms terminal operational wind-down."
+  }
+]

@@ -1,10 +1,12 @@
 import threading
 import time
-from datetime import date
+from datetime import date, datetime
+
 import httpx
 import pytest
 
 from app.models.inventory import Inventory
+from app.models.inventory_cost_layer import InventoryCostLayer
 from app.models.sales_history import SalesHistory
 from app.services.abc_service import classify_skus
 
@@ -33,6 +35,78 @@ def create_payload(
         "lead_time_days": 4,
         "safety_stock": 10,
     }
+
+
+# =========================================================
+# TEST COST LAYER HELPERS
+# =========================================================
+
+def seed_cost_layer(
+    sku_id,
+    warehouse_id,
+    quantity,
+    unit_cost=50.0,
+    category="Uncategorized",
+):
+    db = TestingSessionLocal()
+
+    try:
+        db.add(
+            InventoryCostLayer(
+                sku_id=sku_id,
+                warehouse_id=warehouse_id,
+                category=category,
+                quantity_received=quantity,
+                quantity_remaining=quantity,
+                unit_cost=unit_cost,
+                received_at=datetime.utcnow(),
+            )
+        )
+
+        db.commit()
+
+    finally:
+        db.close()
+
+
+def seed_cost_layers(
+    items,
+    unit_cost=50.0,
+    category="Uncategorized",
+):
+    """
+    Seed multiple FIFO cost layers in one database transaction.
+
+    items:
+        [
+            ("SKU001", "WH001", 100),
+            ("SKU002", "WH001", 100),
+        ]
+    """
+
+    db = TestingSessionLocal()
+
+    try:
+        layers = []
+
+        for sku_id, warehouse_id, quantity in items:
+            layers.append(
+                InventoryCostLayer(
+                    sku_id=sku_id,
+                    warehouse_id=warehouse_id,
+                    category=category,
+                    quantity_received=quantity,
+                    quantity_remaining=quantity,
+                    unit_cost=unit_cost,
+                    received_at=datetime.utcnow(),
+                )
+            )
+
+        db.bulk_save_objects(layers)
+        db.commit()
+
+    finally:
+        db.close()
 
 
 # =========================================================
@@ -214,17 +288,26 @@ def test_reorder_exactly_at_threshold(client):
 
     created = response.json()
 
-    # Use the actual reorder point calculated by the service.
     reorder_point = created["reorder_point"]
 
     assert reorder_point > 0
 
-    # Put stock exactly at the calculated reorder point.
+    # The update decreases inventory from 100 to the
+    # reorder point. M3 FIFO accounting requires a
+    # corresponding cost layer.
+    seed_cost_layer(
+        sku_id="SKU-THRESHOLD",
+        warehouse_id="WH001",
+        quantity=100,
+        unit_cost=50.0,
+    )
+
     response = client.put(
         "/api/v1/inventory/"
         "SKU-THRESHOLD/WH001",
         json={
             "quantity_on_hand": reorder_point,
+            "version": 1,
         },
     )
 
@@ -244,7 +327,6 @@ def test_reorder_exactly_at_threshold(client):
     assert data["needs_reorder"] is False
     assert data["suggested_order_qty"] == 0
 
-    # Exactly at ROP must not appear in reorder plan.
     plan_response = client.get(
         "/api/v1/inventory/reorder-plan"
     )
@@ -259,6 +341,8 @@ def test_reorder_exactly_at_threshold(client):
     ]
 
     assert matching == []
+
+
 # =========================================================
 # ONE UNIT BELOW REORDER THRESHOLD
 # =========================================================
@@ -293,16 +377,26 @@ def test_reorder_one_unit_below_threshold(client):
 
     assert reorder_point > 0
 
-    # Exactly one unit below ROP.
     quantity_below = reorder_point - 1
 
     assert quantity_below >= 0
+
+    # The update decreases inventory from 100 to
+    # one unit below the reorder point. Seed enough
+    # FIFO inventory cost to support that decrease.
+    seed_cost_layer(
+        sku_id="SKU-BELOW",
+        warehouse_id="WH001",
+        quantity=100,
+        unit_cost=50.0,
+    )
 
     response = client.put(
         "/api/v1/inventory/"
         "SKU-BELOW/WH001",
         json={
             "quantity_on_hand": quantity_below,
+            "version": 1,
         },
     )
 
@@ -322,7 +416,6 @@ def test_reorder_one_unit_below_threshold(client):
     assert data["needs_reorder"] is True
     assert data["suggested_order_qty"] == 1
 
-    # It must now appear in reorder plan.
     plan_response = client.get(
         "/api/v1/inventory/reorder-plan"
     )
@@ -337,6 +430,7 @@ def test_reorder_one_unit_below_threshold(client):
     ]
 
     assert len(matching) == 1
+
 
 # =========================================================
 # MULTI WAREHOUSE
@@ -584,6 +678,15 @@ def test_bulk_update_failure(client_warehouse_manager):
 
     assert response.status_code == 201
 
+    # FIFO layer is required because the first update
+    # attempts to decrease stock by 10.
+    seed_cost_layer(
+        sku_id="BULK1",
+        warehouse_id="WH1",
+        quantity=50,
+        unit_cost=50.0,
+    )
+
     response = client_warehouse_manager.post(
         "/api/v1/inventory/bulk-update",
         json=[
@@ -645,6 +748,21 @@ def test_bulk_update_1000_items(client_warehouse_manager):
     finally:
         db.close()
 
+    # Every bulk update decreases stock by one unit.
+    # M3 FIFO accounting therefore requires a cost
+    # layer for every inventory record.
+    seed_cost_layers(
+        [
+            (
+                f"LOAD{i}",
+                "WHLOAD",
+                100,
+            )
+            for i in range(1000)
+        ],
+        unit_cost=50.0,
+    )
+
     updates = [
         {
             "sku_id": f"LOAD{i}",
@@ -674,10 +792,6 @@ def test_bulk_update_1000_items(client_warehouse_manager):
         f"{elapsed:.4f} seconds"
     )
 
-
-# =========================================================
-# NEGATIVE DEMAND
-# =========================================================
 
 # =========================================================
 # NEGATIVE DEMAND MUST NOT CREATE INVENTORY
@@ -715,16 +829,13 @@ def test_negative_demand_is_rejected(client):
     assert response.status_code == 400
     assert "Negative demand" in response.json()["detail"]
 
-    # Failed transaction must not leave inventory behind.
     follow_up = client.get(
         "/api/v1/inventory/"
         "NEG-DEMAND-001/WH001"
     )
 
     assert follow_up.status_code == 404
-# =========================================================
-# ABC 20TH PERCENTILE BOUNDARY
-# =========================================================
+
 
 # =========================================================
 # ABC 20% BOUNDARY
@@ -747,13 +858,11 @@ def test_abc_exactly_at_20th_percentile(db_session):
 
     result = classify_skus(db_session)
 
-    # Highest-selling SKU.
     assert (
         result[("ABC-RANK-01", "WH001")]["abc_tier"]
         == "A"
     )
 
-    # Exactly 20th percentile must still be A.
     assert (
         result[("ABC-RANK-02", "WH001")]["rank_percentile"]
         == 20.0
@@ -764,7 +873,6 @@ def test_abc_exactly_at_20th_percentile(db_session):
         == "A"
     )
 
-    # 30th percentile is B.
     assert (
         result[("ABC-RANK-03", "WH001")]["rank_percentile"]
         == 30.0
@@ -775,11 +883,11 @@ def test_abc_exactly_at_20th_percentile(db_session):
         == "B"
     )
 
-    # Worst seller must be C.
     assert (
         result[("ABC-RANK-10", "WH001")]["abc_tier"]
         == "C"
     )
+
 
 # =========================================================
 # TRANSFER SUGGESTION
@@ -835,9 +943,7 @@ def test_transfer_suggestion(client):
         if item["warehouse_id"] == "DEST"
     )
 
-    transfer = (
-        destination["transfer_suggestion"]
-    )
+    transfer = destination["transfer_suggestion"]
 
     assert transfer is not None
 
@@ -885,12 +991,20 @@ def test_update_inventory(client):
 
     assert response.status_code == 201
 
+    seed_cost_layer(
+        sku_id="UPD1",
+        warehouse_id="WH1",
+        quantity=50,
+        unit_cost=50.0,
+    )
+
     response = client.put(
         "/api/v1/inventory/UPD1/WH1",
         json={
             "quantity_on_hand": 20,
             "lead_time_days": 6,
             "safety_stock": 20,
+            "version": 1,
         },
     )
 
@@ -899,6 +1013,8 @@ def test_update_inventory(client):
     data = response.json()
 
     assert data["avg_daily_demand"] == 5
+    assert data["quantity_on_hand"] == 20
+    assert data["version"] == 2
 
 
 # =========================================================
@@ -1164,6 +1280,16 @@ def test_concurrent_decrement_does_not_lose_updates(
 
     assert response.status_code == 201
 
+    # The decrement endpoint now consumes FIFO cost
+    # layers. Seed enough cost inventory for all
+    # ten concurrent decrements.
+    seed_cost_layer(
+        sku_id="CONC1",
+        warehouse_id="WH001",
+        quantity=100,
+        unit_cost=50.0,
+    )
+
     responses = []
     lock = threading.Lock()
 
@@ -1258,6 +1384,11 @@ def test_csv_rejects_negative_quantity(client):
 
     assert response.status_code == 400
 
+
+# =========================================================
+# AUTH TEST HELPERS
+# =========================================================
+
 class _FakeResponse:
     def __init__(self, status_code, payload=None):
         self.status_code = status_code
@@ -1269,42 +1400,310 @@ class _FakeResponse:
 
 @pytest.fixture
 def fake_platform(monkeypatch):
-    def _install(status_code=200, payload=None, exc=None):
-        async def _fake_post(self, url, **kwargs):
+
+    def _install(
+        status_code=200,
+        payload=None,
+        exc=None,
+    ):
+
+        async def _fake_post(
+            self,
+            url,
+            **kwargs,
+        ):
             if exc:
                 raise exc
-            return _FakeResponse(status_code, payload)
-        monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
+
+            return _FakeResponse(
+                status_code,
+                payload,
+            )
+
+        monkeypatch.setattr(
+            httpx.AsyncClient,
+            "post",
+            _fake_post,
+        )
+
     return _install
 
-def test_invalid_token_returns_401(client_raw, fake_platform):
-    fake_platform(status_code=401)
-    r = client_raw.post("/api/v1/inventory/what-if",
-                        json={"spike_percent": 30},
-                        headers=auth_header("bad-token"))
-    assert r.status_code == 401
+
+# =========================================================
+# INVALID TOKEN
+# =========================================================
+
+def test_invalid_token_returns_401(
+    client_raw,
+    fake_platform,
+):
+
+    fake_platform(
+        status_code=401
+    )
+
+    response = client_raw.post(
+        "/api/v1/inventory/what-if",
+        json={
+            "spike_percent": 30,
+        },
+        headers=auth_header("bad-token"),
+    )
+
+    assert response.status_code == 401
 
 
-def test_wrong_role_returns_403(client_raw, fake_platform):
-    fake_platform(200, {"valid": True, "role": "analyst"})
-    r = client_raw.post("/api/v1/inventory/what-if",
-                        json={"spike_percent": 30},
-                        headers=auth_header("t"))
-    assert r.status_code == 403
+# =========================================================
+# WRONG ROLE
+# =========================================================
+
+def test_wrong_role_returns_403(
+    client_raw,
+    fake_platform,
+):
+
+    fake_platform(
+        200,
+        {
+            "valid": True,
+            "role": "analyst",
+        },
+    )
+
+    response = client_raw.post(
+        "/api/v1/inventory/what-if",
+        json={
+            "spike_percent": 30,
+        },
+        headers=auth_header("t"),
+    )
+
+    assert response.status_code == 403
 
 
-def test_correct_role_succeeds(client_raw, fake_platform):
-    fake_platform(200, {"valid": True, "role": "ceo"})
-    r = client_raw.post("/api/v1/inventory/what-if",
-                        json={"spike_percent": 30},
-                        headers=auth_header("t"))
-    assert r.status_code not in (401, 403)
+# =========================================================
+# CORRECT ROLE
+# =========================================================
+
+def test_correct_role_succeeds(
+    client_raw,
+    fake_platform,
+):
+
+    fake_platform(
+        200,
+        {
+            "valid": True,
+            "role": "ceo",
+        },
+    )
+
+    response = client_raw.post(
+        "/api/v1/inventory/what-if",
+        json={
+            "spike_percent": 30,
+        },
+        headers=auth_header("t"),
+    )
+
+    assert response.status_code not in (
+        401,
+        403,
+    )
 
 
-def test_timeout_returns_503(client_raw, fake_platform):
-    fake_platform(exc=httpx.TimeoutException("slow"))
-    r = client_raw.post("/api/v1/inventory/what-if",
-                        json={"spike_percent": 30},
-                        headers=auth_header("t"))
-    assert r.status_code == 503
-    assert "timed out" in r.json()["detail"].lower()
+# =========================================================
+# AUTH TIMEOUT
+# =========================================================
+
+def test_timeout_returns_503(
+    client_raw,
+    fake_platform,
+):
+
+    fake_platform(
+        exc=httpx.TimeoutException("slow")
+    )
+
+    response = client_raw.post(
+        "/api/v1/inventory/what-if",
+        json={
+            "spike_percent": 30,
+        },
+        headers=auth_header("t"),
+    )
+
+    assert response.status_code == 503
+    assert "timed out" in response.json()["detail"].lower()
+
+
+# =========================================================
+# M4 VERSION INCREMENT
+# =========================================================
+
+def test_update_inventory_increments_version(client):
+
+    create_response = client.post(
+        "/api/v1/inventory/",
+        json={
+            "sku_id": "M4-VERSION-001",
+            "product_name": "M4 Version Product",
+            "warehouse_id": "WH001",
+            "quantity_on_hand": 100,
+            "lead_time_days": 5,
+            "safety_stock": 10,
+        },
+    )
+
+    assert create_response.status_code == 201
+
+    created = create_response.json()
+
+    assert created["version"] == 1
+
+    seed_cost_layer(
+        sku_id="M4-VERSION-001",
+        warehouse_id="WH001",
+        quantity=100,
+        unit_cost=50.0,
+    )
+
+    update_response = client.put(
+        "/api/v1/inventory/"
+        "M4-VERSION-001/WH001",
+        json={
+            "quantity_on_hand": 90,
+            "version": 1,
+        },
+    )
+
+    assert update_response.status_code == 200
+
+    updated = update_response.json()
+
+    assert updated["quantity_on_hand"] == 90
+    assert updated["version"] == 2
+
+
+# =========================================================
+# M4 STALE VERSION
+# =========================================================
+
+def test_update_inventory_stale_version_returns_409(client):
+
+    create_response = client.post(
+        "/api/v1/inventory/",
+        json={
+            "sku_id": "M4-STALE-001",
+            "product_name": "M4 Stale Version Product",
+            "warehouse_id": "WH001",
+            "quantity_on_hand": 100,
+            "lead_time_days": 5,
+            "safety_stock": 10,
+        },
+    )
+
+    assert create_response.status_code == 201
+
+    created = create_response.json()
+
+    assert created["version"] == 1
+
+    seed_cost_layer(
+        sku_id="M4-STALE-001",
+        warehouse_id="WH001",
+        quantity=100,
+        unit_cost=50.0,
+    )
+
+    first_update = client.put(
+        "/api/v1/inventory/"
+        "M4-STALE-001/WH001",
+        json={
+            "quantity_on_hand": 90,
+            "version": 1,
+        },
+    )
+
+    assert first_update.status_code == 200
+    assert first_update.json()["version"] == 2
+
+    stale_update = client.put(
+        "/api/v1/inventory/"
+        "M4-STALE-001/WH001",
+        json={
+            "quantity_on_hand": 80,
+            "version": 1,
+        },
+    )
+
+    assert stale_update.status_code == 409
+
+    body = stale_update.json()
+
+    assert "modified by another user" in body["detail"]
+    assert "Current version is 2" in body["detail"]
+    assert "request used version 1" in body["detail"]
+
+
+# =========================================================
+# M4 STALE UPDATE MUST NOT CHANGE VERSION
+# =========================================================
+
+def test_stale_update_does_not_increment_version(client):
+
+    create_response = client.post(
+        "/api/v1/inventory/",
+        json={
+            "sku_id": "M4-NO-INCREMENT-001",
+            "product_name": "M4 Version Safety Product",
+            "warehouse_id": "WH001",
+            "quantity_on_hand": 100,
+            "lead_time_days": 5,
+            "safety_stock": 10,
+        },
+    )
+
+    assert create_response.status_code == 201
+
+    seed_cost_layer(
+        sku_id="M4-NO-INCREMENT-001",
+        warehouse_id="WH001",
+        quantity=100,
+        unit_cost=50.0,
+    )
+
+    first_update = client.put(
+        "/api/v1/inventory/"
+        "M4-NO-INCREMENT-001/WH001",
+        json={
+            "quantity_on_hand": 90,
+            "version": 1,
+        },
+    )
+
+    assert first_update.status_code == 200
+    assert first_update.json()["version"] == 2
+
+    stale_update = client.put(
+        "/api/v1/inventory/"
+        "M4-NO-INCREMENT-001/WH001",
+        json={
+            "quantity_on_hand": 80,
+            "version": 1,
+        },
+    )
+
+    assert stale_update.status_code == 409
+
+    current = client.get(
+        "/api/v1/inventory/"
+        "M4-NO-INCREMENT-001/WH001"
+    )
+
+    assert current.status_code == 200
+
+    data = current.json()
+
+    assert data["quantity_on_hand"] == 90
+    assert data["version"] == 2

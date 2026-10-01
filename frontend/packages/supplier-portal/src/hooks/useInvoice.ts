@@ -24,7 +24,7 @@ export const useInvoice = () => {
     ) || [];
 
   const acknowledgedPOs = orders.filter(
-    (po) => po.status === "acknowledged"
+    (po) => po.status === "ACKNOWLEDGED"
   );
 
   const submitInvoiceWithOfflineSupport = async (

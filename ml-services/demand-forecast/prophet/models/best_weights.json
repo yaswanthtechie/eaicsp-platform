@@ -1,4 +1,4 @@
 {
-    "prophet_weight": 0.3,
-    "xgb_weight": 0.7
+    "prophet_weight": 0.4,
+    "xgb_weight": 0.6
 }

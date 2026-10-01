@@ -4,6 +4,7 @@ from src.profiler import Profiler
 from src.monitoring import MonitoringHistory
 from src.audit_archive import AuditArchive
 
+
 def test_empty_dataframe():
     df = pd.DataFrame()
 
@@ -37,6 +38,7 @@ def test_wrong_dtype():
 
     assert report["column_summary"][0]["dtype"] in ("object", "str")
 
+
 def test_profiler_discovers_relationships():
     left = pd.DataFrame({
         "sku_id": [f"SKU{i:03d}" for i in range(1, 12)]
@@ -48,16 +50,14 @@ def test_profiler_discovers_relationships():
 
     profiler = Profiler()
 
-    result = profiler.discover_relationships(
-        left,
-        right
-    )
+    result = profiler.discover_relationships(left, right)
 
     assert len(result) == 1
     assert result[0]["left_column"] == "sku_id"
     assert result[0]["right_column"] == "product_code"
     assert result[0]["overlap_percentage"] == 100.0
     assert result[0]["classification"] == "likely_join_key"
+
 
 def test_profiler_monitor_keeps_all_audit_records(
     tmp_path,
@@ -113,6 +113,7 @@ def test_profiler_monitor_keeps_all_audit_records(
         records[0]["run_id"]
         != records[1]["run_id"]
     )
+
 
 def test_profiler_can_query_audit_runs(
     tmp_path,

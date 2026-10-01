@@ -1,6 +1,7 @@
 from app.core.database import SessionLocal
 from app.models.audit import ComplianceAudit
 from app.services import rescreen_service
+from app.models.compliance_case import ComplianceCase
 
 
 def create_audit(
@@ -554,21 +555,24 @@ def test_nightly_rescreen_job(monkeypatch):
 
     monkeypatch.setattr(
         rescreen_service,
+        "authenticate_rescreen_job",
+        lambda: {
+            "authenticated": True,
+            "service": "compliance",
+            "auth_type": "api_key",
+        },
+    )
+
+    monkeypatch.setattr(
+        rescreen_service,
         "rescreen_cleared_entities",
         lambda: expected,
     )
 
-    result = (
-        rescreen_service
-        .nightly_rescreen_job()
-    )
+    result = rescreen_service.nightly_rescreen_job()
 
-    assert result["total_checked"] == 10
-    assert result["newly_flagged"] == 2
-    assert result["still_clean"] == 8
-    assert result["total_duration_ms"] == 25.5
-    assert result["results"] == []
-
+    assert result == expected
+    
 def test_rescreen_respects_override(monkeypatch):
     db = SessionLocal()
 
@@ -629,4 +633,61 @@ def test_rescreen_respects_override(monkeypatch):
         )
 
     finally:
+        db.close()
+
+def test_newly_flagged_rescreen_creates_case(monkeypatch):
+    db = SessionLocal()
+
+    try:
+        record = create_audit(
+            db,
+            "NEWLY SANCTIONED SUPPLIER",
+            matched=False,
+        )
+
+        monkeypatch.setattr(
+            rescreen_service,
+            "screen_entity",
+            lambda name: {
+                "entity_name": name,
+                "is_flagged": True,
+                "matched_name": name,
+                "matched_lists": ["OFAC"],
+                "matched_count": 1,
+                "match_score": 100,
+                "confidence": 1.0,
+                "risk_score": 90,
+                "risk_factors": {
+                    "match_confidence": 100,
+                    "source_coverage": 100,
+                    "recency": 100,
+                },
+            },
+        )
+
+        result = rescreen_service.rescreen_entity(
+            db,
+            record,
+        )
+
+        db.commit()
+
+        assert result["newly_flagged"] is True
+
+        case = (
+            db.query(ComplianceCase)
+            .filter(
+                ComplianceCase.entity_name
+                == "NEWLY SANCTIONED SUPPLIER"
+            )
+            .first()
+        )
+
+        assert case is not None
+        assert case.status == "OPEN"
+        assert case.entity_type == "supplier"
+        assert case.matched_lists == "OFAC"
+
+    finally:
+        db.rollback()
         db.close()

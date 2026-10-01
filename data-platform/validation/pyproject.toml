@@ -32,12 +32,12 @@ perf_test = "src.perf_test:main"
 validate_folder = "src.validate_folder:main"
 
 [tool.setuptools]
-packages = ["src"]
+packages = ["src", "rules"]
 
 [tool.coverage.run]
-source = ["src"]
+source = ["src", "rules"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
-addopts = "--cov=src --cov-report=term-missing --cov-fail-under=98"
+addopts = "--cov=src --cov=rules --cov-report=term-missing --cov-fail-under=98"

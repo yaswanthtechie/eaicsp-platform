@@ -1,9 +1,13 @@
 import { useState } from "react";
+
 import AppRoutes from "./routes/AppRoutes";
 import OfflineBanner from "./components/OfflineBanner";
 import NotificationToast from "./components/NotificationToast";
+import ErrorBoundary from "./components/ErrorBoundary";
+
 import { useOfflineActionSync } from "./hooks/useOfflineActionSync";
 import { createNewPONotification } from "./utils/mockNotifications";
+
 import type { Notification } from "./types/notification";
 
 function App() {
@@ -26,7 +30,7 @@ function App() {
 
   const handleMockNewPO = () => {
     const newNotification =
-      createNewPONotification("PO-1005");
+      createNewPONotification("PO1005");
 
     setNotification(newNotification);
   };
@@ -34,7 +38,7 @@ function App() {
   useOfflineActionSync(handleSyncComplete);
 
   return (
-    <>
+    <ErrorBoundary>
       <OfflineBanner />
 
       {syncMessage && (
@@ -80,9 +84,8 @@ function App() {
       </button>
 
       <AppRoutes />
-    </>
+    </ErrorBoundary>
   );
 }
 
 export default App;
-

@@ -1,64 +1,225 @@
-
 """
-BentoML service for Iris classification.
+BentoML service for Iris classification and unified multi-model serving.
 
-R5 Features:
-- /predict
-- /predict_batch
-- /health
-- /metrics/json
-- /metrics/summary
-- /retrain/check
-- /retrain/trigger
-- /rollback
+R4/R5 Features:
+- Iris prediction
+- Batch prediction
+- Health check
+- Runtime metrics
+- Per-model monitoring
+- Drift detection
+- Automated retraining
+- Model promotion
+- Model rollback
+- Safe retraining scheduler
 
-R5:
-1. Per-model monitoring
-2. Automated scheduled retraining
-3. Model rollback
-4. Retraining and rollback integration
-5. Retraining promotion evaluation gate
+Milestone 1:
+- Unified multi-model serving
+- Forecast model
+- ETA model
+- Anomaly model
+- Supplier risk model
+- Central model manager
+- Model versioning
+
+Milestone 2:
+- Deterministic A/B testing
+- v1/v2 model routing
+- Per-variant metrics
+- Statistical comparison
+
+Milestone 3:
+- Multi-model retraining orchestration
+- Per-model drift decision
+- Multi-model retraining endpoint
+- Single-model retraining endpoint
+- Safe orchestration integration
+- Rollback safety
+- Per-model monitoring inputs
+
+Milestone 4:
+- MLOps dashboard
+- Unified model health visibility
+- Production model versions
+- Request volume
+- Success rate
+- Average latency
+- A/B testing metrics
+- Dashboard auto-refresh
+
+Round 10:
+- Unified cross-model batch prediction
+- Concurrent model execution
+- Batch latency monitoring
+- CPU monitoring
+- Memory monitoring
+- Batch success/failure metrics
+
+Round 11:
+- Blue-Green model deployment
+- Blue/Green model version configuration
+- Governance-gated Green deployment
+- Blue rollback
+- Blue-Green prediction endpoint
+- Blue-Green deployment status
+
+Round 12/13 - Milestone 1:
+- BentoML model packaging
+- Standalone bundled model artifact
+- Container-safe model loading
+- Preserve existing request/response contract
 """
 
 import logging
 import os
 import time
 import uuid
+from pathlib import Path
+from typing import Any
 
 import bentoml
 import numpy as np
 
-from pydantic import BaseModel, Field, field_validator
+from fastapi import FastAPI, HTTPException
+
+from pydantic import (
+    BaseModel,
+    Field,
+    field_validator,
+)
+
 from sklearn.datasets import load_iris
 from sklearn.model_selection import train_test_split
+
+
+# ==========================================================
+# Unified Multi-Model Serving
+# ==========================================================
+
+from src.model_manager import ModelManager
+from src.experiment import ABExperiment
+
+from src.router import create_router
+
+from src.adapters import (
+    ForecastAdapter,
+    ETAAdapter,
+    AnomalyAdapter,
+    RiskAdapter,
+)
+
+
+# ==========================================================
+# Round 10 Batch Prediction
+# ==========================================================
+
+from src.batch_predict import (
+    BatchPredictionService,
+)
+
+
+# ==========================================================
+# Round 11 Blue-Green Deployment
+# ==========================================================
+
+from src.blue_green import (
+    BlueGreenManager,
+)
+
+from src.governance import (
+    governance_manager,
+)
+
+
+# ==========================================================
+# Monitoring
+# ==========================================================
 
 from src.monitoring import (
     get_summary,
     log_prediction,
     get_recent_inputs,
+    get_model_recent_inputs,
 )
 
+
+# ==========================================================
+# Iris Prediction
+# ==========================================================
+
 from src.predict import load_model
+
+
+# ==========================================================
+# Iris Canary
+# ==========================================================
 
 from src.canary import (
     load_canary_models,
     select_model,
 )
 
+
+# ==========================================================
+# R5 Retraining
+# ==========================================================
+
 from src.retraining import (
     check_retraining_needed,
     automated_retrain,
 )
 
+
+# ==========================================================
+# R5 Scheduler
+# ==========================================================
+
 from src.scheduler import RetrainingScheduler
 
+
+# ==========================================================
+# R5 Rollback
+# ==========================================================
+
 from src.rollback import should_rollback
+
+
+# ==========================================================
+# MLflow Utilities
+# ==========================================================
 
 from src.mlflow_utils import (
     assign_staging,
     promote_model,
     rollback_model,
 )
+
+
+# ==========================================================
+# Milestone 3 Multi-Model Retraining
+# ==========================================================
+
+from src.orchestrator import (
+    MultiModelRetrainingOrchestrator,
+)
+
+from src.retraining_adapters import (
+    check_drift,
+)
+
+
+# ==========================================================
+# Milestone 4 MLOps Dashboard
+# ==========================================================
+
+from src.dashboard import (
+    create_dashboard_router,
+)
+
+
+# ==========================================================
+# Configuration
+# ==========================================================
 
 from src.config import (
     MODEL_NAME,
@@ -69,6 +230,7 @@ from src.config import (
     TEST_SIZE,
     RANDOM_STATE,
     PROMOTION_ACCURACY_THRESHOLD,
+    MULTIMODEL_DRIFT_THRESHOLD,
     should_promote,
 )
 
@@ -85,6 +247,62 @@ logger = logging.getLogger(__name__)
 
 
 # ==========================================================
+# BentoML Bundled Model Configuration
+# ==========================================================
+#
+# Round 12/13:
+#
+# The Bento contains:
+#
+#     /app/models/model.pkl
+#
+# The standalone model is used inside the Bento container
+# instead of depending on a fresh/empty MLflow registry.
+#
+# Local development continues to use MLflow.
+#
+# ==========================================================
+
+BENTO_BUNDLED_MODEL_PATH = Path(
+    "/app/models/model.pkl"
+)
+
+
+def is_bento_bundled_model_available() -> bool:
+    """
+    Return True when the standalone model artifact is
+    available inside the Bento container.
+    """
+
+    enabled_by_environment = (
+        os.getenv(
+            "BENTO_BUNDLED_MODEL",
+            "",
+        )
+        .strip()
+        .lower()
+        == "true"
+    )
+
+    return (
+        enabled_by_environment
+        or BENTO_BUNDLED_MODEL_PATH.exists()
+    )
+
+
+# ==========================================================
+# Model Names
+# ==========================================================
+
+MULTI_MODEL_NAMES = (
+    "forecast",
+    "eta",
+    "anomaly",
+    "risk",
+)
+
+
+# ==========================================================
 # Iris Target Names
 # ==========================================================
 
@@ -92,12 +310,13 @@ TARGET_NAMES = load_iris().target_names
 
 
 # ==========================================================
-# Request Models
+# Iris Request Models
 # ==========================================================
+
 
 class IrisRequest(BaseModel):
     """
-    Single prediction request.
+    Single Iris prediction request.
     """
 
     features: list[float] = Field(
@@ -110,7 +329,7 @@ class IrisRequest(BaseModel):
 
 class IrisBatchRequest(BaseModel):
     """
-    Batch prediction request.
+    Batch Iris prediction request.
     """
 
     features: list[list[float]] = Field(
@@ -122,9 +341,7 @@ class IrisBatchRequest(BaseModel):
     @field_validator("features")
     @classmethod
     def validate_features(cls, value):
-
         for row in value:
-
             if len(row) != 4:
                 raise ValueError(
                     "Each sample must contain exactly 4 features."
@@ -134,8 +351,86 @@ class IrisBatchRequest(BaseModel):
 
 
 # ==========================================================
+# Round 10 Multi-Model Batch Request Models
+# ==========================================================
+
+
+class MultiModelBatchItem(BaseModel):
+    """
+    One model prediction inside a unified batch.
+    """
+
+    model_name: str = Field(
+        ...,
+        description=(
+            "Model name: forecast, eta, "
+            "anomaly or risk"
+        ),
+    )
+
+    features: dict[str, Any] = Field(
+        ...,
+        description="Model-specific input features",
+    )
+
+
+class MultiModelBatchRequest(BaseModel):
+    """
+    Unified cross-model batch request.
+
+    A single request can contain predictions for
+    multiple independently served models.
+
+    Batch size is limited to 100 items to prevent
+    excessively large requests from consuming
+    excessive serving resources.
+    """
+
+    requests: list[MultiModelBatchItem] = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description=(
+            "List of model predictions to execute "
+            "as one batch"
+        ),
+    )
+
+
+# ==========================================================
+# Round 11 Blue-Green Request Model
+# ==========================================================
+
+
+class BlueGreenConfigureRequest(BaseModel):
+    """
+    Configure Blue-Green deployment for a model.
+
+    Blue:
+        Current known-good model version.
+
+    Green:
+        Candidate model version that requires
+        governance approval before activation.
+    """
+
+    blue_version: str = Field(
+        ...,
+        min_length=1,
+        description="Current Blue model version",
+    )
+
+    green_version: str = Field(
+        ...,
+        min_length=1,
+        description="Candidate Green model version",
+    )
+
+
+# ==========================================================
 # Retraining Check Request
 # ==========================================================
+
 
 class RetrainingCheckRequest(BaseModel):
     """
@@ -151,9 +446,7 @@ class RetrainingCheckRequest(BaseModel):
     @field_validator("recent_inputs")
     @classmethod
     def validate_recent_inputs(cls, value):
-
         for row in value:
-
             if len(row) != 4:
                 raise ValueError(
                     "Each sample must contain exactly 4 features."
@@ -166,10 +459,11 @@ class RetrainingCheckRequest(BaseModel):
 # Rollback Request
 # ==========================================================
 
+
 class RollbackRequest(BaseModel):
     """
-    Request used to simulate production
-    performance of the newly promoted model.
+    Request used to simulate production performance
+    of a newly promoted model.
     """
 
     new_model_accuracy: float = Field(
@@ -186,12 +480,13 @@ class RollbackRequest(BaseModel):
 
 
 # ==========================================================
-# Response Model
+# Iris Prediction Response
 # ==========================================================
+
 
 class PredictionResponse(BaseModel):
     """
-    Prediction response.
+    Iris prediction response.
     """
 
     prediction: str
@@ -202,11 +497,467 @@ class PredictionResponse(BaseModel):
 
 
 # ==========================================================
+# Unified Multi-Model Manager
+# ==========================================================
+
+MULTI_MODEL_MANAGER = ModelManager()
+
+
+# ==========================================================
+# Register Production v1 Adapters
+# ==========================================================
+
+MULTI_MODEL_MANAGER.register(
+    ForecastAdapter()
+)
+
+MULTI_MODEL_MANAGER.register(
+    ETAAdapter()
+)
+
+MULTI_MODEL_MANAGER.register(
+    AnomalyAdapter()
+)
+
+MULTI_MODEL_MANAGER.register(
+    RiskAdapter()
+)
+
+
+# ==========================================================
+# Register v2 Adapters for A/B Testing
+# ==========================================================
+#
+# v1 -> production/default
+# v2 -> A/B test candidate
+#
+# IMPORTANT:
+# The current v2 adapters use the same backend/model
+# implementation as v1. This validates the A/B infrastructure.
+#
+# A genuinely different trained model must eventually be
+# plugged into each v2 adapter.
+# ==========================================================
+
+forecast_v2 = ForecastAdapter()
+forecast_v2.model_version = "v2"
+
+eta_v2 = ETAAdapter()
+eta_v2.model_version = "v2"
+
+anomaly_v2 = AnomalyAdapter()
+anomaly_v2.model_version = "v2"
+
+risk_v2 = RiskAdapter()
+risk_v2.model_version = "v2"
+
+
+MULTI_MODEL_MANAGER.register_version(
+    forecast_v2
+)
+
+MULTI_MODEL_MANAGER.register_version(
+    eta_v2
+)
+
+MULTI_MODEL_MANAGER.register_version(
+    anomaly_v2
+)
+
+MULTI_MODEL_MANAGER.register_version(
+    risk_v2
+)
+
+
+# ==========================================================
+# Register A/B Experiments
+# ==========================================================
+
+for model_name in MULTI_MODEL_NAMES:
+
+    MULTI_MODEL_MANAGER.register_ab_experiment(
+        ABExperiment(
+            model_name=model_name,
+            variant_a="v1",
+            variant_b="v2",
+            traffic_percentage=50,
+        )
+    )
+
+
+# ==========================================================
+# Round 10 Batch Prediction Service
+# ==========================================================
+
+BATCH_PREDICTION_SERVICE = BatchPredictionService(
+    model_manager=MULTI_MODEL_MANAGER
+)
+
+
+# ==========================================================
+# Round 11 Blue-Green Manager
+# ==========================================================
+
+BLUE_GREEN_MANAGER = BlueGreenManager(
+    MULTI_MODEL_MANAGER,
+    governance=governance_manager,
+)
+
+
+# ==========================================================
+# FastAPI Multi-Model Application
+# ==========================================================
+
+multi_model_app = FastAPI(
+    title="Unified Multi-Model Serving API",
+    version="2.0.0",
+    description=(
+        "Unified serving API for forecast, ETA, "
+        "anomaly detection and supplier risk models."
+    ),
+)
+
+
+# ==========================================================
+# Round 10 Unified Batch Prediction Endpoint
+# ==========================================================
+
+
+@multi_model_app.post(
+    "/models/batch-predict",
+    tags=["Multi-Model Serving"],
+)
+def batch_predict(
+    request: MultiModelBatchRequest,
+) -> dict:
+    """
+    Run multiple model predictions as one batch.
+
+    Predictions for independent models are executed
+    concurrently.
+
+    Resource metrics include:
+
+    - batch size
+    - model count
+    - total predictions
+    - CPU usage
+    - memory usage
+    - total latency
+
+    Invalid batch requests that reach the service layer
+    as ValueError are returned as HTTP 400 responses.
+    Pydantic validation errors such as an empty batch or
+    a batch larger than 100 items are returned by FastAPI
+    as HTTP 422 responses before this function executes.
+    """
+
+    logger.info(
+        "Round 10 batch prediction requested: "
+        "batch_size=%s",
+        len(request.requests),
+    )
+
+    try:
+
+        batch_requests = [
+            {
+                "model_name": (
+                    item.model_name.strip().lower()
+                ),
+                "features": item.features,
+            }
+            for item in request.requests
+        ]
+
+        result = (
+            BATCH_PREDICTION_SERVICE.predict(
+                batch_requests
+            )
+        )
+
+        logger.info(
+            "Round 10 batch prediction completed: "
+            "batch_size=%s latency_ms=%s",
+            result["summary"]["batch_size"],
+            result["resource_metrics"]["latency_ms"],
+        )
+
+        return result
+
+    except ValueError as exc:
+
+        logger.warning(
+            "Invalid batch prediction request: %s",
+            exc,
+        )
+
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+
+
+# ==========================================================
+# Round 11 Blue-Green Configuration Endpoint
+# ==========================================================
+
+
+@multi_model_app.post(
+    "/models/{model_name}/blue-green",
+    tags=["Blue-Green"],
+)
+def configure_blue_green(
+    model_name: str,
+    body: BlueGreenConfigureRequest,
+) -> dict:
+    """
+    Configure Blue-Green deployment for a model.
+    """
+
+    try:
+
+        normalized_model_name = (
+            model_name.strip().lower()
+        )
+
+        return BLUE_GREEN_MANAGER.configure(
+            normalized_model_name,
+            body.blue_version,
+            body.green_version,
+        )
+
+    except (ValueError, KeyError) as exc:
+
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+
+
+# ==========================================================
+# Round 11 Blue-Green Status Endpoint
+# ==========================================================
+
+
+@multi_model_app.get(
+    "/models/{model_name}/blue-green",
+    tags=["Blue-Green"],
+)
+def blue_green_status(
+    model_name: str,
+) -> dict:
+    """
+    Return the current Blue-Green deployment state.
+    """
+
+    try:
+
+        normalized_model_name = (
+            model_name.strip().lower()
+        )
+
+        return BLUE_GREEN_MANAGER.status(
+            normalized_model_name
+        )
+
+    except KeyError as exc:
+
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        ) from exc
+
+
+# ==========================================================
+# Round 11 Blue-Green Switch Endpoint
+# ==========================================================
+
+
+@multi_model_app.post(
+    "/models/{model_name}/blue-green/switch/{color}",
+    tags=["Blue-Green"],
+)
+def blue_green_switch(
+    model_name: str,
+    color: str,
+) -> dict:
+    """
+    Switch active traffic between Blue and Green.
+
+    Green:
+        Requires governance approval.
+
+    Blue:
+        Always allowed because it is the rollback
+        destination.
+    """
+
+    try:
+
+        normalized_model_name = (
+            model_name.strip().lower()
+        )
+
+        return BLUE_GREEN_MANAGER.switch(
+            normalized_model_name,
+            color,
+        )
+
+    except PermissionError as exc:
+
+        logger.warning(
+            "Blue-Green switch blocked by governance: "
+            "model=%s color=%s reason=%s",
+            model_name,
+            color,
+            exc,
+        )
+
+        raise HTTPException(
+            status_code=403,
+            detail=str(exc),
+        ) from exc
+
+    except KeyError as exc:
+
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        ) from exc
+
+    except ValueError as exc:
+
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+
+
+# ==========================================================
+# Round 11 Blue-Green Prediction Endpoint
+# ==========================================================
+
+
+@multi_model_app.post(
+    "/models/{model_name}/blue-green/predict",
+    tags=["Blue-Green"],
+)
+def blue_green_predict(
+    model_name: str,
+    payload: dict[str, Any],
+) -> dict:
+    """
+    Run prediction against the currently active
+    Blue-Green model version.
+    """
+
+    try:
+
+        normalized_model_name = (
+            model_name.strip().lower()
+        )
+
+        return BLUE_GREEN_MANAGER.predict(
+            normalized_model_name,
+            payload,
+        )
+
+    except KeyError as exc:
+
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        ) from exc
+
+    except ValueError as exc:
+
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+
+
+# ==========================================================
+# Unified Multi-Model API Router
+# ==========================================================
+
+multi_model_app.include_router(
+    create_router(
+        MULTI_MODEL_MANAGER
+    )
+)
+
+
+# ==========================================================
+# Milestone 4 MLOps Dashboard Router
+# ==========================================================
+
+multi_model_app.include_router(
+    create_dashboard_router(
+        model_manager=MULTI_MODEL_MANAGER,
+    )
+)
+
+
+# ==========================================================
 # BentoML Service
 # ==========================================================
 
+
 @bentoml.service(name="iris_service")
+@bentoml.asgi_app(
+    multi_model_app,
+    path="/",
+)
 class IrisService:
+
+    # ======================================================
+    # BentoML Model Loading Helpers
+    # ======================================================
+
+    def _load_serving_canary_models(self):
+        """
+        Load canary models for the current serving environment.
+
+        Local development:
+            Use the existing MLflow-backed canary loader.
+
+        Bento container:
+            Use the bundled standalone model for both
+            production and staging/canary routes.
+
+        This prevents the Bento container from depending on
+        a separate MLflow registry during startup.
+        """
+
+        if is_bento_bundled_model_available():
+
+            bundled_models = {
+                "production": (
+                    self.model,
+                    self.model_version,
+                ),
+                "staging": (
+                    self.model,
+                    self.model_version,
+                ),
+            }
+
+            logger.info(
+                "Bento bundled-model mode enabled. "
+                "Using standalone model for production "
+                "and staging/canary routes."
+            )
+
+            return bundled_models
+
+        logger.info(
+            "Local MLflow model mode enabled. "
+            "Loading canary models from MLflow."
+        )
+
+        return load_canary_models()
 
     # ======================================================
     # Initialization
@@ -215,16 +966,25 @@ class IrisService:
     def __init__(self):
 
         # --------------------------------------------------
-        # Load Production Model
+        # Load Production Iris Model
         # --------------------------------------------------
 
-        self.model, self.model_version = load_model()
+        self.model, self.model_version = (
+            load_model()
+        )
 
         # --------------------------------------------------
         # Load Canary Models
         # --------------------------------------------------
+        #
+        # IMPORTANT:
+        # In the Bento container this uses the bundled
+        # model instead of the MLflow registry.
+        # --------------------------------------------------
 
-        self.canary_models = load_canary_models()
+        self.canary_models = (
+            self._load_serving_canary_models()
+        )
 
         # --------------------------------------------------
         # Prediction Metrics
@@ -232,22 +992,33 @@ class IrisService:
 
         self.total_predictions = 0
 
-        # Single prediction metrics
         self.total_single_predictions = 0
+
         self.total_single_latency = 0.0
 
-        # Batch prediction metrics
         self.total_batches = 0
+
         self.total_batch_latency = 0.0
 
-        # Errors
         self.error_count = 0
+
+        # --------------------------------------------------
+        # Milestone 3 Multi-Model Retraining
+        # --------------------------------------------------
+
+        self.multimodel_orchestrator = (
+            self._create_multimodel_orchestrator()
+        )
 
         # --------------------------------------------------
         # R5 Retraining Scheduler
         # --------------------------------------------------
 
         self.retraining_scheduler = None
+
+        # --------------------------------------------------
+        # Scheduler environment override
+        # --------------------------------------------------
 
         scheduler_env = os.getenv(
             "ENABLE_RETRAINING_SCHEDULER"
@@ -262,14 +1033,77 @@ class IrisService:
         else:
 
             scheduler_enabled = (
-                scheduler_env.strip().lower() == "true"
+                scheduler_env.strip().lower()
+                == "true"
             )
+
+        # --------------------------------------------------
+        # Scheduler interval environment override
+        # --------------------------------------------------
+
+        interval_env = os.getenv(
+            "RETRAINING_INTERVAL_SECONDS"
+        )
+
+        if interval_env is None:
+
+            scheduler_interval = (
+                RETRAINING_INTERVAL_SECONDS
+            )
+
+        else:
+
+            try:
+
+                scheduler_interval = int(
+                    interval_env
+                )
+
+            except ValueError:
+
+                logger.warning(
+                    "Invalid RETRAINING_INTERVAL_SECONDS=%s. "
+                    "Using configured value=%s.",
+                    interval_env,
+                    RETRAINING_INTERVAL_SECONDS,
+                )
+
+                scheduler_interval = (
+                    RETRAINING_INTERVAL_SECONDS
+                )
+
+        # --------------------------------------------------
+        # Validate scheduler interval
+        # --------------------------------------------------
+
+        if scheduler_interval <= 0:
+
+            logger.warning(
+                "Invalid scheduler interval=%s. "
+                "Using configured value=%s.",
+                scheduler_interval,
+                RETRAINING_INTERVAL_SECONDS,
+            )
+
+            scheduler_interval = (
+                RETRAINING_INTERVAL_SECONDS
+            )
+
+        # --------------------------------------------------
+        # Start scheduler only when explicitly enabled
+        # --------------------------------------------------
 
         if scheduler_enabled:
 
-            self.retraining_scheduler = RetrainingScheduler(
-                check_function=self._scheduled_retraining_check,
-                interval_seconds=RETRAINING_INTERVAL_SECONDS,
+            self.retraining_scheduler = (
+                RetrainingScheduler(
+                    check_function=(
+                        self._scheduled_retraining_check
+                    ),
+                    interval_seconds=(
+                        scheduler_interval
+                    ),
+                )
             )
 
             self.retraining_scheduler.start()
@@ -277,7 +1111,7 @@ class IrisService:
             logger.info(
                 "R5 retraining scheduler started "
                 "(interval=%s seconds)",
-                RETRAINING_INTERVAL_SECONDS,
+                scheduler_interval,
             )
 
         else:
@@ -286,21 +1120,278 @@ class IrisService:
                 "R5 retraining scheduler disabled"
             )
 
+        # --------------------------------------------------
+        # Logging
+        # --------------------------------------------------
+
         logger.info(
             "Loaded production model version: %s",
             self.model_version,
         )
 
+        logger.info(
+            "Unified multi-model serving enabled: %s",
+            list(
+                MULTI_MODEL_MANAGER.adapters.keys()
+            ),
+        )
+
+        logger.info(
+            "A/B testing versions registered: %s",
+            {
+                model_name: list(
+                    versions.keys()
+                )
+                for model_name, versions
+                in MULTI_MODEL_MANAGER.versioned_adapters.items()
+            },
+        )
+
+        logger.info(
+            "A/B experiments registered: %s",
+            {
+                model_name: experiment.to_dict()
+                for model_name, experiment
+                in MULTI_MODEL_MANAGER.ab_experiments.items()
+            },
+        )
+
+        logger.info(
+            "Milestone 3 multi-model retraining "
+            "orchestrator initialized for: %s",
+            list(MULTI_MODEL_NAMES),
+        )
+
+        logger.info(
+            "Milestone 4 MLOps dashboard available at "
+            "/mlops/dashboard"
+        )
+
+        logger.info(
+            "Round 10 unified batch prediction available at "
+            "/models/batch-predict"
+        )
+
+        logger.info(
+            "Round 11 Blue-Green deployment available at "
+            "/models/{model_name}/blue-green"
+        )
+
+        logger.info(
+            "Bento bundled model available: %s",
+            is_bento_bundled_model_available(),
+        )
+
     # ======================================================
-    # Stop Method
+    # Milestone 3 Orchestrator Creation
+    # ======================================================
+
+    def _create_multimodel_orchestrator(self):
+        """
+        Create the Milestone 3 multi-model retraining
+        orchestrator.
+
+        Each served model receives its own:
+
+        - production-version callback
+        - drift callback
+        - retraining callback
+        - production-evaluation callback
+        - promotion callback
+        - rollback callback
+        - metric direction
+
+        Drift is calculated from the model's own recent
+        monitoring inputs.
+
+        Real model-specific retraining/promotion callbacks
+        remain explicitly guarded until the corresponding
+        production pipeline is connected.
+        """
+
+        models = {}
+
+        higher_is_better = {
+            "forecast": False,
+            "eta": False,
+            "anomaly": True,
+            "risk": True,
+        }
+
+        for model_name in MULTI_MODEL_NAMES:
+
+            def get_version(
+                name=model_name,
+            ):
+                """
+                Return the currently served production
+                version for one logical model.
+                """
+
+                adapter = (
+                    MULTI_MODEL_MANAGER.get_adapter(
+                        name
+                    )
+                )
+
+                return str(
+                    adapter.model_version
+                )
+
+            def check_model_drift(
+                name=model_name,
+            ):
+                """
+                Calculate the current drift decision for
+                one served model.
+                """
+
+                recent_inputs = (
+                    get_model_recent_inputs(
+                        model_name=name,
+                        limit=MONITORING_INPUT_LIMIT,
+                    )
+                )
+
+                logger.info(
+                    "M3 drift check model=%s samples=%s",
+                    name,
+                    len(recent_inputs),
+                )
+
+                result = check_drift(
+                    model_name=name,
+                    recent_inputs=recent_inputs,
+                    threshold=(
+                        MULTIMODEL_DRIFT_THRESHOLD
+                    ),
+                )
+
+                logger.info(
+                    "M3 drift result model=%s result=%s",
+                    name,
+                    result,
+                )
+
+                return result
+
+            def retrain(
+                name=model_name,
+            ):
+                """
+                Safety boundary for model-specific
+                retraining.
+                """
+
+                raise RuntimeError(
+                    f"Real retraining pipeline for "
+                    f"'{name}' is not connected yet."
+                )
+
+            def evaluate_production(
+                name=model_name,
+            ):
+                """
+                Safety boundary for model-specific
+                production evaluation.
+                """
+
+                raise RuntimeError(
+                    f"Production evaluation pipeline for "
+                    f"'{name}' is not connected yet."
+                )
+
+            def promote(
+                version,
+                name=model_name,
+            ):
+                """
+                Safety boundary for model-specific
+                production promotion.
+                """
+
+                raise RuntimeError(
+                    f"Promotion pipeline for "
+                    f"'{name}' is not connected yet."
+                )
+
+            def rollback(
+                previous_version,
+                name=model_name,
+            ):
+                """
+                Roll back a failed multi-model promotion.
+                """
+
+                raise RuntimeError(
+                    f"Rollback pipeline for "
+                    f"'{name}' is not connected yet."
+                )
+
+            models[model_name] = {
+                "get_version": get_version,
+                "check_drift": check_model_drift,
+                "retrain": retrain,
+                "evaluate_production": (
+                    evaluate_production
+                ),
+                "promote": promote,
+                "rollback": rollback,
+                "higher_is_better": (
+                    higher_is_better[model_name]
+                ),
+            }
+
+        return MultiModelRetrainingOrchestrator(
+            models=models
+        )
+
+    # ======================================================
+    # Milestone 3 Orchestrator Run Helper
+    # ======================================================
+
+    def _run_multimodel_retraining(self):
+        """
+        Execute one Milestone 3 multi-model
+        orchestration cycle.
+        """
+
+        logger.warning(
+            "=========================================="
+        )
+
+        logger.warning(
+            "M3 MULTI-MODEL RETRAINING CYCLE STARTED"
+        )
+
+        logger.warning(
+            "=========================================="
+        )
+
+        result = (
+            self.multimodel_orchestrator.run_all()
+        )
+
+        logger.warning(
+            "M3 multi-model retraining cycle completed: %s",
+            result,
+        )
+
+        return result
+
+    # ======================================================
+    # Stop
     # ======================================================
 
     def stop(self):
         """
-        Stop the R5 retraining scheduler if it is running.
+        Stop the R5 retraining scheduler.
         """
 
-        if self.retraining_scheduler is not None:
+        if (
+            self.retraining_scheduler
+            is not None
+        ):
 
             self.retraining_scheduler.stop()
 
@@ -309,7 +1400,7 @@ class IrisService:
             )
 
     # ======================================================
-    # Health Endpoint
+    # Health
     # ======================================================
 
     @bentoml.api
@@ -321,7 +1412,6 @@ class IrisService:
                 [5.1, 3.5, 1.4, 0.2]
             ]
 
-            # Production model prediction
             prediction = self.model.predict(
                 sample
             )[0]
@@ -330,7 +1420,6 @@ class IrisService:
                 sample
             )
 
-            # Canary model prediction
             (
                 canary_model,
                 canary_alias,
@@ -341,11 +1430,18 @@ class IrisService:
                 self.canary_models,
             )
 
-            canary_prediction = canary_model.predict(
-                sample
-            )[0]
+            canary_prediction = (
+                canary_model.predict(
+                    sample
+                )[0]
+            )
+
+            multi_model_health = (
+                MULTI_MODEL_MANAGER.health()
+            )
 
             return {
+
                 "status": "healthy",
 
                 "model_version": str(
@@ -356,17 +1452,27 @@ class IrisService:
                     prediction
                 ],
 
-                "canary_prediction": TARGET_NAMES[
-                    canary_prediction
-                ],
-
-                "canary_model_version": str(
-                    canary_version
+                "canary_prediction": (
+                    TARGET_NAMES[
+                        canary_prediction
+                    ]
                 ),
 
-                "canary_model_alias": canary_alias,
+                "canary_model_version": (
+                    str(canary_version)
+                ),
 
-                "canary_bucket": canary_bucket,
+                "canary_model_alias": (
+                    canary_alias
+                ),
+
+                "canary_bucket": (
+                    canary_bucket
+                ),
+
+                "multi_model": (
+                    multi_model_health
+                ),
             }
 
         except Exception as exc:
@@ -383,7 +1489,7 @@ class IrisService:
             }
 
     # ======================================================
-    # Metrics Endpoint
+    # Runtime Metrics
     # ======================================================
 
     @bentoml.api(route="/metrics/json")
@@ -404,6 +1510,7 @@ class IrisService:
         )
 
         return {
+
             "total_predictions":
                 self.total_predictions,
 
@@ -427,10 +1534,20 @@ class IrisService:
 
             "model_version":
                 str(self.model_version),
+
+            "multi_model_metrics": {
+                model_name:
+                    MULTI_MODEL_MANAGER.get_ab_metrics(
+                        model_name
+                    )
+                for model_name
+                in MULTI_MODEL_MANAGER.versioned_adapters
+            },
+
         }
 
     # ======================================================
-    # Single Prediction
+    # Iris Single Prediction
     # ======================================================
 
     @bentoml.api
@@ -442,10 +1559,6 @@ class IrisService:
         start = time.perf_counter()
 
         try:
-
-            # ------------------------------------------------
-            # Canary / A-B Model Selection
-            # ------------------------------------------------
 
             (
                 model,
@@ -465,34 +1578,24 @@ class IrisService:
                 bucket,
             )
 
-            # ------------------------------------------------
-            # Prediction
-            # ------------------------------------------------
-
             prediction = model.predict(
                 [request.features]
             )[0]
 
-            probabilities = model.predict_proba(
-                [request.features]
-            )[0]
+            probabilities = (
+                model.predict_proba(
+                    [request.features]
+                )[0]
+            )
 
             confidence = float(
                 np.max(probabilities)
             )
 
-            # ------------------------------------------------
-            # Latency
-            # ------------------------------------------------
-
             latency = (
                 time.perf_counter()
                 - start
             ) * 1000
-
-            # ------------------------------------------------
-            # R5 Monitoring
-            # ------------------------------------------------
 
             request_id = str(
                 uuid.uuid4()
@@ -500,6 +1603,7 @@ class IrisService:
 
             log_prediction(
                 request_id=request_id,
+                model_name="iris",
                 model_version=str(
                     selected_version
                 ),
@@ -507,20 +1611,16 @@ class IrisService:
                 prediction=TARGET_NAMES[
                     prediction
                 ],
-                input_features=request.features,
+                input_features=(
+                    request.features
+                ),
             )
 
-            # ------------------------------------------------
-            # Runtime Metrics
-            # ------------------------------------------------
-
             self.total_predictions += 1
-            self.total_single_predictions += 1
-            self.total_single_latency += latency
 
-            # ------------------------------------------------
-            # Probability Response
-            # ------------------------------------------------
+            self.total_single_predictions += 1
+
+            self.total_single_latency += latency
 
             probability_dict = {
                 TARGET_NAMES[i]:
@@ -531,6 +1631,7 @@ class IrisService:
             }
 
             return PredictionResponse(
+
                 prediction=TARGET_NAMES[
                     prediction
                 ],
@@ -546,7 +1647,9 @@ class IrisService:
                     2,
                 ),
 
-                probabilities=probability_dict,
+                probabilities=(
+                    probability_dict
+                ),
             )
 
         except Exception:
@@ -560,7 +1663,7 @@ class IrisService:
             raise
 
     # ======================================================
-    # Batch Prediction
+    # Iris Batch Prediction
     # ======================================================
 
     @bentoml.api
@@ -569,17 +1672,15 @@ class IrisService:
         request: IrisBatchRequest,
     ) -> dict:
 
-        batch_start = time.perf_counter()
+        batch_start = (
+            time.perf_counter()
+        )
 
         try:
 
             results = []
 
             for features in request.features:
-
-                # --------------------------------------------
-                # Canary Model Selection
-                # --------------------------------------------
 
                 (
                     model,
@@ -598,10 +1699,6 @@ class IrisService:
                     selected_version,
                     bucket,
                 )
-
-                # --------------------------------------------
-                # Prediction Timing
-                # --------------------------------------------
 
                 prediction_start = (
                     time.perf_counter()
@@ -622,29 +1719,24 @@ class IrisService:
                     - prediction_start
                 ) * 1000
 
-                # --------------------------------------------
-                # R5 Monitoring
-                # --------------------------------------------
-
                 request_id = str(
                     uuid.uuid4()
                 )
 
                 log_prediction(
                     request_id=request_id,
+                    model_name="iris",
                     model_version=str(
                         selected_version
                     ),
-                    latency_ms=prediction_latency,
+                    latency_ms=(
+                        prediction_latency
+                    ),
                     prediction=TARGET_NAMES[
                         prediction
                     ],
                     input_features=features,
                 )
-
-                # --------------------------------------------
-                # Response
-                # --------------------------------------------
 
                 probability_dict = {
                     TARGET_NAMES[i]:
@@ -654,54 +1746,45 @@ class IrisService:
                     )
                 }
 
-                results.append(
-                    {
-                        "prediction":
-                            TARGET_NAMES[
-                                prediction
-                            ],
+                results.append({
 
-                        "confidence":
-                            float(
-                                np.max(
-                                    probabilities
-                                )
-                            ),
+                    "prediction":
+                        TARGET_NAMES[
+                            prediction
+                        ],
 
-                        "probabilities":
-                            probability_dict,
+                    "confidence":
+                        float(
+                            np.max(
+                                probabilities
+                            )
+                        ),
 
-                        "latency_ms":
-                            round(
-                                prediction_latency,
-                                2,
-                            ),
+                    "probabilities":
+                        probability_dict,
 
-                        "model_version":
-                            str(
-                                selected_version
-                            ),
+                    "latency_ms":
+                        round(
+                            prediction_latency,
+                            2,
+                        ),
 
-                        "model_alias":
-                            selected_alias,
-                    }
-                )
+                    "model_version":
+                        str(
+                            selected_version
+                        ),
 
-            # --------------------------------------------
-            # Batch Latency
-            # --------------------------------------------
+                    "model_alias":
+                        selected_alias,
+                })
 
             batch_latency = (
                 time.perf_counter()
                 - batch_start
             ) * 1000
 
-            # --------------------------------------------
-            # Metrics
-            # --------------------------------------------
-
-            self.total_predictions += len(
-                request.features
+            self.total_predictions += (
+                len(request.features)
             )
 
             self.total_batches += 1
@@ -711,7 +1794,9 @@ class IrisService:
             )
 
             return {
-                "predictions": results,
+
+                "predictions":
+                    results,
 
                 "batch_size":
                     len(request.features),
@@ -740,15 +1825,7 @@ class IrisService:
     @bentoml.api(route="/metrics/summary")
     def metrics_summary(self) -> dict:
         """
-        Return aggregate and per-model metrics.
-
-        Includes:
-        - total request volume
-        - aggregate p50
-        - aggregate p95
-        - per-model request volume
-        - per-model p50
-        - per-model p95
+        Return aggregate and per-model monitoring metrics.
         """
 
         return get_summary()
@@ -788,31 +1865,11 @@ class IrisService:
     # R5 Scheduled Retraining Check
     # ======================================================
 
-    def _scheduled_retraining_check(self):
+    def _scheduled_retraining_check(
+        self,
+    ):
         """
-        Called automatically by the R5 scheduler.
-
-        Flow:
-
-        monitoring.db
-              ↓
-        recent inputs
-              ↓
-        drift calculation
-              ↓
-        threshold exceeded?
-              ↓
-             YES
-              ↓
-           train()
-              ↓
-        evaluate candidate
-              ↓
-        promotion gate
-              ↓
-           staging
-              ↓
-          production
+        Scheduled R5 Iris workflow.
         """
 
         logger.info(
@@ -828,20 +1885,20 @@ class IrisService:
             len(recent_inputs),
         )
 
-        # --------------------------------------------
-        # Need enough data
-        # --------------------------------------------
-
-        if len(recent_inputs) < MIN_RETRAINING_SAMPLES:
+        if (
+            len(recent_inputs)
+            < MIN_RETRAINING_SAMPLES
+        ):
 
             result = {
+
                 "status": "skipped",
-                "reason": (
-                    "not_enough_recent_inputs"
-                ),
-                "sample_count": len(
-                    recent_inputs
-                ),
+
+                "reason":
+                    "not_enough_recent_inputs",
+
+                "sample_count":
+                    len(recent_inputs),
             }
 
             logger.info(
@@ -850,10 +1907,6 @@ class IrisService:
             )
 
             return result
-
-        # --------------------------------------------
-        # Automated Retraining
-        # --------------------------------------------
 
         result = automated_retrain(
             recent_inputs=recent_inputs,
@@ -875,21 +1928,7 @@ class IrisService:
 
     def _run_retraining_pipeline(self):
         """
-        Execute the actual retraining workflow.
-
-        train
-          ↓
-        evaluate candidate
-          ↓
-        promotion threshold
-          ↓
-        compare with production
-          ↓
-        staging
-          ↓
-        production
-          ↓
-        reload service model
+        Execute the actual Iris retraining workflow.
         """
 
         logger.warning(
@@ -904,10 +1943,6 @@ class IrisService:
             "=========================================="
         )
 
-        # --------------------------------------------
-        # Train candidate model
-        # --------------------------------------------
-
         from src.train import train
 
         candidate_model = train()
@@ -917,23 +1952,17 @@ class IrisService:
             type(candidate_model).__name__,
         )
 
-        # --------------------------------------------
-        # Prepare evaluation dataset
-        # --------------------------------------------
-
         iris = load_iris()
 
-        _, X_test, _, y_test = train_test_split(
-            iris.data,
-            iris.target,
-            test_size=TEST_SIZE,
-            random_state=RANDOM_STATE,
-            stratify=iris.target,
+        _, X_test, _, y_test = (
+            train_test_split(
+                iris.data,
+                iris.target,
+                test_size=TEST_SIZE,
+                random_state=RANDOM_STATE,
+                stratify=iris.target,
+            )
         )
-
-        # --------------------------------------------
-        # Evaluate candidate model
-        # --------------------------------------------
 
         candidate_accuracy = float(
             candidate_model.score(
@@ -947,31 +1976,31 @@ class IrisService:
             candidate_accuracy,
         )
 
-        # --------------------------------------------
-        # Promotion threshold gate
-        # --------------------------------------------
-
-        if not should_promote(candidate_accuracy):
+        if not should_promote(
+            candidate_accuracy
+        ):
 
             logger.warning(
                 "Candidate model rejected: "
-                "accuracy %.4f is below promotion "
-                "threshold %.4f",
+                "accuracy %.4f is below "
+                "promotion threshold %.4f",
                 candidate_accuracy,
                 PROMOTION_ACCURACY_THRESHOLD,
             )
 
             return {
+
                 "status": "rejected",
-                "reason": "promotion_threshold_not_met",
-                "candidate_accuracy": candidate_accuracy,
+
+                "reason":
+                    "promotion_threshold_not_met",
+
+                "candidate_accuracy":
+                    candidate_accuracy,
+
                 "promotion_threshold":
                     PROMOTION_ACCURACY_THRESHOLD,
             }
-
-        # --------------------------------------------
-        # Evaluate current production model
-        # --------------------------------------------
 
         production_accuracy = float(
             self.model.score(
@@ -985,12 +2014,10 @@ class IrisService:
             production_accuracy,
         )
 
-        # --------------------------------------------
-        # Candidate must not be worse
-        # than current production
-        # --------------------------------------------
-
-        if candidate_accuracy < production_accuracy:
+        if (
+            candidate_accuracy
+            < production_accuracy
+        ):
 
             logger.warning(
                 "Candidate model rejected: "
@@ -1001,21 +2028,25 @@ class IrisService:
             )
 
             return {
+
                 "status": "rejected",
+
                 "reason":
                     "candidate_worse_than_production",
+
                 "candidate_accuracy":
                     candidate_accuracy,
+
                 "production_accuracy":
                     production_accuracy,
             }
 
-        # --------------------------------------------
-        # Assign latest model to staging
-        # --------------------------------------------
-
         staging_version = assign_staging(
             MODEL_NAME
+        )
+
+        staging_version = str(
+            staging_version
         )
 
         logger.info(
@@ -1023,35 +2054,59 @@ class IrisService:
             staging_version,
         )
 
-        # --------------------------------------------
-        # Promote staging → production
-        # --------------------------------------------
+        from src.governance import governance_manager
 
-        production_version = promote_model(
-            MODEL_NAME,
-            from_alias="staging",
-            to_alias="production",
+        governance_manager.request_approval(
+            model_name=MODEL_NAME,
+            model_version=staging_version,
+            requested_by="auto_retraining",
+            reason=(
+                f"Retrained candidate "
+                f"accuracy={candidate_accuracy:.4f}"
+            ),
         )
+
+        try:
+
+            production_version = promote_model(
+                MODEL_NAME,
+                from_alias="staging",
+                to_alias="production",
+                expected_version=staging_version,
+            )
+
+        except PermissionError as exc:
+
+            logger.warning(
+                "Retrained model awaiting governance approval: %s",
+                exc,
+            )
+
+            return {
+
+                "status":
+                    "pending_approval",
+
+                "staging_version":
+                    staging_version,
+
+                "candidate_accuracy":
+                    candidate_accuracy,
+            }
 
         logger.warning(
             "New model promoted to production: %s",
             production_version,
         )
 
-        # --------------------------------------------
-        # Reload production model
-        # --------------------------------------------
-
         self.model, self.model_version = (
             load_model()
         )
 
-        # --------------------------------------------
-        # Reload canary models
-        # --------------------------------------------
-
+        # Reload canary models according to the
+        # current serving environment.
         self.canary_models = (
-            load_canary_models()
+            self._load_serving_canary_models()
         )
 
         logger.warning(
@@ -1072,23 +2127,129 @@ class IrisService:
         )
 
         return {
+
             "status": "promoted",
+
             "production_version":
-                str(production_version),
+                str(
+                    production_version
+                ),
+
             "candidate_accuracy":
                 candidate_accuracy,
+
             "production_accuracy":
                 production_accuracy,
         }
 
     # ======================================================
-    # R4/R5 Manual Retraining Trigger
+    # Milestone 3 Multi-Model Retraining Endpoint
     # ======================================================
 
-    @bentoml.api(route="/retrain/trigger")
+    @bentoml.api(
+        route="/retrain/multimodel"
+    )
+    def multimodel_retraining(self) -> dict:
+        """
+        Run one Milestone 3 multi-model retraining
+        orchestration cycle.
+        """
+
+        logger.warning(
+            "Milestone 3 multi-model retraining "
+            "endpoint called"
+        )
+
+        try:
+
+            result = (
+                self._run_multimodel_retraining()
+            )
+
+            return result
+
+        except Exception as exc:
+
+            logger.exception(
+                "Milestone 3 multi-model retraining "
+                "failed"
+            )
+
+            return {
+                "status": "failed",
+                "reason": str(exc),
+            }
+
+    # ======================================================
+    # Milestone 3 Single-Model Retraining Endpoint
+    # ======================================================
+
+    @bentoml.api(
+        route="/retrain/multimodel/{model_name}"
+    )
+    def multimodel_retraining_one(
+        self,
+        model_name: str,
+    ) -> dict:
+
+        model_name = (
+            model_name.strip().lower()
+        )
+
+        if model_name not in MULTI_MODEL_NAMES:
+
+            return {
+                "status": "error",
+                "reason": (
+                    f"Unknown model: {model_name}"
+                ),
+            }
+
+        logger.warning(
+            "Milestone 3 retraining requested "
+            "for model=%s",
+            model_name,
+        )
+
+        try:
+
+            result = (
+                self.multimodel_orchestrator
+                .run_model(model_name)
+            )
+
+            logger.warning(
+                "Milestone 3 model result: %s",
+                result,
+            )
+
+            return result
+
+        except Exception as exc:
+
+            logger.exception(
+                "Multi-model retraining failed "
+                "for model=%s",
+                model_name,
+            )
+
+            return {
+                "model_name": model_name,
+                "status": "error",
+                "reason": str(exc),
+            }
+
+    # ======================================================
+    # R5 Manual Retraining Trigger
+    # ======================================================
+
+    @bentoml.api(
+        route="/retrain/trigger"
+    )
     def retrain_trigger(self) -> dict:
         """
-        Manually trigger the actual R5 retraining pipeline.
+        Manually trigger the actual R5
+        Iris retraining pipeline.
         """
 
         logger.warning(
@@ -1101,36 +2262,65 @@ class IrisService:
                 self._run_retraining_pipeline()
             )
 
-            if isinstance(result, dict):
+            if isinstance(
+                result,
+                dict,
+            ):
 
-                if result.get("status") == "rejected":
+                if (
+                    result.get("status")
+                    == "rejected"
+                ):
 
                     return {
+
                         "status":
                             "retraining_rejected",
 
                         "message":
-                            "Candidate model failed promotion gate",
+                            "Candidate model "
+                            "failed promotion gate",
+
+                        **result,
+                    }
+
+                if (
+                    result.get("status")
+                    == "pending_approval"
+                ):
+
+                    return {
+
+                        "status":
+                            "pending_approval",
+
+                        "message":
+                            "Candidate model is "
+                            "waiting for governance approval",
 
                         **result,
                     }
 
                 return {
+
                     "status":
                         "retraining_completed",
 
                     "message":
-                        "Model retraining and promotion completed",
+                        "Model retraining and "
+                        "promotion completed",
 
                     **result,
                 }
 
             return {
+
                 "status":
                     "retraining_completed",
 
                 "message":
-                    "Model retraining and promotion completed",
+                    "Model retraining and "
+                    "promotion completed",
 
                 "new_model_version":
                     str(result),
@@ -1143,6 +2333,7 @@ class IrisService:
             )
 
             return {
+
                 "status":
                     "retraining_failed",
 
@@ -1154,25 +2345,22 @@ class IrisService:
     # R5 Rollback
     # ======================================================
 
-    @bentoml.api(route="/rollback")
+    @bentoml.api(
+        route="/rollback"
+    )
     def rollback(
         self,
         request: RollbackRequest,
     ) -> dict:
         """
-        Roll back Production when the newly promoted
-        model performs worse.
-
-        Example:
-
-        New model       = 0.70
-        Previous model  = 0.92
-
-        Result:
-            Production -> previous version
+        Roll back Production when the newly
+        promoted model performs worse.
         """
 
-        new_model_accuracy = request.new_model_accuracy
+        new_model_accuracy = (
+            request.new_model_accuracy
+        )
+
         previous_model_accuracy = (
             request.previous_model_accuracy
         )
@@ -1185,16 +2373,20 @@ class IrisService:
         )
 
         # --------------------------------------------------
-        # Decide whether rollback is required
+        # Determine whether rollback is required
         # --------------------------------------------------
 
         rollback_required = should_rollback(
-            new_model_accuracy=new_model_accuracy,
-            previous_model_accuracy=previous_model_accuracy,
+            new_model_accuracy=(
+                new_model_accuracy
+            ),
+            previous_model_accuracy=(
+                previous_model_accuracy
+            ),
         )
 
         # --------------------------------------------------
-        # New model is acceptable
+        # No rollback
         # --------------------------------------------------
 
         if not rollback_required:
@@ -1204,16 +2396,24 @@ class IrisService:
             )
 
             return {
-                "status": "no_rollback",
-                "message": (
-                    "New model performance is acceptable"
-                ),
+
+                "status":
+                    "no_rollback",
+
+                "message":
+                    "New model performance "
+                    "is acceptable",
+
                 "new_model_accuracy":
                     new_model_accuracy,
+
                 "previous_model_accuracy":
                     previous_model_accuracy,
+
                 "current_production_version":
-                    str(self.model_version),
+                    str(
+                        self.model_version
+                    ),
             }
 
         # --------------------------------------------------
@@ -1239,9 +2439,17 @@ class IrisService:
         # --------------------------------------------------
         # Reload canary models
         # --------------------------------------------------
+        #
+        # IMPORTANT:
+        # The old implementation loaded MLflow canary
+        # models here even in the Bento container.
+        #
+        # This version keeps bundled-model mode isolated
+        # from the container's MLflow registry.
+        # --------------------------------------------------
 
         self.canary_models = (
-            load_canary_models()
+            self._load_serving_canary_models()
         )
 
         # --------------------------------------------------
@@ -1256,8 +2464,10 @@ class IrisService:
             previous_model_accuracy
         )
 
-        result["current_production_version"] = (
-            str(self.model_version)
+        result[
+            "current_production_version"
+        ] = str(
+            self.model_version
         )
 
         logger.warning(
@@ -1267,4 +2477,3 @@ class IrisService:
         )
 
         return result
-

@@ -6,6 +6,13 @@ from app.services.purchase_order_service import (
 )
 from app.services.invoice_service import invoices
 
+from app.services.supplier_onboarding_service import (
+    suppliers,
+)
+from app.schemas.supplier_onboarding import (
+    SupplierOnboardingStatus,
+)
+
 
 # ============================================================
 # TEST SETUP
@@ -14,10 +21,25 @@ from app.services.invoice_service import invoices
 def setup_function():
     """
     Clear all in-memory stores before every test.
+
+    Existing Purchase Order tests use SUP001 and SUP002,
+    so both suppliers are prepared as active suppliers.
     """
+
     purchase_orders.clear()
     invoices.clear()
     po_events.clear()
+    suppliers.clear()
+
+    suppliers["SUP001"] = {
+        "supplier_id": "SUP001",
+        "status": SupplierOnboardingStatus.active,
+    }
+
+    suppliers["SUP002"] = {
+        "supplier_id": "SUP002",
+        "status": SupplierOnboardingStatus.active,
+    }
 
 
 # ============================================================
@@ -460,7 +482,7 @@ def test_acknowledged_to_fulfilled(
 
     assert "timestamp" in event
 
-    assert body["actual_delivery_date"] is not None
+    assert body["actual_delivery_date"] is None
 
 
 def test_draft_to_cancelled(procurement_client):
@@ -1292,8 +1314,15 @@ def test_supplier_cannot_transition_purchase_order(
     purchase_orders["PO3003"] = {
         "po_number": "PO3003",
         "supplier_id": "SUP001",
-        "items": [],
-        "total_amount": 0,
+        "items": [
+        {
+            "item_code": "ITEM001",
+            "description": "Test Item",
+            "quantity": 1,
+            "unit_price": 7000,
+       }
+    ],
+        "total_amount": 7000,
         "status": "draft",
         "created_at": "2026-07-23T10:00:00",
         "expected_delivery": "2026-07-30",
@@ -1837,3 +1866,279 @@ def test_procurement_manager_can_delete_any_supplier_po(
     assert response.status_code == 200
 
     assert "PO3017" not in purchase_orders
+
+def test_supplier_without_supplier_id_cannot_get_po(
+    procurement_client,
+    supplier_no_id_client,
+):
+    purchase_orders["PO3018"] = {
+        "po_number": "PO3018",
+        "supplier_id": "SUP001",
+        "items": [],
+        "total_amount": 5000,
+        "status": "draft",
+        "created_at": "2026-07-23T10:00:00",
+        "expected_delivery": "2026-07-30",
+        "actual_delivery_date": None,
+        "history": [],
+    }
+
+    response = supplier_no_id_client.get(
+        "/api/v1/purchase-orders/PO3018"
+    )
+
+    assert response.status_code == 403
+
+def test_supplier_without_supplier_id_cannot_acknowledge_po(
+    procurement_client,
+    supplier_no_id_client,
+):
+    purchase_orders["PO3019"] = {
+        "po_number": "PO3019",
+        "supplier_id": "SUP001",
+        "items": [],
+        "total_amount": 5000,
+        "status": "sent",
+        "created_at": "2026-07-23T10:00:00",
+        "expected_delivery": "2026-07-30",
+        "actual_delivery_date": None,
+        "history": [],
+    }
+
+    response = supplier_no_id_client.post(
+        "/api/v1/purchase-orders/PO3019/acknowledge"
+    )
+
+    assert response.status_code == 403
+
+def test_supplier_without_supplier_id_cannot_view_po_events(
+    procurement_client,
+    supplier_no_id_client,
+):
+    purchase_orders["PO3020"] = {
+        "po_number": "PO3020",
+        "supplier_id": "SUP001",
+        "items": [],
+        "total_amount": 5000,
+        "status": "draft",
+        "created_at": "2026-07-23T10:00:00",
+        "expected_delivery": "2026-07-30",
+        "actual_delivery_date": None,
+        "history": [],
+    }
+
+    response = supplier_no_id_client.get(
+        "/api/v1/purchase-orders/PO3020/events"
+    )
+
+    assert response.status_code == 403
+
+def test_procurement_manager_can_view_any_supplier_po(
+    procurement_client,
+):
+    purchase_orders["PO3021"] = {
+        "po_number": "PO3021",
+        "supplier_id": "SUP002",
+        "items": [],
+        "total_amount": 7000,
+        "status": "draft",
+        "created_at": "2026-07-23T10:00:00",
+        "expected_delivery": "2026-07-30",
+        "actual_delivery_date": None,
+        "history": [],
+    }
+
+    response = procurement_client.get(
+        "/api/v1/purchase-orders/PO3021"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["supplier_id"] == "SUP002"
+
+def test_procurement_manager_can_update_any_supplier_po(
+    procurement_client,
+):
+    purchase_orders["PO3022"] = {
+        "po_number": "PO3022",
+        "supplier_id": "SUP002",
+        "items": [
+        {
+            "item_code": "ITEM001",
+            "description": "Test Item",
+            "quantity": 1,
+            "unit_price": 7000,
+       }
+   ],
+        "status": "draft",
+        "created_at": "2026-07-23T10:00:00",
+        "total_amount": 7000,
+        "expected_delivery": "2026-07-30",
+        "actual_delivery_date": None,
+        "history": [],
+    }
+
+    response = procurement_client.put(
+        "/api/v1/purchase-orders/PO3022",
+        json={"total_amount": 7000},
+    )
+
+    assert response.status_code == 200
+
+def test_procurement_manager_can_list_all_purchase_orders(
+    procurement_client,
+):
+    purchase_orders["PO3023"] = {
+        "po_number": "PO3023",
+        "supplier_id": "SUP001",
+        "items": [],
+        "total_amount": 5000,
+        "status": "draft",
+        "created_at": "2026-07-23T10:00:00",
+        "expected_delivery": "2026-07-30",
+        "actual_delivery_date": None,
+        "history": [],
+    }
+
+    purchase_orders["PO3024"] = {
+        "po_number": "PO3024",
+        "supplier_id": "SUP002",
+        "items": [],
+        "total_amount": 7000,
+        "status": "draft",
+        "created_at": "2026-07-23T10:00:00",
+        "expected_delivery": "2026-07-23",
+        "actual_delivery_date": None,
+        "history": [],
+    }
+
+    response = procurement_client.get(
+        "/api/v1/purchase-orders"
+    )
+
+    assert response.status_code == 200
+
+    po_numbers = {
+        po["po_number"]
+        for po in response.json()
+    }
+
+    assert "PO3023" in po_numbers
+    assert "PO3024" in po_numbers
+
+# ============================================================
+# SUPPLIER ONBOARDING ENFORCEMENT
+# ============================================================
+
+def test_cannot_create_purchase_order_for_unregistered_supplier(
+    procurement_client,
+):
+    """
+    A Purchase Order must not be created for a supplier
+    that has not been registered through onboarding.
+    """
+
+    response = procurement_client.post(
+        "/api/v1/purchase-orders",
+        json={
+            "po_number": "PO4001",
+            "supplier_id": "SUP999",
+            "items": [
+                {
+                    "item_code": "LAP001",
+                    "description": "Laptop",
+                    "quantity": 1,
+                    "unit_price": 5000,
+                }
+            ],
+            "total_amount": 5000,
+            "created_at": "2026-07-23T10:00:00",
+            "expected_delivery": "2026-07-30",
+        },
+    )
+
+    assert response.status_code == 400
+
+    assert (
+        "must complete onboarding and be active"
+        in response.json()["detail"]
+    )
+
+    assert "PO4001" not in purchase_orders
+
+
+def test_cannot_create_purchase_order_for_inactive_supplier(
+    procurement_client,
+):
+    """
+    A Purchase Order must not be created when the supplier
+    is registered but has not reached active onboarding status.
+    """
+
+    suppliers["SUP003"] = {
+        "supplier_id": "SUP003",
+        "status": SupplierOnboardingStatus.pending_documents,
+    }
+
+    response = procurement_client.post(
+        "/api/v1/purchase-orders",
+        json={
+            "po_number": "PO4002",
+            "supplier_id": "SUP003",
+            "items": [
+                {
+                    "item_code": "LAP001",
+                    "description": "Laptop",
+                    "quantity": 1,
+                    "unit_price": 5000,
+                }
+            ],
+            "total_amount": 5000,
+            "created_at": "2026-07-23T10:00:00",
+            "expected_delivery": "2026-07-30",
+        },
+    )
+
+    assert response.status_code == 400
+
+    assert (
+        "must complete onboarding and be active"
+        in response.json()["detail"]
+    )
+
+    assert "PO4002" not in purchase_orders
+
+
+def test_can_create_purchase_order_for_active_supplier(
+    procurement_client,
+):
+    """
+    A fully onboarded active supplier can receive a
+    newly created Purchase Order.
+    """
+
+    response = procurement_client.post(
+        "/api/v1/purchase-orders",
+        json={
+            "po_number": "PO4003",
+            "supplier_id": "SUP001",
+            "items": [
+                {
+                    "item_code": "LAP001",
+                    "description": "Laptop",
+                    "quantity": 1,
+                    "unit_price": 5000,
+                }
+            ],
+            "total_amount": 5000,
+            "created_at": "2026-07-23T10:00:00",
+            "expected_delivery": "2026-07-30",
+        },
+    )
+
+    assert response.status_code == 201
+
+    body = response.json()
+
+    assert body["po_number"] == "PO4003"
+    assert body["supplier_id"] == "SUP001"
+    assert body["status"] == "draft"

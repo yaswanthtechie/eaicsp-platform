@@ -2,10 +2,11 @@ import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 
 import StatusBadge from "./StatusBadge";
+import { colors } from "../tokens";
 
 describe("StatusBadge", () => {
   it("renders SENT status", () => {
-    render(<StatusBadge status="sent" />);
+    render(<StatusBadge status="SENT" />);
 
     expect(
       screen.getByText("SENT")
@@ -14,7 +15,7 @@ describe("StatusBadge", () => {
 
   it("renders ACKNOWLEDGED status", () => {
     render(
-      <StatusBadge status="acknowledged" />
+      <StatusBadge status="ACKNOWLEDGED" />
     );
 
     expect(
@@ -24,7 +25,7 @@ describe("StatusBadge", () => {
 
   it("renders FULFILLED status", () => {
     render(
-      <StatusBadge status="fulfilled" />
+      <StatusBadge status="FULFILLED" />
     );
 
     expect(
@@ -34,7 +35,7 @@ describe("StatusBadge", () => {
 
   it("renders CANCELLED status", () => {
     render(
-      <StatusBadge status="cancelled" />
+      <StatusBadge status="CANCELLED" />
     );
 
     expect(
@@ -44,7 +45,7 @@ describe("StatusBadge", () => {
 
   it("renders DRAFT status", () => {
     render(
-      <StatusBadge status="draft" />
+      <StatusBadge status="DRAFT" />
     );
 
     expect(
@@ -53,61 +54,61 @@ describe("StatusBadge", () => {
   });
 
   it("applies the correct color for SENT status", () => {
-    render(<StatusBadge status="sent" />);
+    render(<StatusBadge status="SENT" />);
 
     const badge = screen.getByText("SENT");
 
     expect(badge).toHaveStyle({
-      background: "#F59E0B",
-      color: "#000000",
+      background: colors.warning,
+      color: colors.black,
     });
   });
 
   it("applies the correct color for ACKNOWLEDGED status", () => {
     render(
-      <StatusBadge status="acknowledged" />
+      <StatusBadge status="ACKNOWLEDGED" />
     );
 
     const badge =
       screen.getByText("ACKNOWLEDGED");
 
     expect(badge).toHaveStyle({
-      background: "#3B82F6",
-      color: "#E6EAF2",
+      background: colors.primary,
+      color: colors.text,
     });
   });
 
   it("applies the correct color for FULFILLED status", () => {
     render(
-      <StatusBadge status="fulfilled" />
+      <StatusBadge status="FULFILLED" />
     );
 
     const badge =
       screen.getByText("FULFILLED");
 
     expect(badge).toHaveStyle({
-      background: "#10B981",
-      color: "#E6EAF2",
+      background: colors.success,
+      color: colors.text,
     });
   });
 
   it("applies the correct color for CANCELLED status", () => {
     render(
-      <StatusBadge status="cancelled" />
+      <StatusBadge status="CANCELLED" />
     );
 
     const badge =
       screen.getByText("CANCELLED");
 
     expect(badge).toHaveStyle({
-      background: "#EF4444",
-      color: "#E6EAF2",
+      background: colors.danger,
+      color: colors.text,
     });
   });
 
   it("renders the status in uppercase", () => {
     render(
-      <StatusBadge status="acknowledged" />
+      <StatusBadge status="ACKNOWLEDGED" />
     );
 
     expect(

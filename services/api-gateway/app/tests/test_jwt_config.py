@@ -155,3 +155,34 @@ class TestJwtSecretRoundTrip:
                 os.environ["SECRET_KEY"] = old_secret
             else:
                 os.environ.pop("SECRET_KEY", None)
+
+
+class TestServiceRoutesPrecedence:
+    """
+    Verify safe configuration precedence:
+        Explicit SERVICE_ROUTES > Explicit *_SERVICE_URL > Default
+    """
+
+    def test_explicit_service_routes_retains_custom_value_against_defaults(self):
+        s = Settings(
+            SECRET_KEY="test-secret-precedence",
+            SERVICE_ROUTES={"/api/v1/auth": "http://custom-auth-cluster:9999"},
+        )
+        assert s.SERVICE_ROUTES["/api/v1/auth"] == "http://custom-auth-cluster:9999"
+        # Non-configured routes fall back to default URLs
+        assert s.SERVICE_ROUTES["/api/v1/inventory"] == "http://localhost:8001"
+
+    def test_explicit_service_url_overrides_default_route(self):
+        s = Settings(
+            SECRET_KEY="test-secret-precedence",
+            PLATFORM_SERVICE_URL="http://explicit-platform:8080",
+        )
+        assert s.SERVICE_ROUTES["/api/v1/auth"] == "http://explicit-platform:8080"
+
+    def test_explicit_service_routes_overrides_explicit_service_url_when_both_supplied(self):
+        s = Settings(
+            SECRET_KEY="test-secret-precedence",
+            SERVICE_ROUTES={"/api/v1/auth": "http://routes-url:8005"},
+            PLATFORM_SERVICE_URL="http://explicit-service-url:8005",
+        )
+        assert s.SERVICE_ROUTES["/api/v1/auth"] == "http://routes-url:8005"

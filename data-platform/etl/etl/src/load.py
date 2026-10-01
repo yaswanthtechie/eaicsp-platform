@@ -175,38 +175,34 @@ def load_data(validated_data_frames, run_id):
 # (xmax = 0) trick, and still capturing history for sales_fact.
 # ---------------------------------------------------------------------------
 
-def _bulk_copy_sales_history(connection, chunk):
-    """Bulk equivalent of load_data()'s per-row history_query: copy any
-    existing sales_fact rows matching this chunk's keys into
-    sales_fact_history before they get overwritten by the upsert below."""
+def _make_history_copy_fn(table_name, history_table):
+    """Create an environment-aware history-copy callback."""
+    def _copy(connection, chunk):
+        key_values_clauses = []
+        params = {}
 
-    key_values_clauses = []
-    params = {}
+        for row_idx, record in enumerate(chunk):
+            placeholders = []
+            for col in ("date", "sku_id", "warehouse_id"):
+                key = f"k_{col}_{row_idx}"
+                placeholders.append(f":{key}")
+                params[key] = record[col]
+            key_values_clauses.append("(" + ", ".join(placeholders) + ")")
 
-    for row_idx, record in enumerate(chunk):
-        placeholders = []
-        for col in ("date", "sku_id", "warehouse_id"):
-            key = f"k_{col}_{row_idx}"
-            placeholders.append(f":{key}")
-            params[key] = record[col]
-        key_values_clauses.append(f"({', '.join(placeholders)})")
+        sql = f"""
+            INSERT INTO {history_table} (
+                sales_fact_id, date, sku_id, warehouse_id, quantity_sold,
+                unit_price, source_batch, run_id, pipeline_version, valid_from
+            )
+            SELECT
+                id, date, sku_id, warehouse_id, quantity_sold,
+                unit_price, source_batch, run_id, pipeline_version, updated_at
+            FROM {table_name}
+            WHERE (date, sku_id, warehouse_id) IN ({", ".join(key_values_clauses)});
+        """
+        connection.execute(text(sql), params)
 
-    sql = f"""
-        INSERT INTO sales_fact_history (
-            sales_fact_id, date, sku_id, warehouse_id, quantity_sold,
-            unit_price, source_batch, run_id, pipeline_version, valid_from
-        )
-        SELECT
-            id, date, sku_id, warehouse_id, quantity_sold,
-            unit_price, source_batch, run_id, pipeline_version, updated_at
-        FROM sales_fact
-        WHERE (date, sku_id, warehouse_id) IN ({", ".join(key_values_clauses)});
-    """
-
-    connection.execute(text(sql), params)
-
-
-
+    return _copy
 
 def source_file_priority(file_path):
     """Return a deterministic file precedence tuple from the filename.
@@ -271,20 +267,22 @@ def bulk_upsert(
     history_copy_fn=None,
     chunk_size=5000,
     priority_key=None,
+    connection=None,
 ):
     """Generic bulk UPSERT: builds one multi-row
     INSERT ... VALUES (...), (...), ... ON CONFLICT DO UPDATE
     statement per chunk instead of one round-trip per row.
 
     `columns` must be every column present in each record dict, including
-    conflict_keys. `history_copy_fn(connection, chunk)`, if given, runs
+    conflict_keys. `history_copy_fn(conn, chunk)`, if given, runs
     before each chunk's upsert (used to preserve sales_fact_history).
     `priority_key`, if given, is an extra (non-column) key each record may
     carry - see `_dedupe_records()` - used to resolve competing updates to
     the same conflict-key row within a chunk by an explicit rule (e.g.
     "latest file wins") instead of accidental processing order.
-    Returns (rows_inserted, rows_updated), counted via RETURNING (xmax=0),
-    same semantics as load_data()'s row-by-row loop.
+    Returns (rows_inserted, rows_updated), counted from conflict keys
+    observed before each UPSERT, with the same semantics as load_data()'s
+    row-by-row loop.
     """
 
     if not records:
@@ -302,8 +300,8 @@ def bulk_upsert(
     # accidental chunk order instead of the explicit priority_key rule.
     records = _dedupe_records(records, conflict_keys, priority_key=priority_key)
 
-    with engine.begin() as connection:
-
+    def _execute(conn):
+        nonlocal rows_inserted, rows_updated
         for i in range(0, len(records), chunk_size):
 
             chunk = records[i:i + chunk_size]
@@ -314,7 +312,7 @@ def bulk_upsert(
             # chunk is safe to insert as one multi-row statement.
 
             if history_copy_fn:
-                history_copy_fn(connection, chunk)
+                history_copy_fn(conn, chunk)
 
             values_clauses = []
             params = {}
@@ -332,26 +330,66 @@ def bulk_upsert(
             )
             set_clause += ", updated_at = NOW()"
 
+            # PostgreSQL's xmax system column cannot be safely used in
+            # RETURNING on a partitioned table. Determine which conflict keys
+            # already exist before the UPSERT, then count inserted/updated rows
+            # from that snapshot instead.
+            key_columns = ", ".join(conflict_keys)
+            existing_key_clauses = []
+            existing_params = {}
+
+            for row_idx, record in enumerate(chunk):
+                placeholders = []
+                for key in conflict_keys:
+                    param_key = f"existing_{key}_{row_idx}"
+                    placeholders.append(f":{param_key}")
+                    existing_params[param_key] = record[key]
+                existing_key_clauses.append(f"({', '.join(placeholders)})")
+
+            existing_sql = f"""
+                SELECT {key_columns}
+                FROM {table_name}
+                WHERE ({key_columns}) IN (
+                    {", ".join(existing_key_clauses)}
+                )
+            """
+
+            existing_result = conn.execute(
+                text(existing_sql),
+                existing_params,
+            )
+
+            existing_keys = {
+                tuple(row[key] for key in conflict_keys)
+                for row in existing_result
+            }
+
             sql = f"""
                 INSERT INTO {table_name} ({", ".join(columns)})
                 VALUES {", ".join(values_clauses)}
                 ON CONFLICT ({", ".join(conflict_keys)})
-                DO UPDATE SET {set_clause}
-                RETURNING (xmax = 0) AS inserted;
+                DO UPDATE SET {set_clause};
             """
 
-            result = connection.execute(text(sql), params)
+            conn.execute(text(sql), params)
 
-            for row in result:
-                if row.inserted:
-                    rows_inserted += 1
-                else:
+            for record in chunk:
+                key = tuple(record[key] for key in conflict_keys)
+                if key in existing_keys:
                     rows_updated += 1
+                else:
+                    rows_inserted += 1
+
+    if connection is not None:
+        _execute(connection)
+    else:
+        with engine.begin() as conn:
+            _execute(conn)
 
     return rows_inserted, rows_updated
 
 
-def load_data_bulk_generic(validated_batches, run_id, source_config):
+def load_data_bulk_generic(validated_batches, run_id, source_config, connection=None):
     """Config-driven bulk loader used by the generic pipeline engine.
     Flattens all batches for this source into one record list and does a
     single bulk_upsert() call (chunked internally).
@@ -361,7 +399,7 @@ def load_data_bulk_generic(validated_batches, run_id, source_config):
     plus a same-day correction), the winner is decided by an explicit rule -
     latest file wins, by explicit filename version/timestamp - not by whichever
     file happened to be processed last. Each record carries its source
-    file's mtime as "_conflict_priority", consumed by bulk_upsert()'s
+    file's deterministic filename precedence as "_conflict_priority", consumed by bulk_upsert()'s
     priority_key and never sent to the database (it isn't in `all_columns`).
     """
 
@@ -384,7 +422,7 @@ def load_data_bulk_generic(validated_batches, run_id, source_config):
             records.append(record)
 
     history_copy_fn = (
-        _bulk_copy_sales_history if source_config.history_table else None
+        _make_history_copy_fn(source_config.table, source_config.history_table) if source_config.history_table else None
     )
 
     start = time.perf_counter()
@@ -397,6 +435,7 @@ def load_data_bulk_generic(validated_batches, run_id, source_config):
         records=records,
         history_copy_fn=history_copy_fn,
         priority_key="_conflict_priority",
+        connection=connection,
     )
 
     elapsed = time.perf_counter() - start

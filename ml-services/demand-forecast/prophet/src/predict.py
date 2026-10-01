@@ -7,6 +7,10 @@ import pandas as pd
 from prophet.serialize import model_from_json
 
 from src.data import load_sales_data
+from src.external_regressors import (
+    add_external_regressors,
+    validate_external_regressors,
+)
 from src.inference import predict_future_xgboost
 from src.ensemble import (
     weighted_ensemble,
@@ -65,7 +69,10 @@ def validate_prediction_history(
     the input data is invalid.
     """
 
-    required_columns = ["ds", "y"]
+    required_columns = [
+        "ds",
+        "y",
+    ]
 
     # --------------------------------------------------------
     # Required columns
@@ -206,14 +213,14 @@ def load_prophet_model():
         2. output/prophet_model.json
 
     The promoted model is preferred for production.
-    The output model is used as a fallback so that
-    clean checkouts and tests do not fail when promoted
-    artifacts are not committed.
+    The output model is used as a fallback.
     """
 
     if PROMOTED_PROPHET_MODEL_PATH.exists():
 
-        model_path = PROMOTED_PROPHET_MODEL_PATH
+        model_path = (
+            PROMOTED_PROPHET_MODEL_PATH
+        )
 
         print(
             "\nUsing promoted Prophet model:"
@@ -221,7 +228,9 @@ def load_prophet_model():
 
     elif FALLBACK_PROPHET_MODEL_PATH.exists():
 
-        model_path = FALLBACK_PROPHET_MODEL_PATH
+        model_path = (
+            FALLBACK_PROPHET_MODEL_PATH
+        )
 
         print(
             "\nPromoted Prophet model not found."
@@ -291,7 +300,9 @@ def load_xgb_package():
 
     if PROMOTED_XGB_MODEL_PATH.exists():
 
-        model_path = PROMOTED_XGB_MODEL_PATH
+        model_path = (
+            PROMOTED_XGB_MODEL_PATH
+        )
 
         print(
             "Using promoted XGBoost model:"
@@ -299,7 +310,9 @@ def load_xgb_package():
 
     elif FALLBACK_XGB_MODEL_PATH.exists():
 
-        model_path = FALLBACK_XGB_MODEL_PATH
+        model_path = (
+            FALLBACK_XGB_MODEL_PATH
+        )
 
         print(
             "Promoted XGBoost model not found."
@@ -392,11 +405,35 @@ def load_ensemble_weights():
 
         1. models/promoted/ensemble_weights.json
         2. models/best_weights.json
+
+    Supported formats:
+
+        New promoted format:
+        {
+            "prophet": 0.7,
+            "xgb": 0.3
+        }
+
+        Legacy format:
+        {
+            "prophet_weight": 0.7,
+            "xgb_weight": 0.3
+        }
+
+    The returned values are always:
+
+        (prophet_weight, xgb_weight)
     """
+
+    # ========================================================
+    # 1. Select weights file
+    # ========================================================
 
     if PROMOTED_WEIGHTS_PATH.exists():
 
-        weights_path = PROMOTED_WEIGHTS_PATH
+        weights_path = (
+            PROMOTED_WEIGHTS_PATH
+        )
 
         print(
             "Using promoted ensemble weights:"
@@ -404,7 +441,9 @@ def load_ensemble_weights():
 
     elif FALLBACK_WEIGHTS_PATH.exists():
 
-        weights_path = FALLBACK_WEIGHTS_PATH
+        weights_path = (
+            FALLBACK_WEIGHTS_PATH
+        )
 
         print(
             "Promoted ensemble weights not found."
@@ -421,6 +460,10 @@ def load_ensemble_weights():
             f"- {PROMOTED_WEIGHTS_PATH}\n"
             f"- {FALLBACK_WEIGHTS_PATH}"
         )
+
+    # ========================================================
+    # 2. Load JSON
+    # ========================================================
 
     try:
 
@@ -439,36 +482,78 @@ def load_ensemble_weights():
             f"{weights_path}"
         ) from exc
 
-    # --------------------------------------------------------
-    # Required keys
-    # --------------------------------------------------------
+    # ========================================================
+    # 3. Validate JSON structure
+    # ========================================================
 
-    if "prophet_weight" not in weights:
-
-        raise ValueError(
-            "Ensemble weights missing "
-            "'prophet_weight'."
-        )
-
-    if "xgb_weight" not in weights:
+    if not isinstance(
+        weights,
+        dict,
+    ):
 
         raise ValueError(
-            "Ensemble weights missing "
-            "'xgb_weight'."
+            "Ensemble weights must be a JSON object."
         )
 
-    # --------------------------------------------------------
-    # Convert to float
-    # --------------------------------------------------------
+    # ========================================================
+    # 4. Read weight keys
+    # ========================================================
+    #
+    # New format:
+    #
+    #     prophet
+    #     xgb
+    #
+    # Legacy format:
+    #
+    #     prophet_weight
+    #     xgb_weight
+    #
+    # Prefer the new promoted format when available.
+    # ========================================================
+
+    if (
+        "prophet" in weights
+        and "xgb" in weights
+    ):
+
+        prophet_weight = weights["prophet"]
+        xgb_weight = weights["xgb"]
+
+    elif (
+        "prophet_weight" in weights
+        and "xgb_weight" in weights
+    ):
+
+        prophet_weight = (
+            weights["prophet_weight"]
+        )
+
+        xgb_weight = (
+            weights["xgb_weight"]
+        )
+
+    else:
+
+        raise ValueError(
+            "Ensemble weights must contain either:\n"
+            "- 'prophet' and 'xgb'\n"
+            "or\n"
+            "- 'prophet_weight' and 'xgb_weight'."
+        )
+
+    # ========================================================
+    # 5. Convert to float
+    # ========================================================
 
     try:
 
         prophet_weight = float(
-            weights["prophet_weight"]
+            prophet_weight
         )
 
         xgb_weight = float(
-            weights["xgb_weight"]
+            xgb_weight
         )
 
     except (
@@ -480,9 +565,9 @@ def load_ensemble_weights():
             "Ensemble weights must be numeric."
         ) from exc
 
-    # --------------------------------------------------------
-    # Finite values
-    # --------------------------------------------------------
+    # ========================================================
+    # 6. Finite values
+    # ========================================================
 
     if not math.isfinite(
         prophet_weight
@@ -500,9 +585,9 @@ def load_ensemble_weights():
             "XGBoost weight must be finite."
         )
 
-    # --------------------------------------------------------
-    # Negative values
-    # --------------------------------------------------------
+    # ========================================================
+    # 7. Negative values
+    # ========================================================
 
     if prophet_weight < 0:
 
@@ -516,12 +601,17 @@ def load_ensemble_weights():
             "XGBoost weight cannot be negative."
         )
 
-    # --------------------------------------------------------
-    # Sum validation
-    # --------------------------------------------------------
+    # ========================================================
+    # 8. Sum validation
+    # ========================================================
+
+    total_weight = (
+        prophet_weight
+        + xgb_weight
+    )
 
     if not math.isclose(
-        prophet_weight + xgb_weight,
+        total_weight,
         1.0,
         rel_tol=1e-9,
         abs_tol=1e-9,
@@ -531,15 +621,110 @@ def load_ensemble_weights():
             "Ensemble weights must sum to 1. "
             f"Received: "
             f"{prophet_weight} + {xgb_weight} = "
-            f"{prophet_weight + xgb_weight}"
+            f"{total_weight}"
         )
+
+    # ========================================================
+    # 9. Return normalized weights
+    # ========================================================
 
     return (
         prophet_weight,
         xgb_weight,
     )
 
+# ============================================================
+# VALIDATE FORECAST DATES
+# ============================================================
 
+def validate_forecast_dates(
+    prophet_future: pd.DataFrame,
+    xgb_future: list,
+) -> None:
+    """
+    Validate that Prophet and XGBoost produce forecasts
+    for exactly the same dates.
+
+    This prevents blending predictions belonging to
+    different months.
+    """
+
+    # --------------------------------------------------------
+    # Prophet dates
+    # --------------------------------------------------------
+
+    prophet_dates = pd.Series(
+        pd.to_datetime(
+            prophet_future["ds"]
+        )
+    ).reset_index(drop=True)
+
+    # --------------------------------------------------------
+    # XGBoost dates
+    # --------------------------------------------------------
+
+    try:
+
+        xgb_dates = pd.Series(
+            pd.to_datetime(
+                [
+                    row["date"]
+                    for row in xgb_future
+                ]
+            )
+        ).reset_index(drop=True)
+
+    except (
+        KeyError,
+        TypeError,
+        ValueError,
+    ) as exc:
+
+        raise ValueError(
+            "Invalid XGBoost forecast output: "
+            "each forecast row must contain a valid "
+            "'date' field."
+        ) from exc
+
+    # --------------------------------------------------------
+    # Length check
+    # --------------------------------------------------------
+
+    if len(prophet_dates) != len(xgb_dates):
+
+        raise ValueError(
+            "Prophet and XGBoost forecast date lengths "
+            "do not match. "
+            f"Prophet: {len(prophet_dates)}, "
+            f"XGBoost: {len(xgb_dates)}."
+        )
+
+    # --------------------------------------------------------
+    # Date equality check
+    # --------------------------------------------------------
+
+    if not prophet_dates.equals(
+        xgb_dates
+    ):
+
+        prophet_date_list = (
+            prophet_dates
+            .dt.strftime("%Y-%m-%d")
+            .tolist()
+        )
+
+        xgb_date_list = (
+            xgb_dates
+            .dt.strftime("%Y-%m-%d")
+            .tolist()
+        )
+
+        raise ValueError(
+            "Prophet and XGBoost forecast dates do not "
+            "match. "
+            f"Prophet dates: {prophet_date_list}. "
+            f"XGBoost dates: {xgb_date_list}."
+        )
 # ============================================================
 # PREDICT
 # ============================================================
@@ -559,9 +744,13 @@ def predict(
         Legacy fallback models
 
     IMPORTANT:
-    Input history is validated BEFORE model loading.
-    This guarantees that invalid input raises the expected
-    ValueError even when promoted model artifacts are absent.
+
+    Future Prophet dates are generated from the last date
+    in the actual input history, not from the Prophet model's
+    own historical training range.
+
+    Prophet and XGBoost forecast dates are also validated
+    before their predictions are blended.
     """
 
     # ========================================================
@@ -661,12 +850,75 @@ def predict(
     # 9. Prophet Forecast
     # ========================================================
 
-    future = (
-        prophet_model.make_future_dataframe(
-            periods=horizon_months,
-            freq="MS",
+    # IMPORTANT:
+    #
+    # Do NOT use:
+    #
+    # prophet_model.make_future_dataframe(...)
+    #
+    # because the promoted Prophet model may have an older
+    # training history than the actual production dataset.
+    #
+    # Instead, generate future dates from the latest date
+    # in the actual input history.
+
+    last_actual_date = pd.to_datetime(
+        history["ds"]
+    ).max()
+
+    prophet_future_dates = pd.date_range(
+        start=(
+            last_actual_date
+            + pd.offsets.MonthBegin(1)
+        ),
+        periods=horizon_months,
+        freq="MS",
+    )
+
+    future = pd.DataFrame(
+        {
+            "ds": prophet_future_dates
+        }
+    )
+
+    # --------------------------------------------------------
+    # Add external regressors
+    # --------------------------------------------------------
+
+    future_regressors = (
+        future[["ds"]]
+        .copy()
+    )
+
+    future_regressors = (
+        future_regressors.rename(
+            columns={
+                "ds": "date"
+            }
         )
     )
+
+    future_regressors = (
+        add_external_regressors(
+            future_regressors
+        )
+    )
+
+    future = (
+        future_regressors.rename(
+            columns={
+                "date": "ds"
+            }
+        )
+    )
+
+    validate_external_regressors(
+        future
+    )
+
+    # --------------------------------------------------------
+    # Prophet prediction
+    # --------------------------------------------------------
 
     prophet_forecast = (
         prophet_model.predict(
@@ -713,6 +965,19 @@ def predict(
         )
 
     # ========================================================
+    # 11A. Forecast Date Alignment Validation
+    # ========================================================
+
+    validate_forecast_dates(
+        prophet_future,
+        xgb_future,
+    )
+
+    prophet_dates = pd.to_datetime(
+        prophet_future["ds"]
+    ).reset_index(drop=True)
+
+    # ========================================================
     # 12. Ensemble Forecast
     # ========================================================
 
@@ -728,6 +993,10 @@ def predict(
 
         xgb_row = (
             xgb_future[i]
+        )
+
+        forecast_date = (
+            prophet_dates.iloc[i]
         )
 
         # ----------------------------------------------------
@@ -827,9 +1096,7 @@ def predict(
 
         forecast.append(
             {
-                "date": prophet_row[
-                    "ds"
-                ].strftime(
+                "date": forecast_date.strftime(
                     "%Y-%m-%d"
                 ),
 

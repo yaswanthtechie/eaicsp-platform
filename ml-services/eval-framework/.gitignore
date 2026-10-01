@@ -1,0 +1,9 @@
+evaluation_report.html
+mlruns/
+mlflow.db
+__pycache__/
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.venv/

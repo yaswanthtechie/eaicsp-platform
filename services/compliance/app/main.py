@@ -15,6 +15,8 @@ from app.services.sanctions_service import (
     load_all_sanctions,
 )
 from app.models.compliance_override import ComplianceOverride
+from app.models.compliance_case import ComplianceCase
+from app.models.case_history import CaseHistory
 
 # =====================================================
 # APPLICATION LIFESPAN

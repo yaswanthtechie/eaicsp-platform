@@ -2067,3 +2067,1058 @@ Restored Version : 4
     }
   }
 }
+
+
+Round 6,7,8
+# EAICSP Platform - ML Services Reference Serving Layer
+
+## Overview
+
+Reference ML serving layer for four EAICSP ML services:
+
+* Demand Forecast (`forecast`)
+* ETA Prediction (`eta`)
+* Anomaly Detection (`anomaly`)
+* Supplier Risk (`risk`)
+
+The framework provides:
+
+* Unified multi-model serving
+* Independent model versioning
+* Deterministic A/B testing
+* Per-version metrics and statistical comparison
+* Production request monitoring
+* Drift detection framework
+* Retraining orchestration
+* Candidate evaluation and promotion/rejection
+* Rollback safety
+* MLOps dashboard
+* Docker reproducibility
+
+> **Current status:** The serving/orchestration framework is implemented and tested. The four adapters currently use stub loaders. Real model artifacts and retraining pipelines are not yet connected.
+
+## Milestone 1 - Unified Multi-Model Serving
+
+### Endpoints
+
+```text
+GET  /models
+POST /models/{model_name}/predict
+```
+
+Example:
+
+```json
+{
+  "payload": {
+    "history": [100, 110, 120, 130],
+    "horizon": 3
+  }
+}
+```
+
+The current Forecast implementation returns `model_type: "stub"`.
+
+### Main files
+
+```text
+src/
+├── service.py
+├── router.py
+├── registry.py
+├── schemas.py
+├── model_manager.py
+├── adapters/
+│   ├── base.py
+│   ├── forecast.py
+│   ├── eta.py
+│   ├── anomaly.py
+│   └── risk.py
+└── loaders/
+    └── stub.py
+```
+
+## Milestone 2 - A/B Testing
+
+A/B traffic is deterministically assigned using `request_id`.
+
+### Endpoints
+
+```text
+POST /models/{model_name}/ab-test/predict
+GET  /models/{model_name}/ab-test
+```
+
+Example:
+
+```json
+{
+  "payload": {
+    "history": [100, 110, 120, 130],
+    "horizon": 3
+  },
+  "request_id": "forecast-test-001",
+  "quality_score": 0.90
+}
+```
+
+The service records:
+
+* Request count
+* Success/failure
+* Latency
+* Success rate
+* Quality observations
+* Average quality
+* Per-version metrics
+
+Quality scores are supplied by the caller; the service does not calculate quality from ground-truth labels.
+
+Statistical comparison uses the configured control and challenger versions.
+
+## Milestone 3 - Retraining and Safe Promotion
+
+Supported models:
+
+```text
+forecast
+eta
+anomaly
+risk
+```
+
+The orchestration framework supports:
+
+```text
+Drift
+  ↓
+Retraining
+  ↓
+Candidate evaluation
+  ↓
+Promotion / Rejection
+  ↓
+Post-promotion validation
+  ↓
+Rollback on failure
+```
+
+Lower-is-better metrics:
+
+```text
+MAE, MAPE, RMSE
+```
+
+Higher-is-better metrics:
+
+```text
+Accuracy, F1, AUC
+```
+
+Candidates must show strict improvement. Ties are not automatically promoted.
+
+### Current limitation
+
+The orchestration and rollback framework is implemented and unit-tested, but the real retraining pipelines and complete live drift workflow are not yet connected.
+
+Required remaining flow:
+
+```text
+Real logged inputs
+→ Drift detection
+→ Real retraining
+→ Candidate evaluation
+→ Promote / Reject
+→ Validation
+→ Keep / Rollback
+```
+
+### Scheduler
+
+```text
+ENABLE_RETRAINING_SCHEDULER=False
+MULTIMODEL_RETRAINING_INTERVAL_SECONDS=3600
+```
+
+The scheduler is disabled by default.
+
+## Milestone 4 - MLOps Dashboard
+
+```text
+GET /mlops/dashboard
+```
+
+Dashboard:
+
+```text
+http://localhost:3000/mlops/dashboard
+```
+
+Currently displays:
+
+* Service health
+* Model readiness
+* Production versions
+* Request volume
+* Average latency
+* Success rate
+* A/B metrics
+* Statistical comparison
+
+Live per-model drift status and last-retraining time are not yet fully implemented.
+
+## Milestone 5 - Docker and Reproducibility
+
+Development environment:
+
+```text
+Python 3.12.4
+```
+
+Tested with Python 3.11 and 3.12.
+
+Pinned dependencies include:
+
+```text
+bentoml==1.4.22
+mlflow==3.4.0
+joblib==1.5.1
+numpy==2.3.2
+pydantic==2.11.7
+scikit-learn==1.7.1
+pytest==8.4.1
+fastapi==0.141.1
+httpx==0.28.1
+sqlalchemy==2.0.52
+```
+
+> The current Dockerfile is still based on the R4/R5 Iris reference service and has not yet been converted to the final multi-model production image.
+
+## Project Structure
+
+```text
+_reference/
+├── data/
+├── mlruns/
+├── models/
+├── src/
+│   ├── service.py
+│   ├── router.py
+│   ├── registry.py
+│   ├── schemas.py
+│   ├── model_manager.py
+│   ├── ab_testing.py
+│   ├── experiment.py
+│   ├── orchestrator.py
+│   ├── retraining_adapters.py
+│   ├── monitoring.py
+│   ├── dashboard.py
+│   ├── config.py
+│   ├── adapters/
+│   └── loaders/
+├── tests/
+├── Dockerfile
+├── requirements.txt
+├── bentofile.yaml
+├── .dockerignore
+└── README.md
+```
+
+## API Endpoints
+
+| Method | Endpoint                               | Purpose            |
+| ------ | -------------------------------------- | ------------------ |
+| GET    | `/healthz`                             | Health             |
+| GET    | `/livez`                               | Liveness           |
+| GET    | `/readyz`                              | Readiness          |
+| GET    | `/models`                              | List models        |
+| POST   | `/models/{model_name}/predict`         | Prediction         |
+| POST   | `/models/{model_name}/ab-test/predict` | A/B prediction     |
+| GET    | `/models/{model_name}/ab-test`         | A/B results        |
+| POST   | `/retrain/multimodel`                  | Retrain all models |
+| POST   | `/retrain/multimodel/{model_name}`     | Retrain one model  |
+| GET    | `/mlops/dashboard`                     | Dashboard          |
+| GET    | `/docs`                                | OpenAPI            |
+
+## Run Locally
+
+```powershell
+cd D:\ml__services\eaicsp-platform\ml-services\_reference
+```
+
+Start:
+
+```powershell
+bentoml serve src.service:IrisService --host 0.0.0.0 --port 3000
+```
+
+Tests:
+
+```powershell
+python -m pytest -q tests
+```
+
+Health:
+
+```powershell
+Invoke-RestMethod http://localhost:3000/healthz
+```
+
+Models:
+
+```powershell
+Invoke-RestMethod http://localhost:3000/models
+```
+
+A/B results:
+
+```powershell
+Invoke-RestMethod http://localhost:3000/models/forecast/ab-test
+```
+
+Dashboard:
+
+```powershell
+Start-Process "http://localhost:3000/mlops/dashboard"
+```
+
+API docs:
+
+```text
+http://localhost:3000/docs
+```
+
+## Docker
+
+Build:
+
+```powershell
+docker build -t eaicsp-ml-serving:r5 .
+```
+
+Run:
+
+```powershell
+docker run --rm -p 3000:3000 --name eaicsp-ml-serving eaicsp-ml-serving:r5
+```
+
+Verify:
+
+```powershell
+docker ps
+docker logs eaicsp-ml-serving
+Invoke-RestMethod http://localhost:3000/healthz
+Invoke-RestMethod http://localhost:3000/readyz
+Invoke-RestMethod http://localhost:3000/models
+```
+
+## Milestone Status
+
+| Milestone                | Status                                                             |
+| ------------------------ | ------------------------------------------------------------------ |
+| M1 - Multi-model serving | Framework live; four adapters use stubs                            |
+| M2 - A/B testing         | Live and tested                                                    |
+| M3 - Retraining          | Framework and rollback tested; live drift/retraining not connected |
+| M4 - Dashboard           | Live; drift/retrain fields incomplete                              |
+| M5 - Docker              | Current Iris reference image; dependencies pinned                  |
+
+## Remaining Work
+
+* Connect real Forecast retraining pipeline
+* Connect real ETA retraining pipeline
+* Connect real Anomaly retraining pipeline
+* Connect real Supplier Risk retraining pipeline
+* Implement production drift baselines
+* Demonstrate live drift detection
+* Demonstrate drift-triggered retraining
+* Demonstrate candidate evaluation and promotion/rejection
+* Demonstrate post-promotion rollback
+* Build final multi-model Docker image
+
+## Definition of Done
+
+### Completed
+
+* [x] Unified multi-model serving
+* [x] Independent model versioning
+* [x] Deterministic A/B routing
+* [x] Per-version metrics
+* [x] Statistical comparison
+* [x] Production monitoring
+* [x] Retraining orchestration framework
+* [x] Candidate promotion/rejection
+* [x] Rollback safety
+* [x] MLOps dashboard
+* [x] Pinned dependencies
+* [x] Health/readiness/liveness checks
+* [x] Docker build/run workflow
+
+### Pending
+
+* [ ] Real model integrations
+* [ ] Live production drift baselines
+* [ ] Live drift → retrain workflow
+* [ ] Live promotion/rejection
+* [ ] Live rollback demonstration
+* [ ] Final multi-model Docker image
+
+
+# MLOps + Model Serving
+# MLOps + Model Serving
+
+## Round 9, 10 & 11 — Implementation Status
+
+This document summarizes the MLOps and model-serving capabilities completed for Rounds 9, 10 and 11.
+
+### 1. Milestone Status
+
+| Milestone                   | Status      | What's Left                                                          |
+| --------------------------- | ----------- | -------------------------------------------------------------------- |
+| **M1 Governance**           | **Done**    | None                                                                 |
+| **M2 Serving Optimisation** | **Partial** | Same-model vectorized calls and before/after cost/latency comparison |
+| **M3 Blue-Green**           | **Done**    | None — real traffic switching demonstrated in `docs/BLUE_GREEN.md`   |
+| **M4 Runbook + Drill**      | **Done**    | Follow-ups: prediction health in `GET /models`, automated alerting   |
+| **M5 Dependency Docs**      | **Done**    | No current consumers confirmed; re-check when a service integrates   |
+
+---
+
+## 2. Model Governance
+
+Implemented approval-based Production promotion.
+
+Key controls:
+
+* Approval required for the exact model version
+* Central enforcement in `promote_model()`
+* Self-approval blocked
+* Approval/rejection audit information persisted
+* MLflow governance tags recorded
+
+**Status: DONE**
+
+---
+
+## 3. Serving Optimisation
+
+Implemented:
+
+* Batch prediction for `forecast`, `eta`, `anomaly`, and `risk`
+* Concurrent prediction
+* CPU, memory and latency monitoring
+* Batch size validation
+
+Remaining:
+
+* Group same-model requests into vectorized calls
+* Before/after latency and cost benchmark
+
+**Status: PARTIAL**
+
+---
+
+## 4. Blue-Green Deployment
+
+Implemented:
+
+* Blue and Green model versions
+* Traffic switching
+* Governance check for Green
+* Rollback to Blue
+* Blue-Green prediction APIs
+
+Documentation:
+
+```text
+docs/BLUE_GREEN.md
+```
+
+**Status: DONE**
+
+---
+
+## 5. Incident Response
+
+Implemented:
+
+* Incident runbook
+* Failure injection
+* API-based incident drill
+* Containment and rollback
+* Recovery verification
+* Drill timeline and follow-ups
+
+Follow-ups identified:
+
+* Prediction health status in `GET /models`
+* Automated alerting
+
+**Status: DONE**
+
+---
+
+## 6. Model Dependencies
+
+Current models:
+
+```text
+forecast
+eta
+anomaly
+risk
+```
+
+Current confirmed state:
+
+```text
+No current consumers of the model-serving API were confirmed.
+```
+
+Dependency documentation:
+
+```text
+docs/MODEL_DEPENDENCIES.md
+```
+
+Re-check when a service integrates with the model-serving API.
+
+**Status: DONE**
+
+---
+
+## 7. Key Files
+
+```text
+src/governance.py
+src/batch_predict.py
+src/resource_monitor.py
+src/blue_green.py
+src/incident_simulator.py
+src/run_incident_drill.py
+
+docs/BLUE_GREEN.md
+docs/INCIDENT_RUNBOOK.md
+docs/INCIDENT_DRILL.md
+docs/MODEL_DEPENDENCIES.md
+```
+
+---
+
+## 8. Testing
+
+Run:
+
+```bash
+python -m pytest -q tests
+```
+
+Previously recorded result:
+
+```text
+177 passed
+0 failures
+49 warnings
+```
+
+---
+
+## 9. Final Status
+
+| Phase                         | Status      |
+| ----------------------------- | ----------- |
+| **Model Governance**          | **DONE**    |
+| **Serving Optimization**      | **PARTIAL** |
+| **Blue-Green Deployment**     | **DONE**    |
+| **Incident Response + Drill** | **DONE**    |
+| **Cross-Model Dependencies**  | **DONE**    |
+
+### Remaining Work
+
+```text
+1. Same-model vectorized serving
+2. Before/after cost and latency benchmark
+3. Prediction health status in GET /models
+4. Automated alerting
+```
+Round 12–13 — MLOps + Model Serving
+Overview
+
+Round 12–13 focused on improving the reference ML model serving, monitoring, training-data versioning, reproducibility, and validation. The implementation was divided into three milestones:
+
+Milestone 1 — BentoML Model Serving
+Milestone 2 — Evidently Monitoring
+Milestone 3 — DVC Data Versioning and Reproducibility
+The work also includes automated tests, Docker validation, model/data lineage, and serving performance validation.
+Milestone 1 — BentoML Model Serving
+Objective
+
+Package the existing Iris reference model as a BentoML service while maintaining the same prediction request and response contract as the existing reference service. The BentoML service should produce the same predictions as the existing reference implementation.
+
+Implementation
+
+The following functionality was implemented:
+
+Added BentoML service configuration.
+Created bentofile.yaml.
+Packaged the existing Iris model as a BentoML service.
+Maintained the existing /predict request and response contract.
+Added standalone model packaging using models/model.pkl.
+Added Docker-based BentoML serving.
+Configured BentoML version 1.4.39.
+Added deterministic parity inputs.
+Added prediction comparison between the reference service and BentoML.
+Added client-side latency measurement.
+Added a real benchmark script.
+Added BentoML unit and integration tests.
+Added pytest integration marker configuration.
+BentoML Configuration
+
+File: bentofile.yaml
+Service: src.service:IrisService
+BentoML version: bentoml==1.4.39
+
+Docker Implementation
+
+The Docker image builds the training data and model during image creation.
+The Docker build performs:
+Create reference dataset → Prepare processed dataset → Train model → Package model → Start BentoML service
+Dockerfile: Dockerfile
+The container uses the standalone model: models/model.pkl
+The following environment variable enables bundled-model loading:
+BENTO_BUNDLED_MODEL=true
+This allows the BentoML container to run without requiring an MLflow Production alias. The normal MLflow production and governance workflow remains unchanged.
+
+Docker Build
+
+Command:
+docker build --no-cache -t iris-ml-service:round12-13 .
+Result:
+
+Docker Build: PASS
+Image: iris-ml-service:round12-13
+The image was successfully created with the model and serving code.
+Container Startup
+
+Command:
+docker run --rm -p 3001:3000 iris-ml-service:round12-13
+Container port: 3000
+Host port: 3001
+Therefore the BentoML service is available at:
+http://localhost:3001
+The service successfully started with:
+Service iris_service initialized
+Starting production HTTP BentoServer
+listening on [http://localhost:3000](http://localhost:3000)
+
+Reference Service
+
+The existing reference service runs on:
+http://localhost:3000
+The BentoML container runs on:
+http://localhost:3001
+Both services expose the same prediction endpoint:
+POST /predict
+
+Prediction Parity
+
+A deterministic set of 100 Iris inputs was generated using a fixed random seed.
+Seed: 42
+The input set contains all three Iris classes.
+Class coverage:
+
+setosa: 33
+versicolor: 35
+virginica: 32
+The same 100 inputs were sent to both services.
+Result:
+Total inputs: 100
+Prediction matches: 100
+Prediction parity: 100.00%
+Output:
+Parity: 100/100
+This confirms that the BentoML service produces the same predictions as the existing reference service for the validation input set.
+BentoML Benchmark
+
+A real client-side benchmark was added:
+scripts/bentoml_benchmark.py
+Command:
+python -m scripts.bentoml_benchmark
+The benchmark measures round-trip request latency from the client.
+Warm-up requests: 10
+Benchmark requests: 100
+
+Benchmark Output
+Server	Mean (ms)	P50 (ms)	P95 (ms)	Min (ms)	Max (ms)
+Reference	27.07	24.76	41.42	14.94	95.01
+BentoML	27.38	24.78	45.58	16.42	82.43
+The benchmark report is stored in:
+reports/bentoml_benchmark.json
+BentoML Tests
+
+Test file:
+tests/test_bentoml_parity.py
+Command:
+python -m pytest tests\test_bentoml_parity.py -q
+Output:
+4 passed, 1 deselected
+The tests validate:
+
+deterministic input generation
+prediction comparison
+latency-independent prediction matching
+all three Iris classes are represented
+latency summary calculation
+live container integration testing
+The integration test can be executed separately:
+python -m pytest tests\test_bentoml_parity.py -m integration -s -q
+Milestone 2 — Evidently Monitoring
+Objective
+
+Add Evidently-based monitoring for:
+
+input data drift
+prediction drift
+retraining decisions
+The Evidently result is used as the primary drift signal while the existing home-grown drift calculation remains available as a complementary monitoring signal.
+Evidently Version
+
+The project uses:
+evidently==0.7.23
+
+Data Drift Detection
+
+File:
+src/evidently_drift.py
+The implementation uses Evidently's own drift verdict instead of hard-coding the drift result. The generated Evidently snapshot is analysed to determine whether input features have drifted.
+The drift summary includes:
+
+data_drift_detected
+drifted_feature_share
+prediction_drift_detected
+prediction_drift_p_value
+evidently_columns
+Evidently Drift Verdict
+
+The implementation reads Evidently's ValueDrift metrics and evaluates the configured method and threshold.
+Configured data drift share:
+0.5
+This means the data drift verdict is triggered when the required proportion of monitored features is detected as drifted.
+The prediction drift check uses the existing configured prediction drift threshold.
+
+Prediction Label Consistency
+
+The model prediction output is converted to the same Iris class names used by the service.
+Supported classes:
+
+setosa
+versicolor
+virginica
+Numeric predictions are mapped as follows:
+0 → setosa
+1 → versicolor
+2 → virginica
+This prevents mismatches between the serving layer and the monitoring layer.
+Drift Validation
+
+Tests were added for:
+
+deliberately shifted data
+unchanged/same-distribution data
+prediction label mapping
+logged numeric prediction mapping
+retraining threshold configuration
+Evidently verdict integration
+Test file:
+tests/test_evidently_drift.py
+Command:
+python -m pytest tests\test_evidently_drift.py -q
+Output:
+10 passed
+Retraining Integration
+
+File:
+src/retraining.py
+The retraining workflow now uses the Evidently drift result.
+The retraining threshold is loaded from the central configuration:
+src/config.py
+Configured threshold:
+DRIFT_THRESHOLD = 0.3
+The local duplicate threshold was removed from the retraining module. This ensures that the retraining decision uses the central configuration rather than maintaining a separate hard-coded value.
+
+Evidently Output Records
+
+The drift result records include:
+
+data_drift_detected
+drifted_feature_share
+prediction_drift_detected
+prediction_drift_p_value
+evidently_columns
+
+Example structure:
+
+{
+  "data_drift_detected": true,
+  "drifted_feature_share": 0.5,
+  "prediction_drift_detected": false,
+  "prediction_drift_p_value": 0.123,
+  "evidently_columns": [
+    "sepal_length",
+    "sepal_width",
+    "petal_length",
+    "petal_width"
+  ]
+}
+
+The actual values depend on the dataset used for the monitoring run.
+
+Milestone 3 — DVC Data Versioning
+Objective
+
+Version the exact training dataset used by the ML training pipeline and provide reproducible training. The goal is to ensure that the model can always be traced back to the exact dataset used during training.
+
+DVC Pipeline
+
+The training pipeline contains four stages:
+fetch → prepare → train → evaluate
+Pipeline configuration:
+dvc.yaml
+
+Stage 1 — Fetch
+
+The fetch stage creates the reference Iris dataset.
+Script:
+scripts/create_reference_dataset.py
+Output:
+data/reference/iris.csv
+The generated dataset contains:
+150 rows
+
+Stage 2 — Prepare
+
+The prepare stage converts the reference dataset into the processed training dataset.
+Script:
+scripts/dvc_prepare.py
+Output:
+data/reference/processed.csv
+The processed dataset contains the four Iris features and the target:
+
+sepal_length
+sepal_width
+petal_length
+petal_width
+target
+Stage 3 — Train
+
+The training stage uses the DVC-generated processed dataset.
+Training script:
+src/train.py
+Training data:
+data/reference/processed.csv
+The previous duplicate training path was removed. There is now one training path for the reference model.
+
+Training Data Lineage
+
+The training process records the dataset version using MD5 hashes.
+The following information is recorded:
+
+Training dataset path
+Training dataset MD5
+DVC lock MD5
+DVC lock match status
+
+Example training output:
+
+Training data version:
+  Dataset          : data/reference/processed.csv
+  MD5              : 4224576f0267bf88902f87f0f6200967
+  Matches dvc.lock : true
+
+This creates a direct link between:
+DVC dataset → DVC lock → Training run → MLflow model
+
+MLflow Lineage
+
+The training process records DVC dataset metadata in the MLflow run.
+The MLflow run includes:
+
+training_data_path
+training_data_md5
+dvc_lock_md5
+matches_dvc_lock
+dvc_pipeline
+The DVC lock file is also logged as an MLflow artifact.
+This provides traceability from the trained model back to the exact training dataset.
+Stage 4 — Evaluate
+
+The evaluation stage validates the trained model.
+Script:
+scripts/dvc_evaluate.py
+Metrics are written to:
+metrics.json
+Evaluation output:
+
+Accuracy: 0.9333333333333333
+Test Samples: 30
+The metrics file is used by DVC as an evaluation metric.
+DVC Reproducibility
+
+The complete pipeline can be rebuilt using:
+dvc repro
+The pipeline successfully executed all four stages:
+fetch → prepare → train → evaluate
+A second execution confirmed that the pipeline was already up to date.
+Output:
+Data and pipelines are up to date.
+The generated dvc.lock was also compared after the rebuild.
+Result:
+dvc.lock reproducibility: PASS
+This confirms that the pipeline produces a stable dependency lock when the same inputs are used.
+
+DVC Tests
+
+Test file:
+tests/test_dvc_lineage.py
+The tests validate:
+
+training data is loaded from the DVC processed dataset
+missing training data fails with a clear error
+dataset MD5 matches the DVC lock
+changed dataset is detected as different from the DVC lock
+DVC lineage information is correctly calculated
+Full Test Validation
+
+The complete test suite was executed using:
+python -m pytest -q
+Result:
+199 passed, 1 deselected, 59 warnings
+The deselected test is the live integration test that requires the BentoML/reference services to be running.
+
+Pytest Configuration
+
+File:
+pytest.ini
+Integration tests are marked with:
+integration
+By default:
+-m "not integration"
+is used so that the normal test suite does not require running external services.
+Integration tests can be executed explicitly:
+python -m pytest -m integration -s -q
+
+Important Files Added or Updated
+BentoML
+Dockerfile
+bentofile.yaml
+scripts/bentoml_parity.py
+scripts/bentoml_benchmark.py
+tests/test_bentoml_parity.py
+Evidently
+src/evidently_drift.py
+src/retraining.py
+tests/test_evidently_drift.py
+DVC
+dvc.yaml
+dvc.lock
+src/data.py
+src/dvc_utils.py
+src/train.py
+scripts/create_reference_dataset.py
+scripts/dvc_prepare.py
+scripts/dvc_evaluate.py
+tests/test_dvc_lineage.py
+metrics.json
+Testing
+pytest.ini
+Output Records
+BentoML Parity
+Total inputs: 100
+Prediction matches: 100/100
+Prediction parity: 100.00%
+BentoML Benchmark
+Reference Mean: 27.07 ms
+Reference P50: 24.76 ms
+Reference P95: 41.42 ms
+BentoML Mean: 27.38 ms
+BentoML P50: 24.78 ms
+BentoML P95: 45.58 ms
+Evidently Tests
+
+10 passed
+
+DVC Evaluation
+Accuracy: 0.9333333333333333
+Test Samples: 30
+Full Test Suite
+
+199 passed, 1 deselected, 59 warnings
+
+DVC Reproducibility
+First dvc repro: PASS
+Second dvc repro: UP TO DATE
+dvc.lock check: PASS
+Docker
+Docker Build: PASS
+Container Start: PASS
+Model Load: PASS
+API Availability: PASS
+Final Round 12–13 Status
+============================================================
+ROUND 12–13 VALIDATION
+============================================================
+Milestone 1 — BentoML
+  Docker Build          : PASS
+  Container Startup     : PASS
+  API Availability      : PASS
+  Prediction Parity     : 100/100
+  Prediction Parity     : 100.00%
+  Latency Benchmark     : PASS
+
+Milestone 2 — Evidently
+  Data Drift Detection  : PASS
+  Prediction Drift      : PASS
+  Label Mapping         : PASS
+  Retraining Integration: PASS
+  Evidently Tests       : 10 passed
+
+Milestone 3 — DVC
+  DVC Pipeline           : PASS
+  Dataset Versioning     : PASS
+  MLflow Lineage         : PASS
+  Evaluation Metrics     : PASS
+  Reproducibility        : PASS
+
+Testing
+  Full Test Suite        : 199 passed
+  Integration Tests      : Available
+============================================================
+Conclusion
+
+Round 12–13 completed the reference model serving and MLOps improvements. The implementation now provides:
+
+BentoML-based model serving
+Docker containerized serving
+Standalone model packaging
+100-input prediction parity validation
+Client-side latency benchmarking
+Evidently data drift monitoring
+Evidently prediction drift monitoring
+Consistent prediction labels
+Evidently-based retraining decisions
+DVC-managed training data
+Reproducible DVC training pipeline
+MLflow and DVC dataset lineage
+DVC evaluation metrics
+Automated unit and integration tests
+Docker and serving validation
+
+The three milestones are implemented and validated successfully.
+
+Simple TL Explanation
+
+Round 12–13 lo main ga 3 things chesam:
+
+Milestone 1 — BentoML: Existing model ni BentoML lo package chesi Docker container lo run chesam. Existing service vs BentoML predictions 100/100 same vachayi. Latency kuda measure chesam.
+Milestone 2 — Evidently: Model input data/predictions lo drift unda leda Evidently tho detect chesam. Drift vachinappudu retraining workflow ki signal ivvadam implement chesam. Same prediction labels (setosa, versicolor, virginica) maintain chesam.
+Milestone 3 — DVC: Training data ni DVC tho version chesam. fetch → prepare → train → evaluate pipeline create chesam. Dataset MD5 ni MLflow tho link chesi which exact data was used to train the model ane traceability create chesam. dvc repro tho reproducibility verify chesam.
+
+Final proof: 199 passed, 1 deselected, BentoML parity 100/100, Docker PASS, DVC reproducibility PASS.

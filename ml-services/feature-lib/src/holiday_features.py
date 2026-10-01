@@ -20,13 +20,7 @@ def create_holiday_features(df, date_col="date"):
     data["is_holiday"] = (
         data[date_col]
         .dt.date
-        .apply(
-            lambda date: (
-                date in india_holidays
-                if 2001 <= date.year <= 2035
-                else False
-            )
-        )
+        .isin(india_holidays)
         .astype(int)
     )
 

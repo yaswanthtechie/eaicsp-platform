@@ -30,7 +30,7 @@ def check_supplier_access(
     Supplier users can access only their own supplier data.
 
     Internal authorized roles are allowed to access supplier
-    statistics for any supplier.
+    statistics and scorecards for any supplier.
     """
 
     user_role = user.get("role")
@@ -73,11 +73,19 @@ def supplier_stats(
     Supplier users can access only their own statistics.
     Internal authenticated users can access supplier statistics
     according to their role permissions.
+
+    Supplier access is checked before resource lookup so that
+    cross-supplier requests cannot determine whether another
+    supplier's records exist.
     """
 
-    # First verify that the supplier exists.
-    # This allows a genuinely unknown supplier to return 404
-    # instead of being incorrectly treated as an authorization failure.
+    # Check supplier ownership BEFORE looking up supplier data.
+    check_supplier_access(
+        supplier_id=supplier_id,
+        user=user,
+    )
+
+    # Only after authorization, look up the supplier statistics.
     try:
         result = get_supplier_stats(supplier_id)
 
@@ -86,13 +94,6 @@ def supplier_stats(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         )
-
-    # Supplier-level authorization is checked only after
-    # confirming that the supplier exists.
-    check_supplier_access(
-        supplier_id=supplier_id,
-        user=user,
-    )
 
     return result
 
@@ -115,9 +116,19 @@ def get_supplier_scorecard(
     Supplier users can access only their own scorecard.
     Internal authenticated users can access supplier scorecards
     according to their role permissions.
+
+    Supplier access is checked before resource lookup so that
+    cross-supplier requests cannot determine whether another
+    supplier's records exist.
     """
 
-    # First verify that the supplier exists.
+    # Check supplier ownership BEFORE looking up the scorecard.
+    check_supplier_access(
+        supplier_id=supplier_id,
+        user=user,
+    )
+
+    # Only after authorization, look up the supplier scorecard.
     try:
         result = calculate_supplier_scorecard(supplier_id)
 
@@ -127,11 +138,4 @@ def get_supplier_scorecard(
             detail=str(e),
         )
 
-    # Then enforce supplier-level authorization.
-    check_supplier_access(
-        supplier_id=supplier_id,
-        user=user,
-    )
-
     return result
-

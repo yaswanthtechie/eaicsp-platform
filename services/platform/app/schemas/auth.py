@@ -48,3 +48,29 @@ class VerifyResponse(BaseModel):
     role: Optional[str] = None
     supplier_id: Optional[str] = None
     is_active: bool
+    permissions: list[str]
+
+class MFAChallengeResponse(BaseModel):
+    mfa_required: bool
+    challenge_id: str
+    message: str
+
+class MFAVerifyRequest(BaseModel):
+    challenge_id: str
+    otp: str
+
+class MFATokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str
+
+class SSOLoginRequest(BaseModel):
+    provider: str
+    assertion: str   # signed by the (mock) enterprise identity provider
+
+class SSOTokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str
+    auth_type:str
+

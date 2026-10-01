@@ -34,7 +34,7 @@ from app.services.invoice_service import (
     find_orphaned_invoice_files,
     purge_orphaned_invoice_files,
 )
-
+from app.services.purchase_order_service import purchase_orders
 router = APIRouter()
 
 
@@ -184,7 +184,6 @@ def get_invoice(
             detail=str(exc),
         )
 
-
 # ============================================================
 # CREATE / SUBMIT INVOICE
 # Supplier-facing endpoint
@@ -206,7 +205,8 @@ def submit_invoice(
         submitted
 
     Supplier users must submit an invoice using
-    their own supplier_id.
+    their own supplier_id and may only reference
+    Purchase Orders belonging to them.
     """
 
     # --------------------------------------------------------
@@ -225,7 +225,14 @@ def submit_invoice(
                 detail="Supplier identity is missing",
             )
 
-        if authenticated_supplier_id != invoice.supplier_id:
+        # ----------------------------------------------------
+        # Check invoice supplier ownership
+        # ----------------------------------------------------
+
+        if (
+            authenticated_supplier_id
+            != invoice.supplier_id
+        ):
             raise HTTPException(
                 status_code=403,
                 detail=(
@@ -233,6 +240,36 @@ def submit_invoice(
                     "this invoice"
                 ),
             )
+
+        # ----------------------------------------------------
+        # Check PO ownership
+        #
+        # A supplier must not submit an invoice referencing
+        # another supplier's Purchase Order.
+        # ----------------------------------------------------
+
+        for invoice_item in invoice.items:
+
+            po_number = invoice_item.po_number
+
+            # If PO does not exist, let create_invoice()
+            # handle the normal 404 response.
+            if po_number not in purchase_orders:
+                continue
+
+            purchase_order = purchase_orders[po_number]
+
+            if (
+                purchase_order["supplier_id"]
+                != authenticated_supplier_id
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        "Forbidden: supplier does not own "
+                        "this Purchase Order"
+                    ),
+                )
 
     try:
         return create_invoice(invoice)
@@ -264,8 +301,6 @@ def submit_invoice(
             status_code=400,
             detail=message,
         )
-
-
 # ============================================================
 # TRANSITION INVOICE
 # Supplier-facing endpoint
@@ -280,20 +315,49 @@ def transition_invoice_status(
     invoice_number: str,
     transition: InvoiceTransition,
     user=Depends(
-       verify_supplier_invoice_access(supplier_only=True)
+        verify_supplier_invoice_access(supplier_only=True)
     ),
 ):
     """
     Change invoice status using the invoice state machine.
+
+    Audit information is taken from the authenticated
+    Platform user and must never be supplied by the client.
     """
+
+    # --------------------------------------------------------
+    # Authenticated user information
+    # --------------------------------------------------------
+
+    actor_id = user.get("user_id")
+    actor_name = user.get("full_name")
+    role = user.get("role")
+
+    if actor_id is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Authenticated user ID is required.",
+        )
+
+    if not actor_name:
+        raise HTTPException(
+            status_code=403,
+            detail="Authenticated user name is required.",
+        )
+
+    if not role:
+        raise HTTPException(
+            status_code=403,
+            detail="Authenticated user role is required.",
+        )
 
     try:
         return transition_invoice(
             supplier_id=supplier_id,
             invoice_number=invoice_number,
-            actor_id=transition.actor_id,
-            actor_name=transition.actor_name,
-            role=transition.role,
+            actor_id=str(actor_id),
+            actor_name=actor_name,
+            role=role,
             target_state=transition.target_state,
             reason=transition.reason,
         )
@@ -317,7 +381,6 @@ def transition_invoice_status(
             status_code=400,
             detail=message,
         )
-
 
 # ============================================================
 # ADJUST INVOICE
@@ -352,25 +415,63 @@ def adjust_invoice_endpoint(
             ↓
         transition
             ↓
-        approved
+        approved / rejected
+
+    Audit information is taken from the authenticated
+    Platform user and is never accepted from the request body.
     """
+
+    # ========================================================
+    # Get authenticated user identity
+    # ========================================================
+
+    actor_id = user.get("user_id")
+    actor_name = user.get("full_name")
+    role = user.get("role")
+
+    if actor_id is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Authenticated user ID is required.",
+        )
+
+    if not actor_name:
+        raise HTTPException(
+            status_code=403,
+            detail="Authenticated user name is required.",
+        )
+
+    if not role:
+        raise HTTPException(
+            status_code=403,
+            detail="Authenticated user role is required.",
+        )
+
+    # ========================================================
+    # Adjust invoice
+    # ========================================================
 
     try:
         return adjust_invoice(
             supplier_id=supplier_id,
             invoice_number=invoice_number,
             adjustment=adjustment,
+            actor_id=str(actor_id),
+            actor_name=actor_name,
+            role=role,
         )
 
     except ValueError as e:
-
         message = str(e)
         lower_message = message.lower()
 
-        if "invoice not found" in lower_message:
+        if (
+            "invoice" in lower_message
+            and "not found" in lower_message
+        ):
             raise HTTPException(
                 status_code=404,
-                detail=message,
+                detail="Invoice not found.",
             )
 
         raise HTTPException(

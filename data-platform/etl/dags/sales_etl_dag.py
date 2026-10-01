@@ -9,13 +9,15 @@ Important:
 - Heavy ETL imports happen only when tasks execute.
 """
 
+import os
 from datetime import datetime, timedelta
 from pathlib import Path
+import json
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator, BranchPythonOperator
 
-from etl.src.config_loader import load_pipeline_config
+from etl.src.config_loader import load_pipeline_config, validate_dependency_order
 from etl.src.logging_config import logger
 
 
@@ -35,22 +37,7 @@ PIPELINE_CONFIG = load_pipeline_config()
 # Validate source dependency ordering
 # ---------------------------------------------------------------------------
 
-_seen_sources = set()
-
-for _source in PIPELINE_CONFIG.sources:
-
-    if (
-        _source.depends_on
-        and _source.depends_on not in _seen_sources
-    ):
-        raise ValueError(
-            f"pipeline_config.yaml: source '{_source.name}' depends on "
-            f"'{_source.depends_on}', but that source must appear earlier "
-            f"in the sources list."
-        )
-
-    _seen_sources.add(_source.name)
-
+validate_dependency_order(PIPELINE_CONFIG.sources)
 
 # ---------------------------------------------------------------------------
 # Airflow failure callback
@@ -83,11 +70,15 @@ default_args = {
 # ---------------------------------------------------------------------------
 
 def _serialize_batches(batches):
-
     return [
         {
             "file_path": str(batch["file_path"]),
-            "data": batch["data"].to_dict(orient="records"),
+            "data": json.loads(
+                batch["data"].to_json(
+                    orient="records",
+                    date_format="iso"
+                )
+            ),
             "report": batch.get("report"),
         }
         for batch in batches
@@ -144,7 +135,7 @@ def make_extract_task(source_config, extract_task_id):
     def _extract(source_config=source_config, **context):
 
         from etl.src.alert_service import write_alert
-        from etl.src.data_contract import validate_schema_against
+        from etl.src.data_contract import validate_schema_against, validate_no_unexpected_columns
         from etl.src.extract import extract_data
         from etl.src.watermark import get_watermark
 
@@ -174,6 +165,14 @@ def make_extract_task(source_config, extract_task_id):
             value=len(extracted_batches),
         )
 
+        ti.xcom_push(
+            key="batch_files",
+            value=[
+                str(batch["file_path"])
+                for batch in extracted_batches
+            ],
+        )
+
         if not extracted_batches:
 
             logger.warning(
@@ -197,6 +196,7 @@ def make_extract_task(source_config, extract_task_id):
                     batch["data"],
                     source_config.columns,
                 )
+                validate_no_unexpected_columns(batch["data"], source_config.columns)
 
                 schema_valid.append(batch)
 
@@ -206,6 +206,13 @@ def make_extract_task(source_config, extract_task_id):
                     f"[{source_config.name}] "
                     f"Schema validation failed: {e}"
                 )
+
+                if source_config.schema_evolution == "quarantine":
+                    from etl.src.schema_evolution import handle_schema_evolution
+                    try:
+                        handle_schema_evolution(batch["file_path"], source_config)
+                    except OSError as move_error:
+                        logger.warning(f"Could not quarantine {batch['file_path'].name}: {move_error}")
 
                 write_alert(
                     pipeline="sales_etl",
@@ -265,9 +272,36 @@ def make_quality_gate_task(
             source_config,
         )
 
+        # R9 M2: count ROWS, not files. A whole file rejected by the gate
+        # must count as all of its rows, or one bad 10,000-row file only
+        # moves the pass rate by "1 row" and the quality SLA never fires.
+        raw_rows = sum(
+            len(item["data"])
+            for item in ti.xcom_pull(
+                task_ids=extract_task_id,
+                key="raw_batches",
+            ) or []
+        )
+
+        schema_valid_rows = sum(
+            len(batch["data"])
+            for batch in schema_valid_batches
+        )
+
+        passed_files = {
+            batch["file_path"].name
+            for batch in validated_batches
+        }
+
+        rows_in_rejected_files = sum(
+            len(batch["data"])
+            for batch in schema_valid_batches
+            if batch["file_path"].name not in passed_files
+        )
+
         rejected_by_quality = (
-            len(schema_valid_batches)
-            - len(validated_batches)
+            (raw_rows - schema_valid_rows)
+            + rows_in_rejected_files
         )
 
         ti.xcom_push(
@@ -276,12 +310,10 @@ def make_quality_gate_task(
         )
 
         if not validated_batches:
-
             logger.warning(
                 f"[{source_config.name}] "
                 "All batches rejected by quality gate"
             )
-
             return reject_task_id
 
         ti.xcom_push(
@@ -359,6 +391,11 @@ def make_load_task(
             )
 
             return
+
+        from etl.src.logger import record_run_batch
+
+        for batch in validated_batches:
+            record_run_batch(run_id, source_config.name, batch["file_path"].name)
 
         approved_batches = [
             dict(batch, data=batch["data"].copy())
@@ -540,9 +577,11 @@ def make_reject_task(
             run_id=run_id,
         )
 
+        rows_rejected = sum(len(item["data"]) for item in ti.xcom_pull(task_ids=extract_task_id, key="raw_batches") or [])
+
         ti.xcom_push(
             key="rows_rejected",
-            value=batches_seen,
+            value=rows_rejected,
         )
 
         ti.xcom_push(
@@ -679,6 +718,22 @@ def log_run_task(**context):
 
         total_rejected += rows_rejected
 
+        # R9 M2: data-quality SLA. Keep this independent of the duration SLA:
+        # a fast run can still be a bad run if too many rows were rejected.
+        from etl.src.sla_monitor import check_quality_sla
+        check_quality_sla(
+            run_id=run_id,
+            source_name=source_config.name,
+            rows_inserted=ti.xcom_pull(task_ids=load_id, key="rows_inserted") or 0,
+            rows_updated=ti.xcom_pull(task_ids=load_id, key="rows_updated") or 0,
+            rows_rejected=rows_rejected,
+            environment=os.getenv("ETL_ENV", "dev"),
+            table=source_config.table,
+            batch_files=ti.xcom_pull(task_ids=extract_id, key="batch_files") or [],
+            pipeline_name=f"{source_config.name}_etl",
+            min_pass_rate=PIPELINE_CONFIG.quality_sla_min_pass_rate,
+        )
+
         status = (
             ti.xcom_pull(
                 task_ids=load_id,
@@ -766,19 +821,13 @@ def archive_task(**context):
 with DAG(
     dag_id="sales_etl_pipeline",
     description=(
-        "Config-driven multi-source ETL "
-        "pipeline with sales and inventory"
+        "Config-driven multi-source ETL pipeline with dependencies"
     ),
     default_args=default_args,
     start_date=datetime(2026, 7, 1),
     schedule=PIPELINE_CONFIG.schedule,
     catchup=False,
-    tags=[
-        "etl",
-        "sales",
-        "inventory",
-        "r4",
-    ],
+    tags=["etl", "sales", "inventory", "shipments", "r6-r8"],
 ) as dag:
 
     start_run = PythonOperator(
@@ -888,4 +937,3 @@ with DAG(
         ) >> log_run
 
     log_run >> archive_old_data
-    

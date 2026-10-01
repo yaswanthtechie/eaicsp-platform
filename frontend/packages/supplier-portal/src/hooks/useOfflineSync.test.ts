@@ -64,4 +64,29 @@ describe("useOfflineSync", () => {
 
     removeEventListenerSpy.mockRestore();
   });
+
+  it("reports the number of successfully synced actions", async () => {
+    Object.defineProperty(navigator, "onLine", {
+      configurable: true,
+      value: true,
+    });
+
+    vi.mocked(syncOfflineActions).mockResolvedValue(1);
+
+    const handler = vi.fn().mockResolvedValue(undefined);
+    const onSyncComplete = vi.fn();
+
+    renderHook(() =>
+      useOfflineSync(handler, onSyncComplete)
+    );
+
+    await vi.waitFor(() => {
+      expect(syncOfflineActions).toHaveBeenCalledWith(handler);
+    });
+
+    await vi.waitFor(() => {
+      expect(onSyncComplete).toHaveBeenCalledWith(1);
+    });
+  });
 });
+

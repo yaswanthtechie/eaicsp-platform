@@ -1,6 +1,8 @@
 import pandas as pd
 import pytest
-from src.feature_usefulness import calculate_feature_correlations,calculate_model_feature_importance,select_top_features
+from statsmodels.stats.multitest import multipletests
+from src.build_features import build_all_features
+from src.feature_usefulness import calculate_feature_correlations,calculate_model_feature_importance,calculate_feature_significance,select_top_features
 
 
 def test_feature_correlations_returns_sorted_numeric_features():
@@ -160,3 +162,225 @@ def test_model_feature_importance_rejects_invalid_n_estimators():
             target_col="target",
             n_estimators=0
         )
+
+def test_select_top_features_end_to_end_with_tiny_dataset():
+    df = pd.DataFrame({
+        "date": pd.date_range("2024-01-01", periods=2),
+        "quantity_sold": [10, 20],
+    })
+
+    features = build_all_features(
+        df,
+        date_col="date",
+        target_col="quantity_sold",
+        config={
+            "lags": [1],
+            "windows": [1],
+        },
+    )
+
+    selected = select_top_features(
+        features,
+        target_col="quantity_sold",
+        n_features=1,
+    )
+
+    assert not selected.empty
+
+def test_calculate_feature_significance():
+    df = pd.DataFrame(
+        {
+            "target": [
+                100, 103, 101, 106, 110,
+                108, 113, 111, 116, 120,
+            ],
+            "strong_feature": [
+                50, 56, 52, 62, 70,
+                66, 76, 72, 82, 90,
+            ],
+            "weak_feature": [
+                7, 2, 9, 1, 6,
+                3, 8, 4, 10, 5,
+            ],
+        }
+    )
+
+    result = calculate_feature_significance(
+        df,
+        target_col="target",
+    )
+
+    assert "feature" in result.columns
+    assert "correlation" in result.columns
+    assert "p_value" in result.columns
+    assert "is_significant" in result.columns
+
+    strong = result[result["feature"] == "strong_feature"].iloc[0]
+
+    assert strong["correlation"] > 0.9
+    assert strong["p_value"] < 0.05
+    assert bool(strong["is_significant"]) is True
+
+
+def test_calculate_feature_significance_handles_missing_values():
+    df = pd.DataFrame(
+        {
+            "target": [
+                100, 103, 101, 106, 110,
+                108, 113, 111, 116, 120,
+            ],
+            "feature": [
+                50, 56, None, 62, 70,
+                66, 76, 72, 82, 90,
+            ],
+        }
+    )
+
+    result = calculate_feature_significance(
+        df,
+        target_col="target",
+    )
+
+    assert not result.empty
+    assert result.iloc[0]["feature"] == "feature"
+
+
+def test_calculate_feature_significance_rejects_invalid_significance_level():
+    df = pd.DataFrame(
+        {
+            "target": [1, 2, 3],
+            "feature": [2, 4, 6],
+        }
+    )
+
+    with pytest.raises(ValueError, match="significance_level"):
+        calculate_feature_significance(
+            df,
+            target_col="target",
+            significance_level=1.5,
+        )
+
+
+def test_calculate_feature_significance_requires_numeric_target():
+    df = pd.DataFrame(
+        {
+            "target": ["a", "b", "c"],
+            "feature": [1, 2, 3],
+        }
+    )
+
+    with pytest.raises(ValueError, match="numeric"):
+        calculate_feature_significance(
+            df,
+            target_col="target",
+    )
+
+def test_calculate_feature_significance_marks_significant_and_insignificant_features():
+    df = pd.DataFrame(
+        {
+            "target": [
+                100, 103, 101, 106, 110,
+                108, 113, 111, 116, 120,
+            ],
+            "strong_feature": [
+                50, 56, 52, 62, 70,
+                66, 76, 72, 82, 90,
+            ],
+            "weak_feature": [
+                7, 2, 9, 1, 6,
+                3, 8, 4, 10, 5,
+            ],
+        }
+    )
+
+    result = calculate_feature_significance(
+        df,
+        target_col="target",
+        significance_level=0.05,
+    )
+
+    strong = result[result["feature"] == "strong_feature"].iloc[0]
+    weak = result[result["feature"] == "weak_feature"].iloc[0]
+
+    assert strong["is_significant"]
+    assert strong["p_value"] < 0.05
+
+    assert not weak["is_significant"]
+    assert weak["p_value"] >= 0.05
+
+def test_select_top_features_includes_statistical_backing():
+    df = pd.DataFrame(
+        {
+            "target": [
+                100, 103, 101, 106, 110,
+                108, 113, 111, 116, 120,
+            ],
+            "useful_feature": [
+                50, 56, 52, 62, 70,
+                66, 76, 72, 82, 90,
+            ],
+            "noise_feature": [
+                7, 2, 9, 1, 6,
+                3, 8, 4, 10, 5,
+            ],
+        }
+    )
+
+    selected = select_top_features(
+        df,
+        target_col="target",
+        n_features=2,
+    )
+
+    assert "p_value" in selected.columns
+    assert "adjusted_p_value" in selected.columns
+    assert "is_significant" in selected.columns
+    assert selected.loc["useful_feature", "is_significant"]
+
+def test_calculate_feature_significance_applies_benjamini_hochberg_correction():
+    df = pd.DataFrame(
+        {
+            "target": [
+                100, 103, 101, 106, 110,
+                108, 113, 111, 116, 120,
+                118, 123, 121, 126, 130,
+                128, 133, 131, 136, 140,
+            ],
+            "feature_1": [
+                50, 56, 52, 62, 70,
+                66, 76, 72, 82, 90,
+                86, 96, 92, 102, 110,
+                106, 116, 112, 122, 130,
+            ],
+            "feature_2": [
+                40, 46, 42, 52, 60,
+                56, 66, 62, 72, 80,
+                76, 86, 82, 92, 100,
+                96, 106, 102, 112, 120,
+            ],
+            "feature_3": [
+                7, 20, 2, 19, 3,
+                18, 4, 17, 5, 16,
+                6, 15, 7, 14, 8,
+                13, 9, 12, 10, 11,
+            ],
+        }
+    )
+
+    result = calculate_feature_significance(
+        df,
+        target_col="target",
+        significance_level=0.05,
+    )
+
+    expected_adjusted = multipletests(
+        result["p_value"],
+        alpha=0.05,
+        method="fdr_bh",
+    )[1]
+
+    assert "adjusted_p_value" in result.columns
+
+    assert result["adjusted_p_value"].tolist() == pytest.approx(
+        expected_adjusted
+    )

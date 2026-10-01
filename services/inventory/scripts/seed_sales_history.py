@@ -1,6 +1,5 @@
 from datetime import date, timedelta
 import random
-random.seed(42)
 
 from app.database import Base, SessionLocal, engine
 from app.models.sales_history import SalesHistory
@@ -25,37 +24,53 @@ WAREHOUSES = [
 def seed_sales_history():
 
     # Create tables if they do not exist
-    Base.metadata.create_all(bind=engine)
+    Base.metadata.create_all(
+        bind=engine
+    )
 
     db = SessionLocal()
 
     try:
 
         # ====================================================
-        # 1. Generate 50 SKUs
+        # 1. Clear old sales-history data
+        # ====================================================
+
+        print(
+            "Deleting old sales-history records..."
+        )
+
+        db.query(SalesHistory).delete()
+
+        db.commit()
+
+        # ====================================================
+        # 2. Generate 50 SKUs
         # ====================================================
 
         today = date.today()
 
         sales_records = []
 
+        # Make results repeatable
+        random.seed(42)
+
         for item_number in range(
             1,
             TOTAL_ITEMS + 1
         ):
 
-            sku_id = f"SKU{item_number:04d}"
-
             # IMPORTANT:
-            # Same warehouse must later be used
-            # in your inventory CSV.
+            # Inventory uses SKU001, SKU002 ... SKU050
+            sku_id = f"SKU{item_number:03d}"
+
+            # Same warehouse pattern as inventory CSV
             warehouse_id = WAREHOUSES[
                 (item_number - 1)
                 % len(WAREHOUSES)
             ]
 
-            # Each SKU gets its own realistic
-            # average demand.
+            # Each SKU gets its own demand level
             base_demand = random.randint(
                 10,
                 60
@@ -86,7 +101,7 @@ def seed_sales_history():
                     base_demand * variation
                 )
 
-                # Make sure quantity is never 0 or 1
+                # Make sure sales are never too low
                 quantity_sold = max(
                     5,
                     quantity_sold
@@ -112,7 +127,7 @@ def seed_sales_history():
                 )
 
         # ====================================================
-        # 2. Insert all 1,500 records
+        # 3. Insert all records
         # ====================================================
 
         print(
@@ -126,11 +141,13 @@ def seed_sales_history():
         db.commit()
 
         # ====================================================
-        # 3. Verify
+        # 4. Verify total records
         # ====================================================
 
         total_records = (
-            db.query(SalesHistory).count()
+            db.query(
+                SalesHistory
+            ).count()
         )
 
         unique_skus = (
@@ -141,9 +158,27 @@ def seed_sales_history():
             .count()
         )
 
-        print("\n========================================")
-        print("     SALES HISTORY SEED COMPLETE")
-        print("========================================")
+        unique_warehouses = (
+            db.query(
+                SalesHistory.warehouse_id
+            )
+            .distinct()
+            .count()
+        )
+
+        # ====================================================
+        # 5. Display result
+        # ====================================================
+
+        print(
+            "\n========================================"
+        )
+        print(
+            "     SALES HISTORY SEED COMPLETE"
+        )
+        print(
+            "========================================"
+        )
 
         print(
             f"Expected records : "
@@ -161,17 +196,26 @@ def seed_sales_history():
         )
 
         print(
+            f"Warehouses       : "
+            f"{unique_warehouses}"
+        )
+
+        print(
             f"Days per SKU     : "
             f"{TOTAL_DAYS}"
         )
 
-        print("========================================")
+        print(
+            "========================================"
+        )
 
         # ====================================================
-        # 4. Display sample
+        # 6. Display sample
         # ====================================================
 
-        print("\nSample data:")
+        print(
+            "\nSample data:"
+        )
 
         sample = (
             db.query(SalesHistory)

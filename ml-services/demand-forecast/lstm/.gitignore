@@ -4,6 +4,8 @@ __pycache__/
 *.onnx
 *.onnx.data
 output/*.onnx
+!output/best_model.onnx
 output/*.onnx.data
 mlflow.db
 mlruns/
+

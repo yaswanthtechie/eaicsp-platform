@@ -9,10 +9,12 @@ export interface ForecastPoint {
 export interface InventoryItem {
   sku_id: string;
   product_name: string;
+  category: string;
   warehouse_id: string;
   quantity_on_hand: number;
   reorder_point: number;
   needs_reorder: boolean;
+  avg_daily_demand: number;
 }
 
 export interface AlertMessage {
@@ -22,3 +24,10 @@ export interface AlertMessage {
   message: string;
   timestamp: string; // ISO 8601 timestamp
 }
+
+export interface InventoryUpdate {
+  type: "inventory_update";
+  item: InventoryItem;
+}
+
+export type WebSocketMessage = AlertMessage | InventoryUpdate;

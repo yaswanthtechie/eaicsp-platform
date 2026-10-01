@@ -1,21 +1,27 @@
-import { useEffect, useState } from "react";
-import { Badge } from "../../../ui/src/components/Badge";
-import { Button } from "../../../ui/src/components/Button";
-import { Spinner } from "../../../ui/src/components/Spinner";
-import { Table } from "../../../ui/src/components/Table";
-import { loadInventory } from "../mocks/inventory";
+import { memo, useEffect, useState } from "react";
+import { List, type RowComponentProps } from "react-window";
+import { dashboardApi } from "../api/dashboard";
 import { colors, radius, space } from "../tokens";
+import type { InventoryItem } from "../types/forecast";
+import Skeleton from "./Skeleton";
 interface InventoryTableProps {
   shouldFail?: boolean;
+  data?: InventoryItem[];
+}
+interface InventoryRow extends InventoryItem {
+  daysRemaining: number;
+  expectedOrderDate: Date;
 }
 
-export default function InventoryTable({
-  shouldFail = false,
-}: InventoryTableProps) {
-  const [inventoryData, setInventoryData] = useState<
-    Awaited<ReturnType<typeof loadInventory>>
-  >([]);
+interface RowProps {
+  items: InventoryRow[];
+}
 
+function InventoryTable({
+  shouldFail = false,
+  data,
+}: InventoryTableProps) {
+  const [inventoryData, setInventoryData] = useState<InventoryItem[]>([]);
   const [showLowStock, setShowLowStock] = useState(false);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -23,6 +29,16 @@ export default function InventoryTable({
   const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
+    if (data !== undefined) {
+      const timer = setTimeout(() => {
+        setInventoryData(data);
+        setLoading(false);
+        setError(false);
+      }, 1000);
+
+      return () => clearTimeout(timer);
+    }
+
     let cancelled = false;
 
     const fetchInventory = async () => {
@@ -30,18 +46,19 @@ export default function InventoryTable({
       setError(false);
 
       try {
-        const data = await loadInventory(shouldFail);
+        if (shouldFail) {
+          throw new Error("Failed to fetch inventory")
+        }
+        const loadedData = await dashboardApi.fetchInventory();
 
         if (!cancelled) {
-          setInventoryData(data);
+          setInventoryData(loadedData);
+          setLoading(false);
         }
       } catch {
         if (!cancelled) {
           setInventoryData([]);
           setError(true);
-        }
-      } finally {
-        if (!cancelled) {
           setLoading(false);
         }
       }
@@ -52,22 +69,40 @@ export default function InventoryTable({
     return () => {
       cancelled = true;
     };
-  }, [shouldFail, retryCount]);
+  }, [data, shouldFail, retryCount]);
 
   if (loading) {
     return (
       <div
+        role="status"
+        aria-busy="true"
+        aria-label="Loading inventory table"
         style={{
-          minHeight: 350,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: space.sm,
-          color: colors.text,
+          padding: space.lg,
+          background: colors.surface,
+          borderRadius: radius.md,
         }}
       >
-        <Spinner size="md" />
-        <span>Loading Inventory Table...</span>
+        <Skeleton width="35%" height={28} />
+
+        <div
+          style={{
+            display: "flex",
+            gap: space.md,
+            marginTop: space.md,
+          }}
+        >
+          <Skeleton width={180} height={36} borderRadius={radius.sm} />
+          <Skeleton width={220} height={20} />
+        </div>
+
+        <div style={{ marginTop: space.md }}>
+          <Skeleton
+            width="100%"
+            height={400}
+            borderRadius={radius.sm}
+          />
+        </div>
       </div>
     );
   }
@@ -75,6 +110,7 @@ export default function InventoryTable({
   if (error) {
     return (
       <div
+        role="alert"
         style={{
           minHeight: 350,
           background: colors.surface,
@@ -91,13 +127,16 @@ export default function InventoryTable({
       >
         <h2>Something went wrong in table.</h2>
 
-        <Button
-          variant="danger"
-          size="sm"
+        <button
+          type="button"
           onClick={() => setRetryCount((count) => count + 1)}
+          style={{
+            padding: "8px 16px",
+            cursor: "pointer",
+          }}
         >
           Retry
-        </Button>
+        </button>
       </div>
     );
   }
@@ -130,42 +169,101 @@ export default function InventoryTable({
     return true;
   });
 
-  const searchedInventory = filteredInventory.filter((item) =>
-    item.sku_id.toLowerCase().includes(search.toLowerCase())
-  );
+  const searchedInventory: InventoryRow[] = filteredInventory
+    .filter((item) =>
+      item.sku_id.toLowerCase().includes(search.toLowerCase())
+    )
+    .map((item) => {
+      const daysRemaining =
+        item.avg_daily_demand > 0
+          ? Math.ceil(
+              item.quantity_on_hand / item.avg_daily_demand
+            )
+          : 0;
 
-  const columns = [
-    {
-      key: "sku_id" as keyof (typeof inventoryData)[number],
-      header: "SKU",
-    },
-    {
-      key: "product_name" as keyof (typeof inventoryData)[number],
-      header: "Product",
-    },
-    {
-      key: "warehouse_id" as keyof (typeof inventoryData)[number],
-      header: "Warehouse",
-    },
-    {
-      key: "quantity_on_hand" as keyof (typeof inventoryData)[number],
-      header: "Quantity",
-    },
-    {
-      key: "reorder_point" as keyof (typeof inventoryData)[number],
-      header: "Reorder Point",
-    },
-    {
-      key: "needs_reorder" as keyof (typeof inventoryData)[number],
-      header: "Status",
-      render: (item: (typeof inventoryData)[number]) =>
-        item.needs_reorder ? (
-          <Badge status="danger">Low Stock</Badge>
-        ) : (
-          <Badge status="success">In Stock</Badge>
-        ),
-    },
-  ];
+      const expectedOrderDate = new Date();
+
+      expectedOrderDate.setHours(0, 0, 0, 0);
+
+      expectedOrderDate.setDate(
+        expectedOrderDate.getDate() + daysRemaining
+      );
+
+      return {
+        ...item,
+        daysRemaining,
+        expectedOrderDate,
+      };
+    })
+    .sort(
+      (a, b) =>
+        a.expectedOrderDate.getTime() -
+        b.expectedOrderDate.getTime()
+    );
+
+  const cellStyle = {
+    padding: space.sm,
+    border: `1px solid ${colors.border}`,
+    textAlign: "left" as const,
+    whiteSpace: "nowrap" as const,
+  };
+
+  const headerStyle = {
+    ...cellStyle,
+    background: colors.bg,
+    color: colors.text,
+    fontWeight: 600,
+  };
+
+  function Row({
+    index,
+    style,
+    items,
+  }: RowComponentProps<RowProps>) {
+    const item = items[index];
+
+    return (
+      <div
+        role="row"
+        style={{
+          ...style,
+          display: "grid",
+          gridTemplateColumns:
+            "100px 180px 120px 120px 100px 120px 130px 160px 120px",
+          color: colors.text,
+        }}
+      >
+        <div  role="cell" style={cellStyle}>{item.sku_id}</div>
+
+        <div  role="cell" style={cellStyle}>{item.product_name}</div>
+
+        <div  role="cell" style={cellStyle}>{item.category}</div>
+
+        <div  role="cell" style={cellStyle}>{item.warehouse_id}</div>
+
+        <div  role="cell" style={cellStyle}>{item.quantity_on_hand}</div>
+
+        <div  role="cell" style={cellStyle}>{item.reorder_point}</div>
+
+        <div  role="cell" style={cellStyle}>{item.daysRemaining} days</div>
+
+        <div  role="cell" style={cellStyle}>{item.expectedOrderDate.toLocaleDateString("en-GB")}
+        </div>
+
+        <div
+          style={{
+            ...cellStyle,
+            color: item.needs_reorder
+              ? colors.danger
+              : colors.success,
+            fontWeight: 600,
+          }}
+        >
+          {item.needs_reorder ? "Low Stock" : "In Stock"}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -185,44 +283,103 @@ export default function InventoryTable({
         Inventory Table
       </h2>
 
-      <input
-        type="text"
-        placeholder="Search SKU..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
+      <div
         style={{
-          padding: "8px",
-          marginBottom: space.sm,
-          textAlign: "left",
-        }}
-      />
-
-      <label
-        style={{
-          color: colors.text,
           display: "flex",
-          gap: space.sm,
+          alignItems: "center",
+          gap: space.md,
           marginBottom: space.md,
+          flexWrap: "wrap",
+        }}
+      > 
+        <label htmlFor="inventory-search">
+          Search inventory by SKU
+        </label>
+        <input
+          id="inventory-search"
+          type="text"
+          placeholder="Search SKU"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{
+            padding: "8px",
+            border: `1px solid ${colors.border}`,
+            borderRadius: radius.sm,
+            background: colors.bg,
+            color: colors.text,
+          }}
+        />
+
+        <label
+          style={{
+            color: colors.text,
+            display: "flex",
+            alignItems: "center",
+            gap: space.sm,
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={showLowStock}
+            onChange={(e) => setShowLowStock(e.target.checked)}
+          />
+          Show only low stock items
+        </label>
+      </div>
+
+      <div
+        role="table"
+        aria-label="Inventory items"
+        style={{
+          overflowX: "auto",
+          border: `1px solid ${colors.border}`,
+          borderRadius: radius.sm,
         }}
       >
-        <input
-          type="checkbox"
-          checked={showLowStock}
-          onChange={(e) => setShowLowStock(e.target.checked)}
-        />
+        <div style={{ minWidth: 1150 }}>
+          <div
+            role="row"
+            style={{
+              display: "grid",
+              gridTemplateColumns:
+                "100px 180px 120px 120px 100px 120px 130px 160px 120px",
+            }}
+          >
+            <div role="columnheader" style={headerStyle}>SKU</div>
+            <div role="columnheader" style={headerStyle}>Product</div>
+            <div role="columnheader" style={headerStyle}>Category</div>
+            <div role="columnheader" style={headerStyle}>Warehouse</div>
+            <div role="columnheader" style={headerStyle}>Quantity</div>
+            <div role="columnheader" style={headerStyle}>Reorder Point</div>
+            <div role="columnheader" style={headerStyle}>Days Remaining</div>
+            <div role="columnheader" style={headerStyle}>Expected Order Date</div>
+            <div role="columnheader" style={headerStyle}>Status</div>
+          </div>
 
-        Show only low stock items
-      </label>
-
-      <div style={{ overflowX: "auto" }}>
-        <Table
-          columns={columns}
-          data={searchedInventory}
-          rowKey={(item) => item.sku_id}
-          loading={false}
-          emptyMessage="SKU Number Not Available"
-        />
+          <List
+            rowComponent={Row}
+            rowCount={searchedInventory.length}
+            rowHeight={52}
+            rowProps={{ items: searchedInventory }}
+            style={{ height: 400 }}
+          />
+        </div>
       </div>
+
+      {searchedInventory.length === 0 && (
+        <div
+          style={{
+            padding: space.md,
+            textAlign: "center",
+            color: colors.textMuted,
+          }}
+        >
+          SKU Number Not Available
+        </div>
+      )}
     </div>
   );
 }
+
+export default memo(InventoryTable);
+

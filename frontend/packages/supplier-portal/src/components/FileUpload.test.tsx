@@ -41,7 +41,13 @@ describe("FileUpload", () => {
     ).toBeInTheDocument();
 
     expect(
-      screen.getByText("or Click to Upload")
+      screen.getByText("or")
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByRole("button", {
+        name: "Browse files",
+      })
     ).toBeInTheDocument();
   });
 
@@ -183,4 +189,28 @@ describe("FileUpload", () => {
       )
     ).toBeInTheDocument();
   });
+
+it("provides a keyboard-accessible Browse files button", () => {
+renderFileUpload();
+
+const browseButton = screen.getByRole("button", {
+name: "Browse files",
+});
+
+const fileInput = getFileInput();
+const clickSpy = vi
+.spyOn(fileInput, "click")
+.mockImplementation(() => {});
+
+expect(browseButton).toHaveAttribute("type", "button");
+
+// Native <button> elements are keyboard accessible by default.
+// Activating the button triggers the same click handler.
+fireEvent.click(browseButton);
+
+expect(clickSpy).toHaveBeenCalledTimes(1);
+
+clickSpy.mockRestore();
+});
+
 });

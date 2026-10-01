@@ -17,7 +17,7 @@ from app.middleware.ratelimit import (
     limiter,
 )
 from app.middleware.request_id import RequestIDMiddleware
-from app.routes import dashboard, gateway, health, v2
+from app.routes import aggregation, dashboard, gateway, health, v2
 from app.schemas.responses import RootResponse
 
 # --------------------------------------------------
@@ -123,6 +123,16 @@ app.include_router(
 # --------------------------------------------------
 
 app.include_router(v2.router)
+
+
+# --------------------------------------------------
+# BFF Aggregation Routes
+# --------------------------------------------------
+# NOTE:
+# Must be registered BEFORE the catch-all gateway router
+# so /api/v1/dashboard/summary is not intercepted.
+
+app.include_router(aggregation.router)
 
 
 # --------------------------------------------------

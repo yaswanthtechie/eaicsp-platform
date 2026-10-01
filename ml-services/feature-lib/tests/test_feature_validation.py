@@ -1,7 +1,11 @@
 import pandas as pd
 import numpy as np
 import pytest
-from src.build_features import build_all_features
+from src.build_features import (
+    build_all_features,
+    _build_v1_lag_features,
+    _build_v1_rolling_features,
+)
 from src.lag_features import add_lag_features
 from src.rolling_features import add_rolling_features
 
@@ -270,3 +274,101 @@ def test_rolling_features_rejects_boolean_window():
             "sales",
             windows=[True]
         )
+
+def test_build_features_parses_non_iso_dates_before_sorting():
+    df = pd.DataFrame(
+        {
+            "date": ["1/9/2024", "1/10/2024", "1/11/2024"],
+            "sales": [9, 10, 11],
+        }
+    )
+
+    result = build_all_features(
+        df,
+        date_col="date",
+        target_col="sales",
+        config={"lags": [1], "windows": [1]},
+    )
+
+    assert pd.isna(result.loc[0, "sales_lag_1"])
+    assert result.loc[1, "sales_lag_1"] == 9
+    assert result.loc[2, "sales_lag_1"] == 10
+
+def test_lag_features_do_not_cross_group_boundaries():
+    df = pd.DataFrame({
+        "date": pd.to_datetime([
+            "2024-01-01",
+            "2024-01-01",
+            "2024-01-02",
+            "2024-01-02",
+        ]),
+        "SKU": ["A", "B", "A", "B"],
+        "sales": [100, 200, 120, 220],
+    })
+
+    result = add_lag_features(
+        df,
+        target_col="sales",
+        lags=[1],
+        group_cols=["SKU"],
+    )
+
+    assert pd.isna(result.loc[0, "sales_lag_1"])
+    assert pd.isna(result.loc[1, "sales_lag_1"])
+    assert result.loc[2, "sales_lag_1"] == 100
+    assert result.loc[3, "sales_lag_1"] == 200
+
+def test_rolling_features_do_not_cross_group_boundaries():
+    df = pd.DataFrame({
+        "date": pd.to_datetime([
+            "2024-01-01",
+            "2024-01-01",
+            "2024-01-02",
+            "2024-01-02",
+        ]),
+        "SKU": ["A", "B", "A", "B"],
+        "sales": [100, 200, 120, 220],
+    })
+
+    result = add_rolling_features(
+        df,
+        target_col="sales",
+        windows=[1],
+        group_cols=["SKU"],
+    )
+
+    assert pd.isna(result.loc[0, "sales_roll_mean_1"])
+    assert pd.isna(result.loc[1, "sales_roll_mean_1"])
+    assert result.loc[2, "sales_roll_mean_1"] == 100
+    assert result.loc[3, "sales_roll_mean_1"] == 200
+
+def test_build_all_features_does_not_cross_group_boundaries():
+    df = pd.DataFrame({
+        "date": pd.to_datetime([
+            "2024-01-01",
+            "2024-01-01",
+            "2024-01-02",
+            "2024-01-02",
+        ]),
+        "SKU": ["A", "B", "A", "B"],
+        "sales": [100, 200, 120, 220],
+    })
+
+    result = build_all_features(
+        df,
+        date_col="date",
+        target_col="sales",
+        config={"lags": [1], "windows": [1]},
+        group_cols=["SKU"],
+    )
+
+    assert pd.isna(result.loc[0, "sales_lag_1"])
+    assert pd.isna(result.loc[1, "sales_lag_1"])
+    assert result.loc[2, "sales_lag_1"] == 100
+    assert result.loc[3, "sales_lag_1"] == 200
+
+    assert pd.isna(result.loc[0, "sales_roll_mean_1"])
+    assert pd.isna(result.loc[1, "sales_roll_mean_1"])
+    assert result.loc[2, "sales_roll_mean_1"] == 100
+    assert result.loc[3, "sales_roll_mean_1"] == 200
+

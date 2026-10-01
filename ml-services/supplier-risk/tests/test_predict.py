@@ -22,7 +22,7 @@ def mock_sentiment():
         # Default mock behavior: positive or neutral if no risk keywords, negative if it seems bad
         def side_effect(text):
             lower_text = text.lower()
-            if any(w in lower_text for w in ["bankruptcy", "fraud", "strike", "lawsuit", "sanction"]):
+            if any(w in lower_text for w in ["bankruptcy", "fraud", "strike", "lawsuit", "sanction", "disappointing", "loss", "losses"]):
                 return {"label": "negative", "confidence": 0.99}
             if "positive" in lower_text or "record" in lower_text or "profit" in lower_text:
                 return {"label": "positive", "confidence": 0.95}
@@ -416,7 +416,8 @@ def test_load_headlines():
 
 def test_evaluation_dataset():
     """
-    Validate supplier_headlines.json dataset.
+    Validate supplier_headlines.json dataset contains 10 companies
+    with 12 headlines each (120 total).
     """
 
     dataset_path = (
@@ -432,12 +433,11 @@ def test_evaluation_dataset():
         dataset = json.load(file)
 
     assert isinstance(dataset, list)
-    assert len(dataset) == 80
+    assert len(dataset) == 120
 
     grouped = defaultdict(list)
 
     for item in dataset:
-
         assert "supplier" in item
         assert "headline" in item
 
@@ -445,14 +445,183 @@ def test_evaluation_dataset():
             item["headline"]
         )
 
-    assert len(grouped) == 8
+    assert len(grouped) == 10
 
     for supplier, headlines in grouped.items():
-        if supplier in ["Foxconn", "BASF"]:
-            assert len(headlines) == 4
-        else:
-            assert len(headlines) == 12
+        assert len(headlines) == 12
 
+
+# ------------------------------------------------------------------
+# Round 5: Configuration-Driven Signal & Scoring Tests
+# ------------------------------------------------------------------
+
+from src.config import (
+    Settings,
+    DEFAULT_SIGNAL_WEIGHTS,
+    DEFAULT_NEGATIVE_SENTIMENT_PENALTY,
+    validate_numeric_weight,
+    validate_signal_weights,
+)
+
+
+def test_config_defaults():
+    """
+    Test that default settings match calibrated R4 baselines.
+    """
+    cfg = Settings()
+    assert cfg.negative_sentiment_penalty == DEFAULT_NEGATIVE_SENTIMENT_PENALTY
+    assert cfg.neutral_sentiment_penalty == 0.0
+    assert cfg.positive_sentiment_penalty == 0.0
+    assert cfg.max_risk_score == 100.0
+    assert cfg.confidence_divisor == 8.0
+    assert cfg.signal_weights["bankruptcy"] == 50
+    assert cfg.signal_weights["fraud"] == 40
+
+
+def test_config_validation_negative_weight_raises():
+    """
+    Test that negative weights raise ValueError.
+    """
+    with pytest.raises(ValueError, match="cannot be negative"):
+        validate_numeric_weight("test_weight", -5.0)
+
+    with pytest.raises(ValueError, match="cannot be negative"):
+        validate_signal_weights({"strike": -10})
+
+
+def test_config_validation_non_numeric_raises():
+    """
+    Test that non-numeric weights raise ValueError.
+    """
+    with pytest.raises(ValueError, match="must be numeric"):
+        validate_numeric_weight("test_weight", "not_a_number")
+
+    with pytest.raises(ValueError, match="must be numeric"):
+        validate_signal_weights({"strike": "heavy"})
+
+
+def test_configurable_weights_change_prediction():
+    """
+    Test that modifying signal weights dynamically in Settings
+    changes the final risk calculation without modifying code.
+    """
+    supplier = "DynamicTestSupplier"
+    headlines = ["The supplier workers announced a strike."]
+
+    # 1. Default config (strike weight = 25)
+    default_cfg = Settings()
+    res_default = predict(supplier, headlines, config=default_cfg)
+
+    # 2. Custom config with strike weight = 80
+    custom_weights = dict(DEFAULT_SIGNAL_WEIGHTS)
+    custom_weights["strike"] = 80
+    custom_cfg = Settings(signal_weights=custom_weights)
+    res_custom = predict(supplier, headlines, config=custom_cfg)
+
+    assert res_custom["risk_score"] > res_default["risk_score"]
+    assert res_custom["signals"][0]["weight"] == 80
+
+
+def test_configurable_sentiment_penalty_changes_prediction():
+    """
+    Test that changing the negative sentiment penalty changes the score.
+    """
+    supplier = "SentimentTestSupplier"
+    headlines = ["The company reported disappointing quarterly losses."]
+
+    # Low sentiment penalty
+    low_penalty_cfg = Settings(negative_sentiment_penalty=10.0)
+    res_low = predict(supplier, headlines, config=low_penalty_cfg)
+
+    # High sentiment penalty
+    high_penalty_cfg = Settings(negative_sentiment_penalty=90.0)
+    res_high = predict(supplier, headlines, config=high_penalty_cfg)
+
+    assert res_high["risk_score"] > res_low["risk_score"]
+
+
+# ------------------------------------------------------------------
+# Round 5: FastAPI /predict Endpoint Integration Tests
+# ------------------------------------------------------------------
+
+from fastapi.testclient import TestClient
+from src.analyze import app
+
+
+def test_fastapi_health_endpoint():
+    """
+    Test GET /health endpoint returns 200 and UP status.
+    """
+    with TestClient(app) as client:
+        response = client.get("/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "UP"
+        assert data["service"] == "supplier-risk"
+
+
+def test_fastapi_predict_endpoint_valid():
+    """
+    Test POST /predict endpoint returns 200 with full analysis response.
+    """
+    with TestClient(app) as client:
+        payload = {
+            "supplier_name": "TestSupplier",
+            "headlines": [
+                "TestSupplier files for bankruptcy after fraud scandal.",
+                "TestSupplier secures new technology partnership.",
+            ],
+        }
+
+        response = client.post("/predict", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+
+        assert "supplier_summary" in data
+        assert "TestSupplier" in data["supplier_summary"]
+
+        summary = data["supplier_summary"]["TestSupplier"]
+        assert summary["supplier"] == "TestSupplier"
+        assert "risk_score" in summary
+        assert "confidence" in summary
+        assert "sentiment_breakdown" in summary
+        assert "signals" in summary
+        assert "top_worst_3" in summary
+        assert len(summary["top_worst_3"]) <= 3
+
+
+def test_fastapi_predict_aliases():
+    """
+    Test that /api/v1/supplier-risk/predict and /api/v1/supplier-risk/analyze
+    work identically to /predict.
+    """
+    with TestClient(app) as client:
+        payload = {
+            "supplier_name": "AliasSupplier",
+            "headlines": ["AliasSupplier reports positive quarterly results."],
+        }
+
+        resp1 = client.post("/predict", json=payload)
+        resp2 = client.post("/api/v1/supplier-risk/predict", json=payload)
+        resp3 = client.post("/api/v1/supplier-risk/analyze", json=payload)
+
+        assert resp1.status_code == 200
+        assert resp2.status_code == 200
+        assert resp3.status_code == 200
+        assert resp1.json() == resp2.json() == resp3.json()
+
+
+def test_fastapi_predict_invalid_payload():
+    """
+    Test POST /predict with missing required fields returns 422.
+    """
+    with TestClient(app) as client:
+        invalid_payload = {
+            "invalid_field": "test",
+        }
+
+        response = client.post("/predict", json=invalid_payload)
+        assert response.status_code == 422
 
 
 def test_real_dataset_relative_scoring_monotonic_check():
@@ -518,6 +687,19 @@ def test_mitigation_handling():
 
     signals2 = detect_signals(clean_text("The CEO avoids sanction."))
     assert len(signals2) == 0
+
+
+def test_mitigation_words_do_not_match_prefixes_in_real_risk_headlines():
+    """Adverbs such as 'clearly' must not suppress nearby risk signals."""
+    default_signals = detect_signals(
+        clean_text("Court clearly rules Acme in default on bond payments.")
+    )
+    fraud_signals = detect_signals(
+        clean_text("Regulators say Acme clearly committed fraud.")
+    )
+
+    assert any(signal["keyword"] == "default" for signal in default_signals)
+    assert any(signal["keyword"] == "fraud" for signal in fraud_signals)
 
 def test_later_real_risk():
     """
@@ -634,6 +816,68 @@ def test_mitigation_cross_clause_preservation():
     assert "investigation" in keywords3
 
 
+def test_mitigation_whole_word_matching_regression_cases():
+    """
+    Must-fix 1 Regression tests:
+    Verify that ordinary words such as 'clearly', 'clearance', etc. are NOT treated as mitigations
+    and do not suppress genuine risk signals.
+    """
+    # Case A: "Court clearly rules Acme in default on bond payments"
+    # Expected: default signal is detected, 'clearly' does NOT mitigate 'default'
+    text_a = "Court clearly rules Acme in default on bond payments"
+    signals_a = detect_signals(clean_text(text_a))
+    keywords_a = [s["keyword"] for s in signals_a]
+    assert "default" in keywords_a, f"Expected 'default' signal, got {keywords_a}"
+
+    # Case B: "Regulators say Acme clearly committed fraud"
+    # Expected: fraud signal is detected, 'clearly' does NOT mitigate 'fraud'
+    text_b = "Regulators say Acme clearly committed fraud"
+    signals_b = detect_signals(clean_text(text_b))
+    keywords_b = [s["keyword"] for s in signals_b]
+    assert "fraud" in keywords_b, f"Expected 'fraud' signal, got {keywords_b}"
+
+    # Additional case: punctuation and casing with non-mitigating 'clear' derivatives
+    text_c = "Security CLEARANCE revoked: Acme clearly committed FRAUD!"
+    signals_c = detect_signals(clean_text(text_c))
+    keywords_c = [s["keyword"] for s in signals_c]
+    assert "fraud" in keywords_c, f"Expected 'fraud' signal, got {keywords_c}"
+
+
+def test_legitimate_mitigation_cases():
+    """
+    Verify that legitimate mitigation keywords (denies, cleared, resolved, dismissed, avoided)
+    continue to suppress the relevant risk signals according to existing semantics.
+    """
+    # 1. "Acme denies fraud" -> fraud should be mitigated
+    signals1 = detect_signals(clean_text("Acme denies fraud"))
+    keywords1 = [s["keyword"] for s in signals1]
+    assert "fraud" not in keywords1, f"'fraud' should be mitigated by 'denies', got {keywords1}"
+
+    # 2. "Acme was cleared of fraud" -> fraud should be mitigated
+    signals2 = detect_signals(clean_text("Acme was cleared of fraud"))
+    keywords2 = [s["keyword"] for s in signals2]
+    assert "fraud" not in keywords2, f"'fraud' should be mitigated by 'cleared', got {keywords2}"
+
+    # 3. "The lawsuit was resolved" -> lawsuit should be mitigated
+    signals3 = detect_signals(clean_text("The lawsuit was resolved"))
+    keywords3 = [s["keyword"] for s in signals3]
+    assert "lawsuit" not in keywords3, f"'lawsuit' should be mitigated by 'resolved', got {keywords3}"
+
+    # "The dispute was resolved" with dynamic/configured keyword
+    signals3_custom = detect_signals(clean_text("The dispute was resolved"), weights={"dispute": 25})
+    keywords3_custom = [s["keyword"] for s in signals3_custom]
+    assert "dispute" not in keywords3_custom, f"'dispute' should be mitigated by 'resolved', got {keywords3_custom}"
+
+    # 4. Case-insensitivity and punctuation
+    signals4 = detect_signals(clean_text("ACME: DENIED allegations of FRAUD!"))
+    keywords4 = [s["keyword"] for s in signals4]
+    assert "fraud" not in keywords4, f"'fraud' should be mitigated despite casing/punctuation, got {keywords4}"
+
+    signals5 = detect_signals(clean_text("Acme was DISMISSED from the lawsuit."))
+    keywords5 = [s["keyword"] for s in signals5]
+    assert "lawsuit" not in keywords5, f"'lawsuit' should be mitigated by 'dismissed', got {keywords5}"
+
+
 def test_punctuation_word_merging_and_signal_detection():
     """
     Test that punctuation separating words is replaced by whitespace and detected correctly.
@@ -725,14 +969,16 @@ def test_high_risk_not_diluted_by_neutral_headlines():
 
 def test_calibrated_scoring_blend_ratio():
     """
-    Verify that the scoring formula applies an 80% mean / 20% peak blend.
+    Verify that the scoring formula applies an 80% mean / 20% peak blend
+    when the 'blend' aggregation strategy is configured.
     """
     # Headline 1 has negative sentiment + lawsuit (25) + investigation (25) -> score ~89.6
     # Headline 2 is clean positive -> score 0.0
     h1 = "Supplier faces lawsuit and investigation for misconduct."
     h2 = "Supplier reports record positive earnings and profit."
 
-    result = predict("BlendTestSupplier", [h1, h2])
+    blend_cfg = Settings(aggregation_strategy="blend")
+    result = predict("BlendTestSupplier", [h1, h2], config=blend_cfg)
     # Individual scores: h1 = 39.6 + 50 = 89.6, h2 = 0.0
     # Average = 44.8, Peak = 89.6
     # Expected blended score = 0.8 * 44.8 + 0.2 * 89.6 = 35.84 + 17.92 = 53.76
@@ -775,3 +1021,400 @@ def test_calibrated_risk_band_classification():
     )
     assert classify_band(critical_res["risk_score"]) == "Critical"
     assert critical_res["risk_score"] >= 45.1
+
+
+# ------------------------------------------------------------------
+# PR Review Regression & Enhancement Tests
+# ------------------------------------------------------------------
+
+
+def test_keyword_detection_with_punctuation():
+    """
+    Regression test for PR review:
+    Risk keywords must be detected even when punctuation
+    is attached directly to the keyword.
+    """
+
+    test_cases = [
+        ("Supplier files for bankruptcy.", "bankruptcy"),
+        ("Acme faces bankruptcy, report says.", "bankruptcy"),
+        ("Regulator opens investigation, sources say.", "investigation"),
+        ("Firm hit with lawsuit; shares fall.", "lawsuit"),
+        ('"Bankruptcy" filing confirmed.', "bankruptcy"),
+    ]
+
+    for headline, expected_keyword in test_cases:
+        signals = detect_signals(headline)
+        detected_keywords = [
+            signal["keyword"]
+            for signal in signals
+        ]
+
+        assert expected_keyword in detected_keywords, (
+            f"Expected '{expected_keyword}' to be detected in: "
+            f"'{headline}'. Detected: {detected_keywords}"
+        )
+
+
+def test_catastrophic_headline_anti_dilution_with_neutral_padding():
+    """
+    Test that 1 severe catastrophic headline is not diluted away when
+    9 or 99 neutral headlines are added under top_k_mean and max strategies.
+    """
+    catastrophic_headline = "Company files for bankruptcy amid severe financial distress."
+    neutral_9 = [f"Company opens office branch {i} in local area." for i in range(9)]
+    neutral_99 = [f"Company opens office branch {i} in local area." for i in range(99)]
+
+    # Default strategy (top_k_mean)
+    res_1 = predict("SevereCorp", [catastrophic_headline])
+    res_10 = predict("SevereCorp", [catastrophic_headline] + neutral_9)
+    res_100 = predict("SevereCorp", [catastrophic_headline] + neutral_99)
+
+    # Catastrophic headline is severe (bankruptcy = 50 + negative sentiment penalty)
+    assert res_1["risk_score"] >= 50.0
+    # Adding 9 neutral headlines must NOT dilute the score
+    assert res_10["risk_score"] == res_1["risk_score"]
+    # Adding 99 neutral headlines must NOT dilute the score
+    assert res_100["risk_score"] == res_1["risk_score"]
+
+    # Test under 'max' strategy as well
+    max_cfg = Settings(aggregation_strategy="max")
+    res_max_1 = predict("SevereCorp", [catastrophic_headline], config=max_cfg)
+    res_max_100 = predict("SevereCorp", [catastrophic_headline] + neutral_99, config=max_cfg)
+    assert res_max_100["risk_score"] == res_max_1["risk_score"]
+
+
+def test_configurable_aggregation_strategies():
+    """
+    Test that Settings supports configurable aggregation strategies (top_k_mean, max, blend, mean)
+    and validates invalid inputs.
+    """
+    h1 = "Company files for bankruptcy."  # high risk
+    h2 = "Company faces lawsuit."          # moderate risk
+    h3 = "Company signs clean contract."   # zero risk
+
+    cfg_topk = Settings(aggregation_strategy="top_k_mean", aggregation_top_k=2)
+    cfg_max = Settings(aggregation_strategy="max")
+    cfg_mean = Settings(aggregation_strategy="mean")
+    cfg_blend = Settings(aggregation_strategy="blend")
+
+    score_topk = predict("TestCorp", [h1, h2, h3], config=cfg_topk)["risk_score"]
+    score_max = predict("TestCorp", [h1, h2, h3], config=cfg_max)["risk_score"]
+    score_mean = predict("TestCorp", [h1, h2, h3], config=cfg_mean)["risk_score"]
+    score_blend = predict("TestCorp", [h1, h2, h3], config=cfg_blend)["risk_score"]
+
+    # Max must be >= top_k mean >= unweighted mean
+    assert score_max >= score_topk
+    assert score_topk >= score_mean
+    assert score_max >= score_blend
+
+    # Invalid strategy raises ValueError
+    with pytest.raises(ValueError, match="Invalid aggregation strategy"):
+        Settings(aggregation_strategy="unsupported_strategy")
+
+    # Invalid top_k raises ValueError
+    with pytest.raises(ValueError, match="Aggregation top_k must be greater than zero"):
+        Settings(aggregation_top_k=0)
+
+
+def test_confidence_reflects_signal_agreement_not_just_volume():
+    """
+    Test that two datasets with the same headline count (N=10) have substantially
+    different confidence when their signals differ (agreement vs noise).
+    """
+    # Dataset A: 10 headlines with strong, consistent negative risk signals
+    consistent_headlines = [
+        f"Company faces bankruptcy, lawsuit and fraud investigation part {i}."
+        for i in range(10)
+    ]
+
+    # Dataset B: 10 headlines with mostly neutral noise and only 1 minor signal
+    sparse_headlines = [
+        "Company experienced a minor delay in shipment."
+    ] + [
+        f"Company announces routine administrative update {i}."
+        for i in range(9)
+    ]
+
+    res_a = predict("ConsistentSupplier", consistent_headlines)
+    res_b = predict("SparseSupplier", sparse_headlines)
+
+    # Both have exactly 10 headlines
+    assert len(consistent_headlines) == len(sparse_headlines) == 10
+
+    # Confidence for consistent risk must be substantially higher than sparse/noisy signals
+    assert res_a["confidence"] > res_b["confidence"]
+    assert (res_a["confidence"] - res_b["confidence"]) > 0.3
+
+
+def test_confidence_neutral_padding_does_not_inflate():
+    """
+    Test that adding neutral padding to a single risk headline does not
+    artificially inflate confidence.
+    """
+    single_risk = ["Company files for bankruptcy and faces fraud investigation."]
+    padded_with_neutral = single_risk + [
+        f"Company opens office location {i}." for i in range(9)
+    ]
+
+    res_single = predict("SupplierX", single_risk)
+    res_padded = predict("SupplierX", padded_with_neutral)
+
+    # Padded dataset with neutral headlines should NOT have higher confidence
+    # for the risk assessment than the pure signal
+    assert res_padded["confidence"] <= res_single["confidence"]
+
+
+def test_keyword_stemming_and_inflections():
+    """
+    Test that signals.py correctly detects plurals, tenses, and inflected forms:
+    - shortage / shortages
+    - layoff / layoffs
+    - delay / delays / delayed
+    - lawsuit / lawsuits
+    - default / defaults (with loan/debt context)
+    """
+    s_shortage = detect_signals(clean_text("The factory suffered component shortage."))
+    s_shortages = detect_signals(clean_text("The factory suffered component shortages."))
+    assert any(s["keyword"] == "shortage" for s in s_shortage)
+    assert any(s["keyword"] == "shortage" for s in s_shortages)
+
+    s_layoff = detect_signals(clean_text("Company announced a major layoff."))
+    s_layoffs = detect_signals(clean_text("Company announced major layoffs."))
+    assert any(s["keyword"] == "layoff" for s in s_layoff)
+    assert any(s["keyword"] == "layoff" for s in s_layoffs)
+
+    s_delay = detect_signals(clean_text("Production delay reported."))
+    s_delays = detect_signals(clean_text("Production delays reported."))
+    s_delayed = detect_signals(clean_text("Shipment was delayed by a week."))
+    assert any(s["keyword"] == "delays" for s in s_delay)
+    assert any(s["keyword"] == "delays" for s in s_delays)
+    assert any(s["keyword"] == "delays" for s in s_delayed)
+
+    s_lawsuits = detect_signals(clean_text("Company faces multiple lawsuits."))
+    assert any(s["keyword"] == "lawsuit" for s in s_lawsuits)
+
+    s_defaults = detect_signals(clean_text("Borrower defaults on bank loan debt."))
+    assert any(s["keyword"] == "default" for s in s_defaults)
+
+
+def test_keyword_boundary_false_positives_prevented():
+    """
+    Test that substrings do not trigger false-positive keyword matches:
+    'short' must not trigger 'shortage', 'lay' must not trigger 'layoff', etc.
+    """
+    assert len(detect_signals(clean_text("A short visit to headquarters."))) == 0
+    assert len(detect_signals(clean_text("Workers lay the foundation stone."))) == 0
+    assert len(detect_signals(clean_text("International law conference held."))) == 0
+    assert len(detect_signals(clean_text("Power turned out fine after review."))) == 0
+    assert len(detect_signals(clean_text("Cat video goes viral on platform."))) == 0
+    assert len(detect_signals(clean_text("Walking down the street."))) == 0
+
+
+def test_basf_headlines_detect_shortages_and_layoffs():
+    """
+    Verify that BASF headlines from supplier_headlines.json detect
+    'shortage' and 'layoff' correctly.
+    """
+    h_shortages = clean_text("BASF struggles with raw-material shortages for specialty plastics.")
+    h_layoffs = clean_text("BASF implements restructuring plan leading to potential layoffs.")
+
+    signals_shortages = detect_signals(h_shortages)
+    keywords_shortages = [s["keyword"] for s in signals_shortages]
+    assert "shortage" in keywords_shortages
+
+    signals_layoffs = detect_signals(h_layoffs)
+    keywords_layoffs = [s["keyword"] for s in signals_layoffs]
+    assert "layoff" in keywords_layoffs
+    assert "restructuring" in keywords_layoffs
+
+
+def test_score_aggregation_proves_volume_and_positive_coverage_effects():
+    """
+    Regression test for MUST-FIX 2: Score Aggregation.
+    Proves that:
+    1. CASE B (1 risk + 11 positive) < CASE A (1 risk) (positive coverage genuinely reduces risk).
+    2. CASE C (3 risk headlines) > CASE A (1 risk) (repeated negative coverage genuinely increases risk).
+    3. Scores are distinct and not artificially compressed/identical.
+    4. Balanced case (2 negative + 2 positive) sits between CASE B and CASE C.
+    """
+    # Negative/risk headlines:
+    h_risk_1 = "The supplier faces an unexpected strike by factory workers."
+    h_risk_2 = "The supplier faces a major lawsuit over breach of contract."
+    h_risk_3 = "The supplier is under government investigation for fraud."
+
+    # Clearly positive headlines (zero risk, positive sentiment):
+    h_positive_11 = [
+        f"The supplier reports record positive profit and earnings in quarter {i}."
+        for i in range(11)
+    ]
+
+    # CASE A: 1 negative/risk headline
+    res_a = predict("SupplierA", [h_risk_1])
+    score_a = res_a["risk_score"]
+
+    # CASE B: 1 negative/risk headline + 11 clearly positive headlines
+    res_b = predict("SupplierB", [h_risk_1] + h_positive_11)
+    score_b = res_b["risk_score"]
+
+    # CASE C: 3 negative/risk headlines
+    res_c = predict("SupplierC", [h_risk_1, h_risk_2, h_risk_3])
+    score_c = res_c["risk_score"]
+
+    # Balanced Case: 2 negative + 2 positive headlines
+    res_mixed = predict(
+        "SupplierMixed",
+        [h_risk_1, h_risk_2, h_positive_11[0], h_positive_11[1]],
+    )
+    score_mixed = res_mixed["risk_score"]
+
+    # Qualitative relationships:
+    # 1. Positive coverage genuinely reduces risk
+    assert score_b < score_a, f"Expected score(B) < score(A), got {score_b} vs {score_a}"
+    # 2. Repeated negative coverage genuinely increases risk
+    assert score_c > score_a, f"Expected score(C) > score(A), got {score_c} vs {score_a}"
+    # 3. Scores must not be identical
+    assert len({score_a, score_b, score_c}) == 3, "Scores must not be identical"
+    # 4. Mixed case sits appropriately between high mitigation and raw baseline
+    assert score_b < score_mixed < score_c
+    # 5. All scores bounded
+    for sc in [score_a, score_b, score_c, score_mixed]:
+        assert 0.0 <= sc <= 100.0
+
+
+def test_predict_response_shape_preserved():
+    """Verify that predict() output format, keys, and types remain standard."""
+    res = predict("TestSupplier", ["The supplier faces a strike."])
+    assert isinstance(res["supplier"], str)
+    assert isinstance(res["risk_score"], float)
+    assert isinstance(res["confidence"], float)
+    assert isinstance(res["sentiment_breakdown"], dict)
+    assert isinstance(res["signals"], list)
+    assert isinstance(res["top_worst_3"], list)
+
+
+# ------------------------------------------------------------------
+# Risk Evidence Filtering Tests (SHOULD-CONSIDER #2: score > 0 only)
+# ------------------------------------------------------------------
+
+def test_evidence_excludes_zero_risk_positive_headlines():
+    """Zero-risk positive and neutral headlines must NOT appear in risk evidence (top_worst_3)."""
+    res = predict(
+        "CleanCorp",
+        [
+            "CleanCorp reports record positive profits and earnings growth.",
+            "CleanCorp opens a modern state-of-the-art research facility.",
+        ],
+    )
+    assert res["risk_score"] == 0.0
+    assert res["top_worst_3"] == []
+
+
+def test_evidence_preserves_positive_risk_headlines():
+    """Headlines with positive calculated risk score must be preserved in risk evidence."""
+    res = predict(
+        "DistressedCorp",
+        [
+            "DistressedCorp files for emergency bankruptcy and debt default.",
+        ],
+    )
+    assert res["risk_score"] > 0.0
+    assert len(res["top_worst_3"]) == 1
+    assert res["top_worst_3"][0]["score"] > 0.0
+    assert "bankruptcy" in res["top_worst_3"][0]["headline"]
+
+
+def test_evidence_mixed_zero_and_positive_risk_returns_only_positive_risk():
+    """Mixed zero-risk and positive-risk inputs return only headlines with score > 0 in evidence."""
+    res = predict(
+        "MixedCorp",
+        [
+            "MixedCorp reports strong positive revenue growth.",       # zero risk (positive)
+            "MixedCorp operations disrupted by severe worker strike.",  # positive risk
+            "MixedCorp holds routine annual shareholder meeting.",      # zero risk (neutral)
+        ],
+    )
+    assert len(res["top_worst_3"]) == 1
+    assert res["top_worst_3"][0]["score"] > 0.0
+    assert "strike" in res["top_worst_3"][0]["headline"]
+    evidence_headlines = [item["headline"] for item in res["top_worst_3"]]
+    assert "MixedCorp reports strong positive revenue growth." not in evidence_headlines
+    assert "MixedCorp holds routine annual shareholder meeting." not in evidence_headlines
+
+
+# ------------------------------------------------------------------
+# Configurable Volume and Mitigation Weights Tests (SHOULD-CONSIDER #4)
+# ------------------------------------------------------------------
+
+def test_config_default_volume_and_mitigation_weights():
+    """Verify default volume weight is 0.15 and mitigation weight is 0.35 in Settings and to_dict()."""
+    cfg = Settings()
+    assert cfg.volume_weight == 0.15
+    assert cfg.mitigation_weight == 0.35
+    d = cfg.to_dict()
+    assert d["volume_weight"] == 0.15
+    assert d["mitigation_weight"] == 0.35
+
+
+def test_custom_volume_weight_changes_score_deterministically():
+    """Verify custom volume_weight in Settings scales repeated risk events deterministically."""
+    headlines = [
+        "Supplier faces major strike disrupting operations.",
+        "Supplier hit with recall of defective components.",
+    ]
+    # Default volume weight (0.15)
+    cfg_default = Settings()
+    score_default = predict("TestSupp", headlines, config=cfg_default)["risk_score"]
+
+    # Higher volume weight (0.30): repeated risk amplifies the score higher
+    cfg_higher_vol = Settings(volume_weight=0.30)
+    score_higher = predict("TestSupp", headlines, config=cfg_higher_vol)["risk_score"]
+
+    # Zero volume weight (0.0): no volume amplification
+    cfg_zero_vol = Settings(volume_weight=0.0)
+    score_zero = predict("TestSupp", headlines, config=cfg_zero_vol)["risk_score"]
+
+    assert score_higher > score_default > score_zero
+
+
+def test_custom_mitigation_weight_changes_score_deterministically():
+    """Verify custom mitigation_weight in Settings discounts risk for positive coverage deterministically."""
+    headlines = [
+        "Supplier hit with recall of defective components.",
+        "Supplier reports record positive earnings growth.",
+        "Supplier announces positive expansion and strong performance.",
+    ]
+    # Default mitigation weight (0.35)
+    cfg_default = Settings()
+    score_default = predict("TestSupp", headlines, config=cfg_default)["risk_score"]
+
+    # Higher mitigation weight (0.50): positive headlines discount risk more aggressively
+    cfg_higher_mit = Settings(mitigation_weight=0.50)
+    score_higher_mit = predict("TestSupp", headlines, config=cfg_higher_mit)["risk_score"]
+
+    # Zero mitigation weight (0.0): positive headlines provide no discount
+    cfg_zero_mit = Settings(mitigation_weight=0.0)
+    score_zero_mit = predict("TestSupp", headlines, config=cfg_zero_mit)["risk_score"]
+
+    assert score_higher_mit < score_default < score_zero_mit
+
+
+def test_volume_and_mitigation_weight_validation_failures():
+    """Verify invalid volume and mitigation weights raise ValueError."""
+    # Negative weights
+    with pytest.raises(ValueError, match="Weight 'volume_weight' cannot be negative"):
+        Settings(volume_weight=-0.1)
+
+    with pytest.raises(ValueError, match="Weight 'mitigation_weight' cannot be negative"):
+        Settings(mitigation_weight=-0.2)
+
+    # Weights exceeding 1.0
+    with pytest.raises(ValueError, match="Weight 'volume_weight' cannot exceed 1.0"):
+        Settings(volume_weight=1.5)
+
+    with pytest.raises(ValueError, match="Weight 'mitigation_weight' cannot exceed 1.0"):
+        Settings(mitigation_weight=2.0)
+
+    # Non-numeric weights
+    with pytest.raises(ValueError, match="Weight 'volume_weight' must be numeric"):
+        Settings(volume_weight="high")

@@ -1,4 +1,4 @@
-from sqlalchemy import Column,ForeignKey,Boolean,Integer,String 
+from sqlalchemy import Column,ForeignKey,Boolean,Integer,String,DateTime
 from sqlalchemy.orm import relationship
 from app.database import Base
 from app.models.roles import Role
@@ -14,4 +14,7 @@ class User(Base):
     role_id = Column(Integer, ForeignKey("roles.id"),nullable=True)
     supplier_id = Column(String(100), nullable=True, index=True)
     role = relationship("Role",back_populates="users")
+    locked_until = Column(DateTime(timezone=True), nullable=True)
+    password_changed_at = Column(DateTime(timezone=True),nullable=True)
+    password_expires_at = Column(DateTime(timezone=True),nullable=True)
 

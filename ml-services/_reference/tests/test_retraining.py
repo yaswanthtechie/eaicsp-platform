@@ -6,8 +6,11 @@ from src.retraining import (
     DRIFT_THRESHOLD,
     calculate_drift,
     check_retraining_needed,
+    automated_retrain,
     manual_retrain_trigger,
 )
+
+from src.retraining_adapters import check_drift
 
 
 def test_calculate_drift_with_similar_inputs():
@@ -273,3 +276,131 @@ def test_manual_retrain_trigger():
     assert result["status"] == "retraining_triggered"
     assert "message" in result
     assert "manually" in result["message"].lower()
+
+
+# ============================================================
+# Fix B - Automated Retraining Outcome Tests
+# ============================================================
+
+
+def test_pending_approval_is_not_reported_as_promoted(monkeypatch):
+    """
+    A retraining result waiting for governance approval must
+    not be reported as a production promotion.
+    """
+
+    monkeypatch.setattr(
+        "src.retraining.check_retraining_needed",
+        lambda inputs: {
+            "retrain_needed": True,
+            "reason": "drift",
+            "drift_score": 1.0,
+            "threshold": 0.5,
+            "sample_count": 3,
+        },
+    )
+
+    result = automated_retrain(
+        [[1.0, 2.0, 3.0, 4.0]],
+        retrain_callback=lambda: {
+            "status": "pending_approval",
+            "staging_version": "16",
+            "candidate_accuracy": 0.97,
+        },
+    )
+
+    assert result["outcome"] == "pending_approval"
+    assert result["new_model_version"] is None
+    assert result["staging_version"] == "16"
+
+
+def test_promoted_retrain_reports_production_version(monkeypatch):
+    """
+    A retraining result that was actually promoted must report
+    the production model version.
+    """
+
+    monkeypatch.setattr(
+        "src.retraining.check_retraining_needed",
+        lambda inputs: {
+            "retrain_needed": True,
+            "reason": "drift",
+            "drift_score": 1.0,
+            "threshold": 0.5,
+            "sample_count": 3,
+        },
+    )
+
+    result = automated_retrain(
+        [[1.0, 2.0, 3.0, 4.0]],
+        retrain_callback=lambda: {
+            "status": "promoted",
+            "production_version": "16",
+        },
+    )
+
+    assert result["outcome"] == "promoted"
+    assert result["new_model_version"] == "16"
+
+
+# ============================================================
+# Problem 1 - Model Retraining Adapter Drift Tests
+# ============================================================
+
+
+def test_check_drift_accepts_recent_inputs_like_the_service_calls_it():
+    """
+    service.py calls check_drift with model_name, recent_inputs,
+    and threshold. The adapter must accept this call without TypeError.
+    """
+
+    result = check_drift(
+        model_name="forecast",
+        recent_inputs=[
+            [1.0, 2.0],
+            [1.0, 2.0],
+            [1.0, 2.0],
+            [1.0, 2.0],
+        ],
+        threshold=0.3,
+    )
+
+    assert result["drift_detected"] is False
+    assert result["reason"] == "scored"
+
+
+def test_check_drift_flags_a_shifted_distribution():
+    """
+    A significant distribution shift between the older and newer
+    portions of the recent input window should be detected.
+    """
+
+    result = check_drift(
+        model_name="forecast",
+        recent_inputs=[
+            [1.0, 1.0],
+            [1.0, 1.0],
+            [10.0, 10.0],
+            [10.0, 10.0],
+        ],
+        threshold=0.3,
+    )
+
+    assert result["drift_detected"] is True
+
+
+def test_no_data_is_unknown_not_no_drift():
+    """
+    Empty input history should be reported as insufficient data,
+    rather than being treated as a valid no-drift result.
+    """
+
+    result = check_drift(
+        model_name="forecast",
+        recent_inputs=[],
+        threshold=0.3,
+    )
+
+    assert result["reason"] == "insufficient_data"
+    assert result["drift_score"] is None
+    assert result["drift_detected"] is False

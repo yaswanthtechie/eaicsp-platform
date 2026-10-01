@@ -34,7 +34,7 @@ const client = new ApolloClient({
   cache: new InMemoryCache({
     typePolicies: {
       PurchaseOrder: {
-        keyFields: ["po_number"],
+        keyFields: ["poNumber"],
       },
 
       Query: {

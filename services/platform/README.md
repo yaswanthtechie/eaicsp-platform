@@ -2,63 +2,58 @@
 
 ## Overview
 
-The **Platform Service** is the authentication and authorization foundation for the Supply Chain Management System.
+The **Platform Service** is the authentication and authorization foundation of the EAICSP Supply Chain Management Platform.
 
-It provides centralized authentication, JWT token management, role-based access control (RBAC), user management, session management, password reset, authentication audit logging, and a dedicated service-to-service token verification endpoint.
+The Platform Service centralizes authentication, authorization, user management, security auditing, session management, and service-to-service authentication so that every microservice does not need to implement its own security logic.
 
-Other backend services such as Inventory, Logistics, Compliance, Supplier Portal, and API Gateway can use the Platform Service to validate authenticated requests.
+### Base URL
 
+```text
+http://127.0.0.1:8005
+```
+
+### API Prefix
+
+```text
+/api/v1
+```
 ---
 
-# Features
+## Key Responsibilities
 
-* User authentication
-* User registration
-* JWT access tokens
-* JWT refresh tokens
-* Refresh token storage in database
-* Refresh token rotation
-* Refresh token revocation
-* Logout
-* Protected APIs
+* User registration and secure password management
+* Optional mock MFA (password + OTP)
+* JWT access and refresh token management
+* Refresh token rotation and revocation
 * Role-Based Access Control (RBAC)
-* Role hierarchy support
-* Login rate limiting
-* Failed login tracking
-* Password policy validation
-* BCrypt password hashing
-* Database-backed users and roles
-* Admin user management
-* User activation/deactivation
-* Role assignment
-* Role-change history
-* Per-session management
-* Session revocation
-* Admin force password reset
-* Password reset flow
+* Fine-grained permission management
+* Account lockout and login brute-force protection
+* Rate limiting and abuse detection
+* Mock enterprise SSO integration
 * Authentication audit logging
-* Dedicated service-to-service token verification
-* Caller-service request identification
-* Request-ID tracing
-* Consistent authentication error responses
-* Real HTTP integration tests
-* Concurrent service-to-service verification tests
-* API-key authentication sketch for pure service-to-service communication
+* Compliance-ready audit export
+* Service-to-service JWT verification
+* Service API-key authentication
+* Token introspection caching
+* Security and abuse monitoring dashboards
 
 ---
 
-# Tech Stack
+# Technology Stack
 
-* FastAPI
-* Python
-* Pydantic
-* Uvicorn
-* SQLAlchemy
-* python-jose
-* Passlib
-* BCrypt
-* SQLite for development
-* PostgreSQL for production
+| Technology  | Purpose                         |
+| ----------- | ------------------------------- |
+| FastAPI     | REST API framework              |
+| Python      | Backend language                |
+| Pydantic    | Request/response validation     |
+| SQLAlchemy  | ORM/database access             |
+| Uvicorn     | ASGI server                     |
+| PostgreSQL  | Production database             |
+| SQLite      | Local development/demo database |
+| python-jose | JWT creation and verification   |
+| Passlib     | Password hashing utilities      |
+| BCrypt      | Secure password hashing         |
+| Pytest      | Automated testing               |
 
 ---
 
@@ -79,71 +74,112 @@ app/
 │   ├── auth.py
 │   ├── user.py
 │   └── admin.py
-│
 ├── services/
 │   ├── auth_service.py
 │   ├── audit_service.py
-│   └── email_service.py
+│   ├── email_service.py
+│   ├── audit_export_service.py
+│   ├── mfa_service.py
+│   ├── rate_limit_service.py
+│   ├── sso_service.py
+│   ├── abuse_dashboard_service.py
 │
 ├── core/
 │   ├── config.py
 │   ├── security.py
 │   ├── dependencies.py
-│   └── password_validator.py
-│   └── service_auth.py 
+│   ├── password_validator.py
+│   ├── service_auth.py
+│   ├── token_cache.py
+│   ├── permissions.py
+│   ├── verify_rate_limiter.py
 │
 ├── models/
 │   ├── auth_audit_logs.py
+│   ├── abuse_event.py
 │   ├── password_reset_tokens.py
 │   ├── failed_login_attempts.py
 │   ├── refresh_token.py
 │   ├── roles.py
 │   ├── users.py
-│   └── role_change_history.py
+│   ├── role_change_history.py
+│   └── service_api_keys.py
 │
 └── middleware/
     └── logging.py
 
 tests/
 ├── test_auth.py
-└── test_integration.py
-```
+├── test_integration.py
+├── test_security.py
 
+scripts/
+├── load_test_verify.py
+```
 ---
 
-# Service Configuration
+# Configuration
 
-## Platform Service Port
+Create a `.env` file for local development.
 
-The Platform Service runs on:
+Example:
 
-```text
-http://127.0.0.1:8005
+```env
+SECRET_KEY=<strong-secret-key>
+DATABASE_URL=sqlite:///./platform.db
+TRUST_PROXY=false
+# MFA
+MFA_ENABLED=false
+MFA_MOCK_OTP=
+# Mock enterprise SSO
+MOCK_SSO_ENABLED=false
+# Required only when MOCK_SSO_ENABLED=true: at least 32 random characters.
+# Generate one with:  python -c "import secrets; print(secrets.token_urlsafe(48))"
+# Never commit a real value, and never reuse an example value.
+MOCK_SSO_SECRET=
 ```
 
-API prefix:
+# /verify load-test configuration
+PLATFORM_BASE_URL=http://127.0.0.1:8005
+# For real testing, provide 5-10 different valid access tokens locally.
+ACCESS_TOKENS="token1,token2,token3,token4,token5"
+# Used by the sustained load-test script
+DURATION_SECONDS=120
+CONCURRENCY=20
+REQUESTS_PER_SECOND=5
+TIMEOUT_SECONDS=10
 
-```text
-/api/v1
-```
+Mock SSO is disabled by default.
 
-Therefore the complete API base URL is:
+When MOCK_SSO_ENABLED=true, MOCK_SSO_SECRET is required and must be at least
+32 characters long. The application fails at startup if the secret is missing,
+blank, or shorter than 32 characters.
 
-```text
-http://127.0.0.1:8005/api/v1
-```
+The SSO verification path also rejects a weak secret at runtime with HTTP 503.
+This prevents forged assertions from being accepted with an empty or weak key.
 
-Swagger:
+Example:
 
-```text
-http://127.0.0.1:8005/docs
-```
+MOCK_SSO_ENABLED=true
+MOCK_SSO_SECRET=
 
+Production should use PostgreSQL and a securely managed secret.
+The JWT signing secret must never be hardcoded in source code.
+The ACCESS_TOKENS must be a valid user access token obtained after
+successful MFA verification. Do not commit a real access token or
+other secrets to source control.
+
+The remaining load-test variables have the following defaults:
+
+CONCURRENCY=20
+TIMEOUT_SECONDS=10
+DURATION_SECONDS=120
+REQUESTS_PER_SECOND=5
 ---
 
 # Roles
 
-The following roles are implemented:
+The Platform Service supports organizational roles such as:
 
 ```text
 ceo
@@ -156,794 +192,1314 @@ analyst
 supplier
 ```
 
----
-
-# Database
-
-## Development
-
-SQLite is used for local development.
-
-## Production
-
-PostgreSQL is the target production database.
-
-## Current Tables
-
-```text
-users
-roles
-refresh_token
-failed_login_attempts
-role_change_history
-password_reset_tokens
-auth_audit_logs
-```
-
-Users and roles are stored in the database.
-
-Seeded users are inserted into the database through `seed.py`. They are not maintained in an in-memory user dictionary.
-
----
-
-# API Endpoints
-
-## Authentication
-
-### Register
-
-```http
-POST /api/v1/auth/register
-```
-
-Registers a new user.
-
-### Request
-
-```json
-{
-  "email": "newregisteruser@company.com",
-  "full_name": "New Register User",
-  "password": "NewRegister@123"
-}
-```
-
-### Registration Flow
-
-```text
-Registration
-     |
-     v
-Check existing email
-     |
-     v
-Validate password
-     |
-     v
-Hash password using BCrypt
-     |
-     v
-Create user
-     |
-     v
-role_id = NULL
-```
-
-Self-registration intentionally creates the user without a role.
-
-The user must be assigned a role by an authorized administrator before they can log in.
-
----
-
-# Login
-
-```http
-POST /api/v1/auth/login
-```
-
-Authenticates a user using email/username and password.
-
-The endpoint uses OAuth2 password-form authentication.
-
-### Request
-
-The request uses:
-
-```text
-Content-Type: application/x-www-form-urlencoded
-```
-
-Example:
-
-```text
-username=supplier@company.com
-password=supplier@123
-```
-
-### Successful Response
-
-```json
-{
-  "access_token": "<access_token>",
-  "refresh_token": "<refresh_token>",
-  "token_type": "bearer"
-}
-```
-
-The user must:
-
-* Exist in the database
-* Have a valid password
-* Be active
-* Have an assigned role
-
-If the user does not have a role assigned, login is rejected.
-
----
-
-# JWT Tokens
-
-## Access Token
-
-Access tokens are short-lived.
-
-```text
-Expiration: 15 minutes
-```
-
-Used to access protected APIs.
-
-Example:
-
-```http
-Authorization: Bearer <access_token>
-```
-
-## Refresh Token
-
-Refresh tokens are long-lived.
-
-```text
-Expiration: 7 days
-```
-
-Refresh tokens are stored in the database.
-
-They are checked for:
-
-* Token validity
-* Token type
-* Revocation status
-* Expiration
-
----
-
-# Refresh Token
-
-```http
-POST /api/v1/auth/refresh
-```
-
-### Request
-
-```json
-{
-  "refresh_token": "<refresh_token>"
-}
-```
-
-### Response
-
-```json
-{
-  "access_token": "<new_access_token>",
-  "refresh_token": "<new_refresh_token>",
-  "token_type": "bearer"
-}
-```
-
-Refresh-token rotation is used.
-
-The old refresh token is revoked before the new refresh token is issued.
-
----
-
-# Refresh Token Replay Protection
-
-The refresh-token flow is:
-
-```text
-Refresh Token A
-       |
-       v
-Validate Token A
-       |
-       v
-Revoke Token A
-       |
-       v
-Generate Token B
-       |
-       v
-Store Token B
-       |
-       v
-Return Token B
-```
-
-If an attacker attempts to reuse Token A:
-
-```text
-Token A
-   |
-   v
-Database lookup
-   |
-   v
-is_revoked = True
-   |
-   v
-401 Unauthorized
-```
-
-The previously rotated refresh token cannot be reused.
-
----
-
-# Logout
-
-```http
-POST /api/v1/auth/logout
-```
-
-### Request
-
-```json
-{
-  "refresh_token": "<refresh_token>"
-}
-```
-
-The refresh token is marked as revoked in the database.
-
-After logout, the revoked refresh token cannot be used to obtain another access token.
-
----
-
-# Current User
-
-```http
-GET /api/v1/users/me
-```
-
-Returns the currently authenticated user's information.
-
-### Header
-
-```http
-Authorization: Bearer <access_token>
-```
-
----
-
-# User Permissions
-
-```http
-GET /api/v1/auth/me/permissions
-```
-
-Requires:
-
-```http
-Authorization: Bearer <access_token>
-```
-
-Returns effective permissions based on the user's role and configured role hierarchy.
-
----
-
-# Role-Based Access Control
-
-## RBAC Test
-
-```http
-GET /api/v1/admin/test
-```
-
-Protected using the configured role hierarchy.
-
-Higher-level roles inherit permissions from lower-level roles according to the hierarchy.
-
----
-
-# Role Hierarchy
-
-Current hierarchy:
-
-```text
-ceo
-└── vp_operations
-    └── procurement_manager
-        └── logistics_manager
-            └── warehouse_manager
-```
-
-Higher roles automatically inherit permissions from lower roles defined in the hierarchy.
+Roles are used for coarse-grained authorization.
 
 For example:
 
 ```text
 CEO
- ├── CEO permissions
- ├── VP Operations permissions
- ├── Procurement permissions
- ├── Logistics permissions
- └── Warehouse permissions
+ └── VP Operations
+      ├── Procurement Manager
+      ├── Logistics Manager
+      ├── Compliance Officer
+      └── Warehouse Manager
 ```
 
-VP Operations does not inherit CEO-only permissions.
-
-The RBAC dependencies use the configured hierarchy as applicable:
-
-```text
-require_role()
-require_any_role()
-require_all_roles()
-```
+The role hierarchy allows higher-level roles to inherit appropriate access where configured.
 
 ---
 
-# Password Policy
+# Database
 
-Passwords must contain:
+- The development environment uses SQLite.
+- Production should use PostgreSQL.
+Main tables include:
+
+```text
+users
+roles
+refresh_tokens
+failed_login_attempts
+password_reset_tokens
+auth_audit_logs
+role_change_history
+service_api_keys
+abuse_event
+```
+---
+
+---
+
+
+## Authentication Flow
+
+```text
+Client
+  │
+  │ username + password
+  ▼
+POST /api/v1/auth/login
+  │
+  ├── Validate credentials
+  ├── Check account status / lockout
+  └── Create MFA challenge
+          │
+          ▼
+POST /api/v1/auth/mfa/verify
+  │
+  ├── Validate challenge
+  ├── Validate OTP
+  └── Issue JWT tokens
+
+When MFA_ENABLED=false:
+
+POST /api/v1/auth/login
+  │
+  ├── Validate credentials
+  └── Issue JWT access + refresh tokens
+```
+
+The login endpoint does not directly issue JWT tokens when MFA is enabled. It first creates an MFA challenge. After successful OTP verification, the Platform Service issues the access and refresh tokens.
+
+---
+
+# User Registration
+
+## POST `/api/v1/auth/register`
+
+Registers a new user.
+
+The request is validated using Pydantic.
+
+Example:
+
+```json
+{
+  "email": "supplier@company.com",
+  "password": "StrongPassword@123",
+  "full_name": "Supplier User"
+}
+```
+
+Password requirements include:
 
 * Minimum 12 characters
 * At least one number
 * At least one special character
 
-Password validation happens before password hashing.
+The password is never stored as plain text.
+
+It is hashed using Passlib/BCrypt before being stored in the database.
+
+### Role assignment
+
+A newly registered user can initially have:
 
 ```text
-Registration
-     |
-     v
-validate_password()
-     |
-     v
-hash_password()
-     |
-     v
-Store BCrypt hash
+role_id = NULL
 ```
 
-The same validator can be reused for password reset and password change operations.
+An administrator can assign the appropriate role later.
 
----
+This prevents users from assigning privileged roles to themselves during registration.
 
-# Force Reset Password
+The refresh token is marked as revoked in the database.
 
-```http
-POST /api/v1/admin/users/{user_id}/force-reset-password
+## Login and Multi-Factor Authentication
+
+The login flow supports optional mock MFA. MFA is enabled only when MFA_ENABLED=true.
+
+### Step 1 – Login
+
+```text
+POST /api/v1/auth/login
 ```
 
-### Request
+The user provides:
+
+* Email
+* Password
+
+The Platform Service:
+
+1. Validates the request.
+2. Checks whether the account is active or locked.
+3. Applies login rate limiting.
+4. Verifies the password.
+5. Creates an MFA challenge.
+6. Sends a mock OTP.
+7. Returns the MFA challenge ID.
+
+Example response:
 
 ```json
 {
-  "new_password": "NewPassword@12345"
+  "mfa_required": true,
+  "challenge_id": "<challenge-id>",
+  "message": "OTP sent for verification"
 }
 ```
 
-The new password must satisfy the configured password policy before it is hashed and stored.
+At this stage, access and refresh tokens are **not returned yet**.
 
-Only authorized administrators can perform this operation.
+### Step 2 – MFA Verification
 
+```text
+POST /api/v1/auth/mfa/verify
+```
+
+The client sends:
+
+```json
+{
+  "challenge_id": "<challenge-id>",
+  "otp": "<mock-otp>"
+}
+```
+
+After successful OTP verification, the Platform Service generates:
+
+* Access token
+* Refresh token
+
+Example:
+
+```json
+{
+  "access_token": "<access-token>",
+  "refresh_token": "<refresh-token>",
+  "token_type": "bearer"
+}
+```
+
+### MFA Configuration
+
+```text
+OTP expiration: 5 minutes
+MFA rate limit: 5 requests / 300 seconds
+Abuse event: MFA_ABUSE
+```
+
+The current OTP implementation is a **mock MFA flow for development/testing**.
+
+---
+
+# Password Hashing
+
+Passwords are not encrypted and stored for later decryption.
+
+Instead:
+
+```text
+Plain Password
+      |
+      v
+BCrypt hashing
+      |
+      v
+Password Hash
+      |
+      v
+Database
+```
+
+During login:
+
+```text
+Entered Password
+      |
+      v
+BCrypt verification
+      |
+      v
+Stored Hash
+```
+
+Passlib provides the password-hashing interface while BCrypt performs the password hashing.
+
+Protected endpoints use FastAPI dependencies to extract and validate the JWT.
+
+# JWT Authentication
+
+Protected endpoints use FastAPI dependencies to extract and validate the JWT.
+
+Example:
+
+```http
+Authorization: Bearer <access_token>
+```
+
+The service verifies:
+
+* Signature
+* Token expiration
+* Token type
+* User identity
+* User account status
+
+Invalid or expired tokens return:
+
+```text
+401 Unauthorized
+```
+---
+
+# Refresh Tokens
+
+## POST `/api/v1/auth/refresh`
+
+Refresh tokens allow a client to obtain a new access token without requiring the user to log in again.
+
+Flow:
+
+```text
+Refresh Token
+      |
+      v
+Validate token
+      |
+      v
+Check expiration
+      |
+      v
+Check revocation
+      |
+      v
+Revoke old refresh token
+      |
+      v
+Generate new access token
+      |
+      v
+Generate new refresh token
+```
+
+This is called **refresh-token rotation**.
+
+The old refresh token cannot be reused after successful rotation.
+---
+
+# Refresh Token Replay Protection
+
+If an already-used refresh token is presented again, the service treats it as a possible replay attack.
+
+Example:
+
+```text
+Original Refresh Token
+        |
+        v
+Used successfully
+        |
+        v
+Old token revoked
+```
+
+If the same token is used again:
+
+```text
+Refresh Token
+      |
+      v
+Already revoked
+      |
+      v
+401 Unauthorized
+```
+
+This protects against stolen refresh-token reuse.
+---
+
+# Logout
+
+## POST `/api/v1/auth/logout`
+
+Logout invalidates the user's active refresh session/token.
+
+The event is also recorded in the audit log.
+
+Example audit event:
+
+```text
+TOKEN_REVOKED
+```
+---
+
+# Current User
+
+## GET `/api/v1/users/me`
+
+Returns the currently authenticated user's information.
+
+Example:
+
+```json
+{
+  "id": 123,
+  "email": "supplier@company.com",
+  "full_name": "Supplier User",
+  "role": "supplier",
+  "is_active": true
+}
+```
+---
+
+# Role-Based Access Control
+
+The Platform Service provides reusable role dependencies.
+
+Examples:
+
+```python
+require_role("ceo")
+```
+
+```python
+require_any_role("ceo", "vp_operations")
+```
+
+```python
+require_all_roles(...)
+```
+a service can check:
+
+This allows other services to use the same authorization pattern.
+
+The authorization model becomes:
+
+```text
+GET /admin/users
+        |
+        v
+require_any_role(
+    "ceo",
+    "vp_operations"
+)
+        |
+        v
+Allow / Deny
+```
+
+If the user is authenticated but does not have permission:
+
+```text
+403 Forbidden
+```
+---
+
+# Fine-Grained Permissions
+
+##  Permission Granularity
+
+Roles provide coarse-grained authorization, but some operations require more specific permissions.
+
+For example, instead of checking only:
+
+```text
+inventory_manager
+```
+a service can check:
+
+```text
+inventory:read
+inventory:write
+compliance:read
+compliance:write
+logistics:read
+logistics:write
+supplier:read
+supplier:write
+```
+
+The authorization model becomes:
+
+```text
+User
+  |
+  v
+Role
+  |
+  v
+Permissions
+  |
+  +--> inventory:read
+  +--> inventory:write
+  +--> compliance:read
+  +--> compliance:write
+```
+
+A permission dependency can be used conceptually as:
+
+```python
+require_permission("inventory:write")
+```
+
+# User Permissions
+
+## GET `/api/v1/auth/me/permissions`
+
+Returns the effective permissions available to the authenticated user.
+
+Example:
+
+```json
+{
+  "role": "warehouse_manager",
+  "permissions": [
+    "inventory:read",
+    "inventory:write"
+  ]
+}
+```
+This endpoint is useful when a frontend or another service needs to understand what the current user is allowed to do.
 ---
 
 # Login Rate Limiting
 
-Failed login attempts are stored in the database using the:
+Repeated failed login attempts are restricted to reduce brute-force attacks.
+
+Current policy:
+
+```text
+5 failed attempts
+within 15 minutes
+```
+
+Rate limiting is tracked using:
+
+* User/email
+* Client IP address
+
+The service records failed attempts in:
 
 ```text
 failed_login_attempts
 ```
 
-table.
+The request IP can use `X-Forwarded-For` when trusted proxy configuration is enabled.
 
-Current limit:
+After the configured threshold is reached, login requests can return:
 
 ```text
-5 failed attempts within 15 minutes
-```
-
-Rate limiting is checked using two dimensions.
-
-## Per Email
-
-Protects an individual account from credential-stuffing attacks.
-
-## Per IP
-
-Protects against password spraying from a single IP address across multiple accounts.
-
-When the limit is reached:
-
-```http
 429 Too Many Requests
 ```
+---
 
-is returned.
+# Account Lifecycle
 
-The rate limiter uses database-backed tracking rather than an in-memory Python dictionary, allowing it to work across multiple service workers more reliably.
+## Full Account Lifecycle
+
+The Platform Service manages the complete user account lifecycle.
+
+### Account Lockout
+
+After repeated failed login attempts, an account can be locked.
+
+Current policy:
+
+```text
+5 failed attempts
+15-minute lockout period
+```
+
+The lockout event is recorded in the audit log.
+
+Example:
+
+```text
+LOGIN_FAILED
+LOGIN_FAILED
+LOGIN_FAILED
+LOGIN_FAILED
+LOGIN_FAILED
+       |
+       v
+ACCOUNT_LOCKED
+```
+---
+
+# Forced Password Rotation
+
+The Platform Service supports a forced password-change workflow.
+
+This can be used when:
+
+* An administrator forces a password reset
+* A security incident occurs
+* A password rotation policy requires a new password
+
+The user must change their password before continuing normal authentication where the policy requires it.
+
+---
+
+# User Activation and Deactivation
+
+Administrators can activate or deactivate accounts.
+
+### Deactivation
+
+```text
+Admin
+  |
+  v
+Deactivate User
+  |
+  +--> User becomes inactive
+  |
+  +--> Active refresh sessions revoked
+  |
+  +--> Security event recorded
+```
+
+This is the **deactivation cascade**.
+
+The purpose is to ensure that disabling an account also invalidates its active sessions.
+
+A deactivated user cannot continue normal access through protected endpoints.
 
 ---
 
 # Admin User Management
 
-Administrative endpoints are available under:
-
-```text
-/api/v1/admin
-```
-
----
-
-## List Users
-
-```http
-GET /api/v1/admin/users
-```
-
-Authorized roles:
+Administrative operations are restricted to:
 
 ```text
 ceo
 vp_operations
 ```
 
-Returns users stored in the database.
-
----
-
-## Create User
-
-```http
-POST /api/v1/admin/users
-```
-
-### Request
-
-```json
-{
-  "email": "r4testuser@company.com",
-  "full_name": "R4 Test User",
-  "password": "TestUser@12345",
-  "role": "analyst"
-}
-```
-
-The administrator:
-
-1. Checks whether the user exists.
-2. Validates the password.
-3. Looks up the requested role.
-4. Hashes the password.
-5. Creates the user.
-6. Assigns the role.
-7. Records the role assignment in role-change history.
-
----
-
-## Deactivate User
-
-```http
-PATCH /api/v1/admin/users/{user_id}/deactivate
-```
-
-Authorized roles:
+Available operations include:
 
 ```text
-ceo
-vp_operations
-```
+GET    /api/v1/admin/test
 
-An administrator cannot deactivate their own account.
+GET    /api/v1/admin/users
+
+POST   /api/v1/admin/users
+
+PATCH  /api/v1/admin/users/{user_id}/deactivate
+
+PATCH  /api/v1/admin/users/{user_id}/activate
+
+PATCH  /api/v1/admin/users/{user_id}/role
+
+GET    /api/v1/admin/users/{user_id}/role-history
+
+POST   /api/v1/admin/users/{user_id}/force-reset-password
+```
 
 ---
 
-## Change User Role
+# Role Change History
 
-```http
-PATCH /api/v1/admin/users/{user_id}/role
+Role changes are recorded for accountability.
+
+Example:
+
+```text
+Admin
+  |
+  | Change role
+  v
+supplier
+  |
+  v
+logistics_manager
 ```
 
-### Request
+The change is recorded with information such as:
 
-```json
-{
-  "role": "analyst"
-}
+```text
+User
+Previous role
+New role
+Administrator
+Timestamp
 ```
 
-The system:
+Endpoint:
 
-* Updates the user's role.
-* Records the previous role.
-* Records the new role.
-* Records the administrator who made the change.
-* Creates an authentication audit log.
-
----
-
-## Role Change History
-
-```http
+```text
 GET /api/v1/admin/users/{user_id}/role-history
 ```
 
-Returns:
-
-* History ID
-* User ID
-* Previous role
-* New role
-* User who made the change
-* Timestamp
-
 ---
 
-# Per-Session Management
+# Session Management
 
-Refresh tokens represent individual user sessions.
+Administrators can view and revoke active refresh sessions.
 
-Multiple logins create separate sessions.
+Endpoints:
 
 ```text
-Login 1
-   |
-   v
-Session A
-
-Login 2
-   |
-   v
-Session B
+GET
+/api/v1/admin/users/{user_id}/sessions
 ```
-
-Each session has a separate refresh token.
-
----
-
-## List Active Sessions
-
-```http
-GET /api/v1/admin/users/{user_id}/sessions
-```
-
-Authorized roles:
 
 ```text
-ceo
-vp_operations
+DELETE
+/api/v1/admin/users/{user_id}/sessions/{session_id}
 ```
 
-Returns:
-
-* Session ID
-* User ID
-* Created timestamp
-* Expiration timestamp
-* Revocation status
-
-Refresh tokens themselves are never exposed.
+A revoked refresh session cannot be used to obtain new access tokens.
 
 ---
 
-## Revoke Session
+# Password Reset
 
-```http
-DELETE /api/v1/admin/users/{user_id}/sessions/{session_id}
-```
+Password reset uses a controlled reset-token workflow.
 
-Revokes an individual session.
-
-The associated refresh token is marked as revoked.
-
-A `TOKEN_REVOKED` authentication audit event is recorded.
-
-### Response
-
-```json
-{
-  "message": "Session revoked successfully"
-}
-```
-
----
-
-# Password Reset Flow
-
-The password reset flow is:
+Endpoints:
 
 ```text
-Request Password Reset
-        |
-        v
-Generate secure random token
-        |
-        v
-Store token in database
-        |
-        v
-Mock email/log output
-        |
-        v
-Reset Password
-        |
-        v
-Validate token
-        |
-        v
-Validate expiration
-        |
-        v
-Validate password
-        |
-        v
-Hash password
-        |
-        v
-Mark token as used
+POST /api/v1/auth/password-reset/request
 ```
-
----
-
-# Request Password Reset
-
-```http
-POST /api/v1/auth/request-password-reset
-```
-
-The system:
-
-1. Accepts the user's email.
-2. Generates a secure random token.
-3. Stores the token in the database.
-4. Stores the expiration time.
-5. Sends/logs a mock email for development.
-
-The response does not reveal whether the supplied email exists.
-
----
-
-# Reset Password
-
-```http
-POST /api/v1/auth/reset-password
-```
-
-The reset operation validates:
-
-* Token exists
-* Token has not been used
-* Token has not expired
-* User exists
-* New password satisfies the password policy
-
-After successful reset:
 
 ```text
-token.used = True
+POST /api/v1/auth/password-reset/reset
 ```
 
-The same reset token cannot be reused.
+Reset tokens should be:
+
+* Expiring
+* Single-use
+* Stored securely
+* Invalidated after successful use
+
+For local development, the reset token can be logged/mock-delivered instead of sending a real email.
 
 ---
 
-# Authentication Audit Logging
+# Audit Logging
 
-Authentication-sensitive actions are recorded using the audit service.
+Security-sensitive events are recorded in:
 
-Supported events include:
+```text
+auth_audit_logs
+```
+
+Examples include:
 
 ```text
 LOGIN_SUCCESS
 LOGIN_FAILED
-ROLE_CHANGED
+LOGOUT
 TOKEN_REVOKED
+PASSWORD_RESET
+PASSWORD_CHANGED
+ACCOUNT_LOCKED
+ROLE_CHANGED
+USER_DEACTIVATED
+USER_ACTIVATED
+MFA_FAILED
+MFA_VERIFIED
+SSO_REJECTED
+SSO_LOGIN
 ```
 
-Audit logs can be accessed by authorized administrators.
-
-```http
-GET /api/v1/admin/audit-logs
-```
-
-Optional filters:
+Audit logs help answer:
 
 ```text
-user_id
-event_type
+Who performed the action?
+What action happened?
+Which user was affected?
+When did it happen?
 ```
 
-Audit records contain information such as:
-
-* Event type
-* User ID
-* Email
-* IP address
-* Details
-* Timestamp
+A revoked refresh session cannot be used to obtain new access tokens.
 
 ---
 
-#Service-to-Service Integration
+# Security Dashboard
 
-Introduces a dedicated integration contract for dependent services.
+##  Audit and Security Dashboard
 
-The goal is to allow services such as Inventory, Logistics, Compliance, Supplier Portal, and API Gateway to communicate with Platform without using browser-oriented authentication flows.
+Administrative security information is exposed through:
 
-The main service-to-service endpoint is:
+```text
+GET /api/v1/admin/security-dashboard
+```
+
+Only authorized administrators can access the dashboard.
+
+The dashboard provides security information such as:
+
+* Failed login trends
+* Active sessions
+* Recent role changes
+* Account lockout events
+* Recent security activity
+
+Conceptually:
+
+```text
+                 Security Dashboard
+                         |
+        +----------------+----------------+
+        |                |                |
+   Failed Logins   Active Sessions   Role Changes
+        |
+   Lockout Events
+```
+
+This gives administrators a central view of authentication-related activity.
+
+---
+
+# JWT Service-to-Service Verification
+
+## POST `/api/v1/auth/verify`
+
+This endpoint is specifically intended for service-to-service validation of a **user access JWT**.
+
+It is different from:
+
+```text
+GET /api/v1/auth/me/permissions
+```
+
+because `/me/permissions` answers:
+
+> "What permissions does the currently authenticated user have?"
+
+while `/auth/verify` answers:
+
+> "Is this access token valid, and who does it represent?"
+
+Example request:
 
 ```http
 POST /api/v1/auth/verify
+
+Authorization: Bearer <access_token>
+X-Caller-Service: inventory-service
+X-Request-ID: <unique-request-id>
+```
+
+Example response:
+
+### `/verify` Response
+
+```json
+{
+  "valid": true,
+  "user_id": 1,
+  "email": "user@company.com",
+  "full_name": "Example User",
+  "role": "warehouse_manager",
+  "supplier_id": null,
+  "is_active": true,
+  "permissions": [
+    "inventory:read",
+    "inventory:write"
+  ]
+}
+```
+
+The `/verify` endpoint validates the access token, checks the user's account status, and returns the authenticated user's identity, role, account status, and permissions.
+
+
+This allows another service to validate a user token without implementing JWT verification logic independently.
+
+---
+
+# Example Microservice Interaction
+
+```text
+                     API Gateway
+                          |
+                          v
+                    Platform Service
+                    Authentication
+                          |
+          +---------------+---------------+
+          |               |               |
+          v               v               v
+      Inventory       Logistics       Compliance
+          |                               |
+          +---------------+---------------+
+                          |
+                    Supplier Portal
+```
+
+Example:
+
+```text
+User
+ |
+ | Request inventory data
+ v
+API Gateway
+ |
+ v
+Inventory Service
+ |
+ | Authorization: Bearer <user JWT>
+ |
+ | POST /auth/verify
+ v
+Platform Service
+ |
+ | Validate JWT
+ | Return user identity + role
+ v
+Inventory Service
+ |
+ | Check inventory permission
+ v
+Return response
 ```
 
 ---
 
-# Integration Contract
+# API-Key Authentication
 
-## Base URL
+##  Service-to-Service API Keys
 
-Local development:
+Pure machine-to-machine calls do not always need a user JWT.
 
-```text
-http://127.0.0.1:8005
-```
+The Platform Service therefore supports service API keys.
 
-API prefix:
+The two authentication mechanisms have different purposes:
 
-```text
-/api/v1
-```
-
-Full verification endpoint:
-
-```text
-POST http://127.0.0.1:8005/api/v1/auth/verify
-```
+| Authentication  | Used for                                    |
+| --------------- | ------------------------------------------- |
+| User JWT        | User-driven requests                        |
+| Service API Key | Machine-to-machine/service-account requests |
 
 ---
 
-# Service-to-Service Verification
+# Service API-Key Model
 
-## Endpoint
+Service keys are stored in:
+
+```text
+service_api_keys
+```
+
+The database stores the **hash**, not the raw API key.
+
+Important fields include:
+
+```text
+id
+service_name
+key_hash
+is_active
+created_at
+expires_at
+last_used_at
+created_by
+```
+
+A revoked key is represented by:
+
+```text
+is_active = false
+```
+
+not `is_revoked`.
+
+---
+
+# Creating a Service API Key
+
+## POST `/api/v1/admin/service-keys`
+
+Only:
+
+```text
+ceo
+vp_operations
+```
+
+can issue service API keys.
+
+Example request:
+
+```json
+{
+  "service_name": "inventory-service",
+  "expires_at": null
+}
+```
+
+The Platform Service generates a key similar to:
+
+```text
+sk_<generated-secret>
+```
+
+The raw key is returned at creation time.
+
+The database stores only its hash.
+
+```text
+Raw API Key
+     |
+     v
+SHA-256 Hash
+     |
+     v
+Database
+```
+
+The raw API key should be stored by the consuming service as a secret and should never be committed to source control.
+
+---
+
+# Listing Service API Keys
+
+## GET `/api/v1/admin/service-keys`
+
+Administrators can view service-key metadata.
+
+The response should contain information such as:
+
+```text
+id
+service_name
+is_active
+created_at
+expires_at
+last_used_at
+```
+
+The raw API key is **never returned again** after creation.
+
+The key hash is also never exposed through the API.
+
+---
+
+# Revoking a Service API Key
+
+## DELETE `/api/v1/admin/service-keys/{key_id}`
+
+An administrator can revoke a service API key.
+
+Flow:
+
+```text
+Admin
+  |
+  v
+Revoke API Key
+  |
+  v
+is_active = false
+  |
+  v
+Future requests rejected
+```
+
+Example response:
+
+```json
+{
+  "message": "Service API key revoked successfully",
+  "key_id": 10
+}
+```
+
+The revocation event is recorded in the audit log.
+
+---
+
+# Service API-Key Verification
+
+## POST `/api/v1/auth/service-verify`
+
+This endpoint validates a service API key.
+
+Request:
 
 ```http
+X-API-Key: sk_<service-secret>
+```
+
+Verification flow:
+
+```text
+X-API-Key
+    |
+    v
+Hash API Key
+    |
+    v
+Find matching key
+    |
+    v
+Check is_active
+    |
+    v
+Check expiration
+    |
+    v
+Update last_used_at
+    |
+    v
+Authenticate service
+```
+
+Example successful response:
+
+```json
+{
+  "authenticated": true,
+  "service": "compliance-service",
+  "auth_type": "api_key"
+}
+```
+
+Invalid or missing keys return:
+
+```text
+401 Unauthorized
+```
+
+## `/verify` Rate Limiting
+
+Rate limiting is implemented for the `/api/v1/auth/verify` endpoint.
+
+Current configuration:
+
+| Endpoint              |        Limit |     Window |
+| --------------------- | -----------: | ---------: |
+| `/api/v1/auth/verify` | 100 requests | 60 seconds |
+
+The caller service is identified using the `X-Caller-Service` header.
+
+```text
+service_api_keys
+```
+
+```text
+X-Caller-Service: compliance
+```
+
+The rate-limit bucket is maintained per:
+
+```text
+caller_service + endpoint
+```
+
+If the `X-Caller-Service` header is missing, the caller is recorded as `unknown`.
+
+When the limit is exceeded:
+
+* HTTP `429 Too Many Requests` is returned.
+* A `RATE_LIMIT_EXCEEDED` audit event is created.
+* An abuse event is recorded.
+* The response includes a `Retry-After` header.
+
+Example:
+
+```text
+HTTP/1.1 429 Too Many Requests
+Retry-After: 60
+```
+---
+# Token Verification Caching
+
+Multiple services may repeatedly call:
+
+```text
 POST /api/v1/auth/verify
 ```
 
-This endpoint is specifically designed for backend services.
+for the same access token.
 
-A dependent service sends a JWT access token to Platform.
+Without caching:
 
-Platform:
+```text
+Inventory
+   |
+   +--> /verify
+   +--> /verify
+   +--> /verify
+   +--> /verify
+           |
+           v
+      Platform Service
+           |
+           v
+      JWT verification
+```
 
-1. Extracts the Bearer token.
-2. Validates the JWT.
-3. Checks token expiration.
-4. Identifies the user.
-5. Retrieves the user's role.
-6. Verifies the account is active.
-7. Returns authenticated user information and role.
+This creates unnecessary repeated verification work.
 
-Services do not need to call user-facing endpoints such as `/users/me` just to validate a token.
+A short-TTL in-memory cache can be used for repeated token introspection.
 
+Example:
+
+```text
+Token
+  |
+  v
+Cache lookup
+  |
+  +---- Cache hit ----> Return cached verification result
+  |
+  +---- Cache miss ---> Verify JWT
+                           |
+                           v
+                       Store result
+```
+### Rate-Limit and Cache Ordering
+
+The `/verify` rate limiter executes before the cache lookup.
+
+Therefore, cached verification results cannot bypass `/verify`
+rate limits.
+
+The request flow is:
+
+Request
+   |
+   v
+/verify rate limiter
+   |
+   v
+Cache lookup
+   |
+   +---- Cache hit ----> Return cached result
+   |
+   +---- Cache miss ---> JWT verification
+                              |
+                              v
+                         Cache result
+
+Current target TTL:
+
+```text
+60 seconds
+```
+
+The cache should be designed carefully around security-sensitive changes such as:
+
+* Account deactivation
+* Role changes
+* Token revocation
+* Expiration
+
+A cache implementation must not allow stale authorization information to bypass important security controls.
+
+
+- Token verification caching: /verify caches successful token verification results for up to 60 seconds, bounded by the JWT expiration time. Cache hits avoid re-decoding the JWT and repeating the database lookup. End-to-end latency improvement at single-request scale may be within measurement noise because HTTP/request-processing overhead can dominate the small in-process operation.
+
+- Verified by test: Repeated cache hits skip JWT decoding, demonstrating that the cache removes repeated token-decoding work.
+
+- Rate limiting: The /verify rate limiter runs before the cache lookup, so cache hits are still subject to per-service rate limiting through X-Caller-Service. This ensures caching cannot bypass /verify request protection.
+
+# Admin Endpoints
+
+Complete administrative endpoint set:
+
+```text
+GET    /api/v1/admin/test
+
+GET    /api/v1/admin/users
+
+POST   /api/v1/admin/users
+
+PATCH  /api/v1/admin/users/{user_id}/activate
+
+PATCH  /api/v1/admin/users/{user_id}/deactivate
+
+PATCH  /api/v1/admin/users/{user_id}/role
+
+GET    /api/v1/admin/users/{user_id}/role-history
+
+POST   /api/v1/admin/users/{user_id}/force-reset-password
+
+GET    /api/v1/admin/users/{user_id}/sessions
+
+DELETE /api/v1/admin/users/{user_id}/sessions/{session_id}
+
+GET    /api/v1/admin/audit-logs
+
+GET    /api/v1/admin/security-dashboard
+
+POST   /api/v1/admin/service-keys
+
+GET    /api/v1/admin/service-keys
+
+DELETE /api/v1/admin/service-keys/{key_id}
+
+GET /api/v1/admin/audit/export
+
+GET /api/v1/admin/abuse/dashboard
+```
 ---
 
-# Verify Request
+# Authentication Endpoints
 
-### Headers
+```text
+POST /api/v1/auth/register
+
+POST /api/v1/auth/login
+
+POST /api/v1/auth/refresh
+
+POST /api/v1/auth/logout
+
+POST /api/v1/auth/verify
+
+POST /api/v1/auth/service-verify
+
+GET  /api/v1/auth/me/permissions
+
+POST /api/v1/auth/password-reset/request
+
+POST /api/v1/auth/password-reset/reset
+
+POST /api/v1/auth/mfa/verify
+
+POST /api/v1/auth/sso/login
+```
+---
+
+# User Endpoints
+
+```text
+GET /api/v1/users/me
+```
+---
+
+# Request and Error Contract
+
+The Platform Service uses standard HTTP status codes.
+
+| Status | Meaning                               |
+| ------ | ------------------------------------- |
+| 200    | Successful request                    |
+| 201    | Resource created                      |
+| 400    | Invalid request/business condition    |
+| 401    | Authentication failed/missing/expired |
+| 403    | Authenticated but not authorized      |
+| 404    | Resource not found                    |
+| 409    | Resource conflict                     |
+| 422    | Request validation failed             |
+| 429    | Rate limit exceeded                   |
+| 500    | Internal server error                 |
+| 503    | Service unavailable                   |
+
+The limit can be adjusted through configuration without changing the rate-limiting logic. For example:
+
+```json
+{
+  "detail": "Invalid credentials"
+}
+```
+
+Authentication failures should avoid revealing whether a specific account exists.
+
+---
+# Token Introspection Caching
+
+# Integration Headers
+
+For user-token service-to-service verification:
 
 ```http
 Authorization: Bearer <access_token>
@@ -951,835 +1507,55 @@ X-Caller-Service: inventory-service
 X-Request-ID: <unique-request-id>
 ```
 
-The request body is not required.
-
-Example:
+For service-account API-key authentication:
 
 ```http
-POST /api/v1/auth/verify
-Authorization: Bearer eyJ...
-X-Caller-Service: inventory-service
-X-Request-ID: 550e8400-e29b-41d4-a716-446655440000
+X-API-Key: sk_<service-secret>
 ```
 
----
-
-# Verify Successful Response
-
-HTTP status:
+`X-Request-ID` helps correlate requests across microservices.
 
 ```text
-200 OK
+Inventory
+   |
+   +--> /verify
+   +--> /verify
+   +--> /verify
+   +--> /verify
+           |
+           v
+      Platform Service
+           |
+           v
+      JWT verification
 ```
 
-Example:
+# Example cURL
 
-```json
-{
-  "valid":true,
-  "user_id": 123,
-  "email": "supplier@company.com",
-  "full_name": "Supplier User",
-  "role": "supplier",
-  "supplier_id":"101",
-  "is_active": true
-}
-```
-
-Dependent services can use the returned role to perform their own authorization checks.
-
----
-
-# Verify Error Contract
-
-All authentication and authorization failures use the same JSON structure:
-
-```json
-{
-  "detail": "clear message"
-}
-```
-
-## 401 Unauthorized
-
-Returned when authentication fails.
-
-Examples:
-
-* Missing token
-* Empty token
-* Invalid token
-* Expired token
-* Tampered token
-* Revoked/invalid authentication credential
-
-Example:
-
-```json
-{
-  "detail": "Invalid or expired token"
-}
-```
-
-The important distinction is:
-
-```text
-401 = Authentication failed
-```
-
-The service could not establish a valid authenticated identity.
-
----
-
-## 403 Forbidden
-
-Returned when the token is valid but the authenticated user does not have permission to perform the requested operation.
-
-Example:
-
-```json
-{
-  "detail": "Forbidden: insufficient permissions"
-}
-```
-
-The distinction is:
-
-```text
-403 = Authentication succeeded,
-      but authorization failed
-```
-
----
-
-## 422 Unprocessable Entity
-
-Used for request validation errors where the API contract requires a request body or specific fields.
-
-For the OAuth2 login endpoint, the expected fields are:
-
-```text
-username
-password
-```
-
-For example, a malformed login request can return:
-
-```json
-{
-  "detail": [
-    {
-      "type": "missing",
-      "loc": [
-        "body",
-        "username"
-      ],
-      "msg": "Field required"
-    }
-  ]
-}
-```
-
----
-
-## 429 Too Many Requests
-
-Returned when login rate limiting is triggered.
-
-Example:
-
-```json
-{
-  "detail": "Too many failed login attempts"
-}
-```
-
----
-
-# cURL Examples
-
-## Login
-
-Because `/auth/login` uses OAuth2 password-form authentication:
+### Login
 
 ```bash
-curl -X POST "http://127.0.0.1:8005/api/v1/auth/login" \
+curl -X POST \
+  http://127.0.0.1:8005/api/v1/auth/login \
   -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=supplier@company.com" \
-  -d "password=supplier@123"
+  -d "username=supplier@company.com&password=StrongPassword@123"
 ```
 
-Example response:
-
-```json
-{
-  "access_token": "<access_token>",
-  "refresh_token": "<refresh_token>",
-  "token_type": "bearer"
-}
-```
-
----
-
-# Call Protected Endpoint
-
-Example:
+### Verify User JWT
 
 ```bash
-curl -X GET "http://127.0.0.1:8005/api/v1/users/me" \
-  -H "Authorization: Bearer <access_token>"
-```
-
----
-
-# Call Service-to-Service Verify Endpoint
-
-Example:
-
-```bash
-curl -X POST "http://127.0.0.1:8005/api/v1/auth/verify" \
+curl -X POST \
+  http://127.0.0.1:8005/api/v1/auth/verify \
   -H "Authorization: Bearer <access_token>" \
-  -H "X-Caller-Service: inventory-service" \
-  -H "X-Request-ID: 550e8400-e29b-41d4-a716-446655440000"
+  -H "X-Caller-Service: compliance-service" \
 ```
 
-Expected:
-
-```json
-{
-  "user_id": 123,
-  "email": "supplier@company.com",
-  "full_name": "Supplier User",
-  "role": "supplier",
-  "is_active": true
-}
-```
-
----
-
-# Dependent Service Integration
-
-Example architecture:
-
-```text
-                  API Gateway
-                       |
-        +--------------+--------------+
-        |              |              |
-        v              v              v
-   Inventory       Logistics      Supplier Portal
-        |               |                |
-        |               |                |
-        +---------------+----------------+
-                        |
-                        | POST /auth/verify
-                        | Bearer JWT
-                        v
-                Platform Service
-                
-```
-
-For example, Inventory can send:
-
-```http
-POST http://127.0.0.1:8005/api/v1/auth/verify
-```
-
-with:
-
-```http
-Authorization: Bearer <access_token>
-X-Caller-Service: inventory-service
-X-Request-ID: <request-id>
-```
-
-Platform validates the token and returns the user's identity and role.
-
----
-
-# Request Logging
-
-Platform records service-to-service requests so authentication failures can be diagnosed.
-
-The logging information includes:
-
-```text
-Caller service
-Request ID
-Timestamp
-HTTP method
-Request path
-Response status
-```
-
-Example conceptual log:
-
-```text
-timestamp=2026-09-04T10:30:15
-caller=inventory-service
-method=POST
-path=/api/v1/auth/verify
-request_id=550e8400-e29b-41d4-a716-446655440000
-status=200
-```
-
-This allows the team to determine:
-
-```text
-Who called?
-When did they call?
-Which endpoint did they call?
-What request ID was used?
-What status did Platform return?
-```
-
----
-
-# Concurrency
-
-Platform is designed to support multiple dependent services calling `/verify`.
-
-Example:
-
-```text
-Inventory Service       \
-Logistics Service        \
-Compliance Service       ---> Platform /auth/verify
-Supplier Portal         /
-API Gateway             /
-```
-
-The integration tests simulate:
-
-* 5 services calling `/verify`
-* 20 concurrent verification requests
-* Multiple service callers
-* Request IDs for tracing
-
----
-
-# Integration Tests
-
-R5 integration tests are maintained separately from unit/authentication tests.
-
-```text
-tests/
-├── test_auth.py
-└── test_integration.py
-```
-
-`test_auth.py` contains normal authentication and application tests.
-
-`test_integration.py` contains **real HTTP tests against the running Platform Service**.
-
-The integration tests do not mock the Platform API.
-
----
-
-#  Integration Test Coverage
-
-The integration suite verifies:
-
-### Platform availability
-
-```text
-GET /
-```
-
-### Real HTTP login
-
-```text
-POST /api/v1/auth/login
-```
-
-### Dedicated verification endpoint
-
-```text
-POST /api/v1/auth/verify
-```
-
-### Role verification
-
-Tests roles such as:
-
-```text
-supplier
-warehouse_manager
-vp_operations
-```
-
-### Authentication failures
-
-Tests:
-
-```text
-Missing token       → 401
-Invalid token       → 401
-Empty token         → 401
-Tampered token      → 401
-Expired token       → 401
-```
-
-### Authorization failure
-
-Valid token + wrong role:
-
-```text
-403
-```
-
-### Error response format
-
-Expected structure:
-
-```json
-{
-  "detail": "clear message"
-}
-```
-
-### Caller service identification
-
-Tests:
-
-```text
-X-Caller-Service
-```
-
-### Request tracing
-
-Tests:
-
-```text
-X-Request-ID
-```
-
-### Concurrent service calls
-
-Tests:
-
-```text
-5 concurrent service calls
-20 concurrent verification requests
-```
-
-### End-to-end authentication
-
-```text
-Login
-  |
-  v
-Receive JWT
-  |
-  v
-Call /auth/verify
-  |
-  v
-Validate JWT
-  |
-  v
-Return user + role
-```
-
----
-
-# Integration Tests
-
-The Platform Service must be running before executing the integration tests.
-
-## Terminal 1 - Start Platform
+### Verify Service API Key
 
 ```bash
-python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8005
-```
-
-Verify:
-
-```text
-http://127.0.0.1:8005/docs
-```
-
-Confirm that the following endpoint is visible:
-
-```text
-POST /api/v1/auth/verify
-```
-
-## Terminal 2 - Run Integration Tests
-
-```bash
-pytest -v tests/test_integration.py
-```
-
-Or:
-
-```bash
-pytest -q tests/test_integration.py
-```
-
-These tests make real HTTP requests to:
-
-```text
-http://127.0.0.1:8005
-```
-
-Therefore, if the Platform Service is not running, tests will fail with a connection error such as:
-
-```text
-httpx.ConnectError
-[WinError 10061]
-No connection could be made because the target machine actively refused it
-```
-
-This indicates that the service is not listening on port `8005`, rather than an authentication assertion failure.
-
----
-
-# Integration Test Examples
-
-Example successful login:
-
-```text
-POST /api/v1/auth/login
-             |
-             v
-          200 OK
-             |
-             v
-       access_token
-```
-
-Example service verification:
-
-```text
-POST /api/v1/auth/verify
-Authorization: Bearer <token>
-X-Caller-Service: inventory-service
-X-Request-ID: <id>
-             |
-             v
-          200 OK
-             |
-             v
-     user + role returned
-```
-
-Example invalid authentication:
-
-```text
-POST /api/v1/auth/verify
-Authorization: Bearer invalid-token
-             |
-             v
-          401
-             |
-             v
-{
-  "detail": "Invalid or expired token"
-}
-```
-
-Example authorization failure:
-
-```text
-Valid JWT
-   |
-   v
-Supplier
-   |
-   v
-Admin-only endpoint
-   |
-   v
-403 Forbidden
-```
-
----
-
-# API-Key Authentication
-
-An API-key authentication mechanism can be used as an alternative for pure service-to-service communication.
-
-Concept:
-
-```text
-Inventory Service
-       |
-       | X-API-Key
-       v
-Platform Service
-       |
-       v
-Validate service credential
-```
-
-Example:
-
-```http
-X-API-Key: <api-key>
-```
-
-This is intended for machine-to-machine communication where forwarding a user JWT is not appropriate.
-
-The API-key mechanism is a stretch feature and does not replace JWT authentication for user-context requests.
-
-API keys must not be committed to source control.
-
-Example environment configuration:
-
-```env
-INVENTORY_SERVICE_API_KEY=<secret>
-```
-
----
-
-# Seeded Users
-
-Development and testing users are provided through:
-
-```text
-app/seed.py
-```
-
-The seed process creates:
-
-1. Roles
-2. Users
-3. User-role relationships
-
-Example users:
-
-```text
-ceo@company.com
-vpoperations@company.com
-procurementmanager@company.com
-logisticsmanager@company.com
-warehousemanager@company.com
-compliance@company.com
-analyst@company.com
-supplier@company.com
-```
-
-Seeded users have roles assigned during the seeding process.
-
-They are used for development and automated testing.
-
----
-
-# Authentication Flow
-
-```text
-                 Seed Database
-                       |
-                       v
-                 Roles + Users
-                       |
-                       v
-                Register / Login
-                       |
-                       v
-                 Validate User
-                       |
-                       v
-                 Validate Role
-                       |
-                       v
-                  Generate JWT
-                       |
-             +---------+---------+
-             |                   |
-             v                   v
-       Access Token        Refresh Token
-             |                   |
-             v                   v
-       Protected APIs       Database Storage
-             |                   |
-             v                   v
-       JWT Validation      Validation/Rotation
-             |                   |
-             v                   v
-        RBAC/Hierarchy       Revocation
-             |
-             v
-         User Access
-```
-
----
-
-# Service-to-Service Authentication Flow
-
-```text
-Dependent Service
-       |
-       | Authorization: Bearer <JWT>
-       | X-Caller-Service
-       | X-Request-ID
-       v
-POST /api/v1/auth/verify
-       |
-       v
-Platform Service
-       |
-       +--> Validate JWT
-       |
-       +--> Check expiration
-       |
-       +--> Identify user
-       |
-       +--> Get role
-       |
-       +--> Check active status
-       |
-       v
-200 OK
-{
-  "valid":true,
-  "user_id": 123,
-  "email": "...",
-  "full_name": "...",
-  "role": "supplier",
-  "supplier_id": "101",
-  "is_active": true
-}
-```
-
----
-
-# Newly Registered User Flow
-
-```text
-Register
-   |
-   v
-User created
-   |
-   v
-role_id = NULL
-   |
-   v
-Cannot login
-   |
-   v
-Admin assigns role
-   |
-   v
-User can login
-```
-
-This is intentional RBAC behavior.
-
----
-
-## Service-to-Service Authentication
-
-The Platform Service supports API-key authentication for trusted service-to-service communication.
-
-This is intended for **service-to-service calls**, not for normal user login.
-
-### Endpoint
-
-```text
-POST /api/v1/auth/service-verify
-```
-
-### Authentication
-
-The requesting service must provide its API key using the authentication header expected by `verify_service_api_key`.
-
-Example:
-
-```bash
-curl -X POST http://127.0.0.1:8005/api/v1/auth/service-verify \
-  -H "X-API-Key: <SERVICE_API_KEY>"
-```
-
-### Successful Response
-
-```json
-{
-  "authenticated": true,
-  "service": "inventory-service",
-  "auth_type": "api_key"
-}
-```
-
-The response confirms that:
-
-* The service API key is valid.
-* The requesting service has been identified.
-* The authentication method is API key authentication.
-
-### When to Use
-
-API-key authentication is intended for trusted internal service-to-service communication where there is no end-user context.
-
-Example:
-
-```text
-Inventory Service
-       |
-       | X-API-Key
-       ▼
-Platform Service
-       |
-       | Validate API key
-       ▼
-Authenticated Service
-```
-
-For requests made on behalf of a logged-in user, use JWT authentication and the normal token verification flow instead.
-
-### Authentication Comparison
-
-| Use case                          | Authentication                |
-| --------------------------------- | ----------------------------- |
-| User login                        | JWT                           |
-| User accessing protected APIs     | Access JWT                    |
-| Refreshing user session           | Refresh token                 |
-| Service-to-service authentication | API key                       |
-| Service token verification        | `/api/v1/auth/verify`         |
-| Service API-key verification      | `/api/v1/auth/service-verify` |
-
-
-
-# Setup
-
-## Create Virtual Environment
-
-```bash
-python -m venv .venv
-```
-
-## Activate
-
-PowerShell:
-
-```powershell
-.venv\Scripts\activate
-```
-
-## Install Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-## Environment File
-
-Create `.env` from `.env.example`.
-
-PowerShell:
-
-```powershell
-Copy-Item .env.example .env
-```
-
-Set a secure `SECRET_KEY`.
-
-Generate one using:
-
-```bash
-python -c "import secrets; print(secrets.token_urlsafe(32))"
+curl -X POST \
+  http://127.0.0.1:8005/api/v1/auth/service-verify \
+  -H "X-API-Key: sk_<service-secret>"
 ```
 
 Example:
@@ -1792,229 +1568,978 @@ Never commit the real `.env` file or production secrets.
 
 ---
 
-# Database Initialization
-
-Start the application:
-
-```bash
-python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8005
-```
-
-The application creates database tables using:
-
-```python
-Base.metadata.create_all(bind=engine)
-```
-
-Then seed roles and development users:
-
-```bash
-python -m app.seed
-```
-
-Run the seed command after the database tables have been created.
-
-The seed operation is designed to avoid duplicating existing roles and users.
-
----
-
-# Swagger
-
-Open:
-
-```text
-http://127.0.0.1:8005/docs
-```
-
----
-
 # Testing
 
-The Platform Service has two types of tests:
+Tests should cover both normal and security-sensitive scenarios.
+
+## Authentication Tests
+
+* Registration success
+* Invalid registration data
+* Duplicate email
+* Successful login
+* Wrong password
+* Unknown user
+* Inactive user
+* Missing role
+* Password validation
+* JWT generation
+* JWT expiration
+* Tampered JWT
+* Invalid token type
+
+## Refresh Token Tests
+
+* Valid refresh
+* Expired refresh
+* Revoked refresh
+* Refresh-token rotation
+* Replay of old refresh token
+* Logout revocation
+
+## RBAC Tests
+
+* Authorized role
+* Unauthorized role
+* CEO hierarchy
+* VP Operations access
+* Multiple-role checks
+
+## Permission Tests
+
+* Permission granted
+* Permission denied
+* `inventory:read`
+* `inventory:write`
+* `compliance:read`
+* `compliance:write`
+* Role-to-permission mapping
+* Backward-compatible role checks
+
+## Account Lifecycle Tests 
+
+* Failed-login counting
+* Account lockout
+* Lockout expiration
+* Forced password reset
+* Forced password rotation
+* User deactivation
+* Refresh-session revocation after deactivation
+* Activated account behavior
+
+## Security Dashboard Tests 
+
+* Admin access
+* Non-admin rejection
+* Failed-login statistics
+* Active sessions
+* Role changes
+* Lockout events
+
+
+## Service API-Key Tests 
+
+* API-key creation
+* API-key hashing
+* API-key verification
+* Invalid API key
+* Missing API key
+* Expired API key
+* Revoked API key
+* `last_used_at` tracking
+* API-key listing
+* API-key revocation
+* Service identity response
+
+## Cache Tests
+
+* Cache miss
+* Cache hit
+* TTL expiration
+* Repeated-token verification
+* Cache performance measurement
+* Security-sensitive invalidation behavior where applicable
+
+## MFA Tests
+* test_login_without_mfa_still_returns_tokens
+* test_mfa_end_to_end_and_audited
+* test_challenge_destroyed_after_max_wrong_attempts
+* test_otp_is_random_when_no_mock_otp
+
+## Rate Limiting Tests
+* test_rate_limit_is_per_ip_not_global
+* test_changing_caller_header_does_not_reset_the_limit
+* test_rejected_requests_write_one_audit_row_per_window
+* test_login_brute_force_shows_on_abuse_dashboard
+* test_login_request_does_not_clear_an_active_mfa_bucket
+
+## SSO Tests
+* test_sso_accepts_signed_assertion_and_is_audited
+* test_sso_rejects_assertion_signed_with_wrong_secret
+* test_sso_rejects_plain_client_fields
+* test_sso_disabled_by_default
+* test_sso_refuses_blank_secret
+* test_env_example_does_not_ship_a_usable_sso_secret
+* test_sso_refuses_a_locked_account
+
+## Audit Export / Abuse Dashboard Tests
+* test_audit_export_has_compliance_columns
+* test_supplier_cannot_export_or_view_abuse_dashboard
+* test_audit_export_limit_is_applied
+* test_audit_export_json_format
+* test_audit_export_csv_neutralises_formulas
+* test_login_brute_force_shows_on_abuse_dashboard
+
+## Account Lockout Security Tests
+
+* test_locked_user_with_valid_token_gets_401_not_500
+* test_sso_refuses_a_locked_account
+---
+
+# Integration Testing
+
+The integration test environment uses:
+
+```text
+http://127.0.0.1:8005
+```
+
+Run normal tests:
+
+```bash
+pytest -q
+```
+
+Run integration tests:
+
+```bash
+pytest -m integration -q
+```
+
+The default configuration excludes integration tests:
+
+```toml
+[tool.pytest.ini_options]
+addopts = "-m 'not integration'"
+```
+---
+
+## End-to-End Service Flow
+
+```text
+1. User registers with the Platform Service
+        ↓
+2. User submits username/password to /auth/login
+        ↓
+3. Platform validates credentials
+        ↓
+4.MFA_ENABLED?
+      /       \
+    YES        NO
+     ↓          ↓
+ Create MFA    Issue JWT
+ Challenge
+     ↓
+ OTP Verify
+     ↓
+ Issue JWT
+        ↓
+4. User submits OTP to /auth/mfa/verify
+        ↓
+5. Platform issues Access Token + Refresh Token
+        ↓
+6. Client calls Inventory / Logistics / Compliance / Supplier services
+        ↓
+7. Calling service sends the Access Token to Platform /auth/verify
+        ↓
+8. Platform validates the token and returns user identity,
+   role, account status, and permissions
+        ↓
+9. Calling service performs its business operation
+```
+
+---
+
+# Logging
+
+Application logging should include useful operational information such as:
+
+```text
+timestamp
+request ID
+endpoint
+calling service
+user ID where applicable
+authentication result
+event type
+latency
+```
+
+Sensitive information must not be logged.
+
+Do not log:
+
+```text
+Passwords
+Raw JWTs
+Raw API keys
+Password reset secrets
+```
+---
+
+# Concurrency and Performance
+
+FastAPI/Uvicorn supports asynchronous request handling and concurrent connections.
+
+The Platform Service should avoid unnecessary blocking operations in request paths.
+
+Database connection management should be configured appropriately for production PostgreSQL deployments.
+
+SQLite is suitable for local development but should not be treated as the production database for high-concurrency deployments.
+
+---
+
+# Completion Summary
+
+The Platform Service evolves through the following improvements:
+
+### Token Introspection Caching
+
+```text
+Repeated /verify calls
+        |
+        v
+Short-TTL cache
+        |
+        v
+Reduced repeated JWT verification work
+```
+
+### Fine-Grained Permissions
+
+```text
+Role
+  |
+  v
+Permissions
+  |
+  +--> inventory:read
+  +--> inventory:write
+  +--> compliance:read
+  +--> compliance:write
+```
+
+### Full Account Lifecycle
+
+```text
+Failed Login
+     |
+     v
+Account Lockout
+     |
+     v
+Password Rotation
+     |
+     v
+Account Active/Inactive
+     |
+     v
+Session Revocation
+```
+
+### Audit and Security Dashboard
+
+```text
+Audit Logs
+    |
+    v
+Security Dashboard
+    |
+    +--> Failed Logins
+    +--> Active Sessions
+    +--> Role Changes
+    +--> Lockouts
+```
+
+### Service-to-Service API Keys
+
+```text
+Admin
+  |
+  v
+Issue Service Key
+  |
+  +--> Inventory
+  |
+  +--> Compliance
+```
+---
+
+# Setup
+
+Install dependencies:
 
 Unit tests — run without requiring the Platform Service to be running.
 Integration tests — make real HTTP requests to the running Platform Service on port 8005.
 Run the default test suite
 ```bash
+pip install -r requirements.txt
+```
+
+Start the service:
+
+```bash
+uvicorn app.main:app --host 127.0.0.1 --port 8005
+```
+
+Open Swagger:
+
+```text
+http://127.0.0.1:8005/docs
+```
+
+Open ReDoc:
+
+```text
+http://127.0.0.1:8005/redoc
+```
+---
+
+# Startup Flow
+
+The application startup process is approximately:
+
+```text
+Uvicorn
+   |
+   v
+FastAPI
+   |
+   v
+Load configuration
+   |
+   v
+Initialize database
+   |
+   v
+Create/load required data
+   |
+   v
+Register routes
+   |
+   v
+Service ready
+```
+---
+
+# Service Dependency Model
+Other EAICSP services should depend on the Platform Service for shared authentication capabilities rather than duplicating authentication logic.
+
+```text
+                 Platform Service
+                 /              \
+                /                \
+         User Authentication   Service Authentication
+                |                    |
+                v                    v
+          User JWT/RBAC        API Key Auth
+                |                    |
+       +--------+--------+           |
+       |        |        |           |
+   Inventory Logistics Compliance    |
+                         |            |
+                         +------------+
+```
+The business services remain responsible for their own domain logic.
+For example:
+```text
+Platform
+    -> Authentication / Authorization
+
+Inventory
+    -> Inventory stock/business logic
+
+Logistics
+    -> Shipment/logistics logic
+
+Compliance
+    -> Compliance screening/rules
+
+Supplier Portal
+    -> Supplier workflows
+```
+---
+
+# Known Limitations
+
+### In-memory token cache
+
+The M1 cache is process-local when implemented in memory.
+
+In a multi-worker or multi-instance production deployment, a shared cache such as Redis may be preferred.
+
+The cache TTL and invalidation strategy must also account for security-sensitive events.
+
+### SQLite
+
+SQLite is intended for development/testing.
+
+Production should use PostgreSQL.
+
+### Email delivery
+
+Password-reset email delivery may use a mock/local implementation during development.
+
+Production should integrate with a secure email provider.
+
+* **MFA challenge storage:** MFA challenges are currently stored in memory. They are lost when the Platform Service restarts and are not shared between multiple Platform Service instances. A production deployment should use a shared store such as Redis or a database-backed challenge store.
+* **SSO trust model:** The current SSO implementation uses a signed mock enterprise assertion for development/testing. It does not integrate with a real enterprise Identity Provider (IdP). Production SSO should use a properly configured and validated enterprise IdP with appropriate issuer, audience, signature, expiry, and MFA/assurance (`amr`) validation.
+* **`MFA_MOCK_OTP`:** `MFA_MOCK_OTP` is provided only for local development/testing. It must not be used as a fixed OTP mechanism in production. Production MFA should use a real secure OTP generation and delivery mechanism.
+---
+
+## Database Schema Update
+
+The Platform Service introduced the following new columns to the `users` table:
+
+* `locked_until`
+* `password_changed_at`
+* `password_expires_at`
+
+These columns are required for the account lifecycle features, including:
+
+* Account lockout
+* Password expiration
+* Forced password rotation
+
+### Important: Existing Development Database
+
+`Base.metadata.create_all()` creates missing tables, but it **does not alter an existing table** to add new columns.
+
+Therefore, an existing `platform.db` created before these fields were introduced may fail with an error such as:
+
+```text
+sqlite3.OperationalError: no such column: users.locked_until
+```
+
+### Fresh Development Setup
+
+If you are using the local SQLite development database and do not need to preserve its data, delete the existing database and restart the Platform Service.
+
+For example:
+
+```bash
+del platform.db
+```
+
+Then start the service again:
+
+```bash
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8005
+```
+
+The application will recreate the database schema with the latest `users` columns.
+
+### If You Need to Preserve Existing Data
+
+**Do not delete `platform.db`.**
+
+A proper database migration should be used to add the new columns while preserving existing users and data.
+
+For production or shared environments, a real migration tool such as Alembic should be used instead of deleting and recreating the database.
+
+### Developer Checklist
+
+After pulling the latest Platform Service changes:
+
+1. Check whether your local database was created before the account-lifecycle changes.
+2. If it is disposable development data, delete `platform.db`.
+3. Restart the Platform Service.
+4. Run the seed/setup process if required.
+5. Run the test suite:
+
+```bash
 pytest -q
 ```
 
-The default test command excludes integration tests, so the Platform Service does not need to be running.
+For integration tests:
 
-Run integration tests
-
-First start the Platform Service:
-
-uvicorn app.main:app --host 0.0.0.0 --port 8005
-
-Then, in another terminal, run:
 ```bash
 pytest -m integration -q
 ```
 
-Integration tests use real HTTP calls against:
+> **Do not delete the database in shared, staging, or production environments. Use a database migration instead.**
 
-http://127.0.0.1:8005
-Run all tests
+## Round 9 to 11 Status
 
-To run both the normal test suite and integration tests:
-```bash
-pytest -m "" -q
+| Milestone                           | Status   | Notes                                                                                               |
+| ----------------------------------- | -------- | --------------------------------------------------------------------------------------------------- |
+| **M1 MFA (mock)**                   | **Done** | MFA is opt-in via `MFA_ENABLED`; OTP delivery is mocked                                             |
+| **M2 SSO stub**                     | **Done** | Signed short-lived mock assertion; no real IdP                                                      |
+| **M3 Audit export**                 | **Done** | CSV export includes outcome and supports paging                                                     |
+| **M4 Rate limit + abuse dashboard** | **Done** | Rate-limit violations plus MFA/SSO/login abuse signals are tracked                                  |
+| **M5 /verify load test**            | **Done** | Sustained 120-second run with multiple tokens, real caller services, and 429 threshold demonstrated |
 
----
+**M5 Load Test Note:** `/verify` was also tested at **2, 3, 5, and 10 requests/sec**. The 5 req/sec test achieved **98.83% success**, while the 10 req/sec test confirmed the rate limiter by returning controlled **429 responses** after the configured limit was reached.
 
-# Test Coverage
-
-Implemented tests cover:
-
-* Root endpoint
-* Successful login
-* Invalid credentials
-* User registration
-* Password policy
-* JWT validation
-* Expired JWT
-* Tampered JWT rejection
-* Refresh token validation
-* Refresh token expiration
-* Refresh token rotation
-* Refresh token replay protection
-* Logout
-* Refresh token revocation
-* Login rate limiting
-* Failed-login tracking
-* CEO role hierarchy
-* Role hierarchy edge cases
-* Wrong-role access
-* Admin user management
-* User activation/deactivation
-* Role assignment
-* Role-change history
-* Per-session management
-* Session revocation
-* Password reset
-* Authentication audit logging
-
-Integration tests additionally cover:
-
-* Real HTTP login
-* Real HTTP `/auth/verify`
-* Correct role returned
-* Missing-token `401`
-* Invalid-token `401`
-* Expired-token `401`
-* Tampered-token `401`
-* Valid-token wrong-role `403`
-* Consistent error response format
-* `X-Caller-Service`
-* `X-Request-ID`
-* Concurrent service-to-service calls
-* End-to-end login → JWT → `/verify`
-
----
-
-# HTTP Status Code Summary
-
-| Status | Meaning                                                                 |
-| ------ | ----------------------------------------------------------------------- |
-| `200`  | Request successful                                                      |
-| `201`  | Resource created                                                        |
-| `400`  | Bad request / invalid operation                                         |
-| `401`  | Authentication failed: missing, invalid, expired, or revoked credential |
-| `403`  | Authentication succeeded but user lacks permission                      |
-| `404`  | Resource or endpoint not found                                          |
-| `422`  | Request validation failed                                               |
-| `429`  | Rate limit exceeded                                                     |
-| `500`  | Internal server error                                                   |
-| `503`  | Service/dependency temporarily unavailable                              |
-
-For service-to-service authentication, dependent services should primarily handle:
-
-```text
-200 → Authentication successful
-401 → Authentication failed
-403 → Authenticated but not authorized
-429 → Rate limited
-503 → Platform/service availability problem
-```
-
-# Reference
-
-Platform is assigned to:
-```text
-http://127.0.0.1:8005
-```
-
-Dependent services should configure their Platform URL accordingly.
-
-Example Inventory configuration:
-
-```env
-PLATFORM_AUTH_URL=http://127.0.0.1:8005
-```
-
-The resulting service-to-service verification call is:
-
-```text
-Inventory
-    |
-    | POST
-    v
-http://127.0.0.1:8005/api/v1/auth/verify
-    |
-    v
-Platform Service
-```
-
----
 
 # Summary
 
-The Platform Service acts as the centralized authentication and authorization service for the Supply Chain Management System.
+The Platform Service provides a centralized security foundation for EAICSP.
 
-It provides:
+It handles:
 
 ```text
-Authentication
-      +
-JWT
-      +
-Refresh Token Management
-      +
-RBAC
-      +
-Role Hierarchy
-      +
-User Management
-      +
-Session Management
-      +
-Password Reset
-      +
-Audit Logging
-      +
-Service-to-Service Verification
-      +
-Request Tracing
-      +
-Integration Testing
+Registration
+     |
+     v
+Login
+     |
+     +---- MFA enabled ----> MFA/OTP
+     |                         |
+     |                         v
+     +---- MFA disabled ----> JWT
+                               |
+                               v
+                    Access + Refresh Tokens
+                               |
+                               v
+                             RBAC
+                               |
+                               v
+                    Fine-Grained Permissions
+                               |
+                               v
+                         Session Management
+                               |
+                               v
+                       Account Lifecycle
+                               |
+                               v
+                         Audit Logging
+                               |
+                               v
+                     Security Monitoring
+                               |
+                               v
+                  Service-to-Service Verification
+                               |
+                               v
+                    Service API-Key Authentication
+                               |
+                               v
+                    Token Introspection Caching 
+    
 ```
 
-The dedicated `/api/v1/auth/verify` endpoint provides a lightweight contract for backend services to validate user tokens and retrieve the authenticated user's role without depending on browser-oriented authentication endpoints.
+This allows the other EAICSP microservices to focus on their business responsibilities while using a common authentication and authorization foundation.
 
-# Known Limitations
 
-- No dependent service currently imports `require_role` /
-`get_current_user`
-from this service. The dependency works; the integration hasn't landed
-yet.
-- The API-key path (`/api/v1/auth/service-verify`,
-`app/core/service_auth.py`)
-is a sketch: no tests, no adopters, header name not finalised.
-- Concurrency is SQLite-backed. The integration suite exercises 20
-concurrent
-verifications, which is well below what a shared database would need to
-handle.
-- Request logging captures caller/request-id/method/path/status, but
-nothing
-currently tests that those values are actually recorded.
+## 1. Mock Enterprise SSO
+
+A mock enterprise SSO integration has been added:
+
+```text
+Enterprise Identity
+       ↓
+Signed Short-Lived SSO Assertion
+       ↓
+Platform verifies signature
+       ↓
+Validate issuer + audience + expiry
+       ↓
+Extract identity from verified assertion
+       ↓
+Cross-check EAICSP User
+       ↓
+EAICSP JWT Tokens
+```
+
+Endpoint:
+
+```text
+POST /api/v1/auth/sso/login
+```
+
+The Platform Service does not trust client-supplied email, full_name, or external_id values. Identity information is derived only from the verified signed assertion. The assertion is short-lived and validated for signature, issuer, audience, and expiration before the EAICSP user is identified.
+
+SSO rate-limit violations are recorded as `SSO_ABUSE`.
+
+---
+
+## 2. Compliance-Ready Audit Export
+
+Authentication and security events can be exported as CSV.
+
+Endpoint:
+
+```text
+GET /api/v1/admin/audit/export
+```
+
+Supported filters:
+
+```text
+from_date
+to_date
+event_type
+limit
+offset
+```
+
+The export contains:
+
+```text
+timestamp
+actor_id
+actor_email
+action
+outcome
+ip_address
+details
+```
+
+Audit records are stored in:
+
+```text
+auth_audit_logs
+```
+
+Examples of tracked events include:
+
+```text
+LOGIN_SUCCESS
+LOGIN_FAILED
+TOKEN_REVOKED
+PASSWORD_RESET
+ACCOUNT_LOCKED
+ROLE_CHANGED
+SERVICE_KEY_CREATED
+SERVICE_KEY_REVOKED
+```
+Audit export access is restricted to:
+
+```text
+ceo
+vp_operations
+```
+---
+
+## 3. Abuse Detection and Rate Limiting
+
+This introduces centralized abuse-event tracking through:
+
+```text
+abuse_event
+```
+
+Tracked abuse types include:
+
+```text
+RATE_LIMIT_EXCEEDED
+LOGIN_BRUTE_FORCE
+MFA_ABUSE
+SSO_ABUSE
+MFA_FAILED
+MFA_VERIFIED
+SSO_REJECTED
+SSO_LOGIN
+```
+The abuse/security dashboard also monitors authentication failure
+signals such as repeated MFA_FAILED and SSO_REJECTED events per IP,
+in addition to explicit rate-limit abuse events.
+### Abuse Dashboard
+
+Endpoint:
+
+```text
+GET /api/v1/admin/abuse/dashboard
+```
+---
+
+The dashboard provides:
+
+```text
+Total abuse events
+Rate-limit violations
+MFA abuse events
+Login abuse events
+SSO abuse events
+Suspicious IPs
+Top IP addresses
+Top endpoints
+```
+
+## 4. `/verify` Combined Call-Graph Load Test
+
+The load test represents the current dependent-service call graph:
+
+```text
+API-Gateway    ──→ Platform /verify
+Supplier-Portal   ──→ Platform /verify
+Compliance  ──→ Platform /verify
+```
+---
+
+Each dependent service sends the user's access token to the Platform Service for centralized JWT verification.
+
+### Test Configuration
+
+```text
+Duration       : 120 seconds
+Concurrency    : 20
+Tokens         : 5
+Callers        : api gateway, supplier portal, compliance
+Target rate    : 5 requests/sec
+
+```
+The test measures:
+
+```text
+Success/failure rate
+HTTP status codes
+Throughput
+Average latency
+Median latency
+P95 latency
+P99 latency
+Maximum latency
+Per-service results
+```
+
+### Manual `/verify` Testing
+
+First, obtain an access token after successful MFA verification.
+
+Set the token in PowerShell:
+
+```powershell
+$env:ACCESS_TOKENS="token1,token2,token3,token4,token5"
+```
+
+To verify that the environment variable is set:
+
+```powershell
+echo $env:ACCESS_TOKENS
+```
+
+Then call the Platform `/verify` endpoint:
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:8005/api/v1/auth/verify" `
+  -H "Authorization: Bearer $env:ACCESS_TOKENS" `
+  -H "Content-Type: application/json" `
+  -H "X-Caller-Service: compliance"
+```
+
+The `X-Caller-Service` header identifies the dependent service making the verification request.
+
+Example callers:
+
+```text
+X-Caller-Service: api-gateway
+X-Caller-Service: supplier-portal
+X-Caller-Service: compliance
+```
+
+Expected response:
+
+```json
+{
+  "valid": true,
+  "user_id": 1,
+  "email": "user@company.com",
+  "full_name": "Example User",
+  "role": "warehouse_manager",
+  "supplier_id": null,
+  "is_active": true,
+  "permissions": [
+    "inventory:read",
+    "inventory:write"
+  ]
+}
+```
+
+### Automated Load Test
+
+The automated load test is implemented in:
+
+```text
+scripts/load_test_verify.py
+```
+
+Run it with:
+
+```powershell
+python scripts/load_test_verify.py
+```
+
+The Platform Service must be running on:
+
+```text
+http://127.0.0.1:8005
+```
+
+The load test sends requests using the three current callers:
+
+```text
+Api-Gateway
+Supplier-Portal
+Compliance
+```
+
+The caller is identified through:
+
+```http
+X-Caller-Service
+```
+
+Starting sustained /verify load test...
+----------------------------------------
+Platform URL       : http://127.0.0.1:8005
+Verify endpoint    : http://127.0.0.1:8005/api/v1/auth/verify
+Duration            : 120 seconds
+Concurrency         : 20
+Target rate         : 5.00 requests/sec
+User tokens         : 5
+Caller services     : supplier-portal, compliance, api-gateway
+----------------------------------------
+
+======================================================================
+/VERIFY SUSTAINED LOAD TEST REPORT
+======================================================================
+
+TEST CONFIGURATION
+----------------------------------------------------------------------
+Endpoint              : http://127.0.0.1:8005/api/v1/auth/verify
+Duration              : 120.00 seconds
+Configured duration   : 120 seconds
+Concurrency           : 20
+Target request rate   : 5.00 requests/sec
+Different tokens      : 5
+Caller services       : supplier-portal, compliance, api-gateway
+
+OVERALL RESULTS
+----------------------------------------------------------------------
+Total requests        : 600
+Successful requests   : 593
+Failed requests       : 7
+Success rate          : 98.83%
+Failure rate          : 1.17%
+Total test time       : 120.00 seconds
+Actual throughput     : 5.00 requests/sec
+
+HTTP STATUS CODES
+----------------------------------------------------------------------
+200        : 593
+429        : 7
+
+429 RATE-LIMIT ANALYSIS
+----------------------------------------------------------------------
+Total 429 responses   : 7
+First 429 after       : 60.07 seconds
+First 429 request     : #301
+First 429 caller      : supplier-portal
+First 429 token       : token-1
+
+CALLER SERVICE DISTRIBUTION
+----------------------------------------------------------------------
+supplier-portal    requests=200    success=197    failed=3      429=3      success_rate=98.50%
+compliance         requests=200    success=198    failed=2      429=2      success_rate=99.00%
+api-gateway        requests=200    success=198    failed=2      429=2      success_rate=99.00%
+
+TOKEN DISTRIBUTION
+----------------------------------------------------------------------
+token-1   : 120 requests
+token-2   : 120 requests
+token-3   : 120 requests
+token-4   : 120 requests
+token-5   : 120 requests
+
+LATENCY
+----------------------------------------------------------------------
+Min latency           : 4.66 ms
+Average latency       : 16.96 ms
+Median latency        : 17.43 ms
+P95 latency           : 29.46 ms
+P99 latency           : 54.79 ms
+Max latency           : 128.32 ms
+
+FAILURE DETAILS
+----------------------------------------------------------------------
+Request #301 | caller=supplier-portal | token=token-1 | status=429 | time=60.07s | error={"detail":"Too many requests. Please try again later."}
+Request #302 | caller=compliance | token=token-2 | status=429 | time=60.26s | error={"detail":"Too many requests. Please try again later."}
+Request #303 | caller=api-gateway | token=token-3 | status=429 | time=60.44s | error={"detail":"Too many requests. Please try again later."}
+Request #304 | caller=supplier-portal | token=token-4 | status=429 | time=60.62s | error={"detail":"Too many requests. Please try again later."}
+Request #305 | caller=compliance | token=token-5 | status=429 | time=60.83s | error={"detail":"Too many requests. Please try again later."}
+Request #306 | caller=api-gateway | token=token-1 | status=429 | time=61.02s | error={"detail":"Too many requests. Please try again later."}
+Request #307 | caller=supplier-portal | token=token-2 | status=429 | time=61.24s | error={"detail":"Too many requests. Please try again later."}
+
+FINAL RESULT
+----------------------------------------------------------------------
+ATTENTION: Rate limiting was triggered.
+Use the first-429 timing and per-caller 429 counts when evaluating the /verify limit.
+======================================================================
+```
+
+These results were obtained in the local development environment using the configured test parameters. They provide a functional and baseline performance measurement and should not be interpreted as production capacity benchmarks.
+
+### Security and Rate-Limit Behavior
+
+The `/verify` endpoint is rate-limited to:
+
+```text
+100 requests / 60 seconds
+```
+
+The rate-limit bucket is maintained per:
+
+```text
+caller_service + endpoint
+```
+
+For example:
+
+```text
+api gateway + /api/v1/auth/verify
+supplier portal  + /api/v1/auth/verify
+compliance + /api/v1/auth/verify
+```
+
+If a caller exceeds its configured limit, the Platform Service returns:
+
+```text
+HTTP 429 Too Many Requests
+```
+
+and records the corresponding security/abuse event.
+
+The rate limiter executes before the token-cache lookup, so cached verification results cannot bypass `/verify` rate limiting.
+
+
+### Access Token Security
+
+Use a valid access token obtained after successful MFA verification when performing manual tests.
+
+For documentation, use only a placeholder or clearly fake/truncated token:
+
+```powershell
+$env:ACCESS_TOKENS="token1,token2,token3,token4,token5"
+```
+
+Do not commit a real access token to GitHub or any other source-control repository. A valid unexpired token could potentially be used to authenticate requests.
+
+---
+
+## 5. Swagger Authentication
+
+Swagger/OpenAPI uses the configured FastAPI authentication scheme.
+
+For protected endpoints such as `/auth/verify`, provide the issued access token using:
+
+Authorization: Bearer <access_token>
+
+The access token must be obtained after successful MFA verification.
+
+The Swagger authentication configuration must match the security dependency used by the Platform Service.
+
+**Centralized authentication, authorization, security, auditing, and service-to-service identity verification.**

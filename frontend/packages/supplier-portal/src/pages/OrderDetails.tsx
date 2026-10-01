@@ -23,13 +23,13 @@ const OrderDetails = () => {
   const { acknowledgePO } = useAcknowledgePO();
 
   // Prevent polling from replacing the page with a loader
- if (loading && !data) {
-  return <Loading />;
-}
+  if (loading && !data) {
+    return <Loading />;
+  }
 
-if (error && !data) {
-  return <ErrorState />;
-}
+  if (error && !data) {
+    return <ErrorState />;
+  }
 
   const orders: PurchaseOrder[] =
     data?.purchaseOrders?.edges?.map(
@@ -37,7 +37,7 @@ if (error && !data) {
     ) || [];
 
   const order = orders.find(
-    (po) => po.po_number === poNumber
+    (po) => po.poNumber === poNumber
   );
 
   // Empty state
@@ -62,7 +62,7 @@ if (error && !data) {
 
   const total = order.items.reduce(
     (sum, item) =>
-      sum + item.quantity * item.unit_price,
+      sum + item.quantity * item.unitPrice,
     0
   );
 
@@ -106,17 +106,17 @@ if (error && !data) {
       <div className="detail-card">
         <p>
           <strong>PO Number:</strong>{" "}
-          {order.po_number}
+          {order.poNumber}
         </p>
 
         <p>
           <strong>Supplier:</strong>{" "}
-          {order.supplier_id}
+          {order.supplierId}
         </p>
 
         <p>
           <strong>Expected Delivery:</strong>{" "}
-          {formatDate(order.expected_delivery)}
+          {formatDate(order.expectedDelivery)}
         </p>
 
         <div style={{ margin: "15px 0" }}>
@@ -139,7 +139,7 @@ if (error && !data) {
             key={item.sku}
             className="item-card"
           >
-            <h4>{item.product_name}</h4>
+            <h4>{item.productName}</h4>
 
             <p>
               <strong>SKU:</strong>{" "}
@@ -153,13 +153,13 @@ if (error && !data) {
 
             <p>
               <strong>Unit Price:</strong>{" "}
-              {formatCurrency(item.unit_price)}
+              {formatCurrency(item.unitPrice)}
             </p>
 
             <p>
               <strong>Subtotal:</strong>{" "}
               {formatCurrency(
-                item.quantity * item.unit_price
+                item.quantity * item.unitPrice
               )}
             </p>
           </div>
@@ -170,7 +170,7 @@ if (error && !data) {
         Total: {formatCurrency(total)}
       </h2>
 
-      {order.status === "sent" && (
+      {order.status === "SENT" && (
         <button
           className="acknowledge-btn"
           onClick={handleAcknowledge}

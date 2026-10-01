@@ -793,7 +793,6 @@ profiling/
 ├── pytest.ini
 ├── README.md
 └── requirements.txt
-
 ```
 
 ---
@@ -1008,7 +1007,7 @@ python -m pytest -q
 Current test result:
 
 ```text
-162 passed, 1 warning
+177 passed, 1 warning
 ```
 
 The test suite covers:
@@ -1068,11 +1067,7 @@ The test suite covers:
 * Audit archive retention across multiple runs
 * Audit archive querying by quality score, drift status, and time range
 * Profiler audit archive integration
-The latest complete test run completed successfully with:
 
-```text
-162 passed, 1 warning
-```
 
 ---
 
@@ -1092,5 +1087,3 @@ The latest complete test run completed successfully with:
 * YAML
 
 ````
-
-

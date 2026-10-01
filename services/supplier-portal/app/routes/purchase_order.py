@@ -98,6 +98,7 @@ def require_po_access(supplier_only: bool = False):
     return dependency
 
 
+
 def require_po_event_access(
     po_number: str,
     user=Depends(verify_token),
@@ -115,6 +116,15 @@ def require_po_event_access(
     # --------------------------------------------------------
 
     authenticated_supplier_id = user.get("supplier_id")
+
+    # Suppliers must have a supplier_id.
+    # This check must happen before looking up the PO/events
+    # so a supplier without identity receives 403, not 404.
+    if user.get("role") == "supplier" and not authenticated_supplier_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Supplier identity is missing",
+        )
 
     # --------------------------------------------------------
     # 2. Get preserved event history
@@ -182,8 +192,6 @@ def require_po_event_access(
         )
 
     return user, events
-
-
 # ============================================================
 # GET PURCHASE ORDER EVENTS
 # Supplier-facing endpoint

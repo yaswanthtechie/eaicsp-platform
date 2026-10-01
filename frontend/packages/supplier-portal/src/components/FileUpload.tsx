@@ -47,7 +47,7 @@ const FileUpload = ({
   };
 
   const handleDrop = (
-    e: React.DragEvent<HTMLLabelElement>
+    e: React.DragEvent<HTMLDivElement>
   ) => {
     e.preventDefault();
 
@@ -88,10 +88,13 @@ const FileUpload = ({
     URL.revokeObjectURL(url);
   };
 
+  const handleBrowseFiles = () => {
+    inputRef.current?.click();
+  };
+
   return (
     <>
-      <label
-        htmlFor="invoice-file"
+      <div
         className={`upload-box ${
           isDragging ? "dragging" : ""
         }`}
@@ -104,7 +107,14 @@ const FileUpload = ({
       >
         <p>Drag & Drop PDF Here</p>
 
-        <p>or Click to Upload</p>
+        <p>or</p>
+
+        <button
+          type="button"
+          onClick={handleBrowseFiles}
+        >
+          Browse files
+        </button>
 
         <input
           id="invoice-file"
@@ -114,7 +124,7 @@ const FileUpload = ({
           hidden
           onChange={handleChange}
         />
-      </label>
+      </div>
 
       {file && (
         <div className="file-preview">
