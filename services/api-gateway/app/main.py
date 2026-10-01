@@ -17,6 +17,9 @@ from app.middleware.ratelimit import (
     limiter,
 )
 from app.middleware.request_id import RequestIDMiddleware
+from app.middleware.prometheus_middleware import PrometheusMiddleware
+from app.middleware.tracing import TracingMiddleware, setup_tracing, shutdown_tracing
+from app.routes.metrics_route import router as metrics_router
 from app.routes import aggregation, dashboard, gateway, health, v2
 from app.schemas.responses import RootResponse
 
@@ -31,6 +34,7 @@ async def lifespan(app: FastAPI):
     Initialize and clean up application resources.
     """
 
+    setup_tracing()
     app.state.http_client = httpx.AsyncClient(
         timeout=settings.TIMEOUT_SECONDS
     )
@@ -39,6 +43,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await app.state.http_client.aclose()
+        shutdown_tracing()
 
 
 # --------------------------------------------------
@@ -72,8 +77,14 @@ app.add_middleware(LoggingMiddleware)
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(PerUserRoleRateLimitMiddleware)
 app.add_middleware(RequestIDMiddleware)
+app.add_middleware(PrometheusMiddleware)
+app.add_middleware(TracingMiddleware)
 
 # --------------------------------------------------
+app.include_router(
+    metrics_router,
+)
+
 # Health Routes
 # --------------------------------------------------
 
