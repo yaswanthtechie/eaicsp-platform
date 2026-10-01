@@ -7,12 +7,26 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src ./src
+COPY scripts ./scripts
 
-# Create the initial MLflow experiment and production model.
-# The Iris dataset is loaded directly from scikit-learn,
-# so no local data/ directory is required.
-RUN python -m src.train
+# Build the training data the same way `dvc repro` does
+# (fetch -> prepare), then create the initial MLflow
+# experiment and standalone model.
+RUN python -m scripts.create_reference_dataset \
+    && python -m scripts.dvc_prepare \
+    && python -m src.train
+
+# ------------------------------------------------------------
+# BentoML runtime configuration
+# ------------------------------------------------------------
+#
+# The Docker container serves the standalone model packaged
+# at /app/models/model.pkl.
+#
+# This does NOT promote anything to MLflow Production.
+# Governance and MLflow promotion remain separate.
+ENV BENTO_BUNDLED_MODEL=true
 
 EXPOSE 3000
 
-CMD ["bentoml", "serve", "src.service:IrisService", "--host", "0.0.0.0", "--port", "3000"]
+CMD ["bentoml","serve","src.service:IrisService","--host","0.0.0.0","--port","3000"]
