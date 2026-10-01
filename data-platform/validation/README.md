@@ -60,6 +60,7 @@ This project strictly adheres to **Semantic Versioning (SemVer 2.0)**. To guaran
 3. **Output Payloads:** Deleting or renaming fields in the `ValidationResult` or `RowLevelResult` payload.
 4. **Rule Extension Contract:** Altering the `func(df, *, field, **kwargs)` signature requirement for `@register_rule` functions.
 5. **Python Support:** Dropping support for previously supported Python versions.
+6. **Import Path:** Renaming or moving the importable package (e.g. `src` → `data_validator`).
 
 
 ## Pipeline
@@ -1240,18 +1241,30 @@ The pipeline supports event-driven architectures by directly integrating with Ap
 *   **`sales.valid`:** The destination topic for events that pass all rules.
 *   **`sales.dlq`:** The Dead-Letter Queue. Bad records are routed here along with their original payload and the specific rules that failed. A bad record never crashes the consumer.
 
-### Fault Tolerance
-The streaming consumer is designed for resilience. It disables auto-commits and uses idempotent producers. If the validation pipeline halts mid-stream, it will restart without losing a single record, and any duplicate writes caused by the crash will be safely deduplicated by the Kafka broker.
+### Fault Tolerance (at-least-once)
+- The input offset is committed only **after** the broker confirms the write to
+  `sales.valid` or `sales.dlq`. If that write fails (for example, Kafka is down),
+  the offset is not committed and the same record is retried, so **no record is lost**.
+- A bad record (invalid JSON, failing rules, or a crashing rule) goes to the DLQ
+  with `failed_rules` and a human-readable `reasons` entry per rule. It never stops the consumer.
+- If the consumer is killed after a write but before its commit, that record is
+  processed again on restart and appears twice downstream. Consumers of
+  `sales.valid` must de-duplicate by `transaction_id`. Kafka's idempotent producer
+  does **not** prevent this; it only removes the producer's own retries.
+- Proof: `tests/test_integration_postgres_metrics.py::test_restart_mid_stream_loses_nothing_and_skips_committed_records`.
 
 ## Local Infrastructure & Execution
 
 To maintain independence and avoid conflicts with shared environments, **all required infrastructure must be run locally using Docker Compose.** Do not use the shared `infra/` directory.
 
 ### 1. Start Local Infrastructure
-Spin up your isolated Kafka instance (using the official Apache KRaft broker) via your terminal or Git Bash using the dedicated dev compose file:
 ```bash
-docker-compose -f docker-compose.dev.yml up -d
+cp .env.example .env          # then set POSTGRES_USER, POSTGRES_PASSWORD and DATABASE_URL
+docker compose -f docker-compose.dev.yml up -d
+set -a; source .env; set +a   # export the variables into this Git Bash session
 ```
+If Postgres was started before `infra/postgres/init.sql` existed, recreate it once:
+`docker compose -f docker-compose.dev.yml down -v`
 
 ### 2. Run the Streaming Pipeline
 Once the container is healthy, you can use the natively installed CLI commands to test the routing.
@@ -1278,30 +1291,38 @@ pytest
 
 # Observability & Persistence
 
-The library is designed for enterprise data engineering stacks, exposing standard interfaces for monitoring and audit logging.
+## 1. Prometheus `/metrics`
+The streaming consumer starts a Prometheus endpoint on `METRICS_PORT` (default 8000)
+and updates it from real traffic:
 
-## 1. Prometheus SLA Metrics
-Pipeline metrics are automatically exposed on an HTTP server (default port 8000). A Prometheus scraper can ingest these to trigger SLA breach alerts based on real-time data:
-```bash
-python src/metrics.py
-# Open your web browser and navigate to http://localhost:8000
+* `validation_pass_rate`: fraction of records that passed (stream so far)
+* `validation_records_per_second`: throughput
+* `validation_dlq_total`: records routed to the DLQ
+* `validation_persist_failures_total`: runs that could NOT be saved to Postgres
+
+Check it while the consumer is running: `curl http://localhost:8000/metrics`
+
+## 2. PostgreSQL run history
+Every batch run (`validate_data`) and every streaming window (each
+`STREAM_PERSIST_EVERY` records, plus once on shutdown) is saved to `validation_runs`
+with run id, mode, dataset, rules applied, pass/fail counts and duration.
+
+```sql
+SELECT run_id, mode, dataset_name, total_rows, total_rows_affected, duration_seconds, created_at
+FROM validation_runs ORDER BY run_id DESC LIMIT 10;
 ```
-*   `validation_pass_rate` (Gauge): The fraction of rows successfully passing validation.
-*   `validation_records_per_second` (Gauge): Processing throughput speed.
-*   `validation_dlq_total` (Counter): Cumulative count of records routed to the dead-letter queue.
 
-
-### 2. PostgreSQL Audit Logging
-Validation execution histories are persisted to a PostgreSQL `validation_runs` table.
-*   **Resilience:** If the database binary is restricted by system-level Application Control policies (e.g., in corporate Windows environments), the library catches the DLL load failure and gracefully falls back to mock persistence without crashing the data pipeline.
+If saving fails, the batch CLI exits with code 2 and the consumer logs it and
+increments `validation_persist_failures_total`. A run is never silently "mock saved".
+If `DATABASE_URL` is not set, the CLI logs that the run was **not** saved.
 
 # Current Status (Round 12-13)
 
 | Milestone | Status | What is built | Not built yet |
 |---|---|---|---|
-| M1 Library Packaging | Done | `pyproject.toml` standardizes dependencies, `src/__init__.py` freezes the public API, SemVer is enforced. | N/A |
-| M2 Kafka Streaming | Done | `validate_stream_kafka` routes to `.valid` and `.dlq` topics. Manual offset commits guarantee at-least-once delivery. | N/A |
-| M3 Validation SLA + Alerting | Done | PostgreSQL stores persistent execution history. Prometheus `/metrics` endpoint exposes pass rates, throughput, and DLQ counts for SLA alerting. Graceful fallbacks implemented for restricted OS policies. | Active alert routing to messaging platforms like Slack/PagerDuty based on the Prometheus data. |
+| M1 Library Packaging | Done | `pip install -e .` from a clean venv; package `data_validator`; frozen public API; versioning rule; single version source. | - |
+| M2 Kafka Streaming | Done (at-least-once) | Routes to `.valid` / `.dlq` with reasons; commits only after a confirmed write; restart tested. | Exactly-once (Kafka transactions); standard event envelope. |
+| M3 Postgres + Prometheus | Done | Batch and streaming runs saved to `validation_runs`; `/metrics` serves real numbers; failures are counted, never hidden. | Alert routing (Slack/PagerDuty) from Prometheus. |
 
 # Known Limitations
 * **Streaming Memory Growth:** While chunked streaming prevents massive Out-Of-Memory (OOM) crashes, Pass 1 still tracks every unique composite key seen in a set. Memory usage scales linearly O(N) with the number of distinct rows, so it is not strictly "near zero".

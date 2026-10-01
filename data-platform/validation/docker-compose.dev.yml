@@ -22,16 +22,20 @@ services:
     image: postgres:15-alpine
     container_name: validator-postgres-local
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: validation_db
+      # Credentials come from .env (gitignored), never from this file.
+      # Copy .env.example to .env and set real values first.
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-validation_db}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Creates the validation_runs table on first start.
+      - ./infra/postgres:/docker-entrypoint-initdb.d:ro
 
   kafka-ui:
-    image: provectuslabs/kafka-ui:latest
+    image: provectuslabs/kafka-ui:v0.7.2
     container_name: validator-kafka-ui
     ports:
       - "8080:8080"

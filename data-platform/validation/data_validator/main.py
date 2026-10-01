@@ -10,9 +10,9 @@ import os
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT))
 
-from src.drift import ReportComparator
-from src.make_messy_data import generate_messy_data
-from src.validator import DataValidator, resolve_env_path
+from data_validator.drift import ReportComparator
+from data_validator.make_messy_data import generate_messy_data
+from data_validator.validator import DataValidator, resolve_env_path
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +123,7 @@ def main():
 
     # --- INCREMENTAL WATERMARK FILTERING ---
     if args.incremental:
-        from src.watermark import WatermarkManager
+        from data_validator.watermark import WatermarkManager
         wm = WatermarkManager(args.watermark_file)
 
         if args.watermark_col not in df.columns:

@@ -3,8 +3,8 @@ import pandas as pd
 import yaml
 from pathlib import Path
 from pydantic import ValidationError
-from src.validator import ConfigRule, DataValidator, ValidationResult, SecurityError, resolve_env_path
-from src.registry import RULE_REGISTRY, clear_registry
+from data_validator.validator import ConfigRule, DataValidator, ValidationResult, SecurityError, resolve_env_path
+from data_validator.registry import RULE_REGISTRY, clear_registry
 import rules.custom_rules as real_custom_rules
 
 

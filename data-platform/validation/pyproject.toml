@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "data-validator"
-version = "1.2.0"
+version = "2.0.0"
 description = "A configuration-driven data quality firewall with Kafka streaming, PostgreSQL, and Prometheus support."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -26,20 +26,23 @@ dev = [
 ]
 
 [project.scripts]
-validate_data = "src.validate_cli:main"
-generate_messy_data = "src.make_messy_data:main"
-run_pipeline = "src.main:main"
-perf_test = "src.perf_test:main"
-validate_folder = "src.validate_folder:main"
-validate_stream_kafka = "src.streaming_validator:main"
-produce_kafka_test_data = "scripts.produce_test_data:main"
-metrics = "src.metrics:main"
+validate_data = "data_validator.validate_cli:main"
+generate_messy_data = "data_validator.make_messy_data:main"
+run_pipeline = "data_validator.main:main"
+perf_test = "data_validator.perf_test:main"
+validate_folder = "data_validator.validate_folder:main"
+validate_stream_kafka = "data_validator.streaming_validator:main"
+produce_kafka_test_data = "data_validator.produce_test_data:main"
 
 [tool.setuptools]
-packages = ["src", "rules", "scripts"]
+# One uniquely named package. "src", "rules" and "scripts" are generic
+# names that clash with other projects' folders once installed.
+# rules/ is loaded from disk by path (registry.discover_rules), so it does
+# not need to be an installed package.
+packages = ["data_validator"]
 
 [tool.coverage.run]
-source = ["src", "rules"]
+source = ["data_validator", "rules"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
@@ -47,4 +50,4 @@ testpaths = ["tests"]
 markers = [
     "integration: marks tests as requiring external infrastructure (e.g., Docker, Kafka, Postgres) (deselect with '-m \"not integration\"')"
 ]
-addopts = "--cov=src --cov=rules --cov-report=term-missing --cov-fail-under=98"
+addopts = "--cov=data_validator --cov=rules --cov-report=term-missing --cov-fail-under=98"

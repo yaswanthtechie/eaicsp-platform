@@ -4,11 +4,11 @@ from unittest.mock import patch, MagicMock, mock_open
 
 import pytest
 
-# Add project root to path so we can import src modules
+# Add project root to path so we can import data_validator modules
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.registry import clear_registry, discover_rules
+from data_validator.registry import clear_registry, discover_rules
 
 
 @pytest.fixture(autouse=True)
@@ -20,8 +20,8 @@ def setup_dynamic_registry():
     clear_registry()
 
 
-from src.validator import ConfigRule
-from src.generate_docs import get_human_readable_description, MarkdownRenderer, HTMLRenderer, main
+from data_validator.validator import ConfigRule
+from data_validator.generate_docs import get_human_readable_description, MarkdownRenderer, HTMLRenderer, main
 
 
 # ==========================================
@@ -262,7 +262,7 @@ def test_main_config_not_found(mock_exists, mock_parse_args):
 
 @patch("argparse.ArgumentParser.parse_args")
 @patch("pathlib.Path.exists")
-@patch("src.validator.DataValidator.list_profiles")
+@patch("data_validator.validator.DataValidator.list_profiles")
 def test_main_no_profiles_found(mock_list, mock_exists, mock_parse_args):
     mock_args = MagicMock()
     mock_args.config = Path("config.yaml")
@@ -278,8 +278,8 @@ def test_main_no_profiles_found(mock_list, mock_exists, mock_parse_args):
 @patch("argparse.ArgumentParser.parse_args")
 @patch("pathlib.Path.exists")
 @patch("pathlib.Path.mkdir")
-@patch("src.validator.DataValidator.list_profiles")
-@patch("src.validator.DataValidator.from_config")
+@patch("data_validator.validator.DataValidator.list_profiles")
+@patch("data_validator.validator.DataValidator.from_config")
 @patch("pathlib.Path.write_text")
 def test_main_success_all_formats(mock_write_text, mock_from_config, mock_list, mock_mkdir, mock_exists,
                                   mock_parse_args):
@@ -313,8 +313,8 @@ def test_main_success_all_formats(mock_write_text, mock_from_config, mock_list, 
 @patch("argparse.ArgumentParser.parse_args")
 @patch("pathlib.Path.exists")
 @patch("pathlib.Path.mkdir")
-@patch("src.validator.DataValidator.list_profiles")
-@patch("src.validator.DataValidator.from_config")
+@patch("data_validator.validator.DataValidator.list_profiles")
+@patch("data_validator.validator.DataValidator.from_config")
 def test_main_exception_during_generation(mock_from_config, mock_list, mock_mkdir, mock_exists, mock_parse_args,
                                           caplog):
     mock_args = MagicMock()

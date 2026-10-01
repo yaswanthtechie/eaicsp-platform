@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import MagicMock, patch
-from scripts.produce_test_data import delivery_report, main
+from data_validator.produce_test_data import delivery_report, main
 
 
 def test_delivery_report_success(capsys):
@@ -23,7 +23,7 @@ def test_delivery_report_error(capsys):
     assert "Message delivery failed: Connection timeout" in captured.out
 
 
-@patch("scripts.produce_test_data.Producer")
+@patch("data_validator.produce_test_data.Producer")
 def test_produce_main(mock_producer_class):
     """Test the main producer execution."""
     mock_producer = MagicMock()
