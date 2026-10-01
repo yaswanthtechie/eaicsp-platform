@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eaicsp-feature-lib"
+version = "0.1.0"
+description = "Shared feature engineering library for EAICSP"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas>=2.0",
+    "holidays>=0.40",
+    "scikit-learn>=1.0",
+    "scipy>=1.10",
+    "statsmodels",
+]
+
+[project.optional-dependencies]
+service = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+]
+dev = [
+    "pytest>=8.0",
+    "httpx",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["feature_lib*"]

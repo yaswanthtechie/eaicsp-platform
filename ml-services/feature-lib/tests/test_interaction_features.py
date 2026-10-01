@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
-from src.build_features import build_all_features
-from src.interaction_features import add_interaction_features
+from feature_lib.build_features import build_all_features
+from feature_lib.interaction_features import add_interaction_features
 
 
 def test_day_of_week_holiday_interaction():

@@ -1,5 +1,5 @@
 import pandas as pd
-from src.build_features import build_all_features
+from feature_lib.build_features import build_all_features
 
 
 def test_no_data_leakage():
