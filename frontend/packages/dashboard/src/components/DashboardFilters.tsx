@@ -7,8 +7,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useEffect, useMemo, useState } from "react";
-import { dashboardApi } from "../api/dashboard";
+import { useMemo } from "react";
+import type { InventoryItem } from "../types/forecast";
 
 interface DashboardFiltersProps {
   filters: {
@@ -24,64 +24,38 @@ interface DashboardFiltersProps {
     endDate: string;
   }) => void;
   lockedWarehouse?: string;
+  inventory: InventoryItem[];
 }
 
 function DashboardFilters({
   filters,
   onFilterChange,
   lockedWarehouse,
+  inventory,
 }: DashboardFiltersProps) {
-
-  const [inventoryData, setInventoryData] = useState<
-    Awaited<ReturnType<typeof dashboardApi.fetchInventory>>
-  >([]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const fetchInventory = async () => {
-      try {
-        const data = await dashboardApi.fetchInventory();
-
-        if (!cancelled) {
-          setInventoryData(data);
-        }
-      } catch {
-        if (!cancelled) {
-          setInventoryData([]);
-        }
-      }
-    };
-
-    fetchInventory();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const warehouses = useMemo(
     () =>
       Array.from(
         new Set(
-          inventoryData.map(
+          inventory.map(
             (item) => item.warehouse_id,
           ),
         ),
       ),
-    [inventoryData],
+    [inventory],
   );
 
   const categories = useMemo(
     () =>
       Array.from(
         new Set(
-          inventoryData.map(
+          inventory.map(
             (item) => item.category,
           ),
         ),
       ),
-    [inventoryData],
+    [inventory],
   );
 
   const updateUrl = (

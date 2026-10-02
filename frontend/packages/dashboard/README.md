@@ -9,8 +9,7 @@ frontend/
               └── dashboard.spec.ts
         └── src/
             ├──api/
-            |    ├── dashboardGraphql.ts
-            |    └── dashboard.ts
+            |    └── dashboardGraphql.ts
             ├── components/
             │   ├── AlertsPanel.tsx
             |   ├── ErrorBoundary.tsx
@@ -24,6 +23,8 @@ frontend/
             │   ├── ShipmentStatus.tsx
             │   ├── SupplierRiskDistribution.tsx
             │   ├── DashboardFilters.tsx
+            |   ├── KpiGrid.tsx
+            |   ├── OfflineBanner.tsx
             │   ├── Skeleton.tsx
             |   ├── export/
             │   |   ├── ExportCsvButton.tsx
@@ -46,13 +47,13 @@ frontend/
             │   ├── useWebSocket.ts
             |   └── useOnlineStatus.tsx
             │
+            ├── mock-server/
+│           |     └── graphqlMockPlugin.ts
             ├── mocks/
             |   ├── api.ts
-            |   ├── browser.ts
             |   ├── dashboardMock.ts
             │   ├── forecast.ts
             |   ├── forecastAccuracy.ts
-            |   ├── handlers.ts
             │   ├── inventory.ts
             │   ├── inventoryHealth.ts
             │   ├── shipments.ts
@@ -80,6 +81,7 @@ frontend/
             |   ├── setup.ts
             |   ├── SupplierRiskDistribution.test.tsx
             │   ├── SupplierRisk.test.tsx
+            |   ├── dashboardGraphql.test.tsx
             |   └── useWebSocket.test.ts
             ├── utils/
             │   ├── exportCsv.ts
@@ -135,7 +137,7 @@ When no SKU matches the search, the empty state is passed correctly to the share
 
 The inventory mock dataset was expanded to 12000 rows so that the **virtualization** implementation is exercised with a meaningful dataset rather than only a small number of records.
 
-The table uses react-window so that only the rows required for the visible scroll area are rendered instead of rendering all 500 rows at once.
+The table uses react-window so that only the rows required for the visible scroll area are rendered instead of rendering all 12000 rows at once.
 
 The Inventory Table also has a simulated failure path so its error state can be reached and tested instead of being an unreachable UI state.
 
@@ -263,11 +265,14 @@ It is started only when `import.meta.env.DEV` is true, so the mock server is not
 * Filter and drill-down state is preserved when the dashboard is refreshed or shared through its URL.
 
 
-### Dashboard API Layer
-
+### GraphQL Data Access Layer
 A thin API layer was added under `src/api/` to provide a clear data-access boundary between the dashboard and its data sources.
 
-The dashboard now uses **Apollo Client with GraphQL** for dashboard data. During development, GraphQL requests are intercepted by **MSW (Mock Service Worker)** and resolved using the existing mock data from `src/mocks/dashboardMock.ts`.
+The dashboard now uses Apollo Client with GraphQL for dashboard data.
+
+GraphQL is served by a local mock server (`src/mock-server/graphqlMockPlugin.ts`), a Vite plugin that executes real queries against `schema.graphql` in both `npm run dev` and `npm run preview`.
+
+I moved away from MSW because it only ran in development, so the production PWA had no GraphQL data. MSW's service worker also competes with the PWA service worker for the same scope.
 
 The current flow is:
 
@@ -275,21 +280,23 @@ The current flow is:
 Dashboard Component
         ↓
 Apollo Client
-        ↓
+↓
 GraphQL Query
-        ↓
+↓
 /graphql
-        ↓
-MSW GraphQL Handler
-        ↓
+↓
+Vite GraphQL Mock Plugin
+↓
+schema.graphql
+↓
 dashboardMock.ts
-        ↓
+↓
 Apollo Response
-        ↓
+↓
 Dashboard Component
 ```
 
-This keeps the dashboard components independent of the mock-data implementation. When the real GraphQL backend is available, the MSW mock layer can be replaced with the real GraphQL endpoint while keeping the GraphQL query and response contract unchanged.
+This keeps the dashboard components independent of the mock-data implementation. When the real GraphQL backend is available, the local Vite GraphQL mock layer can be replaced with the real GraphQL endpoint while keeping the GraphQL query and response contract unchanged.
 
 
 ### KPI Cross-Filtering Limitation
@@ -378,7 +385,7 @@ PDF export creates a downloadable.The exported PDF contains role-appropriate das
 
 ### Accessibility
 
-**Status: accessibility fixes applied; a full automated audit has not been run yet.**
+**Status: accessibility fixes applied and verified with Lighthouse.
 
 What was fixed and tested:
 
@@ -388,16 +395,16 @@ What was fixed and tested:
 * All **filter and export controls** have accessible names (`aria-label`).
 * **KPI cards** are real `<button>` elements, so they already work with the keyboard.
 
-Accessibility audit completed using Lighthouse. Initial score: 81/100. Identified ARIA structure, contrast, and landmark issues; fixes are being applied and will be rechecked.
+Accessibility audit completed using Lighthouse. Initial score: 90/100. Identified ARIA structure, contrast, and landmark issues; fixes are being applied and will be rechecked.
 
-Not done yet:
+Remaining accessibility follow-up includes:
 
-* Color-contrast check of the status colors in `tokens.ts`.
-* Manual screen-reader walkthrough (NVDA / VoiceOver).
+Reviewing the remaining ARIA structure issues in the virtualized Inventory Table and Heatmap.
+Reviewing the missing <main> landmark.
+Performing a manual NVDA / VoiceOver screen-reader walkthrough.
+Reviewing status-color contrast against the dashboard design tokens.
 
-**Next-round accessibility follow-up:**
-
-The remaining items require additional accessibility testing and tooling that I have not worked with yet. They are therefore intentionally kept as **not done** rather than being marked as completed. These will be treated as a **high-priority accessibility follow-up in the next round**.
+These remaining items are documented as follow-up work rather than being marked as complete.
 
 ### Performance at Real Scale
 
@@ -460,23 +467,6 @@ WebSocket tests also cover reconnect and backoff behavior, including retry attem
 
 A `setup.ts` file is also included in the test folder for common test setup and configuration.
 
-
-## Test Cleanup
-
-While creating the tests, I faced an issue where the DOM from one test could affect another test.
-
-I fixed this by using `cleanup()` after every test so that each test starts with a fresh DOM.
-
-For example:
-
-```ts
-afterEach(() => {
-  cleanup();
-  vi.useRealTimers();
-});
-```
-
-This was especially useful for tests that use fake timers and WebSocket reconnection delays.
 
 # 9. Challenges Faced
 
@@ -557,7 +547,7 @@ npm run dev
 To run the complete test suite:
 
 ```bash
-npm test
+npm run test
 ```
 
 Open the local development URL shown in the terminal, for example:
@@ -712,21 +702,57 @@ The browser will show the PWA install option when the application meets the brow
 
 ### Lighthouse Audit
 
-A Lighthouse audit was run against the production preview of the dashboard using Lighthouse **13.4.1** with mobile emulation.
+A Lighthouse audit was run against the production preview of the dashboard using Lighthouse **13.5.0** with mobile emulation.
 
-| Category       |                                               Score |
-| -------------- | --------------------------------------------------: |
-| Performance    |                                          **79/100** |
-| Accessibility  |                                          **90/100** |
-| Best Practices |                                          **96/100** |
-| SEO            |                                          **82/100** |
+| Category       |      Score |
+| -------------- | ---------: |
+| Performance    | **44/100** |
+| Accessibility  | **90/100** |
+| Best Practices | **96/100** |
+| SEO            | **82/100** |
 
+Lighthouse **12+ no longer includes a separate PWA category**. Therefore, PWA installability was verified separately using **Chrome DevTools → Application → Manifest**.
+
+The Lighthouse report is committed to the repository so that the audit can be reproduced and compared in future rounds.
+
+With the production preview running on `http://localhost:4173`, run:
+
+```powershell
+npx lighthouse http://localhost:4173 --output=html --output=json --output-path=./lighthouse/report
+```
+
+This generates the Lighthouse HTML and JSON reports under the `lighthouse/` directory.
+
+### Performance Findings
+
+The current Lighthouse Performance score is **44/100**. The main reasons identified by the audit are:
+
+* **Large initial GraphQL response:** approximately **2.45 MB** was transferred by the `/graphql` request because the initial dashboard query currently returns the complete 12,000-item inventory dataset.
+* **JavaScript execution:** the dashboard performs significant JavaScript work during initial loading. Lighthouse reported approximately **5.4 seconds of script evaluation** and approximately **1.6 seconds of Total Blocking Time (TBT)** on the mobile emulation run.
+* **Largest Contentful Paint:** Lighthouse measured approximately **15.4 seconds**, with a significant portion of the delay occurring during element rendering.
+* **Main-thread work:** approximately **7.3 seconds** of main-thread work was recorded.
+* **Unused JavaScript:** Lighthouse identified approximately **137 KiB** of potentially unused JavaScript.
+* **Network payload:** the total transferred payload was approximately **2.8 MB**, with the GraphQL response being the largest resource.
+* **Forced reflow:** Lighthouse identified approximately **135 ms** of forced reflow during page execution.
+
+Code splitting has already been applied to the heavier forecast components. `ForecastChart` and `ForecastAccuracy` are lazy-loaded so their JavaScript is not required in the initial dashboard bundle.
+
+### Performance Follow-Up
+
+The following performance work remains as follow-up:
+
+* Reduce the size of the initial GraphQL response, particularly the 12,000-item inventory payload.
+* Consider server-side inventory pagination/filtering for the GraphQL API.
+* Continue reducing initial JavaScript execution and main-thread work.
+* Investigate remaining forced-reflow and rendering costs.
+* Continue monitoring the initial bundle and dynamically loaded chart chunks.
+
+These items are documented as follow-up work rather than being marked as fixed.
 
 
 # Milestone 2 — GraphQL Client Layer
 
-The Executive Dashboard data layer was migrated to **Apollo Client** using a mocked GraphQL schema served through **MSW (Mock Service Worker)**.
-
+The Executive Dashboard data layer was migrated to Apollo Client using a local GraphQL mock server implemented as a Vite plugin.
 ### GraphQL Schema
 
 A GraphQL schema was added under:
@@ -759,15 +785,20 @@ Apollo's `InMemoryCache` is used for client-side GraphQL caching.
 
 The application is wrapped with `ApolloProvider` in `main.tsx`.
 
-### MSW Mock GraphQL Layer
+### Local GraphQL Mock Server
 
-MSW was selected for the mocked GraphQL layer because the dashboard already uses browser-based service-worker functionality for its PWA and offline requirements.
+The dashboard uses a local Vite GraphQL mock plugin located at:
 
-The GraphQL request is intercepted by MSW during development and resolved using the existing dashboard mock data.
+`src/mock-server/graphqlMockPlugin.ts`
+
+The plugin executes GraphQL queries against the local schema in:
+
+`src/graphql/schema.graphql`
+
+It is available in both `npm run dev` and `npm run preview`, so the production preview and PWA can use the same `/graphql` mock endpoint.
 
 The request flow is:
 
-```text
 Dashboard Component
         ↓
 Apollo useQuery
@@ -776,26 +807,16 @@ GraphQL GET_DASHBOARD query
         ↓
 /graphql
         ↓
-MSW GraphQL handler
+Vite GraphQL Mock Plugin
         ↓
-dashboardMock
+schema.graphql
+        ↓
+dashboardMock.ts
         ↓
 Apollo response
         ↓
 Dashboard Component
-```
 
-This allows the dashboard to use a GraphQL contract without requiring a live backend service.
-
-### Existing Mock Data Reuse
-
-The GraphQL mock layer reuses the existing dashboard mock data instead of creating a second copy of the data.
-
-The mock data is aggregated through:
-
-`src/mocks/dashboardMock.ts`
-
-This keeps the GraphQL mock response consistent with the existing dashboard data and makes it easier to replace the mock resolver with a real backend later.
 
 ### Component Data Access
 
@@ -847,7 +868,7 @@ The Forecast Chart test suite currently contains:
 
 ### Verification
 
-The Apollo + MSW integration was manually verified through the dashboard.
+The Apollo + local GraphQL mock  integration was manually verified through the dashboard.
 
 The GraphQL response successfully returned:
 
@@ -864,7 +885,7 @@ This confirms that the dashboard can successfully request the mocked GraphQL end
 
 The GraphQL mock layer is structured so that the mock implementation can later be replaced with a real backend GraphQL service.
 
-The dashboard components do not need to know whether the response comes from MSW or the real backend. The GraphQL query and response contract remain the boundary between the UI and the data source.
+The dashboard components do not need to know whether the response comes from the local mock server or the real backend. The GraphQL query and response contract remain the boundary between the UI and the data source.
 
 The intended production flow is:
 
@@ -873,31 +894,17 @@ Dashboard Component
         ↓
 Apollo Client
         ↓
-GraphQL API
+GraphQL Mock Plugin
         ↓
-Real Backend
+schema.graphql
+        ↓
+dashboardMock.ts
 ```
 
-The current development flow is:
-
-```text
-Dashboard Component
-        ↓
-Apollo Client
-        ↓
-MSW
-        ↓
-Existing Mock Data
-```
 ## Milestone 3 — Testing
 
 The dashboard uses Vitest + React Testing Library for component and unit tests, and Playwright for end-to-end testing.
 
-### Test coverage
-
-* **Vitest:** 16 test files / 124 tests
-* **Playwright:** 3 end-to-end tests
-* **Total:** 127 tests
 
 ### Main E2E journeys
 
@@ -907,9 +914,11 @@ The dashboard uses Vitest + React Testing Library for component and unit tests, 
 
 ### Run all tests
 
-Run the complete test suite, including component tests and headless E2E tests, with one command:
+From a fresh clone, install dependencies the Playwright Chromium browser and run the complete test suite:
 
 ```powershell
+npm ci
+npx playwright install chromium
 npm run test:all
 ```
 
@@ -919,16 +928,14 @@ This runs:
 npm run test
 npm run test:e2e
 ```
+### Latest Test Verification
 
-Playwright is configured to run headlessly.
+Test verification completed successfully.
 
-### Latest verification
-
-* Vitest: **124/124 passing**
-* Playwright: **3/3 passing**
-* Combined: **124/124 Vitest + 3/3 Playwright = 127/127 passing**
-
-
+* Vitest: 17 test files, 130/130 tests passed
+* Playwright E2E: 3/3 tests passed
+* Total: 133 tests passed
+* Offline PWA snapshot test is also passing now.
 
 
 

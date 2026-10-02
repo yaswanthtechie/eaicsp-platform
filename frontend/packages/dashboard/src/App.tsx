@@ -1,5 +1,7 @@
 import {
+  lazy,
   Profiler,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -11,8 +13,6 @@ import { useDashboardData } from "./api/dashboardGraphql";
 import AlertsPanel from "./components/AlertsPanel";
 import DashboardFilters from "./components/DashboardFilters";
 import ErrorBoundary from "./components/ErrorBoundary";
-import ForecastAccuracy from "./components/ForecastAccuracy";
-import ForecastChart from "./components/ForecastChart";
 import InventoryHealth from "./components/InventoryHealth";
 import InventoryHeatmap from "./components/InventoryHeatmap";
 import InventoryTable from "./components/InventoryTable";
@@ -22,9 +22,11 @@ import SupplierRisk from "./components/SupplierRisk";
 import SupplierRiskDistribution from "./components/SupplierRiskDistribution";
 import ExportCsvButton from "./components/export/ExportCsvButton";
 import ExportPdfButton from "./components/export/ExportPdfButton";
+import Skeleton from "./components/Skeleton";
+import KpiGrid from "./components/KpiGrid";
+import OfflineBanner from "./components/OfflineBanner";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { useWebSocket } from "./hooks/useWebSocket";
-import { inventory } from "./mocks/inventory";
 import { mockUser, type UserRole } from "./mocks/user";
 import { startMockWebSocketServer } from "./mocks/wsServer";
 import { colors, radius, space } from "./tokens";
@@ -34,7 +36,8 @@ import type {
   WebSocketMessage,
 } from "./types/forecast";
 import { getKpiSnapshot, saveKpiSnapshot } from "./utils/kpiSnapshot";
-
+const ForecastChart = lazy(() => import("./components/ForecastChart"));
+const ForecastAccuracy = lazy(() => import("./components/ForecastAccuracy"));
 const handleProfilerRender: ProfilerOnRenderCallback = (
   id,
   phase,
@@ -60,7 +63,7 @@ function App() {
   const [role, setRole] = useState<UserRole>(mockUser.role);
   const [alerts, setAlerts] = useState<AlertMessage[]>([]);
   const [liveInventory, setLiveInventory] =
-    useState<InventoryItem[]>(dashboardData?.dashboard.inventory ?? inventory);
+    useState<InventoryItem[]>(() => dashboardData?.dashboard.inventory ?? []);
   const isOnline = useOnlineStatus();
   const wasOffline = useRef(false);
   const [filters, setFilters] = useState({
@@ -72,6 +75,15 @@ function App() {
 
   const [lowStockOnly, setLowStockOnly] = useState(false);
   const [selectedKpi, setSelectedKpi] = useState("");
+  const [syncedData, setSyncedData] = useState(dashboardData);
+
+  if (dashboardData !== syncedData) {
+    setSyncedData(dashboardData);
+
+    if (dashboardData) {
+      setLiveInventory(dashboardData.dashboard.inventory);
+    }
+  }
 
   useEffect(() => {
     const updateFiltersFromUrl = () => {
@@ -219,14 +231,25 @@ function App() {
     );
   }, [baseFilteredInventory, lowStockOnly]);
 
-  const totalSkus = dashboardData?.dashboard.kpis.totalSkus ?? 0;
+  const totalSkus = baseFilteredInventory.length;
 
-  const totalUnits = dashboardData?.dashboard.kpis.totalUnits ?? 0;
+  const totalUnits = useMemo(
+    () =>
+      baseFilteredInventory.reduce(
+        (total, item) => total + item.quantity_on_hand,
+        0,
+      ),
+    [baseFilteredInventory],
+  );
 
-  const lowStockCount = dashboardData?.dashboard.kpis.reorderItems ?? 0;
-  const alertCount = dashboardData?.dashboard.kpis.alerts ?? 0;
+  const lowStockCount = useMemo(
+    () => baseFilteredInventory.filter((item) => item.needs_reorder).length,
+    [baseFilteredInventory],
+  );
 
-  const kpis = useMemo( () => 
+  const alertCount = alerts.length;
+
+  const kpis = useMemo( () =>
     role === "warehouse_manager"
       ? [
           {
@@ -272,18 +295,19 @@ function App() {
       alertCount
     ],
   );
-  
-  const offlineSnapshot = !isOnline
-    ? getKpiSnapshot()
-    : null;
+
+  const offlineSnapshot = useMemo(
+    () => (!isOnline || dashboardError ? getKpiSnapshot() : null),
+    [isOnline, dashboardError]
+  );
 
   const displayedKpis = offlineSnapshot?.kpis ?? kpis;
 
   useEffect(() => {
-    if (isOnline) {
+    if (dashboardData && !dashboardError) {
       saveKpiSnapshot(kpis);
     }
-  }, [isOnline, kpis]);
+  }, [dashboardData, dashboardError, kpis]);
 
   const handleKpiClick = (title: string) => {
     const params = new URLSearchParams(
@@ -340,6 +364,65 @@ function App() {
       }
     }, 0);
   };
+  const header = (
+    <div
+      style={{
+        background: colors.surface,
+        padding: space.md,
+        borderRadius: radius.md,
+        marginBottom: space.lg,
+      }}
+    >
+      <h1
+        style={{
+          color: colors.text,
+          textAlign: "center",
+          margin: 0,
+          fontSize: space.xl,
+          fontWeight: 700,
+        }}
+      >
+        Executive Dashboard
+      </h1>
+    </div>
+  );
+
+  if (!dashboardData && offlineSnapshot) {
+    return (
+      <div
+        style={{
+          background: colors.bg,
+          minHeight: "100vh",
+          padding: space.lg,
+          boxSizing: "border-box",
+        }}
+      >
+        {header}
+
+        <OfflineBanner
+          savedAt={offlineSnapshot.savedAt}
+          isOnline={isOnline}
+          hasServerError={Boolean(dashboardError)}
+        />
+
+        <KpiGrid
+          kpis={offlineSnapshot.kpis}
+          selectedKpi={selectedKpi}
+          lowStockOnly={lowStockOnly}
+          onSelect={handleKpiClick}
+        />
+
+        <p
+          style={{
+            color: colors.textMuted,
+            marginTop: space.lg,
+          }}
+        >
+          Charts and tables will load when the connection returns.
+        </p>
+      </div>
+    );
+  }
 
   if (dashboardLoading) {
     return (
@@ -380,26 +463,7 @@ function App() {
         boxSizing: "border-box",
       }}
     >
-      <div
-        style={{
-          background: colors.surface,
-          padding: space.md,
-          borderRadius: radius.md,
-          marginBottom: space.lg,
-        }}
-      >
-        <h1
-          style={{
-            color: colors.text,
-            textAlign: "center",
-            margin: 0,
-            fontSize: space.xl,
-            fontWeight: 700,
-          }}
-        >
-          Executive Dashboard
-        </h1>
-      </div>
+      { header }
 
       <DashboardFilters
         filters={filters}
@@ -407,6 +471,7 @@ function App() {
         lockedWarehouse={
           role === "warehouse_manager" ? effectiveWarehouse : undefined
         }
+        inventory={dashboardData?.dashboard.inventory ?? []}
       />
 
       <div
@@ -451,80 +516,19 @@ function App() {
           kpis={kpis}
         />
       </div>
-      {!isOnline && offlineSnapshot && (
-        <div
-          style={{
-          background: colors.surface,
-          border: `1px solid ${colors.warning}`,
-          borderRadius: radius.md,
-          padding: space.sm,
-          marginBottom: space.lg,
-          color: colors.text,
-          fontSize: 14,
-        }}
-          role="status"
-          aria-live="polite"
-        >
-          Offline — showing data from{" "}
-          {new Date(offlineSnapshot.savedAt).toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-        </div>
+      {offlineSnapshot && (
+        <OfflineBanner
+          savedAt={offlineSnapshot.savedAt}
+          isOnline={isOnline}
+          hasServerError={Boolean(dashboardError)}
+        />
       )}
-      <div className="kpi-grid">
-        {displayedKpis.map((kpi) => (
-          <button
-            key={kpi.title}
-            type="button"
-            onClick={() =>
-              handleKpiClick(kpi.title)
-            }
-            aria-pressed={
-              selectedKpi === kpi.title
-            }
-            style={{
-              background: colors.surface,
-              border: `1px solid ${
-                selectedKpi === kpi.title
-                  ? colors.primary
-                  : (
-                      kpi.title === "Low Stock" ||
-                      kpi.title === "Reorder Items"
-                    ) && lowStockOnly
-                    ? colors.warning
-                    : colors.border
-              }`,
-              borderRadius: radius.md,
-              padding: space.lg,
-              cursor: "pointer",
-              boxSizing: "border-box",
-              minWidth: 0,
-            }}
-          >
-            <div
-              style={{
-                color: colors.textMuted,
-                fontSize: 14,
-                marginBottom: space.sm,
-              }}
-            >
-              {kpi.title}
-            </div>
-
-            <div
-              style={{
-                color: colors.text,
-                fontSize: 28,
-                fontWeight: 700,
-              }}
-            >
-              {kpi.value}
-            </div>
-          </button>
-        ))}
-      </div>
-
+      <KpiGrid
+        kpis={displayedKpis}
+        selectedKpi={selectedKpi}
+        lowStockOnly={lowStockOnly}
+        onSelect={handleKpiClick}
+      />
       <div
         style={{
           marginTop: space.lg,
@@ -581,19 +585,21 @@ function App() {
             }}
           >
             <ErrorBoundary>
-              <Profiler
-                id="ForecastChart"
-                onRender={handleProfilerRender}
-              >
-                <ForecastChart
-                  startDate={filters.startDate}
-                  endDate={filters.endDate}
-                  data={dashboardData?.dashboard.forecast ?? []}
-                  loading={dashboardLoading}
-                  error={Boolean(dashboardError)}
-                  onRetry={() => void refetch()}
-                />
-              </Profiler>
+              <Suspense fallback={<Skeleton />}>
+                <Profiler
+                  id="ForecastChart"
+                  onRender={handleProfilerRender}
+                >
+                  <ForecastChart
+                    startDate={filters.startDate}
+                    endDate={filters.endDate}
+                    data={dashboardData?.dashboard.forecast ?? []}
+                    loading={dashboardLoading}
+                    error={Boolean(dashboardError)}
+                    onRetry={() => void refetch()}
+                   />
+                </Profiler>
+              </Suspense>
             </ErrorBoundary>
           </div>
         </div>
@@ -616,10 +622,16 @@ function App() {
 
       <div className="kpi-suite-grid">
         <ErrorBoundary>
-          <ForecastAccuracy
-            startDate={filters.startDate}
-            endDate={filters.endDate}
-          />
+          <Suspense fallback={<Skeleton />}>
+            <ForecastAccuracy
+              startDate={filters.startDate}
+              endDate={filters.endDate}
+              data={dashboardData?.dashboard.forecastAccuracy ?? []}
+              loading={dashboardLoading}
+              error={Boolean(dashboardError)}
+              onRetry={() => void refetch()}
+            />
+          </Suspense>
         </ErrorBoundary>
 
         <ErrorBoundary>
@@ -714,7 +726,12 @@ function App() {
             }}
           >
             <ErrorBoundary>
-              <SupplierRiskDistribution />
+              <SupplierRiskDistribution
+                supplierRisk={dashboardData?.dashboard.supplierRisk ?? []}
+                loading={dashboardLoading}
+                error={Boolean(dashboardError)}
+                onRetry={() => void refetch()}
+               />
             </ErrorBoundary>
           </div>
         )}

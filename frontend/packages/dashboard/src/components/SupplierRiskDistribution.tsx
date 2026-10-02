@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   Bar,
   BarChart,
@@ -9,43 +9,21 @@ import {
   YAxis,
 } from "recharts";
 import { Button } from "@/components/ui/button";
-import { dashboardApi } from "../api/dashboard";
 import { colors, radius, space } from "../tokens";
 import Skeleton from "./Skeleton";
 
-function SupplierRiskDistribution() {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
-  const supplierRisk = dashboardApi.getSupplierRisk();
-  
-  useEffect(() => {
-    let mounted = true;
-
-    const loadData = async () => {
-      try {
-        await new Promise<void>((resolve) => {
-          setTimeout(resolve, 1000);
-        });
-
-        if (mounted) {
-          setError(false);
-          setLoading(false);
-        }
-      } catch {
-        if (mounted) {
-          setError(true);
-          setLoading(false);
-        }
-      }
-    };
-
-    loadData();
-
-    return () => {
-      mounted = false;
-    };
-  }, [retryCount]);
+interface SupplierRiskDistributionProps {
+  supplierRisk: { risk_score: number }[];
+  loading: boolean;
+  error: boolean;
+  onRetry: () => void;
+}
+function SupplierRiskDistribution({
+  supplierRisk,
+  loading,
+  error,
+  onRetry,
+}: SupplierRiskDistributionProps) {
 
   const distribution = useMemo(() => {
     const result = {
@@ -109,15 +87,27 @@ function SupplierRiskDistribution() {
           type="button"
           variant="outline"
           size="lg"
-          onClick={() => {
-            setError(false);
-            setLoading(true);
-            setRetryCount((count) => count + 1);
-          }}
+          onClick={onRetry}
           style={{ marginTop: space.md }}
         >
           Retry
         </Button>
+      </div>
+    );
+  }
+
+  if (supplierRisk.length === 0) {
+    return (
+      <div
+        role="status"
+        style={{
+          background: colors.surface,
+          borderRadius: radius.md,
+          padding: space.lg,
+          color: colors.textMuted,
+        }}
+      >
+        No supplier risk data available.
       </div>
     );
   }

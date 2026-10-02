@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { act } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import InventoryTable from "../components/InventoryTable";
+import { inventory } from "../mocks/inventory";
 
 vi.mock("../components/Skeleton", () => ({
   default: ({
@@ -18,30 +18,16 @@ vi.mock("../components/Skeleton", () => ({
 }));
 
 describe("InventoryTable", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
 
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  async function loadTable() {
-    render(<InventoryTable />);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
-    });
-  }
 
   it("shows loading skeleton while inventory is loading", () => {
-    render(<InventoryTable />);
+    render(<InventoryTable data={[]} loading />);
 
     expect(screen.getAllByTestId("skeleton")).toHaveLength(4);
   });
 
-  it("shows the inventory after loading", async () => {
-    await loadTable();
+  it("shows the inventory after loading", () => {
+    render(<InventoryTable data={inventory} />);
 
     expect(screen.getByText("Inventory Table")).toBeInTheDocument();
     expect(screen.getByText("SKU")).toBeInTheDocument();
@@ -57,8 +43,8 @@ describe("InventoryTable", () => {
     expect(screen.getByText("Status")).toBeInTheDocument();
   });
 
-  it("searches inventory by SKU", async () => {
-    await loadTable();
+  it("searches inventory by SKU", () => {
+    render(<InventoryTable data={inventory} />);
 
     const searchInput = screen.getByPlaceholderText("Search SKU");
 
@@ -71,8 +57,8 @@ describe("InventoryTable", () => {
     expect(searchInput).toHaveValue("SKU001");
   });
 
-  it("filters low stock items", async () => {
-    await loadTable();
+  it("filters low stock items", () => {
+    render(<InventoryTable data={inventory} />);
 
     const checkbox = screen.getByRole("checkbox", {
       name: "Show only low stock items"
@@ -85,8 +71,8 @@ describe("InventoryTable", () => {
     expect(checkbox).toBeChecked();
   });
 
-  it("shows empty message when SKU is not found", async () => {
-    await loadTable();
+  it("shows empty message when SKU is not found", () => {
+    render(<InventoryTable data={inventory} />);
 
     const searchInput = screen.getByPlaceholderText("Search SKU");
 
@@ -101,8 +87,8 @@ describe("InventoryTable", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows days remaining and expected order date", async () => {
-    await loadTable();
+  it("shows days remaining and expected order date", () => {
+    render(<InventoryTable data={inventory} />);
 
     expect(
       screen.getByText("Days Remaining")
@@ -113,9 +99,9 @@ describe("InventoryTable", () => {
     ).toBeInTheDocument();
   });
 
-  
+
   it("has accessible loading state", () => {
-    render(<InventoryTable />);
+    render(<InventoryTable data={[]} loading />);
 
     const loadingContainer = screen.getByRole("status");
 
@@ -130,8 +116,8 @@ describe("InventoryTable", () => {
     );
   });
 
-  it("has an accessible search input", async () => {
-    await loadTable();
+  it("has an accessible search input", () => {
+    render(<InventoryTable data={inventory} />);
 
     const searchInput = screen.getByLabelText(
       "Search inventory items by SKU No"
@@ -141,8 +127,8 @@ describe("InventoryTable", () => {
     expect(searchInput).toHaveAttribute("id","inventory-search");
   });
 
-  it("has an accessible low stock checkbox", async () => {
-    await loadTable();
+  it("has an accessible low stock checkbox", () => {
+    render(<InventoryTable data={inventory} />);
 
     const checkbox = screen.getByRole("checkbox", {
       name: "Show only low stock items"
@@ -151,8 +137,8 @@ describe("InventoryTable", () => {
     expect(checkbox).toBeInTheDocument();
   });
 
-  it("has accessible table structure", async () => {
-    await loadTable();
+  it("has accessible table structure", () => {
+    render(<InventoryTable data={inventory} />);
 
     const table = screen.getByRole("table", {
       name: "Inventory items",
@@ -167,20 +153,24 @@ describe("InventoryTable", () => {
     expect(screen.getAllByRole("row").length).toBeGreaterThan(0);
   });
 
-  it("has accessible table cells", async () => {
-    await loadTable();
+  it("has accessible table cells", () => {
+    render(<InventoryTable data={inventory} />);
 
     expect(
       screen.getAllByRole("cell").length
     ).toBeGreaterThan(0);
   });
 
-  it("shows accessible error state with retry button", async () => {
-    render(<InventoryTable shouldFail />);
+  it("shows accessible error state with retry button", () => {
+    const onRetry = vi.fn();
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
-    });
+    render(
+      <InventoryTable
+        data={[]}
+        error
+        onRetry={onRetry}
+      />,
+    );
 
     const alert = screen.getByRole("alert");
 
@@ -191,7 +181,10 @@ describe("InventoryTable", () => {
     });
 
     expect(retryButton).toBeInTheDocument();
-  });
 
+    fireEvent.click(retryButton);
+
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
 });
 

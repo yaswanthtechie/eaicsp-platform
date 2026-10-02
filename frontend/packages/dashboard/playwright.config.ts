@@ -2,19 +2,17 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./e2e",
-
   use: {
-    baseURL: "http://localhost:5173",
+    baseURL: "http://localhost:4173",
     headless: true,
     trace: "on-first-retry",
   },
-
   webServer: {
-    command: "npm run dev -- --host 0.0.0.0",
-    url: "http://localhost:5173",
-    reuseExistingServer: true,
+    command: "npm run build && npm run preview -- --port 4173 --strictPort",
+    url: "http://localhost:4173",
+    reuseExistingServer: !process.env.CI,
+    timeout: 180_000,
   },
-
   projects: [
     {
       name: "chromium",

@@ -3,15 +3,16 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 
-import { memo, useEffect, useState } from "react";
+import { memo, useState } from "react";
 import { List, type RowComponentProps } from "react-window";
-import { dashboardApi } from "../api/dashboard";
 import { colors, radius, space } from "../tokens";
 import type { InventoryItem } from "../types/forecast";
 import Skeleton from "./Skeleton";
 interface InventoryTableProps {
-  shouldFail?: boolean;
-  data?: InventoryItem[];
+  data: InventoryItem[];
+  loading?: boolean;
+  error?: boolean;
+  onRetry?: () => void;
 }
 interface InventoryRow extends InventoryItem {
   daysRemaining: number;
@@ -23,58 +24,14 @@ interface RowProps {
 }
 
 function InventoryTable({
-  shouldFail = false,
   data,
+  loading = false,
+  error = false,
+  onRetry,
 }: InventoryTableProps) {
-  const [inventoryData, setInventoryData] = useState<InventoryItem[]>([]);
+  const inventoryData = data;
   const [showLowStock, setShowLowStock] = useState(false);
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
-
-  useEffect(() => {
-    if (data !== undefined) {
-      const timer = setTimeout(() => {
-        setInventoryData(data);
-        setLoading(false);
-        setError(false);
-      }, 1000);
-
-      return () => clearTimeout(timer);
-    }
-
-    let cancelled = false;
-
-    const fetchInventory = async () => {
-      setLoading(true);
-      setError(false);
-
-      try {
-        if (shouldFail) {
-          throw new Error("Failed to fetch inventory")
-        }
-        const loadedData = await dashboardApi.fetchInventory();
-
-        if (!cancelled) {
-          setInventoryData(loadedData);
-          setLoading(false);
-        }
-      } catch {
-        if (!cancelled) {
-          setInventoryData([]);
-          setError(true);
-          setLoading(false);
-        }
-      }
-    };
-
-    fetchInventory();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [data, shouldFail, retryCount]);
 
   if (loading) {
     return (
@@ -136,7 +93,7 @@ function InventoryTable({
           type="button"
           variant="outline"
           size="lg"
-          onClick={() => setRetryCount((count) => count + 1)}
+          onClick={onRetry}
           style={{
             padding: "8px 16px",
             cursor: "pointer",
@@ -288,7 +245,7 @@ function InventoryTable({
           marginBottom: space.md,
           flexWrap: "wrap",
         }}
-      > 
+      >
         <label htmlFor="inventory-search"
           style={{
             display: "block",

@@ -3,14 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
 import DashboardFilters from "../components/DashboardFilters";
-import { dashboardApi } from "../api/dashboard";
 import type { InventoryItem } from "../types/forecast";
 
-vi.mock("../api/dashboard", () => ({
-  dashboardApi: {
-    fetchInventory: vi.fn(),
-  },
-}));
 
 const mockInventory: InventoryItem[] = [
   {
@@ -59,10 +53,6 @@ describe("DashboardFilters", () => {
     vi.clearAllMocks();
 
     window.history.pushState({}, "", "/");
-
-    vi.mocked(dashboardApi.fetchInventory).mockResolvedValue(
-      mockInventory,
-    );
   });
 
   it("renders filters", async () => {
@@ -70,6 +60,7 @@ describe("DashboardFilters", () => {
       <DashboardFilters
         filters={defaultFilters}
         onFilterChange={onFilterChange}
+        inventory={mockInventory}
       />,
     );
 
@@ -88,12 +79,6 @@ describe("DashboardFilters", () => {
     expect(
       screen.getByLabelText("End date"),
     ).toBeInTheDocument();
-
-    await waitFor(() => {
-      expect(
-        dashboardApi.fetchInventory,
-      ).toHaveBeenCalled();
-    });
   });
 
   it("shows default values", () => {
@@ -101,6 +86,7 @@ describe("DashboardFilters", () => {
       <DashboardFilters
         filters={defaultFilters}
         onFilterChange={onFilterChange}
+        inventory={mockInventory}
       />,
     );
 
@@ -124,6 +110,7 @@ describe("DashboardFilters", () => {
       <DashboardFilters
         filters={defaultFilters}
         onFilterChange={onFilterChange}
+        inventory={mockInventory}
       />,
     );
 
@@ -134,19 +121,19 @@ describe("DashboardFilters", () => {
     await user.click(warehouseFilter);
 
     expect(
-      screen.getByRole("option", {
+      await screen.findByRole("option", {
         name: "WH001",
       }),
     ).toBeInTheDocument();
 
     expect(
-      screen.getByRole("option", {
+      await screen.findByRole("option", {
         name: "WH002",
       }),
     ).toBeInTheDocument();
 
     expect(
-      screen.getByRole("option", {
+      await screen.findByRole("option", {
         name: "WH003",
       }),
     ).toBeInTheDocument();
@@ -158,25 +145,26 @@ describe("DashboardFilters", () => {
     );
 
     expect(
-      screen.getByRole("option", {
+      await screen.findByRole("option", {
         name: "Food",
       }),
     ).toBeInTheDocument();
 
     expect(
-      screen.getByRole("option", {
+      await screen.findByRole("option", {
         name: "Personal Care",
       }),
     ).toBeInTheDocument();
   });
 
-  it("changes warehouse", async () => {
+  it("changes warehouse", async() => {
     const user = userEvent.setup();
 
     render(
       <DashboardFilters
         filters={defaultFilters}
         onFilterChange={onFilterChange}
+        inventory={mockInventory}
       />,
     );
 
@@ -209,6 +197,7 @@ describe("DashboardFilters", () => {
       <DashboardFilters
         filters={defaultFilters}
         onFilterChange={onFilterChange}
+        inventory={mockInventory}
       />,
     );
 
@@ -239,14 +228,10 @@ describe("DashboardFilters", () => {
       <DashboardFilters
         filters={defaultFilters}
         onFilterChange={onFilterChange}
+        inventory={mockInventory}
       />,
     );
 
-    await waitFor(() => {
-      expect(
-        dashboardApi.fetchInventory,
-      ).toHaveBeenCalled();
-    });
 
     fireEvent.change(
       screen.getByLabelText("Start date"),
@@ -272,14 +257,10 @@ describe("DashboardFilters", () => {
       <DashboardFilters
         filters={defaultFilters}
         onFilterChange={onFilterChange}
+        inventory={mockInventory}
       />,
     );
 
-    await waitFor(() => {
-      expect(
-        dashboardApi.fetchInventory,
-      ).toHaveBeenCalled();
-    });
 
     fireEvent.change(
       screen.getByLabelText("End date"),
@@ -307,6 +288,7 @@ describe("DashboardFilters", () => {
       <DashboardFilters
         filters={defaultFilters}
         onFilterChange={onFilterChange}
+        inventory={mockInventory}
       />,
     );
 
@@ -347,6 +329,7 @@ describe("DashboardFilters", () => {
       <DashboardFilters
         filters={urlFilters}
         onFilterChange={onFilterChange}
+        inventory={mockInventory}
       />,
     );
 
@@ -391,6 +374,7 @@ describe("DashboardFilters", () => {
       <DashboardFilters
         filters={filters}
         onFilterChange={onFilterChange}
+        inventory={mockInventory}
       />,
     );
 
@@ -401,7 +385,7 @@ describe("DashboardFilters", () => {
     );
 
     await user.click(
-      screen.getByRole("option", {
+      await screen.findByRole("option", {
         name: "All Warehouses",
       }),
     );
@@ -412,11 +396,6 @@ describe("DashboardFilters", () => {
   });
 
   it("handles inventory error", async () => {
-    vi.mocked(
-      dashboardApi.fetchInventory,
-    ).mockRejectedValue(
-      new Error("Failed"),
-    );
 
     const user = userEvent.setup();
 
@@ -424,20 +403,21 @@ describe("DashboardFilters", () => {
       <DashboardFilters
         filters={defaultFilters}
         onFilterChange={onFilterChange}
+        inventory={[]}
       />,
     );
 
-    await waitFor(() => {
-      expect(
-        dashboardApi.fetchInventory,
-      ).toHaveBeenCalled();
-    });
 
     await user.click(
       screen.getByRole("combobox", {
         name: "Warehouse filter",
       }),
     );
+    expect(
+      await screen.findByRole("option", {
+      name: "All Warehouses",
+    }),
+  ).toBeInTheDocument();
 
     expect(
       screen.queryByRole("option", {
@@ -446,4 +426,3 @@ describe("DashboardFilters", () => {
     ).not.toBeInTheDocument();
   });
 });
-

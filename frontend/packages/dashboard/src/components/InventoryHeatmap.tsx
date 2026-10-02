@@ -1,16 +1,17 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { memo, useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { memo, useCallback, useMemo, useState, type KeyboardEvent } from "react";
 import { List, type RowComponentProps } from "react-window";
-import { dashboardApi } from "../api/dashboard";
 import { colors, radius, space } from "../tokens";
 import type { InventoryItem } from "../types/forecast";
 import Skeleton from "./Skeleton";
 
 interface InventoryHeatmapProps {
-  shouldFail?: boolean;
-  data?: InventoryItem[];
+  data: InventoryItem[];
+  loading?: boolean;
+  error?: boolean;
+  onRetry?: () => void;
 }
 
 interface CategorySummary {
@@ -114,59 +115,15 @@ function InventoryItemRow({
 }
 
 function InventoryHeatmap({
-  shouldFail = false,
   data,
+  loading = false,
+  error = false,
+  onRetry,
 }: InventoryHeatmapProps) {
-  const [inventoryData, setInventoryData] =
-    useState<InventoryItem[]>([]);
+  const inventoryData = data;
 
   const [hovered, setHovered] =
     useState<string | null>(null);
-
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const fetchData = async () => {
-      setError(false);
-
-      try {
-        if (data !== undefined) {
-          if (!cancelled) {
-            setInventoryData(data);
-            setLoading(false);
-          }
-
-          return;
-        }
-
-        const loadedData =
-          await dashboardApi.fetchInventory(
-            shouldFail
-          );
-
-        if (!cancelled) {
-          setInventoryData(loadedData);
-          setLoading(false);
-        }
-      } catch {
-        if (!cancelled) {
-          setInventoryData([]);
-          setError(true);
-          setLoading(false);
-        }
-      }
-    };
-
-    fetchData();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [shouldFail, retryCount, data]);
 
   const getStatus = useCallback((
     quantity: number,
@@ -355,9 +312,7 @@ function InventoryHeatmap({
 
         <Button
           variant="destructive"
-          onClick={() =>
-            setRetryCount((count) => count + 1)
-          }
+          onClick={onRetry}
         >
           Retry
         </Button>

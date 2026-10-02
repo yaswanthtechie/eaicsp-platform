@@ -6,6 +6,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { graphqlMockServer } from "./src/mock-server/graphqlMockPlugin.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -13,6 +14,7 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    graphqlMockServer(),
     VitePWA({
       registerType: "autoUpdate",
       manifest: {
@@ -25,14 +27,20 @@ export default defineConfig({
         theme_color: colors.primary,
         icons: [
           {
-            src: "/icons/pwa-icon.png",
+            src: "/pwa-192x192.png",
             sizes: "192x192",
             type: "image/png",
           },
           {
-            src: "/icons/pwa-icon2.png",
+            src: "/pwa-512x512.png",
             sizes: "512x512",
             type: "image/png",
+          },
+          {
+            src: "/maskable-icon-512x512.png",
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "maskable",
           },
         ],
       },

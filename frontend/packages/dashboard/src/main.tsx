@@ -4,23 +4,14 @@ import { ApolloProvider } from "@apollo/client/react"
 import './index.css'
 import App from './App.tsx'
 import { apolloClient } from './graphql/client.ts'
+import { colors } from './tokens.ts'
 
-async function enableMocking() {
-  if (import.meta.env.DEV) {
-    const { worker } = await import("./mocks/browser");
+document.body.style.background = colors.bg
 
-    await worker.start({
-      onUnhandledRequest: "bypass",
-    });
-  }
-
-}
-enableMocking().then(() => {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <ApolloProvider client={apolloClient}>
         <App />
       </ApolloProvider>
     </StrictMode>,
-  );
-});
+  )
