@@ -1,24 +1,23 @@
-import { render, screen, waitFor } from "@testing-library/react";
-
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 
 import ForecastAccuracy from "../components/ForecastAccuracy";
+import { forecastAccuracy } from "../mocks/forecastAccuracy";
 
 describe("ForecastAccuracy", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("renders the title and description after loading", async () => {
+  it("renders the title and description after loading", () => {
     render(
-      <ForecastAccuracy startDate="" endDate="" />,
+      <ForecastAccuracy
+        data={forecastAccuracy}
+        loading={false}
+        error={false}
+        onRetry={() => {}}
+        startDate=""
+        endDate=""
+      />,
     );
 
-    await waitFor(() => {
-      expect(
-        screen.getByText("Forecast Accuracy"),
-      ).toBeInTheDocument();
-    });
+    expect(screen.getByText("Forecast Accuracy")).toBeInTheDocument();
 
     expect(
       screen.getByText(
@@ -27,25 +26,34 @@ describe("ForecastAccuracy", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders the forecast accuracy chart after loading", async () => {
+  it("renders the forecast accuracy chart after loading", () => {
     render(
-      <ForecastAccuracy startDate="" endDate="" />,
+      <ForecastAccuracy
+        data={forecastAccuracy}
+        loading={false}
+        error={false}
+        onRetry={() => {}}
+        startDate=""
+        endDate=""
+      />,
     );
 
-    await waitFor(() => {
-      expect(
-        screen.getByText("Forecast Accuracy"),
-      ).toBeInTheDocument();
-    });
+    expect(screen.getByText("Forecast Accuracy")).toBeInTheDocument();
   });
 
-  it("provides an accessible name for the forecast accuracy chart", async () => {
-    render(<ForecastAccuracy startDate="" endDate="" />,);
+  it("provides an accessible name for the forecast accuracy chart", () => {
+    render(
+      <ForecastAccuracy
+        data={forecastAccuracy}
+        loading={false}
+        error={false}
+        onRetry={() => {}}
+        startDate=""
+        endDate=""
+      />,
+    );
 
-    await waitFor(() => {
-      expect(
-        screen.getByText("Forecast Accuracy")).toBeInTheDocument();
-    });
+    expect(screen.getByText("Forecast Accuracy")).toBeInTheDocument();
 
     expect(
       screen.getByRole("img", {

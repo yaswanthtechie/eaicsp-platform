@@ -1,3 +1,5 @@
+import { Card, CardContent, CardTitle, CardHeader } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { useEffect, useRef, useState } from "react";
 import { colors, radius, space } from "../tokens";
 import type { AlertMessage } from "../types/forecast";
@@ -18,6 +20,7 @@ export default function AlertsPanel({
   onRemove,
 }: AlertsPanelProps) {
   const [fadingAlerts, setFadingAlerts] = useState<string[]>([]);
+  const visibleAlerts = alerts.slice(0, 2);
 
   const timers = useRef<
     Record<string, ReturnType<typeof setTimeout>>
@@ -219,51 +222,36 @@ export default function AlertsPanel({
   }
 
   return (
-    <div
-      aria-label="Live alerts"
-      style={{
-        background: colors.surface,
-        padding: space.md,
-        borderRadius: radius.md,
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: space.sm,
-        }}
-      >
-        <h2
+    <Card aria-label="Live alerts">
+      <CardHeader>
+        <div
           style={{
-            color: colors.text,
-            margin: 0,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: space.sm,
           }}
         >
-          Live Alerts
-        </h2>
-
-        <span
-          style={{
-            fontSize: space.md,
-            fontWeight: 500,
-            color: isConnecting
-              ? colors.warning
+          <CardTitle>Live Alerts</CardTitle>
+          <Badge 
+            variant={isConnecting ? "secondary" : "outline"}
+            className={
+              connected
+                  ? "border-transparent bg-emerald-500/15 text-emerald-400"
+                  : "border-transparent bg-red-500/15 text-red-400"
+            }
+          >
+            {isConnecting
+              ? "Connecting…"
               : connected
-              ? colors.success
-              : colors.danger,
-          }}
-        >
-          {isConnecting
-            ? "🟡 Connecting…"
-            : connected
-            ? "🟢 Connected"
-            : "🔴 Disconnected"}
-        </span>
-      </div>
-
-      {alerts.map((alert) => {
+              ? "Connected"
+              : "Disconnected"}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent>
+        
+      {visibleAlerts.map((alert) => {
         const isFading = fadingAlerts.includes(alert.id);
         const alertType = getAlertType(alert.severity);
         const alertColor = getAlertColor(alertType);
@@ -319,6 +307,7 @@ export default function AlertsPanel({
           </div>
         );
       })}
-    </div>
+      </CardContent>
+    </Card>
   );
 }
