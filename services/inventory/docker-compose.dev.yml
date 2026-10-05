@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-balaji}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
       POSTGRES_DB: ${POSTGRES_DB:-inventory}
     ports:
       - "5432:5432"
@@ -70,8 +70,10 @@ services:
     ports:
       - "8001:8001"
     environment:
-      - DATABASE_URL=postgresql://postgres:balaji@postgres:5432/inventory
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/inventory
+      - TEST_DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/inventory_test
       - REDIS_URL=redis://redis:6379/0
+      - REDIS_CACHE_TTL_SECONDS=300
       - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
       - ENVIRONMENT=production
     depends_on:
@@ -82,6 +84,24 @@ services:
       kafka:
         condition: service_healthy
 
+  outbox-relay:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: inventory-outbox-relay
+    restart: unless-stopped
+    command: ["python", "-m", "app.services.outbox_relay"]
+    environment:
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/inventory
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - ENVIRONMENT=production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
 volumes:
   inventory_postgres_data:
   inventory_redis_data:
+
