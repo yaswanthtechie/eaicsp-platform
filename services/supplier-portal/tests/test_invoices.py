@@ -3107,14 +3107,19 @@ def test_download_invoice_document():
 
     with patch.object(
         invoice_service.document_storage_service,
-        "generate_download_url",
-        return_value="http://minio/presigned-url",
-    ) as mock_generate_url:
+        "object_exists",
+        return_value=True,
+    ) as mock_exists:
+        with patch.object(
+            invoice_service.document_storage_service,
+            "generate_download_url",
+            return_value="http://minio/presigned-url",
+        ) as mock_generate_url:
 
-        response = client.get(
-            "/api/v1/invoices/"
-            "SUP001/INV1001/document"
-        )
+            response = client.get(
+                "/api/v1/invoices/"
+                "SUP001/INV1001/document"
+            )
 
     assert response.status_code == 200, response.text
 
@@ -3127,6 +3132,10 @@ def test_download_invoice_document():
         "http://minio/presigned-url"
     )
     assert data["expires_in_seconds"] > 0
+
+    mock_exists.assert_called_once_with(
+        object_key=expected_key,
+    )
 
     mock_generate_url.assert_called_once_with(
         object_key=expected_key,
@@ -5834,7 +5843,6 @@ def test_invoice_document_download_returns_presigned_url():
         )
     )
 
-
 def test_invoice_document_download_uses_registered_document_path():
     """
     Download URL generation must use the MinIO object key
@@ -5843,38 +5851,46 @@ def test_invoice_document_download_uses_registered_document_path():
 
     create_submitted_invoice()
 
-    invoices[
-        ("SUP001", "INV1001")
-    ]["document_path"] = (
+    expected_key = (
         "suppliers/SUP001/"
         "invoices/INV1001.pdf"
     )
+
+    invoices[
+        ("SUP001", "INV1001")
+    ]["document_path"] = expected_key
 
     authenticate_as(SUPPLIER_1_USER)
 
     with patch(
         "app.routes.invoice."
-        "document_storage_service.generate_download_url"
-    ) as mock_generate:
+        "document_storage_service.object_exists",
+        return_value=True,
+    ) as mock_exists:
 
-        mock_generate.return_value = (
-            "http://minio.test/presigned"
-        )
+        with patch(
+            "app.routes.invoice."
+            "document_storage_service.generate_download_url"
+        ) as mock_generate:
 
-        response = client.get(
-            "/api/v1/invoices/"
-            "SUP001/INV1001/document"
-        )
+            mock_generate.return_value = (
+                "http://minio.test/presigned"
+            )
+
+            response = client.get(
+                "/api/v1/invoices/"
+                "SUP001/INV1001/document"
+            )
 
     assert response.status_code == 200
 
-    mock_generate.assert_called_once_with(
-        object_key=(
-            "suppliers/SUP001/"
-            "invoices/INV1001.pdf"
-        )
+    mock_exists.assert_called_once_with(
+        object_key=expected_key,
     )
 
+    mock_generate.assert_called_once_with(
+        object_key=expected_key,
+    )
 
 def test_invoice_document_download_cross_supplier_is_forbidden():
     """
@@ -6004,7 +6020,6 @@ def test_invoice_document_download_without_document_returns_404():
 
     mock_generate.assert_not_called()
 
-
 def test_invoice_document_download_minio_failure_returns_502():
     """
     MinIO presigned URL generation failure must become
@@ -6013,12 +6028,14 @@ def test_invoice_document_download_minio_failure_returns_502():
 
     create_submitted_invoice()
 
-    invoices[
-        ("SUP001", "INV1001")
-    ]["document_path"] = (
+    expected_key = (
         "suppliers/SUP001/"
         "invoices/INV1001.pdf"
     )
+
+    invoices[
+        ("SUP001", "INV1001")
+    ]["document_path"] = expected_key
 
     authenticate_as(SUPPLIER_1_USER)
 
@@ -6028,20 +6045,26 @@ def test_invoice_document_download_minio_failure_returns_502():
 
     with patch(
         "app.routes.invoice."
-        "document_storage_service.generate_download_url"
-    ) as mock_generate:
+        "document_storage_service.object_exists",
+        return_value=True,
+    ) as mock_exists:
 
-        mock_generate.side_effect = (
-            DocumentDownloadError(
-                "Unable to generate document "
-                "download URL."
+        with patch(
+            "app.routes.invoice."
+            "document_storage_service.generate_download_url"
+        ) as mock_generate:
+
+            mock_generate.side_effect = (
+                DocumentDownloadError(
+                    "Unable to generate document "
+                    "download URL."
+                )
             )
-        )
 
-        response = client.get(
-            "/api/v1/invoices/"
-            "SUP001/INV1001/document"
-        )
+            response = client.get(
+                "/api/v1/invoices/"
+                "SUP001/INV1001/document"
+            )
 
     assert response.status_code == 502
 
@@ -6050,6 +6073,13 @@ def test_invoice_document_download_minio_failure_returns_502():
         "download URL."
     )
 
+    mock_exists.assert_called_once_with(
+        object_key=expected_key,
+    )
+
+    mock_generate.assert_called_once_with(
+        object_key=expected_key,
+    )
 
 def test_invoice_document_download_requires_authentication():
     """
@@ -6070,7 +6100,6 @@ def test_invoice_document_download_requires_authentication():
 
     assert response.status_code == 401
 
-
 def test_invoice_document_download_procurement_manager_allowed():
     """
     Non-supplier roles are not supplier-scoped.
@@ -6081,28 +6110,36 @@ def test_invoice_document_download_procurement_manager_allowed():
 
     create_submitted_invoice()
 
-    invoices[
-        ("SUP001", "INV1001")
-    ]["document_path"] = (
+    expected_key = (
         "suppliers/SUP001/"
         "invoices/INV1001.pdf"
     )
+
+    invoices[
+        ("SUP001", "INV1001")
+    ]["document_path"] = expected_key
 
     authenticate_as(PROCUREMENT_USER)
 
     with patch(
         "app.routes.invoice."
-        "document_storage_service.generate_download_url"
-    ) as mock_generate:
+        "document_storage_service.object_exists",
+        return_value=True,
+    ) as mock_exists:
 
-        mock_generate.return_value = (
-            "http://minio.test/presigned"
-        )
+        with patch(
+            "app.routes.invoice."
+            "document_storage_service.generate_download_url"
+        ) as mock_generate:
 
-        response = client.get(
-            "/api/v1/invoices/"
-            "SUP001/INV1001/document"
-        )
+            mock_generate.return_value = (
+                "http://minio.test/presigned"
+            )
+
+            response = client.get(
+                "/api/v1/invoices/"
+                "SUP001/INV1001/document"
+            )
 
     assert response.status_code == 200
 
@@ -6111,13 +6148,13 @@ def test_invoice_document_download_procurement_manager_allowed():
     assert data["invoice_number"] == "INV1001"
     assert data["supplier_id"] == "SUP001"
 
-    mock_generate.assert_called_once_with(
-        object_key=(
-            "suppliers/SUP001/"
-            "invoices/INV1001.pdf"
-        )
+    mock_exists.assert_called_once_with(
+        object_key=expected_key,
     )
 
+    mock_generate.assert_called_once_with(
+        object_key=expected_key,
+    )
 
 def test_invoice_document_download_supplier_without_supplier_id_returns_403():
     """

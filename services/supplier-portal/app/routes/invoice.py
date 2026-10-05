@@ -548,8 +548,9 @@ def upload_document(
 # DOWNLOAD INVOICE DOCUMENT
 # Supplier-facing endpoint
 # ============================================================
+
 @router.get(
-    "/invoices/{supplier_id}/{invoice_number}/document",
+            "/invoices/{supplier_id}/{invoice_number}/document",
     response_model=InvoiceDocumentDownloadResponse,
 )
 def download_invoice_document(
@@ -562,14 +563,25 @@ def download_invoice_document(
     """
     Generate a short-lived presigned MinIO download URL.
 
-    Access is supplier-scoped. The MinIO object must exist
-    before a presigned URL is generated.
+    Access is supplier-scoped.
+
+    The invoice record stores the supplier-scoped MinIO
+    object key. The object must exist in MinIO before
+    generating the presigned download URL.
     """
     try:
+        # ----------------------------------------------------
+        # STEP 1: Get the invoice
+        # ----------------------------------------------------
+
         invoice = get_invoice_by_number(
             supplier_id=supplier_id,
             invoice_number=invoice_number,
         )
+
+        # ----------------------------------------------------
+        # STEP 2: Get registered MinIO object key
+        # ----------------------------------------------------
 
         document_path = invoice.get("document_path")
 
@@ -579,8 +591,18 @@ def download_invoice_document(
                 detail="Document not found.",
             )
 
-        # The invoice metadata may contain an object key even
-        # if the actual MinIO object was deleted externally.
+        # ----------------------------------------------------
+        # STEP 3: Verify that the registered object exists
+        # ----------------------------------------------------
+        #
+        # The invoice stores the MinIO object key.
+        # Before generating a presigned URL, verify that
+        # the object is actually present in MinIO.
+        #
+        # False -> 404
+        # Storage failure -> DocumentStorageError -> 502
+        # ----------------------------------------------------
+
         if not document_storage_service.object_exists(
             object_key=document_path,
         ):
@@ -589,11 +611,19 @@ def download_invoice_document(
                 detail="File does not exist.",
             )
 
+        # ----------------------------------------------------
+        # STEP 4: Generate presigned URL
+        # ----------------------------------------------------
+
         download_url = (
             document_storage_service.generate_download_url(
                 object_key=document_path,
             )
         )
+
+        # ----------------------------------------------------
+        # STEP 5: Return download contract
+        # ----------------------------------------------------
 
         return {
             "invoice_number": invoice_number,
@@ -605,11 +635,19 @@ def download_invoice_document(
             ),
         }
 
+    # --------------------------------------------------------
+    # MinIO / document download failure
+    # --------------------------------------------------------
+
     except DocumentDownloadError as exc:
         raise HTTPException(
             status_code=502,
             detail=str(exc),
         ) from exc
+
+    # --------------------------------------------------------
+    # Generic document storage failure
+    # --------------------------------------------------------
 
     except DocumentStorageError as exc:
         raise HTTPException(
@@ -617,8 +655,16 @@ def download_invoice_document(
             detail=str(exc),
         ) from exc
 
+    # --------------------------------------------------------
+    # Preserve intentional HTTP errors
+    # --------------------------------------------------------
+
     except HTTPException:
         raise
+
+    # --------------------------------------------------------
+    # Business validation / invoice lookup errors
+    # --------------------------------------------------------
 
     except ValueError as exc:
         message = str(exc)

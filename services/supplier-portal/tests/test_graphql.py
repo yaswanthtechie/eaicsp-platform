@@ -2000,3 +2000,216 @@ def test_document_pagination_is_applied_after_supplier_scoping(
         ["hasNextPage"]
         is False
     )
+
+def test_internal_role_cannot_acknowledge_purchase_order(
+    procurement_client,
+):
+    seed_po(
+        "PO-SUP001-ACK-INT",
+        "SUP001",
+        status=PurchaseOrderStatus.sent,
+    )
+
+    result = graphql(
+        procurement_client,
+        ACKNOWLEDGE_MUTATION,
+        {"poNumber": "PO-SUP001-ACK-INT"},
+    )
+
+    assert "errors" in result
+    assert "supplier access required" in (
+        result["errors"][0]["message"]
+    )
+
+    assert (
+        purchase_orders["PO-SUP001-ACK-INT"]["status"]
+        == PurchaseOrderStatus.sent
+    )
+
+    assert (
+        purchase_orders["PO-SUP001-ACK-INT"]["history"]
+        == []
+    )
+
+def test_supplier_invoice_ignores_client_supplier_id(
+    supplier_client,
+):
+    """
+    Supplier identity must come from the authenticated user,
+    not from the GraphQL supplierId argument.
+    """
+
+    seed_invoice(
+        "INV-SAME-001",
+        "SUP001",
+    )
+
+    seed_invoice(
+        "INV-SAME-001",
+        "SUP002",
+    )
+
+    query = """
+    query GetInvoice(
+        $invoiceNumber: String!,
+        $supplierId: String
+    ) {
+        invoice(
+            invoiceNumber: $invoiceNumber,
+            supplierId: $supplierId
+        ) {
+            invoiceNumber
+            supplierId
+        }
+    }
+    """
+
+    result = graphql(
+        supplier_client,
+        query,
+        {
+            "invoiceNumber": "INV-SAME-001",
+            "supplierId": "SUP002",
+        },
+    )
+
+    assert "errors" not in result
+
+    invoice = result["data"]["invoice"]
+
+    assert invoice is not None
+    assert invoice["invoiceNumber"] == "INV-SAME-001"
+
+    # Supplier A must still receive Supplier A's invoice.
+    assert invoice["supplierId"] == "SUP001"
+
+
+def test_internal_user_requires_supplier_id_for_single_invoice(
+    procurement_client,
+):
+    """
+    Internal users must provide supplierId because invoice
+    numbers are scoped by supplier.
+    """
+
+    seed_invoice(
+        "INV-INTERNAL-001",
+        "SUP001",
+    )
+
+    result = graphql(
+        procurement_client,
+        INVOICE_QUERY,
+        {
+            "invoiceNumber": "INV-INTERNAL-001",
+        },
+    )
+
+    assert "errors" in result
+
+    assert (
+        "supplierId is required for internal users."
+        in result["errors"][0]["message"]
+    )
+
+    assert result["data"]["invoice"] is None
+
+
+def test_internal_user_can_query_invoice_with_supplier_id(
+    procurement_client,
+):
+    """
+    Internal users can retrieve an invoice when both the
+    supplier ID and invoice number are supplied.
+    """
+
+    seed_invoice(
+        "INV-INTERNAL-002",
+        "SUP001",
+    )
+
+    result = graphql(
+        procurement_client,
+        """
+        query GetInvoice(
+            $invoiceNumber: String!,
+            $supplierId: String!
+        ) {
+            invoice(
+                invoiceNumber: $invoiceNumber,
+                supplierId: $supplierId
+            ) {
+                invoiceNumber
+                supplierId
+                amount
+            }
+        }
+        """,
+        {
+            "invoiceNumber": "INV-INTERNAL-002",
+            "supplierId": "SUP001",
+        },
+    )
+
+    assert "errors" not in result
+
+    invoice = result["data"]["invoice"]
+
+    assert invoice is not None
+    assert invoice["invoiceNumber"] == "INV-INTERNAL-002"
+    assert invoice["supplierId"] == "SUP001"
+    assert invoice["amount"] == 2000
+
+
+def test_internal_user_gets_correct_invoice_when_invoice_number_is_shared(
+    procurement_client,
+):
+    """
+    Invoice numbers are scoped by supplier.
+
+    The same invoice number can exist for multiple suppliers.
+    Internal users must receive the invoice belonging to the
+    explicitly requested supplier.
+    """
+
+    seed_invoice(
+        "INV-SHARED-001",
+        "SUP001",
+    )
+
+    seed_invoice(
+        "INV-SHARED-001",
+        "SUP002",
+    )
+
+    result = graphql(
+        procurement_client,
+        """
+        query GetInvoice(
+            $invoiceNumber: String!,
+            $supplierId: String!
+        ) {
+            invoice(
+                invoiceNumber: $invoiceNumber,
+                supplierId: $supplierId
+            ) {
+                invoiceNumber
+                supplierId
+                amount
+            }
+        }
+        """,
+        {
+            "invoiceNumber": "INV-SHARED-001",
+            "supplierId": "SUP002",
+        },
+    )
+
+    assert "errors" not in result
+
+    invoice = result["data"]["invoice"]
+
+    assert invoice is not None
+    assert invoice["invoiceNumber"] == "INV-SHARED-001"
+    assert invoice["supplierId"] == "SUP002"
+    assert invoice["amount"] == 2000

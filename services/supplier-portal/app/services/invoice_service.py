@@ -1510,10 +1510,10 @@ def upload_invoice_document(
             )
         )
 
-    except DocumentUploadError as exc:
-        raise ValueError(
-            "Unable to store the uploaded invoice document."
-        ) from exc
+    except DocumentUploadError:
+        # Preserve the storage-specific exception.
+        # The API route maps this to HTTP 502 Bad Gateway.
+        raise
 
     # ---------------------------------------------------------
     # 12. Store MinIO object key in invoice metadata

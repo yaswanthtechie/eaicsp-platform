@@ -272,7 +272,6 @@ def is_supplier_active(supplier_id: str) -> bool:
 # ============================================================
 # 3. UPLOAD DOCUMENT
 # ============================================================
-
 def upload_supplier_document(
     supplier_id: str,
     document_type: str,
@@ -391,11 +390,10 @@ def upload_supplier_document(
             )
         )
 
-    except DocumentUploadError as exc:
-        raise ValueError(
-            "Unable to store the uploaded document."
-        ) from exc
-
+    except DocumentUploadError:
+        # Preserve the storage-specific exception.
+        # The API route maps this to HTTP 502 Bad Gateway.
+        raise
 
     document = {
         "document_id": document_id,
@@ -441,7 +439,23 @@ def upload_supplier_document(
 
     return document
 
+# ============================================================
+# GET SINGLE SUPPLIER DOCUMENT
+# ============================================================
 
+def get_supplier_document(
+    supplier_id: str,
+    document_id: str,
+) -> dict | None:
+    """Return the document only if it belongs to this supplier."""
+    for document in supplier_documents.get(
+        supplier_id,
+        [],
+    ):
+        if document["document_id"] == document_id:
+            return document
+
+    return None
 # ============================================================
 # 4. LIST DOCUMENTS
 # ============================================================

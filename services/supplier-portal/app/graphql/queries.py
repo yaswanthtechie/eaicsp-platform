@@ -590,29 +590,55 @@ class Query:
         self,
         info: Info,
         invoice_number: str,
+        supplier_id: str | None = None,
     ) -> InvoiceType | None:
+        """
+        Return a single invoice using supplier-scoped lookup.
+
+        Supplier users:
+            - supplier_id is always taken from the authenticated
+              user's token/context.
+            - Any supplier_id supplied by the GraphQL client is ignored.
+            - This prevents a supplier from overriding its own
+              identity through the GraphQL request.
+
+        Internal users:
+            - supplier_id must be explicitly supplied because invoice
+              numbers are not globally unique across suppliers.
+            - The lookup is performed using both supplier_id and
+              invoice_number.
+        """
 
         user = info.context["user"]
 
         # ----------------------------------------------------
-        # Supplier
+        # Supplier users
+        # ----------------------------------------------------
+        #
+        # NEVER trust supplier_id supplied by the GraphQL client
+        # for supplier users.
+        #
+        # The authenticated supplier identity is authoritative.
         # ----------------------------------------------------
 
         if user.get("role") == "supplier":
 
-            supplier_id = user.get("supplier_id")
+            authenticated_supplier_id = user.get(
+                "supplier_id"
+            )
 
-            if not supplier_id:
+            if not authenticated_supplier_id:
                 return None
 
             try:
                 invoice = get_invoice_by_number(
-                    supplier_id=supplier_id,
+                    supplier_id=authenticated_supplier_id,
                     invoice_number=invoice_number,
                 )
             except ValueError:
                 return None
 
+            # Defense-in-depth supplier ownership check.
             if not _is_invoice_authorized(
                 user,
                 invoice,
@@ -622,18 +648,27 @@ class Query:
             return _to_invoice_type(invoice)
 
         # ----------------------------------------------------
-        # Non-supplier roles
+        # Internal users
+        # ----------------------------------------------------
+        #
+        # Invoice numbers may exist for multiple suppliers.
+        # Therefore supplier_id is mandatory for internal users.
         # ----------------------------------------------------
 
-        for invoice in get_all_invoices():
+        if not supplier_id:
+            raise ValueError(
+                "supplierId is required for internal users."
+            )
 
-            if invoice.get(
-                "invoice_number"
-            ) == invoice_number:
+        try:
+            invoice = get_invoice_by_number(
+                supplier_id=supplier_id,
+                invoice_number=invoice_number,
+            )
+        except ValueError:
+            return None
 
-                return _to_invoice_type(invoice)
-
-        return None
+        return _to_invoice_type(invoice)
 
     # ========================================================
     # INVOICES

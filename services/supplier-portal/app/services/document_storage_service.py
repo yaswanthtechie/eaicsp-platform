@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import UploadFile
 from minio import Minio
 from minio.error import S3Error
+from urllib3.exceptions import HTTPError as Urllib3HTTPError
 
 from app.core.config import settings
 
@@ -55,12 +56,21 @@ class DocumentStorageService:
     def ensure_bucket(self) -> None:
         """
         Ensure the configured MinIO bucket exists.
+
+        Storage/network failures are exposed as the generic
+        DocumentStorageError so API layers can map them to
+        HTTP 502/503 instead of treating them as validation
+        errors.
         """
         try:
             if not self.client.bucket_exists(self.bucket_name):
                 self.client.make_bucket(self.bucket_name)
 
-        except S3Error as exc:
+        except (
+            S3Error,
+            Urllib3HTTPError,
+            OSError,
+        ) as exc:
             raise DocumentStorageError(
                 f"Unable to initialize MinIO bucket "
                 f"'{self.bucket_name}'."
@@ -85,9 +95,7 @@ class DocumentStorageService:
             <document_id>_pan_card.pdf
         """
 
-        safe_file_name = Path(
-            file_name
-        ).name
+        safe_file_name = Path(file_name).name
 
         return (
             f"suppliers/{supplier_id}/"
@@ -104,15 +112,14 @@ class DocumentStorageService:
         Build a supplier-scoped MinIO object key for an invoice PDF.
 
         Example:
+
             suppliers/SUP001/invoices/INV1001.pdf
 
         The uploaded filename is intentionally not used as the
         object filename. One invoice has one canonical PDF object.
         """
 
-        safe_invoice_number = Path(
-            invoice_number
-        ).name
+        safe_invoice_number = Path(invoice_number).name
 
         return (
             f"suppliers/{supplier_id}/"
@@ -167,11 +174,20 @@ class DocumentStorageService:
 
             return object_key
 
-        except (S3Error, OSError, ValueError) as exc:
+        except (
+            S3Error,
+            Urllib3HTTPError,
+            OSError,
+            ValueError,
+        ) as exc:
             raise DocumentUploadError(
                 f"Unable to upload document for "
                 f"supplier '{supplier_id}'."
             ) from exc
+
+    # ============================================================
+    # UPLOAD INVOICE DOCUMENT
+    # ============================================================
 
     def upload_invoice_document(
         self,
@@ -187,6 +203,7 @@ class DocumentStorageService:
             MinIO object key.
 
         Example:
+
             suppliers/SUP001/invoices/INV1001.pdf
         """
 
@@ -214,7 +231,12 @@ class DocumentStorageService:
 
             return object_key
 
-        except (S3Error, OSError, ValueError) as exc:
+        except (
+            S3Error,
+            Urllib3HTTPError,
+            OSError,
+            ValueError,
+        ) as exc:
             raise DocumentUploadError(
                 f"Unable to upload invoice document "
                 f"for supplier '{supplier_id}'."
@@ -250,7 +272,11 @@ class DocumentStorageService:
                 ),
             )
 
-        except (S3Error, ValueError) as exc:
+        except (
+            S3Error,
+            Urllib3HTTPError,
+            ValueError,
+        ) as exc:
             raise DocumentDownloadError(
                 "Unable to generate document "
                 "download URL."
@@ -268,8 +294,10 @@ class DocumentStorageService:
         """
         Check whether an object exists in MinIO.
 
-        Mainly useful for integration tests and operational
-        verification.
+        Missing objects return False.
+
+        Storage/network failures are raised as
+        DocumentStorageError.
         """
 
         try:
@@ -293,6 +321,19 @@ class DocumentStorageService:
                 "in MinIO."
             ) from exc
 
+        except (
+            Urllib3HTTPError,
+            OSError,
+        ) as exc:
+            raise DocumentStorageError(
+                "Unable to check document existence "
+                "in MinIO."
+            ) from exc
+
+    # ============================================================
+    # DELETE OBJECT
+    # ============================================================
+
     def delete_object(
         self,
         *,
@@ -308,10 +349,19 @@ class DocumentStorageService:
                 object_name=object_key,
             )
 
-        except S3Error as exc:
+        except (
+            S3Error,
+            Urllib3HTTPError,
+            OSError,
+        ) as exc:
             raise DocumentStorageError(
                 "Unable to delete document from MinIO."
             ) from exc
+
+    # ============================================================
+    # LIST OBJECTS
+    # ============================================================
+
     def list_objects(
         self,
         *,
@@ -334,10 +384,14 @@ class DocumentStorageService:
                 )
             )
 
-        except S3Error as exc:
+        except (
+            S3Error,
+            Urllib3HTTPError,
+            OSError,
+        ) as exc:
             raise DocumentStorageError(
                 "Unable to list documents in MinIO."
             ) from exc
 
-document_storage_service = DocumentStorageService()
 
+document_storage_service = DocumentStorageService()

@@ -632,3 +632,114 @@ def test_download_requires_authentication(
             lambda: SUPPLIER_USER
         )
 
+# ============================================================
+# 12. MINIO OBJECT DOES NOT EXIST
+# ============================================================
+
+
+def test_download_returns_404_when_minio_object_does_not_exist(
+    supplier_client,
+    supplier_a_document,
+    monkeypatch,
+):
+    """
+    Document metadata exists, but the referenced MinIO object
+    does not exist.
+
+    Expected:
+        404
+        Presigned URL must not be generated.
+    """
+    document_id = supplier_a_document["document_id"]
+
+    url_generation_called = False
+
+    def fake_object_exists(*, object_key):
+        return False
+
+    def fake_generate_download_url(*, object_key):
+        nonlocal url_generation_called
+        url_generation_called = True
+        return "https://minio.test/should-not-be-called"
+
+    monkeypatch.setattr(
+        "app.routes.supplier_onboarding."
+        "document_storage_service.object_exists",
+        fake_object_exists,
+    )
+
+    monkeypatch.setattr(
+        "app.routes.supplier_onboarding."
+        "document_storage_service.generate_download_url",
+        fake_generate_download_url,
+    )
+
+    response = supplier_client.get(
+        f"/api/v1/suppliers/SUP001/"
+        f"documents/{document_id}/download"
+    )
+
+    assert response.status_code == 404
+
+    assert response.json()["detail"] == (
+        "File does not exist."
+    )
+
+    assert url_generation_called is False
+
+# ============================================================
+# 13. MINIO OBJECT CHECK FAILURE
+# ============================================================
+
+
+def test_download_returns_502_when_object_check_fails(
+    supplier_client,
+    supplier_a_document,
+    monkeypatch,
+):
+    """
+    MinIO/storage failure while checking object existence
+    must be translated into HTTP 502.
+
+    Expected:
+        502
+        Presigned URL must not be generated.
+    """
+    document_id = supplier_a_document["document_id"]
+
+    url_generation_called = False
+
+    def fake_object_exists(*, object_key):
+        raise DocumentDownloadError(
+            "Unable to check document storage."
+        )
+
+    def fake_generate_download_url(*, object_key):
+        nonlocal url_generation_called
+        url_generation_called = True
+        return "https://minio.test/should-not-be-called"
+
+    monkeypatch.setattr(
+        "app.routes.supplier_onboarding."
+        "document_storage_service.object_exists",
+        fake_object_exists,
+    )
+
+    monkeypatch.setattr(
+        "app.routes.supplier_onboarding."
+        "document_storage_service.generate_download_url",
+        fake_generate_download_url,
+    )
+
+    response = supplier_client.get(
+        f"/api/v1/suppliers/SUP001/"
+        f"documents/{document_id}/download"
+    )
+
+    assert response.status_code == 502
+
+    assert response.json()["detail"] == (
+        "Unable to check document storage."
+    )
+
+    assert url_generation_called is False

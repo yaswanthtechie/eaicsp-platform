@@ -2,6 +2,7 @@
 Integration tests for the real MinIO-backed document storage service.
 
 These tests require a running Docker MinIO instance.
+
 Run with:
 
     python -m pytest tests/integration/test_minio_document_storage.py -v -m integration
@@ -10,11 +11,15 @@ Run with:
 from __future__ import annotations
 
 import io
+import os
+import urllib.request
 import uuid
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+from dotenv import dotenv_values
 from fastapi import UploadFile
+from minio import Minio
 
 from app.core.config import settings
 from app.services.document_storage_service import DocumentStorageService
@@ -23,22 +28,73 @@ from app.services.document_storage_service import DocumentStorageService
 pytestmark = pytest.mark.integration
 
 
+def _load_real_minio_credentials() -> tuple[str, str]:
+    """
+    Load the real MinIO credentials from the process environment
+    or the project's .env file.
+
+    tests/conftest.py intentionally installs dummy credentials before
+    importing the application, so integration tests must explicitly
+    obtain the real credentials.
+    """
+    env_values = dotenv_values(".env")
+
+    access_key = (
+        os.environ.get("REAL_MINIO_ACCESS_KEY")
+        or env_values.get("MINIO_ACCESS_KEY")
+    )
+
+    secret_key = (
+        os.environ.get("REAL_MINIO_SECRET_KEY")
+        or env_values.get("MINIO_SECRET_KEY")
+    )
+
+    if not access_key:
+        raise RuntimeError(
+            "Real MINIO_ACCESS_KEY was not found. "
+            "Set it in services/supplier-portal/.env."
+        )
+
+    if not secret_key:
+        raise RuntimeError(
+            "Real MINIO_SECRET_KEY was not found. "
+            "Set it in services/supplier-portal/.env."
+        )
+
+    return str(access_key), str(secret_key)
+
+
 @pytest.fixture(scope="module")
 def storage_service():
     """
     Use the real MinIO-backed storage service.
 
-    No mocking is used in this integration test module.
+    Unit-test FakeMinioClient state is deliberately bypassed here.
     """
+    access_key, secret_key = _load_real_minio_credentials()
+
+    real_client = Minio(
+        settings.MINIO_ENDPOINT,
+        access_key=access_key,
+        secret_key=secret_key,
+        secure=settings.MINIO_SECURE,
+    )
+
     service = DocumentStorageService()
 
-    # Fail early with a useful error if MinIO is not running.
+    # Replace only this integration-test service's client.
+    service.client = real_client
+
     try:
         service.ensure_bucket()
     except Exception as exc:
         pytest.fail(
-            "Real MinIO is not available. "
-            f"Start Docker MinIO before running integration tests. "
+            "Real MinIO integration setup failed.\n"
+            f"Endpoint: {settings.MINIO_ENDPOINT}\n"
+            f"Bucket: {settings.MINIO_BUCKET}\n"
+            "Verify that Docker MinIO is running and that "
+            "MINIO_ACCESS_KEY / MINIO_SECRET_KEY in .env "
+            "match the MinIO container credentials.\n"
             f"Original error: {exc}"
         )
 
@@ -48,10 +104,12 @@ def storage_service():
 @pytest.fixture
 def unique_document():
     """
-    Generate unique supplier/document identifiers so tests
-    cannot collide with each other.
+    Generate unique supplier/document identifiers so repeated
+    integration-test runs cannot collide.
     """
-    supplier_id = f"INTEGRATION-{uuid.uuid4().hex[:8].upper()}"
+    supplier_id = (
+        f"INTEGRATION-{uuid.uuid4().hex[:8].upper()}"
+    )
     document_id = str(uuid.uuid4())
 
     return supplier_id, document_id
@@ -60,9 +118,9 @@ def unique_document():
 @pytest.fixture
 def cleanup_objects(storage_service):
     """
-    Track objects created by a test and remove them afterwards.
+    Track objects created by each test and remove them afterwards.
     """
-    object_keys = []
+    object_keys: list[str] = []
 
     yield object_keys
 
@@ -73,7 +131,7 @@ def cleanup_objects(storage_service):
                 object_name=object_key,
             )
         except Exception:
-            # Cleanup must not hide the original test failure.
+            # Cleanup must never hide the original test failure.
             pass
 
 
@@ -101,8 +159,8 @@ def test_real_minio_upload_creates_supplier_scoped_object(
     cleanup_objects,
 ):
     """
-    Upload a document to real MinIO and verify that the resulting
-    object key is supplier-scoped.
+    Upload a document to real MinIO and verify the supplier-scoped
+    object key.
     """
     supplier_id, document_id = unique_document
 
@@ -134,7 +192,7 @@ def test_real_minio_upload_object_exists(
     cleanup_objects,
 ):
     """
-    Upload a document and verify it actually exists in MinIO.
+    Verify that an uploaded object exists in real MinIO.
     """
     supplier_id, document_id = unique_document
 
@@ -150,9 +208,12 @@ def test_real_minio_upload_object_exists(
 
     cleanup_objects.append(object_key)
 
-    assert storage_service.object_exists(
-        object_key=object_key
-    ) is True
+    assert (
+        storage_service.object_exists(
+            object_key=object_key,
+        )
+        is True
+    )
 
 
 def test_real_minio_upload_preserves_uploaded_content(
@@ -161,7 +222,7 @@ def test_real_minio_upload_preserves_uploaded_content(
     cleanup_objects,
 ):
     """
-    Verify that the bytes uploaded to MinIO can be read back.
+    Verify that uploaded content can be read back unchanged.
     """
     supplier_id, document_id = unique_document
 
@@ -201,8 +262,7 @@ def test_real_minio_different_suppliers_have_different_object_keys(
     storage_service,
 ):
     """
-    Documents having the same filename/document type must still
-    be isolated by supplier scope.
+    Verify supplier-specific object key isolation.
     """
     document_id_a = str(uuid.uuid4())
     document_id_b = str(uuid.uuid4())
@@ -238,8 +298,8 @@ def test_real_minio_supplier_a_object_is_not_supplier_b_object(
     storage_service,
 ):
     """
-    Verify the storage layer keeps Supplier A and Supplier B
-    objects under different supplier-scoped keys.
+    Verify that Supplier A and Supplier B have distinct
+    supplier-scoped object keys.
     """
     document_id_a = str(uuid.uuid4())
     document_id_b = str(uuid.uuid4())
@@ -265,13 +325,19 @@ def test_real_minio_supplier_a_object_is_not_supplier_b_object(
     assert "/SUP001/" in object_key_a
     assert "/SUP002/" in object_key_b
 
-    assert storage_service.object_exists(
-        object_key=object_key_a
-    ) is False
+    assert (
+        storage_service.object_exists(
+            object_key=object_key_a,
+        )
+        is False
+    )
 
-    assert storage_service.object_exists(
-        object_key=object_key_b
-    ) is False
+    assert (
+        storage_service.object_exists(
+            object_key=object_key_b,
+        )
+        is False
+    )
 
 
 def test_real_minio_presigned_url_is_generated(
@@ -280,7 +346,7 @@ def test_real_minio_presigned_url_is_generated(
     cleanup_objects,
 ):
     """
-    Upload a real object and generate a real MinIO presigned URL.
+    Verify that real MinIO generates a presigned download URL.
     """
     supplier_id, document_id = unique_document
 
@@ -299,13 +365,14 @@ def test_real_minio_presigned_url_is_generated(
     )
 
     assert isinstance(url, str)
-    assert url.startswith("http")
+    assert url.startswith(
+        ("http://", "https://")
+    )
 
     parsed = urlparse(url)
 
     assert parsed.scheme in {"http", "https"}
     assert parsed.netloc
-
     assert parsed.path.endswith(
         f"/{object_key}"
     )
@@ -317,8 +384,7 @@ def test_real_minio_presigned_url_contains_configured_expiry(
     cleanup_objects,
 ):
     """
-    Verify that the generated presigned URL uses the configured
-    short expiry period.
+    Verify the configured short-lived presigned URL expiry.
     """
     supplier_id, document_id = unique_document
 
@@ -346,11 +412,11 @@ def test_real_minio_presigned_url_contains_configured_expiry(
         query["X-Amz-Expires"][0]
     )
 
-    assert expires == (
-        settings.MINIO_PRESIGNED_EXPIRY_SECONDS
+    assert (
+        expires
+        == settings.MINIO_PRESIGNED_EXPIRY_SECONDS
     )
 
-    # The application requirement is a short-lived URL.
     assert expires <= 300
 
 
@@ -360,8 +426,7 @@ def test_real_minio_presigned_url_can_download_object(
     cleanup_objects,
 ):
     """
-    Verify the generated presigned URL is usable against the
-    real MinIO server.
+    Verify that the real presigned URL can download the object.
     """
     supplier_id, document_id = unique_document
 
@@ -387,8 +452,6 @@ def test_real_minio_presigned_url_can_download_object(
         object_key=object_key,
     )
 
-    import urllib.request
-
     with urllib.request.urlopen(
         url,
         timeout=10,
@@ -402,17 +465,19 @@ def test_real_minio_missing_object_returns_false(
     storage_service,
 ):
     """
-    A non-existent MinIO object must return False from
-    object_exists().
+    A missing object must return False.
     """
     missing_object_key = (
         "suppliers/integration-test/"
         f"missing-{uuid.uuid4()}.pdf"
     )
 
-    assert storage_service.object_exists(
-        object_key=missing_object_key
-    ) is False
+    assert (
+        storage_service.object_exists(
+            object_key=missing_object_key,
+        )
+        is False
+    )
 
 
 def test_real_minio_object_is_removed_after_cleanup(
@@ -420,8 +485,7 @@ def test_real_minio_object_is_removed_after_cleanup(
     unique_document,
 ):
     """
-    Verify real MinIO deletion works for test cleanup and that
-    a deleted object is subsequently reported as missing.
+    Verify real MinIO object deletion.
     """
     supplier_id, document_id = unique_document
 
@@ -433,15 +497,21 @@ def test_real_minio_object_is_removed_after_cleanup(
         file=file,
     )
 
-    assert storage_service.object_exists(
-        object_key=object_key
-    ) is True
+    assert (
+        storage_service.object_exists(
+            object_key=object_key,
+        )
+        is True
+    )
 
     storage_service.client.remove_object(
         bucket_name=storage_service.bucket_name,
         object_name=object_key,
     )
 
-    assert storage_service.object_exists(
-        object_key=object_key
-    ) is False
+    assert (
+        storage_service.object_exists(
+            object_key=object_key,
+        )
+        is False
+    )

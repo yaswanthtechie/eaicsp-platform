@@ -73,6 +73,28 @@ Invoice PDFs and supplier onboarding documents are stored in **MinIO**, an S3-co
 29. [Future Enhancements](#29-future-enhancements)
 
 ---
+## Round 12–13 Status
+
+- Milestone 1: done in #152 (supersedes #128)
+- Milestone 2: MinIO storage + supplier-scoped presigned URLs: done
+- Milestone 3: GraphQL queries, cursor pagination, acknowledge mutation: done
+- Not done / known gaps: cursors are list indexes over in-memory data (they shift if records are added); business data is still in-memory.
+
+## Running Locally
+
+```bash
+cp .env.example .env
+# then set real MinIO credentials
+
+docker compose -f docker-compose.dev.yml up -d --build
+# starts MinIO on :9000 (console :9001)
+
+python -m pytest -m "not integration" -q
+# unit tests, no Docker needed
+
+python -mpytest -m integration -q
+# needs MinIO running
+```
 ## How I Wired MinIO with Docker in r(12,13)
 
 MinIO is used as the S3-compatible object storage for supplier onboarding documents and invoice PDFs, running locally in the existing supplier-portal-minio Docker container.
@@ -181,7 +203,7 @@ uvicorn app.main:app --port 8003
 
 # Terminal 3: Supplier Portal
 cd services/supplier-portal
-uvicorn app.main:app --port 8004
+python -m uvicorn app.main:app --port 8004
 ```
 
 For document storage, a local MinIO instance must also be running and configured through the Supplier Portal environment settings.
@@ -11420,14 +11442,6 @@ Cross-supplier PO rejection
 Collection-level supplier filtering
 ```
 
-
-# Rounds 12–13 Test Completion
-
-The complete Supplier Portal regression suite was verified after the Round 12 and Round 13 implementation:
-
-```text
-735 passed
-```
 
 The milestone-specific verification therefore includes:
 

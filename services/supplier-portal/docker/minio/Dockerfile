@@ -1,14 +1,24 @@
 FROM golang:1.24-alpine AS builder
 
+ARG MINIO_REF
+
+RUN test -n "$MINIO_REF" || \
+    (echo "MINIO_REF build arg is required" && exit 1)
+
+RUN apk add --no-cache git
+
 WORKDIR /src
 
-COPY .minio-community-source/ .
+RUN git clone \
+    --depth 1 \
+    --branch "$MINIO_REF" \
+    https://github.com/minio/minio.git .
 
 ENV CGO_ENABLED=0
-ENV GOOS=linux
-ENV GOARCH=amd64
 
-RUN go build -trimpath -o /out/minio .
+RUN go build \
+    -trimpath \
+    -o /out/minio .
 
 
 FROM alpine:3.22

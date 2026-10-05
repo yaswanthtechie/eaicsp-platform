@@ -39,11 +39,12 @@ from app.services.supplier_onboarding_service import (
     register_supplier,
     upload_supplier_document,
     verify_supplier,
-    supplier_documents,
+    get_supplier_document,
 )
 
 from app.services.document_storage_service import (
-    DocumentDownloadError,
+    DocumentStorageError,
+    DocumentUploadError,
     document_storage_service,
 )
 
@@ -214,7 +215,6 @@ def get_supplier_endpoint(
 # ============================================================
 # 3. UPLOAD SUPPLIER DOCUMENT
 # ============================================================
-
 @router.post(
     "/{supplier_id}/documents",
     response_model=SupplierDocumentResponse,
@@ -253,6 +253,12 @@ def upload_document_endpoint(
             actor_name=actor_name,
         )
 
+    except DocumentUploadError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Document storage is unavailable.",
+        ) from exc
+
     except ValueError as exc:
         message = str(exc)
 
@@ -265,8 +271,7 @@ def upload_document_endpoint(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=message,
-        )
-
+        ) from exc
 
 # ============================================================
 # 4. LIST SUPPLIER DOCUMENTS
@@ -303,6 +308,8 @@ def list_documents_endpoint(
         )
 
     return documents
+
+
 @router.get(
     "/{supplier_id}/documents/{document_id}/download",
     response_model=SupplierDocumentDownloadResponse,
@@ -321,41 +328,42 @@ def download_document_endpoint(
         user,
     )
 
-    # Find the document by ID across the in-memory document store.
-    # supplier_documents is keyed by supplier_id.
-    document = None
+    # The service layer performs the supplier-scoped document lookup.
+    document = get_supplier_document(
+        supplier_id=supplier_id,
+        document_id=document_id,
+    )
 
-    for documents in supplier_documents.values():
-        for item in documents:
-            if item["document_id"] == document_id:
-                document = item
-                break
-
-        if document is not None:
-            break
-
-    # Unknown document OR document belonging to another supplier
-    # must return the same not-found response.
-    if document is None or document["supplier_id"] != supplier_id:
+    if document is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Supplier document not found.",
         )
 
-    # Generate the download URL only after authorization
-    # and document ownership checks have succeeded.
     try:
+        # Verify that the referenced object actually exists in MinIO
+        # before generating a presigned download URL.
+        if not document_storage_service.object_exists(
+            object_key=document["document_path"],
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="File does not exist.",
+            )
+
+        # Generate the URL only after authorization, ownership,
+        # and object-existence checks have succeeded.
         download_url = (
             document_storage_service.generate_download_url(
                 object_key=document["document_path"],
             )
         )
 
-    except DocumentDownloadError as exc:
+    except DocumentStorageError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
-        )
+        ) from exc
 
     return {
         "document_id": document["document_id"],
