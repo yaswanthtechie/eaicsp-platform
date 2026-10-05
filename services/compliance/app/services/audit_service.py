@@ -3,8 +3,24 @@ import json
 from sqlalchemy import Integer, func
 from sqlalchemy.orm import Session
 
-from app.core.config import SERVICE_NAME
+from app.core.config import (
+    INTERNAL_BLOCK_MATCH_SCORE,
+    SERVICE_NAME,
+)
 from app.models.audit import ComplianceAudit
+
+
+def compute_decision(
+    matched: bool,
+    match_score: float,
+) -> str:
+    if not matched:
+        return "CLEAR"
+
+    if match_score >= INTERNAL_BLOCK_MATCH_SCORE:
+        return "BLOCK"
+
+    return "REVIEW"
 
 
 def _build_audit_values(
@@ -68,12 +84,10 @@ def _build_audit_values(
         or 0
     )
 
-    if not matched:
-        decision = "CLEAR"
-    elif match_score >= 90:
-        decision = "BLOCK"
-    else:
-        decision = "REVIEW"
+    decision = compute_decision(
+        matched=matched,
+        match_score=match_score,
+    )
 
     return {
         "entity_name": entity_name,
@@ -99,7 +113,7 @@ def _build_audit_values(
         "overall_supplier_risk": float(
             result.get(
                 "overall_supplier_risk",
-                0.0
+                0.0,
             )
             or 0.0
         ),
@@ -112,6 +126,7 @@ def _build_audit_values(
         ),
     }
 
+
 def write_audit(
     db: Session,
     entity_name: str,
@@ -121,8 +136,6 @@ def write_audit(
     newly_flagged: bool = False,
     screening_run_id: str | None = None,
 ):
-    
-
     audit_values = _build_audit_values(
         entity_name=entity_name,
         result=result,
@@ -145,8 +158,6 @@ def write_audit(
     return audit
 
 
-
-
 def write_bulk_audit(
     db: Session,
     entity_names: list[str],
@@ -155,8 +166,6 @@ def write_bulk_audit(
     newly_flagged: bool = False,
     screening_run_id: str | None = None,
 ):
-    
-
     audits: list[ComplianceAudit] = []
 
     for entity_name, result in zip(
@@ -187,7 +196,6 @@ def write_bulk_audit(
         audits.append(audit)
 
     if audits:
-
         db.add_all(audits)
 
         db.commit()
@@ -198,13 +206,10 @@ def write_bulk_audit(
     return audits
 
 
-
 def get_audit_history(
     db: Session,
     entity_name: str,
 ):
-    
-
     return (
         db.query(ComplianceAudit)
         .filter(
@@ -213,8 +218,7 @@ def get_audit_history(
                     ComplianceAudit.entity_name
                 )
             )
-            ==
-            entity_name.strip().lower()
+            == entity_name.strip().lower()
         )
         .order_by(
             ComplianceAudit.created_at.desc()
@@ -223,13 +227,9 @@ def get_audit_history(
     )
 
 
-
-
 def get_all_audits(
     db: Session,
 ):
-   
-
     return (
         db.query(ComplianceAudit)
         .order_by(
@@ -239,12 +239,9 @@ def get_all_audits(
     )
 
 
-
 def delete_all_audits(
     db: Session,
 ):
-   
-
     db.query(
         ComplianceAudit
     ).delete()
@@ -252,12 +249,9 @@ def delete_all_audits(
     db.commit()
 
 
-
-
 def get_latest_audits(
     db: Session,
 ) -> dict[str, ComplianceAudit]:
-
 
     records = (
         db.query(ComplianceAudit)
@@ -271,26 +265,24 @@ def get_latest_audits(
     latest: dict[str, ComplianceAudit] = {}
 
     for record in records:
+        entity_name = record.entity_name or ""
 
         entity_key = (
-            record.entity_name
-            .strip()
-            .upper()
+            entity_name.strip().upper()
         )
 
-        if entity_key not in latest:
+        if not entity_key:
+            continue
 
+        if entity_key not in latest:
             latest[entity_key] = record
 
     return latest
 
 
-
-
 def get_previously_cleared_entities(
     db: Session,
 ) -> list[ComplianceAudit]:
-    
 
     latest_records = get_latest_audits(
         db
@@ -301,9 +293,7 @@ def get_previously_cleared_entities(
     ] = []
 
     for record in latest_records.values():
-
         if record.matched is False:
-
             cleared_entities.append(
                 record
             )
@@ -311,12 +301,9 @@ def get_previously_cleared_entities(
     return cleared_entities
 
 
-
-
 def get_audit_summary(
     db: Session,
 ):
-
     total_screenings = (
         db.query(
             func.count(
@@ -326,8 +313,6 @@ def get_audit_summary(
         .scalar()
         or 0
     )
-
-  
 
     total_flagged = (
         db.query(
@@ -341,7 +326,6 @@ def get_audit_summary(
         .scalar()
         or 0
     )
-
 
     overall_flag_rate = (
         round(
@@ -361,11 +345,9 @@ def get_audit_summary(
             func.date(
                 ComplianceAudit.created_at
             ).label("day"),
-
             func.count(
                 ComplianceAudit.id
             ).label("total"),
-
             func.sum(
                 func.cast(
                     ComplianceAudit.matched,
@@ -389,9 +371,7 @@ def get_audit_summary(
     flag_rate_over_time = []
 
     for row in daily_stats:
-
         total = row.total or 0
-
         flagged = row.flagged or 0
 
         flag_rate = (
@@ -410,16 +390,11 @@ def get_audit_summary(
         flag_rate_over_time.append(
             {
                 "date": str(row.day),
-
                 "total": total,
-
                 "flagged": flagged,
-
                 "flag_rate": flag_rate,
             }
         )
-
-    
 
     normalized_entity = (
         func.lower(
@@ -433,7 +408,6 @@ def get_audit_summary(
     top_entities = (
         db.query(
             normalized_entity,
-
             func.count(
                 ComplianceAudit.id
             ).label("count"),
@@ -456,13 +430,10 @@ def get_audit_summary(
     most_frequently_flagged_entities = [
         {
             "entity_name": row.entity_name.upper(),
-
             "count": row.count,
         }
         for row in top_entities
     ]
-
-
 
     newly_flagged_count = (
         db.query(
@@ -477,7 +448,6 @@ def get_audit_summary(
         or 0
     )
 
-
     initial_screenings = (
         db.query(
             func.count(
@@ -491,8 +461,6 @@ def get_audit_summary(
         .scalar()
         or 0
     )
-
-
 
     rescreenings = (
         db.query(
@@ -511,11 +479,9 @@ def get_audit_summary(
     country_stats = (
         db.query(
             ComplianceAudit.country,
-
             func.count(
                 ComplianceAudit.id
             ).label("screenings"),
-
             func.sum(
                 func.cast(
                     ComplianceAudit.matched,
@@ -540,9 +506,7 @@ def get_audit_summary(
     country_summary = []
 
     for row in country_stats:
-
         total = row.screenings or 0
-
         flagged = row.flagged or 0
 
         flag_rate = (
@@ -561,41 +525,21 @@ def get_audit_summary(
         country_summary.append(
             {
                 "country": row.country,
-
                 "screenings": total,
-
                 "flagged": flagged,
-
                 "flag_rate": flag_rate,
             }
         )
 
-
     return {
-        "total_screenings":
-            total_screenings,
-
-        "total_flagged":
-            total_flagged,
-
-        "overall_flag_rate":
-            overall_flag_rate,
-
-        "newly_flagged":
-            newly_flagged_count,
-
-        "initial_screenings":
-            initial_screenings,
-
-        "rescreenings":
-            rescreenings,
-
-        "flag_rate_over_time":
-            flag_rate_over_time,
-
+        "total_screenings": total_screenings,
+        "total_flagged": total_flagged,
+        "overall_flag_rate": overall_flag_rate,
+        "newly_flagged": newly_flagged_count,
+        "initial_screenings": initial_screenings,
+        "rescreenings": rescreenings,
+        "flag_rate_over_time": flag_rate_over_time,
         "most_frequently_flagged_entities":
             most_frequently_flagged_entities,
-
-        "country_summary":
-            country_summary,
+        "country_summary": country_summary,
     }

@@ -316,3 +316,68 @@ def test_graphql_screening_filters_and_pagination(
 
     assert screenings["items"][0]["country"] == "India"
     assert screenings["items"][0]["status"] == "CLEAR"
+
+def test_graphql_analyst_is_rejected(client, fake_platform):
+    fake_platform(
+        status_code=200,
+        payload={
+            "valid": True,
+            "user_id": 3,
+            "email": "analyst@company.com",
+            "role": "analyst",
+            "is_active": True,
+        },
+    )
+
+    response = client.post(
+        "/api/v1/compliance/graphql",
+        headers=_authorization_header(),
+        json={"query": "{ screenings(limit: 5) { total } }"},
+    )
+
+    assert response.status_code == 403
+
+
+def test_graphql_review_filter_returns_review_screenings(client, fake_platform):
+    db = SessionLocal()
+
+    try:
+        db.add(
+            ComplianceAudit(
+                entity_name="Review Supplier",
+                country="India",
+                matched=True,
+                decision="REVIEW",
+                matched_name="REVIEW SUPPLIER",
+                matched_lists="OFAC",
+                match_score=85,
+                risk_score=60.0,
+                screening_type="INITIAL",
+                newly_flagged=False,
+                service_name="test",
+                duration_ms=1.0,
+                created_at=datetime.utcnow(),
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    fake_platform()
+
+    response = client.post(
+        "/api/v1/compliance/graphql",
+        headers=_authorization_header(),
+        json={
+            "query": "{ screenings(status: REVIEW) "
+                     "{ total items { entityName status } } }"
+        },
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert "errors" not in body
+    assert body["data"]["screenings"]["total"] == 1
+    assert body["data"]["screenings"]["items"][0]["status"] == "REVIEW"

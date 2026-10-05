@@ -13,7 +13,10 @@ from app.core.config import (
 )
 from app.core.database import SessionLocal
 from app.models.audit import ComplianceAudit
-from app.services.audit_service import write_audit
+from app.services.audit_service import (
+    compute_decision,
+    write_audit,
+)
 from app.services.case_service import create_case
 from app.services.kafka_producer import (
     publish_supplier_status_changed,
@@ -81,7 +84,9 @@ def _screen_entity_for_rescreen(
     country: str | None,
     db,
 ) -> dict[str, Any]:
-    parameters = inspect.signature(screen_entity).parameters
+    parameters = inspect.signature(
+        screen_entity
+    ).parameters
 
     kwargs: dict[str, Any] = {}
 
@@ -100,8 +105,13 @@ def _screen_entity_for_rescreen(
 def _build_status_change_reason(
     result: dict[str, Any],
 ) -> str:
-    matched_lists = result.get("matched_lists") or []
-    matched_name = result.get("matched_name")
+    matched_lists = result.get(
+        "matched_lists"
+    ) or []
+
+    matched_name = result.get(
+        "matched_name"
+    )
 
     if matched_name and matched_lists:
         return (
@@ -116,7 +126,10 @@ def _build_status_change_reason(
         )
 
     if matched_name:
-        return f"Compliance match found for {matched_name}"
+        return (
+            f"Compliance match found for "
+            f"{matched_name}"
+        )
 
     return "Compliance screening match found"
 
@@ -153,17 +166,42 @@ def rescreen_entity(
     if not result.get("country"):
         result["country"] = country
 
-    is_flagged = bool(
+    matched = bool(
         result.get(
             "is_flagged",
             False,
         )
     )
 
-    old_status = "CLEAR"
-    new_status = "BLOCK" if is_flagged else "CLEAR"
+    match_score = float(
+        result.get(
+            "match_score",
+            0,
+        )
+        or 0
+    )
 
-    if is_flagged:
+    old_status = (
+        getattr(entity, "decision", None)
+        or (
+            "BLOCK"
+            if getattr(
+                entity,
+                "matched",
+                False,
+            )
+            else "CLEAR"
+        )
+    )
+
+    new_status = compute_decision(
+        matched=matched,
+        match_score=match_score,
+    )
+
+    newly_flagged = matched
+
+    if matched:
         create_case(
             db=db,
             entity_name=entity_name,
@@ -183,10 +221,11 @@ def rescreen_entity(
     )
 
     result["screening_type"] = "RESCREEN"
-    result["newly_flagged"] = is_flagged
+    result["newly_flagged"] = newly_flagged
     result["screening_run_id"] = screening_run_id
     result["risk_score"] = risk_score
     result["risk_factors"] = risk_factors
+    result["decision"] = new_status
 
     write_audit(
         db=db,
@@ -194,28 +233,40 @@ def rescreen_entity(
         result=result,
         duration_ms=duration_ms,
         screening_type="RESCREEN",
-        newly_flagged=is_flagged,
+        newly_flagged=newly_flagged,
         screening_run_id=screening_run_id,
     )
-
+    status_change = None
     if old_status != new_status:
-        publish_supplier_status_changed(
-            entity_name=entity_name,
-            old_status=old_status,
-            new_status=new_status,
-            matched_list=result.get("matched_lists") or [],
-            reason=_build_status_change_reason(result),
-        )
+        status_change = {
+            "supplier_name": entity_name,
+            "country": country,
+            "old_status": old_status,
+            "new_status": new_status,
+            "matched_list": (
+                result.get("matched_lists")
+                or []
+            ),
+            "reason": _build_status_change_reason(
+                result
+            ),
+            "screening_run_id": screening_run_id,
+        }
 
     return {
         "entity_name": entity_name,
-        "previously_cleared": True,
-        "newly_flagged": is_flagged,
+        "previous_status": old_status,
+        "new_status": new_status,
+        "previously_cleared": (
+            old_status == "CLEAR"
+        ),
+        "newly_flagged": newly_flagged,
         "screening_type": "RESCREEN",
         "screening_run_id": screening_run_id,
         "risk_score": risk_score,
         "risk_factors": risk_factors,
         "result": result,
+        "status_change": status_change,
         "duration_ms": round(
             duration_ms,
             2,
@@ -226,16 +277,24 @@ def rescreen_entity(
 def rescreen_cleared_entities() -> dict[str, Any]:
     job_start = time.perf_counter()
 
-    screening_run_id = generate_screening_run_id()
+    screening_run_id = (
+        generate_screening_run_id()
+    )
 
     db = SessionLocal()
 
     try:
         refresh_sanctions_data()
 
-        cleared_entities = get_previously_cleared_entities(db)
+        cleared_entities = (
+            get_previously_cleared_entities(
+                db
+            )
+        )
 
-        total_checked = len(cleared_entities)
+        total_checked = len(
+            cleared_entities
+        )
 
         print(
             "Previously-cleared entities: "
@@ -261,10 +320,54 @@ def rescreen_cleared_entities() -> dict[str, Any]:
             else:
                 still_clean += 1
 
+     
         db.commit()
 
+        events_published = 0
+        events_failed = 0
+
+        for result in results:
+            status_change = result.get(
+                "status_change"
+            )
+
+            if not status_change:
+                continue
+
+            published = (
+                publish_supplier_status_changed(
+                    supplier_name=status_change[
+                        "supplier_name"
+                    ],
+                    country=status_change[
+                        "country"
+                    ],
+                    old_status=status_change[
+                        "old_status"
+                    ],
+                    new_status=status_change[
+                        "new_status"
+                    ],
+                    matched_list=status_change[
+                        "matched_list"
+                    ],
+                    reason=status_change[
+                        "reason"
+                    ],
+                    screening_run_id=status_change[
+                        "screening_run_id"
+                    ],
+                )
+            )
+
+            if published:
+                events_published += 1
+            else:
+                events_failed += 1
+
         total_duration_ms = (
-            time.perf_counter() - job_start
+            time.perf_counter()
+            - job_start
         ) * 1000
 
         return {
@@ -273,6 +376,8 @@ def rescreen_cleared_entities() -> dict[str, Any]:
             "total_checked": total_checked,
             "newly_flagged": newly_flagged,
             "still_clean": still_clean,
+            "events_published": events_published,
+            "events_failed": events_failed,
             "total_duration_ms": round(
                 total_duration_ms,
                 2,
@@ -307,6 +412,7 @@ def authenticate_rescreen_job() -> dict[str, Any]:
             },
             timeout=10.0,
         )
+
     except httpx.RequestError as exc:
         raise RuntimeError(
             "Unable to connect to Platform/Auth service"
@@ -319,6 +425,7 @@ def authenticate_rescreen_job() -> dict[str, Any]:
 
     try:
         data = response.json()
+
     except ValueError as exc:
         raise RuntimeError(
             "Platform/Auth returned an invalid response"
@@ -333,7 +440,9 @@ def authenticate_rescreen_job() -> dict[str, Any]:
 
 
 def nightly_rescreen_job() -> dict[str, Any]:
-    print("Starting nightly re-screen...")
+    print(
+        "Starting nightly re-screen..."
+    )
 
     authenticate_rescreen_job()
 
@@ -343,8 +452,9 @@ def nightly_rescreen_job() -> dict[str, Any]:
         "Re-screen completed: "
         f"{result.get('total_checked', 0)} checked, "
         f"{result.get('newly_flagged', 0)} newly flagged, "
-        f"{result.get('still_clean', 0)} still clean."
+        f"{result.get('still_clean', 0)} still clean, "
+        f"{result.get('events_published', 0)} events published, "
+        f"{result.get('events_failed', 0)} events failed."
     )
 
     return result
-

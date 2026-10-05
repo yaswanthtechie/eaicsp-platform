@@ -38,3 +38,15 @@ def test_build_audit_values_sets_review_decision():
 
     assert result["matched"] is True
     assert result["decision"] == "REVIEW"
+
+def test_build_audit_values_sets_block_decision_at_threshold():
+    result = _build_audit_values(
+        entity_name="THRESHOLD COMPANY",
+        result={
+            "is_flagged": True,
+            "match_score": 90,
+        },
+    )
+
+    assert result["matched"] is True
+    assert result["decision"] == "BLOCK"

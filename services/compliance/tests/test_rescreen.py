@@ -731,7 +731,7 @@ def test_nightly_rescreen_publishes_one_status_change_event(
 
         event = published_events[0]
 
-        assert event["entity_name"] == "KAFKA TEST SUPPLIER"
+        assert event["supplier_name"] == "KAFKA TEST SUPPLIER"
         assert event["old_status"] == "CLEAR"
         assert event["new_status"] == "BLOCK"
         assert event["matched_list"] == ["OFAC"]
@@ -742,6 +742,137 @@ def test_nightly_rescreen_publishes_one_status_change_event(
         assert second_run["total_checked"] == 0
         assert second_run["newly_flagged"] == 0
         assert len(published_events) == 1
+
+    finally:
+        db.close()
+
+def _flagged(score):
+    return lambda name: {
+        "entity_name": name,
+        "is_flagged": True,
+        "matched_name": name,
+        "matched_lists": ["OFAC"],
+        "matched_count": 1,
+        "match_score": score,
+        "confidence": 1.0,
+        "risk_score": 90,
+        "risk_factors": {},
+    }
+
+
+def test_nightly_rescreen_with_no_change_publishes_nothing(monkeypatch):
+    db = SessionLocal()
+
+    try:
+        create_audit(db, "STILL CLEAN SUPPLIER", matched=False)
+
+        published_events = []
+
+        monkeypatch.setattr(rescreen_service, "refresh_sanctions_data", lambda: None)
+        monkeypatch.setattr(
+            rescreen_service,
+            "screen_entity",
+            lambda name: {
+                "entity_name": name,
+                "is_flagged": False,
+                "matched_lists": [],
+                "match_score": 0,
+                "risk_score": 0,
+                "risk_factors": {},
+            },
+        )
+        monkeypatch.setattr(
+            rescreen_service,
+            "publish_supplier_status_changed",
+            lambda **kwargs: published_events.append(kwargs),
+        )
+
+        rescreen_service.rescreen_cleared_entities()
+        rescreen_service.rescreen_cleared_entities()
+
+        assert published_events == []
+
+    finally:
+        db.close()
+
+
+def test_possible_match_publishes_review_not_block(monkeypatch):
+    db = SessionLocal()
+
+    try:
+        create_audit(db, "POSSIBLE MATCH SUPPLIER", matched=False)
+
+        published_events = []
+
+        monkeypatch.setattr(rescreen_service, "refresh_sanctions_data", lambda: None)
+        monkeypatch.setattr(rescreen_service, "screen_entity", _flagged(85))
+        monkeypatch.setattr(
+            rescreen_service,
+            "publish_supplier_status_changed",
+            lambda **kwargs: published_events.append(kwargs),
+        )
+
+        rescreen_service.rescreen_cleared_entities()
+
+        assert len(published_events) == 1
+        assert published_events[0]["new_status"] == "REVIEW"
+
+    finally:
+        db.close()
+
+
+def test_kafka_outage_keeps_rescreen_results(monkeypatch):
+    db = SessionLocal()
+
+    try:
+        create_audit(
+            db,
+            "OUTAGE SUPPLIER",
+            matched=False,
+        )
+
+        monkeypatch.setattr(
+            rescreen_service,
+            "refresh_sanctions_data",
+            lambda: None,
+        )
+
+        monkeypatch.setattr(
+            rescreen_service,
+            "screen_entity",
+            _flagged(100),
+        )
+
+        monkeypatch.setattr(
+            rescreen_service,
+            "publish_supplier_status_changed",
+            lambda **kwargs: False,
+        )
+
+        run = rescreen_service.rescreen_cleared_entities()
+
+        assert run["newly_flagged"] == 1
+        assert run["events_published"] == 0
+        assert run["events_failed"] == 1
+
+        db.expire_all()
+
+        latest = rescreen_service.get_latest_audits(
+            db
+        )["OUTAGE SUPPLIER"]
+
+        assert latest.matched is True
+        assert latest.decision == "BLOCK"
+
+        assert (
+            db.query(ComplianceCase)
+            .filter(
+                ComplianceCase.entity_name
+                == "OUTAGE SUPPLIER"
+            )
+            .count()
+            == 1
+        )
 
     finally:
         db.close()

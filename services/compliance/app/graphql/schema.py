@@ -3,11 +3,13 @@ from enum import Enum
 from typing import Optional
 
 import strawberry
-from sqlalchemy import func
+from sqlalchemy import case, func
 
+from app.core.config import INTERNAL_BLOCK_MATCH_SCORE
 from app.core.database import SessionLocal
 from app.models.audit import ComplianceAudit
 from app.models.compliance_case import ComplianceCase
+from app.services.audit_service import compute_decision
 
 
 # ============================================================
@@ -37,7 +39,6 @@ class CaseStatus(Enum):
 
 @strawberry.type
 class Screening:
-
     id: int
     entity_name: str
     country: Optional[str]
@@ -56,7 +57,6 @@ class Screening:
 
 @strawberry.type
 class Case:
-
     id: int
     case_number: str
     entity_name: str
@@ -80,7 +80,6 @@ class Case:
 
 @strawberry.type
 class ScreeningPage:
-
     items: list[Screening]
     total: int
     limit: int
@@ -89,11 +88,34 @@ class ScreeningPage:
 
 @strawberry.type
 class CasePage:
-
     items: list[Case]
     total: int
     limit: int
     offset: int
+
+
+# ============================================================
+# GRAPHQL DATABASE STATUS EXPRESSION
+# ============================================================
+
+_EFFECTIVE_DECISION = func.coalesce(
+    ComplianceAudit.decision,
+    case(
+        (
+            ComplianceAudit.matched.is_(True)
+            & (
+                ComplianceAudit.match_score
+                >= INTERNAL_BLOCK_MATCH_SCORE
+            ),
+            "BLOCK",
+        ),
+        (
+            ComplianceAudit.matched.is_(True),
+            "REVIEW",
+        ),
+        else_="CLEAR",
+    ),
+)
 
 
 # ============================================================
@@ -104,38 +126,28 @@ class CasePage:
 def _screening_status(
     audit: ComplianceAudit,
 ) -> ScreeningStatus:
-    """
-    Convert the persisted ComplianceAudit fields into the
-    GraphQL screening status.
+    decision = audit.decision
 
-    Current ComplianceAudit persistence only contains the
-    matched flag, so:
+    if not decision:
+        decision = compute_decision(
+            matched=bool(audit.matched),
+            match_score=float(
+                audit.match_score or 0
+            ),
+        )
 
-        matched=True  -> BLOCK
-        matched=False -> CLEAR
-
-    REVIEW is part of the GraphQL contract, but cannot be
-    derived safely until the audit record stores the actual
-    review decision.
-    """
-
-    if audit.matched:
-        return ScreeningStatus.BLOCK
-
-    return ScreeningStatus.CLEAR
+    return ScreeningStatus(decision)
 
 
 def _case_status(
     case: ComplianceCase,
 ) -> CaseStatus:
-
     return CaseStatus(case.status)
 
 
 def _to_screening(
     audit: ComplianceAudit,
 ) -> Screening:
-
     return Screening(
         id=audit.id,
         entity_name=audit.entity_name,
@@ -157,7 +169,6 @@ def _to_screening(
 def _to_case(
     case: ComplianceCase,
 ) -> Case:
-
     return Case(
         id=case.id,
         case_number=case.case_number,
@@ -204,10 +215,6 @@ class Query:
         offset: int = 0,
     ) -> ScreeningPage:
 
-        # ----------------------------------------------------
-        # Validate pagination
-        # ----------------------------------------------------
-
         limit = max(
             1,
             min(limit, 100),
@@ -221,7 +228,6 @@ class Query:
         db = SessionLocal()
 
         try:
-
             query = db.query(
                 ComplianceAudit
             )
@@ -231,48 +237,21 @@ class Query:
             # ------------------------------------------------
 
             if status is not None:
-
-                if status == ScreeningStatus.BLOCK:
-
-                    query = query.filter(
-                        ComplianceAudit.matched.is_(True)
-                    )
-
-                elif status == ScreeningStatus.CLEAR:
-
-                    query = query.filter(
-                        ComplianceAudit.matched.is_(False)
-                    )
-
-                elif status == ScreeningStatus.REVIEW:
-                    """
-                    ComplianceAudit currently has no persisted
-                    REVIEW status.
-
-                    Do not treat REVIEW as CLEAR because that
-                    would return incorrect data.
-
-                    Until the audit model stores the actual
-                    screening decision, REVIEW has no matching
-                    persisted records.
-                    """
-
-                    query = query.filter(
-                        False
-                    )
+                query = query.filter(
+                    _EFFECTIVE_DECISION
+                    == status.value
+                )
 
             # ------------------------------------------------
             # Jurisdiction filter
             # ------------------------------------------------
 
             if jurisdiction is not None:
-
                 normalized_jurisdiction = (
                     jurisdiction.strip()
                 )
 
                 if normalized_jurisdiction:
-
                     query = query.filter(
                         func.lower(
                             ComplianceAudit.country
@@ -285,14 +264,12 @@ class Query:
             # ------------------------------------------------
 
             if date_from is not None:
-
                 query = query.filter(
                     ComplianceAudit.created_at
                     >= date_from
                 )
 
             if date_to is not None:
-
                 query = query.filter(
                     ComplianceAudit.created_at
                     <= date_to
@@ -319,7 +296,7 @@ class Query:
             )
 
             # ------------------------------------------------
-            # Convert database records to GraphQL objects
+            # Convert records
             # ------------------------------------------------
 
             items = [
@@ -335,7 +312,6 @@ class Query:
             )
 
         finally:
-
             db.close()
 
     # ========================================================
@@ -353,10 +329,6 @@ class Query:
         offset: int = 0,
     ) -> CasePage:
 
-        # ----------------------------------------------------
-        # Validate pagination
-        # ----------------------------------------------------
-
         limit = max(
             1,
             min(limit, 100),
@@ -370,7 +342,6 @@ class Query:
         db = SessionLocal()
 
         try:
-
             query = db.query(
                 ComplianceCase
             )
@@ -380,7 +351,6 @@ class Query:
             # ------------------------------------------------
 
             if status is not None:
-
                 query = query.filter(
                     ComplianceCase.status
                     == status.value
@@ -391,13 +361,11 @@ class Query:
             # ------------------------------------------------
 
             if jurisdiction is not None:
-
                 normalized_jurisdiction = (
                     jurisdiction.strip()
                 )
 
                 if normalized_jurisdiction:
-
                     query = query.filter(
                         func.lower(
                             ComplianceCase.country
@@ -410,14 +378,12 @@ class Query:
             # ------------------------------------------------
 
             if date_from is not None:
-
                 query = query.filter(
                     ComplianceCase.created_at
                     >= date_from
                 )
 
             if date_to is not None:
-
                 query = query.filter(
                     ComplianceCase.created_at
                     <= date_to
@@ -444,7 +410,7 @@ class Query:
             )
 
             # ------------------------------------------------
-            # Convert database records to GraphQL objects
+            # Convert records
             # ------------------------------------------------
 
             items = [
@@ -460,7 +426,6 @@ class Query:
             )
 
         finally:
-
             db.close()
 
 

@@ -4,9 +4,7 @@ import httpx
 import pytest
 from sqlalchemy import text
 
-os.environ["DATABASE_URL"] = (
-    "postgresql+psycopg://compliance:compliance_dev@localhost:5433/compliance_test"
-)
+os.environ["DATABASE_URL"] = "sqlite:///./test_compliance.db"
 os.environ.setdefault("USE_FIXTURES", "true")
 
 from fastapi.testclient import TestClient
@@ -31,29 +29,19 @@ def clean_test_database(db):
 
     db.commit()
 
-    db.execute(
-        text(
-            "SELECT setval("
-            "pg_get_serial_sequence('compliance_case', 'id'), "
-            "1, false)"
-        )
-    )
-    db.execute(
-        text(
-            "SELECT setval("
-            "pg_get_serial_sequence('case_history', 'id'), "
-            "1, false)"
-        )
-    )
-    db.execute(
-        text(
-            "SELECT setval("
-            "pg_get_serial_sequence('compliance_audit', 'id'), "
-            "1, false)"
-        )
-    )
-
-    db.commit()
+    if db.get_bind().dialect.name == "postgresql":
+        for table in (
+            "compliance_case",
+            "case_history",
+            "compliance_audit",
+        ):
+            db.execute(
+                text(
+                    "SELECT setval("
+                    f"pg_get_serial_sequence('{table}', 'id'), 1, false)"
+                )
+            )
+        db.commit()
 
 
 @pytest.fixture(
@@ -61,9 +49,8 @@ def clean_test_database(db):
     autouse=True,
 )
 def create_schema():
-    Base.metadata.create_all(
-        bind=engine
-    )
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
 
 
 @pytest.fixture(

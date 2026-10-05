@@ -2,16 +2,62 @@ from datetime import datetime, timezone
 from typing import Any
 import logging
 import threading
+import time
 
 from sqlalchemy.orm import Session
 
 from app.services.sanctions_service import screen_entity
 from app.services.sla_service import record_request, start_timer
 from app.services.sla_alert_service import send_sla_alert
-from app.core.config import SLA_LATENCY_THRESHOLD_MS
+from app.core.config import (
+    INTERNAL_BLOCK_MATCH_SCORE,
+    SLA_ALERT_COOLDOWN_SECONDS,
+    SLA_LATENCY_THRESHOLD_MS,
+)
 
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================
+# SLA ALERT COOLDOWN
+# ============================================================
+
+_LAST_SLA_ALERT_AT: float | None = None
+_SLA_ALERT_LOCK = threading.Lock()
+
+
+def _alert_sla_degraded(
+    caller_service: str,
+    supplier_id: str,
+    latency_ms: float,
+) -> bool:
+    
+    global _LAST_SLA_ALERT_AT
+
+    now = time.monotonic()
+
+    with _SLA_ALERT_LOCK:
+        if (
+            _LAST_SLA_ALERT_AT is not None
+            and now - _LAST_SLA_ALERT_AT < SLA_ALERT_COOLDOWN_SECONDS
+        ):
+            return False
+
+        _LAST_SLA_ALERT_AT = now
+
+    threading.Thread(
+        target=send_sla_alert,
+        kwargs={
+            "caller_service": caller_service,
+            "supplier_id": supplier_id,
+            "latency_ms": latency_ms,
+            "threshold_ms": SLA_LATENCY_THRESHOLD_MS,
+        },
+        daemon=True,
+    ).start()
+
+    return True
 
 
 # ============================================================
@@ -32,6 +78,12 @@ _CACHE_LOCKS_GUARD = threading.Lock()
 
 CACHE_TTL_SECONDS = 300
 
+def clear_internal_cache() -> None:
+    
+    with _CACHE_LOCKS_GUARD:
+        _INTERNAL_CHECK_CACHE.clear()
+
+    logger.info("Internal compliance cache cleared")
 
 # ============================================================
 # CACHE METRICS
@@ -241,7 +293,7 @@ def _build_compliance_response(
     # STRONG MATCH -> BLOCK
     # --------------------------------------------------------
 
-    if match_score >= 90:
+    if match_score >= INTERNAL_BLOCK_MATCH_SCORE:
 
         sources = ", ".join(
             str(source)
@@ -521,13 +573,11 @@ def perform_internal_compliance_check(
                     SLA_LATENCY_THRESHOLD_MS,
                 )
 
-                send_sla_alert(
+                
+                _alert_sla_degraded(
                     caller_service=caller_service,
                     supplier_id=supplier_id,
                     latency_ms=duration_ms,
-                    threshold_ms=(
-                        SLA_LATENCY_THRESHOLD_MS
-                    ),
                 )
 
             return response
