@@ -15,15 +15,11 @@ def _build_audit_values(
     newly_flagged: bool = False,
     screening_run_id: str | None = None,
 ) -> dict:
-    
-
 
     country = result.get("country")
 
     if country:
         country = str(country).strip()
-
-
 
     country_risk_score = float(
         result.get(
@@ -33,7 +29,6 @@ def _build_audit_values(
         or 0.0
     )
 
-
     risk_factors = dict(
         result.get(
             "risk_factors",
@@ -42,9 +37,7 @@ def _build_audit_values(
         or {}
     )
 
-  
     risk_factors["country_risk"] = country_risk_score
-
 
     matched_lists = result.get(
         "matched_lists",
@@ -53,7 +46,6 @@ def _build_audit_values(
 
     if isinstance(matched_lists, str):
         matched_lists_value = matched_lists
-
     else:
         matched_lists_value = ",".join(
             str(source).strip()
@@ -61,36 +53,38 @@ def _build_audit_values(
             if source
         )
 
+    matched = bool(
+        result.get(
+            "is_flagged",
+            False,
+        )
+    )
+
+    match_score = int(
+        result.get(
+            "match_score",
+            0,
+        )
+        or 0
+    )
+
+    if not matched:
+        decision = "CLEAR"
+    elif match_score >= 90:
+        decision = "BLOCK"
+    else:
+        decision = "REVIEW"
 
     return {
-       
         "entity_name": entity_name,
-
         "country": country,
-
-        
-        "matched": bool(
-            result.get(
-                "is_flagged",
-                False,
-            )
-        ),
-
+        "matched": matched,
+        "decision": decision,
         "matched_name": result.get(
             "matched_name"
         ),
-
         "matched_lists": matched_lists_value,
-
-        "match_score": int(
-            result.get(
-                "match_score",
-                0,
-            )
-            or 0
-        ),
-
-
+        "match_score": match_score,
         "risk_score": float(
             result.get(
                 "risk_score",
@@ -98,38 +92,25 @@ def _build_audit_values(
             )
             or 0.0
         ),
-
         "risk_factors": json.dumps(
             risk_factors
         ),
-
-     
         "country_risk_score": country_risk_score,
-
-
         "overall_supplier_risk": float(
             result.get(
                 "overall_supplier_risk",
-                0.0,
+                0.0
             )
             or 0.0
         ),
-
-  
         "screening_type": screening_type,
-
         "newly_flagged": newly_flagged,
-
         "screening_run_id": screening_run_id,
-
-
         "service_name": SERVICE_NAME,
-
         "duration_ms": float(
             duration_ms
         ),
     }
-
 
 def write_audit(
     db: Session,

@@ -34,7 +34,6 @@ def create_audit(
 
 
 def test_get_latest_audits():
-
     db = SessionLocal()
 
     try:
@@ -55,18 +54,13 @@ def test_get_latest_audits():
         latest = rescreen_service.get_latest_audits(db)
 
         assert "TEST SUPPLIER" in latest
-
-        assert (
-            latest["TEST SUPPLIER"].id
-            == new_record.id
-        )
+        assert latest["TEST SUPPLIER"].id == new_record.id
 
     finally:
         db.close()
 
 
 def test_get_previously_cleared_entities():
-
     db = SessionLocal()
 
     try:
@@ -76,10 +70,7 @@ def test_get_previously_cleared_entities():
             matched=False,
         )
 
-        cleared = (
-            rescreen_service
-            .get_previously_cleared_entities(db)
-        )
+        cleared = rescreen_service.get_previously_cleared_entities(db)
 
         names = [
             record.entity_name
@@ -92,9 +83,7 @@ def test_get_previously_cleared_entities():
         db.close()
 
 
-
 def test_latest_matched_entity_is_not_cleared():
-
     db = SessionLocal()
 
     try:
@@ -112,10 +101,7 @@ def test_latest_matched_entity_is_not_cleared():
             match_score=100,
         )
 
-        cleared = (
-            rescreen_service
-            .get_previously_cleared_entities(db)
-        )
+        cleared = rescreen_service.get_previously_cleared_entities(db)
 
         names = [
             record.entity_name
@@ -128,10 +114,7 @@ def test_latest_matched_entity_is_not_cleared():
         db.close()
 
 
-
-
 def test_rescreen_entity_still_clean(monkeypatch):
-
     db = SessionLocal()
 
     try:
@@ -161,6 +144,12 @@ def test_rescreen_entity_still_clean(monkeypatch):
             },
         )
 
+        monkeypatch.setattr(
+            rescreen_service,
+            "publish_supplier_status_changed",
+            lambda **kwargs: kwargs,
+        )
+
         result = rescreen_service.rescreen_entity(
             db,
             record,
@@ -169,7 +158,6 @@ def test_rescreen_entity_still_clean(monkeypatch):
         assert result["previously_cleared"] is True
         assert result["newly_flagged"] is False
 
-       
         audits = (
             db.query(ComplianceAudit)
             .filter(
@@ -186,7 +174,6 @@ def test_rescreen_entity_still_clean(monkeypatch):
 
 
 def test_rescreen_entity_becomes_flagged(monkeypatch):
-
     db = SessionLocal()
 
     try:
@@ -216,6 +203,12 @@ def test_rescreen_entity_becomes_flagged(monkeypatch):
             },
         )
 
+        monkeypatch.setattr(
+            rescreen_service,
+            "publish_supplier_status_changed",
+            lambda **kwargs: kwargs,
+        )
+
         result = rescreen_service.rescreen_entity(
             db,
             record,
@@ -229,9 +222,7 @@ def test_rescreen_entity_becomes_flagged(monkeypatch):
         db.close()
 
 
-
 def test_newly_flagged_record_is_saved(monkeypatch):
-
     db = SessionLocal()
 
     try:
@@ -261,6 +252,12 @@ def test_newly_flagged_record_is_saved(monkeypatch):
             },
         )
 
+        monkeypatch.setattr(
+            rescreen_service,
+            "publish_supplier_status_changed",
+            lambda **kwargs: kwargs,
+        )
+
         result = rescreen_service.rescreen_entity(
             db,
             record,
@@ -287,18 +284,14 @@ def test_newly_flagged_record_is_saved(monkeypatch):
         assert new_audit is not None
         assert new_audit.matched is True
         assert new_audit.newly_flagged is True
-        assert new_audit.matched_name == (
-            "SANCTIONED COMPANY"
-        )
+        assert new_audit.matched_name == "SANCTIONED COMPANY"
         assert new_audit.match_score == 100
 
     finally:
         db.close()
 
 
-
 def test_rescreen_all_cleared_entities(monkeypatch):
-
     db = SessionLocal()
 
     try:
@@ -323,7 +316,6 @@ def test_rescreen_all_cleared_entities(monkeypatch):
         screened = []
 
         def fake_screen(name):
-
             screened.append(name)
 
             return {
@@ -348,32 +340,30 @@ def test_rescreen_all_cleared_entities(monkeypatch):
             fake_screen,
         )
 
-  
         monkeypatch.setattr(
             rescreen_service,
             "refresh_sanctions_data",
             lambda: None,
         )
 
-        result = (
-            rescreen_service
-            .rescreen_cleared_entities()
+        monkeypatch.setattr(
+            rescreen_service,
+            "publish_supplier_status_changed",
+            lambda **kwargs: kwargs,
         )
+
+        result = rescreen_service.rescreen_cleared_entities()
 
         assert result["total_checked"] == 3
         assert result["newly_flagged"] == 0
         assert result["still_clean"] == 3
-
         assert len(screened) == 3
 
     finally:
         db.close()
 
 
-
-
 def test_rescreen_mixed_results(monkeypatch):
-
     db = SessionLocal()
 
     try:
@@ -390,9 +380,7 @@ def test_rescreen_mixed_results(monkeypatch):
         )
 
         def fake_screen(name):
-
             if name == "SANCTIONED SUPPLIER":
-
                 return {
                     "entity_name": name,
                     "is_flagged": True,
@@ -431,17 +419,19 @@ def test_rescreen_mixed_results(monkeypatch):
             fake_screen,
         )
 
-     
         monkeypatch.setattr(
             rescreen_service,
             "refresh_sanctions_data",
             lambda: None,
         )
 
-        result = (
-            rescreen_service
-            .rescreen_cleared_entities()
+        monkeypatch.setattr(
+            rescreen_service,
+            "publish_supplier_status_changed",
+            lambda **kwargs: kwargs,
         )
+
+        result = rescreen_service.rescreen_cleared_entities()
 
         assert result["total_checked"] == 2
         assert result["newly_flagged"] == 1
@@ -451,24 +441,17 @@ def test_rescreen_mixed_results(monkeypatch):
         db.close()
 
 
-
-
 def test_rescreen_when_no_cleared_entities(monkeypatch):
-
     db = SessionLocal()
 
     try:
-
         monkeypatch.setattr(
             rescreen_service,
             "refresh_sanctions_data",
             lambda: None,
         )
 
-        result = (
-            rescreen_service
-            .rescreen_cleared_entities()
-        )
+        result = rescreen_service.rescreen_cleared_entities()
 
         assert result["total_checked"] == 0
         assert result["newly_flagged"] == 0
@@ -479,9 +462,7 @@ def test_rescreen_when_no_cleared_entities(monkeypatch):
         db.close()
 
 
-
 def test_sanctions_refreshed_before_rescreen(monkeypatch):
-
     execution_order = []
 
     db = SessionLocal()
@@ -494,16 +475,10 @@ def test_sanctions_refreshed_before_rescreen(monkeypatch):
         )
 
         def fake_refresh():
-
-            execution_order.append(
-                "refresh"
-            )
+            execution_order.append("refresh")
 
         def fake_screen(name):
-
-            execution_order.append(
-                "screen"
-            )
+            execution_order.append("screen")
 
             return {
                 "entity_name": name,
@@ -533,6 +508,12 @@ def test_sanctions_refreshed_before_rescreen(monkeypatch):
             fake_screen,
         )
 
+        monkeypatch.setattr(
+            rescreen_service,
+            "publish_supplier_status_changed",
+            lambda **kwargs: kwargs,
+        )
+
         rescreen_service.rescreen_cleared_entities()
 
         assert execution_order[0] == "refresh"
@@ -542,9 +523,7 @@ def test_sanctions_refreshed_before_rescreen(monkeypatch):
         db.close()
 
 
-
 def test_nightly_rescreen_job(monkeypatch):
-
     expected = {
         "total_checked": 10,
         "newly_flagged": 2,
@@ -572,7 +551,8 @@ def test_nightly_rescreen_job(monkeypatch):
     result = rescreen_service.nightly_rescreen_job()
 
     assert result == expected
-    
+
+
 def test_rescreen_respects_override(monkeypatch):
     db = SessionLocal()
 
@@ -583,7 +563,6 @@ def test_rescreen_respects_override(monkeypatch):
             matched=False,
         )
 
-        # Create false-positive override
         from app.services.override_service import create_override
 
         create_override(
@@ -615,25 +594,24 @@ def test_rescreen_respects_override(monkeypatch):
             },
         )
 
+        monkeypatch.setattr(
+            rescreen_service,
+            "publish_supplier_status_changed",
+            lambda **kwargs: kwargs,
+        )
+
         result = rescreen_service.rescreen_entity(
             db=db,
             entity=record,
         )
 
         assert result["newly_flagged"] is False
-
-        assert (
-            result["result"]["override_applied"]
-            is True
-        )
-
-        assert (
-            result["result"]["is_flagged"]
-            is False
-        )
+        assert result["result"]["override_applied"] is True
+        assert result["result"]["is_flagged"] is False
 
     finally:
         db.close()
+
 
 def test_newly_flagged_rescreen_creates_case(monkeypatch):
     db = SessionLocal()
@@ -665,6 +643,12 @@ def test_newly_flagged_rescreen_creates_case(monkeypatch):
             },
         )
 
+        monkeypatch.setattr(
+            rescreen_service,
+            "publish_supplier_status_changed",
+            lambda **kwargs: kwargs,
+        )
+
         result = rescreen_service.rescreen_entity(
             db,
             record,
@@ -690,4 +674,74 @@ def test_newly_flagged_rescreen_creates_case(monkeypatch):
 
     finally:
         db.rollback()
+        db.close()
+
+
+def test_nightly_rescreen_publishes_one_status_change_event(
+    monkeypatch,
+):
+    db = SessionLocal()
+
+    try:
+        create_audit(
+            db,
+            "KAFKA TEST SUPPLIER",
+            matched=False,
+        )
+
+        published_events = []
+
+        monkeypatch.setattr(
+            rescreen_service,
+            "refresh_sanctions_data",
+            lambda: None,
+        )
+
+        monkeypatch.setattr(
+            rescreen_service,
+            "screen_entity",
+            lambda name: {
+                "entity_name": name,
+                "is_flagged": True,
+                "matched_name": name,
+                "matched_lists": ["OFAC"],
+                "matched_count": 1,
+                "match_score": 100,
+                "confidence": 1.0,
+                "risk_score": 90,
+                "risk_factors": {
+                    "match_confidence": 100,
+                    "source_coverage": 33.33,
+                    "recency": 100,
+                },
+            },
+        )
+
+        monkeypatch.setattr(
+            rescreen_service,
+            "publish_supplier_status_changed",
+            lambda **kwargs: published_events.append(kwargs),
+        )
+
+        first_run = rescreen_service.rescreen_cleared_entities()
+
+        assert first_run["total_checked"] == 1
+        assert first_run["newly_flagged"] == 1
+        assert len(published_events) == 1
+
+        event = published_events[0]
+
+        assert event["entity_name"] == "KAFKA TEST SUPPLIER"
+        assert event["old_status"] == "CLEAR"
+        assert event["new_status"] == "BLOCK"
+        assert event["matched_list"] == ["OFAC"]
+        assert "KAFKA TEST SUPPLIER" in event["reason"]
+
+        second_run = rescreen_service.rescreen_cleared_entities()
+
+        assert second_run["total_checked"] == 0
+        assert second_run["newly_flagged"] == 0
+        assert len(published_events) == 1
+
+    finally:
         db.close()

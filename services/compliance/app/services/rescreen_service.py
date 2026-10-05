@@ -4,17 +4,20 @@ from datetime import datetime, timezone
 import inspect
 import time
 from typing import Any
+
 import httpx
 
 from app.core.config import (
     PLATFORM_AUTH_URL,
     PLATFORM_SERVICE_API_KEY,
 )
-
 from app.core.database import SessionLocal
 from app.models.audit import ComplianceAudit
 from app.services.audit_service import write_audit
 from app.services.case_service import create_case
+from app.services.kafka_producer import (
+    publish_supplier_status_changed,
+)
 from app.services.sanctions_service import (
     apply_override,
     refresh_sanctions_data,
@@ -94,6 +97,30 @@ def _screen_entity_for_rescreen(
     )
 
 
+def _build_status_change_reason(
+    result: dict[str, Any],
+) -> str:
+    matched_lists = result.get("matched_lists") or []
+    matched_name = result.get("matched_name")
+
+    if matched_name and matched_lists:
+        return (
+            f"Matched name {matched_name} on "
+            f"{', '.join(str(source) for source in matched_lists)}"
+        )
+
+    if matched_lists:
+        return (
+            "Compliance match found on "
+            f"{', '.join(str(source) for source in matched_lists)}"
+        )
+
+    if matched_name:
+        return f"Compliance match found for {matched_name}"
+
+    return "Compliance screening match found"
+
+
 def rescreen_entity(
     db,
     entity,
@@ -133,12 +160,14 @@ def rescreen_entity(
         )
     )
 
+    old_status = "CLEAR"
+    new_status = "BLOCK" if is_flagged else "CLEAR"
+
     if is_flagged:
         create_case(
             db=db,
             entity_name=entity_name,
             entity_type="supplier",
-
             country=country,
             result=result,
         )
@@ -169,6 +198,15 @@ def rescreen_entity(
         screening_run_id=screening_run_id,
     )
 
+    if old_status != new_status:
+        publish_supplier_status_changed(
+            entity_name=entity_name,
+            old_status=old_status,
+            new_status=new_status,
+            matched_list=result.get("matched_lists") or [],
+            reason=_build_status_change_reason(result),
+        )
+
     return {
         "entity_name": entity_name,
         "previously_cleared": True,
@@ -183,6 +221,7 @@ def rescreen_entity(
             2,
         ),
     }
+
 
 def rescreen_cleared_entities() -> dict[str, Any]:
     job_start = time.perf_counter()
@@ -291,6 +330,7 @@ def authenticate_rescreen_job() -> dict[str, Any]:
         )
 
     return data
+
 
 def nightly_rescreen_job() -> dict[str, Any]:
     print("Starting nightly re-screen...")

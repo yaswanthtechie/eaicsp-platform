@@ -9,3 +9,5 @@ pytest
 httpx
 xmltodict
 pydantic
+confluent-kafka
+strawberry-graphql
