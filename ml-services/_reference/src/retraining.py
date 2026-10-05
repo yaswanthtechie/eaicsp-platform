@@ -115,6 +115,8 @@ def automated_retrain(
        ↓
     staging
        ↓
+    governance approval (pending until a reviewer approves)
+       ↓
     production
     """
 
@@ -142,22 +144,35 @@ def automated_retrain(
         "AUTOMATED RETRAINING STARTED"
     )
 
-    new_version = retrain_callback()
+    retrain_result = retrain_callback()
+
+    # The callback reports what actually happened:
+    # "promoted", "pending_approval" or "rejected".
+    # Never claim a promotion that did not occur.
+    outcome = retrain_result.get(
+        "status",
+        "unknown",
+    )
 
     logger.warning(
-        "AUTOMATED RETRAINING COMPLETED - "
-        "VERSION %s PROMOTED",
-        new_version,
+        "AUTOMATED RETRAINING COMPLETED - OUTCOME: %s",
+        outcome,
     )
 
     return {
         "status": "retrained",
+        "outcome": outcome,
         "reason": result["reason"],
         "drift_score": result["drift_score"],
         "threshold": result["threshold"],
         "sample_count": result["sample_count"],
-        "new_model_version": str(
-            new_version
+        "new_model_version": (
+            retrain_result.get("production_version")
+            if outcome == "promoted"
+            else None
+        ),
+        "staging_version": retrain_result.get(
+            "staging_version"
         ),
     }
 

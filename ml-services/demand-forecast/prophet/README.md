@@ -1604,3 +1604,108 @@ Scenario Forecasting
 Automated Retraining
    ↓
 Validation Guardrails
+
+## Round 9-11, Multi horizon forecasting (Track A, Milestone 1)
+
+**Status:** Milestone 1 in progress. M2 through M5 not started.
+
+### What it does
+One 90-day daily forecast (0.7 x Prophet + 0.3 x XGBoost, weights from
+`models/promoted/ensemble_weights.json`) is summed into 1/7/30/90-day totals.
+Because every horizon comes from the same daily path, they cannot contradict each other.
+
+### Run
+    python -m src.prepare_m5_daily        # rebuild data/m5_daily_sales.csv (needs data/raw/)
+    python -m src.train_multi_horizon     # backtest + train + MLflow + interval calibration
+    python -m src.multi_horizon           # forecast
+
+### Output (per horizon)
+predicted total, 80% empirical interval (from rolling-origin backtest errors),
+top drivers (Prophet components + XGBoost SHAP contributions).
+### Accuracy (out-of-sample rolling-origin backtest)
+
+24 cutoffs, one every 30 days, from 2014-03-06 to 2016-01-25 (anchored at the
+end of the data, so the most recent year is included). At each cutoff, fresh
+Prophet and XGBoost models are trained only on data before it, then forecast
+90 days recursively. Every backtest total is saved in
+`models/multi_horizon/backtest_results.csv`, and the run is logged to MLflow
+(experiment `demand_forecast_multi_horizon`).
+
+| Horizon | MAPE | Bias | 80% interval (multiplier) | Backtest coverage |
+|---|---:|---:|---|---:|
+| 1-day  | 8.49% | +1.47% | 0.892 - 1.129 | 75% |
+| 7-day  | 5.15% | +4.78% | 1.000 - 1.110 | 75% |
+| 30-day | 2.74% | +1.57% | 0.971 - 1.047 | 75% |
+| 90-day | 2.84% | +2.44% | 0.989 - 1.060 | 75% |
+
+- MAPE = mean(|actual - predicted| / actual). Error shrinks as the horizon
+  grows because daily ups and downs cancel out in totals.
+- Bias is positive at every horizon, indicating under-forecasting on average.
+  The largest positive bias is on the 7-day horizon (+4.78%).
+  The 7-day under-forecast is so consistent that its interval barely goes
+  below the prediction.
+- The interval is the 10th-90th percentile of each horizon's own backtest
+  error. Coverage is 75% rather than 80% because there are only 24 backtests;
+  it is measured on the same errors used for calibration, so treat it as a
+  sanity check.
+
+  ## Round 9-11, Milestone 2: External Regressor Ablation Study
+
+**Status:** M1 done. M2 done with this PR. M3,M4 completed doc. M5 Full test coverage completed
+
+### Question
+
+Do the Round 6-8 external regressors (`is_holiday`, `promotion`, `weather_index`) make the Prophet forecast more accurate?
+
+### Method
+
+* **Rolling-origin backtest:** 5 cutoffs from June 2011 to June 2015, each forecasting the next 12 months using a model trained only on data before the cutoff. This gives **60 scored months** across the study.
+* **Experiments:** all regressors (baseline); each regressor removed individually; and no regressors at all (plain Prophet).
+* **Noise band:** the baseline was re-run using 5 different random draws of `weather_index`. Baseline MAPE varied by approximately **0.05 percentage points** due to the random feature alone. Therefore, an ablation effect must exceed the full **±0.05pp noise band** to be considered measurable in this study.
+* **Unrounded metrics:** MAPE and RMSE were kept unrounded during calculations so small differences were not lost or changed by rounding.
+* **MLflow:** every experiment is logged under the `demand_forecast_regressor_ablation` experiment.
+* **Artifacts:** results are saved to `models/regressor_ablation/ablation_results.csv` and `models/regressor_ablation/noise_band.csv`.
+
+### Results
+
+Mean metrics across the 5 rolling-origin cutoffs:
+
+| Configuration                     |      MAPE | Change vs baseline | Verdict          |
+| --------------------------------- | --------: | -----------------: | ---------------- |
+| Baseline, all regressors          |     4.51% |                  — | Reference        |
+| Remove `is_holiday`               |     4.52% |            +0.01pp | Within noise     |
+| Remove `promotion`                |     4.46% |            -0.04pp | Within noise     |
+| Remove `weather_index`            |     4.55% |            +0.04pp | Within noise     |
+| **No regressors (plain Prophet)** | **4.48%** |        **-0.03pp** | **Within noise** |
+
+### Conclusion
+
+**None of the three regressors has a measurable effect on accuracy in this study.**
+
+Removing any individual regressor, or removing all three regressors, changed MAPE by less than the ±0.05pp noise band. Therefore, this experiment does **not provide sufficient evidence that any of the three external regressors adds independent predictive value** over plain Prophet on this dataset.
+
+The result is consistent with the current construction of the regressors:
+
+* `is_holiday` is derived from the month: November and December are marked as `1`.
+* `promotion` is also derived from the month: March, June, September and December are marked as `1`.
+* Because the dataset is monthly, these calendar-derived signals overlap with information already represented by Prophet's yearly seasonality.
+* `weather_index` is generated using `rng.uniform` and is therefore a synthetic random placeholder rather than real weather information.
+
+### Recommendation
+
+* **`weather_index`:** do not treat the current synthetic random feature as evidence of useful production information. Replace it with real weather data before using weather as a production regressor.
+* **`is_holiday` and `promotion`:** keep them optional rather than claiming that they improve accuracy. Their current versions do not show a measurable benefit in this ablation.
+* Re-run the ablation when real promotion information and/or real weather data are available. Those real external signals can then be evaluated using the same rolling-origin methodology.
+
+### Limitations
+
+* The dataset contains monthly aggregate observations only.
+* The study uses 5 rolling-origin cutoffs and 12-month forecast horizons, giving 60 scored months.
+* The noise band is estimated from 5 random `weather_index` draws; additional draws could provide a more stable estimate of random variation.
+* At prediction time, the study uses the available future regressor values. This is appropriate for deterministic calendar features, but real weather would require weather forecasts rather than observed future weather.
+* The study establishes the measured result for the current dataset, feature definitions and evaluation setup; it does not establish causality or prove that these regressors can never help with a different dataset or real external data.
+
+### Verification
+
+* `python -m src.regressor_ablation` completed successfully.
+* `python -m pytest -q` → **83 passed**.

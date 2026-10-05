@@ -477,6 +477,37 @@ python -m pytest tests/test_real_inventory_integration.py -v
 
 ---
 
+## Round 9-11 Status
+
+| Milestone | Status | Notes |
+|---|---|---|
+| M1 Dependency chain on dashboard | In progress | `GET /gateway/dashboard` now includes `dependency_chains` and `affected_by_dependency` (see below). |
+| M2 Canary / blue-green routing | Not started | |
+| M3 Edge security hardening | Not started | |
+| M4 Chaos test (kill Compliance) | Not started | |
+| M5 Observability incl. dependency chain | Partial | Per-route latency and error rates already exist; chain health is included via M1. |
+
+### Dependency chain health
+
+`GET /gateway/dashboard` includes two chains: `inventory_to_compliance` and
+`supplier_portal_to_compliance`. For each chain:
+
+- `dependency_status`: `healthy`, `degraded` (Compliance answers `/health` but its circuit
+  breaker is not closed, or its error rate is at least 20%), `down` (failed its health check),
+  or `unknown` (the gateway could not run health checks; this is never reported as an outage).
+- `upstream_status`: `affected` when Compliance is degraded or down; otherwise the upstream's
+  own health (`healthy` / `down`), or `unknown`.
+- `reason`: a short explanation when the chain is not healthy.
+
+`affected_by_dependency` lists, for each struggling dependency, every service it is hurting,
+e.g. `{"compliance": ["inventory", "supplier-portal"]}`. That is the "TWO services affected,
+not one generic downstream issue" view the spec asks for.
+
+Note: each dashboard call pings all 6 services live (3s timeout each), so a hung service
+slows the dashboard by up to 3s. Caching health results is a planned improvement.
+
+---
+
 ## Known Limitations
 
 1. **In-Memory Rate Limiter Scope**:

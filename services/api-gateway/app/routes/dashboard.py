@@ -2,9 +2,10 @@
 Aggregated Health Dashboard route for the API Gateway.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from app.core.config import settings
+from app.services.health import get_system_health
 from app.services.metrics import metrics_collector
 
 router = APIRouter(
@@ -33,9 +34,14 @@ async def get_gateway_status():
     "/dashboard",
     summary="Aggregated Health & Metrics Dashboard",
 )
-async def get_gateway_dashboard():
+async def get_gateway_dashboard(request: Request):
     """
     Return aggregated real-time gateway metrics for downstream microservices.
-    Includes circuit breaker state, cache hit rate, request volume, p50 and p95 latency.
+    Includes circuit breaker state, cache hit rate, request volume, p50 and p95 latency,
+    plus the health of the Inventory -> Compliance and Supplier-Portal -> Compliance chains.
     """
-    return metrics_collector.get_all_metrics()
+    # Snapshot metrics first, then run the live health pings (up to 3s each),
+    # so the reported circuit-breaker states are the ones at request time.
+    dashboard = metrics_collector.get_all_metrics()
+    health_status = await get_system_health(request)
+    return metrics_collector.add_dependency_health(dashboard, health_status)

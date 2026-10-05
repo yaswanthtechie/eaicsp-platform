@@ -1,43 +1,97 @@
+from datetime import datetime, timezone
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import (
+    OAuth2PasswordBearer,
+    HTTPBearer,
+    HTTPAuthorizationCredentials,
+)
 from sqlalchemy.orm import Session
 from jose import JWTError
 from app.core.security import decode_token
 from app.database import get_db
 from app.models.users import User
 from app.core.permissions import ROLE_PERMISSIONS
-from datetime import datetime, timezone
 
-
+# ============================================================
+# Authentication Schemes
+# ============================================================
+# Kept for backward compatibility because other files may
+# import oauth2_scheme.
 oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl="/api/v1/auth/login"
+    tokenUrl="/api/v1/auth/login",
+    auto_error=False,
 )
+
+# Used by protected endpoints.
+# This allows Swagger to accept an already-issued access token
+# after MFA verification.
+bearer_scheme = HTTPBearer(
+    auto_error=False,
+)
+
 # ============================================================
 # Authentication
 # ============================================================
 
 def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    credentials: HTTPAuthorizationCredentials | None = Depends(
+    bearer_scheme
+),
+
     db: Session = Depends(get_db),
 ):
-    try:
-        # 1. Decode and validate JWT
-        payload = decode_token(token)
+    """
+    Validate the access token and return the authenticated user.
 
-        # 2. Only access tokens can be used for protected endpoints
+    Expected header:
+
+        Authorization: Bearer <access_token>
+    """
+    # --------------------------------------------------------
+    # 1. Check whether Authorization header exists
+    # --------------------------------------------------------
+
+    if credentials is None:
+        raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Not authenticated",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    # --------------------------------------------------------
+    # 2. Extract Bearer token
+    # --------------------------------------------------------
+
+    token = credentials.credentials
+
+    try:
+        # ----------------------------------------------------
+        # 3. Decode and validate JWT
+        # ----------------------------------------------------
+
+        payload = decode_token(token)
+        # ----------------------------------------------------
+        # 4. Only access tokens are allowed
+        # ----------------------------------------------------
+
         if payload.get("type") != "access":
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired token",
+                headers={"WWW-Authenticate": "Bearer"},
             )
 
-        # 3. Get user identity from JWT subject
+        # ----------------------------------------------------
+        # 5. Get user identity from JWT subject
+        # ----------------------------------------------------
+
         email = payload.get("sub")
 
         if not email:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired token",
+                headers={"WWW-Authenticate": "Bearer"},
             )
 
         email = email.lower()
@@ -50,50 +104,79 @@ def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # 4. Find user using JWT subject
+    # --------------------------------------------------------
+    # 6. Find user using JWT subject
+    # --------------------------------------------------------
+
     user = (
         db.query(User)
         .filter(User.email == email)
         .first()
     )
 
-    # 5. Reject missing or inactive users
+    # --------------------------------------------------------
+    # 7. Reject missing or inactive users
+    # --------------------------------------------------------
+
     if user is None or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # 6. Reject access while account is locked
-    if (
-        user.locked_until is not None
-        and user.locked_until > datetime.now(timezone.utc)
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-        )
+    # --------------------------------------------------------
+    # 8. Reject locked accounts
+    # --------------------------------------------------------
 
-    # 7. Cross-check JWT subject with DB user
+    if user.locked_until is not None:
+
+        locked_until = user.locked_until
+
+        # SQLite may return a naive datetime.
+        # Treat it as UTC.
+        if locked_until.tzinfo is None:
+            locked_until = locked_until.replace(
+                tzinfo=timezone.utc
+            )
+
+        if locked_until > datetime.now(timezone.utc):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+    # --------------------------------------------------------
+    # 9. Cross-check JWT subject with DB user
+    # --------------------------------------------------------
+
     if user.email.lower() != email:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
+    # --------------------------------------------------------
+    # 10. Return authenticated user
+    # --------------------------------------------------------
+
     return user
+
 # ============================================================
 # Role Hierarchy
 # ============================================================
-
 ROLE_HIERARCHY = {
     "ceo": {
         "ceo",
@@ -140,6 +223,7 @@ ROLE_HIERARCHY = {
         "supplier",
     },
 }
+
 # ============================================================
 # Require ANY Role
 # ============================================================
@@ -147,13 +231,17 @@ ROLE_HIERARCHY = {
 def require_any_role(*allowed_roles):
 
     def dependency(
-        user=Depends(get_current_user),
+        user: User = Depends(get_current_user),
     ):
-        role = user.role.name
+        role = (
+            user.role.name
+            if user.role
+            else None
+        )
 
         permissions = ROLE_HIERARCHY.get(
             role,
-            {role},
+            {role} if role else set(),
         )
 
         if not any(
@@ -168,20 +256,24 @@ def require_any_role(*allowed_roles):
         return user
 
     return dependency
+
 # ============================================================
 # Require ALL Roles
 # ============================================================
-
 def require_all_roles(*required_roles):
 
     def dependency(
-        user=Depends(get_current_user),
+        user: User = Depends(get_current_user),
     ):
-        role = user.role.name
+        role = (
+            user.role.name
+            if user.role
+            else None
+        )
 
         permissions = ROLE_HIERARCHY.get(
             role,
-            {role},
+            {role} if role else set(),
         )
 
         if not all(
@@ -199,17 +291,20 @@ def require_all_roles(*required_roles):
 # ============================================================
 # RBAC - Require Role
 # ============================================================
-
 def require_role(*allowed_roles):
 
     def dependency(
-        user=Depends(get_current_user),
+        user: User = Depends(get_current_user),
     ):
-        role = user.role.name
+        role = (
+            user.role.name
+            if user.role
+            else None
+        )
 
         permissions = ROLE_HIERARCHY.get(
             role,
-            {role},
+            {role} if role else set(),
         )
 
         if not any(
@@ -224,7 +319,11 @@ def require_role(*allowed_roles):
         return user
     return dependency
 
+# ============================================================
+# Permission-Based Authorization
+# ============================================================
 def require_permission(permission: str):
+
     def checker(
         current_user: User = Depends(get_current_user),
     ):
@@ -237,16 +336,20 @@ def require_permission(permission: str):
         if user_role is None:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Forbidden:Insufficient permissions",
+                detail="Forbidden: insufficient permissions",
             )
 
-        permissions = ROLE_PERMISSIONS.get(user_role, set())
+        permissions = ROLE_PERMISSIONS.get(
+            user_role,
+            set(),
+        )
 
         if permission not in permissions:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Forbidden:Insufficient permissions",
+                detail="Forbidden: insufficient permissions",
             )
 
         return current_user
+
     return checker

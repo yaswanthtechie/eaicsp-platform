@@ -1,9 +1,11 @@
-version: "1.2.0"
+version: "prod-1.2.0"
 profiles:
   default:
-    global_max_fail_pct: 0.20  # Rejects batch if >20% of all rows fail ANY rules
-    global_drift_abs_min: 0.01  # 1% absolute floor
-    global_drift_rel_min: 0.50  # 50% relative increase
+    global_max_fail_pct: 0.10  # Strict 10% rejection threshold for prod
+    global_warning_fail_pct: 0.05
+    global_max_duration_seconds: 5.0 # Fails SLA if execution takes >5s
+    global_drift_abs_min: 0.01
+    global_drift_rel_min: 0.50
     rules:
       - name: date_not_null
         field: date
@@ -23,7 +25,7 @@ profiles:
         type: not_null
         severity: ERROR
 
-      # --- NEW: DECLARATIVE CROSS-FIELD CONDITIONAL ---
+      # --- DECLARATIVE CROSS-FIELD CONDITIONAL ---
       # Example: If warehouse is WH-01, the unit price must be at least 15.00
       - name: wh_01_minimum_price
         type: conditional
@@ -71,6 +73,8 @@ profiles:
         field: date
         type: transform
         function: standardize_dates
+#        date_order: dayfirst
+        description: "Converted to YYYY-MM-DD only where the date has exactly one possible meaning; ambiguous dates like 02/01/2024 are left unchanged and flagged"
         severity: INFO
 
       - name: date_in_range
@@ -80,6 +84,15 @@ profiles:
         max: '2024-03-29'
         severity: WARNING
         depends_on: [ "unparseable_dates" ]
+
+
+      - name: clean_sku_whitespace
+        field: sku_id
+        type: transform
+        function: clean_whitespace_and_case
+        target_case: upper
+        description: "Stripped accidental whitespace and enforced uppercase formatting"
+        severity: INFO
 
   deep:
     inherits: default
@@ -96,7 +109,7 @@ profiles:
 
   strict:
     inherits: default
-    global_max_fail_pct: 0.10  # Overrides the default 20% backstop to a stricter 10%
+    global_max_fail_pct: 0.05  # Tightens the default 10% backstop to 5%
     rules:
       # Overrides the default warning with a strict error and tighter bounds
       - name: quantity_positive
@@ -108,7 +121,7 @@ profiles:
 
   bulk:
     inherits: default
-    global_max_fail_pct: 0.25  # Overrides the default 20% backstop to a bulk 25%
+    global_max_fail_pct: 0.25  # Relaxes the default 10% backstop to 25% for bulk loads
     rules:
       - name: sku_format
         field: sku_id

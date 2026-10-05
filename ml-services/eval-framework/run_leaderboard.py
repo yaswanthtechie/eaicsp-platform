@@ -1,10 +1,10 @@
 import pandas as pd
 from prophet import Prophet
-from src.metrics import mape
-from src.splits import walk_forward_split
-from src.baseline import naive_forecast
-from src.leaderboard import print_leaderboard
-from src.significance import paired_significance_test
+from eval_framework.metrics import mape
+from eval_framework.splits import walk_forward_split
+from eval_framework.baseline import naive_forecast
+from eval_framework.leaderboard import print_leaderboard
+from eval_framework.significance import paired_significance_test
 
 URL = "https://raw.githubusercontent.com/facebook/prophet/main/examples/example_retail_sales.csv"
 df = pd.read_csv(URL)
