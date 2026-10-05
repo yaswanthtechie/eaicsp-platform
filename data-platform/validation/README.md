@@ -16,7 +16,7 @@ cleans what can be safely corrected, and reports issues before the data is used 
 │   └── clean_sales.csv        # Sanitized data ready for the warehouse (Output)
 ├── logs/
 │   └── validation_*.log       # Timestamps logs tracking rule failures and data drift
-├── src/
+├── data_validator/
 │   ├── __init__.py            # Frozen public API namespace
 │   ├── main.py                # Pipeline orchestrator and CLI entrypoint
 │   ├── make_messy_data.py     # Generates synthetic client data mapped to the sales_fact schema
@@ -43,7 +43,7 @@ pip install -e ".[dev]"
 
 ## Public API & Versioning Policy
 
-This project strictly adheres to **Semantic Versioning (SemVer 2.0)**. To guarantee stability for downstream consumers (e.g., orchestrators, DAGs), only the objects explicitly exposed in `src/__init__.py` are considered part of the public API:
+This project strictly adheres to **Semantic Versioning (SemVer 2.0)**. To guarantee stability for downstream consumers (e.g., orchestrators, DAGs), only the objects explicitly exposed in `data_validator/__init__.py` are considered part of the public API:
 
 *   `DataValidator`
 *   `ConfigRule` 
@@ -131,14 +131,14 @@ rules:
   # --- COMPLEX RULES (Custom Escape Hatch) ---  
   - name: composite_pk_unique
     type: custom
-    function: src.custom_rules.check_composite_unique
+    function: data_validator.custom_rules.check_composite_unique
     subset: ['date', 'sku_id', 'warehouse_id']
     severity: ERROR
 
   - name: flag_negative_quantities
     field: quantity_sold
     type: transform
-    function: src.custom_rules.flag_negatives
+    function: data_validator.custom_rules.flag_negatives
     severity: INFO
 ```
 
@@ -157,7 +157,7 @@ rules:
 
 ```Python
 import pandas as pd
-from src.validator import DataValidator
+from data_validator.validator import DataValidator
 
 def quality_gate(df: pd.DataFrame, config_path: str):
     """
@@ -189,14 +189,14 @@ def quality_gate(df: pd.DataFrame, config_path: str):
 ```
 
 ## 3. How to run main.py
-```commandline
+```bash
 id ../data/messy_
 Standard run
-python -m src.main --input data/messy_sales.csv --config configs/sales_rules.yaml
-python -m src.validate_cli --file data/messy_sales.csv --config configs/sales_rules.yaml --output reports/output.json
+python -m data_validator.main --input data/messy_sales.csv --config configs/sales_rules.yaml
+python -m data_validator.validate_cli --file data/messy_sales.csv --config configs/sales_rules.yaml --output reports/output.json
 
 Force generation of new synthetic data
-python -m src.main --generate
+python -m data_validator.main --generate
 ```
 ## Output
 
@@ -257,16 +257,16 @@ rules:
 
 ## How to Run:
 It is recommended to run the CLI as a module from the root directory of the project. Here are standard execution examples:  
-```commandline
+```bash
 # Standard validation run
-python -m src.validate_cli --file data/messy_sales.csv --config configs/sales_rules.yaml --output reports/output.json
+python -m data_validator.validate_cli --file data/messy_sales.csv --config configs/sales_rules.yaml --output reports/output.json
 
 # Running against alternative datasets and rulesets
-python -m src.validate_cli --file data/messy_sales_1.csv --config configs/sales_rules_1.yaml --output reports/output_1.json
-python -m src.validate_cli --file data/messy_sales_2.csv --config configs/sales_rules_2.yaml --output reports/output_2.json
+python -m data_validator.validate_cli --file data/messy_sales_1.csv --config configs/sales_rules_1.yaml --output reports/output_1.json
+python -m data_validator.validate_cli --file data/messy_sales_2.csv --config configs/sales_rules_2.yaml --output reports/output_2.json
 ```
 Alternatively, if you prefer not to use the module flag, you can execute using pyproject.toml cofig file:
-```commandline
+```bash
 pip install -e .
 validate_data --file data/messy_sales.csv --config configs/sales_rules.yaml --output reports/output.json
 ```
@@ -296,40 +296,40 @@ dependencies = [
 
 [project.scripts]
 # This is the magic line.
-# It maps the terminal command 'validate-data' to the 'main' function inside 'src/validate_cli.py'
-validate_data = "src.validate_cli:main"
+# It maps the terminal command 'validate-data' to the 'main' function inside 'data_validator/validate_cli.py'
+validate_data = "data_validator.validate_cli:main"
 
 # for generating the synthetic data
-generate_messy_data = "src.make_messy_data:main"
+generate_messy_data = "data_validator.make_messy_data:main"
 
 # for running the complete orchestrator pipeline
-run_pipeline = "src.main:main"
+run_pipeline = "data_validator.main:main"
 
 [tool.setuptools]
-packages = ["src"]
+packages = ["data_validator"]
 ```
 
 ## Step 2: Install the Package Locally:
 - Ensure your Conda environment (where your app is running) is activated. 
 - Then, run the following pip command from your root validation/ directory (where the pyproject.toml file is located):
-```commandline
+```bash
 pip install -e .
 ```
-- The -e flag stands for "editable". This means if you change the code inside src/validate_cli.py, you do not have to reinstall the package for the changes to take effect.
+- The -e flag stands for "editable". This means if you change the code inside data_validator/validate_cli.py, you do not have to reinstall the package for the changes to take effect.
 - The dot (.) tells pip to install the package located in your current folder.
 
 ## Step 3: Run Your Native Command:
 - You no longer need to call python, use -m, or worry about file paths. 
 - The tool is now installed globally in your Conda environment as an executable command.
 - You can run your validation from anywhere on your machine using this exact command:
-```commandline
-# src.validate_cli:main
+```bash
+# data_validator.validate_cli:main
 validate_data --file data/messy_sales.csv --config configs/sales_rules.yaml --output reports/output.json
 
-# "src.make_messy_data:main"
+# "data_validator.make_messy_data:main"
 generate_messy_data
 
-#"src.main:main"
+#"data_validator.main:main"
 run_pipeline
 ```
 
@@ -357,21 +357,21 @@ run_pipeline
 
 ## How to Run:
 - You can execute the performance test using standard Python execution from the root directory:
-```commandline
+```bash
 # Standard 100k row benchmark using defaults
-python -m src.perf_test
+python -m data_validator.perf_test
 
 # Stress test with 500k rows and a strict 5-second limit
-python -m src.perf_test --n-rows 500000 --time-threshold 5.0
+python -m data_validator.perf_test --n-rows 500000 --time-threshold 5.0
 ```
 
 ### Adding to pyproject.toml:
 - To follow your existing enterprise standards, add perf_test.py to [project.scripts] section in pyproject.toml
 ```toml
 # for running the  Performance at scale Generate a 100,000-row file
-perf_test = "src.perf_test:main"
+perf_test = "data_validator.perf_test:main"
 ```
-```commandline
+```bash
 pip install -e .
 perf_test --n-rows 100000 --time-threshold 4.5
 ```
@@ -423,12 +423,12 @@ A standard benchmark run validates over 100,000 rows in less than a quarter of a
 
 ## How to Run:
 - You can execute this module directly from the root directory:
-```commandline
+```bash
 # Log-only mode using a mapping file (Fastest)
-python -m src.validate_folder --folder data/ --mapping routing_map.json
+python -m data_validator.validate_folder --folder data/ --mapping routing_map.json
 
 # Run against a folder using a single config and generate JSON reports
-python -m src.validate_folder --folder data/ --config configs/sales_rules.yaml --save-reports --output-dir reports/
+python -m data_validator.validate_folder --folder data/ --config configs/sales_rules.yaml --save-reports --output-dir reports/
 ```
 
 ### Adding to pyproject.toml:
@@ -437,14 +437,14 @@ python -m src.validate_folder --folder data/ --config configs/sales_rules.yaml -
 - Add the following line to your [project.scripts] section:
 ```toml
 # for batch validating multiple files and folders
-validate_folder = "src.validate_folder:main"
+validate_folder = "data_validator.validate_folder:main"
 ```
 - Once added, install the package locally using the editable flag:
-```commandline
+```bash
 pip install -e .
 ```
 You can now trigger batch validations from anywhere on your machine as a native system command:
-```commandline
+```bash
 validate_folder --folder data/ --mapping .\configs\routing_map.json --save-reports --output-dir .\reports\csv_files_report
 ```
 
@@ -466,7 +466,7 @@ rules:
   - name: unparseable_dates
     field: date
     type: custom
-    function: src.custom_rules.check_unparseable_dates
+    function: data_validator.custom_rules.check_unparseable_dates
     severity: ERROR
 
   # 2. Dependent Rule: Only evaluates rows that passed the 'unparseable_dates' rule
@@ -491,7 +491,7 @@ rules:
 
 ## How It Works:
 - The pipeline does not blindly use `eval()` or `importlib` on the string provided in the `function` key.
-- Rule functions live in `.py` files inside the rules folder (`rules/` by default, or `--rules-dir`) and are decorated with `@register_rule()` from `src/registry.py`.
+- Rule functions live in `.py` files inside the rules folder (`rules/` by default, or `--rules-dir`) and are decorated with `@register_rule()` from `data_validator/registry.py`.
 - **Provable Safety:** If a configuration file names a function that is not in the registry (e.g., `os.system`), the validator raises a `SecurityError` and halts before any data is processed.
 - **Trust boundary:** every `.py` file under the rules folder is executed when rules are discovered. Only point `--rules-dir` at a folder you trust as much as this repository's own code.
 
@@ -544,19 +544,19 @@ When a pipeline runs slowly, aggregate execution times are not enough to find th
 - --watermark-col: Defines the column to track (e.g., transaction_id).
 
 ### without pyproject.toml config:
-```commandline
+```bash
 # Standard incremental run
-python -m src.main --incremental --watermark-col "transaction_id"
+python -m data_validator.main --incremental --watermark-col "transaction_id"
 
 # validate_cli run
-python -m src.validate_cli --file data/messy_sales.csv --config configs/sales_rules.yaml --output reports/cli_report.json --incremental --watermark-col "transaction_id"
+python -m data_validator.validate_cli --file data/messy_sales.csv --config configs/sales_rules.yaml --output reports/cli_report.json --incremental --watermark-col "transaction_id"
 
 # Batch processing multiple files incrementally
-python -m src.validate_folder --folder data/ --config configs/sales_rules.yaml --save-reports --output-dir reports/ --incremental --watermark-col "transaction_id"
+python -m data_validator.validate_folder --folder data/ --config configs/sales_rules.yaml --save-reports --output-dir reports/ --incremental --watermark-col "transaction_id"
 ```
 
 ### with pyproject.toml config:
-```commandline
+```bash
 pip install -e .
 
 # Standard incremental run
@@ -617,34 +617,34 @@ profiles:
 
 ### 1. List Available Profiles:
 * Don't want to open the YAML file? You can ask the CLI to list all available profiles in a given config file. This intercepts the script and exits cleanly without running any data processing.
-```commandline
-python -m src.main --list-profiles
-python -m src.validate_cli --config configs/sales_rules.yaml --list-profiles
-python -m src.validate_folder --config configs/sales_rules.yaml --list-profiles
+```bash
+python -m data_validator.main --list-profiles
+python -m data_validator.validate_cli --config configs/sales_rules.yaml --list-profiles
+python -m data_validator.validate_folder --config configs/sales_rules.yaml --list-profiles
 ```
 
 ### 2. Standard Pipeline (main.py)
 * Run your end-to-end simulation and validation flow.
-```commandline
+```bash
 # Automatically falls back to the 'default' profile
-python -m src.main
+python -m data_validator.main
 
 # Explicitly run the 'strict' profile
-python -m src.main --profile strict
+python -m data_validator.main --profile strict
 ```
 
 ### 3. CI/CD Pipeline Gate (validate_cli.py)
 * Run the strict validation gate designed for automated environments.
-```commandline
-python -m src.validate_cli --file data/messy_sales.csv --config configs/sales_rules.yaml --profile strict --output reports/report.json
+```bash
+python -m data_validator.validate_cli --file data/messy_sales.csv --config configs/sales_rules.yaml --profile strict --output reports/report.json
 ```
 
 ### 4. Batch Folder Validation (validate_folder.py)
 * Apply profiles across an entire directory of CSV files.
 
 #### Single Profile for the Whole Folder:
-```commandline
-python -m src.validate_folder --folder data/ --config configs/sales_rules.yaml --profile strict --save-reports
+```bash
+python -m data_validator.validate_folder --folder data/ --config configs/sales_rules.yaml --profile strict --save-reports
 ```
 
 #### Hybrid Mapping (Advanced):
@@ -658,7 +658,7 @@ python -m src.validate_folder --folder data/ --config configs/sales_rules.yaml -
   }
 }
 ```
-```commandline
+```bash
 python -m validate_folder --folder data/ --mapping configs/mapping.json
 ```
 
@@ -771,16 +771,16 @@ The chunking feature is fully integrated into the existing Command Line Interfac
 
 ### 1. Generate Massive Test Data Safely
 * The data generator has been upgraded to write data to disk in batches, preventing OOM crashes during the creation of massive test files.
-```commandline
+```bash
 # Generate 5 million rows in safe batches of 500,000
-python -m src.make_messy_data --n-base 5000000 --chunk-size 500000 --output data/large_messy_sales.csv
+python -m data_validator.make_messy_data --n-base 5000000 --chunk-size 500000 --output data/large_messy_sales.csv
 ```
 
 ### 2. Execute Streaming Validation
 * To trigger the Streaming Engine, simply add the --chunk-size flag to your standard validation command.
-```commandline
+```bash
 # Validate the massive dataset using 500,000 row chunks
-python -m src.validate_cli --file data/large_messy_sales.csv --config configs/sales_rules.yaml --profile bulk --output reports/stream_report.json --chunk-size 500000
+python -m data_validator.validate_cli --file data/large_messy_sales.csv --config configs/sales_rules.yaml --profile bulk --output reports/stream_report.json --chunk-size 500000
 ```
 ### Empirical Streaming Benchmarks (Evidence):
 --- BENCHMARK RESULTS ---
@@ -807,7 +807,7 @@ The generator uses a "Documentation-as-Code" architecture to ensure your documen
 3. **Smart Descriptions:** 
     * It looks for a human-readable `description` field directly in your YAML rule.
     * If missing, it auto-generates a description based on standard rule types (e.g., translating `type: range` to "Value must be between X and Y").
-    * For `custom` or `transform` rules, it dynamically inspects `src/custom_rules.py` and extracts the Python docstrings to explain the logic.
+    * For `custom` or `transform` rules, it dynamically inspects `data_validator/custom_rules.py` and extracts the Python docstrings to explain the logic.
 
 ## How to Run
 
@@ -816,14 +816,14 @@ You can generate the documentation using the standalone CLI script. By default, 
 ### Basic Command
 Run the script from your project root, pointing it to your target YAML configuration:
 
-```commandline
-python -m src.generate_docs 
+```bash
+python -m data_validator.generate_docs 
 ```
 
 ### Advanced Usage
 You can customize the output directory using the --output-dir flag:
-```commandline
-python -m src.generate_docs --config configs/sales_rules.yaml --output-dir custom_docs_folder/
+```bash
+python -m data_validator.generate_docs --config configs/sales_rules.yaml --output-dir custom_docs_folder/
 ```
 
 ### Expected Output
@@ -855,11 +855,11 @@ A modular, drop-in extension system for data validation pipelines. This feature 
 
 ## How It Works
 
-### 1. Registration (`src/registry.py`)
+### 1. Registration (`data_validator/registry.py`)
 Functions decorated with `@register_rule(name=None)` are stored in the global `RULE_REGISTRY` dictionary:
 
 ```python
-from src.registry import register_rule
+from data_validator.registry import register_rule
 import pandas as pd
 
 @register_rule()
@@ -908,7 +908,7 @@ Ensure custom rules reside in the configured rules directory:
 │   └── sales_rules.yaml
 ├── rules/
 │   └── custom_rules.py
-├── src/
+├── data_validator/
     ├── registry.py
     ├── validator.py
     ├── main.py
@@ -922,22 +922,22 @@ Runs data generation/reading, rule validation, drift comparison, and cleaning.
 ### Running in Default directory (rules/):
 ```bash
 # Running main.py file
-python -m src.main --config configs/sales_rules.yaml --input data/messy_sales.csv --output data/clean_sales.csv --rules-dir rules/
+python -m data_validator.main --config configs/sales_rules.yaml --input data/messy_sales.csv --output data/clean_sales.csv --rules-dir rules/
 
 # Running validate_cli.py In-memory mode:
-python -m src.validate_cli --file data/messy_sales.csv --config configs/sales_rules.yaml --output reports/report.json --rules-dir rules/
+python -m data_validator.validate_cli --file data/messy_sales.csv --config configs/sales_rules.yaml --output reports/report.json --rules-dir rules/
 
 # Running validate_cli.py Chunked streaming mode:
-python -m src.validate_cli --file data/large_messy_sales.csv --config configs/sales_rules.yaml --output reports/report.json --chunk-size 500000 --rules-dir rules/ --profile bulk
+python -m data_validator.validate_cli --file data/large_messy_sales.csv --config configs/sales_rules.yaml --output reports/report.json --chunk-size 500000 --rules-dir rules/ --profile bulk
 
 # Running validate_folder.py (Batch Processing):
 # Single config:
-python -m src.validate_folder --folder data/ --config configs/sales_rules.yaml --rules-dir rules/ --save-reports --output-dir reports/op1
+python -m data_validator.validate_folder --folder data/ --config configs/sales_rules.yaml --rules-dir rules/ --save-reports --output-dir reports/op1
 # Pattern mapping file:
-python -m src.validate_folder --folder data/ --mapping configs/routing_map.json --rules-dir rules/ --save-reports --output-dir reports/op2
+python -m data_validator.validate_folder --folder data/ --mapping configs/routing_map.json --rules-dir rules/ --save-reports --output-dir reports/op2
 
 # Running generate_docs.py (Data Contract Generator)
-python -m src.generate_docs --config configs/sales_rules.yaml --output-dir docs/ --rules-dir rules/
+python -m data_validator.generate_docs --config configs/sales_rules.yaml --output-dir docs/ --rules-dir rules/
 ```
 
 
@@ -951,7 +951,7 @@ To provide a clean API boundary, `validate_row()` accepts a standard Python dict
 ## POC of validate_row:
 ```python
 import json
-from src.validator import DataValidator
+from data_validator.validator import DataValidator
 
 validator = DataValidator.from_config("configs/dev/sales_rules.yaml")
 
@@ -1034,43 +1034,46 @@ The audit trail is generated automatically by the core `DataValidator` engine, r
 Because the audit trail is baked directly into the `ValidationResult` Pydantic model, all remediations automatically appear in the JSON reports generated by the CLI. 
 
 **JSON Payload Example:**
-```json
-"remediations": [
+```json 
+{
+  "remediations": [
     {
       "rule": "standardize_dates_transform",
       "field": "date",
-      "rows_modified": 661
+      "rows_modified": 267,
+      "reason": "Converted to YYYY-MM-DD only where the date has exactly one possible meaning; ambiguous dates like 02/01/2024 are left unchanged and flagged"
     }
   ],
   "sample_remediations": {
     "standardize_dates_transform": [
       {
         "row_index": 0,
-        "original": "23/03/2024",
-        "remediated": "2024-03-23"
+        "original": "Apr 06 2024",
+        "remediated": "2024-04-06"
       },
       {
-        "row_index": 1,
-        "original": "07/02/2024",
-        "remediated": "2024-02-07"
+        "row_index": 8,
+        "original": "Mar 18 2024",
+        "remediated": "2024-03-18"
       },
       {
-        "row_index": 2,
-        "original": "Jan 24 2024",
-        "remediated": "2024-01-24"
+        "row_index": 9,
+        "original": "Feb 27 2024",
+        "remediated": "2024-02-27"
       },
       {
-        "row_index": 4,
-        "original": "Mar 24 2024",
-        "remediated": "2024-03-24"
+        "row_index": 12,
+        "original": "Jan 27 2024",
+        "remediated": "2024-01-27"
       },
       {
-        "row_index": 6,
+        "row_index": 13,
         "original": "Mar 14 2024",
         "remediated": "2024-03-14"
       }
     ]
-  
+  }
+}
 ```
 
 # Service Level Agreements (SLAs) & Alerting
@@ -1124,13 +1127,13 @@ Because execution speed relies heavily on the environment (e.g., a slow CI runne
 ### Single File Run:
 Override the YAML configuration for a specific execution using `--sla-time-limit`.
 ```bash
-python -m src.validate_cli --file data/messy.csv --config configs/rules.yaml --output report.json --sla-time-limit 15.5
+python -m data_validator.validate_cli --file data/messy.csv --config configs/rules.yaml --output report.json --sla-time-limit 15.5
 ```
 
 ### Batch Folder Processing (Soft Timeouts):
 When validating entire directories of files, use --global-timeout-seconds. This implements a graceful interruption: if the batch takes too long, the engine finishes processing the current file, skips the remaining files, logs an SLA breach, and safely exits with code 4 (EXIT_GLOBAL_TIMEOUT) without corrupting data.
 ```bash
-python -m src.validate_folder --folder data/ --config configs/rules.yaml --global-timeout-seconds 600
+python -m data_validator.validate_folder --folder data/ --config configs/rules.yaml --global-timeout-seconds 600
 ```
 
 # Auto-Generated Data Quality Contracts
@@ -1158,16 +1161,16 @@ You can generate the documentation using the standalone CLI script. By default, 
 Run the script from your project root, pointing it to your target YAML configuration:
 
 ```bash
-python -m src.generate_docs --config configs/sales_rules.yaml
+python -m data_validator.generate_docs --config configs/sales_rules.yaml
 ```
 ### Advanced Usage (Format Selection & Custom Directories)
 You can specify the output format (html, markdown, or all) using the --format flag, and customize the output directory using the --output-dir flag:
 ```bash
 # Generate only Markdown artifacts
-python -m src.generate_docs --config configs/sales_rules.yaml --format markdown
+python -m data_validator.generate_docs --config configs/sales_rules.yaml --format markdown
 
 # Generate both HTML and Markdown in a custom folder
-python -m src.generate_docs --config configs/sales_rules.yaml --format all --output-dir custom_docs_folder/
+python -m data_validator.generate_docs --config configs/sales_rules.yaml --format all --output-dir custom_docs_folder/
 ```
 ### Expected Output
 The default HTML generation creates a single docs/data_contract_dashboard.html file. This zero-dependency file can be opened directly in any browser (no server required) and contains an interactive sidebar to toggle between different data validation profiles. If generating Markdown, the script will output a separate .md file for each discovered profile
@@ -1209,17 +1212,17 @@ In production environments (Airflow, Kubernetes, GitHub Actions), inject the env
 $env:VALIDATOR_ENV="prod"
 
 # The CLI automatically routes to 'configs/prod/sales_rules.yaml'
-python -m src.validate_folder --folder data/ --mapping configs/routing_map.json --rules-dir rules/ --save-reports --output-dir reports/prod_op
+python -m data_validator.validate_folder --folder data/ --mapping configs/routing_map.json --rules-dir rules/ --save-reports --output-dir reports/prod_op
 ```
 
 ## Local Development (Using CLI Overrides)
 When testing a new rule locally, use the `--env` flag to bypass system variables and point the engine to your development contract.
 ```bash
 # Explicitly tests the rules located in 'configs/dev/sales_rules.yaml'
-python -m src.validate_folder --file data/messy_sales.csv --config configs/sales_rules.yaml --env dev --save-reports --output-dir reports/dev_op
+python -m data_validator.validate_folder --file data/messy_sales.csv --config configs/sales_rules.yaml --env dev --save-reports --output-dir reports/dev_op
 
 # Works identically for batch folder validation
-python -m src.validate_folder --folder data/ --mapping configs/routing_map.json --env dev --save-reports --output-dir reports/dev_op
+python -m data_validator.validate_folder --folder data/ --mapping configs/routing_map.json --env dev --save-reports --output-dir reports/dev_op
 ```
 
 # Current Status (Round 9-11)
@@ -1229,7 +1232,7 @@ python -m src.validate_folder --folder data/ --mapping configs/routing_map.json 
 | M1 Row-level validation | Done | `validate_row()` takes a dict or JSON string. A row missing a required field is rejected with `schema_error`. A rule that crashes counts as a failure of that rule's severity, never as a pass. Dataset-wide rules (uniqueness, outliers) are skipped and listed in `skipped_stateful`. | Duplicate detection across separate `validate_row()` calls. |
 | M2 Auto-fix + audit trail | Done | Two safe fixes: `clean_whitespace_and_case` (SKU) and `standardize_dates` (unambiguous dates only). Batch reports record rule, field, rows changed, reason and up to 5 before/after samples. `validate_row()` records original, fixed value and reason. Negative quantities are flagged (`quantity_positive` warning, `flagged_for_review` column), never changed. | Fixes for other columns (e.g. warehouse_id case). |
 | M3 Validation SLA + alerting | Mostly done | Duration SLA and failure-rate warning SLA per environment, `sla_violations` in the JSON report, exit code 3 on an SLA breach. | Alerts only go to the log, JSON report and exit code; nothing is written to an alerts table or sent as a notification. |
-| M4 Docs site | Done | `python -m src.generate_docs --config configs/prod/sales_rules.yaml` writes an HTML page per profile with every rule in plain English and every SLA setting. | Custom rules are described using their docstrings, so those docstrings must be written for a non-technical reader. |
+| M4 Docs site | Done | `python -m data_validator.generate_docs --config configs/prod/sales_rules.yaml` writes an HTML page per profile with every rule in plain English and every SLA setting. | Custom rules are described using their docstrings, so those docstrings must be written for a non-technical reader. |
 | M5 Per-environment rules | Done | `configs/dev`, `configs/staging`, `configs/prod`, chosen with `--env` or `VALIDATOR_ENV` (default `dev`; anything else is rejected). Thresholds differ per environment (table above), and a test shows the same file is accepted in dev and rejected in staging and prod. | The rules themselves are the same in every environment; only the thresholds differ. |
 
 
@@ -1285,8 +1288,7 @@ Tests are strictly divided into Unit Tests and Integration Tests to ensure CI/CD
 # Run ONLY unit tests (skips Kafka tests)
 pytest -m "not integration"
 
-# Run the complete suite (requires local Docker infrastructure to be running)
-pytest
+pytest -m integration --no-cov   
 ```
 
 # Observability & Persistence
