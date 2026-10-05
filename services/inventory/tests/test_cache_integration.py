@@ -2,6 +2,7 @@ import json
 import pytest
 from unittest.mock import patch, MagicMock
 
+from app.core.config import settings
 from app.services.cache_service import (
     cache,
     get_cached_inventory,
@@ -406,4 +407,111 @@ def test_read_latency_benchmark_with_and_without_cache(client, db_session):
 
     print(f"\n[LATENCY REPORT] Uncached DB Avg: {avg_db_ms:.2f} ms | Cached Redis Avg: {avg_cache_ms:.2f} ms | Speedup: {speedup:.1f}x")
     assert resp.status_code == 200
+
+
+def test_fulfill_shortage_invalidates_cache_for_both_warehouses(client, db_session):
+    """
+    Reviewer requirement:
+    fulfill_shortage must invalidate the cache for both source and destination
+    warehouses so cached quantities never go stale.
+    """
+    from app.services.multi_echelon_service import fulfill_shortage
+    from app.models.inventory_cost_layer import InventoryCostLayer
+    from datetime import datetime, UTC
+
+    sku = "SKU-SHORTAGE-CACHE"
+    wh_parent = "WH-CACHE-PARENT"
+    wh_local = "WH-CACHE-LOCAL"
+
+    seed_sales_history(sku, wh_parent, daily_quantity=2)
+    seed_sales_history(sku, wh_local, daily_quantity=2)
+
+    parent_item = Inventory(
+        sku_id=sku,
+        warehouse_id=wh_parent,
+        product_name="Multi Echelon Item",
+        category="Hardware",
+        quantity_on_hand=50,
+        lead_time_days=4,
+        safety_stock=5,
+        warehouse_type="central",
+    )
+    local_item = Inventory(
+        sku_id=sku,
+        warehouse_id=wh_local,
+        product_name="Multi Echelon Item",
+        category="Hardware",
+        quantity_on_hand=5,
+        lead_time_days=2,
+        safety_stock=5,
+        warehouse_type="local",
+        parent_warehouse_id=wh_parent,
+    )
+    cost_layer = InventoryCostLayer(
+        sku_id=sku,
+        warehouse_id=wh_parent,
+        category="Hardware",
+        quantity_received=50,
+        quantity_remaining=50,
+        unit_cost=10.0,
+        received_at=datetime.now(UTC),
+    )
+    db_session.add_all([parent_item, local_item, cost_layer])
+    db_session.commit()
+
+    # 1. Warm cache for both warehouses
+    client.get(f"/api/v1/inventory/{sku}/{wh_parent}")
+    client.get(f"/api/v1/inventory/{sku}/{wh_local}")
+    assert get_cached_inventory(sku, wh_parent) is not None
+    assert get_cached_inventory(sku, wh_local) is not None
+
+    # 2. Fulfill shortage (transfers 15 units from parent to local)
+    result = fulfill_shortage(
+        db=db_session,
+        sku_id=sku,
+        warehouse_id=wh_local,
+        required_quantity=20,
+    )
+    assert result["transferred_quantity"] == 15
+
+    # 3. VERIFY: Cache is invalidated for BOTH parent and local warehouses!
+    assert get_cached_inventory(sku, wh_parent) is None, "Parent cache must be invalidated after stock transfer"
+    assert get_cached_inventory(sku, wh_local) is None, "Local cache must be invalidated after stock transfer"
+
+    # 4. Fresh reads return updated stock levels
+    resp_parent = client.get(f"/api/v1/inventory/{sku}/{wh_parent}")
+    resp_local = client.get(f"/api/v1/inventory/{sku}/{wh_local}")
+    assert resp_parent.json()["quantity_on_hand"] == 35  # 50 - 15
+    assert resp_local.json()["quantity_on_hand"] == 20   # 5 + 15
+
+
+@pytest.mark.integration
+def test_real_redis_connectivity_and_operations():
+    """
+    Reviewer requirement:
+    Test cache operations against a real Redis instance to verify
+    real tool connectivity, TTL, and pattern deletion without fakes.
+    """
+    from app.services.cache_service import InventoryCache
+    import redis
+
+    try:
+        r = redis.Redis.from_url(settings.REDIS_URL, socket_timeout=1.0)
+        r.ping()
+    except Exception:
+        pytest.skip(f"Live Redis not accessible at {settings.REDIS_URL}")
+
+    real_cache = InventoryCache(redis_url=settings.REDIS_URL, mock_mode=False)
+    assert real_cache._client is not None, "Real Redis client must be connected"
+
+    test_key = "inventory:test:real_redis:item1"
+    test_data = {"sku_id": "SKU-REAL", "qty": 99}
+
+    real_cache.set(test_key, test_data, ttl=60)
+    retrieved = real_cache.get(test_key)
+    assert retrieved == test_data
+
+    real_cache.delete(test_key)
+    assert real_cache.get(test_key) is None
+
 

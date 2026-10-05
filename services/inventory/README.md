@@ -440,12 +440,70 @@ EXPIRED_TOKEN
 
 ---
 
-## Round 6 Status
+## Round 12–13 Status (Milestones 1–3 Productionization)
 
-| Milestone                           | Status    |
-| ----------------------------------- | --------- |
-| M1 — Multi-Echelon Inventory        | Completed |
-| M2 — Automatic Draft PO             | Completed |
-| M3 — Inventory Valuation            | Completed |
-| M4 — Optimistic Locking             | Completed |
-| M5 — Permissions and Authentication | Completed |
+| Milestone / Capability | Implementation Details | Status |
+| ---------------------- | ---------------------- | ------ |
+| M1 — Multi-Echelon & Schema Migrations | Dynamic Alembic migrations (`alembic upgrade head`), `approval_status` column support, zero manual `create_all()`. | Completed |
+| M2 — Transactional Outbox & Kafka Publisher | Atomic outbox table writes on low stock and PO draft, fail-safe producer, background relay worker with dead-letter queue. | Completed |
+| M3 — Redis Cache-Aside & Graceful Degradation | Item & collection caching with TTL, auto-invalidation on stock transfers & mutations, fail-open to DB on Redis failure. | Completed |
+
+---
+
+## Docker Compose Quick Start
+
+To spin up the complete environment including PostgreSQL, Redis, Kafka, the Inventory Service, and the Outbox Relay worker:
+
+```bash
+# 1. Ensure .env has POSTGRES_PASSWORD defined
+cp .env.example .env
+# Edit .env and supply your secure POSTGRES_PASSWORD
+
+# 2. Build and run all services
+docker compose -f docker-compose.dev.yml up --build -d
+
+# 3. Check container health
+docker compose -f docker-compose.dev.yml ps
+```
+
+The service container automatically runs `alembic upgrade head` on startup before launching Uvicorn, and exposes `/health` on port 8001.
+
+---
+
+## Transactional Outbox Relay Worker
+
+The Outbox Relay continuously polls pending outbox events and dispatches them to Kafka (`inventory.stock.low`, `inventory.po.drafted`).
+
+Run the relay worker standalone:
+
+```powershell
+python -m app.services.outbox_relay
+```
+
+In Docker Compose, this is automatically managed by the dedicated `outbox-relay` container.
+
+---
+
+## Running Tests
+
+Unit tests (runs against SQLite/PostgreSQL without live external brokers):
+
+```powershell
+python -m pytest
+```
+
+Integration tests (requires PostgreSQL or live container tools):
+
+```powershell
+python -m pytest -m integration
+```
+
+---
+
+## Cache Performance Benchmark
+
+To reproduce the latency numbers between uncached database reads and cached Redis reads:
+
+```powershell
+python scripts/benchmark_cache_latency.py --iterations 100
+```

@@ -305,6 +305,12 @@ def fulfill_shortage(
         db.rollback()
         raise
 
+    # Invalidate cache for destination and all source warehouses involved
+    from app.services.cache_service import invalidate_inventory_cache
+    invalidate_inventory_cache(sku_id, warehouse_id)
+    for transfer in transfers:
+        invalidate_inventory_cache(sku_id, transfer["from_warehouse"])
+
     if supplier_quantity > 0:
         fulfillment_status = "supplier_required"
     else:

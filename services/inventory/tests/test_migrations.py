@@ -35,3 +35,50 @@ def test_approval_status_migration_is_idempotent(tmp_path):
 
     # Pre-existing drafts must stay receivable.
     assert status == "approved"
+
+
+def test_alembic_upgrade_head_creates_matching_schema_and_allows_po_insert(tmp_path):
+    """
+    Reviewer requirement:
+    Verify that alembic upgrade head creates the matching schema
+    (including approval_status) and allows inserting a PO on an empty database.
+    """
+    from alembic.config import Config
+    from alembic import command
+    from sqlalchemy.orm import Session
+    from datetime import datetime, UTC
+    from app.models.purchase_order import PurchaseOrder
+
+    db_file = tmp_path / "test_fresh_upgrade.db"
+    db_url = f"sqlite:///{db_file}"
+
+    alembic_cfg = Config("alembic.ini")
+    alembic_cfg.set_main_option("sqlalchemy.url", db_url)
+
+    command.upgrade(alembic_cfg, "head")
+
+    test_engine = create_engine(db_url)
+    inspector = inspect(test_engine)
+    columns = {c["name"] for c in inspector.get_columns("purchase_orders")}
+    assert "approval_status" in columns, "approval_status column must exist in purchase_orders"
+
+    with Session(test_engine) as session:
+        po = PurchaseOrder(
+            po_id="PO-TEST-001",
+            sku_id="SKU-1",
+            warehouse_id="WH-1",
+            supplier_id="SUP-1",
+            quantity=10,
+            unit_cost=15.0,
+            expected_cost=150.0,
+            status="draft",
+            approval_status="pending_vp_approval",
+            created_at=datetime.now(UTC),
+        )
+        session.add(po)
+        session.commit()
+
+        queried = session.query(PurchaseOrder).filter_by(po_id="PO-TEST-001").first()
+        assert queried is not None
+        assert queried.approval_status == "pending_vp_approval"
+

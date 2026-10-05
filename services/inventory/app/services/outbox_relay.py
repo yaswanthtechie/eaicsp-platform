@@ -63,3 +63,52 @@ class OutboxRelay:
                 )
 
         return published_count, failed_count
+
+
+def run_relay_worker(
+    poll_interval: float = 2.0,
+    stop_event=None,
+) -> None:
+    """
+    Continuous worker loop that polls and relays pending outbox events.
+    Can be run as a standalone process (python -m app.services.outbox_relay)
+    or as a background thread inside FastAPI lifespan.
+    """
+    from app.database import SessionLocal
+
+    logger.info("Starting Outbox Relay Worker (poll_interval=%s s)...", poll_interval)
+    publisher = KafkaEventPublisher()
+    relay = OutboxRelay(publisher=publisher)
+
+    while True:
+        if stop_event is not None and stop_event.is_set():
+            logger.info("Stopping Outbox Relay Worker...")
+            break
+
+        db = SessionLocal()
+        try:
+            pub, fail = relay.relay_pending_events(db=db)
+            if pub > 0 or fail > 0:
+                logger.info(
+                    "Outbox relay cycle: %d published, %d failed",
+                    pub,
+                    fail,
+                )
+        except Exception as exc:
+            logger.error("Outbox relay error: %s", exc)
+        finally:
+            db.close()
+
+        if stop_event is not None:
+            stop_event.wait(poll_interval)
+        else:
+            import time
+            time.sleep(poll_interval)
+
+
+if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+    run_relay_worker()

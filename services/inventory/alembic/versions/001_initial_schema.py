@@ -58,6 +58,7 @@ def upgrade() -> None:
         sa.Column('unit_cost', sa.Float(), nullable=False),
         sa.Column('expected_cost', sa.Float(), nullable=False),
         sa.Column('status', sa.String(), nullable=False, server_default='draft'),
+        sa.Column('approval_status', sa.String(), nullable=False, server_default='pending_vp_approval'),
         sa.Column('created_at', sa.DateTime(), nullable=False),
         sa.PrimaryKeyConstraint('po_id', name='pk_purchase_orders'),
     )
