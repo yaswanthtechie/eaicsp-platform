@@ -53,7 +53,7 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
             ERROR_COUNT.labels(method=method, route=route).inc()
 
             metrics_collector.record_request(
-                service_name=route,
+                service_name="",
                 latency_ms=latency_ms,
                 is_error=True,
                 status_code=500,
@@ -79,7 +79,7 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
         req_state = getattr(request, "state", None)
         if not getattr(req_state, "metrics_recorded", False):
             metrics_collector.record_request(
-                service_name=route,
+                service_name="",
                 latency_ms=latency_ms,
                 is_error=is_error,
                 status_code=status_code,

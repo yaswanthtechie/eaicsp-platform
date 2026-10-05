@@ -211,21 +211,17 @@ class APIGatewayUser(HttpUser):
 
     @task(1)
     def read_inventory_items(self):
-        """[READ] GET /api/v1/inventory/items (Proxy to Inventory)
-        Expected response when inventory service is offline: 503 or 504.
-        """
+        """[READ] GET /api/v1/inventory/items (Proxy to Inventory)"""
         with self.client.get(
             "/api/v1/inventory/items",
             name="[READ] GET /api/v1/inventory/items (Proxy->Inventory)",
             headers=BASE_HEADERS,
             catch_response=True,
         ) as resp:
-            # 503/504 from the gateway proxy are expected when the
-            # downstream Inventory service is not running.
-            if resp.status_code in (200, 503, 504):
+            if resp.status_code == 200:
                 resp.success()
             else:
-                resp.failure(f"Unexpected status: {resp.status_code}")
+                resp.failure(f"Expected 200, got status {resp.status_code}")
 
     @task(1)
     def read_shipments(self):
@@ -236,10 +232,10 @@ class APIGatewayUser(HttpUser):
             headers=BASE_HEADERS,
             catch_response=True,
         ) as resp:
-            if resp.status_code in (200, 503, 504):
+            if resp.status_code == 200:
                 resp.success()
             else:
-                resp.failure(f"Unexpected status: {resp.status_code}")
+                resp.failure(f"Expected 200, got status {resp.status_code}")
 
     # ------------------------------------------------------------------
     # WRITE tasks  (weight 3 combined)
@@ -255,11 +251,10 @@ class APIGatewayUser(HttpUser):
             headers=BASE_HEADERS,
             catch_response=True,
         ) as resp:
-            # 201 Created, 200 OK, or proxy errors when service offline
-            if resp.status_code in (200, 201, 503, 504, 422):
+            if resp.status_code in (200, 201):
                 resp.success()
             else:
-                resp.failure(f"Unexpected status: {resp.status_code}")
+                resp.failure(f"Expected 200/201, got status {resp.status_code}")
 
     @task(1)
     def write_create_purchase_order(self):
@@ -271,10 +266,10 @@ class APIGatewayUser(HttpUser):
             headers=BASE_HEADERS,
             catch_response=True,
         ) as resp:
-            if resp.status_code in (200, 201, 503, 504, 422):
+            if resp.status_code in (200, 201):
                 resp.success()
             else:
-                resp.failure(f"Unexpected status: {resp.status_code}")
+                resp.failure(f"Expected 200/201, got status {resp.status_code}")
 
     @task(1)
     def write_update_inventory_item(self):
@@ -287,18 +282,17 @@ class APIGatewayUser(HttpUser):
             headers=BASE_HEADERS,
             catch_response=True,
         ) as resp:
-            if resp.status_code in (200, 201, 404, 503, 504, 422):
+            if resp.status_code == 200:
                 resp.success()
             else:
-                resp.failure(f"Unexpected status: {resp.status_code}")
+                resp.failure(f"Expected 200, got status {resp.status_code}")
 
     # ------------------------------------------------------------------
     # AUTH-FAIL tasks  (weight 2 combined)
     # These are intentional "bad credential" requests.
     # They exercise the gateway's auth forwarding path.
     # The gateway proxy correctly forwards these and returns the
-    # downstream's rejection (401/403) or 503/504 if the auth service
-    # is unavailable.  Neither case is an API Gateway failure.
+    # downstream's rejection (401/403). Unexpected 2xx responses are failures.
     # ------------------------------------------------------------------
 
     @task(1)
@@ -310,11 +304,10 @@ class APIGatewayUser(HttpUser):
             headers={**BASE_HEADERS, "Authorization": INVALID_TOKEN},
             catch_response=True,
         ) as resp:
-            # 401/403 from auth service, 503/504 from proxy = expected
-            if resp.status_code in (200, 401, 403, 503, 504):
+            if resp.status_code in (401, 403):
                 resp.success()
             else:
-                resp.failure(f"Unexpected auth-fail status: {resp.status_code}")
+                resp.failure(f"Expected 401/403 for invalid token, got status {resp.status_code}")
 
     @task(1)
     def auth_fail_bad_login(self):
@@ -326,8 +319,7 @@ class APIGatewayUser(HttpUser):
             headers=BASE_HEADERS,
             catch_response=True,
         ) as resp:
-            # 401/403 from auth service, 503/504 from proxy = expected
-            if resp.status_code in (200, 400, 401, 403, 503, 504):
+            if resp.status_code in (401, 403):
                 resp.success()
             else:
-                resp.failure(f"Unexpected auth-fail status: {resp.status_code}")
+                resp.failure(f"Expected 401/403 for bad login, got status {resp.status_code}")

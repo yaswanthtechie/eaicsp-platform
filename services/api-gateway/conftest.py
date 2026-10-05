@@ -13,6 +13,20 @@ def pytest_configure(config):
     os.environ.setdefault("LOCUST_SKIP_MONKEY_PATCH", "1")
 
 
+def pytest_collection_modifyitems(config, items):
+    """
+    Exclude @pytest.mark.integration tests by default unless -m integration is specified.
+    """
+    markexpr = config.getoption("-m", "")
+    if "integration" not in markexpr:
+        skip_integration = pytest.mark.skip(
+            reason="Integration test requiring external services; run with pytest -m integration"
+        )
+        for item in items:
+            if "integration" in item.keywords:
+                item.add_marker(skip_integration)
+
+
 @pytest.fixture(autouse=True)
 def isolate_tracing():
     """

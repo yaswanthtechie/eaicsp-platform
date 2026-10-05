@@ -341,15 +341,8 @@ class ProxyService:
         # 4. Prepare headers
         # ------------------------------------------------------------------
         headers = _build_forward_headers(request)
-
-        if content and "application/json" in headers.get("content-type", "").lower():
-            try:
-                import json
-                content = json.dumps(json.loads(content), separators=(',', ':')).encode('utf-8')
-                if "content-length" in headers:
-                    headers["content-length"] = str(len(content))
-            except Exception:
-                pass
+        if content is not None and "content-length" in headers:
+            headers["content-length"] = str(len(content))
 
         # ------------------------------------------------------------------
         # 5. Get shared HTTP client

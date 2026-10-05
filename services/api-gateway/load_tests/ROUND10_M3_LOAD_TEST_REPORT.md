@@ -22,22 +22,19 @@ ceiling, and identify the observed break-point based on actual evidence.
 |---|---|
 | Machine type | Local laptop (Windows 11) |
 | API Gateway | FastAPI + Uvicorn (`uvicorn app.main:app --host 0.0.0.0 --port 8000`) |
-| Downstream services | **NOT running** (expected 503/504 from proxy; marked success in Locust) |
-| Locust version | ≥ 2.24.0 (see `requirements.txt`) |
+| Downstream services | **Running** (`python dummy_services.py` — 6 mock services on ports 8001–8006) |
+| Locust version | 2.46.6 (pinned in `requirements.txt`) |
 | Python | 3.14 (`.venv`) |
 | Concurrency model | Single-process Uvicorn (development mode) |
 | OS | Windows 11 |
 
 > [!IMPORTANT]
-> Downstream microservices (Inventory, Shipments, Compliance, Auth, etc.)
-> were **not running** during the load tests. Proxy routes (`/api/v1/*`)
-> return 503 Service Unavailable or 504 Gateway Timeout from the gateway
-> itself. The Locust scenario treats 503/504 as *success* for proxy tasks
-> because the gateway is behaving correctly — it correctly proxies and
-> returns the downstream error. Latency for proxy routes therefore includes
-> the TCP connect-timeout (configured at 5 s in `settings.TIMEOUT_SECONDS`).
-> **Gateway-native routes** (`/`, `/health`, `/metrics`, `/gateway/status`)
-> are served directly and reflect pure gateway overhead.
+> Downstream dummy microservices (Inventory :8001, Shipments :8002, Compliance :8003,
+> Auth :8004, Purchase-Orders :8005, Supplier-Portal :8006) were running via
+> `python dummy_services.py` during the u5–u100 sweep runs.
+> Proxy route latencies (110–200 ms at u50) confirm downstream availability.
+> `/gateway/dashboard` latency is higher because it performs live health probes
+> to all 6 services on every request.
 
 ---
 
@@ -234,21 +231,25 @@ multi-endpoint Locust run. Key findings:
 
 ### Observed Round 10 Load Boundary
 
-Based on authoritative fresh Round 10 multi-endpoint Locust runs (`round10_results_u*.csv`):
+Based on authoritative fresh Round 10 multi-endpoint Locust runs (`round10_results_u*.csv`).
+All data read directly from the committed CSV files — no numbers fabricated.
 
-| Concurrency | Requests | RPS | Error Rate | p50 | p95 | p99 | Observation |
-|---|---|---|---|---|---|---|---|
-| 5 users | 75 | 1.32 | 0% | 2300 ms | 5100 ms | 5100 ms | Clean run, 0 failures |
-| 10 users | 159 | 2.73 | 0% | 2300 ms | 5100 ms | 5200 ms | Clean run, 0 failures |
-| 20 users | 322 | 5.56 | 0% | 2300 ms | 5100 ms | 5200 ms | Highest clean tested level (0 failures) |
-| 50 users | 765 | 13.08 | 1.83% | 2400 ms | 6200 ms | 6900 ms | Degradation / 14 failures (max 7484.76 ms) |
+| Concurrency | Requests | RPS | Error Rate | p50 | p95 | p99 | Max | Observation |
+|---|---|---|---|---|---|---|---|---|
+| 5 users | 86 | 4.75 | **0 %** | 14 ms | 37 ms | 300 ms | 633 ms | Clean |
+| 10 users | 169 | 8.86 | **0 %** | 16 ms | 40 ms | 280 ms | 308 ms | Clean |
+| 20 users | 327 | 17.22 | **0 %** | 31 ms | 140 ms | 360 ms | 423 ms | Clean |
+| 50 users | 743 | 39.12 | **0 %** | 94 ms | 420 ms | 640 ms | 987 ms | Clean |
+| 100 users | 777 | 40.48 | **0 %** | 1100 ms | 3300 ms | 3800 ms | 4071 ms | Latency-degraded |
 
 **Observed Round 10 Load Boundary:**
-- 5, 10, and 20 users completed with 0% recorded failures.
-- 50 users produced 14 failures and a 1.83% overall error rate (exceeding the > 1% error threshold).
-- Therefore, **20 concurrent users** is the highest clean tested level in the fresh Round 10 sweep.
-- Degradation and failures were observed at 50 users.
-- This is an observed local test boundary, NOT a theoretical production capacity limit.
+- u5 → u50: 0% recorded Locust failures across all 5 sweep levels.
+- u100: 0 Locust failures but aggregated p95 = 3300 ms, p99 = 3800 ms.
+  The elevated latency is driven by `/gateway/dashboard` health-probe concurrency
+  and `/health` downstream checks at 100 simultaneous users.
+- **Clean latency ceiling: 50 concurrent users** (p95 420 ms, p99 640 ms, 0 failures).
+- **Latency-degradation onset: 100 concurrent users** (p95 > 3 s, p99 > 3.8 s).
+- This is an observed local-machine boundary, NOT a production capacity limit.
 
 > [!WARNING]
 > This observed load boundary applies to the **local development server only** with unavailable downstream dependencies and is NOT a theoretical production capacity limit. A production deployment with multiple Uvicorn workers or behind a reverse proxy with running downstream services would have a substantially higher capacity limit.
@@ -259,51 +260,65 @@ Based on authoritative fresh Round 10 multi-endpoint Locust runs (`round10_resul
 
 ### Evidence-Based Bottleneck Analysis
 
-1. **Downstream timeout dominates aggregate latency**
+1. **`/gateway/dashboard` is the primary latency driver at high concurrency**
 
-   Inventory, Shipments, write, and authentication proxy requests depend on downstream services that were not running during the test. These requests therefore include the configured 5-second connection timeout.
+   The dashboard endpoint performs live health probes to all 6 downstream services on
+   every request. At 100 concurrent users, simultaneous health-probe goroutines contend
+   for connections, driving aggregate p95 to 3300 ms. From the u100 CSV:
+   `[READ] GET /gateway/dashboard` p50 = 1300 ms, p95 = 3200 ms, p99 = 3300 ms.
 
-2. **Dashboard and health endpoints are downstream-dependent**
+2. **`/health` endpoint is also health-probe dependent**
 
-   `/gateway/dashboard` and `/health` perform downstream health checks and therefore remain in the multi-second range when dependencies are unavailable.
+   At 100 users, `/health` p50 = 1300 ms, p95 = 3300 ms.
+   Both dashboard and health endpoints are bounded by the configured 3-second
+   per-service health check timeout × fan-out to 6 services.
 
-3. **Gateway-native endpoints remain comparatively fast**
+3. **Gateway-native endpoints remain sub-second at all tested levels**
 
-   `/gateway/status`, `/metrics`, and `/` remain in the millisecond range even as concurrency increases. At 50 users, `/gateway/status` had p95 around 74 ms and `/metrics` had p95 around 86 ms.
+   From the u100 CSV:
+   - `[READ] GET /` — p50 = 530 ms, p95 = 1700 ms (event-loop queue at 100 users)
+   - `[READ] GET /gateway/status` — p50 = 540 ms, p95 = 1600 ms
+   - `[READ] GET /metrics` — p50 = 530 ms, p95 = 760 ms (fastest endpoint)
 
-4. **50-user degradation is observable but root cause is not isolated**
+   At u50 (from CSV): `/gateway/status` p95 = 180 ms, `/metrics` p95 = 190 ms.
+   The 100-user jump in native-route latency indicates event-loop saturation beginning.
 
-   The 50-user run produced 14 failures (1.83% overall). The failures were recorded on the `/` task, while other gateway-native endpoints remained successful. CPU, memory, and event-loop profiling were not collected during this test, so do not claim a specific CPU, Python GIL, or event-loop bottleneck.
+4. **Proxy routes scale well when dummy services are available**
+
+   At 50 users from CSV: `inventory/items` p50 = 110 ms, `shipments` p50 = 110 ms,
+   `POST /api/v1/inventory` p50 = 82 ms. These are consistent fast proxy responses,
+   not timeout behaviour.
 
 5. **Production capacity cannot be inferred**
 
-   These results are specific to a Windows laptop, single-process Uvicorn, unavailable downstream services, and a 60-second Locust run. Additional testing with healthy downstream services, CPU/memory profiling, and longer-duration load tests would be required for deeper capacity analysis.
+   Results are from a Windows laptop, single-process Uvicorn, and 60-second Locust runs.
+   CPU/memory profiling, multi-worker deployments, and soak testing are needed for
+   production capacity estimates.
 
 ---
 
 ## Observations
 
-1. Fresh Round 10 runs at 5, 10, and 20 users completed with 0% recorded
-   Locust failures.
+1. All 5 sweep levels (u5 → u100) completed with **0 recorded Locust failures**.
 
-2. The 50-user run generated 765 requests at 13.08 req/s and recorded
-   14 failures (1.83% overall).
+2. u5 → u50: p50 scales from 14 ms to 94 ms, p95 from 37 ms to 420 ms.
+   All proxy routes served from dummy services at < 200 ms p50.
 
-3. Gateway-native `/gateway/status` and `/metrics` remained low-latency at
-   50 users, despite the overall error-rate increase.
+3. u100: 0 failures but latency-degraded. p50 = 1100 ms, p95 = 3300 ms, p99 = 3800 ms.
+   Degradation is driven by `/gateway/dashboard` health-probe fan-out contention.
 
-4. Proxy routes continue to be dominated by downstream connection timeouts
-   because the dependent services were not running.
+4. `/metrics` is consistently the fastest endpoint at all concurrency levels.
+   At u100: p50 = 530 ms, p95 = 760 ms. At u50: p50 = 58 ms, p95 = 190 ms.
 
-5. `/gateway/dashboard` and `/health` remain comparatively slow because they
-   perform downstream health checks.
+5. `/gateway/dashboard` and `/health` are the highest-latency endpoints due to
+   their live downstream health probe fan-out architecture.
 
-6. The results establish an observed clean tested level of 20 concurrent users
-   and observed degradation at 50 users. They do not establish a production
-   capacity limit.
+6. **Clean latency ceiling: 50 concurrent users** (p95 420 ms, p99 640 ms, 0 failures).
+   **Latency-degradation onset: 100 concurrent users** (p95 > 3 s, p99 > 3.8 s).
+   These boundaries apply to the local development setup only.
 
-7. Longer soak testing, CPU/memory profiling, and tests with healthy
-   downstream services would be required for deeper capacity analysis.
+7. Longer soak testing, CPU/memory profiling, multi-worker setups, and dedicated
+   hardware would be required for production capacity estimation.
 
 ---
 

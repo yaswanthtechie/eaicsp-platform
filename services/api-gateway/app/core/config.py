@@ -1,4 +1,4 @@
-﻿"""
+"""
 Application configuration for the API Gateway.
 """
 
@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     # --------------------------------------------------
 
     TIMEOUT_SECONDS: int = 5
-    # MAX_RETRIES: number of retries to attempt on retryable failures (e.g. 2 â†’ original + 2 retries)
+    # MAX_RETRIES: number of retries to attempt on retryable failures (e.g. 2 -> original + 2 retries)
     MAX_RETRIES: int = 2
 
     # --------------------------------------------------

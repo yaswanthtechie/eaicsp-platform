@@ -459,6 +459,134 @@ python -m pytest tests/test_real_inventory_integration.py -v
 
 ---
 
+## Round 10 Observability Stack
+
+### Overview
+
+The API Gateway is fully instrumented for production observability:
+
+| Component | Version | Purpose |
+|---|---|---|
+| **Prometheus** | `prom/prometheus:v2.53.0` | Scrapes `/metrics` every 2 s |
+| **Grafana** | `grafana/grafana:11.1.0` | Dashboards (provisioned from source) |
+| **Jaeger** | `jaegertracing/all-in-one:1.57.0` | Distributed trace collection (OTLP HTTP) |
+
+### Start the Observability Stack
+
+```powershell
+# From services/api-gateway/
+docker compose -f docker-compose.dev.yml up -d
+```
+
+Services start automatically with:
+- **Prometheus** → [http://localhost:9090](http://localhost:9090)
+- **Grafana** → [http://localhost:3000](http://localhost:3000) (anonymous admin, auto-provisioned dashboard)
+- **Jaeger** → [http://localhost:16686](http://localhost:16686) (OTLP HTTP on port 4318)
+
+### Prometheus Scraping
+
+`prometheus/prometheus.yml` configures Prometheus to scrape the API Gateway `/metrics` endpoint
+at `host.docker.internal:8000` every 2 seconds:
+
+```yaml
+scrape_configs:
+  - job_name: "api-gateway"
+    metrics_path: "/metrics"
+    scrape_interval: 2s
+    static_configs:
+      - targets: ["host.docker.internal:8000"]
+```
+
+Exposed metrics:
+- `gateway_requests_total{method, route, status_code}` — request counter
+- `gateway_request_duration_seconds{method, route}` — latency histogram
+- `gateway_errors_total{method, route}` — error counter
+
+Unknown routes are always mapped to the bounded label `route="other"` to prevent
+label cardinality explosion.
+
+### Grafana Dashboard
+
+`grafana/round10_api_gateway_dashboard.json` is auto-provisioned by
+`grafana/provisioning/dashboards/dashboards.yml` into the **Observability** folder.
+
+Panels include: Request Rate, Error Rate, Latency (p50/p95/p99), Top Routes, Circuit Breaker States.
+
+### Distributed Tracing (Jaeger)
+
+The gateway uses OpenTelemetry W3C Trace Context propagation:
+- Incoming `traceparent` headers are extracted and used as parent span context.
+- Every request generates a `gateway <METHOD> <route>` SERVER span.
+- Proxy calls generate child CLIENT spans that are injected into downstream headers.
+- Query strings are **stripped** from `http.url` span attributes before export to Jaeger to prevent sensitive data leakage.
+
+Environment variables:
+
+| Variable | Default | Description |
+|---|---|---|
+| `OTEL_ENABLED` | `true` | Set `false` to disable tracing entirely |
+| `OTEL_SERVICE_NAME` | `api-gateway` | Jaeger service name |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` | Jaeger OTLP/HTTP collector |
+
+### Full Observability Verification
+
+```powershell
+# 1. Start observability stack
+docker compose -f docker-compose.dev.yml up -d
+
+# 2. Start downstream dummy services
+python dummy_services.py
+
+# 3. Start gateway
+.venv\Scripts\uvicorn.exe app.main:app --host 127.0.0.1 --port 8000
+
+# 4. Run verification script (generates 25 requests, compares Prometheus vs /gateway/dashboard)
+python verify_observability.py
+```
+
+See `OBSERVABILITY_EVIDENCE.md` for the definition-of-done evidence report.
+
+### Round 10 Load Test Results
+
+Load tests were run with Locust against the API Gateway with a realistic 12-endpoint mixed scenario.
+
+| Concurrency | Requests | RPS   | Error Rate | p50 (ms) | p95 (ms) | p99 (ms) |
+|-------------|----------|-------|------------|----------|----------|----------|
+| 5 users     | 86       | 4.75  | 0%         | 14 ms    | 37 ms    | 300 ms   |
+| 10 users    | 169      | 8.86  | 0%         | 16 ms    | 40 ms    | 280 ms   |
+| 20 users    | 327      | 17.22 | 0%         | 31 ms    | 140 ms   | 360 ms   |
+| 50 users    | 743      | 39.12 | 0%         | 94 ms    | 420 ms   | 640 ms   |
+| 100 users   | 777      | 40.48 | 0%         | 1100 ms  | 3300 ms  | 3800 ms  |
+
+> [!NOTE]
+> Gateway-native endpoints (`/`, `/gateway/status`, `/metrics`) remain in the
+> millisecond range at all concurrency levels. The elevated p95/p99 at high concurrency is
+> driven by the `/gateway/dashboard` health-probe endpoint and downstream proxy timeouts.
+>
+> **Observed break point**: p95 latency climbs above 3 s at 100 concurrent users.
+> Gateway-native routes stay healthy; the bottleneck is downstream connection overhead.
+
+Run the sweep yourself:
+
+```powershell
+python dummy_services.py   # terminal 1
+.venv\Scripts\uvicorn.exe app.main:app --host 0.0.0.0 --port 8000  # terminal 2
+
+# terminal 3 — sweep
+foreach ($U in 5, 10, 20, 50, 100) {
+    $sr = [Math]::Max(1, [int]($U / 5))
+    .venv\Scripts\locust.exe `
+        -f load_tests/round10_locustfile.py `
+        --headless --users $U --spawn-rate $sr `
+        --run-time 60s --host http://127.0.0.1:8000 `
+        --csv "load_tests/round10_results_u$U"
+}
+```
+
+CSV result files: `load_tests/round10_results_u{5,10,20,50,100}_stats.csv`
+
+---
+
 ## Dependencies
 
 | Package             | Purpose                                    |

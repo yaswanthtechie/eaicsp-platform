@@ -40,23 +40,14 @@ logger = logging.getLogger("api_gateway.tracing")
 # remains fully functional even if OTel packages are not installed.
 # ---------------------------------------------------------------------------
 
-_otel_available = False
+_otel_api_available = False
 try:
     from opentelemetry import trace
-    from opentelemetry.sdk.trace import TracerProvider
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor
-    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-    from opentelemetry.sdk.resources import Resource, SERVICE_NAME
     from opentelemetry.propagate import extract, inject
-    from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
     from opentelemetry.trace import SpanKind, StatusCode
-    _otel_available = True
+    from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+    _otel_api_available = True
 except ImportError:  # pragma: no cover
-    logger.warning(
-        "opentelemetry packages not installed; tracing middleware is a no-op. "
-        "Run: pip install opentelemetry-api opentelemetry-sdk "
-        "opentelemetry-exporter-otlp-proto-http"
-    )
     class StatusCode:  # type: ignore[no-redef]
         OK = "OK"
         ERROR = "ERROR"
@@ -64,6 +55,27 @@ except ImportError:  # pragma: no cover
     class SpanKind:  # type: ignore[no-redef]
         SERVER = 1
         CLIENT = 2
+    logger.warning("opentelemetry-api package not installed; W3C trace propagation disabled.")
+
+_otel_sdk_available = False
+try:
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.sdk.resources import Resource, SERVICE_NAME
+    _otel_sdk_available = True
+except ImportError:  # pragma: no cover
+    TracerProvider = None  # type: ignore[misc,assignment]
+    logger.warning("opentelemetry-sdk package not installed; TracerProvider spans disabled.")
+
+_otlp_exporter_available = False
+try:
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    _otlp_exporter_available = True
+except ImportError:  # pragma: no cover
+    OTLPSpanExporter = None  # type: ignore[misc,assignment]
+    logger.warning("opentelemetry-exporter-otlp-proto-http package not installed; OTLP remote Jaeger export disabled.")
+
+_otel_available = _otel_api_available
 
 
 # Module-level active tracer provider and configuration flag
@@ -81,7 +93,7 @@ def setup_tracing(provider: TracerProvider | None = None) -> None:
     global _tracing_configured, _tracer_provider
     if _tracing_configured and provider is None:
         return
-    if not _otel_available:
+    if not _otel_api_available:
         return
 
     from app.core.config import settings  # lazy to avoid circular import
@@ -99,28 +111,39 @@ def setup_tracing(provider: TracerProvider | None = None) -> None:
                 pass
         _tracer_provider = provider
     elif _tracer_provider is None:
-        resource = Resource.create({SERVICE_NAME: settings.OTEL_SERVICE_NAME})
+        if _otel_sdk_available and TracerProvider is not None:
+            resource = Resource.create({SERVICE_NAME: settings.OTEL_SERVICE_NAME})
+            _tracer_provider = TracerProvider(resource=resource)
 
-        endpoint = settings.OTEL_EXPORTER_OTLP_ENDPOINT.rstrip('/')
-        if not endpoint.endswith('/v1/traces'):
-            endpoint = f"{endpoint}/v1/traces"
+            if _otlp_exporter_available and OTLPSpanExporter is not None:
+                endpoint = settings.OTEL_EXPORTER_OTLP_ENDPOINT.rstrip('/')
+                if not endpoint.endswith('/v1/traces'):
+                    endpoint = f"{endpoint}/v1/traces"
 
-        exporter = OTLPSpanExporter(endpoint=endpoint)
-        _tracer_provider = TracerProvider(resource=resource)
-        _tracer_provider.add_span_processor(BatchSpanProcessor(exporter))
+                try:
+                    exporter = OTLPSpanExporter(endpoint=endpoint)
+                    _tracer_provider.add_span_processor(BatchSpanProcessor(exporter))
+                except Exception as exc:
+                    logger.warning("Failed to initialize OTLPSpanExporter: %s; continuing with in-memory tracer", exc)
+            else:
+                logger.info("OTLP exporter unavailable; continuing with in-memory tracer")
+        else:
+            logger.info("OpenTelemetry SDK unavailable; using default tracer")
 
     # Register as the global provider so opentelemetry.trace.get_tracer() works
-    try:
-        from opentelemetry.util._once import Once
-        trace._TRACER_PROVIDER = _tracer_provider
-        trace._TRACER_PROVIDER_SET_ONCE = Once()
-        trace._TRACER_PROVIDER_SET_ONCE.do_once(lambda: None)
-    except Exception:
-        pass
+    if _tracer_provider is not None:
+        try:
+            from opentelemetry.util._once import Once
+            trace._TRACER_PROVIDER = _tracer_provider
+            trace._TRACER_PROVIDER_SET_ONCE = Once()
+            trace._TRACER_PROVIDER_SET_ONCE.do_once(lambda: None)
+        except Exception:
+            pass
 
     # Set W3C TraceContext (traceparent / tracestate) as the global propagator.
-    from opentelemetry.propagate import set_global_textmap
-    set_global_textmap(TraceContextTextMapPropagator())
+    if _otel_api_available:
+        from opentelemetry.propagate import set_global_textmap
+        set_global_textmap(TraceContextTextMapPropagator())
 
     _tracing_configured = True
     logger.info(
@@ -185,6 +208,18 @@ def get_tracer():
 
 from contextlib import contextmanager
 
+
+def sanitize_url_for_tracing(url: str | None) -> str:
+    """
+    Sanitize URL for distributed tracing by removing query parameters.
+    Prevents leaking sensitive data (auth tokens, emails, keys) into span attributes
+    while preserving scheme, host, and path.
+    """
+    if not url:
+        return ""
+    return str(url).split("?")[0]
+
+
 @contextmanager
 def start_proxy_span(method: str, service_name: str, target_url: str):
     """
@@ -201,8 +236,9 @@ def start_proxy_span(method: str, service_name: str, target_url: str):
 
     span_name = f"proxy {method} {service_name}"
     with tracer.start_as_current_span(span_name, kind=SpanKind.CLIENT) as span:
+        clean_url = sanitize_url_for_tracing(target_url)
         span.set_attribute("http.method", method)
-        span.set_attribute("http.url", str(target_url))
+        span.set_attribute("http.url", clean_url)
         span.set_attribute("peer.service", service_name)
         yield span
 
@@ -287,9 +323,9 @@ class TracingMiddleware(BaseHTTPMiddleware):
             context=parent_ctx,
             kind=SpanKind.SERVER,
         ) as span:
-            # Semantic convention attributes (OTel HTTP 1.x)
+            # Semantic convention attributes (OTel HTTP 1.x) with sanitized URL
             span.set_attribute("http.method", request.method)
-            span.set_attribute("http.url", str(request.url))
+            span.set_attribute("http.url", sanitize_url_for_tracing(str(request.url)))
             span.set_attribute("http.route", route)
             span.set_attribute("http.scheme", request.url.scheme)
             span.set_attribute("http.host", request.headers.get("host", ""))

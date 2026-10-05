@@ -1,4 +1,4 @@
-﻿"""
+"""
 Global SlowAPI rate limiter configuration and real IP extraction for the API Gateway.
 
 Architecture & Responsibilities:
@@ -43,9 +43,19 @@ def get_real_ip(request: Request) -> str:
 # Global Rate Limiter
 # --------------------------------------------------
 
+import os
+
+_env_default_limit = os.getenv("GATEWAY_RATE_LIMIT", "100/minute")
+_env_limit_enabled = os.getenv("GATEWAY_RATE_LIMIT_ENABLED", "true").lower() not in ("false", "0", "no")
+
+_load_test_mode = getattr(settings, "LOAD_TEST_MODE", False)
+if _load_test_mode:
+    _env_limit_enabled = False
+
 limiter = Limiter(
     key_func=get_real_ip,
-    default_limits=["100/minute"],
+    default_limits=[_env_default_limit],
+    enabled=_env_limit_enabled,
 )
 
 __all__ = (

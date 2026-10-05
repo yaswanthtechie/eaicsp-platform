@@ -89,23 +89,47 @@ def get_bucket_label(latency_ms: float, buckets: list[float]) -> str:
     return format_overflow_label(buckets[-1])
 
 
+def get_downstream_service_names() -> set[str]:
+    """Return configured downstream service identifiers derived from SERVICE_ROUTES."""
+    services = set()
+    for prefix in settings.SERVICE_ROUTES:
+        if prefix.startswith("/api/v1/"):
+            name = prefix.strip("/").split("/")[-1]
+            if name:
+                services.add(name)
+    return services
+
+
 def normalize_route(path: str) -> str:
-    """Normalize dynamic URL paths to their configured route pattern."""
-    if not path:
+    """
+    Normalize dynamic URL paths to their configured route pattern.
+    Unknown routes are mapped to a bounded 'other' label to prevent
+    unbounded Prometheus label cardinality explosion and bounded collector keys.
+    """
+    if not path or path == "/":
         return "/"
 
-    path_clean = path.split("?")[0]
+    path_clean = path.split("?")[0].rstrip("/") or "/"
+    if path_clean == "/":
+        return "/"
+
     for route_prefix in sorted(settings.SERVICE_ROUTES, key=len, reverse=True):
-        if path_clean == route_prefix or path_clean.startswith(f"{route_prefix}/"):
+        prefix_clean = route_prefix.rstrip("/")
+        if path_clean == prefix_clean or path_clean.startswith(f"{prefix_clean}/"):
             return route_prefix
 
-    if path_clean.startswith("/health"):
+    if path_clean == "/health" or path_clean.startswith("/health/"):
         return "/health"
-    if path_clean.startswith("/gateway"):
+    if path_clean == "/metrics" or path_clean.startswith("/metrics/"):
+        return "/metrics"
+    if path_clean == "/gateway/status" or path_clean.startswith("/gateway/status/"):
+        return "/gateway/status"
+    if path_clean == "/gateway" or path_clean.startswith("/gateway/"):
         return "/gateway/dashboard"
-    if path_clean.startswith("/api/v1/dashboard"):
+    if path_clean == "/api/v1/dashboard" or path_clean.startswith("/api/v1/dashboard/"):
         return "/api/v1/dashboard/summary"
-    return path_clean.rstrip("/") or "/"
+
+    return "other"
 
 
 # ---------------------------------------------------------------------------
@@ -195,29 +219,50 @@ class MetricsCollector:
     ):
         """
         Record a request completion for a downstream service and its route.
+        Only actual downstream services are recorded into service metrics; internal
+        routes (/health, /gateway/*, 404s, etc.) update route metrics without creating
+        fake service entries.
         """
         latency_float = float(latency_ms)
+        downstream_names = get_downstream_service_names()
+
+        service_key = None
+        if service_name in downstream_names:
+            service_key = service_name
+        elif service_name.startswith("/"):
+            candidate = service_name.strip("/").split("/")[-1]
+            if candidate in downstream_names:
+                service_key = candidate
+
         if route is not None:
             norm_route = normalize_route(route)
-            service_key = service_name or norm_route.strip("/").split("/")[-1]
+            if service_key is None:
+                candidate = route.strip("/").split("/")[0] if not route.startswith("/api/v1/") else (
+                    route.strip("/").split("/")[2] if len(route.strip("/").split("/")) > 2 else ""
+                )
+                if candidate in downstream_names:
+                    service_key = candidate
         elif service_name.startswith("/"):
             norm_route = normalize_route(service_name)
-            service_key = norm_route.strip("/").split("/")[-1]
-        else:
-            service_key = service_name
+        elif service_name in downstream_names:
             norm_route = normalize_route(f"/api/v1/{service_name}")
+        elif service_name:
+            norm_route = normalize_route(service_name)
+        else:
+            norm_route = "other"
 
         has_error = bool(is_error or status_code >= 500)
         with self._lock:
-            self._init_service_if_missing(service_key)
-            svc = self._services[service_key]
-            svc["request_volume"] += 1
-            svc["latencies"].append(latency_float)
+            if service_key and service_key in downstream_names:
+                self._init_service_if_missing(service_key)
+                svc = self._services[service_key]
+                svc["request_volume"] += 1
+                svc["latencies"].append(latency_float)
 
-            if is_cache_hit:
-                svc["cache_hits"] += 1
-            elif is_cache_miss:
-                svc["cache_misses"] += 1
+                if is_cache_hit:
+                    svc["cache_hits"] += 1
+                elif is_cache_miss:
+                    svc["cache_misses"] += 1
 
             self._init_route_if_missing(norm_route)
             route_metrics = self._routes[norm_route]
@@ -352,15 +397,7 @@ class MetricsCollector:
             circuit_breaker_manager = None
 
         # Extract configured downstream service names from SERVICE_ROUTES
-        known_services = set()
-        for prefix in settings.SERVICE_ROUTES:
-            if prefix.startswith("/api/v1/"):
-                name = prefix.strip("/").split("/")[-1]
-                known_services.add(name)
-
-        with self._lock:
-            for sname in self._services:
-                known_services.add(sname)
+        known_services = get_downstream_service_names()
 
         services_metrics = {}
         circuit_breakers_metrics = {}

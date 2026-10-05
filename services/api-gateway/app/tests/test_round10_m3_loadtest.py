@@ -60,6 +60,7 @@ def _import_locustfile():
     Raises ImportError / ModuleNotFoundError propagated to test failures
     if the file cannot be imported.
     """
+    pytest.importorskip("locust")
     try:
         from app.middleware.tracing import shutdown_tracing
         shutdown_tracing()
@@ -136,21 +137,13 @@ class TestLocustfileImportable:
         If locust is not installed this test is skipped rather than
         errored — installing locust is a setup step, not a code bug.
         """
-        locust_available = importlib.util.find_spec("locust") is not None
-        if not locust_available:
-            pytest.skip(
-                "locust package is not installed. "
-                "Install it with: pip install locust>=2.24.0"
-            )
+        pytest.importorskip("locust")
         module = _import_locustfile()
         assert module is not None
 
     def test_locustfile_imports_locust_symbols(self):
         """The locust file must import HttpUser, between, task from locust."""
-        locust_available = importlib.util.find_spec("locust") is not None
-        if not locust_available:
-            pytest.skip("locust not installed")
-
+        pytest.importorskip("locust")
         content = LOCUST_FILE.read_text(encoding="utf-8")
         assert "from locust import" in content
         for symbol in ("HttpUser", "between", "task"):
