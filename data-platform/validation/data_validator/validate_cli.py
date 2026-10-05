@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -10,11 +11,11 @@ from typing import Any, Optional
 import pandas as pd
 
 # --- PATH RESOLUTION ---
-# Must run BEFORE any `from src...` import.
+# Must run BEFORE any `from data_validator...` import.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.validator import DataValidator, SecurityError, resolve_env_path
+from data_validator.validator import DataValidator, SecurityError, resolve_env_path
 
 # --- Configuration Constants ---
 EXIT_SUCCESS = 0
@@ -98,6 +99,38 @@ def export_report(report: Any, output_path: Path) -> None:
         logger.exception("Failed to write JSON output to %s: %s", output_path, e)
         raise
 
+def _persist_run(report, dataset_name: str, duration_seconds: float) -> Optional[int]:
+    """
+    Save this batch run to Postgres.
+
+    Returns None when the CLI should carry on, or EXIT_TOOL_ERROR when the
+    run could not be saved. If DATABASE_URL is not set, nothing is saved and
+    that is logged clearly: an explicit choice, never a pretend save.
+    """
+    if not os.environ.get("DATABASE_URL"):
+        logger.warning(
+            "DATABASE_URL is not set: this run is NOT saved to Postgres. "
+            "Set it in .env to keep run history."
+        )
+        return None
+
+    from data_validator.metrics import record_persist_failure
+    from data_validator.postgres_client import PersistenceError, persist_validation_result
+
+    try:
+        run_id = persist_validation_result(
+            dataset_name=dataset_name,
+            result=report,
+            duration_seconds=duration_seconds,
+            mode="batch",
+        )
+    except PersistenceError as e:
+        logger.error("Validation run NOT saved to Postgres: %s", e)
+        record_persist_failure()
+        return EXIT_TOOL_ERROR
+
+    logger.info("Validation run saved to Postgres as run_id=%s", run_id)
+    return None
 
 def main(cli_args: Optional[list[str]] = None) -> int:
     """Main execution flow. Returns an integer exit code."""
@@ -129,6 +162,7 @@ def main(cli_args: Optional[list[str]] = None) -> int:
         return EXIT_TOOL_ERROR
 
     df = pd.DataFrame()
+    run_started = time.perf_counter()
 
     # Load Data & Validate (Fixed broad exception)
     try:
@@ -136,7 +170,7 @@ def main(cli_args: Optional[list[str]] = None) -> int:
         current_watermark = None
         wm = None
         if args.incremental:
-            from src.watermark import WatermarkManager
+            from data_validator.watermark import WatermarkManager
             wm = WatermarkManager(args.watermark_file)
             current_watermark = wm.get_watermark()
 
@@ -206,13 +240,18 @@ def main(cli_args: Optional[list[str]] = None) -> int:
         logger.exception("Failed during report export or watermark saving: %s", e)
         return EXIT_TOOL_ERROR
 
+    # 4. Persist the run to Postgres
+    exit_code = _persist_run(report, input_path.name, time.perf_counter() - run_started)
+    if exit_code is not None:
+        return exit_code
+
     if hasattr(report, "rule_timings") and report.rule_timings:
         logger.info("--- RULE TIMINGS (Slowest First) ---")
         sorted_timings = sorted(report.rule_timings.items(), key=lambda x: x[1], reverse=True)
         for rule_name, rule_duration in sorted_timings:
             logger.info(f"  • {rule_name:30s} : {rule_duration:.6f}s")
 
-    # 4. CI/CD Exit Codes
+    # 5. CI/CD Exit Codes
     passed = getattr(report, 'passed', False)
     # Extract the version natively from the generated report
     config_ver = getattr(report, 'config_version', 'unknown')

@@ -15,7 +15,7 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.validator import DataValidator, resolve_env_path
+from data_validator.validator import DataValidator, resolve_env_path
 
 # --- Configuration Constants ---
 EXIT_SUCCESS = 0
@@ -147,7 +147,7 @@ def validate_folder(
 
     # --- Setup Watermark Directory if Incremental ---
     if incremental:
-        from src.watermark import WatermarkManager
+        from data_validator.watermark import WatermarkManager
         wm_dir = Path(watermark_dir)
         wm_dir.mkdir(parents=True, exist_ok=True)
 

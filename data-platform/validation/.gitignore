@@ -22,3 +22,5 @@ MagicMock/
 
 # drift
 .history/
+
+.env
