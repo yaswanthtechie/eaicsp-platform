@@ -4,7 +4,7 @@ import numpy as np
 import pydantic
 import torch
 
-from config import (
+from .config import (
     CONFIDENCE_LEVEL,
     HIDDEN_SIZE,
     HORIZON,
@@ -14,8 +14,8 @@ from config import (
     NUM_LAYERS,
     SCALER_PATH,
 )
-from data import load_scaler, validate_sequence
-from model import MultiStepLSTM
+from .data import load_scaler, validate_sequence
+from .model import MultiStepLSTM
 
 
 class ForecastResponse(pydantic.BaseModel):
