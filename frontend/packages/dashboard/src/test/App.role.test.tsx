@@ -1,10 +1,30 @@
-import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
+import { act, fireEvent, render, screen } from "@testing-library/react";import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../App";
+import type { WebSocketMessage } from "../types/forecast";
+import { snapshotStorageKey } from "../utils/kpiSnapshot";
 
 vi.mock("../api/dashboardGraphql", () => ({
   useDashboardData: vi.fn(),
+}));
+
+const ws = vi.hoisted(() => ({
+  onMessage: undefined as ((data: WebSocketMessage) => void) | undefined,
+}));
+
+vi.mock("../hooks/useWebSocket", () => ({
+  useWebSocket: ({
+    onMessage,
+  }: {
+    onMessage: (data: WebSocketMessage) => void;
+  }) => {
+    ws.onMessage = onMessage;
+
+    return {
+      connected: true,
+      isConnecting: false,
+      failed: false,
+    };
+  },
 }));
 
 import { useDashboardData } from "../api/dashboardGraphql";
@@ -41,7 +61,24 @@ vi.mock("../components/ForecastAccuracy", () => ({
 }));
 
 vi.mock("../components/InventoryHealth", () => ({
-  default: () => <div>Inventory Health</div>,
+  default: ({
+    inventory,
+    warehouse,
+  }: {
+    inventory: { quantity_on_hand: number }[];
+    warehouse: string;
+  }) => (
+    <div
+      data-testid="inventory-health"
+      data-warehouse={warehouse}
+      data-units={inventory.reduce(
+        (total, item) => total + item.quantity_on_hand,
+        0,
+      )}
+    >
+      Inventory Health
+    </div>
+  ),
 }));
 
 vi.mock("../components/ShipmentStatus", () => ({
@@ -208,7 +245,25 @@ describe("App role-based views", () => {
 describe("App KPIs and offline snapshot", () => {
     beforeEach(() => {
       localStorage.clear();
+      vi.restoreAllMocks();
     });
+
+    const oneItem = (quantity: number) =>
+  ({
+    ...mockDashboardData,
+    dashboard: {
+      ...mockDashboardData.dashboard,
+      inventory: [
+        {
+          ...inventoryItem,
+          sku_id: "A",
+          warehouse_id: "WH001",
+          quantity_on_hand: quantity,
+          needs_reorder: false,
+        },
+      ],
+    },
+  }) as unknown as ReturnType<typeof useDashboardData>["data"];
 
     it("computes KPIs from the inventory, scoped to the manager's warehouse", () => {
      window.history.replaceState(
@@ -273,7 +328,7 @@ describe("App KPIs and offline snapshot", () => {
     vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
 
     localStorage.setItem(
-      "executive-kpi-snapshot",
+      snapshotStorageKey("ceo"),
       JSON.stringify({
         kpis: [{ title: "SKUs", value: 4242 }],
         savedAt: "2026-10-01T10:42:00.000Z",
@@ -310,7 +365,7 @@ describe("App KPIs and offline snapshot", () => {
     });
 
     localStorage.setItem(
-      "executive-kpi-snapshot",
+      snapshotStorageKey("ceo"),
       saved,
     );
 
@@ -321,7 +376,159 @@ describe("App KPIs and offline snapshot", () => {
     render(<App />);
 
     expect(
-      localStorage.getItem("executive-kpi-snapshot"),
+      localStorage.getItem(snapshotStorageKey("ceo")),
     ).toBe(saved);
   });
+
+  it("keeps the dashboard mounted while refetching (Fix 1)", () => {
+  window.history.replaceState({}, "", "/?role=ceo");
+
+  mockQuery({
+    data: oneItem(10),
+    loading: true,
+  });
+
+  render(<App />);
+
+  expect(
+    screen.queryByText("Loading dashboard data..."),
+  ).not.toBeInTheDocument();
+
+  expect(
+    screen.getByText("Inventory Table"),
+  ).toBeInTheDocument();
+});
+
+it("lets the user retry when the first load fails (Fix 2)", () => {
+  window.history.replaceState({}, "", "/?role=ceo");
+
+  const refetch = vi.fn().mockResolvedValue({});
+
+  mockQuery({
+    error: new Error("Server error") as never,
+    refetch,
+  });
+
+  render(<App />);
+
+  expect(
+    screen.getByText("Failed to load dashboard data."),
+  ).toBeInTheDocument();
+
+  fireEvent.click(
+    screen.getByRole("button", { name: "Retry" }),
+  );
+
+  expect(refetch).toHaveBeenCalledTimes(1);
+});
+
+it("passes live WebSocket updates to Inventory Health (Fix 3)", () => {
+  window.history.replaceState({}, "", "/?role=ceo");
+
+  mockQuery({
+    data: oneItem(10),
+  });
+
+  render(<App />);
+
+  expect(
+    screen.getByTestId("inventory-health"),
+  ).toHaveAttribute("data-units", "10");
+
+  act(() => {
+    ws.onMessage?.({
+      type: "inventory_update",
+      item: {
+        ...inventoryItem,
+        sku_id: "A",
+        warehouse_id: "WH001",
+        quantity_on_hand: 3,
+        needs_reorder: true,
+      },
+    });
+  });
+
+  expect(
+    screen.getByTestId("inventory-health"),
+  ).toHaveAttribute("data-units", "3");
+});
+
+it("scopes Inventory Health to the manager's warehouse (Fix 3)", () => {
+  window.history.replaceState(
+    {},
+    "",
+    "/?role=warehouse_manager",
+  );
+
+  mockQuery({
+    data: oneItem(10),
+  });
+
+  render(<App />);
+
+  expect(
+    screen.getByTestId("inventory-health"),
+  ).toHaveAttribute("data-warehouse", "WH001");
+});
+
+it("never shows another role's snapshot (Fix 4)", () => {
+  window.history.replaceState(
+    {},
+    "",
+    "/?role=warehouse_manager",
+  );
+
+  vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+
+  localStorage.setItem(
+    snapshotStorageKey("ceo"),
+    JSON.stringify({
+      kpis: [{ title: "SKUs", value: 99999 }],
+      savedAt: "2026-10-01T10:42:00.000Z",
+    }),
+  );
+
+  mockQuery({
+    error: new Error("Failed to fetch") as never,
+  });
+
+  render(<App />);
+
+  expect(
+    screen.queryByRole("button", {
+      name: /SKUs\s*99999/,
+    }),
+  ).not.toBeInTheDocument();
+});
+
+it("keeps live KPIs when going offline mid-session (Fix 4)", () => {
+  window.history.replaceState({}, "", "/?role=ceo");
+
+  vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+
+  localStorage.setItem(
+    snapshotStorageKey("ceo"),
+    JSON.stringify({
+      kpis: [{ title: "SKUs", value: 4242 }],
+      savedAt: "2026-10-01T10:42:00.000Z",
+    }),
+  );
+
+  mockQuery({
+    data: oneItem(10),
+  });
+
+  render(<App />);
+
+  // Live data (1 SKU), not the stale snapshot (4242), plus the banner.
+  expect(
+    screen.getByRole("button", {
+      name: /^SKUs\s*1$/,
+    }),
+  ).toBeInTheDocument();
+
+  expect(
+    screen.getByText(/Offline — showing data from/),
+  ).toBeInTheDocument();
+});
 });

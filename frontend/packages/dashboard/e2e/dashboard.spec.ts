@@ -54,7 +54,7 @@ test("goes offline, reloads, and still shows the last snapshot", async ({ page, 
 
   // The app itself must have saved the snapshot — the test doesn't seed it.
   await expect
-    .poll(() => page.evaluate(() => localStorage.getItem("executive-kpi-snapshot")))
+    .poll(() => page.evaluate(() => localStorage.getItem("executive-kpi-snapshot:ceo")))
     .toContain(`"value":${all.skus}`);
 
   // Wait until the service worker controls the page, so the app shell
@@ -74,6 +74,9 @@ test("goes offline, reloads, and still shows the last snapshot", async ({ page, 
 
   // Connection returns: the dashboard refreshes on its own, no reload.
   await context.setOffline(false);
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event("online"));
+  })
   await expect(page.getByText(/Offline — showing data from/)).toBeHidden();
   await expect(page.locator("#inventory-section")).toBeVisible();
 });

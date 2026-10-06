@@ -53,6 +53,14 @@ const handleProfilerRender: ProfilerOnRenderCallback = (
   }
 };
 
+function roleFromUrl(): UserRole {
+  const urlRole = new URLSearchParams(window.location.search).get("role");
+
+  return urlRole === "ceo" || urlRole === "warehouse_manager"
+    ? urlRole
+    : mockUser.role;
+}
+
 function App() {
   const {
     data: dashboardData,
@@ -60,7 +68,7 @@ function App() {
     error: dashboardError,
     refetch,
   } = useDashboardData();
-  const [role, setRole] = useState<UserRole>(mockUser.role);
+  const [role, setRole] = useState<UserRole>(roleFromUrl);
   const [alerts, setAlerts] = useState<AlertMessage[]>([]);
   const [liveInventory, setLiveInventory] =
     useState<InventoryItem[]>(() => dashboardData?.dashboard.inventory ?? []);
@@ -91,13 +99,7 @@ function App() {
         window.location.search,
       );
 
-      const urlRole = params.get("role");
-
-      if (urlRole === "ceo" || urlRole === "warehouse_manager") {
-        setRole(urlRole);
-      } else {
-        setRole(mockUser.role);
-      }
+      setRole(roleFromUrl());
 
       setFilters({
         warehouse: params.get("warehouse") || "All",
@@ -296,18 +298,43 @@ function App() {
     ],
   );
 
+  const snapshotScope =
+    role === "warehouse_manager" ? `${role}:${effectiveWarehouse}` : role;
+
+// The saved snapshot is only needed when nothing is in memory
+// (opened while offline, or the first load failed).
   const offlineSnapshot = useMemo(
-    () => (!isOnline || dashboardError ? getKpiSnapshot() : null),
-    [isOnline, dashboardError]
+    () =>
+      !dashboardData && (!isOnline || dashboardError)
+        ? getKpiSnapshot(snapshotScope)
+        : null,
+    [dashboardData, isOnline, dashboardError, snapshotScope],
   );
 
-  const displayedKpis = offlineSnapshot?.kpis ?? kpis;
+// When we go offline WITH data in memory, keep showing live KPIs (so the
+// filters still work) and just tell the user when that data was loaded.
+  const offlineSince = useMemo(
+    () => (!isOnline ? getKpiSnapshot(snapshotScope)?.savedAt ?? null : null),
+    [isOnline, snapshotScope],
+  );
+
+// savedAt = when the data was LOADED, not when a filter last changed.
+  const loadedAt = useRef<{ data: unknown; at: string } | null>(null);
 
   useEffect(() => {
-    if (dashboardData && !dashboardError) {
-      saveKpiSnapshot(kpis);
+    if (!dashboardData || dashboardError) {
+      return;
     }
-  }, [dashboardData, dashboardError, kpis]);
+
+    if (loadedAt.current?.data !== dashboardData) {
+      loadedAt.current = {
+        data: dashboardData,
+        at: new Date().toISOString(),
+      };
+    }
+
+    saveKpiSnapshot(snapshotScope, kpis, loadedAt.current.at);
+  }, [dashboardData, dashboardError, snapshotScope, kpis]);
 
   const handleKpiClick = (title: string) => {
     const params = new URLSearchParams(
@@ -424,7 +451,7 @@ function App() {
     );
   }
 
-  if (dashboardLoading) {
+  if (dashboardLoading && !dashboardData) {
     return (
       <div
         style={{
@@ -442,28 +469,46 @@ function App() {
   if (dashboardError) {
     return (
       <div
+        role="alert"
         style={{
-        background: colors.bg,
-        minHeight: "100vh",
-        padding: space.lg,
-        color: colors.text,
-      }}
+          background: colors.bg,
+          minHeight: "100vh",
+          padding: space.lg,
+          color: colors.text,
+        }}
       >
-        Failed to load dashboard data.
+        <p style={{ margin:0, marginBottom: space.md }}>
+          Failed to load dashboard data.
+        </p>
+
+        <button
+          type="button"
+          onClick={() => void refreshDashboardData()}
+          style={{
+            background: colors.primary,
+            color: colors.text,
+            border: "none",
+            borderRadius: radius.sm,
+            padding: `${space.sm}px ${space.md}px`,
+            cursor: "pointer",
+          }}
+        >
+          Retry
+        </button>
       </div>
     );
-  }
-
-  return (
-    <div
-      style={{
-        background: colors.bg,
-        minHeight: "100vh",
-        padding: space.lg,
-        boxSizing: "border-box",
-      }}
-    >
-      { header }
+}
+      
+    return (
+      <div
+        style={{
+          background: colors.bg,
+          minHeight: "100vh",
+          padding: space.lg,
+          boxSizing: "border-box",
+        }}
+      >
+        { header }
 
       <DashboardFilters
         filters={filters}
@@ -516,15 +561,14 @@ function App() {
           kpis={kpis}
         />
       </div>
-      {offlineSnapshot && (
+      {offlineSince && (
         <OfflineBanner
-          savedAt={offlineSnapshot.savedAt}
+          savedAt={offlineSince}
           isOnline={isOnline}
-          hasServerError={Boolean(dashboardError)}
         />
       )}
       <KpiGrid
-        kpis={displayedKpis}
+        kpis={kpis}
         selectedKpi={selectedKpi}
         lowStockOnly={lowStockOnly}
         onSelect={handleKpiClick}
@@ -636,8 +680,8 @@ function App() {
 
         <ErrorBoundary>
           <InventoryHealth
-            inventory={dashboardData?.dashboard.inventory ?? []}
-            warehouse={filters.warehouse}
+            inventory={liveInventory}
+            warehouse={effectiveWarehouse}
             category={filters.category}
           />
         </ErrorBoundary>

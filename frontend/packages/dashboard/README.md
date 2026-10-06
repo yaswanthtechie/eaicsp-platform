@@ -385,7 +385,7 @@ PDF export creates a downloadable.The exported PDF contains role-appropriate das
 
 ### Accessibility
 
-**Status: accessibility fixes applied and verified with Lighthouse.
+**Status: keyboard and screen-reader fixes applied and verified with NVDA and Lighthouse (90/100)..
 
 What was fixed and tested:
 
@@ -932,9 +932,9 @@ npm run test:e2e
 
 Test verification completed successfully.
 
-* Vitest: 17 test files, 130/130 tests passed
+* Vitest: 17 test files, 136/136 tests passed
 * Playwright E2E: 3/3 tests passed
-* Total: 133 tests passed
+* Total: 139 tests passed
 * Offline PWA snapshot test is also passing now.
 
 

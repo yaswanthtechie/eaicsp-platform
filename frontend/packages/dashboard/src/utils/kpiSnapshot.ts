@@ -6,24 +6,29 @@ export interface KpiSnapshot {
   savedAt: string;
 }
 
-const STORAGE_KEY = "executive-kpi-snapshot";
+const STORAGE_PREFIX = "executive-kpi-snapshot";
 
-export function saveKpiSnapshot(
-  kpis: KpiSnapshot["kpis"],
-): void {
-  const snapshot: KpiSnapshot = {
-    kpis,
-    savedAt: new Date().toISOString(),
-  };
-
-  localStorage.setItem(
-    STORAGE_KEY,
-    JSON.stringify(snapshot),
-  );
+// One snapshot per role (and warehouse, for warehouse managers), so one
+// user's numbers are never shown to another user on the same device.
+export function snapshotStorageKey(scope: string): string {
+  return `${STORAGE_PREFIX}:${scope}`;
 }
 
-export function getKpiSnapshot(): KpiSnapshot | null {
-  const stored = localStorage.getItem(STORAGE_KEY);
+export function saveKpiSnapshot(
+  scope: string,
+  kpis: KpiSnapshot["kpis"],
+  savedAt: string,
+): void {
+  const snapshot: KpiSnapshot = { kpis, savedAt };
+
+  localStorage.setItem(snapshotStorageKey(scope), JSON.stringify(snapshot));
+
+  // Remove the old shared key from earlier builds so it can't leak.
+  localStorage.removeItem(STORAGE_PREFIX);
+}
+
+export function getKpiSnapshot(scope: string): KpiSnapshot | null {
+  const stored = localStorage.getItem(snapshotStorageKey(scope));
 
   if (!stored) {
     return null;

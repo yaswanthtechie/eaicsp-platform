@@ -1,4 +1,4 @@
-import {Card, CardContent} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -100,10 +100,12 @@ function DashboardFilters({
         }}
       >
         <SelectTrigger
-          className="w-[180px]"
+          className="w-[180px] cursor-pointer"
           aria-label="Warehouse filter"
         >
-          <SelectValue placeholder="All Warehouses" />
+          <SelectValue>
+            {(value: string) => (value === "All" ? "All Warehouses" : value)}
+          </SelectValue>
         </SelectTrigger>
 
         <SelectContent>
@@ -135,10 +137,12 @@ function DashboardFilters({
         }}
       >
         <SelectTrigger
-          className="w-[180px]"
+          className="w-[180px] cursor-pointer"
           aria-label="Category filter"
         >
-          <SelectValue placeholder="All Categories" />
+          <SelectValue>
+            {(value: string) => (value === "All" ? "All Categories" : value)}
+          </SelectValue>
         </SelectTrigger>
 
         <SelectContent>

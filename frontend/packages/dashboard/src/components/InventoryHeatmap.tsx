@@ -76,7 +76,7 @@ function InventoryItemRow({
         fontSize: 11,
         color:
           hovered === item.sku_id
-            ? colors.bg
+            ? colors.text
             : colors.textMuted,
         background:
           hovered === item.sku_id
@@ -546,9 +546,9 @@ function InventoryHeatmap({
                             style={{
                               marginTop: space.sm,
                               padding: space.sm,
-                              background: "white",
+                              background: colors.surface,
                               border: `1px solid ${colors.border}`,
-                              color:colors.success,
+                              color: colors.text,
                               borderRadius: radius.sm,
                               fontSize: space.md,
                               lineHeight: 1.5,

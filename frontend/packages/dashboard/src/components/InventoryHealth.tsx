@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import type { InventoryItem } from "../types/forecast";
 import { colors, radius, space } from "../tokens";
@@ -116,39 +117,16 @@ function InventoryHealth({
   ];
 
   return (
-    <div
-      style={{
-        background: colors.surface,
-        border: `1px solid ${colors.border}`,
-        borderRadius: radius.lg,
-        padding: space.lg,
-        boxSizing: "border-box",
-        width: "100%",
-      }}
-    >
-      <div style={{ marginBottom: space.md }}>
-        <h2
-          style={{
-            margin: 0,
-            color: colors.text,
-            fontSize: "20px",
-            fontWeight: 600,
-          }}
-        >
-          Inventory Health
-        </h2>
-
-        <p
-          style={{
-            margin: `${space.xs}px 0 0`,
-            color: colors.textMuted,
-            fontSize: "14px",
-          }}
-        >
+    <Card className="w-full">
+      <CardHeader>
+        <CardTitle>Inventory Health</CardTitle>
+          
+        <p className="text-sm text-muted-foreground">
           Click a health metric to view affected inventory
         </p>
-      </div>
+      </CardHeader>
 
+      <CardContent>
       <div
         style={{
           display: "grid",
@@ -163,8 +141,8 @@ function InventoryHealth({
             <Button
               key={kpi.filter}
               type="button"
-              variant="outline"
-              size="lg" 
+              variant="destructive"
+              size="lg"
               onClick={() => handleFilterClick(kpi.filter)}
             >
               <div
@@ -210,7 +188,7 @@ function InventoryHealth({
             <h3
               style={{
                 margin: 0,
-                color: colors.text,
+                color: colors.textMuted,
                 fontSize: "15px",
                 fontWeight: 600,
               }}
@@ -222,8 +200,8 @@ function InventoryHealth({
 
             <Button
               type="button"
-              variant="outline"
-              size="sm" 
+              variant="secondary"
+              size="sm"
               onClick={() => setActiveFilter(null)}
             >
               Clear
@@ -266,7 +244,7 @@ function InventoryHealth({
                   <div>
                     <div
                       style={{
-                        color: colors.text,
+                        color: colors.textMuted,
                         fontSize: "13px",
                         fontWeight: 600,
                       }}
@@ -296,7 +274,7 @@ function InventoryHealth({
 
                     <div
                       style={{
-                        color: colors.text,
+                        color: colors.textMuted,
                         fontSize: "13px",
                         fontWeight: 600,
                       }}
@@ -317,7 +295,7 @@ function InventoryHealth({
 
                     <div
                       style={{
-                        color: colors.text,
+                        color: colors.textMuted,
                         fontSize: "13px",
                         fontWeight: 600,
                       }}
@@ -351,7 +329,8 @@ function InventoryHealth({
           )}
         </div>
       )}
-    </div>
+    </CardContent>
+  </Card>
   );
 }
 

@@ -81,7 +81,7 @@ describe("DashboardFilters", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows default values", () => {
+  it("shows readable labels on the triggers by default", () => {
     render(
       <DashboardFilters
         filters={defaultFilters}
@@ -94,13 +94,13 @@ describe("DashboardFilters", () => {
       screen.getByRole("combobox", {
         name: "Warehouse filter",
       }),
-    ).toHaveTextContent("All");
+    ).toHaveTextContent("All Warehouses");
 
     expect(
       screen.getByRole("combobox", {
         name: "Category filter",
       }),
-    ).toHaveTextContent("All");
+    ).toHaveTextContent("All Categories");
   });
 
   it("loads warehouse and category options", async () => {
@@ -299,7 +299,7 @@ describe("DashboardFilters", () => {
     );
 
     await user.click(
-      screen.getByRole("option", {
+      await screen.findByRole("option", {
         name: "WH001",
       }),
     );

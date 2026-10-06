@@ -20,5 +20,5 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.ts", "mock-server"]
+  "include": ["vite.config.ts", "src/mock-server"]
 }

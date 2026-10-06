@@ -19,8 +19,9 @@ export default function AlertsPanel({
   failed,
   onRemove,
 }: AlertsPanelProps) {
+  const MAX_VISIBLE_ALERTS = 2;
   const [fadingAlerts, setFadingAlerts] = useState<string[]>([]);
-  const visibleAlerts = alerts.slice(0, 2);
+  const visibleAlerts = alerts.slice(0, MAX_VISIBLE_ALERTS);
 
   const timers = useRef<
     Record<string, ReturnType<typeof setTimeout>>
@@ -31,7 +32,7 @@ export default function AlertsPanel({
   >({});
 
   useEffect(() => {
-    alerts.forEach((alert) => {
+    alerts.slice(0,MAX_VISIBLE_ALERTS).forEach((alert) => {
       if (timers.current[alert.id]) {
         return;
       }
@@ -237,8 +238,8 @@ export default function AlertsPanel({
             variant={isConnecting ? "secondary" : "outline"}
             className={
               connected
-                  ? "border-transparent bg-emerald-500/15 text-emerald-400"
-                  : "border-transparent bg-red-500/15 text-red-400"
+                  ? "border-transparent bg-emerald-500/15 text-emerald-800"
+                  : "border-transparent bg-red-500/15 text-red-800"
             }
           >
             {isConnecting

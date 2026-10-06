@@ -8,6 +8,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { Card, CardContent, CardHeader, CardTitle} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { colors, radius, space } from "../tokens";
 import Skeleton from "./Skeleton";
@@ -52,9 +53,9 @@ function SupplierRiskDistribution({
   if (loading) {
     return (
       <div
-      role="status"
-      aria-busy="true"
-      aria-label="Loading supplier risk distribution"
+        role="status"
+        aria-busy="true"
+        aria-label="Loading supplier risk distribution"
         style={{
           background: colors.surface,
           borderRadius: radius.md,
@@ -113,36 +114,16 @@ function SupplierRiskDistribution({
   }
 
   return (
-    <div
-      style={{
-        background: colors.surface,
-        border: `1px solid ${colors.border}`,
-        borderRadius: radius.md,
-        padding: space.lg,
-      }}
-    >
-      <div style={{ marginBottom: space.md }}>
-        <h3
-          style={{
-            margin: 0,
-            color: colors.text,
-            fontSize: "18px",
-          }}
-        >
-          Supplier Risk Distribution
-        </h3>
+    <Card className="w-full">
+      <CardHeader>
+        <CardTitle>Supplier Risk Distribution</CardTitle>
 
-        <p
-          style={{
-            margin: `${space.xs}px 0 0`,
-            color: colors.textMuted,
-            fontSize: "14px",
-          }}
-        >
+        <p className="text-sm text-muted-foreground">
           Suppliers grouped by risk score
         </p>
-      </div>
+      </CardHeader>
 
+      <CardContent>
       <div
         role="img"
         aria-label="Supplier risk distribution chart showing suppliers grouped into low,medium and high risk" 
@@ -166,7 +147,8 @@ function SupplierRiskDistribution({
           </BarChart>
         </ResponsiveContainer>
       </div>
-    </div>
+    </CardContent>
+  </Card>
   );
 }
 
