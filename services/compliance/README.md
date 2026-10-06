@@ -1141,13 +1141,15 @@ Service keys themselves are not logged.
 
 # 34. Internal Contract Status
 
-| Milestone                   | Status                               | Notes                                                                                                                                                                              |
-| --------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| M1 Internal contract        | Done once Balaji and Rashida confirm | `POST /internal-check`, service-key authentication, accepts `supplier_name`                                                                                                        |
-| M2 Caching + caller logging | Done                                 | 5-minute TTL, per-supplier lock, cleared on override/case change, verified `X-Caller-Service`                                                                                      |
-| M3 Ambiguous result         | Done                                 | `CLEAR` / `BLOCK` / `REVIEW`; `REVIEW` requires human compliance review                                                                                                            |
-| M4 SLA monitoring           | Partial                              | `/sla` health judged on the last `SLA_WINDOW_SECONDS` (error rate + latency); alerts rate-limited; covers `/internal-check` only                                                   |
-| M5 Multi-jurisdiction rules | Started                              | INDIA and USA only (aliases like `US`, `IN`, `United States` accepted). Any other country returns `REVIEW` with no rules. KYC/document/reporting flags are supplied by the caller. |
+# 34. Internal Contract Status
+
+| Milestone | Status | Notes |
+|---|---|---|
+| M1 Internal contract | Done once Balaji and Rashida confirm | `POST /internal-check`, service-key authentication, accepts `supplier_name` |
+| M2 Caching + caller logging | Done | 5-minute TTL, per-supplier lock, cleared on override/case change, verified `X-Caller-Service` |
+| M3 Ambiguous result | Done | `CLEAR` / `BLOCK` / `REVIEW`. On `/internal-check`, a match scoring `INTERNAL_REVIEW_MATCH_SCORE` (80) up to below `INTERNAL_BLOCK_MATCH_SCORE` (90) is `REVIEW` (hold for human review); 90+ is `BLOCK`. The service refuses to start if the review score is not below the block score. |
+| M4 SLA monitoring | Partial | `/sla` health judged on the last `SLA_WINDOW_SECONDS` (error rate + latency); alerts rate-limited; covers `/internal-check` only |
+| M5 Multi-jurisdiction rules | Started | INDIA and USA only (aliases like `US`, `IN`, `United States` accepted). Any other country returns `REVIEW` with no rules. KYC/document/reporting flags are supplied by the caller. |
 
 ---
 

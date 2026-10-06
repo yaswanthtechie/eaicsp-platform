@@ -242,6 +242,32 @@ INTERNAL_BLOCK_MATCH_SCORE = float(
     )
 )
 
+INTERNAL_REVIEW_MATCH_SCORE = int(
+    os.getenv(
+        "INTERNAL_REVIEW_MATCH_SCORE",
+        "80",
+    )
+)
+
+
+def validate_internal_thresholds(
+    review_score: float,
+    block_score: float,
+) -> None:
+    """Fail at startup if the REVIEW band would be empty."""
+    if review_score >= block_score:
+        raise RuntimeError(
+            "INTERNAL_REVIEW_MATCH_SCORE "
+            f"({review_score}) must be lower than "
+            f"INTERNAL_BLOCK_MATCH_SCORE ({block_score}); "
+            "otherwise /internal-check can never return REVIEW."
+        )
+
+
+validate_internal_thresholds(
+    INTERNAL_REVIEW_MATCH_SCORE,
+    INTERNAL_BLOCK_MATCH_SCORE,
+)
 
 INTERNAL_SERVICE_KEYS = {
     name.strip(): key.strip()

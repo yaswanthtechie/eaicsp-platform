@@ -11,6 +11,7 @@ from app.services.sla_service import record_request, start_timer
 from app.services.sla_alert_service import send_sla_alert
 from app.core.config import (
     INTERNAL_BLOCK_MATCH_SCORE,
+    INTERNAL_REVIEW_MATCH_SCORE,
     SLA_ALERT_COOLDOWN_SECONDS,
     SLA_LATENCY_THRESHOLD_MS,
 )
@@ -482,6 +483,7 @@ def perform_internal_compliance_check(
                 name=company_name,
                 country=country,
                 db=db,
+                match_threshold=INTERNAL_REVIEW_MATCH_SCORE,
             )
 
 

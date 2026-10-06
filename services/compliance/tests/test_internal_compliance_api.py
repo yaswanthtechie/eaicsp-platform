@@ -591,3 +591,75 @@ def test_sla_alerts_are_rate_limited(
 
     assert first is True
     assert second is False
+
+def test_near_match_returns_review_without_mocking(client):
+    # "HAMAZ" fuzzy-matches the OFAC fixture "HAMAS" at score 80:
+    # inside the REVIEW band (80 <= score < 90).
+    response = client.post(
+        URL,
+        headers=INVENTORY_HEADERS,
+        json={
+            "supplier_id": "SUP-NEAR-001",
+            "supplier_name": "HAMAZ",
+            "country": "India",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["decision"] == "REVIEW"
+    assert body["cleared"] is False
+
+
+def test_exact_match_returns_block_without_mocking(client):
+    response = client.post(
+        URL,
+        headers=INVENTORY_HEADERS,
+        json={
+            "supplier_id": "SUP-EXACT-001",
+            "supplier_name": "HAMAS",
+            "country": "India",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["decision"] == "BLOCK"
+    assert body["cleared"] is False
+
+
+def test_review_floor_must_be_below_block_score():
+    from app.core.config import validate_internal_thresholds
+
+    validate_internal_thresholds(80, 90)  # valid: does not raise
+
+    with pytest.raises(RuntimeError):
+        validate_internal_thresholds(90, 90)
+
+    with pytest.raises(RuntimeError):
+        validate_internal_thresholds(95, 90)
+
+def test_sanctions_reload_clears_internal_cache(client):
+    from app.services import sanctions_service
+
+    with patch(
+        "app.services.internal_compliance_service.screen_entity",
+        return_value={
+            "is_flagged": False,
+            "override_applied": False,
+            "match_score": 0,
+            "matched_lists": [],
+        },
+    ):
+        response = client.post(
+            URL,
+            headers=INVENTORY_HEADERS,
+            json=CALLER_BODY,
+        )
+
+    assert response.status_code == 200
+    assert ics._INTERNAL_CHECK_CACHE  # an answer is cached
+
+    sanctions_service.load_all_sanctions()
+
+    assert ics._INTERNAL_CHECK_CACHE == {}
