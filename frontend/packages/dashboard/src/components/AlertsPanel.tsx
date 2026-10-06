@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { colors, radius, space } from "../tokens";
 import type { AlertMessage } from "../types/forecast";
 import Skeleton from "./Skeleton";
+
+const MAX_VISIBLE_ALERTS = 2;
 interface AlertsPanelProps {
   alerts: AlertMessage[];
   connected: boolean;
@@ -19,7 +21,6 @@ export default function AlertsPanel({
   failed,
   onRemove,
 }: AlertsPanelProps) {
-  const MAX_VISIBLE_ALERTS = 2;
   const [fadingAlerts, setFadingAlerts] = useState<string[]>([]);
   const visibleAlerts = alerts.slice(0, MAX_VISIBLE_ALERTS);
 
@@ -234,13 +235,15 @@ export default function AlertsPanel({
           }}
         >
           <CardTitle>Live Alerts</CardTitle>
-          <Badge 
+          <Badge
             variant={isConnecting ? "secondary" : "outline"}
-            className={
-              connected
-                  ? "border-transparent bg-emerald-500/15 text-emerald-800"
-                  : "border-transparent bg-red-500/15 text-red-800"
-            }
+            className="border-transparent"
+            style={{
+              background: connected
+                ? colors.successAlpha12
+                : colors.dangerAlpha12,
+              color: connected ? colors.success : colors.danger,      
+            }}
           >
             {isConnecting
               ? "Connecting…"

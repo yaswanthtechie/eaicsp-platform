@@ -71,12 +71,70 @@ test("goes offline, reloads, and still shows the last snapshot", async ({ page, 
   await expect(page.getByText(/Offline — showing data from/)).toBeVisible();
   await expect(kpi(page, "SKUs", all.skus)).toBeVisible();
   await expect(kpi(page, "Total Units", all.units)).toBeVisible();
+});
 
-  // Connection returns: the dashboard refreshes on its own, no reload.
-  await context.setOffline(false);
-  await page.evaluate(() => {
-    window.dispatchEvent(new Event("online"));
-  })
-  await expect(page.getByText(/Offline — showing data from/)).toBeHidden();
+  test("keeps the dashboard when a refresh fails after reconnecting", async ({
+  page,
+  context,
+}) => {
+  await page.goto("/");
+
+  // Initial dashboard data is loaded.
+  await expect(kpi(page, "SKUs", all.skus)).toBeVisible();
   await expect(page.locator("#inventory-section")).toBeVisible();
+
+  // Make GraphQL fail for the reconnect refresh.
+  await page.route("**/graphql", (route) =>
+    route.fulfill({
+      status: 500,
+      body: "Server error",
+    }),
+  );
+
+  // Simulate going offline.
+  await context.setOffline(true);
+
+  await expect
+    .poll(() => page.evaluate(() => navigator.onLine))
+    .toBe(false);
+
+  // Playwright does not reliably restore navigator.onLine in this setup,
+  // so restore the browser state and notify the application of reconnect.
+  await context.setOffline(false);
+
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "onLine", {
+      configurable: true,
+      value: true,
+    });
+
+    window.dispatchEvent(new Event("online"));
+  });
+
+  // Reconnect triggers a failed GraphQL refresh.
+  // Previous dashboard data must remain visible.
+  await expect(
+    page.getByText(/Couldn't reach the server — showing data from/),
+  ).toBeVisible({
+    timeout: 15000,
+  });
+
+  await expect(
+    page.getByText("Failed to load dashboard data."),
+  ).toBeHidden();
+
+  await expect(page.locator("#inventory-section")).toBeVisible();
+  await expect(kpi(page, "SKUs", all.skus)).toBeVisible();
+
+  // Server is back: remove the failing route and retry.
+  await page.unroute("**/graphql");
+
+  await page.getByRole("button", { name: "Retry" }).click();
+
+  await expect(
+    page.getByText(/Couldn't reach the server/),
+  ).toBeHidden();
+
+  await expect(page.locator("#inventory-section")).toBeVisible();
+  await expect(kpi(page, "SKUs", all.skus)).toBeVisible();
 });

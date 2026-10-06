@@ -263,7 +263,8 @@ function InventoryTable({
           placeholder="Search SKU"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-[180px] border border-slate-700"
+          className="w-[180px]"
+          style={{ borderColor: colors.border }}
         />
         <label
           htmlFor="low-stock"

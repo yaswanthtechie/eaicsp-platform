@@ -385,7 +385,7 @@ PDF export creates a downloadable.The exported PDF contains role-appropriate das
 
 ### Accessibility
 
-**Status: keyboard and screen-reader fixes applied and verified with NVDA and Lighthouse (90/100)..
+**Status:** keyboard and screen-reader fixes applied. Lighthouse recheck and NVDA walkthrough pending (last Lighthouse accessibility score: 90/100, from before the fixes).
 
 What was fixed and tested:
 
@@ -395,16 +395,19 @@ What was fixed and tested:
 * All **filter and export controls** have accessible names (`aria-label`).
 * **KPI cards** are real `<button>` elements, so they already work with the keyboard.
 
-Accessibility audit completed using Lighthouse. Initial score: 90/100. Identified ARIA structure, contrast, and landmark issues; fixes are being applied and will be rechecked.
+The last Lighthouse accessibility score was 90/100, recorded before the latest accessibility fixes.
+
+The accessibility fixes have now been applied. A new Lighthouse audit and manual NVDA / VoiceOver walkthrough are still pending.
 
 Remaining accessibility follow-up includes:
 
-Reviewing the remaining ARIA structure issues in the virtualized Inventory Table and Heatmap.
-Reviewing the missing <main> landmark.
-Performing a manual NVDA / VoiceOver screen-reader walkthrough.
-Reviewing status-color contrast against the dashboard design tokens.
+* Running a new Lighthouse accessibility audit after the fixes.
 
-These remaining items are documented as follow-up work rather than being marked as complete.
+* Performing a manual NVDA / VoiceOver screen-reader walkthrough.
+
+* Confirming the remaining ARIA structure, landmark, and status-color contrast issues are resolved.
+
+These items are documented as pending verification rather than being marked as complete.
 
 ### Performance at Real Scale
 
@@ -911,6 +914,7 @@ The dashboard uses Vitest + React Testing Library for component and unit tests, 
 1. Open the dashboard and verify that KPIs are displayed.
 2. Filter the dashboard by warehouse and drill into the Low Stock KPI.
 3. Go offline and verify that the last saved KPI snapshot is displayed.
+4. Simulate a failed GraphQL refresh after reconnecting and verify that the existing dashboard data remains visible.
 
 ### Run all tests
 
@@ -932,9 +936,9 @@ npm run test:e2e
 
 Test verification completed successfully.
 
-* Vitest: 17 test files, 136/136 tests passed
-* Playwright E2E: 3/3 tests passed
-* Total: 139 tests passed
+* Vitest: 19 test files, 145/145 tests passed
+* Playwright E2E: 4/4 tests passed
+* Total: 149 tests passed
 * Offline PWA snapshot test is also passing now.
 
 

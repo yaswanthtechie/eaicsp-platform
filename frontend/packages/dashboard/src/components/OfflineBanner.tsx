@@ -4,9 +4,10 @@ interface OfflineBannerProps {
   savedAt: string;
   isOnline: boolean;
   hasServerError?: boolean;
+  onRetry?: () => void;
 }
 
-function OfflineBanner({ savedAt, isOnline, hasServerError = false }: OfflineBannerProps) {
+function OfflineBanner({ savedAt, isOnline, hasServerError = false,onRetry }: OfflineBannerProps) {
   if (isOnline && !hasServerError) {
     return null;
   }
@@ -28,11 +29,34 @@ function OfflineBanner({ savedAt, isOnline, hasServerError = false }: OfflineBan
         marginBottom: space.lg,
         color: colors.text,
         fontSize: 14,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: space.sm,
       }}
     >
-      {isOnline
-        ? `Couldn't reach the server — showing data from ${time}`
-        : `Offline — showing data from ${time}`}
+      <span>
+        {isOnline
+          ? `Couldn't reach the server — showing data from ${time}`
+          : `Offline — showing data from ${time}`}
+      </span>
+
+      {isOnline && hasServerError && onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          style={{
+            background: colors.primary,
+            color: colors.text,
+            border: "none",
+            borderRadius: radius.sm,
+            padding: `${space.xs}px ${space.sm}px`,
+            cursor: "pointer",
+          }}
+        >
+          Retry
+        </button>
+      )}
     </div>
   );
 }

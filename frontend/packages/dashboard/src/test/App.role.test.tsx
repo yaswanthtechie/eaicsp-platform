@@ -531,4 +531,98 @@ it("keeps live KPIs when going offline mid-session (Fix 4)", () => {
     screen.getByText(/Offline — showing data from/),
   ).toBeInTheDocument();
 });
+
+it("keeps the dashboard and offers Retry when a refresh fails (Issue A)", () => {
+  window.history.replaceState({}, "", "/?role=ceo");
+
+  localStorage.setItem(
+    snapshotStorageKey("ceo"),
+    JSON.stringify({
+      kpis: [{ title: "SKUs", value: 1 }],
+      savedAt: "2026-10-01T10:42:00.000Z",
+    }),
+  );
+
+  const refetch = vi.fn().mockResolvedValue({});
+
+  mockQuery({
+    data: oneItem(10),
+    error: new Error("Server error") as never,
+    refetch,
+  });
+
+  render(<App />);
+
+  expect(
+    screen.queryByText("Failed to load dashboard data."),
+  ).not.toBeInTheDocument();
+
+  expect(screen.getByText("Inventory Table")).toBeInTheDocument();
+
+  expect(
+    screen.getByText(
+      /Couldn't reach the server — showing data from/,
+    ),
+  ).toBeInTheDocument();
+
+  fireEvent.click(
+    screen.getByRole("button", { name: "Retry" }),
+  );
+
+  expect(refetch).toHaveBeenCalledTimes(1);
+});
+
+it("saves unfiltered totals in the snapshot, not the CEO's filtered view (Issue D)", () => {
+  window.history.replaceState(
+    {},
+    "",
+    "/?role=ceo&warehouse=WH001",
+  );
+
+  mockQuery({
+    data: {
+      ...mockDashboardData,
+      dashboard: {
+        ...mockDashboardData.dashboard,
+        inventory: [
+          {
+            ...inventoryItem,
+            sku_id: "A",
+            warehouse_id: "WH001",
+            quantity_on_hand: 10,
+            needs_reorder: false,
+          },
+          {
+            ...inventoryItem,
+            sku_id: "B",
+            warehouse_id: "WH002",
+            quantity_on_hand: 5,
+            needs_reorder: true,
+          },
+        ],
+      },
+    } as unknown as ReturnType<typeof useDashboardData>["data"],
+  });
+
+  render(<App />);
+
+  // On screen: filtered to WH001 (1 SKU).
+  expect(
+    screen.getByRole("button", {
+      name: /^SKUs\s*1$/,
+    }),
+  ).toBeInTheDocument();
+
+  // In the snapshot: company totals (2 SKUs, 15 units).
+  const saved = JSON.parse(
+    localStorage.getItem(snapshotStorageKey("ceo")) ?? "{}",
+  );
+
+  expect(saved.kpis).toEqual(
+    expect.arrayContaining([
+      { title: "SKUs", value: 2 },
+      { title: "Total Units", value: 15 },
+    ]),
+  );
+});
 });

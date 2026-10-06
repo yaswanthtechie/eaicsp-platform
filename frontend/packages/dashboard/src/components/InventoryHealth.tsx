@@ -141,7 +141,7 @@ function InventoryHealth({
             <Button
               key={kpi.filter}
               type="button"
-              variant="destructive"
+              variant="outline"
               size="lg"
               onClick={() => handleFilterClick(kpi.filter)}
             >
@@ -200,7 +200,7 @@ function InventoryHealth({
 
             <Button
               type="button"
-              variant="secondary"
+              variant="outline"
               size="sm"
               onClick={() => setActiveFilter(null)}
             >
@@ -211,7 +211,7 @@ function InventoryHealth({
           {filteredItems.length === 0 ? (
             <p
               style={{
-                color: colors.textMuted,
+                color: colors.text,
                 fontSize: "13px",
               }}
             >

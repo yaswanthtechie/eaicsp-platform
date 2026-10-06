@@ -61,6 +61,35 @@ function roleFromUrl(): UserRole {
     : mockUser.role;
 }
 
+function buildKpis(
+  role: UserRole,
+  inventory: InventoryItem[],
+  alertCount: number,
+) {
+  const skus = inventory.length;
+  const units = inventory.reduce(
+    (total, item) => total + item.quantity_on_hand,
+    0,
+  );
+  const lowStock = inventory.filter(
+    (item) => item.needs_reorder,
+  ).length;
+
+  return role === "warehouse_manager"
+    ? [
+        { title: "Warehouse SKUs", value: skus },
+        { title: "Warehouse Units", value: units },
+        { title: "Reorder Items", value: lowStock },
+        { title: "Warehouse Alerts", value: alertCount },
+      ]
+    : [
+        { title: "SKUs", value: skus },
+        { title: "Total Units", value: units },
+        { title: "Low Stock", value: lowStock },
+        { title: "Alerts", value: alertCount },
+      ];
+}
+
 function App() {
   const {
     data: dashboardData,
@@ -233,69 +262,27 @@ function App() {
     );
   }, [baseFilteredInventory, lowStockOnly]);
 
-  const totalSkus = baseFilteredInventory.length;
+    const alertCount = alerts.length;
 
-  const totalUnits = useMemo(
+  // KPIs on screen follow the CEO's filters.
+  const kpis = useMemo(
+    () => buildKpis(role, baseFilteredInventory, alertCount),
+    [role, baseFilteredInventory, alertCount],
+  );
+
+  // The offline snapshot must hold the role's UNFILTERED totals. Otherwise a
+  // CEO who filtered to WH001 would later see WH001 numbers as company totals.
+  const roleInventory = useMemo(
     () =>
-      baseFilteredInventory.reduce(
-        (total, item) => total + item.quantity_on_hand,
-        0,
-      ),
-    [baseFilteredInventory],
+      role === "warehouse_manager"
+        ? liveInventory.filter((item) => item.warehouse_id === effectiveWarehouse)
+        : liveInventory,
+    [role, liveInventory, effectiveWarehouse],
   );
 
-  const lowStockCount = useMemo(
-    () => baseFilteredInventory.filter((item) => item.needs_reorder).length,
-    [baseFilteredInventory],
-  );
-
-  const alertCount = alerts.length;
-
-  const kpis = useMemo( () =>
-    role === "warehouse_manager"
-      ? [
-          {
-            title: "Warehouse SKUs",
-            value: totalSkus,
-          },
-          {
-            title: "Warehouse Units",
-            value: totalUnits,
-          },
-          {
-            title: "Reorder Items",
-            value: lowStockCount,
-          },
-          {
-            title: "Warehouse Alerts",
-            value: alertCount,
-          },
-        ]
-      : [
-          {
-            title: "SKUs",
-            value: totalSkus,
-          },
-          {
-            title: "Total Units",
-            value: totalUnits,
-          },
-          {
-            title: "Low Stock",
-            value: lowStockCount,
-          },
-          {
-            title: "Alerts",
-            value: alertCount,
-          },
-        ],
-    [
-      role,
-      totalSkus,
-      totalUnits,
-      lowStockCount,
-      alertCount
-    ],
+  const snapshotKpis = useMemo(
+    () => buildKpis(role, roleInventory, alertCount),
+    [role, roleInventory, alertCount],
   );
 
   const snapshotScope =
@@ -311,12 +298,16 @@ function App() {
     [dashboardData, isOnline, dashboardError, snapshotScope],
   );
 
-// When we go offline WITH data in memory, keep showing live KPIs (so the
-// filters still work) and just tell the user when that data was loaded.
-  const offlineSince = useMemo(
-    () => (!isOnline ? getKpiSnapshot(snapshotScope)?.savedAt ?? null : null),
-    [isOnline, snapshotScope],
+  const staleSince = useMemo(
+    () =>
+      !isOnline || dashboardError
+        ? getKpiSnapshot(snapshotScope)?.savedAt ?? null
+        : null,
+    [isOnline, dashboardError, snapshotScope],
   );
+
+  // Panels only show their own error state when there is nothing to show.
+  const panelError = Boolean(dashboardError) && !dashboardData;
 
 // savedAt = when the data was LOADED, not when a filter last changed.
   const loadedAt = useRef<{ data: unknown; at: string } | null>(null);
@@ -333,8 +324,8 @@ function App() {
       };
     }
 
-    saveKpiSnapshot(snapshotScope, kpis, loadedAt.current.at);
-  }, [dashboardData, dashboardError, snapshotScope, kpis]);
+    saveKpiSnapshot(snapshotScope, snapshotKpis, loadedAt.current.at);
+  }, [dashboardData, dashboardError, snapshotScope, snapshotKpis]);
 
   const handleKpiClick = (title: string) => {
     const params = new URLSearchParams(
@@ -466,7 +457,7 @@ function App() {
     );
   }
 
-  if (dashboardError) {
+  if (dashboardError && !dashboardData) {
     return (
       <div
         role="alert"
@@ -561,10 +552,12 @@ function App() {
           kpis={kpis}
         />
       </div>
-      {offlineSince && (
+      {staleSince && (
         <OfflineBanner
-          savedAt={offlineSince}
+          savedAt={staleSince}
           isOnline={isOnline}
+          hasServerError={Boolean(dashboardError)}
+          onRetry={() => void refreshDashboardData()}
         />
       )}
       <KpiGrid
@@ -639,7 +632,7 @@ function App() {
                     endDate={filters.endDate}
                     data={dashboardData?.dashboard.forecast ?? []}
                     loading={dashboardLoading}
-                    error={Boolean(dashboardError)}
+                    error={panelError}
                     onRetry={() => void refetch()}
                    />
                 </Profiler>
@@ -672,7 +665,7 @@ function App() {
               endDate={filters.endDate}
               data={dashboardData?.dashboard.forecastAccuracy ?? []}
               loading={dashboardLoading}
-              error={Boolean(dashboardError)}
+              error={panelError}
               onRetry={() => void refetch()}
             />
           </Suspense>
@@ -691,7 +684,7 @@ function App() {
             <SupplierRisk
               supplierRisk={dashboardData?.dashboard.supplierRisk ?? []}
               loading={dashboardLoading}
-              error={Boolean(dashboardError)}
+              error={panelError}
               onRetry={() => void refetch()}
             />
           </ErrorBoundary>
@@ -701,7 +694,7 @@ function App() {
           <ShipmentStatus
               shipmentStatus={dashboardData?.dashboard.shipmentStatus}
               loading={dashboardLoading}
-              error={Boolean(dashboardError)}
+              error={panelError}
               onRetry={() => void refetch()}
           />
         </ErrorBoundary>
@@ -773,7 +766,7 @@ function App() {
               <SupplierRiskDistribution
                 supplierRisk={dashboardData?.dashboard.supplierRisk ?? []}
                 loading={dashboardLoading}
-                error={Boolean(dashboardError)}
+                error={panelError}
                 onRetry={() => void refetch()}
                />
             </ErrorBoundary>

@@ -21,33 +21,51 @@ export function saveKpiSnapshot(
 ): void {
   const snapshot: KpiSnapshot = { kpis, savedAt };
 
-  localStorage.setItem(snapshotStorageKey(scope), JSON.stringify(snapshot));
+  try {
+    localStorage.setItem(snapshotStorageKey(scope), JSON.stringify(snapshot));
 
-  // Remove the old shared key from earlier builds so it can't leak.
-  localStorage.removeItem(STORAGE_PREFIX);
+    // Remove the old shared key from earlier builds so it can't leak.
+    localStorage.removeItem(STORAGE_PREFIX);
+  } catch {
+    // Storage blocked or full (private mode, quota). The dashboard still
+    // works; only the offline snapshot is skipped.
+  }
 }
 
 export function getKpiSnapshot(scope: string): KpiSnapshot | null {
-  const stored = localStorage.getItem(snapshotStorageKey(scope));
-
-  if (!stored) {
-    return null;
-  }
-
   try {
-    const snapshot: unknown = JSON.parse(stored);
+    const stored = localStorage.getItem(snapshotStorageKey(scope));
 
-    if (
-      typeof snapshot !== "object" ||
-      snapshot === null ||
-      !("kpis" in snapshot) ||
-      !("savedAt" in snapshot)
-    ) {
+    if (!stored) {
       return null;
     }
 
-    return snapshot as KpiSnapshot;
+    const snapshot: unknown = JSON.parse(stored);
+
+    return isKpiSnapshot(snapshot) ? snapshot : null;
   } catch {
     return null;
   }
+}
+
+function isKpiSnapshot(value: unknown): value is KpiSnapshot {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+
+  return (
+    typeof candidate.savedAt === "string" &&
+    Array.isArray(candidate.kpis) &&
+    candidate.kpis.every((kpi: unknown) => {
+      if (typeof kpi !== "object" || kpi === null) {
+        return false;
+      }
+
+      const entry = kpi as Record<string, unknown>;
+
+      return typeof entry.title === "string" && typeof entry.value === "number";
+    })
+  );
 }

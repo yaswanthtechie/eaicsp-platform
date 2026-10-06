@@ -140,5 +140,20 @@ describe("SupplierRisk", () => {
 
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
+
+  it("shows an empty state when there are no suppliers", () => {
+    render(
+      <SupplierRisk
+        supplierRisk={[]}
+        loading={false}
+        error={false}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText("No supplier risk data available."),
+    ).toBeInTheDocument();
+  });
 });
 

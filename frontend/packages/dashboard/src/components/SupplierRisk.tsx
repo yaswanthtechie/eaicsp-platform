@@ -61,6 +61,22 @@ function SupplierRisk({
     );
   }
 
+  if (supplierRisk.length === 0) {
+    return (
+      <div
+        role="status"
+        style={{
+          background: colors.surface,
+          borderRadius: radius.lg,
+          padding: space.lg,
+          color: colors.textMuted,
+        }}
+      >
+        No supplier risk data available.
+      </div>
+    );
+  }
+
   const getRiskColor = (riskScore: number) => {
     if (riskScore >= 0.7) {
       return colors.danger;
