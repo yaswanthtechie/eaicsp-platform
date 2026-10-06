@@ -353,3 +353,60 @@ def require_permission(permission: str):
         return current_user
 
     return checker
+
+
+# ============================================================
+# Permission OR Legacy Role Authorization
+# ============================================================
+def require_permission_or_role(permission: str, *allowed_roles: str):
+    def checker(current_user: User = Depends(get_current_user)):
+        user_role = current_user.role.name if current_user.role else None
+
+        if user_role is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: insufficient permissions",
+            )
+
+        # New permission-based access
+        user_permissions = ROLE_PERMISSIONS.get(user_role, set())
+
+        if permission in user_permissions:
+            return current_user
+
+        # Backward compatibility for existing roles
+        if user_role in allowed_roles:
+            return current_user
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: insufficient permissions",
+        )
+
+    return checker
+# ============================================================
+# GET CURRENT ACCESS TOKEN
+# ============================================================
+
+def get_access_token(
+    credentials: HTTPAuthorizationCredentials | None = Depends(
+        bearer_scheme
+    ),
+) -> str:
+    """
+    Extract the raw Bearer access token.
+
+    This is currently kept in auth.py.
+    It can later be moved to app/core/dependencies.py.
+    """
+
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={
+                "WWW-Authenticate": "Bearer",
+            },
+        )
+
+    return credentials.credentials
