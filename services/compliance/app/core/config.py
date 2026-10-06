@@ -1,4 +1,3 @@
-
 import os
 from pathlib import Path
 
@@ -21,8 +20,6 @@ LOG_DIR = DATA_DIR / "logs"
 
 ARCHIVE_DIR = DATA_DIR / "archive"
 
-
-
 OFAC_CSV_PATH = DOWNLOAD_DIR / "ofac.csv"
 
 UN_XML_PATH = DOWNLOAD_DIR / "un.xml"
@@ -31,14 +28,18 @@ EU_XML_PATH = DOWNLOAD_DIR / "eu.xml"
 
 FIXTURE_DIR = DATA_DIR / "fixtures"
 
-INTERNAL_WATCHLIST_PATH = DATA_DIR / "internal_watchlist.csv"
+INTERNAL_WATCHLIST_PATH = (
+    DATA_DIR / "internal_watchlist.csv"
+)
 
 PEP_CSV_PATH = DATA_DIR / "pep.csv"
 
 TOTAL_SOURCES = int(
-    os.getenv("TOTAL_SOURCES", "5")
+    os.getenv(
+        "TOTAL_SOURCES",
+        "5",
+    )
 )
-
 
 OFAC_FIXTURE_PATH = (
     FIXTURE_DIR / "ofac_sample.csv"
@@ -57,13 +58,10 @@ SNAPSHOT_FILE = (
     / "previous_sanctions.json"
 )
 
-
-
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "sqlite:///./compliance.db",
 )
-
 
 
 SERVICE_NAME = os.getenv(
@@ -110,7 +108,6 @@ HIGH_TIER_MATCH_THRESHOLD = int(
         "80",
     )
 )
-
 
 CONFIDENCE_WEIGHT = float(
     os.getenv(
@@ -183,7 +180,6 @@ MEDIUM_COUNTRY_RISK_MAX = float(
         "69",
     )
 )
-
 LOW_TRANSACTION_VALUE_MAX = float(
     os.getenv(
         "LOW_TRANSACTION_VALUE_MAX",
@@ -207,70 +203,84 @@ PLATFORM_SERVICE_API_KEY = os.getenv(
     "PLATFORM_SERVICE_API_KEY",
 )
 
-
-CONFIDENCE_WEIGHT = float(
+SLA_LATENCY_THRESHOLD_MS = float(
     os.getenv(
-        "CONFIDENCE_WEIGHT",
-        "0.50",
+        "SLA_LATENCY_THRESHOLD_MS",
+        "500",
     )
 )
 
-SOURCE_WEIGHT = float(
+SLA_WINDOW_SECONDS = float(
     os.getenv(
-        "SOURCE_WEIGHT",
-        "0.30",
+        "SLA_WINDOW_SECONDS",
+        "300",
     )
 )
 
-RECENCY_WEIGHT = float(
+SLA_MAX_ERROR_RATE = float(
     os.getenv(
-        "RECENCY_WEIGHT",
-        "0.20",
+        "SLA_MAX_ERROR_RATE",
+        "0.05",
     )
 )
 
-SANCTIONS_WEIGHT = float(
+SLA_ALERT_WEBHOOK_URL = os.getenv(
+    "SLA_ALERT_WEBHOOK_URL",
+)
+
+SLA_ALERT_COOLDOWN_SECONDS = float(
     os.getenv(
-        "SANCTIONS_WEIGHT",
-        "0.80",
+        "SLA_ALERT_COOLDOWN_SECONDS",
+        "300",
     )
 )
 
-COUNTRY_RISK_WEIGHT = float(
+INTERNAL_BLOCK_MATCH_SCORE = float(
     os.getenv(
-        "COUNTRY_RISK_WEIGHT",
-        "0.20",
+        "INTERNAL_BLOCK_MATCH_SCORE",
+        "90",
     )
 )
 
-UNKNOWN_COUNTRY_RISK = float(
+INTERNAL_REVIEW_MATCH_SCORE = int(
     os.getenv(
-        "UNKNOWN_COUNTRY_RISK",
-        "50.0",
+        "INTERNAL_REVIEW_MATCH_SCORE",
+        "80",
     )
 )
 
-COUNTRY_RISK_INDEX = {
-    "INDIA": 30,
-    "USA": 20,
-    "UNITED STATES": 20,
-    "UK": 20,
-    "UNITED KINGDOM": 20,
-    "GERMANY": 20,
-    "FRANCE": 25,
-    "CANADA": 20,
-    "AUSTRALIA": 20,
-    "JAPAN": 20,
-    "RUSSIA": 70,
-    "IRAN": 90,
-    "NORTH KOREA": 100,
+
+def validate_internal_thresholds(
+    review_score: float,
+    block_score: float,
+) -> None:
+    """Fail at startup if the REVIEW band would be empty."""
+    if review_score >= block_score:
+        raise RuntimeError(
+            "INTERNAL_REVIEW_MATCH_SCORE "
+            f"({review_score}) must be lower than "
+            f"INTERNAL_BLOCK_MATCH_SCORE ({block_score}); "
+            "otherwise /internal-check can never return REVIEW."
+        )
+
+
+validate_internal_thresholds(
+    INTERNAL_REVIEW_MATCH_SCORE,
+    INTERNAL_BLOCK_MATCH_SCORE,
+)
+
+INTERNAL_SERVICE_KEYS = {
+    name.strip(): key.strip()
+    for name, _, key in (
+        item.partition(":")
+        for item in os.getenv(
+            "INTERNAL_SERVICE_KEYS",
+            "",
+        ).split(",")
+        if item.strip()
+    )
+    if name.strip() and key.strip()
 }
-
-PLATFORM_AUTH_URL = os.getenv(
-    "PLATFORM_AUTH_URL",
-    "http://127.0.0.1:8005",
-)
-
 
 OFAC_DOWNLOAD_URL = os.getenv(
     "OFAC_DOWNLOAD_URL",
