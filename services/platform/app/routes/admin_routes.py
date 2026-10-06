@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status,Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse,JSONResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from datetime import datetime, timezone,timedelta
@@ -35,13 +35,18 @@ from app.services.audit_service import (
     SERVICE_KEY_REVOKED,
 )
 import json
-from fastapi.responses import JSONResponse, StreamingResponse
 from app.services.abuse_dashboard_service import get_abuse_dashboard
 from app.services.audit_export_service import export_audit_logs
 from app.models.refresh_token import RefreshToken
 from app.models.abuse_event import AbuseEvent
 from app.schemas.auth import SessionResponse
-from app.core.dependencies import require_role,get_current_user,require_any_role
+from app.core.dependencies import (
+    require_role,
+    get_current_user,
+    require_any_role,
+    require_permission_or_role,
+
+)
 from app.core.password_validator import validate_password
 from app.core.security import hash_password
 from app.core.service_auth import (
@@ -62,7 +67,7 @@ class AdminTestResponse(BaseModel):
     response_model=AdminTestResponse
 )
 
-def admin_test(user=Depends(require_role("ceo","vp_operations"))):
+def admin_test(user=Depends(require_role("ceo","vp_operations","platform_admin"))):
     return {
         "message": "Admin access granted",
         "user": {
@@ -84,7 +89,7 @@ def admin_test(user=Depends(require_role("ceo","vp_operations"))):
 def list_users(
     db: Session = Depends(get_db),
     current_user=Depends(
-        require_any_role("ceo", "vp_operations")
+        require_permission_or_role("users:read","ceo", "vp_operations")
     )
 ):
     users = (
@@ -117,7 +122,7 @@ def create_user(
     request: AdminCreateUserRequest,
     db: Session = Depends(get_db),
     current_user=Depends(
-        require_any_role("ceo", "vp_operations")
+        require_permission_or_role("user:manage","ceo", "vp_operations")
     )
 ):
     email = request.email.lower()
@@ -202,7 +207,7 @@ def deactivate_user(
     user_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(
-        require_any_role("ceo", "vp_operations")
+        require_permission_or_role("user:manage","ceo", "vp_operations")
     )
 ):
     user = (
@@ -262,9 +267,10 @@ def change_user_role(
     request: RoleChangeRequest,
     db: Session = Depends(get_db),
     current_user=Depends(
-        require_any_role("ceo", "vp_operations")
+        require_permission_or_role("role:assign","ceo","vp_operations")
     )
 ):
+
     user = (
         db.query(User)
         .filter(User.id == user_id)
@@ -349,7 +355,7 @@ def role_change_history(
     user_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(
-        require_any_role("ceo", "vp_operations")
+        require_any_role("ceo","vp_operations")
     )
 ):
     user = (
@@ -400,7 +406,7 @@ def force_reset_password(
     request: ForceResetPasswordRequest,
     db: Session = Depends(get_db),
     current_user=Depends(
-        require_any_role("ceo", "vp_operations")
+        require_permission_or_role("users:manage", "ceo", "vp_operations")
     )
 ):
     user = (
@@ -456,7 +462,7 @@ def list_user_sessions(
     user_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(
-        require_any_role("ceo", "vp_operations")
+        require_permission_or_role("users:read", "ceo", "vp_operations")
     )
 ):
     user = (
@@ -508,7 +514,7 @@ def revoke_user_session(
     session_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(
-        require_any_role("ceo", "vp_operations")
+        require_permission_or_role("users:manage", "ceo", "vp_operations")
     )
 ):
     session = (
@@ -562,7 +568,7 @@ def get_audit_logs(
     event_type: str | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user=Depends(
-        require_any_role("ceo", "vp_operations")
+        require_permission_or_role("audit:read", "ceo", "vp_operations")
     ),
 ):
     query = db.query(AuthAuditLog)
@@ -901,7 +907,8 @@ def audit_export(
         description="Export format",
     ),
     current_user: User = Depends(
-        require_any_role(
+        require_permission_or_role(
+            "audit:read",
             "ceo",
             "vp_operations",
         )

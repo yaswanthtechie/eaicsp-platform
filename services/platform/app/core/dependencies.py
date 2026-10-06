@@ -359,6 +359,12 @@ def require_permission(permission: str):
 # Permission OR Legacy Role Authorization
 # ============================================================
 def require_permission_or_role(permission: str, *allowed_roles: str):
+    """
+    Allow the request if the user's role grants `permission` (V2 model),
+    OR if the user's role satisfies `allowed_roles` the same way
+    require_role() does, including ROLE_HIERARCHY (V1 behaviour).
+    """
+
     def checker(current_user: User = Depends(get_current_user)):
         user_role = current_user.role.name if current_user.role else None
 
@@ -368,14 +374,11 @@ def require_permission_or_role(permission: str, *allowed_roles: str):
                 detail="Forbidden: insufficient permissions",
             )
 
-        # New permission-based access
-        user_permissions = ROLE_PERMISSIONS.get(user_role, set())
-
-        if permission in user_permissions:
+        if permission in ROLE_PERMISSIONS.get(user_role, set()):
             return current_user
 
-        # Backward compatibility for existing roles
-        if user_role in allowed_roles:
+        role_scope = ROLE_HIERARCHY.get(user_role, {user_role})
+        if any(role in role_scope for role in allowed_roles):
             return current_user
 
         raise HTTPException(
@@ -384,29 +387,3 @@ def require_permission_or_role(permission: str, *allowed_roles: str):
         )
 
     return checker
-# ============================================================
-# GET CURRENT ACCESS TOKEN
-# ============================================================
-
-def get_access_token(
-    credentials: HTTPAuthorizationCredentials | None = Depends(
-        bearer_scheme
-    ),
-) -> str:
-    """
-    Extract the raw Bearer access token.
-
-    This is currently kept in auth.py.
-    It can later be moved to app/core/dependencies.py.
-    """
-
-    if credentials is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-            headers={
-                "WWW-Authenticate": "Bearer",
-            },
-        )
-
-    return credentials.credentials

@@ -3,6 +3,9 @@ from pathlib import Path
 import pytest
 from app.core.permissions import ROLE_PERMISSIONS
 from app.schemas.user import Role
+from types import SimpleNamespace
+from fastapi import HTTPException
+from app.core.dependencies import require_permission_or_role
 
 # ============================================================
 # Fixtures / Constants
@@ -353,3 +356,18 @@ def test_supplier_has_no_internal_permissions():
     }
 
     assert supplier_permissions.isdisjoint(internal_permissions)
+
+def _user(role):
+    return SimpleNamespace(role=SimpleNamespace(name=role))
+
+
+def test_permission_or_role_respects_hierarchy():
+    checker = require_permission_or_role("user:manage", "vp_operations")
+
+    assert checker(current_user=_user("ceo"))             # via hierarchy
+    assert checker(current_user=_user("vp_operations"))   # direct
+    assert checker(current_user=_user("platform_admin"))  # via permission
+
+    with pytest.raises(HTTPException) as exc:
+        checker(current_user=_user("analyst"))
+    assert exc.value.status_code == 403

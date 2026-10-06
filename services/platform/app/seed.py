@@ -7,6 +7,7 @@ from datetime import datetime, timezone, timedelta
 import os
 
 ROLES = [
+    # ---- V1 roles (unchanged) ----
     ("ceo", "Chief Executive Officer"),
     ("vp_operations", "VP Operations"),
     ("procurement_manager", "Procurement Manager"),
@@ -15,6 +16,18 @@ ROLES = [
     ("warehouse_manager", "Warehouse Manager"),
     ("analyst", "Analyst"),
     ("supplier", "Supplier"),
+
+    # ---- V2 roles (Round 12+13) ----
+    ("platform_admin", "Platform Administrator"),
+    ("procurement_officer", "Procurement Officer"),
+    ("inventory_planner", "Inventory Planner"),
+    ("demand_planner", "Demand Planner"),
+    ("finance_manager", "Finance Manager"),
+    ("risk_analyst", "Risk Analyst"),
+    ("data_scientist", "Data Scientist"),
+    ("auditor", "Auditor"),
+    ("warehouse_operator", "Warehouse Operator"),
+    ("carrier", "Carrier"),
 ]
 
 def _required_password(env_var: str) -> str:
@@ -88,6 +101,22 @@ def get_seed_users() -> list[dict]:
 
     ]
 
+def seed_roles(db) -> dict:
+    """Insert any missing roles. Safe to run again on an existing database."""
+    role_map = {}
+
+    for role_name, description in ROLES:
+        role = db.query(Role).filter(Role.name == role_name).first()
+
+        if role is None:
+            role = Role(name=role_name, description=description)
+            db.add(role)
+            db.flush()
+
+        role_map[role_name] = role
+
+    return role_map
+
 def seed_database():
     db = SessionLocal()
 
@@ -95,27 +124,7 @@ def seed_database():
         # ----------------------------------------
         # Create roles
         # ----------------------------------------
-
-        role_map = {}
-
-        for role_name, description in ROLES:
-            role = (
-                db.query(Role)
-                .filter(Role.name == role_name)
-                .first()
-            )
-
-            if role is None:
-                role = Role(
-                    name=role_name,
-                    description=description,
-                )
-
-                db.add(role)
-                db.flush()
-
-            role_map[role_name] = role
-
+        role_map = seed_roles(db)
         # ----------------------------------------
         # Create users
         # ----------------------------------------
@@ -158,7 +167,18 @@ def seed_database():
         db.close()
 
 if __name__ == "__main__":
+    import sys
+
     Base.metadata.create_all(bind=engine)
 
-    seed_database()
+    if "--roles-only" in sys.argv:
+        db = SessionLocal()
+        try:
+            seed_roles(db)
+            db.commit()
+            print("Roles seeded.")
+        finally:
+            db.close()
+    else:
+        seed_database()
 
