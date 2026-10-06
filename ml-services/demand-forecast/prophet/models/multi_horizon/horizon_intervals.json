@@ -2,51 +2,204 @@
   "interval_label": "80% empirical interval",
   "ratio_quantiles": {
     "1_day": {
-      "low": 0.891658,
-      "high": 1.129306
+      "low": 0.982819,
+      "high": 1.15598
     },
     "7_day": {
-      "low": 0.999759,
-      "high": 1.110162
+      "low": 1.0,
+      "high": 1.093204
     },
     "30_day": {
-      "low": 0.970798,
-      "high": 1.046833
+      "low": 0.97147,
+      "high": 1.045769
     },
     "90_day": {
-      "low": 0.989001,
-      "high": 1.060241
+      "low": 0.98822,
+      "high": 1.059898
     }
   },
   "backtest_metrics": {
     "1_day": {
-      "mape": 8.49,
-      "bias_pct": 1.47,
+      "mape": 7.29,
+      "bias_pct": 6.61,
       "coverage": 0.75,
-      "observations": 24
+      "observations": 16
     },
     "7_day": {
-      "mape": 5.15,
-      "bias_pct": 4.78,
-      "coverage": 0.75,
-      "observations": 24
+      "mape": 5.32,
+      "bias_pct": 5.73,
+      "coverage": 0.812,
+      "observations": 16
     },
     "30_day": {
-      "mape": 2.74,
-      "bias_pct": 1.57,
+      "mape": 2.35,
+      "bias_pct": 1.0,
       "coverage": 0.75,
-      "observations": 24
+      "observations": 16
     },
     "90_day": {
-      "mape": 2.84,
-      "bias_pct": 2.44,
+      "mape": 2.43,
+      "bias_pct": 1.78,
       "coverage": 0.75,
-      "observations": 24
+      "observations": 16
     }
   },
   "quantiles": {
     "low": 0.1,
     "high": 0.9
+  },
+  "conformal_intervals": {
+    "1_day": {
+      "80%": {
+        "low": 0.869511,
+        "high": 1.130489
+      },
+      "95%": {
+        "low": 0.761526,
+        "high": 1.238474
+      }
+    },
+    "7_day": {
+      "80%": {
+        "low": 0.911986,
+        "high": 1.088014
+      },
+      "95%": {
+        "low": 0.854207,
+        "high": 1.145793
+      }
+    },
+    "30_day": {
+      "80%": {
+        "low": 0.954247,
+        "high": 1.045753
+      },
+      "95%": {
+        "low": 0.934696,
+        "high": 1.065304
+      }
+    },
+    "90_day": {
+      "80%": {
+        "low": 0.943049,
+        "high": 1.056951
+      },
+      "95%": {
+        "low": 0.932226,
+        "high": 1.067774
+      }
+    }
+  },
+  "conformal_evaluation": {
+    "calibration_cutoffs": 16,
+    "evaluation_cutoffs": 6,
+    "gap_days": 90,
+    "results": {
+      "1_day": {
+        "80%": {
+          "coverage": 0.8,
+          "calibration_radius": 0.1304889426139127,
+          "before": {
+            "coverage": 0.16666666666666666,
+            "pinball_loss": 2155.2939224833813
+          },
+          "after": {
+            "coverage": 0.6666666666666666,
+            "pinball_loss": 953.623097153072
+          }
+        },
+        "95%": {
+          "coverage": 0.95,
+          "calibration_radius": 0.19271708499255508,
+          "before": {
+            "coverage": 0.3333333333333333,
+            "pinball_loss": 1247.0440256154886
+          },
+          "after": {
+            "coverage": 0.8333333333333334,
+            "pinball_loss": 322.61326530596165
+          }
+        }
+      },
+      "7_day": {
+        "80%": {
+          "coverage": 0.8,
+          "calibration_radius": 0.08801425101629268,
+          "before": {
+            "coverage": 0.3333333333333333,
+            "pinball_loss": 4193.958926976734
+          },
+          "after": {
+            "coverage": 1.0,
+            "pinball_loss": 2347.492608843752
+          }
+        },
+        "95%": {
+          "coverage": 0.95,
+          "calibration_radius": 0.14579312083397974,
+          "before": {
+            "coverage": 0.5,
+            "pinball_loss": 2513.6207172271975
+          },
+          "after": {
+            "coverage": 1.0,
+            "pinball_loss": 972.1388003252932
+          }
+        }
+      },
+      "30_day": {
+        "80%": {
+          "coverage": 0.8,
+          "calibration_radius": 0.045753490164244556,
+          "before": {
+            "coverage": 0.6666666666666666,
+            "pinball_loss": 5093.101291018246
+          },
+          "after": {
+            "coverage": 0.8333333333333334,
+            "pinball_loss": 5401.734997695771
+          }
+        },
+        "95%": {
+          "coverage": 0.95,
+          "calibration_radius": 0.05721921650932532,
+          "before": {
+            "coverage": 0.8333333333333334,
+            "pinball_loss": 1303.7405411133918
+          },
+          "after": {
+            "coverage": 1.0,
+            "pinball_loss": 1641.84659882701
+          }
+        }
+      },
+      "90_day": {
+        "80%": {
+          "coverage": 0.8,
+          "calibration_radius": 0.059041878674665454,
+          "before": {
+            "coverage": 1.0,
+            "pinball_loss": 12283.357012690858
+          },
+          "after": {
+            "coverage": 1.0,
+            "pinball_loss": 20235.816632612234
+          }
+        },
+        "95%": {
+          "coverage": 0.95,
+          "calibration_radius": 0.0677735670123855,
+          "before": {
+            "coverage": 1.0,
+            "pinball_loss": 3615.268144651319
+          },
+          "after": {
+            "coverage": 1.0,
+            "pinball_loss": 5807.12159481629
+          }
+        }
+      }
+    }
   },
   "backtest_cutoffs": 24,
   "backtest_step_days": 30,
