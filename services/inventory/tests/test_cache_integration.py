@@ -356,6 +356,7 @@ def test_receive_purchase_order_invalidates_cache(client, db_session):
     assert resp2.json()["quantity_on_hand"] == 60
 
 
+@pytest.mark.integration
 def test_read_latency_benchmark_with_and_without_cache(client, db_session):
     """
     Milestone 3 Requirement:
@@ -501,7 +502,7 @@ def test_real_redis_connectivity_and_operations():
     except Exception:
         pytest.skip(f"Live Redis not accessible at {settings.REDIS_URL}")
 
-    real_cache = InventoryCache(redis_url=settings.REDIS_URL, mock_mode=False)
+    real_cache = InventoryCache(redis_url=settings.REDIS_URL)
     assert real_cache._client is not None, "Real Redis client must be connected"
 
     test_key = "inventory:test:real_redis:item1"
@@ -515,3 +516,57 @@ def test_real_redis_connectivity_and_operations():
     assert real_cache.get(test_key) is None
 
 
+import time
+
+import redis
+
+from tests.fakes import FakeRedis
+
+
+class FlakyRedis(FakeRedis):
+    def __init__(self):
+        super().__init__()
+        self.fail_deletes = False
+
+    def delete(self, *keys):
+        if self.fail_deletes:
+            raise redis.ConnectionError("network blip")
+        return super().delete(*keys)
+
+
+def test_failed_invalidation_never_serves_stale_value(monkeypatch):
+    flaky = FlakyRedis()
+    monkeypatch.setattr(cache, "_client", flaky)
+
+    set_cached_inventory("S", "W", {"quantity_on_hand": 10})
+
+    # The DB update committed, but Redis drops the DELETE.
+    flaky.fail_deletes = True
+    invalidate_inventory_cache("S", "W")
+
+    # The breaker is open, so the old value is NOT served.
+    assert get_cached_inventory("S", "W") is None
+
+    # Redis comes back and the cooldown ends.
+    flaky.fail_deletes = False
+    monkeypatch.setattr(cache, "_down_until", time.monotonic() - 1)
+
+    # Recovery wiped the stale key before the cache was trusted again.
+    assert get_cached_inventory("S", "W") is None
+    assert flaky.store == {}
+
+
+def test_redis_outage_does_not_retry_on_every_request(monkeypatch):
+    calls = {"get": 0}
+
+    class DeadRedis(FakeRedis):
+        def get(self, key):
+            calls["get"] += 1
+            raise redis.ConnectionError("down")
+
+    monkeypatch.setattr(cache, "_client", DeadRedis())
+
+    for _ in range(10):
+        assert get_cached_inventory("S", "W") is None
+
+    assert calls["get"] == 1  # breaker tripped after the first failure

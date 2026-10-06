@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import Any, Optional
 import uuid
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class EventEnvelope(BaseModel):
@@ -15,21 +15,6 @@ class EventEnvelope(BaseModel):
     event_version: str = "1.0"
     payload: dict[str, Any]
     trace_id: Optional[str] = None
-
-    @computed_field
-    @property
-    def source(self) -> str:
-        return self.producer
-
-    @computed_field
-    @property
-    def timestamp(self) -> str:
-        return self.occurred_at
-
-    @computed_field
-    @property
-    def version(self) -> str:
-        return self.event_version
 
 
 class StockLowPayload(BaseModel):
@@ -51,4 +36,3 @@ class PurchaseOrderDraftedPayload(BaseModel):
     expected_cost: float
     status: str = "draft"
     created_at: str
-

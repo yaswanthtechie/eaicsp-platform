@@ -1,149 +1,148 @@
 import json
 import logging
+import time
 from typing import Any, Optional
 
-try:
-    import redis
-    REDIS_AVAILABLE = True
-except ImportError:
-    REDIS_AVAILABLE = False
+import redis
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+KEY_PREFIX = "inventory:"
+BREAKER_COOLDOWN_SECONDS = 30.0
+
 
 class InventoryCache:
     """
-    Redis Cache Service for Inventory Service.
-    
-    Provides fast, serialized caching for hot read paths:
-    - GET /api/v1/inventory/{sku_id}/{warehouse_id}
-    - GET /api/v1/inventory/
-    
-    Features:
-    - Graceful degradation: If Redis is unavailable or times out,
-      calls fail open (cache miss) without failing API requests.
-    - Automatic JSON serialization / deserialization.
-    - Deterministic invalidation on every stock mutation.
-    - Configurable mock / fallback mode for local testing.
+    Redis cache-aside for inventory hot reads.
+
+    Correctness rules:
+    - Reads fail open: any Redis error is a cache miss, never a 500.
+    - Any Redis error trips a circuit breaker. While it is open the cache
+      is bypassed completely, so requests don't each wait for a timeout.
+    - When the cooldown ends, every inventory key is wiped BEFORE the cache
+      is trusted again. A delete that failed during the outage therefore
+      can never serve a stale value afterwards.
     """
 
     def __init__(
         self,
         redis_url: Optional[str] = None,
         default_ttl: Optional[int] = None,
-        mock_mode: bool = False,
     ):
-        self.redis_url = redis_url or getattr(settings, "REDIS_URL", "redis://localhost:6379/0")
-        self.default_ttl = default_ttl or getattr(settings, "REDIS_CACHE_TTL_SECONDS", 300)
-        self.mock_mode = mock_mode
-        self._memory_store: dict[str, str] = {}
-        self._client: Optional[Any] = None
+        self.redis_url = redis_url or settings.REDIS_URL
+        self.default_ttl = default_ttl or settings.REDIS_CACHE_TTL_SECONDS
+        self._client = redis.Redis.from_url(
+            self.redis_url,
+            decode_responses=True,
+            socket_connect_timeout=0.5,
+            socket_timeout=0.5,
+        )
+        self._down_until: Optional[float] = None
 
-        if not self.mock_mode and REDIS_AVAILABLE:
-            try:
-                self._client = redis.Redis.from_url(
-                    self.redis_url,
-                    decode_responses=True,
-                    socket_connect_timeout=1.0,
-                    socket_timeout=1.0,
-                )
-            except Exception as exc:
-                logger.warning("Could not initialize Redis client (%s). Using fallback.", exc)
-                self._client = None
+    # ------------------------------------------------------------------
+    # Circuit breaker
+    # ------------------------------------------------------------------
 
-    def _get_client(self):
-        return self._client
+    def _trip(self, exc: Exception) -> None:
+        self._down_until = time.monotonic() + BREAKER_COOLDOWN_SECONDS
+        logger.error(
+            "Redis unavailable, bypassing cache for %ss: %s",
+            BREAKER_COOLDOWN_SECONDS,
+            exc,
+        )
 
-    # ------------------------------------------------------------------------
-    # Core Cache Operations
-    # ------------------------------------------------------------------------
+    def _available(self) -> bool:
+        if self._down_until is None:
+            return True
+
+        if time.monotonic() < self._down_until:
+            return False
+
+        # Cooldown over: anything written before or during the outage may
+        # be stale, so wipe all inventory keys before trusting the cache.
+        try:
+            self._delete_matching(KEY_PREFIX + "*")
+        except redis.RedisError as exc:
+            self._trip(exc)
+            return False
+
+        self._down_until = None
+        logger.warning("Redis recovered; flushed inventory keys before re-enabling cache")
+        return True
+
+    def _delete_matching(self, pattern: str) -> int:
+        # SCAN instead of KEYS: KEYS blocks Redis while it walks every key.
+        keys = list(self._client.scan_iter(match=pattern, count=500))
+        if not keys:
+            return 0
+        return int(self._client.delete(*keys))
+
+    # ------------------------------------------------------------------
+    # Cache operations
+    # ------------------------------------------------------------------
 
     def get(self, key: str) -> Optional[Any]:
-        """Retrieve and parse JSON value for key, returning None on miss or error."""
-        if self.mock_mode or self._client is None:
-            raw = self._memory_store.get(key)
-            if raw is not None:
-                try:
-                    return json.loads(raw)
-                except Exception:
-                    return raw
+        if not self._available():
             return None
 
         try:
             raw = self._client.get(key)
-            if raw is not None:
-                return json.loads(raw)
-            return None
-        except Exception as exc:
-            logger.debug("Redis GET '%s' failed (graceful degradation): %s", key, exc)
+        except redis.RedisError as exc:
+            self._trip(exc)
             return None
 
-    def set(
-        self,
-        key: str,
-        value: Any,
-        ttl: Optional[int] = None,
-    ) -> bool:
-        """Serialize and store value with TTL. Returns True on success, False on error."""
-        expiry = ttl if ttl is not None else self.default_ttl
-        serialized = json.dumps(value, default=str)
-
-        if self.mock_mode or self._client is None:
-            self._memory_store[key] = serialized
-            return True
+        if raw is None:
+            return None
 
         try:
-            self._client.set(key, serialized, ex=expiry)
+            return json.loads(raw)
+        except ValueError:
+            logger.warning("Corrupt cache value for %s; treating as a miss", key)
+            return None
+
+    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
+        if not self._available():
+            return False
+
+        try:
+            self._client.set(
+                key,
+                json.dumps(value, default=str),
+                ex=ttl if ttl is not None else self.default_ttl,
+            )
             return True
-        except Exception as exc:
-            logger.debug("Redis SET '%s' failed (graceful degradation): %s", key, exc)
-            # Store in fallback memory so tests pass even without live Redis
-            self._memory_store[key] = serialized
+        except redis.RedisError as exc:
+            self._trip(exc)
             return False
 
     def delete(self, key: str) -> bool:
-        """Delete specific cache key."""
-        self._memory_store.pop(key, None)
-        if self.mock_mode or self._client is None:
-            return True
+        if not self._available():
+            # Breaker is open; the recovery flush will remove this key.
+            return False
 
         try:
             self._client.delete(key)
             return True
-        except Exception as exc:
-            logger.debug("Redis DELETE '%s' failed: %s", key, exc)
+        except redis.RedisError as exc:
+            # Tripping guarantees a full flush before the cache is read again.
+            self._trip(exc)
             return False
 
     def delete_pattern(self, pattern: str) -> int:
-        """Delete all keys matching pattern (e.g. 'inventory:*')."""
-        deleted_count = 0
-        keys_to_remove = [k for k in self._memory_store if k.startswith(pattern.replace("*", ""))]
-        for k in keys_to_remove:
-            self._memory_store.pop(k, None)
-            deleted_count += 1
-
-        if self.mock_mode or self._client is None:
-            return deleted_count
+        if not self._available():
+            return 0
 
         try:
-            matching = self._client.keys(pattern)
-            if matching:
-                deleted_count += self._client.delete(*matching)
-        except Exception as exc:
-            logger.debug("Redis DELETE pattern '%s' failed: %s", pattern, exc)
-
-        return deleted_count
+            return self._delete_matching(pattern)
+        except redis.RedisError as exc:
+            self._trip(exc)
+            return 0
 
     def clear(self) -> None:
-        """Flush all cache items (used in testing)."""
-        self._memory_store.clear()
-        if not self.mock_mode and self._client is not None:
-            try:
-                self.delete_pattern("inventory:*")
-            except Exception:
-                pass
+        """Remove every inventory key (used by tests and tooling)."""
+        self.delete_pattern(KEY_PREFIX + "*")
 
 
 # Global singleton instance

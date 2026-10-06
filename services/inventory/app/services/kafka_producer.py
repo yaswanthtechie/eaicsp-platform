@@ -1,11 +1,7 @@
 import logging
-from typing import Any, Optional
+from typing import Optional
 
-try:
-    from confluent_kafka import Producer as ConfluentProducer
-    CONFLUENT_KAFKA_AVAILABLE = True
-except ImportError:
-    CONFLUENT_KAFKA_AVAILABLE = False
+from confluent_kafka import Producer
 
 from app.core.config import settings
 
@@ -13,77 +9,46 @@ logger = logging.getLogger(__name__)
 
 
 class KafkaPublishError(Exception):
-    """Raised when an event fails to publish to Kafka."""
-    pass
+    """Raised when Kafka does not acknowledge an event."""
 
 
 class KafkaEventPublisher:
     """
-    Kafka Event Publisher wrapper supporting confluent-kafka with delivery verification.
-    Also provides simulated/mock modes for testing and graceful failure handling.
+    Real Kafka publisher used by the outbox relay.
+
+    There is deliberately NO in-memory fallback here:
+    - if confluent-kafka is missing, the import above fails at startup;
+    - if the broker does not acknowledge a message, publish() raises,
+      so the relay leaves the event in the outbox and retries later.
+
+    The test fake lives in tests/fakes.py.
     """
 
-    def __init__(
-        self,
-        bootstrap_servers: Optional[str] = None,
-        mock_mode: bool = False,
-    ):
-        self.bootstrap_servers = bootstrap_servers or getattr(
-            settings, "KAFKA_BOOTSTRAP_SERVERS", "localhost:9092"
+    def __init__(self, bootstrap_servers: Optional[str] = None):
+        self.bootstrap_servers = (
+            bootstrap_servers or settings.KAFKA_BOOTSTRAP_SERVERS
         )
-        self.mock_mode = mock_mode
-        self.published_messages: list[dict[str, Any]] = []
-        self._producer = None
+        self._producer = Producer(
+            {
+                "bootstrap.servers": self.bootstrap_servers,
+                "client.id": "inventory-outbox-relay",
+                "acks": "all",
+                "retries": 3,
+                "socket.timeout.ms": 3000,
+                "message.timeout.ms": 5000,
+            }
+        )
 
-        if not self.mock_mode and CONFLUENT_KAFKA_AVAILABLE:
-            try:
-                self._producer = ConfluentProducer(
-                    {
-                        "bootstrap.servers": self.bootstrap_servers,
-                        "client.id": "inventory-outbox-relay",
-                        "acks": "all",
-                        "retries": 3,
-                        "socket.timeout.ms": 3000,
-                        "message.timeout.ms": 5000,
-                    }
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Could not initialize Confluent Kafka producer: %s. Falling back to mock.",
-                    exc,
-                )
-                self._producer = None
+    def publish(self, topic: str, key: str, value: str) -> bool:
+        """Publish one message and wait for Kafka's acknowledgement."""
+        delivery_errors = []
 
-    def publish(
-        self,
-        topic: str,
-        key: str,
-        value: str,
-    ) -> bool:
-        """
-        Publish message to Kafka topic.
-        Returns True if acknowledged by Kafka, raises KafkaPublishError on failure.
-        """
-        if self.mock_mode or self._producer is None:
-            # Record in-memory for testing
-            self.published_messages.append(
-                {
-                    "topic": topic,
-                    "key": key,
-                    "value": value,
-                }
-            )
-            logger.info("Published event to [mock] Kafka topic %s with key %s", topic, key)
-            return True
-
-        delivery_error: list[Optional[Exception]] = [None]
-
-        def _delivery_callback(err, msg):
+        def _on_delivery(err, msg):
             if err is not None:
-                delivery_error[0] = KafkaPublishError(f"Delivery failed: {err}")
+                delivery_errors.append(err)
             else:
                 logger.info(
-                    "Message delivered to %s [%s] @ offset %s",
+                    "Delivered to %s [%s] @ offset %s",
                     msg.topic(),
                     msg.partition(),
                     msg.offset(),
@@ -94,18 +59,19 @@ class KafkaEventPublisher:
                 topic=topic,
                 key=key.encode("utf-8") if key else None,
                 value=value.encode("utf-8"),
-                callback=_delivery_callback,
+                on_delivery=_on_delivery,
             )
-            # Flush with timeout to ensure message is sent and callback executes
-            remaining = self._producer.flush(timeout=5.0)
-            if remaining > 0:
-                raise KafkaPublishError(f"Kafka flush timed out; {remaining} messages unsent")
-
-            if delivery_error[0] is not None:
-                raise delivery_error[0]
-
-            return True
-
         except Exception as exc:
-            logger.error("Failed to publish to Kafka topic %s: %s", topic, exc)
-            raise KafkaPublishError(str(exc)) from exc
+            raise KafkaPublishError(f"Could not enqueue message: {exc}") from exc
+
+        remaining = self._producer.flush(timeout=5.0)
+
+        if remaining > 0:
+            raise KafkaPublishError(
+                f"Kafka did not acknowledge {remaining} message(s) within 5s"
+            )
+
+        if delivery_errors:
+            raise KafkaPublishError(f"Delivery failed: {delivery_errors[0]}")
+
+        return True

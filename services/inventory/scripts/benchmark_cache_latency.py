@@ -62,7 +62,7 @@ def run_benchmark(iterations: int = 100):
     print(f"Iterations:        {iterations}")
     print(f"Database URL:      {settings.DATABASE_URL}")
     print(f"Redis URL:         {settings.REDIS_URL}")
-    print(f"Mock Mode:         {cache.mock_mode}")
+    print(f"Redis URL:         {cache.redis_url}")
     print("-" * 70)
 
     db = SessionLocal()

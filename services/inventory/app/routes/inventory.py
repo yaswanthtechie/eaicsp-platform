@@ -52,6 +52,7 @@ from app.services.inventory_service import (
     what_if_simulation,
     inventory_response,
     generate_draft_po_if_required,
+    check_and_record_low_stock,
 )
 
 from app.services.reorder_service import (
@@ -523,6 +524,9 @@ def decrement_inventory_route(
             )
 
         item.quantity_on_hand -= quantity
+
+        # Same transaction as the stock change: both commit, or neither does.
+        check_and_record_low_stock(db=db, item=item)
 
         db.commit()
         db.refresh(item)

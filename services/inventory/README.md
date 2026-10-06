@@ -157,19 +157,18 @@ Run the test suite from `services/inventory`:
 ```powershell
 python -m pytest -q
 ```
-**Current Result: 162 passed, 13 skipped** (175 total collected)
+**Current Result: 192 passed, 13 skipped, 7 deselected** (212 total collected)
 
 *(The 13 skipped tests in `test_auth_integration.py` require the live Platform Auth service on port 8005. All mock, unit, and business-logic integration tests pass 100%).*
 
 ---
 
-<<<<<<< HEAD
 ## Round 12–13 Status (Milestones 1–3 Productionization)
 
 | Milestone / Capability | Implementation Details | Status |
 | ---------------------- | ---------------------- | ------ |
 | M1 — Multi-Echelon & Schema Migrations | Dynamic Alembic migrations (`alembic upgrade head`), `approval_status` column support, zero manual `create_all()`. | Completed |
-| M2 — Transactional Outbox & Kafka Publisher | Atomic outbox table writes on low stock and PO draft, fail-safe producer, background relay worker with dead-letter queue. | Completed |
+| M2 — Transactional Outbox & Kafka Publisher | Atomic outbox table writes on low stock and PO draft, fail-safe producer, background relay worker; events are dead-lettered (status = DEAD) after OUTBOX_MAX_RETRIES failed publishes. | Completed |
 | M3 — Redis Cache-Aside & Graceful Degradation | Item & collection caching with TTL, auto-invalidation on stock transfers & mutations, fail-open to DB on Redis failure. | Completed |
 
 ---
@@ -192,6 +191,12 @@ docker compose -f docker-compose.dev.yml ps
 
 The service container automatically runs `alembic upgrade head` on startup before launching Uvicorn, and exposes `/health` on port 8001.
 
+Verify database tables created by migration on startup:
+```bash
+docker compose -f docker-compose.dev.yml exec postgres psql -U postgres -d inventory -c "\dt"
+# lists: alembic_version, inventory, outbox, purchase_orders, sales_history, suppliers, inventory_cost_layers
+```
+
 ---
 
 ## Transactional Outbox Relay Worker
@@ -210,16 +215,20 @@ In Docker Compose, this is automatically managed by the dedicated `outbox-relay`
 
 ## Running Tests
 
-Unit tests (runs against SQLite/PostgreSQL without live external brokers):
+Unit tests (runs against local SQLite without live external brokers or Docker running):
 
 ```powershell
-python -m pytest
+python -m pytest -q
 ```
 
-Integration tests (requires PostgreSQL or live container tools):
+Integration tests (requires docker compose dev stack running):
 
 ```powershell
-python -m pytest -m integration
+# 1. Start background infrastructure
+docker compose -f docker-compose.dev.yml up -d
+
+# 2. Run integration suite (locking, migrations, real Redis, real Kafka)
+python -m pytest -m integration -q
 ```
 
 ---
@@ -231,7 +240,24 @@ To reproduce the latency numbers between uncached database reads and cached Redi
 ```powershell
 python scripts/benchmark_cache_latency.py --iterations 100
 ```
-=======
+
+```text
+======================================================================
+BENCHMARK RESULTS SUMMARY (100 iterations)
+======================================================================
+Metric                 Uncached (DB)        Cached (Redis)       Delta / Speedup
+---------------------  -------------------  -------------------  ---------------
+Average Latency:           0.91 ms             0.45 ms            2.0x faster
+Min Latency:               0.54 ms             0.31 ms
+Max Latency:               1.46 ms             1.10 ms
+======================================================================
+Conclusion: Redis caching provides approximately a 2.0x latency speedup.
+======================================================================
+```
+
+> [!NOTE]
+> **Cache-Aside Concurrency Limit & TTL**:
+> Under cache-aside pattern, there exists a brief concurrent race window where a GET reads the DB, an update commits and invalidates the cache, and the earlier GET writes back the stale value. In this service, stale windows are strictly bounded by `REDIS_CACHE_TTL_SECONDS` (default: 300s, configurable down to 60s for high-velocity catalogs).
 ## 12. Main API Reference
 
 | Method | Endpoint | Description | Access / Role |
@@ -271,5 +297,4 @@ python scripts/benchmark_cache_latency.py --iterations 100
 | Supply-network optimization | Completed ($z \cdot \sigma \cdot \sqrt{L}$ with risk pooling) |
 | Forecast contract v1 | Completed (schema + adapter matching forecast output) |
 | Forecast Service HTTP wiring | Not started (contract-first by design) |
-| Full test suite | 162 passed, 13 skipped |
->>>>>>> origin/balaji/r12-13-inventoryServices
+| Full test suite | 192 passed, 13 skipped, 7 deselected |

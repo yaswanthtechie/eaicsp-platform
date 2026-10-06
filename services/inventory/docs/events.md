@@ -96,9 +96,9 @@ Published whenever inventory on hand drops below the calculated Reorder Point (R
 {
   "event_id": "b9c51ff8-45e0-40e1-95eb-3fa5bf237075",
   "event_type": "inventory.stock.low",
-  "source": "inventory-service",
-  "timestamp": "2026-09-30T12:00:00.000000Z",
-  "version": "1.0",
+  "producer": "inventory-service",
+  "occurred_at": "2026-09-30T12:00:00.000000Z",
+  "event_version": "1.0",
   "trace_id": "trace-8891-xyz",
   "payload": {
     "sku_id": "SKU-LOW-1",
@@ -140,9 +140,9 @@ Published whenever an automatic draft Purchase Order is generated in response to
 {
   "event_id": "d4a77e8a-2114-41d9-95a9-f5978daec532",
   "event_type": "inventory.po.drafted",
-  "source": "inventory-service",
-  "timestamp": "2026-09-30T12:05:00.000000Z",
-  "version": "1.0",
+  "producer": "inventory-service",
+  "occurred_at": "2026-09-30T12:05:00.000000Z",
+  "event_version": "1.0",
   "trace_id": null,
   "payload": {
     "po_id": "PO-20260930-001",

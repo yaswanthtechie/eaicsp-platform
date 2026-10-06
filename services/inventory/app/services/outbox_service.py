@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models.outbox import Outbox
 from app.schemas.events import EventEnvelope
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -57,11 +58,15 @@ def get_pending_events(
     db: Session,
     limit: int = 50,
 ) -> list[Outbox]:
-    """Retrieve pending or failed outbox events ordered by creation time."""
+    """
+    Pending and retryable events. New events (retry_count 0) come first,
+    so a pile of failing events can never starve them. DEAD events are
+    never picked up again.
+    """
     return (
         db.query(Outbox)
         .filter(Outbox.status.in_(["PENDING", "FAILED"]))
-        .order_by(Outbox.created_at.asc())
+        .order_by(Outbox.retry_count.asc(), Outbox.created_at.asc())
         .limit(limit)
         .all()
     )
@@ -84,10 +89,24 @@ def mark_failed(
     outbox_id: str,
     error: str,
 ) -> None:
-    """Mark an outbox event as failed and record the error."""
+    """Record a failed publish; dead-letter the event after too many tries."""
     entry = db.query(Outbox).filter(Outbox.id == outbox_id).first()
-    if entry:
+    if entry is None:
+        return
+
+    entry.retry_count += 1
+    entry.last_error = error[:2000]
+
+    if entry.retry_count >= settings.OUTBOX_MAX_RETRIES:
+        entry.status = "DEAD"
+        logger.error(
+            "Outbox event %s (%s) dead-lettered after %d attempts: %s",
+            entry.id,
+            entry.event_type,
+            entry.retry_count,
+            entry.last_error,
+        )
+    else:
         entry.status = "FAILED"
-        entry.retry_count += 1
-        entry.last_error = error
-        db.commit()
+
+    db.commit()

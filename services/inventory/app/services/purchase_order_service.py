@@ -399,55 +399,6 @@ def approve_purchase_order(
     return purchase_order
 
 
-def approve_purchase_order(
-    db: Session,
-    po_id: str,
-):
-    """
-    Approve a purchase order that requires
-    VP Operations approval.
-    """
-
-    purchase_order = (
-        db.query(PurchaseOrder)
-        .filter(
-            PurchaseOrder.po_id == po_id
-        )
-        .with_for_update()
-        .first()
-    )
-
-    if purchase_order is None:
-        raise LookupError(
-            "Purchase order not found"
-        )
-
-    if purchase_order.status != "draft":
-        raise ValueError(
-            "Only draft purchase orders can be approved"
-        )
-
-    if (
-        purchase_order.approval_status
-        != "pending_vp_approval"
-    ):
-        raise ValueError(
-            "Purchase order does not require VP Operations approval"
-        )
-
-    purchase_order.approval_status = "approved"
-
-    try:
-        db.commit()
-        db.refresh(purchase_order)
-
-    except Exception:
-        db.rollback()
-        raise
-
-    return purchase_order
-
-
 def receive_purchase_order(
     db: Session,
     po_id: str,

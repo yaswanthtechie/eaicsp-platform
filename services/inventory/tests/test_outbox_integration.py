@@ -1,9 +1,13 @@
 import json
 import uuid
 import pytest
+import time
+
+from app.core.config import settings
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
-
+from tests.fakes import InMemoryKafkaPublisher
+from tests.conftest import seed_sales_history
 from app.models.inventory import Inventory
 from app.models.supplier import Supplier
 from app.models.purchase_order import PurchaseOrder
@@ -61,12 +65,12 @@ def test_outbox_table_persists_envelope_structure(db_session):
 
     parsed_envelope = json.loads(saved.payload)
     assert parsed_envelope["event_type"] == "inventory.stock.low"
-    assert parsed_envelope["source"] == "inventory-service"
-    assert parsed_envelope["version"] == "1.0"
+    assert parsed_envelope["producer"] == "inventory-service"
+    assert parsed_envelope["event_version"] == "1.0"
     assert parsed_envelope["trace_id"] == "trace-test-123"
     assert parsed_envelope["payload"] == test_payload
     assert "event_id" in parsed_envelope
-    assert "timestamp" in parsed_envelope
+    assert "occurred_at" in parsed_envelope
 
 
 # ============================================================================
@@ -152,7 +156,7 @@ def test_po_drafted_event_emitted_atomically(db_session, mock_supplier):
 
     envelope = json.loads(outbox_event.payload)
     assert envelope["event_type"] == "inventory.po.drafted"
-    assert envelope["source"] == "inventory-service"
+    assert envelope["producer"] == "inventory-service"
     po_payload = envelope["payload"]
     assert po_payload["po_id"] == po.po_id
     assert po_payload["sku_id"] == "SKU-PO-DRAFT-1"
@@ -270,7 +274,7 @@ def test_failure_mode_kafka_downtime_and_recovery(db_session):
     assert failed_record.published_at is None
 
     # 3. Simulate Kafka RECOVERY
-    recovered_publisher = KafkaEventPublisher(mock_mode=True)
+    recovered_publisher = InMemoryKafkaPublisher()
     recovery_relay = OutboxRelay(publisher=recovered_publisher)
 
     published_count_2, failed_count_2 = recovery_relay.relay_pending_events(db=db_session)
@@ -314,7 +318,7 @@ def test_outbox_relay_fifo_ordering_and_idempotency(db_session):
         )
     db_session.commit()
 
-    publisher = KafkaEventPublisher(mock_mode=True)
+    publisher = InMemoryKafkaPublisher()
     relay = OutboxRelay(publisher=publisher)
 
     # First relay run
@@ -421,3 +425,168 @@ def test_api_update_inventory_low_stock_records_outbox(client, db_session):
     parsed = json.loads(outbox_entry.payload)
     assert parsed["payload"]["quantity_on_hand"] == 5
 
+def test_real_producer_raises_when_broker_unreachable_and_event_is_kept(db_session):
+    """
+    Uses the REAL KafkaEventPublisher (no fake) pointed at a dead port.
+    The event must stay in the outbox as FAILED, never PUBLISHED.
+    Needs no running Kafka. Takes about 5s (the flush timeout).
+    """
+    record_event(
+        db=db_session,
+        event_type="inventory.po.drafted",
+        aggregate_type="purchase_order",
+        aggregate_id="PO-DEAD-BROKER",
+        payload={"po_id": "PO-DEAD-BROKER"},
+    )
+    db_session.commit()
+
+    relay = OutboxRelay(publisher=KafkaEventPublisher(bootstrap_servers="localhost:1"))
+    published, failed = relay.relay_pending_events(db=db_session)
+
+    assert (published, failed) == (0, 1)
+
+    row = db_session.query(Outbox).one()
+    assert row.status == "FAILED"
+    assert row.published_at is None
+
+
+@pytest.mark.integration
+def test_outbox_relay_publishes_to_real_kafka(db_session):
+    """
+    End to end against the Kafka from docker-compose.dev.yml:
+    outbox row -> relay -> real broker -> a real consumer reads it back.
+    """
+    from confluent_kafka import Consumer
+
+    topic = "inventory.po.drafted"
+    po_id = f"PO-REAL-{uuid.uuid4().hex[:8]}"
+
+    record_event(
+        db=db_session,
+        event_type=topic,
+        aggregate_type="purchase_order",
+        aggregate_id=po_id,
+        payload={"po_id": po_id},
+    )
+    db_session.commit()
+
+    relay = OutboxRelay(publisher=KafkaEventPublisher())
+    published, failed = relay.relay_pending_events(db=db_session)
+    assert (published, failed) == (1, 0)
+
+    consumer = Consumer(
+        {
+            "bootstrap.servers": settings.KAFKA_BOOTSTRAP_SERVERS,
+            "group.id": f"inventory-test-{uuid.uuid4().hex}",
+            "auto.offset.reset": "earliest",
+        }
+    )
+    consumer.subscribe([topic])
+
+    try:
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            msg = consumer.poll(1.0)
+            if msg is None or msg.error():
+                continue
+            if msg.key() and msg.key().decode() == po_id:
+                envelope = json.loads(msg.value())
+                assert envelope["event_type"] == topic
+                assert envelope["producer"] == "inventory-service"
+                assert "occurred_at" in envelope
+                assert envelope["payload"]["po_id"] == po_id
+                break
+        else:
+            pytest.fail(f"{po_id} never arrived on topic {topic}")
+    finally:
+        consumer.close()
+
+
+def test_sale_below_reorder_point_records_stock_low(client, db_session):
+    seed_sales_history("SKU-SALE-LOW", "WH-1", daily_quantity=5)
+
+    client.post(
+        "/api/v1/inventory/",
+        json={
+            "sku_id": "SKU-SALE-LOW",
+            "product_name": "Sale Low Item",
+            "warehouse_id": "WH-1",
+            "quantity_on_hand": 200,
+            "lead_time_days": 4,
+            "safety_stock": 10,
+            "unit_cost": 5.0,
+        },
+    )
+
+    # Only look at events caused by the sale.
+    db_session.query(Outbox).delete()
+    db_session.commit()
+
+    resp = client.post(
+        "/api/v1/inventory/decrement",
+        params={"sku_id": "SKU-SALE-LOW", "warehouse_id": "WH-1", "quantity": 195},
+    )
+    assert resp.status_code == 200
+
+    events = (
+        db_session.query(Outbox)
+        .filter(
+            Outbox.event_type == "inventory.stock.low",
+            Outbox.aggregate_id == "SKU-SALE-LOW:WH-1",
+        )
+        .all()
+    )
+    assert len(events) == 1
+    assert json.loads(events[0].payload)["payload"]["quantity_on_hand"] == 5
+
+
+def test_event_is_dead_lettered_after_max_retries(db_session, monkeypatch):
+    monkeypatch.setattr(settings, "OUTBOX_MAX_RETRIES", 3)
+
+    entry = record_event(
+        db=db_session,
+        event_type="inventory.stock.low",
+        aggregate_type="inventory",
+        aggregate_id="POISON",
+        payload={"k": 1},
+    )
+    db_session.commit()
+
+    relay = OutboxRelay(
+        publisher=InMemoryKafkaPublisher(fail_with=KafkaPublishError("message too large"))
+    )
+    for _ in range(3):
+        relay.relay_pending_events(db=db_session)
+
+    db_session.refresh(entry)
+    assert entry.status == "DEAD"
+    assert entry.retry_count == 3
+    assert get_pending_events(db_session) == []
+
+
+def test_failing_events_do_not_starve_new_events(db_session):
+    for i in range(3):
+        record_event(
+            db=db_session,
+            event_type="inventory.stock.low",
+            aggregate_type="inventory",
+            aggregate_id=f"OLD-{i}",
+            payload={"i": i},
+        )
+    db_session.commit()
+
+    for row in db_session.query(Outbox).all():
+        row.status = "FAILED"
+        row.retry_count = 1
+    db_session.commit()
+
+    record_event(
+        db=db_session,
+        event_type="inventory.stock.low",
+        aggregate_type="inventory",
+        aggregate_id="NEW",
+        payload={"new": True},
+    )
+    db_session.commit()
+
+    assert get_pending_events(db_session, limit=1)[0].aggregate_id == "NEW"
