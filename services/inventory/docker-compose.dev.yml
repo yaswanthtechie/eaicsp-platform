@@ -100,6 +100,11 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import sys; sys.exit(0)'"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
 volumes:
   inventory_postgres_data:

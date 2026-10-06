@@ -590,3 +590,191 @@ def test_failing_events_do_not_starve_new_events(db_session):
     db_session.commit()
 
     assert get_pending_events(db_session, limit=1)[0].aggregate_id == "NEW"
+
+
+def test_broker_outage_never_dead_letters_events(db_session, monkeypatch):
+    """
+    Verify that broker downtime (even for dozens of retry cycles beyond OUTBOX_MAX_RETRIES)
+    keeps events in FAILED status and NEVER permanently dead-letters them as DEAD.
+    When Kafka recovers, the event is successfully published.
+    """
+    from app.services.kafka_producer import KafkaBrokerError
+
+    monkeypatch.setattr(settings, "OUTBOX_MAX_RETRIES", 3)
+
+    entry = record_event(
+        db=db_session,
+        event_type="inventory.stock.low",
+        aggregate_type="inventory",
+        aggregate_id="SKU-OUTAGE-TEST",
+        payload={"sku_id": "SKU-OUTAGE-TEST"},
+    )
+    db_session.commit()
+
+    down_relay = OutboxRelay(
+        publisher=InMemoryKafkaPublisher(fail_with=KafkaBrokerError("broker connection refused")),
+        circuit_cooldown_seconds=0.0,  # instant reset for test loop
+    )
+
+    # Simulate 6 consecutive poll failures during a prolonged broker outage
+    for _ in range(6):
+        down_relay.relay_pending_events(db=db_session)
+
+    db_session.refresh(entry)
+    # MUST stay FAILED, NEVER DEAD
+    assert entry.status == "FAILED"
+    assert entry.published_at is None
+    assert "broker connection refused" in entry.last_error
+    assert len(get_pending_events(db_session)) == 1
+
+    # Simulate broker recovery
+    recovered_publisher = InMemoryKafkaPublisher()
+    recovery_relay = OutboxRelay(publisher=recovered_publisher)
+    pub, fail = recovery_relay.relay_pending_events(db=db_session)
+
+    assert pub == 1
+    assert fail == 0
+    db_session.refresh(entry)
+    assert entry.status == "PUBLISHED"
+    assert entry.published_at is not None
+
+
+def test_circuit_breaker_stops_batch_on_broker_outage(db_session):
+    """
+    Verify that when Kafka is down, the relay trips the circuit breaker on the first
+    failed message and stops processing the rest of the batch, preventing 5s timeouts
+    on each pending message.
+    """
+    from app.services.kafka_producer import KafkaBrokerError
+
+    for i in range(5):
+        record_event(
+            db=db_session,
+            event_type="inventory.stock.low",
+            aggregate_type="inventory",
+            aggregate_id=f"SKU-CB-{i}",
+            payload={"i": i},
+        )
+    db_session.commit()
+
+    broker_down_publisher = InMemoryKafkaPublisher(fail_with=KafkaBrokerError("broker unreachable"))
+    relay = OutboxRelay(publisher=broker_down_publisher, circuit_cooldown_seconds=30.0)
+
+    pub, fail = relay.relay_pending_events(db=db_session, batch_size=5)
+
+    # Exactly 1 failure attempted before circuit breaker tripped and broke out of loop
+    assert pub == 0
+    assert fail == 1
+    assert relay.is_circuit_open is True
+
+    # Immediate next run skips while circuit breaker is open
+    pub2, fail2 = relay.relay_pending_events(db=db_session, batch_size=5)
+    assert pub2 == 0
+    assert fail2 == 0
+
+
+def test_low_stock_event_deduplication_on_repeated_decrements(client, db_session):
+    """
+    Verify that low-stock events fire ONLY when stock drops below the reorder point,
+    not repeatedly on subsequent decrements while already below.
+    """
+    seed_sales_history("SKU-DEDUP-LOW", "WH-1", daily_quantity=5)
+
+    client.post(
+        "/api/v1/inventory/",
+        json={
+            "sku_id": "SKU-DEDUP-LOW",
+            "product_name": "Dedup Low Item",
+            "warehouse_id": "WH-1",
+            "quantity_on_hand": 100,
+            "lead_time_days": 4,
+            "safety_stock": 10,
+            "unit_cost": 5.0,
+        },
+    )
+
+    db_session.query(Outbox).delete()
+    db_session.commit()
+
+    # Decrement 1: Drops below ROP (from 100 to 15) -> emits event
+    resp1 = client.post(
+        "/api/v1/inventory/decrement",
+        params={"sku_id": "SKU-DEDUP-LOW", "warehouse_id": "WH-1", "quantity": 85},
+    )
+    assert resp1.status_code == 200
+
+    events = (
+        db_session.query(Outbox)
+        .filter(
+            Outbox.event_type == "inventory.stock.low",
+            Outbox.aggregate_id == "SKU-DEDUP-LOW:WH-1",
+        )
+        .all()
+    )
+    assert len(events) == 1
+
+    # Decrement 2: Already below ROP (from 15 to 10) -> MUST NOT emit duplicate event
+    resp2 = client.post(
+        "/api/v1/inventory/decrement",
+        params={"sku_id": "SKU-DEDUP-LOW", "warehouse_id": "WH-1", "quantity": 5},
+    )
+    assert resp2.status_code == 200
+
+    events_after = (
+        db_session.query(Outbox)
+        .filter(
+            Outbox.event_type == "inventory.stock.low",
+            Outbox.aggregate_id == "SKU-DEDUP-LOW:WH-1",
+        )
+        .all()
+    )
+    assert len(events_after) == 1, "Duplicate low-stock event was emitted on repeat decrement"
+
+
+def test_cache_aside_race_protection():
+    """
+    Verify that optimistic version gating prevents stale cache writes.
+    """
+    from app.services.cache_service import (
+        set_cached_inventory,
+        get_cached_inventory,
+        invalidate_inventory_cache,
+        get_all_inventory_generation,
+        set_cached_all_inventory,
+        get_cached_all_inventory,
+    )
+
+    sku = "SKU-RACE-TEST"
+    wh = "WH-1"
+
+    # Simulate an update committing version 2 and invalidating cache
+    invalidate_inventory_cache(sku_id=sku, warehouse_id=wh, version=2)
+
+    # Concurrent stale read trying to write version 1 must be REJECTED
+    stale_write_accepted = set_cached_inventory(
+        sku_id=sku,
+        warehouse_id=wh,
+        data={"sku_id": sku, "version": 1, "quantity_on_hand": 10},
+    )
+    assert stale_write_accepted is False
+    assert get_cached_inventory(sku, wh) is None
+
+    # Up-to-date read writing version 2 is ACCEPTED
+    fresh_write_accepted = set_cached_inventory(
+        sku_id=sku,
+        warehouse_id=wh,
+        data={"sku_id": sku, "version": 2, "quantity_on_hand": 5},
+    )
+    assert fresh_write_accepted is True
+    cached = get_cached_inventory(sku, wh)
+    assert cached is not None
+    assert cached["quantity_on_hand"] == 5
+
+    # Test all-inventory collection generation check
+    gen_at_read = get_all_inventory_generation()
+    # Invalidate collection
+    invalidate_inventory_cache()
+    # Stale write with older generation must be REJECTED
+    stale_all_accepted = set_cached_all_inventory([{"sku_id": sku}], generation=gen_at_read)
+    assert stale_all_accepted is False
+

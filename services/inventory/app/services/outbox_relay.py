@@ -1,7 +1,13 @@
 import logging
+import time
+from typing import Optional
 from sqlalchemy.orm import Session
 
-from app.services.kafka_producer import KafkaEventPublisher, KafkaPublishError
+from app.services.kafka_producer import (
+    KafkaEventPublisher,
+    KafkaPublishError,
+    is_broker_error,
+)
 from app.services.outbox_service import (
     get_pending_events,
     mark_failed,
@@ -16,10 +22,33 @@ class OutboxRelay:
     Transactional Outbox Relay Worker.
     Polls the outbox table for pending events and delivers them to Kafka.
     Guarantees at-least-once delivery without losing events during Kafka downtime.
+
+    Includes a Circuit Breaker:
+    When a broker outage or connection timeout is encountered, the circuit breaker
+    trips immediately, stopping the batch loop so that 50 pending events do not each
+    wait for a 5-second timeout (preventing the 250s cycle delay).
     """
 
-    def __init__(self, publisher: KafkaEventPublisher):
+    def __init__(
+        self,
+        publisher: KafkaEventPublisher,
+        circuit_cooldown_seconds: float = 10.0,
+    ):
         self.publisher = publisher
+        self.circuit_cooldown_seconds = circuit_cooldown_seconds
+        self._circuit_open_until: float = 0.0
+
+    @property
+    def is_circuit_open(self) -> bool:
+        return time.monotonic() < self._circuit_open_until
+
+    def trip_circuit_breaker(self, cooldown: Optional[float] = None) -> None:
+        duration = cooldown if cooldown is not None else self.circuit_cooldown_seconds
+        self._circuit_open_until = time.monotonic() + duration
+        logger.warning(
+            "Broker outage detected; circuit breaker tripped for %.1fs to protect broker and avoid poll timeouts",
+            duration,
+        )
 
     def relay_pending_events(
         self,
@@ -32,6 +61,10 @@ class OutboxRelay:
         Returns:
             tuple[int, int]: (published_count, failed_count)
         """
+        if self.is_circuit_open:
+            logger.debug("Relay skipped: circuit breaker is open")
+            return 0, 0
+
         pending = get_pending_events(db=db, limit=batch_size)
         published_count = 0
         failed_count = 0
@@ -52,15 +85,34 @@ class OutboxRelay:
                     event.event_type,
                 )
 
-            except (KafkaPublishError, Exception) as exc:
+            except Exception as exc:
                 failed_count += 1
                 error_msg = str(exc)
-                mark_failed(db=db, outbox_id=event.id, error=error_msg)
-                logger.error(
-                    "Outbox event %s failed to publish (will retry later): %s",
-                    event.id,
-                    error_msg,
+                broker_err = is_broker_error(exc)
+
+                mark_failed(
+                    db=db,
+                    outbox_id=event.id,
+                    error=error_msg,
+                    is_broker_error=broker_err,
                 )
+
+                if broker_err:
+                    # Circuit breaker: broker is unreachable / timed out.
+                    # Stop processing remainder of batch immediately so we don't spend 5s * 50 per cycle.
+                    logger.error(
+                        "Broker outage while publishing event %s: %s. Tripping circuit breaker.",
+                        event.id,
+                        error_msg,
+                    )
+                    self.trip_circuit_breaker()
+                    break
+                else:
+                    logger.error(
+                        "Outbox event %s failed to publish due to event defect: %s",
+                        event.id,
+                        error_msg,
+                    )
 
         return published_count, failed_count
 

@@ -53,7 +53,7 @@ The **Inventory Service** utilizes the **Transactional Outbox Pattern** to publi
 1. **Atomic Dual-Write**: If a transaction aborts or rolls back in the database, the outbox record is rolled back simultaneously. No phantom event will ever be published.
 2. **Kafka Outage Resilience**: If Kafka is unreachable, events remain securely persisted in the PostgreSQL `outbox` table (marked as `FAILED` with retry metadata). When Kafka recovers, the `OutboxRelay` delivers all pending events.
 3. **Delivery Semantics**: **At-Least-Once Delivery**. Downstream consumers should be idempotent, utilizing the `event_id` in the envelope for deduplication.
-4. **Ordering**: Events for the same aggregate partition on the aggregate key and are published in FIFO order.
+4. **Ordering & Priority**: Events for the same aggregate partition on the aggregate key and are published in best-effort FIFO order. To prevent poison-pill events from starving newly queued events, pending events (`retry_count == 0`) take priority over retried events (`retry_count > 0`). Downstream consumers that require strict monotonic ordering across transient retry sequences should rely on the payload version or envelope `occurred_at` timestamp.
 
 ---
 

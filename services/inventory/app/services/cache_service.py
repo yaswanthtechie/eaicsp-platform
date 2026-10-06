@@ -149,15 +149,29 @@ class InventoryCache:
 cache = InventoryCache()
 
 
-# ----------------------------------------------------------------------------
-# High-Level Inventory Domain Helpers
-# ----------------------------------------------------------------------------
+import threading
+import time
+
 
 def make_item_key(sku_id: str, warehouse_id: str) -> str:
     return f"inventory:item:{sku_id}:{warehouse_id}"
 
 
+def make_version_key(sku_id: str, warehouse_id: str) -> str:
+    return f"inventory:min_ver:{sku_id}:{warehouse_id}"
+
+
 ALL_ITEMS_KEY = "inventory:all"
+ALL_ITEMS_GEN_KEY = "inventory:all:gen"
+
+
+def get_all_inventory_generation() -> int:
+    """Return the current generation counter for the all-inventory collection."""
+    try:
+        raw = cache.get(ALL_ITEMS_GEN_KEY)
+        return int(raw) if raw is not None else 0
+    except Exception:
+        return 0
 
 
 def get_cached_inventory(sku_id: str, warehouse_id: str) -> Optional[dict]:
@@ -175,13 +189,40 @@ def set_cached_inventory(
     warehouse_id: str,
     data: dict,
     ttl: Optional[int] = None,
-) -> None:
-    """Store inventory response payload in cache."""
+) -> bool:
+    """
+    Store inventory response payload in cache with optimistic concurrency protection.
+    Prevents cache-aside race conditions where a concurrent read writes a stale value
+    after an update committed and deleted the key.
+    """
     try:
+        version_key = make_version_key(sku_id, warehouse_id)
+        item_version = data.get("version")
+        if item_version is not None:
+            min_ver = cache.get(version_key)
+            if min_ver is not None and int(item_version) < int(min_ver):
+                logger.debug(
+                    "Rejected stale cache write for %s:%s (version %s < min_version %s)",
+                    sku_id,
+                    warehouse_id,
+                    item_version,
+                    min_ver,
+                )
+                return False
+
         key = make_item_key(sku_id, warehouse_id)
+        # Also prevent overwriting if existing cached value is newer
+        existing = cache.get(key)
+        if existing and item_version is not None:
+            existing_ver = existing.get("version")
+            if existing_ver is not None and int(existing_ver) > int(item_version):
+                return False
+
         cache.set(key, data, ttl=ttl)
+        return True
     except Exception as exc:
         logger.debug("Failed to set cached inventory: %s", exc)
+        return False
 
 
 def get_cached_all_inventory() -> Optional[list[dict]]:
@@ -196,17 +237,35 @@ def get_cached_all_inventory() -> Optional[list[dict]]:
 def set_cached_all_inventory(
     data: list[dict],
     ttl: Optional[int] = None,
-) -> None:
-    """Store full inventory list in cache."""
+    generation: Optional[int] = None,
+) -> bool:
+    """
+    Store full inventory list in cache.
+    If generation is provided, ensures no concurrent update invalidated the
+    collection while the list was being fetched from the database.
+    """
     try:
+        if generation is not None:
+            current_gen = get_all_inventory_generation()
+            if current_gen != generation:
+                logger.debug(
+                    "Rejected stale all-inventory cache write (generation %s != %s)",
+                    generation,
+                    current_gen,
+                )
+                return False
+
         cache.set(ALL_ITEMS_KEY, data, ttl=ttl)
+        return True
     except Exception as exc:
         logger.debug("Failed to set cached all inventory: %s", exc)
+        return False
 
 
 def invalidate_inventory_cache(
     sku_id: Optional[str] = None,
     warehouse_id: Optional[str] = None,
+    version: Optional[int] = None,
 ) -> None:
     """
     Invalidate inventory cache upon mutation.
@@ -214,17 +273,42 @@ def invalidate_inventory_cache(
     Rules:
     - If sku_id and warehouse_id are provided:
       1. Invalidate single-item cache: 'inventory:item:{sku_id}:{warehouse_id}'
-      2. Invalidate collection cache: 'inventory:all'
+      2. Record min_version fence to reject race-condition writes of older versions
+      3. Invalidate collection cache: 'inventory:all' and increment generation counter
+      4. Trigger delayed second delete to clean up any in-flight reads (delayed double-delete)
     - If not provided (bulk mutations / upload / widespread changes):
       Invalidate all 'inventory:*' keys.
     """
     try:
         # Any write invalidates the global collection
         cache.delete(ALL_ITEMS_KEY)
+        curr_gen = get_all_inventory_generation()
+        cache.set(ALL_ITEMS_GEN_KEY, curr_gen + 1, ttl=300)
 
         if sku_id and warehouse_id:
-            cache.delete(make_item_key(sku_id, warehouse_id))
+            item_key = make_item_key(sku_id, warehouse_id)
+            cache.delete(item_key)
+
+            # Update version fence
+            version_key = make_version_key(sku_id, warehouse_id)
+            if version is not None:
+                cache.set(version_key, version, ttl=300)
+            else:
+                curr_min = cache.get(version_key)
+                cache.set(version_key, (int(curr_min) if curr_min else 0) + 1, ttl=300)
+
             logger.debug("Invalidated cache for %s:%s and collection", sku_id, warehouse_id)
+
+            # Delayed double-delete to eliminate concurrent read-write race window
+            def _delayed_delete():
+                time.sleep(0.2)
+                try:
+                    cache.delete(item_key)
+                    cache.delete(ALL_ITEMS_KEY)
+                except Exception:
+                    pass
+
+            threading.Thread(target=_delayed_delete, daemon=True).start()
         else:
             cache.delete_pattern("inventory:*")
             logger.debug("Invalidated all inventory cache keys")

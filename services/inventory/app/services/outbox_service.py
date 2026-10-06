@@ -88,8 +88,19 @@ def mark_failed(
     db: Session,
     outbox_id: str,
     error: str,
+    is_broker_error: bool = False,
 ) -> None:
-    """Record a failed publish; dead-letter the event after too many tries."""
+    """
+    Record a failed publish.
+
+    Correctness guarantees:
+    - Broker outages NEVER dead-letter events. An event must remain FAILED (retryable)
+      as long as the failure is due to broker downtime or network issues, no matter
+      how many polls or seconds the outage lasts (satisfies docs/events.md:54).
+    - The retry cap (OUTBOX_MAX_RETRIES) applies ONLY to failures caused by the event
+      itself (poison pills, oversized payloads, invalid schema). Such events become DEAD
+      after max retries so they do not block subsequent traffic.
+    """
     entry = db.query(Outbox).filter(Outbox.id == outbox_id).first()
     if entry is None:
         return
@@ -97,7 +108,7 @@ def mark_failed(
     entry.retry_count += 1
     entry.last_error = error[:2000]
 
-    if entry.retry_count >= settings.OUTBOX_MAX_RETRIES:
+    if not is_broker_error and entry.retry_count >= settings.OUTBOX_MAX_RETRIES:
         entry.status = "DEAD"
         logger.error(
             "Outbox event %s (%s) dead-lettered after %d attempts: %s",

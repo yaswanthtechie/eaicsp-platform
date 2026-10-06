@@ -81,6 +81,7 @@ from app.services.cache_service import (
     set_cached_inventory,
     get_cached_all_inventory,
     set_cached_all_inventory,
+    get_all_inventory_generation,
     invalidate_inventory_cache,
 )
 
@@ -155,6 +156,7 @@ def get_all_inventory_route(
     if cached is not None:
         return cached
 
+    read_gen = get_all_inventory_generation()
     items = get_all_inventory(db)
     result = [
         inventory_response(
@@ -163,7 +165,7 @@ def get_all_inventory_route(
         )
         for item in items
     ]
-    set_cached_all_inventory(result)
+    set_cached_all_inventory(result, generation=read_gen)
     return result
 
 
@@ -523,14 +525,15 @@ def decrement_inventory_route(
                 uncosted_quantity,
             )
 
+        old_quantity = item.quantity_on_hand
         item.quantity_on_hand -= quantity
 
         # Same transaction as the stock change: both commit, or neither does.
-        check_and_record_low_stock(db=db, item=item)
+        check_and_record_low_stock(db=db, item=item, previous_quantity=old_quantity)
 
         db.commit()
         db.refresh(item)
-        invalidate_inventory_cache(sku_id, warehouse_id)
+        invalidate_inventory_cache(sku_id, warehouse_id, version=item.version)
 
         # -----------------------------------------------------
         # MILESTONE 2:
