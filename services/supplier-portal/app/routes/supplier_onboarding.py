@@ -44,7 +44,6 @@ from app.services.supplier_onboarding_service import (
 
 from app.services.document_storage_service import (
     DocumentStorageError,
-    DocumentUploadError,
     document_storage_service,
 )
 
@@ -243,7 +242,9 @@ def upload_document_endpoint(
     )
 
     actor_id, actor_name, _ = get_actor_details(user)
-
+    
+    # DocumentStorageError covers DocumentUploadError AND failures before
+    # the upload starts (e.g. ensure_bucket() when MinIO is unreachable).
     try:
         return upload_supplier_document(
             supplier_id=supplier_id,
@@ -252,8 +253,8 @@ def upload_document_endpoint(
             actor_id=actor_id,
             actor_name=actor_name,
         )
-
-    except DocumentUploadError as exc:
+    
+    except DocumentStorageError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Document storage is unavailable.",

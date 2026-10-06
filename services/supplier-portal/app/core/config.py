@@ -36,8 +36,10 @@ class Settings(BaseSettings):
 
     # MinIO Object Storage
     MINIO_ENDPOINT: str = "127.0.0.1:9000"
-    MINIO_ACCESS_KEY: str = "minioadmin"
-    MINIO_SECRET_KEY: str = "minioadmin"
+    # REQUIRED, no default: the app must refuse to start without them,
+    # never fall back to MinIO's well-known factory credentials.
+    MINIO_ACCESS_KEY: str
+    MINIO_SECRET_KEY: str
     MINIO_BUCKET: str = "supplier-documents"
     MINIO_SECURE: bool = False
     MINIO_PRESIGNED_EXPIRY_SECONDS: int = 300

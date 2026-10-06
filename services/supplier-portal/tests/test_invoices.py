@@ -30,6 +30,7 @@ from app.services.supplier_onboarding_service import (
     suppliers,
     SupplierOnboardingStatus,
 )
+from urllib3.exceptions import MaxRetryError
 
 client = TestClient(app)
 
@@ -6283,3 +6284,38 @@ def test_invoice_document_download_presign_failure_returns_502():
     mock_download.assert_called_once_with(
         object_key=object_key,
     )
+
+def test_invoice_upload_returns_502_when_minio_is_unreachable(
+    fake_minio,
+    monkeypatch,
+):
+    create_received_po()
+
+    response = create_sample_invoice(
+        invoice_number="INV9601",
+    )
+    assert response.status_code == 201, response.text
+
+    authenticate_as(SUPPLIER_1_USER)
+
+    def minio_unreachable(bucket_name):
+        # What the real client raises when MinIO is down.
+        raise MaxRetryError(None, "/supplier-documents", reason=None)
+
+    monkeypatch.setattr(fake_minio, "bucket_exists", minio_unreachable)
+
+    response = client.post(
+        "/api/v1/invoices/SUP001/INV9601/document",
+        files={
+            "file": (
+                "invoice.pdf",
+                valid_pdf(),
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 502, response.text
+
+    # Nothing was registered for a document that was never stored.
+    assert invoices[("SUP001", "INV9601")].get("document_path") is None

@@ -25,12 +25,6 @@ from app.services.document_storage_service import (
     document_storage_service,
 )
 
-from app.main import app
-from app.core.auth import verify_token
-from app.services.document_storage_service import (
-    document_storage_service,
-)
-
 
 class FakeMinioClient:
     """

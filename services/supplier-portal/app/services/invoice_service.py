@@ -1620,6 +1620,7 @@ def get_invoice_document(
     # ---------------------------------------------------------
 
     return document_path
+
 def find_orphaned_invoice_files(
     older_than_days: int = 1,
 ):
@@ -1696,11 +1697,9 @@ def find_orphaned_invoice_files(
             )
         )
 
-    except DocumentStorageError as exc:
-        raise ValueError(
-            "Unable to scan invoice documents "
-            "in MinIO."
-        ) from exc
+    except DocumentStorageError:
+        # Storage outage, not a bad request: the route maps it to 502.
+        raise
 
     # =========================================================
     # 3. Inspect every MinIO object

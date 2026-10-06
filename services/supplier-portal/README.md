@@ -75,35 +75,203 @@ Invoice PDFs and supplier onboarding documents are stored in **MinIO**, an S3-co
 ---
 ## Round 12–13 Status
 
-- Milestone 1: done in #152 (supersedes #128)
-- Milestone 2: MinIO storage + supplier-scoped presigned URLs: done
-- Milestone 3: GraphQL queries, cursor pagination, acknowledge mutation: done
-- Not done / known gaps: cursors are list indexes over in-memory data (they shift if records are added); business data is still in-memory.
+- **Milestone 1:** Done in #152 (supersedes #128)
+- **Milestone 2:** MinIO document storage with supplier-scoped presigned download URLs: **Done**
+- **Milestone 3:** GraphQL queries, cursor pagination, acknowledge-PO mutation, and resolver-level supplier scoping: **Done**
+- **Known gaps:** GraphQL cursors currently represent list indexes over in-memory data, so cursor positions can change when records are added or removed. Business data is also still stored in application memory and is not durable across application restarts.
 
 ## Running Locally
 
+Create the local environment file:
+
 ```bash
 cp .env.example .env
-# then set real MinIO credentials
-
-docker compose -f docker-compose.dev.yml up -d --build
-# starts MinIO on :9000 (console :9001)
-
-python -m pytest -m "not integration" -q
-# unit tests, no Docker needed
-
-python -mpytest -m integration -q
-# needs MinIO running
 ```
-## How I Wired MinIO with Docker in r(12,13)
 
-MinIO is used as the S3-compatible object storage for supplier onboarding documents and invoice PDFs, running locally in the existing supplier-portal-minio Docker container.
+Set valid MinIO credentials in `.env`:
 
-Before running MinIO-dependent tests, ensure Docker Desktop is running, then verify Docker with docker info and check the MinIO container with docker ps -a.
+```text
+MINIO_ACCESS_KEY=<your-minio-access-key>
+MINIO_SECRET_KEY=<your-minio-secret-key>
+```
 
-If supplier-portal-minio is stopped, start it with docker start supplier-portal-minio and verify that docker ps shows the container as Up with ports 9000-9001.
+Start the development dependencies:
 
-Keep Docker Desktop and MinIO running for the complete test suite and run python -m pytest -q from services/supplier-portal; tests that do not access MinIO can run without Docker.
+```bash
+docker compose -f docker-compose.dev.yml up -d --build
+```
+
+This starts MinIO for local document-storage testing:
+
+```text
+MinIO API:     http://127.0.0.1:9000
+MinIO Console: http://127.0.0.1:9001
+```
+
+Run the normal test suite without integration tests:
+
+```bash
+python -m pytest -m "not integration" -q
+```
+
+This runs the unit/API tests that do not require Docker-backed MinIO infrastructure.
+
+Run the MinIO integration tests:
+
+```bash
+python -m pytest -m integration -q
+```
+
+Integration tests require Docker Desktop and a running MinIO instance.
+
+To run the complete test suite:
+
+```bash
+python -m pytest -q
+```
+
+The default pytest configuration excludes integration tests, so the normal suite does not require MinIO.
+
+## How I Wired MinIO with Docker in R12–R13
+
+Round 12 introduced MinIO as the S3-compatible object-storage service for:
+
+- Supplier onboarding documents
+- Invoice PDF documents
+
+For local development and integration testing, MinIO runs in Docker through the existing:
+
+```text
+docker-compose.dev.yml
+```
+
+The application connects to MinIO using the configuration from `.env`:
+
+```text
+MINIO_ENDPOINT=127.0.0.1:9000
+MINIO_ACCESS_KEY=<configured-value>
+MINIO_SECRET_KEY=<configured-value>
+MINIO_BUCKET=supplier-documents
+MINIO_SECURE=false
+MINIO_PRESIGNED_EXPIRY_SECONDS=300
+```
+
+### Starting MinIO
+
+Make sure Docker Desktop is running, then start the development stack:
+
+```bash
+docker compose -f docker-compose.dev.yml up -d --build
+```
+
+Verify that the containers are running:
+
+```bash
+docker ps
+```
+
+The MinIO container should be running with ports:
+
+```text
+9000 → MinIO S3 API
+9001 → MinIO Console
+```
+
+If the MinIO container already exists but is stopped, it can be started with:
+
+```bash
+docker start supplier-portal-minio
+```
+
+Then verify:
+
+```bash
+docker ps
+```
+
+The container should show an `Up` status.
+
+### MinIO Document Flow
+
+The Supplier Portal does not expose MinIO objects through permanent public URLs.
+
+Document uploads follow:
+
+```text
+Supplier Portal
+      ↓
+Validate Document
+      ↓
+Validate Supplier Ownership
+      ↓
+Upload Object to MinIO
+      ↓
+Store Object Reference
+```
+
+Document downloads follow:
+
+```text
+Authenticated Request
+      ↓
+Find Document
+      ↓
+Validate Supplier Ownership
+      ↓
+Check MinIO Object
+      ↓
+Generate Short-Lived Presigned URL
+      ↓
+Client Downloads From MinIO
+```
+
+Supplier ownership is checked **before** a presigned URL is generated.
+
+Therefore:
+
+```text
+Supplier A requests Supplier B document
+        ↓
+Supplier ownership check
+        ↓
+403 Forbidden
+        ↓
+No presigned URL generated
+```
+
+If MinIO is unavailable during an upload or download operation, the storage failure is treated as a dependency failure rather than a client validation error.
+
+### Testing MinIO Integration
+
+For MinIO-dependent tests, keep Docker Desktop and MinIO running.
+
+Run only the integration tests:
+
+```bash
+python -m pytest -m integration -q
+```
+
+Run the normal non-integration suite:
+
+```bash
+python -m pytest -m "not integration" -q
+```
+
+Or run the complete suite:
+
+```bash
+python -m pytest -q
+```
+
+The pytest configuration marks MinIO-dependent tests with:
+
+```text
+integration
+```
+
+and excludes them from the default test run.
+
+This keeps the normal test suite independent of Docker while still providing dedicated integration coverage for MinIO-backed document storage.
 
 ## How I Wired Business-Logic Integration (Supplier Portal to Compliance)
 
@@ -11187,288 +11355,6 @@ The Rounds 9–11 implementation extended the Supplier Portal with business-logi
 The previously completed R9–11 functionality remains implemented and tested.
 
 [Existing R9–11 Task 1–6 sections remain unchanged.]
-
-
-# Round 12 — Milestone 2 Completion Status
-
-## Milestone 2 — MinIO Document Storage
-
-Status:
-
-```text
-Complete
-```
-
-Round 12 moves invoice PDFs and supplier onboarding documents from local filesystem storage to MinIO.
-
-Implemented capabilities include:
-
-```text
-MinIO object storage
-Invoice PDF object storage
-Supplier onboarding document object storage
-Supplier-scoped object references
-Object existence validation
-Short-lived presigned download URLs
-Supplier ownership validation before URL generation
-Cross-supplier document rejection
-MinIO failure handling
-```
-
-The document architecture is:
-
-```text
-Supplier Portal
-      ↓
-Document Validation
-      ↓
-Supplier Ownership
-      ↓
-MinIO
-      ↓
-Object Storage
-```
-
-Downloads use:
-
-```text
-Authenticated Request
-      ↓
-Ownership Validation
-      ↓
-Object Lookup
-      ↓
-Short-Lived Presigned URL
-```
-
-The key security requirement is:
-
-```text
-Supplier A must never receive a presigned URL
-for Supplier B's document.
-```
-
-This is enforced before URL generation.
-
-### Round 12 Test Coverage
-
-Dedicated document-storage tests include:
-
-```text
-Invoice document download tests
-Document storage service tests
-MinIO integration tests
-Supplier document download tests
-Cross-supplier document access tests
-Missing-object tests
-MinIO failure tests
-Presigned URL tests
-```
-
-Verified test counts include:
-
-```text
-tests/test_invoice_document_download.py
-17 passed
-
-tests/test_document_storage_service.py
-28 passed
-
-tests/integration/test_minio_document_storage.py
-10 passed
-
-tests/test_supplier_document_download.py
-11 passed
-```
-
-
-# Round 13 — Milestone 3 Completion Status
-
-## Milestone 3 — GraphQL API
-
-Status:
-
-```text
-Complete
-```
-
-The Supplier Portal now provides a Strawberry GraphQL endpoint:
-
-```http
-POST /graphql
-```
-
-The GraphQL API supports:
-
-```text
-Purchase Order queries
-Invoice queries
-Document queries
-Acknowledge Purchase Order mutation
-Cursor pagination
-Supplier-level resolver authorization
-```
-
-GraphQL is implemented using:
-
-```text
-Strawberry
-FastAPI
-Existing Supplier Portal service layer
-Platform Service authentication
-```
-
-The architecture is:
-
-```text
-Apollo Client
-      ↓
-GraphQL /graphql
-      ↓
-GraphQL Context
-      ↓
-Authenticated User
-      ↓
-Resolver
-      ↓
-Supplier Scope Check
-      ↓
-Existing Service
-      ↓
-GraphQL Type
-```
-
-### GraphQL Supplier Scoping
-
-Supplier authorization is implemented inside the GraphQL resolvers.
-
-For example:
-
-```text
-Supplier A
-      ↓
-Query Supplier B PO
-      ↓
-Resolver checks supplier_id
-      ↓
-Mismatch
-      ↓
-null
-```
-
-Collection queries filter supplier data before pagination:
-
-```text
-All POs
-  ↓
-Supplier authorization filter
-  ↓
-Authorized POs
-  ↓
-Cursor pagination
-  ↓
-GraphQL response
-```
-
-This prevents unauthorized records from appearing through pagination.
-
-### GraphQL Cursor Pagination
-
-Collection queries support:
-
-```text
-first
-after
-```
-
-and return:
-
-```text
-edges
-pageInfo
-```
-
-with:
-
-```text
-hasNextPage
-endCursor
-```
-
-The requested page size is bounded to prevent unbounded collection retrieval.
-
-### Acknowledge-PO Mutation
-
-The acknowledge mutation:
-
-```text
-Receives PO identifier
-        ↓
-Authenticates user
-        ↓
-Finds PO
-        ↓
-Checks supplier ownership
-        ↓
-Calls existing acknowledgement service
-        ↓
-Returns updated GraphQL PO
-```
-
-A supplier cannot acknowledge another supplier's PO.
-
-### Round 13 Test Coverage
-
-The dedicated GraphQL test suite contains:
-
-```text
-48 passed
-```
-
-Coverage includes:
-
-```text
-GraphQL authentication
-Purchase Order queries
-Purchase Order collections
-Invoice queries
-Invoice collections
-Document queries
-Cursor pagination
-Invalid cursor handling
-Acknowledge-PO mutation
-Supplier authorization
-Cross-supplier PO rejection
-Collection-level supplier filtering
-```
-
-
-The milestone-specific verification therefore includes:
-
-```text
-Round 12
-MinIO document storage
-Presigned URLs
-Document supplier isolation
-Storage failure handling
-
-+
-
-Round 13
-GraphQL API
-Cursor pagination
-PO acknowledgement mutation
-Resolver-level supplier scoping
-
-+
-
-Existing
-R5 authentication/scoping
-R6–8 P2P
-R9–11 business integrations
-```
-
-The complete regression suite passes without requiring changes to the Platform Service.
 
 
 # 28. Known Limitations

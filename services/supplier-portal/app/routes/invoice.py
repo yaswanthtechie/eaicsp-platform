@@ -17,7 +17,6 @@ from app.core.config import settings
 from app.services.document_storage_service import (
     DocumentDownloadError,
     DocumentStorageError,
-    DocumentUploadError,
     document_storage_service,
 )
 
@@ -512,6 +511,9 @@ def upload_document(
     The actual PDF is stored in MinIO. The invoice record
     stores the supplier-scoped MinIO object key.
     """
+
+    # DocumentStorageError covers DocumentUploadError AND failures before
+    # the upload starts (e.g. ensure_bucket() when MinIO is unreachable).
     try:
         return upload_invoice_document(
             supplier_id=supplier_id,
@@ -519,7 +521,7 @@ def upload_document(
             file=file,
         )
 
-    except DocumentUploadError as exc:
+    except DocumentStorageError as exc:
         raise HTTPException(
             status_code=502,
             detail=str(exc),
@@ -542,15 +544,13 @@ def upload_document(
             status_code=400,
             detail=message,
         ) from exc
-
-
 # ============================================================
 # DOWNLOAD INVOICE DOCUMENT
 # Supplier-facing endpoint
 # ============================================================
 
 @router.get(
-            "/invoices/{supplier_id}/{invoice_number}/document",
+    "/invoices/{supplier_id}/{invoice_number}/document",
     response_model=InvoiceDocumentDownloadResponse,
 )
 def download_invoice_document(
@@ -690,6 +690,7 @@ def download_invoice_document(
             detail=message,
         ) from exc
     
+
 # ============================================================
 # FIND ORPHANED INVOICE FILES
 # Requires: compliance_officer
@@ -732,11 +733,20 @@ def find_orphaned_files(
             "orphaned_files": orphaned_files,
         }
 
-    except ValueError as e:
+    except DocumentStorageError as exc:
+        # MinIO/storage failure is a dependency failure,
+        # not a client validation error.
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc),
+        ) from exc
+
+    except ValueError as exc:
         raise HTTPException(
             status_code=400,
-            detail=str(e),
-        )
+            detail=str(exc),
+        ) from exc
+
 
 # ============================================================
 # PURGE ORPHANED INVOICE FILES
@@ -775,8 +785,16 @@ def purge_orphaned_files(
             older_than_days=older_than_days,
         )
 
-    except ValueError as e:
+    except DocumentStorageError as exc:
+        # MinIO/storage failure is a dependency failure,
+        # not a client validation error.
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc),
+        ) from exc
+
+    except ValueError as exc:
         raise HTTPException(
             status_code=400,
-            detail=str(e),
-        )
+            detail=str(exc),
+        ) from exc
