@@ -308,6 +308,7 @@ function App() {
 
   // Panels only show their own error state when there is nothing to show.
   const panelError = Boolean(dashboardError) && !dashboardData;
+  const panelLoading = dashboardLoading && !dashboardData;
 
 // savedAt = when the data was LOADED, not when a filter last changed.
   const loadedAt = useRef<{ data: unknown; at: string } | null>(null);
@@ -421,6 +422,7 @@ function App() {
           savedAt={offlineSnapshot.savedAt}
           isOnline={isOnline}
           hasServerError={Boolean(dashboardError)}
+          onRetry={() => void refreshDashboardData()}
         />
 
         <KpiGrid
@@ -631,7 +633,7 @@ function App() {
                     startDate={filters.startDate}
                     endDate={filters.endDate}
                     data={dashboardData?.dashboard.forecast ?? []}
-                    loading={dashboardLoading}
+                    loading={panelLoading}
                     error={panelError}
                     onRetry={() => void refetch()}
                    />
@@ -664,7 +666,7 @@ function App() {
               startDate={filters.startDate}
               endDate={filters.endDate}
               data={dashboardData?.dashboard.forecastAccuracy ?? []}
-              loading={dashboardLoading}
+              loading={panelLoading}
               error={panelError}
               onRetry={() => void refetch()}
             />
@@ -683,7 +685,7 @@ function App() {
           <ErrorBoundary>
             <SupplierRisk
               supplierRisk={dashboardData?.dashboard.supplierRisk ?? []}
-              loading={dashboardLoading}
+              loading={panelLoading}
               error={panelError}
               onRetry={() => void refetch()}
             />
@@ -693,7 +695,7 @@ function App() {
         <ErrorBoundary>
           <ShipmentStatus
               shipmentStatus={dashboardData?.dashboard.shipmentStatus}
-              loading={dashboardLoading}
+              loading={panelLoading}
               error={panelError}
               onRetry={() => void refetch()}
           />
@@ -765,7 +767,7 @@ function App() {
             <ErrorBoundary>
               <SupplierRiskDistribution
                 supplierRisk={dashboardData?.dashboard.supplierRisk ?? []}
-                loading={dashboardLoading}
+                loading={panelLoading}
                 error={panelError}
                 onRetry={() => void refetch()}
                />

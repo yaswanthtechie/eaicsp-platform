@@ -37,7 +37,11 @@ vi.mock("../mocks/user", () => ({
 }));
 
 vi.mock("../components/SupplierRisk", () => ({
-  default: () => <div>Supplier Risk</div>,
+  default: ({ loading }: { loading: boolean }) => (
+    <div data-testid="supplier-risk" data-loading={String(loading)}>
+      Supplier Risk
+    </div>
+  ),
 }));
 
 vi.mock("../components/SupplierRiskDistribution", () => ({
@@ -265,6 +269,40 @@ describe("App KPIs and offline snapshot", () => {
     },
   }) as unknown as ReturnType<typeof useDashboardData>["data"];
 
+    it("offers Retry when the first load fails online and only a snapshot exists (Issue 3)", () => {
+  window.history.replaceState({}, "", "/?role=ceo");
+  localStorage.setItem(
+    snapshotStorageKey("ceo"),
+    JSON.stringify({
+      kpis: [{ title: "SKUs", value: 7 }],
+      savedAt: "2026-10-01T10:42:00.000Z",
+    }),
+  );
+  const refetch = vi.fn().mockResolvedValue({});
+  mockQuery({ error: new Error("Server error") as never, refetch });
+
+  render(<App />);
+
+  expect(
+    screen.getByText(/Couldn't reach the server — showing data from/),
+  ).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+  expect(refetch).toHaveBeenCalledTimes(1);
+});
+
+it("does not turn panels into skeletons during a refetch (Issue 4)", () => {
+  window.history.replaceState({}, "", "/?role=ceo");
+  mockQuery({ data: oneItem(10), loading: true });
+
+  render(<App />);
+
+  expect(screen.getByTestId("supplier-risk")).toHaveAttribute(
+    "data-loading",
+    "false",
+  );
+});
     it("computes KPIs from the inventory, scoped to the manager's warehouse", () => {
      window.history.replaceState(
       {},

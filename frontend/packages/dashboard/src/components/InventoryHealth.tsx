@@ -188,7 +188,7 @@ function InventoryHealth({
             <h3
               style={{
                 margin: 0,
-                color: colors.textMuted,
+                color: colors.text,
                 fontSize: "15px",
                 fontWeight: 600,
               }}
@@ -244,7 +244,7 @@ function InventoryHealth({
                   <div>
                     <div
                       style={{
-                        color: colors.textMuted,
+                        color: colors.text,
                         fontSize: "13px",
                         fontWeight: 600,
                       }}
@@ -274,7 +274,7 @@ function InventoryHealth({
 
                     <div
                       style={{
-                        color: colors.textMuted,
+                        color: colors.text,
                         fontSize: "13px",
                         fontWeight: 600,
                       }}
@@ -295,7 +295,7 @@ function InventoryHealth({
 
                     <div
                       style={{
-                        color: colors.textMuted,
+                        color: colors.text,
                         fontSize: "13px",
                         fontWeight: 600,
                       }}

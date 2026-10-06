@@ -71,6 +71,12 @@ test("goes offline, reloads, and still shows the last snapshot", async ({ page, 
   await expect(page.getByText(/Offline — showing data from/)).toBeVisible();
   await expect(kpi(page, "SKUs", all.skus)).toBeVisible();
   await expect(kpi(page, "Total Units", all.units)).toBeVisible();
+
+  await context.setOffline(false);
+  await expect(
+    page.getByText(/Offline — showing data from/)
+  ).toBeHidden();
+  await expect(page.locator("#inventory-section")).toBeVisible();
 });
 
   test("keeps the dashboard when a refresh fails after reconnecting", async ({
@@ -102,14 +108,6 @@ test("goes offline, reloads, and still shows the last snapshot", async ({ page, 
   // so restore the browser state and notify the application of reconnect.
   await context.setOffline(false);
 
-  await page.evaluate(() => {
-    Object.defineProperty(navigator, "onLine", {
-      configurable: true,
-      value: true,
-    });
-
-    window.dispatchEvent(new Event("online"));
-  });
 
   // Reconnect triggers a failed GraphQL refresh.
   // Previous dashboard data must remain visible.

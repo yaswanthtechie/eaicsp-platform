@@ -936,9 +936,9 @@ npm run test:e2e
 
 Test verification completed successfully.
 
-* Vitest: 19 test files, 145/145 tests passed
+* Vitest: 19 test files, 147/147 tests passed
 * Playwright E2E: 4/4 tests passed
-* Total: 149 tests passed
+* Total: 151 tests passed
 * Offline PWA snapshot test is also passing now.
 
 
