@@ -76,24 +76,27 @@ def create_app(service_name: str, port: int) -> FastAPI:
             from opentelemetry import trace
             from opentelemetry.propagate import extract
             from opentelemetry.trace import SpanKind
-
-            tracer = trace.get_tracer("dummy-services")
-            parent_ctx = extract(dict(request.headers))
-            span_name = f"{service_name} {request.method} {request.url.path}"
-            with tracer.start_as_current_span(
-                span_name,
-                context=parent_ctx,
-                kind=SpanKind.SERVER,
-            ) as span:
-                span.set_attribute("http.method", request.method)
-                span.set_attribute("http.url", str(request.url).split("?")[0])
-                span.set_attribute("http.status_code", 200)
-                span.set_attribute("service.name", service_name)
-                response = await call_next(request)
-                span.set_attribute("http.status_code", response.status_code)
-                return response
-        except Exception:
+        except ImportError:
             return await call_next(request)
+
+        tracer = trace.get_tracer("dummy-services")
+        parent_ctx = extract(dict(request.headers))
+        span_name = f"{service_name} {request.method} {request.url.path}"
+
+        with tracer.start_as_current_span(
+            span_name,
+            context=parent_ctx,
+            kind=SpanKind.SERVER,
+        ) as span:
+            span.set_attribute("http.method", request.method)
+            span.set_attribute("http.url", str(request.url).split("?")[0])
+            span.set_attribute("service.name", service_name)
+
+            # Handler errors propagate normally; call_next runs exactly once.
+            response = await call_next(request)
+
+            span.set_attribute("http.status_code", response.status_code)
+            return response
 
     # --------------------------------------------------
     # Health Check

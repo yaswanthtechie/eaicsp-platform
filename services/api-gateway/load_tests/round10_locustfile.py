@@ -82,7 +82,7 @@ import os
 import random
 import uuid
 
-from locust import HttpUser, between, task
+from locust import HttpUser, between, tag, task
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +167,7 @@ class APIGatewayUser(HttpUser):
             headers=BASE_HEADERS,
         )
 
+    @tag("dashboard")
     @task(4)
     def read_health(self):
         """[READ] GET /health (Health Check)"""
@@ -194,6 +195,7 @@ class APIGatewayUser(HttpUser):
             headers=BASE_HEADERS,
         )
 
+    @tag("dashboard")
     @task(1)
     def read_gateway_dashboard(self):
         """[READ] GET /gateway/dashboard (Dashboard)

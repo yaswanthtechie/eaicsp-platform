@@ -1,1 +1,2 @@
-Method,Name,Error,Occurrences,First Seen,Last Seen
+Method,Name,Error,Occurrences,First Seen,Last Seen
+POST,[WRITE] POST /api/v1/inventory (Create Item),"CatchResponseError('Expected 200/201, got status 504')",2,2026-10-06T06:44:34Z,2026-10-06T06:44:36Z

@@ -9,7 +9,10 @@ Before generating the response the endpoint:
      text/plain; version=0.0.4 content.
 """
 
-from fastapi import APIRouter
+import os
+import secrets
+
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
@@ -29,7 +32,7 @@ router = APIRouter(tags=["Observability"])
     # Exclude from OpenAPI docs to avoid confusion with JSON endpoints.
     include_in_schema=True,
 )
-async def get_prometheus_metrics() -> Response:
+async def get_prometheus_metrics(request: Request) -> Response:
     """
     Prometheus scrape target.
 
@@ -37,6 +40,12 @@ async def get_prometheus_metrics() -> Response:
     generating the exposition so circuit breaker states and cache hit rates are
     always fresh.
     """
+    expected = os.getenv("METRICS_BEARER_TOKEN", "")
+    if expected:
+        sent = request.headers.get("authorization", "").removeprefix("Bearer ")
+        if not secrets.compare_digest(sent.encode(), expected.encode()):
+            raise HTTPException(status_code=401, detail="Invalid metrics token")
+
     sync_gauges_from_collector()
     data = generate_latest(REGISTRY)
     return Response(

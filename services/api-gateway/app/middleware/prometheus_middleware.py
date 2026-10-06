@@ -22,6 +22,11 @@ from app.services.prometheus_metrics import (
     REQUEST_LATENCY,
 )
 
+# Client-controlled values must never become unbounded label values.
+_KNOWN_METHODS = frozenset(
+    {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
+)
+
 
 class PrometheusMiddleware(BaseHTTPMiddleware):
     """
@@ -36,7 +41,11 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
         if path == "/metrics":
             return await call_next(request)
 
-        method = request.method
+        method = (
+            request.method
+            if request.method in _KNOWN_METHODS
+            else "OTHER"
+        )
         route = normalize_route(path)
 
         start = time.perf_counter()

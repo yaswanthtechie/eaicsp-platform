@@ -461,6 +461,25 @@ python -m pytest tests/test_real_inventory_integration.py -v
 
 ## Round 10 Observability Stack
 
+### Round 10 status
+
+| Milestone | Status | Evidence |
+|---|---|---|
+| M1 Prometheus + Grafana | Done when `verify_observability.py` passes | `OBSERVABILITY_EVIDENCE.md` §1 (dashboard = Prometheus = Grafana), `docs/evidence/grafana_dashboard.png` |
+| M2 OpenTelemetry + Jaeger | Done when `verify_observability.py` passes | `OBSERVABILITY_EVIDENCE.md` §2 (trace with gateway + Inventory spans), `docs/evidence/jaeger_trace.png` |
+| M3 Locust | Done | `load_tests/round10_summary.md` (generated), `ROUND10_M3_LOAD_TEST_REPORT.md` |
+
+Not done / known limits: single Uvicorn worker on one laptop; downstreams are
+`dummy_services.py`, not the real services; rate limiting disabled during the sweep.
+
+### Running the tests
+
+```powershell
+python -m pytest -m "not integration" -q          # unit tests, no Docker needed
+docker compose -f docker-compose.dev.yml up -d     # then dummy_services + gateway (see above)
+python -m pytest -m integration -q                 # real Prometheus / Grafana / Jaeger
+```
+
 ### Overview
 
 The API Gateway is fully instrumented for production observability:
@@ -480,8 +499,9 @@ docker compose -f docker-compose.dev.yml up -d
 
 Services start automatically with:
 - **Prometheus** → [http://localhost:9090](http://localhost:9090)
-- **Grafana** → [http://localhost:3000](http://localhost:3000) (anonymous admin, auto-provisioned dashboard)
+- **Grafana** → [http://localhost:3000](http://localhost:3000) (anonymous read-only Viewer; admin login from .env)
 - **Jaeger** → [http://localhost:16686](http://localhost:16686) (OTLP HTTP on port 4318)
+
 
 ### Prometheus Scraping
 
@@ -531,7 +551,7 @@ Environment variables:
 ### Full Observability Verification
 
 ```powershell
-# 1. Start observability stack
+# 1. Start observability stack (Grafana: anonymous read-only Viewer; admin login from .env)
 docker compose -f docker-compose.dev.yml up -d
 
 # 2. Start downstream dummy services
@@ -544,46 +564,46 @@ python dummy_services.py
 python verify_observability.py
 ```
 
+Grafana UI is available at [http://localhost:3000](http://localhost:3000) (anonymous read-only Viewer; admin login from .env).
 See `OBSERVABILITY_EVIDENCE.md` for the definition-of-done evidence report.
+
 
 ### Round 10 Load Test Results
 
-Load tests were run with Locust against the API Gateway with a realistic 12-endpoint mixed scenario.
+Load tests were executed with Locust against the API Gateway with a realistic 12-endpoint mixed scenario and dummy downstream services running.
+Rate limiting was disabled for the sweep (LOAD_TEST_MODE=true) because all Locust users share one source IP.
 
-| Concurrency | Requests | RPS   | Error Rate | p50 (ms) | p95 (ms) | p99 (ms) |
-|-------------|----------|-------|------------|----------|----------|----------|
-| 5 users     | 86       | 4.75  | 0%         | 14 ms    | 37 ms    | 300 ms   |
-| 10 users    | 169      | 8.86  | 0%         | 16 ms    | 40 ms    | 280 ms   |
-| 20 users    | 327      | 17.22 | 0%         | 31 ms    | 140 ms   | 360 ms   |
-| 50 users    | 743      | 39.12 | 0%         | 94 ms    | 420 ms   | 640 ms   |
-| 100 users   | 777      | 40.48 | 0%         | 1100 ms  | 3300 ms  | 3800 ms  |
+Run time per level: 60s. Degraded = p95 > 1000 ms or error rate > 1 %.
+
+| Users | Requests | RPS | Error % | p50 (ms) | p95 (ms) | p99 (ms) | Max (ms) | Gateway CPU avg % | Gateway CPU max % | Status |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 5 | 265 | 4.53 | 0.00 | 38 | 370 | 580 | 992 | 10 | 20 | OK |
+| 10 | 539 | 9.28 | 0.00 | 25 | 200 | 430 | 986 | 20 | 98 | OK |
+| 20 | 591 | 10.28 | 0.00 | 720 | 2500 | 3100 | 3335 | 82 | 111 | DEGRADED |
 
 > [!NOTE]
-> Gateway-native endpoints (`/`, `/gateway/status`, `/metrics`) remain in the
-> millisecond range at all concurrency levels. The elevated p95/p99 at high concurrency is
-> driven by the `/gateway/dashboard` health-probe endpoint and downstream proxy timeouts.
+> **Observed Break Point**: 20 concurrent users is the first DEGRADED level (`p95 = 2500 ms` > 1000 ms threshold, `Gateway CPU avg = 82%`, `Gateway CPU max = 111%`). Error rate was 0.00%.
 >
-> **Observed break point**: p95 latency climbs above 3 s at 100 concurrent users.
-> Gateway-native routes stay healthy; the bottleneck is downstream connection overhead.
+> **Bottleneck Analysis**: Primary evidence points to gateway CPU and single-worker event-loop saturation. An A/B isolation test at 100 users with `/gateway/dashboard` and `/health` excluded still resulted in p95 of 2700 ms (0% errors across 2597 requests), demonstrating that dashboard/health fan-out alone does not explain degradation.
+>
+> This observed break point reflects a single-process Uvicorn server on a local development laptop and is not a production capacity limit.
 
 Run the sweep yourself:
 
 ```powershell
 python dummy_services.py   # terminal 1
-.venv\Scripts\uvicorn.exe app.main:app --host 0.0.0.0 --port 8000  # terminal 2
 
-# terminal 3 — sweep
-foreach ($U in 5, 10, 20, 50, 100) {
-    $sr = [Math]::Max(1, [int]($U / 5))
-    .venv\Scripts\locust.exe `
-        -f load_tests/round10_locustfile.py `
-        --headless --users $U --spawn-rate $sr `
-        --run-time 60s --host http://127.0.0.1:8000 `
-        --csv "load_tests/round10_results_u$U"
-}
+# terminal 2 — gateway with LOAD_TEST_MODE (do NOT use --reload)
+$env:LOAD_TEST_MODE = "true"
+.venv\Scripts\uvicorn.exe app.main:app --host 127.0.0.1 --port 8000
+
+# terminal 3 — automated sweep harness
+$PID = (Get-NetTCPConnection -LocalPort 8000 -State Listen).OwningProcess
+python run_locust_sweep.py --gateway-pid $PID
 ```
 
-CSV result files: `load_tests/round10_results_u{5,10,20,50,100}_stats.csv`
+Authoritative summary: `load_tests/round10_summary.md`
+CSV result files: `load_tests/round10_results_u{5,10,20}_stats.csv`
 
 ---
 

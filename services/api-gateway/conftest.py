@@ -1,16 +1,19 @@
 import os
-import pytest
 
-from app.middleware import tracing as tracing_module
+# Must happen at IMPORT time, before any `app` import: pytest loads
+# tests/conftest.py (which imports app and builds Settings()) before any
+# pytest_configure hook runs, so setting these inside the hook is too late
+# on a clean clone that has no .env file.
+os.environ.setdefault(
+    "SECRET_KEY",
+    "test-secret-key-for-jwt-signing-do-not-use-in-production",
+)
+# Prevent locust from monkey-patching socket/threading in pytest runs
+os.environ.setdefault("LOCUST_SKIP_MONKEY_PATCH", "1")
 
+import pytest  # noqa: E402
 
-def pytest_configure(config):
-    os.environ.setdefault(
-        "SECRET_KEY",
-        "test-secret-key-for-jwt-signing-do-not-use-in-production",
-    )
-    # Prevent locust from monkey-patching socket/threading in pytest runs
-    os.environ.setdefault("LOCUST_SKIP_MONKEY_PATCH", "1")
+from app.middleware import tracing as tracing_module  # noqa: E402
 
 
 def pytest_collection_modifyitems(config, items):

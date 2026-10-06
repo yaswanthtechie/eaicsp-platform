@@ -552,3 +552,35 @@ class TestDashboardMetricsConsistency:
         assert prometheus_rate == dashboard_rate, (
             f"Mismatch: Prometheus={prometheus_rate}, Dashboard={dashboard_rate}"
         )
+
+
+class TestMetricsBearerToken:
+    """Tests for optional METRICS_BEARER_TOKEN protection on /metrics."""
+
+    def test_metrics_open_when_token_env_unset(self, client):
+        """When METRICS_BEARER_TOKEN is unset or empty, /metrics is accessible without auth."""
+        with patch.dict("os.environ", {"METRICS_BEARER_TOKEN": ""}):
+            response = client.get("/metrics")
+            assert response.status_code == 200
+
+    def test_metrics_rejected_when_token_missing(self, client):
+        """When METRICS_BEARER_TOKEN is set, requests without Authorization header fail 401."""
+        with patch.dict("os.environ", {"METRICS_BEARER_TOKEN": "secret-metrics-token-123"}):
+            response = client.get("/metrics")
+            assert response.status_code == 401
+            assert response.json()["detail"] == "Invalid metrics token"
+
+    def test_metrics_rejected_when_token_invalid(self, client):
+        """When METRICS_BEARER_TOKEN is set, requests with incorrect token fail 401."""
+        with patch.dict("os.environ", {"METRICS_BEARER_TOKEN": "secret-metrics-token-123"}):
+            response = client.get("/metrics", headers={"Authorization": "Bearer wrong-token"})
+            assert response.status_code == 401
+            assert response.json()["detail"] == "Invalid metrics token"
+
+    def test_metrics_accepted_when_token_valid(self, client):
+        """When METRICS_BEARER_TOKEN is set, requests with valid Bearer token succeed 200."""
+        with patch.dict("os.environ", {"METRICS_BEARER_TOKEN": "secret-metrics-token-123"}):
+            response = client.get("/metrics", headers={"Authorization": "Bearer secret-metrics-token-123"})
+            assert response.status_code == 200
+            assert "# HELP" in response.text
+

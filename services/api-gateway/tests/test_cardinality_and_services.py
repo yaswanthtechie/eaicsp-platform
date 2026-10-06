@@ -105,3 +105,15 @@ def test_internal_routes_not_in_dashboard_services(client):
     forbidden = {"health", "status", "dashboard", "gateway", "other", "unknown-404-endpoint"}
     for name in forbidden:
         assert name not in services, f"Internal name '{name}' appeared as fake downstream service"
+
+
+def test_unknown_http_methods_collapse_to_other(client):
+    for i in range(5):
+        client.request(f"BOGUS{i}", "/")
+
+    body = client.get("/metrics").text
+
+    for i in range(5):
+        assert f'method="BOGUS{i}"' not in body
+    assert 'method="OTHER"' in body
+
