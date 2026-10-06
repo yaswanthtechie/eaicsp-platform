@@ -723,7 +723,7 @@ ml-services/demand-forecast/lstm/
 - *Challenge:* `get_walk_forward_folds` doesn't guard against `lookback` exceeding an early fold's accumulated training history; a negative slice index silently wraps instead of clipping, producing an empty array that then crashes `MinMaxScaler.transform`.
 - *Solution:* Documented and pinned the exact failure with a dedicated test (`tests/test_edge_cases.py`) rather than silently working around it; recommended one-line fix (`max(train_end - lookback, 0)`) noted in the Robustness section above for your call on `data.py`.
 
----
+----
 
 ## Round 9-11: Three-Model Ensemble (Prophet + XGBoost + LSTM)
 
@@ -755,3 +755,9 @@ XGBoost                    7.3489
 LSTM                      13.4774
 Ensemble (forced, all 3)   2.5755   weights 0.90 / 0.05 / 0.05
 Ensemble (unconstrained)   2.4004   weights 1.00 / 0.00 / 0.00
+###  conclusion
+
+- The ensemble with all three models forced in is **7.30% worse** than Prophet alone.
+- Without the forced minimum, the best weights are **100% Prophet**: XGBoost and the LSTM add nothing over 150-day forecasts on this data.
+- The LSTM was built to forecast 7 days ahead and degrades badly when it has to predict 150 days on its own forecasts.
+- This is an honest ensemble result: adding more models does not automatically improve forecast accuracy.

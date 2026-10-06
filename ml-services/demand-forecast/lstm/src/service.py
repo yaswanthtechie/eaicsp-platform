@@ -9,6 +9,8 @@ from config import (
     HIDDEN_SIZE,
     HORIZON,
     LOOKBACK,
+    MC_SAMPLES,
+    MODEL_PATH,
     NUM_LAYERS,
     SCALER_PATH,
 )
