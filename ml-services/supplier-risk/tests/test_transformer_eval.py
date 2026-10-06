@@ -14,6 +14,7 @@ from src.evaluate import HUMAN_BENCHMARK_EXPECTATIONS, VALID_TIERS, load_validat
 from src.transformer_eval import (
     DEFAULT_EXPERIMENT_NAME,
     TRANSFORMER_MODEL_IDENTIFIER,
+    build_observed_limitations,
     compute_classification_metrics,
     evaluate_baseline_held_out,
     evaluate_transformer_held_out,
@@ -263,15 +264,40 @@ def test_every_transformer_prediction_has_explanation():
 
 
 def test_explanation_tokens_are_sensible_for_distress_headline():
-    """Verify attention highlights distress/operational tokens on a negative headline."""
-    headline = "Cascade Energy Corp faces emergency bankruptcy filing and debt default."
-    exp = explain_headline_attention(headline, top_k=5)
+    """At least two real distress words must be in the top 5."""
+    headline = (
+        "Cascade Energy Corp faces emergency bankruptcy filing and debt default."
+    )
 
-    tokens = [t["token"].lower() for t in exp["top_tokens"]]
-    # At least one key financial distress token must be among top attributions
-    distress_markers = {"emergency", "bankruptcy", "default", "debt", "faces", "filing"}
-    overlap = set(tokens).intersection(distress_markers)
-    assert len(overlap) > 0, f"Expected distress markers in top tokens, got {tokens}"
+    tokens = [
+        t["token"].lower()
+        for t in explain_headline_attention(headline, top_k=5)["top_tokens"]
+    ]
+
+    distress_words = {
+        "emergency",
+        "bankruptcy",
+        "default",
+        "debt",
+        "filing",
+    }
+
+    assert len(distress_words.intersection(tokens)) >= 2, tokens
+
+
+def test_explanations_skip_stopwords_and_keep_whole_words():
+    headline = (
+        "Supplier reports record quarterly profit and new contract wins."
+    )
+
+    tokens = [
+        t["token"].lower()
+        for t in explain_headline_attention(headline, top_k=5)["top_tokens"]
+    ]
+
+    assert "and" not in tokens
+    assert not any(tok.startswith("#") for tok in tokens)
+    assert {"profit", "wins", "record"}.intersection(tokens)
 
 
 # ------------------------------------------------------------------
@@ -405,6 +431,16 @@ def test_full_milestone2_and_3_evaluation_runs_and_produces_comparison():
     # Verify explanation method
     assert tf.get("explanation_method") == "last_layer_cross_head_cls_attention"
 
+    # Verify critical support is present
+    assert "critical_support" in base
+    assert "critical_support" in tf
+    assert base["critical_support"] == 3
+    assert tf["critical_support"] == 3
+
+    # Verify observed limitations were dynamically generated
+    assert len(comp["observed_limitations"]) > 0
+    assert any("indicative, not statistically significant" in line for line in comp["observed_limitations"])
+
     # Verify every company report in transformer_results has explanation
     for rep in res["transformer_results"]["company_reports"]:
         assert "explanation" in rep
@@ -412,3 +448,49 @@ def test_full_milestone2_and_3_evaluation_runs_and_produces_comparison():
         assert len(rep["headline_details"]) == 8
         for h in rep["headline_details"]:
             assert "explanation" in h
+
+
+def test_build_observed_limitations():
+    """Verify build_observed_limitations correctly identifies discrepancies between models."""
+    base_res = {
+        "total_suppliers": 2,
+        "matches": 1,
+        "company_reports": [
+            {
+                "supplier": "Company A",
+                "risk_score": 90.0,
+                "model_tier": "Critical",
+                "expected_tier": "Critical",
+            },
+            {
+                "supplier": "Company B",
+                "risk_score": 50.0,
+                "model_tier": "Low",
+                "expected_tier": "Medium",
+            },
+        ],
+    }
+    tf_res = {
+        "total_suppliers": 2,
+        "matches": 1,
+        "company_reports": [
+            {
+                "supplier": "Company A",
+                "risk_score": 80.0,
+                "model_tier": "High",
+                "expected_tier": "Critical",
+            },
+            {
+                "supplier": "Company B",
+                "risk_score": 65.0,
+                "model_tier": "Medium",
+                "expected_tier": "Medium",
+            },
+        ],
+    }
+    lines = build_observed_limitations(base_res, tf_res)
+    assert len(lines) == 3
+    assert "Company A (expected Critical): current model 90.00 -> Critical, transformer 80.00 -> High. Only the current model got this one right." in lines[0]
+    assert "Company B (expected Medium): current model 50.00 -> Low, transformer 65.00 -> Medium. Only the transformer got this one right." in lines[1]
+    assert "Sample size: 2 suppliers. The accuracy gap is 0 supplier(s)" in lines[2]
+

@@ -85,8 +85,7 @@ def migrate_dataset(
         # Check if record already exists by deterministic story_hash
         existing = col.find_one({"story_hash": story_hash})
         if existing:
-            # If incoming has a date and existing is missing date, enrich it
-            if date_str and not existing.get("date"):
+            if isinstance(date_str, str) and date_str.strip() and not existing.get("date"):
                 col.update_one(
                     {"_id": existing["_id"]},
                     {"$set": {"date": date_str.strip()}},
@@ -118,29 +117,38 @@ def migrate_dataset(
     return stats
 
 
+DEFAULT_DATASETS = (
+    "supplier_trend_headlines.json",
+    "supplier_trend_headlines_15.json",
+    "supplier_trend_headlines_25.json",
+)
+
+
 def run_migration(
     json_path: Optional[Path] = None,
     collection: Optional[Collection] = None,
 ) -> Dict[str, int]:
     """
-    Execute migration with connectivity check and default dataset resolution.
-    By default, migrates supplier_trend_headlines.json (10 baseline suppliers with dates).
+    Import one dataset (json_path) or, by default, every committed trend dataset.
+    Safe to re-run: existing stories are skipped by story_hash.
     """
     ping_mongodb()
 
-    default_path = Path(__file__).parent / "supplier_trend_headlines.json"
-    target_path = json_path or default_path
+    src_dir = Path(__file__).parent
+    paths = [json_path] if json_path else [src_dir / name for name in DEFAULT_DATASETS]
 
-    logger.info("Starting migration from %s ...", target_path)
-    summary = migrate_dataset(target_path, collection=collection)
+    totals = {"total": 0, "inserted": 0, "skipped": 0, "failed": 0}
+    for path in paths:
+        logger.info("Starting migration from %s ...", path)
+        summary = migrate_dataset(path, collection=collection)
+        for key in totals:
+            totals[key] += summary[key]
+
     logger.info(
         "Migration complete: Total=%d | Inserted=%d | Skipped=%d | Failed=%d",
-        summary["total"],
-        summary["inserted"],
-        summary["skipped"],
-        summary["failed"],
+        totals["total"], totals["inserted"], totals["skipped"], totals["failed"],
     )
-    return summary
+    return totals
 
 
 def main():
@@ -149,14 +157,14 @@ def main():
         "--file",
         type=str,
         default=None,
-        help="Path to JSON file to migrate (default: src/supplier_trend_headlines.json)",
+        help="Path to JSON file to migrate (default: all committed trend datasets)",
     )
     args = parser.parse_args()
 
     json_file = Path(args.file) if args.file else None
     try:
         summary = run_migration(json_path=json_file)
-        print(f"\nMigration Summary for {json_file.name if json_file else 'supplier_trend_headlines.json'}:")
+        print(f"\nMigration Summary for {json_file.name if json_file else 'all committed trend datasets'}:")
         print(f"  Total records:    {summary['total']}")
         print(f"  Inserted records: {summary['inserted']}")
         print(f"  Skipped (dups):   {summary['skipped']}")

@@ -610,6 +610,35 @@ In Round 10, the Supplier Risk NLP Service implemented three core milestones: tr
 
 ---
 
+## Running locally
+
+```bash
+docker compose -f docker-compose.dev.yml up -d     # MongoDB on 127.0.0.1:27017
+python -m src.migrate                              # import all committed trend datasets (safe to re-run)
+
+python -m pytest                                   # unit tests, no Docker needed
+python -m pytest -m integration                    # real-MongoDB tests (container must be up)
+
+python -m src.transformer_eval                     # Milestone 2 comparison, logs both runs to MLflow
+python -m src.transformer_eval --spot-check        # Milestone 3 explanation table for the hand-check
+mlflow ui                                          # view the runs
+```
+
+## Status
+
+| Milestone | Status |
+|---|---|
+| M1 MongoDB store | Done: dedup by `story_hash`, indexes, idempotent migration; `/analyze-static` and the trend endpoint read Mongo |
+| M2 Transformer comparison | Done: zero-shot FinBERT vs current hybrid on the same 12-supplier held-out set, both in MLflow |
+| M3 Explanations | Done: last-layer [CLS] attention, whole words, stopwords removed; hand-checked table below |
+
+**Not done / limitations**
+- Dedup only catches the same headline after normalisation. The same story reworded by two outlets (e.g. "Acme files for bankruptcy" by Reuters vs "Acme Corp files Chapter 11" by Bloomberg) is stored twice.
+- Because the publication date is excluded from `story_hash`, an identical headline recurring on different dates (e.g. periodic recurring strikes months apart) is collapsed into a single document. Smarter near-duplicate detection (e.g. Jaccard similarity >= 0.8 over normalized tokens within a rolling 3-day temporal window per supplier) was not implemented.
+- Attention is not a faithful attribution method; SHAP / integrated gradients were not tried.
+
+---
+
 ## Milestone 1 – Articles in MongoDB
 
 ### 1. MongoDB Local Article Storage
@@ -648,17 +677,24 @@ The `ensure_indexes(collection)` function creates four dedicated indexes to opti
 
 ### 4. Migration and Idempotent Import
 - **Module & CLI**: Implemented in `src/migrate.py` (`run_migration()`, `migrate_dataset()`).
+- **Default Multi-Dataset Import**: Running `python -m src.migrate` without arguments imports all committed trend datasets by default (`supplier_trend_headlines.json`, `supplier_trend_headlines_15.json`, `supplier_trend_headlines_25.json`), populating MongoDB with all 25 benchmark suppliers.
 - **Idempotency Guarantee**: Migration can be run repeatedly without duplicating documents or failing. Existing records with identical `story_hash` are safely skipped.
 - **In-Place Date Enrichment**: If an existing headline was imported without a date, running migration with a date-aware dataset enriches the document in-place (`$set: {"date": ...}`) without creating a new record.
-- **Source Protection**: Source JSON datasets (`supplier_trend_headlines.json`, `supplier_headlines.json`) are strictly read-only and never modified, overwritten, or deleted.
-- **CLI Command**:
+- **Source Protection**: Source JSON datasets (`supplier_trend_headlines.json`, `supplier_headlines.json`, etc.) are strictly read-only and never modified, overwritten, or deleted.
+- **CLI Commands**:
   ```bash
+  # Migrate all committed trend datasets by default:
+  python -m src.migrate
+
+  # Or migrate an individual file:
   python -m src.migrate --file src/supplier_trend_headlines.json
   ```
 - **Execution Metrics**: Outputs full operational statistics: `total`, `inserted`, `skipped` (duplicates), and `failed`.
 
 ### 5. MongoDB as Authoritative Runtime Source for Scoring / Trend Pipeline
-- **Runtime Source Integration**: `src/data.py` (`load_headlines()` and `load_trend_headlines()`) queries MongoDB directly via `fetch_headlines_grouped()` and `fetch_trend_headlines_grouped()`.
+- **Runtime Source Integration**: `src/data.py` (`load_headlines()`, `load_trend_headlines()`, and `load_active_trend_headlines()`) queries MongoDB directly via `fetch_headlines_grouped()` and `fetch_trend_headlines_grouped()`. MongoDB is the only source for runtime scoring and the trend endpoint (`/api/v1/supplier-risk/trend/{supplier_name}`).
+- **Shared Store Effect on `/analyze-static`**: Because all committed trend datasets are migrated into MongoDB, `/analyze-static` now scores every supplier present in Mongo (all 25 benchmark suppliers instead of only the 10 baseline entities). Ingesting supplier articles into the shared database store immediately exposes them to both static analysis and trend scoring.
+- **Explicit Benchmark Isolation**: Benchmark tables and validation checks explicitly load committed files (e.g. `load_25_company_trend_dataset()`), keeping benchmark evaluations independent of live database modifications.
 - **Optimized Projections**: Queries retrieve only necessary fields (`supplier`, `headline`, `date`, `story_hash`) with `_id` omitted.
 - **Secondary In-Memory Deduplication**: An in-memory hash set safeguard (`seen_hashes`) runs alongside database indexing.
 - **Scoring Equivalence Validation**: Validated by `tests/test_mongo.py::test_scoring_equivalence_mongo_vs_json`, proving that `risk_score`, `confidence`, `sentiment_breakdown`, and `signals` are 100% numerically identical when loading from MongoDB versus baseline JSON files.
@@ -708,19 +744,19 @@ Evaluated via `python -m src.transformer_eval` against `src/synthetic_held_out_v
 
 | Metric | Current Model (Hybrid Baseline) | Pure Transformer (`ProsusAI/finbert`) | Delta |
 | :--- | :---: | :---: | :---: |
-| **Accuracy** | **75.00%** (9/12 matches) | **66.67%** (8/12 matches) | -8.33% |
-| **Macro Precision** | **0.8036** | **0.7500** | -0.0536 |
-| **Macro Recall** | **0.7500** | **0.6667** | -0.0833 |
-| **Macro F1** | **0.7202** | **0.6714** | -0.0488 |
-| **Weighted F1** | **0.7202** | **0.6714** | -0.0488 |
+| **Accuracy** | **75.00%** (9/12 matches) | **83.33%** (10/12 matches) | +8.33% |
+| **Macro Precision** | **0.7917** | **0.8333** | +0.0416 |
+| **Macro Recall** | **0.7500** | **0.8333** | +0.0833 |
+| **Macro F1** | **0.7202** | **0.8333** | +0.1131 |
+| **Weighted F1** | **0.7202** | **0.8333** | +0.1131 |
 | **Critical Tier Recall** | **100.00%** (3/3 True Positives) | **66.67%** (2/3 True Positives) | **-33.33%** |
-| **Critical Tier F1** | **0.8571** | **0.8000** | -0.0571 |
-| **High Tier F1** | **0.6667** | **0.5714** | -0.0953 |
-| **Medium Tier F1** | **0.5000** | **0.5000** | 0.0000 |
-| **Low Tier F1** | **0.8571** | **0.8000** | -0.0571 |
-| **Score Mean** | 69.41 | 54.08 | -15.33 |
-| **Score Spread** | 100.00 (0.00 to 100.00) | 86.86 (0.00 to 86.86) | -13.14 |
-| **Score Std Dev** | 31.06 | 32.18 | +1.12 |
+| **Critical Tier F1** | **0.8571** | **0.6667** | -0.1904 |
+| **High Tier F1** | **0.6667** | **0.6667** | 0.0000 |
+| **Medium Tier F1** | **0.5000** | **1.0000** | +0.5000 |
+| **Low Tier F1** | **0.8571** | **1.0000** | +0.1429 |
+| **Score Mean** | 64.41 | 60.72 | -3.69 |
+| **Score Spread** | 100.00 (0.00 to 100.00) | 93.00 (0.00 to 93.00) | -7.00 |
+| **Score Std Dev** | 33.70 | 32.26 | -1.44 |
 
 #### Confusion Matrices:
 
@@ -737,10 +773,12 @@ Pure Transformer (FinBERT Zero-Shot):
 Expected \ Predicted   |    Low | Medium |   High | Critical | Support
 -----------------------------------------------------------------
 Low                    |      3 |      0 |      0 |        0 |       3
-Medium                 |      1 |      1 |      1 |        0 |       3
+Medium                 |      0 |      3 |      0 |        0 |       3
 High                   |      0 |      0 |      2 |        1 |       3
 Critical               |      0 |      0 |      1 |        2 |       3
 ```
+
+How to read this comparison. The current approach already uses FinBERT; it adds keyword rules on top. So this compares FinBERT with rules against FinBERT without them. The held-out set has 12 suppliers, so 83.33% vs 75.00% means 10/12 vs 9/12, a one-supplier difference. FinBERT alone does better on Medium/Low, but misses one Critical supplier that the rules catch, and Critical misses are the costly mistake for a supplier-risk tool.
 
 ### 5. Observed Limitations & Evidence-Based Insights
 1. **Critical Under-Prediction in Pure Transformer**:
@@ -771,7 +809,7 @@ Critical               |      0 |      0 |      1 |        2 |       3
   - Extracts the self-attention tensor from the final transformer layer (Layer 12).
   - Averages across all 12 attention heads to obtain robust, head-invariant representations.
   - Measures the attention weights directed from the `[CLS]` classification token (index 0) to each token in the sequence (`outputs.attentions[-1][0].mean(dim=0)[0]`).
-- **Noise Filtering**: Automatically removes structural tokens (`[CLS]`, `[SEP]`, `[PAD]`) and punctuation symbols (`.`, `,`, `;`, `:`, `!`, `?`, `-`, quotes), and cleans WordPiece subword markers (`##`).
+- **Noise & Stopword Filtering**: Automatically removes structural tokens (`[CLS]`, `[SEP]`, `[PAD]`), common stopwords (`the`, `and`, `of`, `to`, `in`, `by`, `with`, etc.), punctuation symbols, and merges WordPiece subwords (`##`) back into whole words, summing their attention weights.
 - **Ranking**: Salient tokens are ranked by attention magnitude to identify the top-$K$ drivers (default $K=5$).
 
 ### 2. Guaranteed 100% Explanation Coverage
@@ -784,19 +822,39 @@ Critical               |      0 |      0 |      1 |        2 |       3
   - `supplier_top_tokens`: Cross-headline risk-weighted aggregate tokens for the entity.
   - `tier_reasoning`: Human-readable synthetic reasoning explaining why the tier was assigned.
 
-### 3. Concrete Explanation Example (Distress Headline)
-For the headline:
-> *"Cascade Energy Corp faces emergency bankruptcy filing and debt default."*
+### 3. Concrete Explanation Example (Real Output)
+For the held-out critical headline:
+> *"Cascade Energy Corp defaults on forty-million-dollar syndicated credit facility repayment."*
 
 The attention engine extracts:
 - **Top Tokens**:
-  1. `bankruptcy` (weight: `0.1428`, rank: 1)
-  2. `default` (weight: `0.1185`, rank: 2)
-  3. `emergency` (weight: `0.0964`, rank: 3)
-  4. `debt` (weight: `0.0871`, rank: 4)
-  5. `filing` (weight: `0.0752`, rank: 5)
-- **Summary**: `"Key attention token drivers: bankruptcy (0.1428), default (0.1185), emergency (0.0964), debt (0.0871), filing (0.0752)"`
-- **Validation**: Validated in `tests/test_transformer_eval.py` (`test_explain_headline_attention_returns_tokens_and_weights`, `test_every_transformer_prediction_has_explanation`, `test_explanation_tokens_are_sensible_for_distress_headline`).
+  1. `defaults` (weight: `0.344`, rank: 1)
+  2. `repayment` (weight: `0.065`, rank: 2)
+  3. `dollar` (weight: `0.033`, rank: 3)
+  4. `facility` (weight: `0.030`, rank: 4)
+  5. `syndicated` (weight: `0.027`, rank: 5)
+- **Summary**: `"Key attention token drivers: defaults (0.344), repayment (0.065), dollar (0.033), facility (0.030), syndicated (0.027)"`
+- **Validation**: Validated in `tests/test_transformer_eval.py` (`test_explain_headline_attention_returns_tokens_and_weights`, `test_every_transformer_prediction_has_explanation`, `test_explanation_tokens_are_sensible_for_distress_headline`, `test_explanations_skip_stopwords_and_keep_whole_words`).
+
+### 4. Hand-Check Validation (Spot-Check Table)
+Empirical spot-check generated directly from `python -m src.transformer_eval --spot-check` across 8 held-out validation headlines (2 per expected tier):
+
+| Expected tier | Headline | FinBERT label | Top tokens | Makes sense? (human) |
+|---|---|---|---|---|
+| Low | BioPharma Solutions secures FDA fast-track clearance for new automated manufacturing line. | positive | secures (0.221), new (0.137), clearance (0.079), fda (0.059), line (0.053) | Yes: "secures" and "clearance" capture the regulatory milestone; "new" is generic. |
+| Low | BioPharma Solutions announces record positive annual revenue growth of twenty percent. | positive | announces (0.150), growth (0.148), record (0.104), positive (0.087), percent (0.070) | Yes: "growth", "record", and "positive" clearly identify business expansion. |
+| Medium | Continental Freightlines warehouse workers organize strike demanding higher shift premiums. | negative | higher (0.153), organize (0.138), strike (0.118), workers (0.106), demanding (0.091) | Yes: "strike", "demanding", and "workers" pinpoint the operational labor dispute. |
+| Medium | Continental Freightlines encounters diesel fuel delivery shortage causing transit delays. | negative | delays (0.216), causing (0.208), encounters (0.155), shortage (0.140), transit (0.051) | Yes: "delays" and "shortage" capture the acute logistics disruption. |
+| High | Environmental protection agency issues severe sanction against OmniChem Global following industrial solvent spill. | negative | issues (0.175), severe (0.135), against (0.133), following (0.083), sanction (0.071) | Partly: "severe" and "sanction" capture regulatory penalties, but "issues" and "against" are syntactical. |
+| High | Regulators mandate temporary shutdown of OmniChem chemical synthesis plant in Louisiana. | negative | shutdown (0.362), temporary (0.158), mandate (0.067), regulators (0.054), plant (0.029) | Yes: "shutdown" (0.362) decisively isolates the core operational shutdown risk. |
+| Critical | Cascade Energy Corp prepares Chapter eleven bankruptcy filing following liquidity collapse. | negative | prepares (0.197), collapse (0.120), following (0.099), bankruptcy (0.081), filing (0.058) | Yes: "collapse", "bankruptcy", and "filing" highlight insolvency; "prepares" is procedural. |
+| Critical | Cascade Energy Corp defaults on forty-million-dollar syndicated credit facility repayment. | negative | defaults (0.344), repayment (0.065), dollar (0.033), facility (0.030), syndicated (0.027) | Yes: "defaults" (0.344) and "repayment" pinpoint loan non-payment and debt failure. |
+
+#### Attention Trustworthiness Assessment
+Based on this empirical human spot-check:
+- **Explanation Signal, Not Causal Attribution**: Self-attention functions as an explanation signal reflecting internal representation routing, **not proof of causal attribution**. A high attention weight does not mean the token was the counterfactual cause of the classification.
+- **Utility on Meaningful Risk Words**: The mechanism is genuinely useful when high-attention tokens directly correspond to meaningful risk words (e.g., `defaults` at 0.344, `shutdown` at 0.362, `delays` at 0.216, `strike` at 0.118, or `clearance` and `growth` for positive headlines). In these instances, attention reliably surfaces the acute domain events driving the sentiment.
+- **Limitations & False Salience**: Highlights on generic verbs (e.g., `issues` at 0.175, `prepares` at 0.197, `causing` at 0.208), company-name tokens, or structural and syntactic words (e.g., `against` at 0.133) are key limitations. The transformer relies on these syntactic connectors for phrase structuring, meaning attention occasionally elevates grammatical scaffolding over core risk vocabulary. Thus, attention is a valuable exploratory salience indicator for analyst triage, but must not be treated as standalone proof of risk causality.
 
 ---
 

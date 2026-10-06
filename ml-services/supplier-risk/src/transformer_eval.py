@@ -58,7 +58,9 @@ from src.sentiment import analyze_sentiment, init_model
 # ------------------------------------------------------------------
 
 DEFAULT_EXPERIMENT_NAME: str = "supplier-risk-milestone-2"
-TRANSFORMER_MODEL_IDENTIFIER: str = "ProsusAI/finbert"
+from src.config import MODEL_NAME
+
+TRANSFORMER_MODEL_IDENTIFIER: str = MODEL_NAME
 
 
 # ------------------------------------------------------------------
@@ -127,15 +129,37 @@ def explain_headline_attention(
     cls_attention = outputs.attentions[-1][0].mean(dim=0)[0]
     tokens = _explanation_tokenizer.convert_ids_to_tokens(inputs["input_ids"][0])
 
-    token_attributions: List[Tuple[str, float]] = []
-    punctuation_set = {".", ",", ";", ":", "!", "?", "-", "(", ")", '"', "'", "``", "''"}
+    stopwords = {
+        "a", "an", "the", "and", "or", "of", "for", "to", "in", "on", "at",
+        "by", "with", "as", "is", "are", "was", "were", "be", "its", "it",
+        "from", "into", "after", "over",
+    }
+    punctuation_set = {
+        ".", ",", ";", ":", "!", "?", "-", "(", ")", '"', "'", "``", "''"
+    }
+
+    # Merge WordPiece pieces ("bankrupt", "##cy") back into whole words,
+    # summing their attention, so explanations show real words.
+    words: List[Tuple[str, float]] = []
 
     for tok, att in zip(tokens, cls_attention):
-        if tok in {"[CLS]", "[SEP]", "[PAD]"} or tok in punctuation_set:
+        if tok in {"[CLS]", "[SEP]", "[PAD]"}:
             continue
-        clean_tok = tok.lstrip("#")
-        if clean_tok:
-            token_attributions.append((clean_tok, float(att.item())))
+
+        weight = float(att.item())
+
+        if tok.startswith("##") and words:
+            prev_word, prev_weight = words[-1]
+            words[-1] = (prev_word + tok[2:], prev_weight + weight)
+        else:
+            words.append((tok, weight))
+
+    token_attributions: List[Tuple[str, float]] = [
+        (word, weight)
+        for word, weight in words
+        if word.lower() not in stopwords
+        and word not in punctuation_set
+    ]
 
     # Rank by attention magnitude
     token_attributions.sort(key=lambda x: x[1], reverse=True)
@@ -482,6 +506,7 @@ def evaluate_transformer_held_out(
     metrics = compute_classification_metrics(expected_tiers, predicted_tiers, scores)
 
     return {
+        "dataset_path": str(filepath or "src/synthetic_held_out_validation.json"),
         "dataset_type": "SYNTHETIC_HELD_OUT_VALIDATION",
         "model_name": TRANSFORMER_MODEL_IDENTIFIER,
         "model_type": "pretrained_transformer_zero_shot",
@@ -536,6 +561,7 @@ def evaluate_baseline_held_out(
     metrics = compute_classification_metrics(expected_tiers, predicted_tiers, scores)
 
     return {
+        "dataset_path": str(filepath or "src/synthetic_held_out_validation.json"),
         "dataset_type": "SYNTHETIC_HELD_OUT_VALIDATION",
         "model_name": "current_hybrid_model",
         "model_type": "hybrid_finbert_keyword_signals",
@@ -564,7 +590,6 @@ def log_evaluation_to_mlflow(
     eval_results: Dict[str, Any],
     run_name: str,
     experiment_name: str = DEFAULT_EXPERIMENT_NAME,
-    random_seed: Optional[int] = 42,
 ) -> str:
     """
     Log an evaluation result to MLflow 3.16.1 under the specified experiment.
@@ -575,6 +600,8 @@ def log_evaluation_to_mlflow(
     Returns:
         The MLflow run_id string.
     """
+    import transformers
+
     mlflow.set_experiment(experiment_name)
 
     with mlflow.start_run(run_name=run_name) as run:
@@ -585,9 +612,9 @@ def log_evaluation_to_mlflow(
             {
                 "model_name": eval_results["model_name"],
                 "model_type": eval_results["model_type"],
-                "dataset": "src/synthetic_held_out_validation.json",
+                "dataset": eval_results.get("dataset_path", "src/synthetic_held_out_validation.json"),
                 "split": "held_out_validation",
-                "framework": "transformers_4.57.6",
+                "framework": f"transformers_{transformers.__version__}",
                 "evaluation_protocol": "non_circular_held_out",
                 "explanation_method": "last_layer_cross_head_cls_attention",
             }
@@ -605,8 +632,6 @@ def log_evaluation_to_mlflow(
             "signals_enabled": (eval_results["model_type"] != "pretrained_transformer_zero_shot"),
             "explanation_method": "last_layer_cross_head_cls_attention",
         }
-        if random_seed is not None:
-            params["random_seed"] = random_seed
         mlflow.log_params(params)
 
         # 3. Aggregate Metrics
@@ -649,6 +674,41 @@ def log_evaluation_to_mlflow(
 # Orchestration & Comparison
 # ------------------------------------------------------------------
 
+def build_observed_limitations(
+    baseline_res: Dict[str, Any],
+    transformer_res: Dict[str, Any],
+) -> List[str]:
+    """Describe every supplier where exactly one model got the tier right, from the real results."""
+    base = {r["supplier"]: r for r in baseline_res["company_reports"]}
+    tf = {r["supplier"]: r for r in transformer_res["company_reports"]}
+
+    lines: List[str] = []
+    for supplier in sorted(base):
+        b = base[supplier]
+        t = tf.get(supplier)
+        if t is None:
+            continue
+
+        b_ok = b["model_tier"] == b["expected_tier"]
+        t_ok = t["model_tier"] == t["expected_tier"]
+        if b_ok == t_ok:
+            continue
+
+        winner = "current model" if b_ok else "transformer"
+        lines.append(
+            f"{supplier} (expected {b['expected_tier']}): current model {b['risk_score']:.2f} -> "
+            f"{b['model_tier']}, transformer {t['risk_score']:.2f} -> {t['model_tier']}. "
+            f"Only the {winner} got this one right."
+        )
+
+    gap = abs(baseline_res["matches"] - transformer_res["matches"])
+    lines.append(
+        f"Sample size: {baseline_res['total_suppliers']} suppliers. The accuracy gap is "
+        f"{gap} supplier(s), so treat it as indicative, not statistically significant."
+    )
+    return lines
+
+
 def run_milestone2_evaluation(
     filepath: Optional[str] = None,
     config: Optional[Settings] = None,
@@ -688,7 +748,7 @@ def run_milestone2_evaluation(
 
     # 3. Build Comparison
     comparison = {
-        "dataset": "src/synthetic_held_out_validation.json",
+        "dataset": str(filepath or "src/synthetic_held_out_validation.json"),
         "sample_count_suppliers": baseline_res["total_suppliers"],
         "sample_count_headlines": baseline_res["total_headlines"],
         "baseline": {
@@ -704,6 +764,7 @@ def run_milestone2_evaluation(
             "per_tier_f1": {t: m["f1"] for t, m in baseline_res["per_tier_metrics"].items()},
             "critical_recall": baseline_res["per_tier_metrics"]["Critical"]["recall"],
             "critical_true_positives": baseline_res["per_tier_metrics"]["Critical"]["true_positives"],
+            "critical_support": baseline_res["per_tier_metrics"]["Critical"]["support"],
             "score_metrics": baseline_res["score_metrics"],
         },
         "transformer": {
@@ -719,6 +780,7 @@ def run_milestone2_evaluation(
             "per_tier_f1": {t: m["f1"] for t, m in transformer_res["per_tier_metrics"].items()},
             "critical_recall": transformer_res["per_tier_metrics"]["Critical"]["recall"],
             "critical_true_positives": transformer_res["per_tier_metrics"]["Critical"]["true_positives"],
+            "critical_support": transformer_res["per_tier_metrics"]["Critical"]["support"],
             "score_metrics": transformer_res["score_metrics"],
             "explanation_method": "last_layer_cross_head_cls_attention",
         },
@@ -732,17 +794,7 @@ def run_milestone2_evaluation(
                 4,
             ),
         },
-        "observed_limitations": [
-            "Pure Transformer Critical Under-Prediction: Pure FinBERT fails to classify Meridian Maritime Services "
-            "as Critical (scoring 84.01 vs 85.0 ceiling -> High), yielding 66.67% Critical recall vs 100.0% for Current Model.",
-            "Lack of Severity Calibration: Pretrained FinBERT sentiment confidence saturates around 0.85-0.95 for any "
-            "standard adverse news. Without domain-specific keyword escalation (e.g. bankruptcy, vessel seizures, default), "
-            "it cannot distinguish severe operational disruption from catastrophic supplier insolvency.",
-            "Current Model Over-Penalization: The current model over-indexes on negative keyword presence for Continental "
-            "Freightlines (scoring 73.39 -> High vs Medium expected), where pure sentiment moderation correctly landed in Medium (60.01).",
-            "Threshold Sensitivity: Atlas Heavy Industries scored 59.70 in the current model (missing Medium by 0.30 points), "
-            "whereas pure FinBERT scored 61.46 (correctly Low vs Medium boundary).",
-        ],
+        "observed_limitations": build_observed_limitations(baseline_res, transformer_res),
     }
 
     return {
@@ -763,8 +815,8 @@ def print_comparison_cli() -> None:
     print("        MILESTONE 2: MODEL COMPARISON REPORT ON HELD-OUT VALIDATION SET")
     print("=" * 95)
     print(f"Dataset             : {comp['dataset']}")
-    print(f"Suppliers / Samples : {comp['sample_count_suppliers']} suppliers (12 fictional held-out entities)")
-    print(f"Headlines Evaluated : {comp['sample_count_headlines']} headlines (8 headlines/supplier)")
+    print(f"Suppliers / Samples : {comp['sample_count_suppliers']} suppliers")
+    print(f"Headlines Evaluated : {comp['sample_count_headlines']} headlines")
     print(f"MLflow Experiment   : {DEFAULT_EXPERIMENT_NAME}")
     print("-" * 95)
     print(f"{'Metric':<30} | {'Current Model (Baseline)':<28} | {'Pure Transformer (FinBERT)':<28}")
@@ -777,7 +829,12 @@ def print_comparison_cli() -> None:
     print(f"{'Macro Recall':<30} | {base['macro_recall']:>8.4f}                     | {tf['macro_recall']:>8.4f}")
     print(f"{'Macro F1':<30} | {base['macro_f1']:>8.4f}                     | {tf['macro_f1']:>8.4f}")
     print(f"{'Weighted F1':<30} | {base['weighted_f1']:>8.4f}                     | {tf['weighted_f1']:>8.4f}")
-    print(f"{'Critical Tier Recall':<30} | {base['critical_recall'] * 100.0:>6.2f}% (3/3 True Positives)   | {tf['critical_recall'] * 100.0:>6.2f}% (2/3 True Positives)")
+    print(
+        f"{'Critical Tier Recall':<30} | {base['critical_recall'] * 100.0:>6.2f}% "
+        f"({base['critical_true_positives']}/{base['critical_support']} True Positives)   | "
+        f"{tf['critical_recall'] * 100.0:>6.2f}% "
+        f"({tf['critical_true_positives']}/{tf['critical_support']} True Positives)"
+    )
     print(f"{'Mean Score':<30} | {base['score_metrics']['mean_score']:>8.2f}                     | {tf['score_metrics']['mean_score']:>8.2f}")
     print(f"{'Score Spread':<30} | {base['score_metrics']['spread']:>8.2f}                     | {tf['score_metrics']['spread']:>8.2f}")
     print(f"{'Standard Deviation':<30} | {base['score_metrics']['std_dev']:>8.2f}                     | {tf['score_metrics']['std_dev']:>8.2f}")
@@ -795,5 +852,51 @@ def print_comparison_cli() -> None:
     print("=" * 95 + "\n")
 
 
+def print_explanation_spot_check(
+    per_tier: int = 2,
+    filepath: Optional[str] = None,
+) -> None:
+    """
+    Print a Markdown table of real explanations for a few held-out headlines
+    per expected tier, for the README hand-check. Fill in the last column by hand.
+    """
+    init_model()
+    init_explanation_model()
+
+    picked: Dict[str, int] = defaultdict(int)
+
+    print("| Expected tier | Headline | FinBERT label | Top tokens | Makes sense? (human) |")
+    print("|---|---|---|---|---|")
+
+    for item in load_validation_dataset(filepath):
+        tier = item["expected_tier"]
+
+        if picked[tier] >= per_tier:
+            continue
+
+        picked[tier] += 1
+
+        sentiment = analyze_sentiment(item["headline"])
+        tokens = explain_headline_attention(
+            item["headline"],
+            top_k=5,
+        )["top_tokens"]
+
+        token_str = ", ".join(
+            f"{t['token']} ({t['attention_weight']:.3f})"
+            for t in tokens
+        )
+
+        print(
+            f"| {tier} | {item['headline']} | "
+            f"{sentiment['label']} | {token_str} | |"
+        )
+
+
 if __name__ == "__main__":
-    print_comparison_cli()
+    import sys
+
+    if "--spot-check" in sys.argv:
+        print_explanation_spot_check()
+    else:
+        print_comparison_cli()

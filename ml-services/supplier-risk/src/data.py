@@ -144,6 +144,24 @@ def _load_from_json() -> List[Dict[str, str]]:
     return []
 
 
+BASELINE_TREND_PATH = Path(__file__).parent / "supplier_trend_headlines.json"
+ACTIVE_TREND_PATH = Path(__file__).parent / "supplier_trend_headlines_25.json"
+
+
+def load_headlines_from_json() -> Dict[str, List[str]]:
+    """
+    Read the committed baseline dataset directly from JSON (never MongoDB).
+    Used by tests, benchmarks and the Mongo-vs-JSON equivalence check.
+    """
+    grouped: Dict[str, List[str]] = {}
+    for item in _load_from_json() or HEADLINES_DATA:
+        supplier = item.get("supplier")
+        headline = item.get("headline")
+        if supplier and headline:
+            grouped.setdefault(supplier, []).append(headline)
+    return grouped
+
+
 def load_headlines(
     use_fallback: bool = False,
 ) -> Dict[str, List[str]]:
@@ -180,23 +198,7 @@ def load_headlines(
             "but the headlines collection is empty. Run 'python -m src.migrate' to import articles."
         )
 
-    source_data = _load_from_json() or HEADLINES_DATA
-
-    grouped_headlines: Dict[str, List[str]] = {}
-
-    for item in source_data:
-        supplier = item.get("supplier")
-        headline = item.get("headline")
-
-        if not supplier or not headline:
-            continue
-
-        grouped_headlines.setdefault(
-            supplier,
-            [],
-        ).append(headline)
-
-    return grouped_headlines
+    return load_headlines_from_json()
 
 
 # ------------------------------------------------------------------
@@ -472,24 +474,9 @@ def load_25_company_trend_dataset(
 
 def load_active_trend_headlines() -> Dict[str, List[Dict[str, str]]]:
     """
-    Load date-aware supplier news headlines with fallback hierarchy:
-        1. 25-company benchmark trend dataset (supplier_trend_headlines_25.json) when available.
-        2. 15-company benchmark trend dataset (supplier_trend_headlines_15.json).
-        3. Fall back to the 10-company baseline trend dataset (supplier_trend_headlines.json).
-        4. Fall back to inline sample (TREND_HEADLINES_DATA).
-
-    Returns:
-        Dict[str, List[Dict[str, str]]]:
-            Dictionary where key is supplier name and value is list of date-aware records.
+    Runtime trend data for the API. MongoDB is the only source.
+    Populate it with: python -m src.migrate
+    (For the committed benchmark files, use load_25_company_trend_dataset()
+    or load_15_company_trend_dataset() explicitly.)
     """
-    h25 = Path(__file__).parent / "supplier_trend_headlines_25.json"
-    if h25.exists():
-        data_25 = load_25_company_trend_dataset(h25)
-        if data_25:
-            return data_25
-    h15 = Path(__file__).parent / "supplier_trend_headlines_15.json"
-    if h15.exists():
-        data_15 = load_15_company_trend_dataset(h15)
-        if data_15:
-            return data_15
     return load_trend_headlines()

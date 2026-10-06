@@ -173,8 +173,7 @@ def insert_article(
         raise ValueError("Article record must contain non-empty 'headline'")
 
     record = dict(doc)
-    if "story_hash" not in record or not record["story_hash"]:
-        record["story_hash"] = generate_story_hash(supplier, headline)
+    record["story_hash"] = generate_story_hash(supplier, headline)
 
     if "created_at" not in record:
         record["created_at"] = datetime.now(timezone.utc)
