@@ -3,10 +3,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.core.database import Base, engine
+from app.models.case_history import CaseHistory
+from app.models.compliance_case import ComplianceCase
+from app.models.compliance_override import ComplianceOverride
 from app.routes.compliance import router as compliance_router
+from app.routes.graphql import graphql_router
 from app.services.sanctions_service import load_all_sanctions
 from app.services.sla_service import sla_metrics
-from app.routes.graphql import graphql_router
 
 
 logging.basicConfig(
@@ -21,6 +25,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     # Tables are created by Alembic (`alembic upgrade head`),
     # never by create_all() at startup.
+
     print("Loading sanctions data...")
 
     load_all_sanctions()

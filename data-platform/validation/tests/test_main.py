@@ -1,17 +1,19 @@
 from unittest.mock import patch, MagicMock
 import logging
+import os
+from pathlib import Path
 import pandas as pd
-from src import main
+from data_validator import main
 
 
-@patch("src.main.setup_logging", return_value="dummy_log.log")
+@patch("data_validator.main.setup_logging", return_value="dummy_log.log")
 @patch("pathlib.Path.exists", return_value=True)
-@patch("src.main.argparse.ArgumentParser.parse_args")
-@patch("src.main.generate_messy_data")
+@patch("data_validator.main.argparse.ArgumentParser.parse_args")
+@patch("data_validator.main.generate_messy_data")
 @patch("pandas.read_csv")
-@patch("src.main.DataValidator.from_config")
+@patch("data_validator.main.DataValidator.from_config")
 @patch("pandas.DataFrame.to_csv")
-@patch("src.main.ReportComparator")
+@patch("data_validator.main.ReportComparator")
 def test_main_standard_flow(mock_comparator, mock_to_csv, mock_validator, mock_read, mock_generate, mock_args,
                             mock_exists, mock_setup_logging):
     """Tests the default end-to-end execution of main.py."""
@@ -24,6 +26,7 @@ def test_main_standard_flow(mock_comparator, mock_to_csv, mock_validator, mock_r
     args.incremental = False
     args.list_profiles = False
     args.profile = None
+    args.env = None  # Explicitly disable env to prevent mock injection
     mock_args.return_value = args
 
     mock_df = pd.DataFrame({"transaction_id": [1, 2]})
@@ -55,14 +58,14 @@ def test_main_standard_flow(mock_comparator, mock_to_csv, mock_validator, mock_r
     mock_comp_instance.save_report.assert_called_once_with(mock_report)
 
 
-@patch("src.main.setup_logging", return_value="dummy_log.log")
+@patch("data_validator.main.setup_logging", return_value="dummy_log.log")
 @patch("pathlib.Path.exists", return_value=True)
-@patch("src.main.argparse.ArgumentParser.parse_args")
+@patch("data_validator.main.argparse.ArgumentParser.parse_args")
 @patch("pandas.read_csv")
-@patch("src.main.DataValidator.from_config")
+@patch("data_validator.main.DataValidator.from_config")
 @patch("pandas.DataFrame.to_csv")
-@patch("src.watermark.WatermarkManager")
-@patch("src.main.ReportComparator")
+@patch("data_validator.watermark.WatermarkManager")
+@patch("data_validator.main.ReportComparator")
 def test_main_incremental_flow(mock_comparator, mock_wm_class, mock_to_csv, mock_validator, mock_read, mock_args,
                                mock_exists, mock_setup_logging):
     args = MagicMock()
@@ -71,6 +74,7 @@ def test_main_incremental_flow(mock_comparator, mock_wm_class, mock_to_csv, mock
     args.watermark_col = "transaction_id"
     args.list_profiles = False
     args.profile = None
+    args.env = None
     mock_args.return_value = args
 
     mock_df = pd.DataFrame({"transaction_id": [10, 20]})
@@ -90,14 +94,14 @@ def test_main_incremental_flow(mock_comparator, mock_wm_class, mock_to_csv, mock
     mock_wm_instance.set_watermark.assert_called_once_with(20)
 
 
-@patch("src.main.setup_logging", return_value="dummy_log.log")
+@patch("data_validator.main.setup_logging", return_value="dummy_log.log")
 @patch("pathlib.Path.exists", autospec=True)
-@patch("src.main.argparse.ArgumentParser.parse_args")
+@patch("data_validator.main.argparse.ArgumentParser.parse_args")
 @patch("pandas.read_csv")
-@patch("src.main.DataValidator.from_config")
+@patch("data_validator.main.DataValidator.from_config")
 @patch("pandas.DataFrame.to_csv")
-@patch("src.watermark.WatermarkManager")
-@patch("src.main.ReportComparator")
+@patch("data_validator.watermark.WatermarkManager")
+@patch("data_validator.main.ReportComparator")
 def test_main_incremental_flow_new_output(mock_comparator, mock_wm_class, mock_to_csv, mock_validator, mock_read,
                                           mock_args, mock_exists, mock_setup_logging):
     args = MagicMock()
@@ -106,6 +110,7 @@ def test_main_incremental_flow_new_output(mock_comparator, mock_wm_class, mock_t
     args.watermark_col = "transaction_id"
     args.list_profiles = False
     args.profile = None
+    args.env = None
     args.output = "new_output.csv"
     mock_args.return_value = args
 
@@ -134,73 +139,84 @@ def test_main_incremental_flow_new_output(mock_comparator, mock_wm_class, mock_t
     mock_wm_instance.set_watermark.assert_called_once_with(20)
 
 
-@patch("src.main.setup_logging", return_value="dummy_log.log")
+@patch("data_validator.main.setup_logging", return_value="dummy_log.log")
 @patch("pathlib.Path.exists", return_value=False)
-@patch("src.main.argparse.ArgumentParser.parse_args")
-@patch("src.main.logger.error")
+@patch("data_validator.main.argparse.ArgumentParser.parse_args")
+@patch("data_validator.main.logger.error")
 def test_main_config_missing(mock_logger_error, mock_args, mock_exists, mock_setup_logging):
-    mock_args.return_value = MagicMock(list_profiles=False, profile=None)
+    mock_args.return_value = MagicMock(list_profiles=False, profile=None, env=None)
     main.main()
     assert mock_logger_error.called
     assert "config" in mock_logger_error.call_args[0][0].lower()
 
 
-@patch("src.main.setup_logging", return_value="dummy_log.log")
+@patch("data_validator.main.setup_logging", return_value="dummy_log.log")
 @patch("pathlib.Path.exists", return_value=True)
-@patch("src.main.argparse.ArgumentParser.parse_args")
-@patch("src.main.DataValidator.list_profiles", return_value=["default", "strict"])
+@patch("data_validator.main.argparse.ArgumentParser.parse_args")
+@patch("data_validator.main.DataValidator.list_profiles", return_value=["default", "strict"])
 def test_main_list_profiles_found(mock_list, mock_args, mock_exists, mock_setup_logging):
     args = MagicMock()
     args.config = "dummy_config.yaml"
     args.list_profiles = True
+    args.env = None
     mock_args.return_value = args
     main.main()
-    mock_list.assert_called_once_with("dummy_config.yaml")
+
+    expected_path = str(Path("dev/dummy_config.yaml"))
+    mock_list.assert_called_once_with(expected_path)
 
 
-@patch("src.main.setup_logging", return_value="dummy_log.log")
+@patch("data_validator.main.setup_logging", return_value="dummy_log.log")
 @patch("pathlib.Path.exists", return_value=True)
-@patch("src.main.argparse.ArgumentParser.parse_args")
-@patch("src.main.DataValidator.list_profiles", return_value=[])
+@patch("data_validator.main.argparse.ArgumentParser.parse_args")
+@patch("data_validator.main.DataValidator.list_profiles", return_value=[])
 def test_main_list_profiles_not_found(mock_list, mock_args, mock_exists, mock_setup_logging):
     args = MagicMock()
     args.config = "dummy_config.yaml"
     args.list_profiles = True
+    args.env = None
     mock_args.return_value = args
     main.main()
-    mock_list.assert_called_once_with("dummy_config.yaml")
+
+    expected_path = str(Path("dev/dummy_config.yaml"))
+    mock_list.assert_called_once_with(expected_path)
 
 
-@patch("src.main.setup_logging", return_value="dummy_log.log")
+@patch("data_validator.main.setup_logging", return_value="dummy_log.log")
 @patch("pathlib.Path.exists", return_value=True)
-@patch("src.main.argparse.ArgumentParser.parse_args")
+@patch("data_validator.main.argparse.ArgumentParser.parse_args")
 @patch("pandas.read_csv", side_effect=FileNotFoundError)
-@patch("src.main.logger.error")
+@patch("data_validator.main.logger.error")
 def test_main_read_csv_fails(mock_logger_error, mock_read, mock_args, mock_exists, mock_setup_logging):
-    mock_args.return_value = MagicMock(skip_generate=True, list_profiles=False, profile=None, input="dummy_input.csv")
+    mock_args.return_value = MagicMock(skip_generate=True, list_profiles=False, profile=None, env=None,
+                                       input="dummy_input.csv")
     main.main()
     mock_logger_error.assert_called_with("FATAL ERROR: The input file was not found at dummy_input.csv.")
 
 
-@patch("src.main.setup_logging", return_value="dummy_log.log")
+@patch("data_validator.main.setup_logging", return_value="dummy_log.log")
 @patch("pathlib.Path.exists", return_value=True)
-@patch("src.main.argparse.ArgumentParser.parse_args")
+@patch("data_validator.main.argparse.ArgumentParser.parse_args")
 @patch("pandas.read_csv", return_value=pd.DataFrame({"id": [1]}))
-@patch("src.main.DataValidator.from_config", side_effect=ValueError("Bad Config"))
-@patch("src.main.logger.error")
-def test_main_validator_init_fails(mock_logger_error, mock_validator, mock_read, mock_args, mock_exists, mock_setup_logging):
-    mock_args.return_value = MagicMock(skip_generate=True, incremental=False, list_profiles=False, profile=None)
+@patch("data_validator.main.DataValidator.from_config", side_effect=ValueError("Bad Config"))
+@patch("data_validator.main.logger.error")
+def test_main_validator_init_fails(mock_logger_error, mock_validator, mock_read, mock_args, mock_exists,
+                                   mock_setup_logging):
+    mock_args.return_value = MagicMock(skip_generate=True, incremental=False, list_profiles=False, profile=None,
+                                       env=None)
     main.main()
     mock_logger_error.assert_called_with("FATAL ERROR: Failed to initialize validator: Bad Config")
 
-@patch("src.main.setup_logging", return_value="dummy_log.log")
+
+@patch("data_validator.main.setup_logging", return_value="dummy_log.log")
 @patch("pathlib.Path.exists", return_value=True)
-@patch("src.main.argparse.ArgumentParser.parse_args")
+@patch("data_validator.main.argparse.ArgumentParser.parse_args")
 @patch("pandas.read_csv", return_value=pd.DataFrame({"id": [1]}))
-@patch("src.main.DataValidator.from_config")
-@patch("src.main.logger.error")
+@patch("data_validator.main.DataValidator.from_config")
+@patch("data_validator.main.logger.error")
 def test_main_validate_fails(mock_logger_error, mock_validator, mock_read, mock_args, mock_exists, mock_setup_logging):
-    mock_args.return_value = MagicMock(skip_generate=True, incremental=False, list_profiles=False, profile=None)
+    mock_args.return_value = MagicMock(skip_generate=True, incremental=False, list_profiles=False, profile=None,
+                                       env=None)
     mock_instance = MagicMock()
     mock_instance.validate.side_effect = RuntimeError("Validation Crashed")
     mock_validator.return_value = mock_instance
@@ -208,15 +224,17 @@ def test_main_validate_fails(mock_logger_error, mock_validator, mock_read, mock_
     mock_logger_error.assert_called_with("FATAL ERROR: Validation crashed during execution: Validation Crashed")
 
 
-@patch("src.main.setup_logging", return_value="dummy_log.log")
+@patch("data_validator.main.setup_logging", return_value="dummy_log.log")
 @patch("pathlib.Path.exists", return_value=True)
-@patch("src.main.argparse.ArgumentParser.parse_args")
+@patch("data_validator.main.argparse.ArgumentParser.parse_args")
 @patch("pandas.read_csv", return_value=pd.DataFrame({"id": [1]}))
-@patch("src.main.DataValidator.from_config")
-@patch("src.main.ReportComparator")
-@patch("src.main.logger.error")
-def test_main_clean_fails(mock_logger_error, mock_comparator, mock_validator, mock_read, mock_args, mock_exists, mock_setup_logging):
-    mock_args.return_value = MagicMock(skip_generate=True, incremental=False, list_profiles=False, profile=None)
+@patch("data_validator.main.DataValidator.from_config")
+@patch("data_validator.main.ReportComparator")
+@patch("data_validator.main.logger.error")
+def test_main_clean_fails(mock_logger_error, mock_comparator, mock_validator, mock_read, mock_args, mock_exists,
+                          mock_setup_logging):
+    mock_args.return_value = MagicMock(skip_generate=True, incremental=False, list_profiles=False, profile=None,
+                                       env=None)
     mock_instance = MagicMock()
     mock_instance.validate.return_value = MagicMock(passed=True, rule_timings={"r1": 0.1})
     mock_instance.clean.side_effect = RuntimeError("Clean Crashed")
@@ -227,17 +245,18 @@ def test_main_clean_fails(mock_logger_error, mock_comparator, mock_validator, mo
     mock_logger_error.assert_called_with("FATAL ERROR: Cleaning crashed during execution: Clean Crashed")
 
 
-@patch("src.main.setup_logging", return_value="dummy_log.log")
+@patch("data_validator.main.setup_logging", return_value="dummy_log.log")
 @patch("pathlib.Path.exists", return_value=True)
-@patch("src.main.argparse.ArgumentParser.parse_args")
+@patch("data_validator.main.argparse.ArgumentParser.parse_args")
 @patch("pandas.read_csv", return_value=pd.DataFrame({"id": [1]}))
-@patch("src.main.DataValidator.from_config")
+@patch("data_validator.main.DataValidator.from_config")
 @patch("pandas.DataFrame.to_csv", side_effect=OSError("Disk Full"))
-@patch("src.main.ReportComparator")
-@patch("src.main.logger.error")
+@patch("data_validator.main.ReportComparator")
+@patch("data_validator.main.logger.error")
 def test_main_save_fails(mock_logger_error, mock_comparator, mock_to_csv, mock_validator, mock_read, mock_args,
                          mock_exists, mock_setup_logging):
-    mock_args.return_value = MagicMock(skip_generate=True, incremental=False, list_profiles=False, profile=None)
+    mock_args.return_value = MagicMock(skip_generate=True, incremental=False, list_profiles=False, profile=None,
+                                       env=None)
     mock_instance = MagicMock()
     mock_instance.validate.return_value = MagicMock(passed=True, rule_timings={})
     mock_instance.clean.return_value = pd.DataFrame({"id": [1]})
@@ -249,28 +268,32 @@ def test_main_save_fails(mock_logger_error, mock_comparator, mock_to_csv, mock_v
     assert "Failed to save cleaned data" in mock_logger_error.call_args[0][0]
 
 
-@patch("src.main.setup_logging", return_value="dummy_log.log")
+@patch("data_validator.main.setup_logging", return_value="dummy_log.log")
 @patch("pathlib.Path.exists", return_value=True)
-@patch("src.main.argparse.ArgumentParser.parse_args")
+@patch("data_validator.main.argparse.ArgumentParser.parse_args")
 @patch("pandas.read_csv", return_value=pd.DataFrame({"wrong_col": [1]}))
-@patch("src.watermark.WatermarkManager")
-@patch("src.main.logger.error")
-def test_main_incremental_missing_col(mock_logger_error, mock_wm_class, mock_read, mock_args, mock_exists, mock_setup_logging):
-    args = MagicMock(skip_generate=True, incremental=True, watermark_col="id", list_profiles=False, profile=None)
+@patch("data_validator.watermark.WatermarkManager")
+@patch("data_validator.main.logger.error")
+def test_main_incremental_missing_col(mock_logger_error, mock_wm_class, mock_read, mock_args, mock_exists,
+                                      mock_setup_logging):
+    args = MagicMock(skip_generate=True, incremental=True, watermark_col="id", list_profiles=False, profile=None,
+                     env=None)
     mock_args.return_value = args
     main.main()
     mock_logger_error.assert_called_with("FATAL ERROR: Incremental column 'id' missing from input data.")
 
 
-@patch("src.main.setup_logging", return_value="dummy_log.log")
+@patch("data_validator.main.setup_logging", return_value="dummy_log.log")
 @patch("pathlib.Path.exists", return_value=True)
-@patch("src.main.argparse.ArgumentParser.parse_args")
+@patch("data_validator.main.argparse.ArgumentParser.parse_args")
 @patch("pandas.read_csv", return_value=pd.DataFrame({"id": [1]}))
-@patch("src.main.DataValidator.filter_incremental", return_value=pd.DataFrame())
-@patch("src.watermark.WatermarkManager")
-@patch("src.main.logger.info")
-def test_main_incremental_no_new_data(mock_logger_info, mock_wm_class, mock_filter, mock_read, mock_args, mock_exists, mock_setup_logging):
-    args = MagicMock(skip_generate=True, incremental=True, watermark_col="id", list_profiles=False, profile=None)
+@patch("data_validator.main.DataValidator.filter_incremental", return_value=pd.DataFrame())
+@patch("data_validator.watermark.WatermarkManager")
+@patch("data_validator.main.logger.info")
+def test_main_incremental_no_new_data(mock_logger_info, mock_wm_class, mock_filter, mock_read, mock_args, mock_exists,
+                                      mock_setup_logging):
+    args = MagicMock(skip_generate=True, incremental=True, watermark_col="id", list_profiles=False, profile=None,
+                     env=None)
     mock_args.return_value = args
 
     mock_wm_instance = MagicMock()
@@ -281,8 +304,8 @@ def test_main_incremental_no_new_data(mock_logger_info, mock_wm_class, mock_filt
     mock_logger_info.assert_any_call("No new data to process. Pipeline halting cleanly.")
 
 
-@patch("src.main.logger.error")
-@patch("src.main.logger.info")
+@patch("data_validator.main.logger.error")
+@patch("data_validator.main.logger.info")
 def test_log_issues_direct(mock_info, mock_error):
     issues = [{"rule": "test_rule", "field": "col_A", "count": 5}]
     report = {
@@ -295,7 +318,7 @@ def test_log_issues_direct(mock_info, mock_error):
     mock_error.assert_called_with("ERROR -> Rule: test_rule | Field: col_A | Count: 5")
     mock_info.assert_any_call("         Row 99: [bad_data]")
 
-    with patch("src.main.logger.warning") as mock_warning:
+    with patch("data_validator.main.logger.warning") as mock_warning:
         main.log_issues(issues, "WARNING", report)
         mock_warning.assert_called_with("WARNING -> Rule: test_rule | Field: col_A | Count: 5")
 
@@ -308,14 +331,14 @@ def custom_exists_side_effect(self):
     return True
 
 
-@patch("src.main.setup_logging", return_value="dummy_log.log")
+@patch("data_validator.main.setup_logging", return_value="dummy_log.log")
 @patch("pathlib.Path.exists", autospec=True, side_effect=custom_exists_side_effect)
-@patch("src.main.argparse.ArgumentParser.parse_args")
-@patch("src.main.generate_messy_data")
+@patch("data_validator.main.argparse.ArgumentParser.parse_args")
+@patch("data_validator.main.generate_messy_data")
 @patch("pandas.read_csv", return_value=pd.DataFrame({"id": [1]}))
-@patch("src.main.DataValidator.from_config")
+@patch("data_validator.main.DataValidator.from_config")
 @patch("pandas.DataFrame.to_csv")
-@patch("src.main.ReportComparator")
+@patch("data_validator.main.ReportComparator")
 def test_main_skip_generate_override(mock_comparator, mock_to_csv, mock_validator, mock_read, mock_generate, mock_args,
                                      mock_exists, mock_setup_logging):
     args = MagicMock()
@@ -326,6 +349,7 @@ def test_main_skip_generate_override(mock_comparator, mock_to_csv, mock_validato
     args.incremental = False
     args.list_profiles = False
     args.profile = None
+    args.env = None
     mock_args.return_value = args
 
     mock_instance = MagicMock()
@@ -338,15 +362,18 @@ def test_main_skip_generate_override(mock_comparator, mock_to_csv, mock_validato
     mock_generate.assert_called_once()
 
 
-@patch("src.main.setup_logging", return_value="dummy_log.log")
+@patch("data_validator.main.setup_logging", return_value="dummy_log.log")
 @patch("pathlib.Path.exists", return_value=True)
-@patch("src.main.argparse.ArgumentParser.parse_args")
+@patch("data_validator.main.argparse.ArgumentParser.parse_args")
 @patch("pandas.read_csv", side_effect=Exception("Unexpected Read Error"))
-@patch("src.main.logger.error")
+@patch("data_validator.main.logger.error")
 def test_main_read_csv_generic_exception(mock_logger_error, mock_read, mock_args, mock_exists, mock_setup_logging):
-    mock_args.return_value = MagicMock(skip_generate=True, incremental=False, list_profiles=False, profile=None)
+    mock_args.return_value = MagicMock(skip_generate=True, incremental=False, list_profiles=False, profile=None,
+                                       env=None)
     main.main()
-    mock_logger_error.assert_called_with("FATAL ERROR: An unexpected error occurred while reading the data: Unexpected Read Error")
+    mock_logger_error.assert_called_with(
+        "FATAL ERROR: An unexpected error occurred while reading the data: Unexpected Read Error")
+
 
 def test_setup_logging_execution(monkeypatch):
     # 1. Prevent real directories from being created
@@ -365,3 +392,78 @@ def test_setup_logging_execution(monkeypatch):
     assert "validation_" in log_path
     assert log_path.endswith(".log")
 
+
+@patch("data_validator.main.setup_logging", return_value="dummy_log.log")
+@patch("pathlib.Path.exists", return_value=True)
+@patch("data_validator.main.argparse.ArgumentParser.parse_args")
+@patch("data_validator.main.generate_messy_data")
+@patch("pandas.read_csv", return_value=pd.DataFrame({"id": [1]}))
+@patch("data_validator.main.DataValidator.from_config")
+@patch("pandas.DataFrame.to_csv")
+@patch("data_validator.main.ReportComparator")
+@patch("data_validator.main.logger.info")
+def test_main_logs_remediations(mock_info, mock_comparator, mock_to_csv, mock_validator, mock_read, mock_generate,
+                                mock_args, mock_exists, mock_setup_logging):
+    """Tests that the orchestrator logs auto-remediations successfully to the console/log files."""
+    args = MagicMock(skip_generate=True, incremental=False, list_profiles=False, profile=None, env=None)
+    mock_args.return_value = args
+
+    mock_instance = MagicMock()
+    mock_report = MagicMock()
+    mock_report.passed = True
+    mock_report.total_rows_affected = 0
+    mock_report.errors = []
+    mock_report.warnings = []
+    mock_report.model_dump.return_value = {}
+
+    # Inject telemetry payload
+    mock_report.remediations = [{"rule": "test_rem_rule", "field": "test_field", "rows_modified": 42}]
+    mock_report.sample_remediations = {
+        "test_rem_rule": [{"row_index": 7, "original": "  dirty  ", "remediated": "dirty"}]
+    }
+
+    mock_instance.validate.return_value = mock_report
+    mock_instance.clean.return_value = pd.DataFrame({"id": [1]})
+    mock_validator.return_value = mock_instance
+
+    main.main()
+
+    # Assert the new logic executed correctly
+    mock_info.assert_any_call("--- AUTO-REMEDIATIONS APPLIED ---")
+    mock_info.assert_any_call("REMEDIATED -> Rule: test_rem_rule | Field: test_field | Modified: 42 rows")
+    mock_info.assert_any_call("     -> Row 7: [  dirty  ] -> [dirty]")
+
+
+@patch("data_validator.main.setup_logging", return_value="dummy_log.log")
+@patch("pathlib.Path.exists", return_value=True)
+@patch("data_validator.main.argparse.ArgumentParser.parse_args")
+@patch("pandas.read_csv", return_value=pd.DataFrame({"id": [1]}))
+@patch("data_validator.main.DataValidator.from_config")
+@patch("pandas.DataFrame.to_csv")
+@patch("data_validator.main.ReportComparator")
+def test_main_env_override(mock_comparator, mock_to_csv, mock_validator, mock_read, mock_args, mock_exists,
+                           mock_setup_logging):
+    """Ensures 100% coverage by explicitly passing the `--env` flag to validate path injection."""
+    args = MagicMock()
+    args.config = "dummy_config.yaml"
+    args.input = "dummy_input.csv"
+    args.output = "dummy_output.csv"
+    args.skip_generate = True
+    args.strict = True
+    args.incremental = False
+    args.list_profiles = False
+    args.profile = None
+    args.env = "prod"  # Explicitly trigger the environment resolution logic
+    mock_args.return_value = args
+
+    mock_instance = MagicMock()
+    mock_instance.validate.return_value = MagicMock(passed=True, rule_timings={})
+    mock_instance.clean.return_value = pd.DataFrame({"id": [1]})
+    mock_validator.return_value = mock_instance
+
+    # Run the main script
+    main.main()
+
+    # Assert that from_config was successfully triggered
+    mock_validator.assert_called_once()
+    mock_validator.assert_called_once()

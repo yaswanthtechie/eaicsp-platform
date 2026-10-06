@@ -10,10 +10,11 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from src.make_messy_data import MessyDataConfig, generate_messy_data
-from src.validator import DataValidator
+from data_validator.make_messy_data import MessyDataConfig, generate_messy_data
+from data_validator.validator import DataValidator
 
-CONFIG = Path(__file__).resolve().parent.parent / "configs" / "sales_rules.yaml"
+# Target the new dev environment contract
+CONFIG = Path(__file__).resolve().parent.parent / "configs" / "dev" / "sales_rules.yaml"
 
 
 def _counts(report):

@@ -207,6 +207,23 @@ The effective decision is therefore:
 
 The threshold is configurable.
 
+## Risk Source Count
+
+The source-coverage component uses:
+
+```env
+TOTAL_SOURCES=5
+```
+
+The five configured sources are:
+
+```text
+OFAC
+UN
+EU
+Internal Watchlist
+PEP
+```
 ---
 
 # Internal Compliance Check
@@ -829,6 +846,8 @@ COMPLIANCE_PG_TEST_URL
 
 and a running PostgreSQL instance.
 
+The endpoint is intended to provide a quick compliance decision before a protected business operation continues.
+
 ---
 
 # Test Database
@@ -956,6 +975,12 @@ INTERNAL_BLOCK_MATCH_SCORE=90
 
 Replace placeholder values locally.
 
+Use placeholders in `.env.example`.
+
+Automated tests should use mocked or dummy credentials rather than production secrets.
+
+If a real credential is accidentally exposed, it should be rotated.
+
 ---
 
 # Starting Development Infrastructure
@@ -1027,7 +1052,11 @@ The exact Kafka container configuration is defined in:
 docker-compose.dev.yml
 ```
 
----
+## Regulatory Rules Tests
+
+```powershell
+python -m pytest -q tests/test_regulatory_rules.py
+```
 
 # 46. Application Startup
 

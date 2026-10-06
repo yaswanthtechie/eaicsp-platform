@@ -15,6 +15,7 @@ from app.services.compliance_client import (
     ComplianceServiceError,
     ComplianceServiceUnavailableError,
 )
+from urllib3.exceptions import MaxRetryError
 # ============================================================
 # TEST USERS
 # ============================================================
@@ -548,7 +549,29 @@ def test_supplier_can_upload_own_document(
 
     assert data["status"] == "submitted"
 
+def test_document_upload_returns_502_when_minio_is_unreachable(
+    procurement_client,
+    supplier_client,
+    fake_minio,
+    monkeypatch,
+):
+    assert register_supplier(procurement_client).status_code == 201
 
+    def minio_unreachable(bucket_name):
+        # What the real client raises when MinIO is down.
+        raise MaxRetryError(None, "/supplier-documents", reason=None)
+
+    monkeypatch.setattr(fake_minio, "bucket_exists", minio_unreachable)
+
+    response = upload_document(
+        supplier_client,
+        "SUP001",
+        "gst_certificate",
+    )
+
+    assert response.status_code == 502, response.text
+    assert response.json()["detail"] == "Document storage is unavailable."
+    
 # ============================================================
 # 6. SUPPLIER CANNOT UPLOAD OTHER SUPPLIER DOCUMENT
 # ============================================================

@@ -25,3 +25,7 @@ postgres-db-volume/
 data/rejected/
 data/needs_manual_review/
 data/.quality_failure_counts.json
+
+# generated Airflow config and local DR database backup
+config/airflow.cfg
+docs/dr_drill_backup.dump

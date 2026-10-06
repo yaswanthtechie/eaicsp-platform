@@ -60,7 +60,6 @@ SNAPSHOT_FILE = (
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
-
 SERVICE_NAME = os.getenv(
     "SERVICE_NAME",
     "compliance-service",
@@ -207,6 +206,20 @@ SLA_LATENCY_THRESHOLD_MS = float(
     )
 )
 
+SLA_WINDOW_SECONDS = float(
+    os.getenv(
+        "SLA_WINDOW_SECONDS",
+        "300",
+    )
+)
+
+SLA_MAX_ERROR_RATE = float(
+    os.getenv(
+        "SLA_MAX_ERROR_RATE",
+        "0.05",
+    )
+)
+
 SLA_ALERT_WEBHOOK_URL = os.getenv(
     "SLA_ALERT_WEBHOOK_URL",
 )
@@ -218,7 +231,6 @@ SLA_ALERT_COOLDOWN_SECONDS = float(
     )
 )
 
-
 INTERNAL_BLOCK_MATCH_SCORE = float(
     os.getenv(
         "INTERNAL_BLOCK_MATCH_SCORE",
@@ -226,6 +238,32 @@ INTERNAL_BLOCK_MATCH_SCORE = float(
     )
 )
 
+INTERNAL_REVIEW_MATCH_SCORE = int(
+    os.getenv(
+        "INTERNAL_REVIEW_MATCH_SCORE",
+        "80",
+    )
+)
+
+
+def validate_internal_thresholds(
+    review_score: float,
+    block_score: float,
+) -> None:
+    """Fail at startup if the REVIEW band would be empty."""
+    if review_score >= block_score:
+        raise RuntimeError(
+            "INTERNAL_REVIEW_MATCH_SCORE "
+            f"({review_score}) must be lower than "
+            f"INTERNAL_BLOCK_MATCH_SCORE ({block_score}); "
+            "otherwise /internal-check can never return REVIEW."
+        )
+
+
+validate_internal_thresholds(
+    INTERNAL_REVIEW_MATCH_SCORE,
+    INTERNAL_BLOCK_MATCH_SCORE,
+)
 
 INTERNAL_SERVICE_KEYS = {
     name.strip(): key.strip()

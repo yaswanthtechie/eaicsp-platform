@@ -1,7 +1,7 @@
 import argparse
 import json
 import sys
-from src.report import compare_models
+from eval_framework.report import compare_models
 
 
 def load_results(path: str) -> dict:

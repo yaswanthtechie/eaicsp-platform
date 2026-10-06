@@ -8,28 +8,58 @@ from app.database import Base
 class PurchaseOrder(Base):
     __tablename__ = "purchase_orders"
 
-    po_id = Column(String, primary_key=True, index=True)
+    po_id = Column(
+        String,
+        primary_key=True,
+        index=True,
+    )
 
-    sku_id = Column(String, nullable=False, index=True)
+    sku_id = Column(
+        String,
+        nullable=False,
+        index=True,
+    )
 
-    warehouse_id = Column(String, nullable=False, index=True)
+    warehouse_id = Column(
+        String,
+        nullable=False,
+        index=True,
+    )
 
-    supplier_id = Column(String, nullable=False)
+    supplier_id = Column(
+        String,
+        nullable=False,
+    )
 
-    quantity = Column(Integer, nullable=False)
+    quantity = Column(
+        Integer,
+        nullable=False,
+    )
 
-    unit_cost = Column(Float, nullable=False)
+    unit_cost = Column(
+        Float,
+        nullable=False,
+    )
 
-    expected_cost = Column(Float, nullable=False)
+    expected_cost = Column(
+        Float,
+        nullable=False,
+    )
 
     status = Column(
         String,
         nullable=False,
-        default="draft"
+        default="draft",
+    )
+
+    approval_status = Column(
+        String,
+        nullable=False,
+        default="pending_vp_approval",
     )
 
     created_at = Column(
         DateTime,
         nullable=False,
-        default=lambda: datetime.now(UTC)
+        default=lambda: datetime.now(UTC),
     )

@@ -60,6 +60,34 @@ def db_session():
 
 
 # ============================================================
+# COMPLIANCE SERVICE MOCK
+#
+# The real Compliance Service is not running during tests.
+# Default every test to CLEAR; tests that exercise other
+# decisions or failures override this with their own
+# monkeypatch, which takes precedence.
+# ============================================================
+
+@pytest.fixture(autouse=True)
+def mock_compliance_clear(monkeypatch):
+    def fake_check_supplier_compliance(
+        supplier_id,
+        supplier_name,
+        country,
+    ):
+        return {
+            "cleared": True,
+            "decision": "CLEAR",
+            "reason": "Cleared by test mock.",
+        }
+
+    monkeypatch.setattr(
+        "app.services.purchase_order_service.check_supplier_compliance",
+        fake_check_supplier_compliance,
+    )
+
+
+# ============================================================
 # SALES HISTORY SEED HELPER
 # ============================================================
 

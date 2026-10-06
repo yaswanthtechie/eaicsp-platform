@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, mock_open, patch
 import pandas as pd
 import pytest
 
-import src.validate_cli as validate_cli
+import data_validator.validate_cli as validate_cli
 
 
 # --- Fixtures ---
@@ -21,11 +21,12 @@ def mock_report() -> MagicMock:
     report.passed = True
     report.total_rows_affected = 0
     report.total_rows = 10  # Prevents MagicMock > 0 integer comparison errors
+    report.sla_breached = False
+    report.sla_violations = []
     report.model_dump.return_value = {"status": "success"}
     report.rule_timings = {}
     del report.dict
     return report
-
 
 # --- Tests for setup_logger ---
 
@@ -40,7 +41,7 @@ def test_setup_logger(mock_basic_config, mock_file_handler):
     assert call_kwargs.get("force") is True
     assert "handlers" in call_kwargs
     assert len(call_kwargs["handlers"]) == 2
-    assert logger.name == "src.validate_cli"
+    assert logger.name == "data_validator.validate_cli"
 
 
 # --- Tests for parse_args ---
@@ -53,6 +54,7 @@ def test_parse_args_success(mock_args):
     assert args.output.name == "dummy.json"
     assert args.profile is None
     assert args.list_profiles is False
+    assert args.sla_time_limit is None
 
 
 def test_parse_args_profiles(mock_args):
@@ -62,10 +64,31 @@ def test_parse_args_profiles(mock_args):
     assert args.list_profiles is True
 
 
+def test_parse_args_sla_time_limit(mock_args):
+    """Verifies that the new SLA time limit override is parsed correctly."""
+    args_with_sla = mock_args + ["--sla-time-limit", "15.5"]
+    args = validate_cli.parse_args(args_with_sla)
+    assert args.sla_time_limit == 15.5
+
+
 def test_parse_args_missing_required():
     with pytest.raises(SystemExit):
         validate_cli.parse_args([])
 
+
+@patch("os.getenv", return_value="prod")
+def test_parse_args_env_default(mock_getenv, mock_args):
+    """Verifies that VALIDATOR_ENV is picked up as the default environment."""
+    args = validate_cli.parse_args(mock_args)
+    assert args.env == "prod"
+    mock_getenv.assert_called_with("VALIDATOR_ENV")
+
+
+def test_parse_args_env_override(mock_args):
+    """Verifies that the --env flag overrides the OS environment variable."""
+    args_with_env = mock_args + ["--env", "staging"]
+    args = validate_cli.parse_args(args_with_env)
+    assert args.env == "staging"
 
 # --- Tests for export_report ---
 
@@ -121,19 +144,23 @@ def test_main_input_not_file(mock_is_file, mock_args):
 
 
 @patch("pathlib.Path.is_file", return_value=True)
-@patch("src.validator.DataValidator.list_profiles", return_value=["default", "strict"])
+@patch("data_validator.validator.DataValidator.list_profiles", return_value=["default", "strict"])
 def test_main_list_profiles_found(mock_list, mock_is_file, mock_args):
     args = mock_args + ["--list-profiles"]
     assert validate_cli.main(args) == validate_cli.EXIT_SUCCESS
-    mock_list.assert_called_once_with("dummy.yaml")
+
+    expected_path = str(Path("dev/dummy.yaml"))
+    mock_list.assert_called_once_with(expected_path)
 
 
 @patch("pathlib.Path.is_file", return_value=True)
-@patch("src.validator.DataValidator.list_profiles", return_value=[])
+@patch("data_validator.validator.DataValidator.list_profiles", return_value=[])
 def test_main_list_profiles_not_found(mock_list, mock_is_file, mock_args):
     args = mock_args + ["--list-profiles"]
     assert validate_cli.main(args) == validate_cli.EXIT_SUCCESS
-    mock_list.assert_called_once_with("dummy.yaml")
+
+    expected_path = str(Path("dev/dummy.yaml"))
+    mock_list.assert_called_once_with(expected_path)
 
 
 @patch("pathlib.Path.is_file", return_value=True)
@@ -150,8 +177,8 @@ def test_main_validation_fails_runtime_error(mock_read, mock_is_file, mock_args)
 
 @patch("pathlib.Path.is_file", return_value=True)
 @patch("pandas.read_csv", return_value=pd.DataFrame())
-@patch("src.validator.DataValidator.from_config")
-@patch("src.validate_cli.export_report", side_effect=TypeError("Bad Export"))
+@patch("data_validator.validator.DataValidator.from_config")
+@patch("data_validator.validate_cli.export_report", side_effect=TypeError("Bad Export"))
 def test_main_export_fails(mock_export, mock_validator, mock_read, mock_is_file, mock_args, mock_report):
     mock_instance = MagicMock()
     mock_instance.validate.return_value = mock_report
@@ -161,8 +188,8 @@ def test_main_export_fails(mock_export, mock_validator, mock_read, mock_is_file,
 
 @patch("pathlib.Path.is_file", return_value=True)
 @patch("pandas.read_csv", return_value=pd.DataFrame())
-@patch("src.validator.DataValidator.from_config")
-@patch("src.validate_cli.export_report")
+@patch("data_validator.validator.DataValidator.from_config")
+@patch("data_validator.validate_cli.export_report")
 def test_main_validation_passed_false(mock_export, mock_validator, mock_read, mock_is_file, mock_args, mock_report):
     mock_report.passed = False
     mock_report.total_rows_affected = 5
@@ -174,8 +201,53 @@ def test_main_validation_passed_false(mock_export, mock_validator, mock_read, mo
 
 @patch("pathlib.Path.is_file", return_value=True)
 @patch("pandas.read_csv", return_value=pd.DataFrame())
-@patch("src.validator.DataValidator.from_config")
-@patch("src.validate_cli.export_report")
+@patch("data_validator.validator.DataValidator.from_config")
+@patch("data_validator.validate_cli.export_report")
+def test_main_validation_passed_with_sla_breach(mock_export, mock_validator, mock_read, mock_is_file, mock_args,
+                                                mock_report):
+    """Verifies that passing data with SLA violations returns the correct EXIT_SLA_BREACH code."""
+    mock_report.sla_breached = True
+    mock_report.sla_violations = ["Global failure rate 15.0% exceeds warning SLA (10.0%)"]
+
+    mock_instance = MagicMock()
+    mock_instance.validate.return_value = mock_report
+    mock_validator.return_value = mock_instance
+    assert validate_cli.main(mock_args) == validate_cli.EXIT_SLA_BREACH
+
+
+@patch("pathlib.Path.is_file", return_value=True)
+@patch("pandas.read_csv", return_value=pd.DataFrame())
+@patch("data_validator.validator.DataValidator.from_config")
+@patch("data_validator.validate_cli.export_report")
+def test_main_injects_sla_time_limit(mock_export, mock_validator, mock_read, mock_is_file, mock_args, mock_report):
+    """Verifies that the CLI SLA override flag updates the validator engine attribute."""
+    mock_instance = MagicMock()
+    mock_instance.validate.return_value = mock_report
+    mock_validator.return_value = mock_instance
+
+    args = mock_args + ["--sla-time-limit", "10.0"]
+    assert validate_cli.main(args) == validate_cli.EXIT_SUCCESS
+    assert mock_instance.global_max_duration_seconds == 10.0
+
+
+@patch("pathlib.Path.is_file", return_value=True)
+@patch("pandas.read_csv", return_value=pd.DataFrame())
+@patch("data_validator.validator.DataValidator.from_config")
+@patch("data_validator.validate_cli.export_report")
+def test_main_sla_time_limit_zero_is_not_ignored(mock_export, mock_validator, mock_read, mock_is_file, mock_args, mock_report):
+    """0 is a real value, not "not set"."""
+    mock_instance = MagicMock()
+    mock_instance.validate.return_value = mock_report
+    mock_validator.return_value = mock_instance
+
+    validate_cli.main(mock_args + ["--sla-time-limit", "0"])
+    assert mock_instance.global_max_duration_seconds == 0.0
+
+
+@patch("pathlib.Path.is_file", return_value=True)
+@patch("pandas.read_csv", return_value=pd.DataFrame())
+@patch("data_validator.validator.DataValidator.from_config")
+@patch("data_validator.validate_cli.export_report")
 def test_main_validation_passed_true_with_profile(mock_export, mock_validator, mock_read, mock_is_file, mock_args,
                                                   mock_report):
     mock_instance = MagicMock()
@@ -189,9 +261,9 @@ def test_main_validation_passed_true_with_profile(mock_export, mock_validator, m
 
 @patch("pathlib.Path.is_file", return_value=True)
 @patch("pandas.read_csv", return_value=pd.DataFrame())
-@patch("src.validator.DataValidator.from_config")
-@patch("src.validate_cli.export_report")
-@patch("src.validate_cli.logger.info")
+@patch("data_validator.validator.DataValidator.from_config")
+@patch("data_validator.validate_cli.export_report")
+@patch("data_validator.validate_cli.logger.info")
 def test_main_rule_timings_logging(mock_info, mock_export, mock_validator, mock_read, mock_is_file, mock_args,
                                    mock_report):
     mock_report.rule_timings = {"rule_1": 0.5, "rule_2": 1.2}
@@ -214,9 +286,9 @@ def test_parse_args_incremental(mock_args):
 
 @patch("pathlib.Path.is_file", return_value=True)
 @patch("pandas.read_csv")
-@patch("src.validator.DataValidator.from_config")
-@patch("src.validate_cli.export_report")
-@patch("src.watermark.WatermarkManager")
+@patch("data_validator.validator.DataValidator.from_config")
+@patch("data_validator.validate_cli.export_report")
+@patch("data_validator.watermark.WatermarkManager")
 def test_main_incremental_updates_watermark(
         mock_wm_class, mock_export, mock_validator, mock_read, mock_is_file, mock_args, mock_report
 ):
@@ -236,9 +308,9 @@ def test_main_incremental_updates_watermark(
 
 @patch("pathlib.Path.is_file", return_value=True)
 @patch("pandas.read_csv")
-@patch("src.validator.DataValidator.from_config")
-@patch("src.validate_cli.export_report")
-@patch("src.watermark.WatermarkManager")
+@patch("data_validator.validator.DataValidator.from_config")
+@patch("data_validator.validate_cli.export_report")
+@patch("data_validator.watermark.WatermarkManager")
 def test_main_incremental_no_new_data(
         mock_wm_class, mock_export, mock_validator, mock_read, mock_is_file, mock_args
 ):
@@ -256,8 +328,8 @@ def test_main_incremental_no_new_data(
 # --- Tests for Streaming / Chunking ---
 
 @patch("pathlib.Path.is_file", return_value=True)
-@patch("src.validator.DataValidator.from_config")
-@patch("src.validate_cli.export_report")
+@patch("data_validator.validator.DataValidator.from_config")
+@patch("data_validator.validate_cli.export_report")
 def test_main_streaming_success(mock_export, mock_validator, mock_is_file, mock_args, mock_report):
     mock_instance = MagicMock()
     mock_instance.validate_stream.return_value = mock_report
@@ -269,9 +341,9 @@ def test_main_streaming_success(mock_export, mock_validator, mock_is_file, mock_
 
 @patch("pathlib.Path.is_file", return_value=True)
 @patch("pandas.read_csv")
-@patch("src.validator.DataValidator.from_config")
-@patch("src.validate_cli.export_report")
-@patch("src.watermark.WatermarkManager")
+@patch("data_validator.validator.DataValidator.from_config")
+@patch("data_validator.validate_cli.export_report")
+@patch("data_validator.watermark.WatermarkManager")
 def test_main_streaming_incremental(
         mock_wm_class, mock_export, mock_validator, mock_read, mock_is_file, mock_args, mock_report
 ):
@@ -291,9 +363,9 @@ def test_main_streaming_incremental(
 
 @patch("pathlib.Path.is_file", return_value=True)
 @patch("pandas.read_csv")
-@patch("src.validator.DataValidator.from_config")
-@patch("src.validate_cli.export_report")
-@patch("src.watermark.WatermarkManager")
+@patch("data_validator.validator.DataValidator.from_config")
+@patch("data_validator.validate_cli.export_report")
+@patch("data_validator.watermark.WatermarkManager")
 def test_main_streaming_incremental_no_rows_processed(
         mock_wm_class, mock_export, mock_validator, mock_read, mock_is_file, mock_args, mock_report
 ):
@@ -309,3 +381,35 @@ def test_main_streaming_incremental_no_rows_processed(
 
     # Ensure it did NOT attempt to stream the watermark column
     mock_read.assert_not_called()
+
+
+# --- Tests for Environment Path Resolution ---
+
+@patch("pathlib.Path.is_file", return_value=True)
+@patch("pandas.read_csv", return_value=pd.DataFrame())
+@patch("data_validator.validator.DataValidator.from_config")
+@patch("data_validator.validate_cli.export_report")
+@patch("data_validator.validate_cli.resolve_env_path")
+def test_main_env_resolution(
+        mock_resolve, mock_export, mock_validator, mock_read, mock_is_file, mock_args, mock_report
+):
+    """Verifies that main() calls resolve_env_path and uses the resolved path."""
+    mock_instance = MagicMock()
+    mock_instance.validate.return_value = mock_report
+    mock_validator.return_value = mock_instance
+
+    # Mock the resolver to return a distinct nested path
+    resolved_path = Path("dummy_staging_dir/dummy.yaml")
+    mock_resolve.return_value = resolved_path
+
+    args = mock_args + ["--env", "staging"]
+
+    assert validate_cli.main(args) == validate_cli.EXIT_SUCCESS
+
+    # Verify the resolver was triggered with the correct CLI argument
+    mock_resolve.assert_called_once()
+    assert mock_resolve.call_args[0][1] == "staging"
+
+    # Verify the validator engine was initialized using the injected path
+    mock_validator.assert_called_once()
+    assert mock_validator.call_args[0][0] == str(resolved_path)

@@ -9,6 +9,7 @@ Important:
 - Heavy ETL imports happen only when tasks execute.
 """
 
+import os
 from datetime import datetime, timedelta
 from pathlib import Path
 import json
@@ -164,6 +165,14 @@ def make_extract_task(source_config, extract_task_id):
             value=len(extracted_batches),
         )
 
+        ti.xcom_push(
+            key="batch_files",
+            value=[
+                str(batch["file_path"])
+                for batch in extracted_batches
+            ],
+        )
+
         if not extracted_batches:
 
             logger.warning(
@@ -263,9 +272,36 @@ def make_quality_gate_task(
             source_config,
         )
 
+        # R9 M2: count ROWS, not files. A whole file rejected by the gate
+        # must count as all of its rows, or one bad 10,000-row file only
+        # moves the pass rate by "1 row" and the quality SLA never fires.
+        raw_rows = sum(
+            len(item["data"])
+            for item in ti.xcom_pull(
+                task_ids=extract_task_id,
+                key="raw_batches",
+            ) or []
+        )
+
+        schema_valid_rows = sum(
+            len(batch["data"])
+            for batch in schema_valid_batches
+        )
+
+        passed_files = {
+            batch["file_path"].name
+            for batch in validated_batches
+        }
+
+        rows_in_rejected_files = sum(
+            len(batch["data"])
+            for batch in schema_valid_batches
+            if batch["file_path"].name not in passed_files
+        )
+
         rejected_by_quality = (
-            len(schema_valid_batches)
-            - len(validated_batches)
+            (raw_rows - schema_valid_rows)
+            + rows_in_rejected_files
         )
 
         ti.xcom_push(
@@ -274,12 +310,10 @@ def make_quality_gate_task(
         )
 
         if not validated_batches:
-
             logger.warning(
                 f"[{source_config.name}] "
                 "All batches rejected by quality gate"
             )
-
             return reject_task_id
 
         ti.xcom_push(
@@ -543,9 +577,11 @@ def make_reject_task(
             run_id=run_id,
         )
 
+        rows_rejected = sum(len(item["data"]) for item in ti.xcom_pull(task_ids=extract_task_id, key="raw_batches") or [])
+
         ti.xcom_push(
             key="rows_rejected",
-            value=batches_seen,
+            value=rows_rejected,
         )
 
         ti.xcom_push(
@@ -681,6 +717,22 @@ def log_run_task(**context):
             ) or 0
 
         total_rejected += rows_rejected
+
+        # R9 M2: data-quality SLA. Keep this independent of the duration SLA:
+        # a fast run can still be a bad run if too many rows were rejected.
+        from etl.src.sla_monitor import check_quality_sla
+        check_quality_sla(
+            run_id=run_id,
+            source_name=source_config.name,
+            rows_inserted=ti.xcom_pull(task_ids=load_id, key="rows_inserted") or 0,
+            rows_updated=ti.xcom_pull(task_ids=load_id, key="rows_updated") or 0,
+            rows_rejected=rows_rejected,
+            environment=os.getenv("ETL_ENV", "dev"),
+            table=source_config.table,
+            batch_files=ti.xcom_pull(task_ids=extract_id, key="batch_files") or [],
+            pipeline_name=f"{source_config.name}_etl",
+            min_pass_rate=PIPELINE_CONFIG.quality_sla_min_pass_rate,
+        )
 
         status = (
             ti.xcom_pull(
@@ -885,4 +937,3 @@ with DAG(
         ) >> log_run
 
     log_run >> archive_old_data
-    

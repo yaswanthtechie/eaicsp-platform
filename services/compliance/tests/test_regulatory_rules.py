@@ -139,3 +139,30 @@ def test_unknown_country_requires_review():
     )
 
     assert result["overall_status"] == "REVIEW"
+
+def test_unknown_country_is_review_with_all_counts():
+    result = evaluate_regulatory_rules(
+        country="Germany",
+        sanctions_cleared=True,
+        kyc_verified=True,
+        documents_complete=True,
+    )
+
+    assert result["overall_status"] == "REVIEW"
+    assert result["rules"] == []
+    assert result["passed_count"] == 0
+    assert result["failed_count"] == 0
+    assert result["review_count"] == 0
+
+
+def test_country_aliases_map_to_the_same_rules():
+    for alias in ("US", "United States", "usa"):
+        result = evaluate_regulatory_rules(
+            country=alias,
+            sanctions_cleared=True,
+            kyc_verified=True,
+            documents_complete=True,
+        )
+
+        assert result["country"] == "USA"
+        assert len(result["rules"]) == 3

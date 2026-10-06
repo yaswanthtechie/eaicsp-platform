@@ -1,6 +1,7 @@
 import logging
 import secrets
 import uuid
+
 import httpx
 
 from fastapi import (
@@ -27,15 +28,21 @@ logger = logging.getLogger(__name__)
 # SERVICE-TO-SERVICE AUTH (/internal-check)
 # ==========================================================
 def verify_internal_caller(request: Request) -> str:
-   
-    caller = (request.headers.get("X-Caller-Service") or "").strip()
+    caller = (
+        request.headers.get("X-Caller-Service") or ""
+    ).strip()
+
     key = request.headers.get("X-Service-Key") or ""
     expected = config.INTERNAL_SERVICE_KEYS.get(caller)
 
     if (
         not caller
         or expected is None
-        or not secrets.compare_digest(key, expected)
+        # Compare bytes: compare_digest raises TypeError on non-ASCII str.
+        or not secrets.compare_digest(
+            key.encode("utf-8"),
+            expected.encode("utf-8"),
+        )
     ):
         logger.warning(
             "Rejected internal compliance call: caller=%s key_present=%s",
@@ -64,15 +71,17 @@ async def verify_token(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing authentication token",
         )
-    token = credentials.credentials 
+
+    token = credentials.credentials
+
     # ----------------------------------------
     # 2. Get/generate request ID
     # ----------------------------------------
-    request_id = request.headers.get(
-        "X-Request-ID"
-    ) 
+    request_id = request.headers.get("X-Request-ID")
+
     if not request_id:
-        request_id = str(uuid.uuid4()) 
+        request_id = str(uuid.uuid4())
+
     # ----------------------------------------
     # 3. Call Rahul Platform Service
     # ----------------------------------------
@@ -80,7 +89,6 @@ async def verify_token(
         async with httpx.AsyncClient(
             timeout=5.0
         ) as client:
- 
             response = await client.post(
                 f"{PLATFORM_AUTH_URL}/api/v1/auth/verify",
                 headers={
@@ -98,7 +106,8 @@ async def verify_token(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication service timed out",
-        ) 
+        )
+
     # ----------------------------------------
     # 5. Auth service unavailable
     # ----------------------------------------
@@ -106,7 +115,8 @@ async def verify_token(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication service is unavailable",
-        ) 
+        )
+
     # ----------------------------------------
     # 6. Invalid/expired token
     # ----------------------------------------
@@ -114,7 +124,8 @@ async def verify_token(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired authentication token",
-        ) 
+        )
+
     # ----------------------------------------
     # 7. Unexpected response from Rahul
     # ----------------------------------------
@@ -122,17 +133,20 @@ async def verify_token(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication service returned an unexpected response",
-        ) 
+        )
+
     # ----------------------------------------
     # 8. Parse response
     # ----------------------------------------
     try:
-        data = response.json() 
+        data = response.json()
+
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication service returned invalid JSON",
-        ) 
+        )
+
     # ----------------------------------------
     # 9. Verify token validity
     # ----------------------------------------
@@ -140,16 +154,20 @@ async def verify_token(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication token",
-        ) 
-    return data 
+        )
+
+    return data
+
+
 # ==========================================================
 # ROLE AUTHORIZATION
-# ========================================================== 
-def require_roles(*allowed_roles: str): 
+# ==========================================================
+def require_roles(*allowed_roles: str):
     async def role_checker(
         user=Depends(verify_token),
     ):
-        user_role = user.get("role") 
+        user_role = user.get("role")
+
         # No role assigned
         if not user_role:
             raise HTTPException(
@@ -166,5 +184,7 @@ def require_roles(*allowed_roles: str):
                     f"for this endpoint"
                 ),
             )
-        return user 
-    return role_checker 
+
+        return user
+
+    return role_checker
