@@ -156,7 +156,19 @@ def _mark_published(event_id):
         """), {"event_id": str(event_id)})
 
 
-def _mark_failed(event_id, error):
+def _is_temporary(exc) -> bool:
+    """True when the failure is about Kafka being unreachable, not the event."""
+    return bool(getattr(exc, "retriable", False)) or isinstance(
+        exc, (ConnectionError, TimeoutError)
+    )
+
+
+def _mark_failed(event_id, exc):
+    """Record a failed publish attempt.
+
+    Kafka outages keep events PENDING. Only event-specific failures count
+    towards MAX_OUTBOX_ATTEMPTS and can become FAILED.
+    """
     with get_engine().begin() as conn:
         conn.execute(text("""
             UPDATE etl_event_outbox
@@ -164,16 +176,18 @@ def _mark_failed(event_id, error):
                 last_attempt_at=CURRENT_TIMESTAMP,
                 last_error=:error,
                 status=CASE
-                    WHEN attempts + 1 >= :max_attempts THEN 'FAILED'
+                    WHEN :can_dead_letter = 1
+                         AND attempts + 1 >= :max_attempts
+                        THEN 'FAILED'
                     ELSE 'PENDING'
                 END
             WHERE event_id=:event_id
         """), {
             "event_id": str(event_id),
-            "error": str(error)[:4000],
+            "error": f"{type(exc).__name__}: {exc}"[:4000],
+            "can_dead_letter": 0 if _is_temporary(exc) else 1,
             "max_attempts": MAX_OUTBOX_ATTEMPTS,
         })
-
 
 def queue_and_publish(event_type, run_id, payload) -> dict:
     """Persist the event, then try to publish it. Never raises."""
@@ -215,7 +229,7 @@ def queue_and_publish(event_type, run_id, payload) -> dict:
         logger.warning("Kafka publish of %s failed, left PENDING for retry: %s",
                        event_id, exc)
         try:
-            _mark_failed(event_id, f"{type(exc).__name__}: {exc}")
+            _mark_failed(event_id, exc)
         except Exception:  # noqa: BLE001
             logger.exception("Could not record publish failure for %s", event_id)
         return {"event_id": event_id, "published": False, "persisted": True,
@@ -248,7 +262,7 @@ def retry_pending_events(limit=100) -> dict:
         producer = _producer()
     except Exception as exc:  # noqa: BLE001
         logger.warning("Kafka unavailable, %d events stay PENDING: %s", len(rows), exc)
-        _mark_failed(rows[0]["event_id"], f"{type(exc).__name__}: {exc}")
+        _mark_failed(rows[0]["event_id"], exc)
         results["attempted"] = 1
         results["failed"] = 1
         results["skipped"] = len(rows) - 1
@@ -275,7 +289,7 @@ def retry_pending_events(limit=100) -> dict:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Retry of %s failed, stopping batch: %s",
                                envelope["event_id"], exc)
-                _mark_failed(row["event_id"], f"{type(exc).__name__}: {exc}")
+                _mark_failed(row["event_id"], exc)
                 results["failed"] += 1
                 results["skipped"] = len(rows) - i - 1
                 break

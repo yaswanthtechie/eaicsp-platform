@@ -197,12 +197,11 @@ def test_retry_stops_after_first_failure_instead_of_timing_out_per_event(db, mon
     assert attempts == [1, 1, 1, 1, 2]       # 4 untouched by the retry, 1 tried once more
 
 
-def test_outbox_failure_becomes_failed_after_max_attempts(db, monkeypatch):
-    kafka_down(monkeypatch)
-    ke.queue_and_publish("data.pipeline.completed", 1, {})
-
+def test_broken_event_becomes_failed_after_max_attempts(db, monkeypatch):
+    # RuntimeError represents a problem with the event itself, not Kafka being down.
     producer = FakeProducer(fail_send=True)
     monkeypatch.setattr(ke, "_producer", lambda: producer)
+    ke.queue_and_publish("data.pipeline.completed", 1, {})
 
     for _ in range(3):
         out = ke.retry_pending_events()
@@ -246,3 +245,80 @@ def test_payload_survives_json_roundtrip(db, monkeypatch):
 
 
 
+
+# ---- outages never dead-letter ---------------------------------------------
+@pytest.mark.parametrize("make_error", [
+    lambda: __import__("kafka.errors", fromlist=["x"]).KafkaTimeoutError("send timed out"),
+    lambda: __import__("kafka.errors", fromlist=["x"]).NoBrokersAvailable(),
+    lambda: ConnectionError("connection refused"),
+])
+def test_long_kafka_outage_never_marks_events_failed(db, monkeypatch, make_error):
+    class DownProducer(FakeProducer):
+        def send(self, topic, key=None, value=None):
+            return FakeFuture(make_error())
+
+    monkeypatch.setattr(ke, "_producer", lambda: DownProducer())
+    ke.queue_and_publish("data.pipeline.completed", 1, {})
+
+    for _ in range(ke.MAX_OUTBOX_ATTEMPTS * 4):
+        ke.retry_pending_events()
+
+    (row,) = rows(db)
+    assert row["status"] == "PENDING"
+    assert row["attempts"] == ke.MAX_OUTBOX_ATTEMPTS * 4 + 1
+
+
+def test_producer_creation_failing_during_outage_never_marks_events_failed(db, monkeypatch):
+    from kafka.errors import NoBrokersAvailable
+
+    def down():
+        raise NoBrokersAvailable()
+
+    monkeypatch.setattr(ke, "_producer", down)
+    ke.queue_and_publish("data.pipeline.completed", 1, {})
+
+    for _ in range(ke.MAX_OUTBOX_ATTEMPTS * 4):
+        ke.retry_pending_events()
+
+    assert rows(db)[0]["status"] == "PENDING"
+
+
+def test_event_published_after_outage_ends(db, monkeypatch):
+    from kafka.errors import KafkaTimeoutError
+
+    class DownProducer(FakeProducer):
+        def send(self, topic, key=None, value=None):
+            return FakeFuture(KafkaTimeoutError("send timed out"))
+
+    monkeypatch.setattr(ke, "_producer", lambda: DownProducer())
+    first = ke.queue_and_publish("data.pipeline.completed", 1, {"run_id": 1})
+
+    for _ in range(ke.MAX_OUTBOX_ATTEMPTS * 2):
+        ke.retry_pending_events()
+
+    producer = FakeProducer()
+    monkeypatch.setattr(ke, "_producer", lambda: producer)
+    out = ke.retry_pending_events()
+
+    assert out["published"] == 1
+    assert producer.sent[0]["value"]["event_id"] == first["event_id"]
+    assert rows(db)[0]["status"] == "PUBLISHED"
+
+
+def test_message_too_large_is_dead_lettered(db, monkeypatch):
+    from kafka.errors import MessageSizeTooLargeError
+
+    class RejectingProducer(FakeProducer):
+        def send(self, topic, key=None, value=None):
+            return FakeFuture(MessageSizeTooLargeError("too large"))
+
+    monkeypatch.setattr(ke, "_producer", lambda: RejectingProducer())
+    ke.queue_and_publish("data.pipeline.completed", 1, {})
+
+    for _ in range(ke.MAX_OUTBOX_ATTEMPTS - 1):
+        ke.retry_pending_events()
+
+    row = rows(db)[0]
+    assert row["status"] == "FAILED"
+    assert row["attempts"] == ke.MAX_OUTBOX_ATTEMPTS
+    assert "MessageSizeTooLargeError" in row["last_error"]

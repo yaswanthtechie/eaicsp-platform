@@ -22,9 +22,10 @@ def _reachable(host, port):
 
 
 def _kafka_addr():
-    first = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092").split(",")[0]
+    # Tests run on the HOST, so use Kafka's EXTERNAL listener.
+    first = os.getenv("KAFKA_HOST_BOOTSTRAP", "localhost:9094").split(",")[0]
     host, _, port = first.partition(":")
-    return host, port or "9092"
+    return host, port or "9094"
 
 
 @pytest.fixture
@@ -56,10 +57,11 @@ def test_outbox_on_real_postgres_survives_kafka_being_down(real_postgres, monkey
     assert row.payload["it_marker"] == "r12-13-it"          # JSONB round-trips as a dict
 
 
-def test_real_kafka_publish_and_consume_roundtrip(real_postgres):
-    host, port = "localhost", 9094
+def test_real_kafka_publish_and_consume_roundtrip(real_postgres, monkeypatch):
+    host, port = _kafka_addr()
     if not _reachable(host, port):
         pytest.skip("Kafka not reachable")
+    monkeypatch.setenv("KAFKA_BOOTSTRAP_SERVERS", f"{host}:{port}")
     from kafka import KafkaConsumer
     ke = real_postgres
     marker = str(uuid.uuid4())

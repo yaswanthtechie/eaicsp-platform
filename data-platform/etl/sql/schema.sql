@@ -336,8 +336,8 @@ CREATE TABLE IF NOT EXISTS prod_sales_fact_archive (
     archived_at TIMESTAMP DEFAULT NOW()
 );
 
--- R12-13 M3: transactional outbox for reliable Kafka publication.
--- The ETL load is never rolled back because Kafka is unavailable. Events remain
+-- R12-13 M3: outbox for reliable Kafka publication (at-least-once).
+-- The event is written after the load commits; the ETL load is never rolled back because Kafka is unavailable. Events remain
 -- PENDING and are retried by the etl_event_outbox_retry DAG.
 CREATE TABLE IF NOT EXISTS etl_event_outbox (
     event_id UUID PRIMARY KEY,

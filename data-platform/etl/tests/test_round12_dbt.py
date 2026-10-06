@@ -18,6 +18,8 @@ def test_dbt_tests_include_required_generic_and_custom_checks():
     custom = (DBT_ROOT / "tests" / "mart_daily_sales_non_negative.sql").read_text()
     assert "not_null" in schema
     assert "unique" in schema
+    assert "relationships" in schema
+    assert "ref('warehouses')" in schema
     assert "mart_daily_sales_by_warehouse" in schema
     assert "units_sold < 0" in custom
     assert "sales_amount < 0" in custom
