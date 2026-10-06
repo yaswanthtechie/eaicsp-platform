@@ -725,89 +725,33 @@ ml-services/demand-forecast/lstm/
 
 ---
 
-###round 9,10,11
-milestone 1 to 6 verified
-milestone7
-Three-Model Synthetic Ensemble
+## Round 9-11: Three-Model Ensemble (Prophet + XGBoost + LSTM)
 
-The LSTM Track B implementation combines three independently trained forecasting models:
+**Status:** ensemble milestone complete, with an honest comparison. The ensemble does **not** beat Prophet on this dataset.
 
-- Prophet
-- XGBoost
-- LSTM
+### Setup
 
-The ensemble uses the same synthetic daily demand dataset and a common chronological split:
+- Synthetic daily demand, 1,000 days, seed 42, chronological split (no shuffling):
 
-| Split | Samples | Date Range |
+| Split | Rows | Dates |
 |---|---:|---|
-| Training | 700 | 2022-01-01 → 2023-12-01 |
-| Validation | 150 | 2023-12-02 → 2024-04-29 |
-| Test | 150 | 2024-04-30 → 2024-09-26 |
+| Train | 700 | 2022-01-01 to 2023-12-01 |
+| Validation | 150 | 2023-12-02 to 2024-04-29 |
+| Test | 150 | 2024-04-30 to 2024-09-26 |
 
-### Ensemble Method
+- Validation: every model is trained on **train only**; ensemble weights are picked on validation MAE.
+- Test: every model is retrained on **train + validation**, so there is no gap before the test window.
+- All three models forecast the full window **without seeing any actual future demand**:
+  - Prophet: forecasts directly.
+  - XGBoost: forecasts one day at a time, feeding its predictions back in as lag features.
+  - LSTM: forecasts 7 days at a time, feeding its predictions back in.
+- The LSTM is retrained for the ensemble. The saved `best_model.pt` is not used, because it was trained on rows 0-829, which overlap the validation window.
 
-Model weights are selected using **validation MAE only**.
-
-All three models are required to participate in the final ensemble, so each model receives a non-zero weight and the weights sum to 1.0.
-
-Final validation-selected weights:
+### Results (test MAE)
 
 ```text
-Prophet : 0.85
-XGBoost : 0.05
-LSTM    : 0.10
-
-Weight sum = 1.00
-
-The final prediction is:
-
-Ensemble =
-    0.85 × Prophet
-  + 0.05 × XGBoost
-  + 0.10 × LSTM
-XGBoost Leakage Prevention
-
-The XGBoost forecasting implementation uses recursive multi-step prediction.
-
-Future actual demand values are never used when generating future forecast features.
-
-For each forecast date:
-
-Historical actual demand
-        ↓
-Generate causal lag / rolling features
-        ↓
-XGBoost prediction
-        ↓
-Append prediction to history
-        ↓
-Generate next day's features
-        ↓
-Next XGBoost prediction
-
-This prevents future-target leakage through lag and rolling features.
-
-Validation Results
-Prophet    MAE: 2.3340 | RMSE: 3.0287 | MAPE: 1.5849
-XGBoost    MAE: 12.6182 | RMSE: 14.0987 | MAPE: 8.5196
-LSTM       MAE: 2.7247 | RMSE: 3.4803 | MAPE: 1.8414
-
-Ensemble   MAE: 2.4531 | RMSE: 3.1955 | MAPE: 1.6561
-
-The validation weights were selected without using the held-out test targets.
-
-Final Test Results
-Prophet Test MAE : 2.5378
-XGBoost Test MAE : 10.8588
-LSTM Test MAE    : 3.9000
-Ensemble Test MAE: 2.5087
-
-The three-model ensemble achieved:
-
-MAE improvement vs Prophet = 1.14%
-
-Therefore, the final test result shows that the genuine three-model ensemble slightly outperforms the strongest individual baseline (Prophet).
-
-
-
-
+Prophet                    2.4004
+XGBoost                    7.3489
+LSTM                      13.4774
+Ensemble (forced, all 3)   2.5755   weights 0.90 / 0.05 / 0.05
+Ensemble (unconstrained)   2.4004   weights 1.00 / 0.00 / 0.00
