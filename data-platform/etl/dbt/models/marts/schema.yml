@@ -46,16 +46,15 @@ models:
       - name: sale_date
         tests: [not_null]
       - name: warehouse_id
-        tests: [not_null]
+        tests:
+          - not_null
+          - relationships:
+              to: ref('warehouses')
+              field: warehouse_id
       - name: units_sold
         tests: [not_null]
       - name: sales_amount
         tests: [not_null]
-      - name: warehouse_id
-        tests:
-          - relationships:
-              to: ref('stg_sales_fact')
-              field: warehouse_id
 
   - name: mart_inventory_position
     tests:
@@ -79,6 +78,13 @@ models:
       - name: shipment_date
         tests: [not_null]
       - name: warehouse_id
-        tests: [not_null]
+        tests:
+          - not_null
+          - relationships:
+              to: ref('warehouses')
+              field: warehouse_id
       - name: units_shipped
         tests: [not_null]
+
+
+

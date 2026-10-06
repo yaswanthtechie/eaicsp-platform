@@ -1265,8 +1265,20 @@ then in Postgres: `DELETE FROM etl_watermark WHERE pipeline_name LIKE 'clickhous
 Events are **at-least-once**. A crash after Kafka acks but before the outbox row is marked `PUBLISHED` re-sends the event. Consumers (next round) must de-duplicate on `event_id`.
 
 ### Benchmark status
-`docs/r12_13_benchmark_postgres_only_sandbox.json` holds a Postgres-only run (1.2 M rows, 1 vCPU sandbox). **The ClickHouse timings still have to be produced on your Docker stack** with
-`docker compose exec airflow-scheduler python scripts/benchmark_postgres_clickhouse.py --rows 1200000`. Paste the resulting JSON into `docs/r12_13_clickhouse_benchmark.json`. Do not quote a speed-up until it exists.
+The ClickHouse benchmark was run on the Docker stack using **1,200,000 rows and 10 timed repetitions**. Measurements are wall-clock, client-side timings with warm cache on a single-node environment with 4 CPUs.
+
+- **Full year 2024**
+  - PostgreSQL: min 0.672s, median 0.8557s, max 1.2132s
+  - ClickHouse: min 0.0509s, median 0.0766s, max 0.6599s
+  - Median speed-up: **11.2x**
+  - Results matched: **yes**
+- **Q2 2024**
+  - PostgreSQL: min 0.3177s, median 0.5537s, max 1.4711s
+  - ClickHouse: min 0.0298s, median 0.0367s, max 0.0427s
+  - Median speed-up: **15.1x**
+  - Results matched: **yes**
+
+The measurements are environment-specific and should not be treated as a production performance guarantee. The full benchmark output is recorded in `docs/r12_13_clickhouse_benchmark.json`.
 
 ## Clean verification sequence
 

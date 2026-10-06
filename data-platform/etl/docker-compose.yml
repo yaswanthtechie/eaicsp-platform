@@ -76,7 +76,7 @@ x-airflow-common:
     CLICKHOUSE_PORT: "8123"
     CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-analytics}
     CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
-    CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
+    CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD must be set}
     KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
     # /opt/airflow/etl (the mounted etl/ project dir) must be importable as
     # the "etl" package so "from etl.src.alerts import ..." in the DAG resolves.
@@ -148,7 +148,7 @@ services:
     environment:
       CLICKHOUSE_DB: ${CLICKHOUSE_DATABASE:-analytics}
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD must be set}
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
     volumes:
       - clickhouse-data:/var/lib/clickhouse
@@ -169,7 +169,7 @@ services:
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
       KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
@@ -311,7 +311,7 @@ services:
       _AIRFLOW_DB_MIGRATE: 'true'
       _AIRFLOW_WWW_USER_CREATE: 'true'
       _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-airflow}
-      _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-airflow}
+      _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:?_AIRFLOW_WWW_USER_PASSWORD must be set}
       _PIP_ADDITIONAL_REQUIREMENTS: ''
     user: "0:0"
     volumes:
@@ -354,3 +354,8 @@ volumes:
   clickhouse-data:
   clickhouse-logs:
   kafka-data:
+
+
+
+
+

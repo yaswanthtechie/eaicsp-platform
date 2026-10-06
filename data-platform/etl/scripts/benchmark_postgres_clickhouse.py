@@ -48,8 +48,7 @@ def timed(fn, runs):
         samples.append(time.perf_counter() - t)
     return result, samples
 def summarise(samples):
-    return {"min_s": round(min(samples), 4), "median_s": round(statistics.median(samples), 4),
-            "runs": len(samples)}
+    return {"min_s": round(min(samples), 4), "median_s": round(statistics.median(samples), 4), "max_s": round(max(samples), 4), "spread_s": round(max(samples) - min(samples), 4), "runs": len(samples)}
 def normalise(rows):
     return [(r[0], int(r[1]), round(float(r[2]), 2)) for r in rows]
 def main(rows, runs, skip_clickhouse):
@@ -127,10 +126,11 @@ def main(rows, runs, skip_clickhouse):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--rows", type=int, default=1_200_000)
-    ap.add_argument("--runs", type=int, default=5)
+    ap.add_argument("--runs", type=int, default=10)
     ap.add_argument("--skip-clickhouse", action="store_true",
                     help="time Postgres only (e.g. no ClickHouse available)")
     a = ap.parse_args()
     if a.rows < 1_000_000:
         raise SystemExit("R12-13 benchmark requires at least 1,000,000 rows")
     main(a.rows, a.runs, a.skip_clickhouse)
+

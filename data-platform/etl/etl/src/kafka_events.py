@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 EVENT_VERSION = 1
 PRODUCER_NAME = "etl"
+MAX_OUTBOX_ATTEMPTS = 5
 EVENT_COMPLETED = "data.pipeline.completed"
 EVENT_FAILED = "data.pipeline.failed"
 
@@ -122,6 +123,7 @@ def _producer():
         acks="all",
         retries=3,
         linger_ms=5,
+        api_version=(3,9),
         api_version_auto_timeout_ms=t,
         request_timeout_ms=t,
         max_block_ms=t,
@@ -158,9 +160,19 @@ def _mark_failed(event_id, error):
     with get_engine().begin() as conn:
         conn.execute(text("""
             UPDATE etl_event_outbox
-            SET attempts=attempts+1, last_attempt_at=CURRENT_TIMESTAMP, last_error=:error
+            SET attempts=attempts+1,
+                last_attempt_at=CURRENT_TIMESTAMP,
+                last_error=:error,
+                status=CASE
+                    WHEN attempts + 1 >= :max_attempts THEN 'FAILED'
+                    ELSE 'PENDING'
+                END
             WHERE event_id=:event_id
-        """), {"event_id": str(event_id), "error": str(error)[:4000]})
+        """), {
+            "event_id": str(event_id),
+            "error": str(error)[:4000],
+            "max_attempts": MAX_OUTBOX_ATTEMPTS,
+        })
 
 
 def queue_and_publish(event_type, run_id, payload) -> dict:
@@ -270,3 +282,8 @@ def retry_pending_events(limit=100) -> dict:
     finally:
         _close(producer)
     return results
+
+
+
+
+

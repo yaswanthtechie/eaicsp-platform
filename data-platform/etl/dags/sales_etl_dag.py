@@ -565,6 +565,115 @@ def archive_task(**context):
 # ---------------------------------------------------------------------------
 # DAG
 # ---------------------------------------------------------------------------
+def dbt_build_task(**context):
+    """Run `dbt build` (models + tests). Fails the task if any model or test fails."""
+    import os
+    import subprocess
+    dbt_bin = os.getenv("DBT_BIN", "dbt")
+    proc = subprocess.run(
+        [
+            dbt_bin, "build",
+            "--project-dir", "/opt/airflow/dbt",
+            "--profiles-dir", "/opt/airflow/dbt",
+            "--target", "dev",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    logger.info("dbt output (tail):\n%s", proc.stdout[-6000:])
+    if proc.returncode != 0:
+        # Surface the reason in the Airflow task log instead of a bare exit code.
+        raise RuntimeError(
+            f"dbt build failed (exit {proc.returncode}):\n{proc.stdout[-3000:]}\n{proc.stderr[-1000:]}"
+        )
+def clickhouse_sync_task(**context):
+    from etl.src.clickhouse_sink import sync_marts
+    result = sync_marts()
+    context["ti"].xcom_push(key="clickhouse_result", value=result)
+    logger.info("ClickHouse sync result: %s", result)
+    return result
+
+
+def finalize_run_task(**context):
+    """Finalize the database run and publish the standard Kafka event."""
+    from etl.src.logger import finish_run
+    from etl.src.kafka_events import queue_and_publish
+    from etl.src.sla_monitor import check_run_duration_sla
+    ti = context["ti"]
+    run_id = ti.xcom_pull(task_ids="start_run", key="run_id")
+    source_statuses = ti.xcom_pull(task_ids="log_run", key="source_statuses") or []
+    total_batches = ti.xcom_pull(task_ids="log_run", key="total_batches") or 0
+    total_inserted = ti.xcom_pull(task_ids="log_run", key="total_inserted") or 0
+    total_updated = ti.xcom_pull(task_ids="log_run", key="total_updated") or 0
+    total_rejected = ti.xcom_pull(task_ids="log_run", key="total_rejected") or 0
+    required_tasks = [
+        "dbt_build",
+        "clickhouse_load",
+        "archive_old_data",
+    ]
+    task_states = {
+        task_id: (context["dag_run"].get_task_instance(task_id).state or "unknown")
+        for task_id in required_tasks
+    }
+    source_failed = any(status == "FAILED" for status in source_statuses)
+    source_rejected = any(status == "REJECTED" for status in source_statuses)
+    platform_failed = any(state == "failed" for state in task_states.values())
+    skipped_required = any(
+        state in {"upstream_failed", "removed", "skipped"}
+        for state in task_states.values()
+    )
+
+    if platform_failed or skipped_required or source_failed or source_rejected:
+        overall_status = "FAILED"
+        event_type = "data.pipeline.failed"
+    else:
+        overall_status = "SUCCESS"
+        event_type = "data.pipeline.completed"
+
+    error_message = None
+    if overall_status == "FAILED":
+        error_message = (
+            f"source_statuses={source_statuses}; task_states={task_states}"
+        )
+
+    finish_run(
+        run_id=run_id,
+        end_time=datetime.now(),
+        status=overall_status,
+        batches_seen=total_batches,
+        rows_inserted=total_inserted,
+        rows_updated=total_updated,
+        rows_rejected=total_rejected,
+        error_message=error_message,
+    )
+    check_run_duration_sla(run_id)
+
+    event_result = queue_and_publish(
+        event_type=event_type,
+        run_id=run_id,
+        payload={
+            "run_id": run_id,
+            "status": overall_status,
+            "batches_seen": total_batches,
+            "rows_inserted": total_inserted,
+            "rows_updated": total_updated,
+            "rows_rejected": total_rejected,
+            "task_states": task_states,
+        },
+    )
+
+    logger.info(
+        "Run %s finalized as %s; event=%s",
+        run_id,
+        overall_status,
+        event_result,
+    )
+
+    if overall_status == "FAILED":
+        from airflow.exceptions import AirflowException
+        raise AirflowException(error_message or "ETL pipeline failed")
+
+
 with DAG(
     dag_id="sales_etl_pipeline",
     description=(
@@ -659,125 +768,41 @@ with DAG(
         trigger_rule="none_failed_min_one_success",
     )
     # log_run waits for every source to finish.
+    # R12-13 M1: dbt transformation and tests.
+    dbt_build = PythonOperator(
+        task_id="dbt_build",
+        python_callable=dbt_build_task,
+        retries=2,
+        retry_delay=timedelta(minutes=2),
+    )
+    # R12-13 M2: ClickHouse analytics sink.
+    clickhouse_load = PythonOperator(
+        task_id="clickhouse_load",
+        python_callable=clickhouse_sync_task,
+        retries=3,
+        retry_delay=timedelta(minutes=2),
+    )
+    # R12-13 M3: Finalize run and publish Kafka event.
+    finalize_run = PythonOperator(
+        task_id="finalize_run",
+        python_callable=finalize_run_task,
+        trigger_rule="all_done",
+        retries=0,
+    )
     for source_config in PIPELINE_CONFIG.sources:
         dag.get_task(
             f"join_{source_config.name}"
         ) >> log_run
-    # R12-13 M1: dbt is the transformation layer after the source loads.
-def dbt_build_task(**context):
-    """Run `dbt build` (models + tests). Fails the task if any model or test fails."""
-    import os
-    import subprocess
-    dbt_bin = os.getenv("DBT_BIN", "dbt")
-    proc = subprocess.run(
-        [
-            dbt_bin, "build",
-            "--project-dir", "/opt/airflow/dbt",
-            "--profiles-dir", "/opt/airflow/dbt",
-            "--target", "dev",
-        ],
-        capture_output=True,
-        text=True,
-    )
-    logger.info("dbt output (tail):\n%s", proc.stdout[-6000:])
-    if proc.returncode != 0:
-        # Surface the reason in the Airflow task log instead of a bare exit code.
-        raise RuntimeError(
-            f"dbt build failed (exit {proc.returncode}):\n{proc.stdout[-3000:]}\n{proc.stderr[-1000:]}"
-        )
-dbt_build = PythonOperator(
-    task_id="dbt_build",
-    python_callable=dbt_build_task,
-    retries=2,
-    retry_delay=timedelta(minutes=2),
-)
-# R12-13 M2: ClickHouse is the dashboard analytics sink. The task is after dbt,
-# so only tested marts are published. It reuses the same watermark subsystem.
-def clickhouse_sync_task(**context):
-    from etl.src.clickhouse_sink import sync_marts
-    result = sync_marts()
-    context["ti"].xcom_push(key="clickhouse_result", value=result)
-    logger.info("ClickHouse sync result: %s", result)
-    return result
-clickhouse_load = PythonOperator(
-    task_id="clickhouse_load",
-    python_callable=clickhouse_sync_task,
-    retries=3,
-    retry_delay=timedelta(minutes=2),
-)
-def finalize_run_task(**context):
-    """Finalize the database run and publish the standard Kafka event.
-    Kafka publication is explicitly best-effort from the pipeline's point of
-    view. The event is first stored in PostgreSQL's outbox, so Kafka outages
-    cannot roll back a successful ETL/analytics load.
-    """
-    from etl.src.logger import finish_run
-    from etl.src.kafka_events import queue_and_publish
-    from etl.src.sla_monitor import check_run_duration_sla
-    ti = context["ti"]
-    run_id = ti.xcom_pull(task_ids="start_run", key="run_id")
-    source_statuses = ti.xcom_pull(task_ids="log_run", key="source_statuses") or []
-    total_batches = ti.xcom_pull(task_ids="log_run", key="total_batches") or 0
-    total_inserted = ti.xcom_pull(task_ids="log_run", key="total_inserted") or 0
-    total_updated = ti.xcom_pull(task_ids="log_run", key="total_updated") or 0
-    total_rejected = ti.xcom_pull(task_ids="log_run", key="total_rejected") or 0
-    required_tasks = [
-        "dbt_build",
-        "clickhouse_load",
-        "archive_old_data",
-    ]
-    task_states = {
-        task_id: (context["dag_run"].get_task_instance(task_id).state or "unknown")
-        for task_id in required_tasks
-    }
-    source_failed = any(status == "FAILED" for status in source_statuses)
-    source_rejected = any(status == "REJECTED" for status in source_statuses)
-    platform_failed = any(state == "failed" for state in task_states.values())
-    skipped_required = any(state in {"upstream_failed", "removed", "skipped"} for state in task_states.values())
-    if platform_failed or skipped_required or source_failed or source_rejected:
-        overall_status = "FAILED"
-        event_type = "data.pipeline.failed"
-    else:
-        overall_status = "SUCCESS"
-        event_type = "data.pipeline.completed"
-    error_message = None
-    if overall_status == "FAILED":
-        error_message = (
-            f"source_statuses={source_statuses}; task_states={task_states}"
-        )
-    finish_run(
-        run_id=run_id,
-        end_time=datetime.now(),
-        status=overall_status,
-        batches_seen=total_batches,
-        rows_inserted=total_inserted,
-        rows_updated=total_updated,
-        rows_rejected=total_rejected,
-        error_message=error_message,
-    )
-    check_run_duration_sla(run_id)
-    event_result = queue_and_publish(
-        event_type=event_type,
-        run_id=run_id,
-        payload={
-            "run_id": run_id,
-            "status": overall_status,
-            "batches_seen": total_batches,
-            "rows_inserted": total_inserted,
-            "rows_updated": total_updated,
-            "rows_rejected": total_rejected,
-            "task_states": task_states,
-        },
-    )
-    logger.info("Run %s finalized as %s; event=%s", run_id, overall_status, event_result)
-finalize_run = PythonOperator(
-    task_id="finalize_run",
-    python_callable=finalize_run_task,
-    trigger_rule="all_done",
-)
-log_run >> dbt_build >> clickhouse_load >> archive_old_data
-# Finalization is deliberately downstream of every major stage so it still
-# runs when dbt/ClickHouse/archive fails or is skipped after an upstream error.
-for source_config in PIPELINE_CONFIG.sources:
-    dag.get_task(f"join_{source_config.name}") >> finalize_run
-[log_run, dbt_build, clickhouse_load, archive_old_data] >> finalize_run
+
+
+
+
+
+
+    log_run >> dbt_build >> clickhouse_load >> archive_old_data
+    [log_run, dbt_build, clickhouse_load, archive_old_data] >> finalize_run
+
+    # Finalization also waits for every source join so failures/rejections
+    # are reflected in the final pipeline status.
+    for source_config in PIPELINE_CONFIG.sources:
+        dag.get_task(f"join_{source_config.name}") >> finalize_run

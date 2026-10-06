@@ -197,6 +197,28 @@ def test_retry_stops_after_first_failure_instead_of_timing_out_per_event(db, mon
     assert attempts == [1, 1, 1, 1, 2]       # 4 untouched by the retry, 1 tried once more
 
 
+def test_outbox_failure_becomes_failed_after_max_attempts(db, monkeypatch):
+    kafka_down(monkeypatch)
+    ke.queue_and_publish("data.pipeline.completed", 1, {})
+
+    producer = FakeProducer(fail_send=True)
+    monkeypatch.setattr(ke, "_producer", lambda: producer)
+
+    for _ in range(3):
+        out = ke.retry_pending_events()
+        assert out["failed"] == 1
+
+    row = rows(db)[0]
+    assert row["status"] == "PENDING"
+    assert row["attempts"] == 4
+
+    out = ke.retry_pending_events()
+
+    row = rows(db)[0]
+    assert out["failed"] == 1
+    assert row["status"] == "FAILED"
+    assert row["attempts"] == 5
+
 def test_retry_with_empty_outbox_does_not_touch_kafka(db, monkeypatch):
     monkeypatch.setattr(ke, "_producer", lambda: pytest.fail("producer must not be created"))
     assert ke.retry_pending_events() == {"attempted": 0, "published": 0, "failed": 0, "skipped": 0}
@@ -221,3 +243,6 @@ def test_payload_survives_json_roundtrip(db, monkeypatch):
     monkeypatch.setattr(ke, "_producer", lambda: producer)
     ke.retry_pending_events()
     assert json.loads(json.dumps(producer.sent[0]["value"]))["payload"] == payload
+
+
+

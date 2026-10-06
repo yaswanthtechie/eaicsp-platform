@@ -29,7 +29,7 @@ def _kafka_addr():
 
 @pytest.fixture
 def real_postgres():
-    host, port = os.getenv("DB_HOST", "localhost"), os.getenv("DB_PORT", "5432")
+    host, port = os.getenv("DB_HOST", "127.0.0.1"), os.getenv("DB_PORT", "5432")
     if not (os.getenv("DB_PASSWORD") is not None and _reachable(host, port)):
         pytest.skip("PostgreSQL not reachable / DB_* not set")
     import kafka_events as ke
@@ -57,7 +57,7 @@ def test_outbox_on_real_postgres_survives_kafka_being_down(real_postgres, monkey
 
 
 def test_real_kafka_publish_and_consume_roundtrip(real_postgres):
-    host, port = _kafka_addr()
+    host, port = "localhost", 9094
     if not _reachable(host, port):
         pytest.skip("Kafka not reachable")
     from kafka import KafkaConsumer
@@ -65,7 +65,7 @@ def test_real_kafka_publish_and_consume_roundtrip(real_postgres):
     marker = str(uuid.uuid4())
     consumer = KafkaConsumer("data.pipeline.completed", bootstrap_servers=f"{host}:{port}",
                              auto_offset_reset="latest", consumer_timeout_ms=15000,
-                             group_id=f"it-{marker}")
+                             group_id=f"it-{marker}", api_version=(3,9))
     consumer.poll(timeout_ms=3000)                      # join group / get assignment
     res = ke.queue_and_publish("data.pipeline.completed", 1, {"it_marker": "r12-13-it", "m": marker})
     assert res["published"] is True
@@ -83,7 +83,7 @@ def test_real_clickhouse_sink_is_idempotent_and_view_hides_duplicates():
     from datetime import date, datetime, timezone
     import clickhouse_connect
     import clickhouse_sink as cs
-    client = clickhouse_connect.get_client(host=host, port=int(port))
+    client = clickhouse_connect.get_client(host=host, port=int(port), username=os.getenv("CLICKHOUSE_USER", "default"), password=os.getenv("CLICKHOUSE_PASSWORD", ""))
     os.environ["CLICKHOUSE_DATABASE"] = "analytics_it"
     client.command("DROP DATABASE IF EXISTS analytics_it")
     cs.ensure_schema(client)
@@ -95,3 +95,6 @@ def test_real_clickhouse_sink_is_idempotent_and_view_hides_duplicates():
     rows = client.query(f"SELECT quantity_on_hand FROM analytics_it.{mart}").result_rows
     client.command("DROP DATABASE analytics_it")
     assert rows == [(9,)]
+
+
+
