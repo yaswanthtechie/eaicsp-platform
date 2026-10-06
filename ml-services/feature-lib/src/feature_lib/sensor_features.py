@@ -88,8 +88,22 @@ def add_sensor_features(
         errors="raise",
     )
 
-    # Preserve the caller's original order.
-    data["__sensor_original_order__"] = range(len(data))
+    # Empty batch (e.g. a sensor with no new readings): return the
+    # expected columns instead of failing inside the join.
+    if data.empty:
+        for col in sensor_cols:
+            for name in (
+                f"{col}_rolling_zscore_{window}",
+                f"{col}_rate_of_change",
+                f"{col}_rolling_min_{window}",
+                f"{col}_rolling_max_{window}",
+            ):
+                data[name] = pd.Series(dtype="float64")
+        for numerator, denominator in sensor_pairs:
+            data[f"{numerator}_to_{denominator}_ratio"] = pd.Series(
+                dtype="float64"
+            )
+        return data
 
     # ------------------------------------------------------------------
     # Build historical sensor records.
@@ -267,7 +281,7 @@ def add_sensor_features(
 
     # Remove implementation-only columns.
     joined = joined.drop(
-        columns=history_feature_cols + ["__sensor_original_order__"],
+        columns=history_feature_cols,
         errors="ignore",
     )
 

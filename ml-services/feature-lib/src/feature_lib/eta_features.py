@@ -1,7 +1,7 @@
 """Point-in-time-correct ETA feature engineering."""
 
 import pandas as pd
-
+import numpy as np
 from .asof_join import asof_join
 
 
@@ -73,10 +73,13 @@ def add_eta_features(
         date_columns.append("actual_pickup_date")
 
     for column in date_columns:
+        # Normalise every date column to nanosecond precision so that
+        # inputs mixing e.g. datetime64[us] (parquet) and datetime64[ns]
+        # still pass asof_join's strict dtype check.
         result[column] = pd.to_datetime(
             result[column],
             errors="raise",
-        )
+        ).dt.as_unit("ns")
 
     # ------------------------------------------------------------------
     # Departure calendar features
@@ -121,21 +124,23 @@ def add_eta_features(
         result["actual_delivery_date"] - transit_start
     ).dt.total_seconds() / 86400
 
-    valid_transit = (
+    # Stored as columns (not separate Series) so every later filter is
+    # positional and duplicate input index labels stay safe.
+    result["__valid_transit"] = (
         result["__transit_days"].notna()
         & (result["__transit_days"] >= 0)
     )
 
-    valid_outcome = (
+    result["__valid_outcome"] = (
         result["actual_delivery_date"].notna()
         & result["expected_delivery_date"].notna()
     )
 
-    result["__on_time"] = pd.NA
-
-    result.loc[valid_outcome, "__on_time"] = (
-        result.loc[valid_outcome, "actual_delivery_date"]
-        <= result.loc[valid_outcome, "expected_delivery_date"]
+    # 1.0 = on time, 0.0 = late, NaN = outcome unknown.
+    result["__on_time"] = (
+        (result["actual_delivery_date"] <= result["expected_delivery_date"])
+        .astype(float)
+        .where(result["__valid_outcome"])
     )
 
     # Positional identifier preserves duplicate input indexes safely.
@@ -152,33 +157,39 @@ def add_eta_features(
     ) -> pd.DataFrame:
         """Build cumulative historical statistics keyed by delivery time."""
 
-        valid_history = result[
-            result["actual_delivery_date"].notna()
-            & result["scheduled_pickup_date"].notna()
-            & result["__on_time"].notna()
-            & result[group_cols].notna().all(axis=1)
-        ].copy()
+        # On-time history needs a known outcome; transit history only needs
+        # a valid transit time. Filter the two independently, so a delivered
+        # shipment without an expected date still counts towards transit.
+        usable = np.zeros(len(result), dtype=bool)
+
+        if rate_column is not None:
+            usable |= result["__valid_outcome"].to_numpy()
+
+        if transit_column is not None:
+            usable |= result["__valid_transit"].to_numpy()
+
+        usable &= result["actual_delivery_date"].notna().to_numpy()
+        usable &= result[group_cols].notna().all(axis=1).to_numpy()
+
+        valid_history = result[usable].copy()
 
         if valid_history.empty:
             return pd.DataFrame()
 
+        is_outcome = valid_history["__valid_outcome"].to_numpy()
         valid_history["__on_time_value"] = (
-            valid_history["__on_time"].astype(float)
+            valid_history["__on_time"].fillna(0.0).to_numpy()
         )
-
-        valid_history["__outcome_count"] = 1
+        valid_history["__outcome_count"] = is_outcome.astype(int)
 
         if transit_column is not None:
-            valid_history["__transit_sum"] = (
-                valid_history["__transit_days"].where(
-                    valid_transit.loc[valid_history.index],
-                    0.0,
-                )
+            is_transit = valid_history["__valid_transit"].to_numpy()
+            valid_history["__transit_sum"] = np.where(
+                is_transit,
+                valid_history["__transit_days"].to_numpy(),
+                0.0,
             )
-
-            valid_history["__transit_count"] = (
-                valid_transit.loc[valid_history.index].astype(int)
-            )
+            valid_history["__transit_count"] = is_transit.astype(int)
 
         # Multiple shipments can have the same delivery timestamp.
         # Aggregate them so asof_join has one feature record per
@@ -262,7 +273,9 @@ def add_eta_features(
         if rate_column is not None:
             event[rate_column] = (
                 event["__cumulative_on_time"]
-                / event["__cumulative_outcomes"]
+                / event["__cumulative_outcomes"].where(
+                    event["__cumulative_outcomes"] > 0
+                )
             )
 
             output_columns.append(rate_column)
@@ -430,6 +443,8 @@ def add_eta_features(
         columns=[
             "__transit_days",
             "__on_time",
+            "__valid_transit",
+            "__valid_outcome",
             "__eta_position",
         ]
     )

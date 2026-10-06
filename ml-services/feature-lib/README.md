@@ -110,11 +110,11 @@ Example:
 
 The library was tested using the Prophet retail sales dataset.
 
-The current test suite contains 140 tests, and the latest full test run passed all 140 tests.
+The current test suite contains 147 tests, and the latest full test run passed all 147 tests.
 
-**---**
 
-**## Previous Milestone Status**
+
+## Previous Milestone Status
 
 | Milestone | Status |
 |---|---|
@@ -126,7 +126,7 @@ The current test suite contains 140 tests, and the latest full test run passed a
 
 **\*\*Notes:\*\*** The FeatureStore is currently an in-memory implementation. Feature versions are explicitly supplied by the caller. Statistical significance uses Pearson correlation with Benjamini-Hochberg correction, with the limitation that Pearson p-values may be less reliable for autocorrelated time-series data.
 
-**## Round 9-11 Milestone Status**
+## Round 9-11 Milestone Status
 
 | Requirement | Status |
 |---|---|
@@ -138,7 +138,7 @@ The current test suite contains 140 tests, and the latest full test run passed a
 
 ** **Round 9-11 Verification:** Feature versioning is demonstrated with separate `v1` and `v2` definitions and backward-compatible `v1` consumers. The automated feature catalog documents both versions, including the version-specific rolling standard deviation definitions. Feature quality scoring flags real risky features with clear reasons: the 30-day features are flagged on a 60-day-history scenario because of their high null rate. The performance benchmark processes 100,000 grouped time-series rows and reports execution time.
 
-## Round 12Ã¢â‚¬â€œ13 Milestone Status
+## Round 12-13 Milestone Status
 
 | Requirement | Status |
 |---|---|
@@ -148,7 +148,12 @@ The current test suite contains 140 tests, and the latest full test run passed a
 | ETA features and feature catalog | Done |
 | Testing, validation, and documentation | Done |
 
-**Round 12Ã¢â‚¬â€œ13 Verification:** The package was built and installed in a clean virtual environment, and the public API import was verified. The strict as-of join was tested to ensure features are taken only from timestamps strictly before the target timestamp. Sensor and ETA feature generation, leakage prevention, and catalog documentation were covered by targeted tests. The latest full test run passed all 140 tests.
+**Round 12-13 Verification:** The package was built and installed in a clean virtual environment, and the public API import was verified. The strict as-of join was tested to ensure features are taken only from timestamps strictly before the target timestamp. Sensor and ETA feature generation, leakage prevention, and catalog documentation were covered by targeted tests. The latest full test run passed all 147 tests.
+
+**Known limitations**
+- Sensor rolling windows count observations, not elapsed time.
+- Same-timestamp sensor readings are averaged before history is built.
+- Seasons follow Indian seasonality (winter, summer, monsoon, post-monsoon).
 
 ## 2. How to Run
 
@@ -236,7 +241,7 @@ The test suite covers:
 
 Expected result:
 
-    140 passed
+    147 passed
 
 The test suite may display dependency-related deprecation or statistical warnings. These warnings do not indicate failures in the feature library when all tests pass.
 
@@ -259,9 +264,9 @@ Run the benchmark from the `feature-lib` directory with:
 
 A separate 60-day-history scenario is also used to demonstrate feature quality risk. Because 30-observation features require 30 historical observations, the following features contain 50% null values and are flagged as risky:
 
-- `target_lag_30` ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â High null rate: 50.0%
-- `target_roll_mean_30` ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â High null rate: 50.0%
-- `target_roll_std_30` ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â High null rate: 50.0%
+- `target_lag_30` - High null rate: 50.0%
+- `target_roll_mean_30` - High null rate: 50.0%
+- `target_roll_std_30` - High null rate: 50.0%
 
 The full 1,000-day history scenario does not flag these features as risky.
 
@@ -547,7 +552,7 @@ After understanding these concepts, I was able to complete the feature engineeri
 - Different feature-definition versions are cached separately.
 - The `/features/build` API uses the shared `FeatureStore` so repeated requests with the same data, configuration, and version can reuse cached features.
 - Feature drift monitoring currently focuses on numeric features and uses the two-sample KS test with both statistical and effect-size criteria.
-- Holiday detection covers 2001ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“2035; data outside that range returns `is_holiday=0`, not a computed holiday value.
+- Holiday detection covers 2001-2035; data outside that range returns `is_holiday=0`, not a computed holiday value.
 - The API uses the same feature-building logic as the Python library rather than maintaining a separate feature-generation implementation.
 
 ---
@@ -658,7 +663,7 @@ The following functions and classes are exported from the `feature_lib` package 
 * `add_rolling_features`
 * `asof_join`
 * `add_sensor_features`
-* `create_eta_features`
+* `add_eta_features`
 * `generate_sensor_feature_catalog`
 * `generate_eta_feature_catalog`
 
@@ -739,7 +744,7 @@ The library provides `add_eta_features()` to generate shipment ETA features usin
 ```python
 from feature_lib import add_eta_features
 
-eta_features = create_eta_features(shipments)
+eta_features = add_eta_features(shipments)
 ```
 
 ### Required Input Columns
@@ -759,7 +764,7 @@ Optional:
 | Feature | Description |
 |---|---|
 | `departure_day_of_week` | Scheduled departure weekday (Monday = 0). |
-| `departure_month` | Scheduled departure month (1Ã¢â‚¬â€œ12). |
+| `departure_month` | Scheduled departure month (1-12). |
 | `departure_season` | Season derived from departure month. |
 | `historical_on_time_rate_carrier` | Historical on-time delivery rate for the carrier. |
 | `historical_on_time_rate_route` | Historical on-time delivery rate for the route. |
