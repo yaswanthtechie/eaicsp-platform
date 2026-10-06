@@ -1141,13 +1141,13 @@ Service keys themselves are not logged.
 
 # 34. Internal Contract Status
 
-| Milestone                   | Status                               | Notes                                                                                         |
-| --------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------- |
-| M1 Internal contract        | Done once Balaji and Rashida confirm | `POST /internal-check`, service-key authentication, accepts `supplier_name`                   |
-| M2 Caching + caller logging | Done                                 | 5-minute TTL, per-supplier lock, cleared on override/case change, verified `X-Caller-Service` |
-| M3 Ambiguous result         | Done                                 | `CLEAR` / `BLOCK` / `REVIEW`; `REVIEW` requires human compliance review                       |
-| M4 SLA monitoring           | Partial                              | Latency tracked for `/internal-check`; alerts are rate-limited                                |
-| M5 Multi-jurisdiction rules | Started                              | Country-specific regulatory rules are exposed through the reporting layer                     |
+| Milestone                   | Status                               | Notes                                                                                                                                                                              |
+| --------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M1 Internal contract        | Done once Balaji and Rashida confirm | `POST /internal-check`, service-key authentication, accepts `supplier_name`                                                                                                        |
+| M2 Caching + caller logging | Done                                 | 5-minute TTL, per-supplier lock, cleared on override/case change, verified `X-Caller-Service`                                                                                      |
+| M3 Ambiguous result         | Done                                 | `CLEAR` / `BLOCK` / `REVIEW`; `REVIEW` requires human compliance review                                                                                                            |
+| M4 SLA monitoring           | Partial                              | `/sla` health judged on the last `SLA_WINDOW_SECONDS` (error rate + latency); alerts rate-limited; covers `/internal-check` only                                                   |
+| M5 Multi-jurisdiction rules | Started                              | INDIA and USA only (aliases like `US`, `IN`, `United States` accepted). Any other country returns `REVIEW` with no rules. KYC/document/reporting flags are supplied by the caller. |
 
 ---
 
@@ -1368,6 +1368,8 @@ INTERNAL_SERVICE_KEYS=
 SLA_LATENCY_THRESHOLD_MS=500
 SLA_ALERT_WEBHOOK_URL=
 SLA_ALERT_COOLDOWN_SECONDS=300
+SLA_WINDOW_SECONDS=300
+SLA_MAX_ERROR_RATE=0.05
 
 INTERNAL_BLOCK_MATCH_SCORE=90
 

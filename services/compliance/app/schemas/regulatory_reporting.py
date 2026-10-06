@@ -25,3 +25,4 @@ class RegulatoryReportResponse(BaseModel):
     passed_count: int
     failed_count: int
     review_count: int
+    reason: str | None = None

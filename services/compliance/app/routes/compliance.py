@@ -71,9 +71,11 @@ from app.services.internal_compliance_service import (
 from app.services.regulatory_rules_service import (
     get_regulatory_rules,
     evaluate_regulatory_rules,
+    normalize_country,
 )
 
 from app.services.sla_service import get_sla_status
+
 
 
 logger = logging.getLogger(__name__)
@@ -355,6 +357,8 @@ def remove_override(
             detail="Override not found",
         )
 
+    clear_internal_cache()
+
     return {
         "message": "Override removed",
         "entity_name": entity_name,
@@ -566,11 +570,14 @@ def compliance_summary(
 )
 def regulatory_report(
     country: str,
+    auth_data=Depends(
+        require_roles("compliance_officer")
+    ),
 ):
     rules = get_regulatory_rules(country)
 
     return {
-        "country": country.strip().upper(),
+        "country": normalize_country(country),
         "applicable_rules": rules,
     }
 
@@ -586,6 +593,9 @@ def evaluate_regulatory_report(
     kyc_verified: bool = Query(...),
     documents_complete: bool = Query(...),
     reporting_compliant: bool = Query(True),
+    auth_data=Depends(
+        require_roles("compliance_officer")
+    ),
 ):
     return evaluate_regulatory_rules(
         country=country,
@@ -601,6 +611,10 @@ def evaluate_regulatory_report(
     "/sla",
     tags=["SLA"],
 )
-def sla_status():
+def sla_status(
+    auth_data=Depends(
+        require_roles("compliance_officer")
+    ),
+):
     return get_sla_status()
 

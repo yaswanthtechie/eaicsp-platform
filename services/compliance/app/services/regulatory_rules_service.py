@@ -39,13 +39,29 @@ REGULATORY_RULES: dict[str, list[dict[str, Any]]] = {
 }
 
 
+# Common spellings callers use for the same jurisdiction.
+COUNTRY_ALIASES: dict[str, str] = {
+    "IN": "INDIA",
+    "IND": "INDIA",
+    "US": "USA",
+    "U.S.": "USA",
+    "U.S.A.": "USA",
+    "UNITED STATES": "USA",
+    "UNITED STATES OF AMERICA": "USA",
+}
+
+
+def normalize_country(country: str) -> str:
+    """Upper-case, trim, and map known aliases to the rule-table key."""
+    normalized = country.strip().upper()
+    return COUNTRY_ALIASES.get(normalized, normalized)
+
+
 def get_regulatory_rules(
     country: str,
 ) -> list[dict[str, Any]]:
-    normalized_country = country.strip().upper()
-
     return REGULATORY_RULES.get(
-        normalized_country,
+        normalize_country(country),
         [],
     )
 
@@ -57,15 +73,20 @@ def evaluate_regulatory_rules(
     documents_complete: bool,
     reporting_compliant: bool = True,
 ) -> dict[str, Any]:
-    normalized_country = country.strip().upper()
+    normalized_country = normalize_country(country)
 
     rules = get_regulatory_rules(normalized_country)
 
     if not rules:
+        # No rules for this jurisdiction is NOT a pass: a human must
+        # decide. The response must still match RegulatoryReportResponse.
         return {
             "country": normalized_country,
             "overall_status": "REVIEW",
             "rules": [],
+            "passed_count": 0,
+            "failed_count": 0,
+            "review_count": 0,
             "reason": "No regulatory rules are configured for this country.",
         }
 

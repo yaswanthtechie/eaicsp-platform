@@ -33,10 +33,14 @@ def verify_internal_caller(request: Request) -> str:
     expected = config.INTERNAL_SERVICE_KEYS.get(caller)
 
     if (
-        not caller
-        or expected is None
-        or not secrets.compare_digest(key, expected)
-    ):
+    not caller
+    or expected is None
+    # Compare bytes: compare_digest raises TypeError on non-ASCII str.
+    or not secrets.compare_digest(
+        key.encode("utf-8"),
+        expected.encode("utf-8"),
+    )
+):
         logger.warning(
             "Rejected internal compliance call: caller=%s key_present=%s",
             caller or "<missing>",

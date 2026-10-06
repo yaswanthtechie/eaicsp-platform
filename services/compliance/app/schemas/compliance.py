@@ -359,11 +359,6 @@ class ComplianceSummaryResponse(BaseModel):
     average_resolution_time_hours: float
 
 class InternalComplianceRequest(BaseModel):
-    """
-    Internal contract used by Inventory (Balaji) and Supplier Portal
-    (Rashida). Both send the supplier's name as `supplier_name`;
-    `company_name` is also accepted so older callers keep working.
-    """
 
     supplier_id: str = Field(
         ...,
@@ -396,6 +391,21 @@ class InternalComplianceRequest(BaseModel):
         },
     )
 
+    @field_validator(
+        "supplier_id",
+        "company_name",
+        "country",
+    )
+    @classmethod
+    def must_not_be_blank(cls, value: str) -> str:
+        value = value.strip()
+
+        if not value:
+            raise ValueError("must not be blank")
+
+        return value
+
+    
 class InternalComplianceResponse(BaseModel):
 
     supplier_id: str

@@ -210,6 +210,20 @@ SLA_LATENCY_THRESHOLD_MS = float(
     )
 )
 
+SLA_WINDOW_SECONDS = float(
+    os.getenv(
+        "SLA_WINDOW_SECONDS",
+        "300",
+    )
+)
+
+SLA_MAX_ERROR_RATE = float(
+    os.getenv(
+        "SLA_MAX_ERROR_RATE",
+        "0.05",
+    )
+)
+
 SLA_ALERT_WEBHOOK_URL = os.getenv(
     "SLA_ALERT_WEBHOOK_URL",
 )
@@ -220,7 +234,6 @@ SLA_ALERT_COOLDOWN_SECONDS = float(
         "300",
     )
 )
-
 
 INTERNAL_BLOCK_MATCH_SCORE = float(
     os.getenv(

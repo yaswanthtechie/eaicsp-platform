@@ -843,3 +843,18 @@ def test_regulatory_evaluation_api_india(
     assert data["passed_count"] == 3
     assert data["failed_count"] == 0
     assert data["review_count"] == 0
+
+def test_regulatory_evaluation_unknown_country_is_not_500(
+    mock_compliance_officer_auth,
+):
+    response = client.get(
+        "/api/v1/compliance/reports/regulatory/Germany/evaluate",
+        params={
+            "sanctions_cleared": True,
+            "kyc_verified": True,
+            "documents_complete": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["overall_status"] == "REVIEW"

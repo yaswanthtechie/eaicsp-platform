@@ -1,3 +1,4 @@
+from app.services import sla_service
 from app.services.sla_service import (
     SLAMetrics,
 )
@@ -87,7 +88,10 @@ def test_sla_request_at_threshold_is_not_slow():
     assert status["status"] == "healthy"
 
 
-def test_sla_status_endpoint(client):
+def test_sla_status_endpoint(
+    client,
+    mock_compliance_officer_auth,
+):
     response = client.get("/api/v1/compliance/sla")
 
     assert response.status_code == 200
@@ -101,3 +105,64 @@ def test_sla_status_endpoint(client):
     assert "average_latency_ms" in data
     assert "max_latency_ms" in data
     assert "status" in data
+
+def test_sla_status_requires_auth(client):
+    response = client.get("/api/v1/compliance/sla")
+    assert response.status_code == 401
+
+
+class FakeClock:
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+
+def test_sla_recovers_once_failure_leaves_the_window():
+    clock = FakeClock()
+    metrics = SLAMetrics(
+        window_seconds=300,
+        clock=clock,
+    )
+
+    metrics.record_request(
+        duration_ms=100,
+        success=False,
+    )
+
+    assert metrics.get_status()["status"] == "degraded"
+
+    clock.now += 301
+
+    metrics.record_request(
+        duration_ms=100,
+        success=True,
+    )
+
+    status = metrics.get_status()
+
+    assert status["status"] == "healthy"
+    assert status["failed_requests"] == 1
+    assert status["window_requests"] == 1
+
+
+def test_sla_threshold_comes_from_config(monkeypatch):
+    monkeypatch.setattr(
+        sla_service,
+        "SLA_LATENCY_THRESHOLD_MS",
+        200,
+    )
+
+    metrics = SLAMetrics()
+
+    metrics.record_request(
+        duration_ms=300,
+        success=True,
+    )
+
+    status = metrics.get_status()
+
+    assert status["slow_requests"] == 1
+    assert status["status"] == "degraded"
+    assert status["latency_threshold_ms"] == 200
