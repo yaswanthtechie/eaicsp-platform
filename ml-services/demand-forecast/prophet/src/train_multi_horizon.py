@@ -1,10 +1,14 @@
+
 import json
 import pickle
+
 import mlflow
 import holidays
 import numpy as np
 import pandas as pd
+
 from pathlib import Path
+
 from prophet import Prophet
 from prophet.serialize import model_to_json
 from xgboost import XGBRegressor
@@ -16,10 +20,17 @@ from sklearn.metrics import (
 )
 
 from src.ensemble import weighted_ensemble
+
 from src.conformal import (
     evaluate_interval_methods,
+    calibration_radius,
 )
-from src.multi_horizon import load_ensemble_weights, prepare_history
+
+from src.multi_horizon import (
+    load_ensemble_weights,
+    prepare_history,
+)
+
 from src.multi_horizon_config import (
     MODEL_DIR,
     PROPHET_MODEL_PATH,
@@ -36,6 +47,7 @@ from src.multi_horizon_config import (
     PROPHET_PARAMS,
     CALIBRATION_CUTOFFS,
 )
+
 from src.multi_horizon_data import load_daily_data
 
 from src.multi_horizon_inference import (
@@ -49,65 +61,8 @@ from src.multi_horizon_inference import (
 
 _US_HOLIDAYS = holidays.US()
 
-def _split_calibration_test(
-    df: pd.DataFrame,
-    calibration_days: int,
-    test_days: int,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Split the latest part of the time series chronologically into
-    calibration and held-out test windows.
 
-    No randomization is allowed.
 
-    Example:
-
-        older history | calibration | held-out test
-                      |<-- N days ->|<-- M days ->|
-    """
-
-    if calibration_days <= 0:
-        raise ValueError(
-            "calibration_days must be positive."
-        )
-
-    if test_days <= 0:
-        raise ValueError(
-            "test_days must be positive."
-        )
-
-    df = (
-        df.copy()
-        .sort_values(DATE_COLUMN)
-        .reset_index(drop=True)
-    )
-
-    required_rows = (
-        calibration_days
-        + test_days
-    )
-
-    if len(df) <= required_rows:
-        raise ValueError(
-            f"Not enough rows for calibration/test split. "
-            f"Need more than {required_rows}, "
-            f"got {len(df)}."
-        )
-
-    test_start = len(df) - test_days
-    calibration_start = (
-        test_start - calibration_days
-    )
-
-    calibration_df = df.iloc[
-        calibration_start:test_start
-    ].copy()
-
-    test_df = df.iloc[
-        test_start:
-    ].copy()
-
-    return calibration_df, test_df
 
 
 def train_prophet_daily(df):
@@ -178,6 +133,7 @@ def train_prophet_daily(df):
 
     return model
 
+
 def fit_xgboost(df):
     """
     Fit the daily XGBoost model and return the inference package.
@@ -227,6 +183,8 @@ def fit_xgboost(df):
         "features": FEATURES,
         "residual_std": residual_std,
     }
+
+
 def train_xgboost_daily(df):
     """
     Train and persist the daily XGBoost model.
@@ -274,6 +232,8 @@ def train_xgboost_daily(df):
     )
 
     return package
+
+
 def evaluate_xgboost_daily(
     df,
     test_days=90,
@@ -493,9 +453,7 @@ def summarise_backtest(backtest: pd.DataFrame) -> dict:
       - bias_pct: mean((actual - predicted) / predicted) * 100.
       - low/high: multipliers from the INTERVAL_QUANTILES of the SIGNED
         error (actual / predicted - 1). With (0.10, 0.90) this is a real
-        80% interval, and it can be asymmetric. The multipliers are
-        widened to include 1.0 so the interval always contains the
-        prediction.
+        80% interval, and it can be asymmetric.
       - coverage: share of backtest totals inside the interval. It is
         measured on the same errors used to calibrate, so it is
         optimistic; it is a sanity check, not a validation score.
@@ -505,13 +463,19 @@ def summarise_backtest(backtest: pd.DataFrame) -> dict:
     """
 
     low_q, high_q = INTERVAL_QUANTILES
-    coverage_pct = round((high_q - low_q) * 100)
+
+    coverage_pct = round(
+        (high_q - low_q) * 100
+    )
 
     ratio_quantiles = {}
     metrics = {}
 
     for horizon_name in HORIZONS:
-        rows = backtest[backtest["horizon"] == horizon_name]
+
+        rows = backtest[
+            backtest["horizon"] == horizon_name
+        ]
 
         if len(rows) < 3:
             raise ValueError(
@@ -519,29 +483,92 @@ def summarise_backtest(backtest: pd.DataFrame) -> dict:
                 f"for {horizon_name}: {len(rows)}"
             )
 
-        actual = rows["actual"].to_numpy(dtype=float)
-        predicted = rows["predicted"].to_numpy(dtype=float)
-        signed_error = actual / predicted - 1.0
+        actual = rows[
+            "actual"
+        ].to_numpy(dtype=float)
 
-        low = max(0.0, min(1.0, 1.0 + float(np.quantile(signed_error, low_q))))
-        high = max(1.0, 1.0 + float(np.quantile(signed_error, high_q)))
+        predicted = rows[
+            "predicted"
+        ].to_numpy(dtype=float)
 
-        inside = (actual >= predicted * low) & (actual <= predicted * high)
+        signed_error = (
+            actual / predicted - 1.0
+        )
 
-        ratio_quantiles[horizon_name] = {
+        low = max(
+            0.0,
+            min(
+                1.0,
+                1.0
+                + float(
+                    np.quantile(
+                        signed_error,
+                        low_q,
+                    )
+                ),
+            ),
+        )
+
+        high = max(
+            1.0,
+            1.0
+            + float(
+                np.quantile(
+                    signed_error,
+                    high_q,
+                )
+            ),
+        )
+
+        inside = (
+            (actual >= predicted * low)
+            & (actual <= predicted * high)
+        )
+
+        ratio_quantiles[
+            horizon_name
+        ] = {
             "low": round(low, 6),
             "high": round(high, 6),
         }
 
-        metrics[horizon_name] = {
-            "mape": round(float(np.mean(np.abs(actual - predicted) / actual)) * 100, 2),
-            "bias_pct": round(float(np.mean(signed_error)) * 100, 2),
-            "coverage": round(float(np.mean(inside)), 3),
-            "observations": int(len(rows)),
+        metrics[
+            horizon_name
+        ] = {
+            "mape": round(
+                float(
+                    np.mean(
+                        np.abs(actual - predicted)
+                        / actual
+                    )
+                )
+                * 100,
+                2,
+            ),
+            "bias_pct": round(
+                float(
+                    np.mean(
+                        signed_error
+                    )
+                )
+                * 100,
+                2,
+            ),
+            "coverage": round(
+                float(
+                    np.mean(inside)
+                ),
+                3,
+            ),
+            "observations": int(
+                len(rows)
+            ),
         }
 
     return {
-        "interval_label": f"{coverage_pct}% empirical interval",
+        "interval_label": (
+            f"{coverage_pct}% empirical interval"
+        ),
         "ratio_quantiles": ratio_quantiles,
         "backtest_metrics": metrics,
         "quantiles": {
@@ -549,20 +576,37 @@ def summarise_backtest(backtest: pd.DataFrame) -> dict:
             "high": high_q,
         },
     }
+
+
 def _split_backtest_calibration_evaluation(
     backtest: pd.DataFrame,
     calibration_cutoffs: int,
+    gap_days: int = 0,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Split rolling-origin backtest results chronologically.
 
     Earlier cutoff windows are used only for calibration.
+
     Later cutoff windows are kept completely held out for
     interval coverage evaluation.
+
+    `gap_days` prevents calibration and evaluation forecast
+    windows from overlapping.
+
+    For example, when the longest forecast horizon is 90 days,
+    the first evaluation cutoff must be at least 90 days after
+    the last calibration cutoff.
     """
+
     if calibration_cutoffs <= 0:
         raise ValueError(
             "calibration_cutoffs must be positive."
+        )
+
+    if gap_days < 0:
+        raise ValueError(
+            "gap_days cannot be negative."
         )
 
     if backtest.empty:
@@ -577,7 +621,10 @@ def _split_backtest_calibration_evaluation(
         "predicted",
     }
 
-    missing = required_columns - set(backtest.columns)
+    missing = (
+        required_columns
+        - set(backtest.columns)
+    )
 
     if missing:
         raise ValueError(
@@ -603,6 +650,35 @@ def _split_backtest_calibration_evaluation(
         calibration_cutoffs:
     ]
 
+    # ---------------------------------------------------------
+    # Fix 5:
+    # Prevent calibration and evaluation forecast windows
+    # from overlapping.
+    # ---------------------------------------------------------
+    if gap_days > 0:
+
+        first_allowed = (
+            pd.Timestamp(
+                calibration_cutoff_values[-1]
+            )
+            + pd.Timedelta(
+                days=gap_days
+            )
+        )
+
+        evaluation_cutoff_values = [
+            cutoff
+            for cutoff in evaluation_cutoff_values
+            if pd.Timestamp(cutoff)
+            >= first_allowed
+        ]
+
+    if not evaluation_cutoff_values:
+        raise ValueError(
+            "No held-out evaluation cutoffs remain after "
+            "the gap. Lower calibration_cutoffs or gap_days."
+        )
+
     calibration = (
         backtest[
             backtest["cutoff"].isin(
@@ -610,7 +686,9 @@ def _split_backtest_calibration_evaluation(
             )
         ]
         .copy()
-        .sort_values(["cutoff", "horizon"])
+        .sort_values(
+            ["cutoff", "horizon"]
+        )
         .reset_index(drop=True)
     )
 
@@ -621,11 +699,15 @@ def _split_backtest_calibration_evaluation(
             )
         ]
         .copy()
-        .sort_values(["cutoff", "horizon"])
+        .sort_values(
+            ["cutoff", "horizon"]
+        )
         .reset_index(drop=True)
     )
 
     return calibration, evaluation
+
+
 def log_training_run(
     calibration,
     weights,
@@ -870,10 +952,13 @@ def log_training_run(
         )
 
         if artifact_path.exists():
+
             mlflow.log_artifact(
                 str(artifact_path),
                 artifact_path="multi_horizon",
             )
+
+
 def calibrate_horizon_intervals(df):
     """
     Calibrate multi-horizon prediction intervals using
@@ -883,6 +968,10 @@ def calibrate_horizon_intervals(df):
 
         earlier cutoffs -> calibration
         later cutoffs   -> held-out evaluation
+
+    A gap equal to the longest forecast horizon is placed
+    between calibration and evaluation cutoffs so that their
+    forecast windows cannot overlap.
 
     Calibration data is used to estimate:
       - existing empirical intervals
@@ -912,6 +1001,7 @@ def calibrate_horizon_intervals(df):
     # ---------------------------------------------------------
     # 1. Prepare data
     # ---------------------------------------------------------
+
     df = (
         df.copy()
         .sort_values(DATE_COLUMN)
@@ -941,6 +1031,7 @@ def calibrate_horizon_intervals(df):
     # ---------------------------------------------------------
     # 2. Build chronological rolling-origin cutoffs
     # ---------------------------------------------------------
+
     cutoff_positions = []
 
     position = (
@@ -953,8 +1044,14 @@ def calibrate_horizon_intervals(df):
         and len(cutoff_positions)
         < BACKTEST_CUTOFFS
     ):
-        cutoff_positions.append(position)
-        position -= BACKTEST_STEP_DAYS
+
+        cutoff_positions.append(
+            position
+        )
+
+        position -= (
+            BACKTEST_STEP_DAYS
+        )
 
     cutoff_positions.sort()
 
@@ -983,21 +1080,36 @@ def calibrate_horizon_intervals(df):
         CALIBRATION_CUTOFFS,
     )
 
-    print(
-        "Held-out evaluation cutoffs:",
+    # Fix 5:
+    # The actual number of held-out evaluation cutoffs
+    # is determined after applying the gap.
+    expected_evaluation_cutoffs = max(
+        0,
         len(cutoff_positions)
         - CALIBRATION_CUTOFFS,
+    )
+
+    print(
+        "Potential evaluation cutoffs:",
+        expected_evaluation_cutoffs,
+    )
+
+    print(
+        "Evaluation gap days:",
+        max_forecast_days,
     )
 
     # ---------------------------------------------------------
     # 3. Rolling-origin backtest
     # ---------------------------------------------------------
+
     records = []
 
     for cycle, cutoff_position in enumerate(
         cutoff_positions,
         start=1,
     ):
+
         train_df = (
             df.iloc[:cutoff_position]
             .copy()
@@ -1026,6 +1138,7 @@ def calibrate_horizon_intervals(df):
         # -----------------------------------------------------
         # Prophet
         # -----------------------------------------------------
+
         prophet_model = (
             _train_backtest_prophet(
                 train_df
@@ -1043,6 +1156,7 @@ def calibrate_horizon_intervals(df):
         # -----------------------------------------------------
         # XGBoost
         # -----------------------------------------------------
+
         xgb_package = (
             _train_backtest_xgboost(
                 train_df
@@ -1068,6 +1182,7 @@ def calibrate_horizon_intervals(df):
         # -----------------------------------------------------
         # Validate forecast lengths
         # -----------------------------------------------------
+
         if len(prophet_predictions) != max_forecast_days:
             raise ValueError(
                 "Prophet backtest forecast "
@@ -1083,6 +1198,7 @@ def calibrate_horizon_intervals(df):
         # -----------------------------------------------------
         # Ensemble prediction
         # -----------------------------------------------------
+
         ensemble_predictions = np.asarray(
             [
                 weighted_ensemble(
@@ -1114,6 +1230,7 @@ def calibrate_horizon_intervals(df):
         # -----------------------------------------------------
         # 4. Build horizon totals
         # -----------------------------------------------------
+
         for horizon_name, horizon_days in HORIZONS.items():
 
             predicted_total = float(
@@ -1150,7 +1267,10 @@ def calibrate_horizon_intervals(df):
     # ---------------------------------------------------------
     # 5. Convert backtest records to DataFrame
     # ---------------------------------------------------------
-    backtest = pd.DataFrame(records)
+
+    backtest = pd.DataFrame(
+        records
+    )
 
     if backtest.empty:
         raise ValueError(
@@ -1161,11 +1281,17 @@ def calibrate_horizon_intervals(df):
     # ---------------------------------------------------------
     # 6. Split calibration vs held-out evaluation
     # ---------------------------------------------------------
+
     calibration_df, evaluation_df = (
         _split_backtest_calibration_evaluation(
             backtest,
             calibration_cutoffs=CALIBRATION_CUTOFFS,
+            gap_days=max_forecast_days,
         )
+    )
+
+    evaluation_cutoff_count = int(
+        evaluation_df["cutoff"].nunique()
     )
 
     print(
@@ -1178,6 +1304,11 @@ def calibrate_horizon_intervals(df):
         len(evaluation_df),
     )
 
+    print(
+        "Held-out evaluation cutoffs:",
+        evaluation_cutoff_count,
+    )
+
     # ---------------------------------------------------------
     # 7. Existing empirical calibration
     #
@@ -1188,6 +1319,7 @@ def calibrate_horizon_intervals(df):
     # These values are now calculated ONLY from the
     # calibration period, not the held-out period.
     # ---------------------------------------------------------
+
     calibration = summarise_backtest(
         calibration_df
     )
@@ -1195,6 +1327,7 @@ def calibrate_horizon_intervals(df):
     # ---------------------------------------------------------
     # 8. Conformal evaluation
     # ---------------------------------------------------------
+
     conformal_evaluation = {}
 
     for horizon_name in HORIZONS:
@@ -1230,7 +1363,11 @@ def calibrate_horizon_intervals(df):
         # -----------------------------------------------------
         # 80% and 95% intervals
         # -----------------------------------------------------
-        for coverage in (0.80, 0.95):
+
+        for coverage in (
+            0.80,
+            0.95,
+        ):
 
             result = evaluate_interval_methods(
                 calibration_actual=(
@@ -1267,6 +1404,7 @@ def calibrate_horizon_intervals(df):
     # ---------------------------------------------------------
     # 9. Print before vs after results
     # ---------------------------------------------------------
+
     print(
         "\n========== Conformal Evaluation "
         "on Held-out Windows =========="
@@ -1297,10 +1435,35 @@ def calibrate_horizon_intervals(df):
                 f"conformal radius="
                 f"{result['calibration_radius']:.4f}"
             )
+        # ---------------------------------------------------------
+    # 9b. Final served conformal intervals.
+    # The held-out evaluation above is finished, so the radius
+    # used in production is re-fit on ALL backtest windows.
+    # ---------------------------------------------------------
+    conformal_intervals = {}
+
+    for horizon_name in HORIZONS:
+        rows = backtest[backtest["horizon"] == horizon_name]
+        conformal_intervals[horizon_name] = {}
+
+        for coverage in (0.80, 0.95):
+            radius = calibration_radius(
+                rows["actual"].to_numpy(dtype=float),
+                rows["predicted"].to_numpy(dtype=float),
+                coverage,
+            )
+
+            conformal_intervals[horizon_name][f"{round(coverage * 100)}%"] = {
+                "low": round(max(0.0, 1.0 - radius), 6),
+                "high": round(1.0 + radius, 6),
+            }
+
+    calibration["conformal_intervals"] = conformal_intervals        
 
     # ---------------------------------------------------------
     # 10. Save M1 evaluation metadata
     # ---------------------------------------------------------
+
     calibration[
         "conformal_evaluation"
     ] = {
@@ -1308,11 +1471,10 @@ def calibrate_horizon_intervals(df):
             CALIBRATION_CUTOFFS
         ),
         "evaluation_cutoffs": (
-            int(
-                evaluation_df[
-                    "cutoff"
-                ].nunique()
-            )
+            evaluation_cutoff_count
+        ),
+        "gap_days": int(
+            max_forecast_days
         ),
         "results": conformal_evaluation,
     }
@@ -1340,6 +1502,7 @@ def calibrate_horizon_intervals(df):
     # ---------------------------------------------------------
     # 11. Print existing calibration metrics
     # ---------------------------------------------------------
+
     print(
         "\n========== Calibration Metrics =========="
     )
@@ -1370,6 +1533,7 @@ def calibrate_horizon_intervals(df):
     # ---------------------------------------------------------
     # 12. Save backtest results
     # ---------------------------------------------------------
+
     MODEL_DIR.mkdir(
         parents=True,
         exist_ok=True,
@@ -1383,6 +1547,7 @@ def calibrate_horizon_intervals(df):
     # ---------------------------------------------------------
     # 13. Save calibration JSON
     # ---------------------------------------------------------
+
     with INTERVALS_PATH.open(
         "w",
         encoding="utf-8",
@@ -1400,3 +1565,80 @@ def calibrate_horizon_intervals(df):
     )
 
     return calibration
+
+
+def train_all():
+    """
+    Train both daily models, calibrate multi-horizon intervals
+    (empirical + split-conformal), and log everything to MLflow.
+    """
+
+    df = load_daily_data()
+
+    print("\nDataset:")
+    print(
+        f"Rows : {len(df)}"
+    )
+    print(
+        f"Start: {df[DATE_COLUMN].min().date()}"
+    )
+    print(
+        f"End  : {df[DATE_COLUMN].max().date()}"
+    )
+
+    mlflow.set_experiment(
+        MLFLOW_EXPERIMENT
+    )
+
+    with mlflow.start_run(
+        run_name="multi_horizon_training"
+    ):
+
+        evaluate_xgboost_daily(
+            df,
+            test_days=90,
+        )
+
+        prophet_model = train_prophet_daily(
+            df
+        )
+
+        xgb_package = train_xgboost_daily(
+            df
+        )
+
+        calibration = calibrate_horizon_intervals(
+            df
+        )
+
+        log_training_run(
+            calibration,
+            load_ensemble_weights(),
+            len(df),
+        )
+
+    print(
+        "\n========================================"
+    )
+
+    print(
+        "Daily multi-horizon models trained."
+    )
+
+    print(
+        "Horizon intervals calibrated and logged to MLflow."
+    )
+
+    print(
+        "========================================"
+    )
+
+    return {
+        "prophet": prophet_model,
+        "xgb": xgb_package,
+        "interval_calibration": calibration,
+    }
+
+
+if __name__ == "__main__":
+    train_all()

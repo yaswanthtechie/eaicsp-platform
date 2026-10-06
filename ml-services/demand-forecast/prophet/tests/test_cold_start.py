@@ -126,7 +126,7 @@ def test_honest_cold_start_evaluation_excludes_target_history(sample_data):
 
     # SKU001 is excluded from the reference pool.
     # Only SKU002 remains as the Electronics / South reference SKU.
-    assert result["cold_start_forecast"] == [215.0, 215.0]
+    assert result["cold_start_forecast"] == [205.0, 205.0]
 
 
 def test_cold_start_hidden_history_is_chronological(sample_data):
@@ -190,3 +190,55 @@ def test_evaluate_cold_start_reports_forecast_source(sample_data):
     )
 
     assert result["forecast_source"] == "category_region"
+def test_cold_start_ignores_peer_demand_from_hidden_window():
+    dates = pd.date_range(
+        "2025-01-01",
+        periods=6,
+        freq="MS",
+    )
+
+    target = pd.DataFrame(
+        {
+            "date": dates,
+            "sku_id": "T",
+            "category": "C",
+            "region": "R",
+            "quantity_sold": [10] * 6,
+        }
+    )
+
+    peer = pd.DataFrame(
+        {
+            "date": dates,
+            "sku_id": "P",
+            "category": "C",
+            "region": "R",
+            "quantity_sold": [
+                20,
+                20,
+                20,
+                9999,
+                9999,
+                9999,
+            ],
+        }
+    )
+
+    df = pd.concat(
+        [target, peer],
+        ignore_index=True,
+    )
+
+    result = evaluate_cold_start(
+        df,
+        sku_id="T",
+        hidden_periods=3,
+    )
+
+    assert result["cold_start_forecast"] == pytest.approx(
+        [20.0, 20.0, 20.0]
+    )
+
+    assert result["category_baseline"] == pytest.approx(
+        [20.0, 20.0, 20.0]
+    )    

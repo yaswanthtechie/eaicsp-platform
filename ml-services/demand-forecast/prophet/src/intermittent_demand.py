@@ -1,3 +1,4 @@
+
 """
 Intermittent demand classification using ADI and CV².
 
@@ -12,7 +13,7 @@ Classification:
 """
 
 from __future__ import annotations
-
+import warnings
 import math
 from typing import Iterable
 
@@ -142,6 +143,8 @@ def classify_demand_with_metrics(
         "cv2": cv2,
         "classification": classification,
     }
+
+
 def classify_sku_demand(df):
     """
     Calculate ADI, CV², and demand classification for every SKU.
@@ -153,6 +156,7 @@ def classify_sku_demand(df):
     required_columns = {"sku_id", "quantity_sold"}
 
     missing = required_columns - set(df.columns)
+
     if missing:
         raise ValueError(
             f"Missing required columns: {sorted(missing)}"
@@ -175,6 +179,8 @@ def classify_sku_demand(df):
         )
 
     return results
+
+
 def croston_forecast(
     demand: Iterable[float],
     horizon: int,
@@ -185,7 +191,6 @@ def croston_forecast(
 
     Demand size and demand interval are smoothed separately.
     """
-
     values = np.asarray(list(demand), dtype=float)
 
     if values.size == 0:
@@ -205,17 +210,13 @@ def croston_forecast(
 
     non_zero_indices = np.flatnonzero(values > 0)
 
-    # No historical demand.
     if len(non_zero_indices) == 0:
         return [0.0] * horizon
 
-    # First non-zero demand.
     first_index = non_zero_indices[0]
 
     demand_estimate = values[first_index]
 
-    # Initial interval is measured from the beginning
-    # of the series to the first demand occurrence.
     interval_estimate = float(first_index + 1)
 
     previous_demand_index = first_index
@@ -240,13 +241,73 @@ def croston_forecast(
     forecast = demand_estimate / interval_estimate
 
     return [float(forecast)] * horizon
+
+
+def split_sku_history(
+    sku_df,
+    test_periods: int = 3,
+):
+    """
+    Split one SKU history chronologically into train and test.
+
+    The latest `test_periods` observations are used as the test
+    window. The remaining earlier observations are used for training.
+    """
+    if test_periods <= 0:
+        raise ValueError("test_periods must be positive.")
+
+    if sku_df.empty:
+        raise ValueError("SKU history cannot be empty.")
+
+    required_columns = {
+        "date",
+        "sku_id",
+        "quantity_sold",
+    }
+
+    missing = required_columns - set(sku_df.columns)
+
+    if missing:
+        raise ValueError(
+            f"Missing required columns: {sorted(missing)}"
+        )
+
+    data = sku_df.copy()
+
+    data["date"] = pd.to_datetime(data["date"])
+
+    data = (
+        data
+        .sort_values("date")
+        .reset_index(drop=True)
+    )
+
+    if len(data) <= test_periods:
+        raise ValueError(
+            "Not enough observations for the requested test period."
+        )
+
+    train = data.iloc[:-test_periods].copy()
+    test = data.iloc[-test_periods:].copy()
+
+    return train, test
+
+
 def mase(
     actual: Iterable[float],
     forecast: Iterable[float],
+    *,
+    train: Iterable[float],
 ) -> float:
-    """Calculate Mean Absolute Scaled Error."""
+    """
+    Calculate Mean Absolute Scaled Error.
+
+    The scale is the in-sample one-step naive MAE on the TRAINING
+    history, never on the test window.
+    """
     actual_values = np.asarray(list(actual), dtype=float)
     forecast_values = np.asarray(list(forecast), dtype=float)
+    train_values = np.asarray(list(train), dtype=float)
 
     if actual_values.size == 0:
         raise ValueError("Actual values cannot be empty.")
@@ -266,6 +327,11 @@ def mase(
             "Forecast values contain non-finite values."
         )
 
+    if np.any(~np.isfinite(train_values)):
+        raise ValueError(
+            "Training values contain non-finite values."
+        )
+
     if np.any(actual_values < 0):
         raise ValueError(
             "Actual demand cannot be negative."
@@ -276,21 +342,17 @@ def mase(
             "Forecast values cannot be negative."
         )
 
-    if actual_values.size < 2:
+    if train_values.size < 2:
         raise ValueError(
-            "At least two actual observations are required "
+            "At least two training observations are required "
             "to calculate MASE."
         )
 
-    naive_errors = np.abs(
-        actual_values[1:] - actual_values[:-1]
-    )
-
-    scale = float(np.mean(naive_errors))
+    scale = float(np.mean(np.abs(np.diff(train_values))))
 
     if scale == 0:
         raise ValueError(
-            "MASE is undefined when the naive scale is zero."
+            "MASE is undefined when the training history is constant."
         )
 
     model_error = float(
@@ -298,38 +360,8 @@ def mase(
     )
 
     return model_error / scale
-def split_sku_history(
-    sku_df,
-    test_periods: int = 3,
-):
-    """Split one SKU history chronologically into train and test."""
-    if test_periods <= 0:
-        raise ValueError("test_periods must be positive.")
 
-    if sku_df.empty:
-        raise ValueError("SKU history cannot be empty.")
 
-    required_columns = {"date", "sku_id", "quantity_sold"}
-    missing = required_columns - set(sku_df.columns)
-
-    if missing:
-        raise ValueError(
-            f"Missing required columns: {sorted(missing)}"
-        )
-
-    data = sku_df.copy()
-    data["date"] = pd.to_datetime(data["date"])
-    data = data.sort_values("date").reset_index(drop=True)
-
-    if len(data) <= test_periods:
-        raise ValueError(
-            "Not enough observations for the requested test period."
-        )
-
-    train = data.iloc[:-test_periods].copy()
-    test = data.iloc[-test_periods:].copy()
-
-    return train, test
 def evaluate_croston_vs_naive(
     train_demand: Iterable[float],
     test_demand: Iterable[float],
@@ -338,7 +370,6 @@ def evaluate_croston_vs_naive(
     alpha: float = 0.1,
 ) -> dict:
     """Compare Croston and naive forecasts using MASE."""
-
     train_values = list(train_demand)
     test_values = list(test_demand)
 
@@ -369,11 +400,13 @@ def evaluate_croston_vs_naive(
     croston_mase = mase(
         test_values,
         croston_forecast_values,
+        train=train_values,
     )
 
     naive_mase = mase(
         test_values,
         naive_forecast_values,
+        train=train_values,
     )
 
     return {
@@ -382,51 +415,84 @@ def evaluate_croston_vs_naive(
         "croston_forecast": croston_forecast_values,
         "naive_forecast": naive_forecast_values,
     }
+
+
 def evaluate_intermittent_skus(
     df: pd.DataFrame,
     test_periods: int = 3,
+    validation_periods: int = 3,
     alpha: float = 0.1,
 ) -> list[dict]:
-    """Evaluate Croston and naive forecasts for intermittent-demand SKUs."""
+    """
+    Evaluate Croston vs naive for intermittent/lumpy SKUs without
+    looking at the test window when choosing a model.
 
-    classification_results = classify_sku_demand(df)
+    Each SKU is split chronologically:
 
-    intermittent_skus = {
-        result["sku_id"]
-        for result in classification_results
-        if result["classification"] in {"intermittent", "lumpy"}
-    }
+        train | validation | test
+
+    - classification uses TRAIN only
+    - croston_mase / naive_mase are VALIDATION scores (fit on train);
+      routing uses these
+    - croston_test_mase / naive_test_mase are TEST scores
+      (refit on train + validation); these are what we report
+    """
+    required_columns = {"date", "sku_id", "quantity_sold"}
+    missing = required_columns - set(df.columns)
+
+    if missing:
+        raise ValueError(
+            f"Missing required columns: {sorted(missing)}"
+        )
 
     evaluation_results = []
 
-    for sku_id in sorted(intermittent_skus):
-        sku_df = df[df["sku_id"] == sku_id].copy()
+    for sku_id, sku_df in df.groupby("sku_id", sort=True):
+        try:
+            train_val, test = split_sku_history(
+                sku_df,
+                test_periods=test_periods,
+            )
+            train, validation = split_sku_history(
+                train_val,
+                test_periods=validation_periods,
+            )
+        except ValueError as exc:
+            warnings.warn(f"Skipping {sku_id}: {exc}")
+            continue
 
-        train, test = split_sku_history(
-            sku_df,
-            test_periods=test_periods,
-        )
+        train_demand = train["quantity_sold"].astype(float).tolist()
+        metrics = classify_demand_with_metrics(train_demand)
 
-        comparison = evaluate_croston_vs_naive(
-            train["quantity_sold"].tolist(),
-            test["quantity_sold"].tolist(),
-            alpha=alpha,
-        )
+        if metrics["classification"] not in {"intermittent", "lumpy"}:
+            continue
 
-        classification = next(
-            result
-            for result in classification_results
-            if result["sku_id"] == sku_id
-        )
+        try:
+            validation_comparison = evaluate_croston_vs_naive(
+                train_demand,
+                validation["quantity_sold"].astype(float).tolist(),
+                alpha=alpha,
+            )
+
+            test_comparison = evaluate_croston_vs_naive(
+                train_val["quantity_sold"].astype(float).tolist(),
+                test["quantity_sold"].astype(float).tolist(),
+                alpha=alpha,
+            )
+        except ValueError as exc:
+            warnings.warn(f"Skipping {sku_id}: {exc}")
+            continue
 
         evaluation_results.append(
             {
                 "sku_id": sku_id,
-                "classification": classification["classification"],
-                "adi": classification["adi"],
-                "cv2": classification["cv2"],
-                "croston_mase": comparison["croston_mase"],
-                "naive_mase": comparison["naive_mase"],
+                "classification": metrics["classification"],
+                "adi": metrics["adi"],
+                "cv2": metrics["cv2"],
+                "croston_mase": validation_comparison["croston_mase"],
+                "naive_mase": validation_comparison["naive_mase"],
+                "croston_test_mase": test_comparison["croston_mase"],
+                "naive_test_mase": test_comparison["naive_mase"],
             }
         )
 
@@ -434,15 +500,14 @@ def evaluate_intermittent_skus(
 def route_intermittent_skus(
     evaluation_results: list[dict],
 ) -> list[dict]:
-    """Select the lowest-MASE model for each intermittent SKU."""
-
+    """
+    Select the lowest VALIDATION-MASE model for each SKU, then
+    report that model's TEST MASE.
+    """
     routed_results = []
 
     for result in evaluation_results:
-        croston_mase = result["croston_mase"]
-        naive_mase = result["naive_mase"]
-
-        if croston_mase <= naive_mase:
+        if result["croston_mase"] <= result["naive_mase"]:
             selected_model = "croston"
         else:
             selected_model = "naive"
@@ -451,6 +516,9 @@ def route_intermittent_skus(
             {
                 **result,
                 "selected_model": selected_model,
+                "selected_test_mase": result.get(
+                    f"{selected_model}_test_mase"
+                ),
             }
         )
 
@@ -458,17 +526,19 @@ def route_intermittent_skus(
 def run_intermittent_demand_pipeline(
     df: pd.DataFrame,
     test_periods: int = 3,
+    validation_periods: int = 3,
     alpha: float = 0.1,
 ) -> list[dict]:
-    """Run the complete intermittent-demand classification and routing pipeline."""
-
+    """Classify, choose on validation, report on test."""
     evaluation_results = evaluate_intermittent_skus(
         df,
         test_periods=test_periods,
+        validation_periods=validation_periods,
         alpha=alpha,
     )
 
     return route_intermittent_skus(evaluation_results)
+
 if __name__ == "__main__":
     from pathlib import Path
 
@@ -497,6 +567,7 @@ if __name__ == "__main__":
         "croston_mase",
         "naive_mase",
         "selected_model",
+        "selected_test_mase",
     ]
 
     print(
@@ -514,3 +585,4 @@ if __name__ == "__main__":
             f'{result["classification"]} -> '
             f'{result["selected_model"]}'
         )
+

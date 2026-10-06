@@ -12,6 +12,7 @@ existing SKUs that share the same category and region.
 from __future__ import annotations
 
 from typing import Iterable
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -213,8 +214,8 @@ def evaluate_cold_start(
     Evaluate an existing SKU as if it were a new SKU.
 
     The final hidden_periods observations become the actual future demand.
-    The target SKU itself is excluded from the similarity pool so that its
-    hidden history cannot leak into the forecast.
+    Peer SKUs may contribute only history from before the hidden window,
+    so future demand cannot leak into the cold-start forecast.
     """
     if hidden_periods <= 0:
         raise ValueError("hidden_periods must be positive.")
@@ -227,18 +228,34 @@ def evaluate_cold_start(
         raise ValueError(f"SKU not found: {sku_id}")
 
     sku_history["date"] = pd.to_datetime(sku_history["date"])
-    sku_history = sku_history.sort_values("date").reset_index(drop=True)
+    sku_history = (
+        sku_history
+        .sort_values("date")
+        .reset_index(drop=True)
+    )
 
     if len(sku_history) <= hidden_periods:
         raise ValueError(
             "Not enough SKU history for the requested hidden period."
         )
 
-    train_history = sku_history.iloc[:-hidden_periods].copy()
     hidden_actuals = sku_history.iloc[-hidden_periods:].copy()
+    hidden_start = hidden_actuals["date"].min()
 
-    # Remove the target SKU from the pool. This prevents leakage.
-    reference_data = df[df["sku_id"] != sku_id].copy()
+    # Peers may only contribute history from BEFORE the hidden window.
+    # At launch time, nobody knows how similar products will sell
+    # during the hidden/launch months.
+    peer_dates = pd.to_datetime(df["date"])
+
+    reference_data = df[
+        (df["sku_id"] != sku_id)
+        & (peer_dates < hidden_start)
+    ].copy()
+
+    if reference_data.empty:
+        raise ValueError(
+            "No peer history available before the hidden window."
+        )
 
     category = str(sku_history["category"].iloc[0])
     region = str(sku_history["region"].iloc[0])
@@ -251,6 +268,7 @@ def evaluate_cold_start(
             horizon=hidden_periods,
         )
         forecast_source = "category_region"
+
     except ValueError as exc:
         if "No similar SKUs" not in str(exc):
             raise
@@ -268,7 +286,12 @@ def evaluate_cold_start(
         horizon=hidden_periods,
     )
 
-    actuals = hidden_actuals["quantity_sold"].astype(float).tolist()
+    actuals = (
+        hidden_actuals["quantity_sold"]
+        .astype(float)
+        .tolist()
+    )
+
     cold_start_mae = mean_absolute_error(
         actuals,
         cold_start_forecast,
@@ -314,22 +337,28 @@ def evaluate_all_skus(
     _validate_dataframe(df)
 
     results = []
+    skipped = []
 
     for sku_id in sorted(df["sku_id"].unique()):
         try:
-            result = evaluate_cold_start(
-                df,
-                sku_id=str(sku_id),
-                hidden_periods=hidden_periods,
+            results.append(
+                evaluate_cold_start(
+                    df,
+                    sku_id=str(sku_id),
+                    hidden_periods=hidden_periods,
+                )
             )
-            results.append(result)
-        except ValueError:
-            # Skip SKUs that do not have enough history or similar references.
-            continue
+        except ValueError as exc:
+            skipped.append(f"{sku_id}: {exc}")
+
+    if skipped:
+        warnings.warn(
+            f"Skipped {len(skipped)} SKUs: " + "; ".join(skipped)
+        )
 
     return results
 if __name__ == "__main__":
-    import pandas as pd
+    
 
     from src.cold_start import evaluate_all_skus
 

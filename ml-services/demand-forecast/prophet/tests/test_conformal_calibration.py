@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 
 from src.train_multi_horizon import (
-    _split_calibration_test,
+    
     _split_backtest_calibration_evaluation,
 )
 
@@ -20,73 +20,6 @@ def _make_history(rows=200):
     )
 
 
-def test_split_calibration_and_test_chronologically():
-    df = _make_history(200)
-
-    calibration, test = (
-        _split_calibration_test(
-            df,
-            calibration_days=30,
-            test_days=20,
-        )
-    )
-
-    assert len(calibration) == 30
-    assert len(test) == 20
-
-    assert (
-        calibration["date"].max()
-        < test["date"].min()
-    )
-
-
-def test_split_uses_latest_test_window():
-    df = _make_history(200)
-
-    calibration, test = (
-        _split_calibration_test(
-            df,
-            calibration_days=30,
-            test_days=20,
-        )
-    )
-
-    assert test["date"].min() == pd.Timestamp(
-        "2020-06-29"
-    )
-
-    assert test["date"].max() == pd.Timestamp(
-        "2020-07-18"
-    )
-
-
-def test_split_rejects_invalid_window():
-    df = _make_history(100)
-
-    with pytest.raises(ValueError):
-        _split_calibration_test(
-            df,
-            calibration_days=0,
-            test_days=20,
-        )
-
-    with pytest.raises(ValueError):
-        _split_calibration_test(
-            df,
-            calibration_days=20,
-            test_days=0,
-        )
-
-
-def test_split_rejects_insufficient_history():
-    df = _make_history(50)
-
-    with pytest.raises(ValueError):
-        _split_calibration_test(
-            df,
-            calibration_days=30,
-            test_days=20,
-        )
 def _make_backtest():
     rows = []
 
@@ -153,4 +86,54 @@ def test_backtest_split_rejects_too_many_calibration_cutoffs():
         _split_backtest_calibration_evaluation(
             backtest,
             calibration_cutoffs=6,
-        )        
+        )
+import contextlib
+
+import pandas as pd
+
+import src.train_multi_horizon as tmh
+
+
+def test_train_all_runs_calibration_and_logs_to_mlflow(monkeypatch):
+    calls = []
+
+    df = pd.DataFrame(
+        {
+            "date": pd.date_range("2020-01-01", periods=3),
+            "quantity_sold": [1.0, 2.0, 3.0],
+        }
+    )
+
+    def fake_calibrate(data):
+        calls.append("calibrate")
+        return {"ratio_quantiles": {}}
+
+    def fake_log(calibration, weights, n_rows):
+        calls.append("log")
+
+    monkeypatch.setattr(tmh, "load_daily_data", lambda: df)
+    monkeypatch.setattr(tmh, "evaluate_xgboost_daily", lambda *a, **k: None)
+    monkeypatch.setattr(tmh, "train_prophet_daily", lambda data: "prophet")
+    monkeypatch.setattr(tmh, "train_xgboost_daily", lambda data: "xgb")
+    monkeypatch.setattr(tmh, "calibrate_horizon_intervals", fake_calibrate)
+    monkeypatch.setattr(
+        tmh,
+        "load_ensemble_weights",
+        lambda: {"prophet": 0.5, "xgb": 0.5},
+    )
+    monkeypatch.setattr(tmh, "log_training_run", fake_log)
+    monkeypatch.setattr(
+        tmh.mlflow,
+        "set_experiment",
+        lambda name: None,
+    )
+    monkeypatch.setattr(
+        tmh.mlflow,
+        "start_run",
+        lambda **k: contextlib.nullcontext(),
+    )
+
+    tmh.train_all()
+
+    assert calls == ["calibrate", "log"]
+                    

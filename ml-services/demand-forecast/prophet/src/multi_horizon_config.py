@@ -49,7 +49,7 @@ XGB_PARAMS = {
 # refit at each cutoff, forecast 90 days, score each horizon.
 BACKTEST_CUTOFFS = 24
 BACKTEST_STEP_DAYS = 30
-CALIBRATION_CUTOFFS = 18
+CALIBRATION_CUTOFFS = 16
 MIN_TRAINING_DAYS = 730
 
 # 80% empirical prediction interval: 10th and 90th percentile of the

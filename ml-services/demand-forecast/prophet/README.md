@@ -1713,6 +1713,7 @@ The result is consistent with the current construction of the regressors:
 
 
 Milestone 1 — Prediction Interval Calibration
+
 Objective
 
 Validate whether the model's prediction intervals actually contain the expected percentage of future observations.
@@ -1720,11 +1721,17 @@ Validate whether the model's prediction intervals actually contain the expected 
 The pipeline evaluates:
 
 80% prediction intervals
+
 95% prediction intervals
+
 Held-out time windows
+
 Interval coverage
+
 Pinball loss
+
 Conformal calibration
+
 Problem
 
 A model can have a good point forecast while producing unreliable prediction intervals.
@@ -1742,20 +1749,43 @@ The data is never randomly shuffled because this is a time-series forecasting pr
 The evaluation process is:
 
 Historical Data
-      ↓
+
+
+  ↓
+
 Rolling-Origin Backtesting
-      ↓
+
+
+  ↓
+
 Calibration Windows
-      ↓
+
+  ↓
+
+
 Held-Out Evaluation Windows
-      ↓
+
+
+  ↓
+
+
 Measure Interval Coverage
-      ↓
+
+  ↓
+
+
 Conformal Calibration
-      ↓
+
+  ↓
+
+
 Measure Coverage Again
-      ↓
+
+  ↓
+
+
 Compare Before vs After
+
 Conformal Calibration
 
 Split conformal calibration is applied using a time-ordered calibration window.
@@ -1773,18 +1803,74 @@ Evaluation
 The pipeline evaluates multiple forecasting horizons:
 
 1 day
+
 7 days
+
 30 days
+
 90 days
 
 For each horizon the system tracks:
 
 MAPE
+
 Prediction interval coverage
+
 Conformal coverage before calibration
+
 Conformal coverage after calibration
+
 Pinball loss
+
 Calibration radius
+
+Held-out evaluation uses 6 evaluation cutoffs per horizon.
+
+Because coverage is measured over only 6 held-out windows, the observed coverage can move in steps of approximately 16.7 percentage points. Therefore, the measured coverage should be interpreted together with the number of evaluation windows rather than as an exact estimate of long-run coverage.
+
+Conformal Evaluation on Held-out Windows
+
+| Horizon | Target | Before Coverage | After Coverage | Before Pinball | After Pinball | Conformal Radius |
+| ------- | -----: | --------------: | -------------: | -------------: | ------------: | ---------------: |
+| 1 day   |    80% |           16.7% |          66.7% |        2155.29 |        953.62 |           0.1305 |
+| 1 day   |    95% |           33.3% |          83.3% |        1247.04 |        322.61 |           0.1927 |
+| 7 day   |    80% |           33.3% |         100.0% |        4193.96 |       2347.49 |           0.0880 |
+| 7 day   |    95% |           50.0% |         100.0% |        2513.62 |        972.14 |           0.1458 |
+| 30 day  |    80% |           66.7% |          83.3% |        5093.10 |       5401.73 |           0.0458 |
+| 30 day  |    95% |           83.3% |         100.0% |        1303.74 |       1641.85 |           0.0572 |
+| 90 day  |    80% |          100.0% |         100.0% |       12283.36 |      20235.82 |           0.0590 |
+| 90 day  |    95% |          100.0% |         100.0% |        3615.27 |       5807.12 |           0.0678 |
+
+The conformal calibration substantially improves interval coverage for the shorter horizons. The 7-day horizon reaches 100% coverage for both targets, while the 30-day horizon reaches 83.3% for the 80% target and 100% for the 95% target.
+
+For the 90-day horizon, coverage was already 100% before calibration. Conformal calibration therefore does not improve coverage for this horizon and increases pinball loss because the interval becomes wider.
+
+Calibration Metrics
+
+1 day:
+MAPE = 7.29%
+bias = +6.61%
+interval = [0.9828, 1.1560]
+calibration coverage = 75%
+
+7 day:
+MAPE = 5.32%
+bias = +5.73%
+interval = [1.0000, 1.0932]
+calibration coverage = 81%
+
+30 day:
+MAPE = 2.35%
+bias = +1.00%
+interval = [0.9715, 1.0458]
+calibration coverage = 75%
+
+90 day:
+MAPE = 2.43%
+bias = +1.78%
+interval = [0.9882, 1.0599]
+calibration coverage = 75%
+
 Result
 
 Milestone 1 implementation and test coverage were completed successfully.
@@ -1792,12 +1878,15 @@ Milestone 1 implementation and test coverage were completed successfully.
 The implementation includes:
 
 src/conformal.py
+
 tests/test_conformal.py
+
 tests/test_conformal_calibration.py
 
 The conformal calibration and interval evaluation logic is integrated into the multi-horizon forecasting evaluation pipeline.
 
 Milestone 2 — Intermittent Demand Forecasting
+
 Objective
 
 Identify SKUs with intermittent or lumpy demand and route them to an appropriate forecasting method.
@@ -1813,6 +1902,7 @@ ADI — Average Demand Interval
 ADI measures how frequently non-zero demand occurs.
 
 ADI = Number of observations / Number of non-zero observations
+
 CV² — Squared Coefficient of Variation
 
 CV² measures the variability of non-zero demand.
@@ -1822,23 +1912,30 @@ CV² = (standard deviation / mean)²
 The classification thresholds are:
 
 ADI threshold = 1.32
+
 CV² threshold = 0.49
 
 The demand types are classified using ADI and CV²:
 
-                CV²
-                 |
-          Erratic|   Lumpy
-                 |
+
+            CV²
+
+             |
+      Erratic|   Lumpy
+             |
+
+
 ADI > 1.32 ------+------
-                 |
-          Smooth | Intermittent
-                 |
+|
+Smooth | Intermittent
+|
+
 Croston Forecasting
 
 Croston forecasting is used for intermittent demand because it separately estimates:
 
 demand size
+
 demand interval
 
 The forecast is based on the estimated demand size divided by the estimated interval between non-zero demands.
@@ -1862,9 +1959,18 @@ The pipeline evaluates Croston against a naive baseline.
 The routing decision is based on validation MASE:
 
 if Croston MASE <= Naive MASE:
-    select Croston
+
+
+select Croston
+
+
 else:
-    select Naive
+
+
+select Naive
+
+
+The selected model is then evaluated on the held-out test window using test MASE.
 
 This prevents the system from assuming that Croston must always win for every intermittent/lumpy SKU.
 
@@ -1877,47 +1983,75 @@ data/intermittent_demand_sample.csv
 It contains examples representing:
 
 Smooth demand
+
 Intermittent demand
+
 Erratic demand
+
 Lumpy demand
+
 Example Result
-sku_id   classification   ADI   CV²       Croston MASE   Naive MASE   Selected
-SKU002   intermittent     3.0   0.039448   0.813333       1.166667     Croston
-SKU004   lumpy            4.0   0.617729   0.690556       0.666667     Naive
+
+sku_id   classification   ADI   CV²       Croston MASE   Naive MASE   Selected   Selected Test MASE
+
+SKU002   intermittent     3.0   0.055556   0.758170       1.470588     Croston    0.867556
+
+SKU004   intermittent     6.0   0.000000   10.625000      10.416667     Naive      1.481481
+
 Interpretation
 
 For SKU002:
 
-Croston MASE = 0.8133
-Naive MASE   = 1.1667
+Croston validation MASE = 0.7582
 
-Croston has lower MASE, so Croston is selected.
+Naive validation MASE   = 1.4706
+
+Croston has lower validation MASE, so Croston is selected.
+
+Selected Croston test MASE = 0.8676.
 
 For SKU004:
 
-Croston MASE = 0.6906
-Naive MASE   = 0.6667
+Croston validation MASE = 10.6250
 
-Naive has lower MASE, so Naive is selected.
+Naive validation MASE   = 10.4167
+
+Naive has lower validation MASE, so Naive is selected.
+
+Selected Naive test MASE = 1.4815.
+
+The routing decision is therefore based on validation performance, while the final selected model performance is reported on the held-out test window.
 
 This demonstrates that the routing logic is evaluation-driven rather than hard-coded.
 
 Implementation
+
 src/intermittent_demand.py
+
 tests/test_intermittent_demand.py
+
 data/intermittent_demand_sample.csv
 
 The intermittent-demand pipeline supports:
 
 ADI calculation
+
 CV² calculation
+
 Demand classification
+
 Croston forecasting
+
 MASE calculation
-Chronological train/test splitting
+
+Chronological train/validation/test splitting
+
 Croston vs naive evaluation
+
 Automatic model routing
+
 Milestone 3 — Cold-Start Forecasting
+
 Objective
 
 Forecast demand for a new SKU when the SKU itself has little or no historical demand.
@@ -1929,14 +2063,19 @@ Similarity Strategy
 The available hierarchy dataset contains:
 
 SKU
+
 Category
+
 Region
+
 Quantity sold
 
 The repository does not currently contain reliable SKU-level:
 
 price
+
 price band
+
 warehouse metadata
 
 Therefore, the current cold-start similarity strategy uses:
@@ -1952,18 +2091,46 @@ The evaluation simulates a genuinely new SKU using existing SKUs.
 For each existing SKU:
 
 Full SKU History
-       ↓
+
+```
+   ↓
+```
+
 Hide Last 3 Periods
-       ↓
+
+
+   ↓
+
+
 Pretend SKU Is New
-       ↓
+
+
+   ↓
+
+
 Find Similar Existing SKUs
-       ↓
+
+
+   ↓
+
+
+Use only peer history before the hidden window
+
+
+   ↓
+
+
 Forecast Hidden Periods
-       ↓
+
+
+   ↓
+
+
 Compare With Actual Hidden Demand
 
 The target SKU is excluded from the reference pool to prevent data leakage.
+
+Peer SKU demand from the hidden future window is also excluded from the reference data. This ensures the cold-start forecast only uses information that would have been available when the target SKU was treated as new.
 
 Similar SKU Forecast
 
@@ -1974,6 +2141,7 @@ Category + Region average
 If no matching category+region SKU exists, the implementation can fall back to:
 
 Category average
+
 Baseline
 
 The cold-start forecast is compared against a simpler:
@@ -1987,7 +2155,9 @@ Evaluation Metrics
 The current cold-start evaluation reports:
 
 MAE
+
 RMSE
+
 Real Dataset Evaluation
 
 The evaluation was performed using:
@@ -2005,49 +2175,67 @@ Eligible SKUs: 100
 All 100 SKUs had usable reference data.
 
 Forecast Source
+
 category_region    100
 
 All 100 eligible SKUs were evaluated using the category+region similarity pool.
 
 Average MAE
-Cold-start category+region MAE : 139.072083
-Category-average baseline MAE  : 126.392310
+
+Cold-start category+region MAE : 139.013889
+Category-average baseline MAE  : 126.413060
+
 SKU-level comparison
+
 Cold-start better           : 44 / 100 SKUs
 Category baseline better    : 56 / 100 SKUs
+
 Honest Result
 
 The current category+region similarity strategy does not outperform the category-average baseline overall.
 
 The results show:
 
-Category + Region MAE = 139.07
-Category Baseline MAE = 126.39
+Category + Region MAE = 139.01
+Category Baseline MAE = 126.41
 
 Although the similarity method performs better for 44 SKUs, the category baseline performs better for 56 SKUs.
 
 Therefore, the current implementation is treated as a validated cold-start baseline rather than claiming an overall improvement that the evaluation does not support.
 
 Implementation
+
 src/cold_start.py
+
 tests/test_cold_start.py
+
 data/hierarchy_sales.csv
 
 The implementation supports:
 
 Similar SKU discovery
+
 Category + region matching
+
 Category fallback
+
 Hidden-history evaluation
+
 MAE
+
 RMSE
+
 SKU-level evaluation
+
 Forecast-source tracking
 
-### verification
+### Verification
 
 python -m pytest -q
-151 passed
+
+152 passed
+
+python -m src.train_multi_horizon
 
 python -m src.intermittent_demand
 

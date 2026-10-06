@@ -199,50 +199,58 @@ def test_croston_rejects_invalid_alpha():
 
     with pytest.raises(ValueError):
         croston_forecast([0, 10, 0], horizon=2, alpha=1.5)
-def test_mase_basic():
-    actual = [0, 0, 80]
-    forecast = [0, 20, 60]
+        
+def test_mase_uses_training_scale():
+    # training naive errors: |20-0|, |0-20|, |20-0| -> scale 20
+    # MAE = (0 + 20 + 20) / 3 = 13.33 -> MASE = 2/3
+    result = mase([0, 0, 80], [0, 20, 60], train=[0, 20, 0, 20])
 
-    result = mase(actual, forecast)
-
-    assert result == pytest.approx(1 / 3)
+    assert result == pytest.approx(2 / 3)
 
 
 def test_mase_perfect_forecast():
-    actual = [0, 50, 0, 70]
-    forecast = [0, 50, 0, 70]
-
-    assert mase(actual, forecast) == pytest.approx(0.0)
+    assert mase([0, 50, 0, 70], [0, 50, 0, 70], train=[0, 10]) == pytest.approx(0.0)
 
 
 def test_mase_rejects_length_mismatch():
     with pytest.raises(ValueError):
-        mase([0, 10, 20], [0, 10])
+        mase([0, 10, 20], [0, 10], train=[0, 10])
 
 
 def test_mase_rejects_empty_values():
     with pytest.raises(ValueError):
-        mase([], [])
+        mase([], [], train=[0, 10])
 
 
 def test_mase_rejects_negative_actual():
     with pytest.raises(ValueError):
-        mase([0, -10, 20], [0, 10, 20])
+        mase([0, -10, 20], [0, 10, 20], train=[0, 10])
 
 
 def test_mase_rejects_negative_forecast():
     with pytest.raises(ValueError):
-        mase([0, 10, 20], [0, -10, 20])
+        mase([0, 10, 20], [0, -10, 20], train=[0, 10])
 
 
-def test_mase_rejects_single_observation():
+def test_mase_rejects_short_training_history():
     with pytest.raises(ValueError):
-        mase([10], [10])
+        mase([10], [10], train=[5])
 
 
-def test_mase_rejects_zero_naive_scale():
+def test_mase_rejects_constant_training_history():
     with pytest.raises(ValueError):
-        mase([10, 10, 10], [10, 10, 10])
+        mase([10, 10, 10], [10, 10, 10], train=[10, 10, 10])
+
+
+def test_all_zero_test_window_does_not_crash():
+    # This exact input crashed before the fix.
+    result = evaluate_croston_vs_naive(
+        [0, 0, 5, 0, 0, 3, 0, 0, 4],
+        [0, 0, 0],
+    )
+
+    assert result["croston_mase"] > 0
+    assert result["naive_mase"] > 0
 def test_split_sku_history_uses_chronological_order():
     sku_df = pd.DataFrame(
         {
@@ -312,63 +320,7 @@ def test_split_sku_history_rejects_invalid_test_periods():
 
     with pytest.raises(ValueError):
         split_sku_history(sku_df, test_periods=0)  
-def test_evaluate_croston_vs_naive_returns_mase():
-    train = [0, 0, 50, 0, 0, 70, 0, 0, 60]
-    test = [0, 0, 80]
 
-    result = evaluate_croston_vs_naive(
-        train,
-        test,
-    )
-
-    assert "croston_mase" in result
-    assert "naive_mase" in result
-    assert "croston_forecast" in result
-    assert "naive_forecast" in result
-
-    assert len(result["croston_forecast"]) == 3
-    assert len(result["naive_forecast"]) == 3
-
-
-def test_evaluate_croston_vs_naive_uses_test_length_as_horizon():
-    train = [0, 0, 50, 0, 0, 70]
-    test = [0, 0, 60, 0]
-
-    result = evaluate_croston_vs_naive(
-        train,
-        test,
-    )
-
-    assert len(result["croston_forecast"]) == 4
-    assert len(result["naive_forecast"]) == 4
-
-
-def test_evaluate_croston_vs_naive_rejects_mismatched_horizon():
-    train = [0, 0, 50, 0, 0, 70]
-    test = [0, 0, 60]
-
-    with pytest.raises(ValueError):
-        evaluate_croston_vs_naive(
-            train,
-            test,
-            horizon=2,
-        )
-
-
-def test_evaluate_croston_vs_naive_rejects_empty_train():
-    with pytest.raises(ValueError):
-        evaluate_croston_vs_naive(
-            [],
-            [0, 10],
-        )
-
-
-def test_evaluate_croston_vs_naive_rejects_empty_test():
-    with pytest.raises(ValueError):
-        evaluate_croston_vs_naive(
-            [0, 10],
-            [],
-        ) 
 def test_evaluate_croston_vs_naive_returns_mase():
     train = [0, 0, 50, 0, 0, 70, 0, 0, 60]
     test = [0, 0, 80]
@@ -507,28 +459,35 @@ def test_route_intermittent_skus_tie_selects_croston():
 
     assert routed[0]["selected_model"] == "croston" 
 def test_run_intermittent_demand_pipeline():
+    sku002_values = [
+        0, 0, 50, 0, 0, 70,
+        0, 0, 60, 0, 0, 80,
+        0, 0, 90,
+    ]
+
+    sku004_values = [
+        0, 10, 0, 300, 0, 0,
+        350, 0, 20, 0, 0, 250,
+        0, 0, 300,
+    ]
+
+    dates = pd.date_range(
+        "2025-01-01",
+        periods=15,
+        freq="MS",
+    )
+
     df = pd.DataFrame(
         {
-            "date": (
-                pd.date_range(
-                    "2025-01-01",
-                    periods=12,
-                    freq="MS",
-                ).tolist() * 2
-            ),
+            "date": dates.tolist() * 2,
             "sku_id": (
-                ["SKU002"] * 12
-                + ["SKU004"] * 12
+                ["SKU002"] * 15
+                + ["SKU004"] * 15
             ),
-            "quantity_sold": [
-                # SKU002 - intermittent
-                0, 0, 50, 0, 0, 70,
-                0, 0, 60, 0, 0, 80,
-
-                # SKU004 - lumpy
-                0, 0, 0, 20, 0, 0,
-                0, 250, 0, 0, 0, 300,
-            ],
+            "quantity_sold": (
+                sku002_values
+                + sku004_values
+            ),
         }
     )
 
@@ -544,14 +503,67 @@ def test_run_intermittent_demand_pipeline():
         for result in results
     }
 
-    assert result_by_sku["SKU002"]["classification"] == "intermittent"
+    assert (
+        result_by_sku["SKU002"]["classification"]
+        == "intermittent"
+    )
+
     assert result_by_sku["SKU002"]["selected_model"] in {
         "croston",
         "naive",
     }
 
-    assert result_by_sku["SKU004"]["classification"] == "lumpy"
+    assert (
+        result_by_sku["SKU004"]["classification"]
+        == "lumpy"
+    )
+
     assert result_by_sku["SKU004"]["selected_model"] in {
         "croston",
         "naive",
-    }                                    
+    }
+
+    assert (
+        "selected_test_mase"
+        in result_by_sku["SKU002"]
+    )
+
+    assert (
+        "selected_test_mase"
+        in result_by_sku["SKU004"]
+    )
+def _sku_frame(values, sku_id="SKU_X"):
+    return pd.DataFrame(
+        {
+            "date": pd.date_range(
+                "2024-01-01",
+                periods=len(values),
+                freq="MS",
+            ),
+            "sku_id": sku_id,
+            "quantity_sold": values,
+        }
+    )
+
+
+def test_routing_does_not_depend_on_test_window():
+    # 6 train | 3 validation | 3 test
+    history = [0, 0, 40, 0, 0, 55, 0, 0, 50]
+
+    a = run_intermittent_demand_pipeline(
+        _sku_frame(history + [0, 0, 60])
+    )
+
+    b = run_intermittent_demand_pipeline(
+        _sku_frame(history + [500, 500, 500])
+    )
+
+    assert len(a) == 1
+    assert len(b) == 1
+
+    assert a[0]["selected_model"] == b[0]["selected_model"]
+
+    assert (
+        a[0]["selected_test_mase"]
+        != b[0]["selected_test_mase"]
+    )                                     

@@ -215,4 +215,20 @@ def test_empirical_interval_and_conformal_evaluation():
     assert (
         result["after"]["pinball_loss"]
         >= 0.0
-    )        
+    ) 
+def test_conformal_reaches_target_coverage_on_exchangeable_data():
+    errors = np.linspace(0.01, 0.20, 20)  # 1% .. 20% over-forecast errors
+    predicted = np.full(20, 100.0)
+    actual = predicted * (1.0 + errors)
+
+    result = evaluate_interval_methods(
+        calibration_actual=actual,
+        calibration_predicted=predicted,
+        evaluation_actual=actual,
+        evaluation_predicted=predicted,
+        coverage=0.80,
+    )
+
+    # k = ceil((20 + 1) * 0.80) = 17 -> 17th smallest error = 0.17
+    assert result["calibration_radius"] == pytest.approx(0.17)
+    assert result["after"]["coverage"] >= 0.80           
