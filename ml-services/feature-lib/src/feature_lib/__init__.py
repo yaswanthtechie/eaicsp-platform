@@ -1,4 +1,6 @@
-﻿"""Public API for the EAICSP shared feature engineering library."""
+"""Public API for the EAICSP shared feature engineering library."""
+
+__version__ = "0.1.0"
 
 from .build_features import build_all_features
 from .calendar_features import add_calendar_features

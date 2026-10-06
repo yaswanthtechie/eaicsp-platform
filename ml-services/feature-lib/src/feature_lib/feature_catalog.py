@@ -1,12 +1,19 @@
 import re
+
 from .build_features import FEATURE_VERSIONS, build_all_features
+
 import pandas as pd
+
 from .sensor_features import add_sensor_features
+
 from .eta_features import add_eta_features
+
+
 STD_DESCRIPTIONS = {
     1: "Sample standard deviation (ddof=1)",
     0: "Population standard deviation (ddof=0)",
 }
+
 
 def generate_feature_catalog(
     df: pd.DataFrame,
@@ -47,6 +54,7 @@ def generate_feature_catalog(
                 "shifted backward to avoid using the current target "
                 "and prevent data leakage."
             )
+
             feature_type = "Lag"
 
         elif "_roll_mean_" in column:
@@ -62,6 +70,7 @@ def generate_feature_catalog(
                 "the rolling calculation is shifted by one observation "
                 "to avoid using the current target and prevent data leakage."
             )
+
             feature_type = "Rolling Mean"
 
         elif "_roll_std_" in column:
@@ -77,6 +86,7 @@ def generate_feature_catalog(
                 "the rolling calculation is shifted by one observation "
                 "to avoid using the current target and prevent data leakage."
             )
+
             feature_type = "Rolling Std"
 
         elif column == "day_of_week":
@@ -84,18 +94,21 @@ def generate_feature_catalog(
                 "Numeric day-of-week extracted from the date, "
                 "where the value represents the weekday."
             )
+
             feature_type = "Calendar"
 
         elif column == "month":
             meaning = (
                 "Numeric month extracted from the date."
             )
+
             feature_type = "Calendar"
 
         elif column == "day_of_month":
             meaning = (
                 "Day of the month extracted from the date."
             )
+
             feature_type = "Calendar"
 
         elif column == "is_weekend":
@@ -103,6 +116,7 @@ def generate_feature_catalog(
                 "Binary indicator showing whether the date falls "
                 "on a weekend."
             )
+
             feature_type = "Calendar"
 
         elif column == "is_month_start":
@@ -110,6 +124,7 @@ def generate_feature_catalog(
                 "Binary indicator showing whether the date is "
                 "the first day of a month."
             )
+
             feature_type = "Calendar"
 
         elif column == "is_month_end":
@@ -117,6 +132,7 @@ def generate_feature_catalog(
                 "Binary indicator showing whether the date is "
                 "the last day of a month."
             )
+
             feature_type = "Calendar"
 
         elif column == "is_holiday":
@@ -124,6 +140,7 @@ def generate_feature_catalog(
                 "Binary indicator showing whether the date is "
                 "an Indian public holiday."
             )
+
             feature_type = "Holiday"
 
         elif "_x_" in column:
@@ -135,6 +152,7 @@ def generate_feature_catalog(
                 if len(components) == 2
                 else "Interaction between the component features."
             )
+
             feature_type = "Interaction"
 
         else:
@@ -142,6 +160,7 @@ def generate_feature_catalog(
                 f"No catalog definition found for generated feature "
                 f"'{column}'. Add an explicit catalog definition."
             )
+
         catalog.append(
             {
                 "feature": column,
@@ -152,6 +171,7 @@ def generate_feature_catalog(
         )
 
     return pd.DataFrame(catalog)
+
 
 def generate_sensor_feature_catalog(
     df: pd.DataFrame,
@@ -165,9 +185,14 @@ def generate_sensor_feature_catalog(
     Generate a human-readable catalog of sensor features.
 
     Rolling statistics use previous observations only.
+
+    The rolling window represents a number of historical observations,
+    not a fixed elapsed-time duration.
+
     Current sensor readings are used for z-scores,
     rate of change, and cross-sensor ratios.
     """
+
     features = add_sensor_features(
         df=df,
         sensor_cols=sensor_cols,
@@ -187,63 +212,75 @@ def generate_sensor_feature_catalog(
             sensor = column.removesuffix(
                 f"_rolling_zscore_{window}"
             )
+
             meaning = (
                 f"Current {sensor} reading standardized against "
                 f"the previous {window} readings using the "
                 "historical rolling mean and standard deviation. "
                 "The baseline excludes the current reading."
             )
+
             feature_type = "Sensor Rolling Z-Score"
 
         elif column.endswith("_rate_of_change"):
             sensor = column.removesuffix("_rate_of_change")
+
             meaning = (
                 f"Relative change in the current {sensor} reading "
                 "compared with its previous reading. "
                 "A zero previous reading produces NaN."
             )
+
             feature_type = "Sensor Rate of Change"
 
         elif column.endswith("_rolling_min_" + str(window)):
             sensor = column.removesuffix(
                 f"_rolling_min_{window}"
             )
+
             meaning = (
                 f"Minimum {sensor} value across the previous "
                 f"{window} readings, excluding the current reading."
             )
+
             feature_type = "Sensor Rolling Min"
 
         elif column.endswith("_rolling_max_" + str(window)):
             sensor = column.removesuffix(
                 f"_rolling_max_{window}"
             )
+
             meaning = (
                 f"Maximum {sensor} value across the previous "
                 f"{window} readings, excluding the current reading."
             )
+
             feature_type = "Sensor Rolling Max"
 
         elif column.endswith("_to_" + sensor_cols[-1] + "_ratio"):
             numerator, denominator = column.removesuffix(
                 "_ratio"
             ).split("_to_", 1)
+
             meaning = (
                 f"Current {numerator} reading divided by current "
                 f"{denominator} reading. A zero denominator "
                 "produces NaN."
             )
+
             feature_type = "Cross-Sensor Ratio"
 
         elif "_to_" in column and column.endswith("_ratio"):
             numerator, denominator = column.removesuffix(
                 "_ratio"
             ).split("_to_", 1)
+
             meaning = (
                 f"Current {numerator} reading divided by current "
                 f"{denominator} reading. A zero denominator "
                 "produces NaN."
             )
+
             feature_type = "Cross-Sensor Ratio"
 
         else:
@@ -266,10 +303,12 @@ def generate_sensor_feature_catalog(
         columns=["feature", "type", "meaning", "version"],
     )
 
+
 def generate_eta_feature_catalog(
     df: pd.DataFrame,
 ) -> pd.DataFrame:
     """Generate a human-readable catalog of ETA features."""
+
     features = add_eta_features(df)
 
     eta_definitions = {
@@ -298,6 +337,20 @@ def generate_eta_feature_catalog(
             "same route delivered on or before their expected date. "
             "Only outcomes available before departure are included."
         ),
+        "historical_on_time_rate_departure_day_of_week": (
+            "ETA Historical",
+            "Proportion of previously completed shipments with the "
+            "same departure weekday that were delivered on or before "
+            "their expected date. Only outcomes available before "
+            "departure are included."
+        ),
+        "historical_on_time_rate_departure_season": (
+            "ETA Historical",
+            "Proportion of previously completed shipments with the "
+            "same departure season that were delivered on or before "
+            "their expected date. Only outcomes available before "
+            "departure are included."
+        ),
         "historical_avg_transit_days_carrier": (
             "ETA Historical",
             "Average transit duration in days for previously completed "
@@ -319,12 +372,14 @@ def generate_eta_feature_catalog(
 
     for column, (feature_type, meaning) in eta_definitions.items():
         if column in features.columns and column not in df.columns:
-            catalog.append({
-                "feature": column,
-                "type": feature_type,
-                "meaning": meaning,
-                "version": "eta-v1",
-            })
+            catalog.append(
+                {
+                    "feature": column,
+                    "type": feature_type,
+                    "meaning": meaning,
+                    "version": "eta-v1",
+                }
+            )
 
     return pd.DataFrame(
         catalog,

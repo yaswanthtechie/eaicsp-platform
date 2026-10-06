@@ -146,3 +146,44 @@ def test_invalid_window_is_rejected():
             timestamp_col="timestamp",
             window=0,
         )
+
+def test_sensor_features_exclude_same_timestamp_readings():
+    df = pd.DataFrame(
+        {
+            "sensor_id": ["A", "A", "A"],
+            "timestamp": pd.to_datetime(
+                [
+                    "2026-01-01 10:00:00",
+                    "2026-01-01 10:00:00",
+                    "2026-01-01 11:00:00",
+                ]
+            ),
+            "temperature": [20.0, 999.0, 25.0],
+        }
+    )
+
+    result = add_sensor_features(
+        df,
+        sensor_cols=["temperature"],
+        timestamp_col="timestamp",
+        window=1,
+        group_cols=["sensor_id"],
+        sensor_pairs=[],
+    )
+
+    # Both 10:00 readings have no strictly earlier sensor reading.
+    first_two = result.iloc[:2]
+
+    assert first_two["temperature_rate_of_change"].isna().all()
+    assert first_two["temperature_rolling_min_1"].isna().all()
+    assert first_two["temperature_rolling_max_1"].isna().all()
+
+    # 11:00 can use the latest 10:00 historical record.
+    last = result.iloc[2]
+
+    assert last["temperature_rate_of_change"] == pytest.approx(
+        (25.0 - 509.5) / abs(509.5)
+    )
+
+    assert last["temperature_rolling_min_1"] == pytest.approx(509.5)
+    assert last["temperature_rolling_max_1"] == pytest.approx(509.5)

@@ -1,7 +1,8 @@
-
 """Point-in-time-correct ETA feature engineering."""
 
 import pandas as pd
+
+from .asof_join import asof_join
 
 
 def add_eta_features(
@@ -9,8 +10,8 @@ def add_eta_features(
 ) -> pd.DataFrame:
     """Add historical ETA and departure-time features to shipments.
 
-    Historical features use only shipments whose delivery outcomes
-    were available strictly before the current shipment's departure.
+    Historical features use only shipment outcomes that were available
+    strictly before the current shipment's scheduled departure.
 
     Required columns:
         scheduled_pickup_date
@@ -27,12 +28,18 @@ def add_eta_features(
         Original row order and index are preserved.
 
     Notes:
-        - Historical rates exclude shipments with missing expected dates.
+        - Historical on-time rates use only completed shipments with
+          known expected delivery dates.
         - Transit duration uses actual pickup when available, otherwise
           scheduled pickup.
         - Historical transit averages are calculated separately by
           carrier, route, and carrier-route combination.
-        - Rows without eligible historical data receive missing values.
+        - Historical on-time rates are also calculated by departure
+          weekday and departure season.
+        - Historical outcomes are joined strictly before departure using
+          asof_join().
+        - Target/outcome columns such as transit_days and is_on_time
+          are kept internal and are not returned.
     """
     if not isinstance(shipments, pd.DataFrame):
         raise TypeError("shipments must be a pandas DataFrame.")
@@ -50,6 +57,7 @@ def add_eta_features(
         for column in required_columns
         if column not in shipments.columns
     ]
+
     if missing:
         raise ValueError(f"Missing required columns: {missing}")
 
@@ -60,43 +68,48 @@ def add_eta_features(
         "actual_delivery_date",
         "expected_delivery_date",
     ]
+
     if "actual_pickup_date" in result.columns:
         date_columns.append("actual_pickup_date")
 
     for column in date_columns:
         result[column] = pd.to_datetime(
             result[column],
-            errors="coerce",
+            errors="raise",
         )
 
-    # Departure calendar features.
+    # ------------------------------------------------------------------
+    # Departure calendar features
+    # ------------------------------------------------------------------
+
     departure = result["scheduled_pickup_date"]
+
     result["departure_day_of_week"] = departure.dt.dayofweek
     result["departure_month"] = departure.dt.month
 
-    # Meteorological-style seasons for the Northern Hemisphere:
-    # Dec-Feb = winter, Mar-May = spring, Jun-Aug = summer,
-    # Sep-Nov = autumn.
     month_to_season = {
         12: "winter",
         1: "winter",
         2: "winter",
-        3: "spring",
-        4: "spring",
-        5: "spring",
-        6: "summer",
-        7: "summer",
-        8: "summer",
-        9: "autumn",
-        10: "autumn",
-        11: "autumn",
+        3: "summer",
+        4: "summer",
+        5: "summer",
+        6: "monsoon",
+        7: "monsoon",
+        8: "monsoon",
+        9: "monsoon",
+        10: "post_monsoon",
+        11: "post_monsoon",
     }
+
     result["departure_season"] = departure.dt.month.map(
         month_to_season
     )
 
-    # Determine the transit start date. Prefer actual pickup when
-    # present; otherwise use scheduled pickup as a fallback.
+    # ------------------------------------------------------------------
+    # Internal historical outcome calculations
+    # ------------------------------------------------------------------
+
     if "actual_pickup_date" in result.columns:
         transit_start = result["actual_pickup_date"].combine_first(
             result["scheduled_pickup_date"]
@@ -104,147 +117,321 @@ def add_eta_features(
     else:
         transit_start = result["scheduled_pickup_date"]
 
-    result["transit_days"] = (
+    result["__transit_days"] = (
         result["actual_delivery_date"] - transit_start
     ).dt.total_seconds() / 86400
 
-    # A delivery outcome is known only when both actual and expected
-    # delivery dates are available.
+    valid_transit = (
+        result["__transit_days"].notna()
+        & (result["__transit_days"] >= 0)
+    )
+
     valid_outcome = (
         result["actual_delivery_date"].notna()
         & result["expected_delivery_date"].notna()
     )
 
-    result["is_on_time"] = pd.Series(
-        pd.NA,
-        index=result.index,
-        dtype="Float64",
-    )
-    result.loc[valid_outcome, "is_on_time"] = (
+    result["__on_time"] = pd.NA
+
+    result.loc[valid_outcome, "__on_time"] = (
         result.loc[valid_outcome, "actual_delivery_date"]
         <= result.loc[valid_outcome, "expected_delivery_date"]
-    ).astype(float)
+    )
 
-    # Preallocate output values in row order. This also preserves
-    # the original DataFrame index, including duplicate index labels.
-    carrier_on_time_rates = []
-    route_on_time_rates = []
-    carrier_avg_transit = []
-    route_avg_transit = []
-    carrier_route_avg_transit = []
+    # Positional identifier preserves duplicate input indexes safely.
+    result["__eta_position"] = range(len(result))
 
-    # Iterate positionally so duplicate DataFrame indices are safe.
-    for position in range(len(result)):
-        shipment = result.iloc[position]
-        current_departure = shipment["scheduled_pickup_date"]
+    # ------------------------------------------------------------------
+    # Build cumulative historical statistics
+    # ------------------------------------------------------------------
 
-        # No departure timestamp means no valid point-in-time history
-        # or departure calendar context for this row.
-        if pd.isna(current_departure):
-            carrier_on_time_rates.append(float("nan"))
-            route_on_time_rates.append(float("nan"))
-            carrier_avg_transit.append(float("nan"))
-            route_avg_transit.append(float("nan"))
-            carrier_route_avg_transit.append(float("nan"))
-            continue
+    def build_history(
+        group_cols: list[str],
+        rate_column: str | None,
+        transit_column: str | None,
+    ) -> pd.DataFrame:
+        """Build cumulative historical statistics keyed by delivery time."""
 
-        # Only outcomes completed strictly before this departure
-        # can contribute to historical features.
-        eligible = (
+        valid_history = result[
             result["actual_delivery_date"].notna()
-            & (result["actual_delivery_date"] < current_departure)
             & result["scheduled_pickup_date"].notna()
-            & (result["scheduled_pickup_date"] < current_departure)
+            & result["__on_time"].notna()
+            & result[group_cols].notna().all(axis=1)
+        ].copy()
+
+        if valid_history.empty:
+            return pd.DataFrame()
+
+        valid_history["__on_time_value"] = (
+            valid_history["__on_time"].astype(float)
         )
 
-        previous = result.loc[eligible]
+        valid_history["__outcome_count"] = 1
 
-        carrier = shipment["carrier_name"]
-        route = shipment["route_id"]
+        if transit_column is not None:
+            valid_history["__transit_sum"] = (
+                valid_history["__transit_days"].where(
+                    valid_transit.loc[valid_history.index],
+                    0.0,
+                )
+            )
 
-        # Avoid matching missing grouping values to one another.
-        if pd.isna(carrier):
-            carrier_history = previous.iloc[0:0]
-        else:
-            carrier_history = previous.loc[
-                previous["carrier_name"].eq(carrier)
-            ]
+            valid_history["__transit_count"] = (
+                valid_transit.loc[valid_history.index].astype(int)
+            )
 
-        if pd.isna(route):
-            route_history = previous.iloc[0:0]
-        else:
-            route_history = previous.loc[
-                previous["route_id"].eq(route)
-            ]
+        # Multiple shipments can have the same delivery timestamp.
+        # Aggregate them so asof_join has one feature record per
+        # grouping key and timestamp.
+        aggregation = {
+            "__on_time_value": (
+                "__on_time_value",
+                "sum",
+            ),
+            "__outcome_count": (
+                "__outcome_count",
+                "sum",
+            ),
+        }
 
-        if pd.isna(carrier) or pd.isna(route):
-            carrier_route_history = previous.iloc[0:0]
-        else:
-            carrier_route_history = previous.loc[
-                previous["carrier_name"].eq(carrier)
-                & previous["route_id"].eq(route)
-            ]
+        if transit_column is not None:
+            aggregation["__transit_sum"] = (
+                "__transit_sum",
+                "sum",
+            )
+            aggregation["__transit_count"] = (
+                "__transit_count",
+                "sum",
+            )
 
-        # Historical on-time rates use only records with known
-        # on-time outcomes.
-        carrier_outcomes = carrier_history["is_on_time"].dropna()
-        route_outcomes = route_history["is_on_time"].dropna()
-
-        carrier_on_time_rates.append(
-            carrier_outcomes.mean()
-            if not carrier_outcomes.empty
-            else float("nan")
-        )
-        route_on_time_rates.append(
-            route_outcomes.mean()
-            if not route_outcomes.empty
-            else float("nan")
-        )
-
-        # Transit averages use only completed shipments with a
-        # valid, non-negative transit duration.
-        carrier_transit = carrier_history["transit_days"].dropna()
-        route_transit = route_history["transit_days"].dropna()
-        carrier_route_transit = (
-            carrier_route_history["transit_days"].dropna()
+        event = (
+            valid_history
+            .groupby(
+                [*group_cols, "actual_delivery_date"],
+                as_index=False,
+                dropna=False,
+            )
+            .agg(**aggregation)
         )
 
-        carrier_transit = carrier_transit[carrier_transit >= 0]
-        route_transit = route_transit[route_transit >= 0]
-        carrier_route_transit = carrier_route_transit[
-            carrier_route_transit >= 0
+        event = event.sort_values(
+            [*group_cols, "actual_delivery_date"],
+            kind="mergesort",
+        )
+
+        grouped = event.groupby(
+            group_cols,
+            sort=False,
+            dropna=False,
+        )
+
+        # Cumulative values include the current delivery event.
+        # asof_join() later performs a strict "< departure" join,
+        # so an outcome occurring exactly at departure is excluded.
+        event["__cumulative_on_time"] = (
+            grouped["__on_time_value"].cumsum()
+        )
+
+        event["__cumulative_outcomes"] = (
+            grouped["__outcome_count"].cumsum()
+        )
+
+        output_columns = [
+            *group_cols,
+            "actual_delivery_date",
         ]
 
-        carrier_avg_transit.append(
-            carrier_transit.mean()
-            if not carrier_transit.empty
-            else float("nan")
-        )
-        route_avg_transit.append(
-            route_transit.mean()
-            if not route_transit.empty
-            else float("nan")
-        )
-        carrier_route_avg_transit.append(
-            carrier_route_transit.mean()
-            if not carrier_route_transit.empty
-            else float("nan")
+        if transit_column is not None:
+            event["__cumulative_transit_sum"] = (
+                grouped["__transit_sum"].cumsum()
+            )
+
+            event["__cumulative_transit_count"] = (
+                grouped["__transit_count"].cumsum()
+            )
+
+            event[transit_column] = (
+                event["__cumulative_transit_sum"]
+                / event["__cumulative_transit_count"].where(
+                    event["__cumulative_transit_count"] > 0
+                )
+            )
+
+            output_columns.append(transit_column)
+
+        if rate_column is not None:
+            event[rate_column] = (
+                event["__cumulative_on_time"]
+                / event["__cumulative_outcomes"]
+            )
+
+            output_columns.append(rate_column)
+
+        return event[output_columns].rename(
+            columns={
+                "actual_delivery_date": "__feature_time",
+            }
         )
 
-    result["historical_on_time_rate_carrier"] = (
-        carrier_on_time_rates
+    # ------------------------------------------------------------------
+    # Attach historical features using strict as-of joins
+    # ------------------------------------------------------------------
+
+    def attach_history(
+        history: pd.DataFrame,
+        group_cols: list[str],
+        output_columns: list[str],
+    ) -> None:
+        """Attach historical values strictly before departure."""
+
+        if history.empty:
+            for column in output_columns:
+                result[column] = float("nan")
+            return
+
+        valid_observations = result[
+            result["scheduled_pickup_date"].notna()
+            & result[group_cols].notna().all(axis=1)
+        ].copy()
+
+        if valid_observations.empty:
+            for column in output_columns:
+                result[column] = float("nan")
+            return
+
+        # Do not create output columns in result before this join.
+        # Otherwise asof_join treats them as overlapping columns.
+        joined = asof_join(
+            valid_observations,
+            history,
+            observation_time="scheduled_pickup_date",
+            feature_time="__feature_time",
+            by=group_cols,
+        )
+
+        # Use positional arrays so duplicate DataFrame indexes remain safe.
+        values = {
+            column: [float("nan")] * len(result)
+            for column in output_columns
+        }
+
+        for _, row in joined.iterrows():
+            position = int(row["__eta_position"])
+
+            for column in output_columns:
+                values[column][position] = row[column]
+
+        for column in output_columns:
+            result[column] = values[column]
+
+    # ------------------------------------------------------------------
+    # Carrier history
+    # ------------------------------------------------------------------
+
+    carrier_history = build_history(
+        group_cols=["carrier_name"],
+        rate_column="historical_on_time_rate_carrier",
+        transit_column="historical_avg_transit_days_carrier",
     )
-    result["historical_on_time_rate_route"] = (
-        route_on_time_rates
+
+    attach_history(
+        carrier_history,
+        group_cols=["carrier_name"],
+        output_columns=[
+            "historical_on_time_rate_carrier",
+            "historical_avg_transit_days_carrier",
+        ],
     )
-    result["historical_avg_transit_days_carrier"] = (
-        carrier_avg_transit
+
+    # ------------------------------------------------------------------
+    # Route history
+    # ------------------------------------------------------------------
+
+    route_history = build_history(
+        group_cols=["route_id"],
+        rate_column="historical_on_time_rate_route",
+        transit_column="historical_avg_transit_days_route",
     )
-    result["historical_avg_transit_days_route"] = (
-        route_avg_transit
+
+    attach_history(
+        route_history,
+        group_cols=["route_id"],
+        output_columns=[
+            "historical_on_time_rate_route",
+            "historical_avg_transit_days_route",
+        ],
     )
-    result["historical_avg_transit_days_carrier_route"] = (
-        carrier_route_avg_transit
+
+    # ------------------------------------------------------------------
+    # Carrier + route history
+    # ------------------------------------------------------------------
+
+    carrier_route_history = build_history(
+        group_cols=[
+            "carrier_name",
+            "route_id",
+        ],
+        rate_column=None,
+        transit_column="historical_avg_transit_days_carrier_route",
+    )
+
+    attach_history(
+        carrier_route_history,
+        group_cols=[
+            "carrier_name",
+            "route_id",
+        ],
+        output_columns=[
+            "historical_avg_transit_days_carrier_route",
+        ],
+    )
+
+    # ------------------------------------------------------------------
+    # Departure weekday historical on-time rate
+    # ------------------------------------------------------------------
+
+    weekday_history = build_history(
+        group_cols=["departure_day_of_week"],
+        rate_column="historical_on_time_rate_departure_day_of_week",
+        transit_column=None,
+    )
+
+    attach_history(
+        weekday_history,
+        group_cols=["departure_day_of_week"],
+        output_columns=[
+            "historical_on_time_rate_departure_day_of_week",
+        ],
+    )
+
+    # ------------------------------------------------------------------
+    # Departure season historical on-time rate
+    # ------------------------------------------------------------------
+
+    season_history = build_history(
+        group_cols=["departure_season"],
+        rate_column="historical_on_time_rate_departure_season",
+        transit_column=None,
+    )
+
+    attach_history(
+        season_history,
+        group_cols=["departure_season"],
+        output_columns=[
+            "historical_on_time_rate_departure_season",
+        ],
+    )
+
+    # ------------------------------------------------------------------
+    # Remove internal target/outcome columns
+    # ------------------------------------------------------------------
+
+    result = result.drop(
+        columns=[
+            "__transit_days",
+            "__on_time",
+            "__eta_position",
+        ]
     )
 
     return result

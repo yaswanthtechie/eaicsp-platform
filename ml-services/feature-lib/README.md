@@ -110,7 +110,7 @@ Example:
 
 The library was tested using the Prophet retail sales dataset.
 
-The current test suite contains 139 tests, and the latest full test run passed all 139 tests.
+The current test suite contains 140 tests, and the latest full test run passed all 140 tests.
 
 **---**
 
@@ -118,15 +118,15 @@ The current test suite contains 139 tests, and the latest full test run passed a
 
 | Milestone | Status |
 |---|---|
-| Milestone 1 â€“ Complete Feature Suite | Done |
-| Milestone 2 â€“ Automated Feature Selection | Done |
-| Milestone 3 â€“ Feature Store Pattern | Done |
-| Milestone 4 â€“ Feature Drift Monitoring | Done |
-| Milestone 5 â€“ Feature Engineering API | Done |
+| Milestone 1 - Complete Feature Suite | Done |
+| Milestone 2 - Automated Feature Selection | Done |
+| Milestone 3 - Feature Store Pattern | Done |
+| Milestone 4 - Feature Drift Monitoring | Done |
+| Milestone 5 - Feature Engineering API | Done |
 
 **\*\*Notes:\*\*** The FeatureStore is currently an in-memory implementation. Feature versions are explicitly supplied by the caller. Statistical significance uses Pearson correlation with Benjamini-Hochberg correction, with the limitation that Pearson p-values may be less reliable for autocorrelated time-series data.
 
-**## Round 9â€“11 Milestone Status**
+**## Round 9-11 Milestone Status**
 
 | Requirement | Status |
 |---|---|
@@ -136,9 +136,9 @@ The current test suite contains 139 tests, and the latest full test run passed a
 | Performance at real scale (100k+ rows) | Done |
 | Full test coverage and comprehensive documentation | Done |
 
-** **Round 9â€“11 Verification:** Feature versioning is demonstrated with separate `v1` and `v2` definitions and backward-compatible `v1` consumers. The automated feature catalog documents both versions, including the version-specific rolling standard deviation definitions. Feature quality scoring flags real risky features with clear reasons: the 30-day features are flagged on a 60-day-history scenario because of their high null rate. The performance benchmark processes 100,000 grouped time-series rows and reports execution time.
+** **Round 9-11 Verification:** Feature versioning is demonstrated with separate `v1` and `v2` definitions and backward-compatible `v1` consumers. The automated feature catalog documents both versions, including the version-specific rolling standard deviation definitions. Feature quality scoring flags real risky features with clear reasons: the 30-day features are flagged on a 60-day-history scenario because of their high null rate. The performance benchmark processes 100,000 grouped time-series rows and reports execution time.
 
-## Round 12–13 Milestone Status
+## Round 12Ã¢â‚¬â€œ13 Milestone Status
 
 | Requirement | Status |
 |---|---|
@@ -148,7 +148,7 @@ The current test suite contains 139 tests, and the latest full test run passed a
 | ETA features and feature catalog | Done |
 | Testing, validation, and documentation | Done |
 
-**Round 12–13 Verification:** The package was built and installed in a clean virtual environment, and the public API import was verified. The strict as-of join was tested to ensure features are taken only from timestamps strictly before the target timestamp. Sensor and ETA feature generation, leakage prevention, and catalog documentation were covered by targeted tests. The latest recorded full test run passed all 139 tests.
+**Round 12Ã¢â‚¬â€œ13 Verification:** The package was built and installed in a clean virtual environment, and the public API import was verified. The strict as-of join was tested to ensure features are taken only from timestamps strictly before the target timestamp. Sensor and ETA feature generation, leakage prevention, and catalog documentation were covered by targeted tests. The latest full test run passed all 140 tests.
 
 ## 2. How to Run
 
@@ -236,7 +236,7 @@ The test suite covers:
 
 Expected result:
 
-    139 passed
+    140 passed
 
 The test suite may display dependency-related deprecation or statistical warnings. These warnings do not indicate failures in the feature library when all tests pass.
 
@@ -259,9 +259,9 @@ Run the benchmark from the `feature-lib` directory with:
 
 A separate 60-day-history scenario is also used to demonstrate feature quality risk. Because 30-observation features require 30 historical observations, the following features contain 50% null values and are flagged as risky:
 
-- `target_lag_30` â€” High null rate: 50.0%
-- `target_roll_mean_30` â€” High null rate: 50.0%
-- `target_roll_std_30` â€” High null rate: 50.0%
+- `target_lag_30` ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â High null rate: 50.0%
+- `target_roll_mean_30` ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â High null rate: 50.0%
+- `target_roll_std_30` ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â High null rate: 50.0%
 
 The full 1,000-day history scenario does not flag these features as risky.
 
@@ -328,7 +328,7 @@ Feature versions can change the definition of an existing feature without changi
 
 When adding a new feature version:
 
-1. Add the new version to the `FEATURE_VERSIONS` registry in `src/build_features.py`.
+1. Add the new version to the `FEATURE_VERSIONS` registry in `src/feature_lib/build_features.py`.
 2. Keep existing feature-version implementations frozen so existing consumers continue to receive the same calculations.
 3. Define the new version's feature changes independently from older versions.
 4. Add tests confirming that existing versions remain unchanged and that the new version produces the intended features.
@@ -539,7 +539,7 @@ After understanding these concepts, I was able to complete the feature engineeri
 - Benjamini-Hochberg false discovery rate correction is applied when evaluating multiple feature p-values.
 - Statistical significance is used as supporting evidence during feature ranking; it is not added directly to the combined correlation and model-importance score.
 - The model-based feature importance helper uses a Random Forest to rank numeric features by their importance to the target.
-- The feature selection helper combines absolute correlation and model-based feature importance after normalizing both signals to a 0â€“1 range, then returns the top N features.
+- The feature selection helper combines absolute correlation and model-based feature importance after normalizing both signals to a 0-1 range, then returns the top N features.
 - Statistically significant features are prioritized when ranking the final feature-selection results.
 - Features with undefined (`NaN`) correlations, such as constant features, are excluded from the usefulness results.
 - The `FeatureStore` uses an in-memory cache and includes dataset contents, configuration, and feature definition version in its cache key.
@@ -547,7 +547,7 @@ After understanding these concepts, I was able to complete the feature engineeri
 - Different feature-definition versions are cached separately.
 - The `/features/build` API uses the shared `FeatureStore` so repeated requests with the same data, configuration, and version can reuse cached features.
 - Feature drift monitoring currently focuses on numeric features and uses the two-sample KS test with both statistical and effect-size criteria.
-- Holiday detection covers 2001â€“2035; data outside that range returns `is_holiday=0`, not a computed holiday value.
+- Holiday detection covers 2001ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“2035; data outside that range returns `is_holiday=0`, not a computed holiday value.
 - The API uses the same feature-building logic as the Python library rather than maintaining a separate feature-generation implementation.
 
 ---
@@ -732,12 +732,12 @@ The function uses backward matching and excludes exact timestamp matches. Only f
 
 ## ETA Feature Engineering
 
-The library provides `create_eta_features()` to generate shipment ETA features using historical delivery information and departure dates.
+The library provides `add_eta_features()` to generate shipment ETA features using historical delivery information and departure dates.
 
 ### Usage
 
 ```python
-from feature_lib import create_eta_features
+from feature_lib import add_eta_features
 
 eta_features = create_eta_features(shipments)
 ```
@@ -759,13 +759,15 @@ Optional:
 | Feature | Description |
 |---|---|
 | `departure_day_of_week` | Scheduled departure weekday (Monday = 0). |
-| `departure_month` | Scheduled departure month (1–12). |
+| `departure_month` | Scheduled departure month (1Ã¢â‚¬â€œ12). |
 | `departure_season` | Season derived from departure month. |
 | `historical_on_time_rate_carrier` | Historical on-time delivery rate for the carrier. |
 | `historical_on_time_rate_route` | Historical on-time delivery rate for the route. |
 | `historical_avg_transit_days_carrier` | Historical average transit days for the carrier. |
 | `historical_avg_transit_days_route` | Historical average transit days for the route. |
 | `historical_avg_transit_days_carrier_route` | Historical average transit days for the carrier-route combination. |
+| `historical_on_time_rate_departure_day_of_week` | Historical on-time delivery rate for shipments with the same departure weekday, using only outcomes available before departure. |
+| `historical_on_time_rate_departure_season` | Historical on-time delivery rate for shipments with the same departure season, using only outcomes available before departure. |
 
 ### Point-in-Time Correctness
 
@@ -776,7 +778,7 @@ This prevents future delivery outcomes from leaking into historical features.
 - Rows without eligible historical records receive missing values.
 - The function returns a copy of the input DataFrame.
 - The original row order and index are preserved.
-- Historical statistics are calculated using information available before the current shipment's scheduled departure.
+- Historical statistics are attached using the strict point-in-time `asof_join`, so only shipment outcomes available strictly before the current shipment's scheduled departure are used.
 
 ### Notes
 
@@ -801,13 +803,14 @@ The library provides `add_sensor_features()` to generate historical sensor-based
 
 ### Point-in-Time Correctness
 
-Sensor features use historical observations rather than future values.
+Sensor historical features are attached using the strict point-in-time `asof_join`, so observations at or after the current timestamp are excluded.
 
 - Rolling calculations use shifted historical data to prevent leakage.
 - Grouped calculations keep sensor histories separate.
 - The original row order and index are preserved.
 - Zero denominators in cross-sensor ratios produce missing values.
 - Invalid rolling window configurations are validated.
+- Rolling windows represent a number of previous observations, not a fixed elapsed-time duration.
 
 ### Usage
 
