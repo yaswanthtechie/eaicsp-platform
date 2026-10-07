@@ -2123,8 +2123,18 @@ The evaluation results are printed by the training/evaluation pipeline.
 
 | Milestone | Status | Notes |
 |---|---|---|
-| M3 – Multivariate | **Done (evaluation)** | `src/multivariate_eval.py` trains on correlated normal data and tests relationship breaks (every value within 2σ, the pair wrong). Single-feature rule: 0/20. LOF and Elliptic Envelope: 20/20 with features scaled on train only. Isolation Forest 1/20, One-Class SVM 0/20. Logged to MLflow. |
-| M4 – Root-cause hints | **Done** | `/detect` returns `root_cause_hint`: the nearest labeled past incident type (k=5 cosine vote over a history library built from separate seeds), or `unknown` when similarity < 0.8. Held-out matching: 59/60. |
+### M3 Multivariate Evaluation
+
+The anomaly detectors were evaluated on two synthetic relationship-break
+cases using 5,000 normal training samples and 20 planted anomalies.
+
+- Original planted breaks: LOF and Elliptic Envelope both achieved 1.00 recall
+  with 18 false alarms.
+- Weaker noisy breaks: LOF achieved 0.55 recall with 18 false alarms;
+  Elliptic Envelope achieved 0.40 recall with 18 false alarms.
+- Isolation Forest and One-Class SVM did not detect the weaker noisy breaks.
+- These results are evaluation-only; the multivariate detectors are not yet
+  part of the production models.
 
 ### Known limitations / next steps
 - Production models are still trained on independent data, so `/detect` cannot yet flag relationship breaks. Next: switch `train_normal` to `generate_correlated_normal_data()`, re-run the R4.5 cost-threshold tuning, update `PRODUCTION_THRESHOLDS`, and add `relationship_break` to `default_history()`.

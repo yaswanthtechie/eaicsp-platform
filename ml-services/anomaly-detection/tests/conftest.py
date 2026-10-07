@@ -22,7 +22,7 @@ if str(project_root) not in sys.path:
 # PROJECT IMPORTS
 # ---------------------------------------------------------------------
 
-from src.data import generate_all_datasets
+from src.data import generate_all_datasets, generate_normal_data
 from src.model_loader import get_models
 from src.train import save_models, train_models
 
@@ -77,6 +77,16 @@ REQUIRED_MODEL_ARTIFACTS = [
     "one_class_svm_model.joblib",
     "background_sample.csv",
 ]
+
+
+# ---------------------------------------------------------------------
+# M4 MODEL TRAINING FIXTURE
+# ---------------------------------------------------------------------
+
+@pytest.fixture(scope="session", autouse=True)
+def trained_models():
+    df = generate_normal_data(n=5000, seed=42)
+    save_models(train_models(df))
 
 
 # ---------------------------------------------------------------------

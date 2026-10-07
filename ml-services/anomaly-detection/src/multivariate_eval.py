@@ -1,4 +1,4 @@
-"""
+﻿"""
 M3 - multivariate (relationship) anomaly evaluation.
 
 Trains fresh models on CORRELATED normal data and checks whether
@@ -19,11 +19,12 @@ from sklearn.preprocessing import StandardScaler
 from src.data import (
     generate_correlated_normal_data,
     inject_relationship_breaks,
+    inject_weaker_relationship_breaks,
 )
 from src.isolation_forest_model import IsolationForestModel
 from src.lof_model import LOFModel
 from src.one_class_svm_model import OneClassSVMModel
-
+from src.config import ELLIPTIC_CONTAMINATION
 
 FEATURES = ["temperature", "humidity", "stock_count"]
 
@@ -44,7 +45,7 @@ class EllipticEnvelopeModel:
     for "each value normal, combination abnormal".
     """
 
-    def __init__(self, contamination=0.004):
+    def __init__(self, contamination=ELLIPTIC_CONTAMINATION):
         self.model = EllipticEnvelope(
             contamination=contamination,
             random_state=RANDOM_SEED,
@@ -81,16 +82,30 @@ def _scores(name, y_true, y_pred):
 def build_datasets():
     """Independent seeds for train and test - no shared rows."""
 
-    train_df = generate_correlated_normal_data(n=5000, seed=TRAIN_SEED)
+    train_df = generate_correlated_normal_data(
+        n=5000,
+        seed=TRAIN_SEED,
+    )
 
     test_df = inject_relationship_breaks(
-        generate_correlated_normal_data(n=5000, seed=TEST_SEED),
+        generate_correlated_normal_data(
+            n=5000,
+            seed=TEST_SEED,
+        ),
         n_anomalies=N_ANOMALIES,
         seed=ANOMALY_SEED,
     )
 
-    return train_df, test_df
+    weaker_test_df = inject_weaker_relationship_breaks(
+        generate_correlated_normal_data(
+            n=5000,
+            seed=TEST_SEED,
+        ),
+        n_anomalies=N_ANOMALIES,
+        seed=ANOMALY_SEED,
+    )
 
+    return train_df, test_df, weaker_test_df
 
 def evaluate_relationship_detection(train_df, test_df):
     """
@@ -134,10 +149,23 @@ def evaluate_relationship_detection(train_df, test_df):
 def run():
     np.random.seed(RANDOM_SEED)
 
-    train_df, test_df = build_datasets()
-    results = evaluate_relationship_detection(train_df, test_df)
+    train_df, test_df, weaker_test_df = build_datasets()
 
+    results = evaluate_relationship_detection(
+        train_df,
+        test_df,
+    )
+
+    weaker_results = evaluate_relationship_detection(
+        train_df,
+        weaker_test_df,
+    )
+    print("Original planted breaks:")
     print(results.to_string(index=False))
+
+    print("\nWeaker, noisy relationship breaks:")
+    print(weaker_results.to_string(index=False))
+
 
     # Imported here so the unit tests don't need an MLflow install.
     import mlflow
@@ -159,10 +187,32 @@ def run():
         )
 
         for row in results.to_dict("records"):
-            key = row["Model"].split(" (")[0].lower().replace(" ", "_")
+            key = (
+                "original_"
+                + row["Model"].split(" (")[0]
+                .lower()
+                .replace(" ", "_")
+        )
 
-            for metric in ("Precision", "Recall", "F1"):
-                mlflow.log_metric(f"{key}_{metric.lower()}", row[metric])
+        for metric in ("Precision", "Recall", "F1"):
+            mlflow.log_metric(
+                f"{key}_{metric.lower()}",
+                row[metric],
+            )
+
+    for row in weaker_results.to_dict("records"):
+        key = (
+            "weaker_"
+            + row["Model"].split(" (")[0]
+            .lower()
+            .replace(" ", "_")
+        )
+
+        for metric in ("Precision", "Recall", "F1"):
+            mlflow.log_metric(
+                f"{key}_{metric.lower()}",
+                row[metric],
+            )
 
     return results
 

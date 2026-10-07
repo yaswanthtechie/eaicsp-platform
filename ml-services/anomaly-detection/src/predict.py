@@ -1,4 +1,4 @@
-import numpy as np
+﻿import numpy as np
 import pandas as pd
 
 from .adaptive_threshold import (
@@ -547,6 +547,32 @@ def adaptive_predict(
             score
         )
     )
+    is_anomaly, threshold = (
+        manager.is_anomaly(
+            score
+        )
+    )
+
+    alert = bool(is_anomaly)
+
+    root_cause_hint = None
+
+    if alert:
+        library = get_incident_library()
+
+        if library is not None:
+            root_cause_hint = match_incident(
+                reading,
+                library,
+            )
+
+    explanation = _build_explanation(
+        alert,
+        result["primary_reason"],
+        root_cause_hint,
+    )
+
+
 
     return {
         "model": result[
@@ -591,13 +617,9 @@ def adaptive_predict(
             "primary_reason"
         ],
 
-        "root_cause_hint": result[
-            "root_cause_hint"
-        ],
+        "root_cause_hint": root_cause_hint,
 
-        "explanation": result[
-            "explanation"
-        ],
+        "explanation": explanation,
     }
 
 
@@ -713,6 +735,24 @@ def adaptive_engine_predict(
             False,
         )
     )
+    root_cause_hint = None
+
+    if alert:
+        library = get_incident_library()
+
+        if library is not None:
+            root_cause_hint = match_incident(
+                reading,
+                library,
+            )
+
+    explanation = _build_explanation(
+        alert,
+        result["primary_reason"],
+        root_cause_hint,
+    )
+
+
 
     return {
         # ----------------------------------------------------
@@ -755,13 +795,9 @@ def adaptive_engine_predict(
             "primary_reason"
         ],
 
-        "root_cause_hint": result[
-            "root_cause_hint"
-        ],
+        "root_cause_hint": root_cause_hint,
 
-        "explanation": result[
-            "explanation"
-        ],
+        "explanation": explanation,
 
         # ----------------------------------------------------
         # Adaptive decision

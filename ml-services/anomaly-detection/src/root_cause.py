@@ -1,3 +1,4 @@
+
 """
 M4 - root-cause hints: "this resembles past incident type X".
 
@@ -42,7 +43,8 @@ def reading_signature(reading, stats):
     """
 
     z = [
-        (float(reading[f]) - stats["mean"][f]) / stats["std"][f]
+        (float(reading[f]) - stats["mean"][f])
+        / (stats["std"][f] or 1.0)
         for f in FEATURES
     ]
 
@@ -53,15 +55,22 @@ def reading_signature(reading, stats):
 
     residual = (
         float(reading["humidity"]) - expected_humidity
-    ) / stats["residual_std"]
+    ) / (stats["residual_std"] or 1.0)
 
     return np.array(z + [residual])
 
 
 def _cosine(signature, library_signatures):
-    norms = np.linalg.norm(library_signatures, axis=1) * np.linalg.norm(signature)
+    norms = (
+        np.linalg.norm(library_signatures, axis=1)
+        * np.linalg.norm(signature)
+    )
 
-    return (library_signatures @ signature) / np.where(norms == 0, 1.0, norms)
+    return (library_signatures @ signature) / np.where(
+        norms == 0,
+        1.0,
+        norms,
+    )
 
 
 def match_incident(reading, library):
@@ -79,18 +88,37 @@ def match_incident(reading, library):
     signature = reading_signature(reading, library["stats"])
 
     if not np.any(signature):
-        return None
+        return {
+            "incident_type": "unknown",
+            "similarity": 0.0,
+            "description": (
+                "Reading is at the normal centre; no incident pattern."
+            ),
+            "similar_past_incidents": 0,
+        }
 
-    similarity = _cosine(signature, library["signatures"])
+    similarity = _cosine(
+        signature,
+        library["signatures"],
+    )
 
     nearest = np.argsort(similarity)[::-1][:K_NEIGHBOURS]
-    nearest_types = [library["labels"][i] for i in nearest]
+    nearest_types = [
+        library["labels"][i]
+        for i in nearest
+    ]
 
-    best_type, votes = Counter(nearest_types).most_common(1)[0]
+    best_type, votes = Counter(
+        nearest_types
+    ).most_common(1)[0]
 
     best_similarity = float(
         np.mean(
-            [similarity[i] for i in nearest if library["labels"][i] == best_type]
+            [
+                similarity[i]
+                for i in nearest
+                if library["labels"][i] == best_type
+            ]
         )
     )
 

@@ -315,6 +315,56 @@ def inject_relationship_breaks(
     df.loc[anomaly_idx, "is_anomaly"] = 1
 
     return df
+def inject_weaker_relationship_breaks(
+    df: pd.DataFrame,
+    n_anomalies: int = 20,
+    seed: int = 42,
+) -> pd.DataFrame:
+    """
+    Inject weaker relationship breaks that do not exactly mirror
+    the original planted anomaly pattern.
+
+    The humidity relationship break is reduced to 50% of the
+    original offset and small noise is added.
+    """
+    rng = np.random.default_rng(seed)
+
+    df = df.copy()
+
+    anomaly_idx = rng.choice(
+        df.index,
+        size=n_anomalies,
+        replace=False,
+    )
+
+    direction = rng.choice(
+        [-1.0, 1.0],
+        size=n_anomalies,
+    )
+
+    temp_offset = (
+        direction
+        * rng.uniform(1.5, 2.0, n_anomalies)
+        * 1.5
+    )
+
+    df.loc[anomaly_idx, "temperature"] = 22 + temp_offset
+
+    humidity_noise = rng.normal(
+        0.0,
+        0.5,
+        n_anomalies,
+    )
+
+    df.loc[anomaly_idx, "humidity"] = (
+        45
+        - 0.5 * HUMIDITY_TEMP_SLOPE * temp_offset
+        + humidity_noise
+    )
+
+    df.loc[anomaly_idx, "is_anomaly"] = 1
+
+    return df
 
 
 # Save dataset
