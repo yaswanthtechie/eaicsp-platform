@@ -58,11 +58,7 @@ SNAPSHOT_FILE = (
     / "previous_sanctions.json"
 )
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "sqlite:///./compliance.db",
-)
-
+DATABASE_URL = os.environ["DATABASE_URL"]
 
 SERVICE_NAME = os.getenv(
     "SERVICE_NAME",
@@ -305,3 +301,15 @@ USE_FIXTURES = os.getenv(
     "USE_FIXTURES",
     "false",
 ).lower() == "true"
+
+KAFKA_BOOTSTRAP_SERVERS = os.getenv(
+    "KAFKA_BOOTSTRAP_SERVERS",
+    "localhost:9092",
+)
+
+KAFKA_FLUSH_TIMEOUT_SECONDS = float(
+    os.getenv(
+        "KAFKA_FLUSH_TIMEOUT_SECONDS",
+        "5",
+    )
+)

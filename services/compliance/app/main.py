@@ -2,14 +2,16 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+
 from app.core.database import Base, engine
+from app.models.case_history import CaseHistory
+from app.models.compliance_case import ComplianceCase
+from app.models.compliance_override import ComplianceOverride
 from app.routes.compliance import router as compliance_router
+from app.routes.graphql import graphql_router
 from app.services.sanctions_service import load_all_sanctions
 from app.services.sla_service import sla_metrics
 
-from app.models.compliance_override import ComplianceOverride
-from app.models.compliance_case import ComplianceCase
-from app.models.case_history import CaseHistory
 
 logging.basicConfig(
     level=logging.INFO,
@@ -21,11 +23,8 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("Creating database tables...")
-
-    Base.metadata.create_all(
-        bind=engine
-    )
+    # Tables are created by Alembic (`alembic upgrade head`),
+    # never by create_all() at startup.
 
     print("Loading sanctions data...")
 
@@ -52,7 +51,7 @@ app = FastAPI(
 
 @app.get("/root")
 def health_check():
-    return {        
+    return {
         "service": "compliance",
     }
 
@@ -60,4 +59,10 @@ def health_check():
 app.include_router(
     compliance_router,
     prefix="/api/v1/compliance",
+)
+
+
+app.include_router(
+    graphql_router,
+    prefix="/api/v1/compliance/graphql",
 )

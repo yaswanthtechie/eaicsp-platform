@@ -56,6 +56,10 @@ def _alert_sla_degraded(
     return True
 
 
+# ============================================================
+# INTERNAL COMPLIANCE CACHE
+# ============================================================
+
 _INTERNAL_CHECK_CACHE: dict[
     tuple[str, str, str],
     tuple[datetime, dict[str, Any]],
