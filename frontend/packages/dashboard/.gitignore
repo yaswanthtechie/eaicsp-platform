@@ -25,3 +25,6 @@ coverage/
 *.njsproj
 *.sln
 *.sw?
+
+lighthouse/report.report.html
+lighthouse/report.report.json

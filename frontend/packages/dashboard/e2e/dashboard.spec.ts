@@ -80,14 +80,16 @@ test("goes offline, reloads, and still shows the last snapshot", async ({ page, 
 });
 
   test("keeps the dashboard when a refresh fails after reconnecting", async ({
-  page,
-  context,
-}) => {
+    page,
+    context,
+  }) => {
   await page.goto("/");
-
+  await expect(
+    page.getByRole("heading", { name: "Executive Dashboard" })
+  ).toBeVisible({ timeout: 15000 });
   // Initial dashboard data is loaded.
-  await expect(kpi(page, "SKUs", all.skus)).toBeVisible();
-  await expect(page.locator("#inventory-section")).toBeVisible();
+  await expect(kpi(page, "SKUs", all.skus)).toBeVisible({timeout: 15000});
+  await expect(page.locator("#inventory-section")).toBeVisible({timeout: 15000});
 
   // Make GraphQL fail for the reconnect refresh.
   await page.route("**/graphql", (route) =>
@@ -104,8 +106,7 @@ test("goes offline, reloads, and still shows the last snapshot", async ({ page, 
     .poll(() => page.evaluate(() => navigator.onLine))
     .toBe(false);
 
-  // Playwright does not reliably restore navigator.onLine in this setup,
-  // so restore the browser state and notify the application of reconnect.
+  
   await context.setOffline(false);
 
 

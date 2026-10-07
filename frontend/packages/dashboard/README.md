@@ -365,6 +365,8 @@ The `ceo` view provides executive-level information such as inventory, supplier 
 
 The `warehouse_manager` view focuses on inventory and warehouse-related information and does not display supplier-risk information that is not relevant to that role.
 
+If a warehouse manager does not have a warehouse assigned, the dashboard displays "No warehouse is assigned to this user." instead of showing data from all warehouses.
+
 Role-based tests verify that the dashboard renders the appropriate content for both supported roles and that role-specific content is hidden when it should not be displayed.
 
 The role structure is kept contract-first so that the mock role can later be replaced by the real role service.
@@ -716,8 +718,6 @@ A Lighthouse audit was run against the production preview of the dashboard using
 
 Lighthouse **12+ no longer includes a separate PWA category**. Therefore, PWA installability was verified separately using **Chrome DevTools → Application → Manifest**.
 
-The Lighthouse report is committed to the repository so that the audit can be reproduced and compared in future rounds.
-
 With the production preview running on `http://localhost:4173`, run:
 
 ```powershell
@@ -739,6 +739,14 @@ The current Lighthouse Performance score is **44/100**. The main reasons identif
 * **Forced reflow:** Lighthouse identified approximately **135 ms** of forced reflow during page execution.
 
 Code splitting has already been applied to the heavier forecast components. `ForecastChart` and `ForecastAccuracy` are lazy-loaded so their JavaScript is not required in the initial dashboard bundle.
+
+## `.gitignore`
+
+Add:
+
+```gitignore
+lighthouse/report.report.html
+lighthouse/report.report.json
 
 ### Performance Follow-Up
 
@@ -940,7 +948,6 @@ Test verification completed successfully.
 * Playwright E2E: 4/4 tests passed
 * Total: 151 tests passed
 * Offline PWA snapshot test is also passing now.
-
 
 
 

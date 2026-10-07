@@ -54,6 +54,7 @@ const handleProfilerRender: ProfilerOnRenderCallback = (
 };
 
 function roleFromUrl(): UserRole {
+  // ?role= is a mock stand-in for authentication until real auth is implemented.
   const urlRole = new URLSearchParams(window.location.search).get("role");
 
   return urlRole === "ceo" || urlRole === "warehouse_manager"
@@ -231,7 +232,7 @@ function App() {
   });
   const effectiveWarehouse =
     role === "warehouse_manager"
-      ? mockUser.warehouse ?? "All"
+      ? mockUser.warehouse ?? ""
       : filters.warehouse;
 
   const baseFilteredInventory = useMemo(() => {
@@ -490,9 +491,24 @@ function App() {
         </button>
       </div>
     );
-}
-      
+  }
+  if (role === "warehouse_manager" && !mockUser.warehouse) {
     return (
+      <div
+        style={{
+          background: colors.bg,
+          minHeight: "100vh",
+          padding: space.lg,
+          color: colors.text,
+        }}
+      >
+        {header}
+
+        <p>No warehouse is assigned to this user.</p>
+      </div>
+    );
+  }
+  return (
       <div
         style={{
           background: colors.bg,
