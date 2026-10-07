@@ -4,7 +4,7 @@ import inspect
 import pandas as pd
 from collections import OrderedDict
 
-from src.build_features import (
+from .build_features import (
     build_all_features,
     FEATURE_VERSIONS,
     add_calendar_features,
