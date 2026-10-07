@@ -52,6 +52,7 @@ from app.services.inventory_service import (
     what_if_simulation,
     inventory_response,
     generate_draft_po_if_required,
+    check_and_record_low_stock,
 )
 
 from app.services.reorder_service import (
@@ -74,6 +75,14 @@ from app.services.multi_echelon_service import (
 
 from app.services.valuation_service import (
     consume_cost_layers,
+)
+from app.services.cache_service import (
+    get_cached_inventory,
+    set_cached_inventory,
+    get_cached_all_inventory,
+    set_cached_all_inventory,
+    get_all_inventory_generation,
+    invalidate_inventory_cache,
 )
 
 
@@ -143,15 +152,21 @@ def create_inventory_route(
 def get_all_inventory_route(
     db: Session = Depends(get_db),
 ):
-    items = get_all_inventory(db)
+    cached = get_cached_all_inventory()
+    if cached is not None:
+        return cached
 
-    return [
+    read_gen = get_all_inventory_generation()
+    items = get_all_inventory(db)
+    result = [
         inventory_response(
             inventory=item,
             db=db,
         )
         for item in items
     ]
+    set_cached_all_inventory(result, generation=read_gen)
+    return result
 
 
 # =========================================================
@@ -510,10 +525,20 @@ def decrement_inventory_route(
                 uncosted_quantity,
             )
 
+        old_quantity = item.quantity_on_hand
         item.quantity_on_hand -= quantity
+
+        # Every stock change is a new version. Optimistic locking (a PUT
+        # based on a pre-sale read must get 409) and the cache's version
+        # fence both depend on this.
+        item.version += 1
+
+        # Same transaction as the stock change: both commit, or neither does.
+        check_and_record_low_stock(db=db, item=item, previous_quantity=old_quantity)
 
         db.commit()
         db.refresh(item)
+        invalidate_inventory_cache(sku_id, warehouse_id, version=item.version)
 
         # -----------------------------------------------------
         # MILESTONE 2:
@@ -758,6 +783,10 @@ def get_inventory_route(
     warehouse_id: str,
     db: Session = Depends(get_db),
 ):
+    cached = get_cached_inventory(sku_id=sku_id, warehouse_id=warehouse_id)
+    if cached is not None:
+        return cached
+
     item = get_inventory(
         db=db,
         sku_id=sku_id,
@@ -771,10 +800,16 @@ def get_inventory_route(
         )
 
     try:
-        return inventory_response(
+        response_data = inventory_response(
             inventory=item,
             db=db,
         )
+        set_cached_inventory(
+            sku_id=sku_id,
+            warehouse_id=warehouse_id,
+            data=response_data,
+        )
+        return response_data
 
     except ValueError as exc:
         raise HTTPException(

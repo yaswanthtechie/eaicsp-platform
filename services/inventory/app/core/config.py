@@ -3,8 +3,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    DATABASE_URL: str
-    TEST_DATABASE_URL: str
+    DATABASE_URL: str                      # required: fail loudly if missing
+    TEST_DATABASE_URL: str | None = None   # only the test suite needs this
     PLATFORM_AUTH_URL: str = "http://localhost:8005"
     COMPLIANCE_SERVICE_URL: str = "http://localhost:8003"
     PO_AUTO_APPROVAL_THRESHOLD: float = 1000.0
@@ -16,15 +16,33 @@ class Settings(BaseSettings):
     # Forecasts older than this fall back to sales history.
     FORECAST_MAX_AGE_DAYS: int = 35
 
+    # Redis Cache configuration
+    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_CACHE_TTL_SECONDS: int = 300
+
+    # Kafka Broker configuration
+    KAFKA_BOOTSTRAP_SERVERS: str = "localhost:9092"
+
+    # Outbox Relay background worker
+    ENABLE_OUTBOX_RELAY: bool = False
+    OUTBOX_RELAY_INTERVAL_SECONDS: float = 2.0
+    # Outbox: after this many failed publishes an event becomes DEAD
+    OUTBOX_MAX_RETRIES: int = 10
+
     model_config = SettingsConfigDict(
-        env_file=".env"
+        env_file=".env",
+        extra="ignore",
     )
 
     @field_validator("DATABASE_URL", "TEST_DATABASE_URL", mode="after")
     @classmethod
-    def normalize_db_url(cls, v: str) -> str:
+    def normalize_db_url(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
         if v.startswith("postgresql+psycopg://"):
             return v.replace("postgresql+psycopg://", "postgresql+psycopg2://", 1)
+        if v.startswith("postgresql://") and not v.startswith("postgresql+psycopg2://"):
+            return v.replace("postgresql://", "postgresql+psycopg2://", 1)
         return v
 
 

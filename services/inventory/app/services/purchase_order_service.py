@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy.orm import Session
@@ -23,6 +24,8 @@ from app.services.compliance_client import (
     ComplianceBlockedError,
     check_supplier_compliance,
 )
+from app.services.outbox_service import record_event
+from app.services.cache_service import invalidate_inventory_cache
 
 
 def generate_po_id():
@@ -226,6 +229,26 @@ def create_draft_po_for_inventory(
 
     db.add(purchase_order)
 
+    # Transactional Outbox: Write inventory.po.drafted in the same transaction
+    record_event(
+        db=db,
+        event_type="inventory.po.drafted",
+        aggregate_type="purchase_order",
+        aggregate_id=purchase_order.po_id,
+        payload={
+            "po_id": purchase_order.po_id,
+            "sku_id": purchase_order.sku_id,
+            "warehouse_id": purchase_order.warehouse_id,
+            "supplier_id": purchase_order.supplier_id,
+            "quantity": purchase_order.quantity,
+            "unit_cost": purchase_order.unit_cost,
+            "expected_cost": purchase_order.expected_cost,
+            "status": purchase_order.status,
+            "approval_status": purchase_order.approval_status,
+            "created_at": datetime.now(UTC).isoformat(),
+        },
+    )
+
     try:
         db.commit()
         db.refresh(purchase_order)
@@ -295,6 +318,26 @@ def create_automatic_draft_po(
     )
 
     db.add(purchase_order)
+
+    # Transactional Outbox: Write inventory.po.drafted in the same transaction
+    record_event(
+        db=db,
+        event_type="inventory.po.drafted",
+        aggregate_type="purchase_order",
+        aggregate_id=purchase_order.po_id,
+        payload={
+            "po_id": purchase_order.po_id,
+            "sku_id": purchase_order.sku_id,
+            "warehouse_id": purchase_order.warehouse_id,
+            "supplier_id": purchase_order.supplier_id,
+            "quantity": purchase_order.quantity,
+            "unit_cost": purchase_order.unit_cost,
+            "expected_cost": purchase_order.expected_cost,
+            "status": purchase_order.status,
+            "approval_status": purchase_order.approval_status,
+            "created_at": datetime.now(UTC).isoformat(),
+        },
+    )
 
     try:
         db.commit()
@@ -433,6 +476,11 @@ def receive_purchase_order(
     try:
         db.commit()
         db.refresh(purchase_order)
+        invalidate_inventory_cache(
+            inventory.sku_id,
+            inventory.warehouse_id,
+            version=inventory.version,
+        )
 
     except Exception:
         db.rollback()

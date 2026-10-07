@@ -1,4 +1,4 @@
-﻿# Inventory Service
+# Inventory Service
 
 FastAPI microservice for multi-echelon inventory management, automated purchase orders, FIFO valuation, compliance checks, approval workflows, and network optimization.
 
@@ -157,12 +157,107 @@ Run the test suite from `services/inventory`:
 ```powershell
 python -m pytest -q
 ```
-**Current Result: 162 passed, 13 skipped** (175 total collected)
+**Current Result: 202 passed, 13 skipped, 7 deselected** (222 total collected)
 
 *(The 13 skipped tests in `test_auth_integration.py` require the live Platform Auth service on port 8005. All mock, unit, and business-logic integration tests pass 100%).*
 
 ---
 
+## Round 12–13 Status (Milestones 1–3 Productionization)
+
+| Milestone / Capability | Implementation Details | Status |
+| ---------------------- | ---------------------- | ------ |
+| M1 — Multi-Echelon & Schema Migrations | Dynamic Alembic migrations (`alembic upgrade head`), `approval_status` column support, zero manual `create_all()`. | Completed |
+| M2 — Transactional Outbox & Kafka Publisher | Atomic outbox table writes on low stock and PO draft, fail-safe producer, background relay worker; events are dead-lettered (status = DEAD) after OUTBOX_MAX_RETRIES failed publishes. | Completed |
+| M3 — Redis Cache-Aside & Graceful Degradation | Item & collection caching with TTL, auto-invalidation on stock transfers & mutations, fail-open to DB on Redis failure. | Completed |
+
+---
+
+## Docker Compose Quick Start
+
+To spin up the complete environment including PostgreSQL, Redis, Kafka, the Inventory Service, and the Outbox Relay worker:
+
+```bash
+# 1. Ensure .env has POSTGRES_PASSWORD defined
+cp .env.example .env
+# Edit .env and supply your secure POSTGRES_PASSWORD
+
+# 2. Build and run all services
+docker compose -f docker-compose.dev.yml up --build -d
+
+# 3. Check container health
+docker compose -f docker-compose.dev.yml ps
+```
+
+The service container automatically runs `alembic upgrade head` on startup before launching Uvicorn, and exposes `/health` on port 8001.
+
+Verify database tables created by migration on startup:
+```bash
+docker compose -f docker-compose.dev.yml exec postgres psql -U postgres -d inventory -c "\dt"
+# lists: alembic_version, inventory, outbox, purchase_orders, sales_history, suppliers, inventory_cost_layers
+```
+
+---
+
+## Transactional Outbox Relay Worker
+
+The Outbox Relay continuously polls pending outbox events and dispatches them to Kafka (`inventory.stock.low`, `inventory.po.drafted`).
+
+Run the relay worker standalone:
+
+```powershell
+python -m app.services.outbox_relay
+```
+
+In Docker Compose, this is automatically managed by the dedicated `outbox-relay` container.
+
+---
+
+## Running Tests
+
+Unit tests (runs against local SQLite without live external brokers or Docker running):
+
+```powershell
+python -m pytest -q
+```
+
+Integration tests (requires docker compose dev stack running):
+
+```powershell
+# 1. Start background infrastructure
+docker compose -f docker-compose.dev.yml up -d
+
+# 2. Run integration suite (locking, migrations, real Redis, real Kafka)
+python -m pytest -m integration -q
+```
+
+---
+
+## Cache Performance Benchmark
+
+To reproduce the latency numbers between uncached database reads and cached Redis reads:
+
+```powershell
+python scripts/benchmark_cache_latency.py --iterations 100
+```
+
+```text
+======================================================================
+BENCHMARK RESULTS SUMMARY
+======================================================================
+Metric                 Uncached (DB)        Cached (Redis)       Delta / Speedup
+---------------------  -------------------  -------------------  ---------------
+Average Latency:           0.66 ms             0.47 ms            1.4x faster
+Min Latency:               0.48 ms             0.31 ms
+Max Latency:               2.46 ms             2.13 ms
+======================================================================
+Conclusion: Redis caching provides approximately a 1.4x latency speedup.
+======================================================================
+```
+
+> [!NOTE]
+> **Cache-Aside Concurrency Limit & TTL**:
+> Under cache-aside pattern, there exists a brief concurrent race window where a GET reads the DB, an update commits and invalidates the cache, and the earlier GET writes back the stale value. In this service, stale windows are strictly bounded by `REDIS_CACHE_TTL_SECONDS` (default: 300s, configurable down to 60s for high-velocity catalogs).
 ## 12. Main API Reference
 
 | Method | Endpoint | Description | Access / Role |
@@ -202,4 +297,4 @@ python -m pytest -q
 | Supply-network optimization | Completed ($z \cdot \sigma \cdot \sqrt{L}$ with risk pooling) |
 | Forecast contract v1 | Completed (schema + adapter matching forecast output) |
 | Forecast Service HTTP wiring | Not started (contract-first by design) |
-| Full test suite | 162 passed, 13 skipped |
+| Full test suite | 202 passed, 13 skipped, 7 deselected |
