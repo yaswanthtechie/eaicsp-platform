@@ -2,6 +2,8 @@ import numpy as np
 import pandas as pd
 import joblib
 import pytest
+import ast
+from pathlib import Path
 from sklearn.compose import ColumnTransformer
 from sklearn.metrics import mean_absolute_error
 from sklearn.pipeline import Pipeline
@@ -586,4 +588,30 @@ def test_committed_artifact_passes_production_gate():
 
     assert "training_rows" in calibration, (
         "Artifact predates provenance tracking; retrain with python main.py"
-    )        
+    )  
+
+
+def test_main_enables_production_gate():
+    """
+    main.py is the real production entry point. It must call
+    train_model(..., enforce_production_gate=True), otherwise a bad
+    run overwrites the good artifacts in models/ before failing.
+    """
+    main_path = Path(__file__).resolve().parents[1] / "main.py"
+    tree = ast.parse(main_path.read_text(encoding="utf-8"))
+    calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "train_model"
+    ]
+    assert calls, "main.py never calls train_model()"
+
+    for call in calls:
+        gate = {kw.arg: kw.value for kw in call.keywords}.get(
+            "enforce_production_gate"
+        )
+        assert isinstance(gate, ast.Constant) and gate.value is True, (
+            "main.py must call train_model(..., enforce_production_gate=True)"
+        )          

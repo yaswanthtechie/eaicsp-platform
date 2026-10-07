@@ -141,6 +141,7 @@ def main():
         model = train_model(
             X_train,
             y_train,
+            enforce_production_gate=True,
         )
 
         # -----------------------------------------------------
