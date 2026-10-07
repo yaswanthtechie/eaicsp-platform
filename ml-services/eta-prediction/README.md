@@ -736,8 +736,9 @@ and the current calibration artifact records:
 
 ```text
 Method: absolute_residual_quantile
-Residual lower bound: -10.1970 days
-Residual upper bound: +10.1970 days
+Calibration rows: 15,358
+Residual lower bound: -10.27 days
+Residual upper bound: +10.27 days
 ```
 
 The current residual bounds are symmetric, but the implementation does not assume that future calibrations must remain symmetric.
@@ -1387,9 +1388,9 @@ Expected response structure:
 
 ```json
 {
-  "eta_days": 17.76,
-  "confidence_low": 0.0,
-  "confidence_high": 34.52
+  "eta_days": 24.58,
+  "confidence_low": 14.32,
+  "confidence_high": 34.85
 }
 ```
 
