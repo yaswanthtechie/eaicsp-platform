@@ -577,14 +577,22 @@ Run time per level: 60s. Degraded = p95 > 1000 ms or error rate > 1 %.
 
 | Users | Requests | RPS | Error % | p50 (ms) | p95 (ms) | p99 (ms) | Max (ms) | Gateway CPU avg % | Gateway CPU max % | Status |
 |---|---|---|---|---|---|---|---|---|---|---|
-| 5 | 265 | 4.53 | 0.00 | 38 | 370 | 580 | 992 | 10 | 20 | OK |
-| 10 | 539 | 9.28 | 0.00 | 25 | 200 | 430 | 986 | 20 | 98 | OK |
-| 20 | 591 | 10.28 | 0.00 | 720 | 2500 | 3100 | 3335 | 82 | 111 | DEGRADED |
+| 5 | 286 | 4.88 | 0.00 | 16 | 38 | 270 | 301 | 7 | 16 | OK |
+| 10 | 547 | 9.37 | 0.00 | 15 | 37 | 290 | 329 | 12 | 20 | OK |
+| 20 | 1087 | 18.60 | 0.00 | 19 | 65 | 280 | 323 | 26 | 54 | OK |
+| 50 | 2336 | 39.94 | 0.00 | 130 | 800 | 1200 | 1391 | 78 | 105 | OK |
+| 100 | 2093 | 35.09 | 0.00 | 1700 | 3200 | 3500 | 3815 | 93 | 112 | DEGRADED |
+
+A/B at 100 users, dashboard/health tasks excluded (same gateway, same run):
+
+| Users | Requests | RPS | Error % | p50 (ms) | p95 (ms) | p99 (ms) | CPU avg % | CPU max % |
+|---|---|---|---|---|---|---|---|---|
+| 100 | 3221 | 56.01 | 0.00 | 610 | 1500 | 1800 | 81 | 100 |
 
 > [!NOTE]
-> **Observed Break Point**: 20 concurrent users is the first DEGRADED level (`p95 = 2500 ms` > 1000 ms threshold, `Gateway CPU avg = 82%`, `Gateway CPU max = 111%`). Error rate was 0.00%.
+> **Observed Break Point**: 100 concurrent users is the first DEGRADED level (`p95 = 3200 ms` > 1000 ms threshold, `Gateway CPU avg = 93%`, `Gateway CPU max = 112%`). Error rate was 0.00%.
 >
-> **Bottleneck Analysis**: Primary evidence points to gateway CPU and single-worker event-loop saturation. An A/B isolation test at 100 users with `/gateway/dashboard` and `/health` excluded still resulted in p95 of 2700 ms (0% errors across 2597 requests), demonstrating that dashboard/health fan-out alone does not explain degradation.
+> **Bottleneck Analysis**: Primary evidence points to gateway CPU and single-worker event-loop saturation (measured CPU avg 93%, max 112% at 100 users). In the A/B isolation test at 100 users with `/gateway/dashboard` and `/health` excluded, throughput rose to 56.01 RPS and p95 improved to 1500 ms (0.00% errors across 3221 requests), but p95 remained above the 1000 ms threshold with CPU avg at 81% (max 100%), confirming that single-worker CPU/event-loop saturation is the primary ceiling.
 >
 > This observed break point reflects a single-process Uvicorn server on a local development laptop and is not a production capacity limit.
 
@@ -603,7 +611,7 @@ python run_locust_sweep.py --gateway-pid $PID
 ```
 
 Authoritative summary: `load_tests/round10_summary.md`
-CSV result files: `load_tests/round10_results_u{5,10,20}_stats.csv`
+CSV result files: `load_tests/round10_results_u{5,10,20,50,100}_stats.csv`, `load_tests/round10_results_ab_u100_stats.csv`
 
 ---
 

@@ -172,39 +172,35 @@ Rate limiting was disabled for the sweep (LOAD_TEST_MODE=true) because all Locus
 The table below reflects the authoritative fresh Round 10 sweep run using `python run_locust_sweep.py --gateway-pid <PID>`. Each concurrency level ran for 60 seconds against a realistic 12-endpoint scenario with dummy downstream services running.
 
 | Users | Requests | RPS | Error % | p50 (ms) | p95 (ms) | p99 (ms) | Max (ms) | Gateway CPU avg % | Gateway CPU max % | Status |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| 5 | 265 | 4.53 | 0.00 | 38 | 370 | 580 | 992 | 10 | 20 | OK |
-| 10 | 539 | 9.28 | 0.00 | 25 | 200 | 430 | 986 | 20 | 98 | OK |
-| 20 | 591 | 10.28 | 0.00 | 720 | 2500 | 3100 | 3335 | 82 | 111 | DEGRADED |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 5 | 286 | 4.88 | 0.00 | 16 | 38 | 270 | 301 | 7 | 16 | OK |
+| 10 | 547 | 9.37 | 0.00 | 15 | 37 | 290 | 329 | 12 | 20 | OK |
+| 20 | 1087 | 18.60 | 0.00 | 19 | 65 | 280 | 323 | 26 | 54 | OK |
+| 50 | 2336 | 39.94 | 0.00 | 130 | 800 | 1200 | 1391 | 78 | 105 | OK |
+| 100 | 2093 | 35.09 | 0.00 | 1700 | 3200 | 3500 | 3815 | 93 | 112 | DEGRADED |
 
 > [!NOTE]
 > **Degraded Definition**: A concurrency level is marked as `DEGRADED` if `p95 > 1000 ms` OR `error rate > 1%`.
 > The sweep automatically halts upon detecting the first degraded level.
 >
 > **First Degraded Level**:
-> - 20 concurrent users
-> - p95 = 2500 ms
-> - CPU avg = 82%
-> - CPU max = 111%
+> - 100 concurrent users
+> - p95 = 3200 ms
+> - CPU avg = 93%
+> - CPU max = 112%
 
 ### Dashboard / Health A/B Isolation Test (100 Users)
 
-An A/B isolation experiment was conducted at 100 concurrent users with `/gateway/dashboard` and `/health` excluded from the traffic mix (`round10_results_no_dashboard_stats.csv`), isolating pure gateway routing and downstream proxy tasks:
+An A/B isolation experiment was conducted at 100 concurrent users with `/gateway/dashboard` and `/health` excluded from the traffic mix (`round10_results_ab_u100_stats.csv`), isolating pure gateway routing and downstream proxy tasks:
 
-- **Users**: 100 (dashboard/health excluded)
-- **Requests**: 2597
-- **Failures**: 0
-- **Error rate**: 0.00%
-- **RPS**: 44.09
-- **p50**: 930 ms
-- **p95**: 2700 ms
-- **p99**: 3100 ms
-- **Max**: 3286.53 ms
+| Users | Requests | RPS | Error % | p50 (ms) | p95 (ms) | p99 (ms) | CPU avg % | CPU max % |
+|---|---|---|---|---|---|---|---|---|
+| 100 | 3221 | 56.01 | 0.00 | 610 | 1500 | 1800 | 81 | 100 |
 
 **Interpretation**:
-- Removing dashboard and health traffic still leaves p95 at 2700 ms under 100 concurrent users.
-- Therefore, dashboard and health probe fan-out may contribute workload, but it is **NOT** proven to be the primary bottleneck.
-- Evidence points primarily to gateway CPU and single-worker event-loop saturation under high concurrency.
+- Removing dashboard and health traffic increases throughput from 35.09 RPS to 56.01 RPS (3221 requests) and drops p95 latency from 3200 ms to 1500 ms under 100 concurrent users.
+- However, p95 (1500 ms) remains above the 1000 ms threshold with CPU avg at 81% and peaking at 100%.
+- Therefore, while dashboard and health probe fan-out adds workload, single-worker CPU / event-loop saturation under high concurrency is the primary bottleneck.
 - Dummy downstream services were running throughout the fresh test.
 
 ---
@@ -224,14 +220,16 @@ An A/B isolation experiment was conducted at 100 concurrent users with `/gateway
 ### Observed Round 10 Break Point
 
 Based on the authoritative fresh run:
-- **5 users**: **OK** (p95 = 370 ms, CPU avg = 10%, CPU max = 20%, 0.00% errors)
-- **10 users**: **OK** (p95 = 200 ms, CPU avg = 20%, CPU max = 98%, 0.00% errors)
-- **20 users**: **First DEGRADED** (p95 = 2500 ms, CPU avg = 82%, CPU max = 111%, 0.00% errors)
+- **5 users**: **OK** (p95 = 38 ms, CPU avg = 7%, CPU max = 16%, 0.00% errors)
+- **10 users**: **OK** (p95 = 37 ms, CPU avg = 12%, CPU max = 20%, 0.00% errors)
+- **20 users**: **OK** (p95 = 65 ms, CPU avg = 26%, CPU max = 54%, 0.00% errors)
+- **50 users**: **OK** (p95 = 800 ms, CPU avg = 78%, CPU max = 105%, 0.00% errors)
+- **100 users**: **First DEGRADED** (p95 = 3200 ms, CPU avg = 93%, CPU max = 112%, 0.00% errors)
 
 **Key Findings:**
-- The first degraded level is **20 concurrent users**.
-- At 20 users, `p95 = 2500 ms` exceeds the 1000 ms threshold, with `CPU avg = 82%` and `CPU max = 111%`.
-- The gateway successfully processed all requests (0.00% error rate), but latency escalated due to CPU and event-loop saturation.
+- The first degraded level is **100 concurrent users**.
+- At 100 users, `p95 = 3200 ms` exceeds the 1000 ms threshold, with `CPU avg = 93%` and `CPU max = 112%`.
+- The gateway successfully processed all requests (0.00% error rate), but latency escalated due to CPU / single-worker event-loop saturation.
 - This is a local-machine observed boundary, **NOT** production capacity.
 
 > [!WARNING]
@@ -244,13 +242,13 @@ Based on the authoritative fresh run:
 ### Evidence-Based Bottleneck Analysis
 
 1. **Primary evidence points to gateway CPU / single-worker event-loop saturation**
-   At 20 concurrent users, the gateway process CPU reached an average of 82% and peaked at 111%, indicating that the single Python/Uvicorn worker core was saturated. Handling concurrency, async task switching, HTTP parsing, request routing, and metric recording within a single event loop caused queued coroutines to wait, escalating p95 latency from 200 ms (at 10 users) to 2500 ms (at 20 users).
+   At 100 concurrent users, the gateway process CPU reached an average of 93% and peaked at 112%, indicating that the single Python/Uvicorn worker core was saturated. Handling concurrency, async task switching, HTTP parsing, request routing, and metric recording within a single event loop caused queued coroutines to wait, escalating p95 latency from 800 ms (at 50 users) to 3200 ms (at 100 users).
 
-2. **Dashboard / health exclusion still has p95 of 2700 ms**
-   In the 100-user A/B isolation test where `/gateway/dashboard` and `/health` were excluded entirely, the p95 latency was 2700 ms with 0% error rate across 2597 requests.
+2. **Dashboard / health exclusion A/B test (100 users)**
+   In the 100-user A/B isolation test where `/gateway/dashboard` and `/health` were excluded entirely (`round10_results_ab_u100_stats.csv`), p95 improved to 1500 ms with 0.00% errors across 3221 requests (56.01 RPS), with CPU avg at 81% and CPU max at 100%.
 
-3. **Dashboard fan-out alone does not explain degradation**
-   Because p95 latency remained high (2700 ms) even when all dashboard and health probe traffic was eliminated, downstream health-probe fan-out alone cannot explain the degradation. Downstream fan-out adds background I/O, but gateway CPU and event-loop saturation under load is the primary bottleneck.
+3. **Dashboard fan-out contributes workload, but CPU saturation is the primary ceiling**
+   Excluding dashboard and health tasks reduces latency from 3200 ms to 1500 ms, but p95 remains above the 1000 ms threshold while CPU remains heavily loaded (81% avg, 100% max). Gateway CPU and single-worker event-loop saturation under concurrency is the primary bottleneck.
 
 4. **Dummy downstream services were running**
    All 6 dummy downstream services were running and healthy via `python dummy_services.py` throughout the test. Downstream unavailability was not a factor in the observed latency.
@@ -262,14 +260,16 @@ Based on the authoritative fresh run:
 
 ## Observations
 
-1. **Clean error rate**: All sweep levels (5, 10, 20 users) completed with **0.00% errors** across hundreds of requests.
-2. **Acceptable latency at 5 and 10 users**:
-   - 5 users: p50 = 38 ms, p95 = 370 ms, CPU avg = 10%.
-   - 10 users: p50 = 25 ms, p95 = 200 ms, CPU avg = 20%.
-3. **Onset of degradation at 20 users**: At 20 users, p95 latency reached 2500 ms (> 1000 ms threshold) and gateway CPU reached 82% avg / 111% max, marking the first DEGRADED level.
-4. **Dashboard/health A/B test confirms CPU/event-loop bottleneck**: Excluding dashboard and health endpoints at 100 users yielded p95 = 2700 ms with 0% errors (2597 requests, 44.09 RPS), confirming that dashboard fan-out alone is not the primary bottleneck.
+1. **Clean error rate**: All sweep levels (5, 10, 20, 50, 100 users) and the A/B test completed with **0.00% errors** across thousands of requests.
+2. **Acceptable latency through 50 users**:
+   - 5 users: p50 = 16 ms, p95 = 38 ms, CPU avg = 7%.
+   - 10 users: p50 = 15 ms, p95 = 37 ms, CPU avg = 12%.
+   - 20 users: p50 = 19 ms, p95 = 65 ms, CPU avg = 26%.
+   - 50 users: p50 = 130 ms, p95 = 800 ms, CPU avg = 78%.
+3. **Onset of degradation at 100 users**: At 100 users, p95 latency reached 3200 ms (> 1000 ms threshold) and gateway CPU reached 93% avg / 112% max, marking the first DEGRADED level.
+4. **Dashboard/health A/B test confirms CPU/event-loop bottleneck**: Excluding dashboard and health endpoints at 100 users yielded p95 = 1500 ms with 0.00% errors (3221 requests, 56.01 RPS, CPU avg 81%, CPU max 100%), confirming that dashboard fan-out adds load, but CPU/event-loop saturation is the primary ceiling.
 5. **Dummy downstream services active**: Downstream microservices were running and healthy throughout the tests.
-6. **Local boundary**: 20 concurrent users is an observed local laptop break point under single-worker Uvicorn, not a production capacity metric.
+6. **Local boundary**: 100 concurrent users is an observed local laptop break point under single-worker Uvicorn, not a production capacity metric.
 
 ---
 
