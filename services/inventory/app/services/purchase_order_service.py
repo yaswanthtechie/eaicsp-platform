@@ -476,7 +476,11 @@ def receive_purchase_order(
     try:
         db.commit()
         db.refresh(purchase_order)
-        invalidate_inventory_cache(inventory.sku_id, inventory.warehouse_id)
+        invalidate_inventory_cache(
+            inventory.sku_id,
+            inventory.warehouse_id,
+            version=inventory.version,
+        )
 
     except Exception:
         db.rollback()

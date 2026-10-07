@@ -1,5 +1,7 @@
 import logging
+import os
 import time
+from pathlib import Path
 from typing import Optional
 from sqlalchemy.orm import Session
 
@@ -117,6 +119,19 @@ class OutboxRelay:
         return published_count, failed_count
 
 
+HEARTBEAT_FILE = Path(
+    os.getenv("OUTBOX_RELAY_HEARTBEAT_FILE", "/tmp/outbox-relay.heartbeat")
+)
+
+
+def write_heartbeat(path: Path = HEARTBEAT_FILE) -> None:
+    """Touch the heartbeat file; the container healthcheck checks its age."""
+    try:
+        path.write_text(str(time.time()), encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Could not write relay heartbeat %s: %s", path, exc)
+
+
 def run_relay_worker(
     poll_interval: float = 2.0,
     stop_event=None,
@@ -151,10 +166,13 @@ def run_relay_worker(
         finally:
             db.close()
 
+        # Written after every completed cycle, including cycles skipped by the
+        # circuit breaker. If the loop hangs or dies, the file goes stale.
+        write_heartbeat()
+
         if stop_event is not None:
             stop_event.wait(poll_interval)
         else:
-            import time
             time.sleep(poll_interval)
 
 

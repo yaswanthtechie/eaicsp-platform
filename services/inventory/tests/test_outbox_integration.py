@@ -7,7 +7,7 @@ from app.core.config import settings
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 from tests.fakes import InMemoryKafkaPublisher
-from tests.conftest import seed_sales_history
+from tests.conftest import TestingSessionLocal, seed_sales_history
 from app.models.inventory import Inventory
 from app.models.supplier import Supplier
 from app.models.purchase_order import PurchaseOrder
@@ -15,7 +15,11 @@ from app.models.outbox import Outbox
 from app.schemas.events import EventEnvelope, StockLowPayload, PurchaseOrderDraftedPayload
 from app.services.outbox_service import record_event, get_pending_events
 from app.services.outbox_relay import OutboxRelay
-from app.services.kafka_producer import KafkaEventPublisher, KafkaPublishError
+from app.services.kafka_producer import (
+    KafkaEventError,
+    KafkaEventPublisher,
+    KafkaPublishError,
+)
 from app.services.purchase_order_service import create_draft_po_for_inventory
 from app.services.inventory_service import check_and_record_low_stock
 
@@ -553,7 +557,7 @@ def test_event_is_dead_lettered_after_max_retries(db_session, monkeypatch):
     db_session.commit()
 
     relay = OutboxRelay(
-        publisher=InMemoryKafkaPublisher(fail_with=KafkaPublishError("message too large"))
+        publisher=InMemoryKafkaPublisher(fail_with=KafkaEventError("message too large"))
     )
     for _ in range(3):
         relay.relay_pending_events(db=db_session)
@@ -731,50 +735,111 @@ def test_low_stock_event_deduplication_on_repeated_decrements(client, db_session
     assert len(events_after) == 1, "Duplicate low-stock event was emitted on repeat decrement"
 
 
-def test_cache_aside_race_protection():
-    """
-    Verify that optimistic version gating prevents stale cache writes.
-    """
-    from app.services.cache_service import (
-        set_cached_inventory,
-        get_cached_inventory,
-        invalidate_inventory_cache,
-        get_all_inventory_generation,
-        set_cached_all_inventory,
-        get_cached_all_inventory,
+
+
+
+# ---- Kafka error classification (by code, never by message text) ------------
+
+def test_kafka_errors_are_classified_by_code():
+    from confluent_kafka import KafkaError
+    from app.services.kafka_producer import (
+        KafkaBrokerError,
+        KafkaEventError,
+        classify_kafka_error,
     )
 
-    sku = "SKU-RACE-TEST"
-    wh = "WH-1"
+    assert classify_kafka_error(KafkaError(KafkaError._MSG_TIMED_OUT)) is KafkaBrokerError
+    assert classify_kafka_error(KafkaError(KafkaError._ALL_BROKERS_DOWN)) is KafkaBrokerError
+    assert classify_kafka_error(KafkaError(KafkaError.MSG_SIZE_TOO_LARGE)) is KafkaEventError
+    # Not "too large", but still the event's fault: must be dead-lettered eventually.
+    assert classify_kafka_error(KafkaError(KafkaError.TOPIC_AUTHORIZATION_FAILED)) is KafkaEventError
 
-    # Simulate an update committing version 2 and invalidating cache
-    invalidate_inventory_cache(sku_id=sku, warehouse_id=wh, version=2)
 
-    # Concurrent stale read trying to write version 1 must be REJECTED
-    stale_write_accepted = set_cached_inventory(
-        sku_id=sku,
-        warehouse_id=wh,
-        data={"sku_id": sku, "version": 1, "quantity_on_hand": 10},
+def test_unknown_errors_are_retried_not_dead_lettered():
+    from app.services.kafka_producer import is_broker_error
+
+    assert is_broker_error(RuntimeError("something unexpected")) is True
+
+
+def test_relay_writes_heartbeat_each_cycle(tmp_path, monkeypatch):
+    import threading
+    import app.database
+    from app.services import outbox_relay
+
+    beat = tmp_path / "relay.heartbeat"
+    monkeypatch.setattr(outbox_relay, "HEARTBEAT_FILE", beat)
+    monkeypatch.setattr(
+        outbox_relay, "write_heartbeat", lambda path=beat: beat.write_text("ok")
     )
-    assert stale_write_accepted is False
-    assert get_cached_inventory(sku, wh) is None
+    monkeypatch.setattr(outbox_relay, "KafkaEventPublisher", lambda: InMemoryKafkaPublisher())
+    monkeypatch.setattr(app.database, "SessionLocal", TestingSessionLocal)
 
-    # Up-to-date read writing version 2 is ACCEPTED
-    fresh_write_accepted = set_cached_inventory(
-        sku_id=sku,
-        warehouse_id=wh,
-        data={"sku_id": sku, "version": 2, "quantity_on_hand": 5},
+    stop = threading.Event()
+    worker = threading.Thread(
+        target=outbox_relay.run_relay_worker,
+        kwargs={"poll_interval": 0.05, "stop_event": stop},
     )
-    assert fresh_write_accepted is True
-    cached = get_cached_inventory(sku, wh)
-    assert cached is not None
-    assert cached["quantity_on_hand"] == 5
+    worker.start()
+    try:
+        for _ in range(100):
+            if beat.exists():
+                break
+            stop.wait(0.05)
+    finally:
+        stop.set()
+        worker.join(timeout=5)
 
-    # Test all-inventory collection generation check
-    gen_at_read = get_all_inventory_generation()
-    # Invalidate collection
-    invalidate_inventory_cache()
-    # Stale write with older generation must be REJECTED
-    stale_all_accepted = set_cached_all_inventory([{"sku_id": sku}], generation=gen_at_read)
-    assert stale_all_accepted is False
+    assert beat.exists()
+
+
+# ---- version must change on every stock change (Fix A) -----------------------
+
+def _create_item(client, sku, quantity=50):
+    seed_sales_history(sku, "WH-1", daily_quantity=5)
+    resp = client.post(
+        "/api/v1/inventory/",
+        json={
+            "sku_id": sku,
+            "product_name": "Versioned Item",
+            "warehouse_id": "WH-1",
+            "quantity_on_hand": quantity,
+            "lead_time_days": 4,
+            "safety_stock": 10,
+            "unit_cost": 20.0,
+        },
+    )
+    assert resp.status_code in (200, 201), resp.text
+    return resp.json()
+
+
+def test_sale_increments_version(client, db_session):
+    before = _create_item(client, "SKU-VER-SALE")
+
+    resp = client.post(
+        "/api/v1/inventory/decrement",
+        params={"sku_id": "SKU-VER-SALE", "warehouse_id": "WH-1", "quantity": 5},
+    )
+    assert resp.status_code == 200
+
+    item = db_session.query(Inventory).filter_by(sku_id="SKU-VER-SALE").one()
+    assert item.version == before["version"] + 1
+
+
+def test_put_from_before_a_sale_gets_a_conflict(client, db_session):
+    """Optimistic locking: a PUT based on a pre-sale read must not overwrite the sale."""
+    before = _create_item(client, "SKU-VER-LOCK")
+
+    client.post(
+        "/api/v1/inventory/decrement",
+        params={"sku_id": "SKU-VER-LOCK", "warehouse_id": "WH-1", "quantity": 20},
+    )
+
+    stale_put = client.put(
+        "/api/v1/inventory/SKU-VER-LOCK/WH-1",
+        json={"quantity_on_hand": 45, "version": before["version"]},
+    )
+    assert stale_put.status_code == 409
+
+    item = db_session.query(Inventory).filter_by(sku_id="SKU-VER-LOCK").one()
+    assert item.quantity_on_hand == 30          # the sale was not overwritten
 

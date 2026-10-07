@@ -570,3 +570,70 @@ def test_redis_outage_does_not_retry_on_every_request(monkeypatch):
         assert get_cached_inventory("S", "W") is None
 
     assert calls["get"] == 1  # breaker tripped after the first failure
+
+
+# ---- reads that overlap a sale / a bulk upload (Fixes A and A3) -------------
+
+def _get_with_concurrent_write(client, monkeypatch, sku, concurrent_write):
+    """GET the item; another request commits `concurrent_write` mid-read."""
+    import app.routes.inventory as routes
+
+    real_get_inventory = routes.get_inventory
+
+    def get_then_concurrent_write(**kwargs):
+        row = real_get_inventory(**kwargs)
+        old = {"quantity_on_hand": row.quantity_on_hand, "version": row.version}
+        concurrent_write()
+        # Hand the route the row as it was read, before the write.
+        row.quantity_on_hand = old["quantity_on_hand"]
+        row.version = old["version"]
+        return row
+
+    monkeypatch.setattr(routes, "get_inventory", get_then_concurrent_write)
+    resp = client.get(f"/api/v1/inventory/{sku}/WH-1")
+    monkeypatch.setattr(routes, "get_inventory", real_get_inventory)
+    assert resp.status_code == 200
+
+
+def test_read_overlapping_a_sale_never_caches_the_old_quantity(client, db_session, monkeypatch):
+    seed_sales_history("SKU-SALE-RACE", "WH-1", daily_quantity=5)
+    client.post(
+        "/api/v1/inventory/",
+        json={
+            "sku_id": "SKU-SALE-RACE",
+            "product_name": "Sale Race",
+            "warehouse_id": "WH-1",
+            "quantity_on_hand": 50,
+            "lead_time_days": 4,
+            "safety_stock": 10,
+            "unit_cost": 20.0,
+        },
+    )
+
+    def concurrent_sale():
+        resp = client.post(
+            "/api/v1/inventory/decrement",
+            params={"sku_id": "SKU-SALE-RACE", "warehouse_id": "WH-1", "quantity": 40},
+        )
+        assert resp.status_code == 200
+
+    _get_with_concurrent_write(client, monkeypatch, "SKU-SALE-RACE", concurrent_sale)
+
+    # The very next read, with no waiting for the delayed delete.
+    assert client.get("/api/v1/inventory/SKU-SALE-RACE/WH-1").json()["quantity_on_hand"] == 10
+
+
+def test_bulk_invalidation_keeps_the_list_generation_counter():
+    from app.services.cache_service import (
+        get_all_inventory_generation,
+        invalidate_inventory_cache,
+        set_cached_all_inventory,
+        get_cached_all_inventory,
+    )
+
+    before = get_all_inventory_generation()          # a list read starts here
+    invalidate_inventory_cache()                     # bulk upload commits
+
+    assert get_all_inventory_generation() == before + 1
+    assert set_cached_all_inventory([{"sku_id": "OLD"}], generation=before) is False
+    assert get_cached_all_inventory() is None

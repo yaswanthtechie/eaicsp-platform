@@ -157,7 +157,7 @@ Run the test suite from `services/inventory`:
 ```powershell
 python -m pytest -q
 ```
-**Current Result: 192 passed, 13 skipped, 7 deselected** (212 total collected)
+**Current Result: 202 passed, 13 skipped, 7 deselected** (222 total collected)
 
 *(The 13 skipped tests in `test_auth_integration.py` require the live Platform Auth service on port 8005. All mock, unit, and business-logic integration tests pass 100%).*
 
@@ -243,15 +243,15 @@ python scripts/benchmark_cache_latency.py --iterations 100
 
 ```text
 ======================================================================
-BENCHMARK RESULTS SUMMARY (100 iterations)
+BENCHMARK RESULTS SUMMARY
 ======================================================================
 Metric                 Uncached (DB)        Cached (Redis)       Delta / Speedup
 ---------------------  -------------------  -------------------  ---------------
-Average Latency:           0.91 ms             0.45 ms            2.0x faster
-Min Latency:               0.54 ms             0.31 ms
-Max Latency:               1.46 ms             1.10 ms
+Average Latency:           0.66 ms             0.47 ms            1.4x faster
+Min Latency:               0.48 ms             0.31 ms
+Max Latency:               2.46 ms             2.13 ms
 ======================================================================
-Conclusion: Redis caching provides approximately a 2.0x latency speedup.
+Conclusion: Redis caching provides approximately a 1.4x latency speedup.
 ======================================================================
 ```
 
@@ -297,4 +297,4 @@ Conclusion: Redis caching provides approximately a 2.0x latency speedup.
 | Supply-network optimization | Completed ($z \cdot \sigma \cdot \sqrt{L}$ with risk pooling) |
 | Forecast contract v1 | Completed (schema + adapter matching forecast output) |
 | Forecast Service HTTP wiring | Not started (contract-first by design) |
-| Full test suite | 192 passed, 13 skipped, 7 deselected |
+| Full test suite | 202 passed, 13 skipped, 7 deselected |

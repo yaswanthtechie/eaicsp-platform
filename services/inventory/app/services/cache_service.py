@@ -157,12 +157,18 @@ def make_item_key(sku_id: str, warehouse_id: str) -> str:
     return f"inventory:item:{sku_id}:{warehouse_id}"
 
 
+# Fence keys live OUTSIDE the "inventory:" prefix on purpose: a bulk
+# invalidation deletes "inventory:*", and deleting the fences with the data
+# would reset them and let an in-flight read cache an old value.
+META_PREFIX = "inventory_meta:"
+
+
 def make_version_key(sku_id: str, warehouse_id: str) -> str:
-    return f"inventory:min_ver:{sku_id}:{warehouse_id}"
+    return f"{META_PREFIX}min_ver:{sku_id}:{warehouse_id}"
 
 
 ALL_ITEMS_KEY = "inventory:all"
-ALL_ITEMS_GEN_KEY = "inventory:all:gen"
+ALL_ITEMS_GEN_KEY = f"{META_PREFIX}all:gen"
 
 
 def get_all_inventory_generation() -> int:
@@ -289,13 +295,19 @@ def invalidate_inventory_cache(
             item_key = make_item_key(sku_id, warehouse_id)
             cache.delete(item_key)
 
-            # Update version fence
+            # Update version fence. Every caller must pass the committed
+            # version; a guessed number can be too low (stale reads get
+            # through) or too high (the item is never cached again).
             version_key = make_version_key(sku_id, warehouse_id)
             if version is not None:
                 cache.set(version_key, version, ttl=300)
             else:
-                curr_min = cache.get(version_key)
-                cache.set(version_key, (int(curr_min) if curr_min else 0) + 1, ttl=300)
+                logger.warning(
+                    "invalidate_inventory_cache(%s, %s) called without version; "
+                    "relying on the delayed delete only",
+                    sku_id,
+                    warehouse_id,
+                )
 
             logger.debug("Invalidated cache for %s:%s and collection", sku_id, warehouse_id)
 

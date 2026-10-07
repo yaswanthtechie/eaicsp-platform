@@ -101,10 +101,17 @@ services:
       kafka:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "python -c 'import sys; sys.exit(0)'"]
+      # Unhealthy if the relay loop hasn't completed a cycle in 30 seconds.
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import os, sys, time;
+          p = '/tmp/outbox-relay.heartbeat';
+          sys.exit(0 if os.path.exists(p) and time.time() - os.path.getmtime(p) < 30 else 1)"
       interval: 10s
       timeout: 5s
       retries: 3
+      start_period: 20s
 
 volumes:
   inventory_postgres_data:

@@ -92,9 +92,11 @@ def run_benchmark(iterations: int = 100):
         # 1. Uncached Database Reads
         # -------------------------------------------------------------
         print("\n[1/2] Benchmarking Uncached Database Reads...")
+        # Invalidate once before uncached runs and wait for delayed-delete to finish
+        invalidate_inventory_cache(sku_id, warehouse_id, version=item.version)
+        time.sleep(0.3)
         uncached_durations = []
         for _ in range(iterations):
-            invalidate_inventory_cache(sku_id, warehouse_id)
             t0 = time.perf_counter()
             result = (
                 db.query(Inventory)
@@ -144,7 +146,7 @@ def run_benchmark(iterations: int = 100):
         print("=" * 70 + "\n")
 
     finally:
-        invalidate_inventory_cache(sku_id, warehouse_id)
+        invalidate_inventory_cache(sku_id, warehouse_id, version=item.version)
         db.close()
 
 

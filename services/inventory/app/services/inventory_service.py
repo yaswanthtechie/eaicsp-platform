@@ -560,10 +560,14 @@ def delete_inventory(
     if item is None:
         return False
 
+    deleted_version = item.version
+
     try:
         db.delete(item)
         db.commit()
-        invalidate_inventory_cache(sku_id, warehouse_id)
+        # Fence above the last version so an in-flight read can't re-cache
+        # the deleted row.
+        invalidate_inventory_cache(sku_id, warehouse_id, version=deleted_version + 1)
 
     except Exception:
         db.rollback()

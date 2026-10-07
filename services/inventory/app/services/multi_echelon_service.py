@@ -130,6 +130,10 @@ def transfer_stock(
     source.quantity_on_hand -= quantity
     destination.quantity_on_hand += quantity
 
+    # A transfer changes stock in both warehouses: both are new versions.
+    source.version += 1
+    destination.version += 1
+
     # Preserve the source FIFO costs at the destination.
     for layer_quantity, unit_cost in consumed_layers:
         add_cost_layer(
@@ -305,11 +309,17 @@ def fulfill_shortage(
         db.rollback()
         raise
 
-    # Invalidate cache for destination and all source warehouses involved
+    # Invalidate cache for destination and all source warehouses involved,
+    # passing each row's committed version to the cache fence.
     from app.services.cache_service import invalidate_inventory_cache
-    invalidate_inventory_cache(sku_id, warehouse_id)
-    for transfer in transfers:
-        invalidate_inventory_cache(sku_id, transfer["from_warehouse"])
+
+    for touched_warehouse in {warehouse_id, *(t["from_warehouse"] for t in transfers)}:
+        touched = get_inventory(db=db, sku_id=sku_id, warehouse_id=touched_warehouse)
+        invalidate_inventory_cache(
+            sku_id,
+            touched_warehouse,
+            version=touched.version if touched is not None else None,
+        )
 
     if supplier_quantity > 0:
         fulfillment_status = "supplier_required"

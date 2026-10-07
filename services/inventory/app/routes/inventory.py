@@ -528,6 +528,11 @@ def decrement_inventory_route(
         old_quantity = item.quantity_on_hand
         item.quantity_on_hand -= quantity
 
+        # Every stock change is a new version. Optimistic locking (a PUT
+        # based on a pre-sale read must get 409) and the cache's version
+        # fence both depend on this.
+        item.version += 1
+
         # Same transaction as the stock change: both commit, or neither does.
         check_and_record_low_stock(db=db, item=item, previous_quantity=old_quantity)
 
