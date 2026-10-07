@@ -1,5 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# MLflow (run history is regenerable)
+mlruns/
+mlflow.db
+*.db
+
+# Data (download Olist into data/raw; see README)
+data/raw/
+data/processed/
+*.csv
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Model artifacts: ignore everything except the two production files
 models/*
 *.joblib
+*.pkl
 # Production artifacts are committed deliberately: /predict needs
 # them at startup. Produced by `python main.py` on the real Olist
 # data, which refuses to write them if calibration is too small.
