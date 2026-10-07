@@ -54,7 +54,12 @@ from app.core.security import (
 )
 from app.core.dependencies import(
     get_current_user,
-    oauth2_scheme
+    oauth2_scheme,
+    bearer_scheme
+)
+from app.core.revocation_store import (
+    is_token_revoked,
+    revoke_token,
 )
 from app.services.auth_service import complete_mfa_login
 import logging
@@ -62,6 +67,8 @@ router = APIRouter(
     prefix="/api/v1/auth",
     tags=["Authentication"]
 )
+
+logger = logging.getLogger("platform.request")
 
 def get_client_ip(request: Request) -> str:
 # Only trust X-Forwarded-For when we are actually behind a proxy we control.
@@ -71,7 +78,6 @@ def get_client_ip(request: Request) -> str:
         if forwarded:
             return forwarded.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
-
 
 # ============================================================
 # REGISTER
@@ -237,17 +243,38 @@ def my_permissions(
     }
 
 # ============================================================
-# LOGOUT 
+# LOGOUT
 # ============================================================
 @router.post("/logout")
 def logout(
+    request: Request,
     body: LogoutRequest,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
+    credentials=Depends(bearer_scheme),
 ):
+    # --------------------------------------------------------
+    # Extract current access token
+    # --------------------------------------------------------
+
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    access_token = credentials.credentials
+
+    # --------------------------------------------------------
+    # Find refresh token
+    # --------------------------------------------------------
+
     refresh = (
         db.query(RefreshToken)
-        .filter(RefreshToken.token == body.refresh_token)
+        .filter(
+            RefreshToken.token == body.refresh_token
+        )
         .first()
     )
 
@@ -256,11 +283,20 @@ def logout(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Refresh token not found",
         )
+
+    # --------------------------------------------------------
+    # Prevent one user from revoking another user's session
+    # --------------------------------------------------------
+
     if refresh.user_id != current_user.id:
         raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Cannot revoke another user's session",
-    )
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot revoke another user's session",
+        )
+
+    # --------------------------------------------------------
+    # Prevent duplicate logout
+    # --------------------------------------------------------
 
     if refresh.is_revoked:
         raise HTTPException(
@@ -268,19 +304,139 @@ def logout(
             detail="Refresh token already revoked",
         )
 
+    # --------------------------------------------------------
+    # Decode access token
+    # --------------------------------------------------------
+
+    try:
+        access_payload = decode_token(access_token)
+
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+
+    # --------------------------------------------------------
+    # Make sure this is an access token
+    # --------------------------------------------------------
+
+    if access_payload.get("type") != "access":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid access token",
+        )
+
+    # --------------------------------------------------------
+    # Calculate remaining access-token lifetime
+    # --------------------------------------------------------
+
+    exp = access_payload.get("exp")
+
+    if exp is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid access token",
+        )
+
+    remaining_seconds = int(
+        exp - datetime.now(timezone.utc).timestamp()
+    )
+
+    if remaining_seconds <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+
+    # --------------------------------------------------------
+    # Revoke access token in shared Redis
+    #
+    # This is the security-critical operation.
+    #
+    # Instance A:
+    #     logout -> Redis revoked
+    #
+    # Instance B:
+    #     /verify -> sees same Redis revocation
+    #             -> 401
+    # --------------------------------------------------------
+
+    try:
+        revoked = revoke_token(
+            access_token,
+            remaining_seconds,
+        )
+
+    except Exception:
+        logger.exception(
+            "Failed to revoke access token in Redis"
+        )
+
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication state store unavailable",
+        )
+
+    if not revoked:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication state store unavailable",
+        )
+
+    # --------------------------------------------------------
+    # Delete verification cache
+    #
+    # Revocation is the security mechanism.
+    # Cache deletion is immediate cleanup.
+    # --------------------------------------------------------
+
+    try:
+        token_cache.delete(access_token)
+
+    except Exception:
+        logger.warning(
+            "Failed to delete token verification cache during logout",
+            exc_info=True,
+        )
+
+    # --------------------------------------------------------
+    # Revoke refresh token in DB
+    # --------------------------------------------------------
+
     refresh.is_revoked = True
+
+    # --------------------------------------------------------
+    # Audit logout
+    # --------------------------------------------------------
 
     create_audit_log(
         db=db,
+        user_id=current_user.id,
         event_type=TOKEN_REVOKED,
-        user_id=refresh.user_id,
-        details="Refresh token revoked during logout",
+        email=current_user.email,
+        ip_address=(
+            request.client.host
+            if request.client
+            else None
+        ),
+        details=(
+            "Access and refresh tokens revoked during logout"
+        ),
     )
+
+    # --------------------------------------------------------
+    # Commit DB changes
+    # --------------------------------------------------------
 
     db.commit()
 
     return {
-        "message": "Logged out successfully"
+        "message": "Logged out successfully",
     }
 # ============================================================
 # PASSWORD REQUEST
@@ -348,26 +504,34 @@ def verify_access_token(
         alias="X-Caller-Service",
     ),
 ):
-    
+    # --------------------------------------------------------
+    # Validate token presence
+    # --------------------------------------------------------
+
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     client_ip = get_client_ip(request)
-    
-    # The header identifies the calling service for per-service rate
-    # limiting. It is optional: callers that omit it share an "unknown"
-    # bucket rather than being rejected, so /verify keeps its Round 5
-    # contract (200 on a valid token, 401 on an invalid one).
+
+    # --------------------------------------------------------
+    # Caller service
+    # --------------------------------------------------------
+
     caller_service = (
         x_caller_service.strip().lower()
-        if x_caller_service and x_caller_service.strip()
+        if x_caller_service
+        and x_caller_service.strip()
         else "unknown"
     )
 
-    # -------------------------------------------------
-    # ONE rate-limit check
-    # Per-service bucket:
-    # inventory:/api/v1/auth/verify
-    # supplier:/api/v1/auth/verify
-    # compliance:/api/v1/auth/verify
-    # -------------------------------------------------
+    # --------------------------------------------------------
+    # Redis-backed rate limiting
+    # --------------------------------------------------------
+
     check_rate_limit(
         db=db,
         ip_address=client_ip,
@@ -376,24 +540,72 @@ def verify_access_token(
         caller_service=caller_service,
     )
 
-    # -------------------------------------------------
-    # Check cache BEFORE JWT decode and DB query
-    # -------------------------------------------------
+    # --------------------------------------------------------
+    # IMPORTANT:
+    # Check Redis revocation BEFORE verification cache.
+    #
+    # Otherwise:
+    #
+    # logout on Instance A
+    #        ↓
+    # token revoked in Redis
+    #        ↓
+    # Instance B has cached token
+    #        ↓
+    # cache HIT could incorrectly return 200
+    #
+    # Therefore revocation MUST be checked first.
+    # --------------------------------------------------------
+
+    try:
+        revoked = is_token_revoked(token)
+        logger.info(
+            "REVOCATION CHECK | revoked=%s | caller_service=%s",
+            revoked,
+            caller_service,
+        )
+
+    except Exception:
+        logger.exception(
+            "Redis revocation check failed"
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication state store unavailable",
+        )
+
+    if revoked:
+        logger.info(
+            "Token verification rejected: token is revoked"
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+
+    # --------------------------------------------------------
+    # Redis verification cache
+    # --------------------------------------------------------
+
     cached_response = token_cache.get(token)
 
     if cached_response is not None:
         logger.info(
             "Token verification cache HIT"
         )
+
         return cached_response
 
     logger.info(
         "Token verification cache MISS"
     )
 
-    # -------------------------------------------------
-    # Cache miss -> decode JWT
-    # -------------------------------------------------
+    # --------------------------------------------------------
+    # Cache MISS -> decode JWT
+    # --------------------------------------------------------
+
     try:
         payload = decode_token(token)
 
@@ -427,9 +639,11 @@ def verify_access_token(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
         )
-    # -------------------------------------------------
-    # DB lookup only on cache MISS
-    # -------------------------------------------------
+
+    # --------------------------------------------------------
+    # DB lookup
+    # --------------------------------------------------------
+
     user = (
         db.query(User)
         .filter(User.email == email)
@@ -453,10 +667,13 @@ def verify_access_token(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
         )
-    # -------------------------------------------------
-    # locked users cannot verify existing tokens
-    # -------------------------------------------------
+
+    # --------------------------------------------------------
+    # Locked users cannot verify existing tokens
+    # --------------------------------------------------------
+
     if user.locked_until is not None:
+
         locked_until = user.locked_until
 
         if locked_until.tzinfo is None:
@@ -470,17 +687,26 @@ def verify_access_token(
                 detail="Invalid or expired token",
             )
 
-    # -------------------------------------------------
-    # include fine-grained permissions
-    # -------------------------------------------------
+    # --------------------------------------------------------
+    # Role + permissions
+    # --------------------------------------------------------
+
     role = (
         user.role.name
         if user.role
         else None
     )
+
     permissions = sorted(
-        ROLE_PERMISSIONS.get(role, set())
+        ROLE_PERMISSIONS.get(
+            role,
+            set(),
+        )
     )
+
+    # --------------------------------------------------------
+    # EXISTING /verify CONTRACT
+    # --------------------------------------------------------
 
     response_data = {
         "valid": True,
@@ -493,14 +719,16 @@ def verify_access_token(
         "permissions": permissions,
     }
 
-    # -------------------------------------------------
-    # JWT expiration when calculating TTL
-    # -------------------------------------------------
+    # --------------------------------------------------------
+    # Cache TTL must never exceed JWT remaining lifetime
+    # --------------------------------------------------------
+
     cache_ttl = 60
 
     exp = payload.get("exp")
 
     if exp is not None:
+
         remaining_seconds = int(
             exp - datetime.now(timezone.utc).timestamp()
         )
@@ -511,7 +739,14 @@ def verify_access_token(
                 detail="Invalid or expired token",
             )
 
-        cache_ttl = min(60, remaining_seconds)
+        cache_ttl = min(
+            60,
+            remaining_seconds,
+        )
+
+    # --------------------------------------------------------
+    # Store verification response in Redis
+    # --------------------------------------------------------
 
     token_cache.set(
         token,
@@ -519,8 +754,8 @@ def verify_access_token(
         user_id=user.id,
         ttl_seconds=cache_ttl,
     )
-    return response_data
 
+    return response_data
 # ============================================================ 
 # MFA-VERIFY 
 # ============================================================

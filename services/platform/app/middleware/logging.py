@@ -1,7 +1,7 @@
 import logging
 import os
+#import re
 import time
- 
 from fastapi import Request
  
 # ----------------------------------------
@@ -9,7 +9,6 @@ from fastapi import Request
 # ----------------------------------------
  
 os.makedirs("logs", exist_ok=True)
- 
  
 # ----------------------------------------
 # Logging configuration
@@ -31,11 +30,43 @@ logging.basicConfig(
     ],
 )
 
- 
 logger = logging.getLogger(
     "auth_requests"
 )
- 
+
+# ----------------------------------------
+# JWT / token detection
+# ----------------------------------------
+JWT_PATTERN = re.compile(
+    r"^eyJ[A-Za-z0-9_-]+\."
+    r"[A-Za-z0-9_-]+\."
+    r"[A-Za-z0-9_-]+$"
+)
+def sanitize_log_value(
+    value: str | None,
+    default: str,
+) -> str:
+    """
+    Prevent sensitive authentication tokens from
+    being written to application logs.
+
+    If the value looks like a JWT, it is replaced
+    with a safe label.
+    """
+
+    if not value:
+        return default
+
+    value = value.strip()
+
+    if JWT_PATTERN.match(value):
+        return "authenticated-client"
+
+    # Also protect obvious Bearer token values.
+    if value.lower().startswith("bearer "):
+        return "authenticated-client"
+
+    return value
 # ----------------------------------------
 # Request logging middleware
 # ----------------------------------------
@@ -46,21 +77,34 @@ async def log_requests(
 ):
     start = time.time()
  
-    # Service that called Rahul
+    # Calling Service
     caller = request.headers.get(
         "X-Caller-Service",
         "direct-client",
     )
+    caller = sanitize_log_value(
+        caller,
+        "direct-client",
+    )
  
-    # Endpoint in the calling service
+    # Calling Endpoint
     caller_endpoint = request.headers.get(
         "X-Caller-Endpoint",
+        "direct-request",
+    )
+
+    caller_endpoint = sanitize_log_value(
+        caller_endpoint,
         "direct-request",
     )
  
     # Request ID
     request_id = request.headers.get(
         "X-Request-ID",
+        "no-id",
+    )
+    request_id = sanitize_log_value(
+        request_id,
         "no-id",
     )
  
@@ -93,4 +137,4 @@ async def log_requests(
     )
  
     return response
- 
+

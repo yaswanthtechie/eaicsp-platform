@@ -1,61 +1,120 @@
-from collections import defaultdict
-from datetime import datetime, timedelta, timezone
-import threading
+from datetime import datetime, timezone
+import uuid
+import redis
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 from app.models.abuse_event import AbuseEvent
 from app.services.audit_service import create_audit_log
 from app.core.config import KNOWN_CALLER_SERVICES
+from app.core.redis_client import get_redis
 
-# =========================================================
+# ============================================================
 # Abuse Event Types
-# =========================================================
+# ============================================================
 
 RATE_LIMIT_EXCEEDED = "RATE_LIMIT_EXCEEDED"
 LOGIN_BRUTE_FORCE = "LOGIN_BRUTE_FORCE"
 MFA_ABUSE = "MFA_ABUSE"
 SSO_ABUSE = "SSO_ABUSE"
 
-# =========================================================
+
+# ============================================================
 # Rate-Limit Configuration
 # endpoint -> (maximum requests, window in seconds)
-# =========================================================
+# ============================================================
 
 RATE_LIMITS = {
-    # General login request protection
     "/api/v1/auth/login": (20, 60),
-
-    # MFA brute-force protection
     "/api/v1/auth/mfa/verify": (5, 300),
-
-    # Token verification protection
     "/api/v1/auth/verify": (100, 60),
-
-    # SSO abuse protection
     "/api/v1/auth/sso/login": (20, 60),
 }
 
-# =========================================================
-# In-Memory Request Buckets
-# =========================================================
-# Rate limiting is maintained per:
-#     caller_service + endpoint
-#
-# Examples:
-#     inventory:/api/v1/auth/verify
-#     supplier:/api/v1/auth/verify
-#     compliance:/api/v1/auth/verify
-#
-# =========================================================
 
-_request_buckets = defaultdict(list)
-_MAX_WINDOW_SECONDS = max(window for _, window in RATE_LIMITS.values())
+# ============================================================
+# Redis Key Prefix
+# ============================================================
+
+RATE_LIMIT_PREFIX = "platform:rate_limit:"
+
+
+# ============================================================
+# Backward Compatibility
+# ============================================================
+#
+# Existing tests/imports expect these module-level names.
+#
+# IMPORTANT:
+# These are NOT used for rate-limit state anymore.
+# Redis is the shared source of truth.
+# ============================================================
+
+_request_buckets = {}
 _last_abuse_event_at = {}
-_bucket_lock = threading.Lock()
 
-# =========================================================
+
+# ============================================================
+# Atomic Redis Sliding-Window Script
+# ============================================================
+
+RATE_LIMIT_SCRIPT = """
+local key = KEYS[1]
+
+local now = tonumber(ARGV[1])
+local cutoff = tonumber(ARGV[2])
+local max_requests = tonumber(ARGV[3])
+local expire_seconds = tonumber(ARGV[4])
+local member = ARGV[5]
+
+-- Remove requests outside the sliding window.
+redis.call("ZREMRANGEBYSCORE", key, "-inf", cutoff)
+
+-- Count requests currently inside the window.
+local current_count = redis.call("ZCARD", key)
+
+-- Reject when the limit has already been reached.
+if current_count >= max_requests then
+    return 0
+end
+
+-- Add current request.
+redis.call("ZADD", key, now, member)
+
+-- Prevent abandoned keys from remaining forever.
+redis.call("EXPIRE", key, expire_seconds)
+
+return 1
+"""
+
+
+# ============================================================
+# Build Redis Rate-Limit Key
+# ============================================================
+
+def _make_key(
+    caller_service: str,
+    ip_address: str,
+    endpoint: str,
+) -> str:
+    """
+    Build the shared Redis rate-limit key.
+
+    Rate limiting is isolated by:
+
+        caller_service + IP address + endpoint
+    """
+
+    return (
+        f"{RATE_LIMIT_PREFIX}"
+        f"{caller_service}:"
+        f"{ip_address}:"
+        f"{endpoint}"
+    )
+
+
+# ============================================================
 # Rate-Limit Checker
-# =========================================================
+# ============================================================
 
 def check_rate_limit(
     db: Session,
@@ -64,33 +123,42 @@ def check_rate_limit(
     abuse_event_type: str = RATE_LIMIT_EXCEEDED,
     caller_service: str | None = None,
 ):
-    
     """
-    Check whether a caller service has exceeded the configured
-    request limit for an endpoint.
+    Redis-backed sliding-window rate limiter.
+
+    Shared state is stored in Redis so multiple Platform
+    Service instances use the same rate-limit counters.
 
     Rate limiting is performed per:
 
-        caller_service + endpoint
+        caller_service + IP address + endpoint
 
     When the limit is exceeded:
 
-        1. Create an audit/security log.
-        2. Create an AbuseEvent.
-        3. Reject the request with HTTP 429.
+        1. Security audit event is recorded once per window.
+        2. AbuseEvent is recorded once per window.
+        3. HTTP 429 is returned.
+
+    If Redis is unavailable:
+
+        HTTP 503 is returned.
+
+    The limiter fails closed because bypassing the shared
+    security state would allow the rate limit to be bypassed.
     """
-    # -----------------------------------------------------
-    # Get endpoint-specific configuration
-    # -----------------------------------------------------
+
+    # --------------------------------------------------------
+    # Endpoint configuration
+    # --------------------------------------------------------
 
     max_requests, window_seconds = RATE_LIMITS.get(
         endpoint,
         (100, 60),
     )
-    now = datetime.now(timezone.utc)
-    # -----------------------------------------------------
+
+    # --------------------------------------------------------
     # Normalize caller service
-    # -----------------------------------------------------
+    # --------------------------------------------------------
 
     caller_service = (
         caller_service.strip().lower()
@@ -98,75 +166,90 @@ def check_rate_limit(
         else "unknown"
     )
 
-    # The header is supplied by the client, so it is only trusted to pick
-    # a bucket when it names a known service. Anything else shares the
-    # "unknown" bucket for this IP; otherwise a new header value on every
-    # request would get a fresh bucket and bypass the limit.
+    # Only known services receive their own bucket.
+    # Unknown values share the "unknown" bucket.
     if caller_service not in KNOWN_CALLER_SERVICES:
         caller_service = "unknown"
 
-    # -----------------------------------------------------
-    # Create caller-specific bucket
-    # -----------------------------------------------------
+    # --------------------------------------------------------
+    # Redis key
+    # --------------------------------------------------------
 
-    key = f"{caller_service}:{ip_address}:{endpoint}"
+    key = _make_key(
+        caller_service=caller_service,
+        ip_address=ip_address,
+        endpoint=endpoint,
+    )
 
-    with _bucket_lock:
+    # --------------------------------------------------------
+    # Current time
+    # --------------------------------------------------------
 
-        timestamps = _request_buckets[key]
+    now = datetime.now(timezone.utc)
+    now_timestamp = now.timestamp()
+    cutoff = now_timestamp - window_seconds
 
-        # -------------------------------------------------
-        # Remove expired requests
-        # -------------------------------------------------
+    # Unique member for the Redis sorted set.
+    member = f"{now_timestamp}:{uuid.uuid4().hex}"
 
-        cutoff = now - timedelta(
-            seconds=window_seconds
+    redis_client = get_redis()
+
+    try:
+        # ----------------------------------------------------
+        # Atomic rate-limit operation
+        # ----------------------------------------------------
+
+        result = redis_client.eval(
+            RATE_LIMIT_SCRIPT,
+            1,
+            key,
+            now_timestamp,
+            cutoff,
+            max_requests,
+            window_seconds + 5,
+            member,
         )
 
-        timestamps[:] = [
-            timestamp
-            for timestamp in timestamps
-            if timestamp > cutoff
-        ]
-        # Drop idle buckets so memory does not grow with every IP seen.
-        # Use the LONGEST configured window: a /login request must never
-        # delete a /mfa/verify bucket that is still inside its 300s window.
-        idle_cutoff = now - timedelta(seconds=_MAX_WINDOW_SECONDS)
-        for stale_key in [
-            k for k, v in _request_buckets.items()
-            if k != key and (not v or v[-1] <= idle_cutoff)
-        ]:
-            del _request_buckets[stale_key]
-            _last_abuse_event_at.pop(stale_key, None)
+        allowed = int(result) == 1
 
-        # -------------------------------------------------
+        if allowed:
+            return
+
+        # ----------------------------------------------------
         # Rate limit exceeded
-        # -------------------------------------------------
+        # ----------------------------------------------------
 
-        if len(timestamps) >= max_requests:
+        details = (
+            f"{abuse_event_type}: "
+            f"Rate limit exceeded: "
+            f"{max_requests} requests/"
+            f"{window_seconds} seconds; "
+            f"caller_service={caller_service}"
+        )
 
-            details = (
-                f"{abuse_event_type}: "
-                f"Rate limit exceeded: "
-                f"{max_requests} requests/"
-                f"{window_seconds} seconds; "
-                f"caller_service={caller_service}"
-            )
+        # ----------------------------------------------------
+        # Shared abuse-event marker
+        # ----------------------------------------------------
+        #
+        # SET NX makes recording happen once across ALL
+        # Platform Service instances.
+        # ----------------------------------------------------
 
-            # -------------------------------------------------
-            # 1 + 2. Audit log and abuse event, at most once per
-            # window per bucket. Writing a row for every rejected
-            # request would turn a flood into a flood of DB writes.
-            # -------------------------------------------------
+        abuse_marker_key = f"{key}:abuse-recorded"
 
-            last_recorded = _last_abuse_event_at.get(key)
+        should_record = redis_client.set(
+            abuse_marker_key,
+            "1",
+            nx=True,
+            ex=window_seconds,
+        )
 
-            should_record_abuse_event = (
-                last_recorded is None
-                or (now - last_recorded).total_seconds() >= window_seconds
-            )
+        if should_record:
+            try:
+                # --------------------------------------------
+                # Audit log
+                # --------------------------------------------
 
-            if should_record_abuse_event:
                 create_audit_log(
                     db=db,
                     event_type=RATE_LIMIT_EXCEEDED,
@@ -174,33 +257,56 @@ def check_rate_limit(
                     details=details,
                 )
 
+                # --------------------------------------------
+                # Abuse event
+                # --------------------------------------------
+
+                current_count = redis_client.zcard(key)
+
                 event = AbuseEvent(
                     ip_address=ip_address,
                     endpoint=endpoint,
                     event_type=abuse_event_type,
-                    request_count=len(timestamps),
+                    request_count=current_count,
                     detected_at=now,
                     details=details,
                 )
 
                 db.add(event)
-                _last_abuse_event_at[key] = now
                 db.commit()
-            # -------------------------------------------------
-            # 3. Reject request
-            # -------------------------------------------------
 
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Too many requests. Please try again later.",
-                headers={
-                    "Retry-After": str(window_seconds),
-                },
-            )
+            except Exception:
+                db.rollback()
 
-        # -------------------------------------------------
-        # Request is within allowed limit
-        # -------------------------------------------------
+                # Allow another request to retry recording
+                # the security event.
+                try:
+                    redis_client.delete(abuse_marker_key)
+                except redis.RedisError:
+                    pass
 
-        timestamps.append(now)
+                raise
 
+        # ----------------------------------------------------
+        # Reject request
+        # ----------------------------------------------------
+
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+            headers={
+                "Retry-After": str(window_seconds),
+            },
+        )
+
+    except HTTPException:
+        # Preserve intentional 429.
+        raise
+
+    except redis.RedisError:
+        # Redis is required for the shared rate limiter.
+        # Never silently bypass the security control.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Rate limiting service unavailable",
+        )

@@ -27,6 +27,7 @@ from app.services.audit_service import (
 )
 from app.services.mfa_service import create_mfa_challenge
 from app.services.mfa_service import verify_mfa_challenge
+from app.core.event_publisher import publish_event
 
 import secrets
 import threading
@@ -35,20 +36,6 @@ import logging
 
 
 logger = logging.getLogger("auth_requests")
-
-
-# ============================================================
-# LOGIN SECURITY CONFIGURATION
-# ============================================================
-
-import secrets
-import threading
-from collections import defaultdict
-import logging
-
-
-logger = logging.getLogger("auth_requests")
-
 
 # ============================================================
 # LOGIN SECURITY CONFIGURATION
@@ -432,6 +419,89 @@ def login_user(
             # ------------------------------------------------
             # 5. Lock account only after MAX_ATTEMPTS
             # ------------------------------------------------
+            # ============================================================
+# LOGIN
+# ============================================================
+def login_user(
+    db: Session,
+    username: str,
+    password: str,
+    client_ip: str,
+):
+    username = username.lower()
+
+    lock = _get_bucket_lock(
+        username,
+        client_ip,
+    )
+
+    with lock:
+
+        # ----------------------------------------------------
+        # 1. Find user
+        # ----------------------------------------------------
+
+        user = (
+            db.query(User)
+            .filter(
+                User.email == username
+            )
+            .first()
+        )
+
+        # ----------------------------------------------------
+        # 2. Check account lockout FIRST
+        # ----------------------------------------------------
+
+        if user and is_account_locked(user):
+
+            db.commit()
+
+            raise HTTPException(
+                status_code=status.HTTP_423_LOCKED,
+                detail="Account is temporarily locked. Try again later.",
+            )
+
+        # ----------------------------------------------------
+        # 3. Check login rate limit
+        # ----------------------------------------------------
+
+        check_login_rate_limit(
+            db=db,
+            email=username,
+            client_ip=client_ip,
+        )
+
+        # ----------------------------------------------------
+        # 4. Validate username/password
+        # ----------------------------------------------------
+
+        password_valid = (
+            user is not None
+            and verify_password(
+                password,
+                user.password,
+            )
+        )
+
+        if not password_valid:
+
+            # Record failed attempt
+            log_failed_login(
+                db=db,
+                email=username,
+                ip_address=client_ip,
+            )
+
+            # Count attempts for this email
+            attempts = get_recent_attempts_by_email(
+                db=db,
+                email=username,
+            )
+
+            # ------------------------------------------------
+            # 5. Lock account only after MAX_ATTEMPTS
+            # ------------------------------------------------
 
             if user and attempts >= MAX_ATTEMPTS:
 
@@ -439,8 +509,11 @@ def login_user(
                     datetime.now(timezone.utc)
                     + LOCKOUT_DURATION
                 )
+
+                # Keep existing Redis cache invalidation
                 token_cache.invalidate_user(user.id)
 
+                # Keep existing audit behavior
                 create_audit_log(
                     db=db,
                     event_type=ACCOUNT_LOCKED,
@@ -453,7 +526,33 @@ def login_user(
                     ),
                 )
 
+                # ------------------------------------------------
+                # Commit lock + audit first
+                # ------------------------------------------------
+
                 db.commit()
+
+                # ------------------------------------------------
+                # Publish shared Kafka event
+                # ------------------------------------------------
+
+                try:
+                    publish_event(
+                        "platform.user.locked",
+                        {
+                            "user_id": user.id,
+                        },
+                    )
+
+                except Exception:
+                    # The account lock and audit record are already
+                    # committed. Kafka failure must not undo them.
+                    logger.exception(
+                        "Failed to publish platform.user.locked "
+                        "| user_id=%s | email=%s",
+                        user.id,
+                        user.email,
+                    )
 
                 logger.warning(
                     "Account locked | user_id=%s | email=%s | attempts=%s",
@@ -486,6 +585,182 @@ def login_user(
             db.commit()
 
             raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials",
+            )
+
+        # ----------------------------------------------------
+        # 7. Check account active
+        # ----------------------------------------------------
+
+        if not user.is_active:
+
+            create_audit_log(
+                db=db,
+                event_type=LOGIN_FAILED,
+                user_id=user.id,
+                email=user.email,
+                ip_address=client_ip,
+                details="Inactive user",
+            )
+
+            db.commit()
+
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials",
+            )
+
+        # ----------------------------------------------------
+        # 8. Check role
+        # ----------------------------------------------------
+
+        if not user.role:
+
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User role is not assigned",
+            )
+
+        # ----------------------------------------------------
+        # 9. Check password expiry
+        # ----------------------------------------------------
+
+        now = datetime.now(timezone.utc)
+
+        if user.password_expires_at:
+
+            password_expires_at = user.password_expires_at
+
+            if password_expires_at.tzinfo is None:
+                password_expires_at = password_expires_at.replace(
+                    tzinfo=timezone.utc
+                )
+
+            if password_expires_at <= now:
+
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=(
+                        "Password has expired. "
+                        "Please reset your password."
+                    ),
+                )
+
+        # ----------------------------------------------------
+        # 10-11. MFA challenge (if enabled) OR tokens
+        # ----------------------------------------------------
+
+        if app_config.MFA_ENABLED:
+
+            challenge_id, otp = create_mfa_challenge(
+                user_id=user.id
+            )
+
+            MockEmailService.send_mfa_otp(
+                email=user.email,
+                otp=otp,
+            )
+
+            login_response = {
+                "mfa_required": True,
+                "challenge_id": challenge_id,
+                "message": "OTP sent. Verify the OTP to complete login.",
+            }
+
+            audit_details = (
+                "Password authentication successful; MFA required"
+            )
+
+        else:
+
+            access_token = create_access_token(
+                {
+                    "sub": user.email,
+                    "role": user.role.name,
+                    "user_id": user.id,
+                }
+            )
+
+            refresh_token = create_refresh_token(
+                {
+                    "sub": user.email,
+                    "user_id": user.id,
+                }
+            )
+
+            save_refresh_token(
+                db=db,
+                user_id=user.id,
+                token=refresh_token,
+                expires_at=(
+                    datetime.now(timezone.utc)
+                    + timedelta(days=7)
+                ),
+            )
+
+            login_response = {
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "token_type": "bearer",
+            }
+
+            audit_details = "Login Successful"
+
+        # ----------------------------------------------------
+        # 12. Successful password authentication audit
+        # ----------------------------------------------------
+
+        create_audit_log(
+            db=db,
+            event_type=LOGIN_SUCCESS,
+            user_id=user.id,
+            email=user.email,
+            ip_address=client_ip,
+            details=audit_details,
+        )
+
+        logger.info(
+            "Password authentication succeeded | "
+            "user_id=%s | email=%s | role=%s | %s",
+            user.id,
+            user.email,
+            user.role.name,
+            audit_details,
+        )
+
+        # ----------------------------------------------------
+        # 13. Clear failed attempts
+        # ----------------------------------------------------
+
+        db.query(FailedLoginAttempt).filter(
+            FailedLoginAttempt.email == username,
+        ).delete(
+            synchronize_session=False,
+        )
+
+        db.commit()
+
+        # ----------------------------------------------------
+        # 14. Return MFA challenge / tokens
+        # ----------------------------------------------------
+        return login_response
+        # ------------------------------------------------
+        # 6. Normal failed login
+        # ------------------------------------------------
+
+        create_audit_log(
+                db=db,
+                event_type=LOGIN_FAILED,
+                user_id=user.id if user else None,
+                email=username,
+                ip_address=client_ip,
+                details="Invalid credentials",
+            )
+
+        db.commit()
+
+        raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid credentials",
             )
