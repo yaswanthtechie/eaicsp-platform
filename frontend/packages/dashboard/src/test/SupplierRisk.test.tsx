@@ -1,6 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { act } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import SupplierRisk from "../components/SupplierRisk";
 
 vi.mock("../components/Skeleton", () => ({
@@ -13,27 +12,70 @@ vi.mock("../components/Skeleton", () => ({
   }) => <div data-testid="skeleton">{width}-{height}</div>,
 }));
 
-describe("SupplierRisk", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
+const mockSupplierRisk = [
+  {
+    supplier: "BlinkIt",
+    risk_score: 0.25,
+    confidence: 0.91,
+    sentiment_breakdown: {
+      positive: 0.6,
+      negative: 0.1,
+      neutral: 0.3,
+    },
+  },
+  {
+    supplier: "DMart",
+    risk_score: 0.52,
+    confidence: 0.88,
+    sentiment_breakdown: {
+      positive: 0.3,
+      negative: 0.4,
+      neutral: 0.3,
+    },
+  },
+  {
+    supplier: "Big Basket",
+    risk_score: 0.81,
+    confidence: 0.94,
+    sentiment_breakdown: {
+      positive: 0.1,
+      negative: 0.7,
+      neutral: 0.2,
+    },
+  },
+  {
+    supplier: "Wholesale Shop",
+    risk_score: 0.18,
+    confidence: 0.89,
+    sentiment_breakdown: {
+      positive: 0.7,
+      negative: 0.1,
+      neutral: 0.2,
+    },
+  },
+];
 
-  afterEach(() => {
-    vi.useRealTimers();
-  });
+describe("SupplierRisk", () => {
+  const defaultProps = {
+    supplierRisk: mockSupplierRisk,
+    loading: false,
+    error: false,
+    onRetry: vi.fn(),
+  };
 
   it("shows loading skeleton while loading", () => {
-    render(<SupplierRisk />);
+    render(
+      <SupplierRisk
+        {...defaultProps}
+        loading={true}
+      />
+    );
 
     expect(screen.getAllByTestId("skeleton")).toHaveLength(2);
   });
 
-  it("shows supplier risk summary after loading", async () => {
-    render(<SupplierRisk />);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
-    });
+  it("shows supplier risk summary after loading", () => {
+    render(<SupplierRisk {...defaultProps} />);
 
     expect(screen.getByText("Supplier Risk Summary")).toBeInTheDocument();
     expect(
@@ -41,12 +83,8 @@ describe("SupplierRisk", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows supplier names", async () => {
-    render(<SupplierRisk />);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
-    });
+  it("shows supplier names", () => {
+    render(<SupplierRisk {...defaultProps} />);
 
     expect(screen.getByText("BlinkIt")).toBeInTheDocument();
     expect(screen.getByText("DMart")).toBeInTheDocument();
@@ -54,35 +92,23 @@ describe("SupplierRisk", () => {
     expect(screen.getByText("Wholesale Shop")).toBeInTheDocument();
   });
 
-  it("shows risk levels", async () => {
-    render(<SupplierRisk />);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
-    });
+  it("shows risk levels", () => {
+    render(<SupplierRisk {...defaultProps} />);
 
     expect(screen.getAllByText("High Risk").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Medium Risk").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Low Risk").length).toBeGreaterThan(0);
   });
 
-  it("shows risk score and confidence labels", async () => {
-    render(<SupplierRisk />);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
-    });
+  it("shows risk score and confidence labels", () => {
+    render(<SupplierRisk {...defaultProps} />);
 
     expect(screen.getAllByText("Risk Score").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Confidence").length).toBeGreaterThan(0);
   });
 
-  it("shows sentiment information", async () => {
-    render(<SupplierRisk />);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
-    });
+  it("shows sentiment information", () => {
+    render(<SupplierRisk {...defaultProps} />);
 
     expect(screen.getAllByText("Sentiment").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Positive/).length).toBeGreaterThan(0);
@@ -90,13 +116,44 @@ describe("SupplierRisk", () => {
     expect(screen.getAllByText(/Neutral/).length).toBeGreaterThan(0);
   });
 
-  it("shows percentage values", async () => {
-    render(<SupplierRisk />);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
-    });
+  it("shows percentage values", () => {
+    render(<SupplierRisk {...defaultProps} />);
 
     expect(screen.getAllByText(/\d+%/).length).toBeGreaterThan(0);
   });
+
+  it("shows error state when supplier risk fails", () => {
+    const onRetry = vi.fn();
+
+    render(
+      <SupplierRisk
+        {...defaultProps}
+        supplierRisk={[]}
+        error={true}
+        onRetry={onRetry}
+      />
+    );
+
+    expect(
+      screen.getByText("Failed to load supplier risk.")
+    ).toBeInTheDocument();
+
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  });
+
+  it("shows an empty state when there are no suppliers", () => {
+    render(
+      <SupplierRisk
+        supplierRisk={[]}
+        loading={false}
+        error={false}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText("No supplier risk data available."),
+    ).toBeInTheDocument();
+  });
 });
+
