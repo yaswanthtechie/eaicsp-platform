@@ -2123,6 +2123,10 @@ The evaluation results are printed by the training/evaluation pipeline.
 
 | Milestone | Status | Notes |
 |---|---|---|
+| M3 - Multivariate | **Done (evaluation only)** | `src/multivariate_eval.py` trains on correlated normal data and tests relationship breaks (every value within 2σ, the pair wrong). Two test sets: the original planted breaks and a weaker, noisy variant. Not yet in the production models. Details below. |
+| M4 - Root-cause hints | **Done** | `/detect` returns `root_cause_hint`: the nearest labeled past incident type (k=5 cosine vote over a history library built from separate seeds), or `unknown` when similarity < 0.8 or the reading is at the normal centre. The hint and explanation follow the final (adaptive) alert decision. Held-out matching: 59/60. |
+
+
 ### M3 Multivariate Evaluation
 
 The anomaly detectors were evaluated on two synthetic relationship-break

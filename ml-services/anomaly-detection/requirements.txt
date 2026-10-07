@@ -1,2 +1,12 @@
-﻿requests
+﻿numpy
+pandas
+scikit-learn
+joblib
+shap
+matplotlib
+fastapi
+uvicorn
+pytest
+httpx
+requests
 mlflow

@@ -1,4 +1,4 @@
-﻿"""
+"""
 M3 - multivariate (relationship) anomaly evaluation.
 
 Trains fresh models on CORRELATED normal data and checks whether
@@ -183,36 +183,29 @@ def run():
                 "anomaly_seed": ANOMALY_SEED,
                 "n_anomalies": N_ANOMALIES,
                 "features": ",".join(FEATURES),
+                "weaker_offset_factor": 0.5,
+                "weaker_humidity_noise_std": 0.5,
             }
         )
 
-        for row in results.to_dict("records"):
-            key = (
-                "original_"
-                + row["Model"].split(" (")[0]
-                .lower()
-                .replace(" ", "_")
-        )
+        # Both test sets are logged inside the SAME run, every model,
+        # every metric.
+        for prefix, table in (
+            ("original", results),
+            ("weaker", weaker_results),
+        ):
+            for row in table.to_dict("records"):
+                model_key = (
+                    row["Model"].split(" (")[0]
+                    .lower()
+                    .replace(" ", "_")
+                )
 
-        for metric in ("Precision", "Recall", "F1"):
-            mlflow.log_metric(
-                f"{key}_{metric.lower()}",
-                row[metric],
-            )
-
-    for row in weaker_results.to_dict("records"):
-        key = (
-            "weaker_"
-            + row["Model"].split(" (")[0]
-            .lower()
-            .replace(" ", "_")
-        )
-
-        for metric in ("Precision", "Recall", "F1"):
-            mlflow.log_metric(
-                f"{key}_{metric.lower()}",
-                row[metric],
-            )
+                for metric in ("Precision", "Recall", "F1"):
+                    mlflow.log_metric(
+                        f"{prefix}_{model_key}_{metric.lower()}",
+                        row[metric],
+                    )
 
     return results
 

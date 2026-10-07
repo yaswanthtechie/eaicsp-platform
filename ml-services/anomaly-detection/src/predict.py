@@ -1,4 +1,4 @@
-﻿import numpy as np
+import numpy as np
 import pandas as pd
 
 from .adaptive_threshold import (
@@ -542,11 +542,6 @@ def adaptive_predict(
         "score"
     ]
 
-    is_anomaly, threshold = (
-        manager.is_anomaly(
-            score
-        )
-    )
     is_anomaly, threshold = (
         manager.is_anomaly(
             score
