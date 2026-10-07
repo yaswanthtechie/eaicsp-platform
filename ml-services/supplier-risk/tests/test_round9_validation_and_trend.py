@@ -18,7 +18,7 @@ from src.data import (
     load_25_company_dataset,
     load_25_company_trend_dataset,
     load_active_trend_headlines,
-    load_headlines,
+    load_headlines_from_json,
 )
 from src.evaluate import (
     assign_risk_tier,
@@ -96,7 +96,7 @@ def test_active_trend_headlines_prefers_25_company_dataset():
 
 def test_baseline_dataset_preservation_unbroken():
     """Ensure Round 5 baseline 10-company loader is completely preserved and untouched."""
-    baseline = load_headlines()
+    baseline = load_headlines_from_json()
     assert len(baseline) == 10
     assert "Boeing" in baseline
     assert "Apex Logistics" in baseline

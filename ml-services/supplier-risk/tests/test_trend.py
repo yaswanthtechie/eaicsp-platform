@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from src.analyze import app
-from src.data import load_trend_headlines
+from src.data import load_trend_headlines, BASELINE_TREND_PATH
 from src.trend import calculate_supplier_trend, validate_date
 
 
@@ -183,7 +183,7 @@ def test_trend_missing_headline_field():
 
 def test_load_trend_headlines_from_dataset():
     """Verify supplier_trend_headlines.json loads 10 suppliers with valid date-aware records."""
-    trend_data = load_trend_headlines()
+    trend_data = load_trend_headlines(BASELINE_TREND_PATH)
 
     assert len(trend_data) == 10
     expected_suppliers = {
