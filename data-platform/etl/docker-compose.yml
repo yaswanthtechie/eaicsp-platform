@@ -179,16 +179,11 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-      CLUSTER_ID: ${KAFKA_CLUSTER_ID:-MkU3OEVBNTcwNTJENDM2Qk}
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
     volumes:
       - kafka-data:/var/lib/kafka/data
-    healthcheck:
-      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
-      interval: 10s
-      timeout: 10s
-      retries: 10
-      start_period: 30s
     restart: always
+
   airflow-webserver:
     <<: *airflow-common
     command: webserver
@@ -221,7 +216,7 @@ services:
         condition: service_completed_successfully
   airflow-worker:
     <<: *airflow-common
-    command: celery worker --hostname=worker@%h
+    command: celery worker --hostname=worker@%h --pidfile=
     healthcheck:
       # yamllint disable rule:line-length
       test:
@@ -233,7 +228,7 @@ services:
       start_period: 60s
     environment:
       <<: *airflow-common-env
-      # Required to handle warm shutdown of the celery workers properly
+      # Required to handle warm shutdown of the celery worker --hostname=worker@%h --pidfile=s properly
       # See https://airflow.apache.org/docs/docker-stack/entrypoint.html#signal-propagation
       DUMB_INIT_SETSID: "0"
     restart: always
@@ -356,6 +351,9 @@ volumes:
   clickhouse-data:
   clickhouse-logs:
   kafka-data:
+
+
+
 
 
 
