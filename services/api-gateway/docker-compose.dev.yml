@@ -27,8 +27,8 @@ services:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:?set GRAFANA_ADMIN_USER in .env}
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
       - GF_USERS_ALLOW_SIGN_UP=false
-      # Anonymous users can look at dashboards, never change anything.
-      - GF_AUTH_ANONYMOUS_ENABLED=true
+      # Anonymous access is opt-in for local dev (default false). Set GRAFANA_ANON=true in .env to enable.
+      - GF_AUTH_ANONYMOUS_ENABLED=${GRAFANA_ANON:-false}
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
     volumes:
       - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro

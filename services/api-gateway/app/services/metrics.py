@@ -4,6 +4,7 @@ Metrics collection and aggregation service for the API Gateway.
 
 import math
 import threading
+from collections import deque
 from datetime import datetime, timezone
 from typing import Any
 
@@ -191,7 +192,7 @@ class MetricsCollector:
         if service_name not in self._services:
             self._services[service_name] = {
                 "request_volume": 0,
-                "latencies": [],
+                "latencies": deque(maxlen=10_000),
                 "cache_hits": 0,
                 "cache_misses": 0,
                 "circuit_breaker_state": "closed",

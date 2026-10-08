@@ -38,7 +38,7 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
         path = request.url.path
 
         # Do not instrument the /metrics scrape endpoint itself.
-        if path == "/metrics":
+        if path == "/metrics" or path.startswith("/metrics/"):
             return await call_next(request)
 
         method = (

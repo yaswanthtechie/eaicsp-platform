@@ -4,3 +4,7 @@ __pycache__/
 .pytest_cache/
 prometheus/metrics_token
 
+# Raw load-test transient output
+load_tests/*_stats_history.csv
+load_tests/*_failures.csv
+load_tests/*_exceptions.csv

@@ -130,16 +130,6 @@ def setup_tracing(provider: TracerProvider | None = None) -> None:
         else:
             logger.info("OpenTelemetry SDK unavailable; using default tracer")
 
-    # Register as the global provider so opentelemetry.trace.get_tracer() works
-    if _tracer_provider is not None:
-        try:
-            from opentelemetry.util._once import Once
-            trace._TRACER_PROVIDER = _tracer_provider
-            trace._TRACER_PROVIDER_SET_ONCE = Once()
-            trace._TRACER_PROVIDER_SET_ONCE.do_once(lambda: None)
-        except Exception:
-            pass
-
     # Set W3C TraceContext (traceparent / tracestate) as the global propagator.
     if _otel_api_available:
         from opentelemetry.propagate import set_global_textmap
@@ -166,13 +156,6 @@ def shutdown_tracing() -> None:
             pass
         _tracer_provider = None
     _tracing_configured = False
-    if _otel_available:
-        try:
-            from opentelemetry.util._once import Once
-            trace._TRACER_PROVIDER = None
-            trace._TRACER_PROVIDER_SET_ONCE = Once()
-        except Exception:
-            pass
 
 
 def reset_tracing() -> None:
@@ -181,29 +164,16 @@ def reset_tracing() -> None:
 
 
 def set_tracer_provider(provider: TracerProvider | None) -> None:
-    """Set the active TracerProvider directly and sync with OpenTelemetry."""
+    """Set the active TracerProvider directly."""
     global _tracer_provider
     _tracer_provider = provider
-    if _otel_available and provider is not None:
-        try:
-            from opentelemetry.util._once import Once
-            trace._TRACER_PROVIDER = provider
-            trace._TRACER_PROVIDER_SET_ONCE = Once()
-            trace._TRACER_PROVIDER_SET_ONCE.do_once(lambda: None)
-        except Exception:
-            pass
 
 
 def get_tracer():
     """Return the named tracer for this service (lazy, safe to call before setup)."""
-    if not _otel_available:
+    if _tracer_provider is None:
         return None
-    if _tracer_provider is not None:
-        return _tracer_provider.get_tracer(
-            "api-gateway.middleware.tracing",
-            schema_url="https://opentelemetry.io/schemas/1.24.0",
-        )
-    return trace.get_tracer("api-gateway.middleware.tracing", schema_url="https://opentelemetry.io/schemas/1.24.0")
+    return _tracer_provider.get_tracer(__name__)
 
 
 from contextlib import contextmanager

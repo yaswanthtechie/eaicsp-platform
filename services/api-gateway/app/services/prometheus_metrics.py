@@ -20,6 +20,8 @@ Metrics exported:
 
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
 
+from app.core.config import settings
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -41,8 +43,15 @@ REQUEST_LATENCY = Histogram(
     "gateway_request_duration_seconds",
     "HTTP request latency in seconds.",
     labelnames=["method", "route"],
-    # Match the existing MetricsCollector buckets (converted to seconds)
-    buckets=[0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0],
+    # Derived from settings.LATENCY_HISTOGRAM_BUCKETS (converted to seconds)
+    buckets=[
+        b / 1000.0
+        for b in getattr(
+            settings,
+            "LATENCY_HISTOGRAM_BUCKETS",
+            [10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0],
+        )
+    ],
     registry=REGISTRY,
 )
 
@@ -97,7 +106,6 @@ def sync_gauges_from_collector() -> None:
     """
     # Import here to avoid circular imports at module load time.
     from app.services.metrics import metrics_collector  # noqa: PLC0415
-    from app.services.circuit_breaker import circuit_breaker_manager  # noqa: PLC0415
 
     all_metrics = metrics_collector.get_all_metrics()
 

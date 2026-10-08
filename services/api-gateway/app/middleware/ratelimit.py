@@ -43,13 +43,17 @@ def get_real_ip(request: Request) -> str:
 # Global Rate Limiter
 # --------------------------------------------------
 
+import logging
 import os
+
+logger = logging.getLogger("api_gateway.ratelimit")
 
 _env_default_limit = os.getenv("GATEWAY_RATE_LIMIT", "100/minute")
 _env_limit_enabled = os.getenv("GATEWAY_RATE_LIMIT_ENABLED", "true").lower() not in ("false", "0", "no")
 
 _load_test_mode = getattr(settings, "LOAD_TEST_MODE", False)
 if _load_test_mode:
+    logger.warning("LOAD_TEST_MODE is ON: rate limiting disabled")
     _env_limit_enabled = False
 
 limiter = Limiter(

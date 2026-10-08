@@ -574,13 +574,33 @@ class TestMetricsBearerToken:
         with patch.dict("os.environ", {"METRICS_BEARER_TOKEN": ""}):
             response = client.get("/metrics")
             assert response.status_code == 503
-            assert response.json()["detail"] == "Metrics authentication is not configured"
+            assert response.json()["detail"] == "Metrics token not configured"
 
         with patch.dict("os.environ"):
             os.environ.pop("METRICS_BEARER_TOKEN", None)
             response = client.get("/metrics")
             assert response.status_code == 503
-            assert response.json()["detail"] == "Metrics authentication is not configured"
+            assert response.json()["detail"] == "Metrics token not configured"
+
+    def test_metrics_refuses_when_token_not_configured(self, client, monkeypatch):
+        """When token is unconfigured and METRICS_ALLOW_ANONYMOUS is unset, /metrics returns 503."""
+        monkeypatch.setenv("METRICS_BEARER_TOKEN", "")
+        monkeypatch.delenv("METRICS_ALLOW_ANONYMOUS", raising=False)
+
+        response = client.get("/metrics")
+
+        assert response.status_code == 503
+        assert response.json()["detail"] == "Metrics token not configured"
+
+    def test_metrics_open_only_with_explicit_anonymous_flag(self, client, monkeypatch):
+        """When token is empty but METRICS_ALLOW_ANONYMOUS=true, /metrics allows access (200)."""
+        monkeypatch.setenv("METRICS_BEARER_TOKEN", "")
+        monkeypatch.setenv("METRICS_ALLOW_ANONYMOUS", "true")
+
+        response = client.get("/metrics")
+
+        assert response.status_code == 200
+        assert "# HELP" in response.text
 
     def test_metrics_rejected_when_token_missing(self, client):
         """When METRICS_BEARER_TOKEN is set, requests without Authorization header fail 401."""
@@ -602,4 +622,3 @@ class TestMetricsBearerToken:
             response = client.get("/metrics", headers=METRICS_AUTH_HEADER)
             assert response.status_code == 200
             assert "# HELP" in response.text
-

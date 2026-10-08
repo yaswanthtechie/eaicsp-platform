@@ -275,7 +275,7 @@ class ProxyService:
         route_prefix, target_base_url = route
         service_name = get_service_name(route_prefix)
         service_id = route_prefix.strip("/").split("/")[-1]
-        caller_service = request.headers.get("x-caller-service") or "api-gateway"
+        caller_service = "api-gateway"
         start_time = time.perf_counter()
 
         # ------------------------------------------------------------------

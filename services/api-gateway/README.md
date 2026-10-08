@@ -307,6 +307,8 @@ variables. Unknown variables are silently ignored.
 | `CIRCUIT_BREAKER_FAILURE_RATE_THRESHOLD`| `0.50`                   | Failure rate threshold (>50%) before breaker trips OPEN|
 | `CIRCUIT_BREAKER_WINDOW_SECONDS`        | `60`                     | Rolling time window in seconds for failure rate        |
 | `CIRCUIT_BREAKER_RECOVERY_TIMEOUT`      | `30.0`                   | Seconds in OPEN before transitioning to HALF-OPEN      |
+| `METRICS_BEARER_TOKEN`                  | `""`                     | Bearer token required for Prometheus to scrape `/metrics` |
+| `METRICS_ALLOW_ANONYMOUS`               | `false`                  | When `false` (default), `/metrics` returns 503 if token is unset; set `true` only for unauthenticated local development |
 
 > **Security**: Never commit a real `SECRET_KEY` or credentials to version control.
 > Use environment-specific secrets management in production.
@@ -503,7 +505,32 @@ Services start automatically with:
 - **Jaeger** → [http://localhost:16686](http://localhost:16686) (OTLP HTTP on port 4318)
 
 
-### Prometheus Scraping
+### Prometheus Scraping & Token Configuration
+
+> [!IMPORTANT]
+> **Prometheus Scrape Token Setup (`prometheus/metrics_token`)**:
+> On a fresh clone, `prometheus/metrics_token` does not exist because secret files are git-ignored.
+> You **must** create `prometheus/metrics_token` as a file before launching Docker Compose:
+> ```bash
+> # Linux / macOS
+> echo "your-bearer-token" > prometheus/metrics_token
+> # Windows PowerShell
+> Set-Content -Path prometheus/metrics_token -Value "your-bearer-token" -NoNewline
+> ```
+> Ensure `METRICS_BEARER_TOKEN` in `.env` matches the token inside `prometheus/metrics_token`.
+> If this file is missing when starting Docker, Docker will automatically create a **directory** named `prometheus/metrics_token` for the volume mount, causing Prometheus scrape authentication to fail.
+>
+> **Security Warning**: Never commit real tokens or credentials to version control. Both `prometheus/metrics_token` and `.env` are git-ignored.
+
+The `/metrics` endpoint is **fail-closed by default**:
+- **Authentication**: When `METRICS_BEARER_TOKEN` is configured, callers (including Prometheus) must provide a matching `Authorization: Bearer <token>` header. Missing or invalid bearer tokens are rejected with HTTP `401 Unauthorized` (`Invalid metrics token`).
+- **Fail-Closed Default**: A missing or unconfigured `METRICS_BEARER_TOKEN` does **not** silently expose `/metrics`. With `METRICS_ALLOW_ANONYMOUS=false` (the default), `/metrics` refuses requests and returns HTTP `503 Service Unavailable` (`Metrics token not configured`).
+- **Opt-In Anonymous Access**: Explicit unauthenticated access is permitted **only** when `METRICS_ALLOW_ANONYMOUS=true` is set (strictly intended for local development convenience).
+
+| Environment Variable | Default | Description |
+|---|---|---|
+| `METRICS_BEARER_TOKEN` | `""` | Bearer token required for Prometheus to scrape `/metrics`. |
+| `METRICS_ALLOW_ANONYMOUS` | `false` | Default `false` (fail-closed, returns 503 if token is unset). Set `true` only for unauthenticated local development. |
 
 `prometheus/prometheus.yml` configures Prometheus to scrape the API Gateway `/metrics` endpoint
 at `host.docker.internal:8000` every 2 seconds:
@@ -513,6 +540,10 @@ scrape_configs:
   - job_name: "api-gateway"
     metrics_path: "/metrics"
     scrape_interval: 2s
+    scrape_timeout: 2s
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/metrics_token
     static_configs:
       - targets: ["host.docker.internal:8000"]
 ```
