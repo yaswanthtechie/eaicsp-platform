@@ -102,7 +102,10 @@ def get_seed_users() -> list[dict]:
     ]
 
 def seed_roles(db) -> dict:
-    """Insert any missing roles. Safe to run again on an existing database."""
+    """Insert any missing roles. Safe to run again on an existing database.
+
+    Flushes but does NOT commit: the caller must call db.commit().
+    """
     role_map = {}
 
     for role_name, description in ROLES:

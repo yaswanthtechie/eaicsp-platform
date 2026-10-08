@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status,Query
-from fastapi.responses import StreamingResponse,JSONResponse
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import StreamingResponse, JSONResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from datetime import datetime, timezone,timedelta
@@ -45,7 +45,7 @@ from app.core.dependencies import (
     get_current_user,
     require_any_role,
     require_permission_or_role,
-
+    ensure_can_grant_role
 )
 from app.core.password_validator import validate_password
 from app.core.security import hash_password
@@ -89,7 +89,7 @@ def admin_test(user=Depends(require_role("ceo","vp_operations","platform_admin")
 def list_users(
     db: Session = Depends(get_db),
     current_user=Depends(
-        require_permission_or_role("users:read","ceo", "vp_operations")
+        require_permission_or_role("user:read","ceo", "vp_operations")
     )
 ):
     users = (
@@ -157,6 +157,7 @@ def create_user(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid role"
             )
+        ensure_can_grant_role(current_user, role.name)
 
         role_id = role.id
         role_name = role.name
@@ -296,6 +297,7 @@ def change_user_role(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid role"
         )
+    ensure_can_grant_role(current_user, new_role.name, target_user_id=user.id)
 
     old_role = (
         user.role.name
@@ -355,7 +357,7 @@ def role_change_history(
     user_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(
-        require_any_role("ceo","vp_operations")
+        require_permission_or_role("role:assign", "ceo", "vp_operations")
     )
 ):
     user = (
@@ -406,7 +408,7 @@ def force_reset_password(
     request: ForceResetPasswordRequest,
     db: Session = Depends(get_db),
     current_user=Depends(
-        require_permission_or_role("users:manage", "ceo", "vp_operations")
+        require_permission_or_role("user:manage", "ceo", "vp_operations")
     )
 ):
     user = (
@@ -462,7 +464,7 @@ def list_user_sessions(
     user_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(
-        require_permission_or_role("users:read", "ceo", "vp_operations")
+        require_permission_or_role("user:read", "ceo", "vp_operations")
     )
 ):
     user = (
@@ -514,7 +516,7 @@ def revoke_user_session(
     session_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(
-        require_permission_or_role("users:manage", "ceo", "vp_operations")
+        require_permission_or_role("user:manage", "ceo", "vp_operations")
     )
 ):
     session = (

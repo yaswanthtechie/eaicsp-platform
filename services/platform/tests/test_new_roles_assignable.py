@@ -366,3 +366,58 @@ def test_platform_admin_can_create_user_but_analyst_cannot():
     )
 
     assert response.status_code == 403, response.text
+
+def _platform_admin_token():
+    ceo_token = _login("ceo@company.com", os.environ["CEO_PASSWORD"])
+    email, created = _create_user(ceo_token, "platform_admin")
+    return _login(email, TEST_PASSWORD), created
+
+def _new_user_payload(role):
+    return {
+        "email": f"{role}.{uuid.uuid4().hex[:8]}@company.com",
+        "full_name": f"Test {role}",
+        "password": TEST_PASSWORD,
+        "role": role,
+    }
+
+@pytest.mark.parametrize("role", ["ceo", "vp_operations", "platform_admin"])
+def test_platform_admin_cannot_create_a_privileged_user(role):
+    token, _ = _platform_admin_token()
+    response = client.post("/api/v1/admin/users", headers=_auth(token), json=_new_user_payload(role))
+    assert response.status_code == 403, response.text
+
+def test_platform_admin_can_still_create_a_normal_user():
+    token, _ = _platform_admin_token()
+    response = client.post("/api/v1/admin/users", headers=_auth(token), json=_new_user_payload("analyst"))
+    assert response.status_code == 201, response.text
+
+def test_platform_admin_cannot_promote_themselves_or_others_to_ceo():
+    ceo_token = _login("ceo@company.com", os.environ["CEO_PASSWORD"])
+    token, admin = _platform_admin_token()
+    _, victim = _create_user(ceo_token, "analyst")
+
+    own = client.patch(f"/api/v1/admin/users/{admin['user_id']}/role", headers=_auth(token), json={"role": "ceo"})
+    other = client.patch(f"/api/v1/admin/users/{victim['user_id']}/role", headers=_auth(token), json={"role": "ceo"})
+
+    assert own.status_code == 403
+    assert other.status_code == 403
+
+def test_platform_admin_cannot_change_their_own_role_at_all():
+    token, admin = _platform_admin_token()
+    response = client.patch(f"/api/v1/admin/users/{admin['user_id']}/role", headers=_auth(token), json={"role": "analyst"})
+    assert response.status_code == 403
+
+def test_ceo_can_still_assign_any_role():
+    ceo_token = _login("ceo@company.com", os.environ["CEO_PASSWORD"])
+    _, created = _create_user(ceo_token, "analyst")
+    response = client.patch(f"/api/v1/admin/users/{created['user_id']}/role", headers=_auth(ceo_token), json={"role": "vp_operations"})
+    assert response.status_code == 200, response.text
+
+def test_platform_admin_can_read_role_history_and_list_users():
+    token, admin = _platform_admin_token()
+
+    history = client.get(f"/api/v1/admin/users/{admin['user_id']}/role-history", headers=_auth(token))
+    users = client.get("/api/v1/admin/users", headers=_auth(token))
+
+    assert history.status_code == 200, history.text
+    assert users.status_code == 200, users.text

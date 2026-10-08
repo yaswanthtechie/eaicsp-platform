@@ -371,3 +371,23 @@ def test_permission_or_role_respects_hierarchy():
     with pytest.raises(HTTPException) as exc:
         checker(current_user=_user("analyst"))
     assert exc.value.status_code == 403
+
+def test_require_permission_or_role_rejects_unknown_permission():
+    import pytest
+    from app.core.dependencies import require_permission_or_role
+
+    with pytest.raises(ValueError, match="Unknown permission"):
+        require_permission_or_role("users:manage", "ceo")
+
+
+def test_every_admin_route_permission_exists():
+    """Every permission string used in admin_routes.py must be a real permission."""
+    import re
+    from pathlib import Path
+    from app.core.permissions import PERMISSIONS
+
+    source = (Path(__file__).resolve().parent.parent / "app" / "routes" / "admin_routes.py").read_text(encoding="utf-8")
+    used = set(re.findall(r'require_permission_or_role\(\s*"([^"]+)"', source))
+
+    assert used, "expected admin_routes.py to use require_permission_or_role"
+    assert used <= set(PERMISSIONS), used - set(PERMISSIONS)

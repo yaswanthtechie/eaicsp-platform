@@ -10,8 +10,7 @@ from jose import JWTError
 from app.core.security import decode_token
 from app.database import get_db
 from app.models.users import User
-from app.core.permissions import ROLE_PERMISSIONS
-
+from app.core.permissions import PERMISSIONS,ROLE_PERMISSIONS
 # ============================================================
 # Authentication Schemes
 # ============================================================
@@ -365,6 +364,10 @@ def require_permission_or_role(permission: str, *allowed_roles: str):
     require_role() does, including ROLE_HIERARCHY (V1 behaviour).
     """
 
+    if permission not in PERMISSIONS:
+        # A misspelled permission would silently fall through to the legacy
+        # role check and lock out only the new roles. Fail at startup instead.
+        raise ValueError(f"Unknown permission: {permission!r}")
     def checker(current_user: User = Depends(get_current_user)):
         user_role = current_user.role.name if current_user.role else None
 
@@ -387,3 +390,37 @@ def require_permission_or_role(permission: str, *allowed_roles: str):
         )
 
     return checker
+
+# ============================================================
+# Role-grant guard
+# ============================================================
+# Roles that hold (or can reach) business-wide authority. Only the V1 admins
+# (ceo / vp_operations) may hand these out.
+PRIVILEGED_ROLES = frozenset({"ceo", "vp_operations", "platform_admin"})
+LEGACY_ROLE_ADMINS = frozenset({"ceo", "vp_operations"})
+
+def ensure_can_grant_role(actor: User, target_role: str, target_user_id=None) -> None:
+    """
+    Stop a user who only holds `user:manage` / `role:assign` (for example
+    platform_admin) from escalating privileges.
+
+    ceo and vp_operations are unchanged: they can assign any role, as before.
+    Everyone else may not grant a privileged role, and may not change their
+    own role.
+    """
+    actor_role = actor.role.name if actor.role else None
+
+    if actor_role in LEGACY_ROLE_ADMINS:
+        return
+
+    if target_role in PRIVILEGED_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Forbidden: your role cannot grant the '{target_role}' role",
+        )
+
+    if target_user_id is not None and target_user_id == actor.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: you cannot change your own role",
+        )
