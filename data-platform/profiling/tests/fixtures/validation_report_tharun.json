@@ -1,0 +1,238 @@
+{
+  "config_version": "1.0.0",
+  "passed": false,
+  "total_rows_affected": 108,
+  "errors": [
+    {
+      "rule": "date_not_null",
+      "field": "date",
+      "count": 5
+    },
+    {
+      "rule": "sku_format",
+      "field": "sku_id",
+      "count": 7
+    },
+    {
+      "rule": "warehouse_id_not_null",
+      "field": "warehouse_id",
+      "count": 6
+    },
+    {
+      "rule": "unit_price_valid",
+      "field": "unit_price",
+      "count": 1
+    },
+    {
+      "rule": "composite_pk_unique",
+      "field": null,
+      "count": 45
+    },
+    {
+      "rule": "unparseable_dates",
+      "field": "date",
+      "count": 4
+    }
+  ],
+  "warnings": [
+    {
+      "rule": "quantity_positive",
+      "field": "quantity_sold",
+      "count": 2
+    },
+    {
+      "rule": "date_in_range",
+      "field": "date",
+      "count": 43
+    }
+  ],
+  "sample_bad_rows": {
+    "date_not_null": [
+      {
+        "row_index": 78,
+        "failed_value": NaN,
+        "rule_name": "date_not_null"
+      },
+      {
+        "row_index": 197,
+        "failed_value": NaN,
+        "rule_name": "date_not_null"
+      },
+      {
+        "row_index": 451,
+        "failed_value": NaN,
+        "rule_name": "date_not_null"
+      },
+      {
+        "row_index": 474,
+        "failed_value": NaN,
+        "rule_name": "date_not_null"
+      },
+      {
+        "row_index": 481,
+        "failed_value": NaN,
+        "rule_name": "date_not_null"
+      }
+    ],
+    "sku_format": [
+      {
+        "row_index": 116,
+        "failed_value": "BAD-9999",
+        "rule_name": "sku_format"
+      },
+      {
+        "row_index": 230,
+        "failed_value": "BAD-9999",
+        "rule_name": "sku_format"
+      },
+      {
+        "row_index": 237,
+        "failed_value": "BAD-9999",
+        "rule_name": "sku_format"
+      },
+      {
+        "row_index": 347,
+        "failed_value": "BAD-9999",
+        "rule_name": "sku_format"
+      },
+      {
+        "row_index": 356,
+        "failed_value": "BAD-9999",
+        "rule_name": "sku_format"
+      }
+    ],
+    "warehouse_id_not_null": [
+      {
+        "row_index": 42,
+        "failed_value": NaN,
+        "rule_name": "warehouse_id_not_null"
+      },
+      {
+        "row_index": 181,
+        "failed_value": NaN,
+        "rule_name": "warehouse_id_not_null"
+      },
+      {
+        "row_index": 190,
+        "failed_value": NaN,
+        "rule_name": "warehouse_id_not_null"
+      },
+      {
+        "row_index": 268,
+        "failed_value": NaN,
+        "rule_name": "warehouse_id_not_null"
+      },
+      {
+        "row_index": 270,
+        "failed_value": NaN,
+        "rule_name": "warehouse_id_not_null"
+      }
+    ],
+    "quantity_positive": [
+      {
+        "row_index": 23,
+        "failed_value": -8.0,
+        "rule_name": "quantity_positive"
+      },
+      {
+        "row_index": 120,
+        "failed_value": -12.0,
+        "rule_name": "quantity_positive"
+      }
+    ],
+    "unit_price_valid": [
+      {
+        "row_index": 7,
+        "failed_value": 0.005,
+        "rule_name": "unit_price_valid"
+      }
+    ],
+    "composite_pk_unique": [
+      {
+        "row_index": 16,
+        "failed_value": null,
+        "rule_name": "composite_pk_unique"
+      },
+      {
+        "row_index": 20,
+        "failed_value": null,
+        "rule_name": "composite_pk_unique"
+      },
+      {
+        "row_index": 21,
+        "failed_value": null,
+        "rule_name": "composite_pk_unique"
+      },
+      {
+        "row_index": 26,
+        "failed_value": null,
+        "rule_name": "composite_pk_unique"
+      },
+      {
+        "row_index": 33,
+        "failed_value": null,
+        "rule_name": "composite_pk_unique"
+      }
+    ],
+    "unparseable_dates": [
+      {
+        "row_index": 32,
+        "failed_value": "NOT_A_DATE",
+        "rule_name": "unparseable_dates"
+      },
+      {
+        "row_index": 58,
+        "failed_value": "NOT_A_DATE",
+        "rule_name": "unparseable_dates"
+      },
+      {
+        "row_index": 91,
+        "failed_value": "NOT_A_DATE",
+        "rule_name": "unparseable_dates"
+      },
+      {
+        "row_index": 284,
+        "failed_value": "NOT_A_DATE",
+        "rule_name": "unparseable_dates"
+      }
+    ],
+    "date_in_range": [
+      {
+        "row_index": 0,
+        "failed_value": "2024-04-06",
+        "rule_name": "date_in_range"
+      },
+      {
+        "row_index": 6,
+        "failed_value": "2024-04-08",
+        "rule_name": "date_in_range"
+      },
+      {
+        "row_index": 11,
+        "failed_value": "2024-04-06",
+        "rule_name": "date_in_range"
+      },
+      {
+        "row_index": 26,
+        "failed_value": "2024-04-09",
+        "rule_name": "date_in_range"
+      },
+      {
+        "row_index": 40,
+        "failed_value": "2024-04-08",
+        "rule_name": "date_in_range"
+      }
+    ]
+  },
+  "rule_timings": {
+    "date_not_null": 0.000111,
+    "sku_format": 0.001593,
+    "warehouse_id_not_null": 9e-05,
+    "quantity_positive": 0.000401,
+    "unit_price_valid": 0.000278,
+    "composite_pk_unique": 0.004146,
+    "unparseable_dates": 0.000589,
+    "date_in_range": 0.000748
+  },
+  "skipped_rules": []
+}
