@@ -12,6 +12,7 @@
     "coverage": "vitest run --coverage",
     "preview": "vite preview",
     "test:e2e": "playwright test",
+    "test:e2e:auth": "playwright test -c playwright.auth.config.ts",
     "test:all": "npm run test && npm run test:e2e"
   },
   "dependencies": {
@@ -45,7 +46,7 @@
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.7",
-    "@types/node": "^24.19.0",
+    "@types/node": "^24.19.1",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.4",

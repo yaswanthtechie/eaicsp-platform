@@ -18,6 +18,39 @@ function kpi(page: Page, title: string, value: number) {
   });
 }
 
+test.beforeEach(async ({ page }, testInfo) => {
+  const authTests = [
+    "logs in successfully with real credentials",
+    "shows an error for invalid password",
+  ];
+
+  if (authTests.includes(testInfo.title)) {
+    return;
+  }
+
+  await page.addInitScript(() => {
+    const payload = btoa(
+      JSON.stringify({
+        role: "ceo",
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      }),
+    )
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+
+    sessionStorage.setItem(
+      "dashboard_auth",
+      JSON.stringify({
+        access_token: `test.${payload}.signature`,
+        refresh_token: "test-refresh-token",
+        token_type: "bearer",
+        role: "ceo",
+      }),
+    );
+  });
+});
+
 test("opens dashboard and displays KPIs", async ({ page }) => {
   await page.goto("/");
 

@@ -9,7 +9,16 @@ import {
   useState,
   type ProfilerOnRenderCallback,
 } from "react";
+import {
+  clearAuthSession,
+  getAuthSession,
+  getTokenExpiry,
+  logout,
+  refreshAuthSession,
+} from "./api/auth";
 import { useDashboardData } from "./api/dashboardGraphql";
+import Login from "./components/Login";
+import { Button } from "@/components/ui/button";
 import AlertsPanel from "./components/AlertsPanel";
 import DashboardFilters from "./components/DashboardFilters";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -38,6 +47,7 @@ import type {
 import { getKpiSnapshot, saveKpiSnapshot } from "./utils/kpiSnapshot";
 const ForecastChart = lazy(() => import("./components/ForecastChart"));
 const ForecastAccuracy = lazy(() => import("./components/ForecastAccuracy"));
+const USE_MOCK_AUTH = import.meta.env.VITE_USE_MOCK_AUTH === "true";
 const handleProfilerRender: ProfilerOnRenderCallback = (
   id,
   phase,
@@ -91,14 +101,19 @@ function buildKpis(
       ];
 }
 
-function App() {
+function DashboardApp({ onLogout }: { onLogout : () => void }) {
   const {
     data: dashboardData,
     loading: dashboardLoading,
     error: dashboardError,
     refetch,
   } = useDashboardData();
-  const [role, setRole] = useState<UserRole>(roleFromUrl);
+  const authSession = getAuthSession();
+  const [role, setRole] = useState<UserRole>(
+    USE_MOCK_AUTH
+      ? roleFromUrl()
+      : authSession?.role ?? "ceo",
+  );
   const [alerts, setAlerts] = useState<AlertMessage[]>([]);
   const [liveInventory, setLiveInventory] =
     useState<InventoryItem[]>(() => dashboardData?.dashboard.inventory ?? []);
@@ -128,9 +143,9 @@ function App() {
       const params = new URLSearchParams(
         window.location.search,
       );
-
+    if(USE_MOCK_AUTH) {
       setRole(roleFromUrl());
-
+    }
       setFilters({
         warehouse: params.get("warehouse") || "All",
         category: params.get("category") || "All",
@@ -404,6 +419,9 @@ function App() {
       >
         Executive Dashboard
       </h1>
+      <Button type="button" onClick={onLogout}>
+        Logout
+      </Button>
     </div>
   );
 
@@ -793,6 +811,66 @@ function App() {
 
       </div>
     </div>
+  );
+}
+function App() {
+  const [authSession, setAuthSession] = useState(getAuthSession);
+  const [authError, setAuthError] = useState("");
+
+  useEffect(() => {
+    if (USE_MOCK_AUTH || !authSession) {
+      return;
+    }
+
+    const refreshBeforeExpiry = async () => {
+      try {
+        const refreshedSession = await refreshAuthSession();
+        setAuthSession(refreshedSession);
+      } catch {
+        clearAuthSession();
+        setAuthSession(null);
+        setAuthError("Your session has expired. Please sign in again.");
+      }
+    };
+
+    const refreshAt = Math.max(
+      getTokenExpiry(authSession.access_token) - Date.now() - 60_000,
+      0,
+    );
+
+    const timer = window.setTimeout(() => {
+      void refreshBeforeExpiry();
+    }, refreshAt);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [authSession]);
+
+  if (USE_MOCK_AUTH) {
+    return <DashboardApp onLogout={() => {}} />;
+  }
+
+  if (!authSession) {
+    return (
+      <Login
+        errorMessage={authError}
+        onLogin={() => {
+          setAuthError("");
+          setAuthSession(getAuthSession());
+        }}
+      />
+    );
+  }
+
+  return (
+    <DashboardApp
+      onLogout={async () => {
+        await logout(authSession.refresh_token);
+        clearAuthSession();
+        setAuthSession(null);
+      }}
+    />
   );
 }
 

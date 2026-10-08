@@ -6,9 +6,11 @@ frontend/
 └── packages/
     └── dashboard/
         └── e2e/
+        |     ├── dashboard.auth.spec.ts
               └── dashboard.spec.ts
         └── src/
             ├──api/
+            |    ├── auth.ts
             |    └── dashboardGraphql.ts
             ├── components/
             │   ├── AlertsPanel.tsx
@@ -26,6 +28,7 @@ frontend/
             |   ├── KpiGrid.tsx
             |   ├── OfflineBanner.tsx
             │   ├── Skeleton.tsx
+            |   ├── Login.tsx
             |   ├── export/
             │   |   ├── ExportCsvButton.tsx
             |   |   └── ExportPdfButton.tsx
@@ -37,6 +40,7 @@ frontend/
             |       ├── checkbox.tsx
             |       ├── input.tsx
             |       ├── popover.tsx
+            |       ├── separator.tsx
             |       └── select.tsx
             ├── graphql/
             │   ├── client.ts
@@ -78,10 +82,12 @@ frontend/
             │   ├── DashboardFilters.test.tsx
             │   ├── ForecastAccuracy.test.tsx
             │   ├── InventoryHealth.test.tsx
+            |   ├── kpiSnapshot.test.tsx
             |   ├── setup.ts
             |   ├── SupplierRiskDistribution.test.tsx
             │   ├── SupplierRisk.test.tsx
             |   ├── dashboardGraphql.test.tsx
+            |   ├── theme.test.tsx
             |   └── useWebSocket.test.ts
             ├── utils/
             │   ├── exportCsv.ts
@@ -92,6 +98,7 @@ frontend/
             ├── App.tsx
             ├── main.tsx
             ├── index.css
+            ├── theme.tsx
             └── tokens.ts
 # 1. What I Built
 
@@ -278,7 +285,7 @@ The current flow is:
 
 ```text
 Dashboard Component
-        ↓
+↓
 Apollo Client
 ↓
 GraphQL Query
@@ -347,19 +354,19 @@ Examples include:
 
 ### Role-Based Views
 
-The dashboard supports two mock roles:
+The dashboard supports two roles:
 
 * `ceo`
 * `warehouse_manager`
 
-The role is mocked locally and does not call a live service.
+In real authentication mode, the role is read from the `role` claim in Rahul's Platform JWT after successful login.
 
-The role can be changed through the URL using the role query parameter:
+In mock authentication mode, the role can be changed through the URL using the role query parameter:
 
     ?role=ceo
     ?role=warehouse_manager
 
-The dashboard reads the role from the URL and renders the corresponding view.
+In real authentication mode, the dashboard reads the role from the Platform JWT and renders the corresponding view. In mock authentication mode, it reads the role from the URL.
 
 The `ceo` view provides executive-level information such as inventory, supplier risk, shipments, and  related dashboard insights.
 
@@ -367,11 +374,178 @@ The `warehouse_manager` view focuses on inventory and warehouse-related informat
 
 If a warehouse manager does not have a warehouse assigned, the dashboard displays "No warehouse is assigned to this user." instead of showing data from all warehouses.
 
-Role-based tests verify that the dashboard renders the appropriate content for both supported roles and that role-specific content is hidden when it should not be displayed.
+The dashboard has been tested with real Platform authentication for both supported roles to verify that the correct role-based view is rendered.
 
-The role structure is kept contract-first so that the mock role can later be replaced by the real role service.
+The role structure is kept consistent between mock authentication and real Platform authentication, using the same `ceo` and `warehouse_manager` role names.
 
-`?role=` is a development/demo switch for this contract-first round. In production, the role will come from Platform's JWT (`role` claim), using the same role names as Rahul's `Role` enum.
+`?role=` is a development/demo switch for mock authentication only. It is not used to determine the role after real Platform Login.In real authentication mode,the role  comes from Platform's JWT (`role` claim), using the same role names as Rahul's `Role` enum.
+
+# Round 14 — Real Authentication
+
+## Real Login Flow
+
+The Executive Dashboard now supports real authentication using Rahul's Platform service.
+
+The authentication flow is:
+
+```text
+Login
+  ↓
+Platform Auth API
+  ↓
+JWT
+  ↓
+role claim
+  ↓
+Role-based Dashboard
+```
+
+Authentication requests are kept inside the dashboard `src/api/` layer.
+
+The Platform authentication endpoints used by the dashboard are:
+
+* `POST /api/v1/auth/login`
+* `POST /api/v1/auth/refresh`
+* `POST /api/v1/auth/logout`
+* `GET /api/v1/auth/me/permissions`
+
+The main authentication files are:
+
+```text
+src/
+├── api/
+│   └── auth.ts
+├── components/
+│   └── Login.tsx
+└── ...
+```
+
+`Login.tsx` provides the login form and handles the username/password submission.
+`auth.ts` contains the API calls for login, refresh, logout, and permissions.
+
+The access token is stored in the dashboard authentication session and refreshed before it expires.
+
+## Real Role-Based Authentication
+
+The previous Round 9-11 mocked role flow has been updated to use the `role` claim from the real Platform JWT.
+
+Both supported roles were verified with the real Platform service:
+
+* `ceo`
+* `warehouse_manager`
+
+After successful login, the dashboard reads the authenticated role and renders the corresponding role-based view.
+
+## Token Refresh and Logout
+
+The dashboard refreshes the access token before it expires using the Platform refresh endpoint.
+
+Logout:
+
+1. Calls the Platform logout endpoint.
+2. Clears the dashboard authentication session.
+3. Returns the user to the login screen.
+
+If the refresh fails or the session expires, the authentication session is cleared and the user is returned to the login screen with a session-expired message.
+
+## Authentication Error Handling
+
+The real authentication flow handles the following cases:
+
+* **Wrong password** → displays an authentication error.
+* **Expired session** → clears the session and returns the user to login.
+* **Platform service unavailable** → displays an authentication service error instead of a blank screen.
+* **Failed token refresh** → clears the session and requires the user to sign in again.
+
+## Mock Authentication
+
+The existing mocked authentication flow is still available for development when the Platform service is not running.
+
+Set:
+
+```env
+VITE_USE_MOCK_AUTH=true
+```
+
+When mock authentication is enabled, the development role switch remains available:
+
+```text
+?role=ceo
+?role=warehouse_manager
+```
+
+Real authentication is enabled with:
+
+```env
+VITE_USE_MOCK_AUTH=false
+VITE_AUTH_BASE_URL=
+```
+
+The KPI and dashboard data continue to use the mocked GraphQL schema from Round 12-13. Only authentication is connected to the real Platform service in Round 14.
+
+## CORS and Local Development
+
+During the initial real-login integration, the browser reported:
+
+```text
+Access to fetch at 'http://127.0.0.1:8005/api/v1/auth/login'
+from origin 'http://localhost:5173' has been blocked by CORS policy:
+No 'Access-Control-Allow-Origin' header is present on the requested resource.
+```
+
+Rahul's Platform backend was not modified.
+
+For local development, the dashboard uses a Vite proxy:
+
+```text
+Dashboard
+localhost:5173
+↓
+/api/v1/auth
+↓
+Platform Service
+localhost:8005
+```
+
+This allows the dashboard running on port `5173` to communicate with the Platform authentication service without the browser blocking the local request.
+
+
+## Authentication Testing
+
+Real authentication is tested separately from the main dashboard E2E tests.
+
+The authentication Playwright test is:
+
+```text
+e2e/dashboard.auth.spec.ts
+```
+
+It tests the real login flow by:
+
+* Opening the login page.
+* Filling the login credentials.
+* Clicking the login button.
+* Verifying that successful credentials enter the dashboard.
+* Verifying that incorrect credentials display the authentication error.
+
+The test uses the real Platform authentication service and verifies the actual login button and credential flow.
+
+Run the authentication tests with:
+
+```powershell
+npm run test:e2e:auth
+```
+
+Latest result:
+
+**Authentication E2E: 2/2 passed**
+
+The main dashboard Playwright tests continue to run separately:
+
+```powershell
+npm run test:e2e
+```
+Expired-session and Platform-unreachable handling are implemented in the authentication flow. They are not counted as separately Playwright-tested cases because dedicated tests have not been added for those scenarios.
 
 ### PDF and CSV Export
 
@@ -747,8 +921,9 @@ Add:
 ```gitignore
 lighthouse/report.report.html
 lighthouse/report.report.json
+```
 
-### Performance Follow-Up
+## Performance Follow-Up
 
 The following performance work remains as follow-up:
 
@@ -945,9 +1120,7 @@ npm run test:e2e
 Test verification completed successfully.
 
 * Vitest: 19 test files, 147/147 tests passed
-* Playwright E2E: 4/4 tests passed
-* Total: 151 tests passed
+* Playwright Dashboard E2E: 4/4 tests passed
+* Authentication E2E: 2/2 passed
+* Total: 151 tests passed + separate 2 authentication e2e passed
 * Offline PWA snapshot test is also passing now.
-
-
-
