@@ -132,3 +132,64 @@ def test_compliance_internal_check_invalid_decision_fails_contract():
             decision="APPROVED",
             reason="Invalid enum value",
         )
+
+
+# ============================================================================
+# 3. Geethika's Compliance Event Contract: compliance.supplier.status_changed
+# ============================================================================
+
+from app.schemas.events import (
+    ComplianceSupplierStatusChangedEvent,
+    ComplianceSupplierStatusChangedPayload,
+    DeadLetterEnvelope,
+)
+
+
+def test_compliance_status_changed_event_contract_shape():
+    """
+    Contract test for Geethika's compliance.supplier.status_changed event envelope and payload.
+    Ensures standard envelope (event_id, occurred_at, event_version) and documented payload fields:
+    supplier_id, old_status, new_status, matched_list, reason.
+    """
+    payload_data = {
+        "event_id": "evt-12345",
+        "event_type": "compliance.supplier.status_changed",
+        "producer": "compliance-service",
+        "occurred_at": "2026-10-08T12:00:00Z",
+        "event_version": "1.0",
+        "trace_id": "trace-999",
+        "payload": {
+            "supplier_id": "SUP-101",
+            "old_status": "CLEAR",
+            "new_status": "BLOCK",
+            "matched_list": ["OFAC"],
+            "reason": "SDN list match",
+        },
+    }
+
+    event = ComplianceSupplierStatusChangedEvent(**payload_data)
+    assert event.event_id == "evt-12345"
+    assert event.event_type == "compliance.supplier.status_changed"
+    assert event.event_version == "1.0"
+    assert event.payload.supplier_id == "SUP-101"
+    assert event.payload.new_status == "BLOCK"
+    assert event.payload.reason == "SDN list match"
+
+
+def test_compliance_dlq_message_contract_shape():
+    """
+    Contract test for DeadLetterEnvelope ensuring required fields for unparseable or bad messages.
+    """
+    dlq_data = {
+        "raw_message": "invalid-json",
+        "error": "Unparseable JSON",
+        "consumer_group": "inventory-service",
+        "topic": "compliance.supplier.status_changed",
+        "partition": 0,
+        "offset": 12,
+    }
+    dlq = DeadLetterEnvelope(**dlq_data)
+    assert dlq.consumer_group == "inventory-service"
+    assert dlq.topic == "compliance.supplier.status_changed"
+    assert dlq.error == "Unparseable JSON"
+    assert dlq.failed_at is not None

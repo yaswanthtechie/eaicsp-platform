@@ -58,6 +58,11 @@ class PurchaseOrder(Base):
         default="pending_vp_approval",
     )
 
+    hold_reason = Column(
+        String,
+        nullable=True,
+    )
+
     created_at = Column(
         DateTime,
         nullable=False,

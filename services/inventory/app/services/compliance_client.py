@@ -69,6 +69,7 @@ def check_supplier_compliance(
 
     headers = {
         "X-Caller-Service": "inventory-service",
+        "X-Service-Key": settings.COMPLIANCE_SERVICE_KEY,
     }
 
     try:
