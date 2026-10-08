@@ -8,3 +8,4 @@ xgboost==3.4.1
 joblib==1.5.3
 mlflow==3.15.2
 pytest==9.1.1
+Streamlit==1.65.0
