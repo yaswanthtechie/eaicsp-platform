@@ -45,7 +45,8 @@ from app.core.dependencies import (
     get_current_user,
     require_any_role,
     require_permission_or_role,
-    ensure_can_grant_role
+    ensure_can_grant_role,
+    ensure_can_manage_user,
 )
 from app.core.password_validator import validate_password
 from app.core.security import hash_password
@@ -228,6 +229,8 @@ def deactivate_user(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="You cannot deactivate your own account"
         )
+    
+    ensure_can_manage_user(current_user, user)
 
     # Deactivate account
     user.is_active = False
@@ -297,6 +300,7 @@ def change_user_role(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid role"
         )
+    ensure_can_manage_user(current_user, user)
     ensure_can_grant_role(current_user, new_role.name, target_user_id=user.id)
 
     old_role = (
@@ -422,6 +426,7 @@ def force_reset_password(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
+    ensure_can_manage_user(current_user, user)
 
     validate_password(request.new_password)
 
@@ -533,6 +538,13 @@ def revoke_user_session(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Session not found"
         )
+
+    target = (
+        db.query(User)
+        .filter(User.id == user_id)
+        .first()
+    )
+    ensure_can_manage_user(current_user, target)
 
     if session.is_revoked:
         raise HTTPException(

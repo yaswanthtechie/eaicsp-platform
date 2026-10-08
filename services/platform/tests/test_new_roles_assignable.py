@@ -421,3 +421,109 @@ def test_platform_admin_can_read_role_history_and_list_users():
 
     assert history.status_code == 200, history.text
     assert users.status_code == 200, users.text
+
+
+PRIVILEGED_TARGETS = ["ceo", "vp_operations", "platform_admin"]
+
+@pytest.mark.parametrize("target_role", PRIVILEGED_TARGETS)
+def test_platform_admin_cannot_force_reset_privileged_password(target_role):
+    ceo_token = _login("ceo@company.com", os.environ["CEO_PASSWORD"])
+    token, _ = _platform_admin_token()
+    target_email, target = _create_user(ceo_token, target_role)
+
+    response = client.post(
+        f"/api/v1/admin/users/{target['user_id']}/force-reset-password",
+        headers=_auth(token),
+        json={"new_password": "Hijack3d!Passw0rd"},
+    )
+
+    assert response.status_code == 403, response.text
+    # The original password must still work.
+    assert _login(target_email, TEST_PASSWORD)
+
+
+@pytest.mark.parametrize("target_role", PRIVILEGED_TARGETS)
+def test_platform_admin_cannot_demote_privileged_user(target_role):
+    ceo_token = _login("ceo@company.com", os.environ["CEO_PASSWORD"])
+    token, _ = _platform_admin_token()
+    _, target = _create_user(ceo_token, target_role)
+
+    response = client.patch(
+        f"/api/v1/admin/users/{target['user_id']}/role",
+        headers=_auth(token),
+        json={"role": "analyst"},
+    )
+
+    assert response.status_code == 403, response.text
+
+
+@pytest.mark.parametrize("target_role", PRIVILEGED_TARGETS)
+def test_platform_admin_cannot_deactivate_privileged_user(target_role):
+    ceo_token = _login("ceo@company.com", os.environ["CEO_PASSWORD"])
+    token, _ = _platform_admin_token()
+    target_email, target = _create_user(ceo_token, target_role)
+
+    response = client.patch(
+        f"/api/v1/admin/users/{target['user_id']}/deactivate",
+        headers=_auth(token),
+    )
+
+    assert response.status_code == 403, response.text
+    # Still active, so they can still log in.
+    assert _login(target_email, TEST_PASSWORD)
+
+
+def test_platform_admin_cannot_revoke_ceo_session():
+    ceo_token = _login("ceo@company.com", os.environ["CEO_PASSWORD"])
+    token, _ = _platform_admin_token()
+    target_email, target = _create_user(ceo_token, "ceo")
+    _login(target_email, TEST_PASSWORD)  # creates a session for the target
+
+    sessions = client.get(
+        f"/api/v1/admin/users/{target['user_id']}/sessions",
+        headers=_auth(ceo_token),
+    )
+    assert sessions.status_code == 200, sessions.text
+    session_id = sessions.json()[0]["id"]
+
+    response = client.delete(
+        f"/api/v1/admin/users/{target['user_id']}/sessions/{session_id}",
+        headers=_auth(token),
+    )
+
+    assert response.status_code == 403, response.text
+
+
+# --- the guard must not block legitimate use ---
+
+def test_platform_admin_can_still_manage_a_normal_user():
+    ceo_token = _login("ceo@company.com", os.environ["CEO_PASSWORD"])
+    token, _ = _platform_admin_token()
+    _, target = _create_user(ceo_token, "analyst")
+
+    reset = client.post(
+        f"/api/v1/admin/users/{target['user_id']}/force-reset-password",
+        headers=_auth(token),
+        json={"new_password": "NewAnalyst!Pass123"},
+    )
+    deactivate = client.patch(
+        f"/api/v1/admin/users/{target['user_id']}/deactivate",
+        headers=_auth(token),
+    )
+
+    assert reset.status_code == 200, reset.text
+    assert deactivate.status_code == 200, deactivate.text
+
+
+def test_ceo_can_still_reset_vp_password():
+    """Backward compatibility: ceo is unrestricted, as before."""
+    ceo_token = _login("ceo@company.com", os.environ["CEO_PASSWORD"])
+    _, vp = _create_user(ceo_token, "vp_operations")
+
+    response = client.post(
+        f"/api/v1/admin/users/{vp['user_id']}/force-reset-password",
+        headers=_auth(ceo_token),
+        json={"new_password": "NewVpOps!Pass123"},
+    )
+
+    assert response.status_code == 200, response.text

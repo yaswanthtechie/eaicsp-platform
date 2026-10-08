@@ -424,3 +424,26 @@ def ensure_can_grant_role(actor: User, target_role: str, target_user_id=None) ->
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Forbidden: you cannot change your own role",
         )
+
+def ensure_can_manage_user(actor: User, target: User) -> None:
+
+    """
+    Stop a user who only holds `user:manage` / `role:assign` (for example
+    platform_admin) from acting on a privileged account: resetting its
+    password, changing its role, deactivating it or revoking its sessions.
+
+    ceo and vp_operations are unchanged: they can manage any user, as before.
+    """
+    
+    actor_role = actor.role.name if actor.role else None
+
+    if actor_role in LEGACY_ROLE_ADMINS:
+        return
+
+    target_role = target.role.name if target.role else None
+
+    if target_role in PRIVILEGED_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Forbidden: your role cannot manage a '{target_role}' user",
+        )
