@@ -1,1137 +1,989 @@
 # Compliance Screening Service
 
-A **FastAPI-based Compliance Screening Service** for screening supplier and customer entities against sanctions lists, internal watchlists, and PEP data.
+A **FastAPI-based Compliance Screening Service** for screening suppliers and customers against sanctions lists, internal watchlists, and PEP data.
 
-The service supports multi-source screening, exact and fuzzy name matching, risk-based screening tiers, compliance case management, audit history, reporting, sanctions-data refresh, scheduled re-screening, and service-to-service authentication.
+The service provides:
 
-
-
-# Overview
-
-The Compliance Screening Service is responsible for identifying potentially risky suppliers and customers before or during business operations.
-
-The service screens entities against:
-
-```text
-OFAC
-UN
-EU
-Internal Watchlist
-PEP
-```
-
-The general screening flow is:
-
-```text
-Request
-   ↓
-Validate Input
-   ↓
-Normalize Entity Name
-   ↓
-Calculate Screening Tier
-   ↓
-Select Matching Threshold
-   ↓
-Search Sanctions / Watchlists / PEP
-   ↓
-Exact + Fuzzy Matching
-   ↓
-Deduplicate Matches
-   ↓
-Calculate Confidence
-   ↓
-Calculate Risk
-   ↓
-Check False-Positive Override
-   ↓
-Create Case if Flagged
-   ↓
-Save Audit Record
-   ↓
-Return Response
-```
-
-The service uses:
-
-* FastAPI
-* SQLAlchemy
-* SQLite
-* RapidFuzz
-* APScheduler
-* HTTPX
-* JWT-based authentication
-* Platform Service authentication
-* Service API-key authentication
-
----
-
-
-
-# Features
-
-The service currently supports:
-
-* OFAC screening
-* UN screening
-* EU screening
-* Internal Watchlist screening
-* PEP screening
-* Source attribution
-* Exact name matching
-* Fuzzy name matching
-* Match deduplication
-* Confidence calculation
-* Sanctions risk scoring
-* Country risk assessment
-* Transaction-value risk assessment
-* Risk-based screening tiers
-* Tier-specific matching thresholds
+* Multi-source sanctions screening
+* Exact and fuzzy name matching
+* Country and transaction-value risk assessment
+* Risk-based screening
+* Compliance case management
+* Audit history
 * False-positive overrides
 * Bulk screening
-* Audit history
-* Audit analytics
-* Compliance case management
-* Case assignment
-* Case state machine
-* Case history
-* Resolution reasons
-* Compliance reporting
-* Sanctions data refresh
-* Re-screening
-* Newly flagged detection
-* Scheduled re-screening
-* JWT authentication
-* Role-based authorization
-* Platform Service integration
-* Service API-key authentication
-* Fixture-based testing
-* Integration testing
-* Performance testing
+* Sanctions-data refresh
+* Nightly re-screening
+* Internal service-to-service compliance checks
+* Kafka status-change events
+* Strawberry GraphQL read APIs
+* SLA monitoring
+* Regulatory-rule management
+* PostgreSQL persistence with Alembic migrations
+
+---
+
+# Current Round Status
+
+Round 12+13 status
+
+| Milestone | Status | Notes |
+|---|---|---|
+| M1 Postgres + Alembic + /internal-check contract | Done | `tests/test_contract.py`; `alembic upgrade head` verified by integration test |
+| M2 `compliance.supplier.status_changed` on Kafka | Done | Published after commit; Kafka outage is logged, never rolls back the re-screen |
+| M3 Strawberry GraphQL | Done | `/api/v1/compliance/graphql`, compliance_officer only   |
 
 
 
-# Multi-Source Screening
+---
 
-The service combines multiple compliance data sources into a single screening process.
+# Technology Stack
 
-Supported sources:
+## Application
+
+* Python
+* FastAPI
+* Pydantic
+* SQLAlchemy
+* Alembic
+* PostgreSQL
+* Strawberry GraphQL
+
+## Compliance
+
+* OFAC
+* United Nations sanctions data
+* European Union sanctions data
+* Internal watchlist
+* PEP data
+* RapidFuzz for fuzzy matching
+
+## Messaging
+
+* Apache Kafka
+* `confluent-kafka`
+
+## Scheduling
+
+* APScheduler
+
+## Testing
+
+* Pytest
+* HTTPX
+* SQLite for normal unit/API tests
+* PostgreSQL and Kafka for integration tests
+
+## Development Infrastructure
+
+* Docker
+* Docker Compose
+
+---
+# Screening Flow
+
+A normal screening request follows this flow:
 
 ```text
-OFAC
-UN
-EU
-Internal Watchlist
-PEP
-```
-
-A single entity can match more than one source.
-
-For example:
-
-```json
-{
-  "matched_name": "HAMAS",
-  "matched_lists": [
-    "OFAC",
-    "EU"
-  ]
-}
-```
-
-This allows downstream compliance users to understand which sources contributed to the match.
-
----
-
-# Matching and Deduplication
-
-## Name Normalization
-
-Entity names are normalized before matching.
-
-Examples of normalization include:
-
-```text
-CORPORATION → CORP
-COMPANY     → CO
-LIMITED     → LTD
-INCORPORATED → INC
-&           → AND
-```
-
-Normalization helps reduce formatting differences between user input and sanctions records.
-
-## Exact Matching
-
-Exact matching is performed after normalization.
-
-## Fuzzy Matching
-
-Fuzzy matching uses:
-
-```text
-RapidFuzz WRatio
-```
-
-The default matching threshold is configurable:
-
-```env
-MATCH_THRESHOLD=90
-```
-
-A higher score represents a stronger similarity between the submitted entity and a sanctions/watchlist record.
-
-## Deduplication
-
-Matches from different sources can represent the same underlying entity.
-
-The service deduplicates similar records using:
-
-```env
-DEDUPE_THRESHOLD=90
-```
-
-Source attribution is preserved after deduplication.
-
-This prevents the same entity from being counted as multiple unrelated matches.
-
----
-
-# Risk-Based Screening
-
-The service calculates risk information in addition to the screening match result.
-
-Risk-related information can include:
-
-* Match confidence
-* Source coverage
-* Listing recency
-* Country risk
-* Transaction value
-* Overall supplier risk
-
----
-
-## Sanctions Risk Score
-
-The sanctions risk score uses the following configurable weights:
-
-| Risk Factor      | Weight |
-| ---------------- | -----: |
-| Match confidence |    50% |
-| Source coverage  |    30% |
-| Listing recency  |    20% |
-
-Configuration:
-
-```env
-CONFIDENCE_WEIGHT=0.50
-SOURCE_WEIGHT=0.30
-RECENCY_WEIGHT=0.20
-```
-
-The weights can be changed through environment variables.
-
----
-
-## Overall Supplier Risk
-
-For supplier screening, sanctions risk can be combined with country risk.
-
-Current configuration:
-
-```env
-SANCTIONS_WEIGHT=0.80
-COUNTRY_RISK_WEIGHT=0.20
-UNKNOWN_COUNTRY_RISK=50.0
-```
-
-The calculation is:
-
-```text
-Overall Supplier Risk =
-    Sanctions Risk × 80%
-  + Country Risk × 20%
+Client
+  |
+  v
+FastAPI Compliance Endpoint
+  |
+  v
+Request Validation
+  |
+  v
+Compliance Screening
+  |
+  +--> OFAC
+  +--> UN
+  +--> EU
+  +--> Internal Watchlist
+  +--> PEP
+  |
+  v
+Exact/Fuzzy Matching
+  |
+  v
+Risk Calculation
+  |
+  v
+Decision
+  |
+  +--> CLEAR
+  +--> REVIEW
+  +--> BLOCK
+  |
+  v
+Audit Record
+  |
+  +--> Case when required
+  |
+  v
+Response
 ```
 
 ---
 
-# Screening Tiers
+# Screening Sources
 
-The service uses screening tiers to adjust screening behavior according to:
+The service supports the following sources:
 
-* Country risk
-* Transaction value
+| Source             | Purpose                               |
+| ------------------ | ------------------------------------- |
+| OFAC               | U.S. sanctions screening              |
+| UN                 | United Nations sanctions screening    |
+| EU                 | European Union sanctions screening    |
+| Internal Watchlist | Organization-specific watchlist       |
+| PEP                | Politically Exposed Persons screening |
 
-The tier is calculated **before entity matching**.
+The application loads the available sanctions data during startup.
 
-The higher-risk tier between country risk and transaction value is selected.
-
-
-
-## Tier Rules
-
-Country risk:
-
-```text
-LOW
-    Country risk <= 39
-
-MEDIUM
-    Country risk <= 69
-
-HIGH
-    Country risk > 69
-```
-
-Transaction value:
-
-```text
-LOW
-    Transaction value < 1,000,000
-
-MEDIUM
-    Transaction value <= 5,000,000
-
-HIGH
-    Transaction value > 5,000,000
-```
-
-The final screening tier is the higher of the country-risk tier and transaction-value tier.
+The exact source record counts can change when source data is refreshed.
 
 ---
 
-## Tier-Specific Matching
+# Matching
 
-The selected tier affects the fuzzy matching threshold.
+The service supports:
 
-| Tier   | Match Threshold | Screening Action                      |
-| ------ | --------------: | ------------------------------------- |
-| LOW    |              90 | `STANDARD_SCREENING`                  |
-| MEDIUM |              85 | `ADDITIONAL_COMPLIANCE_REVIEW`        |
-| HIGH   |              80 | `ENHANCED_REVIEW_AND_MANUAL_APPROVAL` |
+* Exact matching
+* Fuzzy name matching
+* Normalized-name comparison
+* Match confidence scoring
+* Duplicate/deduplication handling
 
-A lower matching threshold makes screening more sensitive for higher-risk entities.
+Fuzzy matching uses `rapidfuzz`.
 
-Configuration:
-
-```env
-LOW_TIER_MATCH_THRESHOLD=90
-MEDIUM_TIER_MATCH_THRESHOLD=85
-HIGH_TIER_MATCH_THRESHOLD=80
-```
-
-The selected tier is calculated before screening and its threshold is passed to the matching engine.
-
-The screening result can include:
-
-```text
-screening_tier
-screening_action
-country_risk_score
-transaction_value
-enhanced_review_required
-```
-
----
-
-# Country Risk
-
-Country risk is calculated for the submitted entity country.
-
-The screening result can contain:
-
-* Country
-* Country risk score
-* Country risk factors
-* Overall supplier risk
-
-Unknown countries use the configured default:
-
-```env
-UNKNOWN_COUNTRY_RISK=50.0
-```
-
-Country risk contributes to overall supplier risk for supplier screening.
-
----
-
-# Case Management
-
-Flagged screening results can create compliance cases.
-
-Case management supports:
-
-* Creating cases
-* Assigning cases
-* Starting reviews
-* Clearing cases
-* Confirming cases
-* Recording resolution reasons
-* Maintaining case history
-* Tracking assignment timestamps
-* Tracking resolution timestamps
-
----
-
-## Case Workflow
-
-Cases follow the state machine:
-
-```text
-OPEN
-  ↓
-UNDER_REVIEW
-  ↓
-CLEARED
-```
-
-or:
-
-```text
-OPEN
-  ↓
-UNDER_REVIEW
-  ↓
-CONFIRMED
-```
-
-Invalid state transitions are rejected.
-
----
-
-## Case Assignment
-
-Open and under-review cases can be assigned to compliance officers.
-
-Blank assignments are rejected.
-
-Closed cases cannot be reassigned.
-
-Closed statuses are:
-
-```text
-CLEARED
-CONFIRMED
-```
-
----
-
-## Case Resolution
-
-A resolution reason is required when closing a case.
-
-The following transitions require a reason:
-
-```text
-UNDER_REVIEW → CLEARED
-UNDER_REVIEW → CONFIRMED
-```
-
-This ensures that the compliance decision contains an explanation.
-
----
-
-## Case History
-
-Case actions are recorded in case history.
-
-History can contain:
-
-* Previous status
-* New status
-* User/system responsible
-* Reason
-* Comments
-* Timestamp
-
-The actor is taken from the authenticated request where applicable rather than using a fixed user identity.
-
----
-
-# Compliance Reporting
-
-The service provides a compliance summary report.
-
-Endpoint:
-
-```text
-GET /api/v1/compliance/reports/compliance-summary
-```
-
-The report can provide:
-
-* Screening volume
-* Flagged count
-* Flag rate
-* Open cases
-* Average resolution time
+The configured match threshold is controlled through environment configuration.
 
 Example:
 
+```text
+MATCH_THRESHOLD=90
+DEDUPE_THRESHOLD=90
+```
+
+These values are configuration settings and may be changed between environments.
+
+---
+
+# Decision Rules
+
+The service uses a centralized decision function.
+
+The current decision rules are:
+
+```text
+No match
+    |
+    +--> CLEAR
+
+Match found
+    |
+    +--> score >= INTERNAL_BLOCK_MATCH_SCORE
+    |        |
+    |        +--> BLOCK
+    |
+    +--> score below threshold
+             |
+             +--> REVIEW
+```
+
+Current default:
+
+```text
+INTERNAL_BLOCK_MATCH_SCORE=90
+```
+
+The effective decision is therefore:
+
+| Match | Score | Decision |
+| ----- | ----: | -------- |
+| No    |   Any | CLEAR    |
+| Yes   |  < 90 | REVIEW   |
+| Yes   | >= 90 | BLOCK    |
+
+The threshold is configurable.
+
+## Risk Source Count
+
+The source-coverage component uses:
+
+```env
+TOTAL_SOURCES=5
+```
+
+The five configured sources are:
+
+```text
+OFAC
+UN
+EU
+Internal Watchlist
+PEP
+```
+---
+
+# Internal Compliance Check
+
+Other internal services can use:
+
+```text
+POST /api/v1/compliance/internal-check
+```
+
+Request:
+
 ```json
 {
-  "screening_volume": 2,
-  "flagged_count": 2,
-  "flag_rate": 100,
-  "open_cases": 1,
-  "average_resolution_time_hours": 0.05
+  "supplier_id": "SUP-003",
+  "supplier_name": "HAMAS TRADING",
+  "country": "India"
 }
 ```
 
-The reporting endpoint requires:
+The endpoint returns:
+
+```json
+{
+  "supplier_id": "SUP-003",
+  "company_name": "HAMAS TRADING",
+  "country": "India",
+  "cleared": false,
+  "decision": "BLOCK",
+  "reason": "Strong compliance match found on EU, OFAC"
+}
+```
+
+Supported decisions:
 
 ```text
-compliance_officer
+CLEAR
+REVIEW
+BLOCK
+```
+
+`cleared` is:
+
+```text
+true  -> CLEAR
+false -> REVIEW or BLOCK
+```
+
+The internal contract is covered by an explicit contract test.
+
+---
+
+# Internal Check Contract
+
+The contract test verifies:
+
+* Request structure
+* Required headers
+* Authentication failure
+* CLEAR response
+* REVIEW response
+* BLOCK response
+* Exact response keys
+
+The contract test is located at:
+
+```text
+tests/test_contract.py
+```
+
+Run it with:
+
+```powershell
+python -m pytest tests\test_contract.py -q
 ```
 
 ---
 
-# Audit
+# REST API
 
-Each screening request is stored in the audit database.
-
-The service uses:
+The main REST API prefix is:
 
 ```text
-SQLite
-SQLAlchemy
+/api/v1/compliance
 ```
 
-Audit records can contain:
+Important operations include:
+
+```text
+POST   /api/v1/compliance/screen
+POST   /api/v1/compliance/bulk
+POST   /api/v1/compliance/internal-check
+GET    /api/v1/compliance/audit
+GET    /api/v1/compliance/audit/summary
+GET    /api/v1/compliance/sla
+```
+
+Additional routes support cases, overrides, regulatory rules, and re-screening functionality.
+
+---
+
+# Screening Endpoint
+
+Primary screening endpoint:
+
+```text
+POST /api/v1/compliance/screen
+```
+
+Typical request fields include:
+
+```json
+{
+  "entity_name": "Example Supplier",
+  "entity_type": "supplier",
+  "country": "India",
+  "transaction_value": 100000
+}
+```
+
+The screening result contains the applicable compliance decision and screening information.
+
+---
+# Audit Trail
+
+Every screening can create an audit record containing information such as:
 
 * Entity name
 * Entity type
 * Country
 * Match status
-* Matched name
-* Matched lists
 * Match score
-* Confidence
-* Sanctions risk score
-* Risk factors
-* Country risk score
-* Overall supplier risk
-* Screening type
-* Newly flagged status
-* Screening run ID
-* Service name
-* Screening duration
-* Created timestamp
+* Decision
+* Screening date/time
+* Source information
+* Screening metadata
+
+The audit trail is persisted using SQLAlchemy.
+
+Production persistence is PostgreSQL.
 
 ---
 
-## Screening Types
+# Compliance Cases
 
-The service supports:
+Compliance cases can be created for screenings requiring human review or investigation.
 
-```text
-INITIAL
-RESCREEN
-```
-
-Re-screening records can additionally identify whether the entity became newly flagged.
-
----
-
-# Audit Summary
-
-Endpoint:
+Typical case lifecycle:
 
 ```text
-GET /api/v1/compliance/audit/summary
+OPEN
+  |
+  v
+UNDER_REVIEW
+  |
+  +--> CLEARED
+  |
+  +--> CONFIRMED
 ```
 
-The endpoint requires:
+Closing a case requires a resolution reason.
 
-```text
-compliance_officer
-```
-
-The summary can provide:
-
-* Total screenings
-* Total flagged screenings
-* Flag rate
-* Newly flagged entities
-* Initial screenings
-* Re-screenings
-* Flag rate over time
-* Frequently flagged entities
-* Country-level statistics
+Case history is maintained separately from the current case state.
 
 ---
 
 # False-Positive Overrides
 
-Fuzzy matching can produce false positives because similar names do not always represent the same entity.
+Authorized compliance users can create overrides for confirmed false positives.
 
-The service supports approved false-positive overrides.
+Overrides can prevent repeated false-positive matches from unnecessarily generating compliance cases.
 
-Override information can include:
+Overrides are persisted in the compliance database.
 
-* Entity name
-* Matched name
-* Source
-* Reason
-* Reviewed by
-* Created timestamp
+---
 
-Available endpoints include:
+# Re-screening
+
+The service supports re-screening of previously cleared entities.
+
+The re-screening flow:
 
 ```text
-POST   /api/v1/compliance/override
-GET    /api/v1/compliance/override
-GET    /api/v1/compliance/overrides
-DELETE /api/v1/compliance/override
+Previously Cleared Entity
+        |
+        v
+Run Current Screening
+        |
+        v
+Calculate New Decision
+        |
+        v
+Compare Old vs New Decision
+        |
+        +--> Same status
+        |       |
+        |       +--> No status-change event
+        |
+        +--> Different status
+                |
+                +--> Commit database changes
+                |
+                +--> Publish Kafka event
 ```
 
-Override operations require the:
+The old decision is read from the existing audit/entity state.
+
+The new decision is calculated using the centralized decision logic.
+
+---
+
+# Re-screening Status Changes
+
+A Kafka status-change event is generated only when:
+
+```text
+old_status != new_status
+```
+
+For example:
+
+```text
+CLEAR -> REVIEW
+```
+
+or:
+
+```text
+CLEAR -> BLOCK
+```
+
+No status-change event is generated when:
+
+```text
+CLEAR -> CLEAR
+```
+
+The database transaction is committed before the Kafka event is published.
+
+Therefore:
+
+```text
+Database failure
+    -> database transaction fails
+
+Kafka failure
+    -> database change remains committed
+    -> failure is logged
+```
+
+This prevents a Kafka outage from rolling back a successful compliance status update.
+
+
+# Kafka Integration
+
+Kafka is used for supplier compliance status-change events.
+
+Current event type:
+
+```text
+compliance.supplier.status_changed
+```
+
+---
+
+# Kafka Event Envelope
+
+The current implementation publishes this structure:
+
+```json
+{
+  "event_id": "uuid",
+  "event_type": "compliance.supplier.status_changed",
+  "event_version": 1,
+  "occurred_at": "2026-10-05T10:00:00+00:00",
+  "producer": "compliance-service",
+  "payload": {
+    "supplier_name": "Example Supplier",
+    "country": "India",
+    "old_status": "CLEAR",
+    "new_status": "BLOCK",
+    "matched_list": [
+      "OFAC"
+    ],
+    "reason": "Strong compliance match found",
+    "screening_run_id": "run-123"
+  }
+}
+```
+
+The actual envelope fields are:
+
+```text
+event_id
+event_type
+event_version
+occurred_at
+producer
+payload
+```
+
+The payload contains:
+
+```text
+supplier_name
+country
+old_status
+new_status
+matched_list
+reason
+screening_run_id
+```
+---
+
+# Kafka Event Topic
+
+The topic is:
+
+```text
+compliance.supplier.status_changed
+```
+
+The producer sets:
+
+```text
+topic = event_type
+```
+
+Therefore the current event is published to:
+
+```text
+compliance.supplier.status_changed
+```
+
+# Kafka Duplicate Behavior
+
+The re-screening code checks:
+
+```text
+old_status != new_status
+```
+
+before preparing a status-change event.
+
+Therefore repeated screening runs with the same status do not intentionally create another status-change event.
+
+Example:
+
+```text
+Run 1:
+CLEAR -> BLOCK
+    -> event published
+
+Run 2:
+BLOCK -> BLOCK
+    -> no event
+
+Run 3:
+BLOCK -> BLOCK
+    -> no event
+```
+
+This is application-level status-change suppression.
+
+The service does **not** claim full distributed exactly-once delivery semantics.
+
+---
+
+# Kafka Testing
+
+Producer unit tests cover:
+
+* Event envelope
+* Event type
+* Topic
+* UTC timestamp
+* Payload
+* Kafka outage behavior
+* Unacknowledged delivery
+* Idempotent producer configuration
+
+Run:
+
+```powershell
+python -m pytest tests\test_kafka_producer.py -q
+```
+
+A Kafka integration test also verifies that an event reaches a real Kafka broker.
+
+Run:
+
+```powershell
+python -m pytest tests\test_integration_infra.py::test_status_changed_event_reaches_real_kafka -m integration -q
+```
+
+---
+
+# GraphQL
+
+The service provides a Strawberry GraphQL read API.
+
+Endpoint:
+
+```text
+/api/v1/compliance/graphql
+```
+
+GraphQL is intended for compliance read/query operations.
+
+REST APIs remain available and are not replaced by GraphQL.
+
+---
+
+# GraphQL Authorization
+
+GraphQL access uses the same compliance role protection as the protected REST operations.
+
+The required role is:
 
 ```text
 compliance_officer
 ```
 
-role.
+An authorized compliance officer can access GraphQL.
+
+An analyst without the required role is rejected.
+
+Requests without the required authentication context are also rejected.
 
 ---
 
-# Bulk Screening
-
-The service supports screening multiple entities in one request.
-
-Bulk screening:
-
-* Screens multiple entities
-* Preserves input order
-* Applies risk-based screening tiers
-* Uses the tier-specific matching threshold
-* Supports case creation for flagged entities
-* Records screening results
-
-Performance testing is included for large batches.
-
-Example:
-
-```powershell
-python -m pytest tests/test_sanctions.py::test_bulk_screen_500_entities -s -v
-```
-
-The target performance is:
-
-```text
-< 100 ms
-```
-
-Actual performance depends on:
-
-* Machine hardware
-* Python version
-* Dataset size
-* Database state
-* System load
-
----
-
-# Sanctions Data
-
-The service supports sanctions data from:
-
-```text
-OFAC
-UN
-EU
-```
-
-Additional screening sources are:
-
-```text
-Internal Watchlist
-PEP
-```
-
-Local fixture files are stored in:
-
-```text
-app/data/fixtures/
-
-├── ofac_sample.csv
-├── un_sample.xml
-└── eu_sample.xml
-```
-
----
-
-# Sanctions Data Refresh
-
-Sanctions data can be refreshed before re-screening.
-
-The refresh flow is:
-
-```text
-Download OFAC
-      ↓
-Download UN
-      ↓
-Download EU
-      ↓
-Load Records
-      ↓
-Deduplicate
-      ↓
-Build Index
-      ↓
-Ready for Screening
-```
-
-Download URLs are configured using environment variables.
-
-The application should fail when required sanctions data cannot be loaded rather than silently treating missing data as clean.
-
----
-
-# Re-Screening
-
-The service supports re-screening entities that were previously cleared.
-
-The process is:
-
-```text
-Find Latest Audit Result
-        ↓
-Find Previously Cleared Entities
-        ↓
-Refresh Sanctions Data
-        ↓
-Screen Entity Again
-        ↓
-Compare New Result
-        ↓
-Save RESCREEN Audit
-        ↓
-Identify Newly Flagged Entities
-        ↓
-Create Case if Required
-```
-
-The latest audit result is used when determining whether an entity is currently cleared.
-
-For example:
-
-```text
-ABC COMPANY → clean
-ABC COMPANY → clean
-ABC COMPANY → matched
-```
-
-The latest result is `matched`, so the entity is not treated as previously cleared.
-
-Therefore, it should not be selected as a previously-cleared entity.
-
-Another example:
-
-```text
-ABC COMPANY → clean
-ABC COMPANY → clean
-```
-
-The latest result is clean, so the entity can be selected for re-screening.
-
-### Newly Flagged Entity
-
-An entity is considered newly flagged when:
-
-```text
-Previous latest result = clean
-Current re-screening result = matched
-```
-
-The new audit record is stored as:
-
-```text
-screening_type = RESCREEN
-newly_flagged = true
-```
-
-If the entity remains clean after re-screening, the result is recorded as still clean.
-
----
-
-## 10. Scheduled Re-Screening Job
-
-A scheduled re-screening job is provided using **APScheduler**.
-
-The current development/test configuration uses a 30-second interval to simulate a nightly re-screening process.
-
-The scheduled job:
-
-1. Runs inside the Compliance Service process.
-2. Refreshes the sanctions data.
-3. Re-screens previously cleared entities.
-4. Stores the new results in the audit database.
-5. Identifies newly flagged entities.
-
-### Scheduled Job Authentication
-
-The nightly re-screening job runs **in-process through APScheduler**.
-
-It directly calls:
-
-```python
-nightly_rescreen_job()
-```
-
-from the service layer.
-
-It does **not** make an HTTP request to the Compliance API.
-
-Therefore:
-
-* It does not call the Compliance API endpoints.
-* It does not pass through `verify_token`.
-* It does not use a JWT.
-* It does not require a separate credential.
-* It is treated as a trusted internal process because it runs inside the Compliance Service itself.
-
-This is an intentional design decision for the current architecture.
-
-If the scheduled job is moved to a separate worker, container, or external cron service in the future, it will need its own authenticated identity before calling protected APIs.
-
-Possible approaches include:
-
-```text
-Service account registered in Platform Service
-```
-
-or, if introduced by the platform architecture:
-
-```text
-API key
-```
-
----
-
-## Newly Flagged Detection
-
-An entity is newly flagged when:
-
-```text
-Previous Result = Clean
-Current Result  = Matched
-```
-
-The resulting audit record contains:
-
-```text
-screening_type = RESCREEN
-newly_flagged = true
-```
-
-A newly flagged entity can also result in an open compliance case.
-
----
-
-# Scheduled Re-Screening
-
-The service uses **APScheduler** to run re-screening automatically.
-
-The scheduled process:
-
-1. Authenticates with the Platform Service.
-2. Refreshes sanctions data.
-3. Finds previously cleared entities.
-4. Re-screens those entities.
-5. Saves audit results.
-6. Identifies newly flagged entities.
-7. Creates cases for newly flagged entities when applicable.
-
-The scheduler controls **when** the job runs.
-
-The re-screening service controls **what happens during the job**.
-
-The scheduler uses:
-
-```text
-max_instances=1
-```
-
-to prevent multiple instances of the same scheduled job from running simultaneously.
-
-For development and testing, a short interval can be configured.
-
-Production deployments should use an appropriate nightly schedule.
-
----
-
-# Service-to-Service Authentication
-
-Scheduled re-screening is a system process rather than a human user.
-
-Therefore, the scheduled job does not use a human JWT.
-
-Instead, the Compliance Service authenticates with the Platform/Auth Service using a service API key.
-
-The Platform/Auth Service is configured separately.
-
-Default local configuration:
-
-```text
-http://127.0.0.1:8005
-```
-
-The Compliance Service calls:
-
-```text
-POST /api/v1/auth/service-verify
-```
-
-The API key is sent using:
-
-```text
-X-API-Key
-```
-
----
-
-## Service Authentication Flow
-
-```text
-Scheduled Job
-      ↓
-Read Service API Key
-      ↓
-Authenticate with Platform
-      ↓
-Platform verifies API key
-      ↓
-Authentication successful?
-      ↓
-   ┌──┴──┐
-  Yes    No
-   ↓      ↓
-Run     Stop Job
-Job
-```
-
-A successful response is expected to contain information similar to:
-
-```json
-{
-  "authenticated": true,
-  "service": "compliance",
-  "auth_type": "api_key"
+# GraphQL Screening Queries
+
+The GraphQL screening API supports:
+
+* Screening retrieval
+* Status filtering
+* Jurisdiction/country filtering
+* Date filtering
+* Pagination
+
+Example conceptual query:
+
+```graphql
+query {
+  screenings(
+    status: BLOCK
+    page: 1
+    pageSize: 20
+  ) {
+    items {
+      entityName
+      country
+      status
+    }
+    total
+    page
+    pageSize
+  }
 }
 ```
 
-If authentication fails, the re-screening process stops.
-
-This provides **fail-closed behavior**.
+The exact GraphQL schema should be treated as the source of truth for available fields.
 
 ---
 
-# Service API Key Configuration
+# GraphQL Case Queries
 
-The real service API key must be stored outside source control.
+Compliance cases can also be queried through GraphQL.
 
-Local `.env`:
+The API supports case retrieval for authorized compliance users.
 
-```env
-PLATFORM_AUTH_URL=http://127.0.0.1:8005
-PLATFORM_SERVICE_API_KEY=<real-secret>
+GraphQL tests verify that unauthorized users cannot access the protected query.
+
+---
+
+# GraphQL REVIEW Status
+
+The GraphQL screening status filter supports:
+
+```text
+CLEAR
+REVIEW
+BLOCK
 ```
 
-The real API key must **never be committed to Git**.
+`REVIEW` is calculated using the same decision logic as the compliance service when an explicit persisted decision is not available.
 
-The `.env.example` file should contain only a placeholder:
+This avoids treating every matched screening as `BLOCK`.
 
-```env
-PLATFORM_AUTH_URL=http://127.0.0.1:8005
-PLATFORM_SERVICE_API_KEY=your-compliance-service-api-key
+---
+
+# GraphQL Pagination
+
+GraphQL screening queries support pagination.
+
+Pagination allows clients to request a limited page rather than retrieving the complete screening dataset.
+
+The response includes pagination metadata such as:
+
+```text
+items
+total
+page
+pageSize
 ```
 
-The `.env` file should be included in `.gitignore`.
+---
 
-The API key must not be:
+# SLA Monitoring
 
-* Printed in logs
-* Added to README files
-* Added to test source code
-* Committed to Git
-* Included in API examples
+The service tracks screening latency.
 
-Automated tests use dummy values through mocking rather than requiring the developer's real API key.
+The default threshold is:
+
+```text
+SLA_LATENCY_THRESHOLD_MS=500
+```
+
+SLA metrics are exposed through the compliance service.
+
+The service also supports SLA alert handling.
+
+---
+
+# Regulatory Rules
+
+The service includes regulatory-rule management.
+
+Rules can be used to represent compliance requirements relevant to the screening service.
+
+Regulatory reporting schemas and services are included separately from the core screening logic.
 
 ---
 
 # Authentication and Authorization
 
-The Compliance Service integrates with the Platform/Auth Service for human authentication and authorization.
+Protected compliance operations require the appropriate authentication context and role.
 
-Human users authenticate using JWT access tokens.
-
-General flow:
-
-```text
-Client
-   ↓
-Platform Login
-   ↓
-JWT Access Token
-   ↓
-Compliance API
-   ↓
-Platform Token Verification
-   ↓
-Role Check
-   ↓
-Allow / Reject
-```
-
-The primary role used by protected Compliance operations is:
+The main compliance role used by protected operations is:
 
 ```text
 compliance_officer
 ```
+The service also supports internal service authentication for internal compliance checks.
+
+Secrets must be supplied through environment configuration.
+
+Secrets must not be committed to Git.
 
 ---
 
-## Authentication Responses
+# Database
 
-Typical responses are:
+The service uses:
 
 ```text
-Missing token
-    → 401 Unauthorized
+PostgreSQL
+```
 
-Invalid / expired token
-    → 401 Unauthorized
+for application persistence.
 
-Valid token but incorrect role
-    → 403 Forbidden
+The database includes entities such as:
 
-Platform unavailable
-    → 503 Service Unavailable
+```text
+compliance_audit
+compliance_case
+case_history
+compliance_override
+regulatory_rules
+```
+
+Alembic maintains the database schema.
+
+---
+
+# Alembic
+
+Database schema changes are managed using Alembic.
+
+Apply migrations with:
+
+```powershell
+alembic upgrade head
+```
+
+Do not use application startup to create production tables.
+
+The application does not call:
+
+```python
+Base.metadata.create_all(...)
+```
+
+during normal startup.
+
+Database creation and schema upgrades are intentionally separated from application startup.
+
+---
+
+# Alembic Integration Test
+
+The infrastructure integration test verifies that a clean PostgreSQL database can be migrated to the current Alembic head.
+
+It verifies the expected tables and important columns.
+
+It also verifies that the migration can be downgraded back to the base state.
+
+Run:
+
+```powershell
+python -m pytest tests\test_integration_infra.py::test_alembic_upgrade_head_on_empty_database -m integration -q
+```
+
+This test requires:
+
+```text
+COMPLIANCE_PG_TEST_URL
+```
+
+and a running PostgreSQL instance.
+
+The endpoint is intended to provide a quick compliance decision before a protected business operation continues.
+
+---
+
+# Test Database
+
+Normal unit and API tests use SQLite.
+
+This keeps the default test suite:
+
+* Fast
+* Deterministic
+* Independent of Docker
+* Independent of a running PostgreSQL server
+
+PostgreSQL-specific behavior is tested separately through integration tests.
+
+---
+
+# Integration Tests
+
+Integration tests are marked:
+
+```python
+@pytest.mark.integration
+```
+
+The default test configuration excludes them.
+
+Run normal tests:
+
+```powershell
+python -m pytest -m "not integration" -q
+```
+
+Run integration tests:
+
+```powershell
+python -m pytest -m integration -q
+```
+
+Integration tests can require:
+
+* PostgreSQL
+* Kafka
+* Docker
+* Live external compliance data, depending on the specific test
+
+Not every integration test requires every external service.
+
+---
+
+# Pytest Configuration
+
+The project defines the integration marker in `pytest.ini`.
+
+Default behavior:
+
+```text
+integration tests are excluded
+```
+
+This allows normal development and CI unit tests to run without requiring the complete infrastructure stack.
+
+---
+
+# Docker Compose
+
+Development infrastructure is defined in:
+
+```text
+docker-compose.dev.yml
+```
+
+The current development stack includes PostgreSQL and Kafka.
+
+Example PostgreSQL mapping:
+
+```text
+localhost:5433 -> PostgreSQL container:5432
+```
+
+Example Kafka mapping:
+
+```text
+localhost:9092 -> Kafka container:9092
 ```
 
 ---
 
-# Protected Compliance Operations
+# Environment Configuration
 
-Role-protected operations use:
+Create a local `.env` file from the example:
 
-```text
-compliance_officer
+```powershell
+Copy-Item .env.example .env
 ```
 
-This includes protected screening, audit, override, case-management, and reporting operations as configured by the application.
+Then configure real local development credentials.
 
----
+Do not commit `.env`.
 
-# Authentication Request Logging
-
-Authentication-related requests can include tracing information such as:
-
-```text
-Caller service
-Caller endpoint
-Request ID
-HTTP method
-Path
-Status code
-Duration
-User ID
-Role
-```
-
-This information helps trace requests between the Compliance Service and Platform Service.
-
----
-
-# Configuration
-
-Create a `.env` file in the project root.
+A safe `.env.example` should contain placeholders rather than real passwords.
 
 Example:
 
-```env
-DATABASE_URL=sqlite:///./compliance.db
-
-SERVICE_NAME=compliance-service
-ENVIRONMENT=development
-
-MATCH_THRESHOLD=90
-DEDUPE_THRESHOLD=90
-
-LOW_TIER_MATCH_THRESHOLD=90
-MEDIUM_TIER_MATCH_THRESHOLD=85
-HIGH_TIER_MATCH_THRESHOLD=80
-
-CONFIDENCE_WEIGHT=0.50
-SOURCE_WEIGHT=0.30
-RECENCY_WEIGHT=0.20
-
-SANCTIONS_WEIGHT=0.80
-COUNTRY_RISK_WEIGHT=0.20
-UNKNOWN_COUNTRY_RISK=50.0
-
-TOTAL_SOURCES=5
-
-LOW_COUNTRY_RISK_MAX=39
-MEDIUM_COUNTRY_RISK_MAX=69
-
-LOW_TRANSACTION_VALUE_MAX=1000000
-MEDIUM_TRANSACTION_VALUE_MAX=5000000
-
-PLATFORM_AUTH_URL=http://127.0.0.1:8005
-PLATFORM_SERVICE_API_KEY=<real-secret>
-```
-
-Do not place the real API key in:
-
 ```text
-.env.example
-README.md
-Git
-Tests
-Logs
+POSTGRES_DB=compliance
+POSTGRES_USER=compliance
+POSTGRES_PASSWORD=change-me
+
+DATABASE_URL=postgresql+psycopg://compliance:change-me@localhost:5433/compliance
+
+COMPLIANCE_PG_TEST_URL=postgresql+psycopg://compliance:change-me@localhost:5433/compliance_test
+
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+KAFKA_FLUSH_TIMEOUT_SECONDS=5
+
+INTERNAL_SERVICE_KEYS=inventory-service:change-me,supplier-portal:change-me
+
+SLA_LATENCY_THRESHOLD_MS=500
+SLA_ALERT_WEBHOOK_URL=
+SLA_ALERT_COOLDOWN_SECONDS=300
+
+INTERNAL_BLOCK_MATCH_SCORE=90
 ```
+
+Replace placeholder values locally.
+
+Use placeholders in `.env.example`.
+
+Automated tests should use mocked or dummy credentials rather than production secrets.
+
+If a real credential is accidentally exposed, it should be rotated.
 
 ---
 
-# Fixture Data
-
-Automated tests use local fixture data.
-
-Fixture mode provides:
-
-* Faster tests
-* Stable test results
-* No dependency on external internet access
-* Reproducible test data
-
-Enable fixture mode in PowerShell:
-
-```powershell
-python -m venv venv
-```
-
-Check the value:
-
-```powershell
-.\venv\Scripts\Activate.ps1
-```
-
-Expected:
-
-```text
-true
-```
-
----
-
-# Testing
-
-## Run All Tests
+# Starting Development Infrastructure
 
 From:
 
@@ -1142,372 +994,285 @@ services/compliance
 run:
 
 ```powershell
-python -m pytest -q
+docker compose -f docker-compose.dev.yml --env-file .env up -d
 ```
 
-The Round 6 test suite has been verified successfully.
-
----
-
-## Authentication Tests
+Check containers:
 
 ```powershell
-python -m pytest -q tests/test_auth_integration.py
+docker ps
 ```
 
----
+Expected development services include:
 
-## Scheduled Job Authentication Tests
-
-```powershell
-python -m pytest tests/test_rescreen_auth.py -v
-```
-
-These tests mock the service API key so they do not depend on a real secret in `.env`.
-
----
-
-## Re-Screening Tests
-
-```powershell
-python -m pytest tests/test_rescreen.py -v
+```text
+compliance-postgres
+compliance-kafka
 ```
 
 ---
 
-## Risk Configuration Tests
+# PostgreSQL Development Database
+
+The development PostgreSQL instance uses a host port of:
+
+```text
+5433
+```
+
+Therefore a local connection string has the general form:
+
+```text
+postgresql+psycopg://USER:PASSWORD@localhost:5433/DATABASE
+```
+
+The actual password must come from the local `.env`.
+
+Do not place a real password in the README.
+
+---
+
+# Kafka Development Broker
+
+Kafka is exposed locally on:
+
+```text
+localhost:9092
+```
+
+The application configuration uses:
+
+```text
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+```
+
+The exact Kafka container configuration is defined in:
+
+```text
+docker-compose.dev.yml
+```
+
+## Regulatory Rules Tests
 
 ```powershell
-python -m pytest -q tests/test_risk_config.py
+python -m pytest -q tests/test_regulatory_rules.py
+```
+
+# 46. Application Startup
+
+After PostgreSQL is available and migrations have been applied:
+
+```powershell
+alembic upgrade head
+```
+
+Start the FastAPI application:
+
+```powershell
+python -m uvicorn app.main:app --reload --port 8003
+```
+
+The service will load sanctions data during application startup.
+
+---
+
+# Health Endpoint
+
+Basic service health endpoint:
+
+```text
+GET /root
+```
+
+Example response:
+
+```json
+{
+  "service": "compliance"
+}
 ```
 
 ---
 
-## Reporting Tests
+# Dependency Pinning
+
+Application dependencies are pinned in:
+
+```text
+requirements.txt
+```
+
+This reduces unexpected dependency changes between development and CI environments.
+
+Install dependencies with:
 
 ```powershell
-python -m pytest tests/test_reporting.py -q
+python -m pip install -r requirements.txt
 ```
 
 ---
 
-## Bulk Performance Test
+# Current Dependency Set
 
-```powershell
-python -m pytest tests/test_sanctions.py::test_bulk_screen_500_entities -s -v
+The project currently pins dependencies including:
+
+```text
+fastapi==0.142.2
+uvicorn==0.54.0
+sqlalchemy==2.1.3
+alembic==1.20.0
+psycopg[binary]==3.3.6
+python-dotenv==1.2.4
+rapidfuzz==3.14.6
+requests==2.34.2
+apscheduler==3.11.3
+pytest==9.1.1
+httpx==0.28.1
+xmltodict==1.0.4
+pydantic==2.13.5
+confluent-kafka==2.15.1
+strawberry-graphql==0.331.1
 ```
+
+The exact versions should be changed only through an intentional dependency update.
 
 ---
 
-## Integration Tests
+# Running Unit Tests
 
-To test live sanctions downloads:
+Run the default test suite:
 
 ```powershell
-$env:USE_FIXTURES="false"
-
-python -m pytest -m integration -v -s
+python -m pytest -m "not integration" -q
 ```
 
-Live integration tests depend on external sanctions providers and network availability.
+This includes normal unit and API tests.
+
+Integration tests are intentionally excluded by default.
 
 ---
 
-## Collect Tests
+# Test Coverage Areas
 
-To see the tests collected by pytest:
+The test suite covers areas including:
 
-```powershell
-python -m pytest --collect-only -q
-```
-
-
-
-Re-screen completed:
-
-1 checked
-0 newly flagged
-1 still clean
-```
-
-```powershell
-python -m venv venv
-```
-```powershell
-.\venv\Scripts\Activate.ps1
-```
-## 4. Install Dependencies
-
-```powershell
-pip install -r requirements.txt
-```
+* Screening
+* Matching
+* Risk calculation
+* Decisions
+* Internal compliance
+* Contract behavior
+* Re-screening
+* Kafka producer behavior
+* GraphQL authorization
+* GraphQL filtering
+* GraphQL pagination
+* SLA logic
+* Regulatory rules
+* Case behavior
+* Audit behavior
+* PostgreSQL/Alembic infrastructure
+* Kafka integration
 
 ---
 
-## 5. Configure Environment Variables
+# Internal Service Contract Compatibility
 
-Create:
+The `/internal-check` endpoint is intentionally kept compatible with the existing internal consumers.
+
+The request contract remains:
+
+```text
+supplier_id
+supplier_name
+country
+```
+
+The response contract remains:
+
+```text
+supplier_id
+company_name
+country
+cleared
+decision
+reason
+```
+
+This allows existing service-to-service callers to continue using the compliance endpoint without changing the public contract.
+
+---
+
+# Caching
+
+The internal compliance check supports short-lived caching.
+
+The current cache duration is:
+
+```text
+300 seconds
+```
+
+Cache keys use normalized supplier information.
+
+Per-key locking is used to reduce duplicate concurrent screening work.
+
+---
+#  Security and Secrets
+
+The repository must not contain:
+
+* Production passwords
+* Database passwords
+* API keys
+* Service secrets
+* Private credentials
+* Real authentication tokens
+
+Use:
 
 ```text
 .env
 ```
 
-and configure the required values described in the [Configuration](#configuration) section.
+for local secrets.
 
----
+Commit:
 
-# Running the Application
+```text
+.env.example
+```
 
-Start the Compliance Service:
+with placeholders only.
+
+Before committing changes, check:
 
 ```powershell
-python -m uvicorn app.main:app --reload
+git status
 ```
 
-The service runs locally on:
-
-```text
-http://127.0.0.1:8000
-```
-
-Swagger documentation:
-
-```text
-http://127.0.0.1:8000/docs
-```
-
-The Platform/Auth Service should run separately on:
-
-```text
-http://127.0.0.1:8005
-```
-
-when authentication or service-to-service authentication is being tested.
+and inspect staged files.
 
 ---
 
-# Running the Scheduler
+# Current Status
 
-Run:
+The Compliance Screening Service currently provides a working foundation for:
 
-```powershell
-python -m app.jobs.scheduler
-```
-
-The scheduler starts the re-screening process according to its configured schedule.
-
-Example flow:
-
-```text
-Starting scheduled re-screen...
-        ↓
-Platform authentication
-        ↓
-Authentication successful
-        ↓
-Refreshing sanctions data
-        ↓
-Finding previously cleared entities
-        ↓
-Re-screening
-        ↓
-Saving audit results
-        ↓
-Creating cases for newly flagged entities
-```
-
-If authentication fails:
-
-```text
-Starting scheduled re-screen...
-        ↓
-Platform authentication failed
-        ↓
-Job stops
-```
-
----
-
-# Database
-
-The project currently uses:
-
-```text
-SQLite
-```
-
-Default database:
-
-```text
-compliance.db
-```
-
-The database stores:
-
-* Screening audit records
-* Re-screening results
+* Sanctions screening
+* Risk-based decisions
 * Compliance cases
-* Case history
-* Override information
+* Audit history
+* Internal service screening
+* PostgreSQL persistence
+* Alembic migrations
+* Kafka status-change publishing
+* GraphQL read access
+* SLA monitoring
+* Scheduled re-screening
 
-SQLite is primarily intended for development and testing.
+The Round 12 + 13 implementation has been developed with explicit unit tests and infrastructure integration tests.
 
+The project intentionally documents its remaining limitations rather than presenting incomplete behavior as fully implemented.
 
-# Environment and Security
-
-Secrets must remain outside source control.
-
-Recommended local setup:
-
-```text
-.env
-    ↓
-Environment variables
-    ↓
-Application configuration
-```
-
-Do not commit:
-
-```text
-.env
-Real API keys
-Passwords
-JWT secrets
-Production credentials
-```
-
-Use placeholders in `.env.example`.
-
----
-
-# Known Limitations
-
-## External Sanctions Providers
-
-OFAC, UN, and EU data depend on external providers.
-
-If a provider is unavailable or changes its format, the refresh process may fail.
-
-The service is designed to fail rather than silently treat missing required sanctions data as clean.
-
----
-
-## SQLite
-
-SQLite is currently used for development and testing.
-
-A production deployment should use a production-grade database and an appropriate migration strategy.
-
----
-
-## Re-Screening Data
-
-Re-screening depends on existing audit records.
-
-If there are no previously cleared entities, the job correctly reports zero entities to re-screen.
-
----
-
-## Fuzzy Matching
-
-Fuzzy matching can produce false positives because similar names do not always represent the same entity.
-
-The matching threshold, risk-based thresholds, deduplication, and false-positive override mechanisms help manage these cases.
-
----
-
-## Service API Key
-
-Scheduled re-screening requires successful authentication with the Platform/Auth Service.
-
-The real service API key must remain outside source control.
-
-Automated tests should use mocked/dummy credentials rather than real secrets.
-
----
-
-# Development Notes
-
-For local development:
-
-```text
-Compliance Service
-    ↓
-127.0.0.1:8000
-
-Platform/Auth Service
-    ↓
-127.0.0.1:8005
-```
-
-Fixture mode can be used for deterministic local testing:
-
-```powershell
-$env:USE_FIXTURES="true"
-```
-
-Live sanctions downloads can be tested using:
-
-```powershell
-$env:USE_FIXTURES="false"
-python -m pytest -m integration -v -s
-```
-
----
-
-# Current Implementation Summary
-
-The current Round 6 implementation includes:
-
-```text
-✓ OFAC screening
-✓ UN screening
-✓ EU screening
-✓ Internal Watchlist screening
-✓ PEP screening
-
-✓ Source attribution
-✓ Match deduplication
-✓ Exact matching
-✓ Fuzzy matching
-
-✓ Sanctions risk scoring
-✓ Country risk
-✓ Transaction-value risk
-✓ Risk-based screening tiers
-✓ Tier-specific matching thresholds
-✓ Configurable risk weights
-
-✓ Audit history
-✓ Audit analytics
-✓ False-positive overrides
-✓ Bulk screening
-
-✓ Compliance case management
-✓ Case assignment
-✓ Case state machine
-✓ Case history
-✓ Resolution reasons
-✓ Closed-case reassignment protection
-
-✓ Compliance reporting
-
-✓ Sanctions data refresh
-✓ Re-screening
-✓ Newly flagged detection
-✓ Newly flagged case creation
-✓ Scheduled re-screening
-
-✓ JWT authentication
-✓ Role-based authorization
-✓ Platform Service integration
-✓ Service API-key authentication
-✓ Fail-closed authentication
-
-✓ Fixture-based testing
-✓ Authentication testing
-✓ Re-screening testing
-✓ Integration testing
-✓ Performance testing
-```
+The final milestone status should be updated only after the relevant PostgreSQL integration verification passes in the target development/CI environment.

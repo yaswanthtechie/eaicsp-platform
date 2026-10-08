@@ -225,6 +225,16 @@ class InvoiceResponse(BaseModel):
        default_factory=list
    )
 
+# ============================================================
+# INVOICE DOCUMENT DOWNLOAD RESPONSE
+# ============================================================
+
+class InvoiceDocumentDownloadResponse(BaseModel):
+    invoice_number: str
+    supplier_id: str
+    file_name: str
+    download_url: str
+    expires_in_seconds: int
 
 # ============================================================
 # NORMAL STATUS TRANSITION REQUEST
@@ -247,6 +257,9 @@ class OrphanedInvoiceFile(BaseModel):
     file_path: str
     file_name: str
     size_bytes: int
+    file_age_days: float
+    invoice_status: InvoiceStatus | None = None
+    reason: str
 
 
 class OrphanedFileCleanupResponse(BaseModel):
@@ -258,3 +271,4 @@ class OrphanedFilePurgeResponse(BaseModel):
     total: int
     deleted: int
     files: List[OrphanedInvoiceFile]
+    older_than_days: int

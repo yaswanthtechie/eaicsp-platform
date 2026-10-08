@@ -10,6 +10,75 @@ empirical prediction-interval calibration, saved-model loading, the
 logistics-service prediction contract, MLflow experiment and model
 tracking, and automated pytest coverage.
 
+## Current status
+
+**Milestone 1 (Production-harden ETA): complete.**
+
+Served `/predict` and `/health` endpoints, empirical 80% prediction
+intervals, and unseen-route handling via geographic features rather than
+route lookup.
+
+**Milestone 2 (Route-level insights): partial.**
+
+Route rankings and plain-English findings are implemented.
+
+*Carrier* rankings are **not** implemented: the Olist dataset has no
+carrier field, so there is nothing to rank. `carrier` is accepted on the
+`/predict` contract for compatibility with the logistics service but is
+not a model feature.
+
+**Milestones 3-5: not started.**
+
+## Running the service
+
+```bash
+cd ml-services/eta-prediction
+```bash
+uvicorn src.api:app --reload --port 8010  # Swagger at /docs
+
+POST /predict
+
+Request:
+
+{
+  "origin": "sao paulo",
+  "destination": "rio de janeiro",
+  "carrier": "any-string",
+  "weight_kg": 2.5
+}
+Response:
+
+{
+  "eta_days": 12.4,
+  "confidence_low": 8.1,
+  "confidence_high": 16.7
+}
+
+Errors return:
+
+{
+  "error_code": "...",
+  "message": "..."
+}
+
+Possible errors:
+
+LOCATION_NOT_FOUND / INVALID_REQUEST — HTTP 422
+MODEL_CONFIGURATION_ERROR / INTERNAL_PREDICTION_ERROR — HTTP 500
+GET /health
+
+The service also exposes:
+
+GET /health
+Route insights
+python main.py
+
+prints the slowest-route ranking and plain-English findings as part of the
+training run.
+
+See src/route_insights.py for the route-level insight implementation.
+
+
 The current production pipeline uses an XGBoost regressor to predict
 delivery time in days.
 
@@ -667,8 +736,9 @@ and the current calibration artifact records:
 
 ```text
 Method: absolute_residual_quantile
-Residual lower bound: -10.1970 days
-Residual upper bound: +10.1970 days
+Calibration rows: 15,358
+Residual lower bound: -10.27 days
+Residual upper bound: +10.27 days
 ```
 
 The current residual bounds are symmetric, but the implementation does not assume that future calibrations must remain symmetric.
@@ -1318,27 +1388,12 @@ Expected response structure:
 
 ```json
 {
-  "eta_days": 17.76,
-  "confidence_low": 0.0,
-  "confidence_high": 34.52
+  "eta_days": 24.58,
+  "confidence_low": 14.32,
+  "confidence_high": 34.85
 }
 ```
 
 The numerical values are examples only and depend on the trained artifacts.
 
 ---
-
-# Notes
-
-- Run commands from `ml-services/eta-prediction`.
-- Current implementation was tested with Python 3.14.
-- The model uses a chronological split rather than a random split.
-- The naive baseline is calculated only from training data.
-- Olist's estimated-delivery-date baseline is calculated only from information available at purchase time.
-- Delivery-time columns are not model features.
-- `carrier` is accepted by the external contract but is not currently modeled.
-- City names are resolved using the Olist geolocation dataset.
-- Invalid and unknown geographic inputs are rejected.
-- `confidence_low` and `confidence_high` are empirical prediction bounds.
-- MLflow records the actual model configuration rather than a separate manually maintained parameter list.
-- Generated model and processed-data artifacts should normally be excluded from version control.

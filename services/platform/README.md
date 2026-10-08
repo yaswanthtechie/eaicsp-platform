@@ -109,12 +109,21 @@ app/
     └── logging.py
 
 tests/
+├── fixtures/
+│   ├──role_hierarchy_v1.json
+│   ├──permissions_v1.json
 ├── test_auth.py
 ├── test_integration.py
 ├── test_security.py
+├── test_rbac_snapshot.py
+├── test_roles_and_permissions.py
+├── test_new_roles_assignable.py
+├── test_readme_permission_matrix.py
 
 scripts/
 ├── load_test_verify.py
+├── dump_permissions.py
+
 ```
 ---
 
@@ -2543,3 +2552,713 @@ The access token must be obtained after successful MFA verification.
 The Swagger authentication configuration must match the security dependency used by the Platform Service.
 
 **Centralized authentication, authorization, security, auditing, and service-to-service identity verification.**
+
+
+
+
+# Round 12+13
+
+| Milestone                                | Status         |
+| ---------------------------------------- | -------------- |
+| M1 Redis-backed shared auth state        | Not started    |
+| M2 15+ role model                        | Done (this PR) |
+| M3 Event publishing / structured logging | Not started    |
+
+# Milestone 2 - Expanded RBAC Role Model
+
+## Objective
+
+The original Platform Service contained 8 roles.
+
+Round 12+13 adds 10 specialized roles while preserving the existing role names and V1 permission mappings.
+
+Total supported roles:
+
+```text
+8 V1 roles
++
+10 V2 roles
+=
+18 roles
+```
+
+This milestone changes the RBAC role model only. Redis-backed authentication state and event publishing/structured logging are not part of this milestone.
+
+---
+
+# Existing V1 Roles
+
+These 8 roles are frozen for backward compatibility:
+
+```text
+ceo
+vp_operations
+procurement_manager
+logistics_manager
+compliance_officer
+warehouse_manager
+analyst
+supplier
+```
+
+Their existing permission mappings remain unchanged.
+
+The frozen permission snapshot is:
+
+```text
+tests/fixtures/permissions_v1.json
+```
+
+The frozen hierarchy snapshot is:
+
+```text
+tests/fixtures/role_hierarchy_v1.json
+```
+
+These snapshots protect the original V1 behavior from accidental changes.
+
+---
+
+# New V2 Roles
+
+The 10 new roles are:
+
+```text
+platform_admin
+procurement_officer
+inventory_planner
+demand_planner
+finance_manager
+risk_analyst
+data_scientist
+auditor
+warehouse_operator
+carrier
+```
+
+All 10 new roles are included in the executable role model and are seeded into the `roles` table.
+
+For existing databases, run once:
+
+```bash
+python -m app.seed --roles-only
+```
+
+This adds any missing roles without recreating the existing seed users.
+
+---
+
+# Role Definitions
+
+| Role                  | Purpose                                        |
+| --------------------- | ---------------------------------------------- |
+| `ceo`                 | Existing executive role                        |
+| `vp_operations`       | Existing operations leadership role            |
+| `procurement_manager` | Existing procurement management role           |
+| `logistics_manager`   | Existing logistics management role             |
+| `compliance_officer`  | Existing compliance role                       |
+| `warehouse_manager`   | Existing warehouse management role             |
+| `analyst`             | Existing read-oriented analytical role         |
+| `supplier`            | Existing external supplier role                |
+| `platform_admin`      | Platform user and role administration          |
+| `procurement_officer` | Purchase-order and supplier read operations    |
+| `inventory_planner`   | Inventory planning                             |
+| `demand_planner`      | Demand planning                                |
+| `finance_manager`     | Invoice and payment approval                   |
+| `risk_analyst`        | Supplier and risk analysis                     |
+| `data_scientist`      | Model access, retraining and staging promotion |
+| `auditor`             | Read-only audit and business-data access       |
+| `warehouse_operator`  | Inventory movement                             |
+| `carrier`             | External shipment visibility                   |
+
+---
+
+# Permission Catalogue
+
+The executable permission catalogue is maintained in:
+
+```text
+app/core/permissions.py
+```
+
+The Platform Service provides permission information and authorization dependencies.
+
+The consuming business service is responsible for enforcing the permission on its own endpoints.
+
+| Permission               | Meaning                             | Expected Consumer            |
+| ------------------------ | ----------------------------------- | ---------------------------- |
+| `inventory:read`         | Read inventory                      | Inventory Service            |
+| `inventory:write`        | Modify inventory                    | Inventory Service            |
+| `inventory:plan`         | Perform inventory planning          | Inventory Service            |
+| `inventory:move`         | Move inventory between locations    | Inventory Service            |
+| `compliance:read`        | Read compliance data                | Compliance Service           |
+| `compliance:write`       | Modify compliance data              | Compliance Service           |
+| `supplier:read`          | Read supplier data                  | Supplier/Procurement Service |
+| `supplier:write`         | Modify supplier data                | Supplier/Procurement Service |
+| `logistics:read`         | Read logistics data                 | Logistics Service            |
+| `logistics:write`        | Modify logistics data               | Logistics Service            |
+| `purchase_order:create`  | Create purchase orders              | Procurement Service          |
+| `purchase_order:read`    | Read purchase orders                | Procurement Service          |
+| `purchase_order:approve` | Approve purchase orders             | Procurement Service          |
+| `demand:read`            | Read demand data                    | Planning Service             |
+| `demand:write`           | Modify demand data                  | Planning Service             |
+| `invoice:read`           | Read invoices                       | Finance Service              |
+| `invoice:approve`        | Approve invoices                    | Finance Service              |
+| `payment:approve`        | Approve payments                    | Finance Service              |
+| `risk:read`              | Read risk information               | Risk/Compliance Service      |
+| `model:read`             | Read model information              | AI/Analytics Service         |
+| `model:retrain`          | Retrain models                      | AI/Analytics Service         |
+| `model:promote_staging`  | Promote a model to staging          | AI/Analytics Service         |
+| `audit:read`             | Read audit information              | Platform/Audit consumers     |
+| `user:read`              | Read platform users                 | Platform Service             |
+| `user:manage`            | Create/update/manage platform users | Platform Service             |
+| `role:assign`            | Assign roles to users               | Platform Service             |
+| `shipment:read`          | Read shipment information           | Logistics/Shipment Service   |
+
+`model:promote_production` is a planned governance permission. It is not part of the current executable `PERMISSIONS` set and is not assigned to any current role. It should not be added to the role-permission matrix until its implementation and authorization workflow are introduced.
+
+---
+
+# Complete Role-Permission Matrix
+
+The executable mapping is maintained in:
+
+```text
+app/core/permissions.py
+```
+
+The following matrix documents all 18 executable roles and must remain synchronized with that mapping.
+
+| Role                  | Permissions                                                                                                                                                           |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ceo`                 | `inventory:read`, `inventory:write`, `compliance:read`, `compliance:write`, `supplier:read`, `supplier:write`, `logistics:read`, `logistics:write`                    |
+| `vp_operations`       | `inventory:read`, `inventory:write`, `compliance:read`, `compliance:write`, `supplier:read`, `supplier:write`, `logistics:read`, `logistics:write`                    |
+| `procurement_manager` | `supplier:read`, `supplier:write`                                                                                                                                     |
+| `logistics_manager`   | `logistics:read`, `logistics:write`                                                                                                                                   |
+| `compliance_officer`  | `compliance:read`, `compliance:write`                                                                                                                                 |
+| `warehouse_manager`   | `inventory:read`, `inventory:write`                                                                                                                                   |
+| `analyst`             | `inventory:read`, `compliance:read`, `supplier:read`, `logistics:read`                                                                                                |
+| `supplier`            | `supplier:read`, `supplier:write`                                                                                                                                     |
+| `platform_admin`      | `audit:read`, `user:read`, `user:manage`, `role:assign`                                                                                                               |
+| `procurement_officer` | `purchase_order:create`, `purchase_order:read`, `supplier:read`                                                                                                       |
+| `inventory_planner`   | `inventory:read`, `inventory:plan`                                                                                                                                    |
+| `demand_planner`      | `demand:read`, `demand:write`, `inventory:read`                                                                                                                       |
+| `finance_manager`     | `invoice:read`, `invoice:approve`, `payment:approve`                                                                                                                  |
+| `risk_analyst`        | `supplier:read`, `risk:read`                                                                                                                                          |
+| `data_scientist`      | `model:read`, `model:retrain`, `model:promote_staging`                                                                                                                |
+| `auditor`             | `audit:read`, `inventory:read`, `compliance:read`, `supplier:read`, `logistics:read`, `purchase_order:read`, `invoice:read`, `risk:read`, `model:read`, `demand:read` |
+| `warehouse_operator`  | `inventory:read`, `inventory:move`                                                                                                                                    |
+| `carrier`             | `shipment:read`                                                                                                                                                       |
+
+---
+
+# Platform Administrator
+
+`platform_admin` is a platform-management role.
+
+Its permissions are:
+
+```text
+audit:read
+user:read
+user:manage
+role:assign
+```
+
+It intentionally has no business-data permissions.
+
+For example, it does not automatically receive:
+
+```text
+inventory:*
+supplier:*
+logistics:*
+purchase_order:*
+invoice:*
+payment:*
+risk:*
+model:*
+shipment:*
+```
+
+Platform administration and business-data access remain separate responsibilities.
+
+Administrative endpoints protected by existing V1 role checks must be reviewed explicitly before allowing `platform_admin`.
+
+A new role does not automatically inherit V1 administrative privileges.
+
+Where appropriate, administrative endpoints can use permission-aware authorization so that:
+
+* existing `ceo` and `vp_operations` access is preserved through the existing role hierarchy;
+* `platform_admin` access is granted through `user:manage` or `role:assign`;
+* unrelated roles remain denied.
+
+---
+
+# Backward Compatibility
+
+The following role strings remain unchanged:
+
+```text
+ceo
+vp_operations
+procurement_manager
+logistics_manager
+compliance_officer
+warehouse_manager
+analyst
+supplier
+```
+
+Existing V1 permission mappings are frozen.
+
+The V1 permission snapshot is:
+
+```text
+tests/fixtures/permissions_v1.json
+```
+
+The V1 hierarchy snapshot is:
+
+```text
+tests/fixtures/role_hierarchy_v1.json
+```
+
+Adding V2 roles does not modify either V1 snapshot.
+
+The frozen permission-generation script refuses to overwrite the existing V1 baseline unless explicitly invoked with its force option.
+
+---
+
+# Role Hierarchy
+
+The existing V1 hierarchy remains unchanged.
+
+The executable implementation uses an explicit set-based hierarchy in:
+
+```text
+app/core/dependencies.py
+```
+
+Conceptually, the existing V1 role scopes are:
+
+```text
+ceo
+  -> ceo
+  -> vp_operations
+  -> procurement_manager
+  -> logistics_manager
+  -> compliance_officer
+  -> warehouse_manager
+  -> analyst
+  -> supplier
+
+vp_operations
+  -> vp_operations
+  -> procurement_manager
+  -> logistics_manager
+  -> compliance_officer
+  -> warehouse_manager
+  -> analyst
+  -> supplier
+
+procurement_manager
+  -> procurement_manager
+
+logistics_manager
+  -> logistics_manager
+
+compliance_officer
+  -> compliance_officer
+
+warehouse_manager
+  -> warehouse_manager
+
+analyst
+  -> analyst
+
+supplier
+  -> supplier
+```
+
+The new V2 roles are intentionally not inserted into this V1 hierarchy.
+
+Therefore, a V2 role such as:
+
+```text
+carrier
+warehouse_operator
+finance_manager
+```
+
+does not automatically satisfy an existing V1 higher-level role check.
+
+Likewise, adding a permission to a V2 role does not automatically grant that role a V1 hierarchical position.
+
+---
+
+# Unknown Roles
+
+Unknown roles are denied by default.
+
+Conceptually:
+
+```text
+Unknown role
+     |
+     v
+No explicit role mapping
+     |
+     v
+No permission
+     |
+     v
+403 Forbidden
+```
+
+A new role must be explicitly added to the role model and permission mapping before it can authorize an operation.
+
+---
+
+# External Roles and Data Scoping
+
+Two roles represent external actors:
+
+```text
+supplier
+carrier
+```
+
+RBAC permissions alone are not sufficient for external data isolation.
+
+The consuming service must also enforce record-level scoping.
+
+## Supplier
+
+The existing supplier permissions are:
+
+```text
+supplier:read
+supplier:write
+```
+
+The Supplier/Procurement service must ensure that a supplier can access only records belonging to its permitted supplier scope.
+
+## Carrier
+
+The current carrier permission is:
+
+```text
+shipment:read
+```
+
+The Logistics/Shipment service must restrict the carrier to shipments associated with that carrier.
+
+The carrier must not automatically receive visibility into all platform shipments.
+
+A future permission such as:
+
+```text
+shipment:update_status
+```
+
+can be introduced if the workflow requires it. It is not part of the current executable R12+13 role mapping.
+
+---
+
+# Auditor
+
+The `auditor` role is read-only.
+
+Current permissions are:
+
+```text
+audit:read
+inventory:read
+compliance:read
+supplier:read
+logistics:read
+purchase_order:read
+invoice:read
+risk:read
+model:read
+demand:read
+```
+
+The auditor does not receive write, approval, movement, creation, retraining, staging-promotion, or platform-administration permissions.
+
+In particular, the auditor does not receive:
+
+```text
+inventory:write
+compliance:write
+supplier:write
+logistics:write
+purchase_order:create
+purchase_order:approve
+invoice:approve
+payment:approve
+inventory:move
+model:retrain
+model:promote_staging
+user:manage
+role:assign
+```
+
+This provides broad visibility without granting modification authority.
+
+---
+
+# Finance Separation of Duties
+
+`finance_manager` currently has:
+
+```text
+invoice:read
+invoice:approve
+payment:approve
+```
+
+This is the explicit R12+13 mapping.
+
+Separating invoice approval from payment approval is a potential future separation-of-duties enhancement.
+
+For example, future roles could distinguish:
+
+```text
+invoice approval
+```
+
+from:
+
+```text
+payment approval
+```
+
+For this milestone, the current mapping remains explicit and does not modify the frozen V1 model.
+
+---
+
+# Model Governance
+
+The current data-science workflow supports:
+
+```text
+model:read
+model:retrain
+model:promote_staging
+```
+
+Production promotion is treated as a governance-sensitive operation.
+
+The planned permission is:
+
+```text
+model:promote_production
+```
+
+No current role receives this permission.
+
+The intended future workflow is:
+
+```text
+Data Scientist
+      |
+      +--> model:retrain
+      |
+      +--> model:promote_staging
+      |
+      v
+Governance Approval
+      |
+      v
+model:promote_production
+```
+
+Production promotion should therefore not be automatically granted to `data_scientist`.
+
+---
+
+# Adoption Plan
+
+The new permissions are additive.
+
+Existing V1 roles are not automatically expanded to receive new permissions.
+
+For example, `ceo` continues to use its frozen V1 mapping even though the new RBAC model contains:
+
+```text
+purchase_order:approve
+invoice:approve
+payment:approve
+```
+
+Consuming services can adopt the new permissions when the corresponding business workflows are implemented and approved.
+
+Examples of future adoption include:
+
+| Existing Role         | Possible Future Permission               | Reason                     |
+| --------------------- | ---------------------------------------- | -------------------------- |
+| `ceo`                 | Selected approval/governance permissions | Executive workflows        |
+| `vp_operations`       | Selected planning permissions            | Operations workflows       |
+| `procurement_manager` | `purchase_order:*`                       | Procurement workflow       |
+| `logistics_manager`   | `shipment:*`                             | Logistics workflow         |
+| `compliance_officer`  | `audit:read`, `risk:read`                | Compliance workflow        |
+| `warehouse_manager`   | `inventory:plan`, `inventory:move`       | Warehouse workflow         |
+| `analyst`             | Additional read permissions              | Analytics                  |
+| `supplier`            | Existing supplier permissions            | External supplier workflow |
+
+These are adoption considerations only and do not change the frozen V1 mappings.
+
+---
+
+# Permission Enforcement
+
+Fine-grained authorization uses:
+
+```python
+require_permission("permission:name")
+```
+
+Example:
+
+```python
+@router.post("/...")
+def endpoint(
+    current_user=Depends(
+        require_permission("inventory:write")
+    )
+):
+    ...
+```
+
+A user without the required permission receives:
+
+```text
+403 Forbidden
+```
+
+The Platform Service determines whether the authenticated role has the required permission.
+
+The consuming service remains responsible for:
+
+1. Applying the permission check.
+2. Enforcing record-level data scope where required.
+3. Applying additional business rules.
+
+---
+
+# M2 Tests
+
+The RBAC implementation is protected by focused tests.
+
+## V1 Compatibility
+
+Tests verify:
+
+* All 8 V1 roles exist.
+* V1 role strings are unchanged.
+* V1 permission mappings are unchanged.
+* V1 hierarchy is unchanged.
+* New roles are not inserted into the V1 hierarchy.
+
+## V2 Role Model
+
+Tests verify:
+
+* All 10 new roles exist.
+* At least 18 roles exist.
+* Every enum role has a permission mapping.
+* Every mapped role exists in the role enum.
+* Every permission assigned to a role is known.
+* Each new role has an allowed permission.
+* Each new role has a denied permission.
+* Each new role can be seeded, assigned and verified.
+
+## Security Boundaries
+
+Tests cover:
+
+```text
+platform_admin
+    -> platform permissions allowed
+    -> business permissions denied
+
+auditor
+    -> read permissions allowed
+    -> write permissions denied
+
+carrier
+    -> shipment:read allowed
+    -> unrelated internal permissions denied
+
+supplier
+    -> supplier permissions preserved
+    -> internal platform permissions denied
+```
+
+## /verify Contract
+
+The `/api/v1/auth/verify` response contract remains unchanged.
+
+The response continues to provide:
+
+```text
+valid
+user_id
+email
+full_name
+role
+supplier_id
+is_active
+permissions
+```
+
+The contract is protected by a dedicated test so future RBAC changes cannot silently rename or remove fields used by consuming services.
+
+## Test Files
+
+The RBAC tests are consolidated into:
+
+```text
+tests/test_rbac_snapshot.py
+tests/test_roles_and_permissions.py
+tests/test_new_roles_assignable.py
+tests/test_readme_permission_matrix.py
+```
+
+The snapshot fixtures are:
+
+```text
+tests/fixtures/permissions_v1.json
+tests/fixtures/role_hierarchy_v1.json
+```
+
+The README permission matrix is automatically checked against the executable `ROLE_PERMISSIONS` mapping.
+
+---
+
+## Milestone 2 Acceptance
+
+Milestone 2 is complete when:
+
+```text
+18 roles are defined
+        +
+10 V2 roles are seedable and assignable
+        +
+V1 permissions remain unchanged
+        +
+V1 hierarchy remains unchanged
+        +
+new-role permission boundaries are tested
+        +
+README matrix matches executable permissions
+        +
+/verify response contract remains unchanged
+        +
+full test suite passes
+```
+
+M1 and M3 remain outside this PR and are not represented as implemented functionality.
+

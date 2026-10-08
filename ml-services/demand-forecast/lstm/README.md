@@ -723,8 +723,41 @@ ml-services/demand-forecast/lstm/
 - *Challenge:* `get_walk_forward_folds` doesn't guard against `lookback` exceeding an early fold's accumulated training history; a negative slice index silently wraps instead of clipping, producing an empty array that then crashes `MinMaxScaler.transform`.
 - *Solution:* Documented and pinned the exact failure with a dedicated test (`tests/test_edge_cases.py`) rather than silently working around it; recommended one-line fix (`max(train_end - lookback, 0)`) noted in the Robustness section above for your call on `data.py`.
 
----
+----
 
+## Round 9-11: Three-Model Ensemble (Prophet + XGBoost + LSTM)
 
+**Status:** ensemble milestone complete, with an honest comparison. The ensemble does **not** beat Prophet on this dataset.
 
+### Setup
 
+- Synthetic daily demand, 1,000 days, seed 42, chronological split (no shuffling):
+
+| Split | Rows | Dates |
+|---|---:|---|
+| Train | 700 | 2022-01-01 to 2023-12-01 |
+| Validation | 150 | 2023-12-02 to 2024-04-29 |
+| Test | 150 | 2024-04-30 to 2024-09-26 |
+
+- Validation: every model is trained on **train only**; ensemble weights are picked on validation MAE.
+- Test: every model is retrained on **train + validation**, so there is no gap before the test window.
+- All three models forecast the full window **without seeing any actual future demand**:
+  - Prophet: forecasts directly.
+  - XGBoost: forecasts one day at a time, feeding its predictions back in as lag features.
+  - LSTM: forecasts 7 days at a time, feeding its predictions back in.
+- The LSTM is retrained for the ensemble. The saved `best_model.pt` is not used, because it was trained on rows 0-829, which overlap the validation window.
+
+### Results (test MAE)
+
+```text
+Prophet                    2.4004
+XGBoost                    7.3489
+LSTM                      13.4774
+Ensemble (forced, all 3)   2.5755   weights 0.90 / 0.05 / 0.05
+Ensemble (unconstrained)   2.4004   weights 1.00 / 0.00 / 0.00
+###  conclusion
+
+- The ensemble with all three models forced in is **7.30% worse** than Prophet alone.
+- Without the forced minimum, the best weights are **100% Prophet**: XGBoost and the LSTM add nothing over 150-day forecasts on this data.
+- The LSTM was built to forecast 7 days ahead and degrades badly when it has to predict 150 days on its own forecasts.
+- This is an honest ensemble result: adding more models does not automatically improve forecast accuracy.

@@ -8,13 +8,19 @@ project_root = Path(__file__).resolve().parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
+from src.data import generate_normal_data
+from src.incident_library import (
+    build_incident_library,
+    default_history,
+    save_incident_library,
+)
+
 from src.isolation_forest_model import IsolationForestModel
 from src.lof_model import LOFModel
 from src.one_class_svm_model import OneClassSVMModel
 
 models_dir = project_root / "models"
 models_dir.mkdir(parents=True, exist_ok=True)
-
 
 def save_background_sample(df: pd.DataFrame):
     """
@@ -69,6 +75,10 @@ def train_models(df: pd.DataFrame):
     features = df[feature_names].to_numpy()
 
     save_background_sample(df)
+    # M4: labeled past-incident library for root-cause hints.
+    save_incident_library(
+        build_incident_library(df, default_history())
+    )
 
     models = {}
 
@@ -129,3 +139,29 @@ def save_models(models):
     print("Models deployed successfully.")
     print("SHAP background sample saved.")
     print("=" * 50)
+if __name__ == "__main__":
+    print("Starting anomaly detection model training...")
+
+    df = generate_normal_data(
+        n=5000,
+        seed=42,
+    )
+
+    models = train_models(df)
+
+    save_models(models)
+    import mlflow
+
+    mlflow.set_tracking_uri("sqlite:///mlflow.db")
+    mlflow.set_experiment("anomaly-detection-production")
+
+    with mlflow.start_run(run_name="train-production"):
+        mlflow.log_params({
+            "seed": 42,
+            "n_train": len(df),
+            "models": "iforest,ocsvm,lof"
+        })
+        mlflow.log_artifacts(str(models_dir))
+
+    print("Incident library saved.")
+    print("Training completed successfully.")    

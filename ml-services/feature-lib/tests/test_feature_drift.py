@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from src.feature_drift import detect_feature_drift
+from feature_lib.feature_drift import detect_feature_drift
 
 
 def test_no_drift_for_similar_distributions():

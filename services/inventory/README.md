@@ -350,3 +350,4 @@ In Docker Compose, this is automatically managed by the dedicated `compliance-co
 | Out-of-order event protection (`occurred_at`) | Completed |
 | Dead-Letter Queue for bad messages | Completed |
 | Full unit test suite (no Docker needed) | 216 passed, 13 skipped, 7 deselected |
+| Full test suite | 202 passed, 13 skipped, 7 deselected |

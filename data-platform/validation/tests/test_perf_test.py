@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from src.perf_test import setup_logging, run_performance_test, main
+from data_validator.perf_test import setup_logging, run_performance_test, main
 
 
 class TestSetupLogging:
@@ -35,9 +35,9 @@ class TestSetupLogging:
 class TestRunPerformanceTest:
     """Test suite for run_performance_test core logic."""
 
-    @patch("src.perf_test.generate_messy_data")
-    @patch("src.perf_test.pd.read_csv")
-    @patch("src.perf_test.DataValidator")
+    @patch("data_validator.perf_test.generate_messy_data")
+    @patch("data_validator.perf_test.pd.read_csv")
+    @patch("data_validator.perf_test.DataValidator")
     def test_run_performance_test_success_within_threshold(
             self,
             mock_validator_cls: MagicMock,
@@ -82,11 +82,11 @@ class TestRunPerformanceTest:
         mock_validator_cls.from_config.assert_called_once_with(str(config_path))
         mock_validator.validate.assert_called_once_with(mock_df)
 
-    @patch("src.perf_test.time.perf_counter")
-    @patch("src.perf_test.generate_messy_data")
-    @patch("src.perf_test.pd.read_csv")
-    @patch("src.perf_test.DataValidator")
-    @patch("src.perf_test.logger.warning")
+    @patch("data_validator.perf_test.time.perf_counter")
+    @patch("data_validator.perf_test.generate_messy_data")
+    @patch("data_validator.perf_test.pd.read_csv")
+    @patch("data_validator.perf_test.DataValidator")
+    @patch("data_validator.perf_test.logger.warning")
     def test_run_performance_test_exceeding_threshold_and_failed_validation(
             self,
             mock_logger_warning: MagicMock,
@@ -141,7 +141,7 @@ class TestRunPerformanceTest:
         data_path = tmp_path / "data" / "test.csv"
         non_existent_config = tmp_path / "configs" / "missing.yaml"
 
-        with patch("src.perf_test.generate_messy_data"), patch("src.perf_test.pd.read_csv"):
+        with patch("data_validator.perf_test.generate_messy_data"), patch("data_validator.perf_test.pd.read_csv"):
             # Act
             result = run_performance_test(
                 data_path=data_path,
@@ -157,8 +157,8 @@ class TestRunPerformanceTest:
 class TestMainCLI:
     """Test suite for CLI argument parsing and main execution entry point."""
 
-    @patch("src.perf_test.setup_logging")
-    @patch("src.perf_test.run_performance_test", return_value=0)
+    @patch("data_validator.perf_test.setup_logging")
+    @patch("data_validator.perf_test.run_performance_test", return_value=0)
     def test_main_executes_with_cli_args(
             self,
             mock_run_test: MagicMock,
@@ -183,7 +183,7 @@ class TestMainCLI:
         mock_setup_logging.assert_called_once()
 
         # Import PROJECT_ROOT dynamically and assert the new dev environment default
-        from src.perf_test import PROJECT_ROOT
+        from data_validator.perf_test import PROJECT_ROOT
         mock_run_test.assert_called_once_with(
             data_path=Path("data/perf_100k_sales.csv"),
             config_path=PROJECT_ROOT / "configs" / "dev" / "sales_rules.yaml",

@@ -1,0 +1,77 @@
+type Query {
+    dashboard: Dashboard!
+}
+
+type Dashboard {
+    kpis: KPIs!
+    inventory: [InventoryItem!]!
+    inventoryHealth: [InventoryHealthItem!]!
+    forecast: [ForecastPoint!]!
+    forecastAccuracy: [ForecastAccuracyPoint!]!
+    supplierRisk: [SupplierRiskItem!]!
+    shipmentStatus: ShipmentStatus!
+}
+
+type KPIs {
+    totalSkus: Int!
+    totalUnits: Int!
+    reorderItems: Int!
+    alerts: Int!
+}
+
+type InventoryItem {
+    sku_id: String!
+    product_name: String!
+    category: String!
+    warehouse_id: String!
+    quantity_on_hand: Int!
+    reorder_point: Int!
+    needs_reorder: Boolean!
+    avg_daily_demand: Float!
+}
+
+type ForecastPoint {
+    date: String!
+    predicted: Float!
+    lower_bound: Float!
+    upper_bound: Float!
+    actual: Float
+}
+
+type ForecastAccuracyPoint {
+    date: String!
+    accuracy: Float!
+    target: Float!
+}
+
+type InventoryHealthItem {
+    warehouse_id: String!
+    total_skus: Int!
+    low_stock_count: Int!
+    out_of_stock_count: Int!
+}
+
+type SupplierRiskItem {
+    supplier: String!
+    risk_score: Float!
+    confidence: Float!
+    sentiment_breakdown: SentimentBreakdown!
+}
+
+type SentimentBreakdown {
+    positive: Float!
+    negative: Float!
+    neutral: Float!
+}
+
+type ShipmentStatus {
+    total: Int!
+    pending: Int!
+    delivered: Int!
+    in_transit: Int!
+    delayed: Int!
+    cancelled: Int!
+}
+
+
+

@@ -1,17 +1,62 @@
+import logging
+import secrets
 import uuid
+
 import httpx
+
 from fastapi import (
     Depends,
     HTTPException,
     Request,
     status,
 )
+
 from fastapi.security import (
     HTTPAuthorizationCredentials,
     HTTPBearer,
 )
+
+from app.core import config
 from app.core.config import PLATFORM_AUTH_URL
+
+
 security = HTTPBearer(auto_error=False)
+logger = logging.getLogger(__name__)
+
+
+# ==========================================================
+# SERVICE-TO-SERVICE AUTH (/internal-check)
+# ==========================================================
+def verify_internal_caller(request: Request) -> str:
+    caller = (
+        request.headers.get("X-Caller-Service") or ""
+    ).strip()
+
+    key = request.headers.get("X-Service-Key") or ""
+    expected = config.INTERNAL_SERVICE_KEYS.get(caller)
+
+    if (
+        not caller
+        or expected is None
+        # Compare bytes: compare_digest raises TypeError on non-ASCII str.
+        or not secrets.compare_digest(
+            key.encode("utf-8"),
+            expected.encode("utf-8"),
+        )
+    ):
+        logger.warning(
+            "Rejected internal compliance call: caller=%s key_present=%s",
+            caller or "<missing>",
+            bool(key),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unknown calling service or invalid service key",
+        )
+
+    return caller
+
+
 async def verify_token(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(
@@ -26,14 +71,13 @@ async def verify_token(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing authentication token",
         )
+
     token = credentials.credentials
 
     # ----------------------------------------
     # 2. Get/generate request ID
     # ----------------------------------------
-    request_id = request.headers.get(
-        "X-Request-ID"
-    )
+    request_id = request.headers.get("X-Request-ID")
 
     if not request_id:
         request_id = str(uuid.uuid4())
@@ -45,7 +89,6 @@ async def verify_token(
         async with httpx.AsyncClient(
             timeout=5.0
         ) as client:
-
             response = await client.post(
                 f"{PLATFORM_AUTH_URL}/api/v1/auth/verify",
                 headers={
@@ -119,9 +162,7 @@ async def verify_token(
 # ==========================================================
 # ROLE AUTHORIZATION
 # ==========================================================
-
 def require_roles(*allowed_roles: str):
-
     async def role_checker(
         user=Depends(verify_token),
     ):

@@ -600,6 +600,7 @@ def reconcile_horizons(
                 2,
             ),
         }
+   
 
     return horizons
 
@@ -665,6 +666,29 @@ def add_intervals(
         )
 
         horizon["interval"] = interval_label
+
+    conformal = calibration.get("conformal_intervals")
+
+    if conformal:
+        for name, horizon in horizons.items():
+            if name not in conformal:
+                raise ValueError(
+                    f"Missing conformal calibration for horizon '{name}'."
+                )
+
+            horizon["intervals"] = {
+                label: {
+                    "lower": round(
+                        horizon["predicted"] * bounds["low"],
+                        2,
+                    ),
+                    "upper": round(
+                        horizon["predicted"] * bounds["high"],
+                        2,
+                    ),
+                }
+                for label, bounds in conformal[name].items()
+            }
 
     return horizons
 

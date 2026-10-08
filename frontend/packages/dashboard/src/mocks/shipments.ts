@@ -1,4 +1,4 @@
-import type { ShipmentStatus } from "../types/dashboard";
+import type { ShipmentStatus } from "../types/dashboard.ts";
 
 export const shipmentStatus: ShipmentStatus = {
   total: 150,
