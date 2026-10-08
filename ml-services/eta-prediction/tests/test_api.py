@@ -3,6 +3,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.api import app
+from src.errors import InvalidPredictionRequest, LocationNotFound
 
 
 @pytest.fixture
@@ -48,7 +49,7 @@ def test_predict_success(client, monkeypatch):
 
 def test_predict_unknown_city_returns_structured_error(client, monkeypatch):
     def fake_predict(payload):
-        raise ValueError(
+        raise LocationNotFound(
             "City not found in geolocation dataset: unknown_city_xyz"
         )
 
@@ -68,16 +69,16 @@ def test_predict_unknown_city_returns_structured_error(client, monkeypatch):
 
     body = response.json()
 
-    assert body["detail"]["error_code"] == "LOCATION_NOT_FOUND"
-    assert (
-        body["detail"]["message"]
-        == "City not found in geolocation dataset: unknown_city_xyz"
-    )
+    # Documented contract: error_code and message at the TOP level.
+    assert body == {
+        "error_code": "LOCATION_NOT_FOUND",
+        "message": "City not found in geolocation dataset: unknown_city_xyz",
+    }
 
 
 def test_predict_invalid_request(client, monkeypatch):
     def fake_predict(payload):
-        raise ValueError("Invalid prediction request")
+        raise InvalidPredictionRequest("Invalid prediction request")
 
     monkeypatch.setattr("src.api.predict", fake_predict)
 
@@ -95,8 +96,10 @@ def test_predict_invalid_request(client, monkeypatch):
 
     body = response.json()
 
-    assert body["detail"]["error_code"] == "INVALID_REQUEST"
-    assert body["detail"]["message"] == "Invalid prediction request"
+    assert body == {
+        "error_code": "INVALID_REQUEST",
+        "message": "Invalid prediction request",
+    }
 
 
 def test_predict_missing_required_field(client):
@@ -110,6 +113,9 @@ def test_predict_missing_required_field(client):
     )
 
     assert response.status_code == 422
+    body = response.json()
+    assert body["error_code"] == "INVALID_REQUEST"
+    assert "weight_kg" in body["message"]
 
 
 def test_predict_negative_weight(client):
@@ -124,6 +130,7 @@ def test_predict_negative_weight(client):
     )
 
     assert response.status_code == 422
+    assert response.json()["error_code"] == "INVALID_REQUEST"
 
 
 def test_predict_unseen_carrier(client, monkeypatch):
@@ -169,8 +176,7 @@ def test_predict_internal_error(client, monkeypatch):
     assert response.status_code == 500
 
     body = response.json()
-
-    assert body["detail"]["error_code"] == "INTERNAL_PREDICTION_ERROR"
+    assert body["error_code"] == "INTERNAL_PREDICTION_ERROR"
 
 # ---------------------------------------------------------------------
 # End-to-end tests: these drive the REAL predict() through the API.
@@ -270,4 +276,72 @@ def test_predict_end_to_end_unknown_city_returns_location_error(
     )
 
     assert response.status_code == 422
-    assert response.json()["detail"]["error_code"] == "LOCATION_NOT_FOUND"
+    assert response.json()["error_code"] == "LOCATION_NOT_FOUND"
+    # ---------------------------------------------------------------------
+    # Server-side failures must be 500, never blamed on the caller.
+    # ---------------------------------------------------------------------
+
+VALID_REQUEST = {
+    "origin": "sao paulo",
+    "destination": "rio de janeiro",
+    "carrier": "carrier_x",
+    "weight_kg": 2.5,
+}
+
+
+def test_broken_calibration_is_a_server_error_not_the_callers(client, monkeypatch):
+    def fake_predict(payload):
+        # A plain ValueError raised by OUR code (predict.py calibration check).
+        raise ValueError(
+            "Prediction interval calibration is invalid: "
+            "lower residual exceeds upper residual."
+        )
+
+    monkeypatch.setattr("src.api.predict", fake_predict)
+
+    response = client.post("/predict", json=VALID_REQUEST)
+
+    assert response.status_code == 500
+    assert response.json()["error_code"] == "INTERNAL_PREDICTION_ERROR"
+
+
+def test_missing_model_file_does_not_leak_server_paths(client, monkeypatch):
+    secret_path = "C:/srv/eta/models/eta_pipeline.joblib"
+
+    def fake_predict(payload):
+        raise FileNotFoundError(f"Trained model not found: {secret_path}")
+
+    monkeypatch.setattr("src.api.predict", fake_predict)
+
+    response = client.post("/predict", json=VALID_REQUEST)
+
+    assert response.status_code == 500
+    body = response.json()
+    assert body["error_code"] == "MODEL_CONFIGURATION_ERROR"
+    assert secret_path not in body["message"]
+    assert "models" not in body["message"]
+
+
+def test_unknown_city_from_the_real_loader_is_a_location_error():
+    """The real loader raises LocationNotFound, which the API maps to 422."""
+    import pandas as pd
+
+    import src.model_loader as loader
+
+    original = loader._load_city_coordinates
+    loader._load_city_coordinates = lambda: pd.DataFrame(
+        {"latitude": [-23.5], "longitude": [-46.6]},
+        index=["sao paulo"],
+    )
+    try:
+        with pytest.raises(LocationNotFound):
+            loader._lookup_city_coordinates("no_such_city_xyz")
+    finally:
+        loader._load_city_coordinates = original
+
+
+def test_bad_payload_from_the_real_validator_is_an_invalid_request():
+    import src.model_loader as loader
+
+    with pytest.raises(InvalidPredictionRequest):
+        loader._validate_payload({**VALID_REQUEST, "weight_kg": -1})   

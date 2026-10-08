@@ -2,7 +2,7 @@ import joblib
 import math
 
 import pandas as pd
-
+from .errors import InvalidPredictionRequest, LocationNotFound
 from .paths import MODEL_PATH, RAW_DATA_DIR
 
 
@@ -103,12 +103,12 @@ def _normalize_city(city):
     """
 
     if not isinstance(city,str):
-        raise ValueError("City name must be a string.")
+        raise InvalidPredictionRequest("City name must be a string.")
 
     normalized = (city.strip().lower())
 
     if not normalized:
-        raise ValueError("City name must not be empty.")
+        raise InvalidPredictionRequest("City name must not be empty.")
 
     return normalized
 
@@ -250,10 +250,10 @@ def _lookup_city_coordinates(city):
     city_coordinates = (_load_city_coordinates())
 
     if city_normalized not in city_coordinates.index:
-        raise ValueError(
-            f"City not found in geolocation dataset: "
-            f"{city}"
-        )
+          raise LocationNotFound(
+              f"City not found in geolocation dataset: "
+              f"{city}"
+    )
 
     coordinates = city_coordinates.loc[city_normalized]
 
@@ -323,7 +323,7 @@ def _validate_payload(payload):
     missing_fields = (required_fields - payload.keys())
 
     if missing_fields:
-        raise ValueError(
+        raise InvalidPredictionRequest(
             "Missing required fields: "
             f"{sorted(missing_fields)}"
         )
@@ -333,23 +333,23 @@ def _validate_payload(payload):
             payload[location_name],
             str,
         ):
-            raise ValueError(f"{location_name} must be a city name.")
+            raise InvalidPredictionRequest(f"{location_name} must be a city name.")
 
         if not payload[location_name].strip():
-            raise ValueError(f"{location_name} city name must not be empty.")
+            raise InvalidPredictionRequest(f"{location_name} city name must not be empty.")
 
     weight = payload["weight_kg"]
 
     if not isinstance(weight,(int, float)):
-        raise ValueError("weight_kg must be numeric.")
+        raise InvalidPredictionRequest("weight_kg must be numeric.")
 
     weight = float(weight)
 
     if not math.isfinite(weight):
-        raise ValueError("weight_kg must be finite.")
+        raise InvalidPredictionRequest("weight_kg must be finite.")
 
     if weight < 0:
-        raise ValueError("weight_kg must be non-negative.")
+        raise InvalidPredictionRequest("weight_kg must be non-negative.")
 
 
 def _calculate_distance(

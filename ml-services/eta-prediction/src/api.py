@@ -1,8 +1,15 @@
+import logging
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from .errors import InvalidPredictionRequest, LocationNotFound
 from .predict import predict
+
+
+logger = logging.getLogger(__name__)
 
 
 app = FastAPI(
@@ -35,6 +42,28 @@ def health():
     return {"status": "ok"}
 
 
+def _error(status_code, error_code, message):
+    """Every error uses the documented contract: {"error_code", "message"}."""
+    return JSONResponse(
+        status_code=status_code,
+        content={"error_code": error_code, "message": message},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_error(request: Request, exc: RequestValidationError):
+    """
+    Missing fields, negative weight, empty city: rejected by Pydantic
+    before predict_eta runs. Return the same contract shape as every
+    other error instead of FastAPI's default {"detail": [...]}.
+    """
+    problems = "; ".join(
+        f"{'.'.join(str(part) for part in error['loc'][1:])}: {error['msg']}"
+        for error in exc.errors()
+    )
+    return _error(422, "INVALID_REQUEST", problems)
+
+
 @app.post(
     "/predict",
     response_model=ETAPredictionResponse,
@@ -45,44 +74,30 @@ def health():
 )
 def predict_eta(request: ETAPredictionRequest):
     try:
-        result = predict(request.model_dump())
-        return result
+        return predict(request.model_dump())
 
-    except ValueError as exc:
-        message = str(exc)
+    # ---- caller's mistake: 422 ---------------------------------------
+    except LocationNotFound as exc:
+        return _error(422, "LOCATION_NOT_FOUND", str(exc))
 
-        if "City not found in geolocation dataset" in message:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_code": "LOCATION_NOT_FOUND",
-                    "message": message,
-                },
-            ) from exc
+    except InvalidPredictionRequest as exc:
+        return _error(422, "INVALID_REQUEST", str(exc))
 
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error_code": "INVALID_REQUEST",
-                "message": message,
-            },
-        ) from exc
+    # ---- our problem: 500, details only in the server log --------------
+    except (FileNotFoundError, TypeError):
+        logger.exception("ETA model or data files are missing or invalid")
+        return _error(
+            500,
+            "MODEL_CONFIGURATION_ERROR",
+            "The ETA service is misconfigured. See server logs.",
+        )
 
-    except (FileNotFoundError, TypeError) as exc:
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "error_code": "MODEL_CONFIGURATION_ERROR",
-                "message": str(exc),
-            },
-        ) from exc
-
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "error_code": "INTERNAL_PREDICTION_ERROR",
-                "message": "Internal prediction error",
-            },
-        ) from exc
-
+    except Exception:
+        # Includes any other ValueError: bad calibration, a geolocation
+        # file with missing columns, invalid coordinates in OUR data.
+        logger.exception("ETA prediction failed")
+        return _error(
+            500,
+            "INTERNAL_PREDICTION_ERROR",
+            "Internal prediction error",
+        )
