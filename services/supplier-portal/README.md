@@ -8,7 +8,9 @@ The Supplier Portal Service is part of the **Enterprise AI Cognitive Supply Chai
 
 The portal also exposes a **Strawberry GraphQL API** for Purchase Orders, invoices, and supplier documents, intended for consumption by the supplier portal frontend through Apollo Client.
 
-Invoice PDFs and supplier onboarding documents are stored in **MinIO**, an S3-compatible object-storage service. Document downloads use short-lived **presigned URLs** after supplier ownership authorization.
+Invoice PDFs and supplier onboarding documents are stored in **MinIO**, an S3-compatible object-storage service. Document downloads use short-lived **presigned URLs** after supplier ownership and compliance-access authorization.
+
+The Supplier Portal also consumes event-driven supplier compliance status changes through **Apache Kafka**. Round 14 introduced the Kafka consumer, compliance access-state enforcement, idempotent event processing, out-of-order event handling, audit history, manual offset management, and a dead-letter queue.
 
 ---
 
@@ -73,12 +75,85 @@ Invoice PDFs and supplier onboarding documents are stored in **MinIO**, an S3-co
 29. [Future Enhancements](#29-future-enhancements)
 
 ---
+
 ## Round 12–13 Status
 
 - **Milestone 1:** Done in #152 (supersedes #128)
 - **Milestone 2:** MinIO document storage with supplier-scoped presigned download URLs: **Done**
 - **Milestone 3:** GraphQL queries, cursor pagination, acknowledge-PO mutation, and resolver-level supplier scoping: **Done**
 - **Known gaps:** GraphQL cursors currently represent list indexes over in-memory data, so cursor positions can change when records are added or removed. Business data is also still stored in application memory and is not durable across application restarts.
+
+## Round 14 Status
+
+**Round 14 – Pod 1: Supplier compliance status event consumption**
+
+Implemented:
+
+- Apache Kafka integration
+- Kafka topic consumption from `compliance.supplier.status_changed`
+- Consumer group `supplier-portal-service`
+- Event schema validation
+- Event type and version validation
+- `event_id` idempotency
+- `occurred_at` ordering protection
+- Supplier compliance access-state mapping
+- Compliance audit history
+- Manual Kafka offset commits
+- Dead-letter queue handling
+- Invalid-event handling
+- Unknown-supplier handling
+- REST compliance access enforcement
+- GraphQL compliance access enforcement
+- Supplier Purchase Order write protection
+- Supplier invoice write protection
+- Compliance-aware document download protection
+- Local Kafka Docker infrastructure
+- Kafka consumer unit tests
+- Existing REST/GraphQL/MinIO behavior retained
+
+The compliance event mapping is:
+
+```text
+CLEAR
+  ↓
+cleared
+  ↓
+Supplier can view and perform permitted writes
+
+REVIEW
+  ↓
+needs_review
+  ↓
+Supplier can view but protected writes are blocked
+
+BLOCK
+  ↓
+suspended
+  ↓
+Supplier-facing access is blocked
+```
+
+Round 14 compliance access state is separate from the supplier onboarding `status`.
+
+The synchronous Compliance integration used during supplier activation remains unchanged:
+
+```text
+approved supplier
+      ↓
+Compliance internal-check
+      ↓
+CLEAR
+      ↓
+active
+```
+
+Round 14 handles **ongoing compliance status changes after activation** through Kafka.
+
+The Supplier Portal expects the consumed event payload to contain the supplier identity required by the event contract, including `payload.supplier_id`. The consumer does **not** infer a supplier ID from `supplier_name` or other fields.
+
+The external Compliance producer is outside the Supplier Portal implementation scope. Therefore, producer-side end-to-end event publishing is not claimed as part of the Supplier Portal implementation.
+
+---
 
 ## Running Locally
 
@@ -95,17 +170,62 @@ MINIO_ACCESS_KEY=<your-minio-access-key>
 MINIO_SECRET_KEY=<your-minio-secret-key>
 ```
 
+Configure Kafka:
+
+```text
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+KAFKA_CONSUMER_GROUP=supplier-portal-service
+KAFKA_STATUS_CHANGED_TOPIC=compliance.supplier.status_changed
+KAFKA_DLQ_TOPIC=compliance.supplier.status_changed.dlq
+KAFKA_AUTO_OFFSET_RESET=earliest
+```
+
 Start the development dependencies:
 
 ```bash
 docker compose -f docker-compose.dev.yml up -d --build
 ```
 
-This starts MinIO for local document-storage testing:
+This starts the local MinIO and Kafka infrastructure.
+
+MinIO:
 
 ```text
 MinIO API:     http://127.0.0.1:9000
 MinIO Console: http://127.0.0.1:9001
+```
+
+Kafka:
+
+```text
+Kafka Broker:  localhost:9092
+```
+
+Create the Kafka topics if they do not already exist:
+
+```bash
+docker exec supplier-portal-kafka /opt/kafka/bin/kafka-topics.sh \
+  --bootstrap-server localhost:9092 \
+  --create --if-not-exists \
+  --topic compliance.supplier.status_changed \
+  --partitions 1 \
+  --replication-factor 1
+```
+
+```bash
+docker exec supplier-portal-kafka /opt/kafka/bin/kafka-topics.sh \
+  --bootstrap-server localhost:9092 \
+  --create --if-not-exists \
+  --topic compliance.supplier.status_changed.dlq \
+  --partitions 1 \
+  --replication-factor 1
+```
+
+Run the Supplier Portal:
+
+```bash
+cd services/supplier-portal
+python -m uvicorn app.main:app --reload --port 8000
 ```
 
 Run the normal test suite without integration tests:
@@ -114,23 +234,19 @@ Run the normal test suite without integration tests:
 python -m pytest -m "not integration" -q
 ```
 
-This runs the unit/API tests that do not require Docker-backed MinIO infrastructure.
-
 Run the MinIO integration tests:
 
 ```bash
 python -m pytest -m integration -q
 ```
 
-Integration tests require Docker Desktop and a running MinIO instance.
-
-To run the complete test suite:
+Run the complete test suite:
 
 ```bash
 python -m pytest -q
 ```
 
-The default pytest configuration excludes integration tests, so the normal suite does not require MinIO.
+---
 
 ## How I Wired MinIO with Docker in R12–R13
 
@@ -139,13 +255,13 @@ Round 12 introduced MinIO as the S3-compatible object-storage service for:
 - Supplier onboarding documents
 - Invoice PDF documents
 
-For local development and integration testing, MinIO runs in Docker through the existing:
+For local development and integration testing, MinIO runs in Docker through:
 
 ```text
 docker-compose.dev.yml
 ```
 
-The application connects to MinIO using the configuration from `.env`:
+The application connects to MinIO using:
 
 ```text
 MINIO_ENDPOINT=127.0.0.1:9000
@@ -158,54 +274,44 @@ MINIO_PRESIGNED_EXPIRY_SECONDS=300
 
 ### Starting MinIO
 
-Make sure Docker Desktop is running, then start the development stack:
+Make sure Docker Desktop is running:
 
 ```bash
 docker compose -f docker-compose.dev.yml up -d --build
 ```
 
-Verify that the containers are running:
+Verify:
 
 ```bash
 docker ps
 ```
 
-The MinIO container should be running with ports:
+Expected MinIO ports:
 
 ```text
 9000 → MinIO S3 API
 9001 → MinIO Console
 ```
 
-If the MinIO container already exists but is stopped, it can be started with:
+If the container already exists but is stopped:
 
 ```bash
 docker start supplier-portal-minio
 ```
 
-Then verify:
-
-```bash
-docker ps
-```
-
-The container should show an `Up` status.
-
 ### MinIO Document Flow
-
-The Supplier Portal does not expose MinIO objects through permanent public URLs.
 
 Document uploads follow:
 
 ```text
 Supplier Portal
-      ↓
+     ↓
 Validate Document
-      ↓
-Validate Supplier Ownership
-      ↓
+     ↓
+Validate Supplier Ownership / Access
+     ↓
 Upload Object to MinIO
-      ↓
+     ↓
 Store Object Reference
 ```
 
@@ -213,116 +319,123 @@ Document downloads follow:
 
 ```text
 Authenticated Request
-      ↓
+     ↓
+Authentication
+     ↓
+Supplier Compliance Access Check
+     ↓
 Find Document
-      ↓
+     ↓
 Validate Supplier Ownership
-      ↓
+     ↓
 Check MinIO Object
-      ↓
+     ↓
 Generate Short-Lived Presigned URL
-      ↓
+     ↓
 Client Downloads From MinIO
 ```
 
-Supplier ownership is checked **before** a presigned URL is generated.
+For a suspended supplier, the compliance-access check fails before the document lookup or presigned URL generation.
 
-Therefore:
+For cross-supplier access:
 
 ```text
 Supplier A requests Supplier B document
-        ↓
+       ↓
+Authentication
+       ↓
 Supplier ownership check
-        ↓
+       ↓
 403 Forbidden
-        ↓
-No presigned URL generated
+       ↓
+No MinIO presigned URL generated
 ```
 
 If MinIO is unavailable during an upload or download operation, the storage failure is treated as a dependency failure rather than a client validation error.
 
 ### Testing MinIO Integration
 
-For MinIO-dependent tests, keep Docker Desktop and MinIO running.
-
-Run only the integration tests:
-
 ```bash
 python -m pytest -m integration -q
 ```
 
-Run the normal non-integration suite:
+Normal non-integration suite:
 
 ```bash
 python -m pytest -m "not integration" -q
 ```
 
-Or run the complete suite:
+Complete suite:
 
 ```bash
 python -m pytest -q
 ```
 
-The pytest configuration marks MinIO-dependent tests with:
-
-```text
-integration
-```
-
-and excludes them from the default test run.
-
-This keeps the normal test suite independent of Docker while still providing dedicated integration coverage for MinIO-backed document storage.
+---
 
 ## How I Wired Business-Logic Integration (Supplier Portal to Compliance)
 
-Read this if you are wiring one service's business decision into another's workflow.
+Before a supplier moves `approved -> active`, Supplier Portal asks the Compliance Service whether the supplier is cleared.
 
-It assumes zero context.
+### Quick commands
 
-Quick commands
----------------------------------------------------------
+```bash
 docker info
 docker ps -a
 docker start supplier-portal-minio
 docker ps
 python -m pytest -q
+```
 
-### 1. What it does, in one sentence
+### 1. What it does
 
-Before a supplier moves `approved -> active`, Supplier Portal asks the Compliance Service whether the supplier is cleared, and only activates on a clean `CLEAR`.
+Before activation:
+
+```text
+approved
+   ↓
+Compliance internal-check
+   ↓
+CLEAR + cleared=true
+   ↓
+active
+```
+
+BLOCK, REVIEW, or an unavailable Compliance Service prevents activation.
 
 ### 2. Where the code is
 
-| File | What it does |
+| File | Responsibility |
 | --- | --- |
-| `app/services/compliance_client.py` | The only place that talks to Compliance. Makes the HTTP call, validates the response, and raises typed errors. |
-| `app/services/supplier_onboarding_service.py` -> `activate_supplier()` | The trigger point. Checks the supplier is `approved`, calls the client, and activates only on CLEAR. |
-| `app/routes/supplier_onboarding.py` -> `activate_supplier_endpoint()` | Maps typed errors to HTTP codes (409 / 503 / 502). No business logic. |
-| `app/core/config.py` -> `COMPLIANCE_SERVICE_URL` | Where Compliance lives. Default `http://127.0.0.1:8003`. |
-| `tests/test_compliance_client.py`, `tests/test_supplier_onboarding.py` | Client tests and activation integration tests. |
+| `app/services/compliance_client.py` | Calls Compliance, validates the response, and raises typed errors |
+| `app/services/supplier_onboarding_service.py` → `activate_supplier()` | Checks supplier state and performs the activation decision |
+| `app/routes/supplier_onboarding.py` → `activate_supplier_endpoint()` | Maps typed errors to HTTP responses |
+| `app/core/config.py` → `COMPLIANCE_SERVICE_URL` | Configures Compliance Service location |
+| `tests/test_compliance_client.py` | Compliance client tests |
+| `tests/test_supplier_onboarding.py` | Activation workflow tests |
 
-### 3. The order of operations inside `activate_supplier()`
+### 3. Order of operations inside `activate_supplier()`
 
-1. Load the supplier (404 if missing).
-2. **Check the state first**: must be `approved`, otherwise 400. Compliance is *not* called.
+1. Load the supplier.
+2. Verify the supplier is `approved`.
 3. Call Compliance.
-4. Activate only if `decision == "CLEAR"` **and** `cleared is True`.
-5. Anything else raises, and the supplier stays `approved`.
+4. Activate only when `decision == "CLEAR"` and `cleared is True`.
+5. Otherwise keep the supplier in the approved state.
 
-Step 2 comes before step 3 on purpose: never screen, or report a Compliance outage for, a supplier who is not ready to activate.
-
-### 4. The contract
-
-Request:
+### 4. Contract
 
 ```http
 POST {COMPLIANCE_SERVICE_URL}/api/v1/compliance/internal-check
 ```
 
+Headers:
+
 ```http
 X-Caller-Service: supplier-portal
 Content-Type: application/json
 ```
+
+Request:
 
 ```json
 {
@@ -342,23 +455,25 @@ Expected response:
 }
 ```
 
-`decision` is one of `CLEAR` / `BLOCK` / `REVIEW`.
+Supported decisions:
 
-`cleared` must be `true` only for `CLEAR`. If the decision and cleared flag contradict each other, the response is treated as unusable and results in a `502`.
+```text
+CLEAR
+BLOCK
+REVIEW
+```
 
-> **Dependency status:** The Compliance `/internal-check` contract must remain aligned with the Compliance Service implementation. Supplier Portal expects the fields and decision values documented above.
+A contradictory response, such as `decision=CLEAR` with `cleared=false`, is treated as unusable and results in `502`.
 
-### 5. Error types to HTTP codes
+### 5. Error types
 
 | Raised by the client/service | Meaning | HTTP |
 | --- | --- | ---: |
 | `ComplianceBlockedError` | Valid BLOCK / REVIEW decision | 409 |
-| `ComplianceServiceUnavailableError` | Timeout, connection or network failure | 503 |
-| `ComplianceServiceError` | Compliance returned an error or an unusable/contradictory response | 502 |
+| `ComplianceServiceUnavailableError` | Timeout, connection, or network failure | 503 |
+| `ComplianceServiceError` | Compliance returned an error or unusable response | 502 |
 
-Typed exceptions decide the status code, so a decision's `reason` text cannot change the HTTP status.
-
-### 6. Run it locally
+### 6. Run locally
 
 ```bash
 # Terminal 1: Platform
@@ -371,25 +486,187 @@ uvicorn app.main:app --port 8003
 
 # Terminal 3: Supplier Portal
 cd services/supplier-portal
-python -m uvicorn app.main:app --port 8004
+python -m uvicorn app.main:app --port 8000
 ```
 
-For document storage, a local MinIO instance must also be running and configured through the Supplier Portal environment settings.
+Platform Service code is not modified by this integration.
 
 ### 7. Run the tests
 
 ```bash
 cd services/supplier-portal
-pytest tests/test_compliance_client.py tests/test_supplier_onboarding.py -q
+python -m pytest tests/test_compliance_client.py tests/test_supplier_onboarding.py -q
 ```
 
-### 8. Cloning this pattern for your own service
+---
 
-1. Put the HTTP call in its own `app/services/<other>_client.py`, never in a route.
-2. Raise **typed exceptions** for business "no", service unreachable, and service error.
-3. Call the client from your service function **after** your own state checks and **before** changing state.
-4. Decide explicitly what "unreachable" means for your workflow, write down why, and test that path.
-5. Add the service URL to configuration and `.env.example`.
+## How I Wired Kafka Supplier Compliance Status Changes in R14
+
+Round 14 adds event-driven compliance status consumption separately from the synchronous activation check.
+
+### Kafka contract
+
+```text
+Topic:
+compliance.supplier.status_changed
+
+Consumer group:
+supplier-portal-service
+
+DLQ:
+compliance.supplier.status_changed.dlq
+```
+
+The consumer runs as a background application task when the Supplier Portal starts.
+
+It is **not a REST or Swagger endpoint**.
+
+### Event processing flow
+
+```text
+Compliance Status Event
+        ↓
+Kafka Consumer
+        ↓
+JSON / Schema Validation
+        ↓
+Event Type / Version Validation
+        ↓
+Supplier ID Validation
+        ↓
+event_id Idempotency Check
+        ↓
+occurred_at Ordering Check
+        ↓
+Apply Compliance Access State
+        ↓
+Record Audit History
+        ↓
+Commit Kafka Offset
+```
+
+Invalid or unknown-supplier events follow:
+
+```text
+Invalid / Unknown Event
+        ↓
+Publish to DLQ
+        ↓
+Commit Original Offset
+```
+
+Unexpected processing failures follow:
+
+```text
+Processing Failure
+        ↓
+Do NOT commit offset
+        ↓
+Kafka can redeliver the event
+```
+
+### Compliance state mapping
+
+```text
+Kafka decision       Supplier Portal access state
+------------------------------------------------
+CLEAR          →     cleared
+REVIEW         →     needs_review
+BLOCK          →     suspended
+```
+
+### Idempotency
+
+Each event contains an `event_id`.
+
+The Supplier Portal tracks processed event IDs and ignores duplicate events.
+
+```text
+Event A
+event_id = EVT-001
+       ↓
+Apply
+       ↓
+Record EVT-001
+       ↓
+Commit
+
+Event A redelivered
+event_id = EVT-001
+       ↓
+Already processed
+       ↓
+Ignore duplicate
+```
+
+### Out-of-order events
+
+Events are compared using `occurred_at`.
+
+An older event cannot overwrite a newer compliance status.
+
+```text
+Event A
+occurred_at = 10:00
+       ↓
+Applied
+
+Event B
+occurred_at = 10:05
+       ↓
+Applied
+
+Event C
+occurred_at = 09:55
+       ↓
+Ignored as stale
+```
+
+### DLQ behavior
+
+Bad messages are published to:
+
+```text
+compliance.supplier.status_changed.dlq
+```
+
+The original event information is retained so the failed event can be investigated.
+
+### R14 access enforcement
+
+```text
+CLEAR
+  ↓
+Supplier can view
+Supplier can perform permitted writes
+
+REVIEW
+  ↓
+Supplier can view
+Protected writes are rejected
+
+BLOCK
+  ↓
+Supplier-facing access rejected
+Documents cannot be downloaded
+New MinIO presigned URLs are not generated
+```
+
+Internal roles are not blocked by the supplier compliance access guard.
+
+### R14 important boundary
+
+The Supplier Portal consumer expects the event payload to identify the supplier using `payload.supplier_id`.
+
+The consumer does not do:
+
+```text
+supplier_name → supplier_id
+```
+
+and does not infer supplier identity from unrelated fields.
+
+Producer-side event generation remains an external integration responsibility.
 
 ---
 
@@ -418,93 +695,123 @@ The service manages the following major functional areas:
 16. Compliance Business-Logic Integration
 17. MinIO Document Storage
 18. GraphQL API for Portal Read/Mutation Operations
+19. Event-Driven Compliance Status Consumption
+20. Kafka-Based Compliance Access Enforcement
+21. Compliance Event Idempotency, Ordering, and Audit History
 ```
 
 The implemented procure-to-pay flow is:
 
 ```text
 Purchase Order
-      │
-      ▼
+     │
+     ▼
 Acknowledgement
-      │
-      ▼
+     │
+     ▼
 Shipment Notice
-      │
-      ▼
+     │
+     ▼
 Goods Receipt
-      │
-      ▼
+     │
+     ▼
 Invoice
-      │
-      ▼
+     │
+     ▼
 Three-Way Match
-      │
-      ├── Matched
-      │
-      └── Discrepancy
-              │
-              ▼
-         Human Review
-              │
-              ▼
-       Payment Approval
+     │
+     ├── Matched
+     │
+     └── Discrepancy
+             │
+             ▼
+        Human Review
+             │
+             ▼
+      Payment Approval
 ```
 
 Three-way matching compares:
 
 ```text
 Purchase Order
-      +
+     +
 Goods Receipt
-      +
+     +
 Invoice
-      │
-      ▼
+     │
+     ▼
 Match Result
-      │
-      ├── Matched
-      │
-      └── Discrepancy
-            ├── Quantity Difference
-            └── Price Difference
+     │
+     ├── Matched
+     │
+     └── Discrepancy
+           ├── Quantity Difference
+           └── Price Difference
 ```
 
 Supplier onboarding is implemented as:
 
 ```text
 Registration
-      │
-      ▼
+     │
+     ▼
 Document Collection
-      │
-      ▼
+     │
+     ▼
 Mock Verification
-      │
-      ▼
+     │
+     ▼
 Approval
-      │
-      ▼
+     │
+     ▼
 Compliance Check
-      │
-      ├── CLEAR ───────► Active
-      │
-      ├── BLOCK ───────► Activation Blocked
-      │
-      ├── REVIEW ──────► Activation Blocked / Human Review
-      │
-      └── Unavailable ─► Activation Blocked
+     │
+     ├── CLEAR ───────► Active
+     │
+     ├── BLOCK ───────► Activation Blocked
+     │
+     ├── REVIEW ──────► Activation Blocked / Human Review
+     │
+     └── Unavailable ─► Activation Blocked
 ```
 
 A supplier must be **registered, approved, and active** before a Purchase Order can be created for that supplier.
 
 Supplier-level authorization introduced in Round 5 remains enforced throughout supplier-facing workflows.
 
+### Compliance state after activation
+
+The onboarding compliance check and the R14 event-driven compliance state are related but separate controls.
+
+```text
+Onboarding:
+approved
+   ↓
+Compliance internal-check
+   ↓
+CLEAR
+   ↓
+active
+```
+
+After activation, Kafka can change the supplier's compliance access state:
+
+```text
+CLEAR   → cleared
+REVIEW  → needs_review
+BLOCK   → suspended
+```
+
+Therefore an already-active supplier can later become restricted without changing the onboarding lifecycle state itself.
+
 **Rounds 9–11** introduced compliance integration, contract lifecycle management, dispute-resolution assistance, and supplier self-service analytics.
 
 **Round 12 (Milestone 2)** introduced MinIO-backed document storage and presigned document downloads.
 
 **Round 13 (Milestone 3)** introduced the Strawberry GraphQL API with cursor pagination, the acknowledge-PO mutation, and resolver-level supplier scoping.
+
+**Round 14** introduced Kafka-based supplier compliance status consumption, compliance access-state enforcement, event idempotency, event ordering, audit history, manual offset management, DLQ handling, and local Kafka infrastructure.
 
 ---
 
@@ -544,6 +851,13 @@ The current Supplier Portal implementation includes:
 * GraphQL cursor pagination
 * GraphQL acknowledge-PO mutation
 * Resolver-level supplier scoping
+* Event-driven supplier compliance status consumption
+* Compliance access-state enforcement
+* Compliance event idempotency
+* Out-of-order compliance event protection
+* Compliance audit history
+* Kafka manual offset management
+* Kafka dead-letter queue handling
 * Automated business-rule testing
 * Supplier isolation and cross-supplier security testing
 
@@ -595,13 +909,38 @@ The current Supplier Portal implementation includes:
 8. Cross-supplier GraphQL isolation tests           → Implemented
 ```
 
+### Round 14 — Pod 1
+
+```text
+1. Kafka supplier status consumer                   → Implemented
+2. Supplier compliance event schema validation      → Implemented
+3. Compliance state mapping                         → Implemented
+4. event_id idempotency                             → Implemented
+5. occurred_at ordering protection                  → Implemented
+6. Compliance audit history                         → Implemented
+7. Manual Kafka offset commits                      → Implemented
+8. Dead-letter queue handling                       → Implemented
+9. REST compliance access enforcement               → Implemented
+10. GraphQL compliance access enforcement           → Implemented
+11. Supplier PO write protection                    → Implemented
+12. Supplier invoice write protection               → Implemented
+13. Compliance-aware document protection            → Implemented
+14. Local Kafka Docker infrastructure               → Implemented
+15. Kafka consumer test coverage                    → Implemented
+```
+
 Current infrastructure limitations include:
 
 * Purchase Orders, invoices, P2P records, onboarding data, contract data, and audit events use in-memory business storage.
 * In-memory business data is not persistent across service restarts.
-* **Invoice PDFs and supplier onboarding documents are stored in MinIO rather than the local filesystem.**
+* Compliance access state, processed-event IDs, event ordering state, and compliance audit history are also maintained in application memory.
+* Invoice PDFs and supplier onboarding documents are stored in MinIO rather than the local filesystem.
 * Authentication depends on the availability of the Platform Service.
 * Supplier activation depends on the availability of the Compliance Service.
+* Kafka offsets are managed by Kafka, while application-level compliance state is not restart-durable.
+* Local Kafka development uses plaintext communication and is not intended as production security configuration.
+* The external Compliance producer must publish events that conform to the agreed event contract.
+* The Supplier Portal does not infer `supplier_id` from `supplier_name`.
 * Production deployment requires persistent business storage and additional operational hardening.
 
 The current implementation is suitable for development, functional validation, API testing, integration testing, and workflow verification. Production deployment requires additional infrastructure and operational controls.
@@ -631,6 +970,27 @@ The current implementation is suitable for development, functional validation, A
 * Bulk Purchase Order sending
 * Supplier onboarding validation during PO creation
 * Active supplier enforcement
+* Compliance-aware supplier access
+* Compliance-aware supplier PO acknowledgement
+
+For supplier users:
+
+```text
+CLEAR
+  → PO viewing allowed
+  → PO acknowledgement allowed when otherwise authorized
+
+REVIEW
+  → PO viewing allowed
+  → PO acknowledgement blocked
+
+BLOCK / suspended
+  → Supplier-facing PO access blocked
+```
+
+Internal authorized roles continue to follow their existing role-based permissions.
+
+---
 
 ## Invoices
 
@@ -654,8 +1014,26 @@ The current implementation is suitable for development, functional validation, A
 * Price discrepancy support for three-way matching
 * Quantity discrepancy support for three-way matching
 * Historical dispute-resolution suggestions
+* Compliance-aware supplier invoice access
+* Compliance-aware protected invoice writes
 
-> The invoice service does not block a price difference merely because it exceeds the three-way-match tolerance. Price differences must reach the matching stage so that the matching process can identify and flag the discrepancy.
+For supplier users under R14:
+
+```text
+CLEAR
+  → invoice viewing/submission permitted when otherwise authorized
+
+REVIEW
+  → invoice viewing allowed
+  → protected invoice submission/write blocked
+
+BLOCK / suspended
+  → supplier-facing invoice access blocked
+```
+
+The invoice service does not block a price difference merely because it exceeds the three-way-match tolerance. Price differences must reach the matching stage so that the matching process can identify and flag the discrepancy.
+
+---
 
 ## Invoice Documents
 
@@ -668,6 +1046,7 @@ The current implementation is suitable for development, functional validation, A
 * Object existence validation
 * Short-lived presigned download URLs
 * Supplier ownership verification before URL generation
+* Compliance access verification before document lookup
 * Cross-supplier document-access protection
 * MinIO storage failure handling
 * Missing-object handling
@@ -680,37 +1059,47 @@ The security flow is:
 
 ```text
 Authenticated Request
-        │
-        ▼
+       │
+       ▼
+Authentication
+       │
+       ▼
+Compliance Access Check
+       │
+       ├── Suspended ─────► 403 Forbidden
+       │
+       ▼
 Document Lookup
-        │
-        ▼
+       │
+       ▼
 Supplier Ownership Check
-        │
-        ├── Not Owner ─────► 403 Forbidden
-        │
-        └── Owner
-             │
-             ▼
-        MinIO Object Check
-             │
-             ├── Missing ───► 404 Not Found
-             │
-             └── Exists
-                  │
-                  ▼
-          Generate Presigned URL
-                  │
-                  ▼
-                 200
+       │
+       ├── Not Owner ─────► 403 Forbidden
+       │
+       └── Owner
+            │
+            ▼
+       MinIO Object Check
+            │
+            ├── Missing ───► 404 Not Found
+            │
+            └── Exists
+                 │
+                 ▼
+         Generate Presigned URL
+                 │
+                 ▼
+                200
 ```
 
 The key security rule is:
 
 ```text
 Never generate a presigned URL before verifying
-that the authenticated supplier owns the document.
+authentication, compliance access, and supplier ownership.
 ```
+
+---
 
 ## Supplier Statistics
 
@@ -729,20 +1118,22 @@ The on-time delivery denominator uses a common delivery-eligibility rule:
 
 ```text
 Fulfilled PO
-     → Eligible
+    → Eligible
 
 Past-due unfulfilled PO
-     → Eligible and counted as late
+    → Eligible and counted as late
 
 Future-due unfulfilled PO
-     → Not eligible
+    → Not eligible
 
 Cancelled PO
-     → Not eligible
+    → Not eligible
 
 PO without expected delivery date
-     → Not eligible
+    → Not eligible
 ```
+
+---
 
 ## Supplier Scorecard
 
@@ -760,8 +1151,11 @@ PO without expected delivery date
 * Monthly performance trend
 * Supplier-scoped scorecard access
 * Supplier self-service scorecard access
+* Compliance-aware supplier access
 
 Invoice-related scorecard calculations use the `po_number` stored on invoice line items.
+
+---
 
 ## Procure-to-Pay
 
@@ -778,6 +1172,9 @@ Invoice-related scorecard calculations use the `po_number` stored on invoice lin
 * Human-review handling for discrepancies
 * Payment approval workflow
 * Out-of-order transition rejection
+* Compliance-aware supplier access to protected supplier actions
+
+---
 
 ## Supplier Onboarding
 
@@ -797,48 +1194,48 @@ Invoice-related scorecard calculations use the `po_number` stored on invoice lin
 
 ### Compliance Business-Logic Integration
 
-Supplier activation performs a real business-logic integration with the Compliance Service.
+Supplier activation performs a synchronous business-logic integration with the Compliance Service.
 
-Before a supplier can move from the approved onboarding state to `active`, the Supplier Portal calls:
+Before a supplier can move from the approved onboarding state to `active`:
 
 ```http
 POST /api/v1/compliance/internal-check
 ```
 
-The request contains:
-
-```json
-{
-  "supplier_id": "SUP001",
-  "supplier_name": "Example Supplier",
-  "country": "India"
-}
-```
-
-The request also includes:
-
-```text
-X-Caller-Service: supplier-portal
-```
-
-A five-second timeout is used for the Compliance Service call.
-
 Supported decisions:
 
 ```text
 CLEAR
-  → Supplier activation allowed
+  → Activation allowed
 
 BLOCK
-  → Supplier activation rejected
+  → Activation rejected
 
 REVIEW
-  → Supplier activation rejected and requires review
+  → Activation rejected and requires review
 ```
 
 If the Compliance Service is unavailable, times out, or cannot be reached, activation does not proceed.
 
 The integration intentionally follows a **fail-closed** approach.
+
+### Round 14 Ongoing Compliance State
+
+After activation, supplier compliance status can change asynchronously through Kafka:
+
+```text
+Compliance Event
+       ↓
+Kafka
+       ↓
+Supplier Portal Consumer
+       ↓
+Compliance Access State
+```
+
+This does not replace the synchronous activation check.
+
+---
 
 ## Supplier Contract Lifecycle Management
 
@@ -863,6 +1260,8 @@ The integration intentionally follows a **fail-closed** approach.
 * Contract lifecycle history
 * Contract term-change audit history
 
+---
+
 ## Supplier Self-Service Analytics
 
 Supplier users can access their own supplier performance scorecard through:
@@ -873,7 +1272,9 @@ GET /api/v1/suppliers/{supplier_id}/scorecard
 
 Supplier ownership is enforced before returning the scorecard.
 
-Supplier self-service analytics are read-only.
+Supplier self-service analytics are read-only and remain subject to the supplier's compliance access state.
+
+---
 
 ## Three-Way Match
 
@@ -898,7 +1299,7 @@ The service does not automatically modify invoices, approve disputes, or change 
 
 # 3. Architecture
 
-The Supplier Portal follows a layered FastAPI architecture with separate REST, GraphQL, business-service, authentication, and object-storage responsibilities.
+The Supplier Portal follows a layered FastAPI architecture with separate REST, GraphQL, business-service, authentication, event-consumption, and object-storage responsibilities.
 
 ```text
                          Client
@@ -931,29 +1332,248 @@ The Supplier Portal follows a layered FastAPI architecture with separate REST, G
               │            │             │
               ▼            ▼             ▼
           PO/P2P       Invoice       Supplier Data
-                                        │
-                                        ▼
-                              Contract / Onboarding /
-                              Performance Services
+                                          │
+                                          ▼
+                                Contract / Onboarding /
+                                Performance Services
 ```
 
-### MinIO Document Architecture
+---
+
+## Round 14 Kafka Architecture
+
+The event-driven compliance path is separate from synchronous REST/GraphQL request handling.
+
+```text
+Compliance Service / External Producer
+                │
+                │ compliance.supplier.status_changed
+                ▼
+        Apache Kafka
+                │
+                │ group:
+                │ supplier-portal-service
+                ▼
+     Supplier Portal Kafka Consumer
+                │
+                ▼
+      Event Validation / Parsing
+                │
+                ▼
+       Idempotency + Ordering
+                │
+                ▼
+    Supplier Compliance Access State
+                │
+       ┌────────┼───────────┐
+       │        │           │
+       ▼        ▼           ▼
+    CLEARED   REVIEW     SUSPENDED
+       │        │           │
+       ▼        ▼           ▼
+   view/write view-only    deny
+```
+
+### Kafka Processing Sequence
+
+```text
+Kafka Message
+     ↓
+Validate JSON
+     ↓
+Validate Event Schema
+     ↓
+Validate Event Type / Version
+     ↓
+Validate supplier_id
+     ↓
+Check event_id
+     ↓
+Check occurred_at
+     ↓
+Apply State
+     ↓
+Write Audit History
+     ↓
+Commit Offset
+```
+
+Invalid messages:
+
+```text
+Invalid Event
+     ↓
+DLQ
+     ↓
+Commit Original Offset
+```
+
+Processing failures:
+
+```text
+Processing Failure
+     ↓
+No Offset Commit
+     ↓
+Message Can Be Redelivered
+```
+
+The consumer uses manual offset management with:
+
+```text
+enable.auto.commit = false
+```
+
+`KAFKA_AUTO_OFFSET_RESET=earliest` applies when there is no committed offset for the consumer group.
+
+---
+
+## Compliance Access Architecture
+
+The compliance access state is applied after authentication and supplier identity are established.
+
+```text
+Authenticated Request
+        │
+        ▼
+Platform Authentication
+        │
+        ▼
+Supplier Identity
+        │
+        ▼
+Compliance Access Check
+        │
+   ┌────┼───────────────┐
+   │    │               │
+   ▼    ▼               ▼
+CLEAR REVIEW          BLOCK
+   │    │               │
+   ▼    ▼               ▼
+Allow  Read-only      Deny
+```
+
+The compliance state does not replace supplier ownership checks.
+
+The final authorization model is:
+
+```text
+Authentication
+      ↓
+Role Authorization
+      ↓
+Compliance Access
+      ↓
+Supplier Ownership
+      ↓
+Resource / Business Operation
+```
+
+---
+
+## REST Enforcement
+
+For supplier users:
+
+```text
+View operation
+     ↓
+Compliance view access
+     ↓
+Supplier ownership
+     ↓
+Resource
+```
+
+Protected write:
+
+```text
+Write operation
+     ↓
+Compliance write access
+     ↓
+Supplier ownership
+     ↓
+Business validation
+     ↓
+Mutation
+```
+
+Compliance access is enforced before protected supplier operations.
+
+---
+
+## GraphQL Compliance Architecture
+
+GraphQL applies compliance access at resolver level.
+
+```text
+Apollo Client
+     │
+     ▼
+POST /graphql
+     │
+     ▼
+GraphQL Context
+     │
+     ▼
+Authenticated User
+     │
+     ▼
+Compliance Access Guard
+     │
+     ▼
+GraphQL Resolver
+     │
+     ▼
+Supplier Scope Check
+     │
+     ▼
+Existing Business Service
+```
+
+For suspended suppliers, supplier-facing GraphQL operations are rejected before returning protected data.
+
+For suppliers under review:
+
+```text
+GraphQL Query
+    → Allowed
+
+GraphQL Protected Mutation
+    → Rejected
+```
+
+Internal roles are not affected by the supplier compliance access guard.
+
+---
+
+## MinIO Document Architecture
 
 ```text
 Supplier Portal
-      │
-      ▼
+     │
+     ▼
+Authentication
+     │
+     ▼
+Compliance Access Check
+     │
+     ▼
+Document Authorization
+     │
+     ▼
 Document Storage Service
-      │
-      ├── Validate metadata
-      ├── Validate content
-      ├── Build supplier-scoped object key
-      └── Store / retrieve object
-      │
-      ▼
+     │
+     ├── Validate metadata
+     ├── Validate content
+     ├── Build supplier-scoped object key
+     └── Store / retrieve object
+     │
+     ▼
 MinIO
-      │
-      ▼
+     │
+     ▼
 S3-Compatible Object
 ```
 
@@ -961,56 +1581,66 @@ For downloads:
 
 ```text
 Authenticated Supplier
-        │
-        ▼
+       │
+       ▼
+Compliance View Check
+       │
+       ├── Suspended → 403
+       │
+       ▼
 Document Resolver / REST Endpoint
-        │
-        ▼
+       │
+       ▼
 Ownership Check
-        │
-        ├── Cross-supplier → 403
-        │
-        ▼
+       │
+       ├── Cross-supplier → 403
+       │
+       ▼
 MinIO Object Check
-        │
-        ▼
+       │
+       ▼
 Short-Lived Presigned URL
 ```
 
-Supplier A therefore cannot obtain a presigned URL for Supplier B's document.
+A suspended supplier therefore cannot obtain a new presigned document URL.
 
-### GraphQL Architecture
+---
+
+## GraphQL Architecture
 
 ```text
 Apollo Client
-      │
-      ▼
+     │
+     ▼
 POST /graphql
-      │
-      ▼
+     │
+     ▼
 GraphQL Context
-      │
-      ▼
+     │
+     ▼
 Authenticated User
-      │
-      ▼
+     │
+     ▼
+Compliance Access
+     │
+     ▼
 GraphQL Resolver
-      │
-      ▼
+     │
+     ▼
 Supplier Scope Check
-      │
-      ▼
+     │
+     ▼
 Existing Business Service
-      │
-      ▼
+     │
+     ▼
 GraphQL Type / Connection
 ```
 
 GraphQL resolvers enforce supplier ownership **inside the resolver layer**.
 
-Supplier scoping is not dependent only on a surrounding REST route.
+---
 
-### GraphQL Query Operations
+## GraphQL Query Operations
 
 The GraphQL API provides operations for:
 
@@ -1022,7 +1652,7 @@ invoices
 documents
 ```
 
-Collection operations support cursor pagination using:
+Collection operations support:
 
 ```text
 first
@@ -1033,7 +1663,9 @@ endCursor
 
 The implementation limits `first` to a maximum of 100 records.
 
-### GraphQL Mutation
+---
+
+## GraphQL Mutation
 
 The current mutation surface includes:
 
@@ -1044,62 +1676,83 @@ acknowledgePurchaseOrder
 The mutation:
 
 1. Reads the authenticated user from GraphQL context.
-2. Loads the requested Purchase Order.
-3. Checks supplier ownership for supplier users.
-4. Calls the existing Purchase Order service.
-5. Returns the updated GraphQL representation.
+2. Applies compliance write-access checks for supplier users.
+3. Loads the requested Purchase Order.
+4. Checks supplier ownership for supplier users.
+5. Calls the existing Purchase Order service.
+6. Returns the updated GraphQL representation.
+
+Therefore:
+
+```text
+CLEAR supplier
+    → Can acknowledge when otherwise authorized
+
+REVIEW supplier
+    → Cannot acknowledge
+
+SUSPENDED supplier
+    → Cannot acknowledge
+```
 
 A supplier cannot acknowledge another supplier's Purchase Order.
 
-### GraphQL Supplier Isolation
+---
+
+## GraphQL Supplier Isolation
 
 ```text
 SUP001 authenticated user
-          │
-          ▼
+         │
+         ▼
 GraphQL purchaseOrder(id)
-          │
-          ▼
+         │
+         ▼
+Compliance Access Check
+         │
+         ▼
 Requested PO supplier_id
-          │
-          ▼
+         │
+         ▼
 Compare with authenticated supplier_id
-          │
-     ┌────┴────┐
-     │         │
-   Match    Mismatch
-     │         │
-     ▼         ▼
+         │
+    ┌────┴────┐
+    │         │
+  Match    Mismatch
+    │         │
+    ▼         ▼
  Return      null
 ```
 
 This prevents cross-supplier data exposure through GraphQL.
 
-### Compliance Business-Logic Integration
+---
 
-The Supplier Portal calls the Compliance Service during supplier activation:
+## Compliance Business-Logic Integration
+
+The synchronous activation integration is:
 
 ```text
 Supplier Portal
-     │
-     │ Supplier activation request
-     ▼
+    │
+    │ Supplier activation request
+    ▼
 Supplier Onboarding Service
-     │
-     │ Compliance check
-     ▼
+    │
+    │ Compliance check
+    ▼
 Compliance Service
-     │
-     ├── CLEAR
-     ├── BLOCK
-     └── REVIEW
-     │
-     ▼
+    │
+    ├── CLEAR
+    ├── BLOCK
+    └── REVIEW
+    │
+    ▼
 Supplier Portal
-     │
-     ├── CLEAR → Activate supplier
-     │
-     └── BLOCK/REVIEW/Failure → Do not activate
+    │
+    ├── CLEAR → Activate supplier
+    │
+    └── BLOCK/REVIEW/Failure → Do not activate
 ```
 
 The integration is isolated in:
@@ -1108,61 +1761,84 @@ The integration is isolated in:
 app/services/compliance_client.py
 ```
 
-### Supplier Contract Architecture
+The R14 Kafka integration is separate:
+
+```text
+Compliance Status Event
+        ↓
+Kafka
+        ↓
+app/services/kafka_consumer.py
+        ↓
+app/services/supplier_compliance_service.py
+        ↓
+Compliance Access State
+```
+
+---
+
+## Supplier Contract Architecture
 
 Supplier contract management remains an independent business service:
 
 ```text
 Supplier Contract Route
-       │
-       ▼
+      │
+      ▼
 Authentication / Authorization
-       │
-       ▼
+      │
+      ▼
 Supplier Contract Service
-       │
-       ├── Contract Validation
-       ├── Lifecycle Transition
-       ├── Renewal Processing
-       ├── Expiry Calculation
-       └── History / Audit
-       │
-       ▼
+      │
+      ├── Contract Validation
+      ├── Lifecycle Transition
+      ├── Renewal Processing
+      ├── Expiry Calculation
+      └── History / Audit
+      │
+      ▼
 In-Memory Contract Store
 ```
 
-### Historical Dispute-Resolution Architecture
+---
+
+## Historical Dispute-Resolution Architecture
 
 ```text
 Three-Way Match Records
-       │
-       ▼
+      │
+      ▼
 Dispute Resolution Service
-       │
-       ├── Historical dispute filtering
-       ├── Resolution reason classification
-       ├── Pattern counting
-       └── Suggestion generation
-       │
-       ▼
+      │
+      ├── Historical dispute filtering
+      ├── Resolution reason classification
+      ├── Pattern counting
+      └── Suggestion generation
+      │
+      ▼
 Advisory Resolution Suggestion
 ```
 
-### Supplier Self-Service Architecture
+---
+
+## Supplier Self-Service Architecture
 
 ```text
 Supplier User
-     │
-     ▼
+    │
+    ▼
 Scorecard Endpoint
-     │
-     ▼
+    │
+    ▼
+Compliance Access Check
+    │
+    ▼
 Supplier Ownership Check
-     │
-     ▼
+    │
+    ▼
 Supplier Performance Service
-     │
-     ▼
+    │
+    ▼
 Supplier Scorecard
 ```
 
@@ -1176,7 +1852,7 @@ The Supplier Portal extends the existing layered architecture with a dedicated p
                          Client
                            │
                            ▼
-                   FastAPI Application
+                  FastAPI Application
                            │
                     ┌──────┴──────┐
                     │             │
@@ -1189,10 +1865,13 @@ The Supplier Portal extends the existing layered architecture with a dedicated p
                 Authorization
                            │
                            ▼
+                   Compliance Access
+                           │
+                           ▼
                     Business Services
                            │
                            ▼
-                 P2P State Management
+                P2P State Management
                            │
           ┌────────────────┼────────────────┐
           │                │                │
@@ -1204,16 +1883,16 @@ The Supplier Portal extends the existing layered architecture with a dedicated p
                            ▼
                     Three-Way Match
                            │
-                 ┌─────────┴─────────┐
-                 │                   │
-                 ▼                   ▼
-              Matched          Discrepancy
-                                      │
-                                      ▼
-                                 Human Review
-                                      │
-                                      ▼
-                              Payment Approval
+                ┌─────────┴─────────┐
+                │                   │
+                ▼                   ▼
+             Matched          Discrepancy
+                                    │
+                                    ▼
+                               Human Review
+                                    │
+                                    ▼
+                            Payment Approval
 ```
 
 The P2P state machine is separate from the existing Purchase Order lifecycle state machine.
@@ -1234,14 +1913,18 @@ The P2P state machine is separate from the existing Purchase Order lifecycle sta
 | Pytest | Automated testing |
 | python-multipart | Multipart file upload support |
 | MinIO / S3-compatible API | Object storage for documents |
+| Apache Kafka | Event-driven supplier compliance status changes |
+| `confluent-kafka` | Kafka consumer and DLQ producer client |
 
 The current dependency versions are maintained in `requirements.txt`.
+
+The Supplier Portal does not own the external Compliance Service producer.
 
 ---
 
 # 5. Project Structure
 
-The Supplier Portal Service follows a layered architecture separating application configuration, authentication, REST routes, GraphQL operations, validation schemas, business logic, document storage, external business-service integration, and automated tests.
+The Supplier Portal Service follows a layered architecture separating application configuration, authentication, REST routes, GraphQL operations, validation schemas, business logic, document storage, external business-service integration, Kafka event processing, and automated tests.
 
 ```text
 supplier-portal/
@@ -1280,7 +1963,8 @@ supplier-portal/
 │   │   ├── three_way_match.py
 │   │   ├── supplier_onboarding.py
 │   │   ├── supplier_contract.py
-│   │   └── supplier_stats.py
+│   │   ├── supplier_stats.py
+│   │   └── events.py
 │   │
 │   └── services/
 │       ├── purchase_order_service.py
@@ -1293,8 +1977,11 @@ supplier-portal/
 │       ├── supplier_stats_service.py
 │       ├── dispute_resolution_service.py
 │       ├── compliance_client.py
+│       ├── supplier_compliance_service.py
 │       ├── document_storage_service.py
-│       └── po_p2p_state_machine.py
+│       ├── po_p2p_state_machine.py
+│       ├── kafka_consumer.py
+│       └── kafka_consumer_runner.py
 │
 ├── tests/
 │   ├── conftest.py
@@ -1313,6 +2000,7 @@ supplier-portal/
 │   ├── test_supplier_document_download.py
 │   ├── test_invoice_document_download.py
 │   ├── test_graphql.py
+│   ├── test_kafka_consumer.py
 │   │
 │   └── integration/
 │       └── test_minio_document_storage.py
@@ -1334,6 +2022,8 @@ Responsible for:
 * Creating and configuring the FastAPI application
 * Registering REST routers
 * Mounting the GraphQL router at `/graphql`
+* Starting the Supplier Portal Kafka consumer background task
+* Stopping the Kafka consumer during application shutdown
 * Defining the root endpoint
 * Initializing the application entry point
 
@@ -1349,6 +2039,9 @@ Responsible for:
 * Authenticated user identity propagation
 * Supplier identity propagation
 * Supplier-level access control
+* Compliance view-access enforcement
+* Compliance write-access enforcement
+* GraphQL compliance access helpers
 * Request ID generation and propagation
 * Authentication error handling
 * Platform Service failure handling
@@ -1361,6 +2054,11 @@ Responsible for:
 * Platform authentication service URL
 * Compliance Service URL
 * MinIO configuration
+* Kafka bootstrap server configuration
+* Kafka consumer group configuration
+* Kafka status-changed topic configuration
+* Kafka DLQ topic configuration
+* Kafka offset-reset configuration
 * Application configuration values
 
 ### GraphQL Layer
@@ -1376,6 +2074,7 @@ Responsible for:
 * Request-scoped authentication context
 * Cursor pagination
 * Resolver-level supplier authorization
+* Compliance access enforcement
 * Conversion of existing business objects to GraphQL types
 
 The GraphQL layer reuses the existing Supplier Portal service layer rather than duplicating Purchase Order or Invoice business logic.
@@ -1388,6 +2087,7 @@ The route layer is responsible for:
 * Processing incoming requests
 * Dependency injection
 * Authentication and authorization dependencies
+* Compliance access checks
 * Supplier ownership and scoping checks
 * HTTP status-code handling
 * Resource existence validation
@@ -1406,7 +2106,7 @@ The Supplier Portal exposes REST routes for:
 * Supplier self-service analytics
 * Historical dispute-resolution suggestions
 
-For supplier-scoped detail endpoints, ownership authorization is performed before exposing resource existence to the supplier caller.
+For supplier-scoped detail endpoints, authorization is performed before exposing protected resource information to the supplier caller.
 
 ### Schemas
 
@@ -1426,6 +2126,9 @@ The schema layer is responsible for:
 * Supplier-contract data models
 * Supplier-statistics and scorecard data models
 * Dispute-resolution suggestion response models
+* Kafka event data models
+
+`app/schemas/events.py` validates incoming compliance status-change events before business processing.
 
 ### Services
 
@@ -1445,6 +2148,10 @@ The service layer is responsible for:
 * Supplier onboarding workflow
 * Supplier activation checks
 * Compliance Service integration
+* Supplier compliance access-state management
+* Compliance event idempotency
+* Compliance event ordering
+* Compliance audit history
 * Supplier contract lifecycle management
 * Contract expiry and renewal processing
 * Contract lifecycle audit history
@@ -1458,6 +2165,48 @@ The service layer is responsible for:
 * Presigned URL generation
 * Supplier-scoped document authorization
 * Supplier-scoped business operations
+* Kafka event consumption
+* Kafka DLQ publishing
+
+### Supplier Compliance Service
+
+`app/services/supplier_compliance_service.py`
+
+Responsible for:
+
+* Mapping Kafka compliance decisions to Supplier Portal access states
+* Maintaining compliance access state
+* Preventing stale events from overwriting newer state
+* Ignoring duplicate `event_id` values
+* Maintaining compliance audit history
+* Providing the state consumed by REST/GraphQL authorization
+
+The current implementation stores this state in memory.
+
+### Kafka Consumer
+
+`app/services/kafka_consumer.py`
+
+Responsible for:
+
+* Consuming `compliance.supplier.status_changed`
+* Parsing Kafka messages
+* Validating event structure
+* Validating event type/version
+* Applying supplier compliance state
+* Publishing invalid or unprocessable messages to the DLQ
+* Manually committing successful offsets
+* Preserving failure semantics for processing errors
+
+### Kafka Consumer Runner
+
+`app/services/kafka_consumer_runner.py`
+
+Responsible for:
+
+* Running the Kafka consumer loop in the application background
+* Handling consumer shutdown
+* Integrating Kafka consumption with FastAPI application lifecycle
 
 ### Document Storage Service
 
@@ -1474,7 +2223,7 @@ Its responsibilities include:
 * Handling storage failures
 * Keeping storage-specific implementation out of route handlers
 
-Business endpoints must perform supplier ownership checks before requesting a presigned URL.
+Business endpoints must perform authentication, compliance-access authorization, and supplier ownership checks before requesting a presigned URL.
 
 ---
 
@@ -1494,36 +2243,39 @@ POST /api/v1/auth/verify
 
 ```text
 Client
-  │
-  │ Authorization: Bearer <token>
-  ▼
+ │
+ │ Authorization: Bearer <token>
+ ▼
 Supplier Portal
-  │
-  │ Verify token with Platform Service
-  ▼
+ │
+ │ Verify token with Platform Service
+ ▼
 Platform Service
-  │
-  ├── valid
-  ├── user_id
-  ├── email
-  ├── full_name
-  ├── role
-  ├── supplier_id
-  └── is_active
-  │
-  ▼
+ │
+ ├── valid
+ ├── user_id
+ ├── email
+ ├── full_name
+ ├── role
+ ├── supplier_id
+ └── is_active
+ │
+ ▼
 Supplier Portal
-  │
-  ▼
+ │
+ ▼
 Authentication
-  │
-  ▼
+ │
+ ▼
 Role Authorization
-  │
-  ▼
+ │
+ ▼
+Compliance Access
+ │
+ ▼
 Supplier Ownership Check
-  │
-  ▼
+ │
+ ▼
 Endpoint / Resource
 ```
 
@@ -1537,7 +2289,7 @@ The Platform Service URL is configured using:
 PLATFORM_AUTH_URL
 ```
 
-The default development value is:
+Default development value:
 
 ```text
 http://127.0.0.1:8005
@@ -1558,9 +2310,11 @@ http://127.0.0.1:8005
 | Authentication service unavailable | 503 |
 | Invalid authentication response | 503 |
 
+---
+
 ## Supplier Scoping
 
-Supplier-facing endpoints enforce **supplier ownership** in addition to authentication.
+Supplier-facing endpoints enforce **supplier ownership** in addition to authentication and compliance access.
 
 A valid supplier token identifies the authenticated supplier through the `supplier_id` returned by the Platform Service.
 
@@ -1568,15 +2322,15 @@ For example:
 
 ```text
 Authenticated Supplier
-       │
-       ▼
+      │
+      ▼
 supplier_id = SUP001
-       │
-       ▼
+      │
+      ▼
 Requested Resource
 supplier_id = SUP002
-       │
-       ▼
+      │
+      ▼
 HTTP 403 Forbidden
 ```
 
@@ -1597,32 +2351,105 @@ This applies to:
 * Supplier contracts
 * Supplier contract history
 
+---
+
+## Round 14 Compliance Access Control
+
+Authentication and supplier ownership remain independent from compliance status.
+
+For supplier users:
+
+| Compliance state | View | Protected write |
+| --- | --- | --- |
+| `cleared` | Allowed | Allowed when otherwise authorized |
+| `needs_review` | Allowed | Blocked |
+| `suspended` | Blocked | Blocked |
+
+The suspended response is:
+
+```text
+Supplier account is suspended due to compliance status
+```
+
+The review-write response is:
+
+```text
+Supplier account is under compliance review. This action is not permitted.
+```
+
+### Compliance Guard Order
+
+The effective supplier security flow is:
+
+```text
+Bearer Token
+    ↓
+Platform Authentication
+    ↓
+Role Authorization
+    ↓
+Supplier Identity
+    ↓
+Compliance Access
+    ↓
+Supplier Ownership
+    ↓
+Resource / Business Operation
+```
+
+Compliance access does not replace supplier ownership.
+
+---
+
 ## MinIO Document Scoping
 
-Document ownership is checked **before** generating a presigned URL.
+Document authorization is performed before generating a presigned URL.
 
 ```text
 Supplier A
-    │
-    ▼
+   │
+   ▼
 Requests Supplier B document
-    │
-    ▼
+   │
+   ▼
 Authenticate Supplier A
-    │
-    ▼
+   │
+   ▼
+Compliance Access Check
+   │
+   ▼
 Compare document supplier_id
-    │
-    ▼
+   │
+   ▼
 Mismatch
-    │
-    ▼
+   │
+   ▼
 403 Forbidden
+```
+
+For a suspended supplier:
+
+```text
+Supplier
+   │
+   ▼
+Document request
+   │
+   ▼
+Compliance state = suspended
+   │
+   ▼
+403 Forbidden
+   │
+   ▼
+No document lookup / no new presigned URL
 ```
 
 The system must not generate a presigned URL first and perform authorization afterward.
 
 This ensures that knowing another supplier's document ID or object reference is insufficient to obtain access.
+
+---
 
 ## GraphQL Scoping
 
@@ -1632,37 +2459,37 @@ For a supplier user:
 
 ```text
 GraphQL Request
-      │
-      ▼
+     │
+     ▼
 GraphQL Context
-      │
-      ▼
+     │
+     ▼
 Authenticated supplier_id
-      │
-      ▼
+     │
+     ▼
+Compliance Access Check
+     │
+     ▼
 Resolver
-      │
-      ▼
+     │
+     ▼
 Requested resource supplier_id
-      │
-      ├── Same supplier → Return resource
-      │
-      └── Different supplier → Return null / no data
+     │
+     ├── Same supplier → Return resource
+     │
+     └── Different supplier → Return null / no data
 ```
 
-For example:
+For a suspended supplier, the protected supplier-facing GraphQL request is rejected by the compliance guard.
+
+For a supplier under review:
 
 ```text
-SUP001 token
-     │
-     ▼
-purchaseOrder(SUP002 PO)
-     │
-     ▼
-Resolver ownership check
-     │
-     ▼
-null
+GraphQL query
+    → Allowed
+
+GraphQL protected mutation
+    → Rejected
 ```
 
 This rule is enforced inside the resolver rather than relying only on the REST route.
@@ -1676,6 +2503,8 @@ This prevents unauthorized records from affecting:
 * page boundaries
 * `hasNextPage`
 * `endCursor`
+
+---
 
 ## Supplier List Filtering
 
@@ -1699,6 +2528,8 @@ documents
 ```
 
 Supplier filtering occurs before cursor pagination.
+
+---
 
 ## Role-Based Authorization
 
@@ -1729,24 +2560,29 @@ Examples:
 * Supplier collection endpoints return only the authenticated supplier's resources
 * Supplier scorecards are restricted to the authenticated supplier
 * GraphQL supplier resolvers enforce the same supplier ownership rules
-* GraphQL acknowledge-PO mutation checks supplier ownership before changing PO state
+* GraphQL acknowledge-PO mutation checks compliance access and supplier ownership before changing PO state
 
-Role authorization and supplier ownership are **separate security checks**.
+Role authorization, compliance access, and supplier ownership are **separate security checks**.
 
 ```text
 Authentication
-     │
-     ▼
+    │
+    ▼
 Role Authorization
-     │
-     ▼
+    │
+    ▼
+Compliance Access
+    │
+    ▼
 Supplier Ownership
-     │
-     ▼
+    │
+    ▼
 Resource Access
 ```
 
 A valid token therefore does not automatically grant access to every resource.
+
+---
 
 ## Round 5 Security Requirement
 
@@ -1792,118 +2628,446 @@ SUP001 token → SUP002 Document    → not returned
 
 The same ownership principle applies to supplier-scoped Purchase Order events, invoice documents, statistics, shipments, goods receipts, three-way matches, onboarding resources, contracts, and GraphQL resources.
 
-Supplier-level authorization is enforced at both the REST API and GraphQL resolver layers and is covered by automated tests.
+Supplier-level authorization is enforced at both the REST API and GraphQL resolver layers.
+
+Round 14 adds compliance status as an additional access-control layer without replacing the existing authentication, role, and supplier-scoping model.
+
+---
+
 # 7. Purchase Order Management
 
-Purchase Orders are managed through a controlled lifecycle and are integrated with the broader procure-to-pay workflow.
+The Supplier Portal provides complete Purchase Order lifecycle management.
 
-## PO Data Model
+## Purchase Order Capabilities
 
-A Purchase Order contains:
+The service supports:
+
+* Purchase Order creation
+* Purchase Order retrieval
+* Purchase Order update
+* Purchase Order deletion
+* Supplier acknowledgement
+* PO state transitions
+* PO cancellation
+* Transition validation
+* Transition audit history
+* Event retrieval
+* Actor tracking
+* Transition timestamps
+* Expected delivery tracking
+* Actual delivery tracking
+* Duplicate PO protection
+* Bulk PO sending
+* Supplier onboarding validation
+* Active supplier enforcement
+
+---
+
+## Purchase Order Authorization
+
+Purchase Order creation is restricted to the appropriate internal role:
 
 ```text
-po_number
-supplier_id
-items
-total_amount
-status
-created_at
-expected_delivery
-actual_delivery_date
-history
+procurement_manager
 ```
 
-A newly created PO starts as:
+Supplier-facing Purchase Order operations additionally apply:
 
 ```text
-draft
+Authentication
+     ↓
+Supplier Identity
+     ↓
+Compliance Access
+     ↓
+Supplier Ownership
+     ↓
+PO Operation
 ```
 
-## PO Lifecycle
+---
+
+## Active Supplier Requirement
+
+A Purchase Order cannot be created for an inactive supplier.
+
+```text
+PO Creation
+    ↓
+Supplier Exists?
+    │
+    ├── No → 404
+    │
+    ▼
+Supplier Active?
+    │
+    ├── No → Reject
+    │
+    ▼
+Create PO
+```
+
+The supplier's onboarding lifecycle status remains separate from the R14 compliance access state.
+
+---
+
+## Supplier Purchase Order Access Under R14
+
+For supplier users:
+
+### Cleared supplier
+
+```text
+Compliance state = cleared
+        ↓
+PO view allowed
+        ↓
+PO acknowledgement allowed
+        ↓
+Existing supplier/role checks
+```
+
+### Supplier under review
+
+```text
+Compliance state = needs_review
+        ↓
+PO view allowed
+        ↓
+PO acknowledgement blocked
+        ↓
+403 Forbidden
+```
+
+Response:
+
+```text
+Supplier account is under compliance review. This action is not permitted.
+```
+
+### Suspended supplier
+
+```text
+Compliance state = suspended
+        ↓
+Supplier-facing PO access blocked
+        ↓
+403 Forbidden
+```
+
+Response:
+
+```text
+Supplier account is suspended due to compliance status
+```
+
+This applies to supplier-role requests. Internal authorized roles continue to follow their existing role-based permissions.
+
+---
+
+## Supplier PO Acknowledgement
+
+The supplier acknowledgement operation is a protected write.
+
+The effective flow is:
+
+```text
+Supplier Request
+      ↓
+Platform Authentication
+      ↓
+Supplier Identity
+      ↓
+Compliance Write Access
+      ↓
+Supplier Ownership
+      ↓
+PO State Validation
+      ↓
+Acknowledge PO
+```
+
+Therefore:
+
+```text
+CLEAR
+  → Acknowledge allowed
+
+REVIEW
+  → Acknowledge blocked
+
+SUSPENDED
+  → Acknowledge blocked
+```
+
+The same rule is applied to the REST and GraphQL acknowledgement paths.
+
+---
+
+## PO State Management
+
+The Purchase Order lifecycle enforces controlled state transitions.
+
+Illegal transitions are rejected rather than silently modifying the Purchase Order.
+
+Transition history records:
+
+```text
+Actor
+Transition
+Previous State
+New State
+Timestamp
+```
+
+The Purchase Order lifecycle remains separate from the P2P state machine.
+
+---
+
+## PO and P2P Relationship
+
+The overall workflow is:
+
+```text
+Purchase Order
+      ↓
+Acknowledgement
+      ↓
+Shipment Notice
+      ↓
+Goods Receipt
+      ↓
+Invoice
+      ↓
+Three-Way Match
+      ↓
+Payment Approval
+```
+
+The P2P state machine manages:
+
+```text
+acknowledged
+    ↓
+shipped
+    ↓
+received
+    ↓
+invoiced
+    ↓
+matched / discrepancy
+    ↓
+payment_approved
+```
+
+The Purchase Order lifecycle and P2P lifecycle are related but remain separate state machines.
+
+---
+
+## Bulk Purchase Order Sending
+
+Bulk PO sending is restricted to:
+
+```text
+procurement_manager
+```
+
+Supplier compliance status does not change the authorization of internal procurement operations.
+
+---
+
+## GraphQL Purchase Order Operations
+
+The GraphQL API exposes Purchase Order queries and the acknowledgement mutation.
+
+Example:
+
+```text
+purchaseOrder
+purchaseOrders
+acknowledgePurchaseOrder
+```
+
+Supplier ownership is enforced inside GraphQL resolvers.
+
+For `acknowledgePurchaseOrder`, compliance write access is checked before the state-changing operation.
+
+---
+
+## Purchase Order Security Summary
+
+```text
+                    Supplier PO Request
+                           │
+                           ▼
+                  Platform Authentication
+                           │
+                           ▼
+                    Role / Identity
+                           │
+                           ▼
+                  Compliance Access
+                           │
+             ┌─────────────┼─────────────┐
+             │             │             │
+           CLEAR         REVIEW       SUSPENDED
+             │             │             │
+             ▼             ▼             ▼
+          Continue       Read-only       Reject
+             │             │
+             ▼             ▼
+       Supplier Ownership
+             │
+             ▼
+        PO Operation
+```
+
+This preserves the existing supplier-scoping security model while adding the R14 compliance-status control layer.
+
+
+
+PO Lifecycle
 
 The legacy Purchase Order lifecycle is:
 
-```text
              ┌─────────────┐
              │  Cancelled  │
              └─────────────┘
                     ▲
                     │
 Draft ───────► Sent ───────► Acknowledged ───────► Fulfilled
-```
 
 The legal transitions are:
 
-| Current State | Allowed Transitions |
-|---|---|
-| `draft` | `sent`, `cancelled` |
-| `sent` | `acknowledged`, `cancelled` |
-| `acknowledged` | `fulfilled`, `cancelled` |
-| `fulfilled` | None |
-| `cancelled` | None |
+Current State
+
+Allowed Transitions
+
+draft
+
+sent, cancelled
+
+sent
+
+acknowledged, cancelled
+
+acknowledged
+
+fulfilled, cancelled
+
+fulfilled
+
+None
+
+cancelled
+
+None
 
 Terminal states:
 
-```text
 fulfilled
 cancelled
-```
 
 cannot transition to another state.
 
 The Supplier Portal also contains a separate P2P state machine for the complete transaction workflow:
 
-```text
 PO
- │
- ▼
+│
+▼
 Acknowledged
- │
- ▼
+│
+▼
 Shipped
- │
- ▼
+│
+▼
 Goods Receipt
- │
- ▼
+│
+▼
 Invoice
- │
- ▼
+│
+▼
 Three-Way Match
- │
- ├── Matched
- │
- └── Discrepancy
- │
- ▼
+│
+├── Matched
+│
+└── Discrepancy
+│
+▼
 Payment Approval
-```
 
 The legacy PO lifecycle and the P2P state machine serve different purposes and are intentionally kept separate.
 
-## PO Creation
+Round 14 PO Compliance Rules
+
+For supplier-facing PO operations:
+
+Operation
+
+cleared
+
+needs_review
+
+suspended
+
+View PO
+
+Allowed
+
+Allowed
+
+403
+
+View PO events
+
+Allowed
+
+Allowed
+
+403
+
+Acknowledge PO
+
+Allowed
+
+403
+
+403
+
+Protected supplier mutation
+
+Allowed
+
+403
+
+403
+
+The review write denial is:
+
+Supplier account is under compliance review. This action is not permitted.
+
+The suspended denial is:
+
+Supplier account is suspended due to compliance status
+
+Internal procurement and other authorized internal roles continue to follow their existing role-based authorization rules.
+
+PO Creation
 
 Endpoint:
 
-```http
 POST /api/v1/purchase-orders
-```
 
 Authorization:
 
-```text
 procurement_manager
-```
 
 Before creating a Purchase Order, the service verifies that the referenced supplier exists and has completed onboarding with:
 
-```text
 status = active
-```
 
 Therefore:
 
-```text
 Unregistered Supplier
         │
         ▼
@@ -1929,172 +3093,240 @@ PO Creation
         │
         ▼
 Allowed
-```
 
 This prevents Purchase Orders from being created for suppliers that have not completed the required onboarding lifecycle.
 
 The service validates:
 
-- PO number
-- Supplier ID
-- Supplier onboarding / active status
-- Items
-- Quantity
-- Unit price
-- Total amount
-- Expected delivery
-- Duplicate PO number
+PO number
 
-The calculated item total must match the submitted `total_amount`.
+Supplier ID
 
-## PO List
+Supplier onboarding / active status
+
+Items
+
+Quantity
+
+Unit price
+
+Total amount
+
+Expected delivery
+
+Duplicate PO number
+
+The calculated item total must match the submitted total_amount.
+
+PO creation is an internal procurement operation and therefore continues to follow the existing procurement_manager authorization model.
+
+PO List
 
 Endpoint:
 
-```http
 GET /api/v1/purchase-orders
-```
 
 The endpoint requires authentication.
 
-For supplier users, the response is filtered using the authenticated `supplier_id`.
+For supplier users, the response is filtered using the authenticated supplier_id.
 
-```text
 Supplier SUP001
       │
       ▼
 Authenticated request
       │
       ▼
+Supplier Scope Check
+      │
+      ▼
+Compliance View Check
+      │
+      ▼
 Filter supplier_id = SUP001
       │
       ▼
 Only SUP001 Purchase Orders
-```
 
 Internal authorized users can access the broader Purchase Order collection according to the current role-based access implementation.
 
-The same supplier-scoping principle is also enforced by the GraphQL Purchase Order resolvers.
+For supplier users:
 
-## Get PO
+cleared
+     → list allowed
+
+needs_review
+     → list allowed
+
+suspended
+     → 403 Forbidden
+
+The same supplier-scoping principle is enforced by the GraphQL Purchase Order resolvers.
+
+Get PO
 
 Endpoint:
 
-```http
 GET /api/v1/purchase-orders/{po_number}
-```
 
 The endpoint requires authentication.
 
-For supplier users, the authenticated supplier must own the Purchase Order.
+For supplier users, the following checks apply:
+
+Authentication
+      ↓
+Supplier Ownership
+      ↓
+Compliance View Access
+      ↓
+Return PO
 
 Internal authorized users can view Purchase Orders across suppliers according to their role.
 
 A supplier attempting to access another supplier's Purchase Order receives:
 
-```text
 403 Forbidden
-```
 
-The GraphQL equivalent also enforces ownership inside the resolver. An unauthorized supplier querying another supplier's PO by ID receives no PO object rather than another supplier's data.
+A suspended supplier receives:
 
-## PO Update
+Supplier account is suspended due to compliance status
+
+The GraphQL equivalent also enforces ownership inside the resolver.
+
+An unauthorized supplier querying another supplier's PO by ID receives no PO object rather than another supplier's data.
+
+PO Update
 
 Endpoint:
 
-```http
 PUT /api/v1/purchase-orders/{po_number}
-```
 
 The endpoint requires authentication.
 
 For supplier users, the authenticated supplier must own the requested Purchase Order.
 
-A supplier cannot update another supplier's Purchase Order.
+Supplier-facing protected updates require:
 
-## PO Delete
+cleared
+
+A supplier under review cannot perform the protected write:
+
+403 Forbidden
+Supplier account is under compliance review. This action is not permitted.
+
+A suspended supplier is denied:
+
+403 Forbidden
+Supplier account is suspended due to compliance status
+
+Internal authorized users continue to follow their existing role-based rules.
+
+PO Delete
 
 Endpoint:
 
-```http
 DELETE /api/v1/purchase-orders/{po_number}
-```
 
 The endpoint requires authentication.
 
 For supplier users, the authenticated supplier must own the requested Purchase Order.
 
-Supplier ownership is checked before the Purchase Order is deleted.
+Supplier ownership and compliance access are evaluated before a supplier-facing protected operation is performed.
 
 Historical PO events remain retained after deletion.
 
-## PO Acknowledgement
+PO Acknowledgement
 
 REST endpoint:
 
-```http
 POST /api/v1/purchase-orders/{po_number}/acknowledge
-```
 
 The endpoint is supplier-scoped and restricted to the owning supplier.
 
 The acknowledgement performs:
 
-```text
 sent
  │
  ▼
 acknowledged
-```
+
+Before the mutation:
+
+Authenticated Supplier
+        │
+        ▼
+Supplier Ownership
+        │
+        ▼
+Compliance Write Access
+        │
+        ▼
+PO Acknowledgement
+
+Compliance rules:
+
+CLEARED
+    ↓
+Acknowledgement allowed
+
+NEEDS REVIEW
+    ↓
+403 Forbidden
+Supplier account is under compliance review.
+This action is not permitted.
+
+SUSPENDED
+    ↓
+403 Forbidden
+Supplier account is suspended due to compliance status
 
 A supplier attempting to acknowledge another supplier's Purchase Order is rejected with:
 
-```text
 403 Forbidden
-```
 
-### GraphQL Acknowledgement
+GraphQL Acknowledgement
 
 The portal also exposes an acknowledge-PO mutation through:
 
-```text
 /graphql
-```
 
 The GraphQL mutation:
 
-1. Obtains the authenticated user from the GraphQL context.
-2. Finds the requested Purchase Order.
-3. Verifies supplier ownership when the user is a supplier.
-4. Calls the existing PO acknowledgement service only after authorization succeeds.
-5. Returns the updated Purchase Order.
+Obtains the authenticated user from the GraphQL context.
+
+Evaluates compliance write access for supplier users.
+
+Finds the requested Purchase Order.
+
+Verifies supplier ownership when the user is a supplier.
+
+Calls the existing PO acknowledgement service only after authorization succeeds.
+
+Returns the updated Purchase Order.
 
 A supplier cannot acknowledge another supplier's PO through GraphQL.
 
+A supplier under compliance review cannot acknowledge a PO.
+
+A suspended supplier is blocked from the supplier-facing mutation.
+
 The mutation therefore follows the same authorization rules as the REST endpoint.
 
-## PO State Transition
+PO State Transition
 
 Endpoint:
 
-```http
 POST /api/v1/purchase-orders/{po_number}/transition
-```
 
 Authorization:
 
-```text
 procurement_manager
-```
 
 Example:
 
-```json
 {
   "target_state": "sent",
   "actor": "admin"
 }
-```
 
 The service validates the current state before performing the transition.
 
@@ -2102,29 +3334,22 @@ The authenticated user's identity is used for transition auditing rather than tr
 
 An illegal transition returns:
 
-```text
 400 Bad Request
-```
 
-## Bulk PO Send
+Bulk PO Send
 
 Endpoint:
 
-```http
 POST /api/v1/purchase-orders/bulk-send
-```
 
 Authorization:
 
-```text
 procurement_manager
-```
 
 The endpoint accepts multiple PO numbers.
 
 Example:
 
-```json
 {
   "po_numbers": [
     "PO1001",
@@ -2132,61 +3357,62 @@ Example:
     "PO9999"
   ]
 }
-```
 
 Each Purchase Order is processed independently.
 
 Therefore:
 
-```text
 PO1001 → Success
 PO1002 → Success
 PO9999 → Failure
-```
 
 A failure for one PO does not stop processing of the remaining POs.
 
 The response contains:
 
-```text
 total
 successful
 failed
 results
-```
 
-## PO Audit History
+PO Audit History
 
 Every successful state transition creates an event containing:
 
-```text
 po_number
 supplier_id
 actor
 from_status
 to_status
 timestamp
-```
 
 Events are stored separately in:
 
-```python
 po_events
-```
 
 This event store acts as the source of truth for PO transition history.
 
-## PO Events
+PO Events
 
 Endpoint:
 
-```http
 GET /api/v1/purchase-orders/{po_number}/events
-```
 
 The endpoint requires authentication.
 
-For supplier users, the authenticated supplier must own the Purchase Order or its retained event history.
+For supplier users:
+
+Authentication
+      ↓
+Supplier Ownership
+      ↓
+Compliance View Access
+      ↓
+PO Event History
+
+A supplier under needs_review can still view its PO event history.
+
+A suspended supplier is blocked from supplier-facing PO event access.
 
 Internal authorized users can view Purchase Order event history across suppliers according to their role.
 
@@ -2194,7 +3420,6 @@ Historical events are intentionally retained when a Purchase Order is deleted.
 
 Therefore:
 
-```text
 Delete PO
    │
    ▼
@@ -2202,55 +3427,48 @@ PO record removed
    │
    ▼
 Historical events retained
-```
 
 This preserves the audit trail.
 
-## Delivery Tracking
+Delivery Tracking
 
 When a PO reaches:
 
-```text
 fulfilled
-```
 
 the service records:
 
-```text
 actual_delivery_date
-```
 
-The actual delivery date is derived from the related Goods Receipt rather than simply using the date on which the PO status changes to `fulfilled`.
+The actual delivery date is derived from the related Goods Receipt rather than simply using the date on which the PO status changes to fulfilled.
 
-For multiple Goods Receipts, the latest applicable `receipt_date` is used as the actual delivery date.
+For multiple Goods Receipts, the latest applicable receipt_date is used as the actual delivery date.
 
 Delivery performance uses:
 
-```text
 actual_delivery_date <= expected_delivery
-```
 
 Therefore:
 
-```text
 Before expected date → On time
 
 Expected date        → On time
 
 After expected date  → Late
-```
 
 For supplier statistics and scorecards:
 
-- fulfilled POs are eligible;
-- past-due unfulfilled POs are eligible and counted as late;
-- future-due unfulfilled POs are excluded;
-- cancelled POs are excluded;
-- POs without an applicable expected delivery date are excluded.
+fulfilled POs are eligible;
+
+past-due unfulfilled POs are eligible and counted as late;
+
+future-due unfulfilled POs are excluded;
+
+cancelled POs are excluded;
+
+POs without an applicable expected delivery date are excluded.
 
 This same delivery eligibility definition is reused by supplier statistics, supplier scorecards, and monthly delivery trends.
-
----
 
 # 8. Invoice Management
 
@@ -2259,6 +3477,28 @@ Invoices are linked to Purchase Orders and suppliers.
 An invoice can only be created when its referenced PO satisfies the required business rules.
 
 The invoice lifecycle remains separate from the broader P2P state machine.
+
+Supplier-facing invoice operations are additionally protected by the Round 14 supplier compliance access state.
+
+The compliance access states are:
+
+```text
+CLEAR
+  ↓
+cleared
+
+REVIEW
+  ↓
+needs_review
+
+BLOCK
+  ↓
+suspended
+```
+
+The compliance status is maintained separately from the supplier onboarding lifecycle status.
+
+---
 
 ## Invoice Data Model
 
@@ -2287,6 +3527,8 @@ The invoice lookup key is:
 
 This means invoice numbers are unique within a supplier context.
 
+---
+
 ## Invoice Lifecycle
 
 The implemented invoice state machine is:
@@ -2306,7 +3548,7 @@ Submitted ──────┼───────────► Rejected
                          │
                      ┌───┴───┐
                      ▼       ▼
-                 Approved  Rejected
+                  Approved Rejected
 ```
 
 The legal transitions are:
@@ -2320,6 +3562,23 @@ The legal transitions are:
 | `rejected` | None |
 
 `approved` and `rejected` are terminal states.
+
+Round 14 compliance access is evaluated in addition to this invoice state machine.
+
+```text
+Supplier compliance state
+          │
+    ┌─────┼─────────────┐
+    │     │             │
+ CLEARED REVIEW      SUSPENDED
+    │     │             │
+    ▼     ▼             ▼
+Invoice  Read only     403
+operations
+allowed
+```
+
+---
 
 ## Invoice Creation
 
@@ -2337,27 +3596,43 @@ The service validates:
 
 ```text
 Invoice number
-
 Supplier ID
-
 Purchase Order
-
 Purchase Order supplier
-
 Purchase Order status
-
 Invoice items
-
 Invoice quantities
-
 Invoice unit prices
-
 Invoice amount
-
 Duplicate invoice
 ```
 
 Invoice price differences are allowed to reach the three-way matching stage. The matching process determines whether the price difference is within the configured tolerance or represents a discrepancy.
+
+### Round 14 Compliance Access
+
+For supplier users:
+
+```text
+CLEARED
+    ↓
+Invoice creation allowed
+
+NEEDS REVIEW
+    ↓
+403 Forbidden
+Supplier account is under compliance review.
+This action is not permitted.
+
+SUSPENDED
+    ↓
+403 Forbidden
+Supplier account is suspended due to compliance status
+```
+
+Internal authorized users continue to follow their existing role-based authorization rules.
+
+---
 
 ## Invoice List
 
@@ -2387,6 +3662,28 @@ Only SUP001 invoices
 
 A supplier cannot use the collection endpoint to discover another supplier's invoices.
 
+### Round 14 Compliance Access
+
+Invoice listing is a supplier-facing read operation.
+
+Therefore:
+
+| Compliance State | Invoice List |
+|---|---|
+| `cleared` | Allowed |
+| `needs_review` | Allowed |
+| `suspended` | `403 Forbidden` |
+
+A suspended supplier receives:
+
+```text
+Supplier account is suspended due to compliance status
+```
+
+The compliance check is performed before returning supplier invoice data.
+
+---
+
 ## Get Invoice
 
 Endpoint:
@@ -2408,6 +3705,25 @@ A supplier attempting to access another supplier's invoice receives:
 ```
 
 Supplier authorization is evaluated before exposing another supplier's protected invoice data.
+
+### Round 14 Compliance Access
+
+For supplier users:
+
+```text
+CLEARED
+    → invoice view allowed
+
+NEEDS REVIEW
+    → invoice view allowed
+
+SUSPENDED
+    → 403 Forbidden
+```
+
+This ensures that a supplier under review can continue to view existing invoice information while a blocked/suspended supplier cannot access supplier-facing invoice resources.
+
+---
 
 ## PO Requirements for Invoices
 
@@ -2447,6 +3763,8 @@ Fulfilled
 
 The P2P invoice integration additionally requires the Purchase Order to have reached the appropriate P2P `received` state before the P2P invoice transition is performed.
 
+---
+
 ## Invoice Supplier Validation
 
 The invoice supplier must match the supplier associated with the Purchase Order.
@@ -2464,6 +3782,10 @@ is rejected.
 This prevents invoices from being associated with another supplier's Purchase Order.
 
 R5 supplier scoping additionally ensures that the authenticated supplier identity must match the supplier being acted upon.
+
+Round 14 compliance access is evaluated after authentication and supplier identity resolution and before supplier-facing invoice operations are performed.
+
+---
 
 ## Invoice Line-Item Validation
 
@@ -2501,6 +3823,8 @@ Three-Way Match
 ```
 
 Rejected invoices do not consume PO quantity.
+
+---
 
 ## Historical Dispute-Resolution Suggestions
 
@@ -2551,372 +3875,6 @@ The final business decision remains with the authorized human user.
 
 ---
 
-# 9. Invoice and Onboarding Document Management
-
-Invoice PDFs and supplier onboarding documents are stored in **MinIO**, an S3-compatible object-storage service running locally in the development environment.
-
-The implementation no longer uses the local filesystem as the document-storage backend.
-
-The architecture is:
-
-```text
-Supplier Portal
-      │
-      ▼
-Document Storage Service
-      │
-      ▼
-MinIO / S3-Compatible Object Storage
-      │
-      ▼
-PDF / onboarding document object
-```
-
-Application data stores the document reference/object key required to retrieve the object from MinIO.
-
-The actual document binary is stored in MinIO rather than in the application database.
-
-## Object Storage
-
-The local development environment uses MinIO as the object-storage server.
-
-Conceptually:
-
-```text
-Windows Development Machine
-          │
-          ▼
-Docker Desktop
-          │
-          ▼
-MinIO Container
-          │
-          ▼
-MinIO Server
-          │
-          ▼
-Stored Documents
-```
-
-Docker Desktop provides the local container runtime. MinIO provides the S3-compatible object-storage service.
-
-The Supplier Portal communicates with MinIO through the document storage service rather than directly exposing storage credentials or internal storage details to clients.
-
-## Supported Documents
-
-The document-storage implementation covers:
-
-```text
-Invoice PDFs
-Supplier onboarding documents
-```
-
-The storage layer is responsible for storing and retrieving document objects while the application remains responsible for authentication, authorization, and supplier ownership checks.
-
-## PDF Upload
-
-Invoice document endpoint:
-
-```http
-POST /api/v1/invoices/{supplier_id}/{invoice_number}/document
-```
-
-The endpoint is authenticated and supplier-scoped.
-
-For supplier users, the authenticated `supplier_id` must match the supplier associated with the invoice.
-
-A supplier cannot upload a document to another supplier's invoice.
-
-The document is validated before being stored in MinIO.
-
-## PDF Validation
-
-The service performs multiple validation checks before storing an invoice document.
-
-### 1. Content Type
-
-The request must declare:
-
-```text
-application/pdf
-```
-
-Other content types such as:
-
-```text
-image/png
-text/plain
-application/json
-```
-
-are rejected.
-
-### 2. PDF Signature
-
-The uploaded file contents must begin with:
-
-```text
-%PDF-
-```
-
-This prevents a non-PDF file from being accepted simply because the request declares:
-
-```text
-Content-Type: application/pdf
-```
-
-### 3. Maximum File Size
-
-The maximum supported PDF size is:
-
-```text
-10 MB
-```
-
-The uploaded bytes are checked so that payloads exceeding the configured limit are rejected.
-
-## Document Object Reference
-
-The application uses an object reference/object key to identify the stored document.
-
-Conceptually:
-
-```text
-Supplier
-   │
-   ▼
-Invoice / Onboarding Document
-   │
-   ▼
-Object Key
-   │
-   ▼
-MinIO Object
-```
-
-The object key is an internal storage reference.
-
-It is not treated as a public downloadable URL.
-
-The application does not expose MinIO credentials or storage-internal authentication information to suppliers.
-
-## Presigned URL Downloads
-
-Document downloads use short-lived **presigned URLs**.
-
-The download flow is:
-
-```text
-Authenticated Request
-        │
-        ▼
-Identify requested document
-        │
-        ▼
-Verify supplier ownership / authorization
-        │
-        ▼
-Verify object exists in MinIO
-        │
-        ▼
-Generate short-lived presigned URL
-        │
-        ▼
-Return URL to authorized caller
-```
-
-The important security rule is:
-
-```text
-Authorize first
-      │
-      ▼
-Generate presigned URL second
-```
-
-A presigned URL is never generated before the application has verified that the authenticated user is authorized to access the requested document.
-
-This prevents an unauthorized supplier from obtaining a valid storage URL simply by knowing another supplier's document identifier or object key.
-
-## PDF Download
-
-Endpoint:
-
-```http
-GET /api/v1/invoices/{supplier_id}/{invoice_number}/document
-```
-
-The endpoint requires authentication.
-
-For supplier users, the authenticated supplier must own the invoice.
-
-Internal authorized users can access invoice documents according to the endpoint's role authorization rules.
-
-The document retrieval flow is:
-
-```text
-Find invoice/document
-        │
-        ▼
-Check authenticated user
-        │
-        ▼
-Check supplier ownership
-        │
-        ▼
-Check MinIO object
-        │
-        ▼
-Generate short-lived presigned URL
-        │
-        ▼
-Return authorized URL
-```
-
-The application does not return the PDF through FastAPI `FileResponse`. The client receives a temporary signed URL for authorized access to the object stored in MinIO.
-
-## Cross-Supplier Document Protection
-
-Supplier scoping is enforced before generating a presigned URL.
-
-Example:
-
-```text
-Supplier A
-   │
-   ├── Requests own document
-   │
-   └── Ownership verified
-           │
-           ▼
-       URL generated
-```
-
-But:
-
-```text
-Supplier A
-   │
-   ├── Requests Supplier B document
-   │
-   └── Ownership check fails
-           │
-           ▼
-       403 Forbidden
-```
-
-Supplier A must never receive a presigned URL for Supplier B's document through any Supplier Portal endpoint.
-
-This applies even when Supplier A knows or guesses:
-
-- another supplier's document identifier;
-- invoice number;
-- supplier ID;
-- object key/reference.
-
-The authorization check is performed before URL generation.
-
-## Document Error Handling
-
-The document-storage implementation distinguishes different failure conditions.
-
-### Unauthorized Supplier Access
-
-```text
-403 Forbidden
-```
-
-Returned when the authenticated supplier does not own the requested document.
-
-### Document Not Found
-
-```text
-404 Not Found
-```
-
-Returned when the requested application document/object cannot be found.
-
-### Storage Dependency Failure
-
-```text
-503 Service Unavailable
-```
-
-Returned when the Supplier Portal cannot use the required MinIO storage dependency.
-
-This allows clients and operators to distinguish:
-
-```text
-Wrong supplier
-    → 403
-
-Missing document
-    → 404
-
-Storage unavailable
-    → 503
-```
-
-## Onboarding Document Storage
-
-Supplier onboarding documents follow the same MinIO-backed storage model.
-
-Conceptually:
-
-```text
-Supplier Onboarding
-        │
-        ▼
-Document Upload
-        │
-        ▼
-Document Storage Service
-        │
-        ▼
-MinIO
-```
-
-Supplier ownership is checked before a document download URL is generated.
-
-This prevents one supplier from obtaining another supplier's onboarding-document URL.
-
-## Document Storage Security
-
-The document-storage implementation follows these principles:
-
-- Store document binaries in MinIO rather than the local filesystem.
-- Keep application document references separate from public URLs.
-- Authenticate every protected document request.
-- Enforce supplier ownership before storage access.
-- Generate presigned URLs only after authorization succeeds.
-- Keep presigned URLs short-lived.
-- Never expose MinIO credentials to suppliers.
-- Return `403` for cross-supplier document access.
-- Return `404` for missing objects/documents.
-- Return `503` when the storage dependency is unavailable.
-
-## Document Storage Testing
-
-Document storage is covered by unit and integration tests.
-
-The test coverage includes:
-
-```text
-Document storage service
-Invoice document downloads
-Supplier onboarding document downloads
-MinIO integration
-Cross-supplier access rejection
-Missing object handling
-Storage dependency failures
-Presigned URL generation
-PDF validation
-```
-
-The integration tests use a local MinIO instance so that the storage behavior is tested against an actual S3-compatible object-storage service.
-
----
-
 ## Invoice Disputes
 
 An invoice can transition from:
@@ -2944,6 +3902,27 @@ timestamp
 ```
 
 Historical dispute information is retained so that a previously disputed invoice remains identifiable as historically disputed even after subsequent adjustment or approval.
+
+### Round 14 Compliance Access
+
+For supplier users, submitting or changing an invoice-related state is considered a write operation.
+
+Therefore:
+
+```text
+CLEARED
+    → allowed
+
+NEEDS REVIEW
+    → 403 Forbidden
+
+SUSPENDED
+    → 403 Forbidden
+```
+
+Internal compliance and other authorized internal roles continue to follow their existing role-based rules.
+
+---
 
 ## Invoice Adjustment
 
@@ -3000,6 +3979,10 @@ or:
 rejected
 ```
 
+Supplier users cannot use this compliance-officer operation to bypass Round 14 supplier compliance restrictions.
+
+---
+
 ## Invoice Transition
 
 Endpoint:
@@ -3018,6 +4001,20 @@ The service validates:
 2. Current invoice status
 3. Target status
 4. Whether the current-to-target transition is valid
+5. Supplier compliance access state
+
+For supplier users, Round 14 applies:
+
+```text
+CLEARED
+    → transition allowed when the invoice transition itself is valid
+
+NEEDS REVIEW
+    → 403 Forbidden
+
+SUSPENDED
+    → 403 Forbidden
+```
 
 Illegal invoice transitions are rejected with:
 
@@ -3045,6 +4042,522 @@ The P2P state machine represents the broader transaction processing stage.
 
 ---
 
+# 9. Invoice and Onboarding Document Management
+
+Invoice PDFs and supplier onboarding documents are stored in **MinIO**, an S3-compatible object-storage service running locally in the development environment.
+
+The implementation no longer uses the local filesystem as the document-storage backend.
+
+The architecture is:
+
+```text
+Supplier Portal
+      │
+      ▼
+Document Storage Service
+      │
+      ▼
+MinIO / S3-Compatible Object Storage
+      │
+      ▼
+PDF / onboarding document object
+```
+
+Application data stores the document reference/object key required to retrieve the object from MinIO.
+
+The actual document binary is stored in MinIO rather than in the application database.
+
+Round 14 adds an additional protection layer: a supplier with compliance status `suspended` cannot access supplier-facing document operations, and no new MinIO presigned URL is generated for that supplier.
+
+---
+
+## Object Storage
+
+The local development environment uses MinIO as the object-storage server.
+
+Conceptually:
+
+```text
+Windows Development Machine
+          │
+          ▼
+Docker Desktop
+          │
+          ▼
+MinIO Container
+          │
+          ▼
+MinIO Server
+          │
+          ▼
+Stored Documents
+```
+
+Docker Desktop provides the local container runtime. MinIO provides the S3-compatible object-storage service.
+
+The Supplier Portal communicates with MinIO through the document storage service rather than directly exposing storage credentials or internal storage details to clients.
+
+---
+
+## Supported Documents
+
+The document-storage implementation covers:
+
+```text
+Invoice PDFs
+Supplier onboarding documents
+```
+
+The storage layer is responsible for storing and retrieving document objects while the application remains responsible for authentication, authorization, supplier ownership checks, and Round 14 compliance access enforcement.
+
+---
+
+## PDF Upload
+
+Invoice document endpoint:
+
+```http
+POST /api/v1/invoices/{supplier_id}/{invoice_number}/document
+```
+
+The endpoint is authenticated and supplier-scoped.
+
+For supplier users, the authenticated `supplier_id` must match the supplier associated with the invoice.
+
+A supplier cannot upload a document to another supplier's invoice.
+
+The document is validated before being stored in MinIO.
+
+### Round 14 Compliance Access
+
+Document upload is a supplier-facing write operation.
+
+Therefore:
+
+```text
+CLEARED
+    │
+    └── Upload allowed
+
+NEEDS REVIEW
+    │
+    └── 403 Forbidden
+
+SUSPENDED
+    │
+    └── 403 Forbidden
+```
+
+A supplier under compliance review cannot submit a new invoice document.
+
+A suspended supplier cannot upload documents.
+
+---
+
+## PDF Validation
+
+The service performs multiple validation checks before storing an invoice document.
+
+### 1. Content Type
+
+The request must declare:
+
+```text
+application/pdf
+```
+
+Other content types such as:
+
+```text
+image/png
+text/plain
+application/json
+```
+
+are rejected.
+
+### 2. PDF Signature
+
+The uploaded file contents must begin with:
+
+```text
+%PDF-
+```
+
+This prevents a non-PDF file from being accepted simply because the request declares:
+
+```text
+Content-Type: application/pdf
+```
+
+### 3. Maximum File Size
+
+The maximum supported PDF size is:
+
+```text
+10 MB
+```
+
+The uploaded bytes are checked so that payloads exceeding the configured limit are rejected.
+
+---
+
+## Document Object Reference
+
+The application uses an object reference/object key to identify the stored document.
+
+Conceptually:
+
+```text
+Supplier
+   │
+   ▼
+Invoice / Onboarding Document
+   │
+   ▼
+Object Key
+   │
+   ▼
+MinIO Object
+```
+
+The object key is an internal storage reference.
+
+It is not treated as a public downloadable URL.
+
+The application does not expose MinIO credentials or storage-internal authentication information to suppliers.
+
+---
+
+## Presigned URL Downloads
+
+Document downloads use short-lived **presigned URLs**.
+
+The download flow is:
+
+```text
+Authenticated Request
+        │
+        ▼
+Identify requested document
+        │
+        ▼
+Verify authenticated supplier
+        │
+        ▼
+Verify supplier compliance access
+        │
+        ▼
+Verify supplier ownership / authorization
+        │
+        ▼
+Verify object exists in MinIO
+        │
+        ▼
+Generate short-lived presigned URL
+        │
+        ▼
+Return URL to authorized caller
+```
+
+The important security rule is:
+
+```text
+Authenticate
+    │
+    ▼
+Check compliance access
+    │
+    ▼
+Authorize ownership
+    │
+    ▼
+Check MinIO object
+    │
+    ▼
+Generate presigned URL
+```
+
+A presigned URL is never generated before the application has verified that the authenticated user is authorized to access the requested document.
+
+### Round 14 Suspended Supplier Protection
+
+For a supplier whose compliance state is:
+
+```text
+suspended
+```
+
+the request is rejected before the MinIO object lookup and before presigned URL generation.
+
+```text
+Suspended Supplier
+       │
+       ▼
+Compliance access check
+       │
+       ▼
+403 Forbidden
+       │
+       X
+       │
+       └── No MinIO lookup
+       └── No presigned URL
+```
+
+This is an explicit Round 14 security requirement.
+
+---
+
+## PDF Download
+
+Endpoint:
+
+```http
+GET /api/v1/invoices/{supplier_id}/{invoice_number}/document
+```
+
+The endpoint requires authentication.
+
+For supplier users, the authenticated supplier must own the invoice.
+
+Internal authorized users can access invoice documents according to the endpoint's role authorization rules.
+
+The document retrieval flow is:
+
+```text
+Find invoice/document
+        │
+        ▼
+Check authenticated user
+        │
+        ▼
+Check supplier compliance access
+        │
+        ▼
+Check supplier ownership
+        │
+        ▼
+Check MinIO object
+        │
+        ▼
+Generate short-lived presigned URL
+        │
+        ▼
+Return authorized URL
+```
+
+The application does not return the PDF through FastAPI `FileResponse`. The client receives a temporary signed URL for authorized access to the object stored in MinIO.
+
+### Compliance Access Behavior
+
+| Supplier Compliance State | Document Download |
+|---|---|
+| `cleared` | Allowed |
+| `needs_review` | Allowed |
+| `suspended` | `403 Forbidden` |
+
+A suspended supplier receives:
+
+```text
+Supplier account is suspended due to compliance status
+```
+
+The request is rejected before MinIO access and before presigned URL generation.
+
+---
+
+## Cross-Supplier Document Protection
+
+Supplier scoping is enforced before generating a presigned URL.
+
+Example:
+
+```text
+Supplier A
+   │
+   ├── Requests own document
+   │
+   └── Ownership verified
+           │
+           ▼
+       URL generated
+```
+
+But:
+
+```text
+Supplier A
+   │
+   ├── Requests Supplier B document
+   │
+   └── Ownership check fails
+           │
+           ▼
+       403 Forbidden
+```
+
+Supplier A must never receive a presigned URL for Supplier B's document through any Supplier Portal endpoint.
+
+This applies even when Supplier A knows or guesses:
+
+- another supplier's document identifier;
+- invoice number;
+- supplier ID;
+- object key/reference.
+
+The authorization check is performed before URL generation.
+
+Round 14 additionally ensures that a suspended supplier cannot reach the MinIO URL-generation stage even for its own documents.
+
+---
+
+## Document Error Handling
+
+The document-storage implementation distinguishes different failure conditions.
+
+### Unauthorized Supplier Access
+
+```text
+403 Forbidden
+```
+
+Returned when the authenticated supplier does not own the requested document.
+
+### Suspended Supplier
+
+```text
+403 Forbidden
+```
+
+Returned when the authenticated supplier has a `suspended` compliance access state.
+
+The error message is:
+
+```text
+Supplier account is suspended due to compliance status
+```
+
+The request is rejected before generating a presigned URL.
+
+### Document Not Found
+
+```text
+404 Not Found
+```
+
+Returned when the requested application document/object cannot be found.
+
+### Storage Dependency Failure
+
+```text
+503 Service Unavailable
+```
+
+Returned when the Supplier Portal cannot use the required MinIO storage dependency.
+
+This allows clients and operators to distinguish:
+
+```text
+Wrong supplier
+    → 403
+
+Suspended supplier
+    → 403
+
+Missing document
+    → 404
+
+Storage unavailable
+    → 503
+```
+
+---
+
+## Onboarding Document Storage
+
+Supplier onboarding documents follow the same MinIO-backed storage model.
+
+Conceptually:
+
+```text
+Supplier Onboarding
+        │
+        ▼
+Document Upload
+        │
+        ▼
+Document Storage Service
+        │
+        ▼
+MinIO
+```
+
+Supplier ownership is checked before a document download URL is generated.
+
+Round 14 compliance access is also evaluated for supplier-facing onboarding document downloads.
+
+Therefore:
+
+```text
+CLEARED
+    → allowed
+
+NEEDS REVIEW
+    → viewing/downloading allowed
+
+SUSPENDED
+    → 403 Forbidden
+```
+
+This prevents one supplier from obtaining another supplier's onboarding-document URL and prevents suspended suppliers from obtaining new storage URLs.
+
+---
+
+## Document Storage Security
+
+The document-storage implementation follows these principles:
+
+- Store document binaries in MinIO rather than the local filesystem.
+- Keep application document references separate from public URLs.
+- Authenticate every protected document request.
+- Check supplier compliance access for supplier users.
+- Enforce supplier ownership before storage access.
+- Generate presigned URLs only after authorization succeeds.
+- Keep presigned URLs short-lived.
+- Never expose MinIO credentials to suppliers.
+- Return `403` for cross-supplier document access.
+- Return `403` for suspended supplier access.
+- Return `404` for missing objects/documents.
+- Return `503` when the storage dependency is unavailable.
+- Do not generate a presigned URL for a suspended supplier.
+
+---
+
+## Document Storage Testing
+
+Document storage is covered by unit and integration tests.
+
+The test coverage includes:
+
+```text
+Document storage service
+Invoice document downloads
+Supplier onboarding document downloads
+MinIO integration
+Cross-supplier access rejection
+Suspended supplier access rejection
+Missing object handling
+Storage dependency failures
+Presigned URL generation
+No presigned URL for suspended suppliers
+PDF validation
+```
+
+The integration tests use a local MinIO instance so that the storage behavior is tested against an actual S3-compatible object-storage service.
+
+---
+
 # 10. Supplier Statistics
 
 Supplier operational statistics are available through:
@@ -3065,6 +4578,16 @@ po_count
 on_time_percentage
 average_invoice_cycle_time
 ```
+
+Round 14 adds compliance access enforcement to supplier-facing statistics.
+
+Supplier users in `needs_review` state retain read access to statistics.
+
+Supplier users in `suspended` state cannot access supplier statistics.
+
+Internal authorized users are not affected by the supplier compliance access restriction.
+
+---
 
 ## Supplier-Level Access Control
 
@@ -3110,6 +4633,32 @@ A supplier user without a `supplier_id` is rejected from supplier-scoped statist
 
 Internal authorized users can access supplier statistics according to their assigned role permissions.
 
+---
+
+## Round 14 Compliance Access
+
+Supplier statistics are read-only supplier-facing resources.
+
+Therefore:
+
+| Compliance State | Statistics Access |
+|---|---|
+| `cleared` | Allowed |
+| `needs_review` | Allowed |
+| `suspended` | `403 Forbidden` |
+
+The suspended supplier receives:
+
+```text
+Supplier account is suspended due to compliance status
+```
+
+The compliance access check occurs before returning supplier-specific statistics.
+
+This ensures that a blocked supplier cannot continue to use Supplier Portal REST analytics endpoints.
+
+---
+
 ## Purchase Order Count
 
 The PO count includes all Purchase Orders belonging to the supplier:
@@ -3127,6 +4676,8 @@ acknowledged
 fulfilled
 cancelled
 ```
+
+---
 
 ## Delivery Eligibility and On-Time Percentage
 
@@ -3211,6 +4762,8 @@ Supplier Monthly Trend
 
 so that the same business definition is used consistently.
 
+---
+
 ## Average Invoice Cycle Time
 
 The service calculates invoice cycle time using the relationship between the invoice date and the associated Purchase Order creation date.
@@ -3244,6 +4797,8 @@ Negative cycle times are ignored.
 
 Invalid or unusable date records are ignored rather than causing the entire supplier-statistics calculation to fail.
 
+---
+
 ## Date Normalization
 
 The statistics service supports common date representations including:
@@ -3257,6 +4812,8 @@ ISO datetime with Z
 ```
 
 These values are normalized before calculations are performed.
+
+---
 
 ## Supplier Not Found
 
@@ -3273,6 +4830,8 @@ Example:
   "detail": "Supplier 'SUP999' not found."
 }
 ```
+
+---
 
 ## R5 Supplier-Scoping Security
 
@@ -3301,6 +4860,45 @@ This prevents an unauthorized supplier from accessing another supplier's statist
 
 The same supplier-scoping principle is applied across protected supplier detail and analytics endpoints.
 
+---
+
+## Round 14 Statistics Access Model
+
+Round 14 combines the existing R5 supplier-scoping model with compliance access control.
+
+The resulting decision order is:
+
+```text
+Authenticated Request
+        │
+        ▼
+Platform Authentication
+        │
+        ▼
+Supplier Identity / Role
+        │
+        ▼
+Supplier Compliance State
+        │
+   ┌────┼────────────┐
+   │    │            │
+CLEAR REVIEW      SUSPENDED
+   │    │            │
+   ▼    ▼            ▼
+Continue Continue   403
+   │    │
+   └────┴──────┐
+               ▼
+        Supplier Ownership
+               │
+               ▼
+        Statistics Service
+```
+
+This ensures authentication, compliance access, and supplier ownership are all enforced without changing the Platform Service.
+
+---
+
 ## GraphQL Supplier Statistics Scope
 
 The Round 13 GraphQL API currently exposes GraphQL operations for:
@@ -3316,6 +4914,23 @@ Supplier statistics remain available through their REST endpoint.
 Where GraphQL resources are supplier-scoped, authorization is enforced inside the corresponding resolver rather than relying only on the `/graphql` route.
 
 This ensures that a supplier cannot bypass REST-level supplier-scoping rules by querying another supplier's protected Purchase Order, invoice, or document through GraphQL.
+
+Round 14 applies the same compliance principle to GraphQL supplier-facing resources:
+
+```text
+CLEARED
+    → GraphQL reads and allowed writes
+
+NEEDS REVIEW
+    → GraphQL reads allowed
+    → GraphQL writes blocked
+
+SUSPENDED
+    → supplier-facing GraphQL access blocked
+```
+
+---
+
 # 11. Supplier Performance Scorecard
 
 The Supplier Performance Scorecard provides a higher-level view of supplier performance using Purchase Order, invoice, and dispute history.
@@ -3348,6 +4963,8 @@ Monthly trends
 ```
 
 The same scorecard endpoint provides the supplier self-service analytics functionality introduced during R9–R11.
+
+Round 14 adds compliance access enforcement to this supplier-facing analytics endpoint.
 
 ---
 
@@ -3388,6 +5005,32 @@ monthly trends
 ```
 
 This allows suppliers to view their own performance without exposing another supplier's operational data.
+
+---
+
+## Round 14 Compliance Access
+
+The scorecard is a read-only supplier-facing analytics resource.
+
+Therefore:
+
+| Compliance State | Scorecard Access |
+|---|---|
+| `cleared` | Allowed |
+| `needs_review` | Allowed |
+| `suspended` | `403 Forbidden` |
+
+A supplier under review can continue to view its own performance information.
+
+A suspended supplier cannot access the supplier-facing scorecard.
+
+The suspended response is:
+
+```text
+Supplier account is suspended due to compliance status
+```
+
+Internal authorized users remain governed by their existing role-based access rules.
 
 ---
 
@@ -3699,6 +5342,99 @@ A supplier cannot use the scorecard endpoint to inspect another supplier's perfo
 
 ---
 
+## Round 14 Combined Access Model
+
+Supplier scorecard access now combines:
+
+```text
+Platform Authentication
+        +
+Supplier Identity
+        +
+Supplier Ownership
+        +
+Compliance Access State
+```
+
+The resulting behavior is:
+
+```text
+                         CLEARED       NEEDS REVIEW       SUSPENDED
+                         -------       ------------       ---------
+View own statistics       Allow            Allow             403
+View own scorecard        Allow            Allow             403
+View own invoices         Allow            Allow             403
+Submit invoice            Allow            403               403
+Upload invoice document   Allow            403               403
+Download own document     Allow            Allow             403
+```
+
+The compliance state does not replace the existing supplier-scoping rules.
+
+Both checks remain active:
+
+```text
+Authentication
+      │
+      ▼
+Compliance Access
+      │
+      ▼
+Supplier Ownership
+      │
+      ▼
+Business Operation
+```
+
+This prevents a supplier from bypassing Round 14 restrictions by changing the requested `supplier_id`.
+
+---
+
+## Round 14 Enforcement Summary for Sections 8–11
+
+The invoice, document, statistics, and scorecard areas now follow the same supplier compliance access model:
+
+```text
+Compliance Event
+      │
+      ▼
+Supplier Compliance State
+      │
+ ┌────┼─────────────┐
+ │    │             │
+CLEAR REVIEW      BLOCK
+ │    │             │
+ ▼    ▼             ▼
+cleared            suspended
+       needs_review
+```
+
+Behavior:
+
+```text
+CLEARED
+  → Supplier can view and perform permitted write operations.
+
+NEEDS REVIEW
+  → Supplier can view existing information.
+  → Supplier cannot acknowledge/write restricted resources.
+  → Supplier cannot submit invoices.
+  → Supplier cannot upload invoice documents.
+  → Existing read access remains available.
+
+SUSPENDED
+  → Supplier-facing REST resources return 403.
+  → Supplier-facing GraphQL resources return an authorization error.
+  → Invoice submission is blocked.
+  → Invoice document upload is blocked.
+  → Document download is blocked.
+  → MinIO object lookup is not reached for blocked document access.
+  → No new presigned URL is generated.
+```
+
+Internal roles continue to use their existing role-based authorization model.
+
+The Round 14 compliance access state is separate from the onboarding `status` field and does not replace the Supplier Portal's existing onboarding lifecycle.
 # 12. Procure-to-Pay Lifecycle
 
 The Supplier Portal implements a procure-to-pay workflow connecting:
@@ -3733,6 +5469,18 @@ Payment Approval
 
 The workflow is implemented using explicit P2P state transitions rather than treating each step as an unrelated record operation.
 
+Round 14 adds supplier compliance access enforcement to the supplier-facing P2P operations.
+
+The P2P workflow therefore depends on both:
+
+```text
+P2P State
+
+      +
+
+Supplier Compliance Access
+```
+
 ---
 
 ## P2P Flow
@@ -3760,6 +5508,22 @@ Payment Approved
 ```
 
 A discrepancy is routed for human review instead of automatically progressing to payment approval.
+
+For supplier users, supplier compliance access is checked before protected write operations.
+
+```text
+CLEARED
+    → Supplier P2P writes allowed when business rules permit
+
+NEEDS REVIEW
+    → Supplier can view P2P information
+    → Supplier write operations are blocked
+
+SUSPENDED
+    → Supplier-facing P2P access is blocked
+```
+
+Internal authorized roles continue to use their existing role-based permissions.
 
 ---
 
@@ -3801,6 +5565,8 @@ Invalid transitions are rejected.
 
 The P2P state machine does not allow a transaction to skip required processing stages.
 
+Round 14 does not replace this state machine. It adds an authorization layer before supplier-facing state-changing operations.
+
 ---
 
 ## Purchase Order and P2P State Are Separate
@@ -3838,6 +5604,18 @@ payment_approved
 
 This separation allows the existing Purchase Order lifecycle to remain intact while the P2P workflow controls end-to-end transaction progression.
 
+Round 14 compliance state is a third, independent access-control concept:
+
+```text
+Purchase Order Lifecycle
+        +
+P2P Processing State
+        +
+Supplier Compliance Access
+```
+
+The compliance access state does not overwrite the Purchase Order lifecycle or P2P state.
+
 ---
 
 ## Shipment Notice
@@ -3854,6 +5632,21 @@ shipped
 ```
 
 Shipment processing validates the related Purchase Order and supplier context before advancing the P2P state.
+
+For supplier users, shipment-related state-changing operations also require appropriate compliance access.
+
+```text
+CLEARED
+    → Allowed
+
+NEEDS REVIEW
+    → 403 Forbidden
+
+SUSPENDED
+    → 403 Forbidden
+```
+
+Internal authorized users remain governed by their existing role permissions.
 
 ---
 
@@ -3941,6 +5734,8 @@ Extra PO items are rejected, and duplicate item codes within a receipt are rejec
 
 This allows real-world partial shipment and receiving scenarios to reach the three-way matching stage.
 
+Supplier-facing receipt operations continue to enforce supplier ownership and the applicable compliance access policy.
+
 ---
 
 ## Invoice Integration
@@ -3985,6 +5780,22 @@ work together without replacing each other.
 
 Invalid or duplicate invoice submissions do not advance the P2P state.
 
+### Round 14 Invoice Submission Access
+
+For supplier users, P2P invoice submission is a supplier-facing write operation.
+
+Therefore:
+
+| Compliance State | P2P Invoice Submission |
+|---|---|
+| `cleared` | Allowed |
+| `needs_review` | `403 Forbidden` |
+| `suspended` | `403 Forbidden` |
+
+A supplier under compliance review can continue to view permitted information but cannot submit a new invoice.
+
+A suspended supplier cannot submit invoices.
+
 ---
 
 ## Three-Way Match Integration
@@ -4014,6 +5825,10 @@ discrepancy
 ```
 
 A discrepancy requires human review.
+
+The matching logic itself remains independent from the supplier compliance event consumer.
+
+Supplier-facing operations that create or resolve protected business state continue to enforce the appropriate supplier compliance access.
 
 ---
 
@@ -4060,6 +5875,53 @@ The P2P workflow maintains state integrity by:
 - Requiring an appropriate Goods Receipt before P2P invoicing
 - Preventing invalid invoice submissions from advancing the state
 - Routing match discrepancies for human review
+- Enforcing supplier compliance access before protected supplier write operations
+
+Round 14 therefore adds an access-control layer without changing the underlying P2P state machine.
+
+---
+
+## Round 14 P2P Compliance Enforcement
+
+Supplier-facing P2P behavior is:
+
+```text
+                         CLEARED       NEEDS REVIEW       SUSPENDED
+                         -------       ------------       ---------
+View POs                  Allow            Allow             403
+View P2P information      Allow            Allow             403
+Acknowledge PO            Allow            403               403
+Shipment/write action     Allow            403               403
+Submit invoice            Allow            403               403
+P2P state-changing write  Allow            403               403
+```
+
+The exact operation is still checked against the underlying business state machine.
+
+For example, `CLEARED` does not make an otherwise invalid transition valid.
+
+The order of enforcement is conceptually:
+
+```text
+Authentication
+      │
+      ▼
+Supplier Identity
+      │
+      ▼
+Compliance Access
+      │
+      ▼
+Supplier Ownership
+      │
+      ▼
+P2P Business Validation
+      │
+      ▼
+State Transition
+```
+
+This prevents a supplier from bypassing compliance restrictions by submitting a valid P2P request against another resource.
 
 ---
 
@@ -4106,6 +5968,69 @@ PO Creation Allowed
 ```
 
 The Compliance Check is performed before activation and is part of the actual business workflow.
+
+---
+
+## Onboarding Compliance vs Round 14 Compliance Access
+
+The Supplier Portal uses two related but separate Compliance concepts.
+
+### Activation Compliance
+
+During onboarding:
+
+```text
+approved
+    ↓
+Compliance internal-check
+    ↓
+CLEAR + cleared=true
+    ↓
+active
+```
+
+This determines whether an approved supplier can become active.
+
+### Event-Driven Compliance Access
+
+After compliance status changes, Round 14 consumes:
+
+```text
+compliance.supplier.status_changed
+```
+
+from Kafka and updates the supplier's access state.
+
+```text
+Compliance Event
+      │
+      ▼
+Kafka
+      │
+      ▼
+Supplier Portal Consumer
+      │
+      ▼
+Supplier Compliance Access State
+```
+
+The event-driven state is maintained separately from the onboarding `status`.
+
+This is important because a supplier can remain onboarding-status `active` while its current compliance access state becomes:
+
+```text
+cleared
+needs_review
+suspended
+```
+
+Therefore:
+
+```text
+Supplier onboarding status
+        ≠
+Supplier compliance access status
+```
 
 ---
 
@@ -4335,11 +6260,11 @@ The three-way match operates after:
 
 ```text
 Acknowledged
-      ↓
+     ↓
 Shipped
-      ↓
+     ↓
 Received
-      ↓
+     ↓
 Invoiced
 ```
 
@@ -4369,6 +6294,35 @@ Matched          Discrepancy
 Payment           Human Review
 Approval
 ```
+
+---
+
+## Supplier Compliance and Three-Way Match
+
+Round 14 does not change the matching algorithm or the 5% tolerance rule.
+
+It controls whether a supplier is allowed to perform supplier-facing operations that can affect the P2P/invoice workflow.
+
+```text
+Compliance State
+
+CLEARED
+    ↓
+Supplier may perform permitted P2P/invoice writes.
+
+NEEDS REVIEW
+    ↓
+Supplier may view permitted information.
+Supplier write operations are blocked.
+
+SUSPENDED
+    ↓
+Supplier-facing access is blocked.
+```
+
+Therefore, a compliance restriction cannot be bypassed by attempting to reach the three-way-match workflow directly.
+
+The underlying three-way-match business rules continue to apply independently.
 
 ---
 
@@ -4582,6 +6536,8 @@ The Compliance Check is a real business-logic integration with the Compliance Se
 
 A supplier is not moved to `active` until the Compliance Service returns a successful `CLEAR` decision.
 
+Round 14 adds a separate event-driven compliance access mechanism after the supplier has been activated.
+
 ---
 
 ## Onboarding Lifecycle
@@ -4671,6 +6627,8 @@ Requested onboarding supplier
 
 Onboarding documents are also protected during download. An authorized supplier receives a short-lived presigned URL only after ownership has been verified.
 
+For a suspended supplier, Round 14 prevents the document request from reaching MinIO URL generation.
+
 ---
 
 ## Mock Verification
@@ -4738,8 +6696,10 @@ Compliance Decision
 CLEAR BLOCK    REVIEW
  │    │         │
  ▼    ▼         ▼
-Active  Block   Keep Approved
+Active Block   Keep Approved
 ```
+
+This activation check is separate from the Round 14 Kafka event consumer.
 
 ---
 
@@ -4928,464 +6888,1213 @@ This prevents an unscreened supplier from becoming active when the required Comp
 
 ---
 
-## Compliance Integration Testing
+# Round 14 — Event-Driven Supplier Compliance Access
 
-The integration is covered by tests for:
+Round 14 introduces an event-driven compliance access layer in the Supplier Portal.
+
+The Supplier Portal consumes:
 
 ```text
-Successful CLEAR decision
-
-BLOCK decision
-
-REVIEW decision
-
-Compliance service unavailable
-
-Compliance service error
-
-Correct request payload
-
-Correct internal caller header
-
-Activation ordering
-
-No activation when Compliance fails
+compliance.supplier.status_changed
 ```
 
-The failure-path tests verify that a failed Compliance check does not partially activate the supplier.
+from Apache Kafka using its own consumer group:
+
+```text
+supplier-portal-service
+```
+
+The event consumer is independent of the existing synchronous `/internal-check` activation integration.
+
+The architecture is:
+
+```text
+Compliance Service
+       │
+       │ compliance.supplier.status_changed
+       ▼
+Apache Kafka
+       │
+       ▼
+Supplier Portal Kafka Consumer
+       │
+       │ group: supplier-portal-service
+       ▼
+Supplier Compliance Service
+       │
+       ▼
+Supplier Compliance Access State
+```
+
+The consumer maintains a supplier access state separate from the onboarding status.
 
 ---
 
-## Active Supplier
+## Event Status Mapping
 
-An approved supplier reaches the active state only after the Compliance Service returns a valid clear decision:
+The event's `new_status` is mapped to the Supplier Portal access state:
 
-```text
-Approved
-   │
-   ▼
-Compliance Check
-   │
-   ▼
-CLEAR + cleared=true
-   │
-   ▼
-Active
-```
-
-The active-supplier check is then used by Purchase Order creation.
+| Compliance Event Status | Supplier Portal Access State |
+|---|---|
+| `CLEAR` | `cleared` |
+| `REVIEW` | `needs_review` |
+| `BLOCK` | `suspended` |
 
 Therefore:
 
 ```text
-Active supplier
-      │
-      ▼
-PO creation allowed
+CLEAR
+  ↓
+cleared
+  ↓
+Normal supplier access
+
+REVIEW
+  ↓
+needs_review
+  ↓
+Read allowed / write restricted
+
+BLOCK
+  ↓
+suspended
+  ↓
+Supplier-facing access blocked
 ```
 
-while:
+The onboarding status is not overwritten.
+
+For example:
 
 ```text
-Unregistered / inactive supplier
-      │
-      ▼
-PO creation rejected
+supplier["status"]
+    = "active"
+
+supplier["compliance_access_status"]
+    = "suspended"
 ```
 
-This makes onboarding enforcement part of the actual procurement business flow.
+is a valid state representation.
+
+This allows the system to distinguish:
+
+```text
+Supplier onboarding status
+```
+
+from:
+
+```text
+Current compliance access status
+```
 
 ---
 
-## Supplier Scoping
+## Event Contract
 
-Supplier onboarding follows the supplier-level security principles established in Round 5.
+The consumer validates events using the expected versioned event structure:
 
-Authentication, role authorization, and supplier ownership are separate controls:
-
-```text
-Authentication
-      │
-      ▼
-Role Authorization
-      │
-      ▼
-Supplier Ownership / Scope
-      │
-      ▼
-Onboarding Resource Access
+```json
+{
+  "event_id": "uuid",
+  "event_type": "compliance.supplier.status_changed",
+  "event_version": 1,
+  "occurred_at": "2026-10-08T10:00:00Z",
+  "producer": "compliance-service",
+  "payload": {
+    "supplier_id": "SUP001",
+    "old_status": "CLEAR",
+    "new_status": "BLOCK",
+    "matched_list": ["OFAC"],
+    "reason": "Supplier matched a compliance list."
+  }
+}
 ```
 
-Supplier users cannot access another supplier's onboarding resources.
+The required event payload contains:
 
-A supplier token without a valid `supplier_id` cannot access supplier-scoped onboarding resources.
+```text
+supplier_id
+old_status
+new_status
+matched_list
+reason
+```
+
+The event metadata contains:
+
+```text
+event_id
+event_type
+event_version
+occurred_at
+producer
+```
+
+The Supplier Portal validates:
+
+```text
+Event structure
+
+Event type
+
+Event version
+
+Occurred timestamp
+
+Supplier identity
+
+Compliance status
+```
+
+Invalid events are not applied to supplier state.
 
 ---
 
-## Onboarding Document Security
+## Kafka Consumer Configuration
 
-Onboarding documents are stored in MinIO.
+The Supplier Portal uses:
 
-The download flow is:
+```text
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+
+KAFKA_CONSUMER_GROUP=supplier-portal-service
+
+KAFKA_STATUS_CHANGED_TOPIC=compliance.supplier.status_changed
+
+KAFKA_DLQ_TOPIC=compliance.supplier.status_changed.dlq
+
+KAFKA_AUTO_OFFSET_RESET=earliest
+```
+
+The Kafka consumer uses:
+
+```text
+enable.auto.commit = false
+```
+
+The offset is committed only after the event has been successfully processed or successfully published to the dead-letter topic.
+
+---
+
+## Supplier Compliance Access State
+
+The Supplier Compliance Service maintains:
+
+```text
+cleared
+needs_review
+suspended
+```
+
+The state is used by the REST and GraphQL authorization layers.
+
+The service provides access decisions conceptually as:
+
+```text
+can_view()
+can_write()
+```
+
+The rules are:
+
+```text
+cleared
+    → can view
+    → can write
+
+needs_review
+    → can view
+    → cannot write
+
+suspended
+    → cannot view
+    → cannot write
+```
+
+Internal roles are not restricted by these supplier-specific compliance access checks.
+
+---
+
+## Round 14 Access Matrix
+
+The complete supplier-facing behavior is:
+
+| Operation | `CLEARED` | `NEEDS REVIEW` | `SUSPENDED` |
+|---|---:|---:|---:|
+| View Purchase Orders | Allow | Allow | 403 |
+| View Purchase Order | Allow | Allow | 403 |
+| View P2P information | Allow | Allow | 403 |
+| Acknowledge PO | Allow | 403 | 403 |
+| Update PO | Allow | 403 | 403 |
+| Delete PO | Allow | 403 | 403 |
+| Submit invoice | Allow | 403 | 403 |
+| Invoice transition | Allow | 403 | 403 |
+| Upload invoice document | Allow | 403 | 403 |
+| Download invoice document | Allow | Allow | 403 |
+| View onboarding documents | Allow | Allow | 403 |
+| Supplier statistics | Allow | Allow | 403 |
+| Supplier scorecard | Allow | Allow | 403 |
+| GraphQL queries | Allow | Allow | 403 |
+| GraphQL writes | Allow | 403 | 403 |
+
+The exact underlying resource validation continues to apply.
+
+Compliance access is an additional authorization layer, not a replacement for supplier ownership or role checks.
+
+---
+
+## Suspended Supplier Enforcement
+
+When a supplier is `suspended`, supplier-facing REST endpoints reject the request with:
+
+```text
+403 Forbidden
+```
+
+The standard message is:
+
+```text
+Supplier account is suspended due to compliance status
+```
+
+This applies before protected supplier resources are returned.
+
+The enforcement covers:
+
+```text
+Purchase Orders
+
+P2P operations
+
+Invoices
+
+Invoice documents
+
+Onboarding documents
+
+Supplier statistics
+
+Supplier scorecard
+```
+
+The GraphQL layer applies the same supplier compliance access rule at resolver level.
+
+---
+
+## Needs-Review Supplier Enforcement
+
+When a supplier is `needs_review`, read access remains available.
+
+Write operations are blocked.
+
+The standard write-restriction message is:
+
+```text
+Supplier account is under compliance review. This action is not permitted.
+```
+
+Therefore:
+
+```text
+GET /supplier-resource
+    → allowed
+
+POST /supplier-resource
+    → 403
+
+PUT /supplier-resource
+    → 403
+
+DELETE /supplier-resource
+    → 403
+```
+
+The exact business endpoint rules continue to apply.
+
+---
+
+## Document Protection
+
+Document access has an additional security requirement.
+
+For a suspended supplier:
 
 ```text
 Authenticated Request
         │
         ▼
-Verify supplier ownership
+Compliance Access Check
         │
         ▼
-Check MinIO object
+Suspended
         │
         ▼
-Generate short-lived presigned URL
-        │
-        ▼
-Return URL
+403 Forbidden
 ```
 
-The application performs authorization before generating the presigned URL.
+The request does **not** continue to:
+
+```text
+MinIO object lookup
+        ↓
+Presigned URL generation
+```
 
 Therefore:
 
 ```text
-Supplier A
-    │
-    └── Supplier B document request
-              │
-              ▼
-          403 Forbidden
+Suspended supplier
+    →
+No new MinIO presigned URL
 ```
 
-Supplier A cannot obtain Supplier B's onboarding document URL.
+This ensures that Round 14 compliance suspension cannot be bypassed through the document-download endpoint.
 
 ---
 
-## Onboarding Workflow Integrity
+## GraphQL Protection
 
-The workflow validates the current onboarding stage before advancing.
+Round 13 GraphQL operations continue to enforce supplier scoping at resolver level.
 
-The intended lifecycle is:
+Round 14 adds compliance access checks before returning protected supplier resources.
+
+GraphQL read behavior:
 
 ```text
-registration
-      ↓
-documents
-      ↓
-verification
-      ↓
-approval
-      ↓
-compliance check
-      ↓
-active
+CLEARED
+    → allowed
+
+NEEDS REVIEW
+    → allowed
+
+SUSPENDED
+    → rejected
 ```
 
-Invalid progression is rejected rather than silently changing the supplier's onboarding state.
+GraphQL write behavior:
 
-A supplier cannot skip required onboarding stages.
+```text
+CLEARED
+    → allowed when the underlying mutation is valid
+
+NEEDS REVIEW
+    → rejected
+
+SUSPENDED
+    → rejected
+```
+
+This prevents a supplier from bypassing REST compliance restrictions by calling GraphQL directly.
 
 ---
 
-## Onboarding and P2P Integration
+## Event Idempotency
 
-The onboarding workflow is connected to the P2P process through the active-supplier requirement.
-
-The business dependency is:
+The consumer processes events idempotently using:
 
 ```text
-Supplier
-   │
-   ▼
-Onboarding
-   │
-   ▼
-Approval
-   │
-   ▼
-Compliance CLEAR
-   │
-   ▼
-Active
-   │
-   ▼
-Purchase Order Creation
-   │
-   ▼
-P2P Processing
+event_id
 ```
 
-A supplier that has not completed onboarding and passed Compliance cannot be used for new Purchase Order creation.
+If an event with the same `event_id` is received more than once:
+
+```text
+First delivery
+    → process event
+
+Duplicate delivery
+    → ignore duplicate
+```
+
+The duplicate does not create another compliance-state change or duplicate audit record.
+
+This protects the supplier access state from Kafka redelivery.
 
 ---
 
-# How I Wired Business-Logic Integration (Supplier Portal to Compliance)
+## Out-of-Order Event Handling
 
-This integration connects the Supplier Portal activation workflow to the Compliance Service.
-
-### 1. What it does
-
-Before a supplier moves:
+Events are ordered using:
 
 ```text
-approved → active
+occurred_at
 ```
 
-the Supplier Portal asks the Compliance Service whether the supplier is cleared.
+per supplier.
 
-The supplier is activated only when:
+For example:
 
 ```text
-decision == CLEAR
+Event A
+occurred_at = 10:00
+new_status = BLOCK
 
-AND
-
-cleared == true
+Event B
+occurred_at = 09:59
+new_status = CLEAR
 ```
+
+If Event A has already established the latest supplier state, Event B is considered stale and does not roll the supplier back to the older state.
+
+Conceptually:
+
+```text
+Latest event timestamp
+        │
+        ▼
+Compare incoming occurred_at
+        │
+   ┌────┴─────┐
+   │          │
+ newer       stale
+   │          │
+   ▼          ▼
+Apply       Ignore
+```
+
+This prevents out-of-order Kafka delivery from reverting a supplier to an older compliance state.
 
 ---
 
-### 2. Where the code is
+## Audit Trail
 
-| File | Responsibility |
-|---|---|
-| `app/services/compliance_client.py` | Makes the Compliance HTTP call, validates the response, and raises typed exceptions. |
-| `app/services/supplier_onboarding_service.py` → `activate_supplier()` | Checks the supplier state, calls Compliance, and activates only after a valid CLEAR result. |
-| `app/routes/supplier_onboarding.py` → activation endpoint | Maps typed service errors to HTTP responses. |
-| `app/core/config.py` → `COMPLIANCE_SERVICE_URL` | Configures the Compliance Service base URL. |
-| `tests/test_compliance_client.py` | Tests Compliance client success and failure behavior. |
-| `tests/test_supplier_onboarding.py` | Tests activation behavior and failure paths. |
-
-The HTTP integration is intentionally isolated in the dedicated Compliance client rather than being embedded directly in the route.
-
----
-
-### 3. Order of Operations Inside `activate_supplier()`
-
-The activation flow is:
+Each successfully applied compliance event records audit information including:
 
 ```text
-1. Load supplier
-       │
-       ▼
-2. Verify current state is approved
-       │
-       ▼
-3. Call Compliance
-       │
-       ▼
-4. Validate CLEAR + cleared=true
-       │
-       ▼
-5. Change supplier to active
+event_id
+supplier_id
+old_status
+new_status
+matched_list
+reason
+occurred_at
+processed_at
 ```
-
-If the supplier is not already `approved`, the Compliance Service is not called.
-
-This prevents unnecessary external calls for suppliers that are not yet eligible for activation.
-
----
-
-### 4. Integration Contract
-
-Request:
-
-```text
-POST {COMPLIANCE_SERVICE_URL}/api/v1/compliance/internal-check
-```
-
-Headers:
-
-```http
-X-Caller-Service: supplier-portal
-Content-Type: application/json
-```
-
-Request body:
-
-```json
-{
-  "supplier_id": "SUP001",
-  "supplier_name": "ABC Supplies Pvt Ltd",
-  "country": "India"
-}
-```
-
-Expected decision structure:
-
-```json
-{
-  "decision": "CLEAR",
-  "cleared": true,
-  "reason": "No sanctions or watchlist match found."
-}
-```
-
-Supported decisions:
-
-```text
-CLEAR
-BLOCK
-REVIEW
-```
-
-A contradictory response such as:
-
-```text
-decision = CLEAR
-cleared = false
-```
-
-is not treated as a successful activation response.
-
----
-
-### 5. Error Types to HTTP Codes
-
-| Client/service error | Meaning | HTTP |
-|---|---|---:|
-| `ComplianceBlockedError` | Valid `BLOCK` or `REVIEW` decision | 409 |
-| `ComplianceServiceUnavailableError` | Timeout, connection, or network failure | 503 |
-| `ComplianceServiceError` | Compliance service error or unusable response | 502 |
-
-Typed exceptions decide the HTTP response.
-
-The Compliance `reason` text does not determine the status code.
-
----
-
-### 6. Dependency Ownership
-
-The `/internal-check` endpoint belongs to the Compliance Service.
-
-The Supplier Portal owns:
-
-```text
-Calling Compliance
-Validating the response contract
-Applying the activation rule
-Handling failures
-```
-
-The Compliance Service owns:
-
-```text
-The actual compliance decision
-Sanctions/watchlist evaluation
-CLEAR / BLOCK / REVIEW determination
-```
-
-The two services therefore have clear responsibilities.
-
----
-
-### 7. Local Development
-
-Run the services separately:
-
-```bash
-# Terminal 1: Platform Authentication
-cd services/platform
-uvicorn app.main:app --port 8005
-
-# Terminal 2: Compliance
-cd services/compliance
-uvicorn app.main:app --port 8003
-
-# Terminal 3: Supplier Portal
-cd services/supplier-portal
-uvicorn app.main:app --port 8004
-```
-
-After taking a supplier through:
-
-```text
-register
-   ↓
-documents
-   ↓
-verify
-   ↓
-approve
-```
-
-the activation request can be performed against the Supplier Portal.
 
 Example:
 
-```bash
-curl -X POST http://127.0.0.1:8004/api/v1/suppliers/SUP001/activate \
-  -H "Authorization: Bearer <procurement_manager_token>"
+```text
+SUP001
+
+CLEAR
+  ↓
+BLOCK
+
+Reason:
+Supplier matched a compliance list.
+
+Event ID:
+<event-id>
+
+Occurred:
+<event timestamp>
+
+Processed:
+<processing timestamp>
 ```
 
-When Compliance is available and returns a valid CLEAR decision, activation succeeds.
+The audit history remains available even after a later `CLEAR` event restores supplier access.
 
-If Compliance is unavailable, the Supplier Portal returns:
+Example:
 
 ```text
-503 Service Unavailable
+BLOCK
+  ↓
+suspended
+
+later
+
+CLEAR
+  ↓
+cleared
 ```
 
-and the supplier remains:
+The previous suspension remains part of the compliance audit history.
+
+The current implementation keeps this idempotency and audit state in memory. It is therefore not restart-durable because the Supplier Portal currently does not introduce a database as part of Round 14.
+
+---
+
+## Kafka Commit Semantics
+
+Kafka automatic offset commits are disabled.
+
+The processing sequence is:
 
 ```text
-approved
+Consume event
+     │
+     ▼
+Validate event
+     │
+     ▼
+Apply supplier compliance state
+     │
+     ▼
+Successful processing
+     │
+     ▼
+Commit offset
+```
+
+The consumer does not commit the offset before successful processing.
+
+If business processing fails:
+
+```text
+Processing failure
+      │
+      ▼
+No commit
+```
+
+Kafka can therefore redeliver the event.
+
+This behavior works together with `event_id` idempotency.
+
+---
+
+## Dead-Letter Topic
+
+Malformed or otherwise invalid events are published to:
+
+```text
+compliance.supplier.status_changed.dlq
+```
+
+The dead-letter flow is:
+
+```text
+Kafka Event
+    │
+    ▼
+Deserialize
+    │
+    ├── Valid
+    │     │
+    │     ▼
+    │  Process
+    │     │
+    │     ▼
+    │  Commit
+    │
+    └── Invalid
+          │
+          ▼
+        DLQ
+          │
+          ▼
+       Commit
+```
+
+The original event information is preserved when publishing to the DLQ so that operators can investigate the invalid message.
+
+The consumer does not silently discard malformed events.
+
+---
+
+## Consumer Failure Handling
+
+The consumer distinguishes between invalid input and processing failures.
+
+### Invalid Event
+
+Examples:
+
+```text
+Invalid JSON
+
+Missing event_id
+
+Invalid event version
+
+Wrong event type
+
+Invalid payload
+
+Unknown supplier
+```
+
+These are routed to the DLQ.
+
+### Business Processing Failure
+
+If the event is structurally valid but processing fails unexpectedly:
+
+```text
+Do not commit offset
+```
+
+The event remains eligible for redelivery.
+
+### Unexpected Consumer Failure
+
+Unexpected processing failures also do not cause a successful offset commit.
+
+This preserves at-least-once processing behavior.
+
+---
+
+## Kafka Consumer Lifecycle
+
+The Kafka consumer is started with the Supplier Portal application.
+
+Conceptually:
+
+```text
+FastAPI Application Startup
+          │
+          ▼
+Kafka Consumer Runner
+          │
+          ▼
+Background Consumer Thread
+          │
+          ▼
+Subscribe to compliance.supplier.status_changed
+```
+
+During application shutdown:
+
+```text
+Application Shutdown
+       │
+       ▼
+Stop Consumer
+       │
+       ▼
+Close Kafka Connection
+       │
+       ▼
+Background Thread Stops
+```
+
+The consumer is not created as a module-level long-lived Kafka connection.
+
+This keeps Kafka lifecycle management tied to the application lifecycle.
+
+---
+
+## Round 14 Implementation Files
+
+The event-driven compliance implementation is organized into dedicated files:
+
+```text
+app/
+├── schemas/
+│   └── events.py
+│
+├── services/
+│   ├── supplier_compliance_service.py
+│   ├── kafka_consumer.py
+│   └── kafka_consumer_runner.py
+│
+├── core/
+│   ├── auth.py
+│   └── config.py
+│
+└── main.py
+```
+
+Tests include:
+
+```text
+tests/
+└── test_kafka_consumer.py
+```
+
+Existing invoice, PO, GraphQL, MinIO, onboarding, statistics, and scorecard code remains responsible for its respective business functionality.
+
+---
+
+## Kafka and Existing Services
+
+Round 14 does not replace the existing synchronous Compliance activation integration.
+
+The two integrations have different purposes.
+
+### Synchronous Activation Check
+
+```text
+Supplier Portal
+      │
+      ▼
+Compliance /internal-check
+      │
+      ▼
+Activation decision
+      │
+      ▼
+approved → active
+```
+
+### Event-Driven Status Change
+
+```text
+Compliance Event
+      │
+      ▼
+Kafka
+      │
+      ▼
+Supplier Portal Consumer
+      │
+      ▼
+Access State
+      │
+      ▼
+cleared / needs_review / suspended
+```
+
+This separation allows the Supplier Portal to:
+
+1. Gate initial supplier activation using the existing business integration.
+2. React to later compliance-status changes asynchronously.
+3. Enforce current supplier access without replacing the onboarding lifecycle.
+
+---
+
+## Kafka Docker Development Environment
+
+Round 14 adds Kafka to the Supplier Portal development environment while retaining the existing MinIO service.
+
+The local development environment contains:
+
+```text
+Docker Compose
+     │
+ ┌───┴──────────────┐
+ │                  │
+ ▼                  ▼
+MinIO             Kafka
+ │                  │
+9000/9001          9092
+ │                  │
+Documents          Events
+```
+
+Kafka uses:
+
+```text
+Apache Kafka 4.1.0
+```
+
+The development container exposes:
+
+```text
+9092
+```
+
+The Kafka development data is stored in the Docker volume:
+
+```text
+supplier_portal_kafka_data
 ```
 
 ---
 
-### 8. Run the Integration Tests
+## Kafka Topics
 
-```bash
-cd services/supplier-portal
-
-python -m pytest \
-  tests/test_compliance_client.py \
-  tests/test_supplier_onboarding.py \
-  -q
-```
-
-The tests verify both the happy path and failure behavior.
-
----
-
-### 9. Pattern for Future Business Integrations
-
-The Supplier Portal uses the following pattern for inter-service business calls:
+The Supplier Portal consumes:
 
 ```text
-Route
-  │
-  ▼
-Business Service
-  │
-  ▼
-Dedicated External-Service Client
-  │
-  ▼
-Other Microservice
+compliance.supplier.status_changed
 ```
 
-The external client:
+The dead-letter topic is:
 
-1. Owns the HTTP communication.
-2. Validates the external response.
-3. Raises typed exceptions.
-4. Distinguishes business rejection from dependency failure.
-5. Keeps transport details out of the route.
+```text
+compliance.supplier.status_changed.dlq
+```
 
-The business service:
+Local development topics can be created with:
 
-1. Performs its own state checks first.
-2. Calls the external service at the required business decision point.
-3. Changes state only after the external decision succeeds.
-4. Applies an explicit failure policy.
-5. Tests both success and failure paths.
+```powershell
+docker exec supplier-portal-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --create --if-not-exists --topic compliance.supplier.status_changed --partitions 1 --replication-factor 1
 
-This pattern can be reused when another Supplier Portal workflow needs to integrate with another service.
+docker exec supplier-portal-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --create --if-not-exists --topic compliance.supplier.status_changed.dlq --partitions 1 --replication-factor 1
+```
+
+List topics:
+
+```powershell
+docker exec supplier-portal-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+```
+
+Expected topics include:
+
+```text
+compliance.supplier.status_changed
+compliance.supplier.status_changed.dlq
+```
 
 ---
 
+## Kafka Consumer Group
+
+The Supplier Portal uses its own consumer group:
+
+```text
+supplier-portal-service
+```
+
+This allows the Supplier Portal to consume the same compliance event independently from other services.
+
+The consumer group can be verified with:
+
+```powershell
+docker exec supplier-portal-kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --list
+```
+
+The group should include:
+
+```text
+supplier-portal-service
+```
+
+The subscription can be inspected with:
+
+```powershell
+docker exec supplier-portal-kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group supplier-portal-service
+```
+
+---
+
+## Local Supplier Portal Startup
+
+Start the Supplier Portal from:
+
+```powershell
+cd C:\Users\Lenovo\Desktop\EAICSC\eaicsp-platform\services\supplier-portal
+```
+
+Run:
+
+```powershell
+python -m uvicorn app.main:app --reload --port 8000
+```
+
+During application startup, the Kafka consumer runner starts in the background.
+
+Expected application log:
+
+```text
+Supplier Portal Kafka consumer background thread started.
+```
+
+The application continues to serve its existing REST and GraphQL APIs while the Kafka consumer runs in the background.
+
+---
+
+## Round 14 Testing
+
+The Kafka consumer is covered by unit tests that do not require a running Kafka broker.
+
+The tests cover:
+
+```text
+Valid status-change event
+
+CLEAR status
+
+REVIEW status
+
+BLOCK status
+
+Suspended supplier enforcement
+
+Needs-review write restrictions
+
+Cleared access restoration
+
+Duplicate event
+
+Idempotent processing
+
+Out-of-order event
+
+Invalid event
+
+Unknown supplier
+
+DLQ publishing
+
+Offset commit behavior
+
+No commit on processing failure
+
+Consumer configuration
+
+Manual offset commit
+
+Consumer group configuration
+```
+
+The broader regression suite also covers the enforcement layer across:
+
+```text
+REST
+
+GraphQL
+
+Invoice operations
+
+Purchase Orders
+
+Document downloads
+
+MinIO access
+
+Supplier statistics
+
+Supplier scorecard
+```
+
+---
+
+## Round 14 Access-Control Architecture
+
+The final supplier-facing authorization architecture is:
+
+```text
+                    Request
+                       │
+                       ▼
+              Platform Authentication
+                       │
+                       ▼
+                User Role / Identity
+                       │
+             ┌─────────┴─────────┐
+             │                   │
+       Internal Role          Supplier
+             │                   │
+             │                   ▼
+             │          Supplier Compliance
+             │             Access State
+             │                   │
+             │          ┌────────┼─────────┐
+             │          │        │         │
+             │       CLEARED   REVIEW   SUSPENDED
+             │          │        │         │
+             │          │        │         X
+             │          │        │
+             │          │        └── Read only
+             │          │
+             │          └── Read + permitted writes
+             │
+             ▼
+       Existing Role Rules
+             │
+             └──────────────┐
+                            ▼
+                    Resource Ownership
+                            │
+                            ▼
+                    Business Validation
+                            │
+                            ▼
+                       Operation
+```
+
+The architecture preserves the existing Platform authentication model and adds compliance access enforcement inside the Supplier Portal.
+
+The Platform Service is not modified for Round 14.
+
+---
+
+## Round 14 End-to-End Supplier Compliance Flow
+
+The complete behavior is:
+
+```text
+Compliance Service
+       │
+       │ status changed
+       ▼
+Kafka
+       │
+       │ compliance.supplier.status_changed
+       ▼
+Supplier Portal Consumer
+       │
+       ▼
+Validate Event
+       │
+       ▼
+Check event_id / ordering
+       │
+       ▼
+Supplier Compliance Service
+       │
+       ├───────────────┐
+       │               │
+       ▼               ▼
+CLEAR              REVIEW / BLOCK
+       │               │
+       ▼               ▼
+cleared        needs_review / suspended
+       │               │
+       └───────┬───────┘
+               ▼
+      Supplier Access Layer
+               │
+       ┌───────┼───────────┐
+       │       │           │
+       ▼       ▼           ▼
+      REST   GraphQL     Documents
+       │       │           │
+       └───────┼───────────┘
+               ▼
+       Enforced Supplier Access
+```
+
+This makes the compliance event an active part of Supplier Portal authorization rather than merely storing the event.
+
+---
+
+## Round 14 Security Guarantees
+
+The implementation guarantees:
+
+- `BLOCK` changes supplier compliance access to `suspended`.
+- Suspended suppliers cannot use protected supplier-facing REST endpoints.
+- Suspended suppliers cannot use protected supplier-facing GraphQL operations.
+- Suspended suppliers cannot download invoice documents.
+- Suspended suppliers cannot obtain new MinIO presigned URLs.
+- Suspended suppliers cannot submit new invoices.
+- Suspended suppliers cannot acknowledge or modify protected P2P resources.
+- `REVIEW` changes access to `needs_review`.
+- Suppliers in `needs_review` can continue permitted read operations.
+- Suppliers in `needs_review` cannot perform restricted write operations.
+- `CLEAR` restores normal supplier access.
+- Previous suspension/review history remains in the compliance audit trail.
+- Duplicate events do not cause duplicate state changes.
+- Older out-of-order events cannot overwrite a newer compliance state.
+- Invalid events are sent to the DLQ.
+- Kafka offsets are not committed before successful processing.
+- The existing Platform authentication and authorization model remains unchanged.
+
+---
+
+## Round 14 Scope Boundary
+
+Round 14 adds the Supplier Portal consumer and enforcement layer.
+
+It does not introduce:
+
+```text
+A new database
+
+Local JWT decoding
+
+Changes to Platform Service
+
+Changes to the underlying P2P state machine
+
+Changes to the three-way-match tolerance
+
+Changes to MinIO storage semantics
+```
+
+The existing business functionality remains intact.
+
+Round 14 adds:
+
+```text
+Kafka event consumption
++
+Supplier compliance access state
++
+REST enforcement
++
+GraphQL enforcement
++
+Document/MinIO protection
++
+Audit history
++
+Idempotency
++
+Out-of-order protection
++
+DLQ handling
+```
+
+The current idempotency and audit state are held in memory because the Supplier Portal currently uses in-memory business state. Consequently, those states are not durable across a full process restart.
+
+---
+
+## Round 14 External Event Contract Note
+
+The Supplier Portal consumer is implemented against the agreed Round 14 event contract containing `supplier_id`.
+
+The Supplier Portal does not infer a `supplier_id` from a supplier name.
+
+The external Compliance producer owns the production event payload.
+
+Therefore, producer-side event-contract alignment remains an inter-service integration responsibility and is not implemented by changing the Supplier Portal consumer to guess supplier identity.
+
+The Supplier Portal validates the event contract rather than silently accepting an ambiguous supplier identifier.
+
+---
+
+## Supplier Onboarding and Round 14 Final Flow
+
+The combined onboarding and event-driven compliance model is:
+
+```text
+Supplier Registration
+        │
+        ▼
+Documents
+        │
+        ▼
+Verification
+        │
+        ▼
+Approval
+        │
+        ▼
+Synchronous Compliance Check
+        │
+        ├── BLOCK / REVIEW
+        │       │
+        │       └── Remain approved
+        │
+        └── CLEAR + cleared=true
+                │
+                ▼
+              Active
+                │
+                ▼
+          PO / P2P Processing
+                │
+                ▼
+       Later Compliance Status Change
+                │
+                ▼
+              Kafka
+                │
+                ▼
+      Supplier Portal Consumer
+                │
+       ┌────────┼─────────┐
+       │        │         │
+     CLEAR    REVIEW     BLOCK
+       │        │         │
+       ▼        ▼         ▼
+   cleared   needs_    suspended
+              review
+       │        │         │
+       ▼        ▼         ▼
+Normal      Read-only   Access
+access      supplier    blocked
+            access
+```
+
+This preserves the original Supplier Portal onboarding workflow while adding Round 14's event-driven supplier compliance enforcement.
 # 15. Supplier Contract Lifecycle Management
 
 The Supplier Portal implements Supplier Contract Lifecycle Management for tracking supplier contracts, commercial terms, expiry dates, renewals, and contract history.
@@ -5404,13 +8113,15 @@ Active
       ├──────────────┐
       │              │
       ▼              ▼
-Renewed          Expired
+   Renewed        Expired
       │
       ▼
-Active
+   Active
 ```
 
 Contracts are associated with suppliers and contain commercial and operational terms.
+
+Supplier Contract Lifecycle Management remains a REST-based capability. The Round 13 GraphQL implementation does not expose supplier contracts.
 
 ---
 
@@ -5462,6 +8173,20 @@ and renewal/expiry handling around the active contract period.
 A renewed contract continues into its next active period while the renewal history records the previous period and renewal action.
 
 Invalid status transitions are rejected.
+
+Contract lifecycle status is separate from the supplier's compliance access status introduced in Round 14.
+
+For example:
+
+```text
+Contract status:
+    active
+
+Compliance access:
+    suspended
+```
+
+A compliance suspension does not rewrite the historical contract lifecycle state.
 
 ---
 
@@ -5538,6 +8263,8 @@ auto_renew
 Supplier identity and contract number are not treated as freely mutable contract terms.
 
 Expired contracts cannot be arbitrarily modified through the normal update operation.
+
+Contract compliance-access restrictions apply separately to supplier-facing operations. Internal procurement operations continue to follow their normal role authorization.
 
 ---
 
@@ -5795,6 +8522,41 @@ Contract creation, activation, updating, and renewal are restricted to the appro
 
 ---
 
+## Contract Compliance Access
+
+Round 14 introduces event-driven compliance access control independently from the contract lifecycle.
+
+The supplier's compliance access state can be:
+
+```text
+CLEARED
+NEEDS_REVIEW
+SUSPENDED
+```
+
+The policy is:
+
+| Compliance access | Supplier contract access |
+|---|---|
+| `CLEARED` | Normal permitted supplier access |
+| `NEEDS_REVIEW` | Read-only supplier access where supplier-facing access exists; protected writes are restricted |
+| `SUSPENDED` | Supplier-facing access is denied |
+
+Internal authorized users are not blocked by supplier compliance restrictions when performing their authorized internal operations.
+
+Compliance access does not modify:
+
+```text
+contract_number
+contract status
+contract history
+contract renewal history
+```
+
+The compliance audit history remains separate from the contract lifecycle audit history.
+
+---
+
 ## Contract Lifecycle Audit
 
 Contract lifecycle operations preserve an audit trail.
@@ -5953,7 +8715,26 @@ REST API          GraphQL API
    Business Data   MinIO
 ```
 
-This allows the existing REST functionality to remain available while the frontend consumes the required portal resources through GraphQL.
+Round 14 adds Kafka as an asynchronous compliance-status input to the same Supplier Portal service layer:
+
+```text
+Compliance Service
+       │
+       │ status_changed event
+       ▼
+Apache Kafka
+       │
+       ▼
+Supplier Portal Consumer
+       │
+       ▼
+Compliance Access State
+       │
+       ▼
+REST + GraphQL Enforcement
+```
+
+---
 
 # 16. API Reference
 
@@ -5969,9 +8750,21 @@ The Supplier Portal also exposes a Strawberry GraphQL endpoint at:
 
 Protected REST and GraphQL operations authenticate users through the Platform Service.
 
-Supplier-facing operations additionally enforce supplier-level ownership and data scoping.
+Supplier-facing operations additionally enforce:
 
-Authentication, role authorization, supplier ownership, and business-state validation are enforced according to each operation's requirements.
+```text
+Authentication
+
+Role authorization
+
+Supplier-level ownership
+
+Compliance access state
+
+Business-state validation
+```
+
+The Round 14 compliance policy is applied before protected supplier-facing operations continue.
 
 ---
 
@@ -5999,7 +8792,21 @@ Authentication, role authorization, supplier ownership, and business-state valid
 
 For supplier users, supplier ownership is enforced on supplier-facing Purchase Order operations.
 
-Internal authorized users access Purchase Orders according to their assigned role permissions.
+Round 14 additionally applies supplier compliance access enforcement:
+
+```text
+CLEARED
+    → normal permitted supplier operations
+
+NEEDS_REVIEW
+    → supplier may view
+    → protected supplier writes are rejected
+
+SUSPENDED
+    → supplier-facing access is rejected
+```
+
+Internal authorized users continue to access Purchase Orders according to their role permissions.
 
 ### Purchase Order Supplier Scoping
 
@@ -6073,7 +8880,21 @@ Invoice identity is scoped by:
 
 For supplier users, invoice ownership is enforced.
 
-Internal authorized users can access invoices according to the endpoint's role authorization rules.
+Round 14 additionally applies:
+
+```text
+CLEARED
+    → invoice view and permitted writes allowed
+
+NEEDS_REVIEW
+    → invoice view allowed
+    → invoice creation/transition/upload blocked
+
+SUSPENDED
+    → supplier-facing invoice access blocked
+```
+
+Internal authorized users continue to follow their endpoint-specific role permissions.
 
 ---
 
@@ -6101,6 +8922,8 @@ The collection is filtered using the authenticated supplier's `supplier_id`.
 
 Therefore, a supplier token cannot be used to retrieve another supplier's invoice collection.
 
+A suspended supplier is rejected before the supplier-facing invoice collection is returned.
+
 ---
 
 ## Invoice Document APIs
@@ -6126,6 +8949,8 @@ Authentication
 
 Supplier ownership
 
+Compliance access
+
 Content type
 
 PDF file signature
@@ -6149,18 +8974,18 @@ GET /api/v1/invoices/{supplier_id}/{invoice_number}/document
 
 The download operation does not stream the PDF through the Supplier Portal application.
 
-Instead, after authentication and authorization, the service generates a **short-lived presigned URL** for the stored MinIO object.
+Instead, after authentication and authorization, the service generates a short-lived presigned URL for the stored MinIO object.
 
-The flow is:
+The R14 security order is:
 
 ```text
-Authenticated Request
+Authenticate
         │
         ▼
-Find Invoice
+Check supplier ownership
         │
         ▼
-Verify Supplier Ownership
+Check compliance access
         │
         ▼
 Find Stored Object Reference
@@ -6175,7 +9000,7 @@ Generate Short-Lived Presigned URL
 Return URL
 ```
 
-The security rule is:
+The critical security rule is:
 
 ```text
 Authorize first
@@ -6183,18 +9008,24 @@ Authorize first
 Generate presigned URL second
 ```
 
-A presigned URL must never be generated before the authenticated user is authorized to access the requested document.
+For a suspended supplier, the request is rejected before MinIO lookup or presigned URL generation.
 
 Expected behavior:
 
 ```text
-Own document
+Own document + CLEARED
     → 200 + presigned URL
+
+Own document + NEEDS_REVIEW
+    → 200 + presigned URL for view/download
+
+Own document + SUSPENDED
+    → 403 Forbidden
 
 Other supplier's document
     → 403 Forbidden
 
-Document does not exist in MinIO
+Document does not exist
     → 404 Not Found
 
 MinIO unavailable
@@ -6235,12 +9066,26 @@ Validate file
   ↓
 Authorize supplier
   ↓
+Check compliance access
+  ↓
 Store object in MinIO
   ↓
 Store object reference
 ```
 
 Downloads are authorized against the authenticated supplier before a presigned URL is generated.
+
+For a suspended supplier:
+
+```text
+Authenticated request
+        ↓
+Compliance access check
+        ↓
+403 Forbidden
+        ↓
+No MinIO presigned URL generated
+```
 
 Supplier A cannot obtain a presigned URL for Supplier B's onboarding document.
 
@@ -6270,6 +9115,24 @@ Supplier Documents
 
 The GraphQL API also provides the Purchase Order acknowledgement mutation.
 
+Round 14 applies compliance access enforcement inside the applicable GraphQL authorization layer.
+
+The policy is:
+
+```text
+CLEARED
+    → supplier queries and permitted mutations
+
+NEEDS_REVIEW
+    → supplier read operations allowed
+    → protected write mutations blocked
+
+SUSPENDED
+    → supplier-facing queries and mutations blocked
+```
+
+Internal roles remain governed by their normal role authorization.
+
 ### GraphQL Query Operations
 
 The available query areas include:
@@ -6297,6 +9160,7 @@ GraphQL Resolver
         │
         ├── Authentication
         ├── Supplier Scope Check
+        ├── Compliance Access Check
         ├── Business Logic
         │
         ▼
@@ -6312,24 +9176,7 @@ A single Purchase Order can be queried by Purchase Order number.
 
 Supplier users can only retrieve a Purchase Order belonging to their authenticated supplier.
 
-Example:
-
-```text
-Authenticated supplier = SUP001
-
-Requested PO = PO-SUP002-001
-PO supplier = SUP002
-
-        ↓
-
-Resolver supplier-scope check
-
-        ↓
-
-No Purchase Order returned
-```
-
-This supplier check is performed inside the GraphQL resolver.
+For a suspended supplier, the compliance check occurs before supplier-facing resource access is returned.
 
 ### Purchase Order Collection
 
@@ -6357,6 +9204,9 @@ All Purchase Orders
 Supplier Scope Filter
         │
         ▼
+Compliance Access Check
+        │
+        ▼
 Authorized Purchase Orders
         │
         ▼
@@ -6372,7 +9222,9 @@ GraphQL supports invoice queries and invoice collections.
 
 Supplier users are automatically scoped to invoices belonging to their authenticated supplier.
 
-The resolver applies authorization before returning invoice data.
+For `NEEDS_REVIEW`, read-only invoice queries remain available.
+
+For `SUSPENDED`, supplier-facing invoice queries are rejected.
 
 ### Document Query
 
@@ -6380,7 +9232,7 @@ GraphQL exposes supplier document data through the document query.
 
 Supplier users can only retrieve documents belonging to their authenticated supplier.
 
-The resolver performs supplier-level authorization before returning document information.
+The resolver performs supplier-level authorization and compliance access validation before returning protected supplier document information.
 
 ### Acknowledge Purchase Order Mutation
 
@@ -6395,6 +9247,9 @@ acknowledgePurchaseOrder
 Authenticate User
         │
         ▼
+Check Compliance Access
+        │
+        ▼
 Find Purchase Order
         │
         ▼
@@ -6407,9 +9262,23 @@ Call Existing PO Acknowledge Service
 Return Updated Purchase Order
 ```
 
-A supplier cannot acknowledge another supplier's Purchase Order.
+For `NEEDS_REVIEW`:
 
-A cross-supplier acknowledgement request returns no Purchase Order result and does not modify the protected Purchase Order.
+```text
+Acknowledge
+    ↓
+403 Forbidden
+```
+
+For `SUSPENDED`:
+
+```text
+Acknowledge
+    ↓
+403 Forbidden
+```
+
+A supplier cannot acknowledge another supplier's Purchase Order.
 
 ### Resolver-Level Supplier Scoping
 
@@ -6424,6 +9293,9 @@ GraphQL Request
 Authenticated User
       │
       ▼
+Compliance Access Check
+      │
+      ▼
 Resolver
       │
       ▼
@@ -6435,8 +9307,6 @@ Supplier Scope Check
 ```
 
 Supplier scoping is not delegated only to the `/graphql` route.
-
-This prevents a resolver from accidentally exposing another supplier's data.
 
 ---
 
@@ -6452,7 +9322,19 @@ The Supplier Portal exposes P2P operations covering:
 | Three-Way Match | Compare PO, receipt, and invoice data |
 | Payment Approval | Progress successfully matched transactions toward payment approval |
 
-P2P operations require the appropriate authentication, role authorization, supplier ownership, and current-state validation.
+P2P operations require the appropriate:
+
+```text
+Authentication
+
+Role authorization
+
+Supplier ownership
+
+Compliance access
+
+Current-state validation
+```
 
 The implemented P2P state sequence is:
 
@@ -6470,23 +9352,22 @@ matched / discrepancy
 payment_approved
 ```
 
-Supplier-facing operations follow the R5 security principle:
+Supplier-facing compliance policy:
 
 ```text
-Authenticated supplier
-        │
-        ▼
-Authenticated supplier_id
-        │
-        ▼
-Related resource supplier_id
-        │
-        ├── Same → Allowed
-        │
-        └── Different → 403 Forbidden
+CLEARED
+    → normal permitted P2P operations
+
+NEEDS_REVIEW
+    → view operations permitted
+    → protected supplier writes such as PO acknowledgement,
+      invoice creation and invoice submission are rejected
+
+SUSPENDED
+    → supplier-facing P2P access is rejected
 ```
 
-Invalid P2P state transitions are rejected and do not partially advance the workflow.
+Internal authorized users continue according to their roles.
 
 ---
 
@@ -6499,27 +9380,17 @@ Invalid P2P state transitions are rejected and do not partially advance the work
 
 For supplier users, the authenticated `supplier_id` must match the requested `supplier_id`.
 
-```text
-Authenticated supplier_id
-        │
-        ▼
-Requested supplier_id
-        │
-        ├── Same
-        │     │
-        │     ▼
-        │   Allowed
-        │
-        └── Different
-              │
-              ▼
-        403 Forbidden
-```
-
-Supplier users without a valid `supplier_id` are rejected with:
+Compliance access is also applied:
 
 ```text
-403 Forbidden
+CLEARED
+    → statistics and scorecard allowed
+
+NEEDS_REVIEW
+    → statistics and scorecard view allowed
+
+SUSPENDED
+    → 403 Forbidden before supplier statistics/scorecard access
 ```
 
 Internal authenticated users access supplier statistics and scorecards according to their assigned role permissions.
@@ -6584,6 +9455,10 @@ The maximum document size is:
 
 Activation additionally requires a successful Compliance Service `CLEAR` decision.
 
+The activation decision is synchronous.
+
+After activation, ongoing compliance status changes are consumed asynchronously through Kafka and stored as a separate compliance access state.
+
 ---
 
 ## Compliance Integration API
@@ -6630,6 +9505,140 @@ Decision handling:
 
 The integration is fail-closed.
 
+This synchronous activation check is distinct from the Round 14 asynchronous status-change consumer.
+
+---
+
+## Round 14 Event-Driven Compliance API
+
+Round 14 introduces an asynchronous compliance-status integration:
+
+```text
+Compliance Service
+       │
+       │ compliance.supplier.status_changed
+       ▼
+Apache Kafka
+       │
+       │ consumer group:
+       │ supplier-portal-service
+       ▼
+Supplier Portal Kafka Consumer
+       │
+       ▼
+Supplier Compliance Access State
+       │
+       ├── CLEARED
+       ├── NEEDS_REVIEW
+       └── SUSPENDED
+       │
+       ▼
+REST + GraphQL Authorization
+```
+
+The consumer does not replace the synchronous activation check.
+
+Instead:
+
+```text
+Initial activation
+    →
+Synchronous Compliance /internal-check
+
+Ongoing compliance changes
+    →
+Kafka status_changed events
+```
+
+The event contract contains:
+
+```json
+{
+  "event_id": "uuid",
+  "event_type": "compliance.supplier.status_changed",
+  "event_version": 1,
+  "occurred_at": "2026-10-08T10:00:00Z",
+  "producer": "compliance-service",
+  "payload": {
+    "supplier_id": "SUP001",
+    "old_status": "CLEAR",
+    "new_status": "BLOCK",
+    "matched_list": ["OFAC"],
+    "reason": "Supplier matched a compliance list."
+  }
+}
+```
+
+Status mapping:
+
+```text
+CLEAR
+  ↓
+CLEARED
+
+REVIEW
+  ↓
+NEEDS_REVIEW
+
+BLOCK
+  ↓
+SUSPENDED
+```
+
+The compliance access state is separate from the supplier onboarding lifecycle status.
+
+For example:
+
+```text
+supplier.status
+    = active
+
+supplier.compliance_access_status
+    = suspended
+```
+
+This allows the system to retain the supplier's onboarding/operational lifecycle while independently enforcing current compliance access.
+
+### Kafka Reliability
+
+The consumer implements:
+
+```text
+event_id idempotency
+
+occurred_at ordering
+
+manual offset commits
+
+DLQ handling
+
+schema/type/version validation
+```
+
+Offsets are committed only after:
+
+```text
+Successful event application
+```
+
+or:
+
+```text
+Successful DLQ publication
+```
+
+Invalid or unusable events are published to:
+
+```text
+compliance.supplier.status_changed.dlq
+```
+
+and then committed so that the same poison message does not repeatedly block the consumer.
+
+Unexpected processing failures do not advance the offset.
+
+The current idempotency and ordering state is maintained in application memory and is therefore not restart-durable.
+
 ---
 
 ## Shipment APIs
@@ -6650,6 +9659,8 @@ Shipment operations validate:
 Authentication
 
 Supplier ownership
+
+Compliance access
 
 Purchase Order relationship
 
@@ -6753,7 +9764,21 @@ Discrepancies are flagged for human review.
 
 A discrepancy does not automatically approve payment.
 
-A successfully matched transaction can continue toward payment approval through the P2P state machine.
+Supplier-facing three-way-match access follows the compliance policy:
+
+```text
+CLEARED
+    → permitted supplier access
+
+NEEDS_REVIEW
+    → permitted read-only access
+    → protected supplier writes blocked
+
+SUSPENDED
+    → supplier-facing access blocked
+```
+
+Authorized internal compliance operations remain available according to the applicable role permissions.
 
 ---
 
@@ -6824,27 +9849,27 @@ Contract lifecycle operations are restricted according to the configured procure
 
 ---
 
-## R5 API Security Summary
+## R5 + R14 API Security Summary
 
 The protected API model is:
 
 | Resource | Supplier Access | Internal Role Access |
 | ------------------------------------------ | --------------- | ----------------------------------------------- |
-| Own PO | Allowed | According to role |
+| Own PO | Allowed according to compliance state | According to role |
 | Other supplier PO | `403 Forbidden` | According to role |
-| Own invoice | Allowed | According to role |
+| Own invoice | Allowed according to compliance state | According to role |
 | Other supplier invoice | `403 Forbidden` | According to role |
-| Own invoice document | Allowed | According to role |
+| Own invoice document | Allowed according to compliance state | According to role |
 | Other supplier document | `403 Forbidden` | According to role |
-| Own statistics | Allowed | According to role |
+| Own statistics | Allowed according to compliance state | According to role |
 | Other supplier statistics | `403 Forbidden` | According to role |
-| Own scorecard | Allowed | According to role |
+| Own scorecard | Allowed according to compliance state | According to role |
 | Other supplier scorecard | `403 Forbidden` | According to role |
-| Own contract where supplier access applies | Allowed | According to role |
+| Own contract where supplier access applies | Allowed according to compliance state | According to role |
 | Other supplier contract | `403 Forbidden` | According to role |
 | Missing supplier identity | `403 Forbidden` | Not applicable to supplier-scoped supplier access |
 
-The R5 security model combines:
+The complete supplier security model combines:
 
 ```text
 Authentication
@@ -6856,15 +9881,39 @@ Role Authorization
       +
 
 Supplier Data Isolation
+
+      +
+
+Compliance Access State
 ```
 
 A successful token verification alone is not sufficient for supplier access.
 
-The authenticated supplier identity must match the supplier associated with the requested supplier-scoped resource.
+For document downloads:
 
-For document downloads, authorization occurs before a MinIO presigned URL is generated.
+```text
+Authenticate
+    ↓
+Supplier ownership
+    ↓
+Compliance access
+    ↓
+Object lookup
+    ↓
+Presigned URL generation
+```
 
-For GraphQL, supplier scoping is enforced inside the applicable resolver.
+For GraphQL:
+
+```text
+Authentication
+    ↓
+Compliance access
+    ↓
+Resolver-level supplier scoping
+    ↓
+Business logic
+```
 
 ---
 
@@ -6882,13 +9931,15 @@ Common responses include:
     → Missing or invalid authentication
 
 403 Forbidden
-    → Insufficient role or supplier-scope violation
+    → Insufficient role, supplier-scope violation, suspended supplier,
+      or supplier action blocked during compliance review
 
 404 Not Found
     → Requested resource or stored document does not exist
 
 409 Conflict
-    → Business-rule conflict such as Compliance BLOCK/REVIEW or duplicate resource
+    → Business-rule conflict such as Compliance BLOCK/REVIEW
+      during activation or duplicate resource
 
 422 Unprocessable Entity
     → FastAPI request/schema validation failure
@@ -6898,6 +9949,22 @@ Common responses include:
 
 503 Service Unavailable
     → Platform authentication, Compliance, or MinIO dependency unavailable
+```
+
+For Round 14:
+
+```text
+Supplier SUSPENDED
+    → 403 Forbidden
+
+Supplier NEEDS_REVIEW + protected write
+    → 403 Forbidden
+
+Supplier NEEDS_REVIEW + permitted read
+    → Allowed
+
+Supplier CLEARED
+    → Normal access
 ```
 
 The exact response depends on the operation and failure condition.
@@ -6912,7 +9979,7 @@ The exact response depends on the operation and failure condition.
 | 201 | Resource created |
 | 400 | Business-rule or input validation failure |
 | 401 | Authentication required, invalid, or expired |
-| 403 | Authenticated user is not authorized or supplier scope does not match |
+| 403 | Authenticated user is not authorized, supplier scope does not match, or compliance policy blocks the supplier operation |
 | 404 | Resource not found |
 | 409 | Duplicate resource, conflicting resource state, or business-rule conflict |
 | 422 | FastAPI request/schema validation failure |
@@ -6928,6 +9995,12 @@ Missing / invalid token
         → 401 Unauthorized
 
 Valid supplier token + different supplier resource
+        → 403 Forbidden
+
+Suspended supplier
+        → 403 Forbidden
+
+Supplier under compliance review + protected write
         → 403 Forbidden
 
 Unknown resource
@@ -6951,7 +10024,7 @@ Compliance Service unavailable
 Compliance Service returned an unsuccessful/unusable response
         → 502 Bad Gateway
 
-Compliance decision = BLOCK / REVIEW
+Compliance decision BLOCK / REVIEW during activation
         → 409 Conflict
 
 MinIO unavailable
@@ -6964,6 +10037,8 @@ Requested stored document does not exist
 The Compliance Service integration is intentionally fail-closed.
 
 If Compliance cannot be reached or does not return a usable successful decision, the Supplier Portal does not activate the supplier.
+
+Round 14 status-change events use Kafka/DLQ processing rather than HTTP response codes because they are asynchronous background events.
 
 ---
 
@@ -6980,7 +10055,13 @@ PLATFORM_AUTH_URL=http://127.0.0.1:8005
 COMPLIANCE_SERVICE_URL=http://127.0.0.1:8003
 ```
 
-The application also requires configuration for the MinIO/S3-compatible document-storage dependency according to the project's environment configuration.
+The application also requires configuration for:
+
+```text
+MinIO / S3-compatible document storage
+
+Kafka
+```
 
 Environment-specific values should be supplied through `.env` or the deployment environment rather than hard-coded in application code.
 
@@ -7003,6 +10084,8 @@ POST /api/v1/auth/verify
 ```
 
 Authentication failures and Platform availability failures are handled centrally by the Supplier Portal authentication dependency.
+
+The Platform Service is an external dependency for authentication and is not modified by the Supplier Portal implementation.
 
 ---
 
@@ -7070,6 +10153,91 @@ Activation blocked
 
 ---
 
+## Kafka Configuration — Round 14
+
+Round 14 adds Apache Kafka for asynchronous supplier compliance-status changes.
+
+The Supplier Portal configuration is:
+
+```env
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+KAFKA_CONSUMER_GROUP=supplier-portal-service
+KAFKA_STATUS_CHANGED_TOPIC=compliance.supplier.status_changed
+KAFKA_DLQ_TOPIC=compliance.supplier.status_changed.dlq
+KAFKA_AUTO_OFFSET_RESET=earliest
+```
+
+The Kafka client dependency is:
+
+```text
+confluent-kafka==2.16.0
+```
+
+The consumer uses:
+
+```text
+enable.auto.commit = false
+```
+
+so offsets are committed explicitly after successful processing.
+
+### Kafka Topics
+
+Main topic:
+
+```text
+compliance.supplier.status_changed
+```
+
+Dead-letter topic:
+
+```text
+compliance.supplier.status_changed.dlq
+```
+
+Consumer group:
+
+```text
+supplier-portal-service
+```
+
+### Kafka Processing Model
+
+```text
+Kafka Event
+     │
+     ▼
+Validate Event
+     │
+     ▼
+Validate Event Version / Type
+     │
+     ▼
+Check Event Idempotency
+     │
+     ▼
+Check occurred_at Ordering
+     │
+     ▼
+Apply Compliance Access State
+     │
+     ├── Success
+     │     ↓
+     │   Commit Offset
+     │
+     └── Invalid / Unknown Supplier
+           ↓
+         Publish DLQ
+           ↓
+         Commit Offset
+```
+
+Unexpected application failures do not commit the offset.
+
+This prevents failed events from being silently acknowledged.
+
+---
+
 ## MinIO Document Storage Configuration
 
 Round 12 uses MinIO as the object-storage backend for Supplier Portal documents.
@@ -7123,6 +10291,8 @@ Authenticate
       ↓
 Check supplier ownership
       ↓
+Check compliance access
+      ↓
 Locate object
       ↓
 Generate presigned URL
@@ -7162,8 +10332,6 @@ For a Purchase Order unit price of `100`:
 The tolerance is used by the three-way matching service.
 
 It is not used as a blanket invoice-creation rejection rule.
-
-This allows valid price discrepancies to reach the matching layer and be flagged for human review.
 
 ---
 
@@ -7224,6 +10392,8 @@ The GraphQL context receives the authenticated user from the existing Supplier P
 
 The GraphQL layer does not introduce a separate authentication mechanism.
 
+Round 14 compliance access checks are applied by the GraphQL authorization layer before protected supplier-facing queries or mutations proceed.
+
 Conceptually:
 
 ```text
@@ -7232,6 +10402,8 @@ Authorization Header
 Platform Verification
         ↓
 Supplier Portal Auth Context
+        ↓
+Compliance Access Check
         ↓
 GraphQL Context
         ↓
@@ -7256,6 +10428,13 @@ PLATFORM_AUTH_URL=http://127.0.0.1:8005
 
 # Compliance Service
 COMPLIANCE_SERVICE_URL=http://127.0.0.1:8003
+
+# Kafka
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+KAFKA_CONSUMER_GROUP=supplier-portal-service
+KAFKA_STATUS_CHANGED_TOPIC=compliance.supplier.status_changed
+KAFKA_DLQ_TOPIC=compliance.supplier.status_changed.dlq
+KAFKA_AUTO_OFFSET_RESET=earliest
 ```
 
 MinIO/object-storage settings should also be supplied according to the project's `.env.example` configuration.
@@ -7321,11 +10500,14 @@ Pytest
 HTTPX
 Strawberry GraphQL
 S3-compatible object-storage client
+confluent-kafka
 ```
 
 `python-multipart` is required for multipart file-upload handling.
 
-The exact test dependency versions should be taken from the project's dependency configuration rather than hard-coded in the README.
+`confluent-kafka` is required for the Round 14 Kafka consumer.
+
+The exact dependency versions should be taken from the project's dependency configuration.
 
 ---
 
@@ -7344,6 +10526,12 @@ At minimum, the local service configuration includes:
 ```env
 PLATFORM_AUTH_URL=http://127.0.0.1:8005
 COMPLIANCE_SERVICE_URL=http://127.0.0.1:8003
+
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+KAFKA_CONSUMER_GROUP=supplier-portal-service
+KAFKA_STATUS_CHANGED_TOPIC=compliance.supplier.status_changed
+KAFKA_DLQ_TOPIC=compliance.supplier.status_changed.dlq
+KAFKA_AUTO_OFFSET_RESET=earliest
 ```
 
 The Platform Service must be available when running authenticated Supplier Portal endpoints.
@@ -7351,6 +10539,8 @@ The Platform Service must be available when running authenticated Supplier Porta
 The Compliance Service must be available when activating suppliers.
 
 MinIO must be available when uploading or downloading stored documents.
+
+Kafka must be available for Round 14 asynchronous compliance-status consumption.
 
 ---
 
@@ -7370,6 +10560,10 @@ Supplier Activation Compliance Check
 MinIO
       ↓
 Document Object Storage
+
+Apache Kafka
+      ↓
+Ongoing Compliance Status Changes
 ```
 
 Therefore, the dependent services run separately.
@@ -7412,6 +10606,8 @@ is_active
 The Supplier Portal does not independently decode the authentication token.
 
 Instead, it delegates token verification to the Platform Service and uses the returned identity and role information for authorization and supplier scoping.
+
+No Platform Service code changes are required for the Supplier Portal R14 implementation.
 
 ---
 
@@ -7459,6 +10655,10 @@ with a successful clearance allows activation.
 
 If the Compliance Service is unreachable, times out, or returns an unusable response, activation is blocked.
 
+The ongoing supplier compliance-status event producer is owned by the Compliance Service.
+
+The Supplier Portal consumes the agreed Kafka event contract but does not infer a `supplier_id` from other producer fields.
+
 ---
 
 ## MinIO Object Storage
@@ -7502,6 +10702,8 @@ Supplier Portal
    │
    ├── Verify supplier ownership
    │
+   ├── Check compliance access
+   │
    ├── Locate MinIO object
    │
    └── Generate short-lived presigned URL
@@ -7519,6 +10721,94 @@ If the requested object does not exist, the document operation returns `404 Not 
 
 Cross-supplier document access is rejected before a presigned URL is generated.
 
+A suspended supplier is rejected before a new MinIO presigned URL is generated.
+
+---
+
+## Apache Kafka — Round 14
+
+Round 14 uses Apache Kafka for asynchronous supplier compliance-status events.
+
+For local development, Kafka runs separately from the Supplier Portal application.
+
+The local Kafka broker is:
+
+```text
+localhost:9092
+```
+
+The configured topics are:
+
+```text
+compliance.supplier.status_changed
+
+compliance.supplier.status_changed.dlq
+```
+
+The Supplier Portal consumer group is:
+
+```text
+supplier-portal-service
+```
+
+### Docker Compose
+
+The development Docker Compose configuration includes Kafka 4.1.0.
+
+Start the development dependencies with:
+
+```powershell
+docker compose -f docker-compose.dev.yml up -d
+```
+
+Create the status-change topic:
+
+```powershell
+docker exec supplier-portal-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --create --if-not-exists --topic compliance.supplier.status_changed --partitions 1 --replication-factor 1
+```
+
+Create the DLQ topic:
+
+```powershell
+docker exec supplier-portal-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --create --if-not-exists --topic compliance.supplier.status_changed.dlq --partitions 1 --replication-factor 1
+```
+
+List topics:
+
+```powershell
+docker exec supplier-portal-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+```
+
+Verify the consumer group:
+
+```powershell
+docker exec supplier-portal-kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --list
+```
+
+After the Supplier Portal consumer has started:
+
+```powershell
+docker exec supplier-portal-kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group supplier-portal-service
+```
+
+### Kafka Consumer Startup
+
+The Supplier Portal starts the Kafka consumer as a background worker during application startup.
+
+Expected startup behavior includes:
+
+```text
+Supplier Portal starts
+        ↓
+Kafka consumer runner starts
+        ↓
+Consumer joins supplier-portal-service
+        ↓
+Consumes compliance.supplier.status_changed
+```
+
+The consumer is stopped during application shutdown.
+
 ---
 
 ## Supplier Portal Service
@@ -7526,13 +10816,19 @@ Cross-supplier document access is rejected before a presigned URL is generated.
 From the Supplier Portal project directory:
 
 ```powershell
-python -m uvicorn app.main:app --reload --port 8004
+cd C:\Users\Lenovo\Desktop\EAICSC\eaicsp-platform\services\supplier-portal
+```
+
+Start the service:
+
+```powershell
+python -m uvicorn app.main:app --reload --port 8000
 ```
 
 The Supplier Portal runs at:
 
 ```text
-http://127.0.0.1:8004
+http://127.0.0.1:8000
 ```
 
 The root endpoint can be used to confirm that the service is running:
@@ -7549,9 +10845,11 @@ POST /graphql
 
 Protected GraphQL requests require authentication.
 
+When the application starts with Kafka configured, the background consumer runner starts automatically.
+
 ---
 
-## Three-Service Business Architecture
+## Four-Dependency Business Architecture
 
 The Supplier Portal business architecture is:
 
@@ -7569,34 +10867,48 @@ The Supplier Portal business architecture is:
 ┌──────────────────────────────────┐
 │        Supplier Portal           │
 │                                  │
-│          Port 8004               │
+│          Port 8000               │
 │                                  │
-│ REST API + GraphQL                │
+│ REST API + GraphQL               │
 │ PO / Invoice / P2P               │
 │ Statistics / Scorecard           │
 │ Contracts / Onboarding           │
 │ Disputes / Analytics             │
-└───────────┬──────────────┬───────┘
-            │              │
-            │              │
-            │              │ S3-compatible API
-            │              ▼
-            │       ┌───────────────┐
-            │       │    MinIO      │
-            │       │               │
-            │       │ Document      │
-            │       │ Object Store  │
-            │       └───────────────┘
-            │
-            │ /api/v1/compliance/internal-check
-            ▼
+│                                  │
+│ Kafka Consumer                   │
+└───────┬──────────────┬───────────┘
+        │              │
+        │              │ S3-compatible API
+        │              ▼
+        │       ┌───────────────┐
+        │       │    MinIO      │
+        │       │               │
+        │       │ Document      │
+        │       │ Object Store  │
+        │       └───────────────┘
+        │
+        │ /api/v1/compliance/internal-check
+        ▼
 ┌─────────────────────────────┐
 │      Compliance Service     │
 │                             │
 │        Port 8003            │
 │                             │
 │ Supplier Compliance Check   │
-└─────────────────────────────┘
+│ Event Producer              │
+└──────────────┬──────────────┘
+               │
+               │ status_changed event
+               ▼
+        ┌───────────────┐
+        │ Apache Kafka  │
+        │   Port 9092   │
+        └───────┬───────┘
+                │
+                │ compliance.supplier.status_changed
+                ▼
+        Supplier Portal
+        Kafka Consumer
 ```
 
 ---
@@ -7628,9 +10940,8 @@ Authenticated User
 Supplier Portal Authorization
   │
   ├── Role Check
-  │
   ├── Supplier Ownership Check
-  │
+  ├── Compliance Access Check
   └── Business Rule Validation
 ```
 
@@ -7654,12 +10965,13 @@ Frontend / Apollo Client
    Authenticated User
           │
           ▼
+ Compliance Access Check
+          │
+          ▼
        Resolver
           │
           ├── Supplier Scope Check
-          │
           ├── Business Validation
-          │
           ▼
  Existing Supplier Portal Service
           │
@@ -7676,6 +10988,9 @@ Supplier SUP001
 GraphQL Resolver
       │
       ▼
+Compliance Access
+      │
+      ▼
 Requested Resource SUP002
       │
       ▼
@@ -7685,7 +11000,7 @@ Scope mismatch
 Resource not returned
 ```
 
-This prevents the GraphQL layer from bypassing the R5 supplier-isolation rules.
+This prevents the GraphQL layer from bypassing the R5 supplier-isolation rules or the R14 compliance access policy.
 
 ---
 
@@ -7743,6 +11058,89 @@ The activation operation is fail-closed so that a supplier cannot become active 
 
 ---
 
+## Ongoing Compliance Status Flow — Round 14
+
+After activation, compliance status changes are processed asynchronously:
+
+```text
+Compliance Service
+        │
+        │ compliance.supplier.status_changed
+        ▼
+Apache Kafka
+        │
+        ▼
+Supplier Portal Consumer
+        │
+        ▼
+Validate Event
+        │
+        ▼
+Check event_id / occurred_at
+        │
+        ▼
+Update compliance_access_status
+        │
+        ├──────────────┬─────────────────┐
+        ▼              ▼                 ▼
+     CLEARED      NEEDS_REVIEW       SUSPENDED
+        │              │                 │
+        ▼              ▼                 ▼
+   View + Write      View only       Access denied
+```
+
+The supplier onboarding lifecycle remains separate:
+
+```text
+supplier.status
+        ≠
+supplier.compliance_access_status
+```
+
+For example:
+
+```text
+supplier.status = active
+supplier.compliance_access_status = suspended
+```
+
+The supplier remains an active onboarded supplier historically, while current supplier-facing access is suspended.
+
+---
+
+## Compliance Audit Flow
+
+Each successfully applied compliance status change is recorded in the Supplier Portal's compliance audit history.
+
+The audit record contains information such as:
+
+```text
+event_id
+supplier_id
+old_status
+new_status
+matched_list
+reason
+occurred_at
+processed_at
+```
+
+The audit history is retained when access changes.
+
+Therefore:
+
+```text
+CLEAR
+  ↓
+BLOCK
+  ↓
+CLEAR
+```
+
+does not erase the historical suspension event.
+
+---
+
 ## Document Storage Flow
 
 Round 12 uses MinIO instead of local filesystem storage.
@@ -7754,11 +11152,9 @@ Client
 Supplier Portal
    │
    ├── Validate document
-   │
    ├── Authenticate
-   │
    ├── Verify supplier ownership
-   │
+   ├── Check compliance access
    ▼
 Document Storage Service
    │
@@ -7778,16 +11174,26 @@ Client
 Supplier Portal
    │
    ├── Authenticate
-   │
    ├── Verify ownership
-   │
+   ├── Check compliance access
    ├── Check object
-   │
    ▼
 Generate Presigned URL
    │
    ▼
 Client accesses MinIO object
+```
+
+For suspended suppliers:
+
+```text
+Compliance access
+        ↓
+SUSPENDED
+        ↓
+403 Forbidden
+        ↓
+No presigned URL
 ```
 
 The presigned URL is short-lived.
@@ -7798,6 +11204,8 @@ The key security rule is:
 
 ```text
 Supplier authorization
+        ↓
+Compliance authorization
         ↓
 Object lookup
         ↓
@@ -7810,7 +11218,7 @@ Never reverse this order.
 
 ## Business-Logic Integration Design
 
-The Supplier Portal keeps the external Compliance integration isolated in:
+The Supplier Portal keeps the synchronous external Compliance integration isolated in:
 
 ```text
 app/services/compliance_client.py
@@ -7845,7 +11253,55 @@ Unavailable / invalid response
    → Fail closed
 ```
 
-This separation keeps HTTP integration logic out of the core onboarding business rules.
+The Round 14 asynchronous processing is separated into:
+
+```text
+app/services/kafka_consumer.py
+app/services/kafka_consumer_runner.py
+app/services/supplier_compliance_service.py
+app/schemas/events.py
+```
+
+This separation keeps Kafka transport handling, event validation, compliance state application, and API authorization concerns independently testable.
+
+---
+
+## Round 14 Kafka Implementation Structure
+
+The R14 implementation is organized around:
+
+```text
+app/schemas/events.py
+app/services/supplier_compliance_service.py
+app/services/kafka_consumer.py
+app/services/kafka_consumer_runner.py
+```
+
+Responsibilities:
+
+```text
+events.py
+    → Compliance status-change event schema
+
+supplier_compliance_service.py
+    → Apply CLEAR / REVIEW / BLOCK state
+    → event_id idempotency
+    → occurred_at ordering
+    → compliance audit history
+
+kafka_consumer.py
+    → Kafka subscription
+    → Event validation
+    → Message processing
+    → Manual offset commits
+    → DLQ publishing
+
+kafka_consumer_runner.py
+    → Background consumer lifecycle
+    → Startup/shutdown integration
+```
+
+The consumer does not decode authentication tokens and does not modify the Platform Service.
 
 ---
 
@@ -7877,10 +11333,12 @@ context.py
 queries.py
     → Purchase Order, Invoice, and Document resolvers
     → Supplier scoping
+    → Compliance access enforcement
     → Cursor pagination
 
 mutations.py
     → Purchase Order acknowledgement mutation
+    → Compliance access enforcement
 
 types.py
     → GraphQL types and enums
@@ -7905,6 +11363,8 @@ REST API authentication
 
 Supplier ownership and scoping
 
+Compliance access enforcement
+
 Purchase Orders
 
 Invoices
@@ -7919,7 +11379,19 @@ Cross-supplier document access rejection
 
 Supplier onboarding
 
-Compliance integration
+Synchronous Compliance integration
+
+Kafka event validation
+
+Kafka idempotency
+
+Kafka occurred_at ordering
+
+Kafka manual offset commits
+
+Kafka DLQ handling
+
+Supplier compliance audit history
 
 P2P lifecycle
 
@@ -7938,25 +11410,35 @@ GraphQL cursor pagination
 GraphQL Purchase Order acknowledgement
 
 GraphQL resolver-level supplier scoping
+
+GraphQL compliance access enforcement
 ```
 
-Examples of focused test commands:
+Focused Kafka tests:
+
+```powershell
+python -m pytest -q tests/test_kafka_consumer.py
+```
+
+GraphQL tests:
 
 ```powershell
 python -m pytest -q tests/test_graphql.py
 ```
 
+Document-storage unit tests:
+
 ```powershell
 python -m pytest -q tests/test_document_storage_service.py
 ```
 
-```powershell
-python -m pytest -q tests/test_invoice_document_download.py
-```
+Supplier onboarding document download tests:
 
 ```powershell
 python -m pytest -q tests/test_supplier_document_download.py
 ```
+
+MinIO integration tests:
 
 ```powershell
 python -m pytest -q tests/integration/test_minio_document_storage.py
@@ -7968,21 +11450,25 @@ The full regression suite should be run before merging changes:
 python -m pytest -q
 ```
 
-The Round 12 and Round 13 implementation has been regression-tested together with the existing Supplier Portal functionality.
+Round 14 Kafka unit tests are designed to run without requiring Docker/Kafka.
+
+The Docker Kafka environment is used for local integration/runtime verification.
+
+The Supplier Portal implementation remains compatible with the existing R12–R13 MinIO and GraphQL functionality.
 # 21. Swagger Documentation
 
 FastAPI automatically provides interactive REST API documentation for the Supplier Portal.
 
-When the Supplier Portal is running on port `8004`, open Swagger UI at:
+When the Supplier Portal is running locally on port `8000`, open Swagger UI at:
 
 ```text
-http://127.0.0.1:8004/docs
+http://127.0.0.1:8000/docs
 ```
 
 Alternative ReDoc documentation:
 
 ```text
-http://127.0.0.1:8004/redoc
+http://127.0.0.1:8000/redoc
 ```
 
 Swagger documents the REST APIs exposed by the Supplier Portal.
@@ -7990,7 +11476,7 @@ Swagger documents the REST APIs exposed by the Supplier Portal.
 The Strawberry GraphQL API is available separately at:
 
 ```text
-http://127.0.0.1:8004/graphql
+http://127.0.0.1:8000/graphql
 ```
 
 GraphQL operations are not represented as individual REST endpoints in Swagger.
@@ -8036,11 +11522,29 @@ Contract history
 Three-way matching
 Historical dispute-resolution suggestions
 Payment approval
+
+Supplier compliance access enforcement
 ```
 
 Protected endpoints require a valid bearer token.
 
 The Supplier Portal delegates token verification to the Platform Service, so authenticated Swagger requests must use a token that the configured Platform Service can verify.
+
+Supplier-facing endpoints are additionally subject to the current supplier compliance access state.
+
+```text
+CLEARED
+    → Normal supplier view/write access
+
+NEEDS REVIEW
+    → Supplier view access
+    → Protected supplier writes rejected
+
+SUSPENDED
+    → Supplier-facing access rejected
+```
+
+Internal authorized roles remain governed by their existing role permissions.
 
 ---
 
@@ -8064,6 +11568,9 @@ Authenticated Identity
 Role / Supplier Scope Validation
      │
      ▼
+Compliance Access Validation
+     │
+     ▼
 Supplier Portal Endpoint
 ```
 
@@ -8078,7 +11585,7 @@ SUP001 token
 Request SUP001 resource
       │
       ▼
-Allowed
+Allowed if compliance access permits
 ```
 
 while:
@@ -8093,7 +11600,60 @@ Request SUP002 resource
 403 Forbidden
 ```
 
-Swagger therefore exposes the same REST authorization and supplier-scoping rules as normal API clients.
+Swagger therefore exposes the same REST authentication, authorization, supplier-scoping, and compliance-access rules as normal API clients.
+
+---
+
+## Swagger Compliance Access Behavior
+
+Supplier-facing Swagger requests follow the R14 compliance access policy.
+
+### CLEARED
+
+```text
+Supplier token
+      ↓
+Compliance access = CLEARED
+      ↓
+Normal business authorization
+      ↓
+Endpoint operation
+```
+
+### NEEDS REVIEW
+
+Read operations remain available:
+
+```text
+GET supplier resources
+        ↓
+Allowed
+```
+
+Protected supplier write operations are rejected:
+
+```text
+PO acknowledgement
+Invoice creation
+Invoice transition
+Protected supplier write
+        ↓
+403 Forbidden
+```
+
+### SUSPENDED
+
+Supplier-facing operations are rejected:
+
+```text
+Supplier request
+      ↓
+Compliance access = SUSPENDED
+      ↓
+403 Forbidden
+```
+
+The suspended check is performed before protected resource processing.
 
 ---
 
@@ -8128,6 +11688,9 @@ Authenticated Request
 Supplier Ownership Check
         │
         ▼
+Compliance Access Check
+        │
+        ▼
 Object Lookup in MinIO
         │
         ▼
@@ -8138,6 +11701,18 @@ Return URL
 ```
 
 Supplier authorization occurs before presigned URL generation.
+
+For a suspended supplier:
+
+```text
+SUSPENDED
+    ↓
+403 Forbidden
+    ↓
+No MinIO lookup
+    ↓
+No presigned URL
+```
 
 Cross-supplier access is rejected:
 
@@ -8157,7 +11732,7 @@ Request SUP002 document
 
 The Supplier Portal uses **Pytest** for automated testing.
 
-The test suite covers the application's REST APIs, business services, integrations, document storage, and GraphQL layer.
+The test suite covers the application's REST APIs, business services, integrations, document storage, Kafka event processing, compliance access enforcement, and GraphQL layer.
 
 Major test areas include:
 
@@ -8180,6 +11755,13 @@ Price discrepancy detection
 Supplier onboarding
 Compliance Service integration
 Compliance failure handling
+
+Supplier compliance status events
+Kafka consumer processing
+Kafka event idempotency
+Kafka event ordering
+Kafka DLQ handling
+Kafka manual offset handling
 
 Supplier onboarding document validation
 
@@ -8212,6 +11794,7 @@ Rounds 6–8 functional milestones
 Rounds 9–11 functional requirements
 Round 12 MinIO document-storage requirements
 Round 13 GraphQL requirements
+Round 14 event-driven compliance access requirements
 ```
 
 Run the complete test suite with:
@@ -8301,6 +11884,24 @@ Unauthorized roles are rejected
 Supplier ownership is validated using authenticated supplier_id
 ```
 
+### R14 Compliance Access Tests
+
+Supplier-facing PO operations additionally validate:
+
+```text
+CLEARED supplier
+    → Normal permitted supplier operations
+
+NEEDS REVIEW supplier
+    → Supplier can view permitted PO resources
+    → Supplier acknowledgement is rejected
+
+SUSPENDED supplier
+    → Supplier-facing PO access is rejected
+```
+
+Internal procurement roles remain governed by their existing permissions.
+
 ---
 
 ## Invoice Tests
@@ -8381,6 +11982,44 @@ Authenticated supplier identity is matched against invoice supplier_id
 Supplier ownership is enforced for supplier-facing invoice endpoints
 ```
 
+### R14 Compliance Access Tests
+
+The invoice tests additionally validate:
+
+```text
+CLEARED
+    → Invoice list/get/create/transition allowed
+      subject to normal business rules
+
+NEEDS REVIEW
+    → Invoice list/get allowed
+    → Invoice creation blocked
+    → Invoice transition blocked
+    → Supplier document upload blocked
+
+SUSPENDED
+    → Supplier-facing invoice access blocked
+    → Invoice list blocked
+    → Invoice retrieval blocked
+    → Invoice creation blocked
+    → Invoice transition blocked
+    → Invoice document access blocked
+```
+
+The expected suspended response is:
+
+```text
+403 Forbidden
+Supplier account is suspended due to compliance status
+```
+
+The expected review write restriction is:
+
+```text
+403 Forbidden
+Supplier account is under compliance review. This action is not permitted.
+```
+
 ---
 
 ## Invoice Document Storage Tests
@@ -8422,12 +12061,32 @@ Authenticate
     ↓
 Authorize supplier ownership
     ↓
+Validate compliance access
+    ↓
 Locate object
     ↓
 Generate presigned URL
 ```
 
 A supplier must never receive a presigned URL for another supplier's document.
+
+### R14 Suspended-Document Test
+
+The R14 document security test additionally validates:
+
+```text
+Suspended supplier
+        ↓
+Request document
+        ↓
+Compliance access check
+        ↓
+403 Forbidden
+        ↓
+MinIO URL generation is not attempted
+```
+
+This ensures that suspension cannot be bypassed through document endpoints.
 
 ### Cross-Supplier Document Test
 
@@ -8512,6 +12171,8 @@ Supplier Portal
       ↓
 Authorize Supplier
       ↓
+Validate Compliance Access
+      ↓
 Locate MinIO Object
       ↓
 Generate Presigned URL
@@ -8563,6 +12224,8 @@ Authenticated document access
 
 Supplier ownership
 
+Compliance access enforcement
+
 Valid document URL generation
 
 Missing document behavior
@@ -8572,6 +12235,8 @@ Storage error behavior
 Cross-supplier access rejection
 
 Short-lived presigned URL behavior
+
+Suspended supplier rejection before URL generation
 ```
 
 ---
@@ -8591,6 +12256,8 @@ Supplier onboarding document ownership
 
 Authenticated access
 
+Compliance access enforcement
+
 Cross-supplier access rejection
 
 Missing document handling
@@ -8598,6 +12265,8 @@ Missing document handling
 Presigned URL generation
 
 MinIO-backed document retrieval
+
+Suspended supplier rejection before URL generation
 ```
 
 ---
@@ -8661,6 +12330,26 @@ matched / discrepancy
       ↓
 payment_approved
 ```
+
+### R14 P2P Compliance Access Tests
+
+Supplier-facing protected P2P actions additionally respect compliance access:
+
+```text
+CLEARED
+    → Normal permitted supplier P2P operations
+
+NEEDS REVIEW
+    → Supplier view access remains available
+    → Protected supplier writes are restricted
+    → PO acknowledgement is blocked
+    → Invoice submission is blocked
+
+SUSPENDED
+    → Supplier-facing P2P access is blocked
+```
+
+Internal authorized roles are not blocked by supplier compliance access guards.
 
 ---
 
@@ -8785,6 +12474,217 @@ occurs in that order.
 Failed Compliance checks do not create an active onboarding state/history entry.
 
 The integration is fail-closed.
+
+---
+
+## R14 Kafka Compliance Event Tests
+
+Round 14 adds dedicated tests for event-driven supplier compliance access.
+
+Run:
+
+```powershell
+python -m pytest tests/test_kafka_consumer.py -v
+```
+
+The Kafka consumer tests validate:
+
+```text
+Valid compliance status event
+
+Event schema validation
+
+Event type validation
+
+Event version validation
+
+Supplier ID validation
+
+CLEAR status processing
+
+REVIEW status processing
+
+BLOCK status processing
+
+Idempotent event processing
+
+Duplicate event_id handling
+
+Out-of-order occurred_at handling
+
+Latest-event protection
+
+Unknown supplier handling
+
+Invalid event handling
+
+DLQ publication
+
+Manual offset handling
+
+Successful-event offset commit
+
+DLQ-event offset commit
+
+Processing failure without offset commit
+
+Kafka consumer configuration
+
+Consumer group configuration
+```
+
+The expected consumer group is:
+
+```text
+supplier-portal-service
+```
+
+The primary topic is:
+
+```text
+compliance.supplier.status_changed
+```
+
+The dead-letter topic is:
+
+```text
+compliance.supplier.status_changed.dlq
+```
+
+The consumer uses:
+
+```text
+enable.auto.commit = false
+```
+
+Therefore:
+
+```text
+Process Event
+      ↓
+Successful Application
+      ↓
+Commit Offset
+```
+
+For an invalid message:
+
+```text
+Invalid Event
+      ↓
+Publish to DLQ
+      ↓
+Commit Original Offset
+```
+
+For an unexpected processing failure:
+
+```text
+Processing Failure
+      ↓
+Do Not Commit Offset
+```
+
+---
+
+## R14 Compliance Status Event Tests
+
+The event contract is:
+
+```json
+{
+  "event_id": "uuid",
+  "event_type": "compliance.supplier.status_changed",
+  "event_version": 1,
+  "occurred_at": "2026-10-08T10:00:00Z",
+  "producer": "compliance-service",
+  "payload": {
+    "supplier_id": "SUP001",
+    "old_status": "CLEAR",
+    "new_status": "BLOCK",
+    "matched_list": ["OFAC"],
+    "reason": "Supplier matched a compliance list."
+  }
+}
+```
+
+Status mapping is tested as:
+
+```text
+CLEAR
+    ↓
+cleared
+
+REVIEW
+    ↓
+needs_review
+
+BLOCK
+    ↓
+suspended
+```
+
+The compliance access state is separate from the onboarding lifecycle state.
+
+---
+
+## R14 Idempotency and Ordering Tests
+
+The consumer prevents duplicate event application using:
+
+```text
+event_id
+```
+
+The tests validate:
+
+```text
+First event
+    → Applied
+
+Same event_id again
+    → Ignored
+
+Older occurred_at event
+    → Does not overwrite newer state
+
+Newer occurred_at event
+    → Applied
+```
+
+This prevents duplicate or out-of-order Kafka delivery from incorrectly changing the current compliance access state.
+
+---
+
+## R14 DLQ Tests
+
+Bad messages are routed to:
+
+```text
+compliance.supplier.status_changed.dlq
+```
+
+DLQ coverage includes:
+
+```text
+Malformed JSON
+
+Invalid event structure
+
+Unsupported event_type
+
+Unsupported event_version
+
+Missing supplier_id
+
+Unknown supplier
+
+Invalid status
+
+Other schema validation failures
+```
+
+The original event context is retained for troubleshooting.
 
 ---
 
@@ -8945,6 +12845,9 @@ Percentage boundaries
 Monthly trend calculations
 
 Supplier self-service scorecard access
+
+Compliance access enforcement
+Suspended supplier rejection
 ```
 
 For fulfilled Purchase Orders, the actual delivery date is derived from the applicable/latest Goods Receipt `receipt_date`.
@@ -8963,6 +12866,19 @@ The on-time calculation uses:
 
 ```text
 actual_delivery_date <= expected_delivery
+```
+
+Supplier statistics and scorecards are supplier-facing view operations.
+
+```text
+CLEARED
+    → View allowed
+
+NEEDS REVIEW
+    → View allowed
+
+SUSPENDED
+    → 403 Forbidden before calculation/resource access
 ```
 
 ---
@@ -9057,6 +12973,8 @@ Scorecard contains invoice accuracy
 Scorecard contains overall performance information
 
 Internal authorized roles can access supplier data according to their role permissions
+
+Suspended supplier cannot access supplier-facing scorecard
 ```
 
 Example:
@@ -9066,7 +12984,7 @@ SUP001 token
       ↓
 GET /api/v1/suppliers/SUP001/scorecard
       ↓
-200 Allowed
+200 Allowed when compliance access permits
 ```
 
 while:
@@ -9246,8 +13164,6 @@ Supplier ownership check
 No presigned URL generated
 ```
 
-This prevents a supplier from using a known document identifier or object reference to bypass supplier isolation.
-
 ---
 
 ## R13 GraphQL Tests
@@ -9298,7 +13214,7 @@ Cross-supplier invoice protection
 Cross-supplier document protection
 ```
 
-### GraphQL Supplier-Scoping Test
+### R13 GraphQL Supplier-Scoping Test
 
 The key R13 security requirement is tested directly inside the resolver.
 
@@ -9320,23 +13236,23 @@ No Purchase Order returned
 
 The test confirms that Supplier A cannot retrieve Supplier B's Purchase Order by ID.
 
-### GraphQL Mutation Scoping
+### R13/R14 GraphQL Compliance Access
 
-The acknowledgement mutation also performs supplier ownership validation before invoking the existing Purchase Order service.
-
-Example:
+GraphQL supplier-facing operations also respect R14 compliance access.
 
 ```text
-SUP001
-  ↓
-acknowledgePurchaseOrder(SUP002 PO)
-  ↓
-Resolver scope check
-  ↓
-No mutation performed
+CLEARED
+    → Normal view/write permissions
+
+NEEDS REVIEW
+    → Queries remain available
+    → Supplier mutations requiring protected writes are blocked
+
+SUSPENDED
+    → Supplier-facing queries and mutations are blocked
 ```
 
-The protected Purchase Order remains unchanged.
+Internal authorized roles remain subject to their existing permissions.
 
 ---
 
@@ -9371,14 +13287,14 @@ All records
     ↓
 Supplier scope filter
     ↓
+Compliance access check
+    ↓
 Authorized records
     ↓
 Cursor pagination
     ↓
 GraphQL response
 ```
-
-This prevents pagination from exposing another supplier's records.
 
 ---
 
@@ -9405,6 +13321,30 @@ GraphQL does not introduce an independent authentication system.
 
 ---
 
+## R14 Kafka Consumer Test Configuration
+
+The local Kafka-based tests use:
+
+```text
+Kafka Bootstrap Server:
+localhost:9092
+
+Consumer Group:
+supplier-portal-service
+
+Status Topic:
+compliance.supplier.status_changed
+
+DLQ Topic:
+compliance.supplier.status_changed.dlq
+```
+
+Unit tests do not require Docker Kafka.
+
+Kafka integration/runtime validation can be performed with the local Docker Compose Kafka service.
+
+---
+
 ## R5 Supplier-Scoping Matrix
 
 The expected access behavior is:
@@ -9427,6 +13367,24 @@ The expected access behavior is:
 | Supplier → Other supplier contract history | `403 Forbidden` |
 | Supplier without `supplier_id` → Supplier resource | `403 Forbidden` |
 | Internal authorized role → Other supplier data | Allowed according to role |
+
+---
+
+## R14 Compliance Access Matrix
+
+The compliance access state is evaluated separately from supplier ownership.
+
+| Supplier Compliance State | View | Supplier Write | Document Download |
+| -------------------------- | ---- | -------------- | ----------------- |
+| `CLEARED` | Allowed | Allowed where role/business rules permit | Allowed |
+| `NEEDS REVIEW` | Allowed | Restricted | Allowed |
+| `SUSPENDED` | `403` | `403` | `403`, no presigned URL |
+
+For `NEEDS REVIEW`, protected writes such as PO acknowledgement and invoice submission are rejected.
+
+For `SUSPENDED`, supplier-facing REST and GraphQL operations are rejected.
+
+Internal authorized roles are not blocked by these supplier compliance access guards.
 
 ---
 
@@ -9487,6 +13445,43 @@ Together, these milestones extend the existing R5 security model into both objec
 
 ---
 
+## R14 Test Coverage Summary
+
+Round 14 validates event-driven supplier compliance access:
+
+```text
+Kafka status-change consumption
+Supplier compliance access state
+CLEAR / REVIEW / BLOCK mapping
+Event schema validation
+event_id idempotency
+occurred_at ordering
+Unknown supplier handling
+DLQ routing
+Manual offset commits
+Processing-failure handling
+REST compliance enforcement
+GraphQL compliance enforcement
+MinIO download protection
+Suspended supplier access rejection
+```
+
+The event-driven flow is:
+
+```text
+Compliance Status Event
+        ↓
+Kafka
+        ↓
+Supplier Portal Consumer
+        ↓
+Supplier Compliance Access State
+        ↓
+REST / GraphQL / Document Enforcement
+```
+
+---
+
 ## Full Regression Testing
 
 Run the complete Supplier Portal test suite with:
@@ -9512,6 +13507,10 @@ Supplier onboarding
 
 Compliance integration
 
+Compliance access enforcement
+
+Kafka consumer
+
 Document storage
 
 MinIO integration
@@ -9525,7 +13524,7 @@ Supplier scorecards
 Supplier contracts
 ```
 
-The goal is to verify that the R12 and R13 additions do not regress the existing Supplier Portal functionality.
+The goal is to verify that the R12, R13, and R14 additions do not regress the existing Supplier Portal functionality.
 
 ---
 
@@ -9571,6 +13570,20 @@ registered
 active
 ```
 
+Supplier-facing PO operations additionally respect compliance access:
+
+```text
+CLEARED
+    → Normal permitted supplier operations
+
+NEEDS REVIEW
+    → View permitted
+    → Supplier acknowledgement restricted
+
+SUSPENDED
+    → Supplier-facing PO access restricted
+```
+
 ---
 
 ## Invoice Rules
@@ -9605,6 +13618,18 @@ Invoice creation does not reject price differences solely because they exceed th
 
 Price discrepancies are evaluated by the three-way matching process.
 
+Supplier compliance access is separate from the invoice lifecycle.
+
+```text
+Invoice lifecycle
+    ≠
+Compliance access lifecycle
+```
+
+A supplier in `NEEDS REVIEW` may view permitted invoice information but cannot perform protected supplier invoice writes.
+
+A `SUSPENDED` supplier cannot perform supplier-facing invoice operations.
+
 ---
 
 ## Invoice Document Rules
@@ -9618,6 +13643,7 @@ application/pdf content type
 Maximum 10 MB
 Authenticated access
 Supplier ownership where supplier scope applies
+Compliance access where supplier-facing access applies
 ```
 
 Invoice documents are stored in MinIO.
@@ -9633,6 +13659,8 @@ Authentication
     ↓
 Supplier ownership validation
     ↓
+Compliance access validation
+    ↓
 MinIO object lookup
     ↓
 Short-lived presigned URL
@@ -9640,10 +13668,15 @@ Short-lived presigned URL
 
 A supplier cannot receive a presigned URL for another supplier's invoice document.
 
+A suspended supplier cannot receive a new presigned URL.
+
 Expected failure behavior:
 
 ```text
 Other supplier document
+    → 403 Forbidden
+
+Suspended supplier
     → 403 Forbidden
 
 Missing object
@@ -9683,6 +13716,7 @@ File extension
 Content type
 File content requirements
 File size
+Compliance access where supplier-facing upload is protected
 ```
 
 Onboarding documents are stored in MinIO.
@@ -9809,6 +13843,24 @@ payment_approved
 
 Transactions requiring human review remain outside automatic payment approval.
 
+### R14 Compliance Access Rule
+
+Supplier compliance access is evaluated independently from the P2P state machine.
+
+```text
+CLEARED
+    → Normal permitted supplier operations
+
+NEEDS REVIEW
+    → Supplier may view permitted P2P data
+    → Protected supplier writes are restricted
+
+SUSPENDED
+    → Supplier-facing P2P access is blocked
+```
+
+The compliance state does not replace or modify the P2P state.
+
 ---
 
 ## Supplier Onboarding Rules
@@ -9895,6 +13947,61 @@ Compliance BLOCK / REVIEW
 Compliance unavailable / unusable
         → Fail closed
 ```
+
+### R14 Ongoing Compliance Rule
+
+The synchronous activation check and the R14 event-driven access mechanism serve different purposes.
+
+Initial activation:
+
+```text
+Supplier Approved
+        ↓
+Compliance /internal-check
+        ↓
+CLEAR
+        ↓
+Supplier active
+```
+
+Ongoing compliance status changes:
+
+```text
+Compliance Service
+        ↓
+compliance.supplier.status_changed
+        ↓
+Kafka
+        ↓
+Supplier Portal Consumer
+        ↓
+compliance_access_status
+```
+
+The compliance access mapping is:
+
+```text
+CLEAR
+    → cleared
+
+REVIEW
+    → needs_review
+
+BLOCK
+    → suspended
+```
+
+The R14 compliance access state is maintained separately from the onboarding lifecycle state.
+
+Therefore:
+
+```text
+supplier["status"]
+        ≠
+supplier["compliance_access_status"]
+```
+
+A later `BLOCK` event does not rewrite the onboarding lifecycle state to a new onboarding status. Instead, supplier-facing access is suspended through the separate compliance access state.
 
 ---
 
@@ -10080,7 +14187,18 @@ Performance breakdown
 Trend information
 ```
 
-The endpoint is self-service but remains protected by the same supplier-scoping rules as other supplier-facing resources.
+The endpoint is self-service but remains protected by the same supplier-scoping and compliance-access rules as other supplier-facing resources.
+
+```text
+CLEARED
+    → View allowed
+
+NEEDS REVIEW
+    → View allowed
+
+SUSPENDED
+    → 403 Forbidden
+```
 
 ---
 
@@ -10212,6 +14330,8 @@ Authentication
 +
 Supplier Scope
 +
+Compliance Access
++
 Business Validation
 +
 Existing Service Logic
@@ -10249,18 +14369,28 @@ Supplier document queries are supplier-scoped.
 
 A supplier cannot retrieve another supplier's document through GraphQL.
 
+Suspended supplier access is rejected before supplier-facing document data is returned.
+
 ### GraphQL Acknowledgement Rule
 
-The Purchase Order acknowledgement mutation must verify supplier ownership before calling the existing acknowledgement service.
+The Purchase Order acknowledgement mutation must verify supplier ownership and compliance write access before calling the existing acknowledgement service.
 
 Therefore:
 
 ```text
 Supplier owns PO
++
+Compliance access permits write
     → Acknowledgement can proceed
 
 Supplier does not own PO
     → Mutation does not modify PO
+
+Supplier is under review
+    → Mutation blocked
+
+Supplier is suspended
+    → Mutation blocked
 ```
 
 ### GraphQL Pagination Rule
@@ -10273,6 +14403,8 @@ The implementation applies supplier filtering before pagination:
 Source records
       ↓
 Authorization / Supplier filtering
+      ↓
+Compliance access validation
       ↓
 Cursor pagination
       ↓
@@ -10291,6 +14423,8 @@ Round 12 introduces an explicit object-storage security rule:
 Never generate a presigned URL before verifying authorization.
 ```
 
+R14 extends this rule to include compliance access.
+
 The required order is:
 
 ```text
@@ -10301,6 +14435,8 @@ Identify authenticated supplier
 Identify requested resource owner
       ↓
 Compare supplier identities
+      ↓
+Validate compliance access
       ↓
 Locate MinIO object
       ↓
@@ -10321,6 +14457,18 @@ Supplier mismatch
 No presigned URL
 ```
 
+For a suspended supplier:
+
+```text
+SUSPENDED
+      ↓
+403 Forbidden
+      ↓
+No MinIO lookup
+      ↓
+No presigned URL
+```
+
 Knowing a document ID, invoice number, or object reference does not bypass supplier authorization.
 
 ---
@@ -10337,6 +14485,8 @@ Authentication
 Role Authorization
       +
 Supplier Ownership
+      +
+Compliance Access
 ```
 
 A valid token alone does not authorize a supplier to access another supplier's resources.
@@ -10357,7 +14507,9 @@ P2P resources
 ```
 
 Internal authorized users are governed by their assigned role permissions.
+
 ---
+
 # 24. Security Controls
 
 The service implements multiple security controls.
@@ -10384,6 +14536,68 @@ The service implements multiple security controls.
 * Procurement-manager authorization for bulk PO sending
 * Procurement-manager authorization for contract management
 * Authenticated supplier identity validation
+* Supplier compliance access enforcement
+
+---
+
+## Supplier Compliance Access Security
+
+Round 14 introduces event-driven compliance access enforcement.
+
+The compliance access state is maintained separately from the onboarding lifecycle state.
+
+Supported access states are:
+
+```text
+cleared
+needs_review
+suspended
+```
+
+Mapping:
+
+```text
+Compliance CLEAR
+        → cleared
+
+Compliance REVIEW
+        → needs_review
+
+Compliance BLOCK
+        → suspended
+```
+
+The enforcement model is:
+
+```text
+CLEARED
+    → Normal supplier access
+
+NEEDS REVIEW
+    → Supplier view access
+    → Protected supplier writes blocked
+
+SUSPENDED
+    → Supplier-facing access blocked
+```
+
+The suspended response is:
+
+```text
+403 Forbidden
+Supplier account is suspended due to compliance status
+```
+
+The review write response is:
+
+```text
+403 Forbidden
+Supplier account is under compliance review. This action is not permitted.
+```
+
+Internal authorized roles are unaffected by these supplier-specific compliance guards.
+
+---
 
 ## Supplier Data Isolation
 
@@ -10464,6 +14678,110 @@ The Supplier Portal does not treat an unavailable Compliance Service as a succes
 
 ---
 
+## Kafka Consumer Security and Reliability
+
+Round 14 uses controlled Kafka consumption for compliance status changes.
+
+Kafka configuration includes:
+
+```text
+Consumer Group:
+supplier-portal-service
+
+Topic:
+compliance.supplier.status_changed
+
+DLQ:
+compliance.supplier.status_changed.dlq
+```
+
+The consumer uses manual offset management:
+
+```text
+enable.auto.commit = false
+```
+
+Offsets are committed only after:
+
+```text
+Successful event application
+```
+
+or:
+
+```text
+Successful DLQ publication
+```
+
+Processing failures do not advance the offset.
+
+The consumer validates:
+
+```text
+Event structure
+event_type
+event_version
+event_id
+occurred_at
+supplier_id
+status
+```
+
+The service also protects against:
+
+```text
+Duplicate event_id
+Out-of-order occurred_at
+Unknown supplier
+Malformed events
+Unsupported event versions
+```
+
+Invalid events are routed to the DLQ.
+
+---
+
+## Compliance Audit Security
+
+R14 retains compliance status history independently from the current access state.
+
+Compliance audit information includes fields such as:
+
+```text
+event_id
+supplier_id
+old_status
+new_status
+matched_list
+reason
+occurred_at
+processed_at
+```
+
+This allows previous compliance status changes to remain available even after access is restored.
+
+Example:
+
+```text
+CLEAR
+   ↓
+BLOCK
+   ↓
+REVIEW
+   ↓
+CLEAR
+```
+
+The current state may be:
+
+```text
+cleared
+```
+
+while the historical compliance audit still retains the previous suspension and review events.
+
+---
+
 ## Input Validation
 
 The service validates:
@@ -10487,6 +14805,10 @@ The service validates:
 * Contract renewal dates
 * GraphQL pagination limits
 * GraphQL cursor validity
+* Kafka event structure
+* Kafka event type/version
+* Kafka supplier ID
+* Kafka compliance status
 
 Allowed identifier format:
 
@@ -10512,6 +14834,7 @@ Document access is protected through:
 * Supplier ownership validation
 * Supplier-scoped object references
 * Object existence validation
+* Compliance access validation
 * Short-lived presigned download URLs
 * Authorization before presigned URL generation
 
@@ -10526,6 +14849,8 @@ Document Lookup
         ↓
 Supplier Ownership Check
         ↓
+Compliance Access Check
+        ↓
 Object Existence Check
         ↓
 Short-Lived Presigned URL
@@ -10537,7 +14862,7 @@ The critical security rule is:
 
 ```text
 Never generate a presigned URL
-before verifying document ownership.
+before verifying ownership and compliance access.
 ```
 
 Therefore:
@@ -10546,6 +14871,18 @@ Therefore:
 Supplier A requests Supplier B document
         ↓
 Ownership validation
+        ↓
+403 Forbidden
+        ↓
+No presigned URL generated
+```
+
+and:
+
+```text
+Suspended supplier requests document
+        ↓
+Compliance access validation
         ↓
 403 Forbidden
         ↓
@@ -10569,6 +14906,7 @@ They are protected through:
 * Supplier ownership validation
 * Supplier-scoped object keys
 * Object existence validation
+* Compliance access validation where supplier-facing operations are protected
 * Short-lived presigned download URLs
 * Authorization before URL generation
 
@@ -10599,6 +14937,8 @@ Document Validation
       ↓
 Supplier Authorization
       ↓
+Compliance Access Validation
+      ↓
 MinIO Object Upload
       ↓
 Object Reference Stored
@@ -10606,6 +14946,8 @@ Object Reference Stored
 Later Download Request
       ↓
 Supplier Authorization
+      ↓
+Compliance Access Validation
       ↓
 Short-Lived Presigned URL
 ```
@@ -10637,6 +14979,8 @@ acknowledgePurchaseOrder
 
 Supplier collection queries apply authorization filtering **before pagination**.
 
+Compliance access is also evaluated for supplier-facing GraphQL operations.
+
 This prevents unauthorized supplier records from entering the paginated result set.
 
 For a single-resource query:
@@ -10648,7 +14992,7 @@ purchaseOrder(Supplier B PO)
    ↓
 Resolver ownership check
    ↓
-null
+null / access rejection
 ```
 
 For a collection query:
@@ -10659,6 +15003,8 @@ Supplier A
 purchaseOrders
    ↓
 Filter to Supplier A records
+   ↓
+Compliance access validation
    ↓
 Pagination
    ↓
@@ -10677,10 +15023,11 @@ Internal users can access contract information according to their assigned permi
 
 Contract history captures the actor and reason for meaningful lifecycle and term changes, supporting accountability for contract modifications.
 
+---
 
 # 25. Storage
 
-The current implementation uses two different storage approaches:
+The current implementation uses multiple storage approaches:
 
 ```text
 Business / workflow data
@@ -10690,6 +15037,10 @@ In-memory application stores
 Uploaded documents
         ↓
 MinIO object storage
+
+R14 compliance access / audit state
+        ↓
+In-memory application stores
 ```
 
 Purchase Orders:
@@ -10722,7 +15073,9 @@ Supplier contract history:
 supplier_contract_history = {}
 ```
 
-Other workflow and supplier business data is also maintained in application memory.
+R14 compliance state and audit structures are also currently maintained in application memory.
+
+This is intentional for the current development implementation and does not introduce a database.
 
 ---
 
@@ -10773,6 +15126,8 @@ Documents are downloaded through short-lived presigned URLs.
 
 The application first verifies authorization and ownership.
 
+For supplier-facing requests, compliance access is also validated.
+
 Only after successful authorization does it generate the signed URL.
 
 ```text
@@ -10782,6 +15137,8 @@ Authenticate
       ↓
 Validate Supplier Ownership
       ↓
+Validate Compliance Access
+      ↓
 Check Object
       ↓
 Generate Short-Lived URL
@@ -10789,7 +15146,15 @@ Generate Short-Lived URL
 Client Download
 ```
 
-This prevents a supplier from obtaining a reusable public URL to another supplier's document.
+For suspended suppliers:
+
+```text
+SUSPENDED
+      ↓
+403 Forbidden
+      ↓
+No new presigned URL
+```
 
 ---
 
@@ -10833,6 +15198,44 @@ Ownership Check
 403 Forbidden
 ```
 
+Suspended supplier access remains a compliance authorization failure:
+
+```text
+Suspended Supplier
+      ↓
+Compliance Access Check
+      ↓
+403 Forbidden
+```
+
+---
+
+## Kafka Compliance State Storage
+
+R14 maintains the current compliance access state in application memory.
+
+The consumer tracks information required for:
+
+```text
+Processed event IDs
+Latest event timestamps
+Compliance audit history
+Current supplier compliance access state
+```
+
+The current implementation therefore supports:
+
+```text
+Idempotency
+Out-of-order protection
+Current compliance access state
+Audit history during process lifetime
+```
+
+but this state is not restart-durable.
+
+A production implementation should persist compliance status and audit history in durable storage.
+
 ---
 
 ## Application Restart Behaviour
@@ -10849,11 +15252,24 @@ Application restart
 In-memory business data cleared
 ```
 
+R14 compliance consumer state is also currently in memory:
+
+```text
+Processed event IDs
+Latest event timestamps
+Compliance access state
+Compliance audit history
+      ↓
+Application restart
+      ↓
+In-memory state cleared
+```
+
 MinIO objects are managed independently from the application's in-memory business stores.
 
 Therefore, restarting the Supplier Portal process does not by itself remove documents already stored in MinIO.
 
-Production deployments should still provide durable database persistence for business metadata and appropriate MinIO backup, retention, and recovery controls.
+Production deployments should provide durable database persistence for business metadata, compliance state, event/audit history, and appropriate MinIO backup, retention, and recovery controls.
 
 ---
 
@@ -10885,6 +15301,7 @@ Audit records
 
 in durable database storage.
 
+---
 
 # 26. End-to-End Workflow
 
@@ -10961,6 +15378,135 @@ Human Review
 
 ---
 
+## Supplier Compliance Access Workflow
+
+Round 14 introduces an event-driven compliance access workflow alongside the existing onboarding compliance check.
+
+### Initial Activation
+
+```text
+Supplier Registration
+        ↓
+Documents
+        ↓
+Verification
+        ↓
+Approval
+        ↓
+Compliance /internal-check
+        ↓
+CLEAR
+        ↓
+Active Supplier
+```
+
+### Ongoing Compliance Status
+
+```text
+Compliance Service
+        │
+        │ compliance.supplier.status_changed
+        ▼
+Apache Kafka
+        │
+        │ group: supplier-portal-service
+        ▼
+Supplier Portal Kafka Consumer
+        │
+        ▼
+Supplier Compliance Access State
+        │
+        ├─────────────┬──────────────┐
+        ▼             ▼              ▼
+     CLEARED       REVIEW        SUSPENDED
+        │             │              │
+        ▼             ▼              ▼
+   View/Write      View Only        Deny
+```
+
+The current compliance access state is separate from the supplier onboarding lifecycle status.
+
+---
+
+## R14 Kafka Event Processing Workflow
+
+The consumer processes:
+
+```text
+compliance.supplier.status_changed
+```
+
+using:
+
+```text
+Consumer Group:
+supplier-portal-service
+```
+
+The processing flow is:
+
+```text
+Kafka Event
+      ↓
+Parse JSON
+      ↓
+Validate Event Contract
+      ↓
+Validate Supplier
+      ↓
+Check event_id
+      ↓
+Check occurred_at ordering
+      ↓
+Apply Compliance Access State
+      ↓
+Record Audit History
+      ↓
+Commit Offset
+```
+
+For an invalid message:
+
+```text
+Invalid Event
+      ↓
+Publish to DLQ
+      ↓
+Commit Original Offset
+```
+
+For an unexpected application failure:
+
+```text
+Processing Failure
+      ↓
+Do Not Commit Offset
+```
+
+---
+
+## Supplier Compliance State Restoration
+
+A later `CLEAR` event restores supplier access:
+
+```text
+BLOCK
+   ↓
+SUSPENDED
+   ↓
+CLEAR event
+   ↓
+CLEARED
+   ↓
+Supplier access restored
+```
+
+The historical suspension remains in the audit history.
+
+Therefore, restoring access does not erase the previous compliance event history.
+
+---
+
 ## Supplier Onboarding Workflow
 
 Supplier onboarding is implemented as:
@@ -11020,6 +15566,8 @@ Find Document Metadata
           ↓
 Validate Supplier Ownership
           ↓
+Validate Compliance Access
+          ↓
 Check MinIO Object
           ↓
 Generate Short-Lived Presigned URL
@@ -11039,7 +15587,19 @@ Ownership Check
 403 Forbidden
 ```
 
-No presigned URL is generated for the unauthorized request.
+Suspended supplier:
+
+```text
+Supplier
+    ↓
+Document Request
+    ↓
+Compliance = SUSPENDED
+    ↓
+403 Forbidden
+    ↓
+No presigned URL
+```
 
 ---
 
@@ -11061,6 +15621,8 @@ GraphQL Context / Authentication
        Resolver
           ↓
 Supplier Ownership Check
+          ↓
+Compliance Access Check
           ↓
 Existing Service Layer
           ↓
@@ -11168,66 +15730,91 @@ For fulfilled Purchase Orders, delivery performance uses Goods Receipt dates to 
 
 Supplier users can view their own scorecard while remaining restricted from other suppliers' scorecards.
 
+Compliance access is applied before supplier-facing analytics are returned:
+
+```text
+CLEARED / NEEDS REVIEW
+        ↓
+Scorecard view permitted
+
+SUSPENDED
+        ↓
+403 Forbidden
+```
+
+---
 
 # 27. Current Implementation Status
 
-| Module / Capability                         | Status   |
+| Module / Capability | Status |
 | ------------------------------------------- | -------- |
-| Procure-to-Pay Workflow                     | Complete |
-| P2P State Machine                           | Complete |
-| Shipment Processing                         | Complete |
-| Goods Receipt Workflow                      | Complete |
-| Partial Goods Receipt Support               | Complete |
-| Goods Receipt Validation                    | Complete |
-| P2P Invoice Integration                     | Complete |
-| Three-Way Match                             | Complete |
-| Quantity Discrepancy Detection              | Complete |
-| Price Discrepancy Detection                 | Complete |
-| Human-Review Discrepancy Handling           | Complete |
-| Payment Approval Workflow                   | Complete |
-| Supplier Onboarding Registration            | Complete |
-| Supplier Document Collection                | Complete |
-| Supplier Onboarding Document Validation     | Complete |
-| Supplier Mock Verification                  | Complete |
-| Supplier Onboarding Approval                | Complete |
-| Compliance Service Activation Check         | Complete |
-| Compliance CLEAR/BLOCK/REVIEW Handling      | Complete |
-| Compliance Failure Handling                 | Complete |
-| Fail-Closed Supplier Activation             | Complete |
+| Procure-to-Pay Workflow | Complete |
+| P2P State Machine | Complete |
+| Shipment Processing | Complete |
+| Goods Receipt Workflow | Complete |
+| Partial Goods Receipt Support | Complete |
+| Goods Receipt Validation | Complete |
+| P2P Invoice Integration | Complete |
+| Three-Way Match | Complete |
+| Quantity Discrepancy Detection | Complete |
+| Price Discrepancy Detection | Complete |
+| Human-Review Discrepancy Handling | Complete |
+| Payment Approval Workflow | Complete |
+| Supplier Onboarding Registration | Complete |
+| Supplier Document Collection | Complete |
+| Supplier Onboarding Document Validation | Complete |
+| Supplier Mock Verification | Complete |
+| Supplier Onboarding Approval | Complete |
+| Compliance Service Activation Check | Complete |
+| Compliance CLEAR/BLOCK/REVIEW Handling | Complete |
+| Compliance Failure Handling | Complete |
+| Fail-Closed Supplier Activation | Complete |
 | Active Supplier Enforcement for PO Creation | Complete |
-| Supplier Performance Analytics              | Complete |
-| Invoice Cycle-Time Metrics                  | Complete |
-| Supplier Trend Metrics                      | Complete |
-| Supplier Self-Service Scorecard             | Complete |
-| Supplier Contract Lifecycle                 | Complete |
-| Contract Expiry Tracking                    | Complete |
-| Contract Renewal                            | Complete |
-| Contract Term-Change Audit History          | Complete |
-| Historical Dispute-Resolution Suggestions   | Complete |
-| Deep Supplier-Scoping Validation            | Complete |
-| Cross-Supplier Endpoint Testing             | Complete |
-| P2P Business-Rule Testing                   | Complete |
-| Three-Way Match Discrepancy Testing         | Complete |
-| Supplier Onboarding Workflow Testing        | Complete |
-| Compliance Integration Testing              | Complete |
-| Contract Lifecycle Testing                  | Complete |
-| Dispute Suggestion Testing                  | Complete |
-| Self-Service Scorecard Testing              | Complete |
-| Authentication-Required Endpoint Testing    | Complete |
-| MinIO Document Storage                      | Complete |
-| MinIO Invoice Document Download             | Complete |
-| MinIO Supplier Document Download            | Complete |
-| Presigned Document URLs                     | Complete |
-| Cross-Supplier Document Isolation           | Complete |
-| GraphQL API                                 | Complete |
-| GraphQL Purchase Order Queries              | Complete |
-| GraphQL Invoice Queries                     | Complete |
-| GraphQL Document Queries                    | Complete |
-| GraphQL Cursor Pagination                   | Complete |
-| GraphQL Acknowledge-PO Mutation             | Complete |
-| GraphQL Resolver-Level Supplier Scoping     | Complete |
-| GraphQL Cross-Supplier PO Testing            | Complete |
+| Supplier Performance Analytics | Complete |
+| Invoice Cycle-Time Metrics | Complete |
+| Supplier Trend Metrics | Complete |
+| Supplier Self-Service Scorecard | Complete |
+| Supplier Contract Lifecycle | Complete |
+| Contract Expiry Tracking | Complete |
+| Contract Renewal | Complete |
+| Contract Term-Change Audit History | Complete |
+| Historical Dispute-Resolution Suggestions | Complete |
+| Deep Supplier-Scoping Validation | Complete |
+| Cross-Supplier Endpoint Testing | Complete |
+| P2P Business-Rule Testing | Complete |
+| Three-Way Match Discrepancy Testing | Complete |
+| Supplier Onboarding Workflow Testing | Complete |
+| Compliance Integration Testing | Complete |
+| Contract Lifecycle Testing | Complete |
+| Dispute Suggestion Testing | Complete |
+| Self-Service Scorecard Testing | Complete |
+| Authentication-Required Endpoint Testing | Complete |
+| MinIO Document Storage | Complete |
+| MinIO Invoice Document Download | Complete |
+| MinIO Supplier Document Download | Complete |
+| Presigned Document URLs | Complete |
+| Cross-Supplier Document Isolation | Complete |
+| GraphQL API | Complete |
+| GraphQL Purchase Order Queries | Complete |
+| GraphQL Invoice Queries | Complete |
+| GraphQL Document Queries | Complete |
+| GraphQL Cursor Pagination | Complete |
+| GraphQL Acknowledge-PO Mutation | Complete |
+| GraphQL Resolver-Level Supplier Scoping | Complete |
+| GraphQL Cross-Supplier PO Testing | Complete |
+| R14 Kafka Status-Change Consumer | Complete |
+| R14 Supplier Compliance Access State | Complete |
+| R14 CLEAR / REVIEW / BLOCK Mapping | Complete |
+| R14 Event Idempotency | Complete |
+| R14 Event Ordering Protection | Complete |
+| R14 Kafka DLQ Handling | Complete |
+| R14 Manual Offset Management | Complete |
+| R14 REST Compliance Enforcement | Complete |
+| R14 GraphQL Compliance Enforcement | Complete |
+| R14 MinIO Suspension Protection | Complete |
+| R14 Compliance Audit History | Complete |
 
+---
 
 # Rounds 6–8 Completion Status
 
@@ -11347,6 +15934,7 @@ Collection Filtering
 
 Cross-supplier access is explicitly tested across supported supplier-facing resource paths.
 
+---
 
 # Rounds 9–11 Completion Status
 
@@ -11356,6 +15944,95 @@ The previously completed R9–11 functionality remains implemented and tested.
 
 [Existing R9–11 Task 1–6 sections remain unchanged.]
 
+---
+
+# Round 12–13 Completion Status
+
+Round 12 completed the MinIO document-storage migration.
+
+Round 13 completed the defined GraphQL integration.
+
+Implemented:
+
+```text
+MinIO invoice document storage
+MinIO supplier onboarding document storage
+Presigned document URLs
+Document ownership protection
+
+Strawberry GraphQL
+Purchase Order queries
+Invoice queries
+Document queries
+Cursor pagination
+Acknowledge-PO mutation
+Resolver-level supplier scoping
+```
+
+---
+
+# Round 14 Completion Status
+
+Round 14 adds event-driven supplier compliance access enforcement.
+
+Status:
+
+```text
+Complete
+```
+
+Implemented:
+
+```text
+Kafka compliance status consumer
+
+Topic:
+compliance.supplier.status_changed
+
+Consumer group:
+supplier-portal-service
+
+DLQ:
+compliance.supplier.status_changed.dlq
+
+CLEAR → cleared
+REVIEW → needs_review
+BLOCK → suspended
+
+event_id idempotency
+occurred_at ordering protection
+
+Manual Kafka offset commits
+DLQ handling
+Unknown-supplier handling
+Invalid-event handling
+
+REST compliance access enforcement
+GraphQL compliance access enforcement
+MinIO document-access enforcement
+
+Compliance audit history
+```
+
+The architecture is:
+
+```text
+Compliance Service
+       ↓
+Kafka
+       ↓
+Supplier Portal Consumer
+       ↓
+Supplier Compliance Access State
+       ↓
+REST / GraphQL / MinIO Enforcement
+```
+
+The R14 implementation does not introduce a database.
+
+The current compliance access and audit state is maintained in memory.
+
+---
 
 # 28. Known Limitations
 
@@ -11363,7 +16040,7 @@ The current implementation is primarily designed for development, functional val
 
 The core R5 authentication, role-based authorization, and supplier-level data-scoping requirements are implemented.
 
-Rounds 6–8, Rounds 9–11, Round 12, and Round 13 functional requirements are also implemented.
+Rounds 6–8, Rounds 9–11, Round 12, Round 13, and Round 14 functional requirements are also implemented.
 
 Remaining limitations are primarily related to:
 
@@ -11375,6 +16052,8 @@ Production Operational Hardening
 External Supplier Verification
 Payment-Service Integration
 Advanced GraphQL Features
+Durable Kafka Compliance State
+Production Kafka Observability
 ```
 
 ---
@@ -11397,9 +16076,9 @@ Therefore, repeated partial invoicing against the same Purchase Order requires a
 
 ## In-Memory Business Storage
 
-Purchase Orders, invoices, workflow data, supplier onboarding metadata, contract data, dispute data, and related business events are currently maintained in Python in-memory data structures.
+Purchase Orders, invoices, workflow data, supplier onboarding metadata, contract data, dispute data, related business events, and current R14 compliance state are currently maintained in Python in-memory data structures.
 
-As a result, application restarts clear business data.
+As a result, application restarts clear business data and current in-memory compliance state.
 
 ```text
 Application Restart
@@ -11407,9 +16086,88 @@ Application Restart
 In-Memory Data Cleared
        ↓
 Purchase Orders / Invoices / Contracts / Events Lost
+       ↓
+R14 compliance consumer state also reset
 ```
 
 A production deployment should use persistent database storage.
+
+---
+
+## R14 Compliance State Durability
+
+The R14 consumer currently tracks:
+
+```text
+Processed event IDs
+Latest event timestamps
+Current compliance access state
+Compliance audit history
+```
+
+in application memory.
+
+Therefore, these protections are not restart-durable.
+
+A production implementation should persist:
+
+```text
+Compliance access state
+Processed event IDs
+Compliance audit history
+Event processing metadata
+```
+
+in durable storage.
+
+A production deployment should also consider a durable strategy for replay/idempotency after service restart.
+
+---
+
+## Kafka Runtime Dependency
+
+R14 requires Kafka for live event consumption.
+
+The local development environment uses:
+
+```text
+Kafka
+localhost:9092
+```
+
+with:
+
+```text
+compliance.supplier.status_changed
+```
+
+and:
+
+```text
+compliance.supplier.status_changed.dlq
+```
+
+If Kafka is unavailable, the background consumer cannot process new compliance status events.
+
+Existing REST/GraphQL functionality is not conceptually replaced by Kafka; Kafka provides ongoing event-driven compliance state updates.
+
+---
+
+## External Compliance Producer Contract
+
+The Supplier Portal consumer implements the agreed R14 event contract, including:
+
+```text
+payload.supplier_id
+```
+
+The Compliance Service producer is an external service owned outside the Supplier Portal implementation.
+
+The Supplier Portal does not infer `supplier_id` from `supplier_name` and does not modify the external Compliance Service producer as part of R14.
+
+Therefore, end-to-end producer contract alignment remains an external integration dependency where the producer payload does not yet provide the required consumer fields.
+
+The Supplier Portal intentionally fails validation for events that do not satisfy the consumer contract rather than guessing supplier identity.
 
 ---
 
@@ -11558,15 +16316,18 @@ A production implementation should introduce:
 * Durable supplier records
 * Durable contract records
 * Durable contract history
+* Durable compliance access state
+* Durable Kafka event-processing state
 * Durable document/object-storage lifecycle management
 * Backup and recovery procedures
 
 The production persistence architecture should preserve the existing authorization model so that moving from in-memory storage to persistent storage does not weaken supplier-level data isolation.
 
+---
 
 # 29. Future Enhancements
 
-The following enhancements are outside the currently completed R5, R6–8, R9–11, Round 12, and Round 13 scope.
+The following enhancements are outside the currently completed R5, R6–8, R9–11, Round 12, Round 13, and Round 14 scope.
 
 ## Persistent Database Storage
 
@@ -11585,6 +16346,9 @@ Shipments
 Scorecards
 Contracts
 Contract History
+Compliance Access State
+Compliance Event Processing State
+Compliance Audit History
 Audit History
 ```
 
@@ -11686,6 +16450,26 @@ Payment Approved
 
 ---
 
+## Durable Event-Driven Compliance Processing
+
+R14 currently provides the Kafka consumer and in-memory idempotency/order tracking.
+
+Future production capabilities may include:
+
+```text
+Persistent processed-event store
+Persistent compliance audit store
+Consumer offset monitoring
+Replay tooling
+Dead-letter reprocessing
+Event retention policies
+Consumer lag monitoring
+Retry/backoff policies
+Poison-message management
+```
+
+---
+
 ## Advanced Supplier Analytics
 
 Future analytics may include:
@@ -11777,7 +16561,27 @@ Three-Way Match
 Payment Approval
 ```
 
-This would complement the existing focused service, REST API, MinIO, and GraphQL tests.
+The R14 extension could additionally verify:
+
+```text
+Compliance Status Event
+        ↓
+Kafka
+        ↓
+Supplier Portal Consumer
+        ↓
+BLOCK
+        ↓
+Supplier Access Suspended
+        ↓
+REST / GraphQL / Document Access Rejected
+        ↓
+CLEAR
+        ↓
+Supplier Access Restored
+```
+
+This would complement the existing focused service, REST API, MinIO, Kafka consumer, and GraphQL tests.
 
 ---
 
@@ -11793,9 +16597,13 @@ Future production deployment should introduce:
 * Platform authentication dependency monitoring
 * Compliance dependency monitoring
 * MinIO availability monitoring
+* Kafka broker monitoring
+* Kafka consumer lag monitoring
+* Kafka DLQ monitoring
 * P2P workflow monitoring
 * Contract expiry monitoring
 * GraphQL request monitoring
+* Compliance status-change monitoring
 * Alerting
 
 ---
@@ -11811,6 +16619,8 @@ Segregation of Duties
         ↓
 Workflow-Specific Permissions
         ↓
+Compliance-State-Aware Permissions
+        ↓
 Audit Controls
 ```
 
@@ -11825,6 +16635,7 @@ Future versions may provide persistent audit history for:
 * PO transitions
 * Supplier onboarding transitions
 * Compliance decisions
+* Kafka compliance status events
 * Invoice transitions
 * Goods Receipt creation
 * Shipment events
@@ -11838,6 +16649,23 @@ Future versions may provide persistent audit history for:
 
 ---
 
+## Kafka Event Contract Governance
+
+Future production integration should formalize the producer/consumer contract through:
+
+```text
+Schema versioning
+Schema registry
+Backward-compatible event evolution
+Producer contract tests
+Consumer contract tests
+Event compatibility validation
+```
+
+The `supplier_id` field should remain a required identifier for supplier-specific compliance status events.
+
+---
+
 ## Summary of Future Scope
 
 The current implementation completes the defined:
@@ -11848,6 +16676,7 @@ R6–8
 R9–11
 Round 12
 Round 13
+Round 14
 ```
 
 functional requirements.
@@ -11862,7 +16691,9 @@ Automatic Contract Renewal
 Explicit Contract Versioning
 External Supplier Verification
 Payment-Service Integration
-Event-Driven Processing
+Event-Driven P2P Processing
+Durable Kafka Compliance State
+Kafka Observability and Operations
 Advanced Analytics
 Advanced Dispute Intelligence
 Expanded GraphQL API
@@ -11870,6 +16701,7 @@ Expanded Integration Testing
 Production Observability
 Advanced Authorization
 Persistent Audit Controls
+Event Contract Governance
 ```
 
-These enhancements build on the implemented authentication, supplier-scoping, P2P, Compliance, contract, dispute-suggestion, self-service analytics, MinIO document-storage, and GraphQL functionality.
+These enhancements build on the implemented authentication, supplier-scoping, P2P, Compliance, contract, dispute-suggestion, self-service analytics, MinIO document-storage, GraphQL, and event-driven supplier compliance functionality.

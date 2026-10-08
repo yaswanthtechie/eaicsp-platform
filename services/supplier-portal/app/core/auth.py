@@ -16,6 +16,10 @@ from fastapi.security import (
 )
 
 from app.core.config import settings
+from app.services.supplier_compliance_service import (
+    SupplierComplianceStatus,
+    supplier_compliance_service,
+)
 
 
 # ============================================================
@@ -253,6 +257,8 @@ async def verify_token(
             detail="User role is not assigned",
         )
 
+    # Existing authentication-boundary contract:
+    # keep this message unchanged.
     if user_role == "supplier" and not supplier_id:
 
         raise HTTPException(
@@ -303,6 +309,7 @@ async def verify_token(
 # ============================================================
 # ROLE AUTHORIZATION
 # ============================================================
+
 
 def require_roles(*allowed_roles: str):
 
@@ -377,7 +384,9 @@ def require_roles(*allowed_roles: str):
             "required_roles=%s | "
             "status=200",
             request.url.path,
-            user.get("email"),
+            request_id if False else request.headers.get(
+                "X-Request-ID"
+            ),
             user.get("full_name"),
             user.get("user_id"),
             user_role,
@@ -388,3 +397,200 @@ def require_roles(*allowed_roles: str):
 
     return role_checker
 
+
+# ============================================================
+# SUPPLIER COMPLIANCE ACCESS AUTHORIZATION
+# ============================================================
+
+
+def _get_supplier_compliance_status(
+    supplier_id: str,
+) -> SupplierComplianceStatus:
+    """
+    Get the current compliance access status for a supplier.
+
+    Existing suppliers that have not yet received a compliance
+    status-change event are treated as CLEARED so that existing
+    Supplier Portal behaviour is preserved.
+    """
+    return supplier_compliance_service.get_access_status(
+        supplier_id
+    )
+
+
+async def require_supplier_view_access(
+    request: Request,
+    user=Depends(verify_token),
+):
+    """
+    Require supplier compliance view access.
+
+    CLEARED:
+        Full read access.
+
+    NEEDS_REVIEW:
+        Read/view access is allowed.
+
+    SUSPENDED:
+        Supplier-facing access is denied.
+
+    Internal/non-supplier users are not restricted by the
+    supplier compliance access state.
+    """
+
+    if user.get("role") != "supplier":
+        return user
+
+    supplier_id = user.get("supplier_id")
+
+    if not supplier_id:
+        logger.warning(
+            "SUPPLIER COMPLIANCE ACCESS DENIED | "
+            "endpoint=%s | "
+            "reason=missing_supplier_id | "
+            "status=403",
+            request.url.path,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Supplier identity is missing",
+        )
+
+    compliance_status = _get_supplier_compliance_status(
+        supplier_id
+    )
+
+    if compliance_status == SupplierComplianceStatus.suspended:
+        logger.warning(
+            "SUPPLIER COMPLIANCE ACCESS DENIED | "
+            "endpoint=%s | "
+            "supplier_id=%s | "
+            "compliance_status=%s | "
+            "status=403",
+            request.url.path,
+            supplier_id,
+            compliance_status.value,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Supplier account is suspended due to "
+                "compliance status"
+            ),
+        )
+
+    logger.info(
+        "SUPPLIER COMPLIANCE VIEW ACCESS GRANTED | "
+        "endpoint=%s | "
+        "supplier_id=%s | "
+        "compliance_status=%s | "
+        "status=200",
+        request.url.path,
+        supplier_id,
+        compliance_status.value,
+    )
+
+    return user
+
+
+async def require_supplier_write_access(
+    request: Request,
+    user=Depends(verify_token),
+):
+    """
+    Require supplier compliance write access.
+
+    CLEARED:
+        Supplier write access is allowed.
+
+    NEEDS_REVIEW:
+        Supplier can view data but cannot perform supplier
+        write operations such as PO acknowledgement or
+        invoice submission.
+
+    SUSPENDED:
+        All supplier-facing access is denied.
+
+    Internal/non-supplier users are not restricted by this
+    compliance-access check.
+    """
+
+    if user.get("role") != "supplier":
+        return user
+
+    supplier_id = user.get("supplier_id")
+
+    if not supplier_id:
+        logger.warning(
+            "SUPPLIER COMPLIANCE WRITE DENIED | "
+            "endpoint=%s | "
+            "reason=missing_supplier_id | "
+            "status=403",
+            request.url.path,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Supplier identity is missing",
+        )
+
+    compliance_status = _get_supplier_compliance_status(
+        supplier_id
+    )
+
+    if compliance_status == SupplierComplianceStatus.suspended:
+        logger.warning(
+            "SUPPLIER COMPLIANCE WRITE DENIED | "
+            "endpoint=%s | "
+            "supplier_id=%s | "
+            "compliance_status=%s | "
+            "reason=suspended | "
+            "status=403",
+            request.url.path,
+            supplier_id,
+            compliance_status.value,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Supplier account is suspended due to "
+                "compliance status"
+            ),
+        )
+
+    if compliance_status == SupplierComplianceStatus.needs_review:
+        logger.warning(
+            "SUPPLIER COMPLIANCE WRITE DENIED | "
+            "endpoint=%s | "
+            "supplier_id=%s | "
+            "compliance_status=%s | "
+            "reason=needs_review | "
+            "status=403",
+            request.url.path,
+            supplier_id,
+            compliance_status.value,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Supplier account is under compliance review. "
+                "This action is not permitted."
+            ),
+        )
+
+    logger.info(
+        "SUPPLIER COMPLIANCE WRITE ACCESS GRANTED | "
+        "endpoint=%s | "
+        "supplier_id=%s | "
+        "compliance_status=%s | "
+        "status=200",
+        request.url.path,
+        supplier_id,
+        compliance_status.value,
+    )
+
+    return user

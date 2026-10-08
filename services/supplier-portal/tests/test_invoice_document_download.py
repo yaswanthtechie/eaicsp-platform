@@ -25,11 +25,48 @@ from app.services.document_storage_service import (
     DocumentDownloadError,
     DocumentStorageError,
 )
-
+from app.services.supplier_onboarding_service import suppliers
 
 client = TestClient(app)
 
+# ============================================================================
+# ROUND-14 SUPPLIER REGISTRY SETUP
+# ============================================================================
 
+@pytest.fixture(autouse=True)
+def seed_suppliers():
+    """
+    Seed the supplier registry required by Round-14
+    compliance access enforcement.
+
+    These tests intentionally bypass onboarding and seed invoices
+    directly, so the supplier registry must be seeded explicitly.
+    Suppliers without a compliance event are treated as CLEARED.
+    """
+    suppliers.clear()
+
+    suppliers["SUP001"] = {
+        "supplier_id": "SUP001",
+        "company_name": "ABC Supplies",
+        "contact_name": "Supplier User",
+        "email": "supplier@company.com",
+        "country": "India",
+        "status": "active",
+    }
+
+    suppliers["SUP002"] = {
+        "supplier_id": "SUP002",
+        "company_name": "XYZ Supplies",
+        "contact_name": "Supplier B",
+        "email": "supplierb@example.com",
+        "country": "India",
+        "status": "active",
+    }
+
+    yield
+
+    suppliers.clear()
+    
 # ============================================================================
 # AUTHENTICATED TEST USERS
 # ============================================================================

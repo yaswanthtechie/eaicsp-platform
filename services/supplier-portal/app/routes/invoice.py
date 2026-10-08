@@ -9,7 +9,8 @@ from fastapi import (
 
 from app.core.auth import (
     require_roles,
-    verify_token,
+    require_supplier_view_access,
+    require_supplier_write_access,
 )
 
 from app.core.config import settings
@@ -47,9 +48,11 @@ from app.services.purchase_order_service import purchase_orders
 
 router = APIRouter()
 
+
 # ============================================================
 # SUPPLIER INVOICE SCOPING
 # ============================================================
+
 
 def verify_supplier_invoice_access(
     supplier_only: bool = False,
@@ -63,18 +66,36 @@ def verify_supplier_invoice_access(
 
     supplier_only=True:
         Only the owning supplier can perform the action.
+
+    Round 14 compliance enforcement:
+
+        View:
+            CLEARED       -> allowed
+            NEEDS_REVIEW  -> allowed
+            SUSPENDED     -> denied
+
+        Write:
+            CLEARED       -> allowed
+            NEEDS_REVIEW  -> denied
+            SUSPENDED     -> denied
     """
 
-    def dependency(
+    async def dependency(
         supplier_id: str,
-        user=Depends(verify_token),
+        user=Depends(
+            require_supplier_write_access
+            if supplier_only
+            else require_supplier_view_access
+        ),
     ):
         # ----------------------------------------------------
         # 1. Supplier role check
         # ----------------------------------------------------
 
         if user.get("role") == "supplier":
-            authenticated_supplier_id = user.get("supplier_id")
+            authenticated_supplier_id = user.get(
+                "supplier_id"
+            )
 
             if not authenticated_supplier_id:
                 raise HTTPException(
@@ -110,6 +131,7 @@ def verify_supplier_invoice_access(
 
         return user
 
+
     return dependency
 
 
@@ -117,12 +139,13 @@ def verify_supplier_invoice_access(
 # GET ALL INVOICES
 # ============================================================
 
+
 @router.get(
     "/invoices",
     response_model=list[InvoiceResponse],
 )
 def get_invoices(
-    user=Depends(verify_token),
+    user=Depends(require_supplier_view_access),
 ):
     """
     Get invoices.
@@ -133,6 +156,10 @@ def get_invoices(
 
     Internal authenticated users:
         Can see all invoices.
+
+    Round 14:
+        SUSPENDED suppliers are denied.
+        NEEDS_REVIEW suppliers can view invoices.
     """
 
     all_invoices = get_all_invoices()
@@ -172,6 +199,7 @@ def get_invoices(
 # Supplier-facing endpoint
 # ============================================================
 
+
 @router.get(
     "/invoices/{supplier_id}/{invoice_number}",
     response_model=InvoiceResponse,
@@ -179,8 +207,19 @@ def get_invoices(
 def get_invoice(
     supplier_id: str,
     invoice_number: str,
-    user=Depends(verify_supplier_invoice_access()),
+    user=Depends(
+        verify_supplier_invoice_access()
+    ),
 ):
+    """
+    Get a single invoice.
+
+    Round 14:
+        CLEARED      -> allowed
+        NEEDS_REVIEW -> allowed
+        SUSPENDED    -> denied
+    """
+
     try:
         return get_invoice_by_number(
             supplier_id=supplier_id,
@@ -191,12 +230,14 @@ def get_invoice(
         raise HTTPException(
             status_code=404,
             detail=str(exc),
-        )
+        ) from exc
+
 
 # ============================================================
 # CREATE / SUBMIT INVOICE
 # Supplier-facing endpoint
 # ============================================================
+
 
 @router.post(
     "/invoices",
@@ -205,7 +246,7 @@ def get_invoice(
 )
 def submit_invoice(
     invoice: InvoiceCreate,
-    user=Depends(verify_token),
+    user=Depends(require_supplier_write_access),
 ):
     """
     Create / submit a new invoice.
@@ -216,6 +257,11 @@ def submit_invoice(
     Supplier users must submit an invoice using
     their own supplier_id and may only reference
     Purchase Orders belonging to them.
+
+    Round 14:
+        CLEARED      -> allowed
+        NEEDS_REVIEW -> denied
+        SUSPENDED    -> denied
     """
 
     # --------------------------------------------------------
@@ -293,7 +339,7 @@ def submit_invoice(
             raise HTTPException(
                 status_code=409,
                 detail=message,
-            )
+            ) from e
 
         # Purchase Order not found
         if (
@@ -303,17 +349,20 @@ def submit_invoice(
             raise HTTPException(
                 status_code=404,
                 detail=message,
-            )
+            ) from e
 
         # Other business validation errors
         raise HTTPException(
             status_code=400,
             detail=message,
-        )
+        ) from e
+
+
 # ============================================================
 # TRANSITION INVOICE
 # Supplier-facing endpoint
 # ============================================================
+
 
 @router.post(
     "/invoices/{supplier_id}/{invoice_number}/transition",
@@ -324,11 +373,17 @@ def transition_invoice_status(
     invoice_number: str,
     transition: InvoiceTransition,
     user=Depends(
-        verify_supplier_invoice_access(supplier_only=True)
+        verify_supplier_invoice_access(
+            supplier_only=True
+        )
     ),
 ):
     """
     Change invoice status using the invoice state machine.
+
+    Round 14:
+        Only CLEARED suppliers may perform supplier-side
+        invoice write operations.
 
     Audit information is taken from the authenticated
     Platform user and must never be supplied by the client.
@@ -383,18 +438,20 @@ def transition_invoice_status(
             raise HTTPException(
                 status_code=404,
                 detail="Invoice not found.",
-            )
+            ) from e
 
         # Other business validation errors
         raise HTTPException(
             status_code=400,
             detail=message,
-        )
+        ) from e
+
 
 # ============================================================
 # ADJUST INVOICE
 # Requires: compliance_officer
 # ============================================================
+
 
 @router.post(
     "/invoices/{supplier_id}/{invoice_number}/adjust",
@@ -428,6 +485,9 @@ def adjust_invoice_endpoint(
 
     Audit information is taken from the authenticated
     Platform user and is never accepted from the request body.
+
+    This is an internal compliance operation and therefore
+    does not use supplier compliance access restrictions.
     """
 
     # ========================================================
@@ -481,16 +541,20 @@ def adjust_invoice_endpoint(
             raise HTTPException(
                 status_code=404,
                 detail="Invoice not found.",
-            )
+            ) from e
 
         raise HTTPException(
             status_code=400,
             detail=message,
-        )
+        ) from e
+
+
 # ============================================================
 # UPLOAD INVOICE DOCUMENT
 # Supplier-facing endpoint
 # ============================================================
+
+
 @router.post(
     "/invoices/{supplier_id}/{invoice_number}/document",
     response_model=InvoiceResponse,
@@ -510,10 +574,14 @@ def upload_document(
 
     The actual PDF is stored in MinIO. The invoice record
     stores the supplier-scoped MinIO object key.
+
+    Round 14:
+        Only CLEARED suppliers may upload documents.
     """
 
-    # DocumentStorageError covers DocumentUploadError AND failures before
-    # the upload starts (e.g. ensure_bucket() when MinIO is unreachable).
+    # DocumentStorageError covers DocumentUploadError AND
+    # failures before the upload starts, such as
+    # ensure_bucket() when MinIO is unreachable.
     try:
         return upload_invoice_document(
             supplier_id=supplier_id,
@@ -544,10 +612,13 @@ def upload_document(
             status_code=400,
             detail=message,
         ) from exc
+
+
 # ============================================================
 # DOWNLOAD INVOICE DOCUMENT
 # Supplier-facing endpoint
 # ============================================================
+
 
 @router.get(
     "/invoices/{supplier_id}/{invoice_number}/document",
@@ -565,10 +636,14 @@ def download_invoice_document(
 
     Access is supplier-scoped.
 
-    The invoice record stores the supplier-scoped MinIO
-    object key. The object must exist in MinIO before
-    generating the presigned download URL.
+    Round 14:
+        CLEARED      -> allowed
+        NEEDS_REVIEW -> allowed
+        SUSPENDED    -> denied
+
+    No presigned URL is generated for a suspended supplier.
     """
+
     try:
         # ----------------------------------------------------
         # STEP 1: Get the invoice
@@ -593,14 +668,6 @@ def download_invoice_document(
 
         # ----------------------------------------------------
         # STEP 3: Verify that the registered object exists
-        # ----------------------------------------------------
-        #
-        # The invoice stores the MinIO object key.
-        # Before generating a presigned URL, verify that
-        # the object is actually present in MinIO.
-        #
-        # False -> 404
-        # Storage failure -> DocumentStorageError -> 502
         # ----------------------------------------------------
 
         if not document_storage_service.object_exists(
@@ -689,12 +756,13 @@ def download_invoice_document(
             status_code=400,
             detail=message,
         ) from exc
-    
+
 
 # ============================================================
 # FIND ORPHANED INVOICE FILES
 # Requires: compliance_officer
 # ============================================================
+
 
 @router.get(
     "/maintenance/orphaned-invoice-files",
@@ -752,6 +820,7 @@ def find_orphaned_files(
 # PURGE ORPHANED INVOICE FILES
 # Requires: compliance_officer
 # ============================================================
+
 
 @router.delete(
     "/maintenance/orphaned-invoice-files",
