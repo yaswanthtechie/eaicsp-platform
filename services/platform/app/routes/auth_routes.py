@@ -6,7 +6,6 @@ from app.core.config import TRUST_PROXY
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.users import User
-from app.core.verify_rate_limiter import verify_rate_limiter
 from app.services.auth_service import (
     register_user,
     login_user,
@@ -28,6 +27,7 @@ from app.services.rate_limit_service import (
 
 from app.models.refresh_token import RefreshToken
 from app.core.token_cache import token_cache
+from app.core.revocation_store import revoke_token, is_token_revoked
 from app.core.permissions import ROLE_PERMISSIONS
 from app.core.service_auth import verify_service_api_key
 from app.schemas.auth import (
@@ -244,7 +244,9 @@ def logout(
     body: LogoutRequest,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
+    access_token: str = Depends(oauth2_scheme),
 ):
+
     refresh = (
         db.query(RefreshToken)
         .filter(RefreshToken.token == body.refresh_token)
@@ -270,11 +272,33 @@ def logout(
 
     refresh.is_revoked = True
 
+    # --------------------------------------------------------
+    # Revoke current access token in shared Redis
+    # --------------------------------------------------------
+    try:
+        payload = decode_token(access_token)
+        exp = payload.get("exp")
+
+        if exp:
+            remaining_ttl = int(exp - datetime.now(timezone.utc).timestamp())
+
+            if remaining_ttl > 0:
+                revoke_token(
+                    access_token,
+                    remaining_ttl,
+                )
+
+        token_cache.delete(access_token)
+
+    except Exception:
+        # Do not expose Redis/token internals through logout.
+        pass
+
     create_audit_log(
         db=db,
         event_type=TOKEN_REVOKED,
         user_id=refresh.user_id,
-        details="Refresh token revoked during logout",
+        details="Refresh token and access token revoked during logout",
     )
 
     db.commit()
@@ -379,6 +403,21 @@ def verify_access_token(
     # -------------------------------------------------
     # Check cache BEFORE JWT decode and DB query
     # -------------------------------------------------
+    # -------------------------------------------------
+    # Check shared Redis revocation BEFORE cache
+    # -------------------------------------------------
+    if is_token_revoked(token):
+        logger.info(
+            "Token verification rejected: token revoked"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token revoked",
+        )
+
+    # -------------------------------------------------
+    # Check cache AFTER revocation check
+    # -------------------------------------------------
     cached_response = token_cache.get(token)
 
     if cached_response is not None:
@@ -390,6 +429,7 @@ def verify_access_token(
     logger.info(
         "Token verification cache MISS"
     )
+
 
     # -------------------------------------------------
     # Cache miss -> decode JWT

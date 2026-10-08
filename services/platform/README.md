@@ -2560,9 +2560,129 @@ The Swagger authentication configuration must match the security dependency used
 
 | Milestone                                | Status         |
 | ---------------------------------------- | -------------- |
-| M1 Redis-backed shared auth state        | Not started    |
-| M2 15+ role model                        | Done (this PR) |
-| M3 Event publishing / structured logging | Not started    |
+| M1 Redis-backed shared auth state        |    Done        |
+| M2 15+ role model                        |    Done        |
+| M3 Event publishing / structured logging |   Done         |
+
+# Milestone 1 - Redis-Backed Shared Authentication State
+
+The Platform Service moves security-sensitive runtime state from process-local
+memory to Redis so that multiple Platform Service instances can share the
+same authentication state.
+
+## Redis Responsibilities
+
+The following state is backed by Redis:
+
+```text
+Verify-token cache
+Rate-limit counters
+Session/revocation state
+User-level token invalidation state
+```
+
+Redis provides shared state across Platform Service instances. This prevents
+an authentication decision from depending on which instance receives the
+request.
+
+### Verify Cache
+
+The `/api/v1/auth/verify` endpoint uses the Redis-backed verification cache.
+
+The cache stores the verification result for a token with a bounded TTL.
+The TTL does not exceed the remaining lifetime of the JWT.
+
+The `/verify` response contract remains unchanged.
+
+### Rate Limiting
+
+Security-sensitive rate-limit counters are stored in Redis so that limits
+are shared across instances.
+
+This prevents a caller from bypassing a rate limit by sending requests to
+different Platform Service instances.
+
+### Token Revocation and User Invalidation
+
+Token and user-level invalidation state is shared through Redis.
+
+For example:
+
+```text
+Platform Instance A
+       |
+       | revoke / invalidate
+       v
+     Redis
+       |
+       v
+Platform Instance B
+       |
+       | /api/v1/auth/verify
+       v
+    Token rejected
+```
+
+A token revoked or invalidated through one Platform Service instance must
+therefore be rejected when the same token is verified by another instance
+using the same Redis backend.
+
+### Cross-Instance Revocation Proof
+
+The R12+13 validation includes a two-instance test:
+
+1. Start Platform Service instance A.
+2. Start Platform Service instance B.
+3. Authenticate and obtain a valid access token.
+4. Confirm the token can be verified.
+5. Revoke/invalidate the token through instance A.
+6. Send the same token to `/api/v1/auth/verify` through instance B.
+7. Confirm that instance B rejects the revoked token.
+
+This proves that revocation state is shared through Redis rather than stored
+only in the memory of one Platform Service process.
+
+### `/verify` Contract
+
+Redis is an implementation detail and does not change the existing `/verify`
+API contract.
+
+The endpoint continues to return the existing verification response and
+authentication errors while using Redis for shared runtime state.
+
+## M1 Tests
+
+The Redis-backed authentication state is protected by tests covering:
+
+* Redis verify-cache storage and retrieval
+* Cache TTL behavior
+* Rate-limit counter persistence
+* Rate-limit state shared across instances
+* User/token invalidation through Redis
+* Revoked-token rejection after invalidation
+* Cross-instance revocation
+* `/verify` response contract preservation
+* Redis failure handling where applicable
+
+## Milestone 1 Acceptance
+
+Milestone 1 is complete when:
+
+```text
+Verify cache uses Redis
+        +
+Rate-limit state uses Redis
+        +
+Revocation/invalidation state uses Redis
+        +
+Instance A revokes a token
+        +
+Instance B rejects the same token
+        +
+/verify contract remains unchanged
+        +
+Redis-backed tests pass
+---
 
 # Milestone 2 - Expanded RBAC Role Model
 
@@ -2582,7 +2702,7 @@ Total supported roles:
 18 roles
 ```
 
-This milestone changes the RBAC role model only. Redis-backed authentication state and event publishing/structured logging are not part of this milestone.
+This milestone focuses on the RBAC role model. Redis-backed authentication state is covered by Milestone 1, and shared event publishing and structured logging are covered by Milestone 3.
 
 ---
 
@@ -3260,5 +3380,173 @@ README matrix matches executable permissions
 full test suite passes
 ```
 
-M1 and M3 remain outside this PR and are not represented as implemented functionality.
+# Milestone 3 - Shared Event and Logging Helper
 
+The Platform Service owns the shared event-publishing and structured-logging
+foundation for EAICSP services.
+
+The helper is implemented inside the Platform Service so that other
+microservices can adopt the same conventions in future rounds.
+
+## Shared Event Publisher
+
+The shared Kafka wrapper is implemented in:
+
+```text
+app/core/event_publisher.py
+```
+
+The public interface is:
+
+```python
+publish_event(event_type, payload)
+```
+
+The helper builds the standard EAICSP event envelope:
+
+```text
+id
+event_type
+event_version
+occurred_at
+producer
+payload
+```
+
+Example:
+
+```python
+publish_event(
+    "platform.user.locked",
+    {
+        "user_id": user.id,
+    },
+)
+```
+
+The Platform Service uses this event when an account is locked after repeated
+failed login attempts.
+
+The account-lock flow records the security state and audit information first.
+Kafka publishing is performed afterward so a Kafka failure does not undo the
+account-lock operation.
+
+### Event Contract
+
+The event envelope contains:
+
+| Field           | Description                   |
+| --------------- | ----------------------------- |
+| `id`            | Unique event identifier       |
+| `event_type`    | Event name/topic              |
+| `event_version` | Version of the event contract |
+| `occurred_at`   | UTC event timestamp           |
+| `producer`      | Producing service             |
+| `payload`       | Event-specific data           |
+
+The current producer is:
+
+```text
+platform-service
+```
+
+Other services are **not required to adopt the shared event publisher in
+Round 12+13**. The module is documented here as the shared contract for
+future rounds.
+
+## Structured Logging
+
+The shared JSON structured-logging configuration is implemented in:
+
+```text
+app/core/logging_config.py
+```
+
+Request logging is integrated through:
+
+```text
+app/middleware/logging.py
+```
+
+Structured logs provide a consistent format for operational and security
+logging.
+
+Each request is associated with a request ID so that activity can be
+correlated across services.
+
+The request ID can be supplied through:
+
+```text
+X-Request-ID
+```
+
+If a request does not provide an ID, the Platform Service generates one.
+
+The service identity is:
+
+```text
+platform-service
+```
+
+Structured logs therefore provide the information required to correlate
+requests and identify the service that produced each log entry.
+
+
+### M3 tests
+
+The shared event and logging implementation is validated for:
+
+* Standard event envelope creation
+* Unique event ID generation
+* Event type validation
+* Event version presence
+* UTC timestamp generation
+* Producer identity
+* Payload preservation
+* `publish_event(event_type, payload)` behavior
+* `platform.user.locked` integration
+* Account lock remains committed if Kafka publishing fails
+* Request ID generation when `X-Request-ID` is missing
+* Preservation of supplied `X-Request-ID`
+* Structured JSON logging
+* Platform service identity in logs
+* Sensitive values are not logged
+
+## Milestone 3 Acceptance
+
+Milestone 3 is complete when:
+
+```text
+Shared Kafka wrapper exists
+        +
+Standard event envelope is implemented
+        +
+platform.user.locked is published
+        +
+Kafka failure does not undo account locking
+        +
+Structured JSON logging is configured
+        +
+X-Request-ID correlation works
+        +
+Sensitive authentication data is not logged
+        +
+Platform Service uses the shared helper
+        +
+M3 tests pass
+
+## Future Service Adoption
+
+The Platform Service owns the shared foundation in this round.
+
+Future EAICSP services can adopt:
+
+```text
+publish_event(event_type, payload)
+```
+
+for cross-service events and the same structured logging conventions for
+consistent request tracing and operational monitoring.
+
+Other services are not required to migrate their existing logging or event
+publishing during Round 12+13.

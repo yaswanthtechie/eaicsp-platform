@@ -22,18 +22,17 @@ TEST_SEED_PASSWORDS = {
 
 for _key, _value in TEST_SEED_PASSWORDS.items():
     os.environ.setdefault(_key, _value)
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
- 
+
+# ============================================================
+# PYTEST / APPLICATION IMPORTS
+# ============================================================
 import pytest
 from app.database import Base, engine
 from app.seed import seed_database
 
+# ============================================================
 # DATABASE SETUP
- 
+# ============================================================ 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_database():
  
@@ -46,18 +45,82 @@ def setup_test_database():
  
     Base.metadata.drop_all(bind=engine)
 
+# ============================================================
+# SECURITY STATE RESET
+# ============================================================
+# Unit tests use fakeredis, so Docker/real Redis is NOT required.
+# Production application code still uses the real Redis client.
+# The in-memory dictionaries are cleared for backward
+# compatibility with existing tests.
+# ============================================================
 @pytest.fixture(autouse=True)
-def reset_in_memory_security_state():
+def reset_security_state(monkeypatch):
+        
+    import fakeredis
+    import app.core.redis_client
+    import app.core.revocation_store
+    import app.core.token_cache
+    import app.services.rate_limit_service
     from app.services.rate_limit_service import (
         _last_abuse_event_at,
         _request_buckets,
     )
     from app.services.mfa_service import _mfa_challenges
 
+    
+    # --------------------------------------------------------
+    # Create isolated fake Redis for this test
+    # --------------------------------------------------------
+
+    fake_client = fakeredis.FakeRedis(
+        decode_responses=True
+    )
+
+    # --------------------------------------------------------
+    # Patch the central Redis client
+    # --------------------------------------------------------
+
+    monkeypatch.setattr(
+        app.core.redis_client,
+        "redis_client",
+        fake_client,
+    )
+
+    # --------------------------------------------------------
+    # Patch modules that imported get_redis directly
+    # --------------------------------------------------------
+
+    monkeypatch.setattr(
+        app.core.revocation_store,
+        "get_redis",
+        lambda: fake_client,
+    )
+
+    monkeypatch.setattr(
+        app.core.token_cache,
+        "get_redis",
+        lambda: fake_client,
+    )
+
+    monkeypatch.setattr(
+        app.services.rate_limit_service,
+        "get_redis",
+        lambda: fake_client,
+    )
+
+    # --------------------------------------------------------
+    # Clear legacy in-memory compatibility state
+    # --------------------------------------------------------
     _request_buckets.clear()
     _last_abuse_event_at.clear()
     _mfa_challenges.clear()
+
     yield
+    # --------------------------------------------------------
+    # Cleanup
+    # --------------------------------------------------------
+    fake_client.flushall()
+    
     _request_buckets.clear()
     _last_abuse_event_at.clear()
     _mfa_challenges.clear()
