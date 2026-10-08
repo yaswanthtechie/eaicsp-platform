@@ -2,16 +2,18 @@ import os
 
 from dotenv import load_dotenv
 
-# Respect a developer's .env (e.g. Postgres for integration runs);
-# otherwise unit tests run on local SQLite files.
-load_dotenv()
-os.environ.setdefault("DATABASE_URL", "sqlite:///./inventory_unit.db")
-os.environ.setdefault("TEST_DATABASE_URL", "sqlite:///./test.db")
+# Respect a developer's .env for integration runs;
+# otherwise unit tests run on local SQLite files without Docker.
+if not os.getenv("INTEGRATION_TEST"):
+    os.environ["DATABASE_URL"] = "sqlite:///./inventory_unit.db"
+    os.environ["TEST_DATABASE_URL"] = "sqlite:///./test.db"
+else:
+    load_dotenv()
 
 from datetime import date, timedelta
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from fastapi.testclient import TestClient
 
@@ -39,11 +41,15 @@ def fake_redis(request, monkeypatch):
     yield fake
 
 
-TEST_DATABASE_URL = settings.TEST_DATABASE_URL
+from sqlalchemy.pool import NullPool
+
+TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL") or settings.TEST_DATABASE_URL or "sqlite:///./test.db"
 
 test_engine = create_engine(
     TEST_DATABASE_URL,
     pool_pre_ping=True,
+    poolclass=NullPool,
+    connect_args={"check_same_thread": False} if TEST_DATABASE_URL.startswith("sqlite") else {},
 )
 
 TestingSessionLocal = sessionmaker(
@@ -63,17 +69,32 @@ def override_get_db():
     try:
         yield db
     finally:
+        try:
+            db.rollback()
+        except Exception:
+            pass
         db.close()
 
 
 @pytest.fixture(autouse=True)
 def reset_database():
-    Base.metadata.drop_all(bind=test_engine)
+    test_engine.dispose()
+    if test_engine.dialect.name == "postgresql":
+        with test_engine.begin() as conn:
+            conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"))
+    else:
+        Base.metadata.drop_all(bind=test_engine)
+
     Base.metadata.create_all(bind=test_engine)
 
     yield
 
-    Base.metadata.drop_all(bind=test_engine)
+    test_engine.dispose()
+    if test_engine.dialect.name == "postgresql":
+        with test_engine.begin() as conn:
+            conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"))
+    else:
+        Base.metadata.drop_all(bind=test_engine)
 
 
 @pytest.fixture
@@ -83,6 +104,10 @@ def db_session():
     try:
         yield db
     finally:
+        try:
+            db.rollback()
+        except Exception:
+            pass
         db.close()
 
 
