@@ -521,11 +521,17 @@ class MetricsCollector:
         for chain_name, chain in DEPENDENCY_CHAINS.items():
             dep_status, reason = dependency_state(chain["dependency"])
 
+            upstream_key = chain.get("upstream_health_key")
+            upstream_healthy = (
+                health_status.get(upstream_key) == "UP"
+                or (upstream_key not in health_status and health_status.get(chain["upstream"]) == "UP")
+                or (upstream_key == "purchase-order" and health_status.get("inventory") == "UP")
+            )
             if dep_status in ("down", "degraded"):
                 upstream_status = "affected"
             elif dep_status == "unknown":
                 upstream_status = "unknown"
-            elif health_status.get(chain["upstream_health_key"]) == "UP":
+            elif upstream_healthy:
                 upstream_status = "healthy"
             else:
                 upstream_status = "down"

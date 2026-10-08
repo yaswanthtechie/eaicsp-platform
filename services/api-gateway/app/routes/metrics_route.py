@@ -37,17 +37,36 @@ async def get_prometheus_metrics(request: Request) -> Response:
     Prometheus scrape target.
 
     Syncs Gauge values from the in-memory MetricsCollector immediately before
-    generating the exposition so circuit breaker states and cache hit rates are
-    always fresh.
+    generating the exposition so circuit breaker states and cache hit rates
+    are always fresh.
     """
-    expected = os.getenv("METRICS_BEARER_TOKEN", "")
-    if expected:
-        sent = request.headers.get("authorization", "").removeprefix("Bearer ")
-        if not secrets.compare_digest(sent.encode(), expected.encode()):
-            raise HTTPException(status_code=401, detail="Invalid metrics token")
+    expected = os.getenv("METRICS_BEARER_TOKEN")
+
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Metrics authentication is not configured",
+        )
+
+    sent = request.headers.get("authorization", "")
+
+    if not sent.startswith("Bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail="Missing metrics token",
+        )
+
+    token = sent.removeprefix("Bearer ").strip()
+
+    if not token or not secrets.compare_digest(token, expected):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid metrics token",
+        )
 
     sync_gauges_from_collector()
     data = generate_latest(REGISTRY)
+
     return Response(
         content=data,
         media_type=CONTENT_TYPE_LATEST,

@@ -48,9 +48,14 @@ from app.middleware.tracing import inject_trace_context, extract_trace_context
 # Fixtures
 # ---------------------------------------------------------------------------
 
+TEST_METRICS_TOKEN = "test-metrics-bearer-token"
+METRICS_AUTH_HEADER = {"Authorization": f"Bearer {TEST_METRICS_TOKEN}"}
+
+
 @pytest.fixture(autouse=True)
-def disable_rate_limiter():
-    """Disable SlowAPI for every test in this module."""
+def disable_rate_limiter(monkeypatch):
+    """Disable SlowAPI and ensure test metrics token is set for every test in this module."""
+    monkeypatch.setenv("METRICS_BEARER_TOKEN", TEST_METRICS_TOKEN)
     limiter.enabled = False
     yield
     limiter.enabled = True
@@ -409,7 +414,7 @@ class TestTracingDoesNotBreakNormalRequests:
         assert client.get("/").status_code == 200
 
     def test_metrics_returns_200(self, client):
-        assert client.get("/metrics").status_code == 200
+        assert client.get("/metrics", headers=METRICS_AUTH_HEADER).status_code == 200
 
     def test_dashboard_returns_200(self, client):
         with patch(
@@ -421,7 +426,7 @@ class TestTracingDoesNotBreakNormalRequests:
     def test_prometheus_metrics_still_work(self, client):
         """Prometheus /metrics output must contain the expected metric families."""
         client.get("/health")
-        response = client.get("/metrics")
+        response = client.get("/metrics", headers=METRICS_AUTH_HEADER)
         assert response.status_code == 200
         assert "gateway_requests_total" in response.text
         assert "gateway_request_duration_seconds" in response.text

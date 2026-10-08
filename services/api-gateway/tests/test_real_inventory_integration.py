@@ -260,7 +260,18 @@ def test_real_inventory_reorder_plan_route(live_caller):
     """
     Verify GET /api/v1/inventory/reorder-plan through Gateway.
     """
-    response = live_caller.get("/api/v1/inventory/reorder-plan")
+    headers = {}
+    if _is_service_reachable(REAL_PLATFORM_URL):
+        with httpx.Client(base_url=REAL_PLATFORM_URL, timeout=10.0) as client:
+            login_resp = client.post(
+                "/api/v1/auth/login",
+                data={"username": "ceo@company.com", "password": "ceocompany@123"},
+            )
+            if login_resp.status_code == 200:
+                token = login_resp.json()["access_token"]
+                headers["Authorization"] = f"Bearer {token}"
+
+    response = live_caller.get("/api/v1/inventory/reorder-plan", headers=headers)
     assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
     data = response.json()
     assert isinstance(data, list)

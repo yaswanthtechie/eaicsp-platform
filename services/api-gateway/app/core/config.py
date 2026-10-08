@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     INVENTORY_SERVICE_URL: str = "http://localhost:8001"
     SHIPMENTS_SERVICE_URL: str = "http://localhost:8002"
     COMPLIANCE_SERVICE_URL: str = "http://localhost:8003"
-    PURCHASE_ORDERS_SERVICE_URL: str = "http://localhost:8004"
+    PURCHASE_ORDERS_SERVICE_URL: str = "http://localhost:8001"
     SUPPLIER_RISK_SERVICE_URL: str = "http://localhost:8006"
 
     # Service-to-service authentication
@@ -44,7 +44,7 @@ class Settings(BaseSettings):
         "/api/v1/inventory": "http://localhost:8001",
         "/api/v1/shipments": "http://localhost:8002",
         "/api/v1/compliance": "http://localhost:8003",
-        "/api/v1/purchase-orders": "http://localhost:8004",
+        "/api/v1/purchase-orders": "http://localhost:8001",
         "/api/v1/auth": "http://localhost:8005",
         "/api/v1/supplier-risk": "http://localhost:8006",
     }

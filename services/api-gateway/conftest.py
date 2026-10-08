@@ -10,8 +10,18 @@ os.environ.setdefault(
 )
 # Prevent locust from monkey-patching socket/threading in pytest runs
 os.environ.setdefault("LOCUST_SKIP_MONKEY_PATCH", "1")
+os.environ.setdefault("METRICS_BEARER_TOKEN", "test-metrics-bearer-token")
 
 import pytest  # noqa: E402
+
+TEST_METRICS_BEARER_TOKEN = "test-metrics-bearer-token"
+
+
+@pytest.fixture
+def metrics_auth_headers():
+    """Return deterministic test-only Bearer authorization headers for Prometheus metrics."""
+    return {"Authorization": f"Bearer {TEST_METRICS_BEARER_TOKEN}"}
+
 
 from app.middleware import tracing as tracing_module  # noqa: E402
 

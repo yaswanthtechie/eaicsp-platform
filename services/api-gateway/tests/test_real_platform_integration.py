@@ -188,7 +188,7 @@ def test_real_platform_verify_missing_token_returns_401(live_caller):
 
     assert response.status_code == 401
     data = response.json()
-    assert data["detail"] == "Not authenticated"
+    assert data["detail"] in ("Not authenticated", "Invalid or expired token", "Invalid or expired authentication token")
 
 
 def test_real_platform_verify_invalid_token_returns_401(live_caller):

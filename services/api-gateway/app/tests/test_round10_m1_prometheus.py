@@ -26,6 +26,7 @@ need exact counts use fresh CollectorRegistry instances populated via helper
 functions rather than relying on the global REGISTRY.
 """
 
+import os
 import pytest
 from fastapi.testclient import TestClient
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, generate_latest
@@ -48,9 +49,14 @@ from app.services.prometheus_metrics import (
 # Fixtures
 # ---------------------------------------------------------------------------
 
+TEST_METRICS_TOKEN = "test-metrics-bearer-token"
+METRICS_AUTH_HEADER = {"Authorization": f"Bearer {TEST_METRICS_TOKEN}"}
+
+
 @pytest.fixture(autouse=True)
-def reset_state():
-    """Reset in-memory MetricsCollector, Prometheus metrics, and disable SlowAPI rate limiter for each test."""
+def reset_state(monkeypatch):
+    """Reset in-memory MetricsCollector, Prometheus metrics, and configure test token."""
+    monkeypatch.setenv("METRICS_BEARER_TOKEN", TEST_METRICS_TOKEN)
     metrics_collector.reset()
     reset_prometheus_metrics()
     limiter.enabled = False
@@ -58,6 +64,12 @@ def reset_state():
     metrics_collector.reset()
     reset_prometheus_metrics()
     limiter.enabled = True
+
+
+@pytest.fixture
+def metrics_auth_headers():
+    """Return deterministic test-only Bearer authorization headers for /metrics."""
+    return METRICS_AUTH_HEADER
 
 
 @pytest.fixture
@@ -114,22 +126,22 @@ def _get_sample_value(body: str, metric_name: str, labels: dict[str, str] | None
 class TestMetricsEndpoint:
     def test_metrics_returns_200(self, client):
         """GET /metrics must return HTTP 200."""
-        response = client.get("/metrics")
+        response = client.get("/metrics", headers=METRICS_AUTH_HEADER)
         assert response.status_code == 200
 
     def test_metrics_content_type_is_prometheus(self, client):
         """GET /metrics must use Prometheus text content type."""
-        response = client.get("/metrics")
+        response = client.get("/metrics", headers=METRICS_AUTH_HEADER)
         assert "text/plain" in response.headers["content-type"]
 
     def test_metrics_body_is_not_json(self, client):
         """GET /metrics must not return a JSON object."""
-        response = client.get("/metrics")
+        response = client.get("/metrics", headers=METRICS_AUTH_HEADER)
         assert not response.text.startswith("{")
 
     def test_metrics_contains_required_metric_families(self, client):
         """All five required Round 10 metric families must appear in the output."""
-        response = client.get("/metrics")
+        response = client.get("/metrics", headers=METRICS_AUTH_HEADER)
         body = response.text
         metric_names = _parse_metric_names(body)
 
@@ -150,10 +162,10 @@ class TestMetricsEndpoint:
         """
         # Hit /metrics several times
         for _ in range(3):
-            client.get("/metrics")
+            client.get("/metrics", headers=METRICS_AUTH_HEADER)
 
         # Check the /metrics body: the /metrics route itself should have no counter entry
-        body = client.get("/metrics").text
+        body = client.get("/metrics", headers=METRICS_AUTH_HEADER).text
         # Look for a sample that has route="/metrics"
         for line in body.splitlines():
             if line.startswith("#") or not line.strip():
@@ -179,7 +191,7 @@ class TestRequestCounter:
         gateway_requests_total with method=GET and route=/health.
         """
         client.get("/health")
-        body = client.get("/metrics").text
+        body = client.get("/metrics", headers=METRICS_AUTH_HEADER).text
 
         # We only care that the line exists and has a value > 0
         found_health_counter = False
@@ -204,7 +216,7 @@ class TestRequestCounter:
         actual HTTP response code.
         """
         client.get("/health")
-        body = client.get("/metrics").text
+        body = client.get("/metrics", headers=METRICS_AUTH_HEADER).text
 
         # /health returns 200 OK
         found = any(
@@ -226,7 +238,7 @@ class TestLatencyHistogram:
         After at least one request the histogram _sum must be > 0.
         """
         client.get("/health")
-        body = client.get("/metrics").text
+        body = client.get("/metrics", headers=METRICS_AUTH_HEADER).text
 
         # Histogram sum line: gateway_request_duration_seconds_sum{...} <value>
         sum_value: float | None = None
@@ -250,7 +262,7 @@ class TestLatencyHistogram:
         for _ in range(n):
             client.get("/health")
 
-        body = client.get("/metrics").text
+        body = client.get("/metrics", headers=METRICS_AUTH_HEADER).text
         count_value: float | None = None
         for line in body.splitlines():
             if (
@@ -269,7 +281,7 @@ class TestLatencyHistogram:
         gateway_request_duration_seconds must expose _bucket lines in the output.
         """
         client.get("/health")
-        body = client.get("/metrics").text
+        body = client.get("/metrics", headers=METRICS_AUTH_HEADER).text
         bucket_lines = [
             line for line in body.splitlines()
             if "gateway_request_duration_seconds_bucket" in line
@@ -289,7 +301,7 @@ class TestErrorCounter:
         all responses are successful.
         """
         client.get("/health")
-        body = client.get("/metrics").text
+        body = client.get("/metrics", headers=METRICS_AUTH_HEADER).text
 
         for line in body.splitlines():
             if "gateway_errors_total" in line and not line.startswith("#"):
@@ -316,7 +328,7 @@ class TestErrorCounter:
             # Hit any proxied route to trigger the 5xx
             client.get("/api/v1/inventory/items")
 
-        body = client.get("/metrics").text
+        body = client.get("/metrics", headers=METRICS_AUTH_HEADER).text
 
         # There must be at least one gateway_errors_total sample with value >= 1
         found_error = False
@@ -348,7 +360,7 @@ class TestCircuitBreakerGauge:
         """
         # Force a gauge sync without any circuit breaker trips
         sync_gauges_from_collector()
-        body = client.get("/metrics").text
+        body = client.get("/metrics", headers=METRICS_AUTH_HEADER).text
 
         for line in body.splitlines():
             if (
@@ -368,7 +380,7 @@ class TestCircuitBreakerGauge:
         metrics_collector.set_circuit_breaker_state("inventory", "open")
         sync_gauges_from_collector()
 
-        body = client.get("/metrics").text
+        body = client.get("/metrics", headers=METRICS_AUTH_HEADER).text
 
         found = False
         for line in body.splitlines():
@@ -390,7 +402,7 @@ class TestCircuitBreakerGauge:
         metrics_collector.set_circuit_breaker_state("compliance", "half-open")
         sync_gauges_from_collector()
 
-        body = client.get("/metrics").text
+        body = client.get("/metrics", headers=METRICS_AUTH_HEADER).text
 
         found = False
         for line in body.splitlines():
@@ -416,7 +428,7 @@ class TestCacheHitRateGauge:
         When no cache events have been recorded the Gauge must be 0.0.
         """
         sync_gauges_from_collector()
-        body = client.get("/metrics").text
+        body = client.get("/metrics", headers=METRICS_AUTH_HEADER).text
 
         for line in body.splitlines():
             if (
@@ -434,7 +446,7 @@ class TestCacheHitRateGauge:
         metrics_collector.record_request("inventory", 10.0, is_cache_miss=True)
         sync_gauges_from_collector()
 
-        body = client.get("/metrics").text
+        body = client.get("/metrics", headers=METRICS_AUTH_HEADER).text
 
         found = False
         for line in body.splitlines():
@@ -455,7 +467,7 @@ class TestCacheHitRateGauge:
         metrics_collector.record_request("auth", 5.0, is_cache_hit=True)
         sync_gauges_from_collector()
 
-        body = client.get("/metrics").text
+        body = client.get("/metrics", headers=METRICS_AUTH_HEADER).text
 
         found = False
         for line in body.splitlines():
@@ -506,7 +518,7 @@ class TestDashboardMetricsConsistency:
 
         # Read Prometheus /metrics
         sync_gauges_from_collector()
-        body = client.get("/metrics").text
+        body = client.get("/metrics", headers=METRICS_AUTH_HEADER).text
         for line in body.splitlines():
             if (
                 "gateway_circuit_breaker_state" in line
@@ -536,7 +548,7 @@ class TestDashboardMetricsConsistency:
         dashboard_rate = dash_data["services"]["shipments"]["cache_hit_rate"]
 
         sync_gauges_from_collector()
-        body = client.get("/metrics").text
+        body = client.get("/metrics", headers=METRICS_AUTH_HEADER).text
 
         prometheus_rate: float | None = None
         for line in body.splitlines():
@@ -555,32 +567,39 @@ class TestDashboardMetricsConsistency:
 
 
 class TestMetricsBearerToken:
-    """Tests for optional METRICS_BEARER_TOKEN protection on /metrics."""
+    """Tests for fail-closed METRICS_BEARER_TOKEN authentication on /metrics."""
 
-    def test_metrics_open_when_token_env_unset(self, client):
-        """When METRICS_BEARER_TOKEN is unset or empty, /metrics is accessible without auth."""
+    def test_metrics_fails_when_token_env_unset(self, client):
+        """When METRICS_BEARER_TOKEN is unset or empty, /metrics fails 503 fail-closed."""
         with patch.dict("os.environ", {"METRICS_BEARER_TOKEN": ""}):
             response = client.get("/metrics")
-            assert response.status_code == 200
+            assert response.status_code == 503
+            assert response.json()["detail"] == "Metrics authentication is not configured"
+
+        with patch.dict("os.environ"):
+            os.environ.pop("METRICS_BEARER_TOKEN", None)
+            response = client.get("/metrics")
+            assert response.status_code == 503
+            assert response.json()["detail"] == "Metrics authentication is not configured"
 
     def test_metrics_rejected_when_token_missing(self, client):
         """When METRICS_BEARER_TOKEN is set, requests without Authorization header fail 401."""
-        with patch.dict("os.environ", {"METRICS_BEARER_TOKEN": "secret-metrics-token-123"}):
+        with patch.dict("os.environ", {"METRICS_BEARER_TOKEN": TEST_METRICS_TOKEN}):
             response = client.get("/metrics")
             assert response.status_code == 401
-            assert response.json()["detail"] == "Invalid metrics token"
+            assert response.json()["detail"] in ("Missing metrics token", "Invalid metrics token")
 
     def test_metrics_rejected_when_token_invalid(self, client):
         """When METRICS_BEARER_TOKEN is set, requests with incorrect token fail 401."""
-        with patch.dict("os.environ", {"METRICS_BEARER_TOKEN": "secret-metrics-token-123"}):
+        with patch.dict("os.environ", {"METRICS_BEARER_TOKEN": TEST_METRICS_TOKEN}):
             response = client.get("/metrics", headers={"Authorization": "Bearer wrong-token"})
             assert response.status_code == 401
             assert response.json()["detail"] == "Invalid metrics token"
 
     def test_metrics_accepted_when_token_valid(self, client):
         """When METRICS_BEARER_TOKEN is set, requests with valid Bearer token succeed 200."""
-        with patch.dict("os.environ", {"METRICS_BEARER_TOKEN": "secret-metrics-token-123"}):
-            response = client.get("/metrics", headers={"Authorization": "Bearer secret-metrics-token-123"})
+        with patch.dict("os.environ", {"METRICS_BEARER_TOKEN": TEST_METRICS_TOKEN}):
+            response = client.get("/metrics", headers=METRICS_AUTH_HEADER)
             assert response.status_code == 200
             assert "# HELP" in response.text
 

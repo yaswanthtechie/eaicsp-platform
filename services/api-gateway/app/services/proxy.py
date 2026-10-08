@@ -317,6 +317,8 @@ class ProxyService:
         # ------------------------------------------------------------------
         base = target_base_url.rstrip('/')
         path_part = request.url.path
+        if path_part == "/api/v1/purchase-orders" or path_part.startswith("/api/v1/purchase-orders/"):
+            path_part = path_part.replace("/api/v1/purchase-orders", "/api/v1/inventory/purchase-orders", 1)
         query = str(request.url.query)
 
         if query:

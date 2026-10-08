@@ -4,6 +4,10 @@ Main FastAPI application for the API Gateway.
 
 from contextlib import asynccontextmanager
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import httpx
 from fastapi import FastAPI
 

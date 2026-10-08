@@ -20,8 +20,13 @@ from app.services.metrics import metrics_collector, normalize_route, get_downstr
 from app.services.prometheus_metrics import reset_prometheus_metrics
 
 
+TEST_METRICS_TOKEN = "test-metrics-bearer-token"
+METRICS_AUTH_HEADER = {"Authorization": f"Bearer {TEST_METRICS_TOKEN}"}
+
+
 @pytest.fixture(autouse=True)
-def reset_state():
+def reset_state(monkeypatch):
+    monkeypatch.setenv("METRICS_BEARER_TOKEN", TEST_METRICS_TOKEN)
     metrics_collector.reset()
     reset_prometheus_metrics()
     limiter.enabled = False
@@ -73,7 +78,7 @@ def test_prometheus_and_collector_cardinality_bounded(client):
     assert routes["other"]["requests"] >= 25
 
     # Check Prometheus scrape body
-    metrics_text = client.get("/metrics").text
+    metrics_text = client.get("/metrics", headers=METRICS_AUTH_HEADER).text
     assert 'route="other"' in metrics_text
     # Verify no random UUID appears in Prometheus output
     assert "random-path" not in metrics_text
@@ -111,7 +116,7 @@ def test_unknown_http_methods_collapse_to_other(client):
     for i in range(5):
         client.request(f"BOGUS{i}", "/")
 
-    body = client.get("/metrics").text
+    body = client.get("/metrics", headers=METRICS_AUTH_HEADER).text
 
     for i in range(5):
         assert f'method="BOGUS{i}"' not in body
