@@ -1,0 +1,1202 @@
+{
+  "ASML achieves flawless operational uptime across global customer support hubs.": {
+    "label": "positive",
+    "confidence": 0.950379
+  },
+  "ASML expands fabrication and cleanroom capacity in Veldhoven headquarters.": {
+    "label": "positive",
+    "confidence": 0.876792
+  },
+  "ASML faces localized component shortage for specialized optical lens assemblies.": {
+    "label": "negative",
+    "confidence": 0.950711
+  },
+  "ASML opens new advanced technology training center to train semiconductor engineers.": {
+    "label": "neutral",
+    "confidence": 0.596081
+  },
+  "ASML partners with leading research institutes to develop sub-2nm chip tooling.": {
+    "label": "positive",
+    "confidence": 0.810591
+  },
+  "ASML receives top corporate governance and sustainability recognition in Europe.": {
+    "label": "positive",
+    "confidence": 0.938045
+  },
+  "ASML reports record quarterly net profit exceeding analyst expectations.": {
+    "label": "positive",
+    "confidence": 0.950039
+  },
+  "ASML reports strong surge in extreme ultraviolet lithography machine bookings.": {
+    "label": "positive",
+    "confidence": 0.953954
+  },
+  "ASML secures multi-billion euro long-term equipment orders from top chipmakers.": {
+    "label": "positive",
+    "confidence": 0.920748
+  },
+  "ASML unveils next-generation High-NA EUV system delivering breakthrough precision.": {
+    "label": "positive",
+    "confidence": 0.752529
+  },
+  "Analysts issue a downgrade on Nissan stock citing slow EV transition.": {
+    "label": "negative",
+    "confidence": 0.9662
+  },
+  "Analysts issue downgrade on Evergreen Marine stock citing carrier overcapacity.": {
+    "label": "negative",
+    "confidence": 0.967423
+  },
+  "Analysts issue major downgrade on Apex Logistics amid insolvency fears.": {
+    "label": "negative",
+    "confidence": 0.965468
+  },
+  "Analysts issue terminal downgrade on Silicon Power Storage warning of zero recovery.": {
+    "label": "negative",
+    "confidence": 0.968005
+  },
+  "Analysts note minor backlog contraction in Caterpillar construction industries segment.": {
+    "label": "negative",
+    "confidence": 0.976325
+  },
+  "Apex Logistics announces massive layoff cutting 30% of administrative staff.": {
+    "label": "negative",
+    "confidence": 0.969558
+  },
+  "Apex Logistics appoints interim management to oversee bankruptcy proceedings.": {
+    "label": "neutral",
+    "confidence": 0.692655
+  },
+  "Apex Logistics declares force majeure and warehouse shutdown due to cash crisis.": {
+    "label": "negative",
+    "confidence": 0.957164
+  },
+  "Apex Logistics faces massive lawsuit from cargo clients over lost shipments.": {
+    "label": "negative",
+    "confidence": 0.972065
+  },
+  "Apex Logistics files for emergency restructuring following severe debt default.": {
+    "label": "negative",
+    "confidence": 0.967001
+  },
+  "Apex Logistics hit by major ransomware cyberattack locking down shipping ports.": {
+    "label": "negative",
+    "confidence": 0.961852
+  },
+  "Apex Logistics secures temporary bridge loan from distressed asset investors.": {
+    "label": "positive",
+    "confidence": 0.937203
+  },
+  "Apex Logistics workers declare indefinite strike over unfair wage deductions.": {
+    "label": "negative",
+    "confidence": 0.937727
+  },
+  "ArcelorMittal announces restructuring plan affecting 1,200 administrative and plant positions.": {
+    "label": "negative",
+    "confidence": 0.95908
+  },
+  "ArcelorMittal faces lawsuit from municipal authorities over industrial water contamination.": {
+    "label": "negative",
+    "confidence": 0.950175
+  },
+  "ArcelorMittal halts production at two European blast furnaces due to surging energy prices.": {
+    "label": "negative",
+    "confidence": 0.960917
+  },
+  "ArcelorMittal reports significant drop in quarterly operating income as demand softens.": {
+    "label": "negative",
+    "confidence": 0.97578
+  },
+  "ArcelorMittal reports sudden electrical outage shutting down continuous casting line.": {
+    "label": "negative",
+    "confidence": 0.959939
+  },
+  "ArcelorMittal resolves local labor dispute agreeing to phased modernization investment.": {
+    "label": "positive",
+    "confidence": 0.536381
+  },
+  "ArcelorMittal secures green hydrogen subsidy to modernize Ghent steel mill.": {
+    "label": "positive",
+    "confidence": 0.920542
+  },
+  "ArcelorMittal signs decarbonized steel supply contract with major European automaker.": {
+    "label": "positive",
+    "confidence": 0.925306
+  },
+  "ArcelorMittal steelworkers stage walkout strike demanding higher inflation compensation.": {
+    "label": "negative",
+    "confidence": 0.92827
+  },
+  "Auditors uncover pervasive fraud in Silicon Power Storage balance sheet inventory valuation.": {
+    "label": "negative",
+    "confidence": 0.96061
+  },
+  "Automotive OEMs award Texas Instruments supplier excellence rating for 2025.": {
+    "label": "positive",
+    "confidence": 0.878305
+  },
+  "Aviation regulator announces investigation into Boeing manufacturing processes.": {
+    "label": "negative",
+    "confidence": 0.831554
+  },
+  "BASF announces breakthrough in sustainable battery materials.": {
+    "label": "positive",
+    "confidence": 0.666126
+  },
+  "BASF declares force majeure after explosion at key manufacturing site.": {
+    "label": "negative",
+    "confidence": 0.790911
+  },
+  "BASF expands automotive coatings capacity to meet rising demand.": {
+    "label": "positive",
+    "confidence": 0.944621
+  },
+  "BASF faces lawsuit from local residents over alleged water contamination.": {
+    "label": "negative",
+    "confidence": 0.955107
+  },
+  "BASF faces regulatory scrutiny over chemical emissions at European plant.": {
+    "label": "negative",
+    "confidence": 0.868667
+  },
+  "BASF implements restructuring plan leading to potential layoffs.": {
+    "label": "negative",
+    "confidence": 0.948493
+  },
+  "BASF inaugurates state-of-the-art production complex in China.": {
+    "label": "positive",
+    "confidence": 0.670854
+  },
+  "BASF reports solid earnings growth in agricultural solutions division.": {
+    "label": "positive",
+    "confidence": 0.955555
+  },
+  "BASF signs long-term renewable energy contract to power operations.": {
+    "label": "positive",
+    "confidence": 0.871611
+  },
+  "BASF struggles with raw-material shortages for specialty plastics.": {
+    "label": "positive",
+    "confidence": 0.358446
+  },
+  "BASF successfully passes environmental compliance audits across all sites.": {
+    "label": "positive",
+    "confidence": 0.925891
+  },
+  "BASF supply chain disruption resolved, production returns to normal.": {
+    "label": "positive",
+    "confidence": 0.855031
+  },
+  "Boeing announces a recall of certain aircraft parts due to manufacturing defects.": {
+    "label": "negative",
+    "confidence": 0.967962
+  },
+  "Boeing announces successful delivery of 50 new aircraft ahead of schedule.": {
+    "label": "positive",
+    "confidence": 0.900818
+  },
+  "Boeing expands its engineering facility in South Carolina.": {
+    "label": "positive",
+    "confidence": 0.834537
+  },
+  "Boeing faces new lawsuit over alleged safety violations in 737 MAX production.": {
+    "label": "negative",
+    "confidence": 0.966426
+  },
+  "Boeing machinists go on strike demanding better wages and benefits.": {
+    "label": "negative",
+    "confidence": 0.944109
+  },
+  "Boeing opens a new state-of-the-art research facility in Seattle.": {
+    "label": "positive",
+    "confidence": 0.512391
+  },
+  "Boeing reports positive earnings for the third quarter amidst delivery delays.": {
+    "label": "positive",
+    "confidence": 0.903015
+  },
+  "Boeing restructuring plan aims to streamline commercial airplane division.": {
+    "label": "neutral",
+    "confidence": 0.736235
+  },
+  "Boeing secures a massive partnership with a major international airline.": {
+    "label": "positive",
+    "confidence": 0.935076
+  },
+  "Catastrophic machinery fire causes severe disruption and damages battery testing laboratory.": {
+    "label": "negative",
+    "confidence": 0.949995
+  },
+  "Caterpillar announces $1.5 billion share repurchase program following strong cash generation.": {
+    "label": "positive",
+    "confidence": 0.94129
+  },
+  "Caterpillar dealers report localized hydraulic valve shortage slowing assembly lines.": {
+    "label": "negative",
+    "confidence": 0.972899
+  },
+  "Caterpillar expands remanufacturing operations to lower equipment lifecycle costs.": {
+    "label": "positive",
+    "confidence": 0.932838
+  },
+  "Caterpillar faces supply chain delays affecting heavy excavator delivery timelines.": {
+    "label": "negative",
+    "confidence": 0.961259
+  },
+  "Caterpillar issues voluntary recall for minor hydraulic hose defect on compact track loaders.": {
+    "label": "negative",
+    "confidence": 0.963785
+  },
+  "Caterpillar partners with energy leaders to test hydrogen-powered generator sets.": {
+    "label": "positive",
+    "confidence": 0.735037
+  },
+  "Caterpillar reports robust quarterly earnings driven by global infrastructure investments.": {
+    "label": "positive",
+    "confidence": 0.95934
+  },
+  "Caterpillar secures multi-year mining fleet modernization deal in Australia.": {
+    "label": "positive",
+    "confidence": 0.948646
+  },
+  "Caterpillar successfully concludes new collective bargaining contract with factory workers.": {
+    "label": "negative",
+    "confidence": 0.494851
+  },
+  "Caterpillar unveils zero-emission battery-electric underground mining loader.": {
+    "label": "neutral",
+    "confidence": 0.801526
+  },
+  "Commodity price volatility triggers corporate restructuring discussions at Glencore.": {
+    "label": "negative",
+    "confidence": 0.955806
+  },
+  "Court freezes bank accounts of Evergrande Construction Logistics amid default claims.": {
+    "label": "negative",
+    "confidence": 0.947364
+  },
+  "Credit rating agency issues downgrade on Toshiba corporate bonds to speculative grade.": {
+    "label": "negative",
+    "confidence": 0.901008
+  },
+  "Credit rating agency issues downgrade warning on ArcelorMittal debt outlook.": {
+    "label": "negative",
+    "confidence": 0.899478
+  },
+  "Creditors file emergency petition for bankruptcy liquidation of Evergrande Construction Logistics.": {
+    "label": "negative",
+    "confidence": 0.929482
+  },
+  "Critical cathode material shortage leads to indefinite production delays at Northvolt plants.": {
+    "label": "negative",
+    "confidence": 0.967994
+  },
+  "Critical titanium component shortage causes minor delivery delays for Lockheed Martin.": {
+    "label": "negative",
+    "confidence": 0.964883
+  },
+  "Cybersecurity team detects cyberattack attempt against Evergreen Marine digital booking platform.": {
+    "label": "negative",
+    "confidence": 0.90202
+  },
+  "DHL Supply Chain achieves carbon neutral certification across 50 regional distribution centers.": {
+    "label": "positive",
+    "confidence": 0.935106
+  },
+  "DHL Supply Chain announces $500 million investment in warehouse robotics and AI automation.": {
+    "label": "neutral",
+    "confidence": 0.703129
+  },
+  "DHL Supply Chain expands global healthcare logistics with four new pharmaceutical hubs.": {
+    "label": "positive",
+    "confidence": 0.879378
+  },
+  "DHL Supply Chain reports positive earnings growth across Americas logistics division.": {
+    "label": "positive",
+    "confidence": 0.958625
+  },
+  "DHL Supply Chain reports record contract renewals and high client retention rate.": {
+    "label": "negative",
+    "confidence": 0.794099
+  },
+  "DHL Supply Chain secures multi-year omni-channel fulfillment contract with fashion retailer.": {
+    "label": "positive",
+    "confidence": 0.953394
+  },
+  "DHL faces class-action lawsuit from contract drivers regarding fuel surcharge calculations.": {
+    "label": "negative",
+    "confidence": 0.959612
+  },
+  "DHL logistics customers report cross-border shipment delays following customs system outage.": {
+    "label": "negative",
+    "confidence": 0.968823
+  },
+  "DHL manages localized packaging material shortage by activating secondary suppliers.": {
+    "label": "neutral",
+    "confidence": 0.879557
+  },
+  "DHL opens state-of-the-art electric vehicle fleet maintenance facility in London.": {
+    "label": "positive",
+    "confidence": 0.57416
+  },
+  "Defense logistics bottleneck causes minor assembly disruption at Lockheed Martin facility.": {
+    "label": "negative",
+    "confidence": 0.9648
+  },
+  "Environmental regulator opens investigation into tailings management at Rio Tinto copper mine.": {
+    "label": "negative",
+    "confidence": 0.769997
+  },
+  "Environmental regulators launch fraud investigation into Northvolt raw material recycling disclosures.": {
+    "label": "negative",
+    "confidence": 0.857284
+  },
+  "Equipment suppliers file lawsuit against Northvolt for unpaid manufacturing machinery invoices.": {
+    "label": "negative",
+    "confidence": 0.964324
+  },
+  "Evergrande Construction Logistics announces shutdown of 120 regional supply depots.": {
+    "label": "negative",
+    "confidence": 0.960865
+  },
+  "Evergrande Construction Logistics declares total debt default after missing offshore bond coupon.": {
+    "label": "negative",
+    "confidence": 0.962359
+  },
+  "Evergrande Construction Logistics initiates emergency workforce layoff of 70% of staff.": {
+    "label": "negative",
+    "confidence": 0.969433
+  },
+  "Evergrande Construction Logistics reports critical insolvency with liabilities exceeding assets.": {
+    "label": "negative",
+    "confidence": 0.966179
+  },
+  "Evergreen Marine announces corporate restructuring to cut redundant regional agency costs.": {
+    "label": "negative",
+    "confidence": 0.875795
+  },
+  "Evergreen Marine container ship suffers rudder failure, causing severe transit disruption in canal.": {
+    "label": "negative",
+    "confidence": 0.968829
+  },
+  "Evergreen Marine hit with cargo damage lawsuit following heavy storm incident at sea.": {
+    "label": "negative",
+    "confidence": 0.960047
+  },
+  "Evergreen Marine opens new automated container yard to expedite cargo handling.": {
+    "label": "positive",
+    "confidence": 0.798508
+  },
+  "Evergreen Marine orders 16 dual-fuel methanol container ships to modernize green fleet.": {
+    "label": "positive",
+    "confidence": 0.874448
+  },
+  "Evergreen Marine reports sharp drop in quarterly net profit amidst slumping freight rates.": {
+    "label": "negative",
+    "confidence": 0.975212
+  },
+  "Evergreen Marine signs strategic alliance with Asian terminal operators to optimize berths.": {
+    "label": "positive",
+    "confidence": 0.946863
+  },
+  "Export restrictions to certain overseas markets cause minor shipment delays for ASML.": {
+    "label": "negative",
+    "confidence": 0.947896
+  },
+  "FAA threatens sanction against Boeing if safety protocols are not met.": {
+    "label": "negative",
+    "confidence": 0.941573
+  },
+  "Fleet-wide vehicle safety recall grounds dozens of Apex Logistics freight trucks.": {
+    "label": "negative",
+    "confidence": 0.967217
+  },
+  "Foxconn announces a massive expansion of its manufacturing footprint in India.": {
+    "label": "positive",
+    "confidence": 0.818974
+  },
+  "Foxconn announces a new partnership to manufacture electric vehicles.": {
+    "label": "positive",
+    "confidence": 0.513409
+  },
+  "Foxconn avoids sanction from trade regulators following compliance audits.": {
+    "label": "neutral",
+    "confidence": 0.784263
+  },
+  "Foxconn denies allegations of fraud in its recent financial disclosures.": {
+    "label": "neutral",
+    "confidence": 0.867546
+  },
+  "Foxconn faces an investigation by local authorities over labor practices.": {
+    "label": "negative",
+    "confidence": 0.957296
+  },
+  "Foxconn faces severe production disruption at its main iPhone plant.": {
+    "label": "negative",
+    "confidence": 0.96889
+  },
+  "Foxconn hit by a component shortage affecting assembly lines.": {
+    "label": "negative",
+    "confidence": 0.970366
+  },
+  "Foxconn passes comprehensive international labor audit with top marks.": {
+    "label": "positive",
+    "confidence": 0.941987
+  },
+  "Foxconn plans corporate restructuring to diversify away from consumer electronics.": {
+    "label": "neutral",
+    "confidence": 0.844168
+  },
+  "Foxconn reports strong positive earnings driven by robust smartphone demand.": {
+    "label": "positive",
+    "confidence": 0.957361
+  },
+  "Foxconn reports zero downtime during peak production season.": {
+    "label": "neutral",
+    "confidence": 0.819561
+  },
+  "Foxconn workers go on strike protesting working conditions and bonuses.": {
+    "label": "negative",
+    "confidence": 0.948524
+  },
+  "Glencore announces layoff of 800 contractors to cut operational expenditure.": {
+    "label": "negative",
+    "confidence": 0.968577
+  },
+  "Glencore faces severe lawsuit from local communities over environmental contamination.": {
+    "label": "negative",
+    "confidence": 0.952986
+  },
+  "Glencore hit with credit rating downgrade following heavy debt obligations.": {
+    "label": "negative",
+    "confidence": 0.968344
+  },
+  "Glencore reports positive earnings growth in industrial energy trading unit.": {
+    "label": "positive",
+    "confidence": 0.959214
+  },
+  "Glencore reports production disruption across African cobalt facilities due to logistics bottlenecks.": {
+    "label": "negative",
+    "confidence": 0.971946
+  },
+  "Glencore signs supply agreement with electric vehicle battery manufacturers.": {
+    "label": "positive",
+    "confidence": 0.926465
+  },
+  "Glencore workers declare strike at key South American copper mining complex.": {
+    "label": "negative",
+    "confidence": 0.904221
+  },
+  "Global container shortage and port congestion trigger widespread shipping delays for Evergreen Marine.": {
+    "label": "negative",
+    "confidence": 0.965201
+  },
+  "Global logistics bottleneck delays TSMC equipment deliveries.": {
+    "label": "negative",
+    "confidence": 0.963631
+  },
+  "Ground handling staff at major European DHL air hub stage 24-hour warning strike.": {
+    "label": "negative",
+    "confidence": 0.942066
+  },
+  "Intel announces a $20 billion expansion of its chip manufacturing plants in Ohio.": {
+    "label": "neutral",
+    "confidence": 0.647561
+  },
+  "Intel announces massive layoff affecting 15% of its global workforce.": {
+    "label": "negative",
+    "confidence": 0.967656
+  },
+  "Intel announces plans for corporate restructuring to focus on foundry business.": {
+    "label": "neutral",
+    "confidence": 0.596518
+  },
+  "Intel faces a new lawsuit over alleged patent infringement.": {
+    "label": "negative",
+    "confidence": 0.940131
+  },
+  "Intel faces unexpected raw-material shortage delaying new fab construction.": {
+    "label": "negative",
+    "confidence": 0.968527
+  },
+  "Intel hit with a downgrade by analysts following lowered revenue forecasts.": {
+    "label": "negative",
+    "confidence": 0.971174
+  },
+  "Intel reports better-than-expected positive earnings for Q2.": {
+    "label": "positive",
+    "confidence": 0.945188
+  },
+  "Intel secures a strategic partnership with Microsoft to produce custom chips.": {
+    "label": "positive",
+    "confidence": 0.939733
+  },
+  "Intel secures major government grant for domestic chip production.": {
+    "label": "positive",
+    "confidence": 0.943202
+  },
+  "Intel under investigation by antitrust regulators in the EU.": {
+    "label": "negative",
+    "confidence": 0.90744
+  },
+  "Intel unveils its next-generation AI processors.": {
+    "label": "neutral",
+    "confidence": 0.87989
+  },
+  "International anti-corruption authorities expand investigation into Glencore commodity dealings.": {
+    "label": "negative",
+    "confidence": 0.73007
+  },
+  "International trade ministry threatens sanction against Toshiba over export controls violation.": {
+    "label": "negative",
+    "confidence": 0.946426
+  },
+  "Investors file fraud and breach of contract lawsuit against Silicon Power Storage executives.": {
+    "label": "negative",
+    "confidence": 0.933607
+  },
+  "Labor union at Caterpillar Midwest plant holds strike authorization vote over wage talks.": {
+    "label": "negative",
+    "confidence": 0.899501
+  },
+  "Lockheed Martin achieves milestone with successful test flight of hypersonic vehicle.": {
+    "label": "positive",
+    "confidence": 0.884525
+  },
+  "Lockheed Martin expands engineering apprentice program to address skilled labor demand.": {
+    "label": "positive",
+    "confidence": 0.601409
+  },
+  "Lockheed Martin opens state-of-the-art missile defense manufacturing center in Alabama.": {
+    "label": "neutral",
+    "confidence": 0.622795
+  },
+  "Lockheed Martin partners with international allies on next-generation radar systems.": {
+    "label": "positive",
+    "confidence": 0.843555
+  },
+  "Lockheed Martin receives highest defense industrial security rating from government auditors.": {
+    "label": "positive",
+    "confidence": 0.767725
+  },
+  "Lockheed Martin reports record defense backlog exceeding $150 billion.": {
+    "label": "negative",
+    "confidence": 0.840016
+  },
+  "Lockheed Martin reports robust positive earnings driven by aerospace program deliveries.": {
+    "label": "positive",
+    "confidence": 0.957579
+  },
+  "Lockheed Martin secures $7.8 billion Pentagon contract for advanced fighter jets.": {
+    "label": "positive",
+    "confidence": 0.884121
+  },
+  "Lockheed Martin unveils solar-powered satellite platform for defense communications.": {
+    "label": "neutral",
+    "confidence": 0.794718
+  },
+  "Maersk completes acquisition of e-commerce fulfillment provider.": {
+    "label": "neutral",
+    "confidence": 0.646284
+  },
+  "Maersk container ship runs aground, halting traffic in key canal.": {
+    "label": "negative",
+    "confidence": 0.957529
+  },
+  "Maersk faces severe shipment delays due to ongoing Red Sea crisis.": {
+    "label": "negative",
+    "confidence": 0.961707
+  },
+  "Maersk hit by cyberattack disrupting booking and tracking systems.": {
+    "label": "negative",
+    "confidence": 0.962932
+  },
+  "Maersk launches new fleet of green methanol-powered container ships.": {
+    "label": "positive",
+    "confidence": 0.513507
+  },
+  "Maersk opens massive new automated logistics hub in Europe.": {
+    "label": "positive",
+    "confidence": 0.741518
+  },
+  "Maersk reports strong financial results amid stable global freight rates.": {
+    "label": "positive",
+    "confidence": 0.95644
+  },
+  "Maersk signs strategic partnership with major global retailer.": {
+    "label": "positive",
+    "confidence": 0.943788
+  },
+  "Maersk successfully navigates supply chain disruption with alternative routes.": {
+    "label": "positive",
+    "confidence": 0.938002
+  },
+  "Maersk warehouse workers threaten strike over wage negotiations.": {
+    "label": "negative",
+    "confidence": 0.946311
+  },
+  "Maersk warns of potential volume drop due to looming economic recession.": {
+    "label": "negative",
+    "confidence": 0.971301
+  },
+  "Major European automotive alliance pulls financing, leaving Northvolt facing potential bankruptcy.": {
+    "label": "negative",
+    "confidence": 0.959456
+  },
+  "Major airline cancels Boeing orders due to ongoing production disruption.": {
+    "label": "negative",
+    "confidence": 0.960088
+  },
+  "Major computer manufacturers terminate supplier contracts with Silicon Power Storage.": {
+    "label": "negative",
+    "confidence": 0.961002
+  },
+  "Maritime safety regulators launch investigation into Evergreen Marine vessel maintenance logs.": {
+    "label": "negative",
+    "confidence": 0.89177
+  },
+  "Nissan announces a new EV partnership with Honda to share technology.": {
+    "label": "positive",
+    "confidence": 0.612867
+  },
+  "Nissan announces a small layoff at its North American manufacturing plant.": {
+    "label": "negative",
+    "confidence": 0.958488
+  },
+  "Nissan announces a sweeping restructuring plan to cut costs and improve margins.": {
+    "label": "positive",
+    "confidence": 0.731748
+  },
+  "Nissan expands battery manufacturing capacity in Europe.": {
+    "label": "positive",
+    "confidence": 0.913928
+  },
+  "Nissan faces a lawsuit from former executives over wrongful termination.": {
+    "label": "negative",
+    "confidence": 0.956574
+  },
+  "Nissan faces a massive recall affecting over 1 million vehicles globally.": {
+    "label": "negative",
+    "confidence": 0.960378
+  },
+  "Nissan faces a parts shortage affecting production of its flagship models.": {
+    "label": "negative",
+    "confidence": 0.970568
+  },
+  "Nissan hit by supply chain disruption leading to temporary factory closures.": {
+    "label": "negative",
+    "confidence": 0.958721
+  },
+  "Nissan launches new EV model to positive reviews and strong pre-orders.": {
+    "label": "positive",
+    "confidence": 0.945396
+  },
+  "Nissan reports positive earnings and raises its full-year profit outlook.": {
+    "label": "positive",
+    "confidence": 0.947451
+  },
+  "Northvolt declares emergency warehouse shutdown and halts battery cell production line.": {
+    "label": "negative",
+    "confidence": 0.943145
+  },
+  "Northvolt enters urgent debt restructuring discussions with international creditors to avoid default.": {
+    "label": "positive",
+    "confidence": 0.806971
+  },
+  "Northvolt faces imminent insolvency threat after anchor automotive customer cancels multi-billion euro contract.": {
+    "label": "negative",
+    "confidence": 0.96843
+  },
+  "Northvolt initiates massive layoff terminating 25% of workforce across Swedish gigafactory.": {
+    "label": "negative",
+    "confidence": 0.97143
+  },
+  "Northvolt seeks government bailout loan package as private capital dries up completely.": {
+    "label": "negative",
+    "confidence": 0.620309
+  },
+  "Northvolt workers stage wildcat strike protesting delayed bonus payments and hazardous conditions.": {
+    "label": "negative",
+    "confidence": 0.955186
+  },
+  "Port congestion causes minor delays for Maersk transatlantic routes.": {
+    "label": "negative",
+    "confidence": 0.930314
+  },
+  "Port congestion in Southeast Asia causes severe disruption to DHL ocean freight schedules.": {
+    "label": "negative",
+    "confidence": 0.967632
+  },
+  "Port workers strike strands Evergreen Marine container vessels at major West Coast terminals.": {
+    "label": "negative",
+    "confidence": 0.946705
+  },
+  "Power outage forces temporary shutdown of Glencore zinc smelting operations.": {
+    "label": "negative",
+    "confidence": 0.960753
+  },
+  "Ransomware cyberattack paralyzes remaining Evergrande logistics tracking networks.": {
+    "label": "negative",
+    "confidence": 0.879652
+  },
+  "Rating agencies issue deep downgrade on Northvolt credit status to distressed territory.": {
+    "label": "negative",
+    "confidence": 0.960209
+  },
+  "Regulators conclude investigation into Nissan's past financial reporting issues.": {
+    "label": "negative",
+    "confidence": 0.866218
+  },
+  "Regulators impose severe trade sanction on Silicon Power Storage over illegal technology transfers.": {
+    "label": "negative",
+    "confidence": 0.944782
+  },
+  "Regulators launch environmental investigation into ArcelorMittal plant emission standards.": {
+    "label": "neutral",
+    "confidence": 0.508146
+  },
+  "Regulators launch fraud investigation into Apex Logistics accounting practices.": {
+    "label": "negative",
+    "confidence": 0.899901
+  },
+  "Regulators launch renewed fraud investigation into Toshiba subsidiary accounting practices.": {
+    "label": "negative",
+    "confidence": 0.903425
+  },
+  "Regulators open an investigation into Tesla over battery fire incidents.": {
+    "label": "negative",
+    "confidence": 0.894809
+  },
+  "Restructuring advisers warn liquidation is unavoidable for Evergrande Construction Logistics.": {
+    "label": "negative",
+    "confidence": 0.968503
+  },
+  "Rio Tinto advances massive Simandou high-grade iron ore project in Guinea.": {
+    "label": "neutral",
+    "confidence": 0.532867
+  },
+  "Rio Tinto announces copper production expansion at Oyu Tolgoi underground mine.": {
+    "label": "neutral",
+    "confidence": 0.567429
+  },
+  "Rio Tinto delivers strong quarterly iron ore shipments from Western Australia operations.": {
+    "label": "positive",
+    "confidence": 0.952885
+  },
+  "Rio Tinto hit with minor regulatory fine over dust emission standards compliance.": {
+    "label": "negative",
+    "confidence": 0.94834
+  },
+  "Rio Tinto partners with global steelmaker to develop low-carbon iron smelting technology.": {
+    "label": "positive",
+    "confidence": 0.873152
+  },
+  "Rio Tinto posts healthy interim dividend backed by resilient commodity pricing.": {
+    "label": "positive",
+    "confidence": 0.957272
+  },
+  "Rio Tinto reports heavy rainfall causing rail transit disruption at Pilbara ports.": {
+    "label": "negative",
+    "confidence": 0.954697
+  },
+  "Rio Tinto reports localized equipment delays at Queensland bauxite operations.": {
+    "label": "negative",
+    "confidence": 0.964259
+  },
+  "Rio Tinto signs major long-term renewable power purchase agreement for alumina refinery.": {
+    "label": "positive",
+    "confidence": 0.903368
+  },
+  "Rio Tinto strengthens safety protocols following comprehensive operational review.": {
+    "label": "positive",
+    "confidence": 0.955544
+  },
+  "Schneider Electric completes state-of-the-art innovation center in Singapore.": {
+    "label": "positive",
+    "confidence": 0.69373
+  },
+  "Schneider Electric expands energy management partnership with leading EV charging networks.": {
+    "label": "positive",
+    "confidence": 0.9418
+  },
+  "Schneider Electric expands smart factory operations in North America with $140M investment.": {
+    "label": "positive",
+    "confidence": 0.895577
+  },
+  "Schneider Electric flags transient logistics delays affecting European distribution center.": {
+    "label": "negative",
+    "confidence": 0.957635
+  },
+  "Schneider Electric increases R&D spending to accelerate industrial software and robotics.": {
+    "label": "positive",
+    "confidence": 0.876224
+  },
+  "Schneider Electric manages brief raw material shortage with secondary supplier network.": {
+    "label": "negative",
+    "confidence": 0.829385
+  },
+  "Schneider Electric named world's most sustainable corporation by clean energy index.": {
+    "label": "positive",
+    "confidence": 0.840126
+  },
+  "Schneider Electric partners with global tech leaders for net-zero industrial automation.": {
+    "label": "positive",
+    "confidence": 0.860317
+  },
+  "Schneider Electric reports record annual revenues driven by surging AI data center demand.": {
+    "label": "positive",
+    "confidence": 0.948993
+  },
+  "Schneider Electric secures major contract to modernize electrical grid infrastructure in France.": {
+    "label": "positive",
+    "confidence": 0.951357
+  },
+  "Schneider Electric unveils next-generation eco-friendly SF6-free medium voltage switchgear.": {
+    "label": "neutral",
+    "confidence": 0.522608
+  },
+  "Schneider Electric wins multi-million dollar switchgear supply contract for naval vessels.": {
+    "label": "positive",
+    "confidence": 0.888142
+  },
+  "Securities commission opens criminal fraud investigation into Evergrande accounting records.": {
+    "label": "negative",
+    "confidence": 0.614946
+  },
+  "Severe equipment breakdown causes export delays at Glencore coal shipping terminal.": {
+    "label": "negative",
+    "confidence": 0.96269
+  },
+  "Shareholders reject management proposal amid bitter corporate governance dispute.": {
+    "label": "negative",
+    "confidence": 0.956064
+  },
+  "Siemens achieves record order backlog across digital industries division.": {
+    "label": "positive",
+    "confidence": 0.923632
+  },
+  "Siemens announces major contract to build smart electrical grid infrastructure.": {
+    "label": "neutral",
+    "confidence": 0.541776
+  },
+  "Siemens expands production facility in Germany for renewable power transformers.": {
+    "label": "positive",
+    "confidence": 0.869227
+  },
+  "Siemens faces temporary component shortage for specialized circuit breakers.": {
+    "label": "negative",
+    "confidence": 0.970551
+  },
+  "Siemens partners with tech leaders to implement AI-driven predictive maintenance.": {
+    "label": "positive",
+    "confidence": 0.852379
+  },
+  "Siemens receives top environmental and sustainability rating from industry auditors.": {
+    "label": "positive",
+    "confidence": 0.82865
+  },
+  "Siemens reports robust revenue growth driven by industrial automation orders.": {
+    "label": "positive",
+    "confidence": 0.9532
+  },
+  "Siemens reports successful delivery of advanced gas turbines ahead of schedule.": {
+    "label": "positive",
+    "confidence": 0.923862
+  },
+  "Siemens resolves supplier dispute, stabilizing European production.": {
+    "label": "positive",
+    "confidence": 0.903466
+  },
+  "Siemens secures multi-billion dollar railway electrification deal.": {
+    "label": "positive",
+    "confidence": 0.699084
+  },
+  "Siemens unveils next-generation energy management platform for factories.": {
+    "label": "neutral",
+    "confidence": 0.730708
+  },
+  "Silicon Power Storage announces immediate shutdown of primary solid-state drive assembly plant.": {
+    "label": "negative",
+    "confidence": 0.933732
+  },
+  "Silicon Power Storage announces total layoff of global sales and engineering workforce.": {
+    "label": "negative",
+    "confidence": 0.964411
+  },
+  "Silicon Power Storage faces imminent insolvency as key credit facilities are canceled.": {
+    "label": "negative",
+    "confidence": 0.954061
+  },
+  "Silicon Power Storage files for emergency bankruptcy following catastrophic debt default.": {
+    "label": "negative",
+    "confidence": 0.937946
+  },
+  "Silicon Power Storage initiates emergency restructuring plan under judicial oversight.": {
+    "label": "negative",
+    "confidence": 0.889371
+  },
+  "Silicon Power Storage suffers massive cyberattack leaking proprietary firmware and customer records.": {
+    "label": "negative",
+    "confidence": 0.962986
+  },
+  "Silicon Power Storage workers walk out on strike over months of unpaid wages.": {
+    "label": "negative",
+    "confidence": 0.952071
+  },
+  "Subcontractor quality defect prompts voluntary recall of specialized aerospace fasteners.": {
+    "label": "negative",
+    "confidence": 0.968689
+  },
+  "Subcontractors hit Evergrande Construction Logistics with multiple lawsuits over unpaid invoices.": {
+    "label": "negative",
+    "confidence": 0.964878
+  },
+  "Suppliers stage mass protests as Evergrande Construction Logistics fails to honor payments.": {
+    "label": "negative",
+    "confidence": 0.955404
+  },
+  "Supply chain delays cause minor shipment backlog for Siemens medical devices.": {
+    "label": "negative",
+    "confidence": 0.970886
+  },
+  "Supply chain disruption causes delays in Intel's latest processor launch.": {
+    "label": "negative",
+    "confidence": 0.950775
+  },
+  "Supply chain disruption temporarily affects ASML spare parts logistics in Asia.": {
+    "label": "negative",
+    "confidence": 0.96529
+  },
+  "Supply disruption at ArcelorMittal coking plant delays automotive coil deliveries.": {
+    "label": "negative",
+    "confidence": 0.96288
+  },
+  "TSMC announces plans for a massive capacity expansion in Arizona.": {
+    "label": "neutral",
+    "confidence": 0.62465
+  },
+  "TSMC faces temporary production shutdown after minor earthquake.": {
+    "label": "negative",
+    "confidence": 0.963208
+  },
+  "TSMC hit by unexpected power outage at a major fabrication plant.": {
+    "label": "negative",
+    "confidence": 0.958438
+  },
+  "TSMC maintains stable production despite global economic headwinds.": {
+    "label": "positive",
+    "confidence": 0.939513
+  },
+  "TSMC partners with local universities to boost engineering talent pipeline.": {
+    "label": "positive",
+    "confidence": 0.934609
+  },
+  "TSMC reports record revenue driven by strong AI chip demand.": {
+    "label": "positive",
+    "confidence": 0.955124
+  },
+  "TSMC secures long-term supply contracts with key technology partners.": {
+    "label": "positive",
+    "confidence": 0.952933
+  },
+  "TSMC successfully implements new advanced packaging technology.": {
+    "label": "positive",
+    "confidence": 0.901928
+  },
+  "TSMC to receive substantial subsidies for new overseas semiconductor facilities.": {
+    "label": "positive",
+    "confidence": 0.930466
+  },
+  "TSMC workers demand better benefits leading to minor labor disputes.": {
+    "label": "positive",
+    "confidence": 0.93815
+  },
+  "Tesla announces a major recall of 2 million vehicles over autopilot software issues.": {
+    "label": "negative",
+    "confidence": 0.956292
+  },
+  "Tesla announces another round of layoff affecting its sales teams globally.": {
+    "label": "negative",
+    "confidence": 0.964311
+  },
+  "Tesla expands its Gigafactory operations in Texas and Berlin.": {
+    "label": "positive",
+    "confidence": 0.502246
+  },
+  "Tesla experiences minor supply disruption due to port closure.": {
+    "label": "negative",
+    "confidence": 0.963949
+  },
+  "Tesla faces a class-action lawsuit from investors over self-driving claims.": {
+    "label": "negative",
+    "confidence": 0.924237
+  },
+  "Tesla faces production disruption in Shanghai due to supply chain shortage.": {
+    "label": "negative",
+    "confidence": 0.965848
+  },
+  "Tesla reaches milestone of 5 million vehicles produced globally.": {
+    "label": "positive",
+    "confidence": 0.702927
+  },
+  "Tesla reports a surprise drop in quarterly vehicle deliveries.": {
+    "label": "negative",
+    "confidence": 0.975401
+  },
+  "Tesla reports record positive earnings driven by strong Model Y sales.": {
+    "label": "positive",
+    "confidence": 0.95786
+  },
+  "Tesla secures a new partnership for lithium supply in Australia.": {
+    "label": "positive",
+    "confidence": 0.946687
+  },
+  "Tesla stock suffers a downgrade amid concerns over increasing competition.": {
+    "label": "negative",
+    "confidence": 0.970731
+  },
+  "Texas Instruments achieves record operational efficiency across domestic manufacturing hubs.": {
+    "label": "positive",
+    "confidence": 0.94748
+  },
+  "Texas Instruments announces dividend increase following strong free cash flow.": {
+    "label": "positive",
+    "confidence": 0.949148
+  },
+  "Texas Instruments breaks ground on $11 billion wafer fabrication plant in Texas.": {
+    "label": "neutral",
+    "confidence": 0.493532
+  },
+  "Texas Instruments enters new long-term silicon supply agreement with European Tier-1 partner.": {
+    "label": "positive",
+    "confidence": 0.943457
+  },
+  "Texas Instruments expands automotive analog chip lineup with next-generation power modules.": {
+    "label": "positive",
+    "confidence": 0.705791
+  },
+  "Texas Instruments experiences minor shipment delays due to winter weather conditions.": {
+    "label": "negative",
+    "confidence": 0.95576
+  },
+  "Texas Instruments opens new testing and qualification facility in Taiwan.": {
+    "label": "neutral",
+    "confidence": 0.542214
+  },
+  "Texas Instruments receives industry recognition for semiconductor supply chain resilience.": {
+    "label": "positive",
+    "confidence": 0.941345
+  },
+  "Texas Instruments reports solid quarterly revenue exceeding Wall Street estimates.": {
+    "label": "positive",
+    "confidence": 0.956101
+  },
+  "Texas Instruments reports temporary component shortage for select legacy product lines.": {
+    "label": "negative",
+    "confidence": 0.974171
+  },
+  "Texas Instruments unveils ultra-low-power microcontrollers for industrial automation.": {
+    "label": "neutral",
+    "confidence": 0.832581
+  },
+  "Toshiba announces restructuring plan with 4,000 workforce layoff to cut fixed costs.": {
+    "label": "negative",
+    "confidence": 0.957094
+  },
+  "Toshiba completes sale of non-core medical assets to repay bank credit obligations.": {
+    "label": "neutral",
+    "confidence": 0.815845
+  },
+  "Toshiba enters emergency debt restructuring talks with syndicate of Japanese lenders.": {
+    "label": "negative",
+    "confidence": 0.839656
+  },
+  "Toshiba faces class-action lawsuit from institutional investors over disclosure irregularities.": {
+    "label": "negative",
+    "confidence": 0.958142
+  },
+  "Toshiba secures domestic contract for nuclear plant decommissioning and safety systems.": {
+    "label": "positive",
+    "confidence": 0.945949
+  },
+  "Toshiba semiconductor fabrication line suffers power outage disrupting wafer production.": {
+    "label": "negative",
+    "confidence": 0.96644
+  },
+  "Toshiba subsidiary suffers major cyberattack compromising internal engineering files.": {
+    "label": "negative",
+    "confidence": 0.966781
+  },
+  "Toshiba unveils high-efficiency silicon carbide power semiconductor modules.": {
+    "label": "neutral",
+    "confidence": 0.755622
+  },
+  "Trade regulators threaten sanction against Glencore over market manipulation concerns.": {
+    "label": "negative",
+    "confidence": 0.945841
+  },
+  "Trading in Evergrande Construction Logistics shares halted indefinitely by stock exchange.": {
+    "label": "negative",
+    "confidence": 0.798299
+  },
+  "Unions at Rio Tinto Canadian aluminum smelter raise concerns over shift scheduling.": {
+    "label": "negative",
+    "confidence": 0.951829
+  },
+  "Volvo Autonomous Solutions partners with major logistics operator for freight hub transit.": {
+    "label": "positive",
+    "confidence": 0.763871
+  },
+  "Volvo Financial Services reports stable credit performance across global fleet portfolio.": {
+    "label": "positive",
+    "confidence": 0.950253
+  },
+  "Volvo Group announces joint venture to build nationwide commercial charging corridors.": {
+    "label": "positive",
+    "confidence": 0.595077
+  },
+  "Volvo Group cautions on rising raw-material prices for high-strength vehicle chassis steel.": {
+    "label": "negative",
+    "confidence": 0.951965
+  },
+  "Volvo Group experiences production delays at Gothenburg plant due to transmission shortage.": {
+    "label": "negative",
+    "confidence": 0.959956
+  },
+  "Volvo Group faces temporary strike threat at French engine manufacturing plant.": {
+    "label": "negative",
+    "confidence": 0.953573
+  },
+  "Volvo Group opens new battery pack assembly facility to support heavy truck electrification.": {
+    "label": "positive",
+    "confidence": 0.640877
+  },
+  "Volvo Group reports record commercial truck deliveries and positive operating margins.": {
+    "label": "positive",
+    "confidence": 0.960089
+  },
+  "Volvo Group resolves localized supply chain disruption through air-freight contingency.": {
+    "label": "negative",
+    "confidence": 0.841916
+  },
+  "Volvo Group signs multi-year defense logistics contract with Nordic armed forces.": {
+    "label": "positive",
+    "confidence": 0.947078
+  },
+  "Volvo Trucks secures record order for 1,500 electric heavy-duty vehicles in Europe.": {
+    "label": "positive",
+    "confidence": 0.932963
+  },
+  "Volvo issues safety recall for select heavy-duty truck steering components.": {
+    "label": "negative",
+    "confidence": 0.813189
+  },
+  "Water shortage threatens TSMC manufacturing operations in Taiwan.": {
+    "label": "negative",
+    "confidence": 0.963247
+  },
+  "Widespread shipment delays trigger contract cancellations for Apex Logistics.": {
+    "label": "negative",
+    "confidence": 0.97045
+  }
+}
