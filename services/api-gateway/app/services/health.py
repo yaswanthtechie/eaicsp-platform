@@ -65,17 +65,9 @@ async def get_system_health(request: Request) -> dict[str, str]:
         return {"error": "health check unavailable"}
 
     tasks = []
-    seen = set()
     for prefix, url in settings.SERVICE_ROUTES.items():
         name = get_service_name(prefix)
-        key = name.lower().replace(" ", "-")
-        # Purchase Orders are implemented inside Inventory Service (:8001),
-        # so they do not have a separate standalone downstream health check.
-        if key in ("purchase-order", "purchase-orders"):
-            continue
-        if key not in seen:
-            seen.add(key)
-            tasks.append(_ping_service(client, name, url))
+        tasks.append(_ping_service(client, name, url))
 
     results = await asyncio.gather(*tasks)
     return {name: status for name, status in results}
