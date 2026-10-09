@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, mock_open, patch
 import pandas as pd
 import pytest
 
-import src.validate_cli as validate_cli
+import data_validator.validate_cli as validate_cli
 
 
 # --- Fixtures ---
@@ -41,7 +41,7 @@ def test_setup_logger(mock_basic_config, mock_file_handler):
     assert call_kwargs.get("force") is True
     assert "handlers" in call_kwargs
     assert len(call_kwargs["handlers"]) == 2
-    assert logger.name == "src.validate_cli"
+    assert logger.name == "data_validator.validate_cli"
 
 
 # --- Tests for parse_args ---
@@ -144,7 +144,7 @@ def test_main_input_not_file(mock_is_file, mock_args):
 
 
 @patch("pathlib.Path.is_file", return_value=True)
-@patch("src.validator.DataValidator.list_profiles", return_value=["default", "strict"])
+@patch("data_validator.validator.DataValidator.list_profiles", return_value=["default", "strict"])
 def test_main_list_profiles_found(mock_list, mock_is_file, mock_args):
     args = mock_args + ["--list-profiles"]
     assert validate_cli.main(args) == validate_cli.EXIT_SUCCESS
@@ -154,7 +154,7 @@ def test_main_list_profiles_found(mock_list, mock_is_file, mock_args):
 
 
 @patch("pathlib.Path.is_file", return_value=True)
-@patch("src.validator.DataValidator.list_profiles", return_value=[])
+@patch("data_validator.validator.DataValidator.list_profiles", return_value=[])
 def test_main_list_profiles_not_found(mock_list, mock_is_file, mock_args):
     args = mock_args + ["--list-profiles"]
     assert validate_cli.main(args) == validate_cli.EXIT_SUCCESS
@@ -177,8 +177,8 @@ def test_main_validation_fails_runtime_error(mock_read, mock_is_file, mock_args)
 
 @patch("pathlib.Path.is_file", return_value=True)
 @patch("pandas.read_csv", return_value=pd.DataFrame())
-@patch("src.validator.DataValidator.from_config")
-@patch("src.validate_cli.export_report", side_effect=TypeError("Bad Export"))
+@patch("data_validator.validator.DataValidator.from_config")
+@patch("data_validator.validate_cli.export_report", side_effect=TypeError("Bad Export"))
 def test_main_export_fails(mock_export, mock_validator, mock_read, mock_is_file, mock_args, mock_report):
     mock_instance = MagicMock()
     mock_instance.validate.return_value = mock_report
@@ -188,8 +188,8 @@ def test_main_export_fails(mock_export, mock_validator, mock_read, mock_is_file,
 
 @patch("pathlib.Path.is_file", return_value=True)
 @patch("pandas.read_csv", return_value=pd.DataFrame())
-@patch("src.validator.DataValidator.from_config")
-@patch("src.validate_cli.export_report")
+@patch("data_validator.validator.DataValidator.from_config")
+@patch("data_validator.validate_cli.export_report")
 def test_main_validation_passed_false(mock_export, mock_validator, mock_read, mock_is_file, mock_args, mock_report):
     mock_report.passed = False
     mock_report.total_rows_affected = 5
@@ -201,8 +201,8 @@ def test_main_validation_passed_false(mock_export, mock_validator, mock_read, mo
 
 @patch("pathlib.Path.is_file", return_value=True)
 @patch("pandas.read_csv", return_value=pd.DataFrame())
-@patch("src.validator.DataValidator.from_config")
-@patch("src.validate_cli.export_report")
+@patch("data_validator.validator.DataValidator.from_config")
+@patch("data_validator.validate_cli.export_report")
 def test_main_validation_passed_with_sla_breach(mock_export, mock_validator, mock_read, mock_is_file, mock_args,
                                                 mock_report):
     """Verifies that passing data with SLA violations returns the correct EXIT_SLA_BREACH code."""
@@ -217,8 +217,8 @@ def test_main_validation_passed_with_sla_breach(mock_export, mock_validator, moc
 
 @patch("pathlib.Path.is_file", return_value=True)
 @patch("pandas.read_csv", return_value=pd.DataFrame())
-@patch("src.validator.DataValidator.from_config")
-@patch("src.validate_cli.export_report")
+@patch("data_validator.validator.DataValidator.from_config")
+@patch("data_validator.validate_cli.export_report")
 def test_main_injects_sla_time_limit(mock_export, mock_validator, mock_read, mock_is_file, mock_args, mock_report):
     """Verifies that the CLI SLA override flag updates the validator engine attribute."""
     mock_instance = MagicMock()
@@ -232,8 +232,8 @@ def test_main_injects_sla_time_limit(mock_export, mock_validator, mock_read, moc
 
 @patch("pathlib.Path.is_file", return_value=True)
 @patch("pandas.read_csv", return_value=pd.DataFrame())
-@patch("src.validator.DataValidator.from_config")
-@patch("src.validate_cli.export_report")
+@patch("data_validator.validator.DataValidator.from_config")
+@patch("data_validator.validate_cli.export_report")
 def test_main_sla_time_limit_zero_is_not_ignored(mock_export, mock_validator, mock_read, mock_is_file, mock_args, mock_report):
     """0 is a real value, not "not set"."""
     mock_instance = MagicMock()
@@ -246,8 +246,8 @@ def test_main_sla_time_limit_zero_is_not_ignored(mock_export, mock_validator, mo
 
 @patch("pathlib.Path.is_file", return_value=True)
 @patch("pandas.read_csv", return_value=pd.DataFrame())
-@patch("src.validator.DataValidator.from_config")
-@patch("src.validate_cli.export_report")
+@patch("data_validator.validator.DataValidator.from_config")
+@patch("data_validator.validate_cli.export_report")
 def test_main_validation_passed_true_with_profile(mock_export, mock_validator, mock_read, mock_is_file, mock_args,
                                                   mock_report):
     mock_instance = MagicMock()
@@ -261,9 +261,9 @@ def test_main_validation_passed_true_with_profile(mock_export, mock_validator, m
 
 @patch("pathlib.Path.is_file", return_value=True)
 @patch("pandas.read_csv", return_value=pd.DataFrame())
-@patch("src.validator.DataValidator.from_config")
-@patch("src.validate_cli.export_report")
-@patch("src.validate_cli.logger.info")
+@patch("data_validator.validator.DataValidator.from_config")
+@patch("data_validator.validate_cli.export_report")
+@patch("data_validator.validate_cli.logger.info")
 def test_main_rule_timings_logging(mock_info, mock_export, mock_validator, mock_read, mock_is_file, mock_args,
                                    mock_report):
     mock_report.rule_timings = {"rule_1": 0.5, "rule_2": 1.2}
@@ -286,9 +286,9 @@ def test_parse_args_incremental(mock_args):
 
 @patch("pathlib.Path.is_file", return_value=True)
 @patch("pandas.read_csv")
-@patch("src.validator.DataValidator.from_config")
-@patch("src.validate_cli.export_report")
-@patch("src.watermark.WatermarkManager")
+@patch("data_validator.validator.DataValidator.from_config")
+@patch("data_validator.validate_cli.export_report")
+@patch("data_validator.watermark.WatermarkManager")
 def test_main_incremental_updates_watermark(
         mock_wm_class, mock_export, mock_validator, mock_read, mock_is_file, mock_args, mock_report
 ):
@@ -308,9 +308,9 @@ def test_main_incremental_updates_watermark(
 
 @patch("pathlib.Path.is_file", return_value=True)
 @patch("pandas.read_csv")
-@patch("src.validator.DataValidator.from_config")
-@patch("src.validate_cli.export_report")
-@patch("src.watermark.WatermarkManager")
+@patch("data_validator.validator.DataValidator.from_config")
+@patch("data_validator.validate_cli.export_report")
+@patch("data_validator.watermark.WatermarkManager")
 def test_main_incremental_no_new_data(
         mock_wm_class, mock_export, mock_validator, mock_read, mock_is_file, mock_args
 ):
@@ -328,8 +328,8 @@ def test_main_incremental_no_new_data(
 # --- Tests for Streaming / Chunking ---
 
 @patch("pathlib.Path.is_file", return_value=True)
-@patch("src.validator.DataValidator.from_config")
-@patch("src.validate_cli.export_report")
+@patch("data_validator.validator.DataValidator.from_config")
+@patch("data_validator.validate_cli.export_report")
 def test_main_streaming_success(mock_export, mock_validator, mock_is_file, mock_args, mock_report):
     mock_instance = MagicMock()
     mock_instance.validate_stream.return_value = mock_report
@@ -341,9 +341,9 @@ def test_main_streaming_success(mock_export, mock_validator, mock_is_file, mock_
 
 @patch("pathlib.Path.is_file", return_value=True)
 @patch("pandas.read_csv")
-@patch("src.validator.DataValidator.from_config")
-@patch("src.validate_cli.export_report")
-@patch("src.watermark.WatermarkManager")
+@patch("data_validator.validator.DataValidator.from_config")
+@patch("data_validator.validate_cli.export_report")
+@patch("data_validator.watermark.WatermarkManager")
 def test_main_streaming_incremental(
         mock_wm_class, mock_export, mock_validator, mock_read, mock_is_file, mock_args, mock_report
 ):
@@ -363,9 +363,9 @@ def test_main_streaming_incremental(
 
 @patch("pathlib.Path.is_file", return_value=True)
 @patch("pandas.read_csv")
-@patch("src.validator.DataValidator.from_config")
-@patch("src.validate_cli.export_report")
-@patch("src.watermark.WatermarkManager")
+@patch("data_validator.validator.DataValidator.from_config")
+@patch("data_validator.validate_cli.export_report")
+@patch("data_validator.watermark.WatermarkManager")
 def test_main_streaming_incremental_no_rows_processed(
         mock_wm_class, mock_export, mock_validator, mock_read, mock_is_file, mock_args, mock_report
 ):
@@ -387,9 +387,9 @@ def test_main_streaming_incremental_no_rows_processed(
 
 @patch("pathlib.Path.is_file", return_value=True)
 @patch("pandas.read_csv", return_value=pd.DataFrame())
-@patch("src.validator.DataValidator.from_config")
-@patch("src.validate_cli.export_report")
-@patch("src.validate_cli.resolve_env_path")
+@patch("data_validator.validator.DataValidator.from_config")
+@patch("data_validator.validate_cli.export_report")
+@patch("data_validator.validate_cli.resolve_env_path")
 def test_main_env_resolution(
         mock_resolve, mock_export, mock_validator, mock_read, mock_is_file, mock_args, mock_report
 ):

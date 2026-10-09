@@ -1,5 +1,5 @@
-from fastapi import FastAPI, Request
-import time
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.routes.supplier_onboarding import (
     router as supplier_onboarding_router,
@@ -11,11 +11,18 @@ from app.routes.purchase_order import router as purchase_order_router
 from app.routes.shipment import router as shipment_router
 from app.routes.goods_receipt import router as goods_receipt_router
 from app.routes.invoice import router as invoice_router
+from app.routes.supplier_stats_routes import (
+    router as supplier_stats_router,
+)
 from app.routes.three_way_match import (
     router as three_way_match_router,
 )
-from app.routes import supplier_stats_routes
+from app.routes.auth import router as auth_router
 from app.schemas.purchase_order import MessageResponse
+from strawberry.fastapi import GraphQLRouter
+
+from app.graphql.context import get_graphql_context
+from app.graphql.schema import schema
 
 
 app = FastAPI(
@@ -24,54 +31,39 @@ app = FastAPI(
     description="Enterprise AI Cognitive Supply Chain",
 )
 
+graphql_app = GraphQLRouter(
+    schema,
+    context_getter=get_graphql_context,
+)
 
-# ============================================================
-# REQUEST LOGGING MIDDLEWARE
-# ============================================================
+# Allow the React/Vite frontend to communicate with the backend.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:5174",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    start_time = time.time()
-
-    response = await call_next(request)
-
-    process_time = time.time() - start_time
-
-    print(
-        f"{request.method} "
-        f"{request.url.path} "
-        f"- {response.status_code} "
-        f"({process_time:.3f}s)",
-        flush=True,
-    )
-
-    return response
-
-
-# ============================================================
-# SUPPLIER ONBOARDING ROUTES
-# ============================================================
-
+# Supplier Onboarding
 app.include_router(
     supplier_onboarding_router,
     prefix="/api/v1",
     tags=["Supplier Onboarding"],
 )
 
-# ============================================================
-# SUPPLIER CONTRACT ROUTES
-# ============================================================
-
+# Supplier Contracts
 app.include_router(
     supplier_contract_router,
     prefix="/api/v1",
     tags=["Supplier Contracts"],
 )
 
-# ============================================================
-# PURCHASE ORDER ROUTES
-# ============================================================
 
+# Purchase Orders
 app.include_router(
     purchase_order_router,
     prefix="/api/v1",
@@ -79,64 +71,61 @@ app.include_router(
 )
 
 
-# ============================================================
-# SHIPMENT ROUTES
-# ============================================================
-
+# Shipments
 app.include_router(
     shipment_router,
     prefix="/api/v1",
     tags=["Shipments"],
 )
 
-# ============================================================
-# Goods Receipt ROUTES
-# ============================================================
-
-app.include_router(
-    goods_receipt_router,
-    prefix="/api/v1",
-    tags=["Goods Receipts"],
-)
-
-# ============================================================
-# INVOICE ROUTES
-# ============================================================
-
+# Invoices
 app.include_router(
     invoice_router,
     prefix="/api/v1",
     tags=["Invoices"],
 )
 
-# ============================================================
-# THREE-WAY MATCH ROUTES
-# ============================================================
+# Authentication
+app.include_router(
+    auth_router,
+    prefix="/api/v1",
+    tags=["Authentication"],
+)
 
+
+
+
+
+# Goods Receipts
+app.include_router(
+    goods_receipt_router,
+    prefix="/api/v1",
+    tags=["Goods Receipts"],
+)
+
+
+# Three-Way Match
 app.include_router(
     three_way_match_router,
     prefix="/api/v1",
-    tags=["Three-Way Matches"],
+    tags=["Three-Way Match"],
 )
 
-# ============================================================
-# SUPPLIER STATS + SCORECARD ROUTES
-# ============================================================
-
+# Supplier Stats & Scorecard
 app.include_router(
-    supplier_stats_routes.router,
+    supplier_stats_router,
     prefix="/api/v1/suppliers",
     tags=["Supplier Stats"],
 )
 
-
-# ============================================================
-# ROOT
-# ============================================================
+app.include_router(
+    graphql_app,
+    prefix="/graphql",
+)
 
 @app.get(
     "/",
-    response_model=MessageResponse
+    response_model=MessageResponse,
 )
 def root():
     return {

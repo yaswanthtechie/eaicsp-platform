@@ -1,0 +1,39 @@
+stages:
+  # Deterministically rebuild the raw dataset (scikit-learn's bundled
+  # Iris data, pinned via requirements.txt). No DVC remote needed, so
+  # `dvc repro` works from a clean clone.
+  fetch:
+    cmd: python -m scripts.create_reference_dataset
+    deps:
+      - scripts/create_reference_dataset.py
+    outs:
+      - data/reference/iris.csv
+
+  prepare:
+    cmd: python -m scripts.dvc_prepare
+    deps:
+      - data/reference/iris.csv
+      - scripts/dvc_prepare.py
+    outs:
+      - data/reference/processed.csv
+
+  # The SAME training code that is logged to MLflow and served.
+  train:
+    cmd: python -m src.train
+    deps:
+      - data/reference/processed.csv
+      - src/train.py
+      - src/data.py
+      - src/config.py
+    outs:
+      - models/model.pkl
+
+  evaluate:
+    cmd: python -m scripts.dvc_evaluate
+    deps:
+      - data/reference/processed.csv
+      - models/model.pkl
+      - scripts/dvc_evaluate.py
+    metrics:
+      - metrics.json:
+          cache: false

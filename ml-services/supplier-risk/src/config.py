@@ -40,6 +40,14 @@ DEFAULT_VOLUME_WEIGHT: Final[float] = 0.15
 DEFAULT_MITIGATION_WEIGHT: Final[float] = 0.35
 
 # ------------------------------------------------------------------
+# MongoDB Configuration Defaults
+# ------------------------------------------------------------------
+
+DEFAULT_MONGODB_URI: Final[str] = "mongodb://localhost:27017"
+DEFAULT_MONGODB_DATABASE: Final[str] = "supplier_risk"
+DEFAULT_MONGODB_COLLECTION: Final[str] = "headlines"
+
+# ------------------------------------------------------------------
 # Fixed Risk Tier Classification Thresholds
 # (Configured a priori before evaluation; independent of model prediction scores)
 # ------------------------------------------------------------------
@@ -219,6 +227,9 @@ class Settings:
         tier_high_ceiling: float | None = None,
         volume_weight: float | None = None,
         mitigation_weight: float | None = None,
+        mongodb_uri: str | None = None,
+        mongodb_database: str | None = None,
+        mongodb_collection: str | None = None,
     ) -> None:
         # 1. Negative sentiment penalty
         if negative_sentiment_penalty is not None:
@@ -415,6 +426,20 @@ class Settings:
                 else DEFAULT_MITIGATION_WEIGHT
             )
 
+        # 15. MongoDB Configuration
+        self.mongodb_uri = (
+            mongodb_uri.strip() if mongodb_uri is not None
+            else os.getenv("MONGODB_URI", DEFAULT_MONGODB_URI).strip()
+        )
+        self.mongodb_database = (
+            mongodb_database.strip() if mongodb_database is not None
+            else os.getenv("MONGODB_DATABASE", DEFAULT_MONGODB_DATABASE).strip()
+        )
+        self.mongodb_collection = (
+            mongodb_collection.strip() if mongodb_collection is not None
+            else os.getenv("MONGODB_COLLECTION", DEFAULT_MONGODB_COLLECTION).strip()
+        )
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert settings instance to dictionary for API serialization."""
         return {
@@ -435,6 +460,9 @@ class Settings:
             "volume_weight": self.volume_weight,
             "mitigation_weight": self.mitigation_weight,
             "signal_weights": dict(self.signal_weights),
+            "mongodb_uri": self.mongodb_uri,
+            "mongodb_database": self.mongodb_database,
+            "mongodb_collection": self.mongodb_collection,
         }
 
 

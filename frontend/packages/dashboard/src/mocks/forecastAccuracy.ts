@@ -1,5 +1,5 @@
-import type { ForecastAccuracyPoint } from "../types/dashboard";
-import { forecast } from "./forecast";
+import type { ForecastAccuracyPoint } from "../types/dashboard.ts";
+import { forecast } from "./forecast.ts";
 
 export const forecastAccuracy: ForecastAccuracyPoint[] = forecast
   .filter((point) => point.actual !== undefined)

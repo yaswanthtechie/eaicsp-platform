@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
 
-from src.build_features import build_all_features
-from src.feature_quality import score_feature_quality
+from feature_lib.build_features import build_all_features
+from feature_lib.feature_quality import score_feature_quality
 
 
 def test_feature_quality_flags_high_null_feature():

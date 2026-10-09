@@ -110,23 +110,23 @@ Example:
 
 The library was tested using the Prophet retail sales dataset.
 
-The current test suite contains 99 tests, and the latest full test run passed all 99 tests.
+The current test suite contains 147 tests, and the latest full test run passed all 147 tests.
 
-**---**
 
-**## Previous Milestone Status**
+
+## Previous Milestone Status
 
 | Milestone | Status |
 |---|---|
-| Milestone 1 – Complete Feature Suite | Done |
-| Milestone 2 – Automated Feature Selection | Done |
-| Milestone 3 – Feature Store Pattern | Done |
-| Milestone 4 – Feature Drift Monitoring | Done |
-| Milestone 5 – Feature Engineering API | Done |
+| Milestone 1 - Complete Feature Suite | Done |
+| Milestone 2 - Automated Feature Selection | Done |
+| Milestone 3 - Feature Store Pattern | Done |
+| Milestone 4 - Feature Drift Monitoring | Done |
+| Milestone 5 - Feature Engineering API | Done |
 
 **\*\*Notes:\*\*** The FeatureStore is currently an in-memory implementation. Feature versions are explicitly supplied by the caller. Statistical significance uses Pearson correlation with Benjamini-Hochberg correction, with the limitation that Pearson p-values may be less reliable for autocorrelated time-series data.
 
-**## Round 9–11 Milestone Status**
+## Round 9-11 Milestone Status
 
 | Requirement | Status |
 |---|---|
@@ -136,7 +136,24 @@ The current test suite contains 99 tests, and the latest full test run passed al
 | Performance at real scale (100k+ rows) | Done |
 | Full test coverage and comprehensive documentation | Done |
 
-** **Round 9–11 Verification:** Feature versioning is demonstrated with separate `v1` and `v2` definitions and backward-compatible `v1` consumers. The automated feature catalog documents both versions, including the version-specific rolling standard deviation definitions. Feature quality scoring flags real risky features with clear reasons: the 30-day features are flagged on a 60-day-history scenario because of their high null rate. The performance benchmark processes 100,000 grouped time-series rows and reports execution time. The latest full test run passed all 99 tests.
+** **Round 9-11 Verification:** Feature versioning is demonstrated with separate `v1` and `v2` definitions and backward-compatible `v1` consumers. The automated feature catalog documents both versions, including the version-specific rolling standard deviation definitions. Feature quality scoring flags real risky features with clear reasons: the 30-day features are flagged on a 60-day-history scenario because of their high null rate. The performance benchmark processes 100,000 grouped time-series rows and reports execution time.
+
+## Round 12-13 Milestone Status
+
+| Requirement | Status |
+|---|---|
+| Installable Python package | Done |
+| Strict point-in-time as-of join with leakage prevention | Done |
+| Sensor features and feature catalog | Done |
+| ETA features and feature catalog | Done |
+| Testing, validation, and documentation | Done |
+
+**Round 12-13 Verification:** The package was built and installed in a clean virtual environment, and the public API import was verified. The strict as-of join was tested to ensure features are taken only from timestamps strictly before the target timestamp. Sensor and ETA feature generation, leakage prevention, and catalog documentation were covered by targeted tests. The latest full test run passed all 147 tests.
+
+**Known limitations**
+- Sensor rolling windows count observations, not elapsed time.
+- Same-timestamp sensor readings are averaged before history is built.
+- Seasons follow Indian seasonality (winter, summer, monsoon, post-monsoon).
 
 ## 2. How to Run
 
@@ -150,20 +167,20 @@ Navigate to the project folder.
 
 Install the required dependencies.
 
-    pip install -r requirements.txt
+    python -m pip install -e ".[dev,service]"
 
-The main dependencies include:
+The package dependencies are managed through `pyproject.toml`.
 
-- pandas
-- numpy
-- scipy
-- scikit-learn
-- statsmodels
-- holidays
-- pytest
-- fastapi
-- uvicorn
-- httpx
+- Core: pandas, holidays, scikit-learn, scipy, statsmodels
+- Service (optional): fastapi, uvicorn
+- Development and testing (optional): pytest, httpx
+
+For installing only the core library, run:
+
+    python -m pip install -e .
+
+The `-e` option installs the package in editable mode, so code changes
+in the source directory are reflected without reinstalling the package.
 
 ### Step 3
 
@@ -224,7 +241,7 @@ The test suite covers:
 
 Expected result:
 
-    99 passed
+    147 passed
 
 The test suite may display dependency-related deprecation or statistical warnings. These warnings do not indicate failures in the feature library when all tests pass.
 
@@ -247,9 +264,9 @@ Run the benchmark from the `feature-lib` directory with:
 
 A separate 60-day-history scenario is also used to demonstrate feature quality risk. Because 30-observation features require 30 historical observations, the following features contain 50% null values and are flagged as risky:
 
-- `target_lag_30` — High null rate: 50.0%
-- `target_roll_mean_30` — High null rate: 50.0%
-- `target_roll_std_30` — High null rate: 50.0%
+- `target_lag_30` - High null rate: 50.0%
+- `target_roll_mean_30` - High null rate: 50.0%
+- `target_roll_std_30` - High null rate: 50.0%
 
 The full 1,000-day history scenario does not flag these features as risky.
 
@@ -259,7 +276,7 @@ The library includes a simple in-memory `FeatureStore` pattern for computing eng
 
 Example:
 
-    from src.feature_store import FeatureStore
+    from feature_lib import FeatureStore
 
     store = FeatureStore()
 
@@ -299,6 +316,15 @@ and:
 
 produce separate feature definitions and separate cache entries.
 
+### Package Versioning vs. Feature-Definition Versioning
+
+The library uses two separate versioning systems:
+
+- **Package version (`0.1.0`):** identifies the release of the installable Python package. It is defined in `pyproject.toml`.
+- **Feature-definition version (`v1`, `v2`):** identifies the feature-generation logic used when building features. It is selected using the `feature_version` argument.
+
+Changing the package version does not automatically change the feature-definition version. Existing feature definitions must remain compatible unless a deliberate feature-version change is introduced and tested.
+
 ### Versioned Feature Definition Changes
 
 Feature versions can change the definition of an existing feature without changing the behavior of older consumers. In v1, `target_roll_std_7` uses the sample standard deviation (`ddof=1`). In v2, the same feature uses the population standard deviation (`ddof=0`). The v1 implementation remains frozen, so existing v1 consumers continue to receive the original feature definition.
@@ -307,7 +333,7 @@ Feature versions can change the definition of an existing feature without changi
 
 When adding a new feature version:
 
-1. Add the new version to the `FEATURE_VERSIONS` registry in `src/build_features.py`.
+1. Add the new version to the `FEATURE_VERSIONS` registry in `src/feature_lib/build_features.py`.
 2. Keep existing feature-version implementations frozen so existing consumers continue to receive the same calculations.
 3. Define the new version's feature changes independently from older versions.
 4. Add tests confirming that existing versions remain unchanged and that the new version produces the intended features.
@@ -354,7 +380,7 @@ The library provides feature drift detection using the two-sample Kolmogorov-Smi
 
 Example:
 
-    from src.feature_drift import detect_feature_drift
+    from feature_lib import detect_feature_drift
 
     drift_results = detect_feature_drift(
         reference_df,
@@ -457,7 +483,7 @@ For identical requests using the same dataset, configuration, and feature-defini
 
 From the `ml-services/feature-lib` directory:
 
-    uvicorn src.service:app --reload
+    uvicorn feature_lib.service:app --reload
 
 The endpoint can then be called with:
 
@@ -469,16 +495,14 @@ Validation errors such as a missing target column, non-numeric target, or invali
 
 ---
 
-## 6. What I Would Do Next
+## What I Would Do Next
 
-The Round 9–11 assignment requirements are complete. Further improvements can be considered as future work:
+With the shared feature engineering library implemented, the next steps are to:
 
-If I had another day, I would:
-
-- Add more integration tests using different time-series datasets.
-- Improve the feature-store implementation for persistent or distributed storage if the project later requires production-scale reuse.
-- Add additional monitoring and API-level integration tests.
-- Package the library for easier reuse across multiple AI/ML services.
+- Integrate the library with the relevant ML services and validate end-to-end usage.
+- Gather feedback from consuming services and refine the public API while maintaining backward compatibility.
+- Continue improving feature quality, performance, and monitoring based on real-world usage.
+- Coordinate the next phase of model-level integration, including ETA and anomaly detection, according to the assignment handover.
 
 ---
 
@@ -520,7 +544,7 @@ After understanding these concepts, I was able to complete the feature engineeri
 - Benjamini-Hochberg false discovery rate correction is applied when evaluating multiple feature p-values.
 - Statistical significance is used as supporting evidence during feature ranking; it is not added directly to the combined correlation and model-importance score.
 - The model-based feature importance helper uses a Random Forest to rank numeric features by their importance to the target.
-- The feature selection helper combines absolute correlation and model-based feature importance after normalizing both signals to a 0–1 range, then returns the top N features.
+- The feature selection helper combines absolute correlation and model-based feature importance after normalizing both signals to a 0-1 range, then returns the top N features.
 - Statistically significant features are prioritized when ranking the final feature-selection results.
 - Features with undefined (`NaN`) correlations, such as constant features, are excluded from the usefulness results.
 - The `FeatureStore` uses an in-memory cache and includes dataset contents, configuration, and feature definition version in its cache key.
@@ -528,7 +552,7 @@ After understanding these concepts, I was able to complete the feature engineeri
 - Different feature-definition versions are cached separately.
 - The `/features/build` API uses the shared `FeatureStore` so repeated requests with the same data, configuration, and version can reuse cached features.
 - Feature drift monitoring currently focuses on numeric features and uses the two-sample KS test with both statistical and effect-size criteria.
-- Holiday detection covers 2001–2035; data outside that range returns `is_holiday=0`, not a computed holiday value.
+- Holiday detection covers 2001-2035; data outside that range returns `is_holiday=0`, not a computed holiday value.
 - The API uses the same feature-building logic as the Python library rather than maintaining a separate feature-generation implementation.
 
 ---
@@ -553,8 +577,8 @@ After understanding these concepts, I was able to complete the feature engineeri
 
 Example:
 
-    from src.build_features import build_all_features
-    from src.feature_usefulness import select_top_features
+    from feature_lib import build_all_features
+    from feature_lib import select_top_features
 
     config = {
         "lags": [1, 7, 14],
@@ -596,18 +620,214 @@ The same feature-generation functionality can also be accessed through the API:
 
 This provides both a reusable Python library interface and a service-based interface for other AI/ML components.
 
+
 ### Feature Catalog
 
 The library provides an automated feature catalog that documents generated features in human-readable form, including the feature name, type, meaning, and feature version.
 
 The catalog generator generates entries for both `v1` and `v2`. This ensures that version-specific features, including the additional 14-observation rolling features introduced in `v2`, are documented explicitly.
 
+The catalog also documents supported sensor and ETA features, including their descriptions and relevant metadata, where available in the generated catalog.
+
 Generate or regenerate the catalog with:
 
-    python -m scripts.generate_feature_catalog
+```bash
+python -m scripts.generate_feature_catalog
+```
 
 The generated catalog is saved to:
 
-    docs/feature_catalog.md
+```text
+docs/feature_catalog.md
+```
 
-The catalog should be regenerated whenever a feature definition or feature version is added or changed.
+The catalog should be regenerated whenever a feature definition or feature version is added or changed. This keeps the documentation aligned with the implemented feature definitions.
+
+## Public API
+
+The following functions and classes are exported from the `feature_lib` package and are intended for use by other services and developers.
+
+* `build_all_features`
+* `add_calendar_features`
+* `generate_feature_catalog`
+* `detect_feature_drift`
+* `score_feature_quality`
+* `FeatureStore`
+* `calculate_feature_correlations`
+* `calculate_feature_significance`
+* `calculate_model_feature_importance`
+* `select_top_features`
+* `create_holiday_features`
+* `add_interaction_features`
+* `add_lag_features`
+* `add_rolling_features`
+* `asof_join`
+* `add_sensor_features`
+* `add_eta_features`
+* `generate_sensor_feature_catalog`
+* `generate_eta_feature_catalog`
+
+Import these functions and classes directly from `feature_lib`. Internal modules may change as the library evolves, while the documented public API is intended to remain stable and backward-compatible.
+
+## Package Structure
+
+The library is organized into the following modules under `src/feature_lib/`:
+
+| Module                    | Responsibility                                                                                                         |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `__init__.py`             | Exposes the package's public API                                                                                       |
+| `build_features.py`       | Orchestrates feature generation and feature-definition versions                                                        |
+| `lag_features.py`         | Generates configurable lag features                                                                                    |
+| `rolling_features.py`     | Generates rolling mean and standard deviation features                                                                 |
+| `calendar_features.py`    | Generates calendar-based features                                                                                      |
+| `holiday_features.py`     | Generates holiday indicators                                                                                           |
+| `interaction_features.py` | Generates interaction features                                                                                         |
+| `feature_catalog.py`      | Generates feature documentation and catalog                                                                            |
+| `feature_drift.py`        | Detects changes in feature distributions                                                                               |
+| `feature_quality.py`      | Evaluates feature quality                                                                                              |
+| `feature_usefulness.py`   | Calculates feature usefulness and selects features                                                                     |
+| `feature_store.py`        | Caches and reuses engineered features                                                                                  |
+| `service.py`              | Provides the FastAPI feature engineering service                                                                       |
+| `asof_join.py`            | Performs strict point-in-time feature joins to prevent future leakage                                                  |
+| `sensor_features.py`      | Generates sensor features, including rolling z-score, rate of change, rolling minimum/maximum, and cross-sensor ratios |
+| `eta_features.py`         | Generates ETA features, including historical on-time rates, average transit times, and calendar-based effects          |
+
+The `feature_lib` package separates feature generation, evaluation, caching, documentation, and API functionality into dedicated modules. The public API is exposed through `__init__.py`, while internal implementation details remain within their respective modules.
+
+
+## Point-in-Time As-Of Join
+
+The `asof_join` function attaches the latest feature record that was available strictly before each observation timestamp.
+
+### Usage
+
+```python
+from feature_lib import asof_join
+
+result = asof_join(
+    observations,
+    features,
+    observation_time="observed_at",
+    feature_time="available_at",
+    by="entity",
+)
+```
+
+### Parameters
+
+* `observations`: DataFrame containing observation records.
+* `features`: DataFrame containing timestamped feature records.
+* `observation_time`: Name of the observation timestamp column.
+* `feature_time`: Name of the feature availability timestamp column.
+* `by`: Optional entity or grouping column, or a list of columns.
+* `suffixes`: Suffixes used for overlapping column names. Defaults to `("_observation", "_feature")`.
+
+### Point-in-Time Correctness and Leakage Prevention
+
+The function uses backward matching and excludes exact timestamp matches. Only features with an availability timestamp strictly earlier than the observation timestamp are eligible.
+
+* Future feature records are excluded.
+* Exact timestamp matches are excluded.
+* Entity-based matching prevents features from being matched across different entities.
+* Observations without an eligible feature record receive missing feature values.
+* The original observation order and index are preserved.
+
+**Important:** The feature timestamp must represent when the feature was actually available, not merely the time of the underlying event. This ensures the join respects point-in-time data availability and helps prevent data leakage.
+
+
+## ETA Feature Engineering
+
+The library provides `add_eta_features()` to generate shipment ETA features using historical delivery information and departure dates.
+
+### Usage
+
+```python
+from feature_lib import add_eta_features
+
+eta_features = add_eta_features(shipments)
+```
+
+### Required Input Columns
+
+- `scheduled_pickup_date`
+- `actual_delivery_date`
+- `expected_delivery_date`
+- `carrier_name`
+- `route_id`
+
+Optional:
+
+- `actual_pickup_date`
+
+### Generated Features
+
+| Feature | Description |
+|---|---|
+| `departure_day_of_week` | Scheduled departure weekday (Monday = 0). |
+| `departure_month` | Scheduled departure month (1-12). |
+| `departure_season` | Season derived from departure month. |
+| `historical_on_time_rate_carrier` | Historical on-time delivery rate for the carrier. |
+| `historical_on_time_rate_route` | Historical on-time delivery rate for the route. |
+| `historical_avg_transit_days_carrier` | Historical average transit days for the carrier. |
+| `historical_avg_transit_days_route` | Historical average transit days for the route. |
+| `historical_avg_transit_days_carrier_route` | Historical average transit days for the carrier-route combination. |
+| `historical_on_time_rate_departure_day_of_week` | Historical on-time delivery rate for shipments with the same departure weekday, using only outcomes available before departure. |
+| `historical_on_time_rate_departure_season` | Historical on-time delivery rate for shipments with the same departure season, using only outcomes available before departure. |
+
+### Point-in-Time Correctness
+
+Historical statistics use only shipments whose actual delivery occurred strictly before the current shipment's scheduled departure.
+
+This prevents future delivery outcomes from leaking into historical features.
+
+- Rows without eligible historical records receive missing values.
+- The function returns a copy of the input DataFrame.
+- The original row order and index are preserved.
+- Historical statistics are attached using the strict point-in-time `asof_join`, so only shipment outcomes available strictly before the current shipment's scheduled departure are used.
+
+### Notes
+
+- The function requires the specified shipment and delivery columns.
+- Historical features depend on previously completed shipments with eligible delivery information.
+- Departure calendar features are derived from the scheduled pickup date.
+
+
+## Sensor Feature Engineering
+
+The library provides `add_sensor_features()` to generate historical sensor-based features for time-series data.
+
+### Generated Features
+
+| Feature | Description |
+|---|---|
+| Rolling z-score | Measures how far the current sensor value deviates from its historical rolling mean, relative to historical variability. |
+| Rate of change | Measures changes in sensor values relative to previous observations. |
+| Rolling minimum | Calculates the minimum sensor value over a specified historical window. |
+| Rolling maximum | Calculates the maximum sensor value over a specified historical window. |
+| Cross-sensor ratios | Calculates ratios between related sensor measurements. |
+
+### Point-in-Time Correctness
+
+Sensor historical features are attached using the strict point-in-time `asof_join`, so observations at or after the current timestamp are excluded.
+
+- Rolling calculations use shifted historical data to prevent leakage.
+- Grouped calculations keep sensor histories separate.
+- The original row order and index are preserved.
+- Zero denominators in cross-sensor ratios produce missing values.
+- Invalid rolling window configurations are validated.
+- Rolling windows represent a number of previous observations, not a fixed elapsed-time duration.
+
+### Usage
+
+```python
+from feature_lib import add_sensor_features
+
+sensor_features = add_sensor_features(
+    df=sensor_data,
+    sensor_cols=["temperature", "pressure"],
+    timestamp_col="timestamp",
+    window=7,
+    group_cols=["machine_id"],
+    sensor_pairs=[("temperature", "pressure")],
+)
+```

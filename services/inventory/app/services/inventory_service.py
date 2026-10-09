@@ -1,6 +1,7 @@
 import csv
 import io
 import logging
+from typing import Optional
 
 from fastapi import HTTPException, UploadFile
 from pydantic import ValidationError
@@ -28,6 +29,57 @@ from app.services.valuation_service import (
     consume_cost_layers,
     latest_unit_cost,
 )
+from app.services.outbox_service import record_event
+from app.services.cache_service import invalidate_inventory_cache
+
+
+logger = logging.getLogger(__name__)
+
+
+def check_and_record_low_stock(
+    db: Session,
+    item: Inventory,
+    previous_quantity: Optional[int] = None,
+) -> None:
+    """
+    Check if inventory level is below reorder point and record an
+    inventory.stock.low event in the transactional outbox table.
+
+    Deduplication semantics:
+    - On decrement/update (previous_quantity provided): the event fires ONLY
+      when stock crosses below the reorder point (i.e. was >= reorder_point and
+      now < reorder_point). Subsequent decrements while stock is already below
+      the threshold do NOT emit duplicate events.
+    - On creation (previous_quantity is None): the event fires if stock starts
+      below the reorder point.
+    """
+    try:
+        calculation = calculate_reorder_point(db=db, inventory=item)
+        reorder_point = calculation.get("reorder_point", 0)
+
+        dropped_below = (
+            (previous_quantity >= reorder_point and item.quantity_on_hand < reorder_point)
+            if previous_quantity is not None
+            else (item.quantity_on_hand < reorder_point)
+        )
+
+        if dropped_below:
+            record_event(
+                db=db,
+                event_type="inventory.stock.low",
+                aggregate_type="inventory",
+                aggregate_id=f"{item.sku_id}:{item.warehouse_id}",
+                payload={
+                    "sku_id": item.sku_id,
+                    "warehouse_id": item.warehouse_id,
+                    "quantity_on_hand": item.quantity_on_hand,
+                    "reorder_point": reorder_point,
+                    "safety_stock": calculation.get("adjusted_safety_stock", item.safety_stock),
+                    "avg_daily_demand": calculation.get("rolling_avg_demand", item.avg_daily_demand),
+                },
+            )
+    except Exception as exc:
+        logger.warning("Could not calculate reorder point for low stock event: %s", exc)
 
 
 logger = logging.getLogger(__name__)
@@ -253,8 +305,11 @@ def create_inventory(
             # Inventory creation should still succeed.
             pass
 
+        check_and_record_low_stock(db=db, item=item)
+
         db.commit()
         db.refresh(item)
+        invalidate_inventory_cache(item.sku_id, item.warehouse_id, version=item.version)
 
     except Exception:
         db.rollback()
@@ -449,8 +504,11 @@ def update_inventory(
 
         item.version += 1
 
+        check_and_record_low_stock(db=db, item=item, previous_quantity=old_quantity)
+
         db.commit()
         db.refresh(item)
+        invalidate_inventory_cache(item.sku_id, item.warehouse_id, version=item.version)
 
     except HTTPException:
         db.rollback()
@@ -502,9 +560,14 @@ def delete_inventory(
     if item is None:
         return False
 
+    deleted_version = item.version
+
     try:
         db.delete(item)
         db.commit()
+        # Fence above the last version so an in-flight read can't re-cache
+        # the deleted row.
+        invalidate_inventory_cache(sku_id, warehouse_id, version=deleted_version + 1)
 
     except Exception:
         db.rollback()
@@ -673,6 +736,7 @@ def bulk_update_inventory(
     """
 
     updated_items = []
+    previous_quantities: dict[tuple[str, str], int] = {}
 
     ordered_updates = sorted(
         updates,
@@ -706,6 +770,7 @@ def bulk_update_inventory(
                 )
 
             old_quantity = item.quantity_on_hand
+            previous_quantities[(item.sku_id, item.warehouse_id)] = old_quantity
 
             new_quantity = (
                 old_quantity
@@ -775,14 +840,15 @@ def bulk_update_inventory(
 
             updated_items.append(item)
 
-        # -----------------------------------------------------
-        # Commit only after every inventory item succeeds.
-        # -----------------------------------------------------
+        for item in updated_items:
+            prev_qty = previous_quantities.get((item.sku_id, item.warehouse_id))
+            check_and_record_low_stock(db=db, item=item, previous_quantity=prev_qty)
 
         db.commit()
 
         for item in updated_items:
             db.refresh(item)
+            invalidate_inventory_cache(item.sku_id, item.warehouse_id, version=item.version)
 
     except Exception:
         db.rollback()
@@ -954,6 +1020,7 @@ def bulk_upload_csv(
 
         db.add_all(new_items)
         db.commit()
+        invalidate_inventory_cache()
 
     except Exception:
         db.rollback()

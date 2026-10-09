@@ -184,3 +184,177 @@ CREATE TABLE IF NOT EXISTS etl_run_batches (
     recorded_at TIMESTAMP DEFAULT NOW(),
     PRIMARY KEY (run_id, source_name, batch_file)
 );
+
+CREATE TABLE IF NOT EXISTS staging_sales_fact_history (
+    history_id BIGSERIAL PRIMARY KEY,
+    sales_fact_id BIGINT NOT NULL,
+    date DATE,
+    sku_id VARCHAR(50),
+    warehouse_id VARCHAR(20),
+    quantity_sold INTEGER,
+    unit_price NUMERIC(12,2),
+    source_batch VARCHAR(100),
+    run_id BIGINT,
+    pipeline_version VARCHAR(20),
+    valid_from TIMESTAMP,
+    archived_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS prod_sales_fact_history (
+    history_id BIGSERIAL PRIMARY KEY,
+    sales_fact_id BIGINT NOT NULL,
+    date DATE,
+    sku_id VARCHAR(50),
+    warehouse_id VARCHAR(20),
+    quantity_sold INTEGER,
+    unit_price NUMERIC(12,2),
+    source_batch VARCHAR(100),
+    run_id BIGINT,
+    pipeline_version VARCHAR(20),
+    valid_from TIMESTAMP,
+    archived_at TIMESTAMP DEFAULT NOW()
+);
+
+
+CREATE TABLE IF NOT EXISTS staging_inventory_snapshot (
+    id BIGSERIAL PRIMARY KEY,
+    snapshot_date DATE NOT NULL,
+    sku_id VARCHAR(50) NOT NULL,
+    warehouse_id VARCHAR(20) NOT NULL,
+    quantity_on_hand INTEGER,
+    source_batch VARCHAR(100),
+    run_id BIGINT,
+    pipeline_version VARCHAR(20),
+    loaded_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(snapshot_date, sku_id, warehouse_id)
+);
+
+CREATE TABLE IF NOT EXISTS staging_shipments_fact (
+    id BIGSERIAL PRIMARY KEY,
+    shipment_date DATE NOT NULL,
+    sku_id VARCHAR(50) NOT NULL,
+    warehouse_id VARCHAR(20) NOT NULL,
+    shipped_quantity INTEGER,
+    carrier VARCHAR(50),
+    source_batch VARCHAR(100),
+    run_id BIGINT,
+    pipeline_version VARCHAR(20),
+    loaded_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(shipment_date, sku_id, warehouse_id)
+);
+
+CREATE TABLE IF NOT EXISTS prod_inventory_snapshot (
+    id BIGSERIAL PRIMARY KEY,
+    snapshot_date DATE NOT NULL,
+    sku_id VARCHAR(50) NOT NULL,
+    warehouse_id VARCHAR(20) NOT NULL,
+    quantity_on_hand INTEGER,
+    source_batch VARCHAR(100),
+    run_id BIGINT,
+    pipeline_version VARCHAR(20),
+    loaded_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(snapshot_date, sku_id, warehouse_id)
+);
+
+CREATE TABLE IF NOT EXISTS prod_shipments_fact (
+    id BIGSERIAL PRIMARY KEY,
+    shipment_date DATE NOT NULL,
+    sku_id VARCHAR(50) NOT NULL,
+    warehouse_id VARCHAR(20) NOT NULL,
+    shipped_quantity INTEGER,
+    carrier VARCHAR(50),
+    source_batch VARCHAR(100),
+    run_id BIGINT,
+    pipeline_version VARCHAR(20),
+    loaded_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(shipment_date, sku_id, warehouse_id)
+);
+
+
+CREATE TABLE IF NOT EXISTS staging_sales_fact (
+    id BIGSERIAL PRIMARY KEY,
+    date DATE NOT NULL,
+    sku_id VARCHAR(50) NOT NULL,
+    warehouse_id VARCHAR(20) NOT NULL,
+    quantity_sold INTEGER,
+    unit_price NUMERIC(12,2),
+    source_batch VARCHAR(100),
+    run_id BIGINT,
+    pipeline_version VARCHAR(20),
+    loaded_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(date, sku_id, warehouse_id)
+);
+
+CREATE TABLE IF NOT EXISTS prod_sales_fact (
+    id BIGSERIAL PRIMARY KEY,
+    date DATE NOT NULL,
+    sku_id VARCHAR(50) NOT NULL,
+    warehouse_id VARCHAR(20) NOT NULL,
+    quantity_sold INTEGER,
+    unit_price NUMERIC(12,2),
+    source_batch VARCHAR(100),
+    run_id BIGINT,
+    pipeline_version VARCHAR(20),
+    loaded_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(date, sku_id, warehouse_id)
+);
+
+-- R9 M1: environment-specific archive tables.
+CREATE TABLE IF NOT EXISTS staging_sales_fact_archive (
+    id BIGINT PRIMARY KEY,
+    date DATE NOT NULL,
+    sku_id VARCHAR(50) NOT NULL,
+    warehouse_id VARCHAR(20) NOT NULL,
+    quantity_sold INTEGER,
+    unit_price NUMERIC(12,2),
+    source_batch VARCHAR(100),
+    run_id BIGINT,
+    pipeline_version VARCHAR(20),
+    loaded_at TIMESTAMP,
+    updated_at TIMESTAMP,
+    archived_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS prod_sales_fact_archive (
+    id BIGINT PRIMARY KEY,
+    date DATE NOT NULL,
+    sku_id VARCHAR(50) NOT NULL,
+    warehouse_id VARCHAR(20) NOT NULL,
+    quantity_sold INTEGER,
+    unit_price NUMERIC(12,2),
+    source_batch VARCHAR(100),
+    run_id BIGINT,
+    pipeline_version VARCHAR(20),
+    loaded_at TIMESTAMP,
+    updated_at TIMESTAMP,
+    archived_at TIMESTAMP DEFAULT NOW()
+);
+
+-- R12-13 M3: outbox for reliable Kafka publication (at-least-once).
+-- The event is written after the load commits; the ETL load is never rolled back because Kafka is unavailable. Events remain
+-- PENDING and are retried by the etl_event_outbox_retry DAG.
+CREATE TABLE IF NOT EXISTS etl_event_outbox (
+    event_id UUID PRIMARY KEY,
+    run_id BIGINT,
+    event_type VARCHAR(100) NOT NULL,
+    event_version INTEGER NOT NULL,
+    occurred_at TIMESTAMPTZ NOT NULL,
+    producer VARCHAR(100) NOT NULL,
+    payload JSONB NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_attempt_at TIMESTAMPTZ,
+    last_error TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    published_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_etl_event_outbox_pending
+    ON etl_event_outbox (status, created_at)
+    WHERE status = 'PENDING';

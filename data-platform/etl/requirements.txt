@@ -8,3 +8,11 @@ pandera
 apache-airflow==2.10.5
 fastapi
 uvicorn
+
+flask
+httpx
+# R12-13 platform dependencies
+dbt-core==1.9.4
+dbt-postgres==1.9.0
+clickhouse-connect==0.8.18
+kafka-python>=2.2.0,<3

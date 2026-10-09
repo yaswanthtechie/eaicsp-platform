@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-CLI_SCRIPT = PROJECT_ROOT / "src" / "validate_cli.py"
+CLI_SCRIPT = PROJECT_ROOT / "data_validator" / "validate_cli.py"
 
 
 @pytest.fixture

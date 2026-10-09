@@ -1,4 +1,10 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+} from "vitest";
 
 import {
   saveTokens,
@@ -7,6 +13,8 @@ import {
   clearTokens,
   isAuthenticated,
   updateAccessToken,
+  saveSupplierId,
+  getSupplierId,
 } from "./tokenStorage";
 
 describe("tokenStorage", () => {
@@ -76,5 +84,29 @@ describe("tokenStorage", () => {
 
     expect(getAccessToken()).toBe("new-access");
     expect(getRefreshToken()).toBe("refresh-123");
+  });
+});
+
+describe("saveSupplierId", () => {
+  afterEach(() => {
+    clearTokens();
+  });
+
+  it("stores a real supplier ID", () => {
+    saveSupplierId("SUP001", false);
+
+    expect(getSupplierId()).toBe("SUP001");
+  });
+
+  it("stores nothing when the supplier ID is undefined", () => {
+    saveSupplierId(undefined, false);
+
+    expect(getSupplierId()).toBeNull();
+  });
+
+  it("stores nothing when the supplier ID is an empty string", () => {
+    saveSupplierId("", true);
+
+    expect(getSupplierId()).toBeNull();
   });
 });

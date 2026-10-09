@@ -1,6 +1,6 @@
 import pandas as pd
 
-from src.feature_catalog import generate_feature_catalog
+from feature_lib.feature_catalog import generate_feature_catalog
 
 
 def test_feature_catalog_contains_generated_features():

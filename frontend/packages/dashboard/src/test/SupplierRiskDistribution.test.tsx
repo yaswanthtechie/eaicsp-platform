@@ -1,7 +1,7 @@
-import { render, screen } from "@testing-library/react";
-import { act } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import SupplierRiskDistribution from "../components/SupplierRiskDistribution";
+import { supplierRisk } from "../mocks/supplierRisk";
 
 vi.mock("../components/Skeleton", () => ({
   default: ({
@@ -18,26 +18,29 @@ vi.mock("../components/Skeleton", () => ({
 }));
 
 describe("SupplierRiskDistribution", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
 
   it("shows loading skeleton while loading", () => {
-    render(<SupplierRiskDistribution />);
+    render(
+      <SupplierRiskDistribution
+        supplierRisk={supplierRisk}
+        loading
+        error={false}
+        onRetry={() => {}}
+      />,
+    );
 
     expect(screen.getAllByTestId("skeleton")).toHaveLength(2);
   });
 
-  it("shows chart title after loading", async () => {
-    render(<SupplierRiskDistribution />);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
-    });
+  it("shows chart title after loading", () => {
+    render(
+      <SupplierRiskDistribution
+        supplierRisk={supplierRisk}
+        loading={false}
+        error={false}
+        onRetry={() => {}}
+      />,
+    );
 
     expect(
       screen.getByText("Supplier Risk Distribution")
@@ -48,12 +51,15 @@ describe("SupplierRiskDistribution", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders chart after loading", async () => {
-    render(<SupplierRiskDistribution />);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
-    });
+  it("renders chart after loading", () => {
+    render(
+      <SupplierRiskDistribution
+        supplierRisk={supplierRisk}
+        loading={false}
+        error={false}
+        onRetry={() => {}}
+      />,
+    );
 
     expect(
       screen.getByText("Supplier Risk Distribution")
@@ -61,7 +67,14 @@ describe("SupplierRiskDistribution", () => {
   });
 
   it("has accessible loading state", () => {
-    render(<SupplierRiskDistribution />);
+    render(
+      <SupplierRiskDistribution
+        supplierRisk={supplierRisk}
+        loading
+        error={false}
+        onRetry={() => {}}
+      />,
+    );
 
     const loadingState = screen.getByRole("status");
 
@@ -76,17 +89,43 @@ describe("SupplierRiskDistribution", () => {
     );
   });
 
-  it("has an accessible chart name", async () => {
-    render(<SupplierRiskDistribution />);
+  it("shows error state with retry button", () => {
+    const onRetry = vi.fn();
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
-    });
+    render(
+      <SupplierRiskDistribution
+        supplierRisk={supplierRisk}
+        loading={false}
+        error
+        onRetry={onRetry}
+      />,
+    );
 
-    const chart = screen.getByRole("img", {
-      name: /Supplier risk distribution chart/i,
-    });
-    expect(chart).toBeInTheDocument();
-    expect(chart).toHaveAttribute("role","img");
+  const retryButton = screen.getByRole("button", {
+    name: "Retry",
+  });
+
+  expect(retryButton).toBeInTheDocument();
+
+  fireEvent.click(retryButton);
+
+  expect(onRetry).toHaveBeenCalledTimes(1);
+});
+
+it("has an accessible chart name", () => {
+  render(
+    <SupplierRiskDistribution
+      supplierRisk={supplierRisk}
+      loading={false}
+      error={false}
+      onRetry={() => {}}
+    />,
+  );
+
+  const chart = screen.getByRole("img", {
+    name: /Supplier risk distribution chart/i,
+  });
+  expect(chart).toBeInTheDocument();
+  expect(chart).toHaveAttribute("role","img");
   });
 });

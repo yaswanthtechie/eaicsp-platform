@@ -9,6 +9,7 @@ sources:
   - sku_id
   - warehouse_id
   depends_on: null
+  lineage_keys: [sku_id, warehouse_id]
   columns:
     date:
       category: datetime
@@ -45,6 +46,7 @@ sources:
   - sku_id
   - warehouse_id
   depends_on: sales
+  lineage_keys: [sku_id, warehouse_id]
   columns:
     snapshot_date:
       category: datetime
@@ -77,6 +79,7 @@ sources:
   - sku_id
   - warehouse_id
   depends_on: inventory
+  lineage_keys: [sku_id, warehouse_id]
   columns:
     shipment_date:
       category: datetime
@@ -108,3 +111,5 @@ archive:
   archive_table: sales_fact_archive
   date_column: date
   cutoff_days: 730
+environment: dev
+quality_sla_min_pass_rate: 0.95

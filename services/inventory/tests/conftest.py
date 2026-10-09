@@ -1,3 +1,13 @@
+import os
+
+from dotenv import load_dotenv
+
+# Respect a developer's .env (e.g. Postgres for integration runs);
+# otherwise unit tests run on local SQLite files.
+load_dotenv()
+os.environ.setdefault("DATABASE_URL", "sqlite:///./inventory_unit.db")
+os.environ.setdefault("TEST_DATABASE_URL", "sqlite:///./test.db")
+
 from datetime import date, timedelta
 
 import pytest
@@ -10,6 +20,23 @@ from app.database import Base, get_db
 from app.core.config import settings
 from app.core.auth import verify_token
 from app.models.sales_history import SalesHistory
+from app.services.cache_service import cache
+from tests.fakes import FakeRedis
+
+
+
+
+@pytest.fixture(autouse=True)
+def fake_redis(request, monkeypatch):
+    """Unit tests never touch a real Redis; integration tests do."""
+    if request.node.get_closest_marker("integration"):
+        yield None
+        return
+
+    fake = FakeRedis()
+    monkeypatch.setattr(cache, "_client", fake)
+    monkeypatch.setattr(cache, "_down_until", None)
+    yield fake
 
 
 TEST_DATABASE_URL = settings.TEST_DATABASE_URL

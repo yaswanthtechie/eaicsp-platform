@@ -1,8 +1,8 @@
 import pandas as pd
 import pytest
 from statsmodels.stats.multitest import multipletests
-from src.build_features import build_all_features
-from src.feature_usefulness import calculate_feature_correlations,calculate_model_feature_importance,calculate_feature_significance,select_top_features
+from feature_lib.build_features import build_all_features
+from feature_lib.feature_usefulness import calculate_feature_correlations,calculate_model_feature_importance,calculate_feature_significance,select_top_features
 
 
 def test_feature_correlations_returns_sorted_numeric_features():

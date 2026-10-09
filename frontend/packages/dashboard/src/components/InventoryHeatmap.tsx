@@ -1,13 +1,17 @@
-import { memo, useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { memo, useCallback, useMemo, useState, type KeyboardEvent } from "react";
 import { List, type RowComponentProps } from "react-window";
-import { dashboardApi } from "../api/dashboard";
 import { colors, radius, space } from "../tokens";
 import type { InventoryItem } from "../types/forecast";
 import Skeleton from "./Skeleton";
 
 interface InventoryHeatmapProps {
-  shouldFail?: boolean;
-  data?: InventoryItem[];
+  data: InventoryItem[];
+  loading?: boolean;
+  error?: boolean;
+  onRetry?: () => void;
 }
 
 interface CategorySummary {
@@ -76,7 +80,7 @@ function InventoryItemRow({
             : colors.textMuted,
         background:
           hovered === item.sku_id
-            ? colors.bg
+            ? colors.surface
             : "transparent",
         borderRadius: radius.sm,
         cursor: "pointer",
@@ -111,59 +115,15 @@ function InventoryItemRow({
 }
 
 function InventoryHeatmap({
-  shouldFail = false,
   data,
+  loading = false,
+  error = false,
+  onRetry,
 }: InventoryHeatmapProps) {
-  const [inventoryData, setInventoryData] =
-    useState<InventoryItem[]>([]);
+  const inventoryData = data;
 
   const [hovered, setHovered] =
     useState<string | null>(null);
-
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const fetchData = async () => {
-      setError(false);
-
-      try {
-        if (data !== undefined) {
-          if (!cancelled) {
-            setInventoryData(data);
-            setLoading(false);
-          }
-
-          return;
-        }
-
-        const loadedData =
-          await dashboardApi.fetchInventory(
-            shouldFail
-          );
-
-        if (!cancelled) {
-          setInventoryData(loadedData);
-          setLoading(false);
-        }
-      } catch {
-        if (!cancelled) {
-          setInventoryData([]);
-          setError(true);
-          setLoading(false);
-        }
-      }
-    };
-
-    fetchData();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [shouldFail, retryCount, data]);
 
   const getStatus = useCallback((
     quantity: number,
@@ -350,21 +310,12 @@ function InventoryHeatmap({
       >
         <h3>Failed to load inventory data.</h3>
 
-        <button
-          onClick={() =>
-            setRetryCount((count) => count + 1)
-          }
-          style={{
-            padding: `${space.sm}px ${space.md}px`,
-            border: "none",
-            borderRadius: radius.sm,
-            background: colors.danger,
-            color: colors.text,
-            cursor: "pointer",
-          }}
+        <Button
+          variant="destructive"
+          onClick={onRetry}
         >
           Retry
-        </button>
+        </Button>
       </div>
     );
   }
@@ -387,38 +338,14 @@ function InventoryHeatmap({
   }
 
   return (
-    <div
-      style={{
-        background: colors.surface,
-        padding: space.md,
-        borderRadius: radius.md,
-        border: `1px solid ${colors.border}`,
-        color: colors.text,
-        width: "100%",
-        boxSizing: "border-box",
-      }}
-    >
-      <h2
-        style={{
-          margin: 0,
-          marginBottom: space.xs,
-          fontSize: 20,
-        }}
-      >
-        Inventory Heatmap
-      </h2>
-
-      <p
-        style={{
-          marginTop: 0,
-          marginBottom: space.md,
-          color: colors.textMuted,
-          fontSize: 13,
-        }}
-      >
+    <Card className="w-full">
+      <CardHeader>
+        <CardTitle>Inventory Heatmap</CardTitle>
+      <p className = "text-sm text-muted-foreground">
         Warehouse and category stock health
       </p>
-
+    </CardHeader>
+    <CardContent>
       <div
         style={{
           display: "grid",
@@ -462,36 +389,15 @@ function InventoryHeatmap({
                   </strong>
 
                   {reorderCount > 0 ? (
-                    <span
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 600,
-                        color: colors.danger,
-                        background:
-                          colors.dangerAlpha12,
-                        padding: `${space.xs}px ${space.sm}px`,
-                        borderRadius: radius.sm,
-                      }}
-                    >
+                    <Badge variant="destructive">
                       {reorderCount} Reorder
-                    </span>
+                    </Badge>
                   ) : (
-                    <span
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 600,
-                        color: colors.success,
-                        background:
-                          colors.successAlpha12,
-                        padding: `${space.xs}px ${space.sm}px`,
-                        borderRadius: radius.sm,
-                      }}
-                    >
+                    <Badge variant="secondary">
                       Healthy
-                    </span>
+                    </Badge>
                   )}
-                </div>
-
+                  </div>
                 {categories.map((category) => {
                   const statusColor =
                     getStatusColor(
@@ -640,10 +546,11 @@ function InventoryHeatmap({
                             style={{
                               marginTop: space.sm,
                               padding: space.sm,
-                              background: colors.bg,
+                              background: colors.surface,
                               border: `1px solid ${colors.border}`,
+                              color: colors.text,
                               borderRadius: radius.sm,
-                              fontSize: 11,
+                              fontSize: space.md,
                               lineHeight: 1.5,
                             }}
                             role="status"
@@ -753,7 +660,8 @@ function InventoryHeatmap({
           Needs Reorder
         </span>
       </div>
-    </div>
+    </CardContent>
+  </Card>
   );
 }
 
