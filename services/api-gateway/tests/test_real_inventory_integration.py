@@ -61,23 +61,34 @@ REAL_PLATFORM_URL = os.getenv(
 
 
 def _is_service_reachable(url: str) -> bool:
-    """Check if the given HTTP service host and port are accepting TCP connections."""
+    """Check if the given HTTP service host and port are accepting TCP connections and is the real inventory service."""
     try:
         parsed = urlparse(url)
         host = parsed.hostname or "127.0.0.1"
         port = parsed.port or (443 if parsed.scheme == "https" else 80)
         with socket.create_connection((host, port), timeout=1.0):
-            return True
-    except OSError:
+            pass
+        # Distinguish between dummy_services.py and Balaji's real inventory service
+        with httpx.Client(timeout=1.0) as client:
+            resp = client.get(f"{url.rstrip('/')}/health")
+            if resp.status_code == 200 and resp.json().get("service") == "Inventory Service":
+                return False
+        return True
+    except Exception:
         return False
 
 
 # Skip module only when real inventory service is unreachable
+pytestmark = [
+    pytest.mark.integration,
+]
 if not _is_service_reachable(REAL_INVENTORY_URL):
-    pytestmark = pytest.mark.skip(
-        reason=(
-            f"Live integration prerequisite missing: Real inventory service at {REAL_INVENTORY_URL} "
-            "is unreachable. Start Balaji's inventory service on port 8001 to run live integration tests."
+    pytestmark.append(
+        pytest.mark.skip(
+            reason=(
+                f"Live integration prerequisite missing: Real inventory service at {REAL_INVENTORY_URL} "
+                "is unreachable. Start Balaji's inventory service on port 8001 to run live integration tests."
+            )
         )
     )
 
@@ -249,7 +260,18 @@ def test_real_inventory_reorder_plan_route(live_caller):
     """
     Verify GET /api/v1/inventory/reorder-plan through Gateway.
     """
-    response = live_caller.get("/api/v1/inventory/reorder-plan")
+    headers = {}
+    if _is_service_reachable(REAL_PLATFORM_URL):
+        with httpx.Client(base_url=REAL_PLATFORM_URL, timeout=10.0) as client:
+            login_resp = client.post(
+                "/api/v1/auth/login",
+                data={"username": "ceo@company.com", "password": "ceocompany@123"},
+            )
+            if login_resp.status_code == 200:
+                token = login_resp.json()["access_token"]
+                headers["Authorization"] = f"Bearer {token}"
+
+    response = live_caller.get("/api/v1/inventory/reorder-plan", headers=headers)
     assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
     data = response.json()
     assert isinstance(data, list)

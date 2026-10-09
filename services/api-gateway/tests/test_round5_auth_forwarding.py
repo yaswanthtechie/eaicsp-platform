@@ -115,7 +115,8 @@ def test_authorization_header_forwarded_for_post_with_body(mock_send, client):
 
     downstream_req: httpx.Request = mock_send.call_args[0][0]
     assert downstream_req.headers["authorization"] == token_value
-    assert downstream_req.content == b'{"sku":"SKU-9999","quantity":50}'
+    import json
+    assert json.loads(downstream_req.content) == request_payload
 
 
 # ===========================================================================

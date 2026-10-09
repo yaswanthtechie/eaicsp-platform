@@ -334,7 +334,8 @@ def test_cache_hit_rate_calculation(client):
 @patch("httpx.AsyncClient.send", new_callable=AsyncMock)
 def test_x_caller_service_tracking(mock_send, client):
     """
-    M4 Req 12: X-Caller-Service is tracked from incoming requests, falling back to 'api-gateway'.
+    M4 Req 12 / Round 10 Fix: Untrusted client X-Caller-Service is ignored;
+    gateway attributes requests to 'api-gateway'.
     """
     mock_send.return_value = httpx.Response(
         status_code=200,
@@ -342,28 +343,28 @@ def test_x_caller_service_tracking(mock_send, client):
         headers={"content-type": "application/json"},
     )
 
-    # 1. Explicit caller: frontend
+    # 1. Explicit caller header from client: frontend (untrusted, ignored)
     client.get(
         "/api/v1/inventory/items",
         headers={"X-Caller-Service": "frontend"},
     )
 
-    # 2. Explicit caller: procurement-service
+    # 2. Explicit caller header from client: procurement-service (untrusted, ignored)
     client.get(
         "/api/v1/inventory/items",
         headers={"X-Caller-Service": "procurement-service"},
     )
 
-    # 3. No caller header -> falls back to 'api-gateway'
+    # 3. No caller header -> 'api-gateway'
     client.get("/api/v1/inventory/items")
 
     response = client.get("/gateway/dashboard")
     top_callers = response.json()["metrics"]["top_callers"]
 
     caller_map = {c["caller"]: c["requests"] for c in top_callers}
-    assert caller_map.get("frontend") == 1
-    assert caller_map.get("procurement-service") == 1
-    assert caller_map.get("api-gateway") == 1
+    assert "frontend" not in caller_map
+    assert "procurement-service" not in caller_map
+    assert caller_map.get("api-gateway") == 3
 
 
 # ===========================================================================

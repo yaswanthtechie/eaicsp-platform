@@ -17,6 +17,7 @@ import httpx
 from fastapi import Request
 
 from app.core.config import settings
+from app.middleware.tracing import inject_trace_context
 from app.services.proxy import _build_forward_headers
 
 logger = logging.getLogger("api_gateway.aggregation")
@@ -120,6 +121,9 @@ class AggregationService:
         collect responses concurrently, and return the aggregated summary.
         """
         headers = _build_forward_headers(request)
+        # Make the fan-out calls children of the gateway span, so the
+        # summary request shows up as one trace in Jaeger.
+        inject_trace_context(headers)
 
         inventory_url = f"{settings.INVENTORY_SERVICE_URL.rstrip('/')}/api/v1/inventory"
         compliance_url = f"{settings.COMPLIANCE_SERVICE_URL.rstrip('/')}/api/v1/compliance/audit/summary"
