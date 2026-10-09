@@ -1320,3 +1320,60 @@ docker compose exec postgres psql -U admin -d salesdb -c "SELECT event_type,stat
 - Record the actual PostgreSQL/ClickHouse benchmark output rather than a qualitative claim.
 - Demonstrate Kafka-down behavior and the later outbox retry.
 - Keep the R9-11 ETL contracts unchanged unless a migration explicitly requires a change.
+
+
+## R14 Spark historical backfill
+
+A separate, manually triggered PySpark job for reloading large history. The daily pipeline is unchanged.
+
+**Cleaning rules (same as the pandas path):** drop exact duplicate rows (first kept), parse date, cast quantity to int and price to float. Two additions, both matching existing behaviour: rows that fail a cast are *rejected and counted* (pandas would raise / the quality gate would quarantine them), and for the same `(date, sku_id, warehouse_id)` the **last** input row wins (same as `load._dedupe_records`).
+
+**Idempotency / restart by month:** each month is filtered, key-deduped, upserted with `ON CONFLICT (date, sku_id, warehouse_id) DO UPDATE`, then **verified against Postgres** (row count, quantity sum, price sum for `source_batch = spark_backfill_<month>`). A month is *not* a single DB transaction (each Spark partition commits itself); safety comes from the idempotent upsert plus the verification. A failed month is reported, other months still run, and the task fails listing only the months to re-run.
+
+**Run it**
+```
+python scripts/generate_r14_history.py --rows 10000000      # ~0.5% dirty rows added
+# via Airflow: trigger DAG sales_spark_historical_backfill with
+{"input": "/opt/airflow/data/backfill/sales_history.csv", "start_month": "2024-01", "end_month": "2024-12"}
+# one month only: start_month == end_month
+# standalone container (merged with the main stack):
+docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm spark-backfill
+```
+The Airflow image now includes a JRE (needed by PySpark local mode) and mounts `./spark` at `/opt/airflow/spark`. DAG conf values are passed as env vars and validated as `YYYY-MM` by the script.
+
+**Tests:** `pytest tests/r14` (pure tests always run; Spark tests need pyspark + Java; the Postgres rerun/isolation test is `@pytest.mark.integration` and needs `DB_PASSWORD` and a reachable Postgres).
+
+## R14 benchmark (pandas vs Spark)
+
+`python scripts/benchmark_r14_spark_vs_pandas.py data/backfill/sales_history.csv` runs each engine in its own process, checks parity (rows, quantity sum, price sum) and records time and peak RSS (Spark JVM included) to `docs/r14_benchmark.json`. It measures transform only, not the Postgres write.
+
+| Engine | Rows after cleaning | Quantity total | Price total | Seconds | Peak RSS (MB) |
+|---|---|---|---|---|---|
+| pandas | 9,954,756 | 497,739,949 | 2,513,437,170.10 | 157.24 | 1,264 |
+| Spark local[*] | 9,954,756 | 497,739,949 | 2,513,437,170.10 | 177.20 | 1,412 |
+
+Parity: PASS (rows, quantity sum and price sum identical). Input: ~10.05M generated rows including ~0.5% injected duplicates, key collisions and bad values. Machine: Intel Core i5-10310U (4 cores / 8 threads), 7.7 GB RAM, pandas 3.0.5 (pyarrow not installed), PySpark 3.5.3 local[*]. Single run each, transform only (read, clean, key-dedupe, aggregate); the Postgres write is not included. Raw numbers: `docs/r14_benchmark.json`.
+
+**Result: pandas was faster at this size** (157 s vs 177 s, about 1.1x), and pandas used slightly less memory (1.26 GB vs 1.41 GB). Spark's number includes JVM start-up and a shuffle for the dedupe, which a single-machine 10M-row job doesn't repay. Spark's memory is also bounded by its default local heap, so its figure shows what it needed to finish, not what it would use if given more.
+
+**When Spark should win (extrapolation, not measured):** pandas used roughly 125 MB per million rows here, so on this 7.7 GB laptop it would run out of memory somewhere around 40-50M rows, and on a 16 GB machine around 80-100M rows (estimates, not measured), while Spark can spill to disk and keep going. Beyond that, Spark pays off when the work can use many cores or a cluster. For the daily loads and for a 3-year history of this width on one laptop, the pandas path is the better tool; Spark earns its place for much larger or multi-machine backfills.
+
+### R14 verification results
+
+- **Unit tests:** `pytest tests/r14` passes (12 passed, 1 integration test skipped without a database).
+- **Integration test** (`-m integration`, real Postgres): `test_month_rerun_is_idempotent_and_isolated` passes. It covers duplicate rows, key collisions (last row wins), rejected rows, a one-month re-run that leaves other months untouched, and a full re-run with no duplicate rows. On Windows it needed `SPARK_MASTER=local[2]` and `SPARK_SHUFFLE_PARTITIONS=4`; with the default 200 shuffle partitions the Python workers timed out connecting back.
+- **Idempotency on a 1M-row file (local, Postgres in Docker), January 2024:** run 1 loaded 28,300 rows (quantity sum 1,415,675, verified); an immediate re-run gave the same 28,300 rows and the same sum. Each run took about 2 minutes on this laptop (local[2]), mostly reading and de-duplicating the whole file. 1,664 rows were rejected as uncastable.
+- **Failure handling observed:** in one re-run Postgres dropped the connection mid-write. The job reported `status: failed` for that month and the table was unchanged (same row count and sum). The next re-run succeeded.
+- **Config:** `SPARK_SHUFFLE_PARTITIONS` (default 32) sets Spark shuffle partitions; console progress bars are off.
+- **Full 10M-row file, January 2024, local Postgres:** run 1 loaded 281,884 rows (quantity sum 14,116,193, verified, 263 s); an immediate re-run gave the same 281,884 rows and sum (338 s). 16,640 rows were rejected as uncastable. Settings: `SPARK_MASTER=local[1]`, `SPARK_SHUFFLE_PARTITIONS=16`.
+- **Memory note:** with the whole compose stack running (Airflow, Kafka, ClickHouse, Redis) on a 7.7 GB machine, Spark's Python workers crashed mid-write and Postgres reported the dropped connection. The failed months were reported and the table was left unchanged. Stopping the unused containers and running a single worker fixed it.
+### R14 Airflow end-to-end
+
+- DAG sales_spark_historical_backfill (manual only, schedule=None, max_active_runs=1) was triggered for 2024-02 on the full 10M-row file: 263,613 rows, quantity sum 13,173,901, verified, about 5 min. An immediate re-run gave the same rows and sum with a newer updated_at, so no duplicates.
+- The DAG sets SPARK_MASTER=local[1] and SPARK_SHUFFLE_PARTITIONS=16 so Spark does not use every core inside the Airflow worker.
+- Loaded from the 10M-row file: January and February 2024 only, not all 36 months, on this 7.7 GB laptop.
+- verify_month counts every row labelled spark_backfill_<month>, so re-running a month with a smaller input file fails the job check. Re-running with the same file is safe.
+- The benchmark pandas path is a re-implementation of the cleaning rules and Spark ran untuned in local mode, so conclusions apply to this machine and size only.
+- The Airflow image was rebuilt with Java and PySpark, and the worker compose command was fixed because the worker could not start.
+
+- The standalone spark-backfill service in docker-compose.dev.yml was not built or run on this machine; the backfill was verified through the Airflow DAG and by running spark/sales_backfill.py directly.
