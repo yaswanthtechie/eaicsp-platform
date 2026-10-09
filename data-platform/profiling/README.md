@@ -750,7 +750,7 @@ profiling/
 │   ├── executive_summary.txt
 │   ├── demo_etl_output.json
 │   ├── demo_validation_output.json
-│   ├── audit_archive.json
+│   ├── audit_archive.jsonl
 │   └── scale_performance_results.csv
 │
 ├── src/
@@ -793,6 +793,7 @@ profiling/
 ├── pytest.ini
 ├── README.md
 └── requirements.txt
+└── requirements-dev.txt
 ```
 
 ---
@@ -990,7 +991,7 @@ reports/suggested_rules.yaml
 reports/performance_benchmark.csv
 reports/expected_profile.json
 reports/executive_summary.txt
-reports/audit_archive.json
+reports/audit_archive.jsonl
 reports/scale_performance_results.csv
 ```
 

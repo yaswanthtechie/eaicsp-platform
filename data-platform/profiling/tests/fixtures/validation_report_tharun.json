@@ -1,7 +1,15 @@
 {
-  "config_version": "1.0.0",
+  "config_version": "prod-1.2.0",
   "passed": false,
-  "total_rows_affected": 108,
+  "batch_rejected": true,
+  "rejection_reasons": [
+    "Global failure rate 35.6% exceeds threshold (10.0%)"
+  ],
+  "sla_breached": true,
+  "sla_violations": [
+    "Global failure rate 35.6% exceeds warning SLA (5.0%)"
+  ],
+  "total_rows_affected": 178,
   "errors": [
     {
       "rule": "date_not_null",
@@ -26,15 +34,20 @@
     {
       "rule": "composite_pk_unique",
       "field": null,
-      "count": 45
+      "count": 39
     },
     {
       "rule": "unparseable_dates",
       "field": "date",
-      "count": 4
+      "count": 71
     }
   ],
   "warnings": [
+    {
+      "rule": "wh_01_minimum_price",
+      "field": "unit_price",
+      "count": 2
+    },
     {
       "rule": "quantity_positive",
       "field": "quantity_sold",
@@ -43,7 +56,7 @@
     {
       "rule": "date_in_range",
       "field": "date",
-      "count": 43
+      "count": 52
     }
   ],
   "sample_bad_rows": {
@@ -128,6 +141,18 @@
         "rule_name": "warehouse_id_not_null"
       }
     ],
+    "wh_01_minimum_price": [
+      {
+        "row_index": 294,
+        "failed_value": 11.47,
+        "rule_name": "wh_01_minimum_price"
+      },
+      {
+        "row_index": 316,
+        "failed_value": 13.07,
+        "rule_name": "wh_01_minimum_price"
+      }
+    ],
     "quantity_positive": [
       {
         "row_index": 23,
@@ -169,30 +194,35 @@
         "rule_name": "composite_pk_unique"
       },
       {
-        "row_index": 33,
+        "row_index": 42,
         "failed_value": null,
         "rule_name": "composite_pk_unique"
       }
     ],
     "unparseable_dates": [
       {
-        "row_index": 32,
-        "failed_value": "NOT_A_DATE",
+        "row_index": 1,
+        "failed_value": "02/01/2024",
         "rule_name": "unparseable_dates"
       },
       {
-        "row_index": 58,
-        "failed_value": "NOT_A_DATE",
+        "row_index": 2,
+        "failed_value": "02/04/2024",
         "rule_name": "unparseable_dates"
       },
       {
-        "row_index": 91,
-        "failed_value": "NOT_A_DATE",
+        "row_index": 4,
+        "failed_value": "10/02/2024",
         "rule_name": "unparseable_dates"
       },
       {
-        "row_index": 284,
-        "failed_value": "NOT_A_DATE",
+        "row_index": 6,
+        "failed_value": "08/04/2024",
+        "rule_name": "unparseable_dates"
+      },
+      {
+        "row_index": 16,
+        "failed_value": "06/01/2024",
         "rule_name": "unparseable_dates"
       }
     ],
@@ -203,36 +233,89 @@
         "rule_name": "date_in_range"
       },
       {
-        "row_index": 6,
-        "failed_value": "2024-04-08",
+        "row_index": 11,
+        "failed_value": "2024-04-06",
         "rule_name": "date_in_range"
       },
       {
-        "row_index": 11,
-        "failed_value": "2024-04-06",
+        "row_index": 17,
+        "failed_value": "2024-03-31",
+        "rule_name": "date_in_range"
+      },
+      {
+        "row_index": 19,
+        "failed_value": "2024-03-30",
         "rule_name": "date_in_range"
       },
       {
         "row_index": 26,
         "failed_value": "2024-04-09",
         "rule_name": "date_in_range"
+      }
+    ]
+  },
+  "remediations": [
+    {
+      "rule": "standardize_dates_transform",
+      "field": "date",
+      "rows_modified": 267,
+      "reason": "Converted to YYYY-MM-DD only where the date has exactly one possible meaning; ambiguous dates like 02/01/2024 are left unchanged and flagged"
+    }
+  ],
+  "sample_remediations": {
+    "standardize_dates_transform": [
+      {
+        "row_index": 0,
+        "original": "Apr 06 2024",
+        "remediated": "2024-04-06"
       },
       {
-        "row_index": 40,
-        "failed_value": "2024-04-08",
-        "rule_name": "date_in_range"
+        "row_index": 8,
+        "original": "Mar 18 2024",
+        "remediated": "2024-03-18"
+      },
+      {
+        "row_index": 9,
+        "original": "Feb 27 2024",
+        "remediated": "2024-02-27"
+      },
+      {
+        "row_index": 12,
+        "original": "Jan 27 2024",
+        "remediated": "2024-01-27"
+      },
+      {
+        "row_index": 13,
+        "original": "Mar 14 2024",
+        "remediated": "2024-03-14"
       }
     ]
   },
   "rule_timings": {
-    "date_not_null": 0.000111,
-    "sku_format": 0.001593,
-    "warehouse_id_not_null": 9e-05,
-    "quantity_positive": 0.000401,
-    "unit_price_valid": 0.000278,
-    "composite_pk_unique": 0.004146,
-    "unparseable_dates": 0.000589,
-    "date_in_range": 0.000748
+    "date_not_null": 0.000106,
+    "sku_format": 0.000662,
+    "warehouse_id_not_null": 8.8e-05,
+    "wh_01_minimum_price": 0.000607,
+    "quantity_positive": 0.000293,
+    "unit_price_valid": 0.000301,
+    "composite_pk_unique": 0.009505,
+    "unparseable_dates": 0.000971,
+    "date_in_range": 0.001751
   },
-  "skipped_rules": []
+  "skipped_rules": [],
+  "total_rows": 500,
+  "evaluated_rules": [
+    "date_not_null",
+    "sku_format",
+    "warehouse_id_not_null",
+    "wh_01_minimum_price",
+    "quantity_positive",
+    "unit_price_valid",
+    "composite_pk_unique",
+    "unparseable_dates",
+    "flag_negative_quantities",
+    "standardize_dates_transform",
+    "date_in_range",
+    "clean_sku_whitespace"
+  ]
 }
