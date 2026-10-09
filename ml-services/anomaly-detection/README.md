@@ -1687,7 +1687,7 @@ and validates API-level error handling and response contracts.
 Latest full-suite execution:
 
 ```text
-463 passed
+531 passed
 3 warnings
 0 failures
 ```
@@ -1929,6 +1929,159 @@ The test suite originally depended on generated model/data artifacts being avail
 This reduces setup-related test failures.
 
 ---
+interval of the new percentile estimate.
+
+Safety: extreme points are trimmed before a window is trusted; raising the
+threshold (which loses recall) is capped at 1 sigma per step, lowering at
+2 sigma; a capped mo# Self-Adjusting Thresholds (Significance-Gated)
+
+# Round 9-10-11 - Milestone 2: Self-Adjusting Thresholds
+
+`src/auto_threshold.py` is a standalone auto-tuning threshold (numpy and
+scipy only; no dependency on `AdaptiveEngine` or any external framework).
+
+The threshold moves only when ALL of these hold for a window of scores:
+
+1. **Shift** - a two-sample KS test against the trusted reference is
+   significant (p < 0.01) AND the median moved at least 0.5 robust sigma
+   (statistical and practical significance).
+2. **Stable** - the window has no internal shift or monotonic trend. A
+   trending window is treated as drift and the threshold is frozen.
+3. **Confirmed** - two consecutive windows agree.
+4. **Material** - the current threshold lies outside the bootstrap 95%
+   confidence interval of the new percentile estimate.
+
+Safety: extreme points are trimmed before a window is trusted; raising
+the threshold (which loses recall) is capped at 1 sigma per step and
+lowering at 2 sigma; a capped move keeps converging over later stable
+windows; after a drift window the tuner holds for 2 windows.
+
+Demo (`python -m src.auto_threshold_demo`), seasonal regime versus the
+fixed calibration-percentile threshold:
+
+| Model | False-alarm rate (fixed -> tuned) | Spike recall (fixed -> tuned) |
+|---|---|---|
+| Isolation Forest | 16.0% -> 1.5% | 1.00 -> 0.95 |
+| LOF | 24.7% -> 5.4% | 1.00 -> 1.00 |
+| One-Class SVM | 18.0% -> 2.1% | 1.00 -> 1.00 |
+
+During temperature drift the tuner froze and never adapted, for all three
+models. In synthetic tests: 0 false adaptations in 1,000 stable windows,
+39 of 40 real stable shifts adapted, 40 of 40 drifting windows frozen.
+
+Limitations:
+- Isolation Forest missed 1 of 20 spikes after tuning (recall 1.00 -> 0.95).
+  A minimum-recall guard is a proposed follow-up.
+- The baseline is the calibration-percentile threshold, not the cost-optimised
+  production threshold (R4.5).
+- The tuner is standalone and not wired into the API or `AdaptiveEngine`.
+- The step caps and effect-size gate are judgment calls and are configurable.
+
+# Round 9-10-11 - Milestone 3: Incident Playbooks
+
+`src/playbook.py` maps a prediction to a response playbook. The incident
+type comes from the `root_cause_hint` added in round 6-8; adaptive
+`temporal_drift` takes priority (drift playbook); unknown or missing hints
+get a generic triage playbook; matches below 0.90 similarity are flagged
+low-confidence and the playbook opens with a "verify first" step.
+
+Playbooks: temperature_spike, stock_anomaly, combined_anomaly,
+relationship_break, temperature_drift and unknown. A test fails if an
+incident type is added without a playbook.
+
+Generate examples with `python -m src.playbook` (writes to the gitignored
+`output/` folder). Example, stock-count anomaly:
+
+```text
+Stock-count anomaly response  [HIGH]
+Owner: Inventory control  |  Respond within 60 min
+Type: stock_anomaly  (confidence: high)
+
+Immediate actions:
+  - Check for an unlogged bulk receipt or transfer.
+  - Check the scanner for a double-count or duplicate scan.
+  - Hold related orders if the count affects fulfilment.
+
+Investigate:
+  - Compare the count with the last cycle count.
+  - Review receiving and dispatch logs around the reading.
+  - Check whether other SKUs in the same location are off.
+
+Escalate if:
+  - A physical recount does not match the system count.
+  - The pattern repeats within the same shift.
+
+Close when:
+  - System count matches a physical recount, or an adjustment is approved and logged.
+```
+
+Note: owners, SLAs and steps are initial proposals and should be reviewed
+by operations. Playbooks are not yet returned by the API.
+
+# Round 9-10-11 - Milestone 4: ETA Error vs Anomaly Flags
+
+## Finding
+
+The literal question (do warehouse-sensor anomaly flags relate to ETA
+prediction error?) cannot be tested on the current real data, because the
+two datasets share nothing to join on:
+
+| | ETA service | Anomaly service |
+|---|---|---|
+| Data | Olist e-commerce delivery orders | Synthetic warehouse sensor readings |
+| Period | 2016-09 to 2018-08 | synthetic, starting 2026-01-01 |
+| Row is | an order | a sensor reading (temperature, humidity, stock_count) |
+| Identifier | order_id | none linking to orders, shipments or places |
+
+The Logistics re-prediction contract defines future `shipment_id` and
+`event_id` fields but does not connect the two datasets, and states that
+no integration exists yet. Joining them would require inventing a link, so
+no correlation is reported. This is "untestable on current data", not
+"no correlation found".
+
+## What was built
+
+`src/eta_anomaly_correlation.py` is a tested analysis that runs as soon as
+real joined data exists: Mann-Whitney U, Cliff's delta, point-biserial,
+bootstrap CI, permutation test and a minimum detectable effect. The
+verdict rule was fixed in advance: p < 0.05 AND |Cliff's delta| >= 0.147.
+
+Validated on synthetic data with known truth: with no relationship it
+falsely reported an association 0.25% of the time (p < 0.05 about 4.75%,
+as expected), and it detected a planted relationship. This validates the
+method only.
+
+## Input contract
+
+Two CSVs joined on a shared key:
+- ETA file: `<key>`, `eta_error` (actual minus predicted, days)
+- Anomaly file: same key, `is_anomaly` (0/1), optional `anomaly_score`
+
+    python -m src.eta_anomaly_correlation <eta.csv> <anomaly.csv> <key> <label>
+
+## What real data could detect
+
+Smallest effect (Cliff's delta) detectable with 80% power at alpha 0.05,
+with about 19,000 rows in total:
+
+| Flagged rows | Minimum detectable abs(delta) |
+|---|---|
+| 20 | 0.36 |
+| 50 | 0.23 |
+| 100 | 0.16 |
+| 200 | 0.12 |
+| 500 | 0.07 |
+| 1000 | 0.05 |
+
+With fewer than about 100 flagged rows, effects below the 0.147 practical
+threshold cannot be ruled out, so a null result would not be conclusive.
+
+## Next steps
+
+1. A shared key between the services (shipment/order or a time window).
+2. ETA error per record (needs actual delivery times, not only predictions).
+3. Run the command above and report the result, positive or null.
+
 
 # Future Improvements
 
@@ -2052,7 +2205,7 @@ The validated continuous-lifecycle results are:
 ## Test suite
 
 ```text
-463 passed
+531 passed
 3 warnings
 0 failures
 ```
