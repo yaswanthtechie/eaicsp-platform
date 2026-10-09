@@ -61,6 +61,12 @@ def test_alembic_upgrade_head_creates_matching_schema_and_allows_po_insert(tmp_p
     inspector = inspect(test_engine)
     columns = {c["name"] for c in inspector.get_columns("purchase_orders")}
     assert "approval_status" in columns, "approval_status column must exist in purchase_orders"
+    assert "hold_reason" in columns, "hold_reason column must exist in purchase_orders"
+    assert "hold_source" in columns, "hold_source column must exist in purchase_orders"
+
+    tables = set(inspector.get_table_names())
+    assert "processed_events" in tables, "processed_events table must exist"
+    assert "supplier_compliance_states" in tables, "supplier_compliance_states table must exist"
 
     with Session(test_engine) as session:
         po = PurchaseOrder(
@@ -71,8 +77,10 @@ def test_alembic_upgrade_head_creates_matching_schema_and_allows_po_insert(tmp_p
             quantity=10,
             unit_cost=15.0,
             expected_cost=150.0,
-            status="draft",
+            status="on_hold",
             approval_status="pending_vp_approval",
+            hold_reason="Supplier moved to BLOCK",
+            hold_source="compliance",
             created_at=datetime.now(UTC),
         )
         session.add(po)
@@ -81,4 +89,7 @@ def test_alembic_upgrade_head_creates_matching_schema_and_allows_po_insert(tmp_p
         queried = session.query(PurchaseOrder).filter_by(po_id="PO-TEST-001").first()
         assert queried is not None
         assert queried.approval_status == "pending_vp_approval"
+        assert queried.status == "on_hold"
+        assert queried.hold_reason == "Supplier moved to BLOCK"
+        assert queried.hold_source == "compliance"
 

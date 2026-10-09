@@ -25,6 +25,7 @@ COPY alembic.ini .
 COPY alembic/ ./alembic/
 COPY app/ ./app/
 COPY docs/ ./docs/
+COPY scripts/ ./scripts/
 
 # Create a non-privileged user and switch to it
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser

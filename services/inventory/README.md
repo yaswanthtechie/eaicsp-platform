@@ -276,6 +276,67 @@ Conclusion: Redis caching provides approximately a 1.4x latency speedup.
 
 ---
 
+## Round 14 Status (React to Supplier Compliance Changes)
+
+| Milestone / Capability | Implementation Details | Status |
+| ---------------------- | ---------------------- | ------ |
+| Milestone — First Kafka Consumer | Consumes `compliance.supplier.status_changed` in consumer group `inventory-service`. Automatically puts open draft POs on hold with reason when supplier moves to blocked or "needs review", and releases them back to draft when cleared. | Completed |
+| Idempotency & Offset Commit | Processed `event_id` stored in `processed_events` table; offset committed ONLY after DB write succeeds. Crash-before-commit is fully safe on restart. | Completed |
+| Out-of-Order Event Handling | Monitored via `supplier_compliance_states` using `occurred_at`. Older events never regress newer state (e.g. older "blocked" arriving after "cleared" is safely skipped). | Completed |
+| Dead-Letter Queue (DLQ) & Retry | Poison pills (unparseable JSON, unknown `event_version != 1`, missing fields) routed to `compliance.supplier.status_changed.dlq` with failure reason. If DLQ fails, message is retried without dropping. Transient failures rewind consumer and back off. | Completed |
+| Scope-Restricted Release | Migration `005_po_hold_source` tracks `hold_source = 'compliance'` so CLEAR events only release compliance-placed holds. | Completed |
+| Containerized Consumer | Added `compliance-consumer` service to `docker-compose.dev.yml` with healthcheck heartbeat. | Completed |
+| Test Producer Script | Provided `scripts/publish_compliance_event.py` for isolated producer simulation. | Completed |
+
+---
+
+## Compliance Consumer Worker
+
+Run the compliance event consumer standalone:
+
+```powershell
+python -m app.services.compliance_consumer
+```
+
+Publish test events using the test producer script:
+
+```powershell
+# Block supplier
+python scripts/publish_compliance_event.py --supplier-name "ABC Supplies" --new-status BLOCK --reason "Sanctions list match"
+
+# Clear supplier
+python scripts/publish_compliance_event.py --supplier-name "ABC Supplies" --new-status CLEAR --reason "Cleared by compliance"
+```
+
+In Docker Compose, this is automatically managed by the dedicated `compliance-consumer` container.
+
+### Event Format Published by Compliance Producer
+```json
+{
+  "event_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+  "event_type": "compliance.supplier.status_changed",
+  "event_version": 1,
+  "occurred_at": "2026-10-09T10:00:00+00:00",
+  "producer": "compliance-service",
+  "payload": {
+    "supplier_name": "ABC Supplies",
+    "country": "India",
+    "old_status": "CLEAR",
+    "new_status": "BLOCK",
+    "matched_list": ["OFAC"],
+    "reason": "Strong compliance match found",
+    "screening_run_id": "run-123"
+  }
+}
+```
+
+### Not Done / Limitations
+- **Supplier Lookup by Name:** Suppliers are resolved by trimmed, case-insensitive name matching against `suppliers.supplier_name` until the compliance event envelope carries `supplier_id` directly (supported as fallback).
+- **External Integration Testing:** Full test suite runs with deterministic in-memory fakes; real-broker testing relies on running Docker Compose.
+- **Hold Source Scoping:** Only purchase orders placed on hold by compliance (`hold_source = 'compliance'`) are released by a `CLEAR` event to protect future non-compliance holds.
+
+---
+
 ## 13. Completion Status
 
 ### Original Milestones
@@ -297,4 +358,21 @@ Conclusion: Redis caching provides approximately a 1.4x latency speedup.
 | Supply-network optimization | Completed ($z \cdot \sigma \cdot \sqrt{L}$ with risk pooling) |
 | Forecast contract v1 | Completed (schema + adapter matching forecast output) |
 | Forecast Service HTTP wiring | Not started (contract-first by design) |
-| Full test suite | 202 passed, 13 skipped, 7 deselected |
+
+### Round 12–13 Work
+| Requirement | Status |
+|---|---|
+| Transactional Outbox & Relay | Completed (`inventory.stock.low`, `inventory.po.drafted`) |
+| Redis Cache-Aside & Graceful Degradation | Completed |
+| Schema Migrations | Completed (`001` - `003`) |
+
+### Round 14 Work
+| Requirement | Status |
+|---|---|
+| First Kafka Consumer (`compliance.supplier.status_changed`) | Completed |
+| Hold/Release POs based on compliance status | Completed |
+| Idempotency via `processed_events` | Completed |
+| Commit offset only after DB write | Completed |
+| Out-of-order event protection (`occurred_at`) | Completed |
+| Dead-Letter Queue & Transient Retry | Completed |
+| Full unit test suite (no Docker needed) | 224 passed, 14 skipped, 7 deselected |

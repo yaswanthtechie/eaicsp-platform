@@ -4,6 +4,7 @@ from uuid import uuid4
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.models.compliance_event import SupplierComplianceState
 from app.models.inventory import Inventory
 from app.models.purchase_order import PurchaseOrder
 from app.models.supplier import Supplier
@@ -24,6 +25,7 @@ from app.services.compliance_client import (
     ComplianceBlockedError,
     check_supplier_compliance,
 )
+from app.services.compliance_consumer import classify_compliance_status
 from app.services.outbox_service import record_event
 from app.services.cache_service import invalidate_inventory_cache
 
@@ -180,6 +182,19 @@ def find_existing_draft_po(
     )
 
 
+def _initial_po_status(db: Session, supplier_id: str) -> tuple[str, str | None, str | None]:
+    """Draft POs for a blocked / under-review supplier start on hold."""
+    db.query(Supplier).filter(Supplier.supplier_id == supplier_id).with_for_update().first()
+    state = (
+        db.query(SupplierComplianceState)
+        .filter(SupplierComplianceState.supplier_id == supplier_id)
+        .first()
+    )
+    if state is not None and classify_compliance_status(state.last_status) in ("BLOCKED", "NEEDS_REVIEW"):
+        return "on_hold", state.last_reason or f"Supplier compliance status: {state.last_status}", "compliance"
+    return "draft", None, None
+
+
 def create_draft_po_for_inventory(
     db: Session,
     inventory: Inventory,
@@ -215,6 +230,8 @@ def create_draft_po_for_inventory(
         expected_cost=po_details["expected_cost"],
     )
 
+    po_status, hold_reason, hold_source = _initial_po_status(db, po_details["supplier_id"])
+
     purchase_order = PurchaseOrder(
         po_id=generate_po_id(),
         sku_id=inventory.sku_id,
@@ -223,8 +240,10 @@ def create_draft_po_for_inventory(
         quantity=po_details["quantity"],
         unit_cost=po_details["unit_cost"],
         expected_cost=po_details["expected_cost"],
-        status="draft",
+        status=po_status,
         approval_status=approval_status,
+        hold_reason=hold_reason,
+        hold_source=hold_source,
     )
 
     db.add(purchase_order)
@@ -305,6 +324,8 @@ def create_automatic_draft_po(
         expected_cost=po_details["expected_cost"],
     )
 
+    po_status, hold_reason, hold_source = _initial_po_status(db, po_details["supplier_id"])
+
     purchase_order = PurchaseOrder(
         po_id=generate_po_id(),
         sku_id=inventory.sku_id,
@@ -313,8 +334,10 @@ def create_automatic_draft_po(
         quantity=po_details["quantity"],
         unit_cost=po_details["unit_cost"],
         expected_cost=po_details["expected_cost"],
-        status="draft",
+        status=po_status,
         approval_status=approval_status,
+        hold_reason=hold_reason,
+        hold_source=hold_source,
     )
 
     db.add(purchase_order)
@@ -373,6 +396,11 @@ def approve_purchase_order(
             "Purchase order not found"
         )
 
+    if purchase_order.status == "on_hold":
+        raise ValueError(
+            f"Cannot approve purchase order: PO is on hold ({purchase_order.hold_reason or 'compliance review'})"
+        )
+
     if purchase_order.status != "draft":
         raise ValueError(
             "Only draft purchase orders can be approved"
@@ -417,8 +445,13 @@ def receive_purchase_order(
     )
 
     if purchase_order is None:
-        raise ValueError(
+        raise LookupError(
             "Purchase order not found"
+        )
+
+    if purchase_order.status == "on_hold":
+        raise ValueError(
+            f"Cannot receive purchase order: PO is on hold ({purchase_order.hold_reason or 'compliance review'})"
         )
 
     if purchase_order.status != "draft":
@@ -487,3 +520,36 @@ def receive_purchase_order(
         raise
 
     return purchase_order
+
+
+def get_purchase_order(
+    db: Session,
+    po_id: str,
+) -> PurchaseOrder:
+    """Retrieve a purchase order by ID."""
+    purchase_order = (
+        db.query(PurchaseOrder)
+        .filter(PurchaseOrder.po_id == po_id)
+        .first()
+    )
+    if purchase_order is None:
+        raise LookupError("Purchase order not found")
+    return purchase_order
+
+
+def list_purchase_orders(
+    db: Session,
+    po_id: str | None = None,
+    supplier_id: str | None = None,
+    status: str | None = None,
+    limit: int = 100,
+) -> list[PurchaseOrder]:
+    """List purchase orders with optional PO ID, supplier, and status filters."""
+    query = db.query(PurchaseOrder)
+    if po_id:
+        query = query.filter(PurchaseOrder.po_id.startswith(po_id))
+    if supplier_id:
+        query = query.filter(PurchaseOrder.supplier_id == supplier_id)
+    if status:
+        query = query.filter(PurchaseOrder.status == status)
+    return query.order_by(PurchaseOrder.created_at.desc()).limit(limit).all()

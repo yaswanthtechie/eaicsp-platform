@@ -22,6 +22,10 @@ class Settings(BaseSettings):
 
     # Kafka Broker configuration
     KAFKA_BOOTSTRAP_SERVERS: str = "localhost:9092"
+    KAFKA_CONSUMER_GROUP: str = "inventory-service"
+    COMPLIANCE_STATUS_CHANGED_TOPIC: str = "compliance.supplier.status_changed"
+    COMPLIANCE_DLQ_TOPIC: str = "compliance.supplier.status_changed.dlq"
+    COMPLIANCE_CONSUMER_INTERVAL_SECONDS: float = 1.0
 
     # Outbox Relay background worker
     ENABLE_OUTBOX_RELAY: bool = False

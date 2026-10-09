@@ -36,3 +36,40 @@ class PurchaseOrderDraftedPayload(BaseModel):
     expected_cost: float
     status: str = "draft"
     created_at: str
+
+
+class ComplianceSupplierStatusChangedPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    supplier_name: Optional[str] = None
+    supplier_id: Optional[str] = None
+    country: Optional[str] = None
+    old_status: Optional[str] = None
+    new_status: str
+    matched_list: Optional[Any] = None
+    reason: Optional[str] = None
+    screening_run_id: Optional[str] = None
+
+
+class ComplianceSupplierStatusChangedEvent(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    event_id: str
+    event_type: str = "compliance.supplier.status_changed"
+    producer: str = "compliance-service"
+    occurred_at: str
+    event_version: int = 1
+    payload: ComplianceSupplierStatusChangedPayload
+    trace_id: Optional[str] = None
+
+
+class DeadLetterEnvelope(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    raw_message: str
+    error: str
+    failed_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    consumer_group: str = "inventory-service"
+    topic: str
+    partition: Optional[int] = None
+    offset: Optional[int] = None
