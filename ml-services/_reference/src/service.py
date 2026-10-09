@@ -1400,6 +1400,55 @@ class IrisService:
             )
 
     # ======================================================
+    # Kubernetes Probes
+    # ======================================================
+
+    @bentoml.api(route="/livez")
+    def livez(self) -> dict:
+        """
+        Kubernetes liveness probe.
+
+        Confirms that the BentoML service process is alive.
+        This endpoint does not depend on model inference so a
+        healthy process is not restarted unnecessarily.
+        """
+
+        return {
+            "status": "alive",
+        }
+
+    @bentoml.api(route="/readyz")
+    def readyz(self) -> dict:
+        """
+        Kubernetes readiness probe.
+
+        The service is ready only after the production model
+        and its model version have been successfully loaded.
+        Kubernetes receives HTTP 503 while the model is not ready,
+        so the pod is not added to Service traffic prematurely.
+        """
+
+        model_loaded = (
+            self.model is not None
+            and self.model_version is not None
+        )
+
+        if not model_loaded:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "status": "not_ready",
+                    "model_loaded": False,
+                },
+            )
+
+        return {
+            "status": "ready",
+            "model_loaded": True,
+            "model_version": str(self.model_version),
+        }
+
+    # ======================================================
     # Health
     # ======================================================
 
