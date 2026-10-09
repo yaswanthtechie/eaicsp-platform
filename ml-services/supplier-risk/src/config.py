@@ -62,6 +62,16 @@ TIER_BOUNDARIES: Final[Dict[str, float]] = {
     "High": DEFAULT_TIER_HIGH_CEILING,
 }
 
+# ------------------------------------------------------------------
+# Default Hysteresis Thresholds & Minimum Evidence Configuration
+# ------------------------------------------------------------------
+
+DEFAULT_HYSTERESIS_ENTER_MEDIUM: Final[float] = 62.0
+DEFAULT_HYSTERESIS_EXIT_MEDIUM: Final[float] = 58.0
+DEFAULT_HYSTERESIS_ENTER_HIGH: Final[float] = 74.0
+DEFAULT_HYSTERESIS_EXIT_HIGH: Final[float] = 70.0
+DEFAULT_HYSTERESIS_MIN_EVIDENCE: Final[int] = 2
+
 
 ALLOWED_AGGREGATION_STRATEGIES: Final[Set[str]] = {
     "top_k_mean",
@@ -199,6 +209,37 @@ def validate_factor_weight(name: str, value: Any, max_val: float = 1.0) -> float
     return val
 
 
+def validate_hysteresis_thresholds(
+    enter_medium: float,
+    exit_medium: float,
+    enter_high: float,
+    exit_high: float,
+    low_ceiling: float = DEFAULT_TIER_LOW_CEILING,
+    medium_ceiling: float = DEFAULT_TIER_MEDIUM_CEILING,
+) -> None:
+    """
+    Validate that hysteresis thresholds satisfy consistency constraints:
+    0 <= exit_medium <= low_ceiling <= enter_medium < exit_high <= medium_ceiling <= enter_high <= 100.
+    """
+    for name, val in [
+        ("enter_medium", enter_medium),
+        ("exit_medium", exit_medium),
+        ("enter_high", enter_high),
+        ("exit_high", exit_high),
+        ("low_ceiling", low_ceiling),
+        ("medium_ceiling", medium_ceiling),
+    ]:
+        if not isinstance(val, (int, float)) or isinstance(val, bool):
+            raise TypeError(f"Threshold '{name}' must be numeric, got {type(val).__name__}: {val}")
+
+    if not (0.0 <= exit_medium <= low_ceiling <= enter_medium < exit_high <= medium_ceiling <= enter_high <= 100.0):
+        raise ValueError(
+            f"Invalid hysteresis thresholds: must satisfy "
+            f"0 <= exit_medium ({exit_medium}) <= low_ceiling ({low_ceiling}) <= enter_medium ({enter_medium}) "
+            f"< exit_high ({exit_high}) <= medium_ceiling ({medium_ceiling}) <= enter_high ({enter_high}) <= 100.0"
+        )
+
+
 # ------------------------------------------------------------------
 # Configuration Settings Class
 # ------------------------------------------------------------------
@@ -230,6 +271,11 @@ class Settings:
         mongodb_uri: str | None = None,
         mongodb_database: str | None = None,
         mongodb_collection: str | None = None,
+        hysteresis_enter_medium: float | None = None,
+        hysteresis_exit_medium: float | None = None,
+        hysteresis_enter_high: float | None = None,
+        hysteresis_exit_high: float | None = None,
+        hysteresis_min_evidence: int | None = None,
     ) -> None:
         # 1. Negative sentiment penalty
         if negative_sentiment_penalty is not None:
@@ -440,6 +486,89 @@ class Settings:
             else os.getenv("MONGODB_COLLECTION", DEFAULT_MONGODB_COLLECTION).strip()
         )
 
+        # 16. Hysteresis & Minimum Evidence Settings
+        # Symmetrically space default hysteresis thresholds around configured ceilings
+        margin_low = min(
+            2.0,
+            (self.tier_medium_ceiling - self.tier_low_ceiling) / 4.0,
+            self.tier_low_ceiling / 2.0,
+        )
+        margin_high = min(
+            2.0,
+            (self.tier_medium_ceiling - self.tier_low_ceiling) / 4.0,
+            (self.tier_high_ceiling - self.tier_medium_ceiling) / 4.0,
+        )
+
+        dyn_enter_med = self.tier_low_ceiling + margin_low
+        dyn_exit_med = self.tier_low_ceiling - margin_low
+        dyn_enter_high = self.tier_medium_ceiling + margin_high
+        dyn_exit_high = self.tier_medium_ceiling - margin_high
+
+        if hysteresis_enter_medium is not None:
+            self.hysteresis_enter_medium = validate_numeric_weight(
+                "hysteresis_enter_medium", hysteresis_enter_medium, allow_zero=False
+            )
+        else:
+            raw_em = os.getenv("HYSTERESIS_ENTER_MEDIUM")
+            self.hysteresis_enter_medium = (
+                validate_numeric_weight("HYSTERESIS_ENTER_MEDIUM", float(raw_em), allow_zero=False)
+                if raw_em is not None
+                else dyn_enter_med
+            )
+
+        if hysteresis_exit_medium is not None:
+            self.hysteresis_exit_medium = validate_numeric_weight(
+                "hysteresis_exit_medium", hysteresis_exit_medium, allow_zero=True
+            )
+        else:
+            raw_xm = os.getenv("HYSTERESIS_EXIT_MEDIUM")
+            self.hysteresis_exit_medium = (
+                validate_numeric_weight("HYSTERESIS_EXIT_MEDIUM", float(raw_xm), allow_zero=True)
+                if raw_xm is not None
+                else dyn_exit_med
+            )
+
+        if hysteresis_enter_high is not None:
+            self.hysteresis_enter_high = validate_numeric_weight(
+                "hysteresis_enter_high", hysteresis_enter_high, allow_zero=False
+            )
+        else:
+            raw_eh = os.getenv("HYSTERESIS_ENTER_HIGH")
+            self.hysteresis_enter_high = (
+                validate_numeric_weight("HYSTERESIS_ENTER_HIGH", float(raw_eh), allow_zero=False)
+                if raw_eh is not None
+                else dyn_enter_high
+            )
+
+        if hysteresis_exit_high is not None:
+            self.hysteresis_exit_high = validate_numeric_weight(
+                "hysteresis_exit_high", hysteresis_exit_high, allow_zero=False
+            )
+        else:
+            raw_xh = os.getenv("HYSTERESIS_EXIT_HIGH")
+            self.hysteresis_exit_high = (
+                validate_numeric_weight("HYSTERESIS_EXIT_HIGH", float(raw_xh), allow_zero=False)
+                if raw_xh is not None
+                else dyn_exit_high
+            )
+
+        self.hysteresis_min_evidence = (
+            int(hysteresis_min_evidence)
+            if hysteresis_min_evidence is not None
+            else int(os.getenv("HYSTERESIS_MIN_EVIDENCE", DEFAULT_HYSTERESIS_MIN_EVIDENCE))
+        )
+        if self.hysteresis_min_evidence < 1:
+            raise ValueError(f"hysteresis_min_evidence must be >= 1, got {self.hysteresis_min_evidence}")
+
+        validate_hysteresis_thresholds(
+            enter_medium=self.hysteresis_enter_medium,
+            exit_medium=self.hysteresis_exit_medium,
+            enter_high=self.hysteresis_enter_high,
+            exit_high=self.hysteresis_exit_high,
+            low_ceiling=self.tier_low_ceiling,
+            medium_ceiling=self.tier_medium_ceiling,
+        )
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert settings instance to dictionary for API serialization."""
         return {
@@ -455,6 +584,11 @@ class Settings:
             "tier_low_ceiling": self.tier_low_ceiling,
             "tier_medium_ceiling": self.tier_medium_ceiling,
             "tier_high_ceiling": self.tier_high_ceiling,
+            "hysteresis_enter_medium": self.hysteresis_enter_medium,
+            "hysteresis_exit_medium": self.hysteresis_exit_medium,
+            "hysteresis_enter_high": self.hysteresis_enter_high,
+            "hysteresis_exit_high": self.hysteresis_exit_high,
+            "hysteresis_min_evidence": self.hysteresis_min_evidence,
             "trend_window_days": self.trend_window_days,
             "trend_direction_threshold": self.trend_direction_threshold,
             "volume_weight": self.volume_weight,
