@@ -6,6 +6,8 @@ from typing import Any, Callable
 import strawberry
 from strawberry.types import Info
 
+from app.graphql.context import require_graphql_view_access
+
 from app.graphql.types import (
     GraphQLPurchaseOrderStatus,
     InvoiceAdjustmentAuditType,
@@ -237,7 +239,9 @@ def _is_supplier_authorized(
         return True
 
     user_supplier_id = user.get("supplier_id")
-    resource_supplier_id = purchase_order.get("supplier_id")
+    resource_supplier_id = purchase_order.get(
+        "supplier_id"
+    )
 
     if not user_supplier_id:
         return False
@@ -307,7 +311,6 @@ def _to_invoice_type(
     adjustment_data = invoice.get("adjustment")
 
     if adjustment_data is not None:
-
         old_items = [
             InvoiceLineItemType(
                 po_number=item["po_number"],
@@ -409,7 +412,9 @@ def _is_invoice_authorized(
         return True
 
     user_supplier_id = user.get("supplier_id")
-    resource_supplier_id = invoice.get("supplier_id")
+    resource_supplier_id = invoice.get(
+        "supplier_id"
+    )
 
     if not user_supplier_id:
         return False
@@ -461,7 +466,6 @@ def _get_authorized_documents(
     """
 
     if user.get("role") == "supplier":
-
         supplier_id = user.get("supplier_id")
 
         if not supplier_id:
@@ -477,12 +481,6 @@ def _get_authorized_documents(
             # Do not expose information when the supplier
             # referenced by the token does not exist.
             return []
-
-    # Non-supplier roles
-    # ----------------------------------------------
-    # These roles are allowed to access supplier documents
-    # according to the current service-level authorization.
-    # ----------------------------------------------
 
     return [
         document
@@ -509,16 +507,34 @@ class Query:
         info: Info,
         po_number: str,
     ) -> PurchaseOrderType | None:
-
         user = info.context["user"]
+
+        # ----------------------------------------------------
+        # Round-14 compliance enforcement
+        # ----------------------------------------------------
+        #
+        # This MUST happen before resource lookup.
+        #
+        # Result:
+        #   CLEARED      -> allowed
+        #   NEEDS_REVIEW -> allowed to view
+        #   SUSPENDED    -> rejected
+        #
+        # This also guarantees that a suspended supplier
+        # cannot probe another supplier's resource.
+        require_graphql_view_access(user)
 
         purchase_order = get_purchase_order_by_id(
             po_number
         )
 
+        # Existing GraphQL contract:
+        # unknown PO -> null without an error.
         if purchase_order is None:
             return None
 
+        # Existing supplier isolation:
+        # cross-supplier PO -> null without an error.
         if not _is_supplier_authorized(
             user,
             purchase_order,
@@ -540,20 +556,20 @@ class Query:
         first: int = 10,
         after: str | None = None,
     ) -> PurchaseOrderConnectionType:
-
         user = info.context["user"]
+
+        # Compliance is checked before exposing the collection.
+        require_graphql_view_access(user)
 
         all_purchase_orders = get_all_purchase_orders()
 
         # IMPORTANT:
         # Supplier filtering happens BEFORE pagination.
         if user.get("role") == "supplier":
-
             supplier_id = user.get("supplier_id")
 
             if not supplier_id:
                 all_purchase_orders = []
-
             else:
                 all_purchase_orders = [
                     purchase_order
@@ -593,20 +609,17 @@ class Query:
         supplier_id: str | None = None,
     ) -> InvoiceType | None:
         """
-        Return a single invoice using supplier-scoped lookup.
+        Return a single invoice.
 
         Supplier users:
-            - supplier_id is always taken from the authenticated
-              user's token/context.
-            - Any supplier_id supplied by the GraphQL client is ignored.
-            - This prevents a supplier from overriding its own
-              identity through the GraphQL request.
+            - compliance is checked before resource lookup;
+            - supplier_id comes only from the authenticated context;
+            - client-supplied supplierId is ignored;
+            - supplier ownership is verified after lookup.
 
         Internal users:
-            - supplier_id must be explicitly supplied because invoice
-              numbers are not globally unique across suppliers.
-            - The lookup is performed using both supplier_id and
-              invoice_number.
+            - supplier_id must be explicitly supplied;
+            - lookup uses supplier_id + invoice_number.
         """
 
         user = info.context["user"]
@@ -614,21 +627,28 @@ class Query:
         # ----------------------------------------------------
         # Supplier users
         # ----------------------------------------------------
-        #
-        # NEVER trust supplier_id supplied by the GraphQL client
-        # for supplier users.
-        #
-        # The authenticated supplier identity is authoritative.
-        # ----------------------------------------------------
 
         if user.get("role") == "supplier":
+            # IMPORTANT:
+            # Check compliance BEFORE looking up the invoice.
+            #
+            # This ensures:
+            #   - missing supplier_id -> error
+            #   - suspended supplier -> error
+            #   - needs_review -> view allowed
+            #   - cleared -> view allowed
+            require_graphql_view_access(user)
 
             authenticated_supplier_id = user.get(
                 "supplier_id"
             )
 
+            # require_graphql_view_access already validates
+            # supplier identity, but keep this guard defensive.
             if not authenticated_supplier_id:
-                return None
+                raise PermissionError(
+                    "Supplier identity is missing"
+                )
 
             try:
                 invoice = get_invoice_by_number(
@@ -636,9 +656,11 @@ class Query:
                     invoice_number=invoice_number,
                 )
             except ValueError:
+                # Preserve existing GraphQL behavior:
+                # unknown invoice -> null.
                 return None
 
-            # Defense-in-depth supplier ownership check.
+            # Preserve supplier isolation.
             if not _is_invoice_authorized(
                 user,
                 invoice,
@@ -649,10 +671,6 @@ class Query:
 
         # ----------------------------------------------------
         # Internal users
-        # ----------------------------------------------------
-        #
-        # Invoice numbers may exist for multiple suppliers.
-        # Therefore supplier_id is mandatory for internal users.
         # ----------------------------------------------------
 
         if not supplier_id:
@@ -681,20 +699,20 @@ class Query:
         first: int = 10,
         after: str | None = None,
     ) -> InvoiceConnectionType:
-
         user = info.context["user"]
+
+        # Compliance applies before exposing the collection.
+        require_graphql_view_access(user)
 
         all_invoices = get_all_invoices()
 
         # IMPORTANT:
         # Supplier filtering happens BEFORE pagination.
         if user.get("role") == "supplier":
-
             supplier_id = user.get("supplier_id")
 
             if not supplier_id:
                 all_invoices = []
-
             else:
                 all_invoices = [
                     invoice
@@ -733,14 +751,23 @@ class Query:
         first: int = 10,
         after: str | None = None,
     ) -> SupplierDocumentConnectionType:
-
         user = info.context["user"]
 
         # IMPORTANT:
-        # Authorization / supplier scoping happens BEFORE
-        # pagination.
+        # Compliance is checked BEFORE any document lookup.
+        #
+        # Therefore:
+        #   CLEARED      -> documents allowed
+        #   NEEDS_REVIEW -> documents allowed
+        #   SUSPENDED    -> immediately rejected
+        #
+        # This is important for Round-14 because suspended
+        # suppliers must not reach document storage logic.
+        require_graphql_view_access(user)
+
         documents = _get_authorized_documents(user)
 
+        # Authorization/filtering occurs before pagination.
         edges, page_info = _paginate(
             documents,
             first,

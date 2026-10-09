@@ -6,6 +6,7 @@ from app.services.purchase_order_service import (
     acknowledge_purchase_order,
 )
 
+from app.graphql.context import require_graphql_write_access
 from app.graphql.queries import _to_purchase_order_type
 from app.graphql.types import PurchaseOrderType
 
@@ -22,11 +23,16 @@ class Mutation:
         """
         Acknowledge a Purchase Order.
 
-        Mirrors the REST endpoint (require_po_access(supplier_only=True)):
-        only the supplier that owns the PO may acknowledge it.
+        Round-14 compliance rules:
+            - CLEARED supplier: allowed
+            - NEEDS REVIEW supplier: denied
+            - SUSPENDED supplier: denied
 
-        Internal roles are rejected and cannot acknowledge supplier POs.
-        Ownership is checked before any state-changing business logic.
+        Existing rules remain unchanged:
+            - Only supplier users may acknowledge.
+            - Supplier ownership is enforced.
+            - Unknown/other-supplier POs return null.
+            - Business state changes happen only after authorization.
         """
 
         user = info.context["user"]
@@ -54,21 +60,47 @@ class Mutation:
         # ====================================================
         # STEP 3: Fetch PO without changing its state
         # ====================================================
+        #
+        # IMPORTANT:
+        # We intentionally perform resource lookup and ownership
+        # checks before compliance lookup.
+        #
+        # This preserves the existing GraphQL contract:
+        #   - unknown PO -> null
+        #   - another supplier's PO -> null
+        #
+        # It also prevents a compliance lookup from turning an
+        # unknown/cross-supplier resource into a different error.
 
         purchase_order = get_purchase_order_by_id(
             po_number
         )
 
-        # Unknown PO and another supplier's PO intentionally
-        # look the same to the caller.
-        if (
-            purchase_order is None
-            or purchase_order.get("supplier_id") != supplier_id
-        ):
+        if purchase_order is None:
             return None
 
         # ====================================================
-        # STEP 4: Execute existing business logic
+        # STEP 4: Enforce supplier ownership
+        # ====================================================
+
+        if purchase_order.get("supplier_id") != supplier_id:
+            return None
+
+        # ====================================================
+        # STEP 5: Round-14 compliance write access
+        # ====================================================
+        #
+        # CLEARED       -> continue
+        # NEEDS REVIEW  -> reject
+        # SUSPENDED     -> reject
+        #
+        # This MUST happen before the state-changing business
+        # operation below.
+
+        require_graphql_write_access(user)
+
+        # ====================================================
+        # STEP 6: Execute existing business logic
         # ====================================================
 
         acknowledged_po = acknowledge_purchase_order(
@@ -79,7 +111,7 @@ class Mutation:
             return None
 
         # ====================================================
-        # STEP 5: Convert service result to GraphQL type
+        # STEP 7: Convert service result to GraphQL type
         # ====================================================
 
         return _to_purchase_order_type(
