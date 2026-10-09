@@ -117,7 +117,7 @@ def test_publish_platform_user_locked_event_to_kafka():
         # ----------------------------------------------------
 
         assert set(received_event.keys()) == {
-            "id",
+            "event_id",
             "event_type",
             "event_version",
             "occurred_at",
@@ -130,10 +130,10 @@ def test_publish_platform_user_locked_event_to_kafka():
         # ----------------------------------------------------
 
         parsed_uuid = uuid.UUID(
-            received_event["id"]
+            received_event["event_id"]
         )
 
-        assert str(parsed_uuid) == received_event["id"]
+        assert str(parsed_uuid) == received_event["event_id"]
 
         # ----------------------------------------------------
         # 6. Verify event metadata
@@ -163,8 +163,8 @@ def test_publish_platform_user_locked_event_to_kafka():
         # 8. Verify publisher returned the same event
         # ----------------------------------------------------
 
-        assert received_event["id"] == (
-            published_event["id"]
+        assert received_event["event_id"] == (
+            published_event["event_id"]
         )
 
     finally:

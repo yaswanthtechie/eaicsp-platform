@@ -185,7 +185,6 @@ TIMEOUT_SECONDS=10
 DURATION_SECONDS=120
 REQUESTS_PER_SECOND=5
 ---
-
 # Roles
 
 The Platform Service supports organizational roles such as:
@@ -1731,6 +1730,38 @@ The default configuration excludes integration tests:
 [tool.pytest.ini_options]
 addopts = "-m 'not integration'"
 ```
+
+
+## Running the Dev Stack
+
+Run these commands from the `services/platform/` directory.
+
+Start Redis and Kafka:
+
+```bash
+docker compose -f docker-compose.dev.yml up -d
+```
+
+Run unit tests (no Docker services required):
+
+```bash
+pytest -q
+```
+
+Run integration tests (Redis and Kafka containers required):
+
+```bash
+pytest -m integration -rs
+```
+
+Run the Milestone 1 cross-instance revocation proof:
+
+```bash
+python scripts/two_instance_revocation_check.py
+```
+
+**M1 completion evidence:** Save the successful proof-script output and include it in the README and pull request. Mark M1 complete only after the script passes.
+
 ---
 
 ## End-to-End Service Flow
@@ -1981,13 +2012,16 @@ Supplier Portal
 
 # Known Limitations
 
-### In-memory token cache
+### Redis-backed authentication state
 
-The M1 cache is process-local when implemented in memory.
+The verification cache, rate-limit counters, and token-revocation state use Redis so that multiple Platform Service instances can share authentication state. All instances must be configured with the same `REDIS_URL`.
 
-In a multi-worker or multi-instance production deployment, a shared cache such as Redis may be preferred.
+Redis availability and connectivity remain operational dependencies. The service must handle Redis errors appropriately, especially for security-sensitive revocation checks.
 
-The cache TTL and invalidation strategy must also account for security-sensitive events.
+### MFA challenge storage
+
+If MFA challenges are still stored in process memory, they are not shared between instances and are lost when the service restarts. A shared Redis or database-backed challenge store is needed to provide cross-instance persistence for MFA challenges.
+
 
 ### SQLite
 
@@ -2558,11 +2592,19 @@ The Swagger authentication configuration must match the security dependency used
 
 # Round 12+13
 
-| Milestone                                | Status         |
+| Milestone                                |          Status         |
 | ---------------------------------------- | -------------- |
-| M1 Redis-backed shared auth state        |    Done        |
+| M1 Redis-backed shared auth state        |Done (see M1 proof below)|
 | M2 15+ role model                        |    Done        |
-| M3 Event publishing / structured logging |   Done         |
+| M3 Event publishing / structured logging |    Done       |
+
+# Round 12+13 Status
+
+| Milestone | Status |
+|---|---|
+| M1 Redis-backed shared auth state | Done (see M1 proof below) |
+| M2 15+ role model | Done |
+| M3 Event publishing / structured logging | Done (see M1 proof below) |
 
 # Milestone 1 - Redis-Backed Shared Authentication State
 
@@ -2654,15 +2696,14 @@ authentication errors while using Redis for shared runtime state.
 
 The Redis-backed authentication state is protected by tests covering:
 
-* Redis verify-cache storage and retrieval
-* Cache TTL behavior
-* Rate-limit counter persistence
-* Rate-limit state shared across instances
-* User/token invalidation through Redis
-* Revoked-token rejection after invalidation
-* Cross-instance revocation
-* `/verify` response contract preservation
-* Redis failure handling where applicable
+* `tests/test_redis_auth_state.py`: logout revokes the token for /verify AND
+  the platform's own endpoints; logout returns 503 (not 200) when Redis
+  cannot store the revocation; account lock publishes one
+  platform.user.locked event; a failed publish does not undo the lock.
+* `tests/test_event_publisher.py`: standard envelope (event_id ...),
+  topic == event_type, never raises when Kafka is down.
+* `tests/test_two_instance_revocation.py` (integration): two real
+  instances, one Redis; a token logged out on A is rejected by B.
 
 ## Milestone 1 Acceptance
 
@@ -2682,6 +2723,37 @@ Instance B rejects the same token
 /verify contract remains unchanged
         +
 Redis-backed tests pass
+```
+
+18 passed
+
+50.86 seconds · 0 failures
+
+PASS
+Account-lock event publishing
+
+Passed
+
+Kafka event publisher
+
+Passed
+
+HTTP authentication and verification
+
+15 passed
+
+Cross-instance revocation
+
+Passed
+
+python scripts/two_instance_revocation_check.py
+Database seeded successfully.
+B /verify before logout (expect 200): 200
+A /logout (expect 200): 200
+B /verify after logout on A (expect 401): 401
+B /me/permissions after logout on A (expect 401): 401
+PASS: revocation is shared across instances
+
 ---
 
 # Milestone 2 - Expanded RBAC Role Model
@@ -3405,13 +3477,14 @@ publish_event(event_type, payload)
 The helper builds the standard EAICSP event envelope:
 
 ```text
-id
+event_id
 event_type
 event_version
 occurred_at
 producer
 payload
 ```
+State that publish_event never raises, returns None on failure, and delivers at most once.
 
 Example:
 
@@ -3433,26 +3506,30 @@ account-lock operation.
 
 ### Event Contract
 
-The event envelope contains:
+The shared event envelope contains:
 
 | Field           | Description                   |
 | --------------- | ----------------------------- |
-| `id`            | Unique event identifier       |
-| `event_type`    | Event name/topic              |
+| `event_id`      | Unique event identifier       |
+| `event_type`    | Event name and Kafka topic    |
 | `event_version` | Version of the event contract |
 | `occurred_at`   | UTC event timestamp           |
 | `producer`      | Producing service             |
 | `payload`       | Event-specific data           |
 
-The current producer is:
+The current producer is `platform-service`.
 
-```text
-platform-service
+The public publishing interface is:
+
+```python
+publish_event(event_type, payload)
 ```
+The helper uses `event_type` as the Kafka topic and wraps the supplied payload in the standard event envelope.
 
-Other services are **not required to adopt the shared event publisher in
-Round 12+13**. The module is documented here as the shared contract for
-future rounds.
+**Failure behavior:** `publish_event` never raises to its caller. It returns `None` on failure and delivers at most once; it does not retry failed publications. The configured `KAFKA_PUBLISH_TIMEOUT_SECONDS` bounds the publishing attempt.
+
+Account-lock state and its audit record are committed before the lock event is published. A Kafka publishing failure must not undo the account lock.
+
 
 ## Structured Logging
 

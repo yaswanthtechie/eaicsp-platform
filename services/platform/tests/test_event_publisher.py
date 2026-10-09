@@ -9,7 +9,7 @@ def test_build_event_contains_standard_envelope():
     )
 
     assert set(event.keys()) == {
-        "id",
+        "event_id",
         "event_type",
         "event_version",
         "occurred_at",
@@ -39,10 +39,10 @@ def test_event_id_is_valid_uuid():
     )
 
     parsed_uuid = uuid.UUID(
-        event["id"]
+        event["event_id"]
     )
 
-    assert str(parsed_uuid) == event["id"]
+    assert str(parsed_uuid) == event["event_id"]
 
 
 def test_event_timestamp_is_utc():
@@ -65,7 +65,7 @@ def test_event_ids_are_unique():
         {"user_id": 123},
     )
 
-    assert event1["id"] != event2["id"]
+    assert event1["event_id"] != event2["event_id"]
 
 
 def test_event_payload_is_preserved():
@@ -80,7 +80,6 @@ def test_event_payload_is_preserved():
     )
 
     assert event["payload"] == payload
-
 
 def test_publish_event_uses_event_type_as_topic(
     monkeypatch,
@@ -98,15 +97,9 @@ def test_publish_event_uses_event_type_as_topic(
             captured["value"] = value
             return FakeFuture()
 
-        def flush(self):
-            captured["flushed"] = True
-
-        def close(self):
-            captured["closed"] = True
-
     monkeypatch.setattr(
         event_publisher,
-        "_create_producer",
+        "_get_producer",
         lambda: FakeProducer(),
     )
 
@@ -115,14 +108,28 @@ def test_publish_event_uses_event_type_as_topic(
         {"user_id": 123},
     )
 
-    assert captured["topic"] == (
-        "platform.user.locked"
+    assert captured["topic"] == "platform.user.locked"
+    assert captured["value"] == result
+    assert captured["timeout"] == event_publisher.PUBLISH_TIMEOUT_SECONDS
+
+
+def test_publish_event_never_raises_when_kafka_is_down(monkeypatch):
+    """A Kafka outage is logged and returns None; it never raises."""
+    from kafka.errors import KafkaTimeoutError
+
+    class DownProducer:
+        def send(self, topic, value):
+            raise KafkaTimeoutError("Kafka is down")
+
+    monkeypatch.setattr(event_publisher, "_get_producer", lambda: DownProducer())
+    monkeypatch.setattr(event_publisher, "_reset_producer", lambda: None)
+
+    result = event_publisher.publish_event(
+        "platform.user.locked",
+        {"user_id": 123},
     )
 
-    assert captured["value"] == result
-    assert captured["flushed"] is True
-    assert captured["closed"] is True
-
+    assert result is None
 
 def test_empty_event_type_is_rejected():
     with pytest.raises(ValueError):

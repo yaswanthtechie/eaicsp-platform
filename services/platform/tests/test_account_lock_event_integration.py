@@ -268,7 +268,7 @@ def test_real_account_lock_publishes_platform_user_locked_event():
         # ---------------------------------------------------------
 
         assert set(received_event.keys()) == {
-            "id",
+            "event_id",
             "event_type",
             "event_version",
             "occurred_at",
@@ -276,9 +276,9 @@ def test_real_account_lock_publishes_platform_user_locked_event():
             "payload",
         }
 
-        parsed_uuid = uuid.UUID(received_event["id"])
+        parsed_uuid = uuid.UUID(received_event["event_id"])
 
-        assert str(parsed_uuid) == received_event["id"]
+        assert str(parsed_uuid) == received_event["event_id"]
         assert received_event["event_type"] == "platform.user.locked"
         assert received_event["event_version"] == 1
         assert received_event["producer"] == "platform-service"

@@ -124,3 +124,29 @@ def reset_security_state(monkeypatch):
     _request_buckets.clear()
     _last_abuse_event_at.clear()
     _mfa_challenges.clear()
+
+# ============================================================
+# KAFKA: unit tests never contact a real broker
+# ============================================================
+# Records every event the app tries to publish instead of sending it.
+# Use the `published_events` fixture in a test to inspect them.
+# Integration tests (marked `integration`) still use real Kafka.
+# ============================================================
+@pytest.fixture(autouse=True)
+def published_events(request, monkeypatch):
+    events = []
+
+    if request.node.get_closest_marker("integration") is None:
+        import app.services.auth_service
+
+        def record(event_type, payload):
+            events.append({"event_type": event_type, "payload": payload})
+            return None
+
+        monkeypatch.setattr(
+            app.services.auth_service,
+            "publish_event",
+            record,
+        )
+
+    return events

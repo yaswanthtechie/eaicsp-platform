@@ -270,29 +270,28 @@ def logout(
             detail="Refresh token already revoked",
         )
 
+        # --------------------------------------------------------
+    # Revoke the access token in shared Redis FIRST.
+    #
+    # If Redis cannot store the revocation, stop with 503 and
+    # commit nothing: logout must never report success while the
+    # access token is still valid on other instances. The user
+    # can simply retry.
+    # --------------------------------------------------------
+    payload = decode_token(access_token)
+    remaining_ttl = int(
+        payload.get("exp", 0) - datetime.now(timezone.utc).timestamp()
+    )
+
+    if remaining_ttl > 0 and not revoke_token(access_token, remaining_ttl):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Logout is temporarily unavailable. Please try again.",
+        )
+
+    token_cache.delete(access_token)
+
     refresh.is_revoked = True
-
-    # --------------------------------------------------------
-    # Revoke current access token in shared Redis
-    # --------------------------------------------------------
-    try:
-        payload = decode_token(access_token)
-        exp = payload.get("exp")
-
-        if exp:
-            remaining_ttl = int(exp - datetime.now(timezone.utc).timestamp())
-
-            if remaining_ttl > 0:
-                revoke_token(
-                    access_token,
-                    remaining_ttl,
-                )
-
-        token_cache.delete(access_token)
-
-    except Exception:
-        # Do not expose Redis/token internals through logout.
-        pass
 
     create_audit_log(
         db=db,
