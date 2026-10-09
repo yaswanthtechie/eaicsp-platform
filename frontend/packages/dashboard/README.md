@@ -407,7 +407,6 @@ The Platform authentication endpoints used by the dashboard are:
 * `POST /api/v1/auth/login`
 * `POST /api/v1/auth/refresh`
 * `POST /api/v1/auth/logout`
-* `GET /api/v1/auth/me/permissions`
 
 The main authentication files are:
 
@@ -421,7 +420,7 @@ src/
 ```
 
 `Login.tsx` provides the login form and handles the username/password submission.
-`auth.ts` contains the API calls for login, refresh, logout, and permissions.
+`auth.ts` contains the API calls for login, refresh, logout.
 
 The access token is stored in the dashboard authentication session and refreshed before it expires.
 
@@ -509,6 +508,9 @@ localhost:8005
 
 This allows the dashboard running on port `5173` to communicate with the Platform authentication service without the browser blocking the local request.
 
+The Vite proxy is available only during development. Production builds and `npm run preview` require the Platform service to allow the dashboard origin through its CORS configuration.
+
+
 
 ## Authentication Testing
 
@@ -520,32 +522,53 @@ The authentication Playwright test is:
 e2e/dashboard.auth.spec.ts
 ```
 
-It tests the real login flow by:
+It contains 12 tests covering:
 
-* Opening the login page.
-* Filling the login credentials.
-* Clicking the login button.
-* Verifying that successful credentials enter the dashboard.
-* Verifying that incorrect credentials display the authentication error.
+1. Real login with valid credentials.
+2. Wrong-password error handling.
+3. Authentication service unavailable.
+4. HTTP 5xx responses from the service.
+5. Expired session handling.
+6. Refreshing the access token before expiry.
+7. Refresh failure while the service is unavailable.
+8. Invalid stored token handling.
+9. CEO KPI visibility.
+10. Warehouse manager KPI visibility.
+11. Unsupported role handling.
+12. Logout with a Bearer token and session cleanup.
 
-The test uses the real Platform authentication service and verifies the actual login button and credential flow.
+Ten tests use mocked platform responses and do not require the backend. Two tests use the real platform service and require TEST_AUTH_USERNAME and TEST_AUTH_PASSWORD. Configure these variables using a seeded local account; see .env.example. Never commit real credentials.
 
 Run the authentication tests with:
 
 ```powershell
 npm run test:e2e:auth
 ```
+With no credentials configured, the expected result is 10 passed and 2 skipped. With the platform service running and valid test credentials configured, all 12 tests should pass.
 
 Latest result:
 
-**Authentication E2E: 2/2 passed**
+**Authentication E2E: 12/12 passed**
 
 The main dashboard Playwright tests continue to run separately:
 
 ```powershell
 npm run test:e2e
 ```
-Expired-session and Platform-unreachable handling are implemented in the authentication flow. They are not counted as separately Playwright-tested cases because dedicated tests have not been added for those scenarios.
+## Token storage
+
+Tokens are kept in `sessionStorage` (cleared when the tab closes; not shared across tabs).
+
+Trade-off: any script running on the page can read it, so a XSS bug would expose the tokens. An httpOnly cookie set by the platform
+service would avoid that, but needs backend changes. Tokens are never logged.
+
+## Known gaps
+
+* **Warehouse scope is still mocked.** The role comes from the real JWT, but a warehouse manager's warehouse still comes from `mocks/user.ts`, because the platform token only contains `sub`, `user_id` and `role`.Raised with Rahul:needs a `warehouse` claim or a `/me` endpoint.
+* **MFA accounts** get a clear "not supported yet" message; there's no OTP screen.
+* **Only `ceo` and `warehouse_manager`** have dashboard views. Other platform roles see "Your account's role does not have access to this dashboard."
+* **The Vite proxy only works in `npm run dev`.** `npm run preview` / production builds need the platform service to allow this origin via CORS (reported to Rahul and the TL, with the error above).
+
 
 ### PDF and CSV Export
 
@@ -1121,6 +1144,9 @@ Test verification completed successfully.
 
 * Vitest: 19 test files, 147/147 tests passed
 * Playwright Dashboard E2E: 4/4 tests passed
-* Authentication E2E: 2/2 passed
-* Total: 151 tests passed + separate 2 authentication e2e passed
+* Authentication E2E: 12/12 passed with valid credentials.
+* Total: 163 tests passed across the three reported test groups.
 * Offline PWA snapshot test is also passing now.
+
+The authentication tests are run separately using
+npm run test:e2e:auth.

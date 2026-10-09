@@ -19,8 +19,6 @@ export default function Login({ onLogin, errorMessage }: LoginProps) {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    console.log("LOGIN FORM SUBMITTED");
-
     setError("");
     setLoading(true);
 

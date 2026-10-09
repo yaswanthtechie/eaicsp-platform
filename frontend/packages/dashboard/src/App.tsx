@@ -10,6 +10,7 @@ import {
   type ProfilerOnRenderCallback,
 } from "react";
 import {
+  AuthError,
   clearAuthSession,
   getAuthSession,
   getTokenExpiry,
@@ -48,6 +49,11 @@ import { getKpiSnapshot, saveKpiSnapshot } from "./utils/kpiSnapshot";
 const ForecastChart = lazy(() => import("./components/ForecastChart"));
 const ForecastAccuracy = lazy(() => import("./components/ForecastAccuracy"));
 const USE_MOCK_AUTH = import.meta.env.VITE_USE_MOCK_AUTH === "true";
+// Refresh this long before the access token expires.
+const REFRESH_BEFORE_EXPIRY_MS = 60_000;
+// When the platform is unreachable, retry the refresh this often
+// instead of logging the user out.
+const REFRESH_RETRY_MS = 15_000;
 const handleProfilerRender: ProfilerOnRenderCallback = (
   id,
   phase,
@@ -100,19 +106,21 @@ function buildKpis(
         { title: "Alerts", value: alertCount },
       ];
 }
+interface DashboardAppProps {
+  authRole?: UserRole;
+  onLogout?: () => void;
+}
 
-function DashboardApp({ onLogout }: { onLogout : () => void }) {
+function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
   const {
     data: dashboardData,
     loading: dashboardLoading,
     error: dashboardError,
     refetch,
   } = useDashboardData();
-  const authSession = getAuthSession();
+
   const [role, setRole] = useState<UserRole>(
-    USE_MOCK_AUTH
-      ? roleFromUrl()
-      : authSession?.role ?? "ceo",
+    () => authRole ?? roleFromUrl(),
   );
   const [alerts, setAlerts] = useState<AlertMessage[]>([]);
   const [liveInventory, setLiveInventory] =
@@ -419,9 +427,11 @@ function DashboardApp({ onLogout }: { onLogout : () => void }) {
       >
         Executive Dashboard
       </h1>
-      <Button type="button" onClick={onLogout}>
-        Logout
-      </Button>
+      {onLogout && (
+        <Button type="button" onClick={onLogout}>
+          Logout
+        </Button>
+      )}
     </div>
   );
 
@@ -822,25 +832,42 @@ function App() {
       return;
     }
 
-    const refreshBeforeExpiry = async () => {
+    let timer: number | undefined;
+
+    function scheduleRefresh(delayMs: number) {
+      timer = window.setTimeout(() => {
+        void refreshBeforeExpiry();
+      }, delayMs);
+    }
+
+    async function refreshBeforeExpiry()  {
       try {
-        const refreshedSession = await refreshAuthSession();
-        setAuthSession(refreshedSession);
-      } catch {
+        setAuthSession(await refreshAuthSession());
+      } catch (err) {
+        if (err instanceof AuthError && err.kind === "unavailable") {
+          scheduleRefresh(REFRESH_RETRY_MS);
+          return;
+        }
         clearAuthSession();
         setAuthSession(null);
         setAuthError("Your session has expired. Please sign in again.");
       }
-    };
+    }
 
-    const refreshAt = Math.max(
-      getTokenExpiry(authSession.access_token) - Date.now() - 60_000,
-      0,
-    );
+    let delayMs = 0;
 
-    const timer = window.setTimeout(() => {
-      void refreshBeforeExpiry();
-    }, refreshAt);
+    try {
+      delayMs = Math.max(
+        getTokenExpiry(authSession.access_token) -
+          Date.now() -
+          REFRESH_BEFORE_EXPIRY_MS,
+        0,
+      );
+    } catch {
+      // Refresh immediately if the expiry cannot be read.
+    }
+
+    scheduleRefresh(delayMs);
 
     return () => {
       window.clearTimeout(timer);
@@ -848,7 +875,7 @@ function App() {
   }, [authSession]);
 
   if (USE_MOCK_AUTH) {
-    return <DashboardApp onLogout={() => {}} />;
+    return <DashboardApp />;
   }
 
   if (!authSession) {
@@ -865,8 +892,11 @@ function App() {
 
   return (
     <DashboardApp
+      // Remount if a refreshed token carries a different role.
+      key={authSession.role}
+      authRole={authSession.role}
       onLogout={async () => {
-        await logout(authSession.refresh_token);
+        await logout(authSession);
         clearAuthSession();
         setAuthSession(null);
       }}

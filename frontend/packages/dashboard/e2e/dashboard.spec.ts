@@ -18,17 +18,11 @@ function kpi(page: Page, title: string, value: number) {
   });
 }
 
-test.beforeEach(async ({ page }, testInfo) => {
-  const authTests = [
-    "logs in successfully with real credentials",
-    "shows an error for invalid password",
-  ];
-
-  if (authTests.includes(testInfo.title)) {
-    return;
-  }
-
+// These tests cover the dashboard itself, so start already signed in.
+// Auth flows are tested in dashboard.auth.spec.ts.
+test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
+
     const payload = btoa(
       JSON.stringify({
         role: "ceo",
