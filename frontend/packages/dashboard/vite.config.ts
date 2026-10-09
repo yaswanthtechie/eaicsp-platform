@@ -53,6 +53,9 @@ export default defineConfig({
     setupFiles: "./src/test/setup.ts",
     testTimeout: 15000,
     exclude: ["**/e2e/**", "**/node_modules/**"],
+    env: {
+      VITE_USE_MOCK_AUTH: "true",
+    },
   },
 
   resolve: {
@@ -60,5 +63,14 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
     dedupe: ["react", "react-dom"],
+  },
+
+  server: {
+    proxy: {
+      "/api/v1/auth": {
+        target: "http://localhost:8005",
+        changeOrigin: true,
+      },
+    },
   },
 });

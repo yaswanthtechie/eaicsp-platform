@@ -18,6 +18,33 @@ function kpi(page: Page, title: string, value: number) {
   });
 }
 
+// These tests cover the dashboard itself, so start already signed in.
+// Auth flows are tested in dashboard.auth.spec.ts.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+
+    const payload = btoa(
+      JSON.stringify({
+        role: "ceo",
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      }),
+    )
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+
+    sessionStorage.setItem(
+      "dashboard_auth",
+      JSON.stringify({
+        access_token: `test.${payload}.signature`,
+        refresh_token: "test-refresh-token",
+        token_type: "bearer",
+        role: "ceo",
+      }),
+    );
+  });
+});
+
 test("opens dashboard and displays KPIs", async ({ page }) => {
   await page.goto("/");
 

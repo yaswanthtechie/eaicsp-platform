@@ -28,3 +28,7 @@ coverage/
 
 lighthouse/report.report.html
 lighthouse/report.report.json
+
+test-results/
+playwright-report/
+.env.test
