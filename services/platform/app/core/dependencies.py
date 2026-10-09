@@ -11,6 +11,7 @@ from app.core.security import decode_token
 from app.database import get_db
 from app.models.users import User
 from app.core.permissions import PERMISSIONS,ROLE_PERMISSIONS
+from app.core.revocation_store import is_token_revoked
 # ============================================================
 # Authentication Schemes
 # ============================================================
@@ -62,6 +63,16 @@ def get_current_user(
     # --------------------------------------------------------
 
     token = credentials.credentials
+
+    # A token revoked on ANY instance (for example by logout) is
+    # rejected here too, not only by /verify. is_token_revoked
+    # fails closed: if Redis is unreachable it returns True.
+    if is_token_revoked(token):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token revoked",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     try:
         # ----------------------------------------------------

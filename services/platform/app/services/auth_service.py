@@ -27,6 +27,7 @@ from app.services.audit_service import (
 )
 from app.services.mfa_service import create_mfa_challenge
 from app.services.mfa_service import verify_mfa_challenge
+from app.core.event_publisher import publish_event
 
 import secrets
 import threading
@@ -35,20 +36,6 @@ import logging
 
 
 logger = logging.getLogger("auth_requests")
-
-
-# ============================================================
-# LOGIN SECURITY CONFIGURATION
-# ============================================================
-
-import secrets
-import threading
-from collections import defaultdict
-import logging
-
-
-logger = logging.getLogger("auth_requests")
-
 
 # ============================================================
 # LOGIN SECURITY CONFIGURATION
@@ -348,7 +335,6 @@ def login(
 
     return user
 
-
 # ============================================================
 # LOGIN
 # ============================================================
@@ -439,8 +425,11 @@ def login_user(
                     datetime.now(timezone.utc)
                     + LOCKOUT_DURATION
                 )
+
+                # Keep existing Redis cache invalidation
                 token_cache.invalidate_user(user.id)
 
+                # Keep existing audit behavior
                 create_audit_log(
                     db=db,
                     event_type=ACCOUNT_LOCKED,
@@ -453,13 +442,24 @@ def login_user(
                     ),
                 )
 
+                # ------------------------------------------------
+                # Commit lock + audit first
+                # ------------------------------------------------
+
                 db.commit()
 
-                logger.warning(
-                    "Account locked | user_id=%s | email=%s | attempts=%s",
-                    user.id,
-                    user.email,
-                    attempts,
+                # ------------------------------------------------
+                # Publish shared Kafka event
+                # ------------------------------------------------
+                # The lock and audit record are already committed.
+                # publish_event never raises and gives up after
+                # KAFKA_PUBLISH_TIMEOUT_SECONDS, so a Kafka outage can
+                # neither undo the lock nor stall this request.
+                publish_event(
+                    "platform.user.locked",
+                    {
+                        "user_id": user.id,
+                    },
                 )
 
                 raise HTTPException(
@@ -543,38 +543,61 @@ def login_user(
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail=(
-                        "Password has expired. ""Please reset your password."
+                        "Password has expired. "
+                        "Please reset your password."
                     ),
                 )
-        
+
         # ----------------------------------------------------
-        # 10-11. MFA challenge (if enabled) OR tokens (default)
+        # 10-11. MFA challenge (if enabled) OR tokens
         # ----------------------------------------------------
 
         if app_config.MFA_ENABLED:
-            challenge_id, otp = create_mfa_challenge(user_id=user.id)
 
-            MockEmailService.send_mfa_otp(email=user.email, otp=otp)
+            challenge_id, otp = create_mfa_challenge(
+                user_id=user.id
+            )
+
+            MockEmailService.send_mfa_otp(
+                email=user.email,
+                otp=otp,
+            )
 
             login_response = {
                 "mfa_required": True,
                 "challenge_id": challenge_id,
                 "message": "OTP sent. Verify the OTP to complete login.",
             }
-            audit_details = "Password authentication successful; MFA required"
+
+            audit_details = (
+                "Password authentication successful; MFA required"
+            )
 
         else:
+
             access_token = create_access_token(
-                {"sub": user.email, "role": user.role.name, "user_id": user.id}
+                {
+                    "sub": user.email,
+                    "role": user.role.name,
+                    "user_id": user.id,
+                }
             )
+
             refresh_token = create_refresh_token(
-                {"sub": user.email, "user_id": user.id}
+                {
+                    "sub": user.email,
+                    "user_id": user.id,
+                }
             )
+
             save_refresh_token(
                 db=db,
                 user_id=user.id,
                 token=refresh_token,
-                expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+                expires_at=(
+                    datetime.now(timezone.utc)
+                    + timedelta(days=7)
+                ),
             )
 
             login_response = {
@@ -582,6 +605,7 @@ def login_user(
                 "refresh_token": refresh_token,
                 "token_type": "bearer",
             }
+
             audit_details = "Login Successful"
 
         # ----------------------------------------------------
@@ -594,7 +618,7 @@ def login_user(
             user_id=user.id,
             email=user.email,
             ip_address=client_ip,
-            details=audit_details
+            details=audit_details,
         )
 
         logger.info(
@@ -619,9 +643,8 @@ def login_user(
         db.commit()
 
         # ----------------------------------------------------
-        # 14. Return MFA challenge
+        # 14. Return MFA challenge / tokens
         # ----------------------------------------------------
-        
         return login_response
 
 # ============================================================
@@ -835,3 +858,4 @@ def complete_mfa_login(db: Session, challenge_id: str, otp: str, client_ip: str)
         "refresh_token": refresh_token,
         "token_type": "bearer",
     }
+

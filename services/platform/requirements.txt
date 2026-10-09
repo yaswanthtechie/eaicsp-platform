@@ -8,7 +8,17 @@ python-jose==3.5.0
 python-multipart==0.0.32
 uvicorn==0.51.0
 SQLAlchemy==2.0.51
+redis==7.1.0
+fakeredis== 2.38.0
+kafka-python==3.0.11
 
 #test deps
 httpx==0.27.2
 pytest==8.3.3
+# fakeredis stands in for Redis in unit tests. lupa lets fakeredis run the
+# Lua script the rate limiter uses (EVAL); without it every rate-limited
+# endpoint returns 503 in tests.
+fakeredis==2.38.0
+lupa==2.8
+
+
