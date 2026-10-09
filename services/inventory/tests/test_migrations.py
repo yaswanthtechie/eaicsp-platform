@@ -62,6 +62,7 @@ def test_alembic_upgrade_head_creates_matching_schema_and_allows_po_insert(tmp_p
     columns = {c["name"] for c in inspector.get_columns("purchase_orders")}
     assert "approval_status" in columns, "approval_status column must exist in purchase_orders"
     assert "hold_reason" in columns, "hold_reason column must exist in purchase_orders"
+    assert "hold_source" in columns, "hold_source column must exist in purchase_orders"
 
     tables = set(inspector.get_table_names())
     assert "processed_events" in tables, "processed_events table must exist"
@@ -79,6 +80,7 @@ def test_alembic_upgrade_head_creates_matching_schema_and_allows_po_insert(tmp_p
             status="on_hold",
             approval_status="pending_vp_approval",
             hold_reason="Supplier moved to BLOCK",
+            hold_source="compliance",
             created_at=datetime.now(UTC),
         )
         session.add(po)
@@ -89,4 +91,5 @@ def test_alembic_upgrade_head_creates_matching_schema_and_allows_po_insert(tmp_p
         assert queried.approval_status == "pending_vp_approval"
         assert queried.status == "on_hold"
         assert queried.hold_reason == "Supplier moved to BLOCK"
+        assert queried.hold_source == "compliance"
 

@@ -16,38 +16,50 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("simulate_compliance_event")
 
 
-def simulate_event(
-    supplier_id: str,
+def build_event(
+    supplier_name: str,
     new_status: str,
     old_status: str = "CLEAR",
     reason: str = "Compliance screening status update",
-    event_id: str | None = None,
-    occurred_at: str | None = None,
-    event_version: str = "1.0",
-):
-    event_id = event_id or f"evt-sim-{uuid.uuid4().hex[:8]}"
-    occurred_at = occurred_at or datetime.now(UTC).isoformat()
-    matched_list = ["OFAC"] if new_status.upper() in ("BLOCK", "BLOCKED") else []
-
-    envelope = {
-        "event_id": event_id,
+    country: str = "India",
+) -> dict:
+    """Same shape as build_supplier_status_changed_event() in services/compliance."""
+    return {
+        "event_id": str(uuid.uuid4()),
         "event_type": "compliance.supplier.status_changed",
+        "event_version": 1,
+        "occurred_at": datetime.now(UTC).isoformat(),
         "producer": "compliance-service",
-        "occurred_at": occurred_at,
-        "event_version": event_version,
-        "trace_id": f"trace-{uuid.uuid4().hex[:8]}",
         "payload": {
-            "supplier_id": supplier_id,
+            "supplier_name": supplier_name,
+            "country": country,
             "old_status": old_status,
             "new_status": new_status,
-            "matched_list": matched_list,
+            "matched_list": ["OFAC"] if new_status.upper() in ("BLOCK", "BLOCKED") else [],
             "reason": reason,
+            "screening_run_id": f"manual-{uuid.uuid4().hex[:8]}",
         },
     }
 
+
+def simulate_event(
+    supplier_name: str,
+    new_status: str,
+    old_status: str = "CLEAR",
+    reason: str = "Compliance screening status update",
+    country: str = "India",
+):
+    envelope = build_event(
+        supplier_name=supplier_name,
+        new_status=new_status,
+        old_status=old_status,
+        reason=reason,
+        country=country,
+    )
+
     db = SessionLocal()
     try:
-        logger.info("Processing event %s for supplier %s (new_status=%s)...", event_id, supplier_id, new_status)
+        logger.info("Processing event %s for supplier '%s' (new_status=%s)...", envelope["event_id"], supplier_name, new_status)
         result = process_compliance_event(db=db, event_data=envelope)
         logger.info(
             "Result: %s | Affected POs: %s | Details: %s",
@@ -62,7 +74,7 @@ def simulate_event(
 
 def main():
     parser = argparse.ArgumentParser(description="Simulate compliance status changed event on local database")
-    parser.add_argument("--supplier-id", default="SUP001", help="Supplier identifier (e.g. SUP001)")
+    parser.add_argument("--supplier-name", default="ABC Supplies", help="Supplier name (e.g. 'ABC Supplies')")
     parser.add_argument(
         "--new-status",
         default="BLOCK",
@@ -71,19 +83,17 @@ def main():
     )
     parser.add_argument("--old-status", default="CLEAR", help="Old compliance status")
     parser.add_argument("--reason", default="Entity matched sanctions list", help="Reason for status change")
-    parser.add_argument("--event-id", default=None, help="Custom event_id for testing idempotency")
-    parser.add_argument("--event-version", default="1.0", help="Envelope event version")
+    parser.add_argument("--country", default="India", help="Supplier country")
 
     args = parser.parse_args()
 
     try:
         simulate_event(
-            supplier_id=args.supplier_id,
+            supplier_name=args.supplier_name,
             new_status=args.new_status,
             old_status=args.old_status,
             reason=args.reason,
-            event_id=args.event_id,
-            event_version=args.event_version,
+            country=args.country,
         )
     except Exception as exc:
         logger.error("Simulation failed: %s", exc)
@@ -92,4 +102,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

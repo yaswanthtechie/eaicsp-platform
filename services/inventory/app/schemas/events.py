@@ -41,11 +41,14 @@ class PurchaseOrderDraftedPayload(BaseModel):
 class ComplianceSupplierStatusChangedPayload(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    supplier_id: str
+    supplier_name: Optional[str] = None
+    supplier_id: Optional[str] = None
+    country: Optional[str] = None
     old_status: Optional[str] = None
     new_status: str
     matched_list: Optional[Any] = None
     reason: Optional[str] = None
+    screening_run_id: Optional[str] = None
 
 
 class ComplianceSupplierStatusChangedEvent(BaseModel):
@@ -55,7 +58,7 @@ class ComplianceSupplierStatusChangedEvent(BaseModel):
     event_type: str = "compliance.supplier.status_changed"
     producer: str = "compliance-service"
     occurred_at: str
-    event_version: str = "1.0"
+    event_version: int = 1
     payload: ComplianceSupplierStatusChangedPayload
     trace_id: Optional[str] = None
 

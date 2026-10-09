@@ -24,4 +24,5 @@ class PurchaseOrderResponse(BaseModel):
     status: str
     approval_status: str
     hold_reason: str | None = None
+    hold_source: str | None = None
     created_at: datetime

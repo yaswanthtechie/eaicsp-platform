@@ -63,6 +63,11 @@ class PurchaseOrder(Base):
         nullable=True,
     )
 
+    hold_source = Column(
+        String,
+        nullable=True,
+    )
+
     created_at = Column(
         DateTime,
         nullable=False,

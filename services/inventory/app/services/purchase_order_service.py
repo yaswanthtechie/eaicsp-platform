@@ -182,6 +182,19 @@ def find_existing_draft_po(
     )
 
 
+def _initial_po_status(db: Session, supplier_id: str) -> tuple[str, str | None, str | None]:
+    """Draft POs for a blocked / under-review supplier start on hold."""
+    db.query(Supplier).filter(Supplier.supplier_id == supplier_id).with_for_update().first()
+    state = (
+        db.query(SupplierComplianceState)
+        .filter(SupplierComplianceState.supplier_id == supplier_id)
+        .first()
+    )
+    if state is not None and classify_compliance_status(state.last_status) in ("BLOCKED", "NEEDS_REVIEW"):
+        return "on_hold", state.last_reason or f"Supplier compliance status: {state.last_status}", "compliance"
+    return "draft", None, None
+
+
 def create_draft_po_for_inventory(
     db: Session,
     inventory: Inventory,
@@ -217,20 +230,7 @@ def create_draft_po_for_inventory(
         expected_cost=po_details["expected_cost"],
     )
 
-    comp_state = (
-        db.query(SupplierComplianceState)
-        .filter(SupplierComplianceState.supplier_id == po_details["supplier_id"])
-        .first()
-    )
-
-    po_status = "draft"
-    hold_reason = None
-
-    if comp_state is not None:
-        classified = classify_compliance_status(comp_state.last_status)
-        if classified in ("BLOCKED", "NEEDS_REVIEW"):
-            po_status = "on_hold"
-            hold_reason = getattr(comp_state, "last_reason", None) or f"Supplier compliance status: {comp_state.last_status}"
+    po_status, hold_reason, hold_source = _initial_po_status(db, po_details["supplier_id"])
 
     purchase_order = PurchaseOrder(
         po_id=generate_po_id(),
@@ -243,6 +243,7 @@ def create_draft_po_for_inventory(
         status=po_status,
         approval_status=approval_status,
         hold_reason=hold_reason,
+        hold_source=hold_source,
     )
 
     db.add(purchase_order)
@@ -323,20 +324,7 @@ def create_automatic_draft_po(
         expected_cost=po_details["expected_cost"],
     )
 
-    comp_state = (
-        db.query(SupplierComplianceState)
-        .filter(SupplierComplianceState.supplier_id == po_details["supplier_id"])
-        .first()
-    )
-
-    po_status = "draft"
-    hold_reason = None
-
-    if comp_state is not None:
-        classified = classify_compliance_status(comp_state.last_status)
-        if classified in ("BLOCKED", "NEEDS_REVIEW"):
-            po_status = "on_hold"
-            hold_reason = getattr(comp_state, "last_reason", None) or f"Supplier compliance status: {comp_state.last_status}"
+    po_status, hold_reason, hold_source = _initial_po_status(db, po_details["supplier_id"])
 
     purchase_order = PurchaseOrder(
         po_id=generate_po_id(),
@@ -349,6 +337,7 @@ def create_automatic_draft_po(
         status=po_status,
         approval_status=approval_status,
         hold_reason=hold_reason,
+        hold_source=hold_source,
     )
 
     db.add(purchase_order)
@@ -558,14 +547,9 @@ def list_purchase_orders(
     """List purchase orders with optional PO ID, supplier, and status filters."""
     query = db.query(PurchaseOrder)
     if po_id:
-        query = query.filter(PurchaseOrder.po_id == po_id)
+        query = query.filter(PurchaseOrder.po_id.startswith(po_id))
     if supplier_id:
-        if supplier_id.startswith("PO-"):
-            query = query.filter(
-                (PurchaseOrder.supplier_id == supplier_id) | (PurchaseOrder.po_id == supplier_id)
-            )
-        else:
-            query = query.filter(PurchaseOrder.supplier_id == supplier_id)
+        query = query.filter(PurchaseOrder.supplier_id == supplier_id)
     if status:
         query = query.filter(PurchaseOrder.status == status)
     return query.order_by(PurchaseOrder.created_at.desc()).limit(limit).all()

@@ -80,6 +80,8 @@ def override_get_db():
 def reset_database():
     test_engine.dispose()
     if test_engine.dialect.name == "postgresql":
+        if not (test_engine.url.database or "").endswith("_test"):
+            raise RuntimeError(f"Refusing to wipe non-test database {test_engine.url.database!r}")
         with test_engine.begin() as conn:
             conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"))
     else:
@@ -91,6 +93,8 @@ def reset_database():
 
     test_engine.dispose()
     if test_engine.dialect.name == "postgresql":
+        if not (test_engine.url.database or "").endswith("_test"):
+            raise RuntimeError(f"Refusing to wipe non-test database {test_engine.url.database!r}")
         with test_engine.begin() as conn:
             conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"))
     else:

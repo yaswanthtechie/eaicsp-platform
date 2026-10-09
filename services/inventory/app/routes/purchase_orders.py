@@ -1,6 +1,4 @@
-from datetime import UTC, datetime
 import logging
-import uuid
 
 from fastapi import (
     APIRouter,
@@ -9,7 +7,6 @@ from fastapi import (
     Query,
     status,
 )
-from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.auth import (
@@ -27,11 +24,6 @@ from app.services.compliance_client import (
     ComplianceBlockedError,
     ComplianceServiceError,
     ComplianceServiceUnavailableError,
-)
-
-from app.services.compliance_consumer import (
-    InvalidMessageError,
-    process_compliance_event,
 )
 
 from app.services.purchase_order_service import (
@@ -94,10 +86,10 @@ def create_purchase_order(
         ) from exc
 
     except Exception as exc:
-        logger.exception("Unexpected error creating draft purchase order: %s", exc)
+        logger.exception("Unexpected error creating draft purchase order")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create draft purchase order: {str(exc)}",
+            detail="Failed to create draft purchase order",
         ) from exc
 
 
@@ -211,81 +203,7 @@ def get_purchase_order_endpoint(
         ) from exc
 
 
-class SimulateComplianceEventRequest(BaseModel):
-    supplier_id: str
-    new_status: str = "BLOCK"
-    old_status: str = "CLEAR"
-    reason: str = "Compliance screening status update"
-    event_id: str | None = None
-    occurred_at: str | None = None
-    event_version: str = "1.0"
+@router.api_route("/{rest_of_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+def purchase_orders_catch_all(rest_of_path: str):
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
-
-class SimulateComplianceEventResponse(BaseModel):
-    status: str
-    event_id: str
-    affected_pos: list[str]
-    details: str
-
-
-@router.post(
-    "/compliance-events/simulate",
-    response_model=SimulateComplianceEventResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Simulate a compliance.supplier.status_changed Kafka event",
-)
-def simulate_compliance_event_endpoint(
-    data: SimulateComplianceEventRequest,
-    db: Session = Depends(get_db),
-    auth=Depends(
-        require_permission("inventory:write")
-    ),
-):
-    """
-    Test endpoint to simulate Geethika's compliance.supplier.status_changed event.
-    Applies the full idempotency, out-of-order, and PO hold/release logic
-    without requiring an external Kafka broker.
-    """
-    raw_occurred = data.occurred_at
-    if not raw_occurred or raw_occurred.strip() in ("", "string"):
-        raw_occurred = datetime.now(UTC).isoformat()
-
-    raw_event_id = data.event_id
-    if not raw_event_id or raw_event_id.strip() in ("", "string"):
-        raw_event_id = f"evt-sim-{uuid.uuid4().hex[:8]}"
-
-    event_data = {
-        "event_id": raw_event_id,
-        "event_type": "compliance.supplier.status_changed",
-        "producer": "compliance-service",
-        "occurred_at": raw_occurred,
-        "event_version": data.event_version or "1.0",
-        "trace_id": f"trace-{uuid.uuid4().hex[:8]}",
-        "payload": {
-            "supplier_id": data.supplier_id,
-            "old_status": data.old_status,
-            "new_status": data.new_status,
-            "matched_list": ["OFAC"] if "block" in data.new_status.lower() else [],
-            "reason": data.reason,
-        },
-    }
-
-    try:
-        result = process_compliance_event(db=db, event_data=event_data)
-        return SimulateComplianceEventResponse(
-            status=result.status,
-            event_id=result.event_id,
-            affected_pos=result.affected_pos,
-            details=result.details,
-        )
-    except InvalidMessageError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
-    except Exception as exc:
-        logger.exception("Error processing compliance event: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(exc),
-        ) from exc

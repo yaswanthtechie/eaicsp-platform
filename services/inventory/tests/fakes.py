@@ -80,8 +80,10 @@ class FakeKafkaConsumer:
 
     def __init__(self, messages: list[FakeKafkaMessage] | None = None):
         self.messages: list[FakeKafkaMessage] = list(messages) if messages else []
+        self._all_messages = list(messages) if messages else []
         self.committed_messages: list[FakeKafkaMessage] = []
         self.subscriptions: list[str] = []
+        self.seeks: list[tuple[int, int]] = []
 
     def subscribe(self, topics: list[str]):
         self.subscriptions.extend(topics)
@@ -90,6 +92,13 @@ class FakeKafkaConsumer:
         if self.messages:
             return self.messages.pop(0)
         return None
+
+    def seek(self, tp) -> None:
+        """Re-queue the message at tp so the next poll() redelivers it (like real Kafka)."""
+        self.seeks.append((tp.partition, tp.offset))
+        msg = next(m for m in self._all_messages
+                   if m.partition() == tp.partition and m.offset() == tp.offset)
+        self.messages.insert(0, msg)
 
     def commit(self, message=None, asynchronous=False):
         if message is not None:

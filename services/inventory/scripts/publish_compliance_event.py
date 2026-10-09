@@ -16,69 +16,81 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("compliance_test_producer")
 
 
-def publish_compliance_status_event(
-    supplier_id: str,
+def build_event(
+    supplier_name: str,
     new_status: str,
     old_status: str = "CLEAR",
-    matched_list: list[str] | None = None,
     reason: str = "Compliance screening status update",
-    topic: str | None = None,
-    bootstrap_servers: str | None = None,
-    event_id: str | None = None,
-    occurred_at: str | None = None,
-    event_version: str = "1.0",
-) -> str:
-    topic = topic or settings.COMPLIANCE_STATUS_CHANGED_TOPIC
-    event_id = event_id or str(uuid.uuid4())
-    occurred_at = occurred_at or datetime.now(UTC).isoformat()
-    matched_list = matched_list if matched_list is not None else (["OFAC"] if new_status in ("BLOCK", "BLOCKED") else [])
-
-    envelope = {
-        "event_id": event_id,
+    country: str = "India",
+) -> dict:
+    """Same shape as build_supplier_status_changed_event() in services/compliance."""
+    return {
+        "event_id": str(uuid.uuid4()),
         "event_type": "compliance.supplier.status_changed",
+        "event_version": 1,
+        "occurred_at": datetime.now(UTC).isoformat(),
         "producer": "compliance-service",
-        "occurred_at": occurred_at,
-        "event_version": event_version,
-        "trace_id": f"trace-{uuid.uuid4().hex[:8]}",
         "payload": {
-            "supplier_id": supplier_id,
+            "supplier_name": supplier_name,
+            "country": country,
             "old_status": old_status,
             "new_status": new_status,
-            "matched_list": matched_list,
+            "matched_list": ["OFAC"] if new_status.upper() == "BLOCK" else [],
             "reason": reason,
+            "screening_run_id": f"manual-{uuid.uuid4().hex[:8]}",
         },
     }
 
+
+def publish_compliance_status_event(
+    supplier_name: str,
+    new_status: str,
+    old_status: str = "CLEAR",
+    reason: str = "Compliance screening status update",
+    country: str = "India",
+    topic: str | None = None,
+    bootstrap_servers: str | None = None,
+) -> str:
+    topic = topic or settings.COMPLIANCE_STATUS_CHANGED_TOPIC
+    envelope = build_event(
+        supplier_name=supplier_name,
+        new_status=new_status,
+        old_status=old_status,
+        reason=reason,
+        country=country,
+    )
+
+    event_id = envelope["event_id"]
     serialized = json.dumps(envelope)
     publisher = KafkaEventPublisher(bootstrap_servers=bootstrap_servers)
 
-    logger.info("Publishing event %s to topic %s for supplier %s (status: %s)", event_id, topic, supplier_id, new_status)
-    publisher.publish(topic=topic, key=supplier_id, value=serialized)
+    logger.info("Publishing event %s to topic %s for supplier '%s' (status: %s)", event_id, topic, supplier_name, new_status)
+    publisher.publish(topic=topic, key=supplier_name, value=serialized)
     logger.info("Event %s successfully delivered to Kafka.", event_id)
     return event_id
 
 
 def main():
     parser = argparse.ArgumentParser(description="Publish test compliance.supplier.status_changed events to Kafka")
-    parser.add_argument("--supplier-id", default="SUP-TEST-001", help="Supplier identifier")
+    parser.add_argument("--supplier-name", default="ABC Supplies", help="Supplier name (e.g. 'ABC Supplies')")
     parser.add_argument("--new-status", default="BLOCK", choices=["CLEAR", "CLEARED", "BLOCK", "BLOCKED", "REVIEW", "needs review"], help="New compliance status")
     parser.add_argument("--old-status", default="CLEAR", help="Old compliance status")
     parser.add_argument("--reason", default="Entity matched sanctions list", help="Reason for status change")
+    parser.add_argument("--country", default="India", help="Supplier country")
     parser.add_argument("--topic", default=None, help="Kafka topic name")
     parser.add_argument("--bootstrap-servers", default=None, help="Kafka bootstrap servers")
-    parser.add_argument("--event-version", default="1.0", help="Envelope event version")
 
     args = parser.parse_args()
 
     try:
         publish_compliance_status_event(
-            supplier_id=args.supplier_id,
+            supplier_name=args.supplier_name,
             new_status=args.new_status,
             old_status=args.old_status,
             reason=args.reason,
+            country=args.country,
             topic=args.topic,
             bootstrap_servers=args.bootstrap_servers,
-            event_version=args.event_version,
         )
     except Exception as exc:
         logger.error("Failed to publish event: %s", exc)
@@ -87,4 +99,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
