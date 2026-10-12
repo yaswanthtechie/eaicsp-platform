@@ -1,17 +1,28 @@
 import {
+  lazy,
   Profiler,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ProfilerOnRenderCallback,
 } from "react";
-
+import {
+  AuthError,
+  clearAuthSession,
+  getAuthSession,
+  getTokenExpiry,
+  logout,
+  refreshAuthSession,
+} from "./api/auth";
+import { useDashboardData } from "./api/dashboardGraphql";
+import Login from "./components/Login";
+import { Button } from "@/components/ui/button";
 import AlertsPanel from "./components/AlertsPanel";
 import DashboardFilters from "./components/DashboardFilters";
 import ErrorBoundary from "./components/ErrorBoundary";
-import ForecastAccuracy from "./components/ForecastAccuracy";
-import ForecastChart from "./components/ForecastChart";
 import InventoryHealth from "./components/InventoryHealth";
 import InventoryHeatmap from "./components/InventoryHeatmap";
 import InventoryTable from "./components/InventoryTable";
@@ -21,18 +32,28 @@ import SupplierRisk from "./components/SupplierRisk";
 import SupplierRiskDistribution from "./components/SupplierRiskDistribution";
 import ExportCsvButton from "./components/export/ExportCsvButton";
 import ExportPdfButton from "./components/export/ExportPdfButton";
-import { dashboardApi } from "./api/dashboard";
+import Skeleton from "./components/Skeleton";
+import KpiGrid from "./components/KpiGrid";
+import OfflineBanner from "./components/OfflineBanner";
+import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { useWebSocket } from "./hooks/useWebSocket";
-import { inventory } from "./mocks/inventory";
-import { startMockWebSocketServer } from "./mocks/wsServer";
 import { mockUser, type UserRole } from "./mocks/user";
+import { startMockWebSocketServer } from "./mocks/wsServer";
 import { colors, radius, space } from "./tokens";
 import type {
   AlertMessage,
   InventoryItem,
   WebSocketMessage,
 } from "./types/forecast";
-
+import { getKpiSnapshot, saveKpiSnapshot } from "./utils/kpiSnapshot";
+const ForecastChart = lazy(() => import("./components/ForecastChart"));
+const ForecastAccuracy = lazy(() => import("./components/ForecastAccuracy"));
+const USE_MOCK_AUTH = import.meta.env.VITE_USE_MOCK_AUTH === "true";
+// Refresh this long before the access token expires.
+const REFRESH_BEFORE_EXPIRY_MS = 60_000;
+// When the platform is unreachable, retry the refresh this often
+// instead of logging the user out.
+const REFRESH_RETRY_MS = 15_000;
 const handleProfilerRender: ProfilerOnRenderCallback = (
   id,
   phase,
@@ -48,12 +69,64 @@ const handleProfilerRender: ProfilerOnRenderCallback = (
   }
 };
 
-function App() {
-  const [role, setRole] = useState<UserRole>(mockUser.role);
+function roleFromUrl(): UserRole {
+  // ?role= is a mock stand-in for authentication until real auth is implemented.
+  const urlRole = new URLSearchParams(window.location.search).get("role");
+
+  return urlRole === "ceo" || urlRole === "warehouse_manager"
+    ? urlRole
+    : mockUser.role;
+}
+
+function buildKpis(
+  role: UserRole,
+  inventory: InventoryItem[],
+  alertCount: number,
+) {
+  const skus = inventory.length;
+  const units = inventory.reduce(
+    (total, item) => total + item.quantity_on_hand,
+    0,
+  );
+  const lowStock = inventory.filter(
+    (item) => item.needs_reorder,
+  ).length;
+
+  return role === "warehouse_manager"
+    ? [
+        { title: "Warehouse SKUs", value: skus },
+        { title: "Warehouse Units", value: units },
+        { title: "Reorder Items", value: lowStock },
+        { title: "Warehouse Alerts", value: alertCount },
+      ]
+    : [
+        { title: "SKUs", value: skus },
+        { title: "Total Units", value: units },
+        { title: "Low Stock", value: lowStock },
+        { title: "Alerts", value: alertCount },
+      ];
+}
+interface DashboardAppProps {
+  authRole?: UserRole;
+  onLogout?: () => void;
+}
+
+function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
+  const {
+    data: dashboardData,
+    loading: dashboardLoading,
+    error: dashboardError,
+    refetch,
+  } = useDashboardData();
+
+  const [role, setRole] = useState<UserRole>(
+    () => authRole ?? roleFromUrl(),
+  );
   const [alerts, setAlerts] = useState<AlertMessage[]>([]);
   const [liveInventory, setLiveInventory] =
-    useState<InventoryItem[]>(inventory);
-
+    useState<InventoryItem[]>(() => dashboardData?.dashboard.inventory ?? []);
+  const isOnline = useOnlineStatus();
+  const wasOffline = useRef(false);
   const [filters, setFilters] = useState({
     warehouse: "All",
     category: "All",
@@ -63,21 +136,24 @@ function App() {
 
   const [lowStockOnly, setLowStockOnly] = useState(false);
   const [selectedKpi, setSelectedKpi] = useState("");
+  const [syncedData, setSyncedData] = useState(dashboardData);
+
+  if (dashboardData !== syncedData) {
+    setSyncedData(dashboardData);
+
+    if (dashboardData) {
+      setLiveInventory(dashboardData.dashboard.inventory);
+    }
+  }
 
   useEffect(() => {
     const updateFiltersFromUrl = () => {
       const params = new URLSearchParams(
         window.location.search,
       );
-
-      const urlRole = params.get("role");
-
-      if (urlRole === "ceo" || urlRole === "warehouse_manager") {
-        setRole(urlRole);
-      } else {
-        setRole(mockUser.role);
-      }
-
+    if(USE_MOCK_AUTH) {
+      setRole(roleFromUrl());
+    }
       setFilters({
         warehouse: params.get("warehouse") || "All",
         category: params.get("category") || "All",
@@ -147,6 +223,26 @@ function App() {
     );
   }, []);
 
+  const refreshDashboardData = useCallback(async () => {
+    try {
+      await refetch();
+    } catch {
+      // Keep the current data if refresh fails.
+    }
+  }, [refetch]);
+
+  useEffect(() => {
+    if (!isOnline) {
+      wasOffline.current = true;
+      return;
+    }
+
+    if (wasOffline.current) {
+      wasOffline.current = false;
+      void refreshDashboardData();
+    }
+  }, [isOnline, refreshDashboardData]);
+
   const {
     connected,
     isConnecting,
@@ -157,9 +253,9 @@ function App() {
     autoReconnect: true,
     maxRetries: 5,
   });
-  const effectiveWarehouse = 
+  const effectiveWarehouse =
     role === "warehouse_manager"
-      ? mockUser.warehouse ?? "All"
+      ? mockUser.warehouse ?? ""
       : filters.warehouse;
 
   const baseFilteredInventory = useMemo(() => {
@@ -190,72 +286,76 @@ function App() {
     );
   }, [baseFilteredInventory, lowStockOnly]);
 
-  const totalSkus = baseFilteredInventory.length;
+    const alertCount = alerts.length;
 
-  const totalUnits = useMemo(
-    () =>
-      baseFilteredInventory.reduce(
-        (total, item) =>
-          total + item.quantity_on_hand,
-        0,
-      ),
-    [baseFilteredInventory],
+  // KPIs on screen follow the CEO's filters.
+  const kpis = useMemo(
+    () => buildKpis(role, baseFilteredInventory, alertCount),
+    [role, baseFilteredInventory, alertCount],
   );
 
-  const lowStockCount = useMemo(
+  // The offline snapshot must hold the role's UNFILTERED totals. Otherwise a
+  // CEO who filtered to WH001 would later see WH001 numbers as company totals.
+  const roleInventory = useMemo(
     () =>
-      baseFilteredInventory.filter(
-        (item) => item.needs_reorder,
-      ).length,
-    [baseFilteredInventory],
+      role === "warehouse_manager"
+        ? liveInventory.filter((item) => item.warehouse_id === effectiveWarehouse)
+        : liveInventory,
+    [role, liveInventory, effectiveWarehouse],
   );
 
-  const alertCount = alerts.length;
+  const snapshotKpis = useMemo(
+    () => buildKpis(role, roleInventory, alertCount),
+    [role, roleInventory, alertCount],
+  );
 
-  const kpis =
-    role === "warehouse_manager"
-      ? [
-          {
-            title: "Warehouse SKUs",
-            value: totalSkus,
-          },
-          {
-            title: "Warehouse Units",
-            value: totalUnits,
-          },
-          {
-            title: "Reorder Items",
-            value: lowStockCount,
-          },
-          {
-            title: "Warehouse Alerts",
-            value: alertCount,
-          },
-        ]
-      : [
-          {
-            title: "SKUs",
-            value: totalSkus,
-          },
-          {
-            title: "Total Units",
-            value: totalUnits,
-          },
-          {
-            title: "Low Stock",
-            value: lowStockCount,
-          },
-          {
-            title: "Alerts",
-            value: alertCount,
-          },
-        ];
+  const snapshotScope =
+    role === "warehouse_manager" ? `${role}:${effectiveWarehouse}` : role;
+
+// The saved snapshot is only needed when nothing is in memory
+// (opened while offline, or the first load failed).
+  const offlineSnapshot = useMemo(
+    () =>
+      !dashboardData && (!isOnline || dashboardError)
+        ? getKpiSnapshot(snapshotScope)
+        : null,
+    [dashboardData, isOnline, dashboardError, snapshotScope],
+  );
+
+  const staleSince = useMemo(
+    () =>
+      !isOnline || dashboardError
+        ? getKpiSnapshot(snapshotScope)?.savedAt ?? null
+        : null,
+    [isOnline, dashboardError, snapshotScope],
+  );
+
+  // Panels only show their own error state when there is nothing to show.
+  const panelError = Boolean(dashboardError) && !dashboardData;
+  const panelLoading = dashboardLoading && !dashboardData;
+
+// savedAt = when the data was LOADED, not when a filter last changed.
+  const loadedAt = useRef<{ data: unknown; at: string } | null>(null);
+
+  useEffect(() => {
+    if (!dashboardData || dashboardError) {
+      return;
+    }
+
+    if (loadedAt.current?.data !== dashboardData) {
+      loadedAt.current = {
+        data: dashboardData,
+        at: new Date().toISOString(),
+      };
+    }
+
+    saveKpiSnapshot(snapshotScope, snapshotKpis, loadedAt.current.at);
+  }, [dashboardData, dashboardError, snapshotScope, snapshotKpis]);
 
   const handleKpiClick = (title: string) => {
     const params = new URLSearchParams(
       window.location.search,
     );
-
     let nextLowStock = lowStockOnly;
 
     if (
@@ -307,36 +407,145 @@ function App() {
       }
     }, 0);
   };
-
-  return (
+  const header = (
     <div
       style={{
+        background: colors.surface,
+        padding: space.md,
+        borderRadius: radius.md,
+        marginBottom: space.lg,
+      }}
+    >
+      <h1
+        style={{
+          color: colors.text,
+          textAlign: "center",
+          margin: 0,
+          fontSize: space.xl,
+          fontWeight: 700,
+        }}
+      >
+        Executive Dashboard
+      </h1>
+      {onLogout && (
+        <Button type="button" onClick={onLogout}>
+          Logout
+        </Button>
+      )}
+    </div>
+  );
+
+  if (!dashboardData && offlineSnapshot) {
+    return (
+      <div
+        style={{
+          background: colors.bg,
+          minHeight: "100vh",
+          padding: space.lg,
+          boxSizing: "border-box",
+        }}
+      >
+        {header}
+
+        <OfflineBanner
+          savedAt={offlineSnapshot.savedAt}
+          isOnline={isOnline}
+          hasServerError={Boolean(dashboardError)}
+          onRetry={() => void refreshDashboardData()}
+        />
+
+        <KpiGrid
+          kpis={offlineSnapshot.kpis}
+          selectedKpi={selectedKpi}
+          lowStockOnly={lowStockOnly}
+          onSelect={handleKpiClick}
+        />
+
+        <p
+          style={{
+            color: colors.textMuted,
+            marginTop: space.lg,
+          }}
+        >
+          Charts and tables will load when the connection returns.
+        </p>
+      </div>
+    );
+  }
+
+  if (dashboardLoading && !dashboardData) {
+    return (
+      <div
+        style={{
         background: colors.bg,
         minHeight: "100vh",
         padding: space.lg,
-        boxSizing: "border-box",
+        color: colors.text,
       }}
-    >
+      >
+        Loading dashboard data...
+      </div>
+    );
+  }
+
+  if (dashboardError && !dashboardData) {
+    return (
       <div
+        role="alert"
         style={{
-          background: colors.surface,
-          padding: space.md,
-          borderRadius: radius.md,
-          marginBottom: space.lg,
+          background: colors.bg,
+          minHeight: "100vh",
+          padding: space.lg,
+          color: colors.text,
         }}
       >
-        <h1
+        <p style={{ margin:0, marginBottom: space.md }}>
+          Failed to load dashboard data.
+        </p>
+
+        <button
+          type="button"
+          onClick={() => void refreshDashboardData()}
           style={{
+            background: colors.primary,
             color: colors.text,
-            textAlign: "center",
-            margin: 0,
-            fontSize: space.xl,
-            fontWeight: 700,
+            border: "none",
+            borderRadius: radius.sm,
+            padding: `${space.sm}px ${space.md}px`,
+            cursor: "pointer",
           }}
         >
-          Executive Dashboard
-        </h1>
+          Retry
+        </button>
       </div>
+    );
+  }
+  if (role === "warehouse_manager" && !mockUser.warehouse) {
+    return (
+      <div
+        style={{
+          background: colors.bg,
+          minHeight: "100vh",
+          padding: space.lg,
+          color: colors.text,
+        }}
+      >
+        {header}
+
+        <p>No warehouse is assigned to this user.</p>
+      </div>
+    );
+  }
+  return (
+      <div
+        style={{
+          background: colors.bg,
+          minHeight: "100vh",
+          padding: space.lg,
+          boxSizing: "border-box",
+        }}
+      >
+        { header }
 
       <DashboardFilters
         filters={filters}
@@ -344,6 +553,7 @@ function App() {
         lockedWarehouse={
           role === "warehouse_manager" ? effectiveWarehouse : undefined
         }
+        inventory={dashboardData?.dashboard.inventory ?? []}
       />
 
       <div
@@ -357,73 +567,51 @@ function App() {
         <ExportCsvButton
           role={role}
           inventory={filteredInventory}
-          suppliers={dashboardApi.getSupplierRisk()}
-          shipments={dashboardApi.getShipmentStatus()}
+          suppliers={dashboardData?.dashboard.supplierRisk ?? []}
+          shipments=
+            {dashboardData?.dashboard.shipmentStatus ?? {
+              total: 0,
+              pending: 0,
+              delivered: 0,
+              in_transit: 0,
+              delayed: 0,
+              cancelled: 0,
+            }
+          }
         />
 
         <ExportPdfButton
           role={role}
           inventory={filteredInventory}
-          suppliers={dashboardApi.getSupplierRisk()}
-          shipments={dashboardApi.getShipmentStatus()}
+          suppliers={dashboardData?.dashboard.supplierRisk ?? []}
+          shipments=
+            {dashboardData?.dashboard.shipmentStatus ?? {
+              total: 0,
+              pending: 0,
+              delivered: 0,
+              in_transit: 0,
+              delayed: 0,
+              cancelled: 0,
+            }
+          }
           filters={{ ...filters, warehouse: effectiveWarehouse }}
           kpis={kpis}
         />
       </div>
-
-      <div className="kpi-grid">
-        {kpis.map((kpi) => (
-          <button
-            key={kpi.title}
-            type="button"
-            onClick={() =>
-              handleKpiClick(kpi.title)
-            }
-            aria-pressed={
-              selectedKpi === kpi.title
-            }
-            style={{
-              background: colors.surface,
-              border: `1px solid ${
-                selectedKpi === kpi.title
-                  ? colors.primary
-                  : (
-                      kpi.title === "Low Stock" ||
-                      kpi.title === "Reorder Items"
-                    ) && lowStockOnly
-                    ? colors.warning
-                    : colors.border
-              }`,
-              borderRadius: radius.md,
-              padding: space.lg,
-              cursor: "pointer",
-              boxSizing: "border-box",
-              minWidth: 0,
-            }}
-          >
-            <div
-              style={{
-                color: colors.textMuted,
-                fontSize: 14,
-                marginBottom: space.sm,
-              }}
-            >
-              {kpi.title}
-            </div>
-
-            <div
-              style={{
-                color: colors.text,
-                fontSize: 28,
-                fontWeight: 700,
-              }}
-            >
-              {kpi.value}
-            </div>
-          </button>
-        ))}
-      </div>
-
+      {staleSince && (
+        <OfflineBanner
+          savedAt={staleSince}
+          isOnline={isOnline}
+          hasServerError={Boolean(dashboardError)}
+          onRetry={() => void refreshDashboardData()}
+        />
+      )}
+      <KpiGrid
+        kpis={kpis}
+        selectedKpi={selectedKpi}
+        lowStockOnly={lowStockOnly}
+        onSelect={handleKpiClick}
+      />
       <div
         style={{
           marginTop: space.lg,
@@ -436,8 +624,17 @@ function App() {
         <ErrorBoundary>
           <NarrativeInsights
             inventory={baseFilteredInventory}
-            suppliers={dashboardApi.getSupplierRisk()}
-            shipments={dashboardApi.getShipmentStatus()}
+            suppliers={dashboardData?.dashboard.supplierRisk ?? []}
+            shipments=
+              {dashboardData?.dashboard.shipmentStatus ?? {
+                total: 0,
+                pending: 0,
+                delivered: 0,
+                in_transit: 0,
+                delayed: 0,
+                cancelled: 0,
+              }
+            }
             showSupplierInsight={role === "ceo"}
           />
         </ErrorBoundary>
@@ -471,15 +668,21 @@ function App() {
             }}
           >
             <ErrorBoundary>
-              <Profiler
-                id="ForecastChart"
-                onRender={handleProfilerRender}
-              >
-                <ForecastChart
-                  startDate={filters.startDate}
-                  endDate={filters.endDate}
-                />
-              </Profiler>
+              <Suspense fallback={<Skeleton />}>
+                <Profiler
+                  id="ForecastChart"
+                  onRender={handleProfilerRender}
+                >
+                  <ForecastChart
+                    startDate={filters.startDate}
+                    endDate={filters.endDate}
+                    data={dashboardData?.dashboard.forecast ?? []}
+                    loading={panelLoading}
+                    error={panelError}
+                    onRetry={() => void refetch()}
+                   />
+                </Profiler>
+              </Suspense>
             </ErrorBoundary>
           </div>
         </div>
@@ -502,28 +705,44 @@ function App() {
 
       <div className="kpi-suite-grid">
         <ErrorBoundary>
-          <ForecastAccuracy
-            startDate={filters.startDate}
-            endDate={filters.endDate}
-          />
+          <Suspense fallback={<Skeleton />}>
+            <ForecastAccuracy
+              startDate={filters.startDate}
+              endDate={filters.endDate}
+              data={dashboardData?.dashboard.forecastAccuracy ?? []}
+              loading={panelLoading}
+              error={panelError}
+              onRetry={() => void refetch()}
+            />
+          </Suspense>
         </ErrorBoundary>
 
         <ErrorBoundary>
           <InventoryHealth
             inventory={liveInventory}
-            warehouse={filters.warehouse}
+            warehouse={effectiveWarehouse}
             category={filters.category}
           />
         </ErrorBoundary>
 
         {role === "ceo" && (
           <ErrorBoundary>
-            <SupplierRisk />
+            <SupplierRisk
+              supplierRisk={dashboardData?.dashboard.supplierRisk ?? []}
+              loading={panelLoading}
+              error={panelError}
+              onRetry={() => void refetch()}
+            />
           </ErrorBoundary>
         )}
 
         <ErrorBoundary>
-          <ShipmentStatus />
+          <ShipmentStatus
+              shipmentStatus={dashboardData?.dashboard.shipmentStatus}
+              loading={panelLoading}
+              error={panelError}
+              onRetry={() => void refetch()}
+          />
         </ErrorBoundary>
       </div>
 
@@ -590,12 +809,124 @@ function App() {
             }}
           >
             <ErrorBoundary>
-              <SupplierRiskDistribution />
+              <SupplierRiskDistribution
+                supplierRisk={dashboardData?.dashboard.supplierRisk ?? []}
+                loading={panelLoading}
+                error={panelError}
+                onRetry={() => void refetch()}
+               />
             </ErrorBoundary>
           </div>
         )}
+
       </div>
     </div>
+  );
+}
+function App() {
+  const [authSession, setAuthSession] = useState(getAuthSession);
+  const [authError, setAuthError] = useState("");
+  const lastRefreshAttemptAt = useRef(0);
+  const authOperationId = useRef(0);
+
+  useEffect(() => {
+    if (USE_MOCK_AUTH || !authSession) {
+      return;
+    }
+
+    let timer: number | undefined;
+
+    function scheduleRefresh(delayMs: number) {
+      const elapsed = Date.now() - lastRefreshAttemptAt.current;
+      // Enforce a minimum gap between refresh attempts.
+      const minimumWait =
+        lastRefreshAttemptAt.current === 0
+          ? 0
+          : Math.max(15_000 - elapsed, 0);
+      timer = window.setTimeout(() => {
+        void refreshBeforeExpiry();
+      }, Math.max(delayMs, minimumWait));
+    }
+
+    async function refreshBeforeExpiry()  {
+      const operationId = authOperationId.current;
+
+      lastRefreshAttemptAt.current = Date.now();
+      try {
+        const refreshedSession = await refreshAuthSession();
+
+        if(operationId !== authOperationId.current) {
+          return;
+        }
+
+        setAuthSession(refreshedSession);
+      } catch (err) {
+        if (operationId !== authOperationId.current) {
+          return;
+        }
+        
+        if (err instanceof AuthError && err.kind === "unavailable") {
+          scheduleRefresh(REFRESH_RETRY_MS);
+          return;
+        }
+        clearAuthSession();
+        setAuthSession(null);
+        setAuthError("Your session has expired. Please sign in again.");
+      }
+    }
+
+    let delayMs = 0;
+
+    try {
+      delayMs =
+        getTokenExpiry(authSession.access_token) -
+          Date.now() -
+          REFRESH_BEFORE_EXPIRY_MS;
+    } catch {
+      // Refresh after the minimum delay if the expiry cannot be read.
+    }
+
+    scheduleRefresh(Math.max(delayMs, 0));
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [authSession]);
+
+  if (USE_MOCK_AUTH) {
+    return <DashboardApp />;
+  }
+
+  if (!authSession) {
+    return (
+      <Login
+        errorMessage={authError}
+        onLogin={() => {
+          setAuthError("");
+          setAuthSession(getAuthSession());
+        }}
+      />
+    );
+  }
+
+  return (
+    <DashboardApp
+      // Remount if a refreshed token carries a different role.
+      key={authSession.role}
+      authRole={authSession.role}
+      onLogout={async () => {
+        authOperationId.current += 1;
+        clearAuthSession();
+        setAuthSession(null);
+        setAuthError("");
+
+        try {
+          await logout(authSession);
+        } catch {
+          // Local logout is already complete.
+        }
+      }}
+    />
   );
 }
 

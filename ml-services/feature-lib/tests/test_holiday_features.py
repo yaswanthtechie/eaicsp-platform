@@ -1,6 +1,6 @@
 import pandas as pd
 
-from src.holiday_features import create_holiday_features
+from feature_lib.holiday_features import create_holiday_features
 
 
 def test_indian_holidays_and_non_holiday():

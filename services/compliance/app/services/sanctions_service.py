@@ -679,6 +679,12 @@ def load_all_sanctions() -> None:
 
     _indexes_loaded = True
 
+    from app.services.internal_compliance_service import (
+        clear_internal_cache,
+    )
+
+    clear_internal_cache()
+
 
 def refresh_sanctions_data() -> None:
 

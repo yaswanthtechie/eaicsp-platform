@@ -1,0 +1,146 @@
+R9 M5 — Disaster Recovery Drill
+
+Objective
+
+Recover the ETL pipeline after a simulated mid-run failure using only:
+
+the PostgreSQL backup;
+
+etl_run_log and etl_run_batches;
+
+the original recorded source batch files;
+
+the existing deterministic replay mechanism.
+
+No rows are manually reconstructed.
+
+Drill procedure
+
+Select the latest successful run (or pass --run-id).
+
+Run:
+
+python scripts/disaster_recovery_drill.py --backup docs/dr_drill_backup.dump
+
+Restore the dump into a clean PostgreSQL instance using the normal
+PostgreSQL restore procedure.
+
+Run the drill again with --replay against the restored instance:
+
+python scripts/disaster_recovery_drill.py --backup docs/dr_drill_backup.dump --run-id <RUN_ID> --replay
+
+Verify the replay result and the normal reconciliation records.
+
+The source-file manifest is read from etl_run_batches, so the recovery
+does not depend on remembering which files were processed manually.
+
+Failure simulation
+
+For the exercise, stop/kill the ETL process after extraction or loading has
+started. The failed run remains represented by the run log and its recorded
+batch manifest. The backup + replay procedure above reconstructs the run from
+those durable artifacts.
+
+Evidence to retain
+
+backup file checksum;
+
+run ID;
+
+list of recorded batch files;
+
+replay result;
+
+reconciliation result;
+
+timestamp and operator.
+
+The drill is intentionally non-destructive: the script creates the backup and
+checks the recovery manifest. Restoration should be performed against a clean
+database/environment rather than overwriting a live production database.
+
+DR replay currently covers the sales source only; other sources require a history_table and compatible restore logic.
+
+Drill record (2026-09-29, operator: Vivek)
+
+Step
+
+Value
+
+Failed DAG run
+
+manual__2026-09-29T04:53:01+00:00
+
+Failure state
+
+failed
+
+Failure window
+
+2026-09-29 04:53:02.53698+00 to 2026-09-29 05:04:30.350533+00
+
+Backup file
+
+docs/dr_drill_backup.dump
+
+SHA-256
+
+861e3aef8e2ee55a75ed991f60b0461182f6bac862522fa5312867318e9be436
+
+Restore target DB
+
+salesdb_restore
+
+Replay original run
+
+57
+
+Replay run
+
+58
+
+Replay result
+
+restored=5, inserted=5, updated=0, deleted=0
+
+Table
+
+Rows before recovery
+
+Rows after recovery
+
+sales_fact
+
+11974
+
+11974
+
+sales_fact_history
+
+4531
+
+4536
+
+etl_run_log (runs)
+
+33
+
+34
+
+Reconciliation result
+
+Replay run 58 completed successfully using the recorded source-batch manifest.
+
+The sales_fact row count reconciled exactly at 11974 before and after recovery.
+
+Failure-simulation note
+
+The failed DAG run recorded above did not have a load_sales failure: load_sales completed successfully during that run. Therefore this record does not claim that a mid-load process kill was captured. The backup, clean restore, recorded batch manifest, and deterministic replay were nevertheless executed and verified.
+
+Recorded source batches
+
+inventory_2024-01-06.csv
+
+sales_2024-01-06.csv
+
+shipments_2024-01-06.csv

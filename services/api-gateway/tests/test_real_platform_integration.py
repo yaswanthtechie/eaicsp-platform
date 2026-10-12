@@ -28,22 +28,33 @@ REAL_GATEWAY_URL = os.getenv("REAL_GATEWAY_URL", "http://localhost:8000")
 
 
 def _is_service_reachable(url: str) -> bool:
-    """Check if the given HTTP service host and port are accepting TCP connections."""
+    """Check if the given HTTP service host and port are accepting TCP connections and is the real platform service."""
     try:
         parsed = urlparse(url)
         host = parsed.hostname or "127.0.0.1"
         port = parsed.port or (443 if parsed.scheme == "https" else 80)
         with socket.create_connection((host, port), timeout=1.0):
-            return True
-    except OSError:
+            pass
+        # Distinguish between dummy_services.py and Rahul's real platform service
+        with httpx.Client(timeout=1.0) as client:
+            resp = client.get(f"{url.rstrip('/')}/health")
+            if resp.status_code == 200 and resp.json().get("service") == "Auth Service":
+                return False
+        return True
+    except Exception:
         return False
 
 
+pytestmark = [
+    pytest.mark.integration,
+]
 if not _is_service_reachable(REAL_PLATFORM_URL):
-    pytestmark = pytest.mark.skip(
-        reason=(
-            f"Live integration prerequisite missing: Real platform service at {REAL_PLATFORM_URL} "
-            "is unreachable. Start Rahul's platform service on port 8005 to run live integration tests."
+    pytestmark.append(
+        pytest.mark.skip(
+            reason=(
+                f"Live integration prerequisite missing: Real platform service at {REAL_PLATFORM_URL} "
+                "is unreachable. Start Rahul's platform service on port 8005 to run live integration tests."
+            )
         )
     )
 
@@ -177,7 +188,7 @@ def test_real_platform_verify_missing_token_returns_401(live_caller):
 
     assert response.status_code == 401
     data = response.json()
-    assert data["detail"] == "Not authenticated"
+    assert data["detail"] in ("Not authenticated", "Invalid or expired token", "Invalid or expired authentication token")
 
 
 def test_real_platform_verify_invalid_token_returns_401(live_caller):

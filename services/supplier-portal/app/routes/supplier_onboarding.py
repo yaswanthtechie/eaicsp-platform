@@ -13,10 +13,13 @@ from app.core.auth import (
     verify_token,
 )
 
+from app.core.config import settings
+
 from app.schemas.supplier_onboarding import (
     SupplierApprovalRequest,
     SupplierApprovalResponse,
     SupplierDocumentResponse,
+    SupplierDocumentDownloadResponse,
     SupplierOnboardingHistory,
     SupplierOnboardingResponse,
     SupplierRegistration,
@@ -36,7 +39,14 @@ from app.services.supplier_onboarding_service import (
     register_supplier,
     upload_supplier_document,
     verify_supplier,
+    get_supplier_document,
 )
+
+from app.services.document_storage_service import (
+    DocumentStorageError,
+    document_storage_service,
+)
+
 from app.services.compliance_client import (
     ComplianceBlockedError,
     ComplianceServiceError,
@@ -204,7 +214,6 @@ def get_supplier_endpoint(
 # ============================================================
 # 3. UPLOAD SUPPLIER DOCUMENT
 # ============================================================
-
 @router.post(
     "/{supplier_id}/documents",
     response_model=SupplierDocumentResponse,
@@ -233,7 +242,9 @@ def upload_document_endpoint(
     )
 
     actor_id, actor_name, _ = get_actor_details(user)
-
+    
+    # DocumentStorageError covers DocumentUploadError AND failures before
+    # the upload starts (e.g. ensure_bucket() when MinIO is unreachable).
     try:
         return upload_supplier_document(
             supplier_id=supplier_id,
@@ -242,6 +253,12 @@ def upload_document_endpoint(
             actor_id=actor_id,
             actor_name=actor_name,
         )
+    
+    except DocumentStorageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Document storage is unavailable.",
+        ) from exc
 
     except ValueError as exc:
         message = str(exc)
@@ -255,8 +272,7 @@ def upload_document_endpoint(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=message,
-        )
-
+        ) from exc
 
 # ============================================================
 # 4. LIST SUPPLIER DOCUMENTS
@@ -294,6 +310,69 @@ def list_documents_endpoint(
 
     return documents
 
+
+@router.get(
+    "/{supplier_id}/documents/{document_id}/download",
+    response_model=SupplierDocumentDownloadResponse,
+)
+def download_document_endpoint(
+    supplier_id: str,
+    document_id: str,
+    user=Depends(verify_token),
+):
+    # Supplier users must have a resolved supplier identity.
+    validate_supplier_identity(user)
+
+    # Supplier users can access only their own supplier.
+    check_supplier_access(
+        supplier_id,
+        user,
+    )
+
+    # The service layer performs the supplier-scoped document lookup.
+    document = get_supplier_document(
+        supplier_id=supplier_id,
+        document_id=document_id,
+    )
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Supplier document not found.",
+        )
+
+    try:
+        # Verify that the referenced object actually exists in MinIO
+        # before generating a presigned download URL.
+        if not document_storage_service.object_exists(
+            object_key=document["document_path"],
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="File does not exist.",
+            )
+
+        # Generate the URL only after authorization, ownership,
+        # and object-existence checks have succeeded.
+        download_url = (
+            document_storage_service.generate_download_url(
+                object_key=document["document_path"],
+            )
+        )
+
+    except DocumentStorageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+
+    return {
+        "document_id": document["document_id"],
+        "supplier_id": document["supplier_id"],
+        "file_name": document["file_name"],
+        "download_url": download_url,
+        "expires_in_seconds": settings.MINIO_PRESIGNED_EXPIRY_SECONDS,
+    }
 
 # ============================================================
 # 5. MOCK VERIFICATION

@@ -1,3 +1,4 @@
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { InventoryItem } from "../types/forecast";
 import type { SupplierRiskItem, ShipmentStatus } from "../types/dashboard";
 
@@ -8,7 +9,6 @@ import {
     generateShipmentInsight
 } from "../utils/insights";
 
-import { colors, radius, space } from "../tokens";
 interface NarrativeInsightsProps {
     inventory: InventoryItem[];
     suppliers: SupplierRiskItem[];
@@ -23,35 +23,29 @@ export default function NarrativeInsights({
     showSupplierInsight,
 }: NarrativeInsightsProps) {
     return (
-        <section
-            style={{
-                padding: space.lg,
-                border: `1px solid ${colors.border}`,
-                borderRadius: radius.md,
-            }}
-        >
-            <h2 style={{ color: colors.text, marginTop: 0 }}>
-                Dashboard Insights
-            </h2>
-
-            
-            <p style={{ color: colors.warning }}>
-                {generateInventoryInsight(inventory)}
-            </p>
-
-            <p style={{ color: colors.primary }}>
-                {generateWarehouseInsight(inventory)}
-            </p>
-
-            {showSupplierInsight && (
-                <p style={{ color: colors.danger }}>
-                    {generateSupplierInsight(suppliers)}
+        <Card className="w-full">
+            <CardHeader>
+                <CardTitle>Dashboard Insights</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                    {generateInventoryInsight(inventory)}
                 </p>
-            )}
 
-            <p style={{ color: colors.success }}>
-                {generateShipmentInsight(shipments)}
-            </p>
-        </section>
+                <p className="text-sm text-muted-foreground">
+                    {generateWarehouseInsight(inventory)}
+                </p>
+
+                {showSupplierInsight && (
+                    <p className="text-sm text-muted-foreground">
+                        {generateSupplierInsight(suppliers)}
+                    </p>
+                )}
+
+                <p className="text-sm text-muted-foreground">
+                    {generateShipmentInsight(shipments)}
+                </p>
+            </CardContent>
+        </Card>
     );
 }

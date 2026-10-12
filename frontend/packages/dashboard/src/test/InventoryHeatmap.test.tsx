@@ -1,43 +1,28 @@
-import { cleanup, fireEvent, render, screen} from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { act } from "react";
+import { fireEvent, render, screen} from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import InventoryHeatmap from "../components/InventoryHeatmap";
 import { inventory } from "../mocks/inventory";
 
-afterEach(() => {
-  cleanup();
-  vi.useRealTimers();
-  vi.restoreAllMocks();
-});
 
 describe("InventoryHeatmap", () => {
   it("shows loading skeleton while inventory is loading", () => {
-    vi.useFakeTimers();
-
-    const { container } = render(<InventoryHeatmap />);
-
-    expect(
-      screen.queryByText("WH001")
-    ).not.toBeInTheDocument();
-
+    render(<InventoryHeatmap data={[]} loading />);
     expect(
       screen.queryByText("Loading Inventory Heatmap...")
     ).not.toBeInTheDocument();
-
-    expect(
-      container.querySelectorAll("div").length
-    ).toBeGreaterThan(1);
   });
 
   it("shows error state when inventory loading fails", async () => {
-    vi.useFakeTimers();
+    const onRetry = vi.fn();
 
-    render(<InventoryHeatmap shouldFail />);
-
-    await act(async () => {
-      vi.advanceTimersByTime(1000);
-    });
+    render(
+      <InventoryHeatmap
+        data={[]}
+        error
+        onRetry={onRetry}
+       />
+    );
 
     expect(
       screen.getByText("Failed to load inventory data.")
@@ -49,13 +34,7 @@ describe("InventoryHeatmap", () => {
   });
 
   it("shows warehouse names after loading", async () => {
-    vi.useFakeTimers();
-
-    render(<InventoryHeatmap />);
-
-    await act(async () => {
-      vi.advanceTimersByTime(1000);
-    });
+    render(<InventoryHeatmap data={inventory} />);
 
     expect(screen.getByText("WH001")).toBeInTheDocument();
     expect(screen.getByText("WH002")).toBeInTheDocument();
@@ -64,27 +43,14 @@ describe("InventoryHeatmap", () => {
   });
 
   it("shows inventory products after loading", async () => {
-    vi.useFakeTimers();
-
-    render(<InventoryHeatmap />);
-
-    await act(async () => {
-      vi.advanceTimersByTime(1000);
-    });
-
+    render(<InventoryHeatmap data={inventory} />);
     expect(
       screen.getByText(inventory[0].sku_id)
     ).toBeInTheDocument();
   });
 
   it("shows correct stock status", async () => {
-    vi.useFakeTimers();
-
-    render(<InventoryHeatmap />);
-
-    await act(async () => {
-      vi.advanceTimersByTime(1000);
-    });
+    render(<InventoryHeatmap data={inventory} />);
 
     expect(
       screen.getAllByText("Healthy").length
@@ -100,14 +66,7 @@ describe("InventoryHeatmap", () => {
   });
 
   it("shows days remaining on hover", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-09-09"));
-
-    render(<InventoryHeatmap />);
-
-    await act(async () => {
-      vi.advanceTimersByTime(1000);
-    });
+    render(<InventoryHeatmap data={inventory} />);
 
     const item = inventory[0];
 
@@ -133,14 +92,7 @@ describe("InventoryHeatmap", () => {
   });
 
   it("renders only a small window of rows from a 10k+ dataset (virtualization)", async () => {
-   vi.useFakeTimers();
-
-   render(<InventoryHeatmap />);
-
-   await act(async () => {
-     vi.advanceTimersByTime(1000);
-   });
-
+   render(<InventoryHeatmap data={inventory} />);
    // The dataset really is large...
    expect(inventory.length).toBeGreaterThanOrEqual(10000);
 
@@ -155,13 +107,7 @@ describe("InventoryHeatmap", () => {
  });
 
   it("shows product details on hover", async () => {
-    vi.useFakeTimers();
-
-    render(<InventoryHeatmap />);
-
-    await act(async () => {
-      vi.advanceTimersByTime(1000);
-    });
+    render(<InventoryHeatmap data={inventory} />);
 
     const item = inventory[0];
 
@@ -186,14 +132,7 @@ describe("InventoryHeatmap", () => {
   });
 
   it("makes inventory items keyboard accessible", async () => {
-    vi.useFakeTimers();
-
-    render(<InventoryHeatmap />);
-
-    await act(async () => {
-      vi.advanceTimersByTime(1000);
-    });
-
+    render(<InventoryHeatmap data={inventory} />);
     const item = inventory[0];
 
     const sku = screen.getByText(item.sku_id);
@@ -208,13 +147,7 @@ describe("InventoryHeatmap", () => {
   });
 
   it("shows product details when an inventory item receives focus", async () => {
-    vi.useFakeTimers();
-
-    render(<InventoryHeatmap />);
-
-    await act(async () => {
-      vi.advanceTimersByTime(1000);
-    });
+    render(<InventoryHeatmap data={inventory} />);
 
     const item = inventory[0];
 
@@ -231,13 +164,7 @@ describe("InventoryHeatmap", () => {
   });
 
   it("shows product details when Enter is pressed on an inventory item", async () => {
-    vi.useFakeTimers();
-
-    render(<InventoryHeatmap />);
-
-    await act(async () => {
-      vi.advanceTimersByTime(1000);
-    });
+    render(<InventoryHeatmap data={inventory} />);
 
     const item = inventory[0];
 
@@ -253,13 +180,7 @@ describe("InventoryHeatmap", () => {
   });
 
   it("shows product details when Space is pressed on an inventory item", async () => {
-    vi.useFakeTimers();
-
-    render(<InventoryHeatmap />);
-
-    await act(async () => {
-      vi.advanceTimersByTime(1000);
-    });
+    render(<InventoryHeatmap data={inventory} />);
 
     const item = inventory[0];
     const sku = screen.getByText(item.sku_id);
@@ -274,13 +195,7 @@ describe("InventoryHeatmap", () => {
   });
 
   it("hides product details when Escape is pressed", async () => {
-    vi.useFakeTimers();
-
-    render(<InventoryHeatmap />);
-
-    await act(async () => {
-      vi.advanceTimersByTime(1000);
-    });
+    render(<InventoryHeatmap data={inventory} />);
 
     const item = inventory[0];
 

@@ -1,8 +1,8 @@
 import pandas as pd
-from src.metrics import mape, rmse
-from src.baseline import naive_forecast
-from src.splits import time_based_split
-from src.report import compare_models
+from eval_framework.metrics import mape, rmse
+from eval_framework.baseline import naive_forecast
+from eval_framework.splits import time_based_split
+from eval_framework.report import compare_models
 
 URL = "https://raw.githubusercontent.com/facebook/prophet/main/examples/example_retail_sales.csv"
 df = pd.read_csv(URL)

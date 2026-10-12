@@ -24,6 +24,11 @@ os.environ["AIRFLOW__DATABASE__SQL_ALCHEMY_CONN"] = (
 )
 
 from airflow.models import DagBag
+from airflow.utils.db import initdb
+
+# Fresh clone / CI: the test DB file does not exist yet, so create the schema
+# instead of failing with "no such table: dag". initdb is idempotent.
+initdb()
 
 
 def test_sales_runs_before_inventory():

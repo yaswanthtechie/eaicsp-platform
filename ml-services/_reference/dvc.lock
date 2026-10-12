@@ -1,0 +1,74 @@
+schema: '2.0'
+stages:
+  fetch:
+    cmd: python -m scripts.create_reference_dataset
+    deps:
+    - path: scripts/create_reference_dataset.py
+      hash: md5
+      md5: 0425e8f2f34ac1d48d8e9f5538ea8260
+      size: 1203
+    outs:
+    - path: data/reference/iris.csv
+      hash: md5
+      md5: 4224576f0267bf88902f87f0f6200967
+      size: 2757
+  prepare:
+    cmd: python -m scripts.dvc_prepare
+    deps:
+    - path: data/reference/iris.csv
+      hash: md5
+      md5: 4224576f0267bf88902f87f0f6200967
+      size: 2757
+    - path: scripts/dvc_prepare.py
+      hash: md5
+      md5: 474dc564f79c8ca1ae13bba99abbf1bf
+      size: 1184
+    outs:
+    - path: data/reference/processed.csv
+      hash: md5
+      md5: 4224576f0267bf88902f87f0f6200967
+      size: 2757
+  train:
+    cmd: python -m src.train
+    deps:
+    - path: data/reference/processed.csv
+      hash: md5
+      md5: 4224576f0267bf88902f87f0f6200967
+      size: 2757
+    - path: src/config.py
+      hash: md5
+      md5: e5a991fc604ab71ea5cee99d6f258951
+      size: 3467
+    - path: src/data.py
+      hash: md5
+      md5: 617dc0049b16a7acdac6e6cc638894b4
+      size: 2018
+    - path: src/train.py
+      hash: md5
+      md5: e13e84538d42f25b57af95bca38a0c0c
+      size: 11506
+    outs:
+    - path: models/model.pkl
+      hash: md5
+      md5: c31a8fdff26830dd545f3a551b678b14
+      size: 163137
+  evaluate:
+    cmd: python -m scripts.dvc_evaluate
+    deps:
+    - path: data/reference/processed.csv
+      hash: md5
+      md5: 4224576f0267bf88902f87f0f6200967
+      size: 2757
+    - path: models/model.pkl
+      hash: md5
+      md5: c31a8fdff26830dd545f3a551b678b14
+      size: 163137
+    - path: scripts/dvc_evaluate.py
+      hash: md5
+      md5: 27b5738c75b990156919b3d600fe6afd
+      size: 1226
+    outs:
+    - path: metrics.json
+      hash: md5
+      md5: 30048267db00b28025773209f4a10d7c
+      size: 63

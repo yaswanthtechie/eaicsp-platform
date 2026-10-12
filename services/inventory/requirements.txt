@@ -2,11 +2,12 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 
-# Database ORM
+# Database ORM and Migrations
 sqlalchemy==2.0.36
+alembic==1.20.0
 
 # PostgreSQL Driver
-psycopg2-binary>=2.9.10
+psycopg2-binary==2.9.13
 
 # Data Validation and Configuration
 pydantic>=2.10.4,<3
@@ -22,3 +23,9 @@ python-multipart==0.0.20
 pytest==8.3.4
 pytest-cov==6.0.0
 httpx==0.28.1
+
+# Redis Cache
+redis==8.1.0
+
+# Kafka Producer
+confluent-kafka==2.15.1

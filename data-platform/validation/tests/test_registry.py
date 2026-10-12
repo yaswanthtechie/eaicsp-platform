@@ -4,13 +4,13 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from src.registry import RULE_REGISTRY, DEFAULT_RULES_DIR, clear_registry, discover_rules, register_rule
-from src.validator import DataValidator
+from data_validator.registry import RULE_REGISTRY, DEFAULT_RULES_DIR, clear_registry, discover_rules, register_rule
+from data_validator.validator import DataValidator
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 ZIP_RULE = '''
-from src.registry import register_rule
+from data_validator.registry import register_rule
 
 @register_rule()
 def check_zip5(df, *, field, **kwargs):

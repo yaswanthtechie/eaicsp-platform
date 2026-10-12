@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Literal
 
 from pydantic import (
+    AliasChoices,
     BaseModel,
     Field,
     field_validator,
@@ -356,3 +357,69 @@ class ComplianceSummaryResponse(BaseModel):
     flag_rate: float
     open_cases: int
     average_resolution_time_hours: float
+
+class InternalComplianceRequest(BaseModel):
+
+    supplier_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        json_schema_extra={
+            "example": "SUP-001",
+        },
+    )
+
+    company_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        validation_alias=AliasChoices(
+            "supplier_name",
+            "company_name",
+        ),
+        json_schema_extra={
+            "example": "ABC Supplies",
+        },
+    )
+
+    country: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        json_schema_extra={
+            "example": "India",
+        },
+    )
+
+    @field_validator(
+        "supplier_id",
+        "company_name",
+        "country",
+    )
+    @classmethod
+    def must_not_be_blank(cls, value: str) -> str:
+        value = value.strip()
+
+        if not value:
+            raise ValueError("must not be blank")
+
+        return value
+
+    
+class InternalComplianceResponse(BaseModel):
+
+    supplier_id: str
+
+    company_name: str
+
+    country: str
+
+    cleared: bool
+
+    decision: Literal[
+        "CLEAR",
+        "BLOCK",
+        "REVIEW",
+    ]
+
+    reason: str

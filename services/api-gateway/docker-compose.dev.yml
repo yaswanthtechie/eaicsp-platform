@@ -1,0 +1,51 @@
+version: "3.8"
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: eaicsp-prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/metrics_token:/etc/prometheus/metrics_token:ro
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: eaicsp-grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      # Read from services/api-gateway/.env (compose loads it automatically).
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:?set GRAFANA_ADMIN_USER in .env}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      # Anonymous access is opt-in for local dev (default false). Set GRAFANA_ANON=true in .env to enable.
+      - GF_AUTH_ANONYMOUS_ENABLED=${GRAFANA_ANON:-false}
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    volumes:
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/round10_api_gateway_dashboard.json:/var/lib/grafana/dashboards/round10_api_gateway_dashboard.json:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.57.0
+    container_name: eaicsp-jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "127.0.0.1:16686:16686"  # Jaeger Web UI
+      - "127.0.0.1:4318:4318"    # OTLP HTTP receiver
+      - "127.0.0.1:4317:4317"    # OTLP gRPC receiver
+    restart: unless-stopped
+

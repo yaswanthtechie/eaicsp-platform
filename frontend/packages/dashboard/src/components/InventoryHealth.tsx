@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import type { InventoryItem } from "../types/forecast";
 import { colors, radius, space } from "../tokens";
 
@@ -115,39 +117,16 @@ function InventoryHealth({
   ];
 
   return (
-    <div
-      style={{
-        background: colors.surface,
-        border: `1px solid ${colors.border}`,
-        borderRadius: radius.lg,
-        padding: space.lg,
-        boxSizing: "border-box",
-        width: "100%",
-      }}
-    >
-      <div style={{ marginBottom: space.md }}>
-        <h2
-          style={{
-            margin: 0,
-            color: colors.text,
-            fontSize: "20px",
-            fontWeight: 600,
-          }}
-        >
-          Inventory Health
-        </h2>
-
-        <p
-          style={{
-            margin: `${space.xs}px 0 0`,
-            color: colors.textMuted,
-            fontSize: "14px",
-          }}
-        >
+    <Card className="w-full">
+      <CardHeader>
+        <CardTitle>Inventory Health</CardTitle>
+          
+        <p className="text-sm text-muted-foreground">
           Click a health metric to view affected inventory
         </p>
-      </div>
+      </CardHeader>
 
+      <CardContent>
       <div
         style={{
           display: "grid",
@@ -157,31 +136,19 @@ function InventoryHealth({
         }}
       >
         {kpis.map((kpi) => {
-          const selected = activeFilter === kpi.filter;
 
           return (
-            <button
+            <Button
               key={kpi.filter}
               type="button"
+              variant="outline"
+              size="lg"
               onClick={() => handleFilterClick(kpi.filter)}
-              style={{
-                textAlign: "left",
-                background: selected
-                  ? colors.bg
-                  : colors.surface,
-                border: `1px solid ${
-                  selected ? kpi.color : colors.border
-                }`,
-                borderRadius: radius.md,
-                padding: space.md,
-                cursor: "pointer",
-                minWidth: 0,
-              }}
             >
               <div
                 style={{
                   color: colors.textMuted,
-                  fontSize: "12px",
+                  fontSize: "13px",
                   marginBottom: space.xs,
                 }}
               >
@@ -191,13 +158,13 @@ function InventoryHealth({
               <div
                 style={{
                   color: kpi.color,
-                  fontSize: "24px",
+                  fontSize: space.md,
                   fontWeight: 700,
                 }}
               >
                 {kpi.value}
               </div>
-            </button>
+            </Button>
           );
         })}
       </div>
@@ -231,25 +198,20 @@ function InventoryHealth({
                 : `${activeFilter} Inventory`}
             </h3>
 
-            <button
+            <Button
               type="button"
+              variant="outline"
+              size="sm"
               onClick={() => setActiveFilter(null)}
-              style={{
-                background: "transparent",
-                border: "none",
-                color: colors.textMuted,
-                cursor: "pointer",
-                fontSize: "12px",
-              }}
             >
               Clear
-            </button>
+            </Button>
           </div>
 
           {filteredItems.length === 0 ? (
             <p
               style={{
-                color: colors.textMuted,
+                color: colors.text,
                 fontSize: "13px",
               }}
             >
@@ -367,7 +329,8 @@ function InventoryHealth({
           )}
         </div>
       )}
-    </div>
+    </CardContent>
+  </Card>
   );
 }
 

@@ -1,3 +1,4 @@
+import logging
 from fastapi import (
     APIRouter,
     Depends,
@@ -8,7 +9,10 @@ from fastapi import (
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.dependency import require_roles
+from app.core.dependency import (
+    require_roles,
+    verify_internal_caller,
+)
 
 from app.schemas.compliance import (
     ComplianceRequest,
@@ -19,6 +23,13 @@ from app.schemas.compliance import (
     OverrideResponse,
     ComplianceSummaryResponse,
     CaseListResponse,
+    InternalComplianceRequest,
+    InternalComplianceResponse,
+)
+
+from app.schemas.regulatory_reporting import (
+    RegulatoryReportResponse,
+    RegulatoryRulesResponse,
 )
 
 from app.services.audit_service import (
@@ -52,7 +63,25 @@ from app.services.reporting_service import (
     get_compliance_summary,
 )
 
+from app.services.internal_compliance_service import (
+    clear_internal_cache,
+    perform_internal_compliance_check,
+)
+
+from app.services.regulatory_rules_service import (
+    get_regulatory_rules,
+    evaluate_regulatory_rules,
+    normalize_country,
+)
+
+from app.services.sla_service import get_sla_status
+
+
+
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
+
 
 def get_actor_identity(auth_data) -> str:
     user_id = auth_data.get("user_id")
@@ -67,9 +96,16 @@ def get_actor_identity(auth_data) -> str:
 
     return "unknown"
 
+
+# ============================================================
+# SCREENING
+# ============================================================
+
+
 @router.post(
     "/screen",
     response_model=ComplianceResponse,
+    tags=["Screening"],
 )
 def screen(
     request: ComplianceRequest,
@@ -98,9 +134,11 @@ def screen(
 
     return result
 
+
 @router.post(
     "/screen-bulk",
     response_model=BulkComplianceResponse,
+    tags=["Screening"],
 )
 def bulk_screen(
     request: BulkComplianceRequest,
@@ -125,8 +163,72 @@ def bulk_screen(
 
     return results
 
+
+# ============================================================
+# INTERNAL SERVICE INTEGRATION
+# ============================================================
+@router.post(
+    "/internal-check",
+    response_model=InternalComplianceResponse,
+    tags=["Internal Integration"],
+)
+def internal_compliance_check(
+    request: InternalComplianceRequest,
+    db: Session = Depends(get_db),
+    caller_service: str = Depends(verify_internal_caller),
+):
+   
+    logger.info(
+        "Internal compliance request received: "
+        "caller=%s supplier_id=%s",
+        caller_service,
+        request.supplier_id,
+    )
+
+    try:
+        result = perform_internal_compliance_check(
+            db=db,
+            supplier_id=request.supplier_id,
+            company_name=request.company_name,
+            country=request.country,
+            caller_service=caller_service,
+        )
+
+    except HTTPException:
+        raise
+
+    except Exception:
+        logger.exception(
+            "Internal compliance check failed: "
+            "caller=%s supplier_id=%s",
+            caller_service,
+            request.supplier_id,
+        )
+
+        raise HTTPException(
+            status_code=503,
+            detail="Compliance service unavailable",
+        )
+
+    logger.info(
+        "Internal compliance response returned: "
+        "caller=%s supplier_id=%s decision=%s "
+        "cleared=%s",
+        caller_service,
+        request.supplier_id,
+        result.get("decision"),
+        result.get("cleared"),
+    )
+
+    return result
+# ============================================================
+# AUDIT
+# ============================================================
+
+
 @router.get(
     "/audit",
+    tags=["Audit"],
 )
 def audit_history(
     entity_name: str = Query(...),
@@ -140,8 +242,10 @@ def audit_history(
         entity_name=entity_name,
     )
 
+
 @router.get(
     "/audit/summary",
+    tags=["Audit"],
 )
 def audit_summary(
     db: Session = Depends(get_db),
@@ -151,9 +255,16 @@ def audit_summary(
 ):
     return get_audit_summary(db)
 
+
+# ============================================================
+# OVERRIDES
+# ============================================================
+
+
 @router.post(
     "/override",
     response_model=OverrideResponse,
+    tags=["Overrides"],
 )
 def add_override(
     request: OverrideCreateRequest,
@@ -171,11 +282,15 @@ def add_override(
         reviewed_by=request.reviewed_by,
     )
 
+    clear_internal_cache()
+
     return override
+
 
 @router.get(
     "/override",
     response_model=OverrideResponse,
+    tags=["Overrides"],
 )
 def read_override(
     entity_name: str = Query(...),
@@ -201,9 +316,11 @@ def read_override(
 
     return override
 
+
 @router.get(
     "/overrides",
     response_model=list[OverrideResponse],
+    tags=["Overrides"],
 )
 def read_all_overrides(
     db: Session = Depends(get_db),
@@ -213,8 +330,10 @@ def read_all_overrides(
 ):
     return get_all_overrides(db)
 
+
 @router.delete(
     "/override",
+    tags=["Overrides"],
 )
 def remove_override(
     entity_name: str = Query(...),
@@ -238,6 +357,8 @@ def remove_override(
             detail="Override not found",
         )
 
+    clear_internal_cache()
+
     return {
         "message": "Override removed",
         "entity_name": entity_name,
@@ -245,21 +366,16 @@ def remove_override(
         "source": source,
     }
 
-@router.get(
-    "/reports/compliance-summary",
-    response_model=ComplianceSummaryResponse,
-)
-def compliance_summary(
-    db: Session = Depends(get_db),
-    auth_data=Depends(
-        require_roles("compliance_officer")
-    ),
-):
-    return get_compliance_summary(db)
+
+# ============================================================
+# CASE MANAGEMENT
+# ============================================================
+
 
 @router.get(
     "/cases",
     response_model=CaseListResponse,
+    tags=["Cases"],
 )
 def list_cases(
     status: str | None = Query(None),
@@ -273,6 +389,7 @@ def list_cases(
             db=db,
             status=status,
         )
+
     except ValueError as exc:
         raise HTTPException(
             status_code=400,
@@ -284,8 +401,10 @@ def list_cases(
         "count": len(cases),
     }
 
+
 @router.get(
     "/cases/{case_number}",
+    tags=["Cases"],
 )
 def get_case(
     case_number: str,
@@ -299,6 +418,7 @@ def get_case(
             db=db,
             case_number=case_number,
         )
+
     except ValueError as exc:
         raise HTTPException(
             status_code=404,
@@ -307,8 +427,10 @@ def get_case(
 
     return case
 
+
 @router.post(
     "/cases/{case_number}/assign",
+    tags=["Cases"],
 )
 def assign_case_to_officer(
     case_number: str,
@@ -323,6 +445,7 @@ def assign_case_to_officer(
             db=db,
             case_number=case_number,
         )
+
     except ValueError as exc:
         raise HTTPException(
             status_code=404,
@@ -343,8 +466,10 @@ def assign_case_to_officer(
             detail=str(exc),
         )
 
+
 @router.post(
     "/cases/{case_number}/status",
+    tags=["Cases"],
 )
 def update_case_status(
     case_number: str,
@@ -361,6 +486,7 @@ def update_case_status(
             db=db,
             case_number=case_number,
         )
+
     except ValueError as exc:
         raise HTTPException(
             status_code=404,
@@ -368,7 +494,7 @@ def update_case_status(
         )
 
     try:
-        return transition_case(
+        updated_case = transition_case(
             db=db,
             case=case,
             new_status=new_status.strip().upper(),
@@ -383,8 +509,15 @@ def update_case_status(
             detail=str(exc),
         )
 
+    
+    clear_internal_cache()
+
+    return updated_case
+
+
 @router.get(
     "/cases/{case_number}/history",
+    tags=["Cases"],
 )
 def get_case_history_route(
     case_number: str,
@@ -409,3 +542,79 @@ def get_case_history_route(
             status_code=404,
             detail=str(exc),
         )
+
+
+# ============================================================
+# REPORTS
+# ============================================================
+
+
+@router.get(
+    "/reports/compliance-summary",
+    response_model=ComplianceSummaryResponse,
+    tags=["Reports"],
+)
+def compliance_summary(
+    db: Session = Depends(get_db),
+    auth_data=Depends(
+        require_roles("compliance_officer")
+    ),
+):
+    return get_compliance_summary(db)
+
+
+@router.get(
+    "/reports/regulatory/{country}",
+    response_model=RegulatoryRulesResponse,
+    tags=["Regulatory"],
+)
+def regulatory_report(
+    country: str,
+    auth_data=Depends(
+        require_roles("compliance_officer")
+    ),
+):
+    rules = get_regulatory_rules(country)
+
+    return {
+        "country": normalize_country(country),
+        "applicable_rules": rules,
+    }
+
+
+@router.get(
+    "/reports/regulatory/{country}/evaluate",
+    response_model=RegulatoryReportResponse,
+    tags=["Regulatory"],
+)
+def evaluate_regulatory_report(
+    country: str,
+    sanctions_cleared: bool = Query(...),
+    kyc_verified: bool = Query(...),
+    documents_complete: bool = Query(...),
+    reporting_compliant: bool = Query(True),
+    auth_data=Depends(
+        require_roles("compliance_officer")
+    ),
+):
+    return evaluate_regulatory_rules(
+        country=country,
+        sanctions_cleared=sanctions_cleared,
+        kyc_verified=kyc_verified,
+        documents_complete=documents_complete,
+        reporting_compliant=reporting_compliant,
+    )
+
+
+
+@router.get(
+    "/sla",
+    tags=["SLA"],
+)
+def sla_status(
+    auth_data=Depends(
+        require_roles("compliance_officer")
+    ),
+):
+    return get_sla_status()
+

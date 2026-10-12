@@ -49,7 +49,7 @@ describe("AlertsPanel", () => {
   it("shows connected status", () => {
     render(<AlertsPanel {...defaultProps} />);
 
-    expect(screen.getByText("🟢 Connected")).toBeInTheDocument();
+    expect(screen.getByText("Connected")).toBeInTheDocument();
   });
 
   it("shows disconnected status", () => {
@@ -60,7 +60,7 @@ describe("AlertsPanel", () => {
       />
     );
 
-    expect(screen.getByText("🔴 Disconnected")).toBeInTheDocument();
+    expect(screen.getByText("Disconnected")).toBeInTheDocument();
   });
 
   it("shows connecting status", () => {
@@ -202,7 +202,7 @@ describe("AlertsPanel", () => {
         isConnecting={true}
         alerts={[]}
       />
-   );
+    );
 
     const loadingState = screen.getByRole("status");
 
@@ -240,4 +240,43 @@ describe("AlertsPanel", () => {
 
     expect(alertItem).toBeInTheDocument();
   });
+
+  it("only auto-dismisses alerts that are visible (Fix 6)", () => {
+  vi.useFakeTimers();
+
+  const onRemove = vi.fn();
+  const alerts = ["a", "b", "c"].map((id) => ({
+    ...alert,
+    id,
+  }));
+
+  render(
+    <AlertsPanel
+      {...defaultProps}
+      alerts={alerts}
+      onRemove={onRemove}
+    />,
+  );
+
+  act(() => {
+    vi.advanceTimersByTime(5600);
+  });
+
+  expect(onRemove).toHaveBeenCalledWith("a");
+  expect(onRemove).toHaveBeenCalledWith("b");
+  expect(onRemove).not.toHaveBeenCalledWith("c");
+
+  vi.useRealTimers();
 });
+
+it("has accessible individual alert", () => {
+  render(<AlertsPanel {...defaultProps} />);
+
+  const alertItem = screen.getByRole("article", {
+    name: "Low Stock Item Alert: Product ABC is running low.",
+  });
+
+  expect(alertItem).toBeInTheDocument();
+});
+});
+

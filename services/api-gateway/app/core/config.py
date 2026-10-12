@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     # --------------------------------------------------
 
     TIMEOUT_SECONDS: int = 5
-    # MAX_RETRIES: number of retries to attempt on retryable failures (e.g. 2 → original + 2 retries)
+    # MAX_RETRIES: number of retries to attempt on retryable failures (e.g. 2 -> original + 2 retries)
     MAX_RETRIES: int = 2
 
     # --------------------------------------------------
@@ -168,6 +168,13 @@ class Settings(BaseSettings):
     # --------------------------------------------------
     AUTH_PRECHECK_ENABLED: bool = False
     AUTH_PRECHECK_TIMEOUT_SECONDS: float = 3.0
+
+    # --------------------------------------------------
+    # Round 10 Milestone 2 - OpenTelemetry / Jaeger tracing
+    # --------------------------------------------------
+    OTEL_ENABLED: bool = True
+    OTEL_SERVICE_NAME: str = "api-gateway"
+    OTEL_EXPORTER_OTLP_ENDPOINT: str = "http://localhost:4318"
 
     def model_post_init(self, __context: object = None, /) -> None:
         """

@@ -1,10 +1,10 @@
-import numpy as np
+﻿import numpy as np
 import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression
-from src.feature_usefulness import select_top_features
-from src.feature_store import FeatureStore
-from src.build_features import (
+from feature_lib.feature_usefulness import select_top_features
+from feature_lib.feature_store import FeatureStore
+from feature_lib.build_features import (
     FEATURE_VERSIONS,
     _build_v1_lag_features,
     _build_v1_rolling_features,
@@ -32,7 +32,7 @@ def test_feature_store_computes_and_caches(monkeypatch):
         return df.copy()
 
     monkeypatch.setattr(
-        "src.feature_store.build_all_features",
+        "feature_lib.feature_store.build_all_features",
         fake_build_all_features,
     )
 
@@ -66,7 +66,7 @@ def test_different_versions_are_cached_separately(monkeypatch):
         return df.copy()
 
     monkeypatch.setattr(
-        "src.feature_store.build_all_features",
+        "feature_lib.feature_store.build_all_features",
         fake_build_all_features,
     )
 
@@ -102,7 +102,7 @@ def test_different_datasets_are_cached_separately(monkeypatch):
         return kwargs["df"].copy()
 
     monkeypatch.setattr(
-        "src.feature_store.build_all_features",
+        "feature_lib.feature_store.build_all_features",
         fake_build_all_features,
     )
 
@@ -143,7 +143,7 @@ def test_cached_features_can_be_reused_by_multiple_models(monkeypatch):
         )
 
     monkeypatch.setattr(
-        "src.feature_store.build_all_features",
+        "feature_lib.feature_store.build_all_features",
         fake_build_all_features,
     )
 
@@ -189,7 +189,7 @@ def test_cached_result_is_protected_from_caller_modification(monkeypatch):
         return df.copy()
 
     monkeypatch.setattr(
-        "src.feature_store.build_all_features",
+        "feature_lib.feature_store.build_all_features",
         fake_build_all_features,
     )
 
@@ -223,7 +223,7 @@ def test_clear_removes_cached_features(monkeypatch):
         return df.copy()
 
     monkeypatch.setattr(
-        "src.feature_store.build_all_features",
+        "feature_lib.feature_store.build_all_features",
         fake_build_all_features,
     )
 
@@ -266,7 +266,7 @@ def test_feature_store_feeds_feature_selection(monkeypatch):
         )
 
     monkeypatch.setattr(
-        "src.feature_store.build_all_features",
+        "feature_lib.feature_store.build_all_features",
         fake_build_all_features,
     )
 
@@ -345,7 +345,7 @@ def test_feature_code_hash_changes_when_feature_implementation_changes(monkeypat
         return original_sources[function.__name__]
 
     monkeypatch.setattr(
-        "src.feature_store.inspect.getsource",
+        "feature_lib.feature_store.inspect.getsource",
         fake_getsource,
     )
 
@@ -377,7 +377,7 @@ def test_feature_store_evicts_oldest_entry_when_cache_is_full(monkeypatch):
         return kwargs["df"].copy()
 
     monkeypatch.setattr(
-        "src.feature_store.build_all_features",
+        "feature_lib.feature_store.build_all_features",
         fake_build_all_features,
     )
 
@@ -415,7 +415,7 @@ def test_feature_store_lru_keeps_recently_used_entry(monkeypatch):
         return kwargs["df"].copy()
 
     monkeypatch.setattr(
-        "src.feature_store.build_all_features",
+        "feature_lib.feature_store.build_all_features",
         fake_build_all_features,
     )
 
@@ -688,7 +688,7 @@ def test_feature_store_passes_feature_version_to_builder(monkeypatch):
         return df.copy()
 
     monkeypatch.setattr(
-        "src.feature_store.build_all_features",
+        "feature_lib.feature_store.build_all_features",
         fake_build_all_features,
     )
 

@@ -16,6 +16,10 @@ from app.services.compliance_client import (
     ComplianceServiceError,
     ComplianceServiceUnavailableError,
 )
+from app.services.document_storage_service import (
+    DocumentUploadError,
+    document_storage_service,
+)
 
 # ============================================================
 # STORAGE
@@ -268,7 +272,6 @@ def is_supplier_active(supplier_id: str) -> bool:
 # ============================================================
 # 3. UPLOAD DOCUMENT
 # ============================================================
-
 def upload_supplier_document(
     supplier_id: str,
     document_type: str,
@@ -345,24 +348,15 @@ def upload_supplier_document(
             "File extension does not match the uploaded file type."
         )
 
-    upload_directory = (
-        Path("uploads")
-        / "supplier_onboarding"
-        / supplier_id
-    )
-
-    upload_directory.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    # --------------------------------------------------------
+    # DOCUMENT ID
+    # --------------------------------------------------------
 
     document_id = str(uuid.uuid4())
 
-    safe_name = (
-        f"{document_id}_{Path(original_name).name}"
-    )
-
-    document_path = upload_directory / safe_name
+    # --------------------------------------------------------
+    # FILE CONTENT VALIDATION
+    # --------------------------------------------------------
 
     content = file.file.read()
 
@@ -380,7 +374,26 @@ def upload_supplier_document(
             "Uploaded document exceeds the 10 MB size limit."
         )
 
-    document_path.write_bytes(content)
+    # Reset file pointer because the content was read above.
+    file.file.seek(0)
+
+    # --------------------------------------------------------
+    # MINIO STORAGE
+    # --------------------------------------------------------
+
+    try:
+        document_path = (
+            document_storage_service.upload_onboarding_document(
+                supplier_id=supplier_id,
+                document_id=document_id,
+                file=file,
+            )
+        )
+
+    except DocumentUploadError:
+        # Preserve the storage-specific exception.
+        # The API route maps this to HTTP 502 Bad Gateway.
+        raise
 
     document = {
         "document_id": document_id,
@@ -426,7 +439,23 @@ def upload_supplier_document(
 
     return document
 
+# ============================================================
+# GET SINGLE SUPPLIER DOCUMENT
+# ============================================================
 
+def get_supplier_document(
+    supplier_id: str,
+    document_id: str,
+) -> dict | None:
+    """Return the document only if it belongs to this supplier."""
+    for document in supplier_documents.get(
+        supplier_id,
+        [],
+    ):
+        if document["document_id"] == document_id:
+            return document
+
+    return None
 # ============================================================
 # 4. LIST DOCUMENTS
 # ============================================================

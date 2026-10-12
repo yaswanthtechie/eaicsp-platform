@@ -1,0 +1,19 @@
+services:
+  spark-backfill:
+    build:
+      context: .
+      dockerfile: spark/Dockerfile
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: salesdb
+      DB_USER: admin
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
+    volumes:
+      - ./data:/opt/airflow/data
+      - ./spark:/opt/airflow/spark
+    command: ["python3", "/opt/airflow/spark/sales_backfill.py", "--input", "/opt/airflow/data/backfill/sales_history.csv", "--start-month", "2024-01", "--end-month", "2024-01"]
+    # Run merged with the main stack: docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm spark-backfill
+    depends_on:
+      postgres:
+        condition: service_healthy

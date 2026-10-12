@@ -1,0 +1,27 @@
+{
+  "rows": 1200000,
+  "runs_per_query": 5,
+  "generation_seconds": 1.72,
+  "environment": {
+    "python": "3.12.3",
+    "platform": "Linux-6.18.44-fc-v50-x86_64-with-glibc2.39",
+    "cpu_count": 1
+  },
+  "note": "Wall-clock, client-side, warm cache, single node, default configs.",
+  "queries": {
+    "full_year_2024": {
+      "postgres": {
+        "min_s": 0.5626,
+        "median_s": 0.5707,
+        "runs": 5
+      }
+    },
+    "one_quarter_q2_2024": {
+      "postgres": {
+        "min_s": 0.1948,
+        "median_s": 0.2334,
+        "runs": 5
+      }
+    }
+  }
+}

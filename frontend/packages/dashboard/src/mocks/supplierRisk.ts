@@ -1,4 +1,4 @@
-import type { SupplierRiskItem } from "../types/dashboard";
+import type { SupplierRiskItem } from "../types/dashboard.ts";
 
 export const supplierRisk: SupplierRiskItem[] = [
   {

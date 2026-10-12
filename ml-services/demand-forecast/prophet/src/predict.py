@@ -405,7 +405,29 @@ def load_ensemble_weights():
 
         1. models/promoted/ensemble_weights.json
         2. models/best_weights.json
+
+    Supported formats:
+
+        New promoted format:
+        {
+            "prophet": 0.7,
+            "xgb": 0.3
+        }
+
+        Legacy format:
+        {
+            "prophet_weight": 0.7,
+            "xgb_weight": 0.3
+        }
+
+    The returned values are always:
+
+        (prophet_weight, xgb_weight)
     """
+
+    # ========================================================
+    # 1. Select weights file
+    # ========================================================
 
     if PROMOTED_WEIGHTS_PATH.exists():
 
@@ -439,6 +461,10 @@ def load_ensemble_weights():
             f"- {FALLBACK_WEIGHTS_PATH}"
         )
 
+    # ========================================================
+    # 2. Load JSON
+    # ========================================================
+
     try:
 
         with open(
@@ -456,36 +482,78 @@ def load_ensemble_weights():
             f"{weights_path}"
         ) from exc
 
-    # --------------------------------------------------------
-    # Required keys
-    # --------------------------------------------------------
+    # ========================================================
+    # 3. Validate JSON structure
+    # ========================================================
 
-    if "prophet_weight" not in weights:
-
-        raise ValueError(
-            "Ensemble weights missing "
-            "'prophet_weight'."
-        )
-
-    if "xgb_weight" not in weights:
+    if not isinstance(
+        weights,
+        dict,
+    ):
 
         raise ValueError(
-            "Ensemble weights missing "
-            "'xgb_weight'."
+            "Ensemble weights must be a JSON object."
         )
 
-    # --------------------------------------------------------
-    # Convert to float
-    # --------------------------------------------------------
+    # ========================================================
+    # 4. Read weight keys
+    # ========================================================
+    #
+    # New format:
+    #
+    #     prophet
+    #     xgb
+    #
+    # Legacy format:
+    #
+    #     prophet_weight
+    #     xgb_weight
+    #
+    # Prefer the new promoted format when available.
+    # ========================================================
+
+    if (
+        "prophet" in weights
+        and "xgb" in weights
+    ):
+
+        prophet_weight = weights["prophet"]
+        xgb_weight = weights["xgb"]
+
+    elif (
+        "prophet_weight" in weights
+        and "xgb_weight" in weights
+    ):
+
+        prophet_weight = (
+            weights["prophet_weight"]
+        )
+
+        xgb_weight = (
+            weights["xgb_weight"]
+        )
+
+    else:
+
+        raise ValueError(
+            "Ensemble weights must contain either:\n"
+            "- 'prophet' and 'xgb'\n"
+            "or\n"
+            "- 'prophet_weight' and 'xgb_weight'."
+        )
+
+    # ========================================================
+    # 5. Convert to float
+    # ========================================================
 
     try:
 
         prophet_weight = float(
-            weights["prophet_weight"]
+            prophet_weight
         )
 
         xgb_weight = float(
-            weights["xgb_weight"]
+            xgb_weight
         )
 
     except (
@@ -497,9 +565,9 @@ def load_ensemble_weights():
             "Ensemble weights must be numeric."
         ) from exc
 
-    # --------------------------------------------------------
-    # Finite values
-    # --------------------------------------------------------
+    # ========================================================
+    # 6. Finite values
+    # ========================================================
 
     if not math.isfinite(
         prophet_weight
@@ -517,9 +585,9 @@ def load_ensemble_weights():
             "XGBoost weight must be finite."
         )
 
-    # --------------------------------------------------------
-    # Negative values
-    # --------------------------------------------------------
+    # ========================================================
+    # 7. Negative values
+    # ========================================================
 
     if prophet_weight < 0:
 
@@ -533,12 +601,17 @@ def load_ensemble_weights():
             "XGBoost weight cannot be negative."
         )
 
-    # --------------------------------------------------------
-    # Sum validation
-    # --------------------------------------------------------
+    # ========================================================
+    # 8. Sum validation
+    # ========================================================
+
+    total_weight = (
+        prophet_weight
+        + xgb_weight
+    )
 
     if not math.isclose(
-        prophet_weight + xgb_weight,
+        total_weight,
         1.0,
         rel_tol=1e-9,
         abs_tol=1e-9,
@@ -548,14 +621,17 @@ def load_ensemble_weights():
             "Ensemble weights must sum to 1. "
             f"Received: "
             f"{prophet_weight} + {xgb_weight} = "
-            f"{prophet_weight + xgb_weight}"
+            f"{total_weight}"
         )
+
+    # ========================================================
+    # 9. Return normalized weights
+    # ========================================================
 
     return (
         prophet_weight,
         xgb_weight,
     )
-
 
 # ============================================================
 # VALIDATE FORECAST DATES

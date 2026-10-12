@@ -1,5 +1,5 @@
-import { render, screen, fireEvent, cleanup} from "@testing-library/react";
-import { describe, it, expect, afterEach } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect } from "vitest";
 
 import InventoryHealth from "../components/InventoryHealth";
 
@@ -74,9 +74,6 @@ const defaultProps = {
 };
 
 describe("InventoryHealth", () => {
-  afterEach(() => {
-    cleanup();
-  });
 
   it("loads and displays inventory health", () => {
     render(<InventoryHealth {...defaultProps} />);

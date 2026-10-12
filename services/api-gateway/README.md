@@ -307,6 +307,8 @@ variables. Unknown variables are silently ignored.
 | `CIRCUIT_BREAKER_FAILURE_RATE_THRESHOLD`| `0.50`                   | Failure rate threshold (>50%) before breaker trips OPEN|
 | `CIRCUIT_BREAKER_WINDOW_SECONDS`        | `60`                     | Rolling time window in seconds for failure rate        |
 | `CIRCUIT_BREAKER_RECOVERY_TIMEOUT`      | `30.0`                   | Seconds in OPEN before transitioning to HALF-OPEN      |
+| `METRICS_BEARER_TOKEN`                  | `""`                     | Bearer token required for Prometheus to scrape `/metrics` |
+| `METRICS_ALLOW_ANONYMOUS`               | `false`                  | When `false` (default), `/metrics` returns 503 if token is unset; set `true` only for unauthenticated local development |
 
 > **Security**: Never commit a real `SECRET_KEY` or credentials to version control.
 > Use environment-specific secrets management in production.
@@ -456,6 +458,191 @@ python -m pytest tests/test_real_platform_integration.py -v
 # Live Inventory Integration
 python -m pytest tests/test_real_inventory_integration.py -v
 ```
+
+---
+
+## Round 10 Observability Stack
+
+### Round 10 status
+
+| Milestone | Status | Evidence |
+|---|---|---|
+| M1 Prometheus + Grafana | Done when `verify_observability.py` passes | `OBSERVABILITY_EVIDENCE.md` §1 (dashboard = Prometheus = Grafana), `docs/evidence/grafana_dashboard.png` |
+| M2 OpenTelemetry + Jaeger | Done when `verify_observability.py` passes | `OBSERVABILITY_EVIDENCE.md` §2 (trace with gateway + Inventory spans), `docs/evidence/jaeger_trace.png` |
+| M3 Locust | Done | `load_tests/round10_summary.md` (generated), `ROUND10_M3_LOAD_TEST_REPORT.md` |
+
+Not done / known limits: single Uvicorn worker on one laptop; downstreams are
+`dummy_services.py`, not the real services; rate limiting disabled during the sweep.
+
+### Running the tests
+
+```powershell
+python -m pytest -m "not integration" -q          # unit tests, no Docker needed
+docker compose -f docker-compose.dev.yml up -d     # then dummy_services + gateway (see above)
+python -m pytest -m integration -q                 # real Prometheus / Grafana / Jaeger
+```
+
+### Overview
+
+The API Gateway is fully instrumented for production observability:
+
+| Component | Version | Purpose |
+|---|---|---|
+| **Prometheus** | `prom/prometheus:v2.53.0` | Scrapes `/metrics` every 2 s |
+| **Grafana** | `grafana/grafana:11.1.0` | Dashboards (provisioned from source) |
+| **Jaeger** | `jaegertracing/all-in-one:1.57.0` | Distributed trace collection (OTLP HTTP) |
+
+### Start the Observability Stack
+
+```powershell
+# From services/api-gateway/
+docker compose -f docker-compose.dev.yml up -d
+```
+
+Services start automatically with:
+- **Prometheus** → [http://localhost:9090](http://localhost:9090)
+- **Grafana** → [http://localhost:3000](http://localhost:3000) (anonymous read-only Viewer; admin login from .env)
+- **Jaeger** → [http://localhost:16686](http://localhost:16686) (OTLP HTTP on port 4318)
+
+
+### Prometheus Scraping & Token Configuration
+
+> [!IMPORTANT]
+> **Prometheus Scrape Token Setup (`prometheus/metrics_token`)**:
+> On a fresh clone, `prometheus/metrics_token` does not exist because secret files are git-ignored.
+> You **must** create `prometheus/metrics_token` as a file before launching Docker Compose:
+> ```bash
+> # Linux / macOS
+> echo "your-bearer-token" > prometheus/metrics_token
+> # Windows PowerShell
+> Set-Content -Path prometheus/metrics_token -Value "your-bearer-token" -NoNewline
+> ```
+> Ensure `METRICS_BEARER_TOKEN` in `.env` matches the token inside `prometheus/metrics_token`.
+> If this file is missing when starting Docker, Docker will automatically create a **directory** named `prometheus/metrics_token` for the volume mount, causing Prometheus scrape authentication to fail.
+>
+> **Security Warning**: Never commit real tokens or credentials to version control. Both `prometheus/metrics_token` and `.env` are git-ignored.
+
+The `/metrics` endpoint is **fail-closed by default**:
+- **Authentication**: When `METRICS_BEARER_TOKEN` is configured, callers (including Prometheus) must provide a matching `Authorization: Bearer <token>` header. Missing or invalid bearer tokens are rejected with HTTP `401 Unauthorized` (`Invalid metrics token`).
+- **Fail-Closed Default**: A missing or unconfigured `METRICS_BEARER_TOKEN` does **not** silently expose `/metrics`. With `METRICS_ALLOW_ANONYMOUS=false` (the default), `/metrics` refuses requests and returns HTTP `503 Service Unavailable` (`Metrics token not configured`).
+- **Opt-In Anonymous Access**: Explicit unauthenticated access is permitted **only** when `METRICS_ALLOW_ANONYMOUS=true` is set (strictly intended for local development convenience).
+
+| Environment Variable | Default | Description |
+|---|---|---|
+| `METRICS_BEARER_TOKEN` | `""` | Bearer token required for Prometheus to scrape `/metrics`. |
+| `METRICS_ALLOW_ANONYMOUS` | `false` | Default `false` (fail-closed, returns 503 if token is unset). Set `true` only for unauthenticated local development. |
+
+`prometheus/prometheus.yml` configures Prometheus to scrape the API Gateway `/metrics` endpoint
+at `host.docker.internal:8000` every 2 seconds:
+
+```yaml
+scrape_configs:
+  - job_name: "api-gateway"
+    metrics_path: "/metrics"
+    scrape_interval: 2s
+    scrape_timeout: 2s
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/metrics_token
+    static_configs:
+      - targets: ["host.docker.internal:8000"]
+```
+
+Exposed metrics:
+- `gateway_requests_total{method, route, status_code}` — request counter
+- `gateway_request_duration_seconds{method, route}` — latency histogram
+- `gateway_errors_total{method, route}` — error counter
+
+Unknown routes are always mapped to the bounded label `route="other"` to prevent
+label cardinality explosion.
+
+### Grafana Dashboard
+
+`grafana/round10_api_gateway_dashboard.json` is auto-provisioned by
+`grafana/provisioning/dashboards/dashboards.yml` into the **Observability** folder.
+
+Panels include: Request Rate, Error Rate, Latency (p50/p95/p99), Top Routes, Circuit Breaker States.
+
+### Distributed Tracing (Jaeger)
+
+The gateway uses OpenTelemetry W3C Trace Context propagation:
+- Incoming `traceparent` headers are extracted and used as parent span context.
+- Every request generates a `gateway <METHOD> <route>` SERVER span.
+- Proxy calls generate child CLIENT spans that are injected into downstream headers.
+- Query strings are **stripped** from `http.url` span attributes before export to Jaeger to prevent sensitive data leakage.
+
+Environment variables:
+
+| Variable | Default | Description |
+|---|---|---|
+| `OTEL_ENABLED` | `true` | Set `false` to disable tracing entirely |
+| `OTEL_SERVICE_NAME` | `api-gateway` | Jaeger service name |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` | Jaeger OTLP/HTTP collector |
+
+### Full Observability Verification
+
+```powershell
+# 1. Start observability stack (Grafana: anonymous read-only Viewer; admin login from .env)
+docker compose -f docker-compose.dev.yml up -d
+
+# 2. Start downstream dummy services
+python dummy_services.py
+
+# 3. Start gateway
+.venv\Scripts\uvicorn.exe app.main:app --host 127.0.0.1 --port 8000
+
+# 4. Run verification script (generates 25 requests, compares Prometheus vs /gateway/dashboard)
+python verify_observability.py
+```
+
+Grafana UI is available at [http://localhost:3000](http://localhost:3000) (anonymous read-only Viewer; admin login from .env).
+See `OBSERVABILITY_EVIDENCE.md` for the definition-of-done evidence report.
+
+
+### Round 10 Load Test Results
+
+Load tests were executed with Locust against the API Gateway with a realistic 12-endpoint mixed scenario and dummy downstream services running.
+Rate limiting was disabled for the sweep (LOAD_TEST_MODE=true) because all Locust users share one source IP.
+
+Run time per level: 60s. Degraded = p95 > 1000 ms or error rate > 1 %.
+
+| Users | Requests | RPS | Error % | p50 (ms) | p95 (ms) | p99 (ms) | Max (ms) | Gateway CPU avg % | Gateway CPU max % | Status |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 5 | 286 | 4.88 | 0.00 | 16 | 38 | 270 | 301 | 7 | 16 | OK |
+| 10 | 547 | 9.37 | 0.00 | 15 | 37 | 290 | 329 | 12 | 20 | OK |
+| 20 | 1087 | 18.60 | 0.00 | 19 | 65 | 280 | 323 | 26 | 54 | OK |
+| 50 | 2336 | 39.94 | 0.00 | 130 | 800 | 1200 | 1391 | 78 | 105 | OK |
+| 100 | 2093 | 35.09 | 0.00 | 1700 | 3200 | 3500 | 3815 | 93 | 112 | DEGRADED |
+
+A/B at 100 users, dashboard/health tasks excluded (same gateway, same run):
+
+| Users | Requests | RPS | Error % | p50 (ms) | p95 (ms) | p99 (ms) | CPU avg % | CPU max % |
+|---|---|---|---|---|---|---|---|---|
+| 100 | 3221 | 56.01 | 0.00 | 610 | 1500 | 1800 | 81 | 100 |
+
+> [!NOTE]
+> **Observed Break Point**: 100 concurrent users is the first DEGRADED level (`p95 = 3200 ms` > 1000 ms threshold, `Gateway CPU avg = 93%`, `Gateway CPU max = 112%`). Error rate was 0.00%.
+>
+> **Bottleneck Analysis**: Primary evidence points to gateway CPU and single-worker event-loop saturation (measured CPU avg 93%, max 112% at 100 users). In the A/B isolation test at 100 users with `/gateway/dashboard` and `/health` excluded, throughput rose to 56.01 RPS and p95 improved to 1500 ms (0.00% errors across 3221 requests), but p95 remained above the 1000 ms threshold with CPU avg at 81% (max 100%), confirming that single-worker CPU/event-loop saturation is the primary ceiling.
+>
+> This observed break point reflects a single-process Uvicorn server on a local development laptop and is not a production capacity limit.
+
+Run the sweep yourself:
+
+```powershell
+python dummy_services.py   # terminal 1
+
+# terminal 2 — gateway with LOAD_TEST_MODE (do NOT use --reload)
+$env:LOAD_TEST_MODE = "true"
+.venv\Scripts\uvicorn.exe app.main:app --host 127.0.0.1 --port 8000
+
+# terminal 3 — automated sweep harness
+$PID = (Get-NetTCPConnection -LocalPort 8000 -State Listen).OwningProcess
+python run_locust_sweep.py --gateway-pid $PID
+```
+
+Authoritative summary: `load_tests/round10_summary.md`
+CSV result files: `load_tests/round10_results_u{5,10,20,50,100}_stats.csv`, `load_tests/round10_results_ab_u100_stats.csv`
 
 ---
 

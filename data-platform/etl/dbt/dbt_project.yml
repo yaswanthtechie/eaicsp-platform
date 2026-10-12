@@ -1,0 +1,19 @@
+name: sales_analytics
+version: '1.0.0'
+config-version: 2
+
+profile: sales_analytics
+
+model-paths: ["models"]
+test-paths: ["tests"]
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  sales_analytics:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table

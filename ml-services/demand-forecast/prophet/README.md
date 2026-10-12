@@ -1604,3 +1604,641 @@ Scenario Forecasting
 Automated Retraining
    ↓
 Validation Guardrails
+
+## Round 9-11, Multi horizon forecasting (Track A, Milestone 1)
+
+**Status:** Milestone 1 in progress. M2 through M5 not started.
+
+### What it does
+One 90-day daily forecast (0.7 x Prophet + 0.3 x XGBoost, weights from
+`models/promoted/ensemble_weights.json`) is summed into 1/7/30/90-day totals.
+Because every horizon comes from the same daily path, they cannot contradict each other.
+
+### Run
+    python -m src.prepare_m5_daily        # rebuild data/m5_daily_sales.csv (needs data/raw/)
+    python -m src.train_multi_horizon     # backtest + train + MLflow + interval calibration
+    python -m src.multi_horizon           # forecast
+
+### Output (per horizon)
+predicted total, 80% empirical interval (from rolling-origin backtest errors),
+top drivers (Prophet components + XGBoost SHAP contributions).
+### Accuracy (out-of-sample rolling-origin backtest)
+
+24 cutoffs, one every 30 days, from 2014-03-06 to 2016-01-25 (anchored at the
+end of the data, so the most recent year is included). At each cutoff, fresh
+Prophet and XGBoost models are trained only on data before it, then forecast
+90 days recursively. Every backtest total is saved in
+`models/multi_horizon/backtest_results.csv`, and the run is logged to MLflow
+(experiment `demand_forecast_multi_horizon`).
+
+| Horizon | MAPE | Bias | 80% interval (multiplier) | Backtest coverage |
+|---|---:|---:|---|---:|
+| 1-day  | 8.49% | +1.47% | 0.892 - 1.129 | 75% |
+| 7-day  | 5.15% | +4.78% | 1.000 - 1.110 | 75% |
+| 30-day | 2.74% | +1.57% | 0.971 - 1.047 | 75% |
+| 90-day | 2.84% | +2.44% | 0.989 - 1.060 | 75% |
+
+- MAPE = mean(|actual - predicted| / actual). Error shrinks as the horizon
+  grows because daily ups and downs cancel out in totals.
+- Bias is positive at every horizon, indicating under-forecasting on average.
+  The largest positive bias is on the 7-day horizon (+4.78%).
+  The 7-day under-forecast is so consistent that its interval barely goes
+  below the prediction.
+- The interval is the 10th-90th percentile of each horizon's own backtest
+  error. Coverage is 75% rather than 80% because there are only 24 backtests;
+  it is measured on the same errors used for calibration, so treat it as a
+  sanity check.
+
+  ## Round 9-11, Milestone 2: External Regressor Ablation Study
+
+**Status:** M1 done. M2 done with this PR. M3,M4 completed doc. M5 Full test coverage completed
+
+### Question
+
+Do the Round 6-8 external regressors (`is_holiday`, `promotion`, `weather_index`) make the Prophet forecast more accurate?
+
+### Method
+
+* **Rolling-origin backtest:** 5 cutoffs from June 2011 to June 2015, each forecasting the next 12 months using a model trained only on data before the cutoff. This gives **60 scored months** across the study.
+* **Experiments:** all regressors (baseline); each regressor removed individually; and no regressors at all (plain Prophet).
+* **Noise band:** the baseline was re-run using 5 different random draws of `weather_index`. Baseline MAPE varied by approximately **0.05 percentage points** due to the random feature alone. Therefore, an ablation effect must exceed the full **±0.05pp noise band** to be considered measurable in this study.
+* **Unrounded metrics:** MAPE and RMSE were kept unrounded during calculations so small differences were not lost or changed by rounding.
+* **MLflow:** every experiment is logged under the `demand_forecast_regressor_ablation` experiment.
+* **Artifacts:** results are saved to `models/regressor_ablation/ablation_results.csv` and `models/regressor_ablation/noise_band.csv`.
+
+### Results
+
+Mean metrics across the 5 rolling-origin cutoffs:
+
+| Configuration                     |      MAPE | Change vs baseline | Verdict          |
+| --------------------------------- | --------: | -----------------: | ---------------- |
+| Baseline, all regressors          |     4.51% |                  — | Reference        |
+| Remove `is_holiday`               |     4.52% |            +0.01pp | Within noise     |
+| Remove `promotion`                |     4.46% |            -0.04pp | Within noise     |
+| Remove `weather_index`            |     4.55% |            +0.04pp | Within noise     |
+| **No regressors (plain Prophet)** | **4.48%** |        **-0.03pp** | **Within noise** |
+
+### Conclusion
+
+**None of the three regressors has a measurable effect on accuracy in this study.**
+
+Removing any individual regressor, or removing all three regressors, changed MAPE by less than the ±0.05pp noise band. Therefore, this experiment does **not provide sufficient evidence that any of the three external regressors adds independent predictive value** over plain Prophet on this dataset.
+
+The result is consistent with the current construction of the regressors:
+
+* `is_holiday` is derived from the month: November and December are marked as `1`.
+* `promotion` is also derived from the month: March, June, September and December are marked as `1`.
+* Because the dataset is monthly, these calendar-derived signals overlap with information already represented by Prophet's yearly seasonality.
+* `weather_index` is generated using `rng.uniform` and is therefore a synthetic random placeholder rather than real weather information.
+
+### Recommendation
+
+* **`weather_index`:** do not treat the current synthetic random feature as evidence of useful production information. Replace it with real weather data before using weather as a production regressor.
+* **`is_holiday` and `promotion`:** keep them optional rather than claiming that they improve accuracy. Their current versions do not show a measurable benefit in this ablation.
+* Re-run the ablation when real promotion information and/or real weather data are available. Those real external signals can then be evaluated using the same rolling-origin methodology.
+
+### Limitations
+
+* The dataset contains monthly aggregate observations only.
+* The study uses 5 rolling-origin cutoffs and 12-month forecast horizons, giving 60 scored months.
+* The noise band is estimated from 5 random `weather_index` draws; additional draws could provide a more stable estimate of random variation.
+* At prediction time, the study uses the available future regressor values. This is appropriate for deterministic calendar features, but real weather would require weather forecasts rather than observed future weather.
+* The study establishes the measured result for the current dataset, feature definitions and evaluation setup; it does not establish causality or prove that these regressors can never help with a different dataset or real external data.
+
+### Verification
+
+* `python -m src.regressor_ablation` completed successfully.
+* `python -m pytest -q` → **83 passed**.
+
+
+
+Milestone 1 — Prediction Interval Calibration
+
+Objective
+
+Validate whether the model's prediction intervals actually contain the expected percentage of future observations.
+
+The pipeline evaluates:
+
+80% prediction intervals
+
+95% prediction intervals
+
+Held-out time windows
+
+Interval coverage
+
+Pinball loss
+
+Conformal calibration
+
+Problem
+
+A model can have a good point forecast while producing unreliable prediction intervals.
+
+For example, if a model claims a 95% prediction interval but only 81% of actual values fall inside that interval, the interval is under-covering.
+
+Therefore, interval quality must be measured separately from point-forecast accuracy.
+
+Approach
+
+The forecasting pipeline uses time-ordered rolling-origin backtesting.
+
+The data is never randomly shuffled because this is a time-series forecasting problem.
+
+The evaluation process is:
+
+Historical Data
+
+
+  ↓
+
+Rolling-Origin Backtesting
+
+
+  ↓
+
+Calibration Windows
+
+  ↓
+
+
+Held-Out Evaluation Windows
+
+
+  ↓
+
+
+Measure Interval Coverage
+
+  ↓
+
+
+Conformal Calibration
+
+  ↓
+
+
+Measure Coverage Again
+
+  ↓
+
+
+Compare Before vs After
+
+Conformal Calibration
+
+Split conformal calibration is applied using a time-ordered calibration window.
+
+The nonconformity score is based on the relative prediction error:
+
+score = |actual - prediction| / |prediction|
+
+The calibration scores are used to calculate a conformal radius.
+
+The calibrated interval is then constructed around the point forecast.
+
+Evaluation
+
+The pipeline evaluates multiple forecasting horizons:
+
+1 day
+
+7 days
+
+30 days
+
+90 days
+
+For each horizon the system tracks:
+
+MAPE
+
+Prediction interval coverage
+
+Conformal coverage before calibration
+
+Conformal coverage after calibration
+
+Pinball loss
+
+Calibration radius
+
+Held-out evaluation uses 6 evaluation cutoffs per horizon.
+
+Because coverage is measured over only 6 held-out windows, the observed coverage can move in steps of approximately 16.7 percentage points. Therefore, the measured coverage should be interpreted together with the number of evaluation windows rather than as an exact estimate of long-run coverage.
+
+Conformal Evaluation on Held-out Windows
+
+| Horizon | Target | Before Coverage | After Coverage | Before Pinball | After Pinball | Conformal Radius |
+| ------- | -----: | --------------: | -------------: | -------------: | ------------: | ---------------: |
+| 1 day   |    80% |           16.7% |          66.7% |        2155.29 |        953.62 |           0.1305 |
+| 1 day   |    95% |           33.3% |          83.3% |        1247.04 |        322.61 |           0.1927 |
+| 7 day   |    80% |           33.3% |         100.0% |        4193.96 |       2347.49 |           0.0880 |
+| 7 day   |    95% |           50.0% |         100.0% |        2513.62 |        972.14 |           0.1458 |
+| 30 day  |    80% |           66.7% |          83.3% |        5093.10 |       5401.73 |           0.0458 |
+| 30 day  |    95% |           83.3% |         100.0% |        1303.74 |       1641.85 |           0.0572 |
+| 90 day  |    80% |          100.0% |         100.0% |       12283.36 |      20235.82 |           0.0590 |
+| 90 day  |    95% |          100.0% |         100.0% |        3615.27 |       5807.12 |           0.0678 |
+
+The conformal calibration substantially improves interval coverage for the shorter horizons. The 7-day horizon reaches 100% coverage for both targets, while the 30-day horizon reaches 83.3% for the 80% target and 100% for the 95% target.
+
+For the 90-day horizon, coverage was already 100% before calibration. Conformal calibration therefore does not improve coverage for this horizon and increases pinball loss because the interval becomes wider.
+
+Calibration Metrics
+
+1 day:
+MAPE = 7.29%
+bias = +6.61%
+interval = [0.9828, 1.1560]
+calibration coverage = 75%
+
+7 day:
+MAPE = 5.32%
+bias = +5.73%
+interval = [1.0000, 1.0932]
+calibration coverage = 81%
+
+30 day:
+MAPE = 2.35%
+bias = +1.00%
+interval = [0.9715, 1.0458]
+calibration coverage = 75%
+
+90 day:
+MAPE = 2.43%
+bias = +1.78%
+interval = [0.9882, 1.0599]
+calibration coverage = 75%
+
+Result
+
+Milestone 1 implementation and test coverage were completed successfully.
+
+The implementation includes:
+
+src/conformal.py
+
+tests/test_conformal.py
+
+tests/test_conformal_calibration.py
+
+The conformal calibration and interval evaluation logic is integrated into the multi-horizon forecasting evaluation pipeline.
+
+Milestone 2 — Intermittent Demand Forecasting
+
+Objective
+
+Identify SKUs with intermittent or lumpy demand and route them to an appropriate forecasting method.
+
+Traditional forecasting models can perform poorly when demand contains many zero-demand periods.
+
+Demand Classification
+
+Two metrics are used:
+
+ADI — Average Demand Interval
+
+ADI measures how frequently non-zero demand occurs.
+
+ADI = Number of observations / Number of non-zero observations
+
+CV² — Squared Coefficient of Variation
+
+CV² measures the variability of non-zero demand.
+
+CV² = (standard deviation / mean)²
+
+The classification thresholds are:
+
+ADI threshold = 1.32
+
+CV² threshold = 0.49
+
+The demand types are classified using ADI and CV²:
+
+
+            CV²
+
+             |
+      Erratic|   Lumpy
+             |
+
+
+ADI > 1.32 ------+------
+|
+Smooth | Intermittent
+|
+
+Croston Forecasting
+
+Croston forecasting is used for intermittent demand because it separately estimates:
+
+demand size
+
+demand interval
+
+The forecast is based on the estimated demand size divided by the estimated interval between non-zero demands.
+
+Evaluation Metric
+
+MAPE is not appropriate for intermittent demand because actual demand can be zero.
+
+Therefore, the pipeline uses:
+
+MASE
+
+Mean Absolute Scaled Error compares the model error against a naive forecasting scale.
+
+Lower MASE indicates lower scaled forecast error.
+
+Automatic Routing
+
+The pipeline evaluates Croston against a naive baseline.
+
+The routing decision is based on validation MASE:
+
+if Croston MASE <= Naive MASE:
+
+
+select Croston
+
+
+else:
+
+
+select Naive
+
+
+The selected model is then evaluated on the held-out test window using test MASE.
+
+This prevents the system from assuming that Croston must always win for every intermittent/lumpy SKU.
+
+Validation Dataset
+
+Because the available real hierarchy dataset contains no zero-demand observations, an intermittent-demand sample dataset was created for validation:
+
+data/intermittent_demand_sample.csv
+
+It contains examples representing:
+
+Smooth demand
+
+Intermittent demand
+
+Erratic demand
+
+Lumpy demand
+
+Example Result
+
+sku_id   classification   ADI   CV²       Croston MASE   Naive MASE   Selected   Selected Test MASE
+
+SKU002   intermittent     3.0   0.055556   0.758170       1.470588     Croston    0.867556
+
+SKU004   intermittent     6.0   0.000000   10.625000      10.416667     Naive      1.481481
+
+Interpretation
+
+For SKU002:
+
+Croston validation MASE = 0.7582
+
+Naive validation MASE   = 1.4706
+
+Croston has lower validation MASE, so Croston is selected.
+
+Selected Croston test MASE = 0.8676.
+
+For SKU004:
+
+Croston validation MASE = 10.6250
+
+Naive validation MASE   = 10.4167
+
+Naive has lower validation MASE, so Naive is selected.
+
+Selected Naive test MASE = 1.4815.
+
+The routing decision is therefore based on validation performance, while the final selected model performance is reported on the held-out test window.
+
+This demonstrates that the routing logic is evaluation-driven rather than hard-coded.
+
+Implementation
+
+src/intermittent_demand.py
+
+tests/test_intermittent_demand.py
+
+data/intermittent_demand_sample.csv
+
+The intermittent-demand pipeline supports:
+
+ADI calculation
+
+CV² calculation
+
+Demand classification
+
+Croston forecasting
+
+MASE calculation
+
+Chronological train/validation/test splitting
+
+Croston vs naive evaluation
+
+Automatic model routing
+
+Milestone 3 — Cold-Start Forecasting
+
+Objective
+
+Forecast demand for a new SKU when the SKU itself has little or no historical demand.
+
+Instead of relying on the target SKU's own history, the system uses similar existing SKUs.
+
+Similarity Strategy
+
+The available hierarchy dataset contains:
+
+SKU
+
+Category
+
+Region
+
+Quantity sold
+
+The repository does not currently contain reliable SKU-level:
+
+price
+
+price band
+
+warehouse metadata
+
+Therefore, the current cold-start similarity strategy uses:
+
+Category + Region
+
+Price and warehouse similarity are not fabricated because the required source data is not available.
+
+Cold-Start Evaluation
+
+The evaluation simulates a genuinely new SKU using existing SKUs.
+
+For each existing SKU:
+
+Full SKU History
+
+```
+   ↓
+```
+
+Hide Last 3 Periods
+
+
+   ↓
+
+
+Pretend SKU Is New
+
+
+   ↓
+
+
+Find Similar Existing SKUs
+
+
+   ↓
+
+
+Use only peer history before the hidden window
+
+
+   ↓
+
+
+Forecast Hidden Periods
+
+
+   ↓
+
+
+Compare With Actual Hidden Demand
+
+The target SKU is excluded from the reference pool to prevent data leakage.
+
+Peer SKU demand from the hidden future window is also excluded from the reference data. This ensures the cold-start forecast only uses information that would have been available when the target SKU was treated as new.
+
+Similar SKU Forecast
+
+The primary fallback is:
+
+Category + Region average
+
+If no matching category+region SKU exists, the implementation can fall back to:
+
+Category average
+
+Baseline
+
+The cold-start forecast is compared against a simpler:
+
+Category-average baseline
+
+This is important because the similarity method should demonstrate value over a simple baseline rather than being evaluated in isolation.
+
+Evaluation Metrics
+
+The current cold-start evaluation reports:
+
+MAE
+
+RMSE
+
+Real Dataset Evaluation
+
+The evaluation was performed using:
+
+data/hierarchy_sales.csv
+
+with:
+
+hidden_periods = 3
+
+Result:
+
+Eligible SKUs: 100
+
+All 100 SKUs had usable reference data.
+
+Forecast Source
+
+category_region    100
+
+All 100 eligible SKUs were evaluated using the category+region similarity pool.
+
+Average MAE
+
+Cold-start category+region MAE : 139.013889
+Category-average baseline MAE  : 126.413060
+
+SKU-level comparison
+
+Cold-start better           : 44 / 100 SKUs
+Category baseline better    : 56 / 100 SKUs
+
+Honest Result
+
+The current category+region similarity strategy does not outperform the category-average baseline overall.
+
+The results show:
+
+Category + Region MAE = 139.01
+Category Baseline MAE = 126.41
+
+Although the similarity method performs better for 44 SKUs, the category baseline performs better for 56 SKUs.
+
+Therefore, the current implementation is treated as a validated cold-start baseline rather than claiming an overall improvement that the evaluation does not support.
+
+Implementation
+
+src/cold_start.py
+
+tests/test_cold_start.py
+
+data/hierarchy_sales.csv
+
+The implementation supports:
+
+Similar SKU discovery
+
+Category + region matching
+
+Category fallback
+
+Hidden-history evaluation
+
+MAE
+
+RMSE
+
+SKU-level evaluation
+
+Forecast-source tracking
+
+### Verification
+
+python -m pytest -q
+
+152 passed
+
+python -m src.train_multi_horizon
+
+python -m src.intermittent_demand
+
+python -m src.cold_start
+
+

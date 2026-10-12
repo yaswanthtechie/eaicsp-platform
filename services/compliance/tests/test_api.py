@@ -766,3 +766,95 @@ def test_assign_case_blank_assigned_to_api(
         assign_response.json()["detail"]
         == "assigned_to must not be blank"
     )
+
+def test_regulatory_report_api_india(mock_compliance_officer_auth):
+    response = client.get(
+        "/api/v1/compliance/reports/regulatory/India"
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["country"] == "INDIA"
+
+    codes = {
+        rule["rule_code"]
+        for rule in data["applicable_rules"]
+    }
+
+    assert "IND-SANCTIONS" in codes
+    assert "IND-KYC" in codes
+    assert "IND-DOCUMENTATION" in codes
+    assert "US-KYC" not in codes
+
+
+def test_regulatory_evaluation_api_usa(
+    mock_compliance_officer_auth,
+):
+    response = client.get(
+        "/api/v1/compliance/reports/regulatory/USA/evaluate",
+        params={
+            "sanctions_cleared": True,
+            "kyc_verified": True,
+            "documents_complete": True,
+            "reporting_compliant": False,
+        },
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["country"] == "USA"
+    assert data["overall_status"] == "REVIEW"
+    assert data["passed_count"] == 2
+    assert data["failed_count"] == 0
+    assert data["review_count"] == 1
+
+    statuses = {
+        rule["rule_code"]: rule["status"]
+        for rule in data["rules"]
+    }
+
+    assert statuses["US-SANCTIONS"] == "PASSED"
+    assert statuses["US-KYC"] == "PASSED"
+    assert statuses["US-REPORTING"] == "REVIEW"
+
+
+def test_regulatory_evaluation_api_india(
+    mock_compliance_officer_auth,
+):
+    response = client.get(
+        "/api/v1/compliance/reports/regulatory/India/evaluate",
+        params={
+            "sanctions_cleared": True,
+            "kyc_verified": True,
+            "documents_complete": True,
+        },
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["country"] == "INDIA"
+    assert data["overall_status"] == "PASSED"
+    assert data["passed_count"] == 3
+    assert data["failed_count"] == 0
+    assert data["review_count"] == 0
+
+def test_regulatory_evaluation_unknown_country_is_not_500(
+    mock_compliance_officer_auth,
+):
+    response = client.get(
+        "/api/v1/compliance/reports/regulatory/Germany/evaluate",
+        params={
+            "sanctions_cleared": True,
+            "kyc_verified": True,
+            "documents_complete": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["overall_status"] == "REVIEW"

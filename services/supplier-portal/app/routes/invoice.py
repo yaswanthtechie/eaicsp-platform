@@ -12,13 +12,20 @@ from app.core.auth import (
     verify_token,
 )
 
-from fastapi.responses import FileResponse
+from app.core.config import settings
+
+from app.services.document_storage_service import (
+    DocumentDownloadError,
+    DocumentStorageError,
+    document_storage_service,
+)
 
 from app.schemas.invoice import (
     InvoiceCreate,
     InvoiceResponse,
     InvoiceTransition,
     InvoiceAdjustment,
+    InvoiceDocumentDownloadResponse,
     OrphanedFileCleanupResponse,
     OrphanedFilePurgeResponse,
 )
@@ -34,9 +41,11 @@ from app.services.invoice_service import (
     find_orphaned_invoice_files,
     purge_orphaned_invoice_files,
 )
-from app.services.purchase_order_service import purchase_orders
-router = APIRouter()
 
+from app.services.purchase_order_service import purchase_orders
+
+
+router = APIRouter()
 
 # ============================================================
 # SUPPLIER INVOICE SCOPING
@@ -478,13 +487,10 @@ def adjust_invoice_endpoint(
             status_code=400,
             detail=message,
         )
-
-
 # ============================================================
 # UPLOAD INVOICE DOCUMENT
 # Supplier-facing endpoint
 # ============================================================
-
 @router.post(
     "/invoices/{supplier_id}/{invoice_number}/document",
     response_model=InvoiceResponse,
@@ -494,13 +500,20 @@ def upload_document(
     invoice_number: str,
     file: UploadFile = File(...),
     user=Depends(
-       verify_supplier_invoice_access(supplier_only=True)
+        verify_supplier_invoice_access(
+            supplier_only=True
+        )
     ),
 ):
     """
     Upload a PDF document for an existing invoice.
+
+    The actual PDF is stored in MinIO. The invoice record
+    stores the supplier-scoped MinIO object key.
     """
 
+    # DocumentStorageError covers DocumentUploadError AND failures before
+    # the upload starts (e.g. ensure_bucket() when MinIO is unreachable).
     try:
         return upload_invoice_document(
             supplier_id=supplier_id,
@@ -508,11 +521,16 @@ def upload_document(
             file=file,
         )
 
-    except ValueError as e:
-        message = str(e)
+    except DocumentStorageError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc),
+        ) from exc
+
+    except ValueError as exc:
+        message = str(exc)
         lower_message = message.lower()
 
-        # Invoice does not exist
         if (
             "invoice" in lower_message
             and "not found" in lower_message
@@ -520,15 +538,12 @@ def upload_document(
             raise HTTPException(
                 status_code=404,
                 detail="Invoice not found.",
-            )
+            ) from exc
 
-        # Other validation/business errors
         raise HTTPException(
             status_code=400,
             detail=message,
-        )
-
-
+        ) from exc
 # ============================================================
 # DOWNLOAD INVOICE DOCUMENT
 # Supplier-facing endpoint
@@ -536,53 +551,125 @@ def upload_document(
 
 @router.get(
     "/invoices/{supplier_id}/{invoice_number}/document",
+    response_model=InvoiceDocumentDownloadResponse,
 )
 def download_invoice_document(
     supplier_id: str,
     invoice_number: str,
-    user=Depends(verify_supplier_invoice_access()),
+    user=Depends(
+        verify_supplier_invoice_access()
+    ),
 ):
     """
-    Download the PDF document attached to an invoice.
-    """
+    Generate a short-lived presigned MinIO download URL.
 
+    Access is supplier-scoped.
+
+    The invoice record stores the supplier-scoped MinIO
+    object key. The object must exist in MinIO before
+    generating the presigned download URL.
+    """
     try:
-        filepath = get_invoice_document(
+        # ----------------------------------------------------
+        # STEP 1: Get the invoice
+        # ----------------------------------------------------
+
+        invoice = get_invoice_by_number(
             supplier_id=supplier_id,
             invoice_number=invoice_number,
         )
 
-        return FileResponse(
-            path=filepath,
-            media_type="application/pdf",
-            filename=f"{invoice_number}.pdf",
-        )
-
-    except ValueError as e:
-        message = str(e)
-        lower_message = message.lower()
-
         # ----------------------------------------------------
-        # 1. Document is not associated with the invoice
+        # STEP 2: Get registered MinIO object key
         # ----------------------------------------------------
-        if "document not found" in lower_message:
+
+        document_path = invoice.get("document_path")
+
+        if not document_path:
             raise HTTPException(
                 status_code=404,
                 detail="Document not found.",
             )
 
         # ----------------------------------------------------
-        # 2. Physical document file was deleted/missing
+        # STEP 3: Verify that the registered object exists
         # ----------------------------------------------------
-        if "document does not exist" in lower_message:
+        #
+        # The invoice stores the MinIO object key.
+        # Before generating a presigned URL, verify that
+        # the object is actually present in MinIO.
+        #
+        # False -> 404
+        # Storage failure -> DocumentStorageError -> 502
+        # ----------------------------------------------------
+
+        if not document_storage_service.object_exists(
+            object_key=document_path,
+        ):
             raise HTTPException(
                 status_code=404,
                 detail="File does not exist.",
             )
 
         # ----------------------------------------------------
-        # 3. Invoice itself does not exist
+        # STEP 4: Generate presigned URL
         # ----------------------------------------------------
+
+        download_url = (
+            document_storage_service.generate_download_url(
+                object_key=document_path,
+            )
+        )
+
+        # ----------------------------------------------------
+        # STEP 5: Return download contract
+        # ----------------------------------------------------
+
+        return {
+            "invoice_number": invoice_number,
+            "supplier_id": supplier_id,
+            "file_name": f"{invoice_number}.pdf",
+            "download_url": download_url,
+            "expires_in_seconds": (
+                settings.MINIO_PRESIGNED_EXPIRY_SECONDS
+            ),
+        }
+
+    # --------------------------------------------------------
+    # MinIO / document download failure
+    # --------------------------------------------------------
+
+    except DocumentDownloadError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc),
+        ) from exc
+
+    # --------------------------------------------------------
+    # Generic document storage failure
+    # --------------------------------------------------------
+
+    except DocumentStorageError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc),
+        ) from exc
+
+    # --------------------------------------------------------
+    # Preserve intentional HTTP errors
+    # --------------------------------------------------------
+
+    except HTTPException:
+        raise
+
+    # --------------------------------------------------------
+    # Business validation / invoice lookup errors
+    # --------------------------------------------------------
+
+    except ValueError as exc:
+        message = str(exc)
+        lower_message = message.lower()
+
         if (
             "invoice" in lower_message
             and "not found" in lower_message
@@ -590,16 +677,19 @@ def download_invoice_document(
             raise HTTPException(
                 status_code=404,
                 detail="Invoice not found.",
-            )
+            ) from exc
 
-        # ----------------------------------------------------
-        # 4. Other validation/business errors
-        # ----------------------------------------------------
+        if "document not found" in lower_message:
+            raise HTTPException(
+                status_code=404,
+                detail="Document not found.",
+            ) from exc
+
         raise HTTPException(
             status_code=400,
             detail=message,
-        )
-
+        ) from exc
+    
 
 # ============================================================
 # FIND ORPHANED INVOICE FILES
@@ -643,11 +733,20 @@ def find_orphaned_files(
             "orphaned_files": orphaned_files,
         }
 
-    except ValueError as e:
+    except DocumentStorageError as exc:
+        # MinIO/storage failure is a dependency failure,
+        # not a client validation error.
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc),
+        ) from exc
+
+    except ValueError as exc:
         raise HTTPException(
             status_code=400,
-            detail=str(e),
-        )
+            detail=str(exc),
+        ) from exc
+
 
 # ============================================================
 # PURGE ORPHANED INVOICE FILES
@@ -686,8 +785,16 @@ def purge_orphaned_files(
             older_than_days=older_than_days,
         )
 
-    except ValueError as e:
+    except DocumentStorageError as exc:
+        # MinIO/storage failure is a dependency failure,
+        # not a client validation error.
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc),
+        ) from exc
+
+    except ValueError as exc:
         raise HTTPException(
             status_code=400,
-            detail=str(e),
-        )
+            detail=str(exc),
+        ) from exc

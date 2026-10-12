@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import type { InventoryItem } from "../../types/forecast";
 import type {
@@ -6,7 +7,7 @@ import type {
 } from "../../types/dashboard";
 import type { UserRole } from "../../mocks/user";
 import { exportDashboardPdf } from "../../utils/exportPdf";
-import { colors, radius, space } from "../../tokens";
+import { colors} from "../../tokens";
 
 interface ExportPdfButtonProps {
     role: UserRole;
@@ -58,25 +59,16 @@ const ExportPdfButton = ({
 
     return (
         <div>
-            <button
+            <Button
                 type="button"
+                variant="outline"
+                size="lg" 
                 onClick={handlePdfExport}
                 disabled={exporting}
                 aria-busy={exporting}
-                style={{
-                    padding: space.sm,
-                    borderRadius: radius.md,
-                    marginBottom: space.sm,
-                    border: `1px solid ${colors.border}`,
-                    background: colors.surface,
-                    color: colors.text,
-                    cursor: exporting ? "wait" : "pointer",
-                    fontSize: space.md,
-                    fontWeight: 600,
-                }}
             >
                 {exporting ? "Exporting..." : "Export PDF"}
-            </button>
+            </Button>
 
             {error && (
                 <p role="alert" style={{ color: colors.danger, margin: 0 }}>

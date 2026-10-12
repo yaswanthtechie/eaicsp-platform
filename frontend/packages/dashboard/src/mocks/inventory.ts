@@ -1,4 +1,4 @@
-import type { InventoryItem } from "../types/forecast";
+import type { InventoryItem } from "../types/forecast.ts";
 
 const baseInventory: InventoryItem[] = [
   {

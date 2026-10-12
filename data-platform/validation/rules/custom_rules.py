@@ -2,7 +2,7 @@ import re
 from datetime import datetime
 import pandas as pd
 from typing import Optional, Literal
-from src.registry import register_rule
+from data_validator.registry import register_rule
 
 # ==========================================
 # VALIDATION RULES (type: custom)

@@ -1,4 +1,4 @@
-import type { InventoryHealthItem } from "../types/dashboard";
+import type { InventoryHealthItem } from "../types/dashboard.ts";
 
 export const inventoryHealth: InventoryHealthItem[] = [
   {

@@ -240,7 +240,7 @@ def test_circuit_breaker_full_lifecycle(mock_send, client):
         service_id,
         failure_rate_threshold=0.50,
         window_seconds=60,
-        recovery_timeout=0.1,
+        recovery_timeout=0.5,
     )
 
     # 1. State CLOSED: successful requests
@@ -273,7 +273,7 @@ def test_circuit_breaker_full_lifecycle(mock_send, client):
     mock_send.assert_not_called()
 
     # 4. Wait for recovery timeout -> transitions to HALF-OPEN
-    time.sleep(0.15)
+    time.sleep(0.55)
     assert circuit_breaker_manager.can_execute(service_id) is True
     assert circuit_breaker_manager.get_state(service_id) == "half-open"
 

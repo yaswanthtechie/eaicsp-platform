@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 import json
 
-from src.validator import ConfigRule, DataValidator, resolve_env_path
+from data_validator.validator import ConfigRule, DataValidator, resolve_env_path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RULES_DIR = str(PROJECT_ROOT / "rules")
@@ -148,7 +148,7 @@ def test_resolve_env_path_switches_env_folder(base, env, expected):
 
 
 def test_cli_env_prod_uses_prod_config_with_default_config_path(tmp_path):
-    from src import validate_cli
+    from data_validator import validate_cli
 
     output = tmp_path / "report.json"
     code = validate_cli.main([

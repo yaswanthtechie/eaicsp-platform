@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from src.service import app
+from feature_lib.service import app
 
 
 client = TestClient(app)
@@ -133,8 +133,8 @@ def test_build_features_rejects_non_numeric_target():
         "Target column 'sales' must contain numeric values."
     )
 def test_build_features_reuses_feature_store_cache(monkeypatch):
-    import src.service as service
-    import src.feature_store as feature_store
+    import feature_lib.service as service
+    import feature_lib.feature_store as feature_store
 
     service.feature_store.clear()
 

@@ -435,3 +435,42 @@ def test_aggregation_route_precedence():
         f"Route precedence error: /api/v1/dashboard/summary "
         f"must be registered before catch-all /{path:path}"
     )
+
+
+# ---------------------------------------------------------------------------
+# 11. Trace Context propagation to fan-out calls
+# ---------------------------------------------------------------------------
+
+@patch("httpx.AsyncClient.send", new_callable=AsyncMock)
+def test_aggregation_trace_context_propagation(mock_send, client):
+    """
+    Test scenario 11:
+    Verify that incoming trace context (traceparent) is injected into all
+    fan-out requests to downstream services so the summary shows up as one trace.
+    """
+    captured_requests: list[httpx.Request] = []
+
+    async def side_effect(request: httpx.Request, *args, **kwargs):
+        captured_requests.append(request)
+        return _make_json_response(200, {"ok": True}, request)
+
+    mock_send.side_effect = side_effect
+
+    trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"
+    span_id = "00f067aa0ba902b7"
+    incoming_traceparent = f"00-{trace_id}-{span_id}-01"
+
+    response = client.get(
+        "/api/v1/dashboard/summary",
+        headers={"traceparent": incoming_traceparent},
+    )
+
+    assert response.status_code == 200
+    assert len(captured_requests) == 3
+
+    for req in captured_requests:
+        assert "traceparent" in req.headers
+        downstream_tp = req.headers["traceparent"]
+        # Must retain the same trace ID
+        assert trace_id in downstream_tp
+

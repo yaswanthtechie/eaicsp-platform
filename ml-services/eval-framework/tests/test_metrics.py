@@ -9,23 +9,23 @@ import pandas as pd
 EVAL_FRAMEWORK_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, EVAL_FRAMEWORK_DIR)
 
-from src.metrics import (
+from eval_framework.metrics import (
     mape, rmse, confusion_matrix, precision_recall, anomaly_metrics, accuracy
 )
-from src.baseline import naive_forecast, compare_to_baseline
-from src.splits import time_based_split, walk_forward_split
-from src.leaderboard import generate_leaderboard
-from src.significance import paired_significance_test
-from src.guardrails import (
+from eval_framework.baseline import naive_forecast, compare_to_baseline
+from eval_framework.splits import time_based_split, walk_forward_split
+from eval_framework.leaderboard import generate_leaderboard
+from eval_framework.significance import paired_significance_test
+from eval_framework.guardrails import (
     check_no_train_test_overlap, check_suspicious_accuracy,
     check_chronological_order, run_all_guardrails, LeakageError
 )
-from src.backtest import backtest
-from src.report_html import generate_html_report, save_html_report
+from eval_framework.backtest import backtest
+from eval_framework.report_html import generate_html_report, save_html_report
 from fastapi.testclient import TestClient
-from src.leaderboard_service import app
-from src.significance import wilcoxon_significance_test
-from src.fairness import evaluate_by_slice
+from eval_framework.leaderboard_service import app
+from eval_framework.significance import wilcoxon_significance_test
+from eval_framework.fairness import evaluate_by_slice
 
 client = TestClient(app)
 
@@ -453,7 +453,7 @@ def test_backtest_insufficient_data_raises():
 
 
 def test_backtest_integrates_with_mape():
-    from src.metrics import mape as _mape
+    from eval_framework.metrics import mape as _mape
     df = pd.DataFrame({"date": pd.date_range("2024-01-01", periods=30), "y": list(range(30))})
     results = backtest(df, "date", "y", _naive_forecast_fn, horizon=1, min_train_size=10)
     all_actual = [r["actual"][0] for r in results]
@@ -915,7 +915,7 @@ def test_regression_detection_flags_worse_run():
         "tags.model_name": ["prophet", "prophet"],
         "metrics.mape": [9.71, 63.30],
     })
-    from src.regression_detection import detect_regression
+    from eval_framework.regression_detection import detect_regression
     result = detect_regression(runs, owner="uday", model_name="prophet", metric="mape")
     assert result["regressed"] is True
 
@@ -928,7 +928,7 @@ def test_regression_detection_no_flag_for_identical_scores():
         "tags.model_name": ["naive", "naive"],
         "metrics.mape": [6.78, 6.78],
     })
-    from src.regression_detection import detect_regression
+    from eval_framework.regression_detection import detect_regression
     result = detect_regression(runs, owner="kalyani", model_name="naive", metric="mape")
     assert result["regressed"] is False
 
@@ -941,7 +941,7 @@ def test_regression_detection_no_flag_for_floating_point_noise():
         "tags.model_name": ["naive", "naive"],
         "metrics.mape": [6.780000000001, 6.780000000002],
     })
-    from src.regression_detection import detect_regression
+    from eval_framework.regression_detection import detect_regression
     result = detect_regression(runs, owner="kalyani", model_name="naive", metric="mape")
     assert result["regressed"] is False
 
@@ -954,7 +954,7 @@ def test_regression_detection_improvement_not_flagged():
         "tags.model_name": ["prophet", "prophet"],
         "metrics.mape": [9.71, 3.20],
     })
-    from src.regression_detection import detect_regression
+    from eval_framework.regression_detection import detect_regression
     result = detect_regression(runs, owner="uday", model_name="prophet", metric="mape")
     assert result["regressed"] is False
 
@@ -967,7 +967,7 @@ def test_regression_detection_too_few_runs_raises():
         "tags.model_name": ["prophet"],
         "metrics.mape": [9.71],
     })
-    from src.regression_detection import detect_regression
+    from eval_framework.regression_detection import detect_regression
     try:
         detect_regression(runs, owner="uday", model_name="prophet", metric="mape")
         assert False, "expected ValueError"
@@ -983,7 +983,7 @@ def test_regression_detection_unknown_metric_requires_direction():
         "tags.model_name": ["prophet", "prophet"],
         "metrics.r2": [0.5, 0.9],
     })
-    from src.regression_detection import detect_regression
+    from eval_framework.regression_detection import detect_regression
     try:
         detect_regression(runs, owner="uday", model_name="prophet", metric="r2")
         assert False, "expected ValueError"
@@ -994,7 +994,7 @@ def test_regression_detection_unknown_metric_requires_direction():
 # ---------- mlflow_dashboard.py ----------
 
 def test_summarize_dashboard_groups_by_owner_and_model():
-    from src.mlflow_dashboard import summarize_dashboard
+    from eval_framework.mlflow_dashboard import summarize_dashboard
     runs = pd.DataFrame({
         "run_id": ["r1", "r2", "r3"],
         "start_time": [pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-08"), pd.Timestamp("2024-01-01")],
@@ -1008,7 +1008,7 @@ def test_summarize_dashboard_groups_by_owner_and_model():
 
 
 def test_summarize_dashboard_missing_metric_raises():
-    from src.mlflow_dashboard import summarize_dashboard
+    from eval_framework.mlflow_dashboard import summarize_dashboard
     runs = pd.DataFrame({
         "run_id": ["r1"], "start_time": [pd.Timestamp("2024-01-01")],
         "tags.owner": ["kalyani"], "tags.model_name": ["naive"],
@@ -1021,7 +1021,7 @@ def test_summarize_dashboard_missing_metric_raises():
 
 
 def test_summarize_dashboard_missing_tag_column_raises():
-    from src.mlflow_dashboard import summarize_dashboard
+    from eval_framework.mlflow_dashboard import summarize_dashboard
     runs = pd.DataFrame({
         "run_id": ["r1"], "start_time": [pd.Timestamp("2024-01-01")],
         "metrics.mape": [6.78],
@@ -1046,7 +1046,7 @@ def test_get_all_runs_reads_multiple_owners(tmp_path):
         mlflow.set_tags({"owner": "bob", "model_name": "m2"})
         mlflow.log_metric("mape", 7.0)
 
-    from src.mlflow_dashboard import get_all_runs
+    from eval_framework.mlflow_dashboard import get_all_runs
     runs = get_all_runs("test-exp", tracking_uri=tracking_uri)
     assert len(runs) == 2
     assert set(runs["tags.owner"]) == {"alice", "bob"}
@@ -1054,7 +1054,7 @@ def test_get_all_runs_reads_multiple_owners(tmp_path):
 
 def test_get_all_runs_no_experiment_raises(tmp_path):
     tracking_uri = f"sqlite:///{tmp_path}/mlflow_empty.db"
-    from src.mlflow_dashboard import get_all_runs
+    from eval_framework.mlflow_dashboard import get_all_runs
     try:
         get_all_runs("does-not-exist", tracking_uri=tracking_uri)
         assert False, "expected ValueError"
@@ -1073,7 +1073,7 @@ def test_get_all_runs_includes_untagged_runs_not_dropped(tmp_path):
     with mlflow.start_run(run_name="untagged"):
         mlflow.log_metric("mape", 6.0)
 
-    from src.mlflow_dashboard import get_all_runs, summarize_dashboard
+    from eval_framework.mlflow_dashboard import get_all_runs, summarize_dashboard
     runs = get_all_runs("test-exp-untagged", tracking_uri=tracking_uri)
     assert len(runs) == 2  # both present, not silently dropped
 
@@ -1093,7 +1093,7 @@ def test_summarize_dashboard_handles_untagged_run_without_crashing():
         "tags.model_name": ["m1", None],
         "metrics.mape": [5.0, 6.0],
     })
-    from src.mlflow_dashboard import summarize_dashboard
+    from eval_framework.mlflow_dashboard import summarize_dashboard
     result = summarize_dashboard(runs, metric="mape")
     assert "untagged" in result["owners"]
     assert result["untagged_runs"] == 1
@@ -1109,7 +1109,7 @@ def test_regression_detection_nan_metric_raises():
         "tags.model_name": ["prophet", "prophet"],
         "metrics.mape": [9.71, float("nan")],
     })
-    from src.regression_detection import detect_regression
+    from eval_framework.regression_detection import detect_regression
     try:
         detect_regression(runs, owner="uday", model_name="prophet", metric="mape")
         assert False, "expected ValueError"
@@ -1127,7 +1127,7 @@ def test_regression_detection_negative_metric_improvement_not_flagged():
         "tags.model_name": ["y", "y"],
         "metrics.custom_score": [-0.100, -0.095],
     })
-    from src.regression_detection import detect_regression
+    from eval_framework.regression_detection import detect_regression
     result = detect_regression(runs, owner="x", model_name="y", metric="custom_score",
                                  lower_is_better=False, degradation_threshold=0.05)
     assert result["regressed"] is False
@@ -1150,7 +1150,7 @@ def test_regression_detection_production_baseline():
         "tags.stage": ["production", None, None],
         "metrics.mape": [9.71, 20.0, 10.5],
     })
-    from src.regression_detection import detect_regression
+    from eval_framework.regression_detection import detect_regression
 
     result_prod = detect_regression(runs, owner="uday", model_name="prophet", metric="mape", baseline="production")
     assert result_prod["previous_run_id"] == "r1"
@@ -1168,7 +1168,7 @@ def test_regression_detection_production_baseline_missing_raises():
         "tags.model_name": ["prophet", "prophet"],
         "metrics.mape": [9.71, 15.0],
     })
-    from src.regression_detection import detect_regression
+    from eval_framework.regression_detection import detect_regression
     try:
         detect_regression(runs, owner="uday", model_name="prophet", metric="mape", baseline="production")
         assert False, "expected ValueError"
@@ -1214,7 +1214,7 @@ def test_get_all_runs_excludes_non_finished_runs(tmp_path):
     mlflow.log_metric("mape", 99.0)
     # deliberately do not end this run
 
-    from src.mlflow_dashboard import get_all_runs
+    from eval_framework.mlflow_dashboard import get_all_runs
     runs = get_all_runs("test-exp-status", tracking_uri=tracking_uri)
     assert len(runs) == 1
     assert runs.iloc[0]["metrics.mape"] == 5.0
@@ -1225,7 +1225,7 @@ def test_get_all_runs_excludes_non_finished_runs(tmp_path):
 # ---------- summarize_dashboard rejects empty input ----------
 
 def test_summarize_dashboard_empty_dataframe_raises():
-    from src.mlflow_dashboard import summarize_dashboard
+    from eval_framework.mlflow_dashboard import summarize_dashboard
     empty_runs = pd.DataFrame(columns=["run_id", "start_time", "tags.owner", "tags.model_name", "metrics.mape"])
     try:
         summarize_dashboard(empty_runs, metric="mape")
@@ -1245,7 +1245,7 @@ def test_regression_detection_production_baseline_self_compare_raises():
         "tags.stage": [None, "production"],  # only the LATEST run is tagged production
         "metrics.mape": [9.71, 10.5],
     })
-    from src.regression_detection import detect_regression
+    from eval_framework.regression_detection import detect_regression
     try:
         detect_regression(runs, owner="uday", model_name="prophet", metric="mape", baseline="production")
         assert False, "expected ValueError"

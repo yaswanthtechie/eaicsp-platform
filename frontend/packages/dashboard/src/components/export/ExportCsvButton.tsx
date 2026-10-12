@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import type { InventoryItem } from "../../types/forecast";
 import {
@@ -93,22 +94,14 @@ const ExportButtons = ({
                 ))}
             </select>
 
-            <button
+            <Button
                 type="button"
+                variant="outline"
+                size="lg" 
                 onClick={handleCsvExport}
-                style={{
-                    padding: space.sm,
-                    borderRadius: radius.md,
-                    border: `1px solid ${colors.border}`,
-                    background: colors.surface,
-                    color: colors.text,
-                    cursor: "pointer",
-                    fontSize: space.md,
-                    fontWeight: 600,
-                }}
             >
                 Export CSV
-            </button>
+            </Button>
         </div>
     );
 };

@@ -5,9 +5,13 @@
 frontend/
 └── packages/
     └── dashboard/
+        └── e2e/
+        |     ├── dashboard.auth.spec.ts
+              └── dashboard.spec.ts
         └── src/
             ├──api/
-            |    └── dashboard.ts
+            |    ├── auth.ts
+            |    └── dashboardGraphql.ts
             ├── components/
             │   ├── AlertsPanel.tsx
             |   ├── ErrorBoundary.tsx
@@ -21,16 +25,37 @@ frontend/
             │   ├── ShipmentStatus.tsx
             │   ├── SupplierRiskDistribution.tsx
             │   ├── DashboardFilters.tsx
+            |   ├── KpiGrid.tsx
+            |   ├── OfflineBanner.tsx
             │   ├── Skeleton.tsx
-            |   └── export/
-            │       ├── ExportCsvButton.tsx
-            |       └── ExportPdfButton.tsx
-            |
+            |   ├── Login.tsx
+            |   ├── export/
+            │   |   ├── ExportCsvButton.tsx
+            |   |   └── ExportPdfButton.tsx
+            |   └── ui/
+            │       ├── badge.tsx
+            │       ├── button.tsx
+            |       ├── calendar.tsx
+            |       ├── card.tsx
+            |       ├── checkbox.tsx
+            |       ├── input.tsx
+            |       ├── popover.tsx
+            |       ├── separator.tsx
+            |       └── select.tsx
+            ├── graphql/
+            │   ├── client.ts
+            |   ├── queries.ts
+            |   ├── schema.graphql
+            |   └── types.tsx
             ├── hooks/
             │   ├── useWebSocket.ts
+            |   └── useOnlineStatus.tsx
             │
+            ├── mock-server/
+│           |     └── graphqlMockPlugin.ts
             ├── mocks/
             |   ├── api.ts
+            |   ├── dashboardMock.ts
             │   ├── forecast.ts
             |   ├── forecastAccuracy.ts
             │   ├── inventory.ts
@@ -57,18 +82,23 @@ frontend/
             │   ├── DashboardFilters.test.tsx
             │   ├── ForecastAccuracy.test.tsx
             │   ├── InventoryHealth.test.tsx
+            |   ├── kpiSnapshot.test.tsx
             |   ├── setup.ts
             |   ├── SupplierRiskDistribution.test.tsx
             │   ├── SupplierRisk.test.tsx
+            |   ├── dashboardGraphql.test.tsx
+            |   ├── theme.test.tsx
             |   └── useWebSocket.test.ts
             ├── utils/
             │   ├── exportCsv.ts
             |   ├── exportPdf.ts
-            │   └── insights.ts
+            |   ├── insights.ts
+            │   └── kpiSnapshot.ts
             │
             ├── App.tsx
             ├── main.tsx
             ├── index.css
+            ├── theme.tsx
             └── tokens.ts
 # 1. What I Built
 
@@ -106,7 +136,7 @@ The forecast also safely handles an empty dataset. Default values are calculated
 
 # 3. Inventory Table
 
-The Inventory Table shows inventory details for each SKU. I used the shared Table and Badge components from the UI library.
+The Inventory Table shows inventory details for each SKU. I used the shared  shadcn/ui Table and Badge components from the UI library.
 
 It also has SKU search bar and a low-stock filter so users can quickly find items that need attention.
 
@@ -114,7 +144,7 @@ When no SKU matches the search, the empty state is passed correctly to the share
 
 The inventory mock dataset was expanded to 12000 rows so that the **virtualization** implementation is exercised with a meaningful dataset rather than only a small number of records.
 
-The table uses react-window so that only the rows required for the visible scroll area are rendered instead of rendering all 500 rows at once.
+The table uses react-window so that only the rows required for the visible scroll area are rendered instead of rendering all 12000 rows at once.
 
 The Inventory Table also has a simulated failure path so its error state can be reached and tested instead of being an unreachable UI state.
 
@@ -241,13 +271,40 @@ It is started only when `import.meta.env.DEV` is true, so the mock server is not
 
 * Filter and drill-down state is preserved when the dashboard is refreshed or shared through its URL.
 
-### Dashboard API Layer
 
-A thin API layer was added under `src/api/` so that dashboard components do not depend directly on mock data    files.
+### GraphQL Data Access Layer
+A thin API layer was added under `src/api/` to provide a clear data-access boundary between the dashboard and its data sources.
 
-The API layer currently wraps the local mock data and provides the data-access boundary required by the dashboard.
+The dashboard now uses Apollo Client with GraphQL for dashboard data.
 
-This keeps the components separated from the current mock-data implementation and makes it easier to replace the mock sources with real backend APIs later without changing every component individually.
+GraphQL is served by a local mock server (`src/mock-server/graphqlMockPlugin.ts`), a Vite plugin that executes real queries against `schema.graphql` in both `npm run dev` and `npm run preview`.
+
+I moved away from MSW because it only ran in development, so the production PWA had no GraphQL data. MSW's service worker also competes with the PWA service worker for the same scope.
+
+The current flow is:
+
+```text
+Dashboard Component
+↓
+Apollo Client
+↓
+GraphQL Query
+↓
+/graphql
+↓
+Vite GraphQL Mock Plugin
+↓
+schema.graphql
+↓
+dashboardMock.ts
+↓
+Apollo Response
+↓
+Dashboard Component
+```
+
+This keeps the dashboard components independent of the mock-data implementation. When the real GraphQL backend is available, the local Vite GraphQL mock layer can be replaced with the real GraphQL endpoint while keeping the GraphQL query and response contract unchanged.
+
 
 ### KPI Cross-Filtering Limitation
 
@@ -297,29 +354,229 @@ Examples include:
 
 ### Role-Based Views
 
-The dashboard supports two mock roles:
+The dashboard supports two roles:
 
 * `ceo`
 * `warehouse_manager`
 
-The role is mocked locally and does not call a live service.
+In real authentication mode, the role is read from the `role` claim in Rahul's Platform JWT after successful login.
 
-The role can be changed through the URL using the role query parameter:
+In mock authentication mode, the role can be changed through the URL using the role query parameter:
 
     ?role=ceo
     ?role=warehouse_manager
 
-The dashboard reads the role from the URL and renders the corresponding view.
+In real authentication mode, the dashboard reads the role from the Platform JWT and renders the corresponding view. In mock authentication mode, it reads the role from the URL.
 
 The `ceo` view provides executive-level information such as inventory, supplier risk, shipments, and  related dashboard insights.
 
 The `warehouse_manager` view focuses on inventory and warehouse-related information and does not display supplier-risk information that is not relevant to that role.
 
-Role-based tests verify that the dashboard renders the appropriate content for both supported roles and that role-specific content is hidden when it should not be displayed.
+If a warehouse manager does not have a warehouse assigned, the dashboard displays "No warehouse is assigned to this user." instead of showing data from all warehouses.
 
-The role structure is kept contract-first so that the mock role can later be replaced by the real role service.
+The dashboard has been tested with real Platform authentication for both supported roles to verify that the correct role-based view is rendered.
 
-`?role=` is a development/demo switch for this contract-first round. In production, the role will come from Platform's JWT (`role` claim), using the same role names as Rahul's `Role` enum.
+The role structure is kept consistent between mock authentication and real Platform authentication, using the same `ceo` and `warehouse_manager` role names.
+
+`?role=` is a development/demo switch for mock authentication only. It is not used to determine the role after real Platform Login.In real authentication mode,the role  comes from Platform's JWT (`role` claim), using the same role names as Rahul's `Role` enum.
+
+# Round 14 — Real Authentication
+
+## Real Login Flow
+
+The Executive Dashboard now supports real authentication using Rahul's Platform service.
+
+The authentication flow is:
+
+```text
+Login
+  ↓
+Platform Auth API
+  ↓
+JWT
+  ↓
+role claim
+  ↓
+Role-based Dashboard
+```
+
+Authentication requests are kept inside the dashboard `src/api/` layer.
+
+The Platform authentication endpoints used by the dashboard are:
+
+* `POST /api/v1/auth/login`
+* `POST /api/v1/auth/refresh`
+* `POST /api/v1/auth/logout`
+
+The main authentication files are:
+
+```text
+src/
+├── api/
+│   └── auth.ts
+├── components/
+│   └── Login.tsx
+└── ...
+```
+
+`Login.tsx` provides the login form and handles the username/password submission.
+`auth.ts` contains the API calls for login, refresh, logout.
+
+The access token is stored in the dashboard authentication session and refreshed before it expires.
+
+## Real Role-Based Authentication
+
+The previous Round 9-11 mocked role flow has been updated to use the `role` claim from the real Platform JWT.
+
+Both supported roles were verified with the real Platform service:
+
+* `ceo`
+* `warehouse_manager`
+
+After successful login, the dashboard reads the authenticated role and renders the corresponding role-based view.
+
+## Token Refresh and Logout
+
+The dashboard refreshes the access token before it expires using the Platform refresh endpoint.
+
+A minimum interval between token refresh attempts prevents repeated refresh requests when the client clock is inaccurate.
+
+During logout, the local authentication session is cleared before the Platform logout request is sent.
+
+If a token refresh finishes after logout, its result is ignored to prevent restoring the logged-out session.
+Logout:
+
+1. Calls the Platform logout endpoint.
+2. Clears the local authentication session.
+3. Returns the user to the login screen.
+
+If the refresh fails or the session has expired, the user is returned to the login screen with a session-expired message.If the authentication service is unavailable,the dashboard keeps the use signed in and retries the refresh later.
+
+## Authentication Error Handling
+
+The real authentication flow handles the following cases:
+
+* **Wrong password** → displays an authentication error.
+* **Expired session** → clears the session and returns the user to login.
+* **Platform service unavailable** → displays an authentication service error instead of a blank screen.
+* **Failed token refresh** → clears the session and requires the user to sign in again.
+
+## Mock Authentication
+
+The existing mocked authentication flow is still available for development when the Platform service is not running.
+
+Set:
+
+```env
+VITE_USE_MOCK_AUTH=true
+```
+
+When mock authentication is enabled, the development role switch remains available:
+
+```text
+?role=ceo
+?role=warehouse_manager
+```
+
+Real authentication is enabled with:
+
+```env
+VITE_USE_MOCK_AUTH=false
+VITE_AUTH_BASE_URL=
+```
+
+The KPI and dashboard data continue to use the mocked GraphQL schema from Round 12-13. Only authentication is connected to the real Platform service in Round 14.
+
+## CORS and Local Development
+
+During the initial real-login integration, the browser reported:
+
+```text
+Access to fetch at 'http://127.0.0.1:8005/api/v1/auth/login'
+from origin 'http://localhost:5173' has been blocked by CORS policy:
+No 'Access-Control-Allow-Origin' header is present on the requested resource.
+```
+
+Rahul's Platform backend was not modified.
+
+For local development, the dashboard uses a Vite proxy:
+
+```text
+Dashboard
+localhost:5173
+↓
+/api/v1/auth
+↓
+Platform Service
+localhost:8005
+```
+
+This allows the dashboard running on port `5173` to communicate with the Platform authentication service without the browser blocking the local request.
+
+The Vite proxy is available only during development. Production builds and `npm run preview` require the Platform service to allow the dashboard origin through its CORS configuration.
+
+
+
+## Authentication Testing
+
+Real authentication is tested separately from the main dashboard E2E tests.
+
+The authentication Playwright test is:
+
+```text
+e2e/dashboard.auth.spec.ts
+```
+The authentication Playwright configuration use`reuseExistingServer: false` to start a dedicated development server and `retries: 1` to retry failed tests once.
+
+It contains 14 tests covering:
+
+1. Real login with valid credentials.
+2. Wrong-password error handling.
+3. Authentication service unavailable.
+4. HTTP 5xx responses from the service.
+5. Expired session handling.
+6. Refreshing the access token before expiry.
+7. Refresh failure while the service is unavailable.
+8. Invalid stored token handling.
+9. CEO KPI visibility.
+10. Warehouse manager KPI visibility.
+11. Unsupported role handling.
+12. Logout with a Bearer token and session cleanup.
+13. Prevents repeated token refreshes when the client clock is ahead.
+14. Ignores refresh responses that arrive after logout.
+
+Ten tests use mocked platform responses and do not require the backend. Two tests use the real platform service and require TEST_AUTH_USERNAME and TEST_AUTH_PASSWORD. Configure these variables using a seeded local account; see .env.example. Never commit real credentials.
+
+Run the authentication tests with:
+
+```powershell
+npm run test:e2e:auth
+```
+With no credentials configured, the expected result is 10 passed and 2 skipped. With the platform service running and valid test credentials configured, all 12 tests should pass.
+
+Latest result:
+
+**Authentication E2E: 12/12 passed**
+
+The main dashboard Playwright tests continue to run separately:
+
+```powershell
+npm run test:e2e
+```
+## Token storage
+
+Tokens are kept in `sessionStorage` (cleared when the tab closes; not shared across tabs).
+
+Trade-off: any script running on the page can read it, so a XSS bug would expose the tokens. An httpOnly cookie set by the platform
+service would avoid that, but needs backend changes. Tokens are never logged.
+
+## Known gaps
+
+* **Warehouse scope is still mocked.** The role comes from the real JWT, but a warehouse manager's warehouse still comes from `mocks/user.ts`, because the platform token only contains `sub`, `user_id` and `role`.Raised with Rahul:needs a `warehouse` claim or a `/me` endpoint.
+* **MFA accounts** get a clear "not supported yet" message; there's no OTP screen.
+* **Only `ceo` and `warehouse_manager`** have dashboard views. Other platform roles see "Your account's role does not have access to this dashboard."
+* **The Vite proxy only works in `npm run dev`.** `npm run preview` / production builds need the platform service to allow this origin via CORS (reported to Rahul and the TL, with the error above).
+
 
 ### PDF and CSV Export
 
@@ -329,13 +586,13 @@ The export functionality is kept inside the `src/components/export/`,while the e
 
 The exported data follows the currently selected dashboard filters and role where applicable.
 
-CSV export creates a downloadable with specified like invent0ry,supplier,shipment CSV file separately.CSV export applies proper CSV escaping and security hardening for values that could contain commas, quotes, or line breaks. Formula-injection protection is also applied to values beginning with spreadsheet formula characters.
+CSV export creates a downloadable with specified like inventory,supplier,shipment CSV file separately.CSV export applies proper CSV escaping and security hardening for values that could contain commas, quotes, or line breaks. Formula-injection protection is also applied to values beginning with spreadsheet formula characters.
 
 PDF export creates a downloadable.The exported PDF contains role-appropriate dashboard information. For example, supplier-risk information is included for the `ceo` role and excluded from the `warehouse_manager` view.
 
 ### Accessibility
 
-**Status: accessibility fixes applied; a full automated audit has not been run yet.**
+**Status:** keyboard and screen-reader fixes applied. Lighthouse recheck and NVDA walkthrough pending (last Lighthouse accessibility score: 90/100, from before the fixes).
 
 What was fixed and tested:
 
@@ -345,16 +602,19 @@ What was fixed and tested:
 * All **filter and export controls** have accessible names (`aria-label`).
 * **KPI cards** are real `<button>` elements, so they already work with the keyboard.
 
-Accessibility audit completed using Lighthouse. Initial score: 81/100. Identified ARIA structure, contrast, and landmark issues; fixes are being applied and will be rechecked.
+The last Lighthouse accessibility score was 90/100, recorded before the latest accessibility fixes.
 
-Not done yet:
+The accessibility fixes have now been applied. A new Lighthouse audit and manual NVDA / VoiceOver walkthrough are still pending.
 
-* Colour-contrast check of the status colours in `tokens.ts`.
-* Manual screen-reader walkthrough (NVDA / VoiceOver).
+Remaining accessibility follow-up includes:
 
-**Next-round accessibility follow-up:**
+* Running a new Lighthouse accessibility audit after the fixes.
 
-The remaining items require additional accessibility testing and tooling that I have not worked with yet. They are therefore intentionally kept as **not done** rather than being marked as completed. These will be treated as a **high-priority accessibility follow-up in the next round**.
+* Performing a manual NVDA / VoiceOver screen-reader walkthrough.
+
+* Confirming the remaining ARIA structure, landmark, and status-color contrast issues are resolved.
+
+These items are documented as pending verification rather than being marked as complete.
 
 ### Performance at Real Scale
 
@@ -417,23 +677,6 @@ WebSocket tests also cover reconnect and backoff behavior, including retry attem
 
 A `setup.ts` file is also included in the test folder for common test setup and configuration.
 
-
-## Test Cleanup
-
-While creating the tests, I faced an issue where the DOM from one test could affect another test.
-
-I fixed this by using `cleanup()` after every test so that each test starts with a fresh DOM.
-
-For example:
-
-```ts
-afterEach(() => {
-  cleanup();
-  vi.useRealTimers();
-});
-```
-
-This was especially useful for tests that use fake timers and WebSocket reconnection delays.
 
 # 9. Challenges Faced
 
@@ -514,7 +757,7 @@ npm run dev
 To run the complete test suite:
 
 ```bash
-npm test
+npm run test
 ```
 
 Open the local development URL shown in the terminal, for example:
@@ -529,9 +772,13 @@ The mock WebSocket server is development-only and is not started as part of the 
 
 # 12. Current UI and Next Steps
 
-The current dashboard UI is functional and covers the required dashboard features, but the overall visual design and layout still need improvement.
+`src/components/ui/` contains the shadcn/ui-based reusable components used throughout the dashboard.
 
-In the next round, I will work on the UI using the available **UI component library** to improve consistency, spacing, alignment, responsiveness, and overall visual polish.
+The current dashboard UI is functional and uses **shadcn/ui components** for common ui elements such as buttons, cards, badges, inputs, checkboxes, popovers, selects, and calendar controls.
+
+The existing shadcn/ui components are used to maintain consistent UI behavior and styling across the dashboard.
+
+The current focus is on improving the overall UI consistency, spacing, alignment, responsiveness, and visual polish while continuing to reuse the existing shadcn/ui components where appropriate.
 
 The functionality and dashboard logic are already implemented, so the next focus will be on improving the user experience and making the dashboard look more professional.
 
@@ -545,5 +792,369 @@ The performance test used the 12,000-item inventory dataset across 4 warehouses 
 
 The recorded profiler measurements represent actual render activity captured during these interactions.
 
-**Note:** The original tasks assigned to me for this dashboard were **Round 7, Round 8, and Round 9**. In the PDF, the same work is referenced as **Round 9, Round 10, and Round 11** because I started this dashboard two tasks behind the other WorkStreams. I have kept **Round 7/8/9** in this README because that is the original round numbering under which I started and tracked this implementation.
 
+# Round 12-13
+
+# Milestone 1 — Progressive Web App
+
+The Executive Dashboard was converted into a Progressive Web App (PWA) with an installable app manifest, service worker caching, offline KPI snapshot support, and automatic refresh when the connection returns.
+
+### PWA Manifest
+
+The dashboard uses `vite-plugin-pwa` to generate the web app manifest and service worker during the production build.
+
+The manifest includes:
+
+* Application name: **Executive Dashboard**
+* Short name: **Dashboard**
+* Standalone display mode.
+* PWA icons at **192x192** and **512x512**.
+* Theme and background colors taken from the shared `tokens.ts` file.
+
+This keeps the PWA configuration aligned with the existing dashboard design tokens.
+
+### Service Worker and App Shell
+
+A production service worker is generated during the Vite build.
+
+The service worker precaches the dashboard application shell so the application resources can still be loaded when the device is offline.
+
+The production build generated:
+
+* `dist/sw.js`
+* `dist/workbox-*.js`
+* `dist/manifest.webmanifest`
+* `dist/registerSW.js`
+
+The service worker uses the PWA plugin's generated Workbox configuration rather than requiring a manually maintained service-worker implementation.
+
+### Offline KPI Snapshot
+
+The dashboard stores the most recently loaded KPI values and their timestamp in `localStorage`.
+
+The snapshot contains:
+
+* KPI title
+* KPI value
+* Last saved timestamp
+
+The complete 12,000-item inventory dataset is not stored in localStorage. Only the KPI snapshot required by the offline requirement is persisted.
+
+When the application is offline and a saved snapshot is available, the dashboard displays the saved KPI values and shows a clear status message such as:
+
+> Offline — showing data from 07:10 PM
+
+The timestamp is generated from the saved snapshot time rather than being hard-coded.
+
+### Online Recovery
+
+The dashboard listens for browser online/offline events.
+
+When the application changes from offline to online, it automatically calls the dashboard API layer to refresh the inventory data.
+
+After the refreshed data is received, the dashboard recalculates the KPI values and saves the latest snapshot.
+
+This provides the following flow:
+
+```text
+Online
+  ↓
+Dashboard loads data
+  ↓
+KPI snapshot saved locally
+  ↓
+Connection lost
+  ↓
+Offline banner + last KPI snapshot displayed
+  ↓
+Connection restored
+  ↓
+Dashboard automatically refreshes
+  ↓
+New KPI snapshot saved
+```
+
+### PWA Verification
+
+The PWA behavior was manually verified using the production preview build.
+
+Verification included:
+
+* Production build completed successfully.
+* Generated PWA manifest was present.
+* Service worker files were generated in `dist/`.
+* KPI snapshot was saved in browser Local Storage.
+* Dashboard was switched to offline mode.
+* Previously saved KPI values remained available.
+* Offline banner displayed the saved timestamp.
+* Connection was restored without manually refreshing the page.
+* Dashboard automatically triggered a data refresh when the connection returned.
+
+### PWA Run and Installation
+
+To test the PWA installation, first create the production build and then start the Vite production preview:
+
+```bash
+npm run build
+npm run preview
+```
+
+Open the preview URL shown in the terminal, usually:
+
+```text
+http://localhost:4173
+```
+
+The browser will show the PWA install option when the application meets the browser's installability requirements.
+
+> **Note:** `npm run dev` is used for normal development, but PWA installation and service-worker behavior should be verified using the production build with `npm run preview`.
+
+
+### Lighthouse Audit
+
+A Lighthouse audit was run against the production preview of the dashboard using Lighthouse **13.5.0** with mobile emulation.
+
+| Category       |      Score |
+| -------------- | ---------: |
+| Performance    | **44/100** |
+| Accessibility  | **90/100** |
+| Best Practices | **96/100** |
+| SEO            | **82/100** |
+
+Lighthouse **12+ no longer includes a separate PWA category**. Therefore, PWA installability was verified separately using **Chrome DevTools → Application → Manifest**.
+
+With the production preview running on `http://localhost:4173`, run:
+
+```powershell
+npx lighthouse http://localhost:4173 --output=html --output=json --output-path=./lighthouse/report
+```
+
+This generates the Lighthouse HTML and JSON reports under the `lighthouse/` directory.
+
+### Performance Findings
+
+The current Lighthouse Performance score is **44/100**. The main reasons identified by the audit are:
+
+* **Large initial GraphQL response:** approximately **2.45 MB** was transferred by the `/graphql` request because the initial dashboard query currently returns the complete 12,000-item inventory dataset.
+* **JavaScript execution:** the dashboard performs significant JavaScript work during initial loading. Lighthouse reported approximately **5.4 seconds of script evaluation** and approximately **1.6 seconds of Total Blocking Time (TBT)** on the mobile emulation run.
+* **Largest Contentful Paint:** Lighthouse measured approximately **15.4 seconds**, with a significant portion of the delay occurring during element rendering.
+* **Main-thread work:** approximately **7.3 seconds** of main-thread work was recorded.
+* **Unused JavaScript:** Lighthouse identified approximately **137 KiB** of potentially unused JavaScript.
+* **Network payload:** the total transferred payload was approximately **2.8 MB**, with the GraphQL response being the largest resource.
+* **Forced reflow:** Lighthouse identified approximately **135 ms** of forced reflow during page execution.
+
+Code splitting has already been applied to the heavier forecast components. `ForecastChart` and `ForecastAccuracy` are lazy-loaded so their JavaScript is not required in the initial dashboard bundle.
+
+## `.gitignore`
+
+Add:
+
+```gitignore
+lighthouse/report.report.html
+lighthouse/report.report.json
+```
+
+## Performance Follow-Up
+
+The following performance work remains as follow-up:
+
+* Reduce the size of the initial GraphQL response, particularly the 12,000-item inventory payload.
+* Consider server-side inventory pagination/filtering for the GraphQL API.
+* Continue reducing initial JavaScript execution and main-thread work.
+* Investigate remaining forced-reflow and rendering costs.
+* Continue monitoring the initial bundle and dynamically loaded chart chunks.
+
+These items are documented as follow-up work rather than being marked as fixed.
+
+
+# Milestone 2 — GraphQL Client Layer
+
+The Executive Dashboard data layer was migrated to Apollo Client using a local GraphQL mock server implemented as a Vite plugin.
+### GraphQL Schema
+
+A GraphQL schema was added under:
+
+`src/graphql/schema.graphql`
+
+The schema defines the dashboard data required by the application, including:
+
+* KPIs
+* Inventory
+* Inventory health
+* Forecast series
+* Forecast accuracy
+* Supplier risk
+* Shipment status
+
+The schema uses GraphQL non-null fields where the dashboard requires a value and nullable fields where the existing TypeScript model allows optional data.
+
+### Apollo Client
+
+Apollo Client was configured in:
+
+`src/graphql/client.ts`
+
+The application uses Apollo's `HttpLink` to send GraphQL requests to:
+
+`/graphql`
+
+Apollo's `InMemoryCache` is used for client-side GraphQL caching.
+
+The application is wrapped with `ApolloProvider` in `main.tsx`.
+
+### Local GraphQL Mock Server
+
+The dashboard uses a local Vite GraphQL mock plugin located at:
+
+`src/mock-server/graphqlMockPlugin.ts`
+
+The plugin executes GraphQL queries against the local schema in:
+
+`src/graphql/schema.graphql`
+
+It is available in both `npm run dev` and `npm run preview`, so the production preview and PWA can use the same `/graphql` mock endpoint.
+
+The request flow is:
+
+Dashboard Component
+        ↓
+Apollo useQuery
+        ↓
+GraphQL GET_DASHBOARD query
+        ↓
+/graphql
+        ↓
+Vite GraphQL Mock Plugin
+        ↓
+schema.graphql
+        ↓
+dashboardMock.ts
+        ↓
+Apollo response
+        ↓
+Dashboard Component
+
+
+### Component Data Access
+
+Apollo queries are used by dashboard components instead of directly importing GraphQL mock data.
+
+For example, the Forecast Chart uses:
+
+`GET_DASHBOARD`
+
+and reads the forecast series from the Apollo response.
+
+The KPI section also reads KPI values from the GraphQL response.
+
+This keeps the components independent of whether the underlying data is eventually provided by mocked GraphQL responses or a real backend service.
+
+### Loading, Empty and Error States
+
+The dashboard continues to support the required loading, empty, and error states.
+
+Apollo's query state is used for loading and error handling.
+
+For example:
+
+* `loading` displays the loading state.
+* `error` displays the error state.
+* Empty GraphQL result arrays continue to display the appropriate empty state.
+
+The Forecast Chart was migrated to Apollo while preserving its existing loading, empty, and error behavior.
+
+### GraphQL Test Coverage
+
+Apollo's `MockedProvider` is used in component tests where GraphQL data is required.
+
+The Forecast Chart tests verify the GraphQL-driven states and behavior, including:
+
+* Loading state.
+* Successful GraphQL response.
+* Date filtering.
+* Empty forecast data.
+* Empty filtered result.
+* Zoom reset.
+* Accessible loading state.
+* Accessible error state.
+* Accessible chart name.
+
+The Forecast Chart test suite currently contains:
+
+**9 tests — 9 passing**
+
+### Verification
+
+The Apollo + local GraphQL mock  integration was manually verified through the dashboard.
+
+The GraphQL response successfully returned:
+
+* **12,000** SKUs
+* **45,800** total units
+* **1,300** reorder items
+* **2** alerts
+* **16** forecast points
+* **4** suppliers
+
+This confirms that the dashboard can successfully request the mocked GraphQL endpoint through Apollo Client and render the returned data.
+
+### Backend Replacement
+
+The GraphQL mock layer is structured so that the mock implementation can later be replaced with a real backend GraphQL service.
+
+The dashboard components do not need to know whether the response comes from the local mock server or the real backend. The GraphQL query and response contract remain the boundary between the UI and the data source.
+
+The intended production flow is:
+
+```text
+Dashboard Component
+        ↓
+Apollo Client
+        ↓
+GraphQL Mock Plugin
+        ↓
+schema.graphql
+        ↓
+dashboardMock.ts
+```
+
+## Milestone 3 — Testing
+
+The dashboard uses Vitest + React Testing Library for component and unit tests, and Playwright for end-to-end testing.
+
+
+### Main E2E journeys
+
+1. Open the dashboard and verify that KPIs are displayed.
+2. Filter the dashboard by warehouse and drill into the Low Stock KPI.
+3. Go offline and verify that the last saved KPI snapshot is displayed.
+4. Simulate a failed GraphQL refresh after reconnecting and verify that the existing dashboard data remains visible.
+
+### Run all tests
+
+From a fresh clone, install dependencies the Playwright Chromium browser and run the complete test suite:
+
+```powershell
+npm ci
+npx playwright install chromium
+npm run test:all
+```
+
+This runs:
+
+```powershell
+npm run test
+npm run test:e2e
+```
+### Latest Test Verification
+
+Test verification completed successfully.
+
+* Vitest: 19 test files, 147/147 tests passed
+* Playwright Dashboard E2E: 4/4 tests passed
+* Authentication E2E: 14/14 passed with valid credentials.
+* Total: 165 tests passed across the three reported test groups.
+* Offline PWA snapshot test is also passing now.
+
+The authentication tests are run separately using
+npm run test:e2e:auth.

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   Bar,
   BarChart,
@@ -8,44 +8,23 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-
-import { dashboardApi } from "../api/dashboard";
+import { Card, CardContent, CardHeader, CardTitle} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { colors, radius, space } from "../tokens";
 import Skeleton from "./Skeleton";
 
-function SupplierRiskDistribution() {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
-  const supplierRisk = dashboardApi.getSupplierRisk();
-  
-  useEffect(() => {
-    let mounted = true;
-
-    const loadData = async () => {
-      try {
-        await new Promise<void>((resolve) => {
-          setTimeout(resolve, 1000);
-        });
-
-        if (mounted) {
-          setError(false);
-          setLoading(false);
-        }
-      } catch {
-        if (mounted) {
-          setError(true);
-          setLoading(false);
-        }
-      }
-    };
-
-    loadData();
-
-    return () => {
-      mounted = false;
-    };
-  }, [retryCount]);
+interface SupplierRiskDistributionProps {
+  supplierRisk: { risk_score: number }[];
+  loading: boolean;
+  error: boolean;
+  onRetry: () => void;
+}
+function SupplierRiskDistribution({
+  supplierRisk,
+  loading,
+  error,
+  onRetry,
+}: SupplierRiskDistributionProps) {
 
   const distribution = useMemo(() => {
     const result = {
@@ -74,9 +53,9 @@ function SupplierRiskDistribution() {
   if (loading) {
     return (
       <div
-      role="status"
-      aria-busy="true"
-      aria-label="Loading supplier risk distribution"
+        role="status"
+        aria-busy="true"
+        aria-label="Loading supplier risk distribution"
         style={{
           background: colors.surface,
           borderRadius: radius.md,
@@ -105,52 +84,46 @@ function SupplierRiskDistribution() {
       >
         <div>Failed to load supplier risk distribution.</div>
 
-        <button
+        <Button
           type="button"
-          onClick={() => {
-            setError(false);
-            setLoading(true);
-            setRetryCount((count) => count + 1);
-          }}
+          variant="outline"
+          size="lg"
+          onClick={onRetry}
           style={{ marginTop: space.md }}
         >
           Retry
-        </button>
+        </Button>
+      </div>
+    );
+  }
+
+  if (supplierRisk.length === 0) {
+    return (
+      <div
+        role="status"
+        style={{
+          background: colors.surface,
+          borderRadius: radius.md,
+          padding: space.lg,
+          color: colors.textMuted,
+        }}
+      >
+        No supplier risk data available.
       </div>
     );
   }
 
   return (
-    <div
-      style={{
-        background: colors.surface,
-        border: `1px solid ${colors.border}`,
-        borderRadius: radius.md,
-        padding: space.lg,
-      }}
-    >
-      <div style={{ marginBottom: space.md }}>
-        <h3
-          style={{
-            margin: 0,
-            color: colors.text,
-            fontSize: "18px",
-          }}
-        >
-          Supplier Risk Distribution
-        </h3>
+    <Card className="w-full">
+      <CardHeader>
+        <CardTitle>Supplier Risk Distribution</CardTitle>
 
-        <p
-          style={{
-            margin: `${space.xs}px 0 0`,
-            color: colors.textMuted,
-            fontSize: "14px",
-          }}
-        >
+        <p className="text-sm text-muted-foreground">
           Suppliers grouped by risk score
         </p>
-      </div>
+      </CardHeader>
 
+      <CardContent>
       <div
         role="img"
         aria-label="Supplier risk distribution chart showing suppliers grouped into low,medium and high risk" 
@@ -174,7 +147,8 @@ function SupplierRiskDistribution() {
           </BarChart>
         </ResponsiveContainer>
       </div>
-    </div>
+    </CardContent>
+  </Card>
   );
 }
 

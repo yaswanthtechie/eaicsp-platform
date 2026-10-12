@@ -11,11 +11,11 @@ is specific to this local demo.
 """
 import mlflow
 import pandas as pd
-from src.fairness import evaluate_by_slice
-from src.mlflow_dashboard import get_all_runs, summarize_dashboard
-from src.regression_detection import detect_regression
-from src.metrics import mape
-from src.baseline import naive_forecast
+from eval_framework.fairness import evaluate_by_slice
+from eval_framework.mlflow_dashboard import get_all_runs, summarize_dashboard
+from eval_framework.regression_detection import detect_regression
+from eval_framework.metrics import mape
+from eval_framework.baseline import naive_forecast
 
 EXPERIMENT = "pod2-forecasting-demo"
 mlflow.set_experiment(EXPERIMENT)

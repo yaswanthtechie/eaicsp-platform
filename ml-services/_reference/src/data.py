@@ -1,13 +1,14 @@
 """
 Load and prepare the Iris dataset.
 
-This module:
-- Loads the Iris dataset from scikit-learn
-- Splits the data into training and testing sets
-- Returns the train/test datasets for model training
+Training reads the DVC-tracked file data/reference/processed.csv
+(built by `dvc repro`: fetch -> prepare), so every MLflow run can
+be traced to exactly the data it was trained on.
 """
 
-from sklearn.datasets import load_iris
+from pathlib import Path
+
+import pandas as pd
 from sklearn.model_selection import train_test_split
 
 from src.config import (
@@ -16,41 +17,66 @@ from src.config import (
 )
 
 
-def load_data():
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+PROCESSED_DATA_PATH = (
+    PROJECT_ROOT
+    / "data"
+    / "reference"
+    / "processed.csv"
+)
+
+FEATURE_COLUMNS = [
+    "sepal_length",
+    "sepal_width",
+    "petal_length",
+    "petal_width",
+]
+
+TARGET_COLUMN = "target"
+
+
+def load_data(
+    path: Path = PROCESSED_DATA_PATH,
+):
     """
-    Load and split the Iris dataset.
+    Load the DVC-tracked dataset and split it.
+
+    Parameters
+    ----------
+    path : Path
+        Path to the DVC-tracked processed dataset.
 
     Returns
     -------
     tuple
-        (
-            X_train,
-            X_test,
-            y_train,
-            y_test,
-        )
+        (X_train, X_test, y_train, y_test)
+
+    Raises
+    ------
+    FileNotFoundError
+        If the processed DVC dataset does not exist.
     """
 
-    # Load dataset
-    iris = load_iris()
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Training data not found: {path}. "
+            "Build it with `dvc repro prepare` "
+            "(or `python -m scripts.create_reference_dataset` "
+            "then `python -m scripts.dvc_prepare`)."
+        )
 
-    X = iris.data
-    y = iris.target
+    df = pd.read_csv(path)
 
-    # Split dataset
-    X_train, X_test, y_train, y_test = train_test_split(
+    X = df[FEATURE_COLUMNS].to_numpy()
+    y = df[TARGET_COLUMN].to_numpy()
+
+    return train_test_split(
         X,
         y,
         test_size=TEST_SIZE,
         random_state=RANDOM_STATE,
         stratify=y,
-    )
-
-    return (
-        X_train,
-        X_test,
-        y_train,
-        y_test,
     )
 
 

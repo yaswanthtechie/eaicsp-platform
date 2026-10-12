@@ -9,8 +9,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-# Import the module explicitly from the src package
-from src import validate_folder
+# Import the module explicitly from the data_validator package
+from data_validator import validate_folder
 
 # Add project root to path so we can resolve default rules dir
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -93,7 +93,7 @@ def test_setup_logging(tmp_path):
         root_logger.handlers = original_handlers
 
 
-@patch("src.validate_folder.DataValidator")
+@patch("data_validator.validate_folder.DataValidator")
 def test_load_validator(mock_validator_class):
     mock_instance = MagicMock()
     mock_validator_class.from_config.return_value = mock_instance
@@ -134,7 +134,7 @@ def test_validate_folder_invalid_mapping_path(temp_env):
         )
 
 
-@patch("src.validate_folder.DataValidator")
+@patch("data_validator.validate_folder.DataValidator")
 def test_validate_folder_no_files_found(mock_validator_class, temp_env):
     summary = validate_folder.validate_folder(
         folder_path=temp_env["data_dir"],
@@ -144,8 +144,8 @@ def test_validate_folder_no_files_found(mock_validator_class, temp_env):
     assert summary == {}
 
 
-@patch("src.validate_folder.pd.read_csv")
-@patch("src.validate_folder.DataValidator")
+@patch("data_validator.validate_folder.pd.read_csv")
+@patch("data_validator.validate_folder.DataValidator")
 def test_validate_folder_single_config_no_reports(mock_validator_class, mock_read_csv, temp_env):
     mock_read_csv.return_value = MagicMock()
 
@@ -163,8 +163,8 @@ def test_validate_folder_single_config_no_reports(mock_validator_class, mock_rea
     assert not temp_env["reports_dir"].exists()
 
 
-@patch("src.validate_folder.pd.read_csv")
-@patch("src.validate_folder.DataValidator")
+@patch("data_validator.validate_folder.pd.read_csv")
+@patch("data_validator.validate_folder.DataValidator")
 def test_validate_folder_mapping_with_reports(mock_validator_class, mock_read_csv, temp_env):
     mock_read_csv.return_value = MagicMock()
 
@@ -197,8 +197,8 @@ def test_validate_folder_mapping_with_reports(mock_validator_class, mock_read_cs
         assert data["sla_breached"] is True
 
 
-@patch("src.validate_folder.pd.read_csv")
-@patch("src.validate_folder.DataValidator")
+@patch("data_validator.validate_folder.pd.read_csv")
+@patch("data_validator.validate_folder.DataValidator")
 def test_validate_folder_hybrid_mapping(mock_validator_class, mock_read_csv, temp_env):
     mock_read_csv.return_value = MagicMock()
     mock_instance = MagicMock()
@@ -222,15 +222,15 @@ def test_validate_folder_hybrid_mapping(mock_validator_class, mock_read_csv, tem
 
     # The internal logic correctly routes the mapped config file through resolve_env_path
     # before instantiating the validator. We must simulate that injection in our assertion.
-    from src.validator import resolve_env_path
+    from data_validator.validator import resolve_env_path
     expected_path = str(resolve_env_path(str(temp_env["config_file"]), env="dev"))
 
     mock_validator_class.from_config.assert_called_with(expected_path, profile_name="strict",
                                                         rules_dir=None)
 
 
-@patch("src.validate_folder.pd.read_csv")
-@patch("src.validate_folder.DataValidator")
+@patch("data_validator.validate_folder.pd.read_csv")
+@patch("data_validator.validate_folder.DataValidator")
 def test_validate_folder_empty_csv_error(mock_validator_class, mock_read_csv, temp_env):
     mock_read_csv.side_effect = pd.errors.EmptyDataError("No columns to parse")
 
@@ -242,8 +242,8 @@ def test_validate_folder_empty_csv_error(mock_validator_class, mock_read_csv, te
     assert summary["failed_files"] == 1
 
 
-@patch("src.validate_folder.pd.read_csv")
-@patch("src.validate_folder.DataValidator")
+@patch("data_validator.validate_folder.pd.read_csv")
+@patch("data_validator.validate_folder.DataValidator")
 def test_validate_folder_generic_processing_error(mock_validator_class, mock_read_csv, temp_env):
     mock_read_csv.side_effect = Exception("Out of Memory")
 
@@ -256,7 +256,7 @@ def test_validate_folder_generic_processing_error(mock_validator_class, mock_rea
 
 
 @patch("time.perf_counter")
-@patch("src.validate_folder.DataValidator")
+@patch("data_validator.validate_folder.DataValidator")
 def test_validate_folder_global_timeout(mock_validator_class, mock_perf_counter, temp_env):
     (temp_env["data_dir"] / "valid2.csv").touch()
 
@@ -275,8 +275,8 @@ def test_validate_folder_global_timeout(mock_validator_class, mock_perf_counter,
 
 # --- CI/CD System Exit Code Tests ---
 
-@patch("src.validate_folder.validate_folder")
-@patch("src.validate_folder.setup_logging")
+@patch("data_validator.validate_folder.validate_folder")
+@patch("data_validator.validate_folder.setup_logging")
 def test_main_success(mock_setup_logging, mock_validate_folder):
     test_args = ["validate_folder.py", "--folder", "/dummy/folder", "--config", "/dummy/config.yaml"]
 
@@ -292,8 +292,8 @@ def test_main_success(mock_setup_logging, mock_validate_folder):
         assert exit_exc.value.code == validate_folder.EXIT_SUCCESS
 
 
-@patch("src.validate_folder.validate_folder")
-@patch("src.validate_folder.setup_logging")
+@patch("data_validator.validate_folder.validate_folder")
+@patch("data_validator.validate_folder.setup_logging")
 def test_main_exit_validation_failed(mock_setup_logging, mock_validate_folder):
     test_args = ["validate_folder.py", "--folder", "/dummy", "--config", "/dummy.yaml"]
     mock_validate_folder.return_value = {"failed_files": 1}
@@ -304,8 +304,8 @@ def test_main_exit_validation_failed(mock_setup_logging, mock_validate_folder):
         assert exit_exc.value.code == validate_folder.EXIT_VALIDATION_FAILED
 
 
-@patch("src.validate_folder.validate_folder")
-@patch("src.validate_folder.setup_logging")
+@patch("data_validator.validate_folder.validate_folder")
+@patch("data_validator.validate_folder.setup_logging")
 def test_main_exit_global_timeout(mock_setup_logging, mock_validate_folder):
     test_args = ["validate_folder.py", "--folder", "/dummy", "--config", "/dummy.yaml"]
     mock_validate_folder.return_value = {"failed_files": 0, "global_sla_breached": True}
@@ -316,8 +316,8 @@ def test_main_exit_global_timeout(mock_setup_logging, mock_validate_folder):
         assert exit_exc.value.code == validate_folder.EXIT_GLOBAL_TIMEOUT
 
 
-@patch("src.validate_folder.validate_folder")
-@patch("src.validate_folder.setup_logging")
+@patch("data_validator.validate_folder.validate_folder")
+@patch("data_validator.validate_folder.setup_logging")
 def test_main_exit_sla_breach(mock_setup_logging, mock_validate_folder):
     test_args = ["validate_folder.py", "--folder", "/dummy", "--config", "/dummy.yaml"]
     mock_validate_folder.return_value = {"failed_files": 0, "global_sla_breached": False, "files_with_sla_breaches": 1}
@@ -328,8 +328,8 @@ def test_main_exit_sla_breach(mock_setup_logging, mock_validate_folder):
         assert exit_exc.value.code == validate_folder.EXIT_SLA_BREACH
 
 
-@patch("src.validate_folder.validate_folder")
-@patch("src.validate_folder.setup_logging")
+@patch("data_validator.validate_folder.validate_folder")
+@patch("data_validator.validate_folder.setup_logging")
 def test_main_system_exit_on_failure(mock_setup_logging, mock_validate_folder):
     test_args = ["validate_folder.py", "--folder", "/dummy/folder", "--config", "/dummy/config.yaml"]
 
@@ -344,9 +344,9 @@ def test_main_system_exit_on_failure(mock_setup_logging, mock_validate_folder):
 
 # --- Tests for Incremental Watermarking in Batch Folder Mode ---
 
-@patch("src.validate_folder.pd.read_csv")
-@patch("src.validate_folder.DataValidator")
-@patch("src.watermark.WatermarkManager")
+@patch("data_validator.validate_folder.pd.read_csv")
+@patch("data_validator.validate_folder.DataValidator")
+@patch("data_validator.watermark.WatermarkManager")
 def test_validate_folder_incremental_updates_watermark(mock_wm_class, mock_validator_class, mock_read_csv, temp_env):
     mock_df = pd.DataFrame({"transaction_id": [10, 20]})
     mock_read_csv.return_value = mock_df
@@ -373,9 +373,9 @@ def test_validate_folder_incremental_updates_watermark(mock_wm_class, mock_valid
     mock_wm_instance.set_watermark.assert_called_once_with(20)
 
 
-@patch("src.validate_folder.pd.read_csv")
-@patch("src.validate_folder.DataValidator")
-@patch("src.watermark.WatermarkManager")
+@patch("data_validator.validate_folder.pd.read_csv")
+@patch("data_validator.validate_folder.DataValidator")
+@patch("data_validator.watermark.WatermarkManager")
 def test_validate_folder_incremental_no_new_data(mock_wm_class, mock_validator_class, mock_read_csv, temp_env):
     mock_df = pd.DataFrame({"transaction_id": [1, 2]})
     mock_read_csv.return_value = mock_df
@@ -404,8 +404,8 @@ def test_validate_folder_incremental_no_new_data(mock_wm_class, mock_validator_c
 
 # --- Tests for Profile Interception in CLI ---
 
-@patch("src.validate_folder.DataValidator.list_profiles", return_value=["default", "strict"])
-@patch("src.validate_folder.setup_logging")
+@patch("data_validator.validate_folder.DataValidator.list_profiles", return_value=["default", "strict"])
+@patch("data_validator.validate_folder.setup_logging")
 def test_main_list_profiles_config(mock_setup_logging, mock_list_profiles):
     test_args = ["validate_folder.py", "--folder", "/dummy", "--config", "/dummy/config.yaml", "--list-profiles"]
     with patch.object(sys, 'argv', test_args):
@@ -416,8 +416,8 @@ def test_main_list_profiles_config(mock_setup_logging, mock_list_profiles):
     mock_list_profiles.assert_called_once_with(str(Path("/dummy/dev/config.yaml")))
 
 
-@patch("src.validate_folder.DataValidator.list_profiles", return_value=[])
-@patch("src.validate_folder.setup_logging")
+@patch("data_validator.validate_folder.DataValidator.list_profiles", return_value=[])
+@patch("data_validator.validate_folder.setup_logging")
 def test_main_list_profiles_config_empty(mock_setup_logging, mock_list_profiles):
     test_args = ["validate_folder.py", "--folder", "/dummy", "--config", "/dummy/config.yaml", "--list-profiles"]
     with patch.object(sys, 'argv', test_args):
@@ -427,8 +427,8 @@ def test_main_list_profiles_config_empty(mock_setup_logging, mock_list_profiles)
     mock_list_profiles.assert_called_once_with(str(Path("/dummy/dev/config.yaml")))
 
 
-@patch("src.validate_folder.DataValidator.list_profiles", return_value=["strict"])
-@patch("src.validate_folder.setup_logging")
+@patch("data_validator.validate_folder.DataValidator.list_profiles", return_value=["strict"])
+@patch("data_validator.validate_folder.setup_logging")
 def test_main_list_profiles_mapping_success(mock_setup_logging, mock_list_profiles, temp_env):
     # --env defaults to dev, so the mapping is read from the dev folder.
     (temp_env["root"] / "dev").mkdir()
@@ -448,8 +448,8 @@ def test_main_list_profiles_mapping_success(mock_setup_logging, mock_list_profil
     assert mock_list_profiles.call_count == 2
 
 
-@patch("src.validate_folder.setup_logging")
-@patch("src.validate_folder.logger.error")
+@patch("data_validator.validate_folder.setup_logging")
+@patch("data_validator.validate_folder.logger.error")
 def test_main_list_profiles_mapping_error(mock_logger_error, mock_setup_logging):
     test_args = ["validate_folder.py", "--folder", "/dummy", "--mapping", "non_existent_map.json", "--list-profiles"]
     with patch.object(sys, 'argv', test_args):
@@ -461,9 +461,9 @@ def test_main_list_profiles_mapping_error(mock_logger_error, mock_setup_logging)
 
 # --- Tests for Environment Routing (Cross-Environment Versioning) ---
 
-@patch("src.validate_folder.resolve_env_path")
-@patch("src.validate_folder.pd.read_csv")
-@patch("src.validate_folder.DataValidator")
+@patch("data_validator.validate_folder.resolve_env_path")
+@patch("data_validator.validate_folder.pd.read_csv")
+@patch("data_validator.validate_folder.DataValidator")
 def test_validate_folder_env_mapping_resolution(mock_validator_class, mock_read_csv, mock_resolve_env, temp_env):
     """Verifies that the target environment is injected into nested mapping paths."""
     mock_read_csv.return_value = MagicMock()
@@ -487,8 +487,8 @@ def test_validate_folder_env_mapping_resolution(mock_validator_class, mock_read_
 
 
 @patch("os.getenv", return_value="prod")
-@patch("src.validate_folder.validate_folder")
-@patch("src.validate_folder.setup_logging")
+@patch("data_validator.validate_folder.validate_folder")
+@patch("data_validator.validate_folder.setup_logging")
 def test_main_env_os_variable(mock_setup_logging, mock_validate_folder, mock_getenv):
     """Verifies that main() picks up the VALIDATOR_ENV OS variable by default."""
     test_args = ["validate_folder.py", "--folder", "/dummy", "--config", "/dummy.yaml"]
@@ -505,8 +505,8 @@ def test_main_env_os_variable(mock_setup_logging, mock_validate_folder, mock_get
     mock_getenv.assert_any_call("VALIDATOR_ENV")
 
 
-@patch("src.validate_folder.validate_folder")
-@patch("src.validate_folder.setup_logging")
+@patch("data_validator.validate_folder.validate_folder")
+@patch("data_validator.validate_folder.setup_logging")
 def test_main_env_cli_override(mock_setup_logging, mock_validate_folder):
     """Verifies that the --env CLI flag successfully overrides OS variables."""
     test_args = ["validate_folder.py", "--folder", "/dummy", "--config", "/dummy.yaml", "--env", "dev"]

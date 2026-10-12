@@ -1,3 +1,4 @@
+import math
 # Concentration insight thresholds
 CONCENTRATION_MAX_SHARE = 0.5
 MIN_CATEGORIES_FOR_CONCENTRATION = 4
@@ -116,7 +117,7 @@ def generate_insights(df, report):
 
         concentration_limit = max(
             1,
-            int(len(value_counts) * CONCENTRATION_MAX_SHARE)
+            math.ceil(len(value_counts) * CONCENTRATION_MAX_SHARE)
         )
 
         # --------------------------------------------------------

@@ -1,6 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
-import { dashboardApi } from "../api/dashboard";
-import { colors, radius, space } from "../tokens";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useMemo } from "react";
+import type { InventoryItem } from "../types/forecast";
 
 interface DashboardFiltersProps {
   filters: {
@@ -16,64 +24,38 @@ interface DashboardFiltersProps {
     endDate: string;
   }) => void;
   lockedWarehouse?: string;
+  inventory: InventoryItem[];
 }
 
 function DashboardFilters({
   filters,
   onFilterChange,
   lockedWarehouse,
+  inventory,
 }: DashboardFiltersProps) {
-
-  const [inventoryData, setInventoryData] = useState<
-    Awaited<ReturnType<typeof dashboardApi.fetchInventory>>
-  >([]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const fetchInventory = async () => {
-      try {
-        const data = await dashboardApi.fetchInventory();
-
-        if (!cancelled) {
-          setInventoryData(data);
-        }
-      } catch {
-        if (!cancelled) {
-          setInventoryData([]);
-        }
-      }
-    };
-
-    fetchInventory();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const warehouses = useMemo(
     () =>
       Array.from(
         new Set(
-          inventoryData.map(
+          inventory.map(
             (item) => item.warehouse_id,
           ),
         ),
       ),
-    [inventoryData],
+    [inventory],
   );
 
   const categories = useMemo(
     () =>
       Array.from(
         new Set(
-          inventoryData.map(
+          inventory.map(
             (item) => item.category,
           ),
         ),
       ),
-    [inventoryData],
+    [inventory],
   );
 
   const updateUrl = (
@@ -101,36 +83,14 @@ function DashboardFilters({
     );
   };
 
-  const selectStyle = {
-    background: colors.bg,
-    color: colors.text,
-    border: `1px solid ${colors.border}`,
-    borderRadius: radius.md,
-    padding: `${space.sm}px ${space.md}px`,
-    minWidth: 150,
-    boxSizing: "border-box" as const,
-  };
-
-  return (
-    <div
-      style={{
-        background: colors.surface,
-        border: `1px solid ${colors.border}`,
-        borderRadius: radius.md,
-        padding: space.md,
-        marginBottom: space.lg,
-        display: "flex",
-        gap: space.md,
-        flexWrap: "wrap",
-        alignItems: "center",
-      }}
-    >
-      <select
+ return (
+  <Card className="mb-6">
+    <CardContent className="flex flex-wrap items-center gap-4 p-4">
+      <Select
         value={lockedWarehouse ?? filters.warehouse}
         disabled={lockedWarehouse !== undefined}
-        onChange={(event) => {
-          const value = event.target.value;
-
+        onValueChange={(value) => {
+          if (value === null ) return;
           updateUrl("warehouse", value);
 
           onFilterChange({
@@ -138,26 +98,36 @@ function DashboardFilters({
             warehouse: value,
           });
         }}
-        style={selectStyle}
-        aria-label="Warehouse filter"
       >
-        <option value="All">All Warehouses</option>
+        <SelectTrigger
+          className="w-[180px] cursor-pointer"
+          aria-label="Warehouse filter"
+        >
+          <SelectValue>
+            {(value: string) => (value === "All" ? "All Warehouses" : value)}
+          </SelectValue>
+        </SelectTrigger>
 
-        {warehouses.map((warehouseId) => (
-          <option
-            key={warehouseId}
-            value={warehouseId}
-          >
-            {warehouseId}
-          </option>
-        ))}
-      </select>
+        <SelectContent>
+          <SelectItem value="All">
+            All Warehouses
+          </SelectItem>
 
-      <select
+          {warehouses.map((warehouseId) => (
+            <SelectItem
+              key={warehouseId}
+              value={warehouseId}
+            >
+              {warehouseId}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <Select
         value={filters.category}
-        onChange={(event) => {
-          const value = event.target.value;
-          
+        onValueChange={(value) => {
+          if (value === null) return;
           updateUrl("category", value);
 
           onFilterChange({
@@ -165,22 +135,33 @@ function DashboardFilters({
             category: value,
           });
         }}
-        style={selectStyle}
-        aria-label="Category filter"
       >
-        <option value="All">All Categories</option>
+        <SelectTrigger
+          className="w-[180px] cursor-pointer"
+          aria-label="Category filter"
+        >
+          <SelectValue>
+            {(value: string) => (value === "All" ? "All Categories" : value)}
+          </SelectValue>
+        </SelectTrigger>
 
-        {categories.map((categoryName) => (
-          <option
-            key={categoryName}
-            value={categoryName}
-          >
-            {categoryName}
-          </option>
-        ))}
-      </select>
+        <SelectContent>
+          <SelectItem value="All">
+            All Categories
+          </SelectItem>
 
-      <input
+          {categories.map((categoryName) => (
+            <SelectItem
+              key={categoryName}
+              value={categoryName}
+            >
+              {categoryName}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <Input
         type="date"
         value={filters.startDate}
         onChange={(event) => {
@@ -193,11 +174,11 @@ function DashboardFilters({
             startDate: value,
           });
         }}
-        style={selectStyle}
+        className="w-[180px]"
         aria-label="Start date"
       />
 
-      <input
+      <Input
         type="date"
         value={filters.endDate}
         onChange={(event) => {
@@ -210,10 +191,11 @@ function DashboardFilters({
             endDate: value,
           });
         }}
-        style={selectStyle}
+        className="w-[180px]"
         aria-label="End date"
       />
-    </div>
+    </CardContent>
+  </Card>
   );
 }
 

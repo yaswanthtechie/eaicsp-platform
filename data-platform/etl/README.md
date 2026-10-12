@@ -779,3 +779,615 @@ Replay is transaction-safe.
 Wrong-source replay is rejected.
 
 Failure paths are tested.
+
+## Combined Round 9 + 10 + 11 (ETL)
+
+Milestone Status
+
+Milestone
+
+Status
+
+Implementation / Proof
+
+M1 Multi-environment configuration
+
+Partial
+
+Dev, staging and prod configurations with configuration-only environment switching
+
+M2 Data Quality SLA Alerting
+
+Partial
+
+Quality pass-rate SLA with CRITICAL alert when threshold is breached
+
+M3 Dependency Visualization
+
+Done
+
+Generates the ETL dependency graph
+
+M4 Cross-table Lineage
+
+Partial
+
+Traces a target row across shipments -> inventory -> sales
+
+M5 Disaster Recovery Drill
+
+Partial
+
+Backup, failure simulation, restore and manifest-based replay
+
+M1 Multi-environment Configuration
+
+The ETL pipeline supports separate environment configurations:
+
+pipeline_config.yaml - development
+
+pipeline_config.staging.yaml - staging
+
+pipeline_config.prod.yaml - production
+
+The same ETL pipeline code is reused across environments.
+
+Environment switching is configuration-driven using:
+
+ETL_ENV=dev
+ETL_ENV=staging
+ETL_ENV=prod
+
+No pipeline code changes are required when switching environments.
+
+Environment-specific configuration
+
+Development:
+
+Environment: dev
+
+Staging:
+
+Environment: staging
+Schedule: 0 3 * * *
+
+Production:
+
+Environment: prod
+Schedule: 0 1 * * *
+
+The Docker services mount the environment configuration files so the scheduler, webserver, worker and triggerer use the same configuration model.
+
+M1 Verification
+
+The configuration loader successfully switches between:
+
+dev
+staging
+prod
+
+The final dependency configuration is:
+
+SOURCE -> sales -> inventory -> shipments
+
+M2 Data Quality SLA Alerting
+
+The pipeline includes data-quality SLA monitoring in:
+
+etl/src/sla_monitor.py
+
+The quality SLA evaluates:
+
+Processed rows
+
+Accepted rows
+
+Rejected rows
+
+Pass rate
+
+Configured minimum pass-rate threshold
+
+The pass rate is calculated as:
+
+pass_rate = accepted_rows / processed_rows
+
+A CRITICAL alert is generated when the pass rate falls below the configured SLA threshold.
+
+M2 Verification
+
+A deliberate degraded test was executed:
+
+Processed: 100
+Accepted: 80
+Rejected: 20
+Pass rate: 80%
+Required: 95%
+
+The pipeline generated a CRITICAL quality-SLA alert.
+
+Result:
+
+QUALITY-SLA Data-quality SLA breached
+pass rate=80.00%
+required>=95.00%
+
+M3 Dependency Visualization
+
+Dependency visualization is implemented in:
+
+etl/src/dependency_graph.py
+
+The configured ETL dependencies are generated as a graph.
+
+Generated graph:
+
+digraph pipeline_dependencies {
+  rankdir=LR;
+  "SOURCE" [shape=box];
+  "SOURCE" -> "sales";
+  "sales" -> "inventory";
+  "inventory" -> "shipments";
+}
+
+This represents the execution dependency:
+
+SOURCE
+   |
+   v
+sales
+   |
+   v
+inventory
+   |
+   v
+shipments
+
+M3 Verification
+
+The dependency graph was generated successfully from the pipeline configuration.
+
+M4 Cross-table Lineage
+
+Cross-table lineage is implemented in:
+
+etl/src/lineage.py
+
+The lineage traversal follows the configured dependency chain:
+
+shipments_fact
+      |
+      v
+inventory_snapshot
+      |
+      v
+sales_fact
+
+Lineage matching uses the business keys:
+
+date / snapshot_date / shipment_date
+sku
+warehouse
+
+The lineage result includes:
+
+Table
+
+Row ID
+
+Run ID
+
+Source batch
+
+Lineage level
+
+Row role
+
+M4 Verification
+
+An end-to-end lineage test was successfully executed.
+
+Example result:
+
+Level 0:
+shipments_fact
+row_id = 1
+run_id = 34
+source_batch = shipments_2024-01-01.csv
+
+Level 1:
+inventory_snapshot
+row_id = 7
+
+Level 2:
+sales_fact
+row_id = 12148
+run_id = 999999
+source_batch = m4_test_sales.csv
+
+This proves that a target shipment row can be traced through the upstream inventory and sales tables.
+
+M5 Disaster Recovery Drill
+
+Disaster recovery is implemented using:
+
+etl/src/dr_recovery.py
+scripts/disaster_recovery_drill.py
+
+The recovery process supports:
+
+Creating a database backup.
+
+Recording the recovery manifest.
+
+Simulating a pipeline failure.
+
+Restoring the database backup.
+
+Replaying the recorded source batches.
+
+Verifying the recovered data.
+
+Recording the replay result.
+
+Backup artifact:
+
+docs/dr_drill_backup.dump
+
+Recovery documentation:
+
+docs/disaster_recovery_drill.md
+
+M5 Recovery Flow
+
+Normal Pipeline
+      |
+      v
+Database Backup
+      |
+      v
+Simulated Failure
+      |
+      v
+Database Restore
+      |
+      v
+Recovery Manifest
+      |
+      v
+Replay Source Batches
+      |
+      v
+Successful Recovery
+
+M5 Verification
+
+The recovery drill successfully restored the recorded pipeline state and replayed the required source batches.
+
+Recovery result:
+
+Original run: 11
+Replay run: 33
+Inserted: 1929
+Updated: 0
+Restored: 0
+Deleted: 0
+
+Final run status:
+
+run_id  status
+11      REPLAYED
+33      SUCCESS
+
+The recovery completed without manual reconstruction of the source data.
+
+Round 9-11 Definition of Done
+
+Multi-environment configuration is implemented and verified.
+
+Environment switching is configuration-only.
+
+Data-quality SLA breach generates a CRITICAL alert.
+
+Dependency graph is generated successfully.
+
+Cross-table lineage works end-to-end.
+
+Disaster recovery backup and restore drill is completed.
+
+Recovery replay successfully restores pipeline processing.
+
+
+
+
+> DR replay currently covers the sales source only; other sources require a history_table and compatible restore logic.
+
+
+Round 12-13: dbt transformation layer (Vivek - Milestone 1)
+
+The pipeline now adds dbt as the post-load transformation layer. The flow is:
+
+Extract -> Quality Gate -> Load to PostgreSQL -> log_run -> dbt build -> Archive
+
+dbt project layout:
+
+- dbt/models/staging/: source cleanup, renaming, and type casts.
+- dbt/models/marts/mart_daily_sales_by_warehouse.sql
+- dbt/models/marts/mart_inventory_position.sql
+- dbt/models/marts/mart_daily_shipments_by_warehouse.sql
+- dbt/models/marts/schema.yml: not_null, unique, and relationships tests.
+- dbt/tests/mart_daily_sales_non_negative.sql: custom singular test.
+
+Airflow image setup:
+
+The local Airflow image is built from Dockerfile and installs dbt-postgres. The dbt project is mounted at /opt/airflow/dbt.
+
+Build/rebuild the local stack after the R12-13 changes:
+
+docker compose build
+docker compose up -d
+
+Run the normal unit tests without Docker:
+
+pytest -m "not integration"
+
+Run dbt manually inside the Airflow scheduler container:
+
+docker compose exec airflow-scheduler sh -c '"$DBT_BIN" build --project-dir /opt/airflow/dbt --profiles-dir /opt/airflow/dbt --target dev'
+
+Or trigger sales_etl_pipeline from Airflow. The dbt_build task runs after the existing source load/join stage and runs dbt models plus configured dbt tests.
+
+The dbt models use the existing PostgreSQL tables as sources, so the ETL load remains responsible for ingestion and watermarking while dbt owns the analytical transformation layer.
+
+
+# R12-13 Production-Ready Extension (Vivek / ETL)
+
+R12-13 adds the client-facing analytics and event stack on top of the existing ETL foundation. The pipeline remains PostgreSQL-first for operational loading; dbt owns transformations, ClickHouse owns dashboard analytics, and Kafka publishes run lifecycle events.
+
+## End-to-end flow
+
+```text
+Source CSVs
+  -> Airflow extract / dependency ordering
+  -> schema + quality gate
+  -> PostgreSQL bulk upsert + reconciliation
+  -> per-source watermark
+  -> dbt build (staging -> marts -> tests)
+  -> ClickHouse incremental analytics sink
+  -> archive
+  -> final run status
+  -> PostgreSQL outbox
+  -> Kafka event (completed / failed)
+```
+
+The Kafka outbox is deliberately after the data work. A Kafka outage therefore cannot roll back a successful load. Pending events are retried by `etl_event_outbox_retry` every five minutes.
+
+## R12-13 M1 — dbt
+
+Run from the Airflow scheduler/worker container:
+
+```bash
+docker compose exec airflow-scheduler sh -c '"$DBT_BIN" debug --project-dir /opt/airflow/dbt --profiles-dir /opt/airflow/dbt'
+docker compose exec airflow-scheduler sh -c '"$DBT_BIN" build --project-dir /opt/airflow/dbt --profiles-dir /opt/airflow/dbt --target dev'
+```
+
+Models are split into `dbt/models/staging` and `dbt/models/marts`. Tests include `not_null`, `unique`, `relationships`, and a custom non-negative sales test.
+
+## R12-13 M2 — ClickHouse
+
+ClickHouse runs locally in Compose. The sink reads tested dbt marts from PostgreSQL and reuses the existing watermark subsystem with sink-specific watermark names such as `clickhouse_mart_daily_sales_by_warehouse`.
+
+The physical tables use `ReplacingMergeTree(version)` and the dashboard-facing views use `FINAL`, making repeated incremental loads deterministic while retaining an explicit version for corrections.
+
+Verify:
+
+```bash
+docker compose exec airflow-scheduler python -c "from etl.src.clickhouse_sink import sync_marts; print(sync_marts())"
+```
+
+### Required 1M+ timing proof
+
+Run the benchmark with at least one million rows:
+
+```bash
+docker compose exec airflow-scheduler python scripts/benchmark_postgres_clickhouse.py --rows 1200000
+```
+
+The script compares the same date-range aggregation on PostgreSQL and ClickHouse, checks that the result sets match, prints both measured wall-clock timings, and writes `docs/r12_13_clickhouse_benchmark.json`. Do not claim a speed-up without the measured output.
+
+## R12-13 M3 — Kafka events
+
+The standard envelope is:
+
+```json
+{
+  "event_id": "uuid4",
+  "event_type": "data.pipeline.completed",
+  "event_version": 1,
+  "occurred_at": "2026-09-29T10:15:00Z",
+  "producer": "etl",
+  "payload": {}
+}
+```
+
+Topic name equals `event_type`. Timestamps are UTC. Additive payload changes do not require a version bump; renaming/removing contract fields requires `event_version` to increase.
+
+Check pending/published events:
+
+```bash
+docker compose exec postgres psql -U admin -d salesdb -c "SELECT event_id,event_type,status,attempts,last_error,created_at,published_at FROM etl_event_outbox ORDER BY created_at DESC LIMIT 20;"
+```
+
+Simulate Kafka outage:
+
+```bash
+docker compose stop kafka
+# run the pipeline; the PostgreSQL load should still complete
+docker compose start kafka
+# unpause/trigger etl_event_outbox_retry, or wait for its next 5-minute run
+```
+
+The event remains `PENDING` while Kafka is unavailable and is marked `PUBLISHED` after a later successful attempt.
+
+## R12-13 review notes (what was verified, what changed, what is still unproven)
+
+### How to run the tests
+```bash
+pytest -m "not integration"      # no Docker needed; runs on a clean machine
+pytest -m integration            # needs local Postgres/Kafka/ClickHouse; each test skips itself if its service is unreachable
+```
+Note: `tests/test_dag_dependencies.py` needs an initialised Airflow SQLite DB on a clean machine:
+`AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=sqlite:////abs/path/tests/airflow_test.db airflow db migrate`.
+
+### Fixes made during review
+| Problem found | Fix |
+|---|---|
+| `kafka-python==2.0.2` does not import on Python 3.12 (the `apache/airflow:2.10.5` image's Python), so `finalize_run` would crash on import. 3.x renames config keys. | Pinned `kafka-python>=2.2.0,<3` in `requirements.txt` and `Dockerfile`. Kafka is now imported lazily. |
+| `dbt-postgres` cannot be resolved together with Airflow's pinned dependencies (protobuf conflict); a shared install can silently upgrade packages Airflow needs. `dbt-core` was also unpinned. | dbt now lives in its own venv in the image (`DBT_BIN`), pinned `dbt-core==1.9.4`, `dbt-postgres==1.9.0`. |
+| Kafka down: each publish blocked ~30 s, and the retry loop opened one producer per event (100 pending events = ~50 min inside a 5-minute DAG). | Timeouts bounded (`KAFKA_PUBLISH_TIMEOUT_S`, default 5 s); retry uses one producer and stops at the first failure. Measured: 30 s -> 5 s per attempt; a retry batch costs one timeout regardless of size. |
+| If the outbox insert itself failed, `queue_and_publish` raised into `finalize_run`. | Never raises; logs `EVENT LOST` and returns `persisted: False`. |
+| `mart_inventory_position` in ClickHouse was partitioned by month but keyed by (sku, warehouse). ReplacingMergeTree only de-duplicates inside a partition, so a stale row per month would survive `FINAL`. | Table is unpartitioned. |
+| Dashboard views were created in ClickHouse's `default` database, not `analytics`. | Views are created as `analytics.<mart>`. |
+| One wide, zero-padded table shared by all three marts. | One tailored table per mart. |
+| Late-arriving corrections older than the watermark were never re-read. | `CLICKHOUSE_LOOKBACK_DAYS` (default 3) overlap; safe because loads are idempotent. |
+| The old M1-M3 tests only grepped source text. | Replaced with behavioural tests (`test_r12_13_events.py`, `test_r12_13_clickhouse_sink.py`) that cover Kafka down, insert failure without watermark advance, empty tables, unreachable DB. |
+
+**Migrating an existing ClickHouse volume** (table names are unchanged but schemas differ):
+```sql
+DROP TABLE IF EXISTS analytics.ch_mart_daily_sales_by_warehouse;
+DROP TABLE IF EXISTS analytics.ch_mart_daily_shipments_by_warehouse;
+DROP TABLE IF EXISTS analytics.ch_mart_inventory_position;
+DROP VIEW  IF EXISTS analytics.mart_daily_sales_by_warehouse;   -- and the other two, plus any in `default`
+```
+then in Postgres: `DELETE FROM etl_watermark WHERE pipeline_name LIKE 'clickhouse_%';` so the next run reloads.
+
+### Delivery guarantee
+Events are **at-least-once**. A crash after Kafka acks but before the outbox row is marked `PUBLISHED` re-sends the event. Consumers (next round) must de-duplicate on `event_id`.
+
+### Benchmark status
+The ClickHouse benchmark was run on the Docker stack using **1,200,000 rows and 10 timed repetitions**. Measurements are wall-clock, client-side timings with warm cache on a single-node environment with 4 CPUs.
+
+- **Full year 2024**
+  - PostgreSQL: min 0.672s, median 0.8557s, max 1.2132s
+  - ClickHouse: min 0.0509s, median 0.0766s, max 0.6599s
+  - Median speed-up: **11.2x**
+  - Results matched: **yes**
+- **Q2 2024**
+  - PostgreSQL: min 0.3177s, median 0.5537s, max 1.4711s
+  - ClickHouse: min 0.0298s, median 0.0367s, max 0.0427s
+  - Median speed-up: **15.1x**
+  - Results matched: **yes**
+
+The measurements are environment-specific and should not be treated as a production performance guarantee. The full benchmark output is recorded in `docs/r12_13_clickhouse_benchmark.json`.
+
+## Clean verification sequence
+
+```bash
+# 1. Build the production-style Airflow image
+docker compose build --no-cache
+
+# 2. Start infrastructure
+docker compose up -d
+
+# 3. Verify health
+docker compose ps
+
+# 4. Verify DAG parsing
+docker compose exec airflow-scheduler airflow dags list-import-errors
+
+# 5. Run unit tests without Docker dependencies
+pytest -m "not integration"
+
+# 6. Run dbt
+docker compose exec airflow-scheduler sh -c '"$DBT_BIN" build --project-dir /opt/airflow/dbt --profiles-dir /opt/airflow/dbt --target dev'
+
+# 7. Trigger the main DAG
+docker compose exec airflow-scheduler airflow dags trigger sales_etl_pipeline
+
+# 8. Inspect recent runs
+docker compose exec airflow-scheduler airflow dags list-runs -d sales_etl_pipeline | Select-Object -First 5
+
+# 9. Inspect pipeline status/events
+docker compose exec postgres psql -U admin -d salesdb -c "SELECT run_id,status,rows_inserted,rows_updated,rows_rejected,error_message FROM etl_run_log ORDER BY run_id DESC LIMIT 5;"
+docker compose exec postgres psql -U admin -d salesdb -c "SELECT event_type,status,attempts,last_error FROM etl_event_outbox ORDER BY created_at DESC LIMIT 5;"
+```
+
+## Merge discipline
+
+- Do not commit `.env` or generated runtime logs/backups.
+- Branch from the latest `main` as required by R12-13.
+- Run unit tests before Docker tests.
+- Record the actual PostgreSQL/ClickHouse benchmark output rather than a qualitative claim.
+- Demonstrate Kafka-down behavior and the later outbox retry.
+- Keep the R9-11 ETL contracts unchanged unless a migration explicitly requires a change.
+
+
+## R14 Spark historical backfill
+
+A separate, manually triggered PySpark job for reloading large history. The daily pipeline is unchanged.
+
+**Cleaning rules (same as the pandas path):** drop exact duplicate rows (first kept), parse date, cast quantity to int and price to float. Two additions, both matching existing behaviour: rows that fail a cast are *rejected and counted* (pandas would raise / the quality gate would quarantine them), and for the same `(date, sku_id, warehouse_id)` the **last** input row wins (same as `load._dedupe_records`).
+
+**Idempotency / restart by month:** each month is filtered, key-deduped, upserted with `ON CONFLICT (date, sku_id, warehouse_id) DO UPDATE`, then **verified against Postgres** (row count, quantity sum, price sum for `source_batch = spark_backfill_<month>`). A month is *not* a single DB transaction (each Spark partition commits itself); safety comes from the idempotent upsert plus the verification. A failed month is reported, other months still run, and the task fails listing only the months to re-run.
+
+**Run it**
+```
+python scripts/generate_r14_history.py --rows 10000000      # ~0.5% dirty rows added
+# via Airflow: trigger DAG sales_spark_historical_backfill with
+{"input": "/opt/airflow/data/backfill/sales_history.csv", "start_month": "2024-01", "end_month": "2024-12"}
+# one month only: start_month == end_month
+# standalone container (merged with the main stack):
+docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm spark-backfill
+```
+The Airflow image now includes a JRE (needed by PySpark local mode) and mounts `./spark` at `/opt/airflow/spark`. DAG conf values are passed as env vars and validated as `YYYY-MM` by the script.
+
+**Tests:** `pytest tests/r14` (pure tests always run; Spark tests need pyspark + Java; the Postgres rerun/isolation test is `@pytest.mark.integration` and needs `DB_PASSWORD` and a reachable Postgres).
+
+## R14 benchmark (pandas vs Spark)
+
+`python scripts/benchmark_r14_spark_vs_pandas.py data/backfill/sales_history.csv` runs each engine in its own process, checks parity (rows, quantity sum, price sum) and records time and peak RSS (Spark JVM included) to `docs/r14_benchmark.json`. It measures transform only, not the Postgres write.
+
+| Engine | Rows after cleaning | Quantity total | Price total | Seconds | Peak RSS (MB) |
+|---|---|---|---|---|---|
+| pandas | 9,954,756 | 497,739,949 | 2,513,437,170.10 | 63.02 | 1,672 |
+| Spark local[*] | 9,954,756 | 497,739,949 | 2,513,437,170.10 | 86.41 | 1,482 |
+
+Parity: PASS (rows, quantity sum and price sum identical). Input: ~10.05M generated rows including ~0.5% injected duplicates, key collisions and bad values. Machine: Intel Core i5-10310U (4 cores / 8 threads), 7.7 GB RAM, pandas 3.0.5 (pyarrow not installed), PySpark 3.5.3 local[*]. Single run each, transform only (read, clean, key-dedupe, aggregate); the Postgres write is not included. Raw numbers: `docs/r14_benchmark.json`.
+
+**Result: pandas was faster at this size** (63 s pandas vs 86 s Spark, about 1.4x), but pandas used more memory (1.67 GB vs 1.48 GB). Spark's time includes JVM start-up and a shuffle for the dedupe, which a single-machine 10M-row job doesn't repay. Spark's memory is also bounded by its default local heap, so its figure shows what it needed to finish, not what it would use if given more. This run was made with Docker Desktop and other apps closed; an earlier run with them open was roughly 2-2.5x slower for both engines, so timings on this 7.7 GB machine are sensitive to memory pressure. Single run each.
+
+**When Spark should win (extrapolation, not measured):** pandas peaked at roughly 168 MB per million rows here (peak RSS includes the interpreter, so this slightly overstates the per-row cost), so on this 7.7 GB laptop it would run out of memory somewhere around 30M rows, and on a 16 GB machine around 80M rows (estimates, not measured), while Spark can spill to disk and keep going. Beyond that, Spark pays off when the work can use many cores or a cluster. For the daily loads and for a 3-year history of this width on one laptop, the pandas path is the better tool; Spark earns its place for much larger or multi-machine backfills.
+
+### R14 verification results
+
+- **Unit tests:** `pytest tests/r14 -m "not integration"` gives 16 passed, 1 skipped, 1 deselected (the skip is the DAG import test, which needs the Linux Airflow runtime; the dependency order and DAG import were checked inside the Airflow container instead).
+- **Integration test:** `pytest tests/r14 -m integration` gives 1 passed (real Postgres, 2023 test months so real backfilled data is never touched), including the stale-row cleanup when a month is re-run with a smaller file.
+- **Integration test** (`-m integration`, real Postgres): `test_month_rerun_is_idempotent_and_isolated` passes. It covers duplicate rows, key collisions (last row wins), rejected rows, a one-month re-run that leaves other months untouched, and a full re-run with no duplicate rows. On Windows it needed `SPARK_MASTER=local[2]` and `SPARK_SHUFFLE_PARTITIONS=4`; with the default 200 shuffle partitions the Python workers timed out connecting back.
+- **Idempotency on a 1M-row file (local, Postgres in Docker), January 2024:** run 1 loaded 28,300 rows (quantity sum 1,415,675, verified); an immediate re-run gave the same 28,300 rows and the same sum. Each run took about 2 minutes on this laptop (local[2]), mostly reading and de-duplicating the whole file. 1,664 rows were rejected as uncastable.
+- **Failure handling observed:** in one re-run Postgres dropped the connection mid-write. The job reported `status: failed` for that month and the month may have been partially written (each Spark partition commits on its own); the next re-run succeeded and repaired it.
+- **Config:** `SPARK_SHUFFLE_PARTITIONS` (default 32) sets Spark shuffle partitions; console progress bars are off.
+- **Full 10M-row file, January 2024, local Postgres:** run 1 loaded 281,884 rows (quantity sum 14,116,193, verified, 263 s); an immediate re-run gave the same 281,884 rows and sum (338 s). 16,640 rows were rejected as uncastable. Settings: `SPARK_MASTER=local[1]`, `SPARK_SHUFFLE_PARTITIONS=16`.
+- **Memory note:** with the whole compose stack running (Airflow, Kafka, ClickHouse, Redis) on a 7.7 GB machine, Spark's Python workers crashed mid-write and Postgres reported the dropped connection. The failed months were reported; a crashed month can be partially written and re-running it repairs it. Stopping the unused containers and running a single worker fixed it.
+### R14 Airflow end-to-end
+
+- DAG sales_spark_historical_backfill (manual only, schedule=None, max_active_runs=1) was triggered for 2024-02 on the full 10M-row file: 263,613 rows, quantity sum 13,173,901, verified, about 5 min. An immediate re-run gave the same rows and sum with a newer updated_at, so no duplicates.
+- The DAG sets SPARK_MASTER=local[1] and SPARK_SHUFFLE_PARTITIONS=16 so Spark does not use every core inside the Airflow worker.
+- Loaded from the 10M-row file: January and February 2024 only, not all 36 months, on this 7.7 GB laptop.
+- Re-running a month with a smaller input file removes the rows an earlier backfill run wrote for that month and the file no longer contains (see R14 review fixes).
+- The benchmark pandas path is a re-implementation of the cleaning rules and Spark ran untuned in local mode, so conclusions apply to this machine and size only.
+- The Airflow image was rebuilt with Java and PySpark, and the worker compose command was fixed because the worker could not start.
+
+- The standalone `spark-backfill` service in `docker-compose.dev.yml` was built and run: January 2024 from the 10M-row file loaded 281,884 rows (quantity sum 14,116,193, verified, one distinct run_id), matching the earlier direct run.
+
+### R14 review fixes
+
+- **Cleaning is now as strict as pandas.** Quantity must be an integer string (`2.7` is rejected, as pandas `astype(int)` raises) and price must be a plain number. `NaN` and `Infinity` are rejected on purpose (an additional rule: pandas `astype(float)` would accept `NaN`, but a NaN price breaks month verification). Exact duplicates are removed on the raw strings before casting, like pandas `drop_duplicates`, so `10` and `10.0` are different rows. The benchmark's pandas path uses the same rules.
+- **Prices are verified exactly.** Prices are rounded to `decimal(12,2)` in Spark (same as Postgres `NUMERIC(12,2)`) and the month check compares row count, quantity sum and price sum with no tolerance.
+- **Every run has its own run_id.** The Airflow DAG passes `dag_run.id`; on the command line the default is a unique id. Rows are stamped with it.
+- **Re-running a month with a smaller file now works.** After a successful upsert, rows this backfill wrote for that month in an older run (same `source_batch` `spark_backfill_<month>`, different `run_id`) are deleted. The input file is the source of truth for the months it covers. Rows from the daily pipeline are never touched.
+- **A one-month re-run only reads that month.** The file is filtered to the requested months before caching, so `rejected_rows_total` now covers the requested months plus rows with unparseable dates.
+- **Input must be a single CSV file** (last-row-wins depends on file order); a folder or glob is rejected.
+- **A crashed month may be partially written.** Each Spark partition commits on its own. Re-running the month repairs it, because the upsert is idempotent and verification checks the final state.
+- **Windows note:** if several Python versions are installed, set `PYSPARK_PYTHON` and `PYSPARK_DRIVER_PYTHON` to the interpreter running pytest, otherwise Spark workers may start with a different Python and fail with `Connection reset`.
+
+- After the review fixes, the DAG was triggered again for 2024-02: dag_run id 8 succeeded, all 263,613 rows carry run_id 8 (the Airflow run id), and the quantity sum (13,173,901) was unchanged, so the re-run was idempotent.

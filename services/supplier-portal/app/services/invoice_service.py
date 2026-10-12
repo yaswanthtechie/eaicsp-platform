@@ -1,13 +1,16 @@
-import os
 import re
-from pathlib import Path
+
 from datetime import datetime, timezone
 
 from fastapi import UploadFile
 
 from app.services.purchase_order_service import purchase_orders
 from app.schemas.purchase_order import PurchaseOrderStatus
-from app.core.config import UPLOAD_DIR
+from app.services.document_storage_service import (
+    DocumentUploadError,
+    DocumentStorageError,
+    document_storage_service,
+)
 
 from app.schemas.invoice import (
     InvoiceCreate,
@@ -1377,55 +1380,11 @@ def adjust_invoice(
 
     return invoice
 
- # ========================================================
-    # Resolve stored invoice document path
-# ========================================================
-
-def resolve_document_path(
-    document_path: str,
-) -> Path:
-    """
-    Resolve a stored invoice document path safely
-    relative to UPLOAD_DIR.
-    """
-
-    if not document_path:
-        raise ValueError(
-            "Document path is required."
-        )
-
-    upload_root = Path(
-        UPLOAD_DIR
-    ).resolve()
-
-    relative_path = Path(
-        document_path
-    )
-
-    # Stored paths must be relative to UPLOAD_DIR.
-    if relative_path.is_absolute():
-        raise ValueError(
-            "Invalid document path."
-        )
-
-    full_path = (
-        upload_root / relative_path
-    ).resolve()
-
-    # Protect against path traversal.
-    if not full_path.is_relative_to(
-        upload_root
-    ):
-        raise ValueError(
-            "Invalid document path."
-        )
-
-    return full_path
+ 
 
 # ---------------------------------------------------------
 # upload_invoice_document
 # ---------------------------------------------------------
-
 def upload_invoice_document(
     supplier_id: str,
     invoice_number: str,
@@ -1434,12 +1393,10 @@ def upload_invoice_document(
     """
     Upload a PDF document for an existing supplier-scoped invoice.
 
-    The invoice is identified using BOTH:
-        supplier_id
-        invoice_number
+    The PDF is stored in MinIO under a supplier-scoped object key.
 
-    The document is stored inside the supplier-specific
-    upload directory.
+    Example:
+        suppliers/SUP001/invoices/INV1001_INV1001.pdf
     """
 
     # ---------------------------------------------------------
@@ -1482,7 +1439,7 @@ def upload_invoice_document(
     )
 
     # ---------------------------------------------------------
-    # 5. Validate invoice exists for this supplier
+    # 5. Validate invoice exists
     # ---------------------------------------------------------
 
     if invoice_key not in invoices:
@@ -1492,11 +1449,10 @@ def upload_invoice_document(
             f"'{supplier_id}'."
         )
 
-    # Get the actual stored invoice
     invoice = invoices[invoice_key]
 
     # ---------------------------------------------------------
-    # 6. Validate Content-Type
+    # 6. Validate content type
     # ---------------------------------------------------------
 
     if file.content_type != "application/pdf":
@@ -1505,24 +1461,23 @@ def upload_invoice_document(
         )
 
     # ---------------------------------------------------------
-    # 7. Check size before reading, if available
+    # 7. Validate declared size
     # ---------------------------------------------------------
 
     if getattr(file, "size", None) is not None:
-
         if file.size > MAX_FILE_SIZE:
             raise ValueError(
                 "Maximum file size is 10 MB."
             )
 
     # ---------------------------------------------------------
-    # 8. Read file contents
+    # 8. Read contents for validation
     # ---------------------------------------------------------
 
     contents = file.file.read()
 
     # ---------------------------------------------------------
-    # 9. Validate actual file size
+    # 9. Validate actual size
     # ---------------------------------------------------------
 
     if len(contents) > MAX_FILE_SIZE:
@@ -1531,94 +1486,43 @@ def upload_invoice_document(
         )
 
     # ---------------------------------------------------------
-    # 10. Validate actual PDF signature
+    # 10. Validate PDF signature
     # ---------------------------------------------------------
 
-    signature = contents[:5]
-
-    if signature != b"%PDF-":
+    if contents[:5] != b"%PDF-":
         raise ValueError(
             "Invalid PDF signature."
         )
 
-    # ---------------------------------------------------------
-    # 11. Resolve upload root
-    # ---------------------------------------------------------
-
-    upload_root = Path(
-        UPLOAD_DIR
-    ).resolve()
+    # Reset pointer because MinIO upload reads from the file.
+    file.file.seek(0)
 
     # ---------------------------------------------------------
-    # 12. Build safe invoice filename
+    # 11. Upload directly to MinIO
     # ---------------------------------------------------------
 
-    safe_invoice_number = os.path.basename(
-        invoice_number
-    )
-
-    filename = (
-        f"{safe_invoice_number}.pdf"
-    )
-
-    # ---------------------------------------------------------
-    # 13. Build supplier directory
-    # ---------------------------------------------------------
-
-    supplier_directory = (
-        upload_root / supplier_id
-    )
-
-    # ---------------------------------------------------------
-    # 14. Build and resolve final path
-    # ---------------------------------------------------------
-
-    final_path = (
-        supplier_directory / filename
-    ).resolve()
-
-    # ---------------------------------------------------------
-    # 15. Protect against path traversal
-    # ---------------------------------------------------------
-
-    if not final_path.is_relative_to(
-        upload_root
-    ):
-        raise ValueError(
-            "Invalid file path."
+    try:
+        object_key = (
+            document_storage_service.upload_invoice_document(
+                supplier_id=supplier_id,
+                invoice_number=invoice_number,
+                file=file,
+            )
         )
 
-    # ---------------------------------------------------------
-    # 16. Create directory only after path validation
-    # ---------------------------------------------------------
-
-    supplier_directory.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    except DocumentUploadError:
+        # Preserve the storage-specific exception.
+        # The API route maps this to HTTP 502 Bad Gateway.
+        raise
 
     # ---------------------------------------------------------
-    # 17. Save PDF
+    # 12. Store MinIO object key in invoice metadata
     # ---------------------------------------------------------
 
-    with open(
-        final_path,
-        "wb",
-    ) as f:
-        f.write(contents)
+    invoice["document_path"] = object_key
 
-    # ---------------------------------------------------------
-    # 18. Store relative document path and public URL
-    # ---------------------------------------------------------
-
-    relative_path = (
-        Path(supplier_id) / filename
-    )
-
-    invoice["document_path"] = str(
-        relative_path
-    ).replace("\\", "/")
-
+    # This remains the stable API endpoint.
+    # It is NOT a permanent MinIO URL.
     invoice["document_url"] = (
         f"/api/v1/invoices/"
         f"{supplier_id}/"
@@ -1628,7 +1532,7 @@ def upload_invoice_document(
     invoices[invoice_key] = invoice
 
     # ---------------------------------------------------------
-    # 19. Return updated invoice
+    # 13. Return updated invoice
     # ---------------------------------------------------------
 
     return invoice
@@ -1638,11 +1542,10 @@ def get_invoice_document(
     invoice_number: str,
 ):
     """
-    Return the stored invoice document path.
+    Return the MinIO object key for an invoice document.
 
-    The invoice is identified using BOTH:
-        supplier_id
-        invoice_number
+    This function does not return a local filesystem path
+    and does not expose a permanent storage URL.
     """
 
     # ---------------------------------------------------------
@@ -1685,7 +1588,7 @@ def get_invoice_document(
     )
 
     # ---------------------------------------------------------
-    # 5. Validate invoice exists for this supplier
+    # 5. Validate invoice exists
     # ---------------------------------------------------------
 
     if invoice_key not in invoices:
@@ -1696,7 +1599,7 @@ def get_invoice_document(
         )
 
     # ---------------------------------------------------------
-    # 6. Get stored document path
+    # 6. Get MinIO object key
     # ---------------------------------------------------------
 
     document_path = invoices[
@@ -1704,10 +1607,6 @@ def get_invoice_document(
     ].get(
         "document_path"
     )
-
-    # ---------------------------------------------------------
-    # 7. Validate document is associated
-    # ---------------------------------------------------------
 
     if not document_path:
         raise ValueError(
@@ -1717,403 +1616,348 @@ def get_invoice_document(
         )
 
     # ---------------------------------------------------------
-    # 8. Resolve stored relative path safely
+    # 7. Return MinIO object key
     # ---------------------------------------------------------
 
-    filepath = resolve_document_path(
-        document_path
-    )
-
-    # ---------------------------------------------------------
-    # 9. Validate file still exists
-    # ---------------------------------------------------------
-
-    if not os.path.exists(filepath):
-        raise ValueError(
-            f"Invoice document does not exist for "
-            f"invoice '{invoice_number}' "
-            f"and supplier '{supplier_id}'."
-        )
-
-    # ---------------------------------------------------------
-    # 10. Return document path
-    # ---------------------------------------------------------
-
-    return str(filepath)
-
+    return document_path
 
 def find_orphaned_invoice_files(
     older_than_days: int = 1,
 ):
     """
-    Find invoice PDF files that are considered orphaned.
+    Find invoice PDF objects in MinIO that are considered
+    orphaned.
 
-    A file is considered orphaned when:
+    Invoice documents are stored under:
 
-    1. It is a PDF inside the invoice upload directory.
-    2. The file is older than `older_than_days`.
+        suppliers/{supplier_id}/invoices/{invoice_number}.pdf
+
+    An object is considered orphaned when:
+
+    1. It is an invoice PDF stored in MinIO.
+    2. It is older than `older_than_days`.
     3. One of the following is true:
 
        a) The corresponding invoice does not exist.
 
-       b) The corresponding invoice exists but is NOT in
-          a terminal state.
+       b) The invoice exists but has no registered document_path.
 
-    Terminal invoice states are:
+       c) The registered document_path does not match
+          the MinIO object key.
+
+       d) The invoice exists but is still in a non-terminal
+          state and the document has remained there beyond
+          the configured threshold.
+
+    Terminal invoice states:
 
         approved
         rejected
 
-    Non-terminal states are:
+    Non-terminal states:
 
         submitted
         disputed
         adjusted
 
-    This prevents recently uploaded files from being
-    incorrectly identified as orphaned.
+    Recently uploaded objects are never returned as orphaned.
     """
 
-    # ---------------------------------------------------------
+    # =========================================================
     # 1. Validate threshold
-    # ---------------------------------------------------------
+    # =========================================================
 
     if older_than_days < 0:
         raise ValueError(
-            "older_than_days must be greater than or equal to zero."
+            "older_than_days must be greater than "
+            "or equal to zero."
         )
 
     orphaned_files = []
 
-    upload_root = Path(
-        UPLOAD_DIR
-    ).resolve()
-
-    # ---------------------------------------------------------
-    # 2. Upload directory does not exist
-    # ---------------------------------------------------------
-
-    if not upload_root.exists():
-        return orphaned_files
-
-    # ---------------------------------------------------------
-    # 3. Calculate age threshold
-    # ---------------------------------------------------------
-
-    now = datetime.now(timezone.utc)
-
-    threshold_seconds = (
-        older_than_days * 24 * 60 * 60
+    now = datetime.now(
+        timezone.utc
     )
 
-    # ---------------------------------------------------------
-    # 4. Search supplier directories
-    # ---------------------------------------------------------
+    threshold_seconds = (
+        older_than_days
+        * 24
+        * 60
+        * 60
+    )
 
-    for supplier_directory in upload_root.iterdir():
+    # =========================================================
+    # 2. List invoice objects from MinIO
+    # =========================================================
 
-        if not supplier_directory.is_dir():
+    try:
+        objects = (
+            document_storage_service.list_objects(
+                prefix="suppliers/"
+            )
+        )
+
+    except DocumentStorageError:
+        # Storage outage, not a bad request: the route maps it to 502.
+        raise
+
+    # =========================================================
+    # 3. Inspect every MinIO object
+    # =========================================================
+
+    for obj in objects:
+
+        object_key = obj.object_name
+
+        # -----------------------------------------------------
+        # Only inspect supplier invoice objects.
+        #
+        # Expected:
+        #
+        # suppliers/SUP001/invoices/INV1001.pdf
+        # -----------------------------------------------------
+
+        parts = object_key.split("/")
+
+        if len(parts) != 4:
             continue
 
-        supplier_id = supplier_directory.name
+        if parts[0] != "suppliers":
+            continue
+
+        if parts[2] != "invoices":
+            continue
+
+        file_name = parts[3]
 
         # -----------------------------------------------------
-        # 5. Search files
+        # Only PDF invoice documents
         # -----------------------------------------------------
 
-        for file_path in supplier_directory.iterdir():
-            if not file_path.is_file():
-                continue
+        if not file_name.lower().endswith(
+            ".pdf"
+        ):
+            continue
 
-            # We only manage PDF invoice files
-            if file_path.suffix.lower() != ".pdf":
-                continue
+        supplier_id = parts[1]
 
-            # -------------------------------------------------
-            # 6. Get file modification time
-            #
-            # This represents when the file was last uploaded/
-            # modified in our local filesystem.
-            # -------------------------------------------------
+        # -----------------------------------------------------
+        # Extract invoice number
+        #
+        # INV1001.pdf -> INV1001
+        # -----------------------------------------------------
 
-            try:
-                file_modified_timestamp = (
-                    file_path.stat().st_mtime
+        invoice_number = file_name[
+            :-len(".pdf")
+        ]
+
+        if not invoice_number:
+            continue
+
+        # =====================================================
+        # 4. Get MinIO object modification time
+        # =====================================================
+
+        last_modified = obj.last_modified
+
+        if last_modified is None:
+            continue
+
+        if last_modified.tzinfo is None:
+            last_modified = (
+                last_modified.replace(
+                    tzinfo=timezone.utc
                 )
-
-            except OSError:
-                # File may have disappeared while scanning.
-                continue
-
-            file_modified_time = datetime.fromtimestamp(
-                file_modified_timestamp,
-                tz=timezone.utc,
+            )
+        else:
+            last_modified = (
+                last_modified.astimezone(
+                    timezone.utc
+                )
             )
 
-            file_age_seconds = (
-                now - file_modified_time
-            ).total_seconds()
+        file_age_seconds = (
+            now - last_modified
+        ).total_seconds()
 
-            # -------------------------------------------------
-            # 7. Ignore recent files
-            # -------------------------------------------------
+        # -----------------------------------------------------
+        # Protect recent files
+        # -----------------------------------------------------
 
-            if file_age_seconds < threshold_seconds:
-                continue
+        if file_age_seconds < threshold_seconds:
+            continue
 
-            # -------------------------------------------------
-            # 8. Extract invoice number
-            # -------------------------------------------------
+        file_age_days = round(
+            file_age_seconds
+            / (24 * 60 * 60),
+            2,
+        )
 
-            invoice_number = file_path.stem
+        size_bytes = getattr(
+            obj,
+            "size",
+            0,
+        )
 
-            # -------------------------------------------------
-            # 9. Build supplier-scoped invoice key
-            # -------------------------------------------------
+        # =====================================================
+        # 5. Supplier-scoped invoice lookup
+        # =====================================================
 
-            invoice_key = (
-                supplier_id,
-                invoice_number,
-            )
+        invoice_key = (
+            supplier_id,
+            invoice_number,
+        )
 
-            # -------------------------------------------------
-            # 10. Check whether invoice exists
-            # -------------------------------------------------
+        invoice = invoices.get(
+            invoice_key
+        )
 
-            invoice = invoices.get(
-                invoice_key
-            )
+        base_data = {
+            "invoice_number": invoice_number,
+            "supplier_id": supplier_id,
+            "file_path": object_key,
+            "file_name": file_name,
+            "size_bytes": size_bytes,
+            "file_age_days": file_age_days,
+        }
 
-            # -------------------------------------------------
-            # Build safe relative file path
-            # -------------------------------------------------
+        # =====================================================
+        # CASE A
+        #
+        # MinIO object exists but invoice does not.
+        # =====================================================
 
-            relative_file_path = str(
-                file_path.relative_to(
-                    upload_root
-                )
-            ).replace("\\", "/")
-
-            # -------------------------------------------------
-            # CASE A:
-            # No corresponding invoice exists.
-            #
-            # The file is orphaned.
-            # -------------------------------------------------
-
-            if invoice is None:
-
-                orphaned_files.append(
-                    {
-                        "invoice_number": invoice_number,
-                        "supplier_id": supplier_id,
-                        "file_path": relative_file_path,
-                        "file_name": file_path.name,
-                        "size_bytes": file_path.stat().st_size,
-                        "invoice_status": None,
-                        "file_age_days": round(
-                            file_age_seconds / (
-                                24 * 60 * 60
-                            ),
-                            2,
-                        ),
-                        "reason": (
-                            "No matching invoice record exists."
-                        ),
-                    }
-                )
-
-                continue
-
-            # -------------------------------------------------
-            # 11. Get invoice status
-            # -------------------------------------------------
-
-            status = invoice.get(
-                "status"
-            )
-
-            if isinstance(status, str):
-                try:
-                    status = InvoiceStatus(status)
-
-                except ValueError:
-                    status = None
-
-            # -------------------------------------------------
-            # 12. Terminal states
-            #
-            # Approved and rejected invoices are completed.
-            # Their files must NOT be considered orphaned.
-            # -------------------------------------------------
-
-            terminal_states = {
-                InvoiceStatus.approved,
-                InvoiceStatus.rejected,
-            }
-
-            if status in terminal_states:
-                continue
-
-            # -------------------------------------------------
-            # 13. Verify document association
-            # -------------------------------------------------
-
-            document_path = invoice.get(
-                "document_path"
-            )
-
-            # -------------------------------------------------
-            # Case B:
-            # Invoice exists, but document_path is missing.
-            #
-            # The physical file has no registered association
-            # with the invoice.
-            # -------------------------------------------------
-
-            if not document_path:
-
-                orphaned_files.append(
-                    {
-                        "invoice_number": invoice_number,
-                        "supplier_id": supplier_id,
-                        "file_path": relative_file_path,
-                        "file_name": file_path.name,
-                        "size_bytes": file_path.stat().st_size,
-                        "invoice_status": (
-                            status.value
-                            if status is not None
-                            else None
-                        ),
-                        "file_age_days": round(
-                            file_age_seconds / (
-                                24 * 60 * 60
-                            ),
-                            2,
-                        ),
-                        "reason": (
-                            "Invoice is not in a terminal "
-                            "state and the file is not "
-                            "registered as its document."
-                        ),
-                    }
-                )
-
-                continue
-
-            # -------------------------------------------------
-            # 14. Verify stored document path
-            # -------------------------------------------------
-
-            try:
-
-                stored_path = (
-                    resolve_document_path(
-                        document_path
-                    )
-                )
-
-                current_path = (
-                    file_path.resolve()
-                )
-
-            except (OSError, ValueError):
-
-                orphaned_files.append(
-                    {
-                        "invoice_number": invoice_number,
-                        "supplier_id": supplier_id,
-                        "file_path": relative_file_path,
-                        "file_name": file_path.name,
-                        "size_bytes": file_path.stat().st_size,
-                        "invoice_status": (
-                            status.value
-                            if status is not None
-                            else None
-                        ),
-                        "file_age_days": round(
-                            file_age_seconds / (
-                                24 * 60 * 60
-                            ),
-                            2,
-                        ),
-                        "reason": (
-                            "Invoice document path "
-                            "could not be resolved."
-                        ),
-                    }
-                )
-
-                continue
-
-            # -------------------------------------------------
-            # 15. File path does not match invoice document
-            # -------------------------------------------------
-
-            if stored_path != current_path:
-
-                orphaned_files.append(
-                    {
-                        "invoice_number": invoice_number,
-                        "supplier_id": supplier_id,
-                        "file_path": relative_file_path,
-                        "file_name": file_path.name,
-                        "size_bytes": file_path.stat().st_size,
-                        "invoice_status": (
-                            status.value
-                            if status is not None
-                            else None
-                        ),
-                        "file_age_days": round(
-                            file_age_seconds / (
-                                24 * 60 * 60
-                            ),
-                            2,
-                        ),
-                        "reason": (
-                            "File path does not match "
-                            "the invoice document."
-                        ),
-                    }
-                )
-
-                continue
-
-            # -------------------------------------------------
-            # 16. Important:
-            #
-            # The invoice exists, is non-terminal and the
-            # file belongs to it.
-            #
-            # According to the requirement, the invoice was
-            # never completed, so this old file is orphaned.
-            # -------------------------------------------------
+        if invoice is None:
 
             orphaned_files.append(
                 {
-                    "invoice_number": invoice_number,
-                    "supplier_id": supplier_id,
-                    "file_path": relative_file_path,
-                    "file_name": file_path.name,
-                    "size_bytes": file_path.stat().st_size,
+                    **base_data,
+                    "invoice_status": None,
+                    "reason": (
+                        "No matching invoice record exists."
+                    ),
+                }
+            )
+
+            continue
+
+        # =====================================================
+        # 6. Normalize invoice status
+        # =====================================================
+
+        status = invoice.get(
+            "status"
+        )
+
+        if isinstance(
+            status,
+            str,
+        ):
+            try:
+                status = InvoiceStatus(
+                    status
+                )
+
+            except ValueError:
+                status = None
+
+        # =====================================================
+        # 7. Terminal invoices are protected
+        #
+        # Approved and rejected invoices are completed.
+        # Their documents must NOT be orphaned.
+        # =====================================================
+
+        terminal_states = {
+            InvoiceStatus.approved,
+            InvoiceStatus.rejected,
+        }
+
+        if status in terminal_states:
+            continue
+
+        # =====================================================
+        # 8. Get registered MinIO object key
+        # =====================================================
+
+        document_path = invoice.get(
+            "document_path"
+        )
+
+        # =====================================================
+        # CASE B
+        #
+        # Invoice exists but document is not registered.
+        # =====================================================
+
+        if not document_path:
+
+            orphaned_files.append(
+                {
+                    **base_data,
                     "invoice_status": (
                         status.value
                         if status is not None
                         else None
                     ),
-                    "file_age_days": round(
-                        file_age_seconds / (
-                            24 * 60 * 60
-                        ),
-                        2,
-                    ),
                     "reason": (
                         "Invoice is not in a terminal "
-                        "state and has remained incomplete "
-                        "beyond the configured age threshold."
+                        "state and the file is not "
+                        "registered as its document."
                     ),
                 }
             )
+
+            continue
+
+        # =====================================================
+        # CASE C
+        #
+        # Object exists under a different key than the one
+        # registered against the invoice.
+        # =====================================================
+
+        if document_path != object_key:
+
+            orphaned_files.append(
+                {
+                    **base_data,
+                    "invoice_status": (
+                        status.value
+                        if status is not None
+                        else None
+                    ),
+                    "reason": (
+                        "File object key does not match "
+                        "the invoice document."
+                    ),
+                }
+            )
+
+            continue
+
+        # =====================================================
+        # CASE D
+        #
+        # Invoice exists and object is its registered document,
+        # but invoice is still non-terminal beyond threshold.
+        # =====================================================
+
+        orphaned_files.append(
+            {
+                **base_data,
+                "invoice_status": (
+                    status.value
+                    if status is not None
+                    else None
+                ),
+                "reason": (
+                    "Invoice is not in a terminal "
+                    "state and has remained incomplete "
+                    "beyond the configured age threshold."
+                ),
+            }
+        )
 
     return orphaned_files
 
@@ -2121,53 +1965,56 @@ def purge_orphaned_invoice_files(
     older_than_days: int = 1,
 ):
     """
-    Delete invoice PDF files identified as orphaned.
+    Delete invoice PDF objects identified as orphaned
+    from MinIO.
 
-    The same `older_than_days` threshold used by
-    find_orphaned_invoice_files() is applied here.
+    Only objects returned by
+    find_orphaned_invoice_files() are considered.
 
-    This protects recently uploaded files from accidental
-    deletion.
+    Recently uploaded objects are protected by the same
+    age threshold.
     """
 
-    # ---------------------------------------------------------
-    # 1. Find only files older than the requested threshold
-    # ---------------------------------------------------------
+    # =========================================================
+    # 1. Find orphaned MinIO objects
+    # =========================================================
 
-    orphaned_files = find_orphaned_invoice_files(
-        older_than_days=older_than_days,
+    orphaned_files = (
+        find_orphaned_invoice_files(
+            older_than_days=older_than_days,
+        )
     )
 
     deleted_files = []
 
-    # ---------------------------------------------------------
-    # 2. Delete orphaned files
-    # ---------------------------------------------------------
+    # =========================================================
+    # 2. Delete each orphan from MinIO
+    # =========================================================
 
     for orphan in orphaned_files:
 
-        file_path = resolve_document_path(
-            orphan["file_path"]
-        )
+        object_key = orphan[
+            "file_path"
+        ]
 
         try:
 
-            if file_path.exists():
+            document_storage_service.delete_object(
+                object_key=object_key,
+            )
 
-                file_path.unlink()
+            deleted_files.append(
+                orphan
+            )
 
-                deleted_files.append(
-                    orphan
-                )
-
-        except OSError:
-            # If one file cannot be deleted,
-            # continue processing the remaining files.
+        except DocumentStorageError:
+            # One object failing to delete must not prevent
+            # the remaining orphaned objects from processing.
             continue
 
-    # ---------------------------------------------------------
+    # =========================================================
     # 3. Return purge result
-    # ---------------------------------------------------------
+    # =========================================================
 
     return {
         "total": len(

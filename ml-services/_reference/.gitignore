@@ -1,0 +1,20 @@
+/mlruns/
+
+/models/
+
+# Runtime state written by the service and by training
+/data/monitoring.db
+/data/governance.json
+
+# Generated reports
+/reports/
+
+# DVC cache
+/.dvc/cache/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Local environment
+.venv/

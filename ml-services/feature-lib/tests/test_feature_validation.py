@@ -1,13 +1,13 @@
 import pandas as pd
 import numpy as np
 import pytest
-from src.build_features import (
+from feature_lib.build_features import (
     build_all_features,
     _build_v1_lag_features,
     _build_v1_rolling_features,
 )
-from src.lag_features import add_lag_features
-from src.rolling_features import add_rolling_features
+from feature_lib.lag_features import add_lag_features
+from feature_lib.rolling_features import add_rolling_features
 
 def test_lag_features_missing_target_column():
     df = pd.DataFrame({

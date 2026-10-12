@@ -3,20 +3,25 @@ Train Iris classifier.
 
 Workflow:
 
-1. Load data
+1. Load data from the DVC-tracked processed.csv
 2. Train model
-3. Evaluate model
-4. Log metrics to MLflow
-5. Register model
-6. Assign staging alias
-7. Run quality gate
-8. Request governance approval
-9. Promote only if governance approval exists
+3. Save standalone model for BentoML
+4. Evaluate model
+5. Log metrics to MLflow
+6. Link MLflow run to exact DVC data version
+7. Register model
+8. Assign staging alias
+9. Run quality gate
+10. Request governance approval
+11. Promote only if governance approval exists
 
 Production promotion is blocked when governance approval
 has not been granted for the exact model version.
 """
 
+from pathlib import Path
+
+import joblib
 from sklearn.ensemble import RandomForestClassifier
 
 from src.config import (
@@ -31,7 +36,12 @@ from src.config import (
 )
 
 from src.data import load_data
+
 from src.evaluate import evaluate
+
+from src.dvc_utils import (
+    get_training_data_version,
+)
 
 from src.mlflow_utils import (
     set_experiment,
@@ -39,44 +49,73 @@ from src.mlflow_utils import (
     log_params,
     log_metrics,
     log_model,
+    log_artifact,
     set_tags,
     assign_staging,
     promote_model,
 )
 
-from src.governance import governance_manager
+from src.governance import (
+    governance_manager,
+)
 
 
 def train():
-    """
-    Complete training pipeline.
-    """
-
-    # ======================================================
-    # 1. Configure MLflow experiment
-    # ======================================================
 
     set_experiment(
         EXPERIMENT_NAME
     )
 
-    # ======================================================
-    # 2. Load training data
-    # ======================================================
-
+    # ---------------------------------------------------------
+    # LOAD DVC-TRACKED TRAINING DATA
+    # ---------------------------------------------------------
+    #
+    # load_data() now reads:
+    #
+    # data/reference/processed.csv
+    #
+    # This means the model is trained on the exact data
+    # produced by the DVC pipeline.
+    #
     X_train, X_test, y_train, y_test = load_data()
-
-    # ======================================================
-    # 3. Start MLflow run
-    # ======================================================
 
     with start_run(
         "RandomForest_Training"
     ):
 
-        # ==================================================
-        # 4. Create model
-        # ==================================================
+        # -----------------------------------------------------
+        # DVC DATA VERSION
+        # -----------------------------------------------------
+        #
+        # Record the MD5 of the exact file load_data() reads.
+        # Also compare it with the MD5 recorded by dvc.lock.
+        #
+        data_version = (
+            get_training_data_version()
+        )
+
+        print(
+            "\nTraining data version:"
+        )
+
+        print(
+            "  Dataset          : "
+            f"{data_version['training_data_path']}"
+        )
+
+        print(
+            "  MD5              : "
+            f"{data_version['training_data_md5']}"
+        )
+
+        print(
+            "  Matches dvc.lock : "
+            f"{data_version['matches_dvc_lock']}"
+        )
+
+        # -----------------------------------------------------
+        # MODEL TRAINING
+        # -----------------------------------------------------
 
         model = RandomForestClassifier(
             n_estimators=N_ESTIMATORS,
@@ -84,18 +123,42 @@ def train():
             random_state=RANDOM_STATE,
         )
 
-        # ==================================================
-        # 5. Train model
-        # ==================================================
-
         model.fit(
             X_train,
             y_train,
         )
 
-        # ==================================================
-        # 6. Evaluate model
-        # ==================================================
+        # -----------------------------------------------------
+        # SAVE STANDALONE MODEL FOR BENTOML
+        # -----------------------------------------------------
+
+        model_dir = Path(
+            "models"
+        )
+
+        model_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        model_path = (
+            model_dir
+            / "model.pkl"
+        )
+
+        joblib.dump(
+            model,
+            model_path,
+        )
+
+        print(
+            "\nStandalone BentoML model saved to: "
+            f"{model_path}"
+        )
+
+        # -----------------------------------------------------
+        # EVALUATION
+        # -----------------------------------------------------
 
         accuracy, precision, recall, f1 = evaluate(
             model,
@@ -103,24 +166,30 @@ def train():
             y_test,
         )
 
-        # ==================================================
-        # 7. Log parameters
-        # ==================================================
+        # -----------------------------------------------------
+        # MLflow PARAMETERS
+        # -----------------------------------------------------
 
         log_params(
             {
                 "algorithm": (
                     "RandomForestClassifier"
                 ),
-                "n_estimators": N_ESTIMATORS,
-                "max_depth": MAX_DEPTH,
-                "random_state": RANDOM_STATE,
+                "n_estimators": (
+                    N_ESTIMATORS
+                ),
+                "max_depth": (
+                    MAX_DEPTH
+                ),
+                "random_state": (
+                    RANDOM_STATE
+                ),
             }
         )
 
-        # ==================================================
-        # 8. Log metrics
-        # ==================================================
+        # -----------------------------------------------------
+        # MLflow METRICS
+        # -----------------------------------------------------
 
         log_metrics(
             {
@@ -131,9 +200,9 @@ def train():
             }
         )
 
-        # ==================================================
-        # 9. Add MLflow tags
-        # ==================================================
+        # -----------------------------------------------------
+        # MLflow TAGS
+        # -----------------------------------------------------
 
         set_tags(
             {
@@ -142,12 +211,36 @@ def train():
                 "workflow": (
                     "staging_to_production"
                 ),
+
+                # BentoML traceability
+                "bentoml_model_path": str(
+                    model_path
+                ),
+
+                # DVC traceability:
+                # exact data file used for training
+                **data_version,
+
+                "dvc_pipeline": "dvc.yaml",
             }
         )
 
-        # ==================================================
-        # 10. Register model
-        # ==================================================
+        # -----------------------------------------------------
+        # LOG DVC LOCK AS MLflow ARTIFACT
+        # -----------------------------------------------------
+
+        dvc_lock_file = Path(
+            "dvc.lock"
+        )
+
+        if dvc_lock_file.exists():
+            log_artifact(
+                str(dvc_lock_file)
+            )
+
+        # -----------------------------------------------------
+        # REGISTER MODEL IN MLflow
+        # -----------------------------------------------------
 
         model_info = log_model(
             model=model,
@@ -155,9 +248,9 @@ def train():
             registered_model_name=MODEL_NAME,
         )
 
-        # ==================================================
-        # 11. Assign latest version to staging
-        # ==================================================
+        # -----------------------------------------------------
+        # ASSIGN STAGING
+        # -----------------------------------------------------
 
         staging_version = assign_staging(
             MODEL_NAME
@@ -167,15 +260,11 @@ def train():
             staging_version
         )
 
-        # ==================================================
-        # 12. Production promotion
-        # ==================================================
-
         production_version = None
 
-        # --------------------------------------------------
-        # Quality gate
-        # --------------------------------------------------
+        # -----------------------------------------------------
+        # QUALITY GATE
+        # -----------------------------------------------------
 
         if should_promote(
             accuracy
@@ -187,9 +276,9 @@ def train():
                 f"{PROMOTION_ACCURACY_THRESHOLD:.2f})"
             )
 
-            # ----------------------------------------------
-            # Create governance request
-            # ----------------------------------------------
+            # -------------------------------------------------
+            # GOVERNANCE APPROVAL REQUEST
+            # -------------------------------------------------
 
             governance_request = (
                 governance_manager.request_approval(
@@ -208,35 +297,31 @@ def train():
             )
 
             print(
-                f"Model Version    : "
+                "Model Version    : "
                 f"{governance_request.model_version}"
             )
 
             print(
-                f"Governance Status: "
+                "Governance Status: "
                 f"{governance_request.status}"
             )
 
-            # ----------------------------------------------
-            # Governance gate
-            # ----------------------------------------------
-            #
-            # A freshly trained version is normally still
-            # pending. That is the expected outcome, not
-            # an error: we stop at staging and tell the
-            # operator exactly what to run next.
-            # ----------------------------------------------
+            # -------------------------------------------------
+            # GOVERNANCE APPROVAL CHECK
+            # -------------------------------------------------
 
             if governance_manager.is_approved(
                 model_name=MODEL_NAME,
                 model_version=staging_version,
             ):
 
-                production_version = promote_model(
-                    model_name=MODEL_NAME,
-                    from_alias="staging",
-                    to_alias="production",
-                    expected_version=staging_version,
+                production_version = (
+                    promote_model(
+                        model_name=MODEL_NAME,
+                        from_alias="staging",
+                        to_alias="production",
+                        expected_version=staging_version,
+                    )
                 )
 
             else:
@@ -255,15 +340,17 @@ def train():
                 )
 
                 print(
-                    f"  Approve : python -m src.approve_model "
+                    f"  Approve : python -m "
+                    f"src.approve_model "
                     f"{MODEL_NAME} "
-                    f'{staging_version} '
-                    f'<approver_name> '
+                    f"{staging_version} "
+                    f"<approver_name> "
                     f'"<reason>"'
                 )
 
                 print(
-                    f"  Promote : python -m src.promote_approved_model "
+                    f"  Promote : python -m "
+                    f"src.promote_approved_model "
                     f"{MODEL_NAME} "
                     f"{staging_version}"
                 )
@@ -276,9 +363,9 @@ def train():
                 f"{PROMOTION_ACCURACY_THRESHOLD:.2f})"
             )
 
-        # ==================================================
-        # 13. Training summary
-        # ==================================================
+        # -----------------------------------------------------
+        # TRAINING SUMMARY
+        # -----------------------------------------------------
 
         print(
             "\n" + "=" * 60
@@ -311,7 +398,8 @@ def train():
         else:
 
             print(
-                "Production Version: Not promoted"
+                "Production Version: "
+                "Not promoted"
             )
 
         print(
@@ -337,6 +425,23 @@ def train():
         print(
             f"Model URI         : "
             f"{model_info.model_uri}"
+        )
+
+        print(
+            f"Bento Model Path  : "
+            f"{model_path}"
+        )
+
+        print(
+            f"Training Data     : "
+            f"{data_version['training_data_path']}"
+        )
+
+        print(
+            f"Training Data MD5 : "
+            f"{data_version['training_data_md5']} "
+            f"(matches dvc.lock: "
+            f"{data_version['matches_dvc_lock']})"
         )
 
         print(

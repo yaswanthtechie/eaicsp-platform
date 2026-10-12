@@ -17,7 +17,7 @@ from src.config import (
     get_settings,
 )
 from src.data import (
-    load_headlines,
+    load_headlines_from_json,
     load_15_company_dataset,
     load_15_company_trend_dataset,
 )
@@ -245,7 +245,7 @@ def test_evaluate_dataset_structure():
 
 def test_baseline_dataset_preservation():
     """Verify original 10-company dataset loader remains intact and operational."""
-    baseline = load_headlines()
+    baseline = load_headlines_from_json()
     assert len(baseline) == 10
     assert "Apex Logistics" in baseline
     assert "Boeing" in baseline

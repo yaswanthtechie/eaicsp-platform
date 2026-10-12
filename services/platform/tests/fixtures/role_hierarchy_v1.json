@@ -1,0 +1,39 @@
+{
+  "ceo": [
+    "ceo",
+    "vp_operations",
+    "procurement_manager",
+    "logistics_manager",
+    "compliance_officer",
+    "warehouse_manager",
+    "analyst",
+    "supplier"
+  ],
+  "vp_operations": [
+    "vp_operations",
+    "procurement_manager",
+    "logistics_manager",
+    "compliance_officer",
+    "warehouse_manager",
+    "analyst",
+    "supplier"
+  ],
+  "procurement_manager": [
+    "procurement_manager"
+  ],
+  "logistics_manager": [
+    "logistics_manager"
+  ],
+  "compliance_officer": [
+    "compliance_officer"
+  ],
+  "warehouse_manager": [
+    "warehouse_manager"
+  ],
+  "analyst": [
+    "analyst"
+  ],
+  "supplier": [
+    "supplier"
+  ]
+}

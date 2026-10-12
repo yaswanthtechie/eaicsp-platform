@@ -3,8 +3,13 @@ Data loading module for the Supplier Risk NLP pipeline.
 """
 
 import json
+import logging
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
+
+from src.db import fetch_headlines_grouped, fetch_trend_headlines_grouped
+
+logger = logging.getLogger(__name__)
 
 # ------------------------------------------------------------------
 # Sample Supplier Headlines (fallback when JSON dataset unavailable)
@@ -139,39 +144,61 @@ def _load_from_json() -> List[Dict[str, str]]:
     return []
 
 
-def load_headlines() -> Dict[str, List[str]]:
+BASELINE_TREND_PATH = Path(__file__).parent / "supplier_trend_headlines.json"
+ACTIVE_TREND_PATH = Path(__file__).parent / "supplier_trend_headlines_25.json"
+
+
+def load_headlines_from_json() -> Dict[str, List[str]]:
+    """
+    Read the committed baseline dataset directly from JSON (never MongoDB).
+    Used by tests, benchmarks and the Mongo-vs-JSON equivalence check.
+    """
+    grouped: Dict[str, List[str]] = {}
+    for item in _load_from_json() or HEADLINES_DATA:
+        supplier = item.get("supplier")
+        headline = item.get("headline")
+        if supplier and headline:
+            grouped.setdefault(supplier, []).append(headline)
+    return grouped
+
+
+def load_headlines(
+    use_fallback: bool = False,
+) -> Dict[str, List[str]]:
     """
     Load supplier news headlines grouped by supplier.
 
-    Priority:
-        1. Load the 120-headline / 10-company Round 5 calibration
-           dataset from ``supplier_headlines.json`` when available.
-        2. Fall back to the smaller inline ``HEADLINES_DATA`` sample.
+    MongoDB is the authoritative runtime data source.
+    If MongoDB is unreachable or the collection is empty:
+    - If use_fallback=True (test mode or explicit override), loads from
+      supplier_headlines.json or inline HEADLINES_DATA.
+    - Otherwise raises RuntimeError.
 
     Returns:
         Dict[str, List[str]]:
             Dictionary where the key is the supplier name and
             the value is a list of associated news headlines.
     """
+    try:
+        mongo_data = fetch_headlines_grouped()
+        if mongo_data:
+            return mongo_data
+    except Exception as exc:
+        logger.warning("Failed to load headlines from MongoDB: %s", exc)
+        if not use_fallback:
+            raise RuntimeError(
+                f"MongoDB is the authoritative runtime data source for supplier risk scoring, "
+                f"but querying failed: {exc}. Ensure the supplier-risk-mongo container is running "
+                f"and run 'python -m src.migrate' to populate the collection."
+            ) from exc
 
-    source_data = _load_from_json() or HEADLINES_DATA
+    if not use_fallback:
+        raise RuntimeError(
+            "MongoDB is the authoritative runtime data source for supplier risk scoring, "
+            "but the headlines collection is empty. Run 'python -m src.migrate' to import articles."
+        )
 
-    grouped_headlines: Dict[str, List[str]] = {}
-
-    for item in source_data:
-
-        supplier = item.get("supplier")
-        headline = item.get("headline")
-
-        if not supplier or not headline:
-            continue
-
-        grouped_headlines.setdefault(
-            supplier,
-            [],
-        ).append(headline)
-
-    return grouped_headlines
+    return load_headlines_from_json()
 
 
 # ------------------------------------------------------------------
@@ -283,22 +310,65 @@ def _load_trend_from_json(json_path: Path | None = None) -> List[Dict[str, str]]
     return []
 
 
-def load_trend_headlines(json_path: Path | None = None) -> Dict[str, List[Dict[str, str]]]:
+def load_trend_headlines(
+    json_path: Path | None = None,
+    use_fallback: bool = False,
+) -> Dict[str, List[Dict[str, str]]]:
     """
     Load date-aware supplier news headlines grouped by supplier.
 
-    Priority:
-        1. Load from supplier_trend_headlines.json when available.
-        2. Fall back to the inline TREND_HEADLINES_DATA sample.
+    When json_path is provided, loads directly from that JSON file (used for benchmark
+    datasets and test fixtures).
+    Otherwise, MongoDB is the authoritative runtime data source.
+    If MongoDB is unreachable or empty:
+    - If use_fallback=True, falls back to supplier_trend_headlines.json.
+    - Otherwise raises RuntimeError.
 
     Returns:
         Dict[str, List[Dict[str, str]]]:
             Dictionary where the key is supplier name and value is a list of
             date-aware records: [{'date': 'YYYY-MM-DD', 'headline': '...'}]
     """
-    source_data = _load_trend_from_json(json_path) or TREND_HEADLINES_DATA
+    if json_path is not None:
+        source_data = _load_trend_from_json(json_path)
+        grouped: Dict[str, List[Dict[str, str]]] = {}
+        for item in source_data:
+            supplier = item.get("supplier")
+            date_str = item.get("date")
+            headline = item.get("headline")
+            if not supplier or not date_str or not headline:
+                continue
+            grouped.setdefault(supplier, []).append(
+                {
+                    "date": date_str,
+                    "headline": headline,
+                }
+            )
+        return grouped
 
-    grouped: Dict[str, List[Dict[str, str]]] = {}
+    try:
+        mongo_trend = fetch_trend_headlines_grouped()
+        if mongo_trend:
+            return mongo_trend
+    except Exception as exc:
+        logger.warning("Failed to load trend headlines from MongoDB: %s", exc)
+        if not use_fallback:
+            raise RuntimeError(
+                f"MongoDB is the authoritative runtime data source for supplier risk trend scoring, "
+                f"but querying failed: {exc}. Ensure the supplier-risk-mongo container is running "
+                f"and run 'python -m src.migrate' to populate the collection."
+            ) from exc
+
+    if not use_fallback:
+        raise RuntimeError(
+            "MongoDB is the authoritative runtime data source for supplier risk trend scoring, "
+            "but the headlines collection contains no date-aware records. "
+            "Run 'python -m src.migrate' to import articles."
+        )
+
+    source_data = _load_trend_from_json(None) or TREND_HEADLINES_DATA
+
+    grouped = {}
 
     for item in source_data:
         supplier = item.get("supplier")
@@ -404,24 +474,9 @@ def load_25_company_trend_dataset(
 
 def load_active_trend_headlines() -> Dict[str, List[Dict[str, str]]]:
     """
-    Load date-aware supplier news headlines with fallback hierarchy:
-        1. 25-company benchmark trend dataset (supplier_trend_headlines_25.json) when available.
-        2. 15-company benchmark trend dataset (supplier_trend_headlines_15.json).
-        3. Fall back to the 10-company baseline trend dataset (supplier_trend_headlines.json).
-        4. Fall back to inline sample (TREND_HEADLINES_DATA).
-
-    Returns:
-        Dict[str, List[Dict[str, str]]]:
-            Dictionary where key is supplier name and value is list of date-aware records.
+    Runtime trend data for the API. MongoDB is the only source.
+    Populate it with: python -m src.migrate
+    (For the committed benchmark files, use load_25_company_trend_dataset()
+    or load_15_company_trend_dataset() explicitly.)
     """
-    h25 = Path(__file__).parent / "supplier_trend_headlines_25.json"
-    if h25.exists():
-        data_25 = load_25_company_trend_dataset(h25)
-        if data_25:
-            return data_25
-    h15 = Path(__file__).parent / "supplier_trend_headlines_15.json"
-    if h15.exists():
-        data_15 = load_15_company_trend_dataset(h15)
-        if data_15:
-            return data_15
     return load_trend_headlines()

@@ -1,4 +1,4 @@
-import type { ForecastPoint } from "../types/forecast";
+import type { ForecastPoint } from "../types/forecast.ts";
 
 export const forecast: ForecastPoint[] = [
   {

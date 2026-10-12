@@ -19,8 +19,47 @@ CALIBRATION_MODEL_PATH = (
 # ---------------------------------------------------------
 PREDICTION_INTERVAL_COVERAGE = 0.80
 
+# Below this many calibration rows the empirical interval is
+# noise rather than a calibrated bound. Unit tests train on
+# tiny fixtures on purpose, so train_model() stays permissive;
+# main.py enables this gate before production artifacts are
+# written.
+MIN_PRODUCTION_CALIBRATION_ROWS = 100
 
-def train_model(X_train, y_train):
+
+def check_production_calibration(calibration: dict) -> None:
+    """
+    Refuse to publish a prediction interval calibrated on too
+    little data.
+
+    An 80% empirical quantile taken over a handful of residuals
+    is not a calibrated interval, and a model trained on a test
+    fixture will happily produce one.
+
+    This check is called inside train_model() before any
+    production artifact is written to disk when the production
+    gate is enabled.
+    """
+
+    calibration_rows = int(
+        calibration.get("calibration_rows", 0)
+    )
+
+    if calibration_rows < MIN_PRODUCTION_CALIBRATION_ROWS:
+        raise ValueError(
+            "Prediction interval was calibrated on "
+            f"{calibration_rows} rows, which is below the production "
+            f"minimum of {MIN_PRODUCTION_CALIBRATION_ROWS}. "
+            "This usually means the model was trained on test fixture "
+            "data instead of the real dataset. Do not ship this artifact."
+        )
+
+
+def train_model(
+    X_train,
+    y_train,
+    enforce_production_gate: bool = False,
+):
     """
     Train and save the ETA pipeline.
 
@@ -41,6 +80,9 @@ def train_model(X_train, y_train):
 
         lower = prediction + residual_lower
         upper = prediction + residual_upper
+
+    When enforce_production_gate=True, the calibration is
+    validated before any production artifact is written.
     """
 
     # ---------------------------------------------------------
@@ -187,6 +229,9 @@ def train_model(X_train, y_train):
         "calibration_rows": len(
             X_calibration
         ),
+        # Provenance: makes it obvious at a glance whether an
+        # artifact came from the real dataset or from a test fixture.
+        "training_rows": len(X_train),
         "lower_quantile": (
             1.0
             - PREDICTION_INTERVAL_COVERAGE
@@ -198,6 +243,15 @@ def train_model(X_train, y_train):
         "residual_lower": -interval_width,
         "residual_upper": interval_width,
     }
+
+    # ---------------------------------------------------------
+    # 8b. Production gate: BEFORE anything is written to disk
+    #
+    # A failing production run must never overwrite an existing
+    # good production artifact.
+    # ---------------------------------------------------------
+    if enforce_production_gate:
+        check_production_calibration(calibration)
 
     # ---------------------------------------------------------
     # 9. Train final production model
@@ -215,10 +269,13 @@ def train_model(X_train, y_train):
     # ---------------------------------------------------------
     # 10. Save production model
     # ---------------------------------------------------------
-    # Ensure the artifact directory exists — train_model() can be called
-    # directly (tests, notebooks, other scripts) without going through
-    # main.py's ensure_directories().
-    MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # Ensure the artifact directory exists — train_model() can
+    # be called directly (tests, notebooks, other scripts)
+    # without going through main.py's ensure_directories().
+    MODEL_PATH.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     joblib.dump(
         pipeline,

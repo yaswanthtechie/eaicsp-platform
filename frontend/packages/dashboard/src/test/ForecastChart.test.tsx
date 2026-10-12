@@ -1,209 +1,162 @@
-import { render, screen, fireEvent, waitFor, cleanup} from "@testing-library/react";
-import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import ForecastChart from "../components/ForecastChart";
-import { dashboardApi } from "../api/dashboard";
 
-vi.mock("../api/dashboard", () => ({
-  dashboardApi: {
-    fetchForecast:vi.fn(),
+const forecastData = [
+  {
+    date: "2026-08-01",
+    predicted: 100,
+    actual: 95,
+    lower_bound: 80,
+    upper_bound: 120,
   },
-}));
+  {
+    date: "2026-08-05",
+    predicted: 110,
+    actual: 105,
+    lower_bound: 90,
+    upper_bound: 130,
+  },
+  {
+    date: "2026-08-10",
+    predicted: 120,
+    actual: 115,
+    lower_bound: 100,
+    upper_bound: 140,
+  },
+];
 
 describe("ForecastChart", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-
-    vi.mocked(dashboardApi.fetchForecast).mockResolvedValue([
-      {
-        date: "2026-08-01",
-        predicted: 100,
-        actual: 95,
-        lower_bound: 80,
-        upper_bound: 120,
-      },
-      {
-        date: "2026-08-05",
-        predicted: 110,
-        actual: 105,
-        lower_bound: 90,
-        upper_bound: 130,
-      },
-      {
-        date: "2026-08-10",
-        predicted: 120,
-        actual: 115,
-        lower_bound: 100,
-        upper_bound: 140,
-      },
-    ]);
-  });
-
-  afterEach(() => {
-    cleanup();
-  });
+  const defaultProps = {
+    data: forecastData,
+    loading: false,
+    error: false,
+    onRetry: vi.fn(),
+  };
 
   it("shows loading skeleton while forecast data is loading", () => {
-    const { container } = render(<ForecastChart />);
-
-    expect(
-      screen.queryByText("Sales Forecast")
-    ).not.toBeInTheDocument();
-
-    expect(container.querySelectorAll("div").length).toBeGreaterThan(1);
-  });
-
-  it("shows forecast chart after loading", async () => {
-    render(<ForecastChart />);
-
-    await waitFor(() => {
-      expect(
-        screen.getByText("Sales Forecast")
-      ).toBeInTheDocument();
-    });
-
-    expect(
-      screen.getByRole("button", { name: "Reset sales forecast zoom" })
-    ).toBeInTheDocument();
-  });
-
-  it("shows selected date range", async () => {
     render(
       <ForecastChart
-        startDate="2026-08-04"
-        endDate="2026-08-10"
-      />
+        {...defaultProps}
+        loading={true}
+      />,
     );
 
     expect(
-      await screen.findByText("2026-08-04 → 2026-08-10")
-    ).toBeInTheDocument();
+      screen.getByLabelText("Loading sales forecast"),
+    ).toHaveAttribute("aria-busy", "true");
   });
 
-  it("shows no data message when forecast data is empty", async () => {
-    vi.mocked(dashboardApi.fetchForecast).mockResolvedValue([]);
-
-    render(<ForecastChart />);
+  it("shows forecast chart", () => {
+    render(<ForecastChart {...defaultProps} />);
 
     expect(
-      await screen.findByText("No forecast data available.")
+      screen.getByText("Sales Forecast"),
     ).toBeInTheDocument();
-  });
-
-  it("shows no data message when selected date range has no data", async () => {
-    render(
-      <ForecastChart
-        startDate="2026-09-01"
-        endDate="2026-09-10"
-      />
-    );
-
-    expect(
-      await screen.findByText(
-        "No forecast data for the selected date range."
-      )
-    ).toBeInTheDocument();
-  });
-
-  it("shows error state when shouldFail is true", async () => {
-    render(<ForecastChart shouldFail />);
-
-    expect(
-      await screen.findByText("Something went wrong.")
-    ).toBeInTheDocument();
-
-    expect(
-      screen.getByRole("button", { name: "Retry loading sales forecast" })
-    ).toBeInTheDocument();
-  });
-
-  it("retries loading forecast data", async () => {
-    vi.mocked(dashboardApi.fetchForecast)
-      .mockRejectedValueOnce(new Error("Failed"))
-      .mockResolvedValueOnce([
-        {
-          date: "2026-08-01",
-          predicted: 100,
-          actual: 95,
-          lower_bound: 80,
-          upper_bound: 120,
-        },
-      ]);
-
-    render(<ForecastChart />);
-
-    expect(
-      await screen.findByText("Something went wrong.")
-    ).toBeInTheDocument();
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "Retry loading sales forecast" })
-    );
-
-    await waitFor(() => {
-      expect(
-        screen.getByText("Sales Forecast")
-      ).toBeInTheDocument();
-    });
-
-    expect(dashboardApi.fetchForecast).toHaveBeenCalledTimes(2);
-  });
-
-  it("resets zoom when Reset Zoom is activated with Enter", async () => {
-    render(<ForecastChart />);
-
-    const resetButton = await screen.findByRole("button", {
-      name: "Reset sales forecast zoom",
-    });
-
-    resetButton.focus();
-
-    fireEvent.keyDown(resetButton, {
-      key: "Enter",
-      code: "Enter",
-    });
-
-    fireEvent.keyUp(resetButton, {
-      key: "Enter",
-      code: "Enter",
-    });
-
-    expect(resetButton).toBeInTheDocument();
-});
-
-  it("shows accessible loading state", () => {
-    const { container } = render(<ForecastChart />);
-
-    const loadingContainer = container.querySelector(
-      '[aria-label="Loading sales forecast"]'
-    );
-
-    expect(loadingContainer).toHaveAttribute("aria-busy","true");
-  });
-
-  it("shows accessible error state", async () => {
-    render(<ForecastChart shouldFail />);
-
-    const errorContainer = await screen.findByRole("alert");
-
-    expect(errorContainer).toBeInTheDocument();
 
     expect(
       screen.getByRole("button", {
-        name: "Retry loading sales forecast",
-      })
+        name: "Reset sales forecast zoom",
+      }),
     ).toBeInTheDocument();
   });
 
-  it("provides an accessible name for the forecast chart", async () => {
-    render(<ForecastChart />);
+  it("shows selected date range", () => {
+    render(
+      <ForecastChart
+        {...defaultProps}
+        startDate="2026-08-04"
+        endDate="2026-08-10"
+      />,
+    );
 
-    await screen.findByText("Sales Forecast");
+    expect(
+      screen.getByText("2026-08-04 → 2026-08-10"),
+    ).toBeInTheDocument();
+  });
+
+  it("shows no data message when forecast data is empty", () => {
+    render(
+      <ForecastChart
+        {...defaultProps}
+        data={[]}
+      />,
+    );
+
+    expect(
+      screen.getByText("No forecast data available."),
+    ).toBeInTheDocument();
+  });
+
+  it("shows no data message when selected date range has no data", () => {
+    render(
+      <ForecastChart
+        {...defaultProps}
+        startDate="2026-09-01"
+        endDate="2026-09-10"
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "No forecast data for the selected date range.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("calls retry when Retry is clicked", () => {
+    const onRetry = vi.fn();
+
+    render(
+      <ForecastChart
+        {...defaultProps}
+        error={true}
+        onRetry={onRetry}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Retry loading sales forecast",
+      }),
+    );
+
+    expect(onRetry).toHaveBeenCalledOnce();
+  });
+
+  it("shows accessible error state", () => {
+    render(
+      <ForecastChart
+        {...defaultProps}
+        error={true}
+      />,
+    );
+
+    expect(
+      screen.getByRole("alert"),
+    ).toBeInTheDocument();
+  });
+
+  it("provides an accessible name for the forecast chart", () => {
+    render(<ForecastChart {...defaultProps} />);
 
     expect(
       screen.getByRole("img", {
-        name: "Sales forecast chart showing predicted and actual values with a confidence band",
-      })
+        name:
+          "Sales forecast chart showing predicted and actual values with a confidence band",
+      }),
     ).toBeInTheDocument();
   });
-});
 
+  it("resets zoom when Reset Zoom is activated", () => {
+    render(<ForecastChart {...defaultProps} />);
+
+    const resetButton = screen.getByRole("button", {
+      name: "Reset sales forecast zoom",
+    });
+
+    fireEvent.click(resetButton);
+
+    expect(resetButton).toBeInTheDocument();
+  });
+});

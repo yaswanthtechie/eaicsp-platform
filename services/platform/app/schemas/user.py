@@ -10,7 +10,17 @@ class Role(str, Enum):
     warehouse_manager = "warehouse_manager"
     analyst = "analyst"
     supplier = "supplier"
-    
+    platform_admin="platform_admin"
+    procurement_officer="procurement_officer"
+    inventory_planner="inventory_planner"
+    demand_planner="demand_planner"
+    finance_manager="finance_manager"
+    risk_analyst="risk_analyst"
+    data_scientist="data_scientist"
+    auditor="auditor"
+    warehouse_operator="warehouse_operator"
+    carrier="carrier"
+
 class UserCreate(BaseModel):
     email: EmailStr
     full_name: str

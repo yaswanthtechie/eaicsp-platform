@@ -1,42 +1,28 @@
-import { useEffect, useState } from "react";
-import { dashboardApi } from "../api/dashboard";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { colors, radius, space } from "../tokens";
 import Skeleton from "./Skeleton";
 
-function ShipmentStatus() {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
+interface ShipmentStatusProps {
+  shipmentStatus?: {
+    total: number;
+    pending: number;
+    delivered: number;
+    in_transit: number;
+    delayed: number;
+    cancelled: number;
+  };
+  loading: boolean;
+  error: boolean;
+  onRetry: () => void;
+}
 
-  const shipmentStatus = dashboardApi.getShipmentStatus();
-
-  useEffect(() => {
-    let mounted = true;
-
-    const loadData = async () => {
-      try {
-        await new Promise<void>((resolve) => {
-          setTimeout(resolve, 1000);
-        });
-
-        if (mounted) {
-          setError(false);
-          setLoading(false);
-        }
-      } catch {
-        if (mounted) {
-          setError(true);
-          setLoading(false);
-        }
-      }
-    };
-
-    loadData();
-
-    return () => {
-      mounted = false;
-    };
-  }, [retryCount]);
+function ShipmentStatus({
+  shipmentStatus,
+  loading,
+  error,
+  onRetry,
+}: ShipmentStatusProps) {
 
   if (loading) {
     return (
@@ -125,28 +111,30 @@ function ShipmentStatus() {
           Failed to load shipment status.
         </p>
 
-        <button
+        <Button
           type="button"
-          onClick={() => {
-            setError(false);
-            setLoading(true);
-            setRetryCount((count) => count + 1);
-          }}
-          style={{
-            padding: "7px 14px",
-            border: "none",
-            borderRadius: radius.sm,
-            background: colors.danger,
-            color: colors.text,
-            cursor: "pointer",
-          }}
+          variant="outline"
+          size="lg"
+          onClick={onRetry}
         >
           Retry
-        </button>
+        </Button>
       </div>
     );
   }
 
+  if (!shipmentStatus) {
+    return (
+      <div
+        style={{
+        color: colors.textMuted,
+        padding: space.lg,
+        }}
+      >
+        No shipment status data available.
+      </div>
+    );
+  }
   const total = shipmentStatus.total;
 
   const pendingPercentage =
@@ -173,45 +161,22 @@ function ShipmentStatus() {
       : (shipmentStatus.cancelled / total) * 100;
 
   return (
-    <div
-      style={{
-        background: colors.surface,
-        border: `1px solid ${colors.border}`,
-        borderRadius: radius.lg,
-        padding: space.lg,
-        boxSizing: "border-box",
-        width: "100%",
-      }}
-    >
-      <div
-        style={{
-          color: colors.text,
-          fontSize: 18,
-          fontWeight: 600,
-          marginBottom: space.xs,
-        }}
-      >
-        Shipment Status
-      </div>
-
-      <div
-        style={{
-          color: colors.textMuted,
-          fontSize: 14,
-          marginBottom: space.lg,
-        }}
-      >
-        Current shipment and logistics status
-      </div>
-
-      <div style={{ marginBottom: space.lg }}>
-        <div
-          style={{
+    <Card className="w-full">
+      <CardHeader>
+        <CardTitle>Shipment Status</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Current shipment and logistics status
+        </p>
+      </CardHeader>
+      <CardContent>
+        <div style={{ marginBottom: space.lg }}>
+          <div
+            style={{
             display: "flex",
             justifyContent: "space-between",
             marginBottom: space.sm,
           }}
-        >
+          >
           <span
             style={{
               color: colors.textMuted,
@@ -223,7 +188,7 @@ function ShipmentStatus() {
 
           <span
             style={{
-              color: colors.text,
+              color: colors.textMuted,
               fontSize: 13,
               fontWeight: 600,
             }}
@@ -410,7 +375,8 @@ function ShipmentStatus() {
       >
         Total shipments: {shipmentStatus.total}
       </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 

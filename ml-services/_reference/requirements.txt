@@ -1,4 +1,4 @@
-bentoml==1.4.22
+bentoml==1.4.39
 mlflow==3.4.0
 joblib==1.5.1
 numpy==2.3.2
@@ -9,3 +9,5 @@ fastapi==0.141.1
 httpx==0.28.1
 sqlalchemy==2.0.52
 psutil==6.1.1
+evidently==0.7.23
+dvc==3.67.1

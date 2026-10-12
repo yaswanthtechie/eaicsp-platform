@@ -814,7 +814,7 @@ def run_evaluation(
 def print_25_company_trend_table(config: Optional[Settings] = None) -> None:
     """Print the §4 sanity-doc trend table using the REAL model (no mocks)."""
     # Local imports: trend.py imports assign_risk_tier from this module.
-    from src.data import load_active_trend_headlines
+    from src.data import load_25_company_trend_dataset
     from src.trend import calculate_supplier_trend
 
     cfg = config if config is not None else get_settings()
@@ -824,7 +824,7 @@ def print_25_company_trend_table(config: Optional[Settings] = None) -> None:
           "| Expected | Deteriorating |")
     print("|---|---|---|---|---|---|---|---|---|")
 
-    for name, records in load_active_trend_headlines().items():
+    for name, records in load_25_company_trend_dataset().items():
         t = calculate_supplier_trend(name, records, config=cfg)
         expected = HUMAN_BENCHMARK_EXPECTATIONS.get(name, {}).get("expected_tier", "?")
 

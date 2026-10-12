@@ -9,6 +9,10 @@
     "skipLibCheck": true,
     "strict": true,
 
+    "paths": {
+      "@/*":["./src/*"]
+    },
+
     /* Bundler mode */
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
@@ -23,5 +27,6 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/mock-server"]
 }

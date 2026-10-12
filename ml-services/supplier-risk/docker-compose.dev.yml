@@ -1,0 +1,17 @@
+services:
+  mongo:
+    image: mongo:7.0.14
+    container_name: supplier-risk-mongo
+    ports:
+      # Bound to localhost only: this dev instance has no authentication.
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - supplier_risk_mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  supplier_risk_mongo_data:

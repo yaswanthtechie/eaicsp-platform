@@ -1,0 +1,2 @@
+# Created by the test suite (DATABASE_URL in tests/conftest.py)
+test_platform.db

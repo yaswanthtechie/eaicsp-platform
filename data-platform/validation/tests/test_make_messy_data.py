@@ -2,7 +2,7 @@ from pathlib import Path
 from rules.custom_rules import standardize_dates
 import pandas as pd
 from unittest.mock import patch
-from src.make_messy_data import generate_messy_data, MessyDataConfig, main
+from data_validator.make_messy_data import generate_messy_data, MessyDataConfig, main
 
 
 def test_generate_messy_data(tmp_path):
@@ -166,7 +166,7 @@ def test_large_generated_batch_is_not_rejected(tmp_path):
     The behaviour __post_init__ exists for: a 20k-row file must not be rejected
     just because random keys collided.
     """
-    from src.validator import DataValidator
+    from data_validator.validator import DataValidator
 
     out = tmp_path / "large.csv"
     generate_messy_data(out, MessyDataConfig(n_base=20_000))

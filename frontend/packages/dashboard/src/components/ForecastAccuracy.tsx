@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
+import { Button } from "@/components/ui/button";
 import {
   CartesianGrid,
   Line,
@@ -8,54 +9,42 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-
-import { dashboardApi } from "../api/dashboard";
 import { colors, radius, space } from "../tokens";
 import Skeleton from "./Skeleton";
 
+export interface ForecastAccuracyPoint {
+  date: string;
+  accuracy: number;
+  target: number;
+}
 interface ForecastAccuracyProps {
   startDate: string;
   endDate: string;
+  data: ForecastAccuracyPoint[];
+  loading: boolean;
+  error: boolean;
+  onRetry: () => void;
 }
 
 function ForecastAccuracy({
   startDate,
   endDate,
+  data,
+  loading,
+  error,
+  onRetry,
 }: ForecastAccuracyProps) {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
-  const [forecastAccuracy, setForecastAccuracy] = useState(
-    dashboardApi.getForecastAccuracy(),
+
+  const filteredForecastAccuracy = useMemo(
+    () =>
+      data.filter((point) => {
+        const afterStart = !startDate || point.date >= startDate;
+        const beforeEnd = !endDate || point.date <= endDate;
+
+        return afterStart && beforeEnd;
+      }),
+      [data, startDate, endDate],
   );
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadData = async () => {
-      setError(false);
-
-      try {
-        const data = dashboardApi.getForecastAccuracy();
-
-        if (!cancelled) {
-          setForecastAccuracy(data);
-          setLoading(false);
-        }
-      } catch {
-        if (!cancelled) {
-          setError(true);
-          setLoading(false);
-        }
-      }
-    };
-
-    loadData();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [retryCount]);
 
   if (loading) {
     return (
@@ -126,34 +115,37 @@ function ForecastAccuracy({
           Unable to load forecast accuracy data.
         </p>
 
-        <button
+        <Button
           type="button"
-          onClick={() => {
-            setLoading(true);
-            setRetryCount((count) => count + 1);
-          }}
-          style={{
-            padding: "7px 14px",
-            border: "none",
-            borderRadius: radius.sm,
-            background: colors.danger,
-            color: colors.text,
-            cursor: "pointer",
-          }}
+          variant="outline"
+          size="lg" 
+          onClick={onRetry}
         >
           Retry
-        </button>
+        </Button>
       </div>
     );
   }
 
-  const filteredForecastAccuracy = forecastAccuracy.filter((point) => {
-    const afterStart = !startDate || point.date >= startDate;
-    const beforeEnd = !endDate || point.date <= endDate;
 
-    return afterStart && beforeEnd;
-  });
-
+  if (filteredForecastAccuracy.length === 0) {
+    return (
+      <div
+        role="status"
+        style={{
+          background: colors.surface,
+          border: `1px solid ${colors.border}`,
+          borderRadius: radius.lg,
+          padding: space.lg,
+          boxSizing: "border-box",
+          width: "100%",
+          color: colors.textMuted,
+        }}
+      >
+        No forecast accuracy data for the selected dates.
+      </div>
+    );
+  }
   return (
     <div
       style={{
@@ -186,7 +178,7 @@ function ForecastAccuracy({
         Historical forecast accuracy against the 90% target
       </div>
 
-      <div 
+      <div
         role="img"
         aria-label="Forecast accuracy chart showing historical accuracy and the 90 percent target"
         style={{ width: "100%", height: 280 }}>

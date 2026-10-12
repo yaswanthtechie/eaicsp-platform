@@ -1,11 +1,11 @@
 import pandas as pd
-
-from src.feature_usefulness import (
+from feature_lib import add_eta_features
+from feature_lib.feature_usefulness import (
     calculate_feature_correlations,
     calculate_model_feature_importance,
     select_top_features,
 )
-from src.build_features import build_all_features
+from feature_lib.build_features import build_all_features
 
 
 URL = "https://raw.githubusercontent.com/facebook/prophet/main/examples/example_retail_sales.csv"
@@ -128,6 +128,45 @@ def main():
         "Number of selected features:",
         len(selected_features_1)
     )
+        # Separate ETA feature demonstration using sample shipments.
+    eta_shipments = pd.DataFrame({
+        "scheduled_pickup_date": [
+            "2026-01-01",
+            "2026-01-05",
+            "2026-01-10",
+        ],
+        "actual_pickup_date": [
+            "2026-01-01",
+            "2026-01-05",
+            "2026-01-10",
+        ],
+        "expected_delivery_date": [
+            "2026-01-03",
+            "2026-01-07",
+            "2026-01-12",
+        ],
+        "actual_delivery_date": [
+            "2026-01-03",
+            "2026-01-08",
+            "2026-01-11",
+        ],
+        "carrier_name": ["Carrier A", "Carrier A", "Carrier A"],
+        "route_id": ["Route 1", "Route 1", "Route 1"],
+    })
+
+    eta_result = add_eta_features(eta_shipments)
+
+    eta_columns = [
+        "departure_day_of_week",
+        "departure_month",
+        "departure_season",
+        "historical_on_time_rate_carrier",
+        "historical_on_time_rate_route",
+        "historical_avg_transit_days_carrier_route",
+    ]
+
+    print("\nETA Feature Engineering Demo:")
+    print(eta_result[eta_columns].to_string(index=False))
 
 
 if __name__ == "__main__":

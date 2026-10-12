@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.validator import DataValidator
+from data_validator.validator import DataValidator
 
 # Dynamically resolve the absolute path to the project root
 PROJECT_ROOT = Path(__file__).resolve().parent.parent

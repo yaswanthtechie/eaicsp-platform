@@ -121,10 +121,12 @@ def setup_dummy_services():
     """
     inv_port = find_free_port()
     ship_port = find_free_port()
+    unavail_comp_port = find_free_port()
 
     original_routes = dict(settings.SERVICE_ROUTES)
     settings.SERVICE_ROUTES["/api/v1/inventory"] = f"http://127.0.0.1:{inv_port}"
     settings.SERVICE_ROUTES["/api/v1/shipments"] = f"http://127.0.0.1:{ship_port}"
+    settings.SERVICE_ROUTES["/api/v1/compliance"] = f"http://127.0.0.1:{unavail_comp_port}"
 
     inventory_server = UvicornTestServer(
         config=uvicorn.Config(

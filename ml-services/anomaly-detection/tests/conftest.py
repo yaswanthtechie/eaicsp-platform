@@ -76,7 +76,12 @@ REQUIRED_MODEL_ARTIFACTS = [
     "lof_model.joblib",
     "one_class_svm_model.joblib",
     "background_sample.csv",
+    # M4: root-cause hints need the incident library. Listing it here
+    # makes setup_test_environment train ONLY when it is missing,
+    # instead of overwriting models/ on every test run.
+    "incident_library.joblib",
 ]
+
 
 
 # ---------------------------------------------------------------------

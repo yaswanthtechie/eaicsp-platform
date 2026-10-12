@@ -23,13 +23,19 @@ from onnx_export import export_and_verify_onnx
 from predict import forecast_demand, sanitize_input_sequence
 
 
-def test_onnx_export_and_strict_parity():
+def test_onnx_export_and_strict_parity(tmp_path):
     """Validates PyTorch and ONNX Runtime produce identical outputs."""
-    export_and_verify_onnx()
+    test_onnx_path = str(tmp_path / "best_model.onnx")
+
+    export_and_verify_onnx(onnx_path=test_onnx_path)
 
     so = ort.SessionOptions()
     so.log_severity_level = 3
-    session = ort.InferenceSession(ONNX_PATH, sess_options=so, providers=["CPUExecutionProvider"])
+    session = ort.InferenceSession(
+        test_onnx_path,
+        sess_options=so,
+        providers=["CPUExecutionProvider"],
+    )
     
     np.random.seed(42)
     dummy_input = np.random.randn(2, LOOKBACK, 1).astype(np.float32)

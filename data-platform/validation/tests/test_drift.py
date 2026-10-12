@@ -2,9 +2,9 @@ import json
 import pytest
 import logging
 from pathlib import Path
-from src.drift import ReportComparator
-from src.validator import DataValidator, ConfigRule, ValidationResult
-from src.registry import clear_registry, discover_rules
+from data_validator.drift import ReportComparator
+from data_validator.validator import DataValidator, ConfigRule, ValidationResult
+from data_validator.registry import clear_registry, discover_rules
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 

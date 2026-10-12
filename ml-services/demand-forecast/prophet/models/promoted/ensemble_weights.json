@@ -1,4 +1,1 @@
-{
-    "prophet_weight": 0.7,
-    "xgb_weight": 0.3
-}
+{"prophet": 0.7, "xgb": 0.3}
