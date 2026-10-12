@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import json
+import sqlite3
+from contextlib import closing
 from datetime import datetime, timezone
+from pathlib import Path
 from threading import RLock
-from typing import Any
 
+from app.core.config import settings
 from app.schemas.events import (
     SupplierComplianceAudit,
     SupplierComplianceStatus,
@@ -17,19 +21,65 @@ class SupplierComplianceError(Exception):
 
 
 class SupplierNotFoundError(SupplierComplianceError):
-    """Raised when a supplier does not exist."""
+    """Raised when a supplier ID is missing or invalid."""
 
 
 class InvalidComplianceStatusError(SupplierComplianceError):
     """Raised when an unsupported compliance status is received."""
 
 
+class ComplianceDatabaseError(SupplierComplianceError):
+    """Raised when durable compliance storage fails."""
+
+
+SEVERITY = {
+    SupplierComplianceStatus.cleared: 0,
+    SupplierComplianceStatus.needs_review: 1,
+    SupplierComplianceStatus.suspended: 2,
+}
+
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS processed_events (
+    event_id TEXT PRIMARY KEY,
+    supplier_key TEXT NOT NULL,
+    outcome TEXT NOT NULL CHECK (outcome IN ('applied', 'stale')),
+    processed_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS supplier_compliance_state (
+    supplier_key TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    last_occurred_at TEXT NOT NULL,
+    last_event_id TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS compliance_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id TEXT NOT NULL UNIQUE,
+    supplier_key TEXT NOT NULL,
+    old_status TEXT NOT NULL,
+    new_status TEXT NOT NULL,
+    matched_list TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    occurred_at TEXT NOT NULL,
+    processed_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_compliance_audit_supplier
+ON compliance_audit (supplier_key, id);
+"""
+
+
 class SupplierComplianceService:
     """
-    Manages supplier compliance access state.
+    Durable supplier compliance state backed by SQLite.
 
-    The existing supplier onboarding lifecycle remains untouched.
-    Compliance access is maintained separately on the supplier record.
+    State changes, audit entries, and idempotency records are written
+    in one transaction.
+
+    Supplier identity comes from the Kafka message key.
     """
 
     STATUS_MAPPING = {
@@ -38,158 +88,337 @@ class SupplierComplianceService:
         "BLOCK": SupplierComplianceStatus.suspended,
     }
 
-    def __init__(self) -> None:
+    def __init__(self, db_path: str | Path | None = None) -> None:
         self._lock = RLock()
+        self._db_path = (
+            Path(db_path)
+            if db_path is not None
+            else Path(settings.COMPLIANCE_DB_PATH)
+        )
 
-        # Event ids already applied by this service.
-        self._processed_event_ids: set[str] = set()
+    # ---------------------------------------------------------
+    # DATABASE
+    # ---------------------------------------------------------
 
-        # Latest accepted compliance event timestamp per supplier.
-        self._latest_event_times: dict[str, datetime] = {}
+    def _connect(self) -> sqlite3.Connection:
+        """Open a SQLite connection and ensure the schema exists."""
+        try:
+            self._db_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Append-only compliance audit history.
-        self._audit_history: dict[str, list[SupplierComplianceAudit]] = {}
+            conn = sqlite3.connect(
+                str(self._db_path),
+                timeout=10.0,
+            )
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA busy_timeout = 10000")
+
+            try:
+                conn.executescript(SCHEMA)
+            except Exception:
+                conn.close()
+                raise
+
+            return conn
+
+        except sqlite3.Error as exc:
+            raise ComplianceDatabaseError(
+                "Unable to open or initialize compliance database."
+            ) from exc
+        except OSError as exc:
+            raise ComplianceDatabaseError(
+                "Unable to create the compliance database directory."
+            ) from exc
+
+    @staticmethod
+    def _utc_datetime(value: datetime) -> datetime:
+        """Normalize a timezone-aware datetime to UTC."""
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("A timezone-aware datetime is required.")
+
+        return value.astimezone(timezone.utc)
+
+    @staticmethod
+    def _key_for_supplier_id(supplier_id: str) -> str:
+        """Use the canonical supplier ID as the database key."""
+        return supplier_id.strip()
+
+    # ---------------------------------------------------------
+    # WRITE PATH: KAFKA EVENT
+    # ---------------------------------------------------------
 
     def apply_status_changed_event(
         self,
         event: SupplierStatusChangedEvent,
+        *,
+        supplier_id: str,
     ) -> bool:
         """
-        Apply a supplier compliance status-change event.
+        Persist one compliance event.
 
         Returns:
-            True  -> event changed supplier state.
-            False -> event was ignored because it was duplicate/stale.
+            True: event applied and state changed.
+            False: duplicate or stale event.
+
+        Supplier records may not exist yet. Events are still persisted
+        so their status can be enforced after onboarding.
         """
+        if not isinstance(supplier_id, str) or not supplier_id.strip():
+            raise SupplierNotFoundError(
+                "A valid supplier ID must be supplied by the Kafka message key."
+            )
+
+        supplier_id = supplier_id.strip()
+        supplier_key = self._key_for_supplier_id(supplier_id)
+
+        if (
+            event.occurred_at.tzinfo is None
+            or event.occurred_at.utcoffset() is None
+        ):
+            raise InvalidComplianceStatusError(
+                "Event occurred_at must include a timezone."
+            )
+
+        new_status = self._map_status(event.payload.new_status)
+        occurred_at = self._utc_datetime(event.occurred_at)
+        processed_at = datetime.now(timezone.utc)
+
+        occurred_at_text = occurred_at.isoformat()
+        processed_at_text = processed_at.isoformat()
 
         with self._lock:
-            if event.event_id in self._processed_event_ids:
-                return False
-
-            supplier_id = event.payload.supplier_id
-
+            # The supplier can be absent if onboarding has not completed.
             supplier = suppliers.get(supplier_id)
 
-            if supplier is None:
-                raise SupplierNotFoundError(
-                    f"Supplier '{supplier_id}' was not found."
-                )
+            try:
+                with closing(self._connect()) as conn:
+                    with conn:
+                        existing = conn.execute(
+                            """
+                            SELECT 1
+                            FROM processed_events
+                            WHERE event_id = ?
+                            """,
+                            (event.event_id,),
+                        ).fetchone()
 
-            new_status = self._map_status(
-                event.payload.new_status
-            )
+                        if existing is not None:
+                            return False
 
-            latest_event_at = self._latest_event_times.get(
-                supplier_id
-            )
+                        row = conn.execute(
+                            """
+                            SELECT status, last_occurred_at
+                            FROM supplier_compliance_state
+                            WHERE supplier_key = ?
+                            """,
+                            (supplier_key,),
+                        ).fetchone()
 
-            if (
-                latest_event_at is not None
-                and event.occurred_at <= latest_event_at
-            ):
-                # Mark the event as processed so that an old event
-                # does not keep getting re-applied.
-                self._processed_event_ids.add(event.event_id)
+                        if row is None:
+                            old_status = SupplierComplianceStatus.cleared
+                        else:
+                            try:
+                                old_status = SupplierComplianceStatus(
+                                    row["status"]
+                                )
+                            except ValueError:
+                                # Corrupt persisted state must not grant access.
+                                old_status = (
+                                    SupplierComplianceStatus.suspended
+                                )
 
-                return False
+                        if row is not None:
+                            try:
+                                last_occurred_at = self._utc_datetime(
+                                    datetime.fromisoformat(
+                                        row["last_occurred_at"]
+                                    )
+                                )
+                            except (ValueError, TypeError) as exc:
+                                raise ComplianceDatabaseError(
+                                    "Stored compliance timestamp is invalid."
+                                ) from exc
 
-            current_status = self._get_current_status(
-                supplier
-            )
+                            if self._is_stale(
+                                occurred_at,
+                                new_status,
+                                last_occurred_at,
+                                old_status,
+                            ):
+                                conn.execute(
+                                    """
+                                    INSERT INTO processed_events (
+                                        event_id,
+                                        supplier_key,
+                                        outcome,
+                                        processed_at
+                                    )
+                                    VALUES (?, ?, 'stale', ?)
+                                    """,
+                                    (
+                                        event.event_id,
+                                        supplier_key,
+                                        processed_at_text,
+                                    ),
+                                )
+                                return False
 
-            processed_at = datetime.now(timezone.utc)
+                        conn.execute(
+                            """
+                            INSERT INTO supplier_compliance_state (
+                                supplier_key,
+                                status,
+                                last_occurred_at,
+                                last_event_id,
+                                updated_at
+                            )
+                            VALUES (?, ?, ?, ?, ?)
+                            ON CONFLICT(supplier_key) DO UPDATE SET
+                                status = excluded.status,
+                                last_occurred_at = excluded.last_occurred_at,
+                                last_event_id = excluded.last_event_id,
+                                updated_at = excluded.updated_at
+                            """,
+                            (
+                                supplier_key,
+                                new_status.value,
+                                occurred_at_text,
+                                event.event_id,
+                                processed_at_text,
+                            ),
+                        )
 
-            audit = SupplierComplianceAudit(
-                event_id=event.event_id,
-                supplier_id=supplier_id,
-                old_status=current_status,
-                new_status=new_status,
-                matched_list=event.payload.matched_list,
-                reason=event.payload.reason,
-                occurred_at=event.occurred_at,
-                processed_at=processed_at,
-            )
+                        conn.execute(
+                            """
+                            INSERT INTO compliance_audit (
+                                event_id,
+                                supplier_key,
+                                old_status,
+                                new_status,
+                                matched_list,
+                                reason,
+                                occurred_at,
+                                processed_at
+                            )
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                event.event_id,
+                                supplier_key,
+                                old_status.value,
+                                new_status.value,
+                                json.dumps(
+                                    event.payload.matched_list,
+                                    ensure_ascii=False,
+                                ),
+                                event.payload.reason,
+                                occurred_at_text,
+                                processed_at_text,
+                            ),
+                        )
 
-            # Do not overwrite supplier["status"].
-            #
-            # supplier["status"] belongs to the onboarding lifecycle:
-            # pending_documents -> documents_submitted -> verified
-            # -> approved -> active
-            #
-            # Compliance access is a separate state.
-            supplier["compliance_access_status"] = new_status.value
-            supplier["compliance_updated_at"] = processed_at
+                        conn.execute(
+                            """
+                            INSERT INTO processed_events (
+                                event_id,
+                                supplier_key,
+                                outcome,
+                                processed_at
+                            )
+                            VALUES (?, ?, 'applied', ?)
+                            """,
+                            (
+                                event.event_id,
+                                supplier_key,
+                                processed_at_text,
+                            ),
+                        )
 
-            self._audit_history.setdefault(
-                supplier_id,
-                [],
-            ).append(audit)
+                # SQLite transaction completed successfully.
+                # Update only an existing onboarding record.
+                if supplier is not None:
+                    supplier["compliance_access_status"] = new_status.value
+                    supplier["compliance_updated_at"] = processed_at
 
-            self._latest_event_times[supplier_id] = (
-                event.occurred_at
-            )
+                return True
 
-            self._processed_event_ids.add(
-                event.event_id
-            )
+            except sqlite3.Error as exc:
+                raise ComplianceDatabaseError(
+                    f"Failed to persist compliance event '{event.event_id}'."
+                ) from exc
 
+    # ---------------------------------------------------------
+    # STALENESS
+    # ---------------------------------------------------------
+
+    @staticmethod
+    def _is_stale(
+        occurred_at: datetime,
+        new_status: SupplierComplianceStatus,
+        last_occurred_at: datetime,
+        last_status: SupplierComplianceStatus,
+    ) -> bool:
+        """Reject older events and preserve restrictive status on ties."""
+        if occurred_at < last_occurred_at:
             return True
+
+        if occurred_at == last_occurred_at:
+            return SEVERITY[new_status] <= SEVERITY[last_status]
+
+        return False
+
+    # ---------------------------------------------------------
+    # READ PATH: CURRENT STATE
+    # ---------------------------------------------------------
 
     def get_access_status(
         self,
         supplier_id: str,
     ) -> SupplierComplianceStatus:
-        """Return the current supplier compliance access status."""
+        """Read durable compliance state, including pre-onboarding events."""
+        if not isinstance(supplier_id, str) or not supplier_id.strip():
+            raise SupplierNotFoundError("A valid supplier ID is required.")
+
+        supplier_id = supplier_id.strip()
 
         with self._lock:
-            supplier = suppliers.get(supplier_id)
+            try:
+                with closing(self._connect()) as conn:
+                    row = conn.execute(
+                        """
+                        SELECT status
+                        FROM supplier_compliance_state
+                        WHERE supplier_key = ?
+                        """,
+                        (supplier_id,),
+                    ).fetchone()
 
-            if supplier is None:
-                raise SupplierNotFoundError(
-                    f"Supplier '{supplier_id}' was not found."
-                )
+            except sqlite3.Error as exc:
+                raise ComplianceDatabaseError(
+                    "Failed to read supplier compliance state."
+                ) from exc
 
-            return self._get_current_status(supplier)
+            if row is None:
+                return SupplierComplianceStatus.cleared
 
-    def can_view(
-        self,
-        supplier_id: str,
-    ) -> bool:
-        """
-        Supplier can view data when cleared or under review.
+            try:
+                return SupplierComplianceStatus(row["status"])
+            except ValueError:
+                return SupplierComplianceStatus.suspended
 
-        Suspended suppliers cannot access supplier-facing resources.
-        """
 
-        status = self.get_access_status(supplier_id)
-
-        return status in {
-            SupplierComplianceStatus.cleared,
-            SupplierComplianceStatus.needs_review,
-        }
-
-    def can_write(
-        self,
-        supplier_id: str,
-    ) -> bool:
-        """
-        Supplier write operations are allowed only when cleared.
-
-        This is used for supplier actions such as:
-        - acknowledging purchase orders
-        - submitting invoices
-        """
-
-        return (
-            self.get_access_status(supplier_id)
-            == SupplierComplianceStatus.cleared
-        )
+    # ---------------------------------------------------------
+    # READ PATH: AUDIT
+    # ---------------------------------------------------------
 
     def get_audit_history(
         self,
         supplier_id: str,
     ) -> list[SupplierComplianceAudit]:
-        """Return a copy of the supplier's compliance audit history."""
+        """Return audit history in insertion order."""
+        if not isinstance(supplier_id, str) or not supplier_id.strip():
+            raise SupplierNotFoundError("A valid supplier ID is required.")
+
+        supplier_id = supplier_id.strip()
 
         with self._lock:
             if supplier_id not in suppliers:
@@ -197,72 +426,116 @@ class SupplierComplianceService:
                     f"Supplier '{supplier_id}' was not found."
                 )
 
-            return list(
-                self._audit_history.get(
-                    supplier_id,
-                    [],
+            try:
+                with closing(self._connect()) as conn:
+                    rows = conn.execute(
+                        """
+                        SELECT *
+                        FROM compliance_audit
+                        WHERE supplier_key = ?
+                        ORDER BY id
+                        """,
+                        (supplier_id,),
+                    ).fetchall()
+
+            except sqlite3.Error as exc:
+                raise ComplianceDatabaseError(
+                    "Failed to read compliance audit history."
+                ) from exc
+
+            return [
+                SupplierComplianceAudit(
+                    event_id=row["event_id"],
+                    supplier_key=row["supplier_key"],
+                    old_status=row["old_status"],
+                    new_status=row["new_status"],
+                    matched_list=json.loads(row["matched_list"]),
+                    reason=row["reason"],
+                    occurred_at=datetime.fromisoformat(row["occurred_at"]),
+                    processed_at=datetime.fromisoformat(row["processed_at"]),
                 )
-            )
+                for row in rows
+            ]
 
-    def is_event_processed(
-        self,
-        event_id: str,
-    ) -> bool:
-        """Return whether an event id has already been processed."""
+    # ---------------------------------------------------------
+    # IDEMPOTENCY AND TIMESTAMP QUERIES
+    # ---------------------------------------------------------
 
-        with self._lock:
-            return event_id in self._processed_event_ids
+    def is_event_processed(self, event_id: str) -> bool:
+        """Return whether an event was applied or marked stale."""
+        try:
+            with closing(self._connect()) as conn:
+                row = conn.execute(
+                    """
+                    SELECT 1
+                    FROM processed_events
+                    WHERE event_id = ?
+                    """,
+                    (event_id,),
+                ).fetchone()
+
+                return row is not None
+
+        except sqlite3.Error as exc:
+            raise ComplianceDatabaseError(
+                f"Failed to check event '{event_id}'."
+            ) from exc
 
     def get_latest_event_time(
         self,
         supplier_id: str,
     ) -> datetime | None:
-        """Return the latest accepted event timestamp."""
+        """Return the latest accepted event timestamp from SQLite."""
+        if not isinstance(supplier_id, str) or not supplier_id.strip():
+            raise SupplierNotFoundError("A valid supplier ID is required.")
 
-        with self._lock:
-            return self._latest_event_times.get(
-                supplier_id
+        supplier_id = supplier_id.strip()
+
+        try:
+            with closing(self._connect()) as conn:
+                row = conn.execute(
+                    """
+                    SELECT last_occurred_at
+                    FROM supplier_compliance_state
+                    WHERE supplier_key = ?
+                    """,
+                    (supplier_id,),
+                ).fetchone()
+
+        except sqlite3.Error as exc:
+            raise ComplianceDatabaseError(
+                "Failed to read the latest compliance event timestamp."
+            ) from exc
+
+        if row is None:
+            return None
+
+        try:
+            return self._utc_datetime(
+                datetime.fromisoformat(row["last_occurred_at"])
             )
+        except (ValueError, TypeError) as exc:
+            raise ComplianceDatabaseError(
+                "Stored compliance timestamp is invalid."
+            ) from exc
+
+    # ---------------------------------------------------------
+    # STATUS MAPPING
+    # ---------------------------------------------------------
 
     @classmethod
     def _map_status(
         cls,
         status: str,
     ) -> SupplierComplianceStatus:
-        normalized_status = status.strip().upper()
-
+        """Map external compliance decisions to internal statuses."""
         try:
-            return cls.STATUS_MAPPING[normalized_status]
-        except KeyError as exc:
+            return cls.STATUS_MAPPING[status.strip().upper()]
+        except (AttributeError, KeyError) as exc:
             raise InvalidComplianceStatusError(
                 f"Unsupported compliance status: {status}"
             ) from exc
 
-    @staticmethod
-    def _get_current_status(
-        supplier: dict[str, Any],
-    ) -> SupplierComplianceStatus:
-        """
-        Read compliance state from the supplier record.
 
-        Existing suppliers created before Round 14 do not have
-        compliance_access_status, so they are treated as cleared
-        until a compliance event changes their state.
-        """
-
-        raw_status = supplier.get(
-            "compliance_access_status"
-        )
-
-        if raw_status is None:
-            return SupplierComplianceStatus.cleared
-
-        try:
-            return SupplierComplianceStatus(raw_status)
-        except ValueError:
-            # Existing/corrupted state should not silently grant
-            # access. Treat an unknown state as suspended.
-            return SupplierComplianceStatus.suspended
-
-
+# Keep the singleton at module level, outside the class.
 supplier_compliance_service = SupplierComplianceService()

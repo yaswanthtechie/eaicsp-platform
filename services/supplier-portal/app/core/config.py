@@ -52,6 +52,14 @@ class Settings(BaseSettings):
     KAFKA_DLQ_TOPIC: str = "compliance.supplier.status_changed.dlq"
     KAFKA_AUTO_OFFSET_RESET: str = "earliest"
 
+    # Kafka Consumer Reliability
+    KAFKA_ENABLED: bool = True
+    KAFKA_RETRY_BACKOFF_SECONDS: float = 1.0
+    KAFKA_MAX_RETRIES: int = 5
+
+    # Durable Compliance State
+    COMPLIANCE_DB_PATH: str = "data/compliance_state.db"
+
 
     model_config = SettingsConfigDict(
         env_file=".env",

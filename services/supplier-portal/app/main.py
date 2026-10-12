@@ -27,6 +27,8 @@ from strawberry.fastapi import GraphQLRouter
 
 from app.graphql.context import get_graphql_context
 from app.graphql.schema import schema
+from app.core.config import settings
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -34,12 +36,15 @@ async def lifespan(app: FastAPI):
     Start and stop the Supplier Portal Kafka consumer
     with the FastAPI application lifecycle.
     """
-    kafka_consumer_runner.start()
+    if settings.KAFKA_ENABLED:
+        kafka_consumer_runner.start()
 
     try:
         yield
     finally:
-        kafka_consumer_runner.stop()
+        if settings.KAFKA_ENABLED:
+            kafka_consumer_runner.stop()
+
 
 app = FastAPI(
     title="Supplier Portal Service",
@@ -147,4 +152,16 @@ app.include_router(
 def root():
     return {
         "message": "Supplier Portal Service is running successfully!"
+    }
+
+
+@app.get("/health")
+def health():
+    return {
+        "status": "healthy",
+        "kafka_consumer_alive": (
+            kafka_consumer_runner.is_alive()
+            if settings.KAFKA_ENABLED
+            else False
+        ),
     }

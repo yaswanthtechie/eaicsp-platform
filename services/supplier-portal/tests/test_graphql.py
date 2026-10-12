@@ -31,7 +31,12 @@ from app.services.supplier_onboarding_service import (
     suppliers,
 )
 from app.schemas.purchase_order import PurchaseOrderStatus
-from app.schemas.events import SupplierComplianceStatus
+from uuid import uuid4
+
+from app.schemas.events import (
+    SupplierComplianceStatus,
+    SupplierStatusChangedEvent,
+)
 from app.services.supplier_compliance_service import (
     supplier_compliance_service,
 )
@@ -83,24 +88,65 @@ def seed_supplier(
     return supplier
 
 
+
 def set_compliance_status(
     supplier_id: str,
     status: SupplierComplianceStatus,
 ):
     """
-    Set the Round-14 compliance access state used by
-    GraphQL authorization tests.
+    Persist compliance status through the same SQLite-backed
+    service used by the application.
 
-    These tests intentionally update the in-memory supplier
-    state directly. Kafka consumer behavior is tested separately.
+    GraphQL authorization reads compliance state from SQLite,
+    so directly changing the suppliers dictionary is insufficient.
     """
+    supplier = suppliers.get(supplier_id)
 
-    if supplier_id not in suppliers:
-        seed_supplier(supplier_id)
+    if supplier is None:
+        supplier = seed_supplier(supplier_id)
 
-    suppliers[supplier_id][
-        "compliance_access_status"
-    ] = status.value
+    # Convert the internal enum to the external Compliance event status.
+    status_mapping = {
+        SupplierComplianceStatus.cleared: "CLEAR",
+        SupplierComplianceStatus.needs_review: "REVIEW",
+        SupplierComplianceStatus.suspended: "BLOCK",
+    }
+
+    try:
+        new_status = status_mapping[status]
+    except KeyError as exc:
+        raise ValueError(
+            f"Unsupported compliance status: {status!r}"
+        ) from exc
+
+    event_id = str(uuid4())
+
+    event_data = {
+        "event_id": event_id,
+        "event_type": "compliance.supplier.status_changed",
+        "event_version": 1,
+        "occurred_at": datetime.now(timezone.utc).isoformat(),
+        "producer": "compliance-service",
+        "payload": {
+            "supplier_name": supplier["supplier_name"],
+            "country": supplier.get("country", "India"),
+            "old_status": "CLEAR",
+            "new_status": new_status,
+            "matched_list": [],
+            "reason": f"GraphQL authorization test: {new_status}",
+            "screening_run_id": f"test-{event_id}",
+        },
+    }
+
+    event = SupplierStatusChangedEvent.model_validate(
+        event_data
+    )
+
+    # This persists the state and audit record in SQLite.
+    supplier_compliance_service.apply_status_changed_event(
+        event,
+        supplier_id=supplier_id,
+    )
 
 
 def seed_po(
@@ -245,31 +291,38 @@ def seed_document(
 # FIXTURE CLEANUP
 # ============================================================
 @pytest.fixture(autouse=True)
-def clean_graphql_data():
-    purchase_orders.clear()
-    invoices.clear()
-    suppliers.clear()
-    supplier_documents.clear()
+def clean_graphql_data(tmp_path):
+    from app.services.supplier_compliance_service import (
+        supplier_compliance_service,
+    )
 
-    supplier_compliance_service._processed_event_ids.clear()
-    supplier_compliance_service._latest_event_times.clear()
-    supplier_compliance_service._audit_history.clear()
+    # Give every test its own temporary SQLite database.
+    original_db_path = supplier_compliance_service._db_path
+    supplier_compliance_service._db_path = (
+        tmp_path / "compliance_state.db"
+    )
 
-    # Default authenticated supplier used by supplier_client.
-    # GraphQL compliance authorization now validates the
-    # supplier before resource lookup.
-    seed_supplier("SUP001")
+    try:
+        # Clear shared in-memory test data before each test.
+        purchase_orders.clear()
+        invoices.clear()
+        suppliers.clear()
+        supplier_documents.clear()
 
-    yield
+        # Default authenticated supplier used by supplier_client.
+        seed_supplier("SUP001")
 
-    purchase_orders.clear()
-    invoices.clear()
-    suppliers.clear()
-    supplier_documents.clear()
+        yield
 
-    supplier_compliance_service._processed_event_ids.clear()
-    supplier_compliance_service._latest_event_times.clear()
-    supplier_compliance_service._audit_history.clear()
+    finally:
+        # Clear shared in-memory test data after each test.
+        purchase_orders.clear()
+        invoices.clear()
+        suppliers.clear()
+        supplier_documents.clear()
+
+        # Restore the original database path.
+        supplier_compliance_service._db_path = original_db_path
 
 # ============================================================
 # 1. GRAPHQL ENDPOINT / SCHEMA

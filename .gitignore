@@ -233,3 +233,4 @@ myenv/
 
 # Local platform database
 services/platform/platform.db
+data/*.db

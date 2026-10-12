@@ -2,10 +2,17 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any
 
-from confluent_kafka import Consumer, KafkaError, KafkaException, Producer
+from confluent_kafka import (
+    Consumer,
+    KafkaError,
+    KafkaException,
+    Producer,
+    TopicPartition,
+)
 
 from app.core.config import settings
 from app.schemas.events import SupplierStatusChangedEvent
@@ -18,33 +25,23 @@ from app.services.supplier_compliance_service import (
 
 logger = logging.getLogger(__name__)
 
+EVENT_TYPE = "compliance.supplier.status_changed"
+
 
 class KafkaConsumerError(Exception):
     """Base exception for Supplier Portal Kafka consumer errors."""
 
 
 class KafkaMessageValidationError(KafkaConsumerError):
-    """Raised when a Kafka message is malformed or violates the event contract."""
+    """Raised when a Kafka message violates the event contract."""
 
 
 class KafkaDeadLetterError(KafkaConsumerError):
-    """Raised when a bad Kafka message cannot be published to the DLQ."""
+    """Raised when a Kafka message cannot be published to the DLQ."""
 
 
 class SupplierStatusChangedConsumer:
-    """
-    Kafka consumer for compliance.supplier.status_changed events.
-
-    Responsibilities:
-    - Consume supplier compliance status-change events.
-    - Validate the event envelope and payload.
-    - Apply supplier compliance access state.
-    - Preserve idempotency and out-of-order handling through
-      SupplierComplianceService.
-    - Commit offsets only after successful processing.
-    - Send invalid/poison messages to the dead-letter topic.
-    - Never commit the original message when DLQ publishing fails.
-    """
+    """Consume compliance events with retries and manual commits."""
 
     EVENT_VERSION = 1
 
@@ -88,6 +85,8 @@ class SupplierStatusChangedConsumer:
         )
 
         self._running = False
+        self._closed = False
+        self._retries: dict[tuple[str, int, int], int] = {}
 
     @property
     def consumer(self) -> Consumer:
@@ -95,7 +94,7 @@ class SupplierStatusChangedConsumer:
         return self._consumer
 
     def subscribe(self) -> None:
-        """Subscribe to the configured supplier compliance topic."""
+        """Subscribe to the configured Kafka topic."""
         self._consumer.subscribe([self.topic])
 
         logger.info(
@@ -106,110 +105,140 @@ class SupplierStatusChangedConsumer:
         )
 
     def close(self) -> None:
-        """
-        Close Kafka resources gracefully.
+        """Attempt to close Kafka resources, even if one close fails."""
+        if self._closed:
+            return
 
-        Calling close multiple times is safe.
-        """
         self._running = False
+        self._closed = True
+        errors: list[Exception] = []
 
         try:
             self._consumer.close()
-        finally:
-            self._dlq_producer.flush(timeout=5.0)
+        except Exception as exc:
+            errors.append(exc)
+            logger.exception("Failed to close the Kafka consumer.")
+
+        try:
+            remaining = self._dlq_producer.flush(timeout=5.0)
+
+            if remaining:
+                errors.append(
+                    KafkaDeadLetterError(
+                        f"{remaining} DLQ message(s) remained pending "
+                        "at shutdown."
+                    )
+                )
+                logger.error(
+                    "DLQ producer still has %s message(s) pending "
+                    "at shutdown.",
+                    remaining,
+                )
+        except Exception as exc:
+            errors.append(exc)
+            logger.exception("Failed to flush the DLQ producer at shutdown.")
+
+        if errors:
+            raise KafkaConsumerError(
+                "One or more Kafka resources failed to close cleanly."
+            ) from errors[0]
 
         logger.info("Supplier Portal Kafka consumer closed.")
 
     def stop(self) -> None:
-        """Request graceful shutdown of the consumer loop."""
+        """Request graceful shutdown."""
         self._running = False
 
+    @staticmethod
+    def _get_supplier_id(message: Any) -> str:
+        """Extract and validate the supplier ID from the Kafka key."""
+        raw_key = message.key()
+
+        if raw_key is None:
+            raise KafkaMessageValidationError(
+                "Kafka message has no supplier key."
+            )
+
+        try:
+            if isinstance(raw_key, bytes):
+                supplier_id = raw_key.decode("utf-8").strip()
+            elif isinstance(raw_key, str):
+                supplier_id = raw_key.strip()
+            else:
+                raise KafkaMessageValidationError(
+                    "Kafka supplier key must be a UTF-8 string."
+                )
+        except UnicodeDecodeError as exc:
+            raise KafkaMessageValidationError(
+                "Kafka supplier key contains invalid UTF-8 data."
+            ) from exc
+
+        if not supplier_id:
+            raise KafkaMessageValidationError(
+                "Kafka message has an empty supplier key."
+            )
+
+        return supplier_id
+
     def process_message(self, message: Any) -> bool:
-        """
-        Deserialize, validate, and apply one Kafka event.
-
-        Returns:
-            True when the event was successfully processed.
-
-        Raises:
-            KafkaMessageValidationError:
-                The message violates the event contract.
-
-            SupplierNotFoundError:
-                The event references an unknown supplier.
-
-            SupplierComplianceError:
-                Supplier compliance state could not be updated.
-        """
+        """Deserialize, validate, and apply one compliance event."""
         event = self._deserialize_event(message)
+        supplier_id = self._get_supplier_id(message)
 
         try:
             applied = supplier_compliance_service.apply_status_changed_event(
-                event
+                event,
+                supplier_id=supplier_id,
             )
-
         except SupplierNotFoundError:
             logger.exception(
-                "Supplier referenced by compliance event does not exist: "
+                "Supplier referenced by compliance event was not found: "
                 "event_id=%s supplier_id=%s",
                 event.event_id,
-                event.payload.supplier_id,
+                supplier_id,
             )
+            # Do not classify a missing supplier as malformed JSON.
+            # The retry policy handles this processing failure.
             raise
-
         except InvalidComplianceStatusError as exc:
             logger.exception(
-                "Invalid compliance status in event: event_id=%s",
+                "Invalid compliance status: event_id=%s supplier_id=%s",
                 event.event_id,
+                supplier_id,
             )
             raise KafkaMessageValidationError(
                 "Unsupported supplier compliance status."
             ) from exc
-
         except SupplierComplianceError:
             logger.exception(
-                "Supplier compliance state update failed: event_id=%s",
+                "Supplier compliance state update failed: "
+                "event_id=%s supplier_id=%s",
                 event.event_id,
+                supplier_id,
             )
             raise
 
         if applied:
             logger.info(
-                "Supplier compliance event applied successfully: "
+                "Supplier compliance event applied: "
                 "event_id=%s supplier_id=%s new_status=%s",
                 event.event_id,
-                event.payload.supplier_id,
+                supplier_id,
                 event.payload.new_status,
             )
         else:
             logger.info(
-                "Supplier compliance event ignored because it is "
-                "duplicate or out-of-order: "
+                "Supplier compliance event ignored as duplicate or stale: "
                 "event_id=%s supplier_id=%s occurred_at=%s",
                 event.event_id,
-                event.payload.supplier_id,
+                supplier_id,
                 event.occurred_at,
             )
 
         return True
 
     def run(self, poll_timeout: float = 1.0) -> None:
-        """
-        Start the Kafka consumer loop.
-
-        Offset commit order:
-
-            poll
-              ↓
-            validate
-              ↓
-            apply state
-              ↓
-            commit offset
-
-        Therefore a processing failure never causes the original offset
-        to be committed.
-        """
+        """Poll, process, retry failures, and commit only safe offsets."""
         self.subscribe()
         self._running = True
 
@@ -232,75 +261,180 @@ class SupplierStatusChangedConsumer:
                     self._handle_consumer_error(message.error())
                     continue
 
+                retry_key = (
+                    message.topic(),
+                    message.partition(),
+                    message.offset(),
+                )
+
                 try:
                     self.process_message(message)
 
                 except KafkaMessageValidationError as exc:
+                    # Invalid events should be committed only after
+                    # successful DLQ delivery.
                     logger.error(
-                        "Invalid Kafka event. Sending message to DLQ: %s",
+                        "Rejected Kafka event; attempting DLQ delivery: %s",
                         exc,
                     )
 
-                    self._publish_to_dlq(
+                    committed = self._dead_letter_and_commit(
                         message=message,
-                        error_reason=str(exc),
+                        reason=str(exc),
                     )
 
-                    self._commit(message)
+                    if committed:
+                        self._retries.pop(retry_key, None)
+                    elif not self._running:
+                        raise KafkaConsumerError(
+                            "Consumer stopped after a DLQ/commit failure."
+                        )
+
                     continue
 
-                except SupplierNotFoundError as exc:
-                    logger.error(
-                        "Kafka event references an unknown supplier. "
-                        "Sending message to DLQ: %s",
-                        exc,
+                except Exception as exc:
+                    attempts = self._retries.get(retry_key, 0) + 1
+                    self._retries[retry_key] = attempts
+
+                    max_retries = max(
+                        1,
+                        settings.KAFKA_MAX_RETRIES,
                     )
 
-                    self._publish_to_dlq(
-                        message=message,
-                        error_reason=str(exc),
-                    )
+                    if attempts >= max_retries:
+                        logger.error(
+                            "Retry limit reached (%s); attempting DLQ: "
+                            "topic=%s partition=%s offset=%s",
+                            attempts,
+                            message.topic(),
+                            message.partition(),
+                            message.offset(),
+                        )
 
-                    self._commit(message)
+                        committed = self._dead_letter_and_commit(
+                            message=message,
+                            reason=(
+                                f"failed after {attempts} attempts: {exc}"
+                            ),
+                        )
+
+                        if committed:
+                            self._retries.pop(retry_key, None)
+                        elif not self._running:
+                            raise KafkaConsumerError(
+                                "Consumer stopped after a DLQ/commit failure."
+                            )
+                    else:
+                        logger.exception(
+                            "Processing failed (attempt %s/%s); "
+                            "retrying offset %s",
+                            attempts,
+                            max_retries,
+                            message.offset(),
+                        )
+
+                        try:
+                            self._rewind(message, attempts)
+                        except Exception as rewind_exc:
+                            logger.exception(
+                                "Could not rewind failed message. "
+                                "Consumer must be restarted."
+                            )
+                            self._running = False
+                            raise KafkaConsumerError(
+                                "Could not rewind the failed Kafka message."
+                            ) from rewind_exc
+
                     continue
 
-                except SupplierComplianceError:
-                    logger.exception(
-                        "Supplier compliance processing failed. "
-                        "Original Kafka offset will NOT be committed."
-                    )
-                    continue
+                # The service must finish its database transaction before
+                # the offset is committed.
+                self._retries.pop(retry_key, None)
 
-                except Exception:
-                    logger.exception(
-                        "Unexpected Kafka message processing failure. "
-                        "Original Kafka offset will NOT be committed."
+                if not self._safe_commit(message):
+                    # A normal return would prevent the runner from
+                    # recognizing this as a failed consumer instance.
+                    raise KafkaConsumerError(
+                        "Offset commit failed; consumer restart required."
                     )
-                    continue
-
-                self._commit(message)
 
         except KeyboardInterrupt:
             logger.info("Supplier Portal Kafka consumer interrupted.")
-
         finally:
             self.close()
+
+    def _rewind(self, message: Any, attempt: int = 1) -> None:
+        """Seek back to the failed message and wait before retrying."""
+        partition = TopicPartition(
+            message.topic(),
+            message.partition(),
+            message.offset(),
+        )
+
+        self._consumer.seek(partition)
+
+        delay = max(
+            0.0,
+            settings.KAFKA_RETRY_BACKOFF_SECONDS * attempt,
+        )
+
+        if delay:
+            time.sleep(delay)
+
+    def _dead_letter_and_commit(
+        self,
+        *,
+        message: Any,
+        reason: str,
+    ) -> bool:
+        """Commit the source offset only after confirmed DLQ delivery."""
+        try:
+            self._publish_to_dlq(
+                message=message,
+                error_reason=reason,
+            )
+        except Exception:
+            logger.exception(
+                "DLQ publish failed; original message will be retried."
+            )
+
+            try:
+                self._rewind(message)
+            except Exception as rewind_exc:
+                logger.exception(
+                    "Could not rewind message after DLQ failure. "
+                    "Consumer must be restarted."
+                )
+                self._running = False
+                raise KafkaConsumerError(
+                    "Could not rewind the message after DLQ failure."
+                ) from rewind_exc
+
+            # Do not commit the source message. A later poll retries it.
+            return False
+
+        # A successful DLQ write does not mean the source offset was
+        # committed. Commit failure must trigger consumer restart.
+        return self._safe_commit(message)
+
+    def _safe_commit(self, message: Any) -> bool:
+        """Commit synchronously and never silently skip a failed offset."""
+        try:
+            self._commit(message)
+            return True
+        except Exception:
+            logger.exception(
+                "Offset commit failed. Consumer restart required; "
+                "the message may be redelivered."
+            )
+            self._running = False
+            return False
 
     def _deserialize_event(
         self,
         message: Any,
     ) -> SupplierStatusChangedEvent:
-        """
-        Decode and validate one Kafka message.
-
-        Validation includes:
-        - valid UTF-8
-        - valid JSON
-        - JSON object
-        - Pydantic event schema
-        - expected event type
-        - supported event version
-        """
+        """Decode JSON and validate the event contract."""
         raw_value = message.value()
 
         if raw_value is None:
@@ -311,6 +445,10 @@ class SupplierStatusChangedConsumer:
         try:
             if isinstance(raw_value, bytes):
                 raw_value = raw_value.decode("utf-8")
+            elif not isinstance(raw_value, str):
+                raise KafkaMessageValidationError(
+                    "Kafka message value must be UTF-8 JSON."
+                )
 
             data = json.loads(raw_value)
 
@@ -318,7 +456,6 @@ class SupplierStatusChangedConsumer:
             raise KafkaMessageValidationError(
                 "Kafka message contains invalid UTF-8 data."
             ) from exc
-
         except json.JSONDecodeError as exc:
             raise KafkaMessageValidationError(
                 "Kafka message is not valid JSON."
@@ -331,14 +468,13 @@ class SupplierStatusChangedConsumer:
 
         try:
             event = SupplierStatusChangedEvent.model_validate(data)
-
         except Exception as exc:
             raise KafkaMessageValidationError(
                 "Kafka event does not match the Supplier Portal "
                 "event contract."
             ) from exc
 
-        if event.event_type != self.topic:
+        if event.event_type != EVENT_TYPE:
             raise KafkaMessageValidationError(
                 f"Unexpected event type: {event.event_type}"
             )
@@ -356,16 +492,8 @@ class SupplierStatusChangedConsumer:
         message: Any,
         error_reason: str,
     ) -> None:
-        """
-        Publish a failed Kafka message to the dead-letter topic.
-
-        The original Kafka offset is intentionally NOT committed here.
-
-        The caller commits the original offset only after this method
-        completes successfully.
-        """
+        """Publish the original message and failure details to the DLQ."""
         delivery_errors: list[Any] = []
-
         original_value = message.value()
 
         if isinstance(original_value, bytes):
@@ -400,9 +528,8 @@ class SupplierStatusChangedConsumer:
                 delivery_errors.append(error)
                 return
 
-            logger.warning(
-                "Kafka event sent to DLQ successfully: "
-                "topic=%s partition=%s offset=%s",
+            logger.info(
+                "Kafka event sent to DLQ: topic=%s partition=%s offset=%s",
                 delivered_message.topic(),
                 delivered_message.partition(),
                 delivered_message.offset(),
@@ -415,23 +542,30 @@ class SupplierStatusChangedConsumer:
                 value=json.dumps(dlq_payload),
                 on_delivery=_on_delivery,
             )
-
         except BufferError as exc:
             raise KafkaDeadLetterError(
                 f"DLQ producer queue is full: {exc}"
             ) from exc
-
         except KafkaException as exc:
             raise KafkaDeadLetterError(
                 f"Could not publish event to DLQ: {exc}"
             ) from exc
+        except Exception as exc:
+            raise KafkaDeadLetterError(
+                f"Unexpected error while publishing to DLQ: {exc}"
+            ) from exc
 
-        remaining = self._dlq_producer.flush(timeout=5.0)
+        try:
+            remaining = self._dlq_producer.flush(timeout=5.0)
+        except Exception as exc:
+            raise KafkaDeadLetterError(
+                f"Failed to flush DLQ message: {exc}"
+            ) from exc
 
         if remaining > 0:
             raise KafkaDeadLetterError(
-                "Kafka did not acknowledge "
-                f"{remaining} DLQ message(s) within 5 seconds."
+                f"Kafka did not acknowledge {remaining} DLQ message(s) "
+                "within 5 seconds."
             )
 
         if delivery_errors:
@@ -440,18 +574,12 @@ class SupplierStatusChangedConsumer:
             )
 
     def _commit(self, message: Any) -> None:
-        """
-        Commit one Kafka offset synchronously.
-
-        Synchronous commit is intentional here because we must know that
-        Kafka accepted the offset before continuing.
-        """
+        """Synchronously commit a message offset."""
         try:
             self._consumer.commit(
                 message=message,
                 asynchronous=False,
             )
-
         except KafkaException:
             logger.exception(
                 "Kafka offset commit failed: "
@@ -463,8 +591,7 @@ class SupplierStatusChangedConsumer:
             raise
 
         logger.debug(
-            "Kafka offset committed: "
-            "topic=%s partition=%s offset=%s",
+            "Kafka offset committed: topic=%s partition=%s offset=%s",
             message.topic(),
             message.partition(),
             message.offset(),
@@ -472,12 +599,9 @@ class SupplierStatusChangedConsumer:
 
     @staticmethod
     def _handle_consumer_error(error: KafkaError) -> None:
-        """Handle Kafka client/broker errors."""
+        """Handle Kafka client and broker errors."""
         if error.code() == KafkaError._PARTITION_EOF:
             logger.debug("Reached Kafka partition EOF.")
             return
 
-        logger.error(
-            "Kafka consumer error: %s",
-            error,
-        )
+        logger.error("Kafka consumer error: %s", error)

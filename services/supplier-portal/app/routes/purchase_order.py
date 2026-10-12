@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import (
+    enforce_not_suspended,
     require_roles,
     require_supplier_view_access,
     require_supplier_write_access,
@@ -31,7 +32,9 @@ from app.services.purchase_order_service import (
 )
 
 
-router = APIRouter()
+router = APIRouter(
+    dependencies=[Depends(enforce_not_suspended)],
+)
 
 
 # ============================================================

@@ -1,6 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.core.auth import require_roles, verify_token
+from app.core.auth import (
+    enforce_not_suspended_with_supplier_id_required,
+    require_roles,
+    verify_token,
+)
 
 from app.schemas.three_way_match import (
     ThreeWayMatchResponse,
@@ -18,7 +22,11 @@ from app.services.dispute_resolution_service import (
     get_dispute_resolution_suggestions,
 )
 
-router = APIRouter()
+router = APIRouter(
+    dependencies=[
+        Depends(enforce_not_suspended_with_supplier_id_required)
+    ],
+)
 
 
 # ============================================================

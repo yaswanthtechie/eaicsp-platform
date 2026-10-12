@@ -9,7 +9,6 @@ from fastapi import (
     Request,
     status,
 )
-
 from fastapi.security import (
     HTTPAuthorizationCredentials,
     HTTPBearer,
@@ -17,6 +16,8 @@ from fastapi.security import (
 
 from app.core.config import settings
 from app.services.supplier_compliance_service import (
+    ComplianceDatabaseError,
+    SupplierNotFoundError,
     SupplierComplianceStatus,
     supplier_compliance_service,
 )
@@ -27,6 +28,29 @@ from app.services.supplier_compliance_service import (
 # ============================================================
 
 logger = logging.getLogger("auth_requests")
+
+
+# ============================================================
+# CONSTANTS
+# ============================================================
+
+SUSPENDED_SUPPLIER_DETAIL = (
+    "Supplier account is suspended due to compliance status"
+)
+
+MISSING_SUPPLIER_ID_DETAIL = "Supplier identity is missing"
+
+UNRESOLVED_SUPPLIER_ID_DETAIL = (
+    "Supplier identity could not be resolved"
+)
+
+UNVERIFIED_COMPLIANCE_DETAIL = (
+    "Supplier compliance status could not be verified"
+)
+
+COMPLIANCE_UNAVAILABLE_DETAIL = (
+    "Supplier compliance service is temporarily unavailable"
+)
 
 
 # ============================================================
@@ -43,16 +67,12 @@ async def verify_token(
     ),
 ):
     """
-    Verify the access token with the Platform Service.
+    Verify access tokens through the Platform Service.
 
-    Supplier Portal does not validate the JWT itself.
-    Platform Service is the central authentication provider.
+    Supplier Portal does not decode or independently validate JWTs.
     """
 
-    # ========================================================
-    # 1. CHECK AUTHORIZATION HEADER
-    # ========================================================
-
+    # 1. Validate the Authorization header.
     if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -61,10 +81,7 @@ async def verify_token(
 
     token = credentials.credentials
 
-    # ========================================================
-    # 2. GET OR GENERATE REQUEST ID
-    # ========================================================
-
+    # 2. Get or generate the request ID.
     request_id = request.headers.get("X-Request-ID")
 
     if not request_id:
@@ -72,15 +89,9 @@ async def verify_token(
 
     request.state.request_id = request_id
 
-    # ========================================================
-    # 3. CALL PLATFORM SERVICE
-    # ========================================================
-
+    # 3. Verify the token with the Platform Service.
     try:
-        async with httpx.AsyncClient(
-            timeout=5.0
-        ) as client:
-
+        async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.post(
                 f"{settings.PLATFORM_AUTH_URL}/api/v1/auth/verify",
                 headers={
@@ -91,85 +102,52 @@ async def verify_token(
                 },
             )
 
-    # ========================================================
-    # 4. PLATFORM SERVICE TIMEOUT
-    # ========================================================
-
-    except httpx.TimeoutException:
+    except httpx.TimeoutException as exc:
         logger.error(
             "AUTHENTICATION SERVICE TIMEOUT | "
-            "caller=supplier-portal | "
-            "endpoint=%s | "
-            "request_id=%s | "
-            "status=503",
+            "endpoint=%s | request_id=%s",
             request.url.path,
             request_id,
         )
-
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication service timed out",
-        )
+        ) from exc
 
-    # ========================================================
-    # 5. PLATFORM SERVICE UNAVAILABLE
-    # ========================================================
-
-    except httpx.RequestError:
+    except httpx.RequestError as exc:
         logger.error(
             "AUTHENTICATION SERVICE UNAVAILABLE | "
-            "caller=supplier-portal | "
-            "endpoint=%s | "
-            "request_id=%s | "
-            "status=503",
+            "endpoint=%s | request_id=%s",
             request.url.path,
             request_id,
         )
-
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication service is unavailable",
-        )
+        ) from exc
 
-    # ========================================================
-    # 6. INVALID / EXPIRED TOKEN
-    # ========================================================
-
-    if response.status_code == 401:
-
+    # 4. Handle invalid credentials.
+    if response.status_code == status.HTTP_401_UNAUTHORIZED:
         logger.warning(
             "TOKEN VERIFICATION FAILED | "
-            "caller=supplier-portal | "
-            "endpoint=%s | "
-            "request_id=%s | "
-            "status=401",
+            "endpoint=%s | request_id=%s",
             request.url.path,
             request_id,
         )
-
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired authentication token",
         )
 
-    # ========================================================
-    # 7. UNEXPECTED PLATFORM RESPONSE
-    # ========================================================
-
-    if response.status_code != 200:
-
+    # 5. Reject unexpected Platform Service responses.
+    if response.status_code != status.HTTP_200_OK:
         logger.error(
             "AUTHENTICATION SERVICE ERROR | "
-            "caller=supplier-portal | "
-            "endpoint=%s | "
-            "request_id=%s | "
-            "platform_status=%s | "
-            "status=503",
+            "endpoint=%s | request_id=%s | platform_status=%s",
             request.url.path,
             request_id,
             response.status_code,
         )
-
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=(
@@ -178,70 +156,55 @@ async def verify_token(
             ),
         )
 
-    # ========================================================
-    # 8. PARSE RESPONSE
-    # ========================================================
-
+    # 6. Parse and validate the response.
     try:
         data = response.json()
-
-    except ValueError:
-
+    except ValueError as exc:
         logger.error(
             "AUTHENTICATION SERVICE INVALID JSON | "
-            "caller=supplier-portal | "
-            "endpoint=%s | "
-            "request_id=%s | "
-            "status=503",
+            "endpoint=%s | request_id=%s",
             request.url.path,
             request_id,
         )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service returned invalid JSON",
+        ) from exc
 
+    if not isinstance(data, dict):
+        logger.error(
+            "AUTHENTICATION SERVICE INVALID RESPONSE | "
+            "endpoint=%s | request_id=%s",
+            request.url.path,
+            request_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=(
-                "Authentication service returned "
-                "invalid JSON"
+                "Authentication service returned invalid user data"
             ),
         )
 
-    # ========================================================
-    # 9. VERIFY AUTHENTICATION RESULT
-    # ========================================================
-
-    if not data.get("valid"):
-
+    if data.get("valid") is not True:
         logger.warning(
             "TOKEN VERIFICATION FAILED | "
-            "caller=supplier-portal | "
-            "endpoint=%s | "
-            "request_id=%s | "
-            "status=401",
+            "endpoint=%s | request_id=%s",
             request.url.path,
             request_id,
         )
-
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication token",
         )
 
-    # ========================================================
-    # 10. GET USER INFORMATION
-    # ========================================================
-
+    # 7. Extract and validate the authenticated identity.
     user_id = data.get("user_id")
     user_role = data.get("role")
     supplier_id = data.get("supplier_id")
     email = data.get("email")
     full_name = data.get("full_name")
 
-    # ========================================================
-    # 11. VALIDATE USER INFORMATION
-    # ========================================================
-
     if user_id is None:
-
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=(
@@ -250,58 +213,38 @@ async def verify_token(
             ),
         )
 
-    if not user_role:
-
+    if not isinstance(user_role, str) or not user_role.strip():
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User role is not assigned",
         )
 
-    # Existing authentication-boundary contract:
-    # keep this message unchanged.
-    if user_role == "supplier" and not supplier_id:
-
+    # Preserve the existing authentication-boundary contract.
+    if user_role == "supplier" and (
+        not isinstance(supplier_id, str)
+        or not supplier_id.strip()
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Supplier identity could not be resolved",
+            detail=UNRESOLVED_SUPPLIER_ID_DETAIL,
         )
 
-    # ========================================================
-    # 12. STORE AUTHENTICATED USER IN REQUEST STATE
-    # ========================================================
-
+    # 8. Store the verified identity in request state.
+    # These values remain available to application authorization.
+    # They must not be included in log messages.
     request.state.user_id = user_id
     request.state.role = user_role
     request.state.supplier_id = supplier_id
     request.state.email = email
     request.state.full_name = full_name
 
-    # ========================================================
-    # 13. LOG SUCCESSFUL TOKEN VERIFICATION
-    # ========================================================
-
     logger.info(
-        "TOKEN VERIFIED | "
-        "verified_by=platform | "
-        "caller=supplier-portal | "
-        "caller_endpoint=%s | "
-        "request_id=%s | "
-        "email=%s | "
-        "full_name=%s | "
-        "user_id=%s | "
-        "role=%s | "
-        "status=200",
+        "TOKEN VERIFIED | verified_by=platform | "
+        "endpoint=%s | request_id=%s | role=%s",
         request.url.path,
         request_id,
-        email,
-        full_name,
-        user_id,
         user_role,
     )
-
-    # ========================================================
-    # 14. RETURN USER INFORMATION
-    # ========================================================
 
     return data
 
@@ -310,85 +253,57 @@ async def verify_token(
 # ROLE AUTHORIZATION
 # ============================================================
 
-
 def require_roles(*allowed_roles: str):
+    """Restrict an endpoint to the specified roles."""
 
     async def role_checker(
         request: Request,
         user=Depends(verify_token),
     ):
-
         user_role = user.get("role")
+        request_id = getattr(
+            request.state,
+            "request_id",
+            None,
+        )
 
-        if not user_role:
-
+        if not isinstance(user_role, str) or not user_role:
             logger.warning(
                 "AUTHORIZATION FAILED | "
-                "endpoint=%s | "
-                "email=%s | "
-                "user_id=%s | "
-                "reason=missing_role | "
-                "status=401",
+                "endpoint=%s | request_id=%s | "
+                "reason=missing_role | status=401",
                 request.url.path,
-                user.get("email"),
-                user.get("user_id"),
+                request_id,
             )
-
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="User role is not assigned",
             )
 
-        # ====================================================
-        # ROLE NOT AUTHORIZED
-        # ====================================================
-
         if user_role not in allowed_roles:
-
             logger.warning(
                 "AUTHORIZATION DENIED | "
-                "endpoint=%s | "
-                "email=%s | "
-                "full_name=%s | "
-                "user_id=%s | "
-                "role=%s | "
-                "required_roles=%s | "
-                "status=403",
+                "endpoint=%s | request_id=%s | "
+                "role=%s | required_roles=%s | status=403",
                 request.url.path,
-                user.get("email"),
-                user.get("full_name"),
-                user.get("user_id"),
+                request_id,
                 user_role,
                 ",".join(allowed_roles),
             )
-
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=(
                     f"Role '{user_role}' is not authorized "
-                    f"for this endpoint"
+                    "for this endpoint"
                 ),
             )
 
-        # ====================================================
-        # ROLE AUTHORIZED
-        # ====================================================
-
         logger.info(
             "AUTHORIZATION SUCCESS | "
-            "endpoint=%s | "
-            "email=%s | "
-            "full_name=%s | "
-            "user_id=%s | "
-            "role=%s | "
-            "required_roles=%s | "
-            "status=200",
+            "endpoint=%s | request_id=%s | "
+            "role=%s | required_roles=%s | status=200",
             request.url.path,
-            request_id if False else request.headers.get(
-                "X-Request-ID"
-            ),
-            user.get("full_name"),
-            user.get("user_id"),
+            request_id,
             user_role,
             ",".join(allowed_roles),
         )
@@ -402,20 +317,163 @@ def require_roles(*allowed_roles: str):
 # SUPPLIER COMPLIANCE ACCESS AUTHORIZATION
 # ============================================================
 
+def _require_supplier_id(
+    user: dict,
+    *,
+    detail: str = UNRESOLVED_SUPPLIER_ID_DETAIL,
+) -> str:
+    """Reject missing or blank supplier identities."""
+
+    supplier_id = user.get("supplier_id")
+
+    if not isinstance(supplier_id, str) or not supplier_id.strip():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=detail,
+        )
+
+    return supplier_id.strip()
+
 
 def _get_supplier_compliance_status(
     supplier_id: str,
 ) -> SupplierComplianceStatus:
     """
-    Get the current compliance access status for a supplier.
+    Retrieve compliance status from the compliance service.
 
-    Existing suppliers that have not yet received a compliance
-    status-change event are treated as CLEARED so that existing
-    Supplier Portal behaviour is preserved.
+    Unknown suppliers are denied.
+    Database failures fail closed with HTTP 503.
+    Supplier identifiers are never included in log messages.
     """
-    return supplier_compliance_service.get_access_status(
+    try:
+        compliance_status = (
+            supplier_compliance_service.get_access_status(
+                supplier_id
+            )
+        )
+
+    except SupplierNotFoundError as exc:
+        logger.warning(
+            "SUPPLIER COMPLIANCE CHECK DENIED | "
+            "reason=unknown_supplier",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=UNVERIFIED_COMPLIANCE_DETAIL,
+        ) from exc
+
+    except ComplianceDatabaseError as exc:
+        # Avoid logging exception text or traceback here because
+        # database exceptions can contain sensitive record values.
+        logger.error(
+            "SUPPLIER COMPLIANCE DATABASE ERROR | "
+            "error_type=%s",
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=COMPLIANCE_UNAVAILABLE_DETAIL,
+        ) from exc
+
+    if not isinstance(
+        compliance_status,
+        SupplierComplianceStatus,
+    ):
+        logger.error(
+            "INVALID SUPPLIER COMPLIANCE STATUS",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=UNVERIFIED_COMPLIANCE_DETAIL,
+        )
+
+    return compliance_status
+
+
+def _deny_if_suspended(
+    compliance_status: SupplierComplianceStatus,
+) -> None:
+    """Reject suspended suppliers with the established API message."""
+
+    if compliance_status == SupplierComplianceStatus.suspended:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=SUSPENDED_SUPPLIER_DETAIL,
+        )
+
+
+async def enforce_not_suspended(
+    user=Depends(verify_token),
+):
+    """
+    Block suspended suppliers on routes using this dependency.
+
+    Non-supplier users retain their existing route-level
+    role and resource authorization checks.
+    """
+    if user.get("role") != "supplier":
+        return user
+
+    supplier_id = _require_supplier_id(
+        user,
+        detail=MISSING_SUPPLIER_ID_DETAIL,
+    )
+
+    compliance_status = _get_supplier_compliance_status(
         supplier_id
     )
+
+    _deny_if_suspended(compliance_status)
+
+    return user
+
+
+async def enforce_not_suspended_with_resolved_identity(
+    user=Depends(verify_token),
+):
+    """
+    Same compliance enforcement, but use the resolved-identity
+    error message for routes that require that contract.
+    """
+    if user.get("role") != "supplier":
+        return user
+
+    supplier_id = _require_supplier_id(
+        user,
+        detail=UNRESOLVED_SUPPLIER_ID_DETAIL,
+    )
+
+    compliance_status = _get_supplier_compliance_status(
+        supplier_id
+    )
+
+    _deny_if_suspended(compliance_status)
+
+    return user
+
+
+async def enforce_not_suspended_with_supplier_id_required(
+    user=Depends(verify_token),
+):
+    """
+    Enforce supplier compliance for three-way matching routes.
+    Preserve the expected missing-identity error message.
+    """
+    if user.get("role") != "supplier":
+        return user
+
+    supplier_id = _require_supplier_id(
+        user,
+        detail="Supplier ID is required",
+    )
+
+    compliance_status = _get_supplier_compliance_status(
+        supplier_id
+    )
+
+    _deny_if_suspended(compliance_status)
+
+    return user
 
 
 async def require_supplier_view_access(
@@ -423,72 +481,28 @@ async def require_supplier_view_access(
     user=Depends(verify_token),
 ):
     """
-    Require supplier compliance view access.
-
-    CLEARED:
-        Full read access.
-
-    NEEDS_REVIEW:
-        Read/view access is allowed.
-
-    SUSPENDED:
-        Supplier-facing access is denied.
-
-    Internal/non-supplier users are not restricted by the
-    supplier compliance access state.
+    Allow CLEARED and NEEDS_REVIEW suppliers to view resources.
+    Deny SUSPENDED and unknown suppliers.
     """
-
     if user.get("role") != "supplier":
         return user
 
-    supplier_id = user.get("supplier_id")
-
-    if not supplier_id:
-        logger.warning(
-            "SUPPLIER COMPLIANCE ACCESS DENIED | "
-            "endpoint=%s | "
-            "reason=missing_supplier_id | "
-            "status=403",
-            request.url.path,
-        )
-
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Supplier identity is missing",
-        )
+    supplier_id = _require_supplier_id(
+        user,
+        detail=UNRESOLVED_SUPPLIER_ID_DETAIL,
+    )
 
     compliance_status = _get_supplier_compliance_status(
         supplier_id
     )
 
-    if compliance_status == SupplierComplianceStatus.suspended:
-        logger.warning(
-            "SUPPLIER COMPLIANCE ACCESS DENIED | "
-            "endpoint=%s | "
-            "supplier_id=%s | "
-            "compliance_status=%s | "
-            "status=403",
-            request.url.path,
-            supplier_id,
-            compliance_status.value,
-        )
-
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                "Supplier account is suspended due to "
-                "compliance status"
-            ),
-        )
+    _deny_if_suspended(compliance_status)
 
     logger.info(
         "SUPPLIER COMPLIANCE VIEW ACCESS GRANTED | "
-        "endpoint=%s | "
-        "supplier_id=%s | "
-        "compliance_status=%s | "
-        "status=200",
+        "endpoint=%s | request_id=%s | compliance_status=%s",
         request.url.path,
-        supplier_id,
+        getattr(request.state, "request_id", None),
         compliance_status.value,
     )
 
@@ -500,80 +514,26 @@ async def require_supplier_write_access(
     user=Depends(verify_token),
 ):
     """
-    Require supplier compliance write access.
+    Allow writes only for CLEARED suppliers.
 
-    CLEARED:
-        Supplier write access is allowed.
-
-    NEEDS_REVIEW:
-        Supplier can view data but cannot perform supplier
-        write operations such as PO acknowledgement or
-        invoice submission.
-
-    SUSPENDED:
-        All supplier-facing access is denied.
-
-    Internal/non-supplier users are not restricted by this
-    compliance-access check.
+    NEEDS_REVIEW and SUSPENDED suppliers cannot write.
+    Unknown suppliers and database failures fail closed.
     """
-
     if user.get("role") != "supplier":
         return user
 
-    supplier_id = user.get("supplier_id")
-
-    if not supplier_id:
-        logger.warning(
-            "SUPPLIER COMPLIANCE WRITE DENIED | "
-            "endpoint=%s | "
-            "reason=missing_supplier_id | "
-            "status=403",
-            request.url.path,
-        )
-
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Supplier identity is missing",
-        )
+    supplier_id = _require_supplier_id(
+        user,
+        detail=UNRESOLVED_SUPPLIER_ID_DETAIL,
+    )
 
     compliance_status = _get_supplier_compliance_status(
         supplier_id
     )
 
-    if compliance_status == SupplierComplianceStatus.suspended:
-        logger.warning(
-            "SUPPLIER COMPLIANCE WRITE DENIED | "
-            "endpoint=%s | "
-            "supplier_id=%s | "
-            "compliance_status=%s | "
-            "reason=suspended | "
-            "status=403",
-            request.url.path,
-            supplier_id,
-            compliance_status.value,
-        )
-
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                "Supplier account is suspended due to "
-                "compliance status"
-            ),
-        )
+    _deny_if_suspended(compliance_status)
 
     if compliance_status == SupplierComplianceStatus.needs_review:
-        logger.warning(
-            "SUPPLIER COMPLIANCE WRITE DENIED | "
-            "endpoint=%s | "
-            "supplier_id=%s | "
-            "compliance_status=%s | "
-            "reason=needs_review | "
-            "status=403",
-            request.url.path,
-            supplier_id,
-            compliance_status.value,
-        )
-
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
@@ -582,14 +542,27 @@ async def require_supplier_write_access(
             ),
         )
 
+    if compliance_status != SupplierComplianceStatus.cleared:
+        logger.error(
+            "SUPPLIER COMPLIANCE WRITE DENIED | "
+            "endpoint=%s | request_id=%s | "
+            "compliance_status=%s",
+            request.url.path,
+            getattr(request.state, "request_id", None),
+            compliance_status.value,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Supplier compliance status does not permit this action"
+            ),
+        )
+
     logger.info(
         "SUPPLIER COMPLIANCE WRITE ACCESS GRANTED | "
-        "endpoint=%s | "
-        "supplier_id=%s | "
-        "compliance_status=%s | "
-        "status=200",
+        "endpoint=%s | request_id=%s | compliance_status=%s",
         request.url.path,
-        supplier_id,
+        getattr(request.state, "request_id", None),
         compliance_status.value,
     )
 

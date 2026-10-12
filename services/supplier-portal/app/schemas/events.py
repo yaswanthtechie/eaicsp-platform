@@ -1,8 +1,8 @@
-from datetime import datetime
+
 from enum import Enum
 from typing import List
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 
 # ============================================================
@@ -22,30 +22,15 @@ class SupplierComplianceStatus(str, Enum):
 
 
 class SupplierStatusChangedPayload(BaseModel):
-    """
-    Payload received from the Compliance Service when a
-    supplier compliance status changes.
-    """
+    """Payload published by the Compliance Service."""
 
-    supplier_id: str = Field(
-        min_length=1
-    )
-
-    old_status: str = Field(
-        min_length=1
-    )
-
-    new_status: str = Field(
-        min_length=1
-    )
-
-    matched_list: List[str] = Field(
-        default_factory=list
-    )
-
-    reason: str = Field(
-        min_length=1
-    )
+    supplier_name: str = Field(min_length=1)
+    country: str | None = None
+    old_status: str = Field(min_length=1)
+    new_status: str = Field(min_length=1)
+    matched_list: List[str] = Field(default_factory=list)
+    reason: str = Field(min_length=1)
+    screening_run_id: str = Field(min_length=1)
 
 
 # ============================================================
@@ -54,10 +39,7 @@ class SupplierStatusChangedPayload(BaseModel):
 
 
 class SupplierStatusChangedEvent(BaseModel):
-    """
-    Standard Kafka event envelope for
-    compliance.supplier.status_changed.
-    """
+    """Standard envelope for compliance.supplier.status_changed."""
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -66,38 +48,25 @@ class SupplierStatusChangedEvent(BaseModel):
                 "event_type": "compliance.supplier.status_changed",
                 "event_version": 1,
                 "occurred_at": "2026-10-08T09:00:00+00:00",
-                "producer": "compliance",
+                "producer": "compliance-service",
                 "payload": {
-                    "supplier_id": "SUP001",
+                    "supplier_name": "ABC Supplies",
+                    "country": "India",
                     "old_status": "CLEAR",
                     "new_status": "BLOCK",
-                    "matched_list": [
-                        "OFAC"
-                    ],
+                    "matched_list": ["OFAC"],
                     "reason": "Matched supplier on OFAC",
+                    "screening_run_id": "run-001",
                 },
             }
         }
     )
 
-    event_id: str = Field(
-        min_length=1
-    )
-
-    event_type: str = Field(
-        min_length=1
-    )
-
-    event_version: int = Field(
-        gt=0
-    )
-
-    occurred_at: datetime
-
-    producer: str = Field(
-        min_length=1
-    )
-
+    event_id: str = Field(min_length=1)
+    event_type: str = Field(min_length=1)
+    event_version: int = Field(gt=0)
+    occurred_at: AwareDatetime
+    producer: str = Field(min_length=1)
     payload: SupplierStatusChangedPayload
 
 
@@ -107,31 +76,13 @@ class SupplierStatusChangedEvent(BaseModel):
 
 
 class SupplierComplianceAudit(BaseModel):
-    """
-    Audit record for every accepted supplier compliance
-    status change.
-    """
+    """Audit record for a supplier compliance status change."""
 
-    event_id: str = Field(
-        min_length=1
-    )
-
-    supplier_id: str = Field(
-        min_length=1
-    )
-
+    event_id: str = Field(min_length=1)
+    supplier_key: str = Field(min_length=1)
     old_status: SupplierComplianceStatus
-
     new_status: SupplierComplianceStatus
-
-    matched_list: List[str] = Field(
-        default_factory=list
-    )
-
-    reason: str = Field(
-        min_length=1
-    )
-
-    occurred_at: datetime
-
-    processed_at: datetime
+    matched_list: List[str] = Field(default_factory=list)
+    reason: str = Field(min_length=1)
+    occurred_at: AwareDatetime
+    processed_at: AwareDatetime

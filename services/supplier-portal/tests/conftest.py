@@ -25,6 +25,10 @@ from app.services.document_storage_service import (
     document_storage_service,
 )
 
+from app.services.supplier_compliance_service import (
+    supplier_compliance_service,
+)
+
 
 class FakeMinioClient:
     """
@@ -318,3 +322,18 @@ def compliance_client():
         COMPLIANCE_USER,
     ) as test_client:
         yield test_client
+
+
+
+@pytest.fixture(autouse=True)
+def compliance_db(tmp_path, monkeypatch):
+    from app.services.supplier_compliance_service import (
+        supplier_compliance_service,
+    )
+
+    monkeypatch.setattr(
+        supplier_compliance_service,
+        "_db_path",
+        tmp_path / "compliance.db",
+    )
+    yield
