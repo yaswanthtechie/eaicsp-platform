@@ -1,0 +1,23 @@
+filebeat.inputs:
+  - type: filestream
+    id: gateway-access-logs
+    enabled: true
+    paths:
+      - /usr/share/filebeat/logs/*.log
+    parsers:
+      - ndjson:
+          keys_under_root: true
+          overwrite_keys: true
+          add_error_key: true
+          expand_keys: true
+
+setup.template.name: "gateway-logs"
+setup.template.pattern: "gateway-logs-*"
+setup.template.settings:
+  index.number_of_shards: 1
+  index.number_of_replicas: 0
+setup.ilm.enabled: false
+
+output.elasticsearch:
+  hosts: ["http://elasticsearch:9200"]
+  index: "gateway-logs-%{+yyyy.MM.dd}"
