@@ -241,6 +241,9 @@ def process_compliance_event(db: Session, event_data: dict[str, Any]) -> Process
             .all()
         )
         for po in pos:
+            # Do not overwrite another source's hold (e.g. finance, operations)
+            if po.status == "on_hold" and po.hold_source not in (None, "compliance"):
+                continue
             if po.status == "draft":
                 affected_pos.append(po.po_id)
             po.status = "on_hold"
@@ -325,10 +328,12 @@ class ComplianceConsumerWorker:
         consumer=None,
         dlq_publisher=None,
         db_session_factory=None,
+        max_retries: int = 5,
     ):
         self._consumer = consumer
         self._dlq_publisher = dlq_publisher
         self._db_session_factory = db_session_factory
+        self.max_retries = max_retries
         self._attempts: dict[tuple, int] = {}
 
     @property
@@ -512,13 +517,43 @@ class ComplianceConsumerWorker:
             except Exception as exc:
                 attempt = self._attempts.get(key, 0) + 1
                 self._attempts[key] = attempt
-                logger.error(
-                    "Processing failed (attempt %d) at %s[%s]@%s: %s. Rewinding to retry.",
-                    attempt,
-                    *key,
-                    exc,
-                )
-                self._rewind(msg, attempt)
+                if attempt >= self.max_retries:
+                    logger.error(
+                        "Processing repeatedly failed (%d attempts) at %s[%s]@%s: %s. Routing to DLQ to avoid stalling partition.",
+                        attempt,
+                        *key,
+                        exc,
+                    )
+                    raw_val = msg.value() if hasattr(msg, "value") else msg
+                    if isinstance(raw_val, bytes):
+                        raw_text = raw_val.decode("utf-8", errors="replace")
+                    elif isinstance(raw_val, str):
+                        raw_text = raw_val
+                    else:
+                        raw_text = str(raw_val)
+                    try:
+                        self.route_to_dlq(
+                            raw_message=raw_text,
+                            error_reason=f"Exceeded max retries ({self.max_retries}): {exc}",
+                            topic=key[0],
+                            partition=key[1],
+                            offset=key[2],
+                        )
+                        self.commit_offset(msg)
+                        self._attempts.pop(key, None)
+                        processed_count += 1
+                    except Exception as dlq_err:
+                        logger.critical("Could not route failed message to DLQ after max retries: %s", dlq_err)
+                        self._rewind(msg, attempt)
+                else:
+                    logger.error(
+                        "Processing failed (attempt %d/%d) at %s[%s]@%s: %s. Rewinding to retry.",
+                        attempt,
+                        self.max_retries,
+                        *key,
+                        exc,
+                    )
+                    self._rewind(msg, attempt)
             finally:
                 db.close()
 

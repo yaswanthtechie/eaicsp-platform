@@ -375,4 +375,4 @@ In Docker Compose, this is automatically managed by the dedicated `compliance-co
 | Commit offset only after DB write | Completed |
 | Out-of-order event protection (`occurred_at`) | Completed |
 | Dead-Letter Queue & Transient Retry | Completed |
-| Full unit test suite (no Docker needed) | 224 passed, 14 skipped, 7 deselected |
+| Full unit test suite (no Docker needed) | 226 passed, 14 skipped, 7 deselected |

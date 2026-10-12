@@ -690,3 +690,68 @@ def test_simulate_endpoint_is_gone(client):
     response = client.post("/api/v1/inventory/purchase-orders/compliance-events/simulate",
                            json={"supplier_id": "SUP001", "new_status": "CLEAR"})
     assert response.status_code in (404, 405)
+
+
+def test_block_does_not_overwrite_other_source_hold(db_session):
+    """
+    Optional follow up: When a PO is on hold by another source (e.g. finance),
+    a compliance BLOCK event must not overwrite the hold source or reason.
+    """
+    po = seed_po(
+        db_session,
+        "PO-FIN-HOLD",
+        "SUP-FIN-1",
+        status="on_hold",
+        hold_reason="Finance budget audit",
+        hold_source="finance",
+    )
+    event = make_event(
+        event_id="EVT-BLOCK-FIN",
+        supplier_id="SUP-FIN-1",
+        new_status="BLOCK",
+        reason="Sanctions match",
+    )
+    result = process_compliance_event(db_session, event)
+    assert result.status == "PROCESSED"
+
+    db_session.refresh(po)
+    assert po.status == "on_hold"
+    assert po.hold_reason == "Finance budget audit"
+    assert po.hold_source == "finance"
+
+
+def test_repeated_transient_failure_routes_to_dlq_after_max_retries(db_session, monkeypatch):
+    """
+    Optional follow up: Cap retries so a message that always fails ends up
+    in the DLQ rather than stalling the partition indefinitely.
+    """
+    import app.services.compliance_consumer as cc
+    monkeypatch.setattr(cc.time, "sleep", lambda s: None)
+
+    msg = FakeKafkaMessage(
+        json.dumps(make_event(event_id="EVT-PERMA-FAIL", supplier_id="SUP-FAIL-1")),
+        offset=42,
+    )
+    consumer = FakeKafkaConsumer([msg])
+    dlq_pub = InMemoryKafkaPublisher()
+    worker = ComplianceConsumerWorker(
+        consumer=consumer,
+        dlq_publisher=dlq_pub,
+        db_session_factory=lambda: db_session,
+        max_retries=3,
+    )
+
+    # Make handle_kafka_message always raise an OperationalError
+    def always_fail(db, m):
+        raise OperationalError("SELECT 1", {}, Exception("Database disk full"))
+
+    monkeypatch.setattr(worker, "handle_kafka_message", always_fail)
+
+    _run_until_drained(worker, consumer)
+
+    # Verified: Routed to DLQ after 3 failed attempts, offset committed
+    assert len(dlq_pub.published_messages) == 1
+    assert "Exceeded max retries (3)" in dlq_pub.published_messages[0]["value"]
+    assert consumer.committed_messages == [msg]
+    assert len(consumer.seeks) == 2  # Attempt 1 and 2 sought back; attempt 3 routed to DLQ
+
