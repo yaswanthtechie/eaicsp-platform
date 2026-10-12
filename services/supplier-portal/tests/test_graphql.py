@@ -69,23 +69,21 @@ def graphql(
 # TEST DATA HELPERS
 # ============================================================
 
-def seed_supplier(
-    supplier_id: str = "SUP001",
-) -> dict:
+def seed_supplier(supplier_id: str = "SUP001") -> dict:
+    supplier_name = f"Test Supplier {supplier_id}"
+
     supplier = {
         "supplier_id": supplier_id,
-        "supplier_name": f"Test Supplier {supplier_id}",
+        "company_name": f"Test Supplier {supplier_id}",
+        "country": "India",
         "status": "active",
     }
 
     suppliers[supplier_id] = supplier
-
-    # Round-14:
-    # Suppliers created by GraphQL tests must also be visible
-    # to the compliance access service.
     supplier.pop("compliance_access_status", None)
 
     return supplier
+
 
 
 
@@ -128,7 +126,7 @@ def set_compliance_status(
         "occurred_at": datetime.now(timezone.utc).isoformat(),
         "producer": "compliance-service",
         "payload": {
-            "supplier_name": supplier["supplier_name"],
+            "supplier_name": supplier["company_name"],
             "country": supplier.get("country", "India"),
             "old_status": "CLEAR",
             "new_status": new_status,
@@ -143,10 +141,7 @@ def set_compliance_status(
     )
 
     # This persists the state and audit record in SQLite.
-    supplier_compliance_service.apply_status_changed_event(
-        event,
-        supplier_id=supplier_id,
-    )
+    supplier_compliance_service.apply_status_changed_event(event)
 
 
 def seed_po(

@@ -1,11 +1,9 @@
-
 from __future__ import annotations
 
 import json
 import threading
 import time
 import uuid
-from concurrent.futures import TimeoutError as FutureTimeoutError
 
 import pytest
 from confluent_kafka import Consumer, Producer, TopicPartition
@@ -31,9 +29,14 @@ def test_real_kafka_block_event_updates_sqlite_and_commits_offset(
     dlq_topic = f"test-compliance-dlq-{suffix}"
     group_id = f"supplier-portal-integration-{suffix}"
     supplier_id = f"TEST-{suffix.upper()}"
+    supplier_name = "Kafka Integration Test Supplier"
 
-    admin = AdminClient({"bootstrap.servers": bootstrap_servers})
-    producer = Producer({"bootstrap.servers": bootstrap_servers})
+    admin = AdminClient(
+        {"bootstrap.servers": bootstrap_servers}
+    )
+    producer = Producer(
+        {"bootstrap.servers": bootstrap_servers}
+    )
 
     isolated_service = SupplierComplianceService(
         db_path=tmp_path / "compliance_state.db"
@@ -44,11 +47,14 @@ def test_real_kafka_block_event_updates_sqlite_and_commits_offset(
         isolated_service,
     )
 
-    # The consumer expects the supplier identity to exist in the
-    # application's supplier registry; identity comes from the Kafka key.
+    # Preserve any pre-existing registry entry and restore it in finally.
+    previous_supplier = suppliers.get(supplier_id)
+
+    # The consumer matches the supplier using payload.supplier_name,
+    # not the Kafka key. The key is used for partitioning.
     suppliers[supplier_id] = {
         "supplier_id": supplier_id,
-        "company_name": "Kafka Integration Test Supplier",
+        "company_name": supplier_name,
         "contact_name": "Integration Test",
         "email": f"{suffix}@example.test",
         "country": "India",
@@ -58,18 +64,28 @@ def test_real_kafka_block_event_updates_sqlite_and_commits_offset(
     consumer_instance = None
     consumer_thread = None
     thread_errors: list[BaseException] = []
-    stop_monitor = threading.Event()
+    delivery_result = []
+    delivery_error = []
     topic_names = [topic, dlq_topic]
 
     try:
-        # Use real broker-created topics, not mocked Kafka clients.
+        # Create uniquely named topics on the real Kafka broker.
         futures = admin.create_topics(
             [
-                NewTopic(topic, num_partitions=1, replication_factor=1),
-                NewTopic(dlq_topic, num_partitions=1, replication_factor=1),
+                NewTopic(
+                    topic,
+                    num_partitions=1,
+                    replication_factor=1,
+                ),
+                NewTopic(
+                    dlq_topic,
+                    num_partitions=1,
+                    replication_factor=1,
+                ),
             ],
             request_timeout=10,
         )
+
         for future in futures.values():
             future.result(timeout=15)
 
@@ -80,7 +96,7 @@ def test_real_kafka_block_event_updates_sqlite_and_commits_offset(
             "occurred_at": "2026-10-12T00:00:00+00:00",
             "producer": "compliance-service",
             "payload": {
-                "supplier_name": "Kafka Integration Test Supplier",
+                "supplier_name": supplier_name,
                 "country": "India",
                 "old_status": "CLEAR",
                 "new_status": "BLOCK",
@@ -90,9 +106,6 @@ def test_real_kafka_block_event_updates_sqlite_and_commits_offset(
             },
         }
 
-        delivery_result = []
-        delivery_error = []
-
         def on_delivery(error, message):
             if error is not None:
                 delivery_error.append(error)
@@ -101,15 +114,23 @@ def test_real_kafka_block_event_updates_sqlite_and_commits_offset(
                     (message.partition(), message.offset())
                 )
 
+        # Match the real producer: key by supplier_name.
         producer.produce(
             topic=topic,
-            key=supplier_id,
+            key="Kafka Integration Test Supplier",
             value=json.dumps(event),
             on_delivery=on_delivery,
         )
-        assert producer.flush(timeout=15) == 0
-        assert not delivery_error, f"Kafka publish failed: {delivery_error}"
-        assert delivery_result, "Kafka did not confirm message delivery"
+
+        assert producer.flush(timeout=15) == 0, (
+            "Kafka producer still had messages pending after flush"
+        )
+        assert not delivery_error, (
+            f"Kafka publish failed: {delivery_error}"
+        )
+        assert delivery_result, (
+            "Kafka did not confirm message delivery"
+        )
 
         produced_partition, produced_offset = delivery_result[0]
 
@@ -138,13 +159,18 @@ def test_real_kafka_block_event_updates_sqlite_and_commits_offset(
         status = None
 
         while time.monotonic() < deadline:
+            if thread_errors:
+                pytest.fail(
+                    f"Kafka consumer failed: {thread_errors[0]}"
+                )
+
             status = isolated_service.get_access_status(supplier_id)
 
-            if status is not None and getattr(status, "value", status) == "suspended":
+            if (
+                status is not None
+                and getattr(status, "value", status) == "suspended"
+            ):
                 break
-
-            if thread_errors:
-                pytest.fail(f"Kafka consumer failed: {thread_errors[0]}")
 
             time.sleep(0.1)
 
@@ -153,15 +179,19 @@ def test_real_kafka_block_event_updates_sqlite_and_commits_offset(
             f"got {status!r}"
         )
 
-        # Stop only after the state update. The consumer's run loop commits
-        # the successfully processed message before it exits.
+        # Stop only after processing the event. The consumer run loop
+        # should commit the successfully processed message before exit.
         consumer_instance.stop()
         consumer_thread.join(timeout=10)
 
-        assert not consumer_thread.is_alive(), "Kafka consumer did not stop"
-        assert not thread_errors, f"Kafka consumer failed: {thread_errors}"
+        assert not consumer_thread.is_alive(), (
+            "Kafka consumer did not stop"
+        )
+        assert not thread_errors, (
+            f"Kafka consumer failed: {thread_errors}"
+        )
 
-        # Inspect the committed group offset using a real Kafka client.
+        # Verify the consumer group's committed offset using Kafka.
         observer = Consumer(
             {
                 "bootstrap.servers": bootstrap_servers,
@@ -169,6 +199,7 @@ def test_real_kafka_block_event_updates_sqlite_and_commits_offset(
                 "enable.auto.commit": False,
             }
         )
+
         try:
             committed = observer.committed(
                 [TopicPartition(topic, produced_partition)],
@@ -178,26 +209,35 @@ def test_real_kafka_block_event_updates_sqlite_and_commits_offset(
             observer.close()
 
         assert committed, "Kafka returned no committed offset"
+
         committed_offset = committed[0].offset
 
-        assert committed_offset >= 0, "Kafka offset was not committed"
+        assert committed_offset >= 0, (
+            "Kafka offset was not committed"
+        )
         assert committed_offset > produced_offset, (
-            f"Expected committed offset > message offset "
-            f"({committed_offset=} {produced_offset=})"
+            "Expected committed offset to be greater than the "
+            f"message offset ({committed_offset=} {produced_offset=})"
         )
 
     finally:
-        stop_monitor.set()
-
+        # Stop the consumer before deleting topics or restoring state.
         if consumer_instance is not None:
             consumer_instance.stop()
 
         if consumer_thread is not None and consumer_thread.is_alive():
             consumer_thread.join(timeout=10)
 
-        suppliers.pop(supplier_id, None)
+        # Restore the registry exactly as it was before this test.
+        if previous_supplier is None:
+            suppliers.pop(supplier_id, None)
+        else:
+            suppliers[supplier_id] = previous_supplier
 
-        # Remove only the uniquely named integration-test topics.
+        # Flush any remaining producer messages before cleanup.
+        producer.flush(timeout=10)
+
+        # Delete only this test's uniquely named topics.
         try:
             futures = admin.delete_topics(
                 topic_names,

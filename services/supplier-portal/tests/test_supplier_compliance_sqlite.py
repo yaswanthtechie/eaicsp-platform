@@ -66,9 +66,7 @@ def test_block_status_survives_service_restart(compliance_db):
     service, db_path = compliance_db
     event = make_event(new_status="BLOCK")
 
-    assert service.apply_status_changed_event(
-        event, supplier_id="SUP001"
-    ) is True
+    assert service.apply_status_changed_event(event) is True
 
     # Simulate a service restart by creating a new service instance.
     restarted_service = SupplierComplianceService(db_path=db_path)
@@ -83,15 +81,15 @@ def test_block_status_survives_service_restart(compliance_db):
 
 def test_duplicate_event_does_not_create_duplicate_audit(compliance_db):
     service, _ = compliance_db
-    event = make_event(event_id="duplicate-001", new_status="BLOCK")
+    event = make_event(
+        event_id="duplicate-001",
+        new_status="BLOCK",
+    )
 
-    assert service.apply_status_changed_event(
-        event, supplier_id="SUP001"
-    ) is True
+    assert service.apply_status_changed_event(event) is True
 
-    assert service.apply_status_changed_event(
-        event, supplier_id="SUP001"
-    ) is False
+    # Reprocessing the same event must be idempotent.
+    assert service.apply_status_changed_event(event) is False
 
     assert len(service.get_audit_history("SUP001")) == 1
     assert service.get_access_status("SUP001") == (
@@ -114,26 +112,27 @@ def test_stale_event_is_recorded_but_does_not_change_status(compliance_db):
         occurred_at=now - timedelta(minutes=5),
     )
 
-    assert service.apply_status_changed_event(
-        newer_block, supplier_id="SUP001"
-    ) is True
+    # Apply the newer BLOCK event first.
+    assert service.apply_status_changed_event(newer_block) is True
 
-    assert service.apply_status_changed_event(
-        older_review, supplier_id="SUP001"
-    ) is False
+    # The older REVIEW event is processed but must not overwrite BLOCK.
+    assert service.apply_status_changed_event(older_review) is False
 
     assert service.is_event_processed("older-review") is True
     assert service.get_access_status("SUP001") == (
         SupplierComplianceStatus.suspended
     )
 
-    # Only the applied event should appear in the audit history.
+    # Only the accepted state-changing event should appear in the audit.
     assert len(service.get_audit_history("SUP001")) == 1
 
 
 def test_audit_failure_rolls_back_state_and_processed_event(compliance_db):
     service, db_path = compliance_db
-    event = make_event(event_id="rollback-001", new_status="BLOCK")
+    event = make_event(
+        event_id="rollback-001",
+        new_status="BLOCK",
+    )
 
     # Initialize the schema before installing the failure trigger.
     with service._connect() as conn:
@@ -145,10 +144,9 @@ def test_audit_failure_rolls_back_state_and_processed_event(compliance_db):
             END;
         """)
 
+    # State, audit, and processed-event writes must be one transaction.
     with pytest.raises(ComplianceDatabaseError):
-        service.apply_status_changed_event(
-            event, supplier_id="SUP001"
-        )
+        service.apply_status_changed_event(event)
 
     # Verify directly in SQLite that the whole transaction rolled back.
     with sqlite3.connect(str(db_path)) as conn:
@@ -158,7 +156,7 @@ def test_audit_failure_rolls_back_state_and_processed_event(compliance_db):
             FROM supplier_compliance_state
             WHERE supplier_key = ?
             """,
-            ("SUP001",),
+            ("abc supplies",),
         ).fetchone()
 
         processed = conn.execute(

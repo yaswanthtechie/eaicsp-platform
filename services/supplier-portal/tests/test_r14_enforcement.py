@@ -30,10 +30,7 @@ def _suspend(
         )
     )
 
-    supplier_compliance_service.apply_status_changed_event(
-        event,
-        supplier_id=supplier_id,
-    )
+    supplier_compliance_service.apply_status_changed_event(event)
 
 
 def test_suspended_supplier_gets_no_onboarding_presigned_url(

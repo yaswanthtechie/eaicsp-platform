@@ -72,6 +72,16 @@ ON compliance_audit (supplier_key, id);
 """
 
 
+def normalize_supplier_key(name: str) -> str:
+    """
+    Normalize company names for supplier identity matching.
+
+    Leading/trailing whitespace, repeated spaces, and letter case
+    do not affect the resulting identity.
+    """
+    return " ".join(name.split()).casefold()
+
+
 class SupplierComplianceService:
     """
     Durable supplier compliance state backed by SQLite.
@@ -79,7 +89,8 @@ class SupplierComplianceService:
     State changes, audit entries, and idempotency records are written
     in one transaction.
 
-    Supplier identity comes from the Kafka message key.
+    Supplier identity comes from payload.supplier_name
+    (see normalize_supplier_key).
     """
 
     STATUS_MAPPING = {
@@ -137,10 +148,32 @@ class SupplierComplianceService:
 
         return value.astimezone(timezone.utc)
 
+    # ---------------------------------------------------------
+    # SUPPLIER IDENTITY
+    # ---------------------------------------------------------
     @staticmethod
-    def _key_for_supplier_id(supplier_id: str) -> str:
-        """Use the canonical supplier ID as the database key."""
-        return supplier_id.strip()
+    def _key_for_event(event: SupplierStatusChangedEvent) -> str:
+        return normalize_supplier_key(event.payload.supplier_name)
+
+    @staticmethod
+    def _key_for_supplier_id(supplier_id: str) -> str | None:
+        """Key for an onboarded supplier, or None if we have no record/name for them."""
+        supplier = suppliers.get(supplier_id.strip())
+
+        if supplier is None or not supplier.get("company_name"):
+            return None
+
+        return normalize_supplier_key(supplier["company_name"])
+
+    @staticmethod
+    def _supplier_ids_for_key(supplier_key: str) -> list[str]:
+        return [
+            sid
+            for sid, supplier in suppliers.items()
+            if supplier.get("company_name")
+            and normalize_supplier_key(supplier["company_name"]) == supplier_key
+        ]
+
 
     # ---------------------------------------------------------
     # WRITE PATH: KAFKA EVENT
@@ -149,8 +182,6 @@ class SupplierComplianceService:
     def apply_status_changed_event(
         self,
         event: SupplierStatusChangedEvent,
-        *,
-        supplier_id: str,
     ) -> bool:
         """
         Persist one compliance event.
@@ -159,16 +190,15 @@ class SupplierComplianceService:
             True: event applied and state changed.
             False: duplicate or stale event.
 
-        Supplier records may not exist yet. Events are still persisted
-        so their status can be enforced after onboarding.
+        Supplier identity comes from payload.supplier_name, not the
+        Kafka key. Events are persisted even before supplier onboarding.
         """
-        if not isinstance(supplier_id, str) or not supplier_id.strip():
-            raise SupplierNotFoundError(
-                "A valid supplier ID must be supplied by the Kafka message key."
-            )
+        supplier_key = self._key_for_event(event)
 
-        supplier_id = supplier_id.strip()
-        supplier_key = self._key_for_supplier_id(supplier_id)
+        if not supplier_key:
+            raise InvalidComplianceStatusError(
+                "Event payload has an empty supplier_name."
+            )
 
         if (
             event.occurred_at.tzinfo is None
@@ -186,12 +216,10 @@ class SupplierComplianceService:
         processed_at_text = processed_at.isoformat()
 
         with self._lock:
-            # The supplier can be absent if onboarding has not completed.
-            supplier = suppliers.get(supplier_id)
-
             try:
                 with closing(self._connect()) as conn:
                     with conn:
+                        # Idempotency: do not process an event twice.
                         existing = conn.execute(
                             """
                             SELECT 1
@@ -221,11 +249,13 @@ class SupplierComplianceService:
                                     row["status"]
                                 )
                             except ValueError:
-                                # Corrupt persisted state must not grant access.
+                                # Corrupt state must never grant access.
                                 old_status = (
                                     SupplierComplianceStatus.suspended
                                 )
 
+                        # Reject older events and preserve restrictive status
+                        # when two events have the same timestamp.
                         if row is not None:
                             try:
                                 last_occurred_at = self._utc_datetime(
@@ -262,6 +292,7 @@ class SupplierComplianceService:
                                 )
                                 return False
 
+                        # Update durable current state.
                         conn.execute(
                             """
                             INSERT INTO supplier_compliance_state (
@@ -287,6 +318,7 @@ class SupplierComplianceService:
                             ),
                         )
 
+                        # Insert audit history in the same transaction.
                         conn.execute(
                             """
                             INSERT INTO compliance_audit (
@@ -316,6 +348,7 @@ class SupplierComplianceService:
                             ),
                         )
 
+                        # Mark the event processed in the same transaction.
                         conn.execute(
                             """
                             INSERT INTO processed_events (
@@ -333,11 +366,15 @@ class SupplierComplianceService:
                             ),
                         )
 
-                # SQLite transaction completed successfully.
-                # Update only an existing onboarding record.
-                if supplier is not None:
-                    supplier["compliance_access_status"] = new_status.value
-                    supplier["compliance_updated_at"] = processed_at
+                # The SQLite transaction has committed successfully.
+                # Mirror the state onto all matching onboarded suppliers.
+                for supplier_id in self._supplier_ids_for_key(supplier_key):
+                    suppliers[supplier_id][
+                        "compliance_access_status"
+                    ] = new_status.value
+                    suppliers[supplier_id][
+                        "compliance_updated_at"
+                    ] = processed_at
 
                 return True
 
@@ -374,11 +411,20 @@ class SupplierComplianceService:
         self,
         supplier_id: str,
     ) -> SupplierComplianceStatus:
-        """Read durable compliance state, including pre-onboarding events."""
+        """
+        Read durable compliance state by resolving supplier ID to company name.
+
+        An unknown or not-yet-onboarded supplier has no matching name, so
+        this method returns the default cleared status. A persisted BLOCK
+        is returned as suspended.
+        """
         if not isinstance(supplier_id, str) or not supplier_id.strip():
             raise SupplierNotFoundError("A valid supplier ID is required.")
 
-        supplier_id = supplier_id.strip()
+        supplier_key = self._key_for_supplier_id(supplier_id)
+
+        if supplier_key is None:
+            return SupplierComplianceStatus.cleared
 
         with self._lock:
             try:
@@ -389,22 +435,21 @@ class SupplierComplianceService:
                         FROM supplier_compliance_state
                         WHERE supplier_key = ?
                         """,
-                        (supplier_id,),
+                        (supplier_key,),
                     ).fetchone()
-
             except sqlite3.Error as exc:
                 raise ComplianceDatabaseError(
                     "Failed to read supplier compliance state."
                 ) from exc
 
-            if row is None:
-                return SupplierComplianceStatus.cleared
+        if row is None:
+            return SupplierComplianceStatus.cleared
 
-            try:
-                return SupplierComplianceStatus(row["status"])
-            except ValueError:
-                return SupplierComplianceStatus.suspended
-
+        try:
+            return SupplierComplianceStatus(row["status"])
+        except ValueError:
+            # Corrupt persisted state must not grant access.
+            return SupplierComplianceStatus.suspended
 
     # ---------------------------------------------------------
     # READ PATH: AUDIT
@@ -414,18 +459,16 @@ class SupplierComplianceService:
         self,
         supplier_id: str,
     ) -> list[SupplierComplianceAudit]:
-        """Return audit history in insertion order."""
+        """Return audit history for the supplier's normalized company name."""
         if not isinstance(supplier_id, str) or not supplier_id.strip():
             raise SupplierNotFoundError("A valid supplier ID is required.")
 
-        supplier_id = supplier_id.strip()
+        supplier_key = self._key_for_supplier_id(supplier_id)
+
+        if supplier_key is None:
+            return []
 
         with self._lock:
-            if supplier_id not in suppliers:
-                raise SupplierNotFoundError(
-                    f"Supplier '{supplier_id}' was not found."
-                )
-
             try:
                 with closing(self._connect()) as conn:
                     rows = conn.execute(
@@ -435,27 +478,26 @@ class SupplierComplianceService:
                         WHERE supplier_key = ?
                         ORDER BY id
                         """,
-                        (supplier_id,),
+                        (supplier_key,),
                     ).fetchall()
-
             except sqlite3.Error as exc:
                 raise ComplianceDatabaseError(
                     "Failed to read compliance audit history."
                 ) from exc
 
-            return [
-                SupplierComplianceAudit(
-                    event_id=row["event_id"],
-                    supplier_key=row["supplier_key"],
-                    old_status=row["old_status"],
-                    new_status=row["new_status"],
-                    matched_list=json.loads(row["matched_list"]),
-                    reason=row["reason"],
-                    occurred_at=datetime.fromisoformat(row["occurred_at"]),
-                    processed_at=datetime.fromisoformat(row["processed_at"]),
-                )
-                for row in rows
-            ]
+        return [
+            SupplierComplianceAudit(
+                event_id=row["event_id"],
+                supplier_key=row["supplier_key"],
+                old_status=row["old_status"],
+                new_status=row["new_status"],
+                matched_list=json.loads(row["matched_list"]),
+                reason=row["reason"],
+                occurred_at=datetime.fromisoformat(row["occurred_at"]),
+                processed_at=datetime.fromisoformat(row["processed_at"]),
+            )
+            for row in rows
+        ]
 
     # ---------------------------------------------------------
     # IDEMPOTENCY AND TIMESTAMP QUERIES
@@ -463,49 +505,54 @@ class SupplierComplianceService:
 
     def is_event_processed(self, event_id: str) -> bool:
         """Return whether an event was applied or marked stale."""
-        try:
-            with closing(self._connect()) as conn:
-                row = conn.execute(
-                    """
-                    SELECT 1
-                    FROM processed_events
-                    WHERE event_id = ?
-                    """,
-                    (event_id,),
-                ).fetchone()
+        with self._lock:
+            try:
+                with closing(self._connect()) as conn:
+                    row = conn.execute(
+                        """
+                        SELECT 1
+                        FROM processed_events
+                        WHERE event_id = ?
+                        """,
+                        (event_id,),
+                    ).fetchone()
 
-                return row is not None
+                    return row is not None
 
-        except sqlite3.Error as exc:
-            raise ComplianceDatabaseError(
-                f"Failed to check event '{event_id}'."
-            ) from exc
+            except sqlite3.Error as exc:
+                raise ComplianceDatabaseError(
+                    f"Failed to check event '{event_id}'."
+                ) from exc
 
     def get_latest_event_time(
         self,
         supplier_id: str,
     ) -> datetime | None:
-        """Return the latest accepted event timestamp from SQLite."""
+        """Return the latest accepted event timestamp for an onboarded supplier."""
         if not isinstance(supplier_id, str) or not supplier_id.strip():
             raise SupplierNotFoundError("A valid supplier ID is required.")
 
-        supplier_id = supplier_id.strip()
+        supplier_key = self._key_for_supplier_id(supplier_id)
 
-        try:
-            with closing(self._connect()) as conn:
-                row = conn.execute(
-                    """
-                    SELECT last_occurred_at
-                    FROM supplier_compliance_state
-                    WHERE supplier_key = ?
-                    """,
-                    (supplier_id,),
-                ).fetchone()
+        if supplier_key is None:
+            return None
 
-        except sqlite3.Error as exc:
-            raise ComplianceDatabaseError(
-                "Failed to read the latest compliance event timestamp."
-            ) from exc
+        with self._lock:
+            try:
+                with closing(self._connect()) as conn:
+                    row = conn.execute(
+                        """
+                        SELECT last_occurred_at
+                        FROM supplier_compliance_state
+                        WHERE supplier_key = ?
+                        """,
+                        (supplier_key,),
+                    ).fetchone()
+
+            except sqlite3.Error as exc:
+                raise ComplianceDatabaseError(
+                    "Failed to read the latest compliance event timestamp."
+                ) from exc
 
         if row is None:
             return None

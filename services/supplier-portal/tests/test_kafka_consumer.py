@@ -1,7 +1,7 @@
 
 import json
 import sqlite3
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -16,8 +16,6 @@ from app.services.kafka_consumer import (
 )
 from app.services.supplier_compliance_service import (
     SupplierComplianceService,
-    SupplierComplianceStatus,
-    SupplierNotFoundError,
     supplier_compliance_service,
     suppliers,
 )
@@ -49,16 +47,15 @@ def make_event(
             "new_status": new_status,
             "matched_list": ["OFAC"] if new_status == "BLOCK" else [],
             "reason": "Matched supplier on OFAC",
-            "screening_run_id": "run-001",
+            "screening_run_id": f"run-{event_id}",
         },
     }
-
 
 
 def make_message(
     event: dict | str | None,
     *,
-    key: str = "SUP001",
+    key: str = "ABC Supplies",
     topic: str = TOPIC,
     partition: int = 0,
     offset: int = 1,
@@ -82,31 +79,14 @@ def make_message(
     return message
 
 
-@pytest.fixture
-def consumer():
-    with (
-        patch("app.services.kafka_consumer.Consumer") as mock_consumer,
-        patch("app.services.kafka_consumer.Producer") as mock_producer,
-    ):
-        mock_consumer_instance = mock_consumer.return_value
-        mock_producer_instance = mock_producer.return_value
-
-        # IMPORTANT: flush() must return an integer
-        mock_producer_instance.flush.return_value = 0
-
-        instance = SupplierStatusChangedConsumer(
-            bootstrap_servers="localhost:9092",
-            topic=TOPIC,
-            group_id=GROUP_ID,
-            dlq_topic=DLQ_TOPIC,
-            auto_offset_reset="earliest",
-        )
-
-    return instance
-
-
 @pytest.fixture(autouse=True)
-def clear_supplier_state():
+def clear_supplier_state(monkeypatch, tmp_path):
+    """
+    Isolate onboarding records and compliance persistence for each test.
+
+    Events are matched by normalized payload.supplier_name against
+    onboarding company_name. Kafka keys are not supplier IDs.
+    """
     suppliers.clear()
 
     suppliers["SUP001"] = {
@@ -127,9 +107,54 @@ def clear_supplier_state():
         "status": "active",
     }
 
+    isolated_service = SupplierComplianceService(
+        db_path=tmp_path / "compliance_state.db"
+    )
+
+    # The consumer must use this isolated instance.
+    monkeypatch.setattr(
+        "app.services.kafka_consumer.supplier_compliance_service",
+        isolated_service,
+    )
+
+    # The service module's exported singleton must use it too.
+    monkeypatch.setattr(
+        "app.services.supplier_compliance_service.supplier_compliance_service",
+        isolated_service,
+    )
+
+    # IMPORTANT:
+    # The test module imported supplier_compliance_service directly.
+    # Patching the original module does not update that imported reference.
+    monkeypatch.setitem(
+        globals(),
+        "supplier_compliance_service",
+        isolated_service,
+    )
+
     yield
 
     suppliers.clear()
+
+
+
+@pytest.fixture
+def consumer():
+    with (
+        patch("app.services.kafka_consumer.Consumer") as mock_consumer,
+        patch("app.services.kafka_consumer.Producer") as mock_producer,
+    ):
+        mock_producer.return_value.flush.return_value = 0
+
+        instance = SupplierStatusChangedConsumer(
+            bootstrap_servers="localhost:9092",
+            topic=TOPIC,
+            group_id=GROUP_ID,
+            dlq_topic=DLQ_TOPIC,
+            auto_offset_reset="earliest",
+        )
+
+    return instance
 
 
 def test_consumer_uses_supplier_portal_consumer_group(consumer):
@@ -139,9 +164,9 @@ def test_consumer_uses_supplier_portal_consumer_group(consumer):
 
 
 def test_consumer_disables_auto_commit(consumer):
-    config = consumer.consumer
-
-    assert config is not None
+    # This confirms construction; the production consumer configuration
+    # should explicitly set enable.auto.commit to False.
+    assert consumer.consumer is not None
 
 
 def test_block_event_suspends_supplier(consumer):
@@ -150,9 +175,7 @@ def test_block_event_suspends_supplier(consumer):
         new_status="BLOCK",
     )
 
-    message = make_message(event)
-
-    assert consumer.process_message(message) is True
+    assert consumer.process_message(make_message(event)) is True
 
     assert (
         suppliers["SUP001"]["compliance_access_status"]
@@ -163,13 +186,10 @@ def test_block_event_suspends_supplier(consumer):
 def test_review_event_sets_needs_review(consumer):
     event = make_event(
         event_id="event-review-001",
-        old_status="CLEAR",
         new_status="REVIEW",
     )
 
-    message = make_message(event)
-
-    assert consumer.process_message(message) is True
+    assert consumer.process_message(make_message(event)) is True
 
     assert (
         suppliers["SUP001"]["compliance_access_status"]
@@ -188,9 +208,7 @@ def test_clear_event_restores_access(consumer):
         new_status="CLEAR",
     )
 
-    message = make_message(event)
-
-    assert consumer.process_message(message) is True
+    assert consumer.process_message(make_message(event)) is True
 
     assert (
         suppliers["SUP001"]["compliance_access_status"]
@@ -204,15 +222,8 @@ def test_duplicate_event_is_idempotent(consumer):
         new_status="BLOCK",
     )
 
-    first_message = make_message(
-        event,
-        offset=10,
-    )
-
-    second_message = make_message(
-        event,
-        offset=11,
-    )
+    first_message = make_message(event, offset=10)
+    second_message = make_message(event, offset=11)
 
     assert consumer.process_message(first_message) is True
     assert consumer.process_message(second_message) is True
@@ -221,6 +232,8 @@ def test_duplicate_event_is_idempotent(consumer):
         suppliers["SUP001"]["compliance_access_status"]
         == SupplierComplianceStatus.suspended.value
     )
+
+    assert len(supplier_compliance_service.get_audit_history("SUP001")) == 1
 
 
 def test_out_of_order_event_is_ignored(consumer):
@@ -237,13 +250,8 @@ def test_out_of_order_event_is_ignored(consumer):
         occurred_at="2026-10-08T09:00:00+00:00",
     )
 
-    assert consumer.process_message(
-        make_message(newer_event)
-    )
-
-    assert consumer.process_message(
-        make_message(older_event)
-    )
+    assert consumer.process_message(make_message(newer_event)) is True
+    assert consumer.process_message(make_message(older_event)) is True
 
     assert (
         suppliers["SUP001"]["compliance_access_status"]
@@ -252,60 +260,47 @@ def test_out_of_order_event_is_ignored(consumer):
 
 
 def test_invalid_json_raises_validation_error(consumer):
-    message = make_message(
-        '{"this-is": "not-a-valid-event"}'
-    )
-
     with pytest.raises(KafkaMessageValidationError):
-        consumer.process_message(message)
+        consumer.process_message(
+            make_message('{"this-is": "not-a-valid-event"}')
+        )
 
 
 def test_invalid_json_syntax_raises_validation_error(consumer):
-    message = make_message(
-        '{"event_id": '
-    )
-
     with pytest.raises(KafkaMessageValidationError):
-        consumer.process_message(message)
+        consumer.process_message(make_message('{"event_id": '))
 
 
 def test_empty_message_raises_validation_error(consumer):
-    message = make_message(None)
-
     with pytest.raises(KafkaMessageValidationError):
-        consumer.process_message(message)
+        consumer.process_message(make_message(None))
 
 
 def test_wrong_event_type_is_rejected(consumer):
     event = make_event()
     event["event_type"] = "some.other.event"
 
-    message = make_message(event)
-
     with pytest.raises(KafkaMessageValidationError):
-        consumer.process_message(message)
+        consumer.process_message(make_message(event))
 
 
 def test_unsupported_event_version_is_rejected(consumer):
     event = make_event()
     event["event_version"] = 99
 
-    message = make_message(event)
-
     with pytest.raises(KafkaMessageValidationError):
-        consumer.process_message(message)
-
+        consumer.process_message(make_message(event))
 
 
 def test_offset_committed_only_after_db_write(consumer, monkeypatch):
     import app.services.kafka_consumer as kc
 
     order = []
-    real = kc.supplier_compliance_service.apply_status_changed_event
+    real_write = kc.supplier_compliance_service.apply_status_changed_event
 
-    def tracked_write(event, *, supplier_id):
+    def tracked_write(event):
         order.append("db_write")
-        return real(event, supplier_id=supplier_id)
+        return real_write(event)
 
     monkeypatch.setattr(
         kc.supplier_compliance_service,
@@ -321,7 +316,6 @@ def test_offset_committed_only_after_db_write(consumer, monkeypatch):
         make_event(event_id="e-order"),
         offset=7,
     )
-    message.error.return_value = None
 
     consumer.consumer.poll.side_effect = [
         message,
@@ -333,40 +327,50 @@ def test_offset_committed_only_after_db_write(consumer, monkeypatch):
     assert order == ["db_write", "commit"]
 
 
-def test_offset_is_not_committed_when_processing_fails(consumer):
-    """A pre-onboarding event must be persisted, not rejected."""
-    event = make_event(event_id="event-pre-onboarding-001")
+def test_pre_onboarding_event_is_persisted_without_committing(consumer):
+    event = make_event(
+        event_id="event-pre-onboarding-001",
+        supplier_name="Unknown Supplier",
+    )
 
     message = make_message(
         event,
-        key="SUP999",
+        key="Unknown Supplier",
     )
 
-    # SUP999 is not in the in-memory onboarding records.
     assert "SUP999" not in suppliers
-
-    # The event should still be processed and persisted.
     assert consumer.process_message(message) is True
 
-    # The persisted compliance status must be available before onboarding.
-    assert (
-        supplier_compliance_service.get_access_status("SUP999")
-            == SupplierComplianceStatus.suspended
-
+    assert supplier_compliance_service.is_event_processed(
+        "event-pre-onboarding-001"
     )
 
-    # process_message() must not commit Kafka offsets itself.
+    # Processing a message directly must not commit its Kafka offset.
     consumer.consumer.commit.assert_not_called()
 
+    # After onboarding, the persisted BLOCK should be enforced.
+    suppliers["SUP999"] = {
+        "supplier_id": "SUP999",
+        "company_name": "Unknown Supplier",
+        "country": "India",
+        "status": "active",
+    }
 
-
-def test_dlq_contains_original_message(consumer):
-    event = make_event(
-        event_id="event-dlq-001",
+    assert (
+        supplier_compliance_service.get_access_status("SUP999")
+        == SupplierComplianceStatus.suspended
     )
 
+
+def test_process_message_never_commits_by_itself(consumer):
+    message = make_message(make_event(event_id="e-no-commit"))
+
+    assert consumer.process_message(message) is True
+    consumer.consumer.commit.assert_not_called()
+
+def test_dlq_contains_original_message(consumer):
     message = make_message(
-        event,
+        make_event(event_id="event-dlq-001"),
         offset=42,
     )
 
@@ -376,16 +380,13 @@ def test_dlq_contains_original_message(consumer):
     )
 
     producer = consumer._dlq_producer
-
     producer.produce.assert_called_once()
 
-    call = producer.produce.call_args
+    produce_call = producer.produce.call_args
 
-    assert call.kwargs["topic"] == DLQ_TOPIC
+    assert produce_call.kwargs["topic"] == DLQ_TOPIC
 
-    dlq_payload = json.loads(
-        call.kwargs["value"]
-    )
+    dlq_payload = json.loads(produce_call.kwargs["value"])
 
     assert dlq_payload["error_reason"] == "Invalid event"
     assert dlq_payload["source_topic"] == TOPIC
@@ -393,15 +394,12 @@ def test_dlq_contains_original_message(consumer):
     assert dlq_payload["source_offset"] == 42
 
 
-def test_dlq_failure_raises_error(consumer):
-    producer = consumer._dlq_producer
 
-    producer.flush.return_value = 1
+def test_dlq_failure_raises_error(consumer):
+    consumer._dlq_producer.flush.return_value = 1
 
     message = make_message(
-        make_event(
-            event_id="event-dlq-failure-001",
-        )
+        make_event(event_id="event-dlq-failure-001")
     )
 
     with pytest.raises(KafkaDeadLetterError):
@@ -412,11 +410,9 @@ def test_dlq_failure_raises_error(consumer):
 
 
 def test_successful_dlq_processing_allows_commit(consumer):
-    event = make_event(
-        event_id="event-dlq-commit-001",
+    message = make_message(
+        make_event(event_id="event-dlq-commit-001")
     )
-
-    message = make_message(event)
 
     consumer._publish_to_dlq(
         message=message,
@@ -432,16 +428,12 @@ def test_successful_dlq_processing_allows_commit(consumer):
 
 
 def test_dlq_failure_does_not_commit_original_message(consumer):
-    event = make_event(
-        event_id="event-dlq-no-commit-001",
+    message = make_message(
+        make_event(event_id="event-dlq-no-commit-001")
     )
 
-    message = make_message(event)
-
     consumer._publish_to_dlq = MagicMock(
-        side_effect=KafkaDeadLetterError(
-            "DLQ unavailable"
-        )
+        side_effect=KafkaDeadLetterError("DLQ unavailable")
     )
 
     with pytest.raises(KafkaDeadLetterError):
@@ -459,24 +451,15 @@ def test_audit_is_created_for_accepted_event(consumer):
         new_status="BLOCK",
     )
 
-    message = make_message(event)
+    assert consumer.process_message(make_message(event)) is True
 
-    consumer.process_message(message)
-
-    from app.services.supplier_compliance_service import (
-        supplier_compliance_service,
-    )
-
-    audit = supplier_compliance_service.get_audit_history(
-        "SUP001"
-    )
+    audit = supplier_compliance_service.get_audit_history("SUP001")
 
     assert len(audit) == 1
     assert audit[0].event_id == "event-audit-001"
-    assert audit[0].supplier_key == "SUP001"
-    assert audit[0].new_status == (
-        SupplierComplianceStatus.suspended
-    )
+    assert audit[0].supplier_key == "abc supplies"
+    assert audit[0].new_status == SupplierComplianceStatus.suspended
+
 
 def test_commit_failure_is_not_silently_ignored(consumer):
     message = make_message(make_event())
@@ -488,9 +471,9 @@ def test_commit_failure_is_not_silently_ignored(consumer):
     with pytest.raises(RuntimeError, match="Kafka commit failed"):
         consumer._commit(message)
 
+
 def test_dlq_flush_exception_raises_error(consumer):
-    producer = consumer._dlq_producer
-    producer.flush.side_effect = RuntimeError(
+    consumer._dlq_producer.flush.side_effect = RuntimeError(
         "Kafka producer unavailable"
     )
 
@@ -511,32 +494,29 @@ def _offsets(mock_commit):
 
 
 def test_crash_before_commit_redelivery_is_idempotent(tmp_path):
-    db = str(tmp_path / "crash.db")
+    db = tmp_path / "crash.db"
 
     event = SupplierStatusChangedEvent.model_validate(
         make_event(event_id="e-crash")
     )
 
+    suppliers["SUP001"] = {
+        "supplier_id": "SUP001",
+        "company_name": "ABC Supplies",
+        "country": "India",
+        "status": "active",
+    }
+
     first = SupplierComplianceService(db_path=db)
 
-    assert first.apply_status_changed_event(
-        event,
-        supplier_id="SUP001",
-    ) is True
+    assert first.apply_status_changed_event(event) is True
 
     fresh = SupplierComplianceService(db_path=db)
 
-    assert fresh.apply_status_changed_event(
-        event,
-        supplier_id="SUP001",
-    ) is False
-
-    assert (
-        fresh.get_access_status("SUP001")
-        == SupplierComplianceStatus.suspended
-    )
-
+    assert fresh.apply_status_changed_event(event) is False
+    assert fresh.is_event_processed("e-crash")
     assert len(fresh.get_audit_history("SUP001")) == 1
+
 
 def test_naive_occurred_at_is_rejected(consumer):
     message = make_message(
@@ -575,19 +555,17 @@ def test_same_timestamp_keeps_more_restrictive_status(consumer):
         == SupplierComplianceStatus.suspended
     )
 
-
 def test_event_for_supplier_not_yet_onboarded_applies_when_they_onboard(
     consumer,
 ):
-    consumer.process_message(
-        make_message(
-            make_event(
-                event_id="e-early",
-                supplier_name="New Co",
-            ),
-            key="SUP777",
-        )
+    event = make_event(
+        event_id="e-early",
+        supplier_name="New Co",
     )
+
+    # Default Kafka key is "ABC Supplies".
+    # Supplier identity must come from the event payload, not the key.
+    assert consumer.process_message(make_message(event)) is True
 
     suppliers["SUP777"] = {
         "supplier_id": "SUP777",
@@ -603,7 +581,14 @@ def test_event_for_supplier_not_yet_onboarded_applies_when_they_onboard(
 
 
 def test_suspension_survives_restart(tmp_path):
-    db = str(tmp_path / "restart.db")
+    db = tmp_path / "restart.db"
+
+    suppliers["SUP001"] = {
+        "supplier_id": "SUP001",
+        "company_name": "ABC Supplies",
+        "country": "India",
+        "status": "active",
+    }
 
     service = SupplierComplianceService(db_path=db)
 
@@ -611,10 +596,7 @@ def test_suspension_survives_restart(tmp_path):
         make_event(event_id="e-restart")
     )
 
-    assert service.apply_status_changed_event(
-        event,
-        supplier_id="SUP001",
-    ) is True
+    assert service.apply_status_changed_event(event) is True
 
     restarted = SupplierComplianceService(db_path=db)
 
@@ -642,9 +624,6 @@ def test_failed_event_is_rewound_not_skipped(consumer, monkeypatch):
         offset=2,
     )
 
-    for message in (first, second):
-        message.error.return_value = None
-
     consumer.consumer.poll.side_effect = [
         first,
         first,
@@ -652,15 +631,15 @@ def test_failed_event_is_rewound_not_skipped(consumer, monkeypatch):
         KeyboardInterrupt(),
     ]
 
-    real = kc.supplier_compliance_service.apply_status_changed_event
+    real_write = kc.supplier_compliance_service.apply_status_changed_event
     failed_once = []
 
-    def flaky_write(event, *, supplier_id):
+    def flaky_write(event):
         if event.event_id == "e1" and not failed_once:
             failed_once.append(True)
             raise sqlite3.OperationalError("database is locked")
 
-        return real(event, supplier_id=supplier_id)
+        return real_write(event)
 
     monkeypatch.setattr(
         kc.supplier_compliance_service,
@@ -688,9 +667,6 @@ def test_dlq_failure_does_not_kill_the_loop(consumer, monkeypatch):
         offset=6,
     )
 
-    for message in (bad, good):
-        message.error.return_value = None
-
     consumer.consumer.poll.side_effect = [
         bad,
         bad,
@@ -702,3 +678,48 @@ def test_dlq_failure_does_not_kill_the_loop(consumer, monkeypatch):
 
     assert consumer.consumer.seek.call_count == 1
     assert _offsets(consumer.consumer.commit) == [5, 6]
+
+def test_real_producer_event_suspends_onboarded_supplier(consumer):
+    """Exactly what services/compliance publishes: key=supplier_name, no supplier_id."""
+    message = make_message(
+        make_event(event_id="e-real", supplier_name="ABC Supplies"),
+        key="ABC Supplies",
+    )
+    consumer.process_message(message)
+
+    assert (
+        supplier_compliance_service.get_access_status("SUP001")
+        == SupplierComplianceStatus.suspended
+    )
+    assert (
+        supplier_compliance_service.get_access_status("SUP002")
+        == SupplierComplianceStatus.cleared
+    )
+
+
+def test_supplier_is_matched_by_name_not_by_kafka_key(consumer):
+    message = make_message(
+        make_event(event_id="e-key", supplier_name="  abc   SUPPLIES "),
+        key="some-unrelated-key",
+    )
+    consumer.process_message(message)
+
+    assert (
+        supplier_compliance_service.get_access_status("SUP001")
+        == SupplierComplianceStatus.suspended
+    )
+
+
+def test_block_for_another_supplier_does_not_suspend_this_one(consumer):
+    consumer.process_message(
+        make_message(make_event(event_id="e-other", supplier_name="XYZ Supplies"))
+    )
+
+    assert (
+        supplier_compliance_service.get_access_status("SUP001")
+        == SupplierComplianceStatus.cleared
+    )
+    assert (
+        supplier_compliance_service.get_access_status("SUP002")
+        == SupplierComplianceStatus.suspended
+    )

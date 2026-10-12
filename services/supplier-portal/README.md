@@ -86,7 +86,7 @@ The synchronous Compliance Service check during activation remains unchanged:
 
 Kafka handles ongoing compliance status changes after activation.
 
-**Event contract boundary:** Consumed events must include `payload.supplier_id`. The consumer does not infer supplier identity from `supplier_name` or unrelated fields. External producer-side event publishing is outside this Supplier Portal implementation scope.
+**Event contract boundary:** The compliance event carries no `supplier_id`. The producer sends `payload.supplier_name` and uses the supplier name as the Kafka key. Supplier Portal matches the event to a supplier by comparing a normalized `payload.supplier_name` with the onboarding record's `company_name`, ignoring case and extra spaces. The Kafka key is not used for identity.
 
 ---
 
@@ -7016,6 +7016,8 @@ Round 14 introduces SQLite-backed persistence for its compliance state and proce
 # 28. Known Limitations
 
 The current implementation is designed for development, functional validation, and automated testing. The defined R5, R6–8, R9–11, Round 12, Round 13, and Round 14 functional scopes are implemented, subject to the limitations documented below.
+- Suppliers are matched by name until the compliance event carries a `supplier_id`. Two suppliers with the same name are both affected, which fails safe.
+- An event that still fails after `KAFKA_MAX_RETRIES` attempts goes to the DLQ without being applied. A `BLOCK` that ends up there must be replayed once the underlying cause is fixed.
 
 ## In-Memory Business Storage
 
