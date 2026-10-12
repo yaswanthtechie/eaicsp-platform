@@ -439,13 +439,18 @@ After successful login, the dashboard reads the authenticated role and renders t
 
 The dashboard refreshes the access token before it expires using the Platform refresh endpoint.
 
+A minimum interval between token refresh attempts prevents repeated refresh requests when the client clock is inaccurate.
+
+During logout, the local authentication session is cleared before the Platform logout request is sent.
+
+If a token refresh finishes after logout, its result is ignored to prevent restoring the logged-out session.
 Logout:
 
 1. Calls the Platform logout endpoint.
-2. Clears the dashboard authentication session.
+2. Clears the local authentication session.
 3. Returns the user to the login screen.
 
-If the refresh fails or the session expires, the authentication session is cleared and the user is returned to the login screen with a session-expired message.
+If the refresh fails or the session has expired, the user is returned to the login screen with a session-expired message.If the authentication service is unavailable,the dashboard keeps the use signed in and retries the refresh later.
 
 ## Authentication Error Handling
 
@@ -521,8 +526,9 @@ The authentication Playwright test is:
 ```text
 e2e/dashboard.auth.spec.ts
 ```
+The authentication Playwright configuration use`reuseExistingServer: false` to start a dedicated development server and `retries: 1` to retry failed tests once.
 
-It contains 12 tests covering:
+It contains 14 tests covering:
 
 1. Real login with valid credentials.
 2. Wrong-password error handling.
@@ -536,6 +542,8 @@ It contains 12 tests covering:
 10. Warehouse manager KPI visibility.
 11. Unsupported role handling.
 12. Logout with a Bearer token and session cleanup.
+13. Prevents repeated token refreshes when the client clock is ahead.
+14. Ignores refresh responses that arrive after logout.
 
 Ten tests use mocked platform responses and do not require the backend. Two tests use the real platform service and require TEST_AUTH_USERNAME and TEST_AUTH_PASSWORD. Configure these variables using a seeded local account; see .env.example. Never commit real credentials.
 
@@ -1144,8 +1152,8 @@ Test verification completed successfully.
 
 * Vitest: 19 test files, 147/147 tests passed
 * Playwright Dashboard E2E: 4/4 tests passed
-* Authentication E2E: 12/12 passed with valid credentials.
-* Total: 163 tests passed across the three reported test groups.
+* Authentication E2E: 14/14 passed with valid credentials.
+* Total: 165 tests passed across the three reported test groups.
 * Offline PWA snapshot test is also passing now.
 
 The authentication tests are run separately using

@@ -36,3 +36,8 @@ m5_replay_error.txt
 compose-resolved.yml
 tests/airflow_test.db
 *.dump
+.venv-r14/
+data/backfill/
+r14_*.log
+temp_benchmark_section.txt
+dbt/.user.yml
