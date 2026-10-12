@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status,Query
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import StreamingResponse, JSONResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from datetime import datetime, timezone,timedelta
@@ -35,13 +35,19 @@ from app.services.audit_service import (
     SERVICE_KEY_REVOKED,
 )
 import json
-from fastapi.responses import JSONResponse, StreamingResponse
 from app.services.abuse_dashboard_service import get_abuse_dashboard
 from app.services.audit_export_service import export_audit_logs
 from app.models.refresh_token import RefreshToken
 from app.models.abuse_event import AbuseEvent
 from app.schemas.auth import SessionResponse
-from app.core.dependencies import require_role,get_current_user,require_any_role
+from app.core.dependencies import (
+    require_role,
+    get_current_user,
+    require_any_role,
+    require_permission_or_role,
+    ensure_can_grant_role,
+    ensure_can_manage_user,
+)
 from app.core.password_validator import validate_password
 from app.core.security import hash_password
 from app.core.service_auth import (
@@ -62,7 +68,7 @@ class AdminTestResponse(BaseModel):
     response_model=AdminTestResponse
 )
 
-def admin_test(user=Depends(require_role("ceo","vp_operations"))):
+def admin_test(user=Depends(require_role("ceo","vp_operations","platform_admin"))):
     return {
         "message": "Admin access granted",
         "user": {
@@ -84,7 +90,7 @@ def admin_test(user=Depends(require_role("ceo","vp_operations"))):
 def list_users(
     db: Session = Depends(get_db),
     current_user=Depends(
-        require_any_role("ceo", "vp_operations")
+        require_permission_or_role("user:read","ceo", "vp_operations")
     )
 ):
     users = (
@@ -117,7 +123,7 @@ def create_user(
     request: AdminCreateUserRequest,
     db: Session = Depends(get_db),
     current_user=Depends(
-        require_any_role("ceo", "vp_operations")
+        require_permission_or_role("user:manage","ceo", "vp_operations")
     )
 ):
     email = request.email.lower()
@@ -152,6 +158,7 @@ def create_user(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid role"
             )
+        ensure_can_grant_role(current_user, role.name)
 
         role_id = role.id
         role_name = role.name
@@ -202,7 +209,7 @@ def deactivate_user(
     user_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(
-        require_any_role("ceo", "vp_operations")
+        require_permission_or_role("user:manage","ceo", "vp_operations")
     )
 ):
     user = (
@@ -222,6 +229,8 @@ def deactivate_user(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="You cannot deactivate your own account"
         )
+    
+    ensure_can_manage_user(current_user, user)
 
     # Deactivate account
     user.is_active = False
@@ -262,9 +271,10 @@ def change_user_role(
     request: RoleChangeRequest,
     db: Session = Depends(get_db),
     current_user=Depends(
-        require_any_role("ceo", "vp_operations")
+        require_permission_or_role("role:assign","ceo","vp_operations")
     )
 ):
+
     user = (
         db.query(User)
         .filter(User.id == user_id)
@@ -290,6 +300,8 @@ def change_user_role(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid role"
         )
+    ensure_can_manage_user(current_user, user)
+    ensure_can_grant_role(current_user, new_role.name, target_user_id=user.id)
 
     old_role = (
         user.role.name
@@ -349,7 +361,7 @@ def role_change_history(
     user_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(
-        require_any_role("ceo", "vp_operations")
+        require_permission_or_role("role:assign", "ceo", "vp_operations")
     )
 ):
     user = (
@@ -400,7 +412,7 @@ def force_reset_password(
     request: ForceResetPasswordRequest,
     db: Session = Depends(get_db),
     current_user=Depends(
-        require_any_role("ceo", "vp_operations")
+        require_permission_or_role("user:manage", "ceo", "vp_operations")
     )
 ):
     user = (
@@ -414,6 +426,7 @@ def force_reset_password(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
+    ensure_can_manage_user(current_user, user)
 
     validate_password(request.new_password)
 
@@ -456,7 +469,7 @@ def list_user_sessions(
     user_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(
-        require_any_role("ceo", "vp_operations")
+        require_permission_or_role("user:read", "ceo", "vp_operations")
     )
 ):
     user = (
@@ -508,7 +521,7 @@ def revoke_user_session(
     session_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(
-        require_any_role("ceo", "vp_operations")
+        require_permission_or_role("user:manage", "ceo", "vp_operations")
     )
 ):
     session = (
@@ -525,6 +538,13 @@ def revoke_user_session(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Session not found"
         )
+
+    target = (
+        db.query(User)
+        .filter(User.id == user_id)
+        .first()
+    )
+    ensure_can_manage_user(current_user, target)
 
     if session.is_revoked:
         raise HTTPException(
@@ -562,7 +582,7 @@ def get_audit_logs(
     event_type: str | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user=Depends(
-        require_any_role("ceo", "vp_operations")
+        require_permission_or_role("audit:read", "ceo", "vp_operations")
     ),
 ):
     query = db.query(AuthAuditLog)
@@ -901,7 +921,8 @@ def audit_export(
         description="Export format",
     ),
     current_user: User = Depends(
-        require_any_role(
+        require_permission_or_role(
+            "audit:read",
             "ceo",
             "vp_operations",
         )

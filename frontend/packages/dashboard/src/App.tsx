@@ -838,9 +838,8 @@ function App() {
 
     function scheduleRefresh(delayMs: number) {
       const elapsed = Date.now() - lastRefreshAttemptAt.current;
-      // Do not delay the first refresh. Enforce the minimum gap
-     // only after a refresh attempt has already occurred.
-      const minimumWait = 
+      // Enforce a minimum gap between refresh attempts.
+      const minimumWait =
         lastRefreshAttemptAt.current === 0
           ? 0
           : Math.max(15_000 - elapsed, 0);

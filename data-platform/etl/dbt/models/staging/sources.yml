@@ -1,0 +1,30 @@
+version: 2
+
+sources:
+  - name: etl
+    schema: public
+    tables:
+      - name: sales_fact
+        columns:
+          - name: date
+            tests: [not_null]
+          - name: sku_id
+            tests: [not_null]
+          - name: warehouse_id
+            tests: [not_null]
+      - name: inventory_snapshot
+        columns:
+          - name: snapshot_date
+            tests: [not_null]
+          - name: sku_id
+            tests: [not_null]
+          - name: warehouse_id
+            tests: [not_null]
+      - name: shipments_fact
+        columns:
+          - name: shipment_date
+            tests: [not_null]
+          - name: sku_id
+            tests: [not_null]
+          - name: warehouse_id
+            tests: [not_null]

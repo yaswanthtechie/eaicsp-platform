@@ -1,50 +1,31 @@
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
-
-# Virtual environments
+.pytest_cache/
 .venv/
 venv/
-env/
-ENV/
 
-# Pytest
-.pytest_cache/
-.coverage
-htmlcov/
-
-# MLflow
+# MLflow (run history is regenerable)
 mlruns/
 mlflow.db
 *.db
-*.sqlite
-*.sqlite3
 
-# Generated data
+# Data (download Olist into data/raw; see README)
 data/raw/
 data/processed/
 *.csv
 
-# Trained models / artifacts
-models/
-*.joblib
-*.pkl
-*.pickle
-
-# Logs
-*.log
-logs/
-
-# IDE / editors
-.vscode/
-.idea/
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Environment / secrets
+# Secrets
 .env
 .env.*
 !.env.example
+
+# Model artifacts: ignore everything except the two production files
+models/*
+*.joblib
+*.pkl
+# Production artifacts are committed deliberately: /predict needs
+# them at startup. Produced by `python main.py` on the real Olist
+# data, which refuses to write them if calibration is too small.
+!models/eta_pipeline.joblib
+!models/eta_prediction_interval.joblib

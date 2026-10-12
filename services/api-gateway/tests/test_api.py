@@ -143,6 +143,36 @@ def test_reverse_proxy_success(mock_send, client):
 
 
 @patch("httpx.AsyncClient.send", new_callable=AsyncMock)
+def test_proxy_untrusted_caller_service_not_recorded(mock_send, client):
+    """
+    Security (Must-Fix 2): Client header X-Caller-Service: evil-123 must NOT
+    be trusted or recorded in metrics_collector.get_top_callers().
+    The gateway is the sole authority and records 'api-gateway'.
+    """
+    from app.services.metrics import metrics_collector
+    metrics_collector.reset()
+
+    content_bytes = b'{"data":"success"}'
+    mock_send.return_value = httpx.Response(
+        status_code=200,
+        content=content_bytes,
+        headers={"content-type": "application/json"},
+        request=httpx.Request("GET", "http://test"),
+    )
+
+    response = client.get(
+        "/api/v1/inventory/items",
+        headers={"X-Caller-Service": "evil-123"},
+    )
+
+    assert response.status_code == 200
+    top_callers = metrics_collector.get_top_callers()
+    caller_names = [c["caller"] for c in top_callers]
+    assert "evil-123" not in caller_names
+    assert "api-gateway" in caller_names
+
+
+@patch("httpx.AsyncClient.send", new_callable=AsyncMock)
 def test_reverse_proxy_service_unavailable(mock_send, client):
     """
     Downstream service unavailable.

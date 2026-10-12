@@ -1101,3 +1101,222 @@ Recovery replay successfully restores pipeline processing.
 
 
 > DR replay currently covers the sales source only; other sources require a history_table and compatible restore logic.
+
+
+Round 12-13: dbt transformation layer (Vivek - Milestone 1)
+
+The pipeline now adds dbt as the post-load transformation layer. The flow is:
+
+Extract -> Quality Gate -> Load to PostgreSQL -> log_run -> dbt build -> Archive
+
+dbt project layout:
+
+- dbt/models/staging/: source cleanup, renaming, and type casts.
+- dbt/models/marts/mart_daily_sales_by_warehouse.sql
+- dbt/models/marts/mart_inventory_position.sql
+- dbt/models/marts/mart_daily_shipments_by_warehouse.sql
+- dbt/models/marts/schema.yml: not_null, unique, and relationships tests.
+- dbt/tests/mart_daily_sales_non_negative.sql: custom singular test.
+
+Airflow image setup:
+
+The local Airflow image is built from Dockerfile and installs dbt-postgres. The dbt project is mounted at /opt/airflow/dbt.
+
+Build/rebuild the local stack after the R12-13 changes:
+
+docker compose build
+docker compose up -d
+
+Run the normal unit tests without Docker:
+
+pytest -m "not integration"
+
+Run dbt manually inside the Airflow scheduler container:
+
+docker compose exec airflow-scheduler sh -c '"$DBT_BIN" build --project-dir /opt/airflow/dbt --profiles-dir /opt/airflow/dbt --target dev'
+
+Or trigger sales_etl_pipeline from Airflow. The dbt_build task runs after the existing source load/join stage and runs dbt models plus configured dbt tests.
+
+The dbt models use the existing PostgreSQL tables as sources, so the ETL load remains responsible for ingestion and watermarking while dbt owns the analytical transformation layer.
+
+
+# R12-13 Production-Ready Extension (Vivek / ETL)
+
+R12-13 adds the client-facing analytics and event stack on top of the existing ETL foundation. The pipeline remains PostgreSQL-first for operational loading; dbt owns transformations, ClickHouse owns dashboard analytics, and Kafka publishes run lifecycle events.
+
+## End-to-end flow
+
+```text
+Source CSVs
+  -> Airflow extract / dependency ordering
+  -> schema + quality gate
+  -> PostgreSQL bulk upsert + reconciliation
+  -> per-source watermark
+  -> dbt build (staging -> marts -> tests)
+  -> ClickHouse incremental analytics sink
+  -> archive
+  -> final run status
+  -> PostgreSQL outbox
+  -> Kafka event (completed / failed)
+```
+
+The Kafka outbox is deliberately after the data work. A Kafka outage therefore cannot roll back a successful load. Pending events are retried by `etl_event_outbox_retry` every five minutes.
+
+## R12-13 M1 — dbt
+
+Run from the Airflow scheduler/worker container:
+
+```bash
+docker compose exec airflow-scheduler sh -c '"$DBT_BIN" debug --project-dir /opt/airflow/dbt --profiles-dir /opt/airflow/dbt'
+docker compose exec airflow-scheduler sh -c '"$DBT_BIN" build --project-dir /opt/airflow/dbt --profiles-dir /opt/airflow/dbt --target dev'
+```
+
+Models are split into `dbt/models/staging` and `dbt/models/marts`. Tests include `not_null`, `unique`, `relationships`, and a custom non-negative sales test.
+
+## R12-13 M2 — ClickHouse
+
+ClickHouse runs locally in Compose. The sink reads tested dbt marts from PostgreSQL and reuses the existing watermark subsystem with sink-specific watermark names such as `clickhouse_mart_daily_sales_by_warehouse`.
+
+The physical tables use `ReplacingMergeTree(version)` and the dashboard-facing views use `FINAL`, making repeated incremental loads deterministic while retaining an explicit version for corrections.
+
+Verify:
+
+```bash
+docker compose exec airflow-scheduler python -c "from etl.src.clickhouse_sink import sync_marts; print(sync_marts())"
+```
+
+### Required 1M+ timing proof
+
+Run the benchmark with at least one million rows:
+
+```bash
+docker compose exec airflow-scheduler python scripts/benchmark_postgres_clickhouse.py --rows 1200000
+```
+
+The script compares the same date-range aggregation on PostgreSQL and ClickHouse, checks that the result sets match, prints both measured wall-clock timings, and writes `docs/r12_13_clickhouse_benchmark.json`. Do not claim a speed-up without the measured output.
+
+## R12-13 M3 — Kafka events
+
+The standard envelope is:
+
+```json
+{
+  "event_id": "uuid4",
+  "event_type": "data.pipeline.completed",
+  "event_version": 1,
+  "occurred_at": "2026-09-29T10:15:00Z",
+  "producer": "etl",
+  "payload": {}
+}
+```
+
+Topic name equals `event_type`. Timestamps are UTC. Additive payload changes do not require a version bump; renaming/removing contract fields requires `event_version` to increase.
+
+Check pending/published events:
+
+```bash
+docker compose exec postgres psql -U admin -d salesdb -c "SELECT event_id,event_type,status,attempts,last_error,created_at,published_at FROM etl_event_outbox ORDER BY created_at DESC LIMIT 20;"
+```
+
+Simulate Kafka outage:
+
+```bash
+docker compose stop kafka
+# run the pipeline; the PostgreSQL load should still complete
+docker compose start kafka
+# unpause/trigger etl_event_outbox_retry, or wait for its next 5-minute run
+```
+
+The event remains `PENDING` while Kafka is unavailable and is marked `PUBLISHED` after a later successful attempt.
+
+## R12-13 review notes (what was verified, what changed, what is still unproven)
+
+### How to run the tests
+```bash
+pytest -m "not integration"      # no Docker needed; runs on a clean machine
+pytest -m integration            # needs local Postgres/Kafka/ClickHouse; each test skips itself if its service is unreachable
+```
+Note: `tests/test_dag_dependencies.py` needs an initialised Airflow SQLite DB on a clean machine:
+`AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=sqlite:////abs/path/tests/airflow_test.db airflow db migrate`.
+
+### Fixes made during review
+| Problem found | Fix |
+|---|---|
+| `kafka-python==2.0.2` does not import on Python 3.12 (the `apache/airflow:2.10.5` image's Python), so `finalize_run` would crash on import. 3.x renames config keys. | Pinned `kafka-python>=2.2.0,<3` in `requirements.txt` and `Dockerfile`. Kafka is now imported lazily. |
+| `dbt-postgres` cannot be resolved together with Airflow's pinned dependencies (protobuf conflict); a shared install can silently upgrade packages Airflow needs. `dbt-core` was also unpinned. | dbt now lives in its own venv in the image (`DBT_BIN`), pinned `dbt-core==1.9.4`, `dbt-postgres==1.9.0`. |
+| Kafka down: each publish blocked ~30 s, and the retry loop opened one producer per event (100 pending events = ~50 min inside a 5-minute DAG). | Timeouts bounded (`KAFKA_PUBLISH_TIMEOUT_S`, default 5 s); retry uses one producer and stops at the first failure. Measured: 30 s -> 5 s per attempt; a retry batch costs one timeout regardless of size. |
+| If the outbox insert itself failed, `queue_and_publish` raised into `finalize_run`. | Never raises; logs `EVENT LOST` and returns `persisted: False`. |
+| `mart_inventory_position` in ClickHouse was partitioned by month but keyed by (sku, warehouse). ReplacingMergeTree only de-duplicates inside a partition, so a stale row per month would survive `FINAL`. | Table is unpartitioned. |
+| Dashboard views were created in ClickHouse's `default` database, not `analytics`. | Views are created as `analytics.<mart>`. |
+| One wide, zero-padded table shared by all three marts. | One tailored table per mart. |
+| Late-arriving corrections older than the watermark were never re-read. | `CLICKHOUSE_LOOKBACK_DAYS` (default 3) overlap; safe because loads are idempotent. |
+| The old M1-M3 tests only grepped source text. | Replaced with behavioural tests (`test_r12_13_events.py`, `test_r12_13_clickhouse_sink.py`) that cover Kafka down, insert failure without watermark advance, empty tables, unreachable DB. |
+
+**Migrating an existing ClickHouse volume** (table names are unchanged but schemas differ):
+```sql
+DROP TABLE IF EXISTS analytics.ch_mart_daily_sales_by_warehouse;
+DROP TABLE IF EXISTS analytics.ch_mart_daily_shipments_by_warehouse;
+DROP TABLE IF EXISTS analytics.ch_mart_inventory_position;
+DROP VIEW  IF EXISTS analytics.mart_daily_sales_by_warehouse;   -- and the other two, plus any in `default`
+```
+then in Postgres: `DELETE FROM etl_watermark WHERE pipeline_name LIKE 'clickhouse_%';` so the next run reloads.
+
+### Delivery guarantee
+Events are **at-least-once**. A crash after Kafka acks but before the outbox row is marked `PUBLISHED` re-sends the event. Consumers (next round) must de-duplicate on `event_id`.
+
+### Benchmark status
+The ClickHouse benchmark was run on the Docker stack using **1,200,000 rows and 10 timed repetitions**. Measurements are wall-clock, client-side timings with warm cache on a single-node environment with 4 CPUs.
+
+- **Full year 2024**
+  - PostgreSQL: min 0.672s, median 0.8557s, max 1.2132s
+  - ClickHouse: min 0.0509s, median 0.0766s, max 0.6599s
+  - Median speed-up: **11.2x**
+  - Results matched: **yes**
+- **Q2 2024**
+  - PostgreSQL: min 0.3177s, median 0.5537s, max 1.4711s
+  - ClickHouse: min 0.0298s, median 0.0367s, max 0.0427s
+  - Median speed-up: **15.1x**
+  - Results matched: **yes**
+
+The measurements are environment-specific and should not be treated as a production performance guarantee. The full benchmark output is recorded in `docs/r12_13_clickhouse_benchmark.json`.
+
+## Clean verification sequence
+
+```bash
+# 1. Build the production-style Airflow image
+docker compose build --no-cache
+
+# 2. Start infrastructure
+docker compose up -d
+
+# 3. Verify health
+docker compose ps
+
+# 4. Verify DAG parsing
+docker compose exec airflow-scheduler airflow dags list-import-errors
+
+# 5. Run unit tests without Docker dependencies
+pytest -m "not integration"
+
+# 6. Run dbt
+docker compose exec airflow-scheduler sh -c '"$DBT_BIN" build --project-dir /opt/airflow/dbt --profiles-dir /opt/airflow/dbt --target dev'
+
+# 7. Trigger the main DAG
+docker compose exec airflow-scheduler airflow dags trigger sales_etl_pipeline
+
+# 8. Inspect recent runs
+docker compose exec airflow-scheduler airflow dags list-runs -d sales_etl_pipeline | Select-Object -First 5
+
+# 9. Inspect pipeline status/events
+docker compose exec postgres psql -U admin -d salesdb -c "SELECT run_id,status,rows_inserted,rows_updated,rows_rejected,error_message FROM etl_run_log ORDER BY run_id DESC LIMIT 5;"
+docker compose exec postgres psql -U admin -d salesdb -c "SELECT event_type,status,attempts,last_error FROM etl_event_outbox ORDER BY created_at DESC LIMIT 5;"
+```
+
+## Merge discipline
+
+- Do not commit `.env` or generated runtime logs/backups.
+- Branch from the latest `main` as required by R12-13.
+- Run unit tests before Docker tests.
+- Record the actual PostgreSQL/ClickHouse benchmark output rather than a qualitative claim.
+- Demonstrate Kafka-down behavior and the later outbox retry.
+- Keep the R9-11 ETL contracts unchanged unless a migration explicitly requires a change.

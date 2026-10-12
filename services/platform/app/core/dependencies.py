@@ -10,8 +10,7 @@ from jose import JWTError
 from app.core.security import decode_token
 from app.database import get_db
 from app.models.users import User
-from app.core.permissions import ROLE_PERMISSIONS
-
+from app.core.permissions import PERMISSIONS,ROLE_PERMISSIONS
 # ============================================================
 # Authentication Schemes
 # ============================================================
@@ -353,3 +352,98 @@ def require_permission(permission: str):
         return current_user
 
     return checker
+
+
+# ============================================================
+# Permission OR Legacy Role Authorization
+# ============================================================
+def require_permission_or_role(permission: str, *allowed_roles: str):
+    """
+    Allow the request if the user's role grants `permission` (V2 model),
+    OR if the user's role satisfies `allowed_roles` the same way
+    require_role() does, including ROLE_HIERARCHY (V1 behaviour).
+    """
+
+    if permission not in PERMISSIONS:
+        # A misspelled permission would silently fall through to the legacy
+        # role check and lock out only the new roles. Fail at startup instead.
+        raise ValueError(f"Unknown permission: {permission!r}")
+    def checker(current_user: User = Depends(get_current_user)):
+        user_role = current_user.role.name if current_user.role else None
+
+        if user_role is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: insufficient permissions",
+            )
+
+        if permission in ROLE_PERMISSIONS.get(user_role, set()):
+            return current_user
+
+        role_scope = ROLE_HIERARCHY.get(user_role, {user_role})
+        if any(role in role_scope for role in allowed_roles):
+            return current_user
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: insufficient permissions",
+        )
+
+    return checker
+
+# ============================================================
+# Role-grant guard
+# ============================================================
+# Roles that hold (or can reach) business-wide authority. Only the V1 admins
+# (ceo / vp_operations) may hand these out.
+PRIVILEGED_ROLES = frozenset({"ceo", "vp_operations", "platform_admin"})
+LEGACY_ROLE_ADMINS = frozenset({"ceo", "vp_operations"})
+
+def ensure_can_grant_role(actor: User, target_role: str, target_user_id=None) -> None:
+    """
+    Stop a user who only holds `user:manage` / `role:assign` (for example
+    platform_admin) from escalating privileges.
+
+    ceo and vp_operations are unchanged: they can assign any role, as before.
+    Everyone else may not grant a privileged role, and may not change their
+    own role.
+    """
+    actor_role = actor.role.name if actor.role else None
+
+    if actor_role in LEGACY_ROLE_ADMINS:
+        return
+
+    if target_role in PRIVILEGED_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Forbidden: your role cannot grant the '{target_role}' role",
+        )
+
+    if target_user_id is not None and target_user_id == actor.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: you cannot change your own role",
+        )
+
+def ensure_can_manage_user(actor: User, target: User) -> None:
+
+    """
+    Stop a user who only holds `user:manage` / `role:assign` (for example
+    platform_admin) from acting on a privileged account: resetting its
+    password, changing its role, deactivating it or revoking its sessions.
+
+    ceo and vp_operations are unchanged: they can manage any user, as before.
+    """
+    
+    actor_role = actor.role.name if actor.role else None
+
+    if actor_role in LEGACY_ROLE_ADMINS:
+        return
+
+    target_role = target.role.name if target.role else None
+
+    if target_role in PRIVILEGED_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Forbidden: your role cannot manage a '{target_role}' user",
+        )
