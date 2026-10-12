@@ -1929,11 +1929,15 @@ The test suite originally depended on generated model/data artifacts being avail
 This reduces setup-related test failures.
 
 ---
-interval of the new percentile estimate.
+# Round 9-10-11 - Milestone Status
 
-Safety: extreme points are trimmed before a window is trusted; raising the
-threshold (which loses recall) is capped at 1 sigma per step, lowering at
-2 sigma; a capped mo# Self-Adjusting Thresholds (Significance-Gated)
+| Milestone | Status | Notes |
+|---|---|---|
+| M2 - Self-adjusting thresholds | **Done (standalone)** | `src/auto_threshold.py`. Not wired into the API or `AdaptiveEngine` yet. |
+| M3 - Incident playbooks | **Done (standalone)** | `src/playbook.py`. Not returned by the API yet; content needs an operations review. |
+| M4 - ETA error vs anomaly flags | **Method done; question untestable on current data** | `src/eta_anomaly_correlation.py`. The two datasets share no key (see M4 below). |
+
+Test suite for this round: 546 passed.
 
 # Round 9-10-11 - Milestone 2: Self-Adjusting Thresholds
 
@@ -1947,43 +1951,84 @@ The threshold moves only when ALL of these hold for a window of scores:
    (statistical and practical significance).
 2. **Stable** - the window has no internal shift or monotonic trend. A
    trending window is treated as drift and the threshold is frozen.
-3. **Confirmed** - two consecutive windows agree.
-4. **Material** - the current threshold lies outside the bootstrap 95%
+3. **Not drifting across windows** - the medians of the last 3 windows do
+   not climb (or fall) in steady, similar-sized steps. Slow drift that
+   looks flat inside each window is frozen once the tuner has at least 3
+   windows of history (see limitations).
+4. **Not contaminated** - for an upward shift, the lower part of the
+   window (10th percentile) must move by at least 0.2 of the median's
+   move. A window of normal readings plus a cluster of anomalies fails
+   this, so a sustained incident is not learned as the new normal.
+5. **Confirmed** - two consecutive windows shift the same way and agree
+   with each other (KS between them not significant).
+6. **Material** - the current threshold lies outside the bootstrap 95%
    confidence interval of the new percentile estimate.
 
 Safety: extreme points are trimmed before a window is trusted; raising
 the threshold (which loses recall) is capped at 1 sigma per step and
-lowering at 2 sigma; a capped move keeps converging over later stable
-windows; after a drift window the tuner holds for 2 windows.
+lowering at 2 sigma; the threshold can never rise more than 4 sigma above
+its initial value (`max_total_raise_sigma`; results carry `at_ceiling` so
+a human can decide on any further rise); after a drift freeze the tuner
+holds for 2 windows; a capped move keeps converging toward the new
+regime's percentile over later stable windows.
 
-Demo (`python -m src.auto_threshold_demo`), seasonal regime versus the
-fixed calibration-percentile threshold:
+## Demo on the project's models
+
+`python -m src.auto_threshold_demo` (writes `output/auto_threshold_demo.csv`),
+seasonal regime, tuned threshold versus the fixed calibration-percentile
+threshold:
 
 | Model | False-alarm rate (fixed -> tuned) | Spike recall (fixed -> tuned) |
 |---|---|---|
 | Isolation Forest | 16.0% -> 1.5% | 1.00 -> 0.95 |
-| LOF | 24.7% -> 5.4% | 1.00 -> 1.00 |
+| LOF | 24.7% -> 7.9% | 1.00 -> 1.00 |
 | One-Class SVM | 18.0% -> 2.1% | 1.00 -> 1.00 |
 
-During temperature drift the tuner froze and never adapted, for all three
-models. In synthetic tests: 0 false adaptations in 1,000 stable windows,
-39 of 40 real stable shifts adapted, 40 of 40 drifting windows frozen.
+Each model adapted once and then refined once. On the temperature-drift
+dataset the tuner froze (1-2 times per model) and never adapted, so drift
+was not learned as normal.
 
-Limitations:
+## Synthetic checks
+
+`python -m src.auto_threshold_simulation` (40 trials each, reproducible):
+
+| Scenario | Result |
+|---|---|
+| No change in the data | 0 threshold moves in 1,000 windows |
+| Stable +2 sigma shift | adapted in 40/40 |
+| Trend inside one window | frozen in 40/40 |
+| Slow drift across windows (+0.4 sigma per window), running tuner (3 warm-up windows) | learned as normal in 0/40 |
+| Same slow drift, cold start (0 warm-up windows) | learned as normal in 9/40 |
+| Windows with 20% anomalies mixed in | learned as normal in 1/40 |
+| Windows with 50% anomalies mixed in | learned as normal in 0/40 |
+
+## Limitations
+
 - Isolation Forest missed 1 of 20 spikes after tuning (recall 1.00 -> 0.95).
   A minimum-recall guard is a proposed follow-up.
-- The baseline is the calibration-percentile threshold, not the cost-optimised
-  production threshold (R4.5).
+- Cold start: the cross-window drift guard needs 3 windows of history. If
+  drift begins in the tuner's first windows it can be adopted (9 of 40
+  simulated trials). Start the tuner on normal data, or require a warm-up
+  period before enabling adaptation. The 4-sigma ceiling bounds the damage.
+- The contamination guard is tuned on this project's score shapes. Re-check
+  it if the models change.
+- The baseline is the calibration-percentile threshold, not the
+  cost-optimised production threshold (R4.5).
 - The tuner is standalone and not wired into the API or `AdaptiveEngine`.
-- The step caps and effect-size gate are judgment calls and are configurable.
+- The step caps, ceiling and effect-size gate are judgment calls and are
+  configurable.
 
 # Round 9-10-11 - Milestone 3: Incident Playbooks
 
 `src/playbook.py` maps a prediction to a response playbook. The incident
-type comes from the `root_cause_hint` added in round 6-8; adaptive
-`temporal_drift` takes priority (drift playbook); unknown or missing hints
-get a generic triage playbook; matches below 0.90 similarity are flagged
-low-confidence and the playbook opens with a "verify first" step.
+type comes from the `root_cause_hint` added in round 6-8.
+
+- Adaptive `temporal_drift` takes priority (drift playbook), and a drift
+  alert gets the drift playbook even when the reading itself is below the
+  threshold (`is_anomaly=False`).
+- Unknown, missing or malformed hints get a generic triage playbook.
+- A match below 0.90 similarity is flagged low-confidence (as are hints
+  with no similarity), and the playbook opens with a "verify first" step.
 
 Playbooks: temperature_spike, stock_anomaly, combined_anomaly,
 relationship_break, temperature_drift and unknown. A test fails if an
@@ -2015,8 +2060,8 @@ Close when:
   - System count matches a physical recount, or an adjustment is approved and logged.
 ```
 
-Note: owners, SLAs and steps are initial proposals and should be reviewed
-by operations. Playbooks are not yet returned by the API.
+Limitations: owners, SLAs and steps are initial proposals and should be
+reviewed by operations. Playbooks are not yet returned by the API.
 
 # Round 9-10-11 - Milestone 4: ETA Error vs Anomaly Flags
 
@@ -2046,16 +2091,23 @@ real joined data exists: Mann-Whitney U, Cliff's delta, point-biserial,
 bootstrap CI, permutation test and a minimum detectable effect. The
 verdict rule was fixed in advance: p < 0.05 AND |Cliff's delta| >= 0.147.
 
-Validated on synthetic data with known truth: with no relationship it
-falsely reported an association 0.25% of the time (p < 0.05 about 4.75%,
-as expected), and it detected a planted relationship. This validates the
-method only.
+The method is validated on synthetic data with known truth
+(`tests/test_eta_anomaly_correlation.py`): a world with no relationship is
+not reported as an association, and a planted relationship is detected.
+This validates the method only, not any real service.
 
 ## Input contract
 
 Two CSVs joined on a shared key:
-- ETA file: `<key>`, `eta_error` (actual minus predicted, days)
-- Anomaly file: same key, `is_anomaly` (0/1), optional `anomaly_score`
+
+- ETA file: `<key>`, `eta_error` (actual minus predicted, days).
+- Anomaly file: the same key, `is_anomaly` (0/1), optional `anomaly_score`.
+- One row per key in each file (duplicates are rejected, because repeated
+  rows would be counted as independent evidence). Rows with a missing flag
+  are dropped. Flags must be 0/1 or True/False; sklearn's -1/1 labels are
+  rejected with a message saying how to map them.
+
+Run:
 
     python -m src.eta_anomaly_correlation <eta.csv> <anomaly.csv> <key> <label>
 
@@ -2081,6 +2133,11 @@ threshold cannot be ruled out, so a null result would not be conclusive.
 1. A shared key between the services (shipment/order or a time window).
 2. ETA error per record (needs actual delivery times, not only predictions).
 3. Run the command above and report the result, positive or null.
+
+An alternative that would give a real result today is to run the anomaly
+method on the Olist order features the ETA model already uses and
+correlate the flags with ETA residuals by `order_id`. That needs changes
+in the `eta-prediction` folder.
 
 
 # Future Improvements
@@ -2205,7 +2262,7 @@ The validated continuous-lifecycle results are:
 ## Test suite
 
 ```text
-531 passed
+546 passed
 3 warnings
 0 failures
 ```

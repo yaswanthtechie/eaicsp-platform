@@ -182,3 +182,30 @@ def test_real_stock_anomaly_flows_to_the_stock_playbook():
 
     assert playbook["incident_type"] == "stock_anomaly"
     assert playbook["severity"] == "high"
+
+
+def test_drift_alert_gets_the_drift_playbook_even_below_the_threshold():
+    """The adaptive engine reports slow drift with is_anomaly=False."""
+    playbook = generate_playbook(
+        _prediction(is_anomaly=False, temporal_drift=True, alert=True)
+    )
+
+    assert playbook is not None
+    assert playbook["incident_type"] == "temperature_drift"
+
+
+def test_hint_without_similarity_is_low_confidence():
+    prediction = _prediction()
+    del prediction["root_cause_hint"]["similarity"]
+
+    playbook = generate_playbook(prediction)
+
+    assert playbook["match_confidence"] == "low"
+    assert playbook["immediate_actions"][0].startswith("Low-confidence match")
+
+
+def test_malformed_hint_falls_back_to_triage():
+    prediction = _prediction()
+    prediction["root_cause_hint"] = "stock_anomaly"
+
+    assert generate_playbook(prediction)["incident_type"] == "unknown"

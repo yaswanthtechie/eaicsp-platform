@@ -38,7 +38,19 @@ Safety, in line with the recall-first / cost-based project policy
       over later stable windows (each step still capped).
     - After a drift window the tuner holds for `drift_cooldown_windows`
       and abandons any outstanding target.
+    - Slow drift spread over several windows (each window flat on its
+      own) is caught by comparing the medians of the last
+      `drift_lookback` windows: steady same-direction steps -> freeze.
+    - A window that is partly anomalous (normal points plus a cluster of
+      high scores) is not a new regime: for an upward shift the lower
+      part of the distribution must move too, or the window is rejected.
+    - Pending windows are only pooled if they shifted the same way and
+      agree with each other.
+    - The threshold can never rise more than `max_total_raise_sigma`
+      above the initial threshold, whatever happens.
 """
+
+from collections import deque
 
 import numpy as np
 from scipy import stats
@@ -105,6 +117,12 @@ class SignificanceThresholdTuner:
         confidence=0.95,
         max_reference=1000,
         seed=42,
+        contamination_quantile=10.0,
+        min_lower_shift_ratio=0.2,
+        max_total_raise_sigma=4.0,
+        drift_lookback=3,
+        min_drift_step=0.1,
+        max_drift_step_ratio=3.0,
     ):
         reference = np.asarray(reference_scores, dtype=float).reshape(-1)
         reference = reference[np.isfinite(reference)]
@@ -129,6 +147,15 @@ class SignificanceThresholdTuner:
         if min_effect < 0 or max_raise_sigma <= 0 or max_lower_sigma <= 0:
             raise ValueError("effect and step limits must be positive.")
 
+        if max_total_raise_sigma <= 0:
+            raise ValueError("max_total_raise_sigma must be positive.")
+
+        if drift_lookback < 3:
+            raise ValueError("drift_lookback must be at least 3 windows.")
+
+        if not 0 < contamination_quantile < 50:
+            raise ValueError("contamination_quantile must be between 0 and 50.")
+
         self.percentile = float(percentile)
         self.alpha = float(alpha)
         self.window_size = int(window_size)
@@ -143,6 +170,11 @@ class SignificanceThresholdTuner:
         self.n_bootstrap = int(n_bootstrap)
         self.confidence = float(confidence)
         self.max_reference = int(max_reference)
+        self.contamination_quantile = float(contamination_quantile)
+        self.min_lower_shift_ratio = float(min_lower_shift_ratio)
+        self.max_total_raise_sigma = float(max_total_raise_sigma)
+        self.min_drift_step = float(min_drift_step)
+        self.max_drift_step_ratio = float(max_drift_step_ratio)
 
         self._rng = np.random.default_rng(seed)
 
@@ -154,12 +186,19 @@ class SignificanceThresholdTuner:
 
         self.reference = reference[-self.max_reference:]
         self.reference_scale = robust_scale(self.reference)
+        self.initial_scale = self.reference_scale
         self.threshold = self.initial_threshold
+
+        # Absolute ceiling: the threshold never rises above this.
+        self.max_threshold = (
+            self.initial_threshold + self.max_total_raise_sigma * self.initial_scale
+        )
 
         self._pending = []
         self._cooldown = 0
         self._buffer = []
         self._target = None
+        self._recent_medians = deque(maxlen=int(drift_lookback))
 
         self.windows_seen = 0
         self.adaptations = 0
@@ -267,7 +306,80 @@ class SignificanceThresholdTuner:
         else:
             delta = max(delta, -self.max_lower_sigma * self.reference_scale)
 
-        return self.threshold + delta
+        return min(self.threshold + delta, self.max_threshold)
+
+    def _cross_window_drift(self):
+        """
+        True if the last `drift_lookback` window medians move steadily in
+        one direction: every step the same sign, each at least
+        `min_drift_step` sigma, steps of similar size, and a total move of
+        at least `min_effect` sigma. A one-off regime step has one big
+        step and small ones after it, so it does not count as drift.
+        """
+
+        if len(self._recent_medians) < self._recent_medians.maxlen:
+            return False
+
+        medians = np.asarray(self._recent_medians)
+        steps = np.diff(medians) / self.reference_scale
+
+        if not (np.all(steps > 0) or np.all(steps < 0)):
+            return False
+
+        size = np.abs(steps)
+
+        if size.min() < self.min_drift_step:
+            return False
+
+        if size.max() / size.min() > self.max_drift_step_ratio:
+            return False
+
+        total = abs(medians[-1] - medians[0]) / self.reference_scale
+
+        return bool(total >= self.min_effect)
+
+    def _contaminated(self, trimmed):
+        """
+        True if an upward shift comes only from part of the window (a
+        cluster of high scores on top of normal ones). In a real regime
+        change the whole distribution moves, so the lower quantile must
+        shift by at least `min_lower_shift_ratio` of the median shift.
+        """
+
+        median_shift = float(np.median(trimmed) - np.median(self.reference))
+
+        if median_shift <= 0:
+            return False
+
+        q = self.contamination_quantile
+        lower_shift = float(
+            np.percentile(trimmed, q) - np.percentile(self.reference, q)
+        )
+
+        return lower_shift < self.min_lower_shift_ratio * median_shift
+
+    def _pending_consistent(self):
+        """Pending windows must shift the same way and agree with each other."""
+
+        centre = np.median(self.reference)
+        signs = {np.sign(np.median(w) - centre) for w in self._pending}
+
+        if len(signs) != 1:
+            return False
+
+        for a, b in zip(self._pending, self._pending[1:]):
+            if stats.ks_2samp(a, b).pvalue < self.alpha:
+                return False
+
+        return True
+
+    def _freeze(self, reason, diagnostics):
+        self._pending = []
+        self._cooldown = self.drift_cooldown_windows
+        self._target = None
+        self.freezes += 1
+
+        return self._result("freeze", reason, **diagnostics)
 
     def _result(self, action, reason, **extra):
         result = {
@@ -276,6 +388,9 @@ class SignificanceThresholdTuner:
             "reason": reason,
             "threshold": self.threshold,
             "pending_windows": len(self._pending),
+            # True when the threshold sits at its absolute ceiling: any
+            # further rise needs a human decision, not auto-tuning.
+            "at_ceiling": bool(self.threshold >= self.max_threshold - 1e-12),
         }
 
         result.update(extra)
@@ -305,6 +420,8 @@ class SignificanceThresholdTuner:
 
         trimmed, n_trimmed = self._trim(window)
 
+        self._recent_medians.append(float(np.median(trimmed)))
+
         if self._cooldown > 0:
             self._cooldown -= 1
             self._pending = []
@@ -312,6 +429,11 @@ class SignificanceThresholdTuner:
             return self._result(
                 "hold", "drift_cooldown", n_trimmed=n_trimmed
             )
+
+        # 0. Slow drift spread over several windows.
+
+        if self._cross_window_drift():
+            return self._freeze("cross_window_drift", {"n_trimmed": n_trimmed})
 
         # 1. SHIFT: statistical AND practical significance.
 
@@ -346,19 +468,27 @@ class SignificanceThresholdTuner:
         diagnostics.update(stability)
 
         if unstable:
+            return self._freeze("unstable_or_trending", diagnostics)
+
+        # 2b. A partly anomalous window is not a new regime.
+
+        if self._contaminated(trimmed):
             self._pending = []
-            self._cooldown = self.drift_cooldown_windows
-            self._target = None
-            self.freezes += 1
 
-            return self._result("freeze", "unstable_or_trending", **diagnostics)
+            return self._result("hold", "contaminated_window", **diagnostics)
 
-        # 3. CONFIRMED over consecutive windows.
+        # 3. CONFIRMED over consecutive, consistent windows.
 
         self._pending.append(trimmed)
 
         if len(self._pending) < self.confirm_windows:
             return self._result("candidate", "awaiting_confirmation", **diagnostics)
+
+        if not self._pending_consistent():
+            # Start again from the latest window only.
+            self._pending = [trimmed]
+
+            return self._result("candidate", "inconsistent_shift", **diagnostics)
 
         pooled = np.concatenate(self._pending)
 
@@ -432,4 +562,5 @@ class SignificanceThresholdTuner:
             "cooldown": self._cooldown,
             "reference_size": int(self.reference.size),
             "reference_scale": self.reference_scale,
+            "max_threshold": self.max_threshold,
         }

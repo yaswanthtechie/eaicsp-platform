@@ -66,7 +66,9 @@ def join_eta_and_anomaly(
 
     Returns a frame with: key, eta_error, is_anomaly [, anomaly_score].
     Raises if the join is empty so a wrong key never yields a quiet
-    "no correlation".
+    "no correlation". Each key must appear once in each table (repeated
+    rows would be counted as independent evidence), and flags must be
+    0/1 or True/False (sklearn's -1/1 labels are rejected, not guessed).
     """
 
     for frame, cols, name in (
@@ -90,17 +92,40 @@ def join_eta_and_anomaly(
         else {flag_col: "is_anomaly"}
     )
 
-    joined = left.merge(right, on=key, how="inner")
+    for frame, name in ((left, "eta_df"), (right, "anomaly_df")):
+        duplicated = frame[key].duplicated()
+
+        if duplicated.any():
+            raise ValueError(
+                f"{name} has {int(duplicated.sum())} duplicate '{key}' values. "
+                "Aggregate to one row per key first (e.g. any() of the flags)."
+            )
+
+    joined = left.merge(right, on=key, how="inner", validate="one_to_one")
+
+    joined = joined.dropna(subset=["eta_error", "is_anomaly"])
 
     if joined.empty:
         raise ValueError(
-            f"Join on '{key}' produced no rows. Check that both tables "
+            f"Join on '{key}' produced no usable rows. Check that both tables "
             "share the same key values."
         )
 
-    joined["is_anomaly"] = joined["is_anomaly"].astype(int)
+    flags = joined["is_anomaly"]
 
-    return joined.dropna(subset=["eta_error", "is_anomaly"])
+    if flags.dtype == bool:
+        flags = flags.astype(int)
+
+    if not flags.isin([0, 1]).all():
+        bad = sorted(set(flags[~flags.isin([0, 1])].tolist()))[:5]
+        raise ValueError(
+            f"is_anomaly must be 0/1 or True/False; found {bad}. "
+            "If these are sklearn labels, map -1 -> 1 (anomaly) and 1 -> 0."
+        )
+
+    joined["is_anomaly"] = flags.astype(int)
+
+    return joined
 
 
 def _minimum_detectable_delta(n1, n2, alpha, power=0.80):
@@ -225,11 +250,16 @@ def analyze_correlation(
         }
     )
 
-    if "anomaly_score" in df.columns and df["anomaly_score"].nunique() > 1:
-        rho, rho_p = stats.spearmanr(df["anomaly_score"], abs_error)
+    if "anomaly_score" in df.columns:
+        has_score = df["anomaly_score"].notna().to_numpy()
 
-        report["score_spearman_rho"] = float(rho)
-        report["score_spearman_p"] = float(rho_p)
+        if has_score.sum() >= min_group and df["anomaly_score"].nunique() > 1:
+            rho, rho_p = stats.spearmanr(
+                df["anomaly_score"].to_numpy()[has_score], abs_error[has_score]
+            )
+
+            report["score_spearman_rho"] = float(rho)
+            report["score_spearman_p"] = float(rho_p)
 
     detected = mw_p < alpha and abs(delta) >= min_effect
 
@@ -332,3 +362,4 @@ if __name__ == "__main__":
 
     with open(output_dir / f"eta_anomaly_correlation_{label}.json", "w") as f:
         json.dump(result, f, indent=2)
+        

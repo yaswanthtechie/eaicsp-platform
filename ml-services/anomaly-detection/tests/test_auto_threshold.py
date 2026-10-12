@@ -193,3 +193,80 @@ def test_validation():
 
 def test_robust_scale_is_never_zero():
     assert robust_scale(np.ones(20)) > 0
+
+
+# ------------------------------------------------------------
+# Review fixes: cases that must NOT move the threshold
+# ------------------------------------------------------------
+
+
+def test_sustained_anomalous_mixture_is_not_learned(tuner):
+    """Half-normal, half-anomalous windows are an incident, not a regime."""
+    start = tuner.threshold
+    rng = np.random.default_rng(7)
+
+    for _ in range(10):
+        window = np.concatenate([rng.normal(0, 1, 100), rng.normal(6, 0.5, 100)])
+        rng.shuffle(window)
+        tuner.evaluate_window(window)
+
+    assert tuner.adaptations == 0
+    assert tuner.threshold == start
+    assert any(h["reason"] == "contaminated_window" for h in tuner.history)
+
+
+def test_slow_drift_across_windows_is_frozen_not_learned(tuner):
+    """Each window is flat on its own, but the medians climb steadily."""
+    start = tuner.threshold
+
+    for k in range(12):
+        tuner.evaluate_window(_scores(200, loc=0.4 * (k + 1), seed=200 + k))
+
+    assert tuner.adaptations == 0
+    assert tuner.threshold == start
+    assert any(h["reason"] == "cross_window_drift" for h in tuner.history)
+
+
+def test_opposite_shifts_are_not_pooled(tuner):
+    start = tuner.threshold
+
+    tuner.evaluate_window(_scores(200, loc=3.0, seed=40))
+    result = tuner.evaluate_window(_scores(200, loc=-3.0, seed=41))
+
+    assert result["reason"] == "inconsistent_shift"
+    assert tuner.threshold == start
+    assert tuner.adaptations == 0
+
+
+def test_threshold_never_rises_above_the_absolute_ceiling():
+    tuner = SignificanceThresholdTuner(
+        _scores(2000, seed=1), percentile=97.0, max_total_raise_sigma=1.5
+    )
+
+    for seed in range(300, 330):
+        tuner.evaluate_window(_scores(200, loc=10.0, seed=seed))
+
+    assert tuner.threshold <= tuner.max_threshold + 1e-9
+    assert tuner.history[-1]["at_ceiling"] is True
+
+
+def test_a_genuine_regime_step_still_adapts(tuner):
+    """The new guards must not block a real, whole-distribution shift."""
+    for seed in range(50, 56):
+        tuner.evaluate_window(_scores(200, loc=2.0, seed=seed))
+
+    assert tuner.adaptations >= 1
+    assert tuner.freezes == 0
+
+
+def test_new_guard_parameters_are_validated():
+    reference = _scores(500, seed=1)
+
+    with pytest.raises(ValueError):
+        SignificanceThresholdTuner(reference, max_total_raise_sigma=0)
+
+    with pytest.raises(ValueError):
+        SignificanceThresholdTuner(reference, drift_lookback=2)
+
+    with pytest.raises(ValueError):
+        SignificanceThresholdTuner(reference, contamination_quantile=60)

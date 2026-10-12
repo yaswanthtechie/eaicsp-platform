@@ -68,8 +68,8 @@ def test_null_summary_states_what_cannot_be_ruled_out():
         make_synthetic_joint(coupling=0.0, seed=3), **FAST
     )
 
-    if result["verdict"] == "no_association_detected":
-        assert "could not be reliably detected" in result["summary"]
+    assert result["verdict"] == "no_association_detected"
+    assert "could not be reliably detected" in result["summary"]
 
 
 def test_too_few_flagged_rows_is_insufficient_data():
@@ -129,3 +129,51 @@ def test_effect_labels():
     assert effect_label(-0.2) == "small"
     assert effect_label(0.4) == "medium"
     assert effect_label(0.9) == "large"
+
+
+def test_join_drops_rows_with_missing_flags_instead_of_crashing():
+    eta = pd.DataFrame({"k": [1, 2, 3], "eta_error": [1.0, 2.0, 3.0]})
+    anomaly = pd.DataFrame({"k": [1, 2, 3], "is_anomaly": [1, None, 0]})
+
+    joined = join_eta_and_anomaly(eta, anomaly, key="k")
+
+    assert list(joined["k"]) == [1, 3]
+    assert list(joined["is_anomaly"]) == [1, 0]
+
+
+def test_join_accepts_boolean_flags():
+    eta = pd.DataFrame({"k": [1, 2], "eta_error": [1.0, 2.0]})
+    anomaly = pd.DataFrame({"k": [1, 2], "is_anomaly": [True, False]})
+
+    assert list(join_eta_and_anomaly(eta, anomaly, key="k")["is_anomaly"]) == [1, 0]
+
+
+def test_join_rejects_sklearn_minus_one_labels():
+    eta = pd.DataFrame({"k": [1, 2], "eta_error": [1.0, 2.0]})
+    anomaly = pd.DataFrame({"k": [1, 2], "is_anomaly": [-1, 1]})
+
+    with pytest.raises(ValueError, match="0/1"):
+        join_eta_and_anomaly(eta, anomaly, key="k")
+
+
+@pytest.mark.parametrize("side", ["eta", "anomaly"])
+def test_join_rejects_duplicate_keys(side):
+    eta = pd.DataFrame({"k": [1, 2], "eta_error": [1.0, 2.0]})
+    anomaly = pd.DataFrame({"k": [1, 2], "is_anomaly": [1, 0]})
+
+    if side == "eta":
+        eta = pd.concat([eta, eta])
+    else:
+        anomaly = pd.concat([anomaly, anomaly])
+
+    with pytest.raises(ValueError, match="duplicate"):
+        join_eta_and_anomaly(eta, anomaly, key="k")
+
+
+def test_missing_anomaly_scores_do_not_produce_nan_in_report():
+    frame = make_synthetic_joint(seed=6)
+    frame.loc[frame.index[:50], "anomaly_score"] = None
+
+    report = analyze_correlation(frame, **FAST)
+
+    assert report["score_spearman_rho"] == report["score_spearman_rho"]  # not NaN

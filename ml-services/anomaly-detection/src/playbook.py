@@ -206,7 +206,7 @@ def _incident_type(prediction):
 
     hint = prediction.get("root_cause_hint")
 
-    if hint and hint.get("incident_type") in PLAYBOOKS:
+    if isinstance(hint, dict) and hint.get("incident_type") in PLAYBOOKS:
         return hint["incident_type"]
 
     return "unknown"
@@ -216,25 +216,33 @@ def generate_playbook(prediction):
     """
     Build a response playbook for one prediction result.
 
-    Returns None when the reading is not an anomaly. Otherwise returns
-    the playbook template plus context from the prediction.
+    Returns None when there is nothing to respond to. A drift alert from
+    the adaptive engine counts even when the single reading is below the
+    threshold (is_anomaly=False), because slow drift rarely crosses it.
+    Otherwise returns the playbook template plus context.
     """
 
-    if not prediction.get("is_anomaly"):
+    if not (
+        prediction.get("is_anomaly")
+        or prediction.get("temporal_drift")
+        or prediction.get("alert")
+    ):
         return None
 
     incident_type = _incident_type(prediction)
 
     playbook = get_playbook(incident_type)
 
-    hint = prediction.get("root_cause_hint") or {}
+    hint = prediction.get("root_cause_hint")
+    hint = hint if isinstance(hint, dict) else {}
     similarity = hint.get("similarity")
 
     primary = prediction.get("primary_reason") or {}
 
     if incident_type in ("unknown", "temperature_drift"):
         match_confidence = None
-    elif similarity is not None and similarity < LOW_CONFIDENCE_SIMILARITY:
+    elif similarity is None or similarity < LOW_CONFIDENCE_SIMILARITY:
+        # No similarity means the match cannot be verified: treat as low.
         match_confidence = "low"
     else:
         match_confidence = "high"
