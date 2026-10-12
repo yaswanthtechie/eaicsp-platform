@@ -1,0 +1,51 @@
+{
+  "dataset": "generate_data(days=DATASET_DAYS)",
+  "dataset_rows": 1000,
+  "initial_history_rows": 600,
+  "oof_rows": 250,
+  "test_rows": 150,
+  "block_size_days": 28,
+  "meta_learner": "Ridge",
+  "meta_alpha": 1.0,
+  "oof_start_date": "2023-08-24",
+  "oof_end_date": "2024-04-29",
+  "test_start_date": "2024-04-30",
+  "test_end_date": "2024-09-26",
+  "metrics": {
+    "Prophet": {
+      "MAE": 2.414183494712819,
+      "RMSE": 3.0514243090379134,
+      "MAPE": 1.7817223387532843
+    },
+    "XGBoost": {
+      "MAE": 3.4777443353191497,
+      "RMSE": 4.3929600300673775,
+      "MAPE": 2.570576180657352
+    },
+    "LSTM": {
+      "MAE": 4.240858571283587,
+      "RMSE": 5.352551740808928,
+      "MAPE": 3.165809888630613
+    },
+    "EqualWeightAverage": {
+      "MAE": 2.973648605655431,
+      "RMSE": 3.699669465031841,
+      "MAPE": 2.2105041097669904
+    },
+    "StackedRidge": {
+      "MAE": 2.4189212305146923,
+      "RMSE": 3.0467434473902175,
+      "MAPE": 1.7885122581708761
+    }
+  },
+  "ridge_coefficients": {
+    "Prophet": 0.9603759742589326,
+    "XGBoost": -0.006477652589049217,
+    "LSTM": 0.028301270805694903
+  },
+  "ridge_intercept": 2.548686986641485,
+  "artifacts": {
+    "oof_predictions": "C:\\Users\\DELL\\OneDrive\\Desktop\\LSTM\\eaicsp-platform\\ml-services\\demand-forecast\\lstm\\output\\stacked_oof_predictions.csv",
+    "test_predictions": "C:\\Users\\DELL\\OneDrive\\Desktop\\LSTM\\eaicsp-platform\\ml-services\\demand-forecast\\lstm\\output\\stacked_test_predictions.csv"
+  }
+}

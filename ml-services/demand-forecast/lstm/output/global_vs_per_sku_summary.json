@@ -1,0 +1,32 @@
+{
+  "dataset_type": "synthetic",
+  "evaluation": "chronological sliding-window test; common eligible windows",
+  "lookback_days": 45,
+  "forecast_horizon_days": 7,
+  "train_end": "2026-02-22",
+  "validation_end": "2026-06-12",
+  "total_test_windows": 1296,
+  "common_test_windows": 1040,
+  "eligible_skus": 10,
+  "skipped_skus": [
+    "SKU011",
+    "SKU012",
+    "SKU013",
+    "SKU014",
+    "SKU015"
+  ],
+  "global_lstm_metrics": {
+    "MAE": 10.04649829864502,
+    "RMSE": 13.84041690826416,
+    "MAPE_percent": 12.387593269348145
+  },
+  "per_sku_lstm_metrics": {
+    "MAE": 11.162158012390137,
+    "RMSE": 15.759096145629883,
+    "MAPE_percent": 13.800764083862305
+  },
+  "global_checkpoint_training_seconds": null,
+  "per_sku_total_training_seconds": 92.34,
+  "per_sku_wall_clock_seconds": 97.86,
+  "note": "Global training time is not stored in the checkpoint. Run timing was not measured for the existing global model. Compare model metrics only on common eligible test windows."
+}

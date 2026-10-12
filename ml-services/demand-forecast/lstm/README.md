@@ -761,3 +761,347 @@ Ensemble (unconstrained)   2.4004   weights 1.00 / 0.00 / 0.00
 - Without the forced minimum, the best weights are **100% Prophet**: XGBoost and the LSTM add nothing over 150-day forecasts on this data.
 - The LSTM was built to forecast 7 days ahead and degrades badly when it has to predict 150 days on its own forecasts.
 - This is an honest ensemble result: adding more models does not automatically improve forecast accuracy.
+
+
+### Cold-Start Global LSTM Experiment
+
+**Status: Experiment completed**
+
+* Implemented a global LSTM without SKU-specific embeddings.
+* Used a 30-day lookback and 7-day forecast horizon.
+* Selected the best checkpoint using validation loss.
+* Evaluated short-history SKUs SKU010–SKU015 on 399 test windows.
+* Cold-start LSTM MAE: 8.17; RMSE: 10.32.
+* Last-value baseline MAE: 10.09; RMSE: 13.36.
+* Aggregate MAE improved by approximately 19.0% over the baseline.
+* The LSTM achieved lower MAE on 5 of the 6 evaluated SKUs.
+* SKU012 performed better with the last-value baseline, highlighting the need for SKU-level evaluation.
+* Dataset is synthetic; real-world generalization has not yet been established.
+
+**Artifacts**
+
+* `output/cold_start_best_model.pt`
+* `output/cold_start_scaler.pkl`
+* `output/short_history_cold_start_summary.json`
+* `output/short_history_cold_start_metrics.csv`
+
+**Limitation:** This experiment uses a 30-day lookback, whereas the existing global LSTM uses a 45-day lookback. The results are not a direct model-to-model comparison.
+
+
+round 12,13
+
+
+Milestone 1 — LSTM Forecasting Pipeline
+
+Evaluation Results
+
+The LSTM forecasting pipeline was evaluated using 5-fold expanding-window walk-forward validation. The model was compared against a naive persistence baseline, which repeats the last observed demand value.
+
+Metric
+
+LSTM
+
+Naive Baseline
+
+Average MAE
+
+3.51
+
+8.78
+
+Average RMSE
+
+4.37
+
+10.77
+
+The LSTM achieved approximately 60.0% lower MAE and 59.4% lower RMSE than the naive baseline using the recorded rounded averages.
+
+Selected Model Configuration
+
+Parameter
+
+Value
+
+Architecture
+
+Plain LSTM
+
+Lookback
+
+45 days
+
+Forecast horizon
+
+7 days
+
+Hidden size
+
+32
+
+Number of layers
+
+2
+
+Dropout
+
+0.1
+
+Learning rate
+
+0.005
+
+Batch size
+
+32
+
+Maximum epochs
+
+50
+
+Hyperparameter Selection
+
+A systematic sweep evaluated 32 configurations and selected the winner using validation MAE.
+
+Winning configuration: Plain LSTM, hidden size 32, two layers, dropout 0.1, learning rate 0.005.
+
+Recorded validation MAE: 3.59.
+
+Recorded test MAE reference: 4.43.
+
+Test metrics were reported for reference rather than used to select the winning configuration.
+
+Global SKU LSTM — Walk-Forward Evaluation
+
+Evaluation Setup
+
+The global demand forecasting model was evaluated against individual per-SKU LSTM models using five-fold expanding-window walk-forward validation.
+
+Dataset: data/global_sku_demand_synthetic.csv
+
+Number of folds: 5
+
+Lookback window: 45 days
+
+Forecast horizon: 7 days
+
+Evaluation metrics: MAE, RMSE, and MAPE
+
+Scaler fitting: Training period only
+
+Validation and test horizons: Kept within their respective chronological splits
+
+Mean Metrics Across Five Folds
+
+Metric
+
+Global LSTM (common eligible SKUs)
+
+Per-SKU LSTM
+
+MAE
+
+10.4065
+
+11.3416
+
+RMSE
+
+14.0267
+
+15.5456
+
+MAPE
+
+12.8121%
+
+13.9482%
+
+Training Time
+
+Model
+
+Mean Training Time per Fold
+
+Global LSTM
+
+103.69 seconds
+
+Total per-SKU training
+
+330.43 seconds
+
+Conclusion
+
+Across the recorded five-fold evaluation, the global LSTM achieved lower average MAE, RMSE, and MAPE than the per-SKU models on common eligible SKU test windows. Its recorded mean training time was also lower.
+
+The evaluation notes document chronological splits, training-only scaler fitting, common-SKU comparisons, and separate reporting for SKUs with insufficient history.
+
+Results Artifact
+
+output/walk_forward_summary.json
+
+The JSON report contains fold-level metrics, training times, and the aggregate results.
+
+python -m pytest ml-services/demand-forecast/lstm/tests -q
+
+### Milestone 2 — Leakage-Free Stacked Ensemble
+
+- Generated chronological out-of-fold predictions for Prophet,
+  XGBoost, and LSTM using the existing single-series synthetic dataset.
+- Trained a Ridge meta-learner using OOF predictions only.
+- Evaluated on a separate final test period of 150 rows.
+- Compared Prophet, XGBoost, LSTM, equal-weight averaging,
+  and Stacked Ridge using MAE, RMSE, and MAPE.
+
+Final test results:
+
+| Model | MAE | RMSE | MAPE |
+|---|---:|---:|---:|
+| Prophet | 2.4142 | 3.0514 | 1.7817% |
+| XGBoost | 3.4777 | 4.3930 | 2.5706% |
+| LSTM | 4.2409 | 5.3526 | 3.1658% |
+| Equal-weight average | 2.9736 | 3.6997 | 2.2105% |
+| Stacked Ridge | 2.4189 | 3.0467 | 1.7885% |
+
+Conclusion: Stacked Ridge improved on equal-weight averaging,
+but did not outperform Prophet on MAE or MAPE. Prophet remains
+the strongest individual model on these test metrics.
+
+Artifacts:
+- output/stacked_oof_predictions.csv
+- output/stacked_test_predictions.csv
+- output/stacked_ensemble_metrics.json
+
+
+Milestone 3 — Production Inference: Speed and Model Size
+
+Objective
+
+Benchmark the original FP32 ONNX model against a dynamically quantized INT8 ONNX model using ONNX Runtime CPU inference.
+
+Results
+
+Batch size
+
+Model
+
+p50 latency (ms)
+
+p95 latency (ms)
+
+Throughput (samples/s)
+
+1
+
+FP32
+
+0.266
+
+0.725
+
+2,485.77
+
+1
+
+INT8
+
+0.283
+
+1.645
+
+1,983.36
+
+32
+
+FP32
+
+1.894
+
+11.006
+
+9,332.19
+
+32
+
+INT8
+
+2.142
+
+6.577
+
+11,515.64
+
+256
+
+FP32
+
+14.080
+
+23.245
+
+16,837.24
+
+256
+
+INT8
+
+14.807
+
+22.059
+
+16,248.65
+
+Model Size
+
+Version
+
+Size
+
+FP32 ONNX
+
+55.50 KB
+
+Dynamic INT8 ONNX
+
+21.71 KB
+
+Size reduction
+
+60.88%
+
+Accuracy
+
+Metric
+
+FP32
+
+INT8
+
+MAE
+
+2.73825
+
+2.73572
+
+RMSE
+
+3.42759
+
+3.42065
+
+MAPE
+
+2.00264%
+
+2.00101%
+
+The observed accuracy differences were negligible on the evaluated test windows. INT8 prediction difference relative to FP32 was MAE 0.07901 and RMSE 0.09835 demand units.
+
+Production Decision
+
+FP32 ONNX remains the default candidate for single-request inference because it achieved lower p50 and p95 latency and higher throughput at batch size 1. Dynamic INT8 reduced the model file size by 60.88% and achieved higher throughput at batch size 32, but it was not consistently faster across all batch sizes.
+
+INT8 should be promoted only if repeated benchmarks on representative production workloads confirm the performance or memory benefit and accuracy remains within the agreed tolerance.
+
+Benchmark limitations: Results were measured using ONNX Runtime's CPU execution provider, 20 warm-up calls, 200 timed calls per batch size, and 144 test windows. These measurements are environment-dependent and should be repeated before production deployment.
