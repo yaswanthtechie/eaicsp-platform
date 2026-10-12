@@ -1,3 +1,4 @@
+
 """
 Production model loading utilities.
 
@@ -98,43 +99,23 @@ def load_model():
             BUNDLED_MODEL_PATH
         )
 
-        # ----------------------------------------------------------
-        # Kubernetes / Bento deployment version
-        # ----------------------------------------------------------
-        #
-        # MODEL_BUILD_VERSION is intentionally preferred when
-        # supplied. This allows Kubernetes deployments to expose
-        # their serving version (v1, v2, etc.) without requiring
-        # access to the MLflow registry.
-        #
-        # Example:
-        #     MODEL_BUILD_VERSION=v1 -> version "v1"
-        #     MODEL_BUILD_VERSION=v2 -> version "v2"
-        #
-        # If the environment variable is not supplied, fall back
-        # to the MLflow production alias for metadata.
-        # ----------------------------------------------------------
+        # The Bento container does not require the MLflow registry
+        # to load the actual model. We only try to retrieve the
+        # production version for metadata.
+        try:
 
-        model_version = os.getenv(
-            "MODEL_BUILD_VERSION",
-            "",
-        ).strip()
-
-        if not model_version:
-
-            try:
-                model_version = (
-                    client
-                    .get_model_version_by_alias(
-                        MODEL_NAME,
-                        "production",
-                    )
-                    .version
+            model_version = (
+                client
+                .get_model_version_by_alias(
+                    MODEL_NAME,
+                    "production",
                 )
+                .version
+            )
 
-            except Exception:
+        except Exception:
 
-                model_version = "local"
+            model_version = "local"
 
         return model, str(model_version)
 
@@ -225,3 +206,4 @@ if __name__ == "__main__":
     )
 
     print("=" * 60)
+

@@ -1,0 +1,13 @@
+﻿============================================================
+started_at    : 2026-10-12T06:12:46.596470+00:00
+url           : http://iris-service/predict
+target_rate   : 10.0
+achieved_rate : 9.99
+elapsed_s     : 120.07
+total         : 1200
+successful    : 1200
+failed        : 0
+errors        : {}
+success_rate  : 100.0
+============================================================
+RESULT_JSON {"started_at": "2026-10-12T06:12:46.596470+00:00", "url": "http://iris-service/predict", "target_rate": 10.0, "achieved_rate": 9.99, "elapsed_s": 120.07, "total": 1200, "successful": 1200, "failed": 0, "errors": {}, "success_rate": 100.0}

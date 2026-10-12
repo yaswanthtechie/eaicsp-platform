@@ -1,0 +1,3 @@
+﻿NAME                           READY   STATUS    RESTARTS   AGE
+iris-service-b97567d46-2s62b   1/1     Running   0          97s
+iris-service-b97567d46-hrlvk   1/1     Running   0          2m39s

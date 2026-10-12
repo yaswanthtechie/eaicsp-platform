@@ -1,3 +1,4 @@
+
 FROM python:3.12.4-slim
 
 WORKDIR /app
@@ -16,17 +17,12 @@ RUN python -m scripts.create_reference_dataset \
     && python -m scripts.dvc_prepare \
     && python -m src.train
 
-# ------------------------------------------------------------
 # BentoML runtime configuration
-# ------------------------------------------------------------
-#
-# The Docker container serves the standalone model packaged
-# at /app/models/model.pkl.
-#
-# This does NOT promote anything to MLflow Production.
-# Governance and MLflow promotion remain separate.
+ARG MODEL_BUILD_VERSION=dev
+ENV MODEL_BUILD_VERSION=${MODEL_BUILD_VERSION}
 ENV BENTO_BUNDLED_MODEL=true
 
 EXPOSE 3000
 
 CMD ["bentoml","serve","src.service:IrisService","--host","0.0.0.0","--port","3000"]
+  
