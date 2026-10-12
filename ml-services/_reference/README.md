@@ -3265,7 +3265,6 @@ kubectl port-forward service/iris-service 3000:80
 ```
 
 The application can then be accessed at `http://localhost:3000`.
-
 ## 6. Liveness and Readiness Probes
 
 The deployment uses two health endpoints.
@@ -3274,46 +3273,31 @@ The deployment uses two health endpoints.
 
 Endpoint: `GET /livez`
 
-The liveness probe checks whether the service process is alive.
-
-Expected response:
-
-```json
-{
-  "status": "alive"
-}
-```
+Checks whether the BentoML service is running. BentoML returns a plain-text response rather than a JSON object.
 
 ### Readiness
 
 Endpoint: `GET /readyz`
 
-The readiness probe checks whether the production model has loaded and the model version is available.
+Checks whether the BentoML service is ready to receive requests. BentoML returns a plain-text response rather than a JSON object.
 
-Expected ready response:
+Kubernetes uses the readiness probe result to determine whether a pod should receive normal service traffic.
 
-```json
-{
-  "status": "ready",
-  "model_loaded": true,
-  "model_version": "v1"
-}
-```
-
-If the model is not ready, the endpoint returns HTTP `503`. Kubernetes uses this result to avoid routing normal service traffic to an unready pod.
-
+If the readiness probe fails, Kubernetes marks the pod as not ready until the probe succeeds again.
 ## 7. Model Build Version
 
-The deployment uses `MODEL_BUILD_VERSION` to identify the serving image version.
+The deployment uses `MODEL_BUILD_VERSION` to identify the serving build.
 
 ```text
-v1 deployment → model_version: v1
-v2 deployment → model_version: v2
+v1 image → MODEL_BUILD_VERSION=v1
+v2 image → MODEL_BUILD_VERSION=v2
 ```
 
-The Docker build accepts the version as a build argument. The service also preserves the actual MLflow model version where applicable rather than allowing the build version to overwrite it.
+The Docker build accepts the build version through a build argument, which is exposed to the service through an environment variable.
 
-This makes the serving build version identifiable during deployment updates and rollback.
+The build version identifies the deployed service build and is distinct from the actual MLflow model version.
+
+For implementation details, refer to `Dockerfile` and `src/service.py`.
 
 ## 8. HPA — Horizontal Pod Autoscaler
 
@@ -3479,24 +3463,22 @@ Verification confirmed that the Deployment returned to v1.
 
 ## 13. Evidence Files
 
-Test evidence is stored in `docs/evidence/round14/`.
+Round 14 validation evidence is stored in [`docs/evidence/round14/`](docs/evidence/round14/).
 
-```text
-docs/evidence/round14/
-├── hpa_final.txt
-├── hpa_final_pods.txt
-├── hpa_load.txt
-├── hpa_pods.txt
-├── hpa_watch.txt
-├── rolling_update_load.txt
-├── rollout_history.txt
-├── rollout_pods.txt
-├── rollback_load.txt
-├── rollback_pods.txt
-└── rollback_deployment.txt
-```
+Key evidence files:
 
-These files preserve the HPA observations, load-test results, rollout history, pod states, and final rollback verification.
+- [HPA final status](docs/evidence/round14/hpa_final.txt)
+- [HPA final pod status](docs/evidence/round14/hpa_final_pods.txt)
+- [HPA load-test results](docs/evidence/round14/hpa_load.txt)
+- [Rolling-update load-test results](docs/evidence/round14/rolling_update_load.txt)
+- [Rollout history](docs/evidence/round14/rollout_history.txt)
+- [Rolling-update pod status](docs/evidence/round14/rollout_pods.txt)
+- [Rollback load-test results](docs/evidence/round14/rollback_load.txt)
+- [Rollback pod status](docs/evidence/round14/rollback_pods.txt)
+- [Final rollback deployment](docs/evidence/round14/rollback_deployment.txt)
+
+These files provide the recorded results for autoscaling, rolling updates, and rollback validation.
+
 
 ## 14. Verification Commands
 
