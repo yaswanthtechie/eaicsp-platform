@@ -623,9 +623,8 @@ def login_user(
 
         logger.info(
             "Password authentication succeeded | "
-            "user_id=%s | email=%s | role=%s | %s",
+            "user_id=%s | role=%s | %s",
             user.id,
-            user.email,
             user.role.name,
             audit_details,
         )
@@ -858,4 +857,3 @@ def complete_mfa_login(db: Session, challenge_id: str, otp: str, client_ip: str)
         "refresh_token": refresh_token,
         "token_type": "bearer",
     }
-

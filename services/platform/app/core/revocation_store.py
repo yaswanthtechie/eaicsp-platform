@@ -4,6 +4,10 @@ from app.core.redis_client import get_redis
 
 REVOCATION_PREFIX = "platform:revoked:"
 
+class RevocationStoreUnavailable(RuntimeError):
+    """Raised when Redis cannot be checked for token revocation."""
+
+
 def _token_key(token: str) -> str:
     """
     Build the Redis key for a revoked access token.
@@ -19,25 +23,21 @@ def _token_key(token: str) -> str:
 
     return f"{REVOCATION_PREFIX}{token_hash}"
 
-def revoke_token(
-    token: str,
-    ttl_seconds: int,
-) -> bool:
+
+def revoke_token(token: str, ttl_seconds: int) -> bool:
     """
     Store an access-token revocation in Redis.
 
-    The Redis entry expires automatically when the access
-    token's remaining lifetime expires.
+    The entry expires automatically when the access token's
+    remaining lifetime expires.
+
+    Returns False if the token, TTL, or Redis operation is invalid.
     """
-    if not token:
+    if not token or ttl_seconds <= 0:
         return False
-
-    if ttl_seconds <= 0:
-        return False
-
-    client = get_redis()
 
     try:
+        client = get_redis()
         client.setex(
             _token_key(token),
             int(ttl_seconds),
@@ -45,45 +45,41 @@ def revoke_token(
         )
         return True
 
-    except (redis.RedisError, ValueError):
+    except (redis.RedisError, ValueError, TypeError):
         return False
+
 
 def is_token_revoked(token: str) -> bool:
     """
-    Return True when the access token is revoked.
+    Return True only when the token is confirmed revoked.
 
-    Redis errors fail closed because revocation is
-    security-sensitive state.
+    Raise RevocationStoreUnavailable when Redis cannot be checked.
     """
     if not token:
         return False
 
-    client = get_redis()
-
     try:
-        return client.exists(
-            _token_key(token)
-        ) == 1
+        client = get_redis()
+        return bool(client.exists(_token_key(token)))
 
-    except (redis.RedisError, ValueError):
-        return True
+    except (redis.RedisError, ValueError, TypeError) as exc:
+        raise RevocationStoreUnavailable(
+            "Failed to check token revocation"
+        ) from exc
 
 
 def clear_revocation(token: str) -> None:
     """
     Remove a token revocation entry.
 
-    Primarily useful for tests.
+    Primarily useful for tests. Redis errors are handled gracefully.
     """
     if not token:
         return
 
-    client = get_redis()
-
     try:
-        client.delete(
-            _token_key(token)
-        )
+        client = get_redis()
+        client.delete(_token_key(token))
 
-    except (redis.RedisError, ValueError):
+    except (redis.RedisError, ValueError, TypeError):
         return
