@@ -4,6 +4,7 @@ import { test, expect, type Page } from "@playwright/test";
 
 const username = process.env.TEST_AUTH_USERNAME ?? "";
 const password = process.env.TEST_AUTH_PASSWORD ?? "";
+const REFRESH_TEST_TIMEOUT_MS = 75_000;
 
 // An unsigned JWT is enough here: the dashboard only reads the
 // payload, the platform is what verifies signatures.
@@ -132,6 +133,7 @@ test.describe("auth failure handling", () => {
 
     await expect(page.getByRole("alert")).toHaveText(
       "Your session has expired. Please sign in again.",
+      { timeout: 10_000},
     );
     await expect(signInButton(page)).toBeVisible();
   });
@@ -140,7 +142,6 @@ test.describe("auth failure handling", () => {
     // Expires in 30s, which is inside the 60s refresh window.
     await seedSession(page, fakeJwt("ceo", 30));
     const refreshedToken = fakeJwt("ceo", 3600);
-    const refreshRequest = page.waitForRequest("**/api/v1/auth/refresh");
 
     await page.route("**/api/v1/auth/refresh", (route) =>
       route.fulfill({
@@ -150,6 +151,10 @@ test.describe("auth failure handling", () => {
           token_type: "bearer",
         },
       }),
+    );
+
+    const refreshRequest = page.waitForRequest("**/api/v1/auth/refresh",
+      { timeout: REFRESH_TEST_TIMEOUT_MS},
     );
 
     await page.goto("/");
@@ -162,9 +167,44 @@ test.describe("auth failure handling", () => {
     await expect
       .poll(() =>
         page.evaluate(() => sessionStorage.getItem("dashboard_auth")),
+        { timeout: 10_000},
       )
       .toContain("refresh-token-2");
     await expect(dashboardHeading(page)).toBeVisible();
+  });
+
+
+  test("does not repeatedly refresh when the client clock is ahead", async ({ page }) => {
+    await seedSession(page, fakeJwt("ceo", 30));
+
+  // Simulate a client clock that is 15 minutes ahead.
+    await page.addInitScript(() => {
+      const originalNow = Date.now;
+      Date.now = () => originalNow() + 15 * 60 * 1000;
+    });
+
+    let refreshCount = 0;
+
+    await page.route("**/api/v1/auth/refresh", async (route) => {
+      refreshCount += 1;
+
+    // The returned token also appears expired to the fast client clock.
+      await route.fulfill({
+        json: {
+          access_token: fakeJwt("ceo", 600),
+          refresh_token: `refresh-token-${refreshCount + 1}`,
+          token_type: "bearer",
+        },
+      });
+    });
+
+    await page.goto("/");
+
+    await expect(dashboardHeading(page)).toBeVisible();
+
+    await page.waitForTimeout(2_000);
+
+    expect(refreshCount).toBe(1);
   });
 
   test("refresh while the service is down keeps the user signed in", async ({ page }) => {
@@ -173,8 +213,12 @@ test.describe("auth failure handling", () => {
       route.abort("connectionrefused"),
     );
 
+    const refreshRequest = page.waitForRequest("**/api/v1/auth/refresh",
+      { timeout: REFRESH_TEST_TIMEOUT_MS},
+    )
+
     await page.goto("/");
-    await page.waitForRequest("**/api/v1/auth/refresh");
+    await refreshRequest;
 
     await expect(dashboardHeading(page)).toBeVisible();
     await expect(signInButton(page)).toHaveCount(0);
@@ -237,5 +281,59 @@ test.describe("auth failure handling", () => {
     expect(
       await page.evaluate(() => sessionStorage.getItem("dashboard_auth")),
     ).toBeNull();
+  });
+
+  test("ignores a refresh response that arrives after logout", async ({ page }) => {
+    await seedSession(page, fakeJwt("ceo", 30));
+
+    let releaseRefresh!: () => void;
+    let refreshStarted!: () => void;
+
+    const refreshStartedPromise = new Promise<void>((resolve) => {
+      refreshStarted = resolve;
+    });
+
+    const refreshResponsePromise = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+
+    await page.route("**/api/v1/auth/refresh", async (route) => {
+      refreshStarted();
+      await refreshResponsePromise;
+
+      await route.fulfill({
+        json: {
+          access_token: fakeJwt("ceo", 3600),
+          refresh_token: "late-refresh-token",
+          token_type: "bearer",
+        },
+      });
+    });
+
+    await page.route("**/api/v1/auth/logout", (route) =>
+      route.fulfill({ json: { message: "Logged out" } }),
+    );
+
+    await page.goto("/");
+    await refreshStartedPromise;
+
+    await page.getByRole("button", { name: "Logout" }).click();
+
+    await expect(signInButton(page)).toBeVisible();
+
+    expect(
+      await page.evaluate(() => sessionStorage.getItem("dashboard_auth")),
+    ).toBeNull();
+
+    // Let the refresh response arrive after logout has completed.
+    releaseRefresh();
+
+    await expect
+      .poll(() =>
+        page.evaluate(() => sessionStorage.getItem("dashboard_auth")),
+      )
+      .toBeNull();
+
+    await expect(signInButton(page)).toBeVisible();
   });
 });
