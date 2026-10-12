@@ -20,7 +20,6 @@ Covers:
 
 from datetime import datetime, timezone
 import json
-from pathlib import Path
 from unittest.mock import patch
 import uuid
 
@@ -154,8 +153,8 @@ def test_upward_and_downward_tier_transitions():
     """Verify upward and downward transitions emit valid events when criteria are met."""
     tracker = SupplierHysteresisTracker(config=HysteresisConfig(min_evidence=2))
 
-    # 1. Initialize in Low
-    tracker.process_update(supplier="Alpha", risk_score=40.0)
+    # 1. Start in Low
+    tracker.set_state("Alpha", tier="low", score=40.0)
 
     # 2. Upward transition: Low -> Medium (score 65.0 >= enter_medium 62.0)
     ev_up = tracker.process_update(
@@ -229,8 +228,8 @@ def test_scores_oscillating_around_boundaries_do_not_cause_repeated_events():
     tracker.set_state("Beta", tier="medium", score=65.0)
 
     articles = [
-        {"headline": "News 1", "date": "2026-02-01"},
-        {"headline": "News 2", "date": "2026-02-02"},
+        {"headline": "News 1", "date": "2026-02-01", "score": 76.0},
+        {"headline": "News 2", "date": "2026-02-02", "score": 78.0},
     ]
 
     # Oscillate around 60 boundary: 59.5, 60.5, 58.5, 61.5, 59.0
@@ -301,13 +300,14 @@ def test_insufficient_evidence_blocks_transition():
     tracker = SupplierHysteresisTracker(config=HysteresisConfig(min_evidence=3))
     tracker.set_state("Gamma", tier="low", score=30.0)
 
-    # Score jumps to 80.0 (High), but only 2 articles provided (requires 3)
+    # Score jumps to 80.0 (High). 3 articles in the window, but only 2 score >= 74 (requires 3)
     ev = tracker.process_update(
         supplier="Gamma",
         risk_score=80.0,
         supporting_articles=[
-            {"headline": "Article 1", "date": "2026-03-01"},
-            {"headline": "Article 2", "date": "2026-03-02"},
+            {"headline": "Article 1", "date": "2026-03-01", "score": 80.0},
+            {"headline": "Article 2", "date": "2026-03-02", "score": 74.0},
+            {"headline": "Article 3", "date": "2026-03-03", "score": 73.99},
         ],
     )
     assert ev is None
@@ -326,9 +326,9 @@ def test_sufficient_evidence_allows_transition():
         supplier="Delta",
         risk_score=80.0,
         supporting_articles=[
-            {"headline": "Investigation 1", "date": "2026-03-01"},
-            {"headline": "Investigation 2", "date": "2026-03-02"},
-            {"headline": "Sanction warning", "date": "2026-03-03"},
+            {"headline": "Investigation 1", "date": "2026-03-01", "score": 74.0},
+            {"headline": "Investigation 2", "date": "2026-03-02", "score": 82.0},
+            {"headline": "Sanction warning", "date": "2026-03-03", "score": 90.0},
         ],
     )
     assert ev is not None
@@ -355,8 +355,8 @@ def test_state_isolation_between_suppliers():
         supplier="Supplier X",
         risk_score=85.0,
         supporting_articles=[
-            {"headline": "A", "date": "2026-01-01"},
-            {"headline": "B", "date": "2026-01-02"},
+            {"headline": "A", "date": "2026-01-01", "score": 85.0},
+            {"headline": "B", "date": "2026-01-02", "score": 88.0},
         ],
     )
 
@@ -387,8 +387,8 @@ def test_in_memory_and_mock_kafka_publishers():
         supplier="PublisherTest",
         risk_score=75.0,
         supporting_articles=[
-            {"headline": "H1", "date": "2026-01-01"},
-            {"headline": "H2", "date": "2026-01-02"},
+            {"headline": "H1", "date": "2026-01-01", "score": 75.0},
+            {"headline": "H2", "date": "2026-01-02", "score": 80.0},
         ],
     )
     assert ev is not None
@@ -474,7 +474,7 @@ def test_invalid_hysteresis_configurations_raise_value_error():
 
     # 4. HysteresisConfig with invalid min_evidence
     with pytest.raises(ValueError):
-        HysteresisConfig(min_evidence=0)
+        HysteresisConfig(min_evidence=-1)
 
     # 5. Settings with invalid min_evidence
     with pytest.raises(ValueError):
@@ -524,9 +524,9 @@ def test_hysteresis_thresholds_edge_cases_and_type_validation():
     with pytest.raises(ValueError):
         validate_hysteresis_thresholds(
             enter_medium=62.0,
-            exit_medium=-1.0,  # Invalid: < 0
+            exit_medium=58.0,
             enter_high=74.0,
-            exit_high=70.0,
+            exit_high=-1.0,  # Invalid: < 0
         )
 
     # 3. exit_high > medium_ceiling or enter_high < medium_ceiling
@@ -563,8 +563,7 @@ def test_hysteresis_thresholds_edge_cases_and_type_validation():
     assert s_high.hysteresis_exit_high <= 95.0 <= s_high.hysteresis_enter_high <= 100.0
 
 
-
-def test_historical_comparison_deterministic():
+def test_historical_comparison_deterministic(tmp_path):
     """Verify historical replay produces deterministic metrics and generates valid report."""
     from src.historical_comparison import generate_markdown_report, run_historical_comparison
 
@@ -574,18 +573,23 @@ def test_historical_comparison_deterministic():
     assert results["total_suppliers"] == 25
     assert results["total_articles"] == 300
     assert results["total_baseline_events"] == 43
-    assert results["total_hysteresis_events"] == 30
-    assert results["reduction_count"] == 13
-    assert results["reduction_percent"] == 30.23
+    assert results["total_hysteresis_only_events"] == 30
+    assert results["total_hysteresis_events"] == 21
+    assert results["reduction_from_hysteresis"] == 13
+    assert results["reduction_from_evidence"] == 9
+    assert results["reduction_percent"] == 51.16
+    # The evidence rule must actually do something on the historical data
+    assert results["suppressed_by_reason"].get("insufficient_evidence", 0) > 0
 
-    # Generate markdown report to temporary path
-    tmp_report = Path(__file__).resolve().parent.parent / "docs" / "HISTORICAL_COMPARISON_REPORT.md"
+    # Write to pytest's tmp_path, never over the committed report
+    tmp_report = tmp_path / "HISTORICAL_COMPARISON_REPORT.md"
     report_content = generate_markdown_report(results, output_path=tmp_report)
 
     assert "Supplier Risk Score-Change Events: Hysteresis Historical Comparison Report" in report_content
     assert "Do not claim hysteresis improved accuracy merely because it reduced event counts." in report_content
-    assert "43" in report_content
-    assert "30" in report_content
+    assert "| Baseline (nominal boundaries, no rules) | 43 |" in report_content
+    assert "| Hysteresis only (`min_evidence=0`) | 30 |" in report_content
+    assert "| Hysteresis + evidence (`min_evidence=2`) | 21 |" in report_content
     assert tmp_report.is_file()
 
 
@@ -605,9 +609,10 @@ def test_historical_comparison_cached_and_uncached_identical():
     assert cached_res["total_suppliers"] == uncached_res["total_suppliers"] == 25
     assert cached_res["total_articles"] == uncached_res["total_articles"] == 300
     assert cached_res["total_baseline_events"] == uncached_res["total_baseline_events"] == 43
-    assert cached_res["total_hysteresis_events"] == uncached_res["total_hysteresis_events"] == 30
-    assert cached_res["reduction_count"] == uncached_res["reduction_count"] == 13
-    assert cached_res["reduction_percent"] == uncached_res["reduction_percent"] == 30.23
+    assert cached_res["total_hysteresis_only_events"] == uncached_res["total_hysteresis_only_events"] == 30
+    assert cached_res["total_hysteresis_events"] == uncached_res["total_hysteresis_events"] == 21
+    assert cached_res["reduction_count"] == uncached_res["reduction_count"] == 22
+    assert cached_res["reduction_percent"] == uncached_res["reduction_percent"] == 51.16
 
     # 2. Per-supplier summary identity
     assert set(cached_res["per_supplier_summary"].keys()) == set(uncached_res["per_supplier_summary"].keys())
@@ -634,7 +639,7 @@ def test_historical_comparison_cached_and_uncached_identical():
     # 3. All published events payload identity
     c_events = cached_res["all_published_events"]
     u_events = uncached_res["all_published_events"]
-    assert len(c_events) == len(u_events) == 30
+    assert len(c_events) == len(u_events) == 21
     for e_c, e_u in zip(c_events, u_events):
         assert e_c["payload"] == e_u["payload"]
 
@@ -690,3 +695,188 @@ def test_timeline_cache_invalidation_on_config_change():
     hash_altered_agg = _timeline_cache_key_hash(key_altered_agg)
     assert key_default != key_altered_agg
     assert hash_default != hash_altered_agg
+
+    # 3. Alter sentiment penalty and recency (both change predict() scores)
+    cfg_altered_penalty = Settings(negative_sentiment_penalty=10.0)
+    assert _make_timeline_cache_key(DEFAULT_DATASET_PATH, cfg_altered_penalty) != key_default
+    cfg_altered_recency = Settings(recency_half_life_days=3.0)
+    assert _make_timeline_cache_key(DEFAULT_DATASET_PATH, cfg_altered_recency) != key_default
+
+
+# ------------------------------------------------------------------
+# 7. Review fixes: regression tests
+# ------------------------------------------------------------------
+
+
+def _articles(*scores):
+    return [
+        {"headline": f"Article {i}", "date": "2026-03-01", "score": sc}
+        for i, sc in enumerate(scores)
+    ]
+
+
+@pytest.mark.parametrize(
+    "start_tier, score, expected_tier",
+    [
+        ("low", 61.99, "low"),
+        ("low", 62.00, "medium"),
+        ("medium", 58.00, "medium"),
+        ("medium", 57.99, "low"),
+        ("medium", 73.99, "medium"),
+        ("medium", 74.00, "high"),
+        ("high", 70.00, "high"),
+        ("high", 69.99, "medium"),
+    ],
+)
+def test_tracker_boundaries_end_to_end(start_tier, score, expected_tier):
+    """Same boundaries as test_exact_threshold_behavior, but through process_update."""
+    tracker = SupplierHysteresisTracker(config=HysteresisConfig(min_evidence=1))
+    tracker.set_state("Edge", tier=start_tier, score=65.0)
+    # One article far on the side of the move, so evidence never blocks it
+    rank = {"low": 0, "medium": 1, "high": 2}
+    article_score = 99.0 if rank[expected_tier] > rank[start_tier] else 1.0
+    tracker.process_update(supplier="Edge", risk_score=score, supporting_articles=_articles(article_score))
+    assert tracker.get_state("Edge").accepted_tier == expected_tier
+
+
+def test_raw_score_is_compared_before_rounding():
+    """61.996 rounds to 62.00 for display but must not cross the 62.0 enter threshold."""
+    tracker = SupplierHysteresisTracker(config=HysteresisConfig(min_evidence=1))
+    tracker.set_state("Round", tier="low", score=50.0)
+    ev = tracker.process_update(supplier="Round", risk_score=61.996, supporting_articles=_articles(70.0))
+    assert ev is None
+    assert tracker.get_state("Round").accepted_tier == "low"
+
+
+@pytest.mark.parametrize("bad_score", [None, float("nan"), float("inf"), "70", True])
+def test_invalid_score_raises_value_error(bad_score):
+    tracker = SupplierHysteresisTracker()
+    with pytest.raises(ValueError):
+        tracker.process_update(supplier="Bad", risk_score=bad_score)
+
+
+def test_replay_skips_weeks_without_score():
+    """A week with no articles (score None) is skipped instead of crashing the replay."""
+    from src.historical_comparison import _replay_with_tracker
+
+    timeline = {
+        "Gap Co": [
+            {"score": 40.0, "supporting_articles": _articles(40.0, 41.0)},
+            {"score": None, "supporting_articles": []},
+            {"score": 80.0, "supporting_articles": _articles(80.0, 85.0)},
+        ]
+    }
+    dates = ["2026-01-05", "2026-01-12", "2026-01-19"]
+    out = _replay_with_tracker(timeline, dates, ["Gap Co"], HysteresisConfig())
+    assert out["total"] == 1
+    assert out["events"]["Gap Co"][0]["payload"]["new_tier"] == "high"
+
+
+class _FlakyPublisher(InMemoryEventPublisher):
+    def __init__(self, fail_times: int) -> None:
+        super().__init__()
+        self.fail_times = fail_times
+
+    def publish(self, event, topic=EVENT_TYPE, key=None):
+        if self.fail_times > 0:
+            self.fail_times -= 1
+            return False
+        return super().publish(event, topic, key)
+
+
+def test_failed_publish_does_not_commit_transition_and_retries():
+    publisher = _FlakyPublisher(fail_times=1)
+    tracker = SupplierHysteresisTracker(config=HysteresisConfig(), publisher=publisher)
+    tracker.set_state("Retry", tier="low", score=40.0)
+
+    first = tracker.process_update(supplier="Retry", risk_score=80.0, supporting_articles=_articles(80.0, 82.0))
+    assert first is None
+    assert tracker.get_state("Retry").accepted_tier == "low", "Tier must not advance when publish fails"
+
+    second = tracker.process_update(supplier="Retry", risk_score=81.0, supporting_articles=_articles(80.0, 82.0))
+    assert second is not None
+    assert tracker.get_state("Retry").accepted_tier == "high"
+    assert publisher.count() == 1
+
+
+def test_articles_pointing_the_other_way_are_not_evidence():
+    """A drop to low cannot be 'supported' by high-risk headlines (the Boeing case in review)."""
+    tracker = SupplierHysteresisTracker(config=HysteresisConfig(min_evidence=2))
+    tracker.set_state("Boeing", tier="medium", score=63.66)
+
+    ev = tracker.process_update(
+        supplier="Boeing",
+        risk_score=54.51,
+        supporting_articles=[
+            {"headline": "Boeing faces new lawsuit", "date": "2026-01-05", "score": 63.66},
+            {"headline": "Boeing machinists go on strike", "date": "2026-01-12", "score": 37.76},
+        ],
+    )
+    assert ev is None, "Only 1 of 2 articles is below the 58.0 exit threshold"
+    assert tracker.get_state("Boeing").accepted_tier == "medium"
+
+
+def test_event_payload_carries_ranked_top_articles_and_reasoned_explanation():
+    tracker = SupplierHysteresisTracker(config=HysteresisConfig(min_evidence=2, top_articles=2))
+    tracker.set_state("Rank", tier="medium", score=65.0)
+
+    ev = tracker.process_update(
+        supplier="Rank",
+        risk_score=78.0,
+        supporting_articles=[
+            {"headline": "Mild", "date": "2026-03-01", "score": 60.0},
+            {"headline": "Severe", "date": "2026-03-02", "score": 95.0},
+            {"headline": "Serious", "date": "2026-03-03", "score": 80.0},
+            {"headline": "Moderate", "date": "2026-03-04", "score": 75.0},
+        ],
+    )
+    payload = ev["payload"]
+    assert [a["headline"] for a in payload["supporting_articles"]] == ["Severe", "Serious"]
+    assert payload["evidence_count"] == 3
+    assert "entry threshold 74.00" in payload["explanation"]
+    assert "Severe" in payload["explanation"]
+    assert "3 of 4 article(s)" in payload["explanation"]
+
+
+def test_initial_tier_waits_for_min_evidence():
+    tracker = SupplierHysteresisTracker(config=HysteresisConfig(min_evidence=2))
+    assert tracker.process_update(supplier="New", risk_score=80.0, supporting_articles=_articles(80.0)) is None
+    assert tracker.get_state("New").accepted_tier is None
+
+    assert tracker.process_update(supplier="New", risk_score=80.0, supporting_articles=_articles(80.0, 81.0)) is None
+    assert tracker.get_state("New").accepted_tier == "high"
+
+
+def test_naive_datetime_is_treated_as_utc():
+    tracker = SupplierHysteresisTracker(config=HysteresisConfig(min_evidence=1))
+    tracker.set_state("Clock", tier="low", score=40.0)
+    ev = tracker.process_update(
+        supplier="Clock",
+        risk_score=80.0,
+        supporting_articles=_articles(80.0),
+        occurred_at=datetime(2026, 3, 1, 12, 0),
+    )
+    assert datetime.fromisoformat(ev["occurred_at"]).tzinfo is not None
+
+
+def test_default_tracker_reads_hysteresis_env(monkeypatch):
+    from src.config import get_settings
+
+    monkeypatch.setenv("HYSTERESIS_ENTER_MEDIUM", "65")
+    get_settings.cache_clear()
+    try:
+        tracker = SupplierHysteresisTracker()
+        assert tracker.config.enter_medium_threshold == 65.0
+    finally:
+        monkeypatch.delenv("HYSTERESIS_ENTER_MEDIUM")
+        get_settings.cache_clear()
+
+
+def test_history_is_bounded():
+    from src.hysteresis import HISTORY_MAXLEN
+
+    tracker = SupplierHysteresisTracker(config=HysteresisConfig(min_evidence=5))
+    tracker.set_state("Noisy", tier="low", score=40.0)
+    for _ in range(HISTORY_MAXLEN + 50):
+        tracker.process_update(supplier="Noisy", risk_score=80.0, supporting_articles=_articles(80.0))
+    assert len(tracker.get_state("Noisy").history) == HISTORY_MAXLEN

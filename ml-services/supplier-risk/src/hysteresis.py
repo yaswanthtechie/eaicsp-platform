@@ -9,11 +9,23 @@ tier transitions, and emits standard score-change events.
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import logging
-from typing import Any, Dict, List, Optional
+import math
+from typing import Any, Deque, Dict, List, Optional, Tuple
 
+from src.config import (
+    DEFAULT_HYSTERESIS_ENTER_HIGH,
+    DEFAULT_HYSTERESIS_ENTER_MEDIUM,
+    DEFAULT_HYSTERESIS_EXIT_HIGH,
+    DEFAULT_HYSTERESIS_EXIT_MEDIUM,
+    DEFAULT_HYSTERESIS_MIN_EVIDENCE,
+    DEFAULT_TIER_LOW_CEILING,
+    DEFAULT_TIER_MEDIUM_CEILING,
+    Settings,
+)
 from src.events import (
     EventPublisher,
     build_score_changed_event,
@@ -36,7 +48,7 @@ class HysteresisConfig:
 
     Threshold Design & Exact Boundary Semantics:
     -------------------------------------------
-    Nominal Tiers on 0–100 scale:
+    Nominal Tiers on 0-100 scale:
       - Low:    [0.0, 60.0)
       - Medium: [60.0, 72.0)
       - High:   [72.0, 100.0]
@@ -62,15 +74,19 @@ class HysteresisConfig:
           Within this zone, scores fluctuating near 72.0 retain the previous accepted tier.
     """
 
-    tier_low_ceiling: float = 60.0
-    tier_medium_ceiling: float = 72.0
-    enter_medium_threshold: float = 62.0
-    exit_medium_threshold: float = 58.0
-    enter_high_threshold: float = 74.0
-    exit_high_threshold: float = 70.0
-    min_evidence: int = 2
-    require_min_evidence_for_initial: bool = False
-    emit_on_initial: bool = False
+    tier_low_ceiling: float = DEFAULT_TIER_LOW_CEILING
+    tier_medium_ceiling: float = DEFAULT_TIER_MEDIUM_CEILING
+    enter_medium_threshold: float = DEFAULT_HYSTERESIS_ENTER_MEDIUM
+    exit_medium_threshold: float = DEFAULT_HYSTERESIS_EXIT_MEDIUM
+    enter_high_threshold: float = DEFAULT_HYSTERESIS_ENTER_HIGH
+    exit_high_threshold: float = DEFAULT_HYSTERESIS_EXIT_HIGH
+    # Minimum number of articles that individually point toward the new tier.
+    # 0 disables evidence gating (used for the "hysteresis only" comparison).
+    min_evidence: int = DEFAULT_HYSTERESIS_MIN_EVIDENCE
+    # The first accepted tier also needs min_evidence articles in the window.
+    require_min_evidence_for_initial: bool = True
+    # Number of top supporting articles carried in the event payload.
+    top_articles: int = 3
 
     def __post_init__(self) -> None:
         """Validate threshold relationships and positive constraints."""
@@ -95,17 +111,32 @@ class HysteresisConfig:
                 f"tier_medium_ceiling ({self.tier_medium_ceiling}) <= "
                 f"enter_high ({self.enter_high_threshold}) <= 100.0"
             )
-        if self.min_evidence < 1:
-            raise ValueError(f"min_evidence must be >= 1, got {self.min_evidence}")
+        if self.min_evidence < 0:
+            raise ValueError(f"min_evidence must be >= 0, got {self.min_evidence}")
+        if self.top_articles < 1:
+            raise ValueError(f"top_articles must be >= 1, got {self.top_articles}")
+
+    @classmethod
+    def from_settings(cls, settings: Settings) -> HysteresisConfig:
+        """Build the config from Settings so HYSTERESIS_* env vars are honoured."""
+        return cls(
+            tier_low_ceiling=settings.tier_low_ceiling,
+            tier_medium_ceiling=settings.tier_medium_ceiling,
+            enter_medium_threshold=settings.hysteresis_enter_medium,
+            exit_medium_threshold=settings.hysteresis_exit_medium,
+            enter_high_threshold=settings.hysteresis_enter_high,
+            exit_high_threshold=settings.hysteresis_exit_high,
+            min_evidence=settings.hysteresis_min_evidence,
+        )
 
     @classmethod
     def from_margins(
         cls,
         margin_low: float = 2.0,
         margin_high: float = 2.0,
-        min_evidence: int = 2,
-        low_ceiling: float = 60.0,
-        medium_ceiling: float = 72.0,
+        min_evidence: int = DEFAULT_HYSTERESIS_MIN_EVIDENCE,
+        low_ceiling: float = DEFAULT_TIER_LOW_CEILING,
+        medium_ceiling: float = DEFAULT_TIER_MEDIUM_CEILING,
     ) -> HysteresisConfig:
         """
         Create a HysteresisConfig symmetrically spaced around nominal ceilings.
@@ -186,6 +217,74 @@ def evaluate_transition(
     return mapped_current
 
 
+_TIER_RANK: Dict[str, int] = {"low": 0, "medium": 1, "high": 2}
+HISTORY_MAXLEN: int = 200
+
+
+def select_supporting_articles(
+    articles: List[Dict[str, Any]],
+    previous_tier: str,
+    new_tier: str,
+    config: HysteresisConfig,
+) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Return (top supporting articles, supporting count) for a move to new_tier.
+
+    An article supports the move only if its own score points toward new_tier:
+    - Upward move: article score >= the enter threshold of new_tier.
+    - Downward move: article score < the exit threshold of the tier being left.
+    Articles without a score cannot be judged and are not counted.
+    Upward evidence is ranked highest score first, downward lowest score first.
+    """
+    scored = [a for a in articles if a.get("score") is not None]
+
+    if _TIER_RANK[new_tier] > _TIER_RANK[previous_tier]:
+        threshold = (
+            config.enter_high_threshold if new_tier == "high" else config.enter_medium_threshold
+        )
+        supporting = [a for a in scored if a["score"] >= threshold]
+        descending = True
+    else:
+        threshold = (
+            config.exit_high_threshold if previous_tier == "high" else config.exit_medium_threshold
+        )
+        supporting = [a for a in scored if a["score"] < threshold]
+        descending = False
+
+    ranked = sorted(supporting, key=lambda a: a["score"], reverse=descending)
+    return ranked[: config.top_articles], len(supporting)
+
+
+def _build_explanation(
+    supplier: str,
+    previous_tier: str,
+    new_tier: str,
+    score: float,
+    config: HysteresisConfig,
+    top_articles: List[Dict[str, Any]],
+    supporting_count: int,
+    window_count: int,
+) -> str:
+    """Explain why the tier changed: which threshold was crossed and by which articles."""
+    if _TIER_RANK[new_tier] > _TIER_RANK[previous_tier]:
+        threshold = (
+            config.enter_high_threshold if new_tier == "high" else config.enter_medium_threshold
+        )
+        rule = f"score {score:.2f} reached the '{new_tier}' entry threshold {threshold:.2f}"
+    else:
+        threshold = (
+            config.exit_high_threshold if previous_tier == "high" else config.exit_medium_threshold
+        )
+        rule = f"score {score:.2f} fell below the '{previous_tier}' exit threshold {threshold:.2f}"
+
+    drivers = "; ".join(f"\"{a['headline']}\" ({a['score']:.2f})" for a in top_articles)
+    return (
+        f"Supplier '{supplier}' moved from '{previous_tier}' to '{new_tier}': {rule}. "
+        f"{supporting_count} of {window_count} article(s) in the window point toward "
+        f"'{new_tier}' (minimum {config.min_evidence}). Top drivers: {drivers}."
+    )
+
+
 # ------------------------------------------------------------------
 # Per-Supplier State Representation
 # ------------------------------------------------------------------
@@ -203,7 +302,8 @@ class SupplierState:
     last_score: Optional[float] = None
     last_updated_at: Optional[str] = None
     transition_count: int = 0
-    history: List[Dict[str, Any]] = field(default_factory=list)
+    # Bounded so a long-running service does not grow memory without limit.
+    history: Deque[Dict[str, Any]] = field(default_factory=lambda: deque(maxlen=HISTORY_MAXLEN))
 
     def initialize(self, tier: str, score: Optional[float] = None, timestamp: Optional[str] = None) -> None:
         """Initialize state when first observed."""
@@ -290,7 +390,11 @@ class SupplierHysteresisTracker:
         config: Optional[HysteresisConfig] = None,
         publisher: Optional[EventPublisher] = None,
     ) -> None:
-        self.config = config or HysteresisConfig()
+        if config is None:
+            from src.config import get_settings
+
+            config = HysteresisConfig.from_settings(get_settings())
+        self.config = config
         self.publisher = publisher
         self._states: Dict[str, SupplierState] = {}
 
@@ -357,60 +461,58 @@ class SupplierHysteresisTracker:
         if not clean_supplier:
             raise ValueError("Supplier name cannot be empty.")
 
+        if (
+            risk_score is None
+            or isinstance(risk_score, bool)
+            or not isinstance(risk_score, (int, float))
+            or not math.isfinite(risk_score)
+        ):
+            raise ValueError(
+                f"risk_score for '{clean_supplier}' must be a finite number, got {risk_score!r}"
+            )
+        # Compare on the raw score; round only for display so 61.996 does not become 62.00.
+        raw_score = float(risk_score)
+        display_score = round(raw_score, 2)
+
         formatted_articles = format_supporting_articles(supporting_articles)
-        evidence_count = len(formatted_articles)
+        window_count = len(formatted_articles)
 
         # Retrieve or create independent state
         if clean_supplier not in self._states:
             self._states[clean_supplier] = SupplierState(supplier=clean_supplier)
 
         state = self._states[clean_supplier]
-        score_val = round(float(risk_score), 2)
 
-        iso_timestamp = (
-            occurred_at.isoformat()
-            if isinstance(occurred_at, datetime)
-            else (occurred_at or datetime.now(timezone.utc).isoformat())
-        )
+        if isinstance(occurred_at, datetime):
+            if occurred_at.tzinfo is None:
+                occurred_at = occurred_at.replace(tzinfo=timezone.utc)
+            iso_timestamp = occurred_at.isoformat()
+        else:
+            iso_timestamp = occurred_at or datetime.now(timezone.utc).isoformat()
 
         # -------------------------------------------------------------
         # 1. State Initialization (Supplier has no previous state)
         # -------------------------------------------------------------
         if state.accepted_tier is None:
-            if self.config.require_min_evidence_for_initial and evidence_count < self.config.min_evidence:
+            init_tier = initial_tier_for_score(raw_score, self.config)
+            if self.config.require_min_evidence_for_initial and window_count < self.config.min_evidence:
                 logger.debug(
-                    "Supplier '%s' initial update deferred: evidence count %d < min %d",
+                    "Supplier '%s' initial update deferred: %d article(s) < min %d",
                     clean_supplier,
-                    evidence_count,
+                    window_count,
                     self.config.min_evidence,
                 )
                 state.record_suppressed_transition(
-                    candidate_tier=initial_tier_for_score(score_val, self.config),
-                    score=score_val,
+                    candidate_tier=init_tier,
+                    score=display_score,
                     reason="insufficient_initial_evidence",
-                    evidence_count=evidence_count,
+                    evidence_count=window_count,
                     timestamp=iso_timestamp,
                 )
                 return None
 
-            init_tier = initial_tier_for_score(score_val, self.config)
-            state.initialize(tier=init_tier, score=score_val, timestamp=iso_timestamp)
-
-            if self.config.emit_on_initial:
-                event = build_score_changed_event(
-                    supplier=clean_supplier,
-                    previous_tier="low",
-                    new_tier=init_tier,
-                    risk_score=score_val,
-                    supporting_articles=formatted_articles,
-                    evidence_count=evidence_count,
-                    occurred_at=iso_timestamp,
-                    producer=producer or "supplier-risk-service",
-                )
-                if self.publisher is not None:
-                    self.publisher.publish(event)
-                return event
-
+            # The first accepted tier is a baseline, not a change, so no event is emitted.
+            state.initialize(tier=init_tier, score=display_score, timestamp=iso_timestamp)
             return None
 
         # -------------------------------------------------------------
@@ -419,72 +521,92 @@ class SupplierHysteresisTracker:
         current_accepted = state.accepted_tier
         candidate_tier = evaluate_transition(
             current_tier=current_accepted,
-            score=score_val,
+            score=raw_score,
             config=self.config,
         )
 
         # Tier remains unchanged: retain accepted tier without emitting event
         if candidate_tier == current_accepted:
-            state.last_score = score_val
+            state.last_score = display_score
             state.last_updated_at = iso_timestamp
             return None
 
         # -------------------------------------------------------------
-        # 3. Minimum Evidence Check
+        # 3. Minimum Evidence Check (articles that point toward the new tier)
         # -------------------------------------------------------------
-        if evidence_count < self.config.min_evidence:
+        top_articles, supporting_count = select_supporting_articles(
+            formatted_articles, current_accepted, candidate_tier, self.config
+        )
+        if supporting_count < self.config.min_evidence:
             logger.info(
                 "Suppressed transition for '%s' from '%s' to '%s' (score %.2f): "
-                "insufficient evidence (%d < %d required). Retaining '%s'.",
+                "%d supporting article(s) < %d required. Retaining '%s'.",
                 clean_supplier,
                 current_accepted,
                 candidate_tier,
-                score_val,
-                evidence_count,
+                display_score,
+                supporting_count,
                 self.config.min_evidence,
                 current_accepted,
             )
             state.record_suppressed_transition(
                 candidate_tier=candidate_tier,
-                score=score_val,
+                score=display_score,
                 reason="insufficient_evidence",
-                evidence_count=evidence_count,
+                evidence_count=supporting_count,
                 timestamp=iso_timestamp,
             )
-            state.last_score = score_val
+            state.last_score = display_score
             state.last_updated_at = iso_timestamp
             return None
 
         # -------------------------------------------------------------
-        # 4. Accept Transition & Emit Event
+        # 4. Build, publish, and only then commit the transition
         # -------------------------------------------------------------
-        previous_tier = current_accepted
-        state.apply_transition(
+        explanation = _build_explanation(
+            supplier=clean_supplier,
+            previous_tier=current_accepted,
             new_tier=candidate_tier,
-            score=score_val,
-            timestamp=iso_timestamp,
-            evidence_count=evidence_count,
-        )
-
-        explanation = (
-            f"Supplier '{clean_supplier}' risk tier changed from '{previous_tier}' "
-            f"to '{candidate_tier}' (risk score {score_val:.2f}) with {evidence_count} "
-            f"supporting article(s). Transition accepted by hysteresis state machine."
+            score=display_score,
+            config=self.config,
+            top_articles=top_articles,
+            supporting_count=supporting_count,
+            window_count=window_count,
         )
 
         event = build_score_changed_event(
             supplier=clean_supplier,
-            previous_tier=previous_tier,
+            previous_tier=current_accepted,
             new_tier=candidate_tier,
-            risk_score=score_val,
-            supporting_articles=formatted_articles,
-            evidence_count=evidence_count,
+            risk_score=display_score,
+            supporting_articles=top_articles,
+            evidence_count=supporting_count,
             explanation=explanation,
             occurred_at=iso_timestamp,
             producer=producer or "supplier-risk-service",
         )
 
-        if self.publisher is not None:
-            self.publisher.publish(event)
+        # If publishing fails, keep the old tier so the next run retries the transition.
+        if self.publisher is not None and not self.publisher.publish(event):
+            logger.error(
+                "Publish failed for '%s' %s -> %s; transition not committed, will retry next run.",
+                clean_supplier,
+                current_accepted,
+                candidate_tier,
+            )
+            state.record_suppressed_transition(
+                candidate_tier=candidate_tier,
+                score=display_score,
+                reason="publish_failed",
+                evidence_count=supporting_count,
+                timestamp=iso_timestamp,
+            )
+            return None
 
+        state.apply_transition(
+            new_tier=candidate_tier,
+            score=display_score,
+            timestamp=iso_timestamp,
+            evidence_count=supporting_count,
+        )
         return event

@@ -4,7 +4,7 @@ for supplier risk scoring.
 """
 
 import math
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from src.config import (
     DEFAULT_MITIGATION_WEIGHT,
@@ -222,10 +222,14 @@ def predict(
     supplier_name: str,
     headlines: List[str],
     config: Optional[Settings] = None,
+    sentiment_fn: Optional[Callable[[str], Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """
     Predict supplier risk score using sentiment analysis
     and keyword-based signal detection driven by configuration settings.
+
+    sentiment_fn lets offline replays pass a cached sentiment function instead
+    of patching this module; it defaults to the live analyze_sentiment.
     """
     cfg = config if config is not None else get_settings()
 
@@ -264,7 +268,7 @@ def predict(
         # -------------------------
         # Sentiment Analysis
         # -------------------------
-        sentiment_result = analyze_sentiment(headline)
+        sentiment_result = (sentiment_fn or analyze_sentiment)(headline)
 
         label = sentiment_result.get("label", "neutral")
         confidence = float(sentiment_result.get("confidence", 1.0))

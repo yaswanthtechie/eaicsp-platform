@@ -858,6 +858,70 @@ Based on this empirical human spot-check:
 
 ---
 
+## Round 14: Risk-Change Events with Hysteresis
+
+Publishes `supplierrisk.score.changed` when a supplier's accepted risk tier (`low` / `medium` / `high`) changes, without flapping when a score hovers
+near a boundary.
+
+### How a tier change is accepted
+
+1. **Hysteresis** (`src/hysteresis.py`): a supplier enters a tier above one line and leaves it below a lower line.
+
+   | Move | Rule (defaults) |
+   | :--- | :--- |
+   | low -> medium | score >= 62.0 |
+   | medium -> low | score < 58.0 |
+   | -> high | score >= 74.0 |
+   | high -> medium | score < 70.0 |
+
+2. **Minimum evidence**: at least `HYSTERESIS_MIN_EVIDENCE` (default 2) articles in the 30-day window must point toward the new tier on their own. For
+an upward move an article must score at or above the entry threshold; for a downward move it must score below the exit threshold. Articles without a
+score are not counted. A supplier's first tier also waits until the window has that many articles.
+3. **Publish, then commit**: the event is published first. If the publisher returns `False`, the tier is not advanced, so the next run retries.
+
+### Event envelope
+
+Standard platform envelope (same fields as `data-platform/etl/etl/src/kafka_events.py`): `event_id`, `event_type`, `event_version`, `occurred_at` (UTC),
+`producer`, `payload`. The payload carries `supplier`, `previous_tier`, `new_tier`, `risk_score`, the top 3 supporting articles (ranked, with
+`headline`, `date`, `score`), `evidence_count` (number of supporting articles), and an `explanation` naming the threshold crossed and the top driving
+headlines.
+
+### With vs without hysteresis (historical replay)
+
+```bash
+python -m src.historical_comparison
+```
+
+This replays `src/supplier_trend_headlines_25.json` (synthetic, authored in Round 9; 25 suppliers, 12 weekly dates) three ways and rewrites
+`docs/HISTORICAL_COMPARISON_REPORT.md`:
+
+| Run | Events |
+| :--- | :---: |
+| Baseline (nominal boundaries, no rules) | 43 |
+| Hysteresis only | 30 |
+| Hysteresis + minimum evidence | 21 |
+
+Every number in the report is computed by the script. Fewer events means more stability, not better accuracy.
+
+### Tests
+
+```bash
+pytest tests/test_events_and_hysteresis.py -q
+```
+
+Covers all four thresholds exactly at and 0.01 either side (pure function and through the tracker), the evidence rule at n-1 / n, articles pointing the
+wrong way, failed publishes, missing scores, and the replay counts.
+
+### Not done yet
+
+- Nothing in the live API calls the tracker yet; events are produced only by the replay. Wiring it into the scoring path and running a real Kafka broker
+is the next step.
+- Tracker state is in memory; it resets when the service restarts.
+- With `min_evidence=2`, one very severe article cannot move a tier by itself (in the replay, Glencore's single 98.43 article does not escalate it to
+high). This is the trade-off the evidence rule makes.
+
+---
+
 # Evaluation & Benchmark Architecture
 
 The service provides two clearly separated evaluation paths to ensure scientific integrity and eliminate circular validation:

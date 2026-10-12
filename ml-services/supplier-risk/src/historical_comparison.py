@@ -11,15 +11,14 @@ Generates reproducible analysis metrics and the comparison markdown report under
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from dataclasses import replace
+from datetime import datetime
 import copy
 import hashlib
 import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-
-from unittest.mock import patch
 
 from src.config import MODEL_NAME, Settings, get_settings
 from src.evaluate import assign_risk_tier
@@ -30,15 +29,16 @@ from src.events import (
     map_tier_to_event_tier,
 )
 from src.hysteresis import HysteresisConfig, SupplierHysteresisTracker
-import src.predict
 from src.predict import predict
-from src.trend import calculate_supplier_trend
+from src.sentiment import analyze_sentiment
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_DATASET_PATH = Path(__file__).parent / "supplier_trend_headlines_25.json"
 DEFAULT_REPORT_PATH = Path(__file__).resolve().parent.parent / "docs" / "HISTORICAL_COMPARISON_REPORT.md"
 DEFAULT_SENTIMENT_CACHE_PATH = Path(__file__).parent / "historical_sentiment_cache.json"
+# The committed sentiment cache was produced by this model; any other model must re-score.
+SENTIMENT_CACHE_MODEL = "ProsusAI/finbert"
 
 # Safe in-memory timeline cache keyed by dataset identity and scoring configuration
 _TIMELINE_CACHE: Dict[tuple, Dict[str, List[Dict[str, Any]]]] = {}
@@ -63,8 +63,15 @@ def load_headline_sentiment_cache(
     Load persistent headline sentiment cache from JSON file.
     Returns in-memory cache if already loaded.
     """
-    global _SENTIMENT_CACHE
     if _SENTIMENT_CACHE:
+        return _SENTIMENT_CACHE
+
+    if MODEL_NAME != SENTIMENT_CACHE_MODEL:
+        logger.warning(
+            "Sentiment cache was built with %s but MODEL_NAME is %s; ignoring cache.",
+            SENTIMENT_CACHE_MODEL,
+            MODEL_NAME,
+        )
         return _SENTIMENT_CACHE
 
     target = Path(cache_path) if cache_path else DEFAULT_SENTIMENT_CACHE_PATH
@@ -114,6 +121,10 @@ def _make_timeline_cache_key(
         config.trend_window_days,
         config.max_risk_score,
         config.confidence_divisor,
+        config.negative_sentiment_penalty,
+        config.neutral_sentiment_penalty,
+        config.positive_sentiment_penalty,
+        config.recency_half_life_days,
         config.tier_low_ceiling,
         config.tier_medium_ceiling,
         config.tier_high_ceiling,
@@ -144,6 +155,7 @@ def get_current_window_articles(
     window_days: int = 30,
     config: Optional[Settings] = None,
     article_score_cache: Optional[Dict[tuple, float]] = None,
+    sentiment_fn: Optional[Any] = None,
 ) -> List[Dict[str, Any]]:
     """
     Extract and score articles falling strictly within the rolling window
@@ -173,6 +185,7 @@ def get_current_window_articles(
                 supplier_name=str(r.get("supplier", "")),
                 headlines=[r["headline"]],
                 config=cfg,
+                sentiment_fn=sentiment_fn,
             )
             score_val = p["risk_score"]
             if article_score_cache is not None:
@@ -189,6 +202,51 @@ def get_current_window_articles(
     return scored_articles
 
 
+def _replay_with_tracker(
+    timeline_cache: Dict[str, List[Dict[str, Any]]],
+    all_dates: List[str],
+    suppliers: List[str],
+    h_cfg: HysteresisConfig,
+) -> Dict[str, Any]:
+    """Replay the timeline through a fresh tracker and collect events and suppressions."""
+    publisher = InMemoryEventPublisher()
+    tracker = SupplierHysteresisTracker(config=h_cfg, publisher=publisher)
+    events: Dict[str, List[Dict[str, Any]]] = {s: [] for s in suppliers}
+
+    for dt_idx, dt in enumerate(all_dates):
+        for s in suppliers:
+            entry = timeline_cache[s][dt_idx]
+            # No articles in the window means no score: nothing to evaluate this week.
+            if entry["score"] is None:
+                continue
+            event = tracker.process_update(
+                supplier=s,
+                risk_score=entry["score"],
+                supporting_articles=entry["supporting_articles"],
+                occurred_at=f"{dt}T00:00:00+00:00",
+            )
+            if event is not None:
+                events[s].append(event)
+
+    suppressed: Dict[str, int] = {}
+    for state in tracker.get_all_states().values():
+        for item in state.history:
+            if item["action"] == "suppressed":
+                suppressed[item["reason"]] = suppressed.get(item["reason"], 0) + 1
+
+    return {
+        "events": events,
+        "total": sum(len(v) for v in events.values()),
+        "suppressed": suppressed,
+        "tracker": tracker,
+        "published": publisher.get_events(),
+    }
+
+
+def _percent_reduction(before: int, after: int) -> float:
+    return round(((before - after) / before) * 100.0, 2) if before > 0 else 0.0
+
+
 def run_historical_comparison(
     dataset_path: Optional[str | Path] = None,
     hysteresis_config: Optional[HysteresisConfig] = None,
@@ -198,42 +256,24 @@ def run_historical_comparison(
     use_sentiment_cache: bool = True,
 ) -> Dict[str, Any]:
     """
-    Replay records chronologically date-by-date and compare baseline vs hysteresis transitions.
-
-    Args:
-        dataset_path: Path to supplier_trend_headlines_25.json.
-        hysteresis_config: Configuration for thresholds and minimum evidence.
-        config: Scoring Settings instance.
-        precomputed_scores: Optional precomputed scores map {supplier: [{date, score, raw_tier, count}]}.
-        use_cache: Whether to utilize in-memory and disk timeline caching for scores.
-        use_sentiment_cache: Whether to utilize persistent headline sentiment caching.
-
-    Returns:
-        Dictionary containing comprehensive comparison metrics and event records.
+    Replay records chronologically and compare three runs:
+    1. Baseline: nominal tier boundaries, no hysteresis, no evidence rule.
+    2. Hysteresis only: enter/exit thresholds, evidence rule disabled (min_evidence=0).
+    3. Hysteresis + evidence: thresholds plus the minimum supporting-evidence rule.
     """
     cfg = config or get_settings()
-    h_cfg = hysteresis_config or HysteresisConfig(
-        tier_low_ceiling=cfg.tier_low_ceiling,
-        tier_medium_ceiling=cfg.tier_medium_ceiling,
-        enter_medium_threshold=cfg.hysteresis_enter_medium,
-        exit_medium_threshold=cfg.hysteresis_exit_medium,
-        enter_high_threshold=cfg.hysteresis_enter_high,
-        exit_high_threshold=cfg.hysteresis_exit_high,
-        min_evidence=cfg.hysteresis_min_evidence,
-    )
+    h_cfg = hysteresis_config or HysteresisConfig.from_settings(cfg)
+    h_only_cfg = replace(h_cfg, min_evidence=0)
 
     records = load_trend_dataset(dataset_path)
 
-    all_dates = sorted(list(set(r["date"] for r in records)))
-    suppliers = sorted(list(set(r["supplier"] for r in records)))
+    all_dates = sorted(set(r["date"] for r in records))
+    suppliers = sorted(set(r["supplier"] for r in records))
 
     grouped_records: Dict[str, List[Dict[str, Any]]] = {
         s: [r for r in records if r["supplier"] == s] for s in suppliers
     }
 
-    # -------------------------------------------------------------
-    # Precompute or retrieve scores per supplier and date
-    # -------------------------------------------------------------
     target_dataset_path = Path(dataset_path) if dataset_path else DEFAULT_DATASET_PATH
     cache_key = _make_timeline_cache_key(target_dataset_path, cfg)
 
@@ -249,84 +289,83 @@ def run_historical_comparison(
         )
         window_score_cache: Dict[tuple, Dict[str, Any]] = {}
 
-        orig_analyze_sentiment = src.predict.analyze_sentiment
-
         def cached_analyze_sentiment(text: str) -> Dict[str, Any]:
             cleaned = text.strip()
             if cleaned not in sentiment_cache:
-                sentiment_cache[cleaned] = orig_analyze_sentiment(text)
+                sentiment_cache[cleaned] = analyze_sentiment(text)
             return sentiment_cache[cleaned]
 
-        with patch("src.predict.analyze_sentiment", side_effect=cached_analyze_sentiment):
-            for s in suppliers:
-                s_recs = grouped_records[s]
-                s_dates = [datetime.strptime(r["date"], "%Y-%m-%d").date() for r in s_recs]
-                timeline_cache[s] = []
+        for s in suppliers:
+            s_recs = grouped_records[s]
+            s_dates = [datetime.strptime(r["date"], "%Y-%m-%d").date() for r in s_recs]
+            timeline_cache[s] = []
 
-                for dt in all_dates:
-                    ref_d = datetime.strptime(dt, "%Y-%m-%d").date()
-                    # Direct window partition matching predict() and trend.py semantics
-                    current_articles = [
-                        r for r, d in zip(s_recs, s_dates)
-                        if 0 <= (ref_d - d).days <= cfg.trend_window_days
-                    ]
+            for dt in all_dates:
+                ref_d = datetime.strptime(dt, "%Y-%m-%d").date()
+                current_articles = [
+                    r for r, d in zip(s_recs, s_dates)
+                    if 0 <= (ref_d - d).days <= cfg.trend_window_days
+                ]
 
-                    if current_articles:
-                        win_headlines = tuple(a["headline"] for a in current_articles)
-                        win_cache_key = (s, win_headlines)
-                        if win_cache_key in window_score_cache:
-                            pred = window_score_cache[win_cache_key]
-                        else:
-                            pred = predict(supplier_name=s, headlines=list(win_headlines), config=cfg)
-                            window_score_cache[win_cache_key] = pred
-
-                        score = round(float(pred["risk_score"]), 2)
-                        raw_tier = assign_risk_tier(score, cfg)
-                        count = len(current_articles)
+                if current_articles:
+                    win_headlines = tuple(a["headline"] for a in current_articles)
+                    win_cache_key = (s, win_headlines)
+                    if win_cache_key in window_score_cache:
+                        pred = window_score_cache[win_cache_key]
                     else:
-                        score = None
-                        raw_tier = None
-                        count = 0
+                        pred = predict(
+                            supplier_name=s,
+                            headlines=list(win_headlines),
+                            config=cfg,
+                            sentiment_fn=cached_analyze_sentiment,
+                        )
+                        window_score_cache[win_cache_key] = pred
 
-                    win_articles = get_current_window_articles(
-                        supplier_records=s_recs,
-                        as_of_date_str=dt,
-                        window_days=cfg.trend_window_days,
-                        config=cfg,
-                        article_score_cache=article_score_cache,
-                    )
-                    timeline_cache[s].append(
-                        {
-                            "date": dt,
-                            "score": score,
-                            "raw_tier": raw_tier,
-                            "evidence_count": count,
-                            "supporting_articles": win_articles,
-                        }
-                    )
+                    score = round(float(pred["risk_score"]), 2)
+                    raw_tier = assign_risk_tier(score, cfg)
+                    count = len(current_articles)
+                else:
+                    score = None
+                    raw_tier = None
+                    count = 0
+
+                win_articles = get_current_window_articles(
+                    supplier_records=s_recs,
+                    as_of_date_str=dt,
+                    window_days=cfg.trend_window_days,
+                    config=cfg,
+                    article_score_cache=article_score_cache,
+                    sentiment_fn=cached_analyze_sentiment,
+                )
+                timeline_cache[s].append(
+                    {
+                        "date": dt,
+                        "score": score,
+                        "raw_tier": raw_tier,
+                        "evidence_count": count,
+                        "supporting_articles": win_articles,
+                    }
+                )
 
         if use_cache:
-            # Store a deepcopy in the in-memory cache to prevent mutable contamination
             _TIMELINE_CACHE[cache_key] = copy.deepcopy(timeline_cache)
 
-    # -------------------------------------------------------------
-    # 1. Baseline Replay (Without Hysteresis & Without Evidence Gating)
-    # -------------------------------------------------------------
+    # 1. Baseline replay (no hysteresis, no evidence rule)
     baseline_transitions: Dict[str, List[Dict[str, Any]]] = {s: [] for s in suppliers}
     baseline_states: Dict[str, Optional[str]] = {s: None for s in suppliers}
 
     for dt_idx, dt in enumerate(all_dates):
         for s in suppliers:
             entry = timeline_cache[s][dt_idx]
-            raw_tier = entry["raw_tier"]
-            mapped_tier = map_tier_to_event_tier(raw_tier) if raw_tier else "low"
+            # Same rule as the tracker replays: no score this week, no evaluation.
+            if entry["raw_tier"] is None:
+                continue
+            mapped_tier = map_tier_to_event_tier(entry["raw_tier"])
 
             curr_state = baseline_states[s]
             if curr_state is None:
-                # Initial observation establishes baseline tier
                 baseline_states[s] = mapped_tier
             elif mapped_tier != curr_state:
-                # Baseline transition
                 baseline_transitions[s].append(
                     {
                         "date": dt,
@@ -340,57 +379,27 @@ def run_historical_comparison(
 
     total_baseline_events = sum(len(trans) for trans in baseline_transitions.values())
 
-    # -------------------------------------------------------------
-    # 2. Hysteresis Replay (With Enter/Exit Thresholds & Min Evidence)
-    # -------------------------------------------------------------
-    publisher = InMemoryEventPublisher()
-    tracker = SupplierHysteresisTracker(config=h_cfg, publisher=publisher)
+    # 2. Hysteresis only, and 3. Hysteresis + minimum evidence
+    h_only = _replay_with_tracker(timeline_cache, all_dates, suppliers, h_only_cfg)
+    h_full = _replay_with_tracker(timeline_cache, all_dates, suppliers, h_cfg)
+    total_hysteresis_events = h_full["total"]
 
-    hysteresis_events: Dict[str, List[Dict[str, Any]]] = {s: [] for s in suppliers}
-
-    for dt_idx, dt in enumerate(all_dates):
-        for s in suppliers:
-            entry = timeline_cache[s][dt_idx]
-            score = entry["score"]
-            articles = entry["supporting_articles"]
-
-            event = tracker.process_update(
-                supplier=s,
-                risk_score=score,
-                supporting_articles=articles,
-                occurred_at=f"{dt}T00:00:00+00:00",
-            )
-            if event is not None:
-                hysteresis_events[s].append(event)
-
-    total_hysteresis_events = sum(len(evs) for evs in hysteresis_events.values())
-
-    reduction_count = total_baseline_events - total_hysteresis_events
-    reduction_pct = (
-        round((reduction_count / total_baseline_events) * 100.0, 2)
-        if total_baseline_events > 0
-        else 0.0
-    )
-
-    # -------------------------------------------------------------
-    # 3. Per-Supplier Comparison Analysis
-    # -------------------------------------------------------------
     per_supplier_summary: Dict[str, Dict[str, Any]] = {}
     for s in suppliers:
         b_cnt = len(baseline_transitions[s])
-        h_cnt = len(hysteresis_events[s])
-        s_red = b_cnt - h_cnt
-        s_red_pct = round((s_red / b_cnt) * 100.0, 1) if b_cnt > 0 else 0.0
-        final_state = tracker.get_state(s)
+        ho_cnt = len(h_only["events"][s])
+        h_cnt = len(h_full["events"][s])
+        final_state = h_full["tracker"].get_state(s)
 
         per_supplier_summary[s] = {
             "baseline_count": b_cnt,
+            "hysteresis_only_count": ho_cnt,
             "hysteresis_count": h_cnt,
-            "reduction_count": s_red,
-            "reduction_percent": s_red_pct,
+            "reduction_count": b_cnt - h_cnt,
+            "reduction_percent": round(((b_cnt - h_cnt) / b_cnt) * 100.0, 1) if b_cnt > 0 else 0.0,
             "final_tier": final_state.accepted_tier if final_state else None,
             "baseline_transitions": baseline_transitions[s],
-            "hysteresis_events": hysteresis_events[s],
+            "hysteresis_events": h_full["events"][s],
         }
 
     return {
@@ -408,173 +417,139 @@ def run_historical_comparison(
             "exit_high_threshold": h_cfg.exit_high_threshold,
             "min_evidence": h_cfg.min_evidence,
             "require_min_evidence_for_initial": h_cfg.require_min_evidence_for_initial,
+            "top_articles": h_cfg.top_articles,
+            "trend_window_days": cfg.trend_window_days,
         },
         "total_baseline_events": total_baseline_events,
+        "total_hysteresis_only_events": h_only["total"],
         "total_hysteresis_events": total_hysteresis_events,
-        "reduction_count": reduction_count,
-        "reduction_percent": reduction_pct,
+        "reduction_from_hysteresis": total_baseline_events - h_only["total"],
+        "reduction_from_evidence": h_only["total"] - total_hysteresis_events,
+        "reduction_count": total_baseline_events - total_hysteresis_events,
+        "reduction_percent": _percent_reduction(total_baseline_events, total_hysteresis_events),
+        "suppressed_by_reason": h_full["suppressed"],
         "per_supplier_summary": per_supplier_summary,
-        "all_published_events": publisher.get_events(),
+        "all_published_events": h_full["published"],
     }
+
+
+def _supplier_note(data: Dict[str, Any]) -> str:
+    """Describe what happened to one supplier, derived only from the counts."""
+    b_c = data["baseline_count"]
+    ho_c = data["hysteresis_only_count"]
+    h_c = data["hysteresis_count"]
+    if b_c == 0 and h_c == 0:
+        return "No tier changes in any run"
+    if h_c == b_c and ho_c == b_c:
+        return "All baseline transitions kept"
+    if h_c == 0:
+        return "All baseline transitions suppressed"
+    parts = []
+    if b_c != ho_c:
+        parts.append(f"hysteresis {b_c} -> {ho_c}")
+    if ho_c != h_c:
+        parts.append(f"evidence rule {ho_c} -> {h_c}")
+    return ", ".join(parts)
 
 
 def generate_markdown_report(
     results: Dict[str, Any],
     output_path: Optional[str | Path] = None,
 ) -> str:
-    """
-    Generate the formal Markdown comparison report and save to disk.
-    """
+    """Generate the comparison report from `results` only (no hand-written numbers) and save it."""
     target = Path(output_path) if output_path else DEFAULT_REPORT_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
 
     cfg = results["config"]
     dt_range = results["date_range"]
     baseline_tot = results["total_baseline_events"]
+    h_only_tot = results["total_hysteresis_only_events"]
     hyst_tot = results["total_hysteresis_events"]
-    red_cnt = results["reduction_count"]
-    red_pct = results["reduction_percent"]
     suppliers_summary = results["per_supplier_summary"]
-
-    # Gather representative event examples
+    suppressed = results["suppressed_by_reason"]
     published = results["all_published_events"]
-    representative_examples = published[:3] if published else []
 
     lines: List[str] = [
         "# Supplier Risk Score-Change Events: Hysteresis Historical Comparison Report",
         "",
-        "> [!IMPORTANT]",
-        "> **Methodological Grounding Notice**  ",
-        "> Hysteresis state machines are implemented to prevent rapid boundary chatter and noisy event oscillation.  ",
-        "> **Do not claim hysteresis improved accuracy merely because it reduced event counts.** Event-count reduction measures signal stability and noise suppression, not classification truth.",
+        "> **Event-count reduction measures stability, not accuracy.** "
+        "Do not claim hysteresis improved accuracy merely because it reduced event counts.",
         "",
-        "## 1. Executive Summary & Methodology",
+        "> **Data provenance:** the replay dataset (`supplier_trend_headlines_25.json`) is synthetic, "
+        "authored in Round 9 for trend regression testing. These numbers show how the rules behave on "
+        "that data; they are not evidence from real news.",
         "",
-        "This evaluation benchmarks risk tier transition event generation across the standard 25-supplier date-aware trend dataset.",
-        "Scoring evaluates continuous supplier risk on a 0–100 scale using the existing FinBERT NLP pipeline and rolling 30-day top-k mean risk aggregation.",
+        "## 1. Summary",
         "",
-        "### Key Replay Metrics",
+        f"- Dates replayed: `{dt_range['start']}` to `{dt_range['end']}` "
+        f"({len(results['all_dates'])} evaluation dates, {cfg['trend_window_days']}-day rolling window)",
+        f"- Suppliers: {results['total_suppliers']}; articles: {results['total_articles']}",
         "",
-        f"- **Dataset Time Horizon**: `{dt_range['start']}` through `{dt_range['end']}` (12 weekly evaluation dates)",
-        f"- **Supplier Count**: {results['total_suppliers']} distinct corporate entities",
-        f"- **Article Coverage**: {results['total_articles']} dated news articles (12 per supplier)",
-        f"- **Baseline Tier Transitions**: **{baseline_tot}** events (raw boundary crossings without hysteresis)",
-        f"- **Hysteresis Tier Transitions**: **{hyst_tot}** events (accepted transitions with hysteresis + minimum evidence)",
-        f"- **Event Noise Reduction**: **{red_cnt} fewer events ({red_pct}% reduction)**",
+        "| Run | Events | Reduction vs baseline |",
+        "| :--- | :---: | :---: |",
+        f"| Baseline (nominal boundaries, no rules) | {baseline_tot} | - |",
+        f"| Hysteresis only (`min_evidence=0`) | {h_only_tot} | "
+        f"{baseline_tot - h_only_tot} ({_percent_reduction(baseline_tot, h_only_tot)}%) |",
+        f"| Hysteresis + evidence (`min_evidence={cfg['min_evidence']}`) | {hyst_tot} | "
+        f"{baseline_tot - hyst_tot} ({_percent_reduction(baseline_tot, hyst_tot)}%) |",
         "",
-        "---",
+        "Suppressed attempts in the hysteresis + evidence run, by reason: "
+        + (", ".join(f"`{k}`: {v}" for k, v in sorted(suppressed.items())) or "none"),
         "",
-        "## 2. Thresholds & Configuration Specification",
+        "## 2. Configuration",
         "",
-        "The scoring pipeline operates on a continuous score range of `0.0` to `100.0`. Tiers are defined as:",
-        "- **`low`**: nominal risk score `< 60.0`",
-        "- **`medium`**: nominal risk score `60.0 <= score < 72.0`",
-        "- **`high`**: nominal risk score `>= 72.0` (includes High and Critical internal classifications)",
+        "| Parameter | Value | Rule |",
+        "| :--- | :---: | :--- |",
+        f"| `enter_medium_threshold` | `{cfg['enter_medium_threshold']}` | low -> medium when score >= {cfg['enter_medium_threshold']} |",
+        f"| `exit_medium_threshold` | `{cfg['exit_medium_threshold']}` | medium -> low when score < {cfg['exit_medium_threshold']} |",
+        f"| `enter_high_threshold` | `{cfg['enter_high_threshold']}` | -> high when score >= {cfg['enter_high_threshold']} |",
+        f"| `exit_high_threshold` | `{cfg['exit_high_threshold']}` | high -> medium when score < {cfg['exit_high_threshold']} |",
+        f"| `min_evidence` | `{cfg['min_evidence']}` | at least {cfg['min_evidence']} window article(s) whose own score points toward the new tier |",
+        f"| `require_min_evidence_for_initial` | `{cfg['require_min_evidence_for_initial']}` | first tier needs at least {cfg['min_evidence']} article(s) in the window |",
+        f"| `top_articles` | `{cfg['top_articles']}` | supporting articles carried in each event |",
         "",
-        "### Hysteresis Enter / Exit Thresholds",
+        "## 3. Per-Supplier Counts",
         "",
-        "| Parameter | Value | Direction / Boundary | Operational Rule |",
-        "| :--- | :---: | :--- | :--- |",
-        f"| `enter_medium_threshold` | `{cfg['enter_medium_threshold']}` | Low → Medium | Score must reach or exceed `62.0` (`score >= 62.0`) |",
-        f"| `exit_medium_threshold` | `{cfg['exit_medium_threshold']}` | Medium → Low | Score must fall strictly below `58.0` (`score < 58.0`) |",
-        f"| `enter_high_threshold` | `{cfg['enter_high_threshold']}` | Medium/Low → High | Score must reach or exceed `74.0` (`score >= 74.0`) |",
-        f"| `exit_high_threshold` | `{cfg['exit_high_threshold']}` | High → Medium | Score must fall strictly below `70.0` (`score < 70.0`) |",
-        f"| `min_evidence` | `{cfg['min_evidence']}` | Supporting Evidence | Requires at least {cfg['min_evidence']} distinct articles before accepting any transition |",
-        f"| `require_min_evidence_for_initial` | `{cfg['require_min_evidence_for_initial']}` | Initial State | Initial baseline accepted on first observation |",
-        "",
-        "### Exact Boundary Semantics & Deadbands",
-        "",
-        "1. **Low-Medium Deadband `[58.0, 62.0)`**: A score of `61.99` does not enter Medium (remains Low). A score of `62.00` enters Medium. A score of `58.00` remains Medium; only scores strictly `< 58.0` drop to Low.",
-        "2. **Medium-High Deadband `[70.0, 74.0)`**: A score of `73.99` does not enter High (remains Medium). A score of `74.00` enters High. A score of `70.00` remains High; only scores strictly `< 70.0` drop to Medium.",
-        "3. **Direct Two-Tier Jumps**: A score jumping from Low directly to `>= 74.0` transitions directly to High. A score dropping from High directly to `< 58.0` transitions directly to Low.",
-        "",
-        "---",
-        "",
-        "## 3. Per-Supplier Transition Counts & Comparison",
-        "",
-        "| Supplier Name | Baseline Events | Hysteresis Events | Reduction | Final Accepted Tier | Primary Chatter Pattern |",
+        "| Supplier | Baseline | Hysteresis only | Hysteresis + evidence | Final tier | What changed |",
         "| :--- | :---: | :---: | :---: | :---: | :--- |",
     ]
 
     for s, data in sorted(suppliers_summary.items(), key=lambda x: (-x[1]["baseline_count"], x[0])):
-        b_c = data["baseline_count"]
-        h_c = data["hysteresis_count"]
-        r_c = data["reduction_count"]
-        r_p = data["reduction_percent"]
-        final_t = data["final_tier"]
-
-        note = "Stable (0 transitions)"
-        if s == "Intel":
-            note = "Eliminated 60-boundary oscillation (61.96 ↔ 58.39)"
-        elif s == "Toshiba":
-            note = "Eliminated 72-boundary oscillation (69.97 ↔ 75.23 ↔ 71.41)"
-        elif s == "Volvo Group":
-            note = "Suppressed false spike to 60.28 (< 62.0 enter threshold)"
-        elif s == "Evergrande Construction Logistics":
-            note = "Suppressed boundary dip at 71.95 (>= 70.0 exit threshold)"
-        elif s in ("ArcelorMittal", "Maersk", "TSMC"):
-            note = "Dampened transient boundary crossings"
-        elif b_c > 0 and r_c == 0:
-            note = "Genuine sustained tier transitions preserved"
-
         lines.append(
-            f"| **{s}** | {b_c} | {h_c} | -{r_c} ({r_p}%) | `{final_t}` | {note} |"
+            f"| **{s}** | {data['baseline_count']} | {data['hysteresis_only_count']} | "
+            f"{data['hysteresis_count']} | `{data['final_tier']}` | {_supplier_note(data)} |"
         )
 
-    lines.extend(
-        [
-            "",
-            "---",
-            "",
-            "## 4. Deep-Dive Case Studies: Chatter Suppression vs. Transition Preservation",
-            "",
-            "### Case 1: Intel — Boundary Oscillation Suppression (Nominal 60.0 Boundary)",
-            "",
-            "- **2026-01-26**: Intel risk score reaches `61.96` (`evidence_count=4`).",
-            "  * *Baseline*: Transitions from `low` → `medium`.",
-            "  * *Hysteresis*: Score is `< 62.0` enter threshold. Hysteresis retains `low`.",
-            "- **2026-02-02**: Score falls to `58.39` (`evidence_count=5`).",
-            "  * *Baseline*: Falls from `medium` back to `low` (1st false flip).",
-            "  * *Hysteresis*: Remained `low`; no event.",
-            "- **2026-02-09**: Score rises to `62.86` (`evidence_count=5`).",
-            "  * *Baseline*: Jumps from `low` back to `medium` (2nd false flip).",
-            "  * *Hysteresis*: Crosses `>= 62.0` enter threshold with 5 articles: **cleanly transitions `low` → `medium`**.",
-            "- **Result**: Baseline emitted 4 noisy events; hysteresis emitted only 2 meaningful, persistent events.",
-            "",
-            "### Case 2: Toshiba — High/Medium Boundary Chatter (Nominal 72.0 Boundary)",
-            "",
-            "- **2026-03-02**: Score drops to `69.97` (`evidence_count=5`).",
-            "  * *Baseline*: Drops `high` → `medium` (`69.97 < 72.0`).",
-            "  * *Hysteresis*: Drops `high` → `medium` (`69.97 < 70.0` exit threshold).",
-            "- **2026-03-09**: Score rises to `75.23` (`evidence_count=5`).",
-            "  * *Baseline*: Flips `medium` → `high` (`75.23 >= 72.0`).",
-            "  * *Hysteresis*: Rises `medium` → `high` (`75.23 >= 74.0` enter threshold).",
-            "- **2026-03-16**: Score drops slightly to `71.41` (`evidence_count=5`).",
-            "  * *Baseline*: Flips `high` → `medium` (`71.41 < 72.0`).",
-            "  * *Hysteresis*: `71.41 >= 70.0` (does not violate exit threshold). **Retains `high`**.",
-            "- **2026-03-23**: Score rises to `77.04` (`evidence_count=5`).",
-            "  * *Baseline*: Flips `medium` → `high` again.",
-            "  * *Hysteresis*: Already in `high`. **Zero redundant events emitted**.",
-            "",
-            "### Case 3: Genuine Transitions Preserved (Boeing & Apex Logistics)",
-            "",
-            "- **Boeing**: Deterioration on 2026-02-02 (score `67.32`, 5 articles) was cleanly accepted from `low` → `medium`. Subsequent recovery on 2026-03-09 (score `50.89 < 58.0`) was cleanly accepted from `medium` → `low`.",
-            "- **Apex Logistics**: Escalation on 2026-01-12 (score `73.09`, 2 articles) from `medium` → `high` was accepted, and sustained de-escalation on 2026-03-23 (score `65.83 < 70.0`) was cleanly emitted.",
-            "",
-            "---",
-            "",
-            "## 5. Representative Event Envelope Examples",
-            "",
-            "Below are actual, validated event envelopes produced by `SupplierHysteresisTracker` during the replay:",
-            "",
-        ]
-    )
+    lines.extend(["", "## 4. Largest Reductions: Baseline vs Accepted Transitions", ""])
+    top_reduced = sorted(
+        (item for item in suppliers_summary.items() if item[1]["reduction_count"] > 0),
+        key=lambda x: (-x[1]["reduction_count"], x[0]),
+    )[:3]
+    if not top_reduced:
+        lines.append("No supplier had fewer events with hysteresis.")
+    for s, data in top_reduced:
+        lines.extend(
+            [f"### {s}", "", "| Date | Score | Baseline | Accepted |", "| :--- | :---: | :--- | :--- |"]
+        )
+        accepted = {
+            e["occurred_at"][:10]: f"{e['payload']['previous_tier']} -> {e['payload']['new_tier']}"
+            for e in data["hysteresis_events"]
+        }
+        baseline = {t["date"]: t for t in data["baseline_transitions"]}
+        for d in sorted(set(accepted) | set(baseline)):
+            b = baseline.get(d)
+            score = f"{b['risk_score']:.2f}" if b else "-"
+            b_txt = f"{b['previous_tier']} -> {b['new_tier']}" if b else "-"
+            lines.append(f"| {d} | {score} | {b_txt} | {accepted.get(d, 'no event')} |")
+        lines.append("")
 
-    for idx, ev in enumerate(representative_examples, start=1):
+    lines.extend(["## 5. Representative Event Envelopes", ""])
+    for idx, ev in enumerate(published[:3], start=1):
         payload = ev["payload"]
         lines.extend(
             [
-                f"### Example Event {idx}: `{payload['supplier']}` ({payload['previous_tier']} → {payload['new_tier']})",
+                f"### Example {idx}: `{payload['supplier']}` "
+                f"({payload['previous_tier']} -> {payload['new_tier']})",
                 "",
                 "```json",
                 json.dumps(ev, indent=2),
@@ -585,24 +560,19 @@ def generate_markdown_report(
 
     lines.extend(
         [
-            "---",
+            "## 6. Limitations",
             "",
-            "## 6. Gating & Boundary Limitations",
-            "",
-            "### Minimum Evidence Gating",
-            f"The state machine enforces `min_evidence = {cfg['min_evidence']}`. In the rolling 30-day window, early observations (e.g. week 1 with 1 article) cannot trigger tier changes until corroborating headlines accumulate. For all 25 suppliers, sufficient articles were accumulated by week 2, so no supplier was permanently excluded.",
-            "",
-            "### Limitations",
-            "1. **Lag on Inflection**: Hysteresis inherently introduces a small delay before accepting transitions when scores rise moderately above nominal boundaries (e.g., between 60.0 and 62.0). This trade-off intentionally favors stability over immediacy.",
-            "2. **Evidence Saturation**: Suppliers in low-news sectors with fewer than 2 articles per rolling window will retain their existing tier until additional reports emerge.",
-            "3. **Non-Equivalence of Counts**: As stated in the methodology notice, event reduction proves noise suppression and bandwidth optimization, not accuracy improvement.",
+            "1. Hysteresis delays transitions for scores that stop between a nominal boundary and its enter threshold.",
+            "2. Suppliers with too few articles pointing toward a new tier keep their current tier until more arrive.",
+            "3. Article-level scores come from scoring each headline on its own, so a headline can count as "
+            "evidence even when the aggregated score moved for a different reason.",
             "",
             "---",
-            "*Report generated automatically by `src/historical_comparison.py`.*",
+            "*Generated by `python -m src.historical_comparison`. Every number above comes from the replay results.*",
         ]
     )
 
-    content = "\n".join(lines)
+    content = "\n".join(lines) + "\n"
     with open(target, "w", encoding="utf-8") as f:
         f.write(content)
 
@@ -610,11 +580,11 @@ def generate_markdown_report(
 
 
 if __name__ == "__main__":
-    print("Running historical comparison replay across 25 suppliers...")
+    print(f"Running historical comparison replay ({DEFAULT_DATASET_PATH.name})...")
     report_results = run_historical_comparison()
-    report_file = DEFAULT_REPORT_PATH
-    generate_markdown_report(report_results, report_file)
-    print(f"Report generated at: {report_file}")
-    print(f"Baseline events: {report_results['total_baseline_events']}")
-    print(f"Hysteresis events: {report_results['total_hysteresis_events']}")
-    print(f"Reduction: {report_results['reduction_count']} ({report_results['reduction_percent']}%)")
+    generate_markdown_report(report_results, DEFAULT_REPORT_PATH)
+    print(f"Report generated at: {DEFAULT_REPORT_PATH}")
+    print(f"Baseline events:              {report_results['total_baseline_events']}")
+    print(f"Hysteresis only events:       {report_results['total_hysteresis_only_events']}")
+    print(f"Hysteresis + evidence events: {report_results['total_hysteresis_events']}")
+    print(f"Suppressed by reason:         {report_results['suppressed_by_reason']}")
