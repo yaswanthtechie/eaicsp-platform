@@ -40,3 +40,66 @@ class FakeRedis:
 
     def ping(self):
         return True
+
+
+class FakeKafkaMessage:
+    """Stand-in for confluent_kafka.Message."""
+
+    def __init__(
+        self,
+        value: str | bytes,
+        topic: str = "compliance.supplier.status_changed",
+        partition: int = 0,
+        offset: int = 0,
+        error=None,
+    ):
+        self._value = value.encode("utf-8") if isinstance(value, str) else value
+        self._topic = topic
+        self._partition = partition
+        self._offset = offset
+        self._error = error
+
+    def value(self):
+        return self._value
+
+    def topic(self):
+        return self._topic
+
+    def partition(self):
+        return self._partition
+
+    def offset(self):
+        return self._offset
+
+    def error(self):
+        return self._error
+
+
+class FakeKafkaConsumer:
+    """In-memory Kafka Consumer stand-in for deterministic unit testing."""
+
+    def __init__(self, messages: list[FakeKafkaMessage] | None = None):
+        self.messages: list[FakeKafkaMessage] = list(messages) if messages else []
+        self._all_messages = list(messages) if messages else []
+        self.committed_messages: list[FakeKafkaMessage] = []
+        self.subscriptions: list[str] = []
+        self.seeks: list[tuple[int, int]] = []
+
+    def subscribe(self, topics: list[str]):
+        self.subscriptions.extend(topics)
+
+    def poll(self, timeout: float = 1.0):
+        if self.messages:
+            return self.messages.pop(0)
+        return None
+
+    def seek(self, tp) -> None:
+        """Re-queue the message at tp so the next poll() redelivers it (like real Kafka)."""
+        self.seeks.append((tp.partition, tp.offset))
+        msg = next(m for m in self._all_messages
+                   if m.partition() == tp.partition and m.offset() == tp.offset)
+        self.messages.insert(0, msg)
+
+    def commit(self, message=None, asynchronous=False):
+        if message is not None:
+            self.committed_messages.append(message)

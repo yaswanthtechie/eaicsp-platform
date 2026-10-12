@@ -113,6 +113,37 @@ services:
       retries: 3
       start_period: 20s
 
+  compliance-consumer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: inventory-compliance-consumer
+    restart: unless-stopped
+    command: ["python", "-m", "app.services.compliance_consumer"]
+    environment:
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/inventory
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - KAFKA_CONSUMER_GROUP=inventory-service
+      - COMPLIANCE_STATUS_CHANGED_TOPIC=compliance.supplier.status_changed
+      - COMPLIANCE_DLQ_TOPIC=compliance.supplier.status_changed.dlq
+      - ENVIRONMENT=production
+    depends_on:
+      inventory-service:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import os, sys, time;
+          p = '/tmp/compliance-consumer.heartbeat';
+          sys.exit(0 if os.path.exists(p) and time.time() - os.path.getmtime(p) < 30 else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
 volumes:
   inventory_postgres_data:
   inventory_redis_data:
