@@ -721,7 +721,7 @@ slows the dashboard by up to 3s. Caching health results is a planned improvement
 | Milestone | Status | Details |
 |---|---|---|
 | **M1 Structured JSON Logging** | **Complete** | Every gateway access log is emitted as a single valid JSON line via `app/middleware/logging.py`, containing `@timestamp`, `level`, `service.name`, `http.method`, `route`, `http.status_code`, `latency_ms`, `request_id`, and `trace_id`. |
-| **M2 Security & Redaction Tests** | **Complete** | Automated suite (`tests/test_structured_logging.py`, 10/10 passed) validates JSON validity, required field typing, token/header redaction, cookie protection, error responses, and W3C trace correlation. |
+| **M2 Security & Redaction Tests** | **Complete** | Automated suite (`tests/test_structured_logging.py`, 14/14 passed) validates JSON validity, required field typing, token/header redaction, cookie protection, error responses, and W3C trace correlation. |
 | **M3 Local ELK Stack** | **Configured — runtime verification pending** | Dedicated `docker-compose.elk.yml` and `filebeat.yml` with pinned images (`8.15.1`), persistent volumes, localhost-only bindings, zero-secret dev profile, and health checks. |
 | **M4 Kibana Saved Objects** | **Export prepared — import verification pending** | Prepared export at `kibana/exports/saved_objects.ndjson` including Data View (`gateway-logs-*`), Saved Search by `request_id`, error rate visualizations, and slow routes ranking. |
 | **M5 Observability Correlation** | **Pending verification** | Correlation flow across Grafana metrics, Jaeger traces, and Kibana logs using `request_id` and OpenTelemetry `trace_id` is pending runtime verification. |
