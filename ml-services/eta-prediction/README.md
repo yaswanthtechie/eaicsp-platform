@@ -12,85 +12,141 @@ tracking, and automated pytest coverage.
 
 ## Current status
 
-**Milestone 1 (Production-harden ETA): complete.**
+  | Milestone | Status | Notes |
+  |---|---|---|
+  | Production-harden ETA | Complete | `/predict` and `/health`, 80% prediction intervals, unseen routes handled via geographic features. |
+  | Route-level insights | Partial | Route rankings and plain-English findings done. Carrier rankings not possible: the Olist dataset has no carrier field. |    
+  | ETA re-prediction on status change | Contract only | Design in `docs/ETA_REPREDICTION_CONTRACT.md`. No endpoint or code yet; status values must be agreed    
+  with Logistics first. |
+  | Unified ML dashboard | Partial | Streamlit dashboard for ETA + anomaly detection (see "Running the dashboard"). ETA predictions don't include a "why" yet. | 
+  | (remaining milestones) | Not started | |
 
-Served `/predict` and `/health` endpoints, empirical 80% prediction
-intervals, and unseen-route handling via geographic features rather than
-route lookup.
+  ## Running the service
 
-**Milestone 2 (Route-level insights): partial.**
+  ```bash
+  cd ml-services/eta-prediction
+  uvicorn src.api:app --reload --port 8010   # Swagger at http://localhost:8010/docs
+  ```
 
-Route rankings and plain-English findings are implemented.
+  ### `POST /predict`
 
-*Carrier* rankings are **not** implemented: the Olist dataset has no
-carrier field, so there is nothing to rank. `carrier` is accepted on the
-`/predict` contract for compatibility with the logistics service but is
-not a model feature.
+  Request:
 
-**Milestones 3-5: not started.**
+  ```json
+  {
+    "origin": "sao paulo",
+    "destination": "rio de janeiro",
+    "carrier": "any-string",
+    "weight_kg": 2.5
+  }
+  ```
 
-## Running the service
+  Response:
 
-```bash
-cd ml-services/eta-prediction
-```bash
-uvicorn src.api:app --reload --port 8010  # Swagger at /docs
+  ```json
+  {
+    "eta_days": 12.4,
+    "confidence_low": 8.1,
+    "confidence_high": 16.7
+  }
+  ```
 
-POST /predict
+  Errors return:
 
-Request:
+  ```json
+  {
+    "error_code": "...",
+    "message": "..."
+  }
+  ```
 
-{
-  "origin": "sao paulo",
-  "destination": "rio de janeiro",
-  "carrier": "any-string",
-  "weight_kg": 2.5
-}
-Response:
+  | Error code | HTTP status |
+  |---|---|
+  | `LOCATION_NOT_FOUND`, `INVALID_REQUEST` | 422 |
+  | `MODEL_CONFIGURATION_ERROR`, `INTERNAL_PREDICTION_ERROR` | 500 |
 
-{
-  "eta_days": 12.4,
-  "confidence_low": 8.1,
-  "confidence_high": 16.7
-}
+  ### `GET /health`
 
-Errors return:
+  Returns the service health.
 
-{
-  "error_code": "...",
-  "message": "..."
-}
+  ### Route insights
 
-Possible errors:
+  ```bash
+  python main.py
+  ```
 
-LOCATION_NOT_FOUND / INVALID_REQUEST — HTTP 422
-MODEL_CONFIGURATION_ERROR / INTERNAL_PREDICTION_ERROR — HTTP 500
-GET /health
+  This prints the slowest-route ranking and plain-English findings as part of
+  the training run. See `src/route_insights.py` for the implementation.
 
-The service also exposes:
+  ## Running the dashboard
 
-GET /health
-Route insights
-python main.py
+  The dashboard shows ETA prediction and anomaly detection on one page.
 
-prints the slowest-route ranking and plain-English findings as part of the
-training run.
+  It needs:
 
-See src/route_insights.py for the route-level insight implementation.
+  - the trained ETA model and the Olist data in `data/raw/` (see "First-Time Setup")
+  - the anomaly-detection service running
 
+  ```bash
+  # 1. Anomaly-detection service (separate terminal), port 8000
+  cd ml-services/anomaly-detection
+  uvicorn app:app --port 8000
 
-The current production pipeline uses an XGBoost regressor to predict
-delivery time in days.
+  # 2. Dashboard
+  cd ml-services/eta-prediction
+  python -m pip install -r requirements.txt
+  streamlit run dashboard/app.py
+  ```
 
----
+  Streamlit opens the dashboard at http://localhost:8501.
 
+  If the anomaly service runs on another host or port, set `ANOMALY_SERVICE_URL`
+  before starting the dashboard:
+
+  ```powershell
+  # PowerShell
+  $env:ANOMALY_SERVICE_URL = "http://localhost:8000"
+  streamlit run dashboard/app.py
+  ```
+
+  ```bash
+  # Bash
+  ANOMALY_SERVICE_URL=http://localhost:8000 streamlit run dashboard/app.py
+  ```
+
+  What you see when something is missing:
+
+  | Situation | Dashboard shows |
+  |---|---|
+  | Olist data or trained ETA model missing | "ETA prediction model or required data is missing..." |
+  | Unknown city or invalid input | "Invalid ETA request: ..." |
+  | Anomaly service not running | "Anomaly service is not reachable at http://localhost:8000/detect..." |
+  | Anomaly service returns an error | "Anomaly service returned <status>: <its message>" |
+
+  Dashboard tests (no data, model or running service needed):
+
+  ```bash
+  pytest tests/test_dashboard_services.py -q
+  ```
+
+  ---
+
+  The current production pipeline uses an XGBoost regressor to predict
+  delivery time in days.
+
+  ---
+
+  ---
 ## Project Structure
 
 ```text
 ml-services/eta-prediction/
-│-- main.py
-│-- requirements.txt
-│-- README.md
+  │-- main.py
+  │-- requirements.txt
+  │-- README.md
+  │
+  ├── data/
+
 │
 ├── data/
 │   ├── raw/
@@ -110,20 +166,32 @@ ml-services/eta-prediction/
 │   └── eta_prediction_interval.joblib
 │
 ├── src/
-│   │-- __init__.py
-│   │-- config.py
-│   │-- data.py
-│   │-- features.py
-│   │-- preprocess.py
-│   │-- split.py
-│   │-- pipeline.py
-│   │-- train.py
-│   │-- evaluate.py
-│   │-- predict.py
-│   │-- model_loader.py
-│   │-- xg_boost_model.py
-│   │-- mlflow_tracking.py
+│   ├── __init__.py
+│   ├── config.py
+│   ├── data.py
+│   ├── features.py
+│   ├── preprocess.py
+│   ├── split.py
+│   ├── pipeline.py
+│   ├── train.py
+│   ├── evaluate.py
+│   ├── predict.py
+│   ├── model_loader.py
+│   ├── xg_boost_model.py
+│   ├── mlflow_tracking.py
 │   └── paths.py
+│
+├── dashboard/
+│   ├── __init__.py
+│   ├── app.py
+│   ├── config.py
+│   └── services/
+│       ├── __init__.py
+│       ├── eta_service.py
+│       └── anomaly_service.py
+│
+├── docs/
+│   └── ETA_REPREDICTION_CONTRACT.md
 │
 └── tests/
     │-- conftest.py
@@ -133,7 +201,10 @@ ml-services/eta-prediction/
     │-- test_train.py
     │-- test_evaluate.py
     │-- test_predict.py
-    └── test_mlflow_tracking.py
+    │-- test_mlflow_tracking.py
+      └── test_dashboard_services.py
+  ```
+    
 
 The following directories/files are generated by the training pipeline and should normally be excluded from version control:
 
@@ -168,6 +239,8 @@ The current implementation uses:
 - joblib
 - mlflow
 - pytest
+- fastapi, uvicorn, httpx (HTTP service and its tests)
+- streamlit, requests (dashboard)
 
 Dependencies are pinned in requirements.txt for reproducibility.
 
