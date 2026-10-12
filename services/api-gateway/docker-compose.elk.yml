@@ -29,6 +29,7 @@ services:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
       - ELASTICSEARCH_SSL_VERIFICATIONMODE=none
       - XPACK_SECURITY_ENABLED=false
+      - "NODE_OPTIONS=--max-old-space-size=450"
     ports:
       - "127.0.0.1:5601:5601"
     depends_on:
