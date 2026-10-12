@@ -15,6 +15,16 @@ delivery time in days.
 
 ---
 
+## Current status
+
+| Milestone | Status | Notes |
+|---|---|---|
+| Production-harden ETA | Complete | `/predict` and `/health`, 80% prediction intervals, unseen routes handled via geographic features. |
+| Route-level insights | Partial | Route rankings and plain-English findings done. Carrier rankings not possible: the Olist dataset has no carrier field. |
+| ETA re-prediction on status change | Contract only | Design in `docs/ETA_REPREDICTION_CONTRACT.md`. No endpoint or code yet; status values must be agreed with Logistics first. |
+| Unified ML dashboard | Partial | Streamlit dashboard for ETA + anomaly detection (see below). ETA predictions don't include a "why" yet. |
+| (remaining milestones) | Not started | |
+
 ## Project Structure
 
 ```text
@@ -1362,28 +1372,19 @@ The dashboard provides:
 
 From the `ml-services/eta-prediction/` directory:
 
+The dashboard needs the trained ETA model and the Olist data in `data/raw/`,
+and the anomaly-detection service running.
+
 ```bash
+# 1. Anomaly service (separate terminal), default port 8000
+cd ml-services/anomaly-detection
+uvicorn app:app --port 8000
+
+# 2. Dashboard
+cd ml-services/eta-prediction
 streamlit run dashboard/app.py
+
 ```
-
-The dashboard uses the existing ETA prediction implementation and
-the existing anomaly detection service. It does not duplicate model
-or feature-engineering logic.
-
-The anomaly service URL can be configured using:
-
-```text
-ANOMALY_SERVICE_URL
-```
-
-If it is not set, the dashboard uses:
-
-```text
-http://localhost:8001
-```
-
-The anomaly detection service must be running separately when using
-the anomaly detection section of the dashboard.
 
 ### ETA Re-Prediction Contract
 

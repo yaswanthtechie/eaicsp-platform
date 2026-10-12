@@ -1,7 +1,19 @@
+import sys
+from pathlib import Path
+
 import streamlit as st
 
-from dashboard.services.eta_service import predict_eta
-from dashboard.services.anomaly_service import detect_anomaly
+SERVICE_ROOT = Path(__file__).resolve().parents[1]
+
+if str(SERVICE_ROOT) not in sys.path:
+    sys.path.insert(0, str(SERVICE_ROOT))
+
+from dashboard.services.anomaly_service import (  # noqa: E402
+    AnomalyServiceError,
+    detect_anomaly,
+)
+from dashboard.services.eta_service import predict_eta  # noqa: E402
+from src.predict import predict  # noqa: E402
 
 
 st.set_page_config(
@@ -86,7 +98,16 @@ if st.button("Predict ETA"):
                     result["confidence_high"],
                 )
 
-        except (ValueError, KeyError) as exc:
+        except ValueError as exc:
+            st.error(
+                f"Invalid ETA request: {exc}"
+            )
+        except FileNotFoundError as exc:
+            st.error(
+                "ETA prediction model or required data is missing. "
+                f"Details: {exc}"
+            )
+        except Exception as exc:
             st.error(
                 f"ETA prediction failed: {exc}"
             )
@@ -204,6 +225,8 @@ if st.button("Detect Anomaly"):
                     f"{reason['contribution']:.4f}"
                 )
 
+    except AnomalyServiceError as exc:
+        st.error(str(exc))
     except Exception as exc:
         st.error(
             f"Anomaly detection failed: {exc}"

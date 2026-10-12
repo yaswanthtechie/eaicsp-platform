@@ -1,17 +1,37 @@
 import requests
 
-from dashboard.config import ANOMALY_SERVICE_URL
+from dashboard.config import anomaly_service_url
+
+
+class AnomalyServiceError(RuntimeError):
+    """The anomaly service could not be reached or returned an error."""
 
 
 def detect_anomaly(payload: dict) -> dict:
     """Call the existing anomaly detection service."""
 
-    response = requests.post(
-        f"{ANOMALY_SERVICE_URL}/detect",
-        json=payload,
-        timeout=10,
-    )
+    url = f"{anomaly_service_url()}/detect"
 
-    response.raise_for_status()
+    try:
+        response = requests.post(
+            url,
+            json=payload,
+            timeout=10,
+        )
+    except requests.RequestException as exc:
+        raise AnomalyServiceError(
+            f"Anomaly service is not reachable at {url}. "
+            "Is it running? (see README)"
+        ) from exc
+
+    if not response.ok:
+        try:
+            detail = response.json().get("detail", response.text)
+        except ValueError:
+            detail = response.text
+
+        raise AnomalyServiceError(
+            f"Anomaly service returned {response.status_code}: {detail}"
+        )
 
     return response.json()
