@@ -439,13 +439,18 @@ After successful login, the dashboard reads the authenticated role and renders t
 
 The dashboard refreshes the access token before it expires using the Platform refresh endpoint.
 
+A minimum interval between token refresh attempts prevents repeated refresh requests when the client clock is inaccurate.
+
+During logout, the local authentication session is cleared before the Platform logout request is sent.
+
+If a token refresh finishes after logout, its result is ignored to prevent restoring the logged-out session.
 Logout:
 
 1. Calls the Platform logout endpoint.
-2. Clears the dashboard authentication session.
+2. Clears the local authentication session.
 3. Returns the user to the login screen.
 
-If the refresh fails or the session expires, the authentication session is cleared and the user is returned to the login screen with a session-expired message.
+If the refresh fails or the session has expired, the user is returned to the login screen with a session-expired message.If the authentication service is unavailable,the dashboard keeps the use signed in and retries the refresh later.
 
 ## Authentication Error Handling
 
@@ -521,6 +526,7 @@ The authentication Playwright test is:
 ```text
 e2e/dashboard.auth.spec.ts
 ```
+The authentication Playwright configuration use`reuseExistingServer: false` to start a dedicated development server and `retries: 1` to retry failed tests once.
 
 It contains 12 tests covering:
 

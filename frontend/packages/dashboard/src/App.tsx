@@ -826,6 +826,8 @@ function DashboardApp({ authRole, onLogout }: DashboardAppProps) {
 function App() {
   const [authSession, setAuthSession] = useState(getAuthSession);
   const [authError, setAuthError] = useState("");
+  const lastRefreshAttemptAt = useRef(0);
+  const authOperationId = useRef(0);
 
   useEffect(() => {
     if (USE_MOCK_AUTH || !authSession) {
@@ -835,15 +837,35 @@ function App() {
     let timer: number | undefined;
 
     function scheduleRefresh(delayMs: number) {
+      const elapsed = Date.now() - lastRefreshAttemptAt.current;
+      // Do not delay the first refresh. Enforce the minimum gap
+     // only after a refresh attempt has already occurred.
+      const minimumWait = 
+        lastRefreshAttemptAt.current === 0
+          ? 0
+          : Math.max(15_000 - elapsed, 0);
       timer = window.setTimeout(() => {
         void refreshBeforeExpiry();
-      }, delayMs);
+      }, Math.max(delayMs, minimumWait));
     }
 
     async function refreshBeforeExpiry()  {
+      const operationId = authOperationId.current;
+
+      lastRefreshAttemptAt.current = Date.now();
       try {
-        setAuthSession(await refreshAuthSession());
+        const refreshedSession = await refreshAuthSession();
+
+        if(operationId !== authOperationId.current) {
+          return;
+        }
+
+        setAuthSession(refreshedSession);
       } catch (err) {
+        if (operationId !== authOperationId.current) {
+          return;
+        }
+        
         if (err instanceof AuthError && err.kind === "unavailable") {
           scheduleRefresh(REFRESH_RETRY_MS);
           return;
@@ -857,17 +879,15 @@ function App() {
     let delayMs = 0;
 
     try {
-      delayMs = Math.max(
+      delayMs =
         getTokenExpiry(authSession.access_token) -
           Date.now() -
-          REFRESH_BEFORE_EXPIRY_MS,
-        0,
-      );
+          REFRESH_BEFORE_EXPIRY_MS;
     } catch {
-      // Refresh immediately if the expiry cannot be read.
+      // Refresh after the minimum delay if the expiry cannot be read.
     }
 
-    scheduleRefresh(delayMs);
+    scheduleRefresh(Math.max(delayMs, 0));
 
     return () => {
       window.clearTimeout(timer);
@@ -896,9 +916,16 @@ function App() {
       key={authSession.role}
       authRole={authSession.role}
       onLogout={async () => {
-        await logout(authSession);
+        authOperationId.current += 1;
         clearAuthSession();
         setAuthSession(null);
+        setAuthError("");
+
+        try {
+          await logout(authSession);
+        } catch {
+          // Local logout is already complete.
+        }
       }}
     />
   );
