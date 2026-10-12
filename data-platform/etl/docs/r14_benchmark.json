@@ -4,16 +4,16 @@
     "rows": 9954756,
     "qty": 497739949,
     "price": 2513437170.1,
-    "seconds": 157.24,
-    "peak_rss_mb": 1264
+    "seconds": 63.02,
+    "peak_rss_mb": 1672
   },
   "spark": {
     "engine": "spark",
     "rows": 9954756,
     "qty": 497739949,
     "price": 2513437170.1,
-    "seconds": 177.2,
-    "peak_rss_mb": 1412
+    "seconds": 86.41,
+    "peak_rss_mb": 1482
   },
   "parity": true,
   "input_bytes": 357807983

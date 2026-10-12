@@ -8,8 +8,7 @@ services:
       DB_PORT: 5432
       DB_NAME: salesdb
       DB_USER: admin
-      DB_PASSWORD: ${DB_PASSWORD}
-      BACKFILL_JDBC_URL: jdbc:postgresql://postgres:5432/salesdb
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
     volumes:
       - ./data:/opt/airflow/data
       - ./spark:/opt/airflow/spark

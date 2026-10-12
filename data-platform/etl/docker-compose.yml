@@ -101,6 +101,7 @@ x-airflow-common:
     - ${AIRFLOW_PROJ_DIR:-.}/pipeline_config.staging.yaml:/opt/airflow/pipeline_config.staging.yaml
     - ${AIRFLOW_PROJ_DIR:-.}/pipeline_config.prod.yaml:/opt/airflow/pipeline_config.prod.yaml
     - ${AIRFLOW_PROJ_DIR:-.}/scripts:/opt/airflow/scripts
+    - ${AIRFLOW_PROJ_DIR:-.}/spark:/opt/airflow/spark
     # R12-13: dbt project used by the transformation task.
     - ${AIRFLOW_PROJ_DIR:-.}/dbt:/opt/airflow/dbt
   user: "${AIRFLOW_UID:-50000}:0"
@@ -216,7 +217,7 @@ services:
         condition: service_completed_successfully
   airflow-worker:
     <<: *airflow-common
-    command: celery worker --hostname=worker@%h --pidfile=
+    command: celery worker --celery-hostname celery@%h
     healthcheck:
       # yamllint disable rule:line-length
       test:
@@ -228,7 +229,7 @@ services:
       start_period: 60s
     environment:
       <<: *airflow-common-env
-      # Required to handle warm shutdown of the celery worker --hostname=worker@%h --pidfile=s properly
+      # Required to handle warm shutdown of the celery workers properly
       # See https://airflow.apache.org/docs/docker-stack/entrypoint.html#signal-propagation
       DUMB_INIT_SETSID: "0"
     restart: always
@@ -351,11 +352,3 @@ volumes:
   clickhouse-data:
   clickhouse-logs:
   kafka-data:
-
-
-
-
-
-
-
-

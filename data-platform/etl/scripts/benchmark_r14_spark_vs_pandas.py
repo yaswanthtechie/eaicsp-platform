@@ -12,11 +12,13 @@ KEY = ["date", "sku_id", "warehouse_id"]
 
 def pandas_path(path):
     import pandas as pd
-    df = pd.read_csv(path, dtype=str)
+    from spark.sales_backfill import INT_RE, NUM_RE
+    df = pd.read_csv(path, dtype=str, keep_default_na=False)
     df = df.drop_duplicates()
+    q, p = df["quantity_sold"].str.strip(), df["unit_price"].str.strip()
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df["quantity_sold"] = pd.to_numeric(df["quantity_sold"], errors="coerce")
-    df["unit_price"] = pd.to_numeric(df["unit_price"], errors="coerce")
+    df["quantity_sold"] = pd.to_numeric(q.where(q.str.fullmatch(INT_RE)), errors="coerce")
+    df["unit_price"] = pd.to_numeric(p.where(p.str.fullmatch(NUM_RE)), errors="coerce")
     df = df.dropna()                       # same reject policy as the Spark path
     df = df.drop_duplicates(subset=KEY, keep="last")
     return int(len(df)), int(df["quantity_sold"].sum()), float(df["unit_price"].sum())

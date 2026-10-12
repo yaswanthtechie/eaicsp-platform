@@ -1,16 +1,27 @@
 """PySpark historical sales backfill (Round 14).
 
 Cleaning mirrors etl.src.transform.transform_data plus the loader's key rule:
-  1. exact duplicate rows removed (keep first occurrence, like pandas drop_duplicates)
-  2. date -> DATE, quantity_sold -> INT, unit_price -> DOUBLE
+  1. exact duplicate rows removed on the RAW strings (keep first occurrence,
+     like pandas drop_duplicates)
+  2. date -> DATE, quantity_sold -> INT, unit_price -> DOUBLE, with rules as
+     strict as pandas: quantity must be an integer string ("2.7" is rejected,
+     as pandas astype(int) raises) and price must be a plain number. NaN and
+     Infinity are rejected on purpose (pandas astype(float) would accept NaN).
   3. rows that fail the cast (NULL after cast) are rejected and counted
-     (pandas would raise / the quality gate would quarantine them)
   4. same (date, sku_id, warehouse_id) key with different values: LAST row in
-     input order wins (same as load._dedupe_records without a priority key)
+     input order wins (same as load._dedupe_records without a priority key).
+     Input must therefore be ONE file: file order is not guaranteed otherwise.
+  5. unit_price is rounded to decimal(12,2) before loading (same as the
+     Postgres NUMERIC(12,2) column), so verification can compare exactly.
 
 Each month is upserted and then verified against Postgres independently, so a
 failed month can be re-run alone. A month is NOT one DB transaction (each Spark
-partition commits itself); safety comes from the idempotent upsert + verification.
+partition commits itself), so a crashed month may be partially written;
+re-running it repairs it, because the upsert is idempotent and verification
+checks the final state. After a successful upsert, rows this backfill wrote for
+the month in an older run (same source_batch, different run_id) are deleted:
+the input file is the source of truth for the months it covers. Rows written by
+the daily pipeline (other source_batch) are never touched.
 """
 from __future__ import annotations
 
@@ -18,12 +29,16 @@ import argparse
 import json
 import os
 import re
+import time
 from datetime import date
+from decimal import Decimal
 
 COLUMNS = ["date", "sku_id", "warehouse_id", "quantity_sold", "unit_price"]
 KEY = ["date", "sku_id", "warehouse_id"]
-PIPELINE_VERSION = "r14-spark-1.1"
+PIPELINE_VERSION = "r14-spark-1.2"
 MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+INT_RE = r"^-?\d+$"                                  # pandas astype(int) rejects "2.7", "2.0"
+NUM_RE = r"^-?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?$"   # plain numbers only: no NaN / Infinity
 
 
 # ---------- pure helpers (no Spark needed) ----------
@@ -72,10 +87,12 @@ def _with_order(df):
 
 def cast_sales(df):
     from pyspark.sql import functions as F
+    q = F.trim(F.col("quantity_sold"))
+    p = F.trim(F.col("unit_price"))
     return (
         df.withColumn("date", F.to_date("date"))
-        .withColumn("quantity_sold", F.col("quantity_sold").cast("int"))
-        .withColumn("unit_price", F.col("unit_price").cast("double"))
+        .withColumn("quantity_sold", F.when(q.rlike(INT_RE), q.cast("int")))
+        .withColumn("unit_price", F.when(p.rlike(NUM_RE), p.cast("double")))
     )
 
 
@@ -88,14 +105,11 @@ def valid_condition():
 
 
 def _prepare(df):
-    """cast -> drop rejected -> exact-dedupe keeping first input row. Keeps _ord."""
+    """exact-dedupe on RAW strings (like pandas drop_duplicates), then cast,
+    then drop rejected rows. Keeps _ord."""
     from pyspark.sql import functions as F
-    casted = cast_sales(_with_order(df))
-    return (
-        casted.filter(valid_condition())
-        .groupBy(*COLUMNS)
-        .agg(F.min("_ord").alias("_ord"))
-    )
+    deduped = _with_order(df).groupBy(*COLUMNS).agg(F.min("_ord").alias("_ord"))
+    return cast_sales(deduped).filter(valid_condition())
 
 
 def clean_sales(df):
@@ -150,6 +164,24 @@ def _upsert_partition(rows, config):
         conn.close()
 
 
+def delete_stale_rows(month: str, run_id: int) -> int:
+    """Delete rows this backfill wrote for the month in an OLDER run (leftovers
+    from a previous, larger input). Never touches other source_batch values."""
+    import psycopg2
+    start, end = month_bounds(month)
+    conn = psycopg2.connect(**db_config())
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM sales_fact WHERE date >= %s AND date < %s "
+                "AND source_batch = %s AND run_id <> %s",
+                (start, end, f"spark_backfill_{month}", run_id),
+            )
+            return cur.rowcount
+    finally:
+        conn.close()
+
+
 def verify_month(month: str, expected: dict):
     """Compare what Spark meant to write with what Postgres holds for this month."""
     import psycopg2
@@ -165,13 +197,11 @@ def verify_month(month: str, expected: dict):
             cnt, qty, price = cur.fetchone()
     finally:
         conn.close()
-    got = {"rows": int(cnt), "qty": int(qty), "price": float(price)}
-    ok = (got["rows"] == expected["rows"] and got["qty"] == expected["qty"]
-          and abs(got["price"] - expected["price"]) <= 0.01)
-    return ok, got
+    got = {"rows": int(cnt), "qty": int(qty), "price": Decimal(price)}
+    return got == expected, got
 
 
-def upsert_month(prepared, month: str, run_id: str):
+def upsert_month(prepared, month: str, run_id):
     from pyspark import StorageLevel
     from pyspark.sql import functions as F
     start, end = month_bounds(month)
@@ -180,34 +210,55 @@ def upsert_month(prepared, month: str, run_id: str):
                         & (F.col("date") < F.lit(end).cast("date")))
     ).drop("_ord")
     monthly = (
-        monthly.withColumn("source_batch", F.lit(f"spark_backfill_{month}"))
+        monthly.withColumn("unit_price", F.col("unit_price").cast("decimal(12,2)"))  # same rounding as Postgres
+        .withColumn("source_batch", F.lit(f"spark_backfill_{month}"))
         .withColumn("run_id", F.lit(int(run_id)).cast("bigint"))
         .withColumn("pipeline_version", F.lit(PIPELINE_VERSION))
         .persist(StorageLevel.MEMORY_AND_DISK)
     )
     try:
-        agg = monthly.agg(F.count("*").alias("n"),
-                          F.coalesce(F.sum("quantity_sold"), F.lit(0)).alias("q"),
-                          F.coalesce(F.sum("unit_price"), F.lit(0.0)).alias("p")).collect()[0]
-        expected = {"rows": int(agg["n"]), "qty": int(agg["q"]), "price": float(agg["p"])}
+        agg = monthly.agg(
+            F.count("*").alias("n"),
+            F.coalesce(F.sum("quantity_sold"), F.lit(0)).alias("q"),
+            F.coalesce(F.sum("unit_price"), F.lit(0).cast("decimal(22,2)")).alias("p"),
+        ).collect()[0]
+        expected = {"rows": int(agg["n"]), "qty": int(agg["q"]), "price": Decimal(agg["p"])}
         cfg = db_config()
         monthly.foreachPartition(lambda rows: _upsert_partition(rows, cfg))
+        removed = delete_stale_rows(month, int(run_id))
         ok, got = verify_month(month, expected)
         if not ok:
             raise RuntimeError(f"verification failed for {month}: spark={expected} postgres={got}")
         return {"month": month, "status": "ok", "rows": expected["rows"],
-                "qty": expected["qty"], "price": round(expected["price"], 2), "verified": True}
+                "qty": expected["qty"], "price": float(expected["price"]),
+                "stale_removed": removed, "verified": True}
     finally:
         monthly.unpersist()
 
 
+def run_months(prepared, months, run_id):
+    """Run each month on its own; one failed month must not stop the others."""
+    results = []
+    for month in months:
+        try:
+            results.append(upsert_month(prepared, month, run_id))
+        except Exception as exc:
+            results.append({"month": month, "status": "failed", "error": str(exc)[:500]})
+    return results
+
+
 # ---------- driver ----------
-def run(input_path: str, start_month: str, end_month: str, run_id: str = "0"):
+def run(input_path: str, start_month: str, end_month: str, run_id=None):
+    # validate before starting Spark
+    if os.path.isdir(input_path) or any(ch in input_path for ch in "*?["):
+        raise ValueError("input must be a single CSV file (last-row-wins depends on file order)")
+    months = list(month_list(start_month, end_month))
+    run_id = int(run_id) if run_id is not None else time.time_ns() // 1_000
+
     from pyspark import StorageLevel
     from pyspark.sql import SparkSession, functions as F
     from pyspark.sql.types import StructType, StructField, StringType
 
-    months = list(month_list(start_month, end_month))  # validate before starting Spark
     schema = StructType([StructField(c, StringType(), True) for c in COLUMNS])
     spark = (
         SparkSession.builder.appName("sales-historical-backfill-r14")
@@ -219,16 +270,16 @@ def run(input_path: str, start_month: str, end_month: str, run_id: str = "0"):
     )
     try:
         raw = spark.read.option("header", True).schema(schema).csv(input_path)
-        base = _with_order(raw).persist(StorageLevel.MEMORY_AND_DISK)
+        # only read the requested months; unparseable dates are kept so they are still counted as rejected
+        range_start, _ = month_bounds(months[0])
+        _, range_end = month_bounds(months[-1])
+        d = F.to_date("date")
+        in_range = d.isNull() | ((d >= F.lit(range_start).cast("date")) & (d < F.lit(range_end).cast("date")))
+        base = _with_order(raw).filter(in_range).persist(StorageLevel.MEMORY_AND_DISK)
         rejected = cast_sales(base).filter(~valid_condition()).count()
         prepared = _prepare(base).persist(StorageLevel.MEMORY_AND_DISK)
-        results = []
-        for month in months:
-            try:
-                results.append(upsert_month(prepared, month, run_id))
-            except Exception as exc:  # isolate: one bad month must not stop the others
-                results.append({"month": month, "status": "failed", "error": str(exc)[:500]})
-        summary = {"rejected_rows_total": rejected, "months": results}
+        results = run_months(prepared, months, run_id)
+        summary = {"run_id": run_id, "rejected_rows_total": rejected, "months": results}
         print(json.dumps(summary, default=str))
         failed = [r["month"] for r in results if r["status"] != "ok"]
         if failed:
@@ -243,7 +294,7 @@ def main():
     p.add_argument("--input", required=True)
     p.add_argument("--start-month", required=True, type=validate_month, help="YYYY-MM")
     p.add_argument("--end-month", required=True, type=validate_month, help="YYYY-MM")
-    p.add_argument("--run-id", default="0")
+    p.add_argument("--run-id", type=int, default=None)
     a = p.parse_args()
     run(a.input, a.start_month, a.end_month, a.run_id)
 
