@@ -1,0 +1,2 @@
+﻿NAME           REFERENCE                 TARGETS       MINPODS   MAXPODS   REPLICAS   AGE
+iris-service   Deployment/iris-service   cpu: 2%/60%   2         5         4          34m

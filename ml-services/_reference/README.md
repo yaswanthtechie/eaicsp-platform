@@ -3122,3 +3122,534 @@ Milestone 2 — Evidently: Model input data/predictions lo drift unda leda Evide
 Milestone 3 — DVC: Training data ni DVC tho version chesam. fetch → prepare → train → evaluate pipeline create chesam. Dataset MD5 ni MLflow tho link chesi which exact data was used to train the model ane traceability create chesam. dvc repro tho reproducibility verify chesam.
 
 Final proof: 199 passed, 1 deselected, BentoML parity 100/100, Docker PASS, DVC reproducibility PASS.
+
+round14
+
+# Round 14 — Kubernetes Deployment, Scaling and Rolling Updates
+
+## Overview
+
+Round 14 focuses on deploying the BentoML Iris reference service to a local Kubernetes cluster and validating production-style deployment capabilities.
+
+The implementation uses **Kind Kubernetes with Docker Desktop** and includes:
+
+- Kubernetes Deployment and Service
+- ConfigMap configuration
+- CPU and memory resource requests and limits
+- Liveness and readiness probes
+- Horizontal Pod Autoscaler (HPA)
+- Kubernetes load testing
+- Rolling updates from v1 to v2
+- Zero-failure rolling-update validation
+- One-command rollback
+- Rollback validation under load
+
+## Kubernetes Architecture
+
+```text
+Local Machine
+     |
+ Docker Desktop
+     |
+ Kind Cluster (round14)
+     |
+     +----------------------+
+     |                      |
+Kubernetes Service         HPA
+iris-service            CPU target: 60%
+     |
+     +----------------------+
+     |                      |
+  Iris Pod               Iris Pod
+  v1 / v2                v1 / v2
+     |                      |
+     +-----------+----------+
+                 |
+          BentoML Service
+                 |
+             Iris Model
+```
+
+## 1. Kubernetes Cluster
+
+The local Kubernetes cluster is created using Kind.
+
+```text
+Cluster Name : round14
+Node         : round14-control-plane
+```
+
+Verify the cluster:
+
+```powershell
+kubectl get nodes
+```
+
+Expected result: the `round14-control-plane` node is `Ready`.
+
+## 2. Kubernetes Manifests
+
+All Kubernetes manifests are stored under `k8s/`.
+
+```text
+k8s/
+├── deployment.yaml
+├── service.yaml
+├── configmap.yaml
+└── hpa.yaml
+```
+
+### Deployment
+
+File: `k8s/deployment.yaml`
+
+The Deployment runs the BentoML Iris service on container port `3000`, with two minimum replicas under normal load.
+
+The rolling-update strategy is:
+
+```yaml
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 0
+    maxSurge: 1
+```
+
+This allows Kubernetes to create a replacement pod before removing an existing pod, helping maintain service availability during updates.
+
+## 3. Resource Requests and Limits
+
+The Iris service uses the following Kubernetes resource configuration:
+
+```yaml
+resources:
+  requests:
+    cpu: "250m"
+    memory: "512Mi"
+  limits:
+    cpu: "1"
+    memory: "1Gi"
+```
+
+Resource requests help Kubernetes schedule pods. Resource limits constrain the CPU and memory available to each container.
+
+## 4. ConfigMap
+
+File: `k8s/configmap.yaml`
+
+The ConfigMap includes:
+
+```yaml
+BENTO_BUNDLED_MODEL: "true"
+ENABLE_RETRAINING_SCHEDULER: "false"
+```
+
+The bundled model configuration allows the service to load its packaged model without requiring MLflow connectivity inside the Kubernetes container.
+
+## 5. Kubernetes Service
+
+File: `k8s/service.yaml`
+
+The Kubernetes Service exposes the Iris application internally using `ClusterIP`.
+
+```text
+Service Port  : 80
+Container Port: 3000
+Service Name  : iris-service
+```
+
+For local testing, expose the service through port forwarding:
+
+```powershell
+kubectl port-forward service/iris-service 3000:80
+```
+
+The application can then be accessed at `http://localhost:3000`.
+## 6. Liveness and Readiness Probes
+
+The deployment uses two health endpoints.
+
+### Liveness
+
+Endpoint: `GET /livez`
+
+Checks whether the BentoML service is running. BentoML returns a plain-text response rather than a JSON object.
+
+### Readiness
+
+Endpoint: `GET /readyz`
+
+Checks whether the BentoML service is ready to receive requests. BentoML returns a plain-text response rather than a JSON object.
+
+Kubernetes uses the readiness probe result to determine whether a pod should receive normal service traffic.
+
+If the readiness probe fails, Kubernetes marks the pod as not ready until the probe succeeds again.
+## 7. Model Build Version
+
+The deployment uses `MODEL_BUILD_VERSION` to identify the serving build.
+
+```text
+v1 image → MODEL_BUILD_VERSION=v1
+v2 image → MODEL_BUILD_VERSION=v2
+```
+
+The Docker build accepts the build version through a build argument, which is exposed to the service through an environment variable.
+
+The build version identifies the deployed service build and is distinct from the actual MLflow model version.
+
+For implementation details, refer to `Dockerfile` and `src/service.py`.
+
+## 8. HPA — Horizontal Pod Autoscaler
+
+File: `k8s/hpa.yaml`
+
+The HPA scales the Iris Deployment based on CPU utilization.
+
+| Setting | Value |
+|---|---|
+| Minimum replicas | 2 |
+| Maximum replicas | 5 |
+| Target CPU utilization | 60% |
+| Scale-down stabilization | 60 seconds |
+
+Verify the HPA:
+
+```powershell
+kubectl get hpa iris-service
+kubectl top pods
+```
+
+### HPA Test Results
+
+A load test was run against the Kubernetes service.
+
+```text
+Duration        : 120 seconds
+Target rate     : 20 requests/second
+Total requests  : 2400
+Successful      : 2400
+Failed          : 0
+Success rate    : 100%
+```
+
+Observed scaling behavior:
+
+```text
+2 replicas
+    ↓
+5 replicas under high CPU load
+    ↓
+3 replicas as load decreased
+    ↓
+2 replicas after load subsided
+```
+
+**Result:** HPA scale-up and scale-down were validated. The cluster scaled to five replicas during heavy load and returned to two replicas after CPU utilization decreased.
+
+## 9. Kubernetes Load-Test Script
+
+File: `scripts/kubernetes_load_test.py`
+
+The script sends prediction requests to the Iris `/predict` endpoint and records:
+
+- Total requests
+- Successful requests
+- Failed requests
+- Elapsed time
+- Achieved request rate
+- Success rate
+
+Example:
+
+```powershell
+python scripts/kubernetes_load_test.py `
+  --url http://localhost:3000/predict `
+  --duration 120 `
+  --rate 10
+```
+
+The script also supports a request timeout using `--timeout`.
+
+## 10. Rolling Update — v1 to v2
+
+The container images used for the rolling-update test are:
+
+```text
+iris-ml-service:round14-v1
+iris-ml-service:round14-v2
+```
+
+The v2 image was built and loaded into the Kind cluster. The Deployment was updated while prediction traffic was being generated.
+
+Update the image:
+
+```powershell
+kubectl set image deployment/iris-service `
+  iris-service=iris-ml-service:round14-v2
+```
+
+Monitor the rollout:
+
+```powershell
+kubectl rollout status deployment/iris-service
+kubectl get pods -l app=iris-service -w
+```
+
+### Rolling-Update Test Results
+
+The final rolling-update load test completed successfully.
+
+```text
+Duration        : 120.07 seconds
+Target rate     : 10 requests/second
+Achieved rate   : 9.99 requests/second
+Total requests  : 1200
+Successful      : 1200
+Failed          : 0
+Success rate    : 100%
+```
+
+Verification confirmed that:
+
+- The v1-to-v2 deployment rollout completed successfully.
+- Both application pods were ready after the rollout.
+- The final deployed image was `iris-ml-service:round14-v2`.
+- The load test recorded zero failed requests.
+
+**Result: PASS — The rolling update met the zero-failure acceptance criterion in the validated test.**
+
+## 11. Rollback
+
+Kubernetes provides a one-command rollback to restore the previous Deployment revision.
+
+```powershell
+kubectl rollout undo deployment/iris-service
+kubectl rollout status deployment/iris-service --timeout=180s
+```
+
+Verify the deployed image:
+
+```powershell
+kubectl get deployment iris-service `
+  -o jsonpath="{.spec.template.spec.containers[0].image}"
+```
+
+The final verified image after rollback was:
+
+```text
+iris-ml-service:round14-v1
+```
+
+The rollout completed successfully, and the final deployment had two ready Iris pods.
+
+## 12. Rollback Under Load
+
+Rollback was validated while prediction requests were being sent to the Kubernetes service.
+
+### Test Results
+
+```text
+Duration        : 120.04 seconds
+Target rate     : 10 requests/second
+Total requests  : 1201
+Successful      : 1201
+Failed          : 0
+Success rate    : 100%
+```
+
+Verification confirmed that the Deployment returned to v1.
+
+**Result: PASS — Rollback completed successfully, with zero failed requests recorded by the load test.**
+
+## 13. Evidence Files
+
+Round 14 validation evidence is stored in [`docs/evidence/round14/`](docs/evidence/round14/).
+
+Key evidence files:
+
+- [HPA final status](docs/evidence/round14/hpa_final.txt)
+- [HPA final pod status](docs/evidence/round14/hpa_final_pods.txt)
+- [HPA load-test results](docs/evidence/round14/hpa_load.txt)
+- [Rolling-update load-test results](docs/evidence/round14/rolling_update_load.txt)
+- [Rollout history](docs/evidence/round14/rollout_history.txt)
+- [Rolling-update pod status](docs/evidence/round14/rollout_pods.txt)
+- [Rollback load-test results](docs/evidence/round14/rollback_load.txt)
+- [Rollback pod status](docs/evidence/round14/rollback_pods.txt)
+- [Final rollback deployment](docs/evidence/round14/rollback_deployment.txt)
+
+These files provide the recorded results for autoscaling, rolling updates, and rollback validation.
+
+
+## 14. Verification Commands
+
+### Cluster
+
+```powershell
+kubectl get nodes
+```
+
+### Deployment
+
+```powershell
+kubectl get deployment iris-service -o wide
+```
+
+### Pods
+
+```powershell
+kubectl get pods -l app=iris-service
+```
+
+### Service
+
+```powershell
+kubectl get service iris-service
+```
+
+### HPA and CPU usage
+
+```powershell
+kubectl get hpa iris-service
+kubectl top pods
+```
+
+### Current deployment image
+
+```powershell
+kubectl get deployment iris-service `
+  -o jsonpath="{.spec.template.spec.containers[0].image}"
+```
+
+### Rollout history and status
+
+```powershell
+kubectl rollout history deployment/iris-service
+kubectl rollout status deployment/iris-service
+```
+
+### Liveness and readiness
+
+```powershell
+curl.exe http://localhost:3000/livez
+curl.exe http://localhost:3000/readyz
+```
+
+Run the curl commands while the port-forward process is active.
+
+## 15. Testing Status
+
+The latest application test run recorded:
+
+```text
+208 passed
+1 deselected
+61 warnings
+```
+
+The warnings were reported separately from test failures.
+
+Kubernetes validation completed for:
+
+- Kind cluster and BentoML deployment
+- Kubernetes Service and ConfigMap
+- CPU and memory resource requests and limits
+- Liveness and readiness probes
+- HPA scale-up and scale-down
+- Kubernetes load testing
+- v1 and v2 deployment images
+- Rolling update from v1 to v2 with zero failed requests
+- Rollback from v2 to v1
+- Rollback under load with zero failed requests
+
+## 16. Round 14 Definition of Done
+
+| Requirement | Status |
+|---|---|
+| Service running on local Kubernetes | Complete |
+| Deployment manifest | Complete |
+| Service manifest | Complete |
+| ConfigMap | Complete |
+| CPU and memory requests/limits | Complete |
+| Liveness probe | Complete |
+| Readiness probe waits for model loading | Complete |
+| CPU-based HPA | Complete |
+| HPA scale-up tested | Complete |
+| HPA scale-down tested | Complete |
+| Kubernetes load testing | Complete |
+| v1 and v2 container images | Complete |
+| Rolling update v1 → v2 | Complete |
+| Rolling update with zero failed requests | Complete |
+| Rollback tested | Complete |
+| Rollback under load with zero failed requests | Complete |
+| Evidence saved | Complete |
+
+## 17. Files Added or Updated
+
+Kubernetes manifests:
+
+```text
+k8s/
+├── deployment.yaml
+├── service.yaml
+├── configmap.yaml
+└── hpa.yaml
+```
+
+Load-testing script:
+
+```text
+scripts/
+└── kubernetes_load_test.py
+```
+
+Updated application and documentation files:
+
+```text
+Dockerfile
+src/service.py
+README.md
+docs/evidence/round14/
+```
+
+## 18. Summary
+
+Round 14 extends the BentoML Iris reference service from a containerized ML service to a locally deployed Kubernetes application.
+
+The implementation provides:
+
+```text
+BentoML Service
+       ↓
+Docker Image
+       ↓
+Kind Kubernetes Cluster
+       ↓
+Deployment and Service
+       ↓
+Liveness and Readiness Probes
+       ↓
+Horizontal Pod Autoscaler
+       ↓
+Load Testing
+       ↓
+Rolling Update (v1 → v2)
+       ↓
+Rollback (v2 → v1)
+```
+
+**Final status:** HPA scale-up and scale-down, rolling update, and rollback under load were validated. Both the rolling-update and rollback load tests recorded zero failed requests. The final deployment was verified on `iris-ml-service:round14-v1` with two ready Iris pods.
+### Automated Test Results
+
+Executed the full test suite using:
+
+```powershell
+python -m pytest -q
+```
+
+**Result: 208 passed, 1 deselected, 61 warnings in 46.24 seconds.**
+
+- **Passed:** 208 tests
+- **Failed:** 0 tests
+- **Deselected:** 1 test
+- **Warnings:** 61, primarily dependency deprecation warnings
+- **Status:** All executed tests passed successfully.

@@ -1,0 +1,12 @@
+{
+  "started_at": "2026-10-12T12:20:51.314876+00:00",
+  "url": "http://localhost:3000/predict",
+  "target_rate": 10.0,
+  "achieved_rate": 10.01,
+  "elapsed_s": 119.92,
+  "total": 1200,
+  "successful": 1200,
+  "failed": 0,
+  "errors": {},
+  "success_rate": 100.0
+}

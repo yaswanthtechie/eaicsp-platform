@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: iris-service-config
+data:
+  BENTO_BUNDLED_MODEL: "true"
+  ENABLE_RETRAINING_SCHEDULER: "false"
