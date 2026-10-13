@@ -4,7 +4,10 @@ from fastapi import (
     HTTPException,
 )
 
-from app.core.auth import verify_token
+from app.core.auth import (
+    enforce_not_suspended,
+    verify_token,
+)
 
 from app.schemas.shipment import (
     ShipmentCreate,
@@ -23,8 +26,9 @@ from app.services.purchase_order_service import (
 )
 
 
-router = APIRouter()
-
+router = APIRouter(
+    dependencies=[Depends(enforce_not_suspended)],
+)
 
 # ============================================================
 # CREATE SHIPMENT NOTICE

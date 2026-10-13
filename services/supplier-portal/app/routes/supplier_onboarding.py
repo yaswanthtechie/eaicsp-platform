@@ -11,6 +11,7 @@ from fastapi import (
 from app.core.auth import (
     require_roles,
     verify_token,
+    enforce_not_suspended_with_resolved_identity,
 )
 
 from app.core.config import settings
@@ -55,6 +56,9 @@ from app.services.compliance_client import (
 
 router = APIRouter(
     prefix="/suppliers",
+    dependencies=[
+        Depends(enforce_not_suspended_with_resolved_identity)
+    ],
 )
 
 
@@ -314,6 +318,9 @@ def list_documents_endpoint(
 @router.get(
     "/{supplier_id}/documents/{document_id}/download",
     response_model=SupplierDocumentDownloadResponse,
+    dependencies=[
+        Depends(enforce_not_suspended_with_resolved_identity)
+    ],
 )
 def download_document_endpoint(
     supplier_id: str,

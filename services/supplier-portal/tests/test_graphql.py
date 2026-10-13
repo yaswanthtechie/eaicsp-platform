@@ -31,6 +31,15 @@ from app.services.supplier_onboarding_service import (
     suppliers,
 )
 from app.schemas.purchase_order import PurchaseOrderStatus
+from uuid import uuid4
+
+from app.schemas.events import (
+    SupplierComplianceStatus,
+    SupplierStatusChangedEvent,
+)
+from app.services.supplier_compliance_service import (
+    supplier_compliance_service,
+)
 
 
 # ============================================================
@@ -60,27 +69,74 @@ def graphql(
 # TEST DATA HELPERS
 # ============================================================
 
-
-def seed_supplier(supplier_id: str):
-    """
-    Seed the minimum supplier record required by the
-    supplier-document service.
-
-    list_supplier_documents() validates that the supplier
-    exists before returning its documents.
-    """
-
+def seed_supplier(supplier_id: str = "SUP001") -> dict:
     supplier = {
         "supplier_id": supplier_id,
-        "supplier_name": (
-            f"Test Supplier {supplier_id}"
-        ),
+        "company_name": f"Test Supplier {supplier_id}",
+        "country": "India",
         "status": "active",
     }
 
     suppliers[supplier_id] = supplier
+    supplier.pop("compliance_access_status", None)
 
     return supplier
+
+def set_compliance_status(
+    supplier_id: str,
+    status: SupplierComplianceStatus,
+):
+    """
+    Persist compliance status through the same SQLite-backed
+    service used by the application.
+
+    GraphQL authorization reads compliance state from SQLite,
+    so directly changing the suppliers dictionary is insufficient.
+    """
+    supplier = suppliers.get(supplier_id)
+
+    if supplier is None:
+        supplier = seed_supplier(supplier_id)
+
+    # Convert the internal enum to the external Compliance event status.
+    status_mapping = {
+        SupplierComplianceStatus.cleared: "CLEAR",
+        SupplierComplianceStatus.needs_review: "REVIEW",
+        SupplierComplianceStatus.suspended: "BLOCK",
+    }
+
+    try:
+        new_status = status_mapping[status]
+    except KeyError as exc:
+        raise ValueError(
+            f"Unsupported compliance status: {status!r}"
+        ) from exc
+
+    event_id = str(uuid4())
+
+    event_data = {
+        "event_id": event_id,
+        "event_type": "compliance.supplier.status_changed",
+        "event_version": 1,
+        "occurred_at": datetime.now(timezone.utc).isoformat(),
+        "producer": "compliance-service",
+        "payload": {
+            "supplier_name": supplier["company_name"],
+            "country": supplier.get("country", "India"),
+            "old_status": "CLEAR",
+            "new_status": new_status,
+            "matched_list": [],
+            "reason": f"GraphQL authorization test: {new_status}",
+            "screening_run_id": f"test-{event_id}",
+        },
+    }
+
+    event = SupplierStatusChangedEvent.model_validate(
+        event_data
+    )
+
+    # This persists the state and audit record in SQLite.
+    supplier_compliance_service.apply_status_changed_event(event)
 
 
 def seed_po(
@@ -224,26 +280,39 @@ def seed_document(
 # ============================================================
 # FIXTURE CLEANUP
 # ============================================================
-
-
 @pytest.fixture(autouse=True)
-def clean_graphql_data():
-    """
-    Keep GraphQL tests isolated from each other.
-    """
+def clean_graphql_data(tmp_path):
+    from app.services.supplier_compliance_service import (
+        supplier_compliance_service,
+    )
 
-    purchase_orders.clear()
-    invoices.clear()
-    suppliers.clear()
-    supplier_documents.clear()
+    # Give every test its own temporary SQLite database.
+    original_db_path = supplier_compliance_service._db_path
+    supplier_compliance_service._db_path = (
+        tmp_path / "compliance_state.db"
+    )
 
-    yield
+    try:
+        # Clear shared in-memory test data before each test.
+        purchase_orders.clear()
+        invoices.clear()
+        suppliers.clear()
+        supplier_documents.clear()
 
-    purchase_orders.clear()
-    invoices.clear()
-    suppliers.clear()
-    supplier_documents.clear()
+        # Default authenticated supplier used by supplier_client.
+        seed_supplier("SUP001")
 
+        yield
+
+    finally:
+        # Clear shared in-memory test data after each test.
+        purchase_orders.clear()
+        invoices.clear()
+        suppliers.clear()
+        supplier_documents.clear()
+
+        # Restore the original database path.
+        supplier_compliance_service._db_path = original_db_path
 
 # ============================================================
 # 1. GRAPHQL ENDPOINT / SCHEMA
@@ -1383,7 +1452,6 @@ def test_document_pagination_rejects_invalid_cursor(
 # 7. SUPPLIER WITHOUT SUPPLIER_ID
 # ============================================================
 
-
 def test_supplier_without_supplier_id_cannot_query_purchase_orders(
     supplier_no_id_client,
 ):
@@ -1400,16 +1468,12 @@ def test_supplier_without_supplier_id_cannot_query_purchase_orders(
         },
     )
 
-    assert "errors" not in result
+    assert "errors" in result
 
-    edges = (
-        result["data"]
-        ["purchaseOrders"]
-        ["edges"]
+    assert (
+        "Supplier identity is missing"
+        in result["errors"][0]["message"]
     )
-
-    assert edges == []
-
 
 def test_supplier_without_supplier_id_cannot_query_single_purchase_order(
     supplier_no_id_client,
@@ -1428,13 +1492,12 @@ def test_supplier_without_supplier_id_cannot_query_single_purchase_order(
         },
     )
 
-    assert "errors" not in result
+    assert "errors" in result
 
     assert (
-        result["data"]["purchaseOrder"]
-        is None
+        "Supplier identity is missing"
+        in result["errors"][0]["message"]
     )
-
 
 def test_supplier_without_supplier_id_cannot_query_invoices(
     supplier_no_id_client,
@@ -1452,16 +1515,12 @@ def test_supplier_without_supplier_id_cannot_query_invoices(
         },
     )
 
-    assert "errors" not in result
+    assert "errors" in result
 
-    edges = (
-        result["data"]
-        ["invoices"]
-        ["edges"]
+    assert (
+        "Supplier identity is missing"
+        in result["errors"][0]["message"]
     )
-
-    assert edges == []
-
 
 def test_supplier_without_supplier_id_cannot_query_single_invoice(
     supplier_no_id_client,
@@ -1480,13 +1539,12 @@ def test_supplier_without_supplier_id_cannot_query_single_invoice(
         },
     )
 
-    assert "errors" not in result
+    assert "errors" in result
 
     assert (
-        result["data"]["invoice"]
-        is None
+        "Supplier identity is missing"
+        in result["errors"][0]["message"]
     )
-
 
 def test_supplier_without_supplier_id_cannot_query_documents(
     supplier_no_id_client,
@@ -1504,15 +1562,12 @@ def test_supplier_without_supplier_id_cannot_query_documents(
         },
     )
 
-    assert "errors" not in result
+    assert "errors" in result
 
-    edges = (
-        result["data"]
-        ["documents"]
-        ["edges"]
+    assert (
+        "Supplier identity is missing"
+        in result["errors"][0]["message"]
     )
-
-    assert edges == []
 
 
 # ============================================================
@@ -1736,7 +1791,6 @@ def test_supplier_b_can_acknowledge_own_purchase_order(
 # 9. CROSS-SUPPLIER COMBINED SECURITY TEST
 # ============================================================
 
-
 def test_supplier_a_cannot_access_supplier_b_graphql_resources(
     supplier_client,
 ):
@@ -1747,7 +1801,19 @@ def test_supplier_a_cannot_access_supplier_b_graphql_resources(
     - Supplier B PO
     - Supplier B invoice
     - Supplier B documents
+
+    Supplier A is CLEARED, so cross-supplier resources
+    must return null/filtered results rather than a
+    compliance error.
     """
+
+    # Supplier A is the authenticated supplier.
+    # Compliance-first GraphQL authorization requires
+    # the authenticated supplier to exist.
+    seed_supplier("SUP001")
+
+    # Supplier B owns the resources being requested.
+    seed_supplier("SUP002")
 
     seed_po(
         "PO-SUP002-SECURITY",
@@ -1768,8 +1834,7 @@ def test_supplier_a_cannot_access_supplier_b_graphql_resources(
         supplier_client,
         PURCHASE_ORDER_QUERY,
         {
-            "poNumber":
-                "PO-SUP002-SECURITY",
+            "poNumber": "PO-SUP002-SECURITY",
         },
     )
 
@@ -1777,8 +1842,7 @@ def test_supplier_a_cannot_access_supplier_b_graphql_resources(
         supplier_client,
         INVOICE_QUERY,
         {
-            "invoiceNumber":
-                "INV-SUP002-SECURITY",
+            "invoiceNumber": "INV-SUP002-SECURITY",
         },
     )
 
@@ -1790,22 +1854,26 @@ def test_supplier_a_cannot_access_supplier_b_graphql_resources(
         },
     )
 
+    # Supplier A is not suspended, so there should be
+    # no compliance authorization error.
     assert "errors" not in po_result
     assert "errors" not in invoice_result
     assert "errors" not in documents_result
 
+    # Supplier A cannot access Supplier B's PO.
     assert (
-        po_result["data"]
-        ["purchaseOrder"]
+        po_result["data"]["purchaseOrder"]
         is None
     )
 
+    # Supplier A cannot access Supplier B's invoice.
     assert (
-        invoice_result["data"]
-        ["invoice"]
+        invoice_result["data"]["invoice"]
         is None
     )
 
+    # Supplier A's document list must not contain
+    # Supplier B's document.
     document_ids = {
         edge["node"]["documentId"]
         for edge in (
@@ -1819,8 +1887,6 @@ def test_supplier_a_cannot_access_supplier_b_graphql_resources(
         "DOC-SUP002-SECURITY"
         not in document_ids
     )
-
-
 # ============================================================
 # 10. PAGINATION MUST HAPPEN AFTER SUPPLIER FILTERING
 # ============================================================
@@ -2213,3 +2279,589 @@ def test_internal_user_gets_correct_invoice_when_invoice_number_is_shared(
     assert invoice["invoiceNumber"] == "INV-SHARED-001"
     assert invoice["supplierId"] == "SUP002"
     assert invoice["amount"] == 2000
+
+# ============================================================
+# 11. ROUND-14 COMPLIANCE ACCESS ENFORCEMENT
+# ============================================================
+
+
+def test_cleared_supplier_can_query_purchase_order(
+    supplier_client,
+):
+    seed_po(
+        "PO-R14-CLEAR-001",
+        "SUP001",
+    )
+
+    set_compliance_status(
+        "SUP001",
+        SupplierComplianceStatus.cleared,
+    )
+
+    result = graphql(
+        supplier_client,
+        PURCHASE_ORDER_QUERY,
+        {
+            "poNumber":
+                "PO-R14-CLEAR-001",
+        },
+    )
+
+    assert "errors" not in result
+
+    po = result["data"]["purchaseOrder"]
+
+    assert po is not None
+    assert po["supplierId"] == "SUP001"
+
+
+def test_needs_review_supplier_can_query_purchase_order(
+    supplier_client,
+):
+    seed_po(
+        "PO-R14-REVIEW-001",
+        "SUP001",
+    )
+
+    set_compliance_status(
+        "SUP001",
+        SupplierComplianceStatus.needs_review,
+    )
+
+    result = graphql(
+        supplier_client,
+        PURCHASE_ORDER_QUERY,
+        {
+            "poNumber":
+                "PO-R14-REVIEW-001",
+        },
+    )
+
+    assert "errors" not in result
+
+    po = result["data"]["purchaseOrder"]
+
+    assert po is not None
+    assert po["supplierId"] == "SUP001"
+
+
+def test_suspended_supplier_cannot_query_purchase_order(
+    supplier_client,
+):
+    seed_po(
+        "PO-R14-BLOCK-001",
+        "SUP001",
+    )
+
+    set_compliance_status(
+        "SUP001",
+        SupplierComplianceStatus.suspended,
+    )
+
+    result = graphql(
+        supplier_client,
+        PURCHASE_ORDER_QUERY,
+        {
+            "poNumber":
+                "PO-R14-BLOCK-001",
+        },
+    )
+
+    assert "errors" in result
+
+    assert (
+        "Supplier account is suspended due to compliance status"
+        in result["errors"][0]["message"]
+    )
+
+    assert (
+        result["data"]["purchaseOrder"]
+        is None
+    )
+
+def test_suspended_supplier_cannot_query_purchase_order_list(
+    supplier_client,
+):
+    set_compliance_status(
+        "SUP001",
+        SupplierComplianceStatus.suspended,
+    )
+
+    result = graphql(
+        supplier_client,
+        PURCHASE_ORDERS_QUERY,
+        {
+            "first": 100,
+        },
+    )
+
+    assert "errors" in result
+
+    assert (
+        "Supplier account is suspended due to compliance status"
+        in result["errors"][0]["message"]
+    )
+
+    # Strawberry returns data=None when the root resolver
+    # raises PermissionError.
+    assert result["data"] is None
+
+
+def test_needs_review_supplier_can_query_invoices(
+    supplier_client,
+):
+    seed_invoice(
+        "INV-R14-REVIEW-001",
+        "SUP001",
+    )
+
+    set_compliance_status(
+        "SUP001",
+        SupplierComplianceStatus.needs_review,
+    )
+
+    result = graphql(
+        supplier_client,
+        INVOICE_QUERY,
+        {
+            "invoiceNumber":
+                "INV-R14-REVIEW-001",
+        },
+    )
+
+    assert "errors" not in result
+
+    invoice = result["data"]["invoice"]
+
+    assert invoice is not None
+    assert invoice["supplierId"] == "SUP001"
+
+
+def test_suspended_supplier_cannot_query_invoice(
+    supplier_client,
+):
+    seed_invoice(
+        "INV-R14-BLOCK-001",
+        "SUP001",
+    )
+
+    set_compliance_status(
+        "SUP001",
+        SupplierComplianceStatus.suspended,
+    )
+
+    result = graphql(
+        supplier_client,
+        INVOICE_QUERY,
+        {
+            "invoiceNumber":
+                "INV-R14-BLOCK-001",
+        },
+    )
+
+    assert "errors" in result
+
+    assert (
+        "Supplier account is suspended due to compliance status"
+        in result["errors"][0]["message"]
+    )
+
+    assert (
+        result["data"]["invoice"]
+        is None
+    )
+
+def test_suspended_supplier_cannot_query_invoice_list(
+    supplier_client,
+):
+    set_compliance_status(
+        "SUP001",
+        SupplierComplianceStatus.suspended,
+    )
+
+    result = graphql(
+        supplier_client,
+        INVOICES_QUERY,
+        {
+            "first": 100,
+        },
+    )
+
+    assert "errors" in result
+
+    assert (
+        "Supplier account is suspended due to compliance status"
+        in result["errors"][0]["message"]
+    )
+
+    assert result["data"] is None
+
+def test_needs_review_supplier_can_query_documents(
+    supplier_client,
+):
+    seed_document(
+        "SUP001",
+        "DOC-R14-REVIEW-001",
+    )
+
+    set_compliance_status(
+        "SUP001",
+        SupplierComplianceStatus.needs_review,
+    )
+
+    result = graphql(
+        supplier_client,
+        DOCUMENTS_QUERY,
+        {
+            "first": 100,
+        },
+    )
+
+    assert "errors" not in result
+
+    edges = (
+        result["data"]
+        ["documents"]
+        ["edges"]
+    )
+
+    assert len(edges) == 1
+
+    assert (
+        edges[0]["node"]["supplierId"]
+        == "SUP001"
+    )
+
+def test_suspended_supplier_cannot_query_documents(
+    supplier_client,
+):
+    set_compliance_status(
+        "SUP001",
+        SupplierComplianceStatus.suspended,
+    )
+
+    result = graphql(
+        supplier_client,
+        DOCUMENTS_QUERY,
+        {
+            "first": 100,
+        },
+    )
+
+    assert "errors" in result
+
+    assert (
+        "Supplier account is suspended due to compliance status"
+        in result["errors"][0]["message"]
+    )
+
+    assert result["data"] is None
+    
+def test_needs_review_supplier_cannot_acknowledge_purchase_order(
+    supplier_client,
+):
+    seed_po(
+        "PO-R14-REVIEW-ACK-001",
+        "SUP001",
+        status=PurchaseOrderStatus.sent,
+    )
+
+    set_compliance_status(
+        "SUP001",
+        SupplierComplianceStatus.needs_review,
+    )
+
+    result = graphql(
+        supplier_client,
+        ACKNOWLEDGE_MUTATION,
+        {
+            "poNumber":
+                "PO-R14-REVIEW-ACK-001",
+        },
+    )
+
+    assert "errors" in result
+
+    assert (
+        "Supplier account is under compliance review"
+        in result["errors"][0]["message"]
+    )
+
+    # The PO must remain unchanged.
+    assert (
+        purchase_orders[
+            "PO-R14-REVIEW-ACK-001"
+        ]["status"]
+        == PurchaseOrderStatus.sent
+    )
+
+    assert (
+        purchase_orders[
+            "PO-R14-REVIEW-ACK-001"
+        ]["history"]
+        == []
+    )
+
+
+def test_suspended_supplier_cannot_acknowledge_purchase_order(
+    supplier_client,
+):
+    seed_po(
+        "PO-R14-BLOCK-ACK-001",
+        "SUP001",
+        status=PurchaseOrderStatus.sent,
+    )
+
+    set_compliance_status(
+        "SUP001",
+        SupplierComplianceStatus.suspended,
+    )
+
+    result = graphql(
+        supplier_client,
+        ACKNOWLEDGE_MUTATION,
+        {
+            "poNumber":
+                "PO-R14-BLOCK-ACK-001",
+        },
+    )
+
+    assert "errors" in result
+
+    assert (
+        "Supplier account is suspended due to compliance status"
+        in result["errors"][0]["message"]
+    )
+
+    # The PO must remain unchanged.
+    assert (
+        purchase_orders[
+            "PO-R14-BLOCK-ACK-001"
+        ]["status"]
+        == PurchaseOrderStatus.sent
+    )
+
+    assert (
+        purchase_orders[
+            "PO-R14-BLOCK-ACK-001"
+        ]["history"]
+        == []
+    )
+
+
+def test_cleared_supplier_can_acknowledge_purchase_order_after_compliance_check(
+    supplier_client,
+):
+    seed_po(
+        "PO-R14-CLEAR-ACK-001",
+        "SUP001",
+        status=PurchaseOrderStatus.sent,
+    )
+
+    set_compliance_status(
+        "SUP001",
+        SupplierComplianceStatus.cleared,
+    )
+
+    result = graphql(
+        supplier_client,
+        ACKNOWLEDGE_MUTATION,
+        {
+            "poNumber":
+                "PO-R14-CLEAR-ACK-001",
+        },
+    )
+
+    assert "errors" not in result
+
+    po = (
+        result["data"]
+        ["acknowledgePurchaseOrder"]
+    )
+
+    assert po is not None
+
+    assert (
+        po["status"]
+        == "ACKNOWLEDGED"
+    )
+
+    assert (
+        purchase_orders[
+            "PO-R14-CLEAR-ACK-001"
+        ]["status"]
+        == PurchaseOrderStatus.acknowledged
+    )
+
+
+def test_suspended_supplier_cannot_access_any_graphql_resource(
+    supplier_client,
+):
+    """
+    Combined Round-14 enforcement test.
+
+    A suspended supplier must not access:
+    - single PO
+    - PO list
+    - single invoice
+    - invoice list
+    - documents
+    """
+
+    seed_po(
+        "PO-R14-COMBINED-001",
+        "SUP001",
+    )
+
+    seed_invoice(
+        "INV-R14-COMBINED-001",
+        "SUP001",
+    )
+
+    seed_document(
+        "SUP001",
+        "DOC-R14-COMBINED-001",
+    )
+
+    set_compliance_status(
+        "SUP001",
+        SupplierComplianceStatus.suspended,
+    )
+
+    po_result = graphql(
+        supplier_client,
+        PURCHASE_ORDER_QUERY,
+        {
+            "poNumber":
+                "PO-R14-COMBINED-001",
+        },
+    )
+
+    po_list_result = graphql(
+        supplier_client,
+        PURCHASE_ORDERS_QUERY,
+        {
+            "first": 100,
+        },
+    )
+
+    invoice_result = graphql(
+        supplier_client,
+        INVOICE_QUERY,
+        {
+            "invoiceNumber":
+                "INV-R14-COMBINED-001",
+        },
+    )
+
+    invoice_list_result = graphql(
+        supplier_client,
+        INVOICES_QUERY,
+        {
+            "first": 100,
+        },
+    )
+
+    document_result = graphql(
+        supplier_client,
+        DOCUMENTS_QUERY,
+        {
+            "first": 100,
+        },
+    )
+
+    expected_message = (
+        "Supplier account is suspended due to "
+        "compliance status"
+    )
+
+    for result in [
+        po_result,
+        po_list_result,
+        invoice_result,
+        invoice_list_result,
+        document_result,
+    ]:
+        assert "errors" in result
+        assert (
+            expected_message
+            in result["errors"][0]["message"]
+        )
+
+
+def test_suspended_supplier_cannot_access_other_supplier_resources(
+    supplier_client,
+):
+    """
+    Compliance suspension must be enforced before the normal
+    supplier-resource lookup/scoping logic.
+    """
+
+    seed_po(
+        "PO-R14-OTHER-001",
+        "SUP002",
+    )
+
+    seed_invoice(
+        "INV-R14-OTHER-001",
+        "SUP002",
+    )
+
+    seed_document(
+        "SUP002",
+        "DOC-R14-OTHER-001",
+    )
+
+    set_compliance_status(
+        "SUP001",
+        SupplierComplianceStatus.suspended,
+    )
+
+    po_result = graphql(
+        supplier_client,
+        PURCHASE_ORDER_QUERY,
+        {
+            "poNumber":
+                "PO-R14-OTHER-001",
+        },
+    )
+
+    invoice_result = graphql(
+        supplier_client,
+        INVOICE_QUERY,
+        {
+            "invoiceNumber":
+                "INV-R14-OTHER-001",
+        },
+    )
+
+    documents_result = graphql(
+        supplier_client,
+        DOCUMENTS_QUERY,
+        {
+            "first": 100,
+        },
+    )
+
+    expected_message = (
+        "Supplier account is suspended due to "
+        "compliance status"
+    )
+
+    assert "errors" in po_result
+    assert (
+        expected_message
+        in po_result["errors"][0]["message"]
+    )
+
+    assert "errors" in invoice_result
+    assert (
+        expected_message
+        in invoice_result["errors"][0]["message"]
+    )
+
+    assert "errors" in documents_result
+    assert (
+        expected_message
+        in documents_result["errors"][0]["message"]
+    )

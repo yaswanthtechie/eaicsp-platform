@@ -1,6 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.core.auth import verify_token
+from app.core.auth import (
+    enforce_not_suspended,
+    verify_token,
+)
 from app.schemas.goods_receipt import (
     GoodsReceiptCreate,
     GoodsReceiptResponse,
@@ -16,7 +19,9 @@ from app.services.purchase_order_service import (
 )
 
 
-router = APIRouter()
+router = APIRouter(
+    dependencies=[Depends(enforce_not_suspended)],
+)
 
 
 # ============================================================

@@ -7,6 +7,7 @@ from fastapi import (
 )
 
 from app.core.auth import (
+    enforce_not_suspended,
     require_roles,
     verify_token,
 )
@@ -36,6 +37,7 @@ from app.services.supplier_contract_service import (
 
 router = APIRouter(
     prefix="/supplier-contracts",
+    dependencies=[Depends(enforce_not_suspended)],
 )
 
 

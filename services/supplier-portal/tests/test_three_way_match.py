@@ -24,6 +24,7 @@ from app.services.po_p2p_state_machine import (
 from app.services.three_way_match_service import (
     three_way_matches,
 )
+from app.services.supplier_onboarding_service import suppliers
 
 
 # ============================================================
@@ -37,7 +38,31 @@ def reset_data():
 
     Authentication is handled by the role-specific
     TestClient fixtures from conftest.py.
+
+    Round-14 compliance enforcement requires the supplier
+    to exist in the supplier registry even when these tests
+    intentionally bypass the onboarding API.
     """
+
+    suppliers.clear()
+
+    suppliers["SUP001"] = {
+        "supplier_id": "SUP001",
+        "company_name": "ABC Supplies",
+        "contact_name": "Supplier User",
+        "email": "supplier@company.com",
+        "country": "India",
+        "status": "active",
+    }
+
+    suppliers["SUP002"] = {
+        "supplier_id": "SUP002",
+        "company_name": "XYZ Supplies",
+        "contact_name": "Supplier B",
+        "email": "supplierb@example.com",
+        "country": "India",
+        "status": "active",
+    }
 
     purchase_orders.clear()
     po_events.clear()
@@ -52,6 +77,8 @@ def reset_data():
     three_way_matches.clear()
 
     yield
+
+    suppliers.clear()
 
     purchase_orders.clear()
     po_events.clear()

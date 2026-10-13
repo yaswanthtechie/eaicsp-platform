@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-
-from app.core.auth import verify_token
-
+from app.core.auth import (
+    enforce_not_suspended,
+    verify_token,
+)
 from app.schemas.supplier_stats import (
     SupplierStatsResponse,
     SupplierScorecard,
@@ -13,7 +14,9 @@ from app.services.supplier_stats_service import (
 )
 
 
-router = APIRouter()
+router = APIRouter(
+    dependencies=[Depends(enforce_not_suspended)],
+)
 
 
 # ============================================================

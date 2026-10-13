@@ -44,6 +44,22 @@ class Settings(BaseSettings):
     MINIO_SECURE: bool = False
     MINIO_PRESIGNED_EXPIRY_SECONDS: int = 300
 
+    # Kafka
+    
+    KAFKA_BOOTSTRAP_SERVERS: str = "localhost:9092"
+    KAFKA_CONSUMER_GROUP: str = "supplier-portal-service"
+    KAFKA_STATUS_CHANGED_TOPIC: str = "compliance.supplier.status_changed"
+    KAFKA_DLQ_TOPIC: str = "compliance.supplier.status_changed.dlq"
+    KAFKA_AUTO_OFFSET_RESET: str = "earliest"
+
+    # Kafka Consumer Reliability
+    KAFKA_ENABLED: bool = True
+    KAFKA_RETRY_BACKOFF_SECONDS: float = 1.0
+    KAFKA_MAX_RETRIES: int = 5
+
+    # Durable Compliance State
+    COMPLIANCE_DB_PATH: str = "data/compliance_state.db"
+
 
     model_config = SettingsConfigDict(
         env_file=".env",
