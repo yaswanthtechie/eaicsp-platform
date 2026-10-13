@@ -1,10 +1,10 @@
-from app.database import SessionLocal
-from app.models.users import User
-from app.models.roles import Role
-from app.core.security import hash_password
-from app.database import Base, engine
-from datetime import datetime, timezone, timedelta
 import os
+from datetime import UTC, datetime, timedelta
+
+from app.core.security import hash_password
+from app.database import Base, SessionLocal, engine
+from app.models.roles import Role
+from app.models.users import User
 
 ROLES = [
     # ---- V1 roles (unchanged) ----
@@ -16,7 +16,6 @@ ROLES = [
     ("warehouse_manager", "Warehouse Manager"),
     ("analyst", "Analyst"),
     ("supplier", "Supplier"),
-
     # ---- V2 roles (Round 12+13) ----
     ("platform_admin", "Platform Administrator"),
     ("procurement_officer", "Procurement Officer"),
@@ -29,6 +28,7 @@ ROLES = [
     ("warehouse_operator", "Warehouse Operator"),
     ("carrier", "Carrier"),
 ]
+
 
 def _required_password(env_var: str) -> str:
     """
@@ -98,8 +98,8 @@ def get_seed_users() -> list[dict]:
             "password": _required_password("ANALYST_PASSWORD"),
             "role": "analyst",
         },
-
     ]
+
 
 def seed_roles(db) -> dict:
     """Insert any missing roles. Safe to run again on an existing database.
@@ -120,6 +120,7 @@ def seed_roles(db) -> dict:
 
     return role_map
 
+
 def seed_database():
     db = SessionLocal()
 
@@ -135,16 +136,12 @@ def seed_database():
         for data in get_seed_users():
             email = data["email"].lower()
 
-            existing_user = (
-                db.query(User)
-                .filter(User.email == email)
-                .first()
-            )
+            existing_user = db.query(User).filter(User.email == email).first()
 
             if existing_user:
                 continue
-            now = datetime.now(timezone.utc)
-            
+            now = datetime.now(UTC)
+
             user = User(
                 email=email,
                 full_name=data["full_name"],
@@ -169,6 +166,7 @@ def seed_database():
     finally:
         db.close()
 
+
 if __name__ == "__main__":
     import sys
 
@@ -184,4 +182,3 @@ if __name__ == "__main__":
             db.close()
     else:
         seed_database()
-

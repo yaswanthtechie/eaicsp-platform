@@ -19,7 +19,7 @@ import logging
 import os
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from kafka import KafkaProducer
@@ -32,9 +32,7 @@ KAFKA_BOOTSTRAP_SERVERS = os.getenv(
 )
 
 # Upper bound on how long publish_event may block the caller.
-PUBLISH_TIMEOUT_SECONDS = float(
-    os.getenv("KAFKA_PUBLISH_TIMEOUT_SECONDS", "2")
-)
+PUBLISH_TIMEOUT_SECONDS = float(os.getenv("KAFKA_PUBLISH_TIMEOUT_SECONDS", "2"))
 
 EVENT_VERSION = 1
 PRODUCER_NAME = "platform-service"
@@ -52,24 +50,16 @@ def build_event(
     """
 
     if not event_type:
-        raise ValueError(
-            "event_type must not be empty"
-        )
+        raise ValueError("event_type must not be empty")
 
     if not isinstance(payload, dict):
-        raise TypeError(
-            "payload must be a dictionary"
-        )
+        raise TypeError("payload must be a dictionary")
 
     return {
         "event_id": str(uuid.uuid4()),
         "event_type": event_type,
         "event_version": EVENT_VERSION,
-        "occurred_at": (
-            datetime.now(timezone.utc)
-            .isoformat()
-            .replace("+00:00", "Z")
-        ),
+        "occurred_at": (datetime.now(UTC).isoformat().replace("+00:00", "Z")),
         "producer": PRODUCER_NAME,
         "payload": payload,
     }
@@ -91,9 +81,7 @@ def _create_producer() -> KafkaProducer:
         max_block_ms=timeout_ms,
         request_timeout_ms=timeout_ms,
         retries=0,
-        value_serializer=lambda value: json.dumps(
-            value
-        ).encode("utf-8"),
+        value_serializer=lambda value: json.dumps(value).encode("utf-8"),
     )
 
 
@@ -121,7 +109,7 @@ def _reset_producer() -> None:
         if _producer is not None:
             try:
                 _producer.close(timeout=1)
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001, S110 - Cleanup must not mask the original failure.
                 pass
 
         _producer = None

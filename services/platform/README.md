@@ -113,16 +113,25 @@ tests/
 │   ├──role_hierarchy_v1.json
 │   ├──permissions_v1.json
 ├── test_auth.py
+├── conftest.py
 ├── test_integration.py
 ├── test_security.py
 ├── test_rbac_snapshot.py
 ├── test_roles_and_permissions.py
 ├── test_new_roles_assignable.py
 ├── test_readme_permission_matrix.py
+├── test_event_publisher_integration.py
+├── test_event_publisher.py
+├── test_loggin_config.py
+├── test_redis_auth_state.py
+├── test_verify_load.py
+├── test_two_instance_revocation.py
+
 
 scripts/
 ├── load_test_verify.py
 ├── dump_permissions.py
+├── two_instance_revocation_check.py
 
 ```
 ---
@@ -1762,6 +1771,135 @@ python scripts/two_instance_revocation_check.py
 
 **M1 completion evidence:** Save the successful proof-script output and include it in the README and pull request. Mark M1 complete only after the script passes.
 
+### Pending: First CI Pipeline for the Platform Service
+
+The GitHub Actions CI pipeline has not yet been implemented. It is planned as a reusable template for future services, initially scoped to the Platform Service.
+
+The planned workflow will:
+
+- Run only for pull requests that modify files under `services/platform/**`.
+- Run Ruff linting and mypy type checking on at least `app/core` and `app/services`.
+- Scan source code with Bandit and dependencies with pip-audit.
+- Run unit tests using `pytest -m "not integration"` and report coverage.
+- Run integration tests against a Redis service container.
+- Build the Docker image and scan it with Trivy, failing on critical vulnerabilities.
+
+These CI pipeline tasks remain pending and should be marked complete only after implementation and successful validation.
+
+## Code Quality and Validation
+
+The Platform Service uses Ruff for Python linting and code formatting, and pytest for automated testing.
+
+Run the following commands from the `services/platform/` directory.
+
+### Ruff Linting
+
+Check for lint issues:
+
+```powershell
+python -m ruff check .
+```
+
+Automatically fix supported lint issues:
+
+```powershell
+python -m ruff check . --fix
+```
+
+**Validation result:** All checks passed.
+
+### Ruff Formatting
+
+Check whether Python files are formatted correctly:
+
+```powershell
+python -m ruff format --check .
+```
+
+Format Python files:
+
+```powershell
+python -m ruff format .
+```
+
+**Validation result:** 63 files already formatted.
+
+### Automated Tests
+
+Run the default test suite:
+
+```powershell
+python -m pytest -q
+```
+
+**Validation result:** 223 passed, 18 deselected, 219 warnings.
+
+The test suite completed successfully. The warnings did not cause test failures.
+
+Run integration tests separately when Redis, Kafka, and the required service environment are available:
+
+```powershell
+python -m pytest -m integration -rs
+```
+
+### Git Diff Validation
+
+Check for whitespace errors:
+
+```powershell
+git diff --check
+```
+
+**Validation result:** Passed with no whitespace errors.
+
+### Validation Summary
+
+| Check | Result |
+|---|---|
+| Ruff linting | Passed |
+| Ruff formatting | Passed — 63 files already formatted |
+| Automated tests | 223 passed, 18 deselected |
+| Git diff whitespace check | Passed |
+
+### Pre-Commit Validation
+
+Before submitting changes, run:
+
+```powershell
+python -m ruff check .
+python -m ruff format --check .
+python -m pytest -q
+git diff --check
+```
+
+Confirm that linting and formatting checks pass and that the test results are successful before committing changes. Review the Git diff to ensure formatting changes have not introduced unintended application behavior changes.
+
+These checks document the R14 linting and formatting cleanup. No application behavior changes are intended.
+
+## Milestone Status
+
+### Completed: R14 — Ruff Linting and Formatting Cleanup
+
+The Platform Service Ruff cleanup has been completed with the following steps:
+
+- Configured Ruff in `services/platform/pyproject.toml`.
+- Confirmed that the test suite passed before the cleanup.
+- Ran `ruff check . --fix` to automatically resolve supported lint issues.
+- Ran `ruff format .` to format the code.
+- Manually fixed the remaining lint issues.
+- Confirmed that the test suite passed after the cleanup.
+- Verified that the changes are limited to `services/platform/`.
+- Reviewed the changes to ensure that no application behavior changes were intended.
+
+**Validation results:**
+
+| Check | Result |
+|---|---|
+| Ruff linting | Passed |
+| Ruff formatting | Passed |
+| Automated tests | 223 passed, 18 deselected |
+| Git diff whitespace check | Passed |
+
 ---
 
 ## End-to-End Service Flow
@@ -3316,12 +3454,7 @@ Example:
 
 ```python
 @router.post("/...")
-def endpoint(
-    current_user=Depends(
-        require_permission("inventory:write")
-    )
-):
-    ...
+def endpoint(current_user=Depends(require_permission("inventory:write"))): ...
 ```
 
 A user without the required permission receives:

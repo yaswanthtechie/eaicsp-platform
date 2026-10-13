@@ -1,5 +1,7 @@
-from pydantic import BaseModel, EmailStr
 from enum import Enum
+
+from pydantic import BaseModel, EmailStr
+
 
 class Role(str, Enum):
     ceo = "ceo"
@@ -10,21 +12,23 @@ class Role(str, Enum):
     warehouse_manager = "warehouse_manager"
     analyst = "analyst"
     supplier = "supplier"
-    platform_admin="platform_admin"
-    procurement_officer="procurement_officer"
-    inventory_planner="inventory_planner"
-    demand_planner="demand_planner"
-    finance_manager="finance_manager"
-    risk_analyst="risk_analyst"
-    data_scientist="data_scientist"
-    auditor="auditor"
-    warehouse_operator="warehouse_operator"
-    carrier="carrier"
+    platform_admin = "platform_admin"
+    procurement_officer = "procurement_officer"
+    inventory_planner = "inventory_planner"
+    demand_planner = "demand_planner"
+    finance_manager = "finance_manager"
+    risk_analyst = "risk_analyst"
+    data_scientist = "data_scientist"
+    auditor = "auditor"
+    warehouse_operator = "warehouse_operator"
+    carrier = "carrier"
+
 
 class UserCreate(BaseModel):
     email: EmailStr
     full_name: str
     password: str
+
 
 class UserResponse(BaseModel):
     user_id: int
@@ -33,17 +37,21 @@ class UserResponse(BaseModel):
     role: Role | None
     is_active: bool
 
+
 class AdminCreateUserRequest(BaseModel):
     email: EmailStr
     full_name: str
     password: str
-    role: Role | None 
+    role: Role | None
+
 
 class RoleChangeRequest(BaseModel):
     role: Role
 
+
 class ForceResetPasswordRequest(BaseModel):
     new_password: str
+
 
 class RoleChangeHistoryResponse(BaseModel):
     id: int
@@ -52,4 +60,3 @@ class RoleChangeHistoryResponse(BaseModel):
     new_role: str
     changed_by: int
     changed_at: str
-

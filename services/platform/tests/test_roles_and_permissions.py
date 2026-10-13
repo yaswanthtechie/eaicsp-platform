@@ -1,21 +1,18 @@
-import json
 from pathlib import Path
+from types import SimpleNamespace
+
 import pytest
+from fastapi import HTTPException
+
+from app.core.dependencies import require_permission_or_role
 from app.core.permissions import ROLE_PERMISSIONS
 from app.schemas.user import Role
-from types import SimpleNamespace
-from fastapi import HTTPException
-from app.core.dependencies import require_permission_or_role
 
 # ============================================================
 # Fixtures / Constants
 # ============================================================
 
-FIXTURE_PATH = (
-    Path(__file__).resolve().parent
-    / "fixtures"
-    / "permissions_v1.json"
-)
+FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "permissions_v1.json"
 
 
 V1_ROLES = {
@@ -105,14 +102,11 @@ NEW_ROLE_EXPECTED_PERMISSIONS = {
 # 1. Role Model Tests
 # ============================================================
 
+
 def test_v1_role_values_unchanged():
     """Existing V1 role strings must never change."""
 
-    actual_v1_values = {
-        role.value
-        for role in Role
-        if role.value in V1_ROLES
-    }
+    actual_v1_values = {role.value for role in Role if role.value in V1_ROLES}
 
     assert actual_v1_values == V1_ROLES
 
@@ -144,14 +138,13 @@ def test_every_permission_is_known():
     for role, permissions in ROLE_PERMISSIONS.items():
         unknown = set(permissions) - PERMISSIONS
 
-        assert not unknown, (
-            f"Role '{role}' contains unknown permissions: {unknown}"
-        )
+        assert not unknown, f"Role '{role}' contains unknown permissions: {unknown}"
 
 
 # ============================================================
 # 2. New Role Existence / Exact Permission Tests
 # ============================================================
+
 
 def test_all_new_roles_exist():
     """All ten V2 roles must exist."""
@@ -174,6 +167,7 @@ def test_new_role_permissions_are_exact():
 # ============================================================
 # 3. One ALLOWED Permission Test for Every New Role
 # ============================================================
+
 
 @pytest.mark.parametrize(
     "role,permission",
@@ -198,6 +192,7 @@ def test_new_role_has_allowed_permission(role, permission):
 # 4. One DENIED Permission Test for Every New Role
 # ============================================================
 
+
 @pytest.mark.parametrize(
     "role,permission",
     [
@@ -220,6 +215,7 @@ def test_new_role_denies_unrelated_permission(role, permission):
 # ============================================================
 # 5. Platform Admin Tests
 # ============================================================
+
 
 def test_platform_admin_has_no_business_data_permissions():
     """Platform admin must not receive business-data permissions."""
@@ -249,9 +245,7 @@ def test_platform_admin_has_no_business_data_permissions():
         "model:promote_production",
     }
 
-    assert ROLE_PERMISSIONS["platform_admin"].isdisjoint(
-        business_permissions
-    )
+    assert ROLE_PERMISSIONS["platform_admin"].isdisjoint(business_permissions)
 
 
 def test_platform_admin_can_manage_platform_users_and_roles():
@@ -268,6 +262,7 @@ def test_platform_admin_can_manage_platform_users_and_roles():
 # ============================================================
 # 6. Inventory / Warehouse Permission Tests
 # ============================================================
+
 
 def test_warehouse_operator_uses_inventory_move():
     permissions = ROLE_PERMISSIONS["warehouse_operator"]
@@ -288,6 +283,7 @@ def test_stock_move_permission_removed():
 # ============================================================
 # 7. Auditor Read-Only Tests
 # ============================================================
+
 
 def test_auditor_has_no_write_permissions():
     auditor_permissions = ROLE_PERMISSIONS["auditor"]
@@ -315,6 +311,7 @@ def test_auditor_has_no_write_permissions():
 # ============================================================
 # 8. External Role Tests
 # ============================================================
+
 
 def test_carrier_has_only_shipment_read():
     assert ROLE_PERMISSIONS["carrier"] == {
@@ -357,6 +354,7 @@ def test_supplier_has_no_internal_permissions():
 
     assert supplier_permissions.isdisjoint(internal_permissions)
 
+
 def _user(role):
     return SimpleNamespace(role=SimpleNamespace(name=role))
 
@@ -364,16 +362,18 @@ def _user(role):
 def test_permission_or_role_respects_hierarchy():
     checker = require_permission_or_role("user:manage", "vp_operations")
 
-    assert checker(current_user=_user("ceo"))             # via hierarchy
-    assert checker(current_user=_user("vp_operations"))   # direct
+    assert checker(current_user=_user("ceo"))  # via hierarchy
+    assert checker(current_user=_user("vp_operations"))  # direct
     assert checker(current_user=_user("platform_admin"))  # via permission
 
     with pytest.raises(HTTPException) as exc:
         checker(current_user=_user("analyst"))
     assert exc.value.status_code == 403
 
+
 def test_require_permission_or_role_rejects_unknown_permission():
     import pytest
+
     from app.core.dependencies import require_permission_or_role
 
     with pytest.raises(ValueError, match="Unknown permission"):
@@ -384,9 +384,12 @@ def test_every_admin_route_permission_exists():
     """Every permission string used in admin_routes.py must be a real permission."""
     import re
     from pathlib import Path
+
     from app.core.permissions import PERMISSIONS
 
-    source = (Path(__file__).resolve().parent.parent / "app" / "routes" / "admin_routes.py").read_text(encoding="utf-8")
+    source = (
+        Path(__file__).resolve().parent.parent / "app" / "routes" / "admin_routes.py"
+    ).read_text(encoding="utf-8")
     used = set(re.findall(r'require_permission_or_role\(\s*"([^"]+)"', source))
 
     assert used, "expected admin_routes.py to use require_permission_or_role"

@@ -1,20 +1,23 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import (
-    OAuth2PasswordBearer,
-    HTTPBearer,
     HTTPAuthorizationCredentials,
+    HTTPBearer,
+    OAuth2PasswordBearer,
 )
-from sqlalchemy.orm import Session
 from jose import JWTError
-from app.core.security import decode_token
-from app.database import get_db
-from app.models.users import User
-from app.core.permissions import PERMISSIONS,ROLE_PERMISSIONS
+from sqlalchemy.orm import Session
+
+from app.core.permissions import PERMISSIONS, ROLE_PERMISSIONS
 from app.core.revocation_store import (
     RevocationStoreUnavailable,
     is_token_revoked,
 )
+from app.core.security import decode_token
+from app.database import get_db
+from app.models.users import User
+
 # ============================================================
 # Authentication Schemes
 # ============================================================
@@ -36,11 +39,9 @@ bearer_scheme = HTTPBearer(
 # Authentication
 # ============================================================
 
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(
-    bearer_scheme
-),
 
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: Session = Depends(get_db),
 ):
     """
@@ -56,10 +57,10 @@ def get_current_user(
 
     if credentials is None:
         raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Not authenticated",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     # --------------------------------------------------------
     # 2. Extract Bearer token
@@ -71,16 +72,16 @@ def get_current_user(
         revoked = is_token_revoked(token)
     except RevocationStoreUnavailable as exc:
         raise HTTPException(
-        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail="Authentication service temporarily unavailable",
-    )from exc
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service temporarily unavailable",
+        ) from exc
 
     if revoked:
         raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Token revoked",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token revoked",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     try:
         # ----------------------------------------------------
@@ -125,22 +126,16 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    except Exception:
+    except Exception:  # noqa: BLE001 - Convert unexpected token verification errors to 401.
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-            headers={"WWW-Authenticate": "Bearer"},
         )
 
     # --------------------------------------------------------
     # 6. Find user using JWT subject
     # --------------------------------------------------------
 
-    user = (
-        db.query(User)
-        .filter(User.email == email)
-        .first()
-    )
+    user = db.query(User).filter(User.email == email).first()
 
     # --------------------------------------------------------
     # 7. Reject missing or inactive users
@@ -152,23 +147,20 @@ def get_current_user(
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     # --------------------------------------------------------
     # 8. Reject locked accounts
     # --------------------------------------------------------
 
     if user.locked_until is not None:
-
         locked_until = user.locked_until
 
         # SQLite may return a naive datetime.
         # Treat it as UTC.
         if locked_until.tzinfo is None:
-            locked_until = locked_until.replace(
-                tzinfo=timezone.utc
-            )
+            locked_until = locked_until.replace(tzinfo=UTC)
 
-        if locked_until > datetime.now(timezone.utc):
+        if locked_until > datetime.now(UTC):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired token",
@@ -192,6 +184,7 @@ def get_current_user(
 
     return user
 
+
 # ============================================================
 # Role Hierarchy
 # ============================================================
@@ -206,7 +199,6 @@ ROLE_HIERARCHY = {
         "analyst",
         "supplier",
     },
-
     "vp_operations": {
         "vp_operations",
         "procurement_manager",
@@ -216,27 +208,21 @@ ROLE_HIERARCHY = {
         "analyst",
         "supplier",
     },
-
     "procurement_manager": {
         "procurement_manager",
     },
-
     "logistics_manager": {
         "logistics_manager",
     },
-
     "compliance_officer": {
         "compliance_officer",
     },
-
     "warehouse_manager": {
         "warehouse_manager",
     },
-
     "analyst": {
         "analyst",
     },
-
     "supplier": {
         "supplier",
     },
@@ -246,26 +232,20 @@ ROLE_HIERARCHY = {
 # Require ANY Role
 # ============================================================
 
+
 def require_any_role(*allowed_roles):
 
     def dependency(
         user: User = Depends(get_current_user),
     ):
-        role = (
-            user.role.name
-            if user.role
-            else None
-        )
+        role = user.role.name if user.role else None
 
         permissions = ROLE_HIERARCHY.get(
             role,
             {role} if role else set(),
         )
 
-        if not any(
-            allowed_role in permissions
-            for allowed_role in allowed_roles
-        ):
+        if not any(allowed_role in permissions for allowed_role in allowed_roles):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Forbidden: insufficient permissions",
@@ -274,6 +254,7 @@ def require_any_role(*allowed_roles):
         return user
 
     return dependency
+
 
 # ============================================================
 # Require ALL Roles
@@ -283,28 +264,23 @@ def require_all_roles(*required_roles):
     def dependency(
         user: User = Depends(get_current_user),
     ):
-        role = (
-            user.role.name
-            if user.role
-            else None
-        )
+        role = user.role.name if user.role else None
 
         permissions = ROLE_HIERARCHY.get(
             role,
             {role} if role else set(),
         )
 
-        if not all(
-            required_role in permissions
-            for required_role in required_roles
-        ):
+        if not all(required_role in permissions for required_role in required_roles):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Forbidden: insufficient permissions",
             )
 
         return user
+
     return dependency
+
 
 # ============================================================
 # RBAC - Require Role
@@ -314,28 +290,23 @@ def require_role(*allowed_roles):
     def dependency(
         user: User = Depends(get_current_user),
     ):
-        role = (
-            user.role.name
-            if user.role
-            else None
-        )
+        role = user.role.name if user.role else None
 
         permissions = ROLE_HIERARCHY.get(
             role,
             {role} if role else set(),
         )
 
-        if not any(
-            allowed_role in permissions
-            for allowed_role in allowed_roles
-        ):
+        if not any(allowed_role in permissions for allowed_role in allowed_roles):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Forbidden: insufficient permissions",
             )
 
         return user
+
     return dependency
+
 
 # ============================================================
 # Permission-Based Authorization
@@ -345,11 +316,7 @@ def require_permission(permission: str):
     def checker(
         current_user: User = Depends(get_current_user),
     ):
-        user_role = (
-            current_user.role.name
-            if current_user.role
-            else None
-        )
+        user_role = current_user.role.name if current_user.role else None
 
         if user_role is None:
             raise HTTPException(
@@ -387,6 +354,7 @@ def require_permission_or_role(permission: str, *allowed_roles: str):
         # A misspelled permission would silently fall through to the legacy
         # role check and lock out only the new roles. Fail at startup instead.
         raise ValueError(f"Unknown permission: {permission!r}")
+
     def checker(current_user: User = Depends(get_current_user)):
         user_role = current_user.role.name if current_user.role else None
 
@@ -410,6 +378,7 @@ def require_permission_or_role(permission: str, *allowed_roles: str):
 
     return checker
 
+
 # ============================================================
 # Role-grant guard
 # ============================================================
@@ -417,6 +386,7 @@ def require_permission_or_role(permission: str, *allowed_roles: str):
 # (ceo / vp_operations) may hand these out.
 PRIVILEGED_ROLES = frozenset({"ceo", "vp_operations", "platform_admin"})
 LEGACY_ROLE_ADMINS = frozenset({"ceo", "vp_operations"})
+
 
 def ensure_can_grant_role(actor: User, target_role: str, target_user_id=None) -> None:
     """
@@ -444,8 +414,8 @@ def ensure_can_grant_role(actor: User, target_role: str, target_user_id=None) ->
             detail="Forbidden: you cannot change your own role",
         )
 
-def ensure_can_manage_user(actor: User, target: User) -> None:
 
+def ensure_can_manage_user(actor: User, target: User) -> None:
     """
     Stop a user who only holds `user:manage` / `role:assign` (for example
     platform_admin) from acting on a privileged account: resetting its
@@ -453,7 +423,7 @@ def ensure_can_manage_user(actor: User, target: User) -> None:
 
     ceo and vp_operations are unchanged: they can manage any user, as before.
     """
-    
+
     actor_role = actor.role.name if actor.role else None
 
     if actor_role in LEGACY_ROLE_ADMINS:

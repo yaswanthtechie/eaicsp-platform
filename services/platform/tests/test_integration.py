@@ -1,5 +1,6 @@
 import os
 import uuid
+
 import httpx
 import pytest
 
@@ -80,6 +81,7 @@ def verify_request(token, service="inventory-service"):
 # REAL HTTP LOGIN / INTEGRATION CONTRACT
 # ============================================================
 
+
 def test_real_http_login():
     """
     Proves documented login contract works through real HTTP.
@@ -96,6 +98,7 @@ def test_real_http_login():
 # ============================================================
 # DEDICATED SERVICE-TO-SERVICE /VERIFY ENDPOINT
 # ============================================================
+
 
 def test_verify_valid_token():
     """
@@ -159,6 +162,7 @@ def test_verify_vp_operations_role():
 # CONSISTENT 401 ERROR RESPONSES
 # ============================================================
 
+
 def test_verify_missing_token():
     response = httpx.post(
         VERIFY_URL,
@@ -212,9 +216,7 @@ def test_verify_tampered_token():
 
     token = login(user)
 
-    tampered_token = token[:-1] + (
-        "a" if token[-1] != "a" else "b"
-    )
+    tampered_token = token[:-1] + ("a" if token[-1] != "a" else "b")
 
     response = verify_request(tampered_token)
 
@@ -223,6 +225,7 @@ def test_verify_tampered_token():
     data = response.json()
 
     assert list(data.keys()) == ["detail"]
+
 
 def test_verify_rejects_refresh_token():
     """
@@ -244,9 +247,11 @@ def test_verify_rejects_refresh_token():
     assert response.status_code == 401
     assert list(response.json().keys()) == ["detail"]
 
+
 # ============================================================
 # 403 FOR VALID TOKEN + WRONG ROLE
 # ============================================================
+
 
 def test_valid_token_wrong_role_returns_403():
     """
@@ -280,6 +285,7 @@ def test_valid_token_wrong_role_returns_403():
 # ============================================================
 # SERVICE CALLER IDENTIFICATION / REQUEST LOGGING
 # ============================================================
+
 
 def test_caller_service_header_accepted():
     """
@@ -328,6 +334,7 @@ def test_request_id_header_accepted():
 # CONCURRENT SERVICE LOAD
 # ============================================================
 
+
 def test_five_services_can_call_verify_concurrently():
     """
     Simulate 5 dependent services calling /verify at the
@@ -353,7 +360,6 @@ def test_five_services_can_call_verify_concurrently():
         )
 
     with httpx.Client(timeout=10) as client:
-
         requests = [
             client.build_request(
                 "POST",
@@ -369,10 +375,7 @@ def test_five_services_can_call_verify_concurrently():
 
         import concurrent.futures
 
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=5
-        ) as executor:
-
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             responses = list(
                 executor.map(
                     client.send,
@@ -403,10 +406,7 @@ def test_twenty_concurrent_verify_requests():
 
     import concurrent.futures
 
-    with concurrent.futures.ThreadPoolExecutor(
-        max_workers=20
-    ) as executor:
-
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
         responses = list(
             executor.map(
                 call_verify,
@@ -416,15 +416,13 @@ def test_twenty_concurrent_verify_requests():
 
     assert len(responses) == 20
 
-    assert all(
-        response.status_code == 200
-        for response in responses
-    )
+    assert all(response.status_code == 200 for response in responses)
 
 
 # ============================================================
 # END-TO-END CONTRACT
 # ============================================================
+
 
 def test_complete_r5_authentication_flow():
     """

@@ -1,6 +1,14 @@
-from datetime import datetime, timedelta, timezone
+import logging
+import secrets
+import threading
+from collections import defaultdict
+from datetime import UTC, datetime, timedelta
+
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
+
+from app.core import config as app_config
+from app.core.event_publisher import publish_event
 from app.core.password_validator import validate_password
 from app.core.security import (
     create_access_token,
@@ -8,32 +16,23 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.core import config as app_config
 from app.core.token_cache import token_cache
-from app.models.users import User
+from app.models.failed_login_attempts import FailedLoginAttempt
 from app.models.password_reset_tokens import PasswordResetToken
 from app.models.refresh_token import RefreshToken
-from app.models.failed_login_attempts import FailedLoginAttempt
+from app.models.users import User
 from app.schemas.auth import RegisterRequest
-from app.services.email_service import MockEmailService
 from app.services.audit_service import (
     ACCOUNT_LOCKED,
-    LOGIN_SUCCESS,
     LOGIN_FAILED,
-    PASSWORD_RESET,
-    create_audit_log,
+    LOGIN_SUCCESS,
     MFA_FAILED,
     MFA_VERIFIED,
+    PASSWORD_RESET,
+    create_audit_log,
 )
-from app.services.mfa_service import create_mfa_challenge
-from app.services.mfa_service import verify_mfa_challenge
-from app.core.event_publisher import publish_event
-
-import secrets
-import threading
-from collections import defaultdict
-import logging
-
+from app.services.email_service import MockEmailService
+from app.services.mfa_service import create_mfa_challenge, verify_mfa_challenge
 
 logger = logging.getLogger("auth_requests")
 
@@ -55,6 +54,7 @@ RESET_TOKEN_EXPIRE_MINUTES = 15
 # REFRESH TOKEN
 # ============================================================
 
+
 def save_refresh_token(
     db: Session,
     user_id: int,
@@ -71,11 +71,12 @@ def save_refresh_token(
 
     return refresh
 
+
 def get_refresh_token(
     db: Session,
     token: str,
 ):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     refresh = (
         db.query(RefreshToken)
@@ -90,11 +91,7 @@ def get_refresh_token(
     if refresh is None:
         return None
 
-    user = (
-        db.query(User)
-        .filter(User.id == refresh.user_id)
-        .first()
-    )
+    user = db.query(User).filter(User.id == refresh.user_id).first()
 
     if user is None:
         return None
@@ -104,6 +101,7 @@ def get_refresh_token(
         return None
 
     return refresh
+
 
 def revoke_refresh_token(
     db: Session,
@@ -122,9 +120,11 @@ def revoke_refresh_token(
     refresh.is_revoked = True
     return True
 
+
 # ============================================================
 # FAILED LOGIN TRACKING
 # ============================================================
+
 
 def log_failed_login(
     db: Session,
@@ -134,7 +134,7 @@ def log_failed_login(
     failed_attempt = FailedLoginAttempt(
         email=email.lower(),
         ip_address=ip_address,
-        attempted_at=datetime.now(timezone.utc),
+        attempted_at=datetime.now(UTC),
     )
 
     db.add(failed_attempt)
@@ -145,10 +145,7 @@ def get_recent_attempts_by_email(
     db: Session,
     email: str,
 ):
-    cutoff = (
-        datetime.now(timezone.utc)
-        - WINDOW
-    )
+    cutoff = datetime.now(UTC) - WINDOW
 
     return (
         db.query(FailedLoginAttempt)
@@ -159,14 +156,12 @@ def get_recent_attempts_by_email(
         .count()
     )
 
+
 def get_recent_attempts_by_ip(
     db: Session,
     ip_address: str,
 ):
-    cutoff = (
-        datetime.now(timezone.utc)
-        - WINDOW
-    )
+    cutoff = datetime.now(UTC) - WINDOW
 
     return (
         db.query(FailedLoginAttempt)
@@ -177,9 +172,11 @@ def get_recent_attempts_by_ip(
         .count()
     )
 
+
 # ============================================================
 # LOGIN RATE LIMITING
 # ============================================================
+
 
 def check_login_rate_limit(
     db: Session,
@@ -196,18 +193,17 @@ def check_login_rate_limit(
         ip_address=client_ip,
     )
 
-    if (
-        email_attempts >= MAX_ATTEMPTS
-        or ip_attempts >= MAX_ATTEMPTS
-    ):
+    if email_attempts >= MAX_ATTEMPTS or ip_attempts >= MAX_ATTEMPTS:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many login attempts. Try again after 15 minutes.",
         )
 
+
 # ============================================================
 # ACCOUNT LOCKOUT HELPER
 # ============================================================
+
 
 def is_account_locked(user: User):
     """
@@ -219,15 +215,13 @@ def is_account_locked(user: User):
     if not user.locked_until:
         return False
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     locked_until = user.locked_until
 
     # SQLite can return timezone-naive datetime values.
     if locked_until.tzinfo is None:
-        locked_until = locked_until.replace(
-            tzinfo=timezone.utc
-        )
+        locked_until = locked_until.replace(tzinfo=UTC)
 
     if locked_until > now:
         return True
@@ -236,13 +230,12 @@ def is_account_locked(user: User):
 
     return False
 
+
 # ============================================================
 # RATE LIMIT LOCKS
 # ============================================================
 # One lock per email + IP bucket
-_rate_limit_locks: dict[str, threading.Lock] = defaultdict(
-    threading.Lock
-)
+_rate_limit_locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
 
 _rate_limit_locks_guard = threading.Lock()
 
@@ -257,9 +250,11 @@ def _get_bucket_lock(
     with _rate_limit_locks_guard:
         return _rate_limit_locks[key]
 
+
 # ============================================================
 # REGISTER
 # ============================================================
+
 
 def register_user(
     db: Session,
@@ -267,13 +262,7 @@ def register_user(
 ):
     email_address = request.email.lower()
 
-    existing = (
-        db.query(User)
-        .filter(
-            User.email == email_address
-        )
-        .first()
-    )
+    existing = db.query(User).filter(User.email == email_address).first()
 
     if existing:
         raise HTTPException(
@@ -284,10 +273,8 @@ def register_user(
     # Validate password before hashing
     validate_password(request.password)
 
-    hashed_password = hash_password(
-        request.password
-    )
-    now = datetime.now(timezone.utc)
+    hashed_password = hash_password(request.password)
+    now = datetime.now(UTC)
     user = User(
         email=email_address,
         full_name=request.full_name,
@@ -301,13 +288,13 @@ def register_user(
     db.add(user)
     db.commit()
     db.refresh(user)
-    return {
-        "message": "User registered successfully"
-    }
+    return {"message": "User registered successfully"}
+
 
 # ============================================================
 # BASIC LOGIN
 # ============================================================
+
 
 def login(
     db: Session,
@@ -316,13 +303,7 @@ def login(
 ):
     username = username.lower()
 
-    user = (
-        db.query(User)
-        .filter(
-            User.email == username
-        )
-        .first()
-    )
+    user = db.query(User).filter(User.email == username).first()
 
     if user is None:
         return None
@@ -334,6 +315,7 @@ def login(
         return None
 
     return user
+
 
 # ============================================================
 # LOGIN
@@ -352,25 +334,17 @@ def login_user(
     )
 
     with lock:
-
         # ----------------------------------------------------
         # 1. Find user
         # ----------------------------------------------------
 
-        user = (
-            db.query(User)
-            .filter(
-                User.email == username
-            )
-            .first()
-        )
+        user = db.query(User).filter(User.email == username).first()
 
         # ----------------------------------------------------
         # 2. Check account lockout FIRST
         # ----------------------------------------------------
 
         if user and is_account_locked(user):
-
             db.commit()
 
             raise HTTPException(
@@ -392,16 +366,12 @@ def login_user(
         # 4. Validate username/password
         # ----------------------------------------------------
 
-        password_valid = (
-            user is not None
-            and verify_password(
-                password,
-                user.password,
-            )
+        password_valid = user is not None and verify_password(
+            password,
+            user.password,
         )
 
         if not password_valid:
-
             # Record failed attempt
             log_failed_login(
                 db=db,
@@ -420,11 +390,7 @@ def login_user(
             # ------------------------------------------------
 
             if user and attempts >= MAX_ATTEMPTS:
-
-                user.locked_until = (
-                    datetime.now(timezone.utc)
-                    + LOCKOUT_DURATION
-                )
+                user.locked_until = datetime.now(UTC) + LOCKOUT_DURATION
 
                 # Keep existing Redis cache invalidation
                 token_cache.invalidate_user(user.id)
@@ -437,8 +403,7 @@ def login_user(
                     email=user.email,
                     ip_address=client_ip,
                     details=(
-                        f"Account locked after "
-                        f"{MAX_ATTEMPTS} failed login attempts"
+                        f"Account locked after {MAX_ATTEMPTS} failed login attempts"
                     ),
                 )
 
@@ -495,7 +460,6 @@ def login_user(
         # ----------------------------------------------------
 
         if not user.is_active:
-
             create_audit_log(
                 db=db,
                 event_type=LOGIN_FAILED,
@@ -517,7 +481,6 @@ def login_user(
         # ----------------------------------------------------
 
         if not user.role:
-
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="User role is not assigned",
@@ -527,25 +490,18 @@ def login_user(
         # 9. Check password expiry
         # ----------------------------------------------------
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         if user.password_expires_at:
-
             password_expires_at = user.password_expires_at
 
             if password_expires_at.tzinfo is None:
-                password_expires_at = password_expires_at.replace(
-                    tzinfo=timezone.utc
-                )
+                password_expires_at = password_expires_at.replace(tzinfo=UTC)
 
             if password_expires_at <= now:
-
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail=(
-                        "Password has expired. "
-                        "Please reset your password."
-                    ),
+                    detail=("Password has expired. Please reset your password."),
                 )
 
         # ----------------------------------------------------
@@ -553,10 +509,7 @@ def login_user(
         # ----------------------------------------------------
 
         if app_config.MFA_ENABLED:
-
-            challenge_id, otp = create_mfa_challenge(
-                user_id=user.id
-            )
+            challenge_id, otp = create_mfa_challenge(user_id=user.id)
 
             MockEmailService.send_mfa_otp(
                 email=user.email,
@@ -569,12 +522,9 @@ def login_user(
                 "message": "OTP sent. Verify the OTP to complete login.",
             }
 
-            audit_details = (
-                "Password authentication successful; MFA required"
-            )
+            audit_details = "Password authentication successful; MFA required"
 
         else:
-
             access_token = create_access_token(
                 {
                     "sub": user.email,
@@ -594,10 +544,7 @@ def login_user(
                 db=db,
                 user_id=user.id,
                 token=refresh_token,
-                expires_at=(
-                    datetime.now(timezone.utc)
-                    + timedelta(days=7)
-                ),
+                expires_at=(datetime.now(UTC) + timedelta(days=7)),
             )
 
             login_response = {
@@ -622,8 +569,7 @@ def login_user(
         )
 
         logger.info(
-            "Password authentication succeeded | "
-            "user_id=%s | role=%s | %s",
+            "Password authentication succeeded | user_id=%s | role=%s | %s",
             user.id,
             user.role.name,
             audit_details,
@@ -646,9 +592,11 @@ def login_user(
         # ----------------------------------------------------
         return login_response
 
+
 # ============================================================
 # PASSWORD RESET REQUEST
 # ============================================================
+
 
 def request_password_reset(
     db: Session,
@@ -656,13 +604,7 @@ def request_password_reset(
 ):
     email = email.lower()
 
-    user = (
-        db.query(User)
-        .filter(
-            User.email == email
-        )
-        .first()
-    )
+    user = db.query(User).filter(User.email == email).first()
 
     if user is None:
         return
@@ -683,10 +625,7 @@ def request_password_reset(
 
     token = secrets.token_urlsafe(32)
 
-    expires_at = (
-        datetime.now(timezone.utc)
-        + timedelta(minutes=RESET_TOKEN_EXPIRE_MINUTES)
-    )
+    expires_at = datetime.now(UTC) + timedelta(minutes=RESET_TOKEN_EXPIRE_MINUTES)
 
     reset_token = PasswordResetToken(
         user_id=user.id,
@@ -704,9 +643,11 @@ def request_password_reset(
         reset_token=token,
     )
 
+
 # ============================================================
 # PASSWORD RESET
 # ============================================================
+
 
 def reset_password(
     db: Session,
@@ -714,11 +655,7 @@ def reset_password(
     new_password: str,
 ):
     reset_token = (
-        db.query(PasswordResetToken)
-        .filter(
-            PasswordResetToken.token == token
-        )
-        .first()
+        db.query(PasswordResetToken).filter(PasswordResetToken.token == token).first()
     )
 
     if reset_token is None:
@@ -733,14 +670,12 @@ def reset_password(
             detail="Password reset token already used",
         )
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     expires_at = reset_token.expires_at
 
     if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(
-            tzinfo=timezone.utc
-        )
+        expires_at = expires_at.replace(tzinfo=UTC)
 
     if expires_at <= now:
         raise HTTPException(
@@ -748,13 +683,7 @@ def reset_password(
             detail="Password reset token has expired",
         )
 
-    user = (
-        db.query(User)
-        .filter(
-            User.id == reset_token.user_id
-        )
-        .first()
-    )
+    user = db.query(User).filter(User.id == reset_token.user_id).first()
 
     if user is None:
         raise HTTPException(
@@ -772,9 +701,7 @@ def reset_password(
 
     # Update password lifecycle dates
     user.password_changed_at = now
-    user.password_expires_at = (
-        now + timedelta(days=90)
-    )
+    user.password_expires_at = now + timedelta(days=90)
 
     # Unlock account after successful password reset
     user.locked_until = None
@@ -784,9 +711,7 @@ def reset_password(
         RefreshToken.user_id == user.id,
         RefreshToken.is_revoked.is_(False),
     ).update(
-        {
-            RefreshToken.is_revoked: True
-        },
+        {RefreshToken.is_revoked: True},
         synchronize_session=False,
     )
 
@@ -804,7 +729,9 @@ def reset_password(
     db.commit()
 
 
-def complete_mfa_login(db: Session, challenge_id: str, otp: str, client_ip: str) -> dict:
+def complete_mfa_login(
+    db: Session, challenge_id: str, otp: str, client_ip: str
+) -> dict:
     """Verify the OTP for a pending MFA challenge and issue tokens."""
 
     user_id = verify_mfa_challenge(challenge_id, otp)
@@ -839,7 +766,7 @@ def complete_mfa_login(db: Session, challenge_id: str, otp: str, client_ip: str)
         db=db,
         user_id=user.id,
         token=refresh_token,
-        expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+        expires_at=datetime.now(UTC) + timedelta(days=7),
     )
 
     create_audit_log(

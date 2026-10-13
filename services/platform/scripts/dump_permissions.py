@@ -5,6 +5,7 @@ This file is the backward-compatibility contract for the 8 original roles.
 It must only be (re)generated deliberately, so the script refuses to
 overwrite it unless --force is passed.
 """
+
 import json
 import sys
 from pathlib import Path
@@ -12,7 +13,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.core.permissions import ROLE_PERMISSIONS  # noqa: E402
+from app.core.permissions import ROLE_PERMISSIONS
 
 V1_ROLES = (
     "ceo",
@@ -24,6 +25,7 @@ V1_ROLES = (
     "analyst",
     "supplier",
 )
+
 
 def main() -> int:
     output_path = PROJECT_ROOT / "tests" / "fixtures" / "permissions_v1.json"

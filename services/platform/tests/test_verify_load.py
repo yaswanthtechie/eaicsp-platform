@@ -39,6 +39,7 @@ from collections import Counter
 from dataclasses import dataclass
 
 import httpx
+
 # ============================================================
 # Configuration
 # ============================================================
@@ -52,17 +53,11 @@ VERIFY_URL = f"{BASE_URL}/api/v1/auth/verify"
 
 ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
 
-TOTAL_REQUESTS = int(
-    os.getenv("TOTAL_REQUESTS", "150")
-)
+TOTAL_REQUESTS = int(os.getenv("TOTAL_REQUESTS", "150"))
 
-CONCURRENCY = int(
-    os.getenv("CONCURRENCY", "20")
-)
+CONCURRENCY = int(os.getenv("CONCURRENCY", "20"))
 
-TIMEOUT_SECONDS = float(
-    os.getenv("TIMEOUT_SECONDS", "10")
-)
+TIMEOUT_SECONDS = float(os.getenv("TIMEOUT_SECONDS", "10"))
 
 # Simulate the current real caller services.
 CALLER_SERVICES = (
@@ -75,6 +70,7 @@ CALLER_SERVICES = (
 # Result model
 # ============================================================
 
+
 @dataclass
 class RequestResult:
     request_number: int
@@ -84,22 +80,22 @@ class RequestResult:
     latency_ms: float
     error: str | None = None
 
+
 # ============================================================
 # Validation
 # ============================================================
+
 
 def validate_configuration() -> None:
     """Validate load-test configuration before starting."""
 
     if not ACCESS_TOKEN:
-        print(
-            "\nERROR: ACCESS_TOKEN environment variable is missing.\n"
-        )
+        print("\nERROR: ACCESS_TOKEN environment variable is missing.\n")
         print("First obtain a valid access token from the MFA login flow.")
         print("\nWindows CMD:")
         print("    set ACCESS_TOKEN=<your_access_token>")
         print("\nPowerShell:")
-        print("    $env:ACCESS_TOKEN=\"<your_access_token>\"")
+        print('    $env:ACCESS_TOKEN="<your_access_token>"')
         print()
         sys.exit(1)
 
@@ -117,9 +113,11 @@ def validate_configuration() -> None:
             "Reducing concurrency to TOTAL_REQUESTS."
         )
 
+
 # ============================================================
 # Single request
 # ============================================================
+
 
 async def send_verify_request(
     client: httpx.AsyncClient,
@@ -127,12 +125,9 @@ async def send_verify_request(
     request_number: int,
 ) -> RequestResult:
 
-    caller_service = CALLER_SERVICES[
-        (request_number - 1) % len(CALLER_SERVICES)
-    ]
+    caller_service = CALLER_SERVICES[(request_number - 1) % len(CALLER_SERVICES)]
 
     async with semaphore:
-
         start = time.perf_counter()
 
         try:
@@ -144,20 +139,16 @@ async def send_verify_request(
                 },
             )
 
-            elapsed_ms = (
-                time.perf_counter() - start
-            ) * 1000
+            elapsed_ms = (time.perf_counter() - start) * 1000
 
-            success = (
-                response.status_code == 200
-            )
+            success = response.status_code == 200
 
             error = None
 
             if not success:
                 try:
                     error_body = response.text[:300]
-                except Exception:
+                except Exception:  # noqa: BLE001 - Fall back if the response body cannot be read.
                     error_body = "Unable to read response body"
 
                 error = error_body
@@ -171,11 +162,8 @@ async def send_verify_request(
                 error=error,
             )
 
-        except Exception as exc:
-
-            elapsed_ms = (
-                time.perf_counter() - start
-            ) * 1000
+        except Exception as exc:  # noqa: BLE001 - Record request failures in load-test results.
+            elapsed_ms = (time.perf_counter() - start) * 1000
 
             return RequestResult(
                 request_number=request_number,
@@ -186,9 +174,11 @@ async def send_verify_request(
                 error=str(exc),
             )
 
+
 # ============================================================
 # Load test
 # ============================================================
+
 
 async def run_load_test() -> list[RequestResult]:
 
@@ -197,18 +187,14 @@ async def run_load_test() -> list[RequestResult]:
         TOTAL_REQUESTS,
     )
 
-    semaphore = asyncio.Semaphore(
-        effective_concurrency
-    )
+    semaphore = asyncio.Semaphore(effective_concurrency)
 
     limits = httpx.Limits(
         max_connections=effective_concurrency,
         max_keepalive_connections=effective_concurrency,
     )
 
-    timeout = httpx.Timeout(
-        TIMEOUT_SECONDS
-    )
+    timeout = httpx.Timeout(TIMEOUT_SECONDS)
 
     print("\nStarting /verify load test...")
     print("----------------------------------------")
@@ -217,10 +203,7 @@ async def run_load_test() -> list[RequestResult]:
     print(f"Total requests     : {TOTAL_REQUESTS}")
     print(f"Concurrency        : {effective_concurrency}")
     print(f"Timeout            : {TIMEOUT_SECONDS}s")
-    print(
-        "Caller services    : "
-        + ", ".join(CALLER_SERVICES)
-    )
+    print("Caller services    : " + ", ".join(CALLER_SERVICES))
     print("----------------------------------------\n")
 
     test_start = time.perf_counter()
@@ -229,7 +212,6 @@ async def run_load_test() -> list[RequestResult]:
         limits=limits,
         timeout=timeout,
     ) as client:
-
         tasks = [
             send_verify_request(
                 client,
@@ -242,13 +224,9 @@ async def run_load_test() -> list[RequestResult]:
             )
         ]
 
-        results = await asyncio.gather(
-            *tasks
-        )
+        results = await asyncio.gather(*tasks)
 
-    total_elapsed = (
-        time.perf_counter() - test_start
-    )
+    total_elapsed = time.perf_counter() - test_start
 
     print_report(
         results,
@@ -257,9 +235,11 @@ async def run_load_test() -> list[RequestResult]:
 
     return results
 
+
 # ============================================================
 # Percentile calculation
 # ============================================================
+
 
 def percentile(
     values: list[float],
@@ -271,11 +251,7 @@ def percentile(
 
     sorted_values = sorted(values)
 
-    index = (
-        (len(sorted_values) - 1)
-        * percent
-        / 100
-    )
+    index = (len(sorted_values) - 1) * percent / 100
 
     lower = int(index)
     upper = min(
@@ -286,17 +262,14 @@ def percentile(
     fraction = index - lower
 
     return (
-        sorted_values[lower]
-        + (
-            sorted_values[upper]
-            - sorted_values[lower]
-        )
-        * fraction
+        sorted_values[lower] + (sorted_values[upper] - sorted_values[lower]) * fraction
     )
+
 
 # ============================================================
 # Report
 # ============================================================
+
 
 def print_report(
     results: list[RequestResult],
@@ -305,65 +278,27 @@ def print_report(
 
     total = len(results)
 
-    successful = [
-        result
-        for result in results
-        if result.success
-    ]
+    successful = [result for result in results if result.success]
 
-    failed = [
-        result
-        for result in results
-        if not result.success
-    ]
+    failed = [result for result in results if not result.success]
 
-    latencies = [
-        result.latency_ms
-        for result in results
-    ]
+    latencies = [result.latency_ms for result in results]
 
-    successful_latencies = [
-        result.latency_ms
-        for result in successful
-    ]
+    successful_latencies = [result.latency_ms for result in successful]
 
-    status_counts = Counter(
-        result.status_code
-        for result in results
-    )
+    status_counts = Counter(result.status_code for result in results)
 
-    caller_counts = Counter(
-        result.caller_service
-        for result in results
-    )
+    caller_counts = Counter(result.caller_service for result in results)
 
-    caller_success_counts = Counter(
-        result.caller_service
-        for result in successful
-    )
+    caller_success_counts = Counter(result.caller_service for result in successful)
 
-    caller_failure_counts = Counter(
-        result.caller_service
-        for result in failed
-    )
+    caller_failure_counts = Counter(result.caller_service for result in failed)
 
-    throughput = (
-        total / total_elapsed
-        if total_elapsed > 0
-        else 0
-    )
+    throughput = total / total_elapsed if total_elapsed > 0 else 0
 
-    success_rate = (
-        len(successful) / total * 100
-        if total
-        else 0
-    )
+    success_rate = len(successful) / total * 100 if total else 0
 
-    failure_rate = (
-        len(failed) / total * 100
-        if total
-        else 0
-    )
+    failure_rate = len(failed) / total * 100 if total else 0
 
     print("\n")
     print("=" * 70)
@@ -375,10 +310,7 @@ def print_report(
     print(f"Endpoint              : {VERIFY_URL}")
     print(f"Total requests        : {total}")
     print(f"Concurrency           : {min(CONCURRENCY, TOTAL_REQUESTS)}")
-    print(
-        "Caller services       : "
-        + ", ".join(CALLER_SERVICES)
-    )
+    print("Caller services       : " + ", ".join(CALLER_SERVICES))
 
     print("\nOVERALL RESULTS")
     print("-" * 70)
@@ -394,68 +326,38 @@ def print_report(
     print("-" * 70)
 
     if latencies:
-        print(
-            f"Min latency           : "
-            f"{min(latencies):.2f} ms"
-        )
+        print(f"Min latency           : {min(latencies):.2f} ms")
 
-        print(
-            f"Average latency       : "
-            f"{statistics.mean(latencies):.2f} ms"
-        )
+        print(f"Average latency       : {statistics.mean(latencies):.2f} ms")
 
-        print(
-            f"Median latency        : "
-            f"{statistics.median(latencies):.2f} ms"
-        )
+        print(f"Median latency        : {statistics.median(latencies):.2f} ms")
 
-        print(
-            f"P95 latency           : "
-            f"{percentile(latencies, 95):.2f} ms"
-        )
+        print(f"P95 latency           : {percentile(latencies, 95):.2f} ms")
 
-        print(
-            f"P99 latency           : "
-            f"{percentile(latencies, 99):.2f} ms"
-        )
+        print(f"P99 latency           : {percentile(latencies, 99):.2f} ms")
 
-        print(
-            f"Max latency           : "
-            f"{max(latencies):.2f} ms"
-        )
+        print(f"Max latency           : {max(latencies):.2f} ms")
 
     if successful_latencies:
         print("\nSUCCESSFUL REQUEST LATENCY")
         print("-" * 70)
 
-        print(
-            f"Average successful    : "
-            f"{statistics.mean(successful_latencies):.2f} ms"
-        )
+        print(f"Average successful    : {statistics.mean(successful_latencies):.2f} ms")
 
-        print(
-            f"P95 successful       : "
-            f"{percentile(successful_latencies, 95):.2f} ms"
-        )
+        print(f"P95 successful       : {percentile(successful_latencies, 95):.2f} ms")
 
-        print(
-            f"P99 successful       : "
-            f"{percentile(successful_latencies, 99):.2f} ms"
-        )
+        print(f"P99 successful       : {percentile(successful_latencies, 99):.2f} ms")
 
     print("\nCALLER SERVICE DISTRIBUTION")
     print("-" * 70)
 
     for service in CALLER_SERVICES:
-
         total_service = caller_counts[service]
         success_service = caller_success_counts[service]
         failure_service = caller_failure_counts[service]
 
         service_success_rate = (
-            success_service / total_service * 100
-            if total_service
-            else 0
+            success_service / total_service * 100 if total_service else 0
         )
 
         print(
@@ -476,18 +378,14 @@ def print_report(
             item[0] or 0,
         ),
     ):
-        print(
-            f"{str(status_code):<10} : {count}"
-        )
+        print(f"{status_code!s:<10} : {count}")
 
     if failed:
-
         print("\nFAILURE DETAILS")
         print("-" * 70)
 
         # Show at most 10 failures so the report stays readable.
         for result in failed[:10]:
-
             print(
                 f"Request #{result.request_number} | "
                 f"caller={result.caller_service} | "
@@ -496,50 +394,40 @@ def print_report(
             )
 
         if len(failed) > 10:
-            print(
-                f"... and {len(failed) - 10} more failures"
-            )
+            print(f"... and {len(failed) - 10} more failures")
 
     print("\nFINAL RESULT")
     print("-" * 70)
 
     if len(successful) == total:
-        print(
-            "PASS: All /verify requests completed successfully."
-        )
+        print("PASS: All /verify requests completed successfully.")
     else:
-        print(
-            "ATTENTION: Some /verify requests failed."
-        )
+        print("ATTENTION: Some /verify requests failed.")
 
     print("=" * 70)
     print()
 
+
 # ============================================================
 # Entry point
 # ============================================================
+
 
 def main() -> None:
 
     validate_configuration()
 
     try:
-        asyncio.run(
-            run_load_test()
-        )
+        asyncio.run(run_load_test())
 
     except KeyboardInterrupt:
-        print(
-            "\nLoad test interrupted by user."
-        )
+        print("\nLoad test interrupted by user.")
         sys.exit(130)
 
-    except Exception as exc:
-        print(
-            f"\nLoad test failed to execute: {exc}"
-        )
+    except Exception as exc:  # noqa: BLE001 - Report unexpected load-test execution failures.
+        print(f"\nLoad test failed to execute: {exc}")
         sys.exit(1)
 
 
-if __name__ =="__main__":
+if __name__ == "__main__":
     main()

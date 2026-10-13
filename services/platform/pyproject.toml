@@ -1,0 +1,4 @@
+[tool.ruff.lint.per-file-ignores]
+"app/routes/*.py" = ["B008"]
+"app/core/dependencies.py" = ["B008"]
+"app/core/service_auth.py" = ["B008"]

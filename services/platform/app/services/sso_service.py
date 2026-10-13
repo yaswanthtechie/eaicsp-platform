@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
 from jose import JWTError, jwt
@@ -21,7 +21,10 @@ ASSERTION_TTL_SECONDS = 120
 # ------------------------------------------------------------
 MOCK_SSO_USERS = {
     "enterprise-001": {"email": "ceo@company.com", "full_name": "CEO User"},
-    "enterprise-002": {"email": "vpoperations@company.com", "full_name": "Vpoperations User"},
+    "enterprise-002": {
+        "email": "vpoperations@company.com",
+        "full_name": "Vpoperations User",
+    },
 }
 
 
@@ -31,8 +34,12 @@ def _require_enabled() -> str:
     secret = app_config.MOCK_SSO_SECRET or ""
     if len(secret) < 32:
         # Never verify with an empty or guessable key.
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="SSO is not configured")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="SSO is not configured",
+        )
     return secret
+
 
 # ------------------------------------------------------------
 # Mock IdP side: issue a signed, short-lived assertion.
@@ -40,7 +47,7 @@ def _require_enabled() -> str:
 def create_mock_sso_assertion(external_id: str) -> str:
     secret = _require_enabled()
     user = MOCK_SSO_USERS[external_id]
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     claims = {
         "iss": MOCK_SSO_PROVIDER,
         "aud": ASSERTION_AUDIENCE,
@@ -93,14 +100,14 @@ def mock_sso_login(db: Session, provider: str, assertion: str, client_ip: str):
         reject("identity not registered in EAICSP")
     if not user.is_active or user.role is None:
         reject("inactive account or no role")
-        
+
     # Same lockout the password login enforces. SQLite returns naive
     # datetimes, so treat a naive locked_until as UTC.
     locked_until = user.locked_until
     if locked_until is not None:
         if locked_until.tzinfo is None:
-            locked_until = locked_until.replace(tzinfo=timezone.utc)
-        if locked_until > datetime.now(timezone.utc):
+            locked_until = locked_until.replace(tzinfo=UTC)
+        if locked_until > datetime.now(UTC):
             reject("account is locked")
 
     access_token = create_access_token(
@@ -112,7 +119,7 @@ def mock_sso_login(db: Session, provider: str, assertion: str, client_ip: str):
         db=db,
         user_id=user.id,
         token=refresh_token,
-        expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+        expires_at=datetime.now(UTC) + timedelta(days=7),
     )
 
     create_audit_log(
