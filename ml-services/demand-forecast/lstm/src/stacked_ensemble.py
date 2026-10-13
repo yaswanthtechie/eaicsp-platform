@@ -2,14 +2,16 @@
 
 import json
 import os
+from pathlib import Path
+
 
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import Ridge
-
-from config import DATASET_DAYS, OUTPUT_DIR, RANDOM_SEED
-from data import generate_data
-from ensemble import (
+ROOT = Path(__file__).resolve().parent.parent
+from src.config import DATASET_DAYS, OUTPUT_DIR, RANDOM_SEED
+from src.data import generate_data
+from src.ensemble import (
     MODEL_NAMES,
     check_contiguous,
     fit_lstm_and_predict,
@@ -17,7 +19,7 @@ from ensemble import (
     fit_xgboost_and_predict,
     set_seeds,
 )
-from evaluate import calculate_metrics
+from src.evaluate import calculate_metrics
 
 
 BASE_COLUMNS = list(MODEL_NAMES)
@@ -139,7 +141,7 @@ def evaluate_test_predictions(test_predictions, meta_model):
     return result, metrics
 
 
-def run_stacked_ensemble(block_size=DEFAULT_BLOCK_SIZE):
+def run_stacked_ensemble(block_size=DEFAULT_BLOCK_SIZE, data_seed=42, model_seed=RANDOM_SEED):
     """
     Use the existing single-series synthetic dataset.
 
@@ -147,8 +149,8 @@ def run_stacked_ensemble(block_size=DEFAULT_BLOCK_SIZE):
     Next 25%: OOF data for fitting the meta-learner.
     Final 15%: held-out rolling-origin test.
     """
-    set_seeds(RANDOM_SEED)
-    df = generate_data(days=DATASET_DAYS).reset_index(drop=True)
+    set_seeds(model_seed)
+    df = generate_data(days=DATASET_DAYS, seed=data_seed).reset_index(drop=True)
 
     if not {"Date", "Demand"}.issubset(df.columns):
         raise ValueError("Expected the dataset columns Date and Demand.")
@@ -196,6 +198,8 @@ def run_stacked_ensemble(block_size=DEFAULT_BLOCK_SIZE):
     report = {
         "dataset": "generate_data(days=DATASET_DAYS)",
         "dataset_rows": n_rows,
+        "data_seed": data_seed,
+        "model_seed": model_seed,
         "initial_history_rows": oof_start,
         "oof_rows": len(oof_predictions),
         "test_rows": len(test_results),
@@ -213,8 +217,8 @@ def run_stacked_ensemble(block_size=DEFAULT_BLOCK_SIZE):
         },
         "ridge_intercept": float(meta_model.intercept_),
         "artifacts": {
-            "oof_predictions": oof_path,
-            "test_predictions": test_path,
+            "oof_predictions": os.path.relpath(oof_path, ROOT),
+            "test_predictions": os.path.relpath(test_path, ROOT),
         },
     }
 

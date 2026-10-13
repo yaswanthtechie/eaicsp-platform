@@ -8,8 +8,8 @@ import onnxruntime as ort
 from onnxruntime.quantization import quantize_dynamic, QuantType
 import joblib
 
-from config import LOOKBACK, HORIZON, DATASET_DAYS
-from data import generate_data
+from src.config import LOOKBACK, HORIZON, DATASET_DAYS
+from src.data import generate_data
 
 
 ROOT = Path(__file__).resolve().parents[1]

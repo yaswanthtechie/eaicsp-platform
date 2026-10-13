@@ -1,0 +1,111 @@
+{
+  "model": "GlobalDemandLSTM",
+  "checkpoint": "output\\global_best_model.pt",
+  "onnx_model": "output\\global_best_model.onnx",
+  "provider": "CPUExecutionProvider",
+  "warmup_runs": 20,
+  "benchmark_runs": 200,
+  "batch_sizes": [
+    1,
+    8,
+    32,
+    64
+  ],
+  "parity_results": [
+    {
+      "batch_size": 1,
+      "max_absolute_difference": 1.1920928955078125e-07,
+      "parity_passed": true
+    },
+    {
+      "batch_size": 8,
+      "max_absolute_difference": 2.384185791015625e-07,
+      "parity_passed": true
+    },
+    {
+      "batch_size": 32,
+      "max_absolute_difference": 2.980232238769531e-07,
+      "parity_passed": true
+    },
+    {
+      "batch_size": 64,
+      "max_absolute_difference": 4.76837158203125e-07,
+      "parity_passed": true
+    }
+  ],
+  "all_parity_passed": true,
+  "benchmark_results": [
+    {
+      "batch_size": 1,
+      "runtime": "pytorch_cpu",
+      "runs": 200,
+      "p50_latency_ms": 1.7664,
+      "p95_latency_ms": 3.8782,
+      "mean_latency_ms": 2.0338,
+      "throughput_samples_per_second": 491.7
+    },
+    {
+      "batch_size": 1,
+      "runtime": "onnxruntime_cpu",
+      "runs": 200,
+      "p50_latency_ms": 0.5877,
+      "p95_latency_ms": 1.0773,
+      "mean_latency_ms": 0.6435,
+      "throughput_samples_per_second": 1553.96
+    },
+    {
+      "batch_size": 8,
+      "runtime": "pytorch_cpu",
+      "runs": 200,
+      "p50_latency_ms": 3.9978,
+      "p95_latency_ms": 7.5045,
+      "mean_latency_ms": 4.6724,
+      "throughput_samples_per_second": 1712.18
+    },
+    {
+      "batch_size": 8,
+      "runtime": "onnxruntime_cpu",
+      "runs": 200,
+      "p50_latency_ms": 2.3661,
+      "p95_latency_ms": 7.3332,
+      "mean_latency_ms": 3.6054,
+      "throughput_samples_per_second": 2218.91
+    },
+    {
+      "batch_size": 32,
+      "runtime": "pytorch_cpu",
+      "runs": 200,
+      "p50_latency_ms": 10.1245,
+      "p95_latency_ms": 18.682,
+      "mean_latency_ms": 11.6772,
+      "throughput_samples_per_second": 2740.39
+    },
+    {
+      "batch_size": 32,
+      "runtime": "onnxruntime_cpu",
+      "runs": 200,
+      "p50_latency_ms": 8.0315,
+      "p95_latency_ms": 13.9858,
+      "mean_latency_ms": 8.9685,
+      "throughput_samples_per_second": 3568.05
+    },
+    {
+      "batch_size": 64,
+      "runtime": "pytorch_cpu",
+      "runs": 200,
+      "p50_latency_ms": 17.5132,
+      "p95_latency_ms": 32.6197,
+      "mean_latency_ms": 20.0207,
+      "throughput_samples_per_second": 3196.69
+    },
+    {
+      "batch_size": 64,
+      "runtime": "onnxruntime_cpu",
+      "runs": 200,
+      "p50_latency_ms": 14.1707,
+      "p95_latency_ms": 22.2335,
+      "mean_latency_ms": 15.4853,
+      "throughput_samples_per_second": 4132.94
+    }
+  ]
+}

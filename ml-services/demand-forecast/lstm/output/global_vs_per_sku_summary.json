@@ -25,8 +25,42 @@
     "RMSE": 15.759096145629883,
     "MAPE_percent": 13.800764083862305
   },
-  "global_checkpoint_training_seconds": null,
-  "per_sku_total_training_seconds": 92.34,
-  "per_sku_wall_clock_seconds": 97.86,
-  "note": "Global training time is not stored in the checkpoint. Run timing was not measured for the existing global model. Compare model metrics only on common eligible test windows."
+  "global_checkpoint_training_seconds": 149.0050603000018,
+  "per_sku_total_training_seconds": 84.71,
+  "per_sku_wall_clock_seconds": 88.13,
+  "note": "Full-test metrics use all test windows. Any global-vs-per-SKU comparison must use the same common eligible test windows. The test set was not used for checkpoint selection.",
+  "global_lstm_full_test_metrics": {
+    "MAE": 9.290378068069511,
+    "RMSE": 12.836312694793731,
+    "MAPE_percent": 14.550423812751042
+  },
+  "last_value_full_test_metrics": {
+    "MAE": 13.875109967310802,
+    "RMSE": 19.314774255844515,
+    "MAPE_percent": 19.94678444573481
+  },
+  "sku_coverage": {
+    "skus_with_train_windows": [
+      "SKU001",
+      "SKU002",
+      "SKU003",
+      "SKU004",
+      "SKU005",
+      "SKU006",
+      "SKU007",
+      "SKU008",
+      "SKU009",
+      "SKU010"
+    ],
+    "skus_mapped_to_unk": [],
+    "too_short_skipped_skus": [
+      "SKU011",
+      "SKU012",
+      "SKU013",
+      "SKU014",
+      "SKU015"
+    ]
+  },
+  "best_epoch": 32,
+  "best_validation_mse": 0.10445311251613829
 }

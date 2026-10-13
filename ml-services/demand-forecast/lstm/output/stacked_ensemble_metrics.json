@@ -1,6 +1,8 @@
 {
   "dataset": "generate_data(days=DATASET_DAYS)",
   "dataset_rows": 1000,
+  "data_seed": 77,
+  "model_seed": 77,
   "initial_history_rows": 600,
   "oof_rows": 250,
   "test_rows": 150,
@@ -13,39 +15,39 @@
   "test_end_date": "2024-09-26",
   "metrics": {
     "Prophet": {
-      "MAE": 2.414183494712819,
-      "RMSE": 3.0514243090379134,
-      "MAPE": 1.7817223387532843
+      "MAE": 2.4028785988405685,
+      "RMSE": 3.078143277312716,
+      "MAPE": 1.78886588424342
     },
     "XGBoost": {
-      "MAE": 3.4777443353191497,
-      "RMSE": 4.3929600300673775,
-      "MAPE": 2.570576180657352
+      "MAE": 3.2521666592947636,
+      "RMSE": 4.099881231780257,
+      "MAPE": 2.4138507940192433
     },
     "LSTM": {
-      "MAE": 4.240858571283587,
-      "RMSE": 5.352551740808928,
-      "MAPE": 3.165809888630613
+      "MAE": 3.797418630052483,
+      "RMSE": 4.6500001936318265,
+      "MAPE": 2.8134857667310578
     },
     "EqualWeightAverage": {
-      "MAE": 2.973648605655431,
-      "RMSE": 3.699669465031841,
-      "MAPE": 2.2105041097669904
+      "MAE": 2.854744568400966,
+      "RMSE": 3.5151615399484575,
+      "MAPE": 2.119471648149411
     },
     "StackedRidge": {
-      "MAE": 2.4189212305146923,
-      "RMSE": 3.0467434473902175,
-      "MAPE": 1.7885122581708761
+      "MAE": 2.3773976252534137,
+      "RMSE": 3.0395232913496892,
+      "MAPE": 1.7693148276544384
     }
   },
   "ridge_coefficients": {
-    "Prophet": 0.9603759742589326,
-    "XGBoost": -0.006477652589049217,
-    "LSTM": 0.028301270805694903
+    "Prophet": 0.9277410412974337,
+    "XGBoost": 0.05479235842739522,
+    "LSTM": 0.009743049067081068
   },
-  "ridge_intercept": 2.548686986641485,
+  "ridge_intercept": 1.0239108384670885,
   "artifacts": {
-    "oof_predictions": "C:\\Users\\DELL\\OneDrive\\Desktop\\LSTM\\eaicsp-platform\\ml-services\\demand-forecast\\lstm\\output\\stacked_oof_predictions.csv",
-    "test_predictions": "C:\\Users\\DELL\\OneDrive\\Desktop\\LSTM\\eaicsp-platform\\ml-services\\demand-forecast\\lstm\\output\\stacked_test_predictions.csv"
+    "oof_predictions": "output\\stacked_oof_predictions.csv",
+    "test_predictions": "output\\stacked_test_predictions.csv"
   }
 }

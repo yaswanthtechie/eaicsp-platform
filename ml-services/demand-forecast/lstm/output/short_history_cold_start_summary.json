@@ -1,11 +1,25 @@
 {
-  "dataset_type": "synthetic",
-  "model_type": "global LSTM without SKU embedding",
-  "lookback_days": 30,
-  "forecast_horizon_days": 7,
-  "train_end": "2026-02-22",
-  "validation_end": "2026-06-12",
-  "short_history_skus": [
+  "experiment": "Demand-Forecast-Cold-Start",
+  "evaluation": "cold-start SKUs excluded from training and validation",
+  "train_cutoff": "2026-02-22",
+  "validation_cutoff": "2026-06-12",
+  "lookback": 45,
+  "horizon": 7,
+  "train_windows": 3036,
+  "validation_windows": 936,
+  "cold_test_windows": 360,
+  "known_skus": [
+    "SKU001",
+    "SKU002",
+    "SKU003",
+    "SKU004",
+    "SKU005",
+    "SKU006",
+    "SKU007",
+    "SKU008",
+    "SKU009"
+  ],
+  "cold_skus": [
     "SKU010",
     "SKU011",
     "SKU012",
@@ -13,19 +27,24 @@
     "SKU014",
     "SKU015"
   ],
-  "short_history_test_windows": 399,
-  "best_epoch": 13,
-  "best_validation_mse": 0.12229462899267673,
-  "training_seconds": 41.38,
-  "cold_start_lstm_metrics": {
-    "MAE": 8.169897079467773,
-    "RMSE": 10.317198753356934,
-    "MAPE_percent": 22.082448959350586
-  },
-  "last_value_baseline_metrics": {
-    "MAE": 10.085928916931152,
-    "RMSE": 13.36239242553711,
-    "MAPE_percent": 23.190723419189453
-  },
-  "note": "Metrics are on short-history SKU test windows only. Model selection used validation loss, not test metrics. MAPE can be unstable for low or zero sales."
+  "metrics": {
+    "global_lstm_no_embeddings": {
+      "mae": 7.354849007016137,
+      "rmse": 9.625318267593068,
+      "mape": 17.443140500916925,
+      "training_seconds": 86.54699370000162
+    },
+    "global_lstm_with_embeddings": {
+      "mae": 9.793579573858352,
+      "rmse": 12.291633683442784,
+      "mape": 25.420172474129316,
+      "training_seconds": 34.67903429999933
+    },
+    "last_value_baseline": {
+      "mae": 10.199999993944925,
+      "rmse": 13.430006598085257,
+      "mape": 23.10702591848907,
+      "training_seconds": 0.0
+    }
+  }
 }

@@ -546,7 +546,15 @@ python -m pytest -v
 ---
 ```text
 ============================================== test session starts ===============================================
-platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0 -- C:\Users\katravath akash\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.12_qbz5n2kfra8p0\python.exe
+### Running Tests
+
+Run the test suite from the `ml-services/demand-forecast/lstm` directory:
+
+```powershell
+pytest -m "not integration" -q
+```
+
+This runs the non-integration tests in the current Python environment. Test results may vary depending on installed dependencies and the project version.
 cachedir: .pytest_cache
 rootdir: C:\Users\katravath akash\OneDrive\Desktop\lstm_forecast\eaicsp-platform\ml-services\demand-forecast\lstm
 configfile: pytest.ini
@@ -789,173 +797,99 @@ Ensemble (unconstrained)   2.4004   weights 1.00 / 0.00 / 0.00
 
 
 round 12,13
-
-
-Milestone 1 — LSTM Forecasting Pipeline
-
-Evaluation Results
-
+# LSTM Demand Forecasting — Evaluation Results
+## Milestone 1 — LSTM Forecasting Pipeline
+### Evaluation Results
 The LSTM forecasting pipeline was evaluated using 5-fold expanding-window walk-forward validation. The model was compared against a naive persistence baseline, which repeats the last observed demand value.
-
-Metric
-
-LSTM
-
-Naive Baseline
-
-Average MAE
-
-3.51
-
-8.78
-
-Average RMSE
-
-4.37
-
-10.77
-
-The LSTM achieved approximately 60.0% lower MAE and 59.4% lower RMSE than the naive baseline using the recorded rounded averages.
-
-Selected Model Configuration
-
-Parameter
-
-Value
-
-Architecture
-
-Plain LSTM
-
-Lookback
-
-45 days
-
-Forecast horizon
-
-7 days
-
-Hidden size
-
-32
-
-Number of layers
-
-2
-
-Dropout
-
-0.1
-
-Learning rate
-
-0.005
-
-Batch size
-
-32
-
-Maximum epochs
-
-50
-
-Hyperparameter Selection
-
-A systematic sweep evaluated 32 configurations and selected the winner using validation MAE.
-
-Winning configuration: Plain LSTM, hidden size 32, two layers, dropout 0.1, learning rate 0.005.
-
-Recorded validation MAE: 3.59.
-
-Recorded test MAE reference: 4.43.
-
-Test metrics were reported for reference rather than used to select the winning configuration.
-
-Global SKU LSTM — Walk-Forward Evaluation
-
-Evaluation Setup
-
-The global demand forecasting model was evaluated against individual per-SKU LSTM models using five-fold expanding-window walk-forward validation.
-
-Dataset: data/global_sku_demand_synthetic.csv
-
-Number of folds: 5
-
-Lookback window: 45 days
-
-Forecast horizon: 7 days
-
-Evaluation metrics: MAE, RMSE, and MAPE
-
-Scaler fitting: Training period only
-
-Validation and test horizons: Kept within their respective chronological splits
-
-Mean Metrics Across Five Folds
-
-Metric
-
-Global LSTM (common eligible SKUs)
-
-Per-SKU LSTM
-
-MAE
-
-10.4065
-
-11.3416
-
-RMSE
-
-14.0267
-
-15.5456
-
-MAPE
-
-12.8121%
-
-13.9482%
-
-Training Time
-
-Model
-
-Mean Training Time per Fold
-
-Global LSTM
-
-103.69 seconds
-
-Total per-SKU training
-
-330.43 seconds
-
-Conclusion
-
-Across the recorded five-fold evaluation, the global LSTM achieved lower average MAE, RMSE, and MAPE than the per-SKU models on common eligible SKU test windows. Its recorded mean training time was also lower.
-
-The evaluation notes document chronological splits, training-only scaler fitting, common-SKU comparisons, and separate reporting for SKUs with insufficient history.
-
-Results Artifact
-
-output/walk_forward_summary.json
-
-The JSON report contains fold-level metrics, training times, and the aggregate results.
-
-python -m pytest ml-services/demand-forecast/lstm/tests -q
-
-### Milestone 2 — Leakage-Free Stacked Ensemble
-
-- Generated chronological out-of-fold predictions for Prophet,
-  XGBoost, and LSTM using the existing single-series synthetic dataset.
+| Metric | LSTM | Naive Baseline |
+|---|---:|---:|
+| Average MAE | 3.51 | 8.78 |
+| Average RMSE | 4.37 | 10.77 |
+Using the recorded rounded averages, LSTM achieved approximately 60.0% lower MAE and 59.4% lower RMSE than the naive baseline.
+> These results belong to the original single-series forecasting experiment. The global SKU experiment below uses a separate multi-SKU synthetic dataset and reports its own metrics.
+### Selected Model Configuration
+| Parameter | Value |
+|---|---|
+| Architecture | Plain LSTM |
+| Lookback | 45 days |
+| Forecast horizon | 7 days |
+| Hidden size | 32 |
+| Number of layers | 2 |
+| Dropout | 0.1 |
+| Learning rate | 0.005 |
+| Batch size | 32 |
+| Maximum epochs | 50 |
+### Hyperparameter Selection
+A systematic sweep evaluated 32 configurations and selected the winning configuration using validation MAE.
+- **Winning configuration:** Plain LSTM, hidden size 32, two layers, dropout 0.1, learning rate 0.005.
+- **Recorded validation MAE:** 3.59.
+- **Recorded test MAE reference:** 4.43.
+Test metrics were reported for reference and were not used to select the winning configuration.
+### Global SKU LSTM — Training Results
+The global model was trained using `data/global_sku_demand_synthetic.csv`, which contains demand histories across multiple SKUs, categories, and warehouses.
+| Metric | Latest training run |
+|---|---:|
+| Best validation MSE | 0.104453 |
+| Best epoch | 32 |
+| Epochs completed | 40 |
+| Training time | 153.57 seconds |
+| Device | CPU |
+| Checkpoint | `output/global_best_model.pt` |
+| Scaler | Stored inside checkpoint |
+The model completed 40 epochs and recorded its best validation MSE at epoch 32.
+### Global SKU LSTM — Walk-Forward Evaluation
+#### Evaluation setup
+The global demand forecasting model was compared against individual per-SKU LSTM models using five-fold expanding-window walk-forward validation.
+- **Dataset:** `data/global_sku_demand_synthetic.csv`
+- **Dataset size:** 6,390 rows, 15 SKUs, 730 dates
+- **Number of folds:** 5
+- **Lookback window:** 45 days
+- **Forecast horizon:** 7 days
+- **Evaluation metrics:** MAE, RMSE, and MAPE
+- **Scaler fitting:** Training period only
+- **Evaluation:** Chronological splits, comparing common eligible SKU test windows
+#### Mean metrics across five folds
+The following aggregate metrics are from the latest `output/walk_forward_summary.json`.
+| Metric | Global LSTM (common eligible SKUs) | Per-SKU LSTM (common eligible SKUs) |
+|---|---:|---:|
+| MAE | 10.0482 | 11.3416 |
+| RMSE | 13.5142 | 15.5456 |
+| MAPE | 12.5639% | 13.9482% |
+For additional context, the global model evaluated across all test SKUs recorded MAE 10.3786, RMSE 14.1826, and MAPE 13.9677%. This all-SKU result is reported separately from the common-eligible-SKU comparison.
+#### Fold-level MAE
+| Fold | Global LSTM MAE | Per-SKU LSTM MAE | Eligible SKUs |
+|---|---:|---:|---:|
+| 1 | 9.2155 | 11.5654 | 7 |
+| 2 | 10.7995 | 11.6646 | 9 |
+| 3 | 10.4845 | 11.1532 | 9 |
+| 4 | 9.8821 | 11.6562 | 10 |
+| 5 | 9.8593 | 10.6689 | 11 |
+#### Training time
+The following times are calculated as the arithmetic mean of the five fold-level wall-clock training times printed by the latest run.
+| Model | Mean training time per fold |
+|---|---:|
+| Global LSTM | 115.18 seconds |
+| Per-SKU LSTM training | 97.48 seconds |
+Training time varies by fold and by the number of eligible SKUs. In this run, the global model achieved better aggregate error metrics, but its mean training time per fold was higher than the per-SKU approach. Therefore, the accuracy improvement should not be described as a training-time improvement.
+#### Conclusion
+Across the latest five-fold evaluation, the global LSTM achieved lower MAE, RMSE, and MAPE than the per-SKU models on common eligible SKU test windows. The eligible SKU count varied from 7 to 11 across folds, reflecting the availability of sufficient training history.
+The evaluation uses chronological splits and training-only scaler fitting to reduce leakage risk. Results should be interpreted in the context of this synthetic dataset and the tested configuration.
+**Results artifact:** `output/walk_forward_summary.json`
+Fold-level results: `output/walk_forward_fold_metrics.csv`
+### Milestone 1 — Test Status
+The following test command completed successfully in the latest reported run:
+```powershell
+python -m pytest -m "not integration" -q
+```
+**Result:** 44 passed.
+---
+## Milestone 2 — Leakage-Free Stacked Ensemble
+### Approach
+- Generated chronological out-of-fold (OOF) predictions for Prophet, XGBoost, and LSTM using the existing single-series synthetic dataset.
 - Trained a Ridge meta-learner using OOF predictions only.
 - Evaluated on a separate final test period of 150 rows.
-- Compared Prophet, XGBoost, LSTM, equal-weight averaging,
-  and Stacked Ridge using MAE, RMSE, and MAPE.
-
-Final test results:
-
+- Compared Prophet, XGBoost, LSTM, equal-weight averaging, and Stacked Ridge using MAE, RMSE, and MAPE.
+### Final test results
 | Model | MAE | RMSE | MAPE |
 |---|---:|---:|---:|
 | Prophet | 2.4142 | 3.0514 | 1.7817% |
@@ -963,145 +897,136 @@ Final test results:
 | LSTM | 4.2409 | 5.3526 | 3.1658% |
 | Equal-weight average | 2.9736 | 3.6997 | 2.2105% |
 | Stacked Ridge | 2.4189 | 3.0467 | 1.7885% |
-
-Conclusion: Stacked Ridge improved on equal-weight averaging,
-but did not outperform Prophet on MAE or MAPE. Prophet remains
-the strongest individual model on these test metrics.
-
-Artifacts:
-- output/stacked_oof_predictions.csv
-- output/stacked_test_predictions.csv
-- output/stacked_ensemble_metrics.json
-
-
-Milestone 3 — Production Inference: Speed and Model Size
-
-Objective
-
+### Conclusion
+Stacked Ridge improved on equal-weight averaging and recorded a slightly lower RMSE than Prophet. However, it did not outperform Prophet on MAE or MAPE. Prophet remains the strongest individual model on these test metrics.
+The meta-learner coefficients from the recorded run were:
+| Base model | Ridge coefficient |
+|---|---:|
+| Prophet | 0.9604 |
+| XGBoost | -0.0065 |
+| LSTM | 0.0283 |
+These coefficients are specific to this experiment and should not be interpreted as universally optimal weights.
+### Artifacts
+- `output/stacked_oof_predictions.csv`
+- `output/stacked_test_predictions.csv`
+- `output/stacked_ensemble_metrics.json`
+---
+## Milestone 3 — Production Inference: Speed and Model Size
+### Objective
 Benchmark the original FP32 ONNX model against a dynamically quantized INT8 ONNX model using ONNX Runtime CPU inference.
+### Benchmark setup
+- Execution provider: ONNX Runtime CPU
+- Test windows: 144
+- Warm-up calls: 20
+- Timed calls: 200 per batch size
+- Batch sizes: 1, 32, and 256
+### Latency and throughput
+The following values come from the latest `python -m src.benchmark_onnx` run.
+| Batch size | Model | p50 latency (ms) | p95 latency (ms) | Throughput (samples/s) |
+|---:|---|---:|---:|---:|
+| 1 | FP32 | 0.201 | 0.394 | 3,757.64 |
+| 1 | INT8 | 0.245 | 0.485 | 3,134.65 |
+| 32 | FP32 | 2.024 | 6.440 | 11,715.28 |
+| 32 | INT8 | 2.259 | 4.456 | 12,620.47 |
+| 256 | FP32 | 15.380 | 26.944 | 14,872.69 |
+| 256 | INT8 | 15.814 | 27.335 | 14,692.54 |
+### Model size
+| Version | Size |
+|---|---:|
+| FP32 ONNX | 55.50 KB |
+| Dynamic INT8 ONNX | 21.71 KB |
+| Size reduction | 60.88% |
+### Accuracy
+| Metric | FP32 | INT8 |
+|---|---:|---:|
+| MAE | 2.73825 | 2.73572 |
+| RMSE | 3.42759 | 3.42065 |
+| MAPE | 2.00264% | 2.00101% |
+The observed accuracy differences were small on the evaluated test windows. The recorded INT8 prediction difference relative to FP32 was:
+- MAE: 0.07901 demand units
+- RMSE: 0.09835 demand units
+- MAPE: 0.05933 percentage points
+INT8 recorded slightly lower MAE, RMSE, and MAPE than FP32 in this run. This does not guarantee that quantization will improve accuracy on other datasets or workloads.
+### Production decision
+FP32 ONNX remains the default candidate for single-request inference because it achieved lower p50 and p95 latency and higher throughput at batch size 1.
+Dynamic INT8 reduced the model file size by 60.88% and achieved higher throughput at batch size 32. However, it was not consistently faster across all batch sizes.
+INT8 should be promoted only if repeated benchmarks on representative production workloads confirm a performance or memory benefit and accuracy remains within the agreed tolerance.
+### Benchmark limitations
+These measurements are environment-dependent and should be repeated before production deployment. The benchmark uses ONNX Runtime's CPU execution provider, 20 warm-up calls, 200 timed calls per batch size, and 144 test windows. The results do not establish performance on GPU, under concurrent production traffic, or on different hardware.
+**Results artifact:** `output/onnx_benchmark_report.json`
+---
+**
+Track B — 11C: Global SKU LSTM ONNX Runtime Benchmark
+Objective
+Export the trained global SKU LSTM checkpoint to ONNX and compare CPU inference performance against the original PyTorch model. Validate prediction parity at multiple batch sizes and measure p50/p95 latency and throughput.
+Export and validation
+Item	Result
+PyTorch checkpoint	output/global_best_model.pt
+ONNX model	output/global_best_model.onnx
+ONNX opset	17
+Execution provider	ONNX Runtime CPU
+Lookback	45 days
+Forecast horizon	7 days
+ONNX model validation	Passed
+Export-time parity (batch size 2)	Passed
+Export-time maximum absolute difference	1.1920928955078125e-07
 
-Results
 
-Batch size
+The export emitted a PyTorch LSTM batch-size warning. The exported model was then tested with batch sizes 1, 8, 32, and 64; all four batch sizes passed prediction parity.
+Benchmark setup
+- Runtimes: PyTorch CPU and ONNX Runtime CPU
+- Warm-up runs: 20 per runtime and batch size
+- Timed runs: 200 per runtime and batch size
+- Batch sizes: 1, 8, 32, and 64
+- Input data: randomly generated synthetic tensors, not actual preprocessed test windows
+- ONNX Runtime intra-op and inter-op threads: 1
+Latency and throughput
+Batch size	Runtime	p50 latency (ms)	p95 latency (ms)	Throughput (samples/s)
+1	PyTorch CPU	1.7664	3.8782	491.70
+1	ONNX Runtime CPU	0.5877	1.0773	1,553.96
+8	PyTorch CPU	3.9978	7.5045	1,712.18
+8	ONNX Runtime CPU	2.3661	7.3332	2,218.91
+32	PyTorch CPU	10.1245	18.6820	2,740.39
+32	ONNX Runtime CPU	8.0315	13.9858	3,568.05
+64	PyTorch CPU	17.5132	32.6197	3,196.69
+64	ONNX Runtime CPU	14.1707	22.2335	4,132.94
 
-Model
 
-p50 latency (ms)
+Prediction parity
+Batch size	Maximum absolute difference	Status
+1	1.1920929e-07	Passed
+8	2.3841858e-07	Passed
+32	2.9802322e-07	Passed
+64	4.7683716e-07	Passed
 
-p95 latency (ms)
 
-Throughput (samples/s)
-
-1
-
-FP32
-
-0.266
-
-0.725
-
-2,485.77
-
-1
-
-INT8
-
-0.283
-
-1.645
-
-1,983.36
-
-32
-
-FP32
-
-1.894
-
-11.006
-
-9,332.19
-
-32
-
-INT8
-
-2.142
-
-6.577
-
-11,515.64
-
-256
-
-FP32
-
-14.080
-
-23.245
-
-16,837.24
-
-256
-
-INT8
-
-14.807
-
-22.059
-
-16,248.65
-
-Model Size
-
-Version
-
-Size
-
-FP32 ONNX
-
-55.50 KB
-
-Dynamic INT8 ONNX
-
-21.71 KB
-
-Size reduction
-
-60.88%
-
-Accuracy
-
-Metric
-
-FP32
-
-INT8
-
-MAE
-
-2.73825
-
-2.73572
-
-RMSE
-
-3.42759
-
-3.42065
-
-MAPE
-
-2.00264%
-
-2.00101%
-
-The observed accuracy differences were negligible on the evaluated test windows. INT8 prediction difference relative to FP32 was MAE 0.07901 and RMSE 0.09835 demand units.
-
-Production Decision
-
-FP32 ONNX remains the default candidate for single-request inference because it achieved lower p50 and p95 latency and higher throughput at batch size 1. Dynamic INT8 reduced the model file size by 60.88% and achieved higher throughput at batch size 32, but it was not consistently faster across all batch sizes.
-
-INT8 should be promoted only if repeated benchmarks on representative production workloads confirm the performance or memory benefit and accuracy remains within the agreed tolerance.
-
-Benchmark limitations: Results were measured using ONNX Runtime's CPU execution provider, 20 warm-up calls, 200 timed calls per batch size, and 144 test windows. These measurements are environment-dependent and should be repeated before production deployment.
+All tested batch sizes passed the configured numerical tolerance (rtol=1e-4, atol=1e-5). In this run, ONNX Runtime had lower p50 latency and higher measured throughput than PyTorch at every tested batch size. At batch size 1, p50 latency was approximately 66.7% lower; at batch size 64, it was approximately 19.1% lower.
+Artifacts
+- output/global_best_model.onnx
+- output/global_onnx_export_report.json
+- output/global_onnx_benchmark_report.json
+- output/global_onnx_benchmark_results.csv
+- Export script: scripts/export_global_onnx.py
+- Benchmark script: scripts/benchmark_global_onnx.py
+Limitations and next validation
+This is a machine- and runtime-dependent CPU benchmark. Because the benchmark used random synthetic tensors, it validates execution and numerical parity for the tested input shapes, but does not establish performance on real preprocessed test windows, concurrent production traffic, or different hardware. Before deployment, repeat the benchmark using actual preprocessed test windows and representative workload concurrency. Faster inference does not imply better forecast accuracy.
+11C status: ONNX export, ONNX model validation, and batch-size parity checks completed. The recorded CPU benchmark completed for batch sizes 1, 8, 32, and 64. Representative-data and production-load benchmarking remain follow-up validation.
+Reproduction Commands**
+Run the following commands from the LSTM service directory:
+```powershell
+python -m src.global_train
+python -m src.walk_forward_comparison
+python -m src.stacked_ensemble
+python -m src.benchmark_onnx
+python -m pytest -m "not integration" -q
+```
+The scripts regenerate training, walk-forward, stacked ensemble, and ONNX benchmark outputs. Execution time and benchmark measurements may vary by machine and runtime environment.
+## Current Verification Summary
+| Area | Latest recorded status |
+|---|---|
+| Global LSTM training | Completed |
+| Five-fold global vs per-SKU comparison | Completed |
+| Leakage-free stacked ensemble | Completed |
+| FP32 vs dynamic INT8 ONNX benchmark | Completed |
+| Automated tests | 44 passed |
+The results above describe the experiments and runs recorded here. They should not be interpreted as proof that every deployment or production acceptance criterion has been met.

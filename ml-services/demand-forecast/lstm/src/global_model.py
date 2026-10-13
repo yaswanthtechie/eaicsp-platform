@@ -1,6 +1,5 @@
 ﻿
-
-"""Global multi-SKU LSTM with categorical embeddings."""
+"""Global multi-SKU LSTM with categorical embeddings and UNK handling."""
 
 import torch
 import torch.nn as nn
@@ -8,6 +7,9 @@ import torch.nn as nn
 
 class GlobalDemandLSTM(nn.Module):
     """Forecast demand using sales history and SKU/category/warehouse IDs."""
+
+    UNK_ID = 0
+    SKU_DROPOUT_PROB = 0.10
 
     def __init__(
         self,
@@ -28,12 +30,22 @@ class GlobalDemandLSTM(nn.Module):
 
         self.horizon = horizon
 
-        self.sku_embedding = nn.Embedding(num_skus, embedding_dim)
-        self.category_embedding = nn.Embedding(
-            num_categories, embedding_dim
+        # Index 0 is reserved for UNK.
+        # Do not set padding_idx=0: the UNK embedding must learn
+        # from SKU-ID dropout during training.
+        self.sku_embedding = nn.Embedding(
+            num_embeddings=num_skus,
+            embedding_dim=embedding_dim,
         )
+
+        self.category_embedding = nn.Embedding(
+            num_embeddings=num_categories,
+            embedding_dim=embedding_dim,
+        )
+
         self.warehouse_embedding = nn.Embedding(
-            num_warehouses, embedding_dim
+            num_embeddings=num_warehouses,
+            embedding_dim=embedding_dim,
         )
 
         self.lstm = nn.LSTM(
@@ -45,6 +57,7 @@ class GlobalDemandLSTM(nn.Module):
         )
 
         combined_size = hidden_size + 3 * embedding_dim
+
         self.head = nn.Sequential(
             nn.Dropout(dropout),
             nn.Linear(combined_size, hidden_size),
@@ -54,18 +67,38 @@ class GlobalDemandLSTM(nn.Module):
 
     def forward(self, x, sku_id, category_id, warehouse_id):
         """
-        x: [batch, lookback, numeric_features]
-        categorical IDs: [batch]
-        output: [batch, horizon]
+        Args:
+            x: [batch, lookback, numeric_features]
+            sku_id: [batch], with 0 reserved for UNK
+            category_id: [batch]
+            warehouse_id: [batch]
+
+        Returns:
+            Forecast tensor with shape [batch, horizon].
         """
+        sku_id = sku_id.long()
+        category_id = category_id.long()
+        warehouse_id = warehouse_id.long()
+
+        # During training, randomly map 10% of SKU IDs to UNK.
+        # This teaches the model to handle unseen SKUs.
+        if self.training:
+            drop_mask = (
+                torch.rand(sku_id.shape, device=sku_id.device)
+                < self.SKU_DROPOUT_PROB
+            )
+            sku_id = torch.where(
+                drop_mask,
+                torch.zeros_like(sku_id),
+                sku_id,
+            )
+
         _, (hidden, _) = self.lstm(x)
         history_context = hidden[-1]
 
-        sku_vector = self.sku_embedding(sku_id.long())
-        category_vector = self.category_embedding(category_id.long())
-        warehouse_vector = self.warehouse_embedding(
-            warehouse_id.long()
-        )
+        sku_vector = self.sku_embedding(sku_id)
+        category_vector = self.category_embedding(category_id)
+        warehouse_vector = self.warehouse_embedding(warehouse_id)
 
         combined = torch.cat(
             [
@@ -76,5 +109,5 @@ class GlobalDemandLSTM(nn.Module):
             ],
             dim=1,
         )
-        return self.head(combined)
 
+        return self.head(combined)
