@@ -1,0 +1,25 @@
+tier,approach,lead_time,service_quantile,wape_1day,wape_lead_time_total
+"aggregate (~34,000/day)",naive_weekly,7,0.95,0.09068844761896815,0.06290906806410691
+"aggregate (~34,000/day)",naive_ma28,7,0.95,0.1334853338469091,0.05065369240668576
+"aggregate (~34,000/day)",prophet,7,0.95,0.07284974991932967,0.05085127309487242
+"aggregate (~34,000/day)",xgboost,7,0.95,0.05238722868848288,0.04073362560213215
+"aggregate (~34,000/day)",ensemble,7,0.95,0.06376530301219467,0.045186176548378504
+"aggregate (~34,000/day)","perfect_foresight (ceiling, not a real forecast)",7,0.95,0.0,0.0
+fast movers (~200/day),naive_weekly,7,0.95,0.11803263485800759,0.06584339383061498
+fast movers (~200/day),naive_ma28,7,0.95,0.14239150267641484,0.05401674669245188
+fast movers (~200/day),prophet,7,0.95,0.08774229399931698,0.054333729107666165
+fast movers (~200/day),xgboost,7,0.95,0.08109344969713106,0.04989484207678637
+fast movers (~200/day),ensemble,7,0.95,0.08353850106321432,0.05029617528865868
+fast movers (~200/day),"perfect_foresight (ceiling, not a real forecast)",7,0.95,0.0,0.0
+medium movers (~30/day),naive_weekly,7,0.95,0.21652308995904535,0.09608657745837554
+medium movers (~30/day),naive_ma28,7,0.95,0.1885094922024734,0.0732506735499955
+medium movers (~30/day),prophet,7,0.95,0.1611717669479622,0.07576889312670684
+medium movers (~30/day),xgboost,7,0.95,0.16318542594678018,0.07258542836325296
+medium movers (~30/day),ensemble,7,0.95,0.15932615414288612,0.07286747364924347
+medium movers (~30/day),"perfect_foresight (ceiling, not a real forecast)",7,0.95,0.0,0.0
+slow movers (~5/day),naive_weekly,7,0.95,0.4948892674616695,0.20894378194207835
+slow movers (~5/day),naive_ma28,7,0.95,0.3791190070576783,0.16665855439279628
+slow movers (~5/day),prophet,7,0.95,0.3630561907574142,0.15875453754360444
+slow movers (~5/day),xgboost,7,0.95,0.3721669503330575,0.16668632836215946
+slow movers (~5/day),ensemble,7,0.95,0.3627267065196487,0.15739086439397465
+slow movers (~5/day),"perfect_foresight (ceiling, not a real forecast)",7,0.95,0.0,0.0

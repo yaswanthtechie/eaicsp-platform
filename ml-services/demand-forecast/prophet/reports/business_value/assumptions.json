@@ -1,0 +1,20 @@
+{
+  "unit_value": 10.0,
+  "annual_holding_rate": 0.2,
+  "unit_margin_lost_per_unit": 3.0,
+  "lead_time_days": 7,
+  "headline_service_quantile": 0.95,
+  "ensemble_weights": {
+    "prophet": 0.7,
+    "xgb": 0.3
+  },
+  "refit_every_days": 7,
+  "first_origin_day_index": 729,
+  "target_fill_rate": 0.98,
+  "policy": {
+    "lead_time": 7,
+    "service_quantile": 0.95,
+    "error_window": 365,
+    "min_error_samples": 60
+  }
+}
