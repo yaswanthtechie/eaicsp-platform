@@ -12,12 +12,14 @@ import pytest
 from fastapi import FastAPI, Response
 from fastapi.testclient import TestClient
 
+from app.core.config import settings
 from app.main import app
 from app.middleware.logging import (
     LoggingMiddleware,
     extract_trace_id,
     resolve_bounded_route,
 )
+from app.middleware.rate_limit import in_memory_limiter
 
 
 @pytest.fixture
@@ -391,3 +393,43 @@ def test_concurrent_requests_emit_independent_unmixed_json_lines(client, caplog)
 
     for req_id in target_ids:
         assert req_id in captured_ids
+
+
+def test_rate_limited_request_is_logged(client, caplog, monkeypatch):
+    """A 429 from the per-user/IP rate limiter must still produce an access log line."""
+    monkeypatch.setattr(settings, "LOAD_TEST_MODE", False, raising=False)
+    in_memory_limiter.reset()
+    caplog.set_level(logging.INFO, logger="api_gateway.access")
+
+    limit = settings.get_role_rate_limit("default")
+    for _ in range(limit):
+        assert client.get("/").status_code == 200
+
+    blocked = client.get("/", headers={"X-Request-ID": "rate-limited-req-1"})
+    assert blocked.status_code == 429
+
+    matching = [
+        r for r in get_access_log_records(caplog)
+        if r["request_id"] == "rate-limited-req-1"
+    ]
+    assert len(matching) == 1
+    assert matching[0]["http.status_code"] == 429
+    assert matching[0]["level"] == "WARN"
+
+
+def test_oversized_request_id_is_truncated(client, caplog):
+    caplog.set_level(logging.INFO, logger="api_gateway.access")
+    client.get("/", headers={"X-Request-ID": "a" * 5000})
+    record = get_access_log_records(caplog)[-1]
+    assert len(record["request_id"]) == 128
+
+
+def test_filebeat_parses_ndjson_into_gateway_index():
+    import yaml
+    from pathlib import Path
+
+    cfg = yaml.safe_load((Path(__file__).resolve().parent.parent / "filebeat.yml").read_text())
+    parser = cfg["filebeat.inputs"][0]["parsers"][0]["ndjson"]
+    assert parser["keys_under_root"] is True
+    assert parser["expand_keys"] is True
+    assert cfg["output.elasticsearch"]["index"].startswith("gateway-logs-")

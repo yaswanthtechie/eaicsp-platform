@@ -11,7 +11,6 @@ Emits every gateway access-log event as a single valid JSON line containing:
 - latency_ms (duration in milliseconds)
 - request_id (preserved from X-Request-ID or generated)
 - trace_id (active OpenTelemetry span trace ID or null)
-- client_ip (client IP address)
 """
 
 from __future__ import annotations
@@ -29,7 +28,6 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import settings
-from app.middleware.ratelimit import get_real_ip
 from app.services.metrics import normalize_route
 
 # Access logger emitting structured JSON events
@@ -157,7 +155,6 @@ class LoggingMiddleware(BaseHTTPMiddleware):
 
             trace_id = extract_trace_id(request)
             route = resolve_bounded_route(request)
-            client_ip = get_real_ip(request)
 
             if status_code >= 500:
                 level = "ERROR"
@@ -179,7 +176,6 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 "latency_ms": round(process_time_ms, 2),
                 "request_id": request_id,
                 "trace_id": trace_id,
-                "client_ip": client_ip,
             }
 
             json_line = json.dumps(log_entry, separators=(",", ":"))

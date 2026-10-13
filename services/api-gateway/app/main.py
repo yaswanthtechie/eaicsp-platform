@@ -77,9 +77,14 @@ app.add_exception_handler(
 # Middlewares
 # --------------------------------------------------
 
-app.add_middleware(LoggingMiddleware)
+# Starlette runs the LAST added middleware first (outermost).
+# Resulting order, outer -> inner:
+#   Tracing -> Prometheus -> RequestID -> Logging -> PerUserRoleRateLimit -> SlowAPI
+# Logging sits inside RequestID/Tracing (so request_id and trace_id are set)
+# but outside the rate limiters (so 429 rejections are logged too).
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(PerUserRoleRateLimitMiddleware)
+app.add_middleware(LoggingMiddleware)
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(PrometheusMiddleware)
 app.add_middleware(TracingMiddleware)
