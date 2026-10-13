@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 
 from app.middleware.logging import log_requests
-
+from app.core.logging_config import configure_logging
 from app.routes.auth_routes import router as auth_router
 from app.routes.user_routes import router as user_router
 from app.routes.admin_routes import router as admin_router
@@ -17,6 +17,7 @@ from app.models.role_change_history import RoleChangeHistory
 from app.models.auth_audit_logs import AuthAuditLog
 from app.models.password_reset_tokens import PasswordResetToken
 
+configure_logging()
 
 app = FastAPI()
 
