@@ -288,7 +288,7 @@ def test_real_account_lock_publishes_platform_user_locked_event():
                 )
 
                 db.commit()
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 - Verify integration behavior for unexpected failures.
                 db.rollback()
 
         consumer.close()

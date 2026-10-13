@@ -124,12 +124,14 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
-        )
+        ) from None
 
-    except Exception:  # noqa: BLE001 - Convert unexpected token verification errors to 401.
+    except Exception:  # noqa: BLE001 - Preserve the established authentication error response.
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-        )
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from None
 
     # --------------------------------------------------------
     # 6. Find user using JWT subject

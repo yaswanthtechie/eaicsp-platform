@@ -27,10 +27,10 @@ for _key, _value in TEST_SEED_PASSWORDS.items():
 # ============================================================
 # PYTEST / APPLICATION IMPORTS
 # ============================================================
-import pytest
+import pytest  # noqa: E402 - Test environment setup runs before imports.
 
-from app.database import Base, engine
-from app.seed import seed_database
+from app.database import Base, engine  # noqa: E402 - Test environment setup runs before imports.
+from app.seed import seed_database  # noqa: E402 - Test environment setup runs before imports.
 
 
 # ============================================================

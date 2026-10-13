@@ -146,12 +146,12 @@ def get_abuse_dashboard(
         if event.endpoint:
             endpoint_counts[event.endpoint] = endpoint_counts.get(event.endpoint, 0) + 1
 
-    for event in mfa_failed_events:
+    for _event in mfa_failed_events:
         endpoint = "/api/v1/auth/mfa/verify"
 
         endpoint_counts[endpoint] = endpoint_counts.get(endpoint, 0) + 1
 
-    for event in sso_rejected_events:
+    for _event in sso_rejected_events:
         endpoint = "/api/v1/auth/sso/login"
 
         endpoint_counts[endpoint] = endpoint_counts.get(endpoint, 0) + 1

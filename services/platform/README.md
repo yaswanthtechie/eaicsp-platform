@@ -122,7 +122,7 @@ tests/
 ├── test_readme_permission_matrix.py
 ├── test_event_publisher_integration.py
 ├── test_event_publisher.py
-├── test_loggin_config.py
+├── test_logging_config.py
 ├── test_redis_auth_state.py
 ├── test_verify_load.py
 ├── test_two_instance_revocation.py
@@ -1822,8 +1822,6 @@ Format Python files:
 python -m ruff format .
 ```
 
-**Validation result:** 63 files already formatted.
-
 ### Automated Tests
 
 Run the default test suite:
@@ -1831,10 +1829,6 @@ Run the default test suite:
 ```powershell
 python -m pytest -q
 ```
-
-**Validation result:** 223 passed, 18 deselected, 219 warnings.
-
-The test suite completed successfully. The warnings did not cause test failures.
 
 Run integration tests separately when Redis, Kafka, and the required service environment are available:
 
@@ -1849,57 +1843,9 @@ Check for whitespace errors:
 ```powershell
 git diff --check
 ```
-
-**Validation result:** Passed with no whitespace errors.
-
-### Validation Summary
-
-| Check | Result |
-|---|---|
-| Ruff linting | Passed |
-| Ruff formatting | Passed — 63 files already formatted |
-| Automated tests | 223 passed, 18 deselected |
-| Git diff whitespace check | Passed |
-
-### Pre-Commit Validation
-
-Before submitting changes, run:
-
-```powershell
-python -m ruff check .
-python -m ruff format --check .
-python -m pytest -q
-git diff --check
-```
-
 Confirm that linting and formatting checks pass and that the test results are successful before committing changes. Review the Git diff to ensure formatting changes have not introduced unintended application behavior changes.
 
 These checks document the R14 linting and formatting cleanup. No application behavior changes are intended.
-
-## Milestone Status
-
-### Completed: R14 — Ruff Linting and Formatting Cleanup
-
-The Platform Service Ruff cleanup has been completed with the following steps:
-
-- Configured Ruff in `services/platform/pyproject.toml`.
-- Confirmed that the test suite passed before the cleanup.
-- Ran `ruff check . --fix` to automatically resolve supported lint issues.
-- Ran `ruff format .` to format the code.
-- Manually fixed the remaining lint issues.
-- Confirmed that the test suite passed after the cleanup.
-- Verified that the changes are limited to `services/platform/`.
-- Reviewed the changes to ensure that no application behavior changes were intended.
-
-**Validation results:**
-
-| Check | Result |
-|---|---|
-| Ruff linting | Passed |
-| Ruff formatting | Passed |
-| Automated tests | 223 passed, 18 deselected |
-| Git diff whitespace check | Passed |
-
 ---
 
 ## End-to-End Service Flow

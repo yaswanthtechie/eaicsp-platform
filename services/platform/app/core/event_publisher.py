@@ -140,7 +140,7 @@ def publish_event(
 
         return event
 
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 - Log publish failures without propagating them.
         logger.warning(
             "Kafka publish failed | event_type=%s | event_id=%s | error=%s",
             event_type,

@@ -409,7 +409,7 @@ def list_user_sessions(
         db.query(RefreshToken)
         .filter(
             RefreshToken.user_id == user_id,
-            RefreshToken.is_revoked == False,
+            RefreshToken.is_revoked.is_(False),
             RefreshToken.expires_at > now,
         )
         .order_by(RefreshToken.created_at.desc())

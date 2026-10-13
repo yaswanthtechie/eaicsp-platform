@@ -19,4 +19,3 @@ pytest==8.3.3
 # endpoint returns 503 in tests.
 fakeredis==2.38.0
 lupa==2.8
-ruff==0.17.0

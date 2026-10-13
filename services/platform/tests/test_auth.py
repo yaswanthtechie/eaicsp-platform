@@ -5,8 +5,11 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from fastapi import HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.testclient import TestClient
 
+from app.core import dependencies
 from app.core.security import create_access_token
 from app.database import SessionLocal
 from app.main import app
@@ -2585,3 +2588,34 @@ def test_definition_of_done_api_key_issuable_and_revocable():
     )
 
     assert verify_after_revoke.status_code == 401
+
+
+def test_unexpected_decode_error_returns_standard_401(monkeypatch):
+    def raise_unexpected_error(*args, **kwargs):
+        raise RuntimeError("Unexpected token decoding failure")
+
+    monkeypatch.setattr(
+        dependencies,
+        "decode_token",
+        raise_unexpected_error,
+    )
+
+    credentials = HTTPAuthorizationCredentials(
+        scheme="Bearer",
+        credentials="test-token",
+    )
+
+    db = SessionLocal()
+
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            dependencies.get_current_user(
+                credentials=credentials,
+                db=db,
+            )
+
+        assert exc_info.value.status_code == 401
+        assert exc_info.value.detail == "Invalid or expired token"
+        assert exc_info.value.headers == {"WWW-Authenticate": "Bearer"}
+    finally:
+        db.close()

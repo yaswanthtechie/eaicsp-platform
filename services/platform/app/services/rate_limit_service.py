@@ -308,4 +308,4 @@ def check_rate_limit(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Rate limiting service unavailable",
-        )
+        ) from None

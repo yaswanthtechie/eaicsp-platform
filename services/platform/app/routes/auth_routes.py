@@ -119,7 +119,7 @@ def refresh_token(body: RefreshRequest, db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired refresh token",
-        )
+        ) from None
 
     if payload.get("type") != "refresh":
         raise HTTPException(
@@ -414,13 +414,13 @@ def verify_access_token(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
-        )
+        ) from None
 
     except Exception:  # noqa: BLE001 - Convert unexpected token errors to 401.
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
-        )
+        ) from None
     # -------------------------------------------------
     # DB lookup only on cache MISS
     # -------------------------------------------------
