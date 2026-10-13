@@ -1,12 +1,9 @@
-
 from __future__ import annotations
-
 import json
 import logging
 import time
 from datetime import datetime, timezone
 from typing import Any
-
 from confluent_kafka import (
     Consumer,
     KafkaError,
@@ -14,7 +11,6 @@ from confluent_kafka import (
     Producer,
     TopicPartition,
 )
-
 from app.core.config import settings
 from app.schemas.events import SupplierStatusChangedEvent
 from app.services.supplier_compliance_service import (

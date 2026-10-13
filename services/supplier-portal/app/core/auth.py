@@ -334,14 +334,13 @@ def _require_supplier_id(
 
     return supplier_id.strip()
 
-
 def _get_supplier_compliance_status(
     supplier_id: str,
 ) -> SupplierComplianceStatus:
     """
     Retrieve compliance status from the compliance service.
 
-    Unknown suppliers are denied.
+    Unknown suppliers are rejected with HTTP 403.
     Database failures fail closed with HTTP 503.
     Supplier identifiers are never included in log messages.
     """
@@ -389,7 +388,6 @@ def _get_supplier_compliance_status(
 
     return compliance_status
 
-
 def _deny_if_suspended(
     compliance_status: SupplierComplianceStatus,
 ) -> None:
@@ -400,7 +398,6 @@ def _deny_if_suspended(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=SUSPENDED_SUPPLIER_DETAIL,
         )
-
 
 async def enforce_not_suspended(
     user=Depends(verify_token),

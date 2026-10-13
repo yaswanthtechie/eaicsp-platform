@@ -70,8 +70,6 @@ def graphql(
 # ============================================================
 
 def seed_supplier(supplier_id: str = "SUP001") -> dict:
-    supplier_name = f"Test Supplier {supplier_id}"
-
     supplier = {
         "supplier_id": supplier_id,
         "company_name": f"Test Supplier {supplier_id}",
@@ -83,9 +81,6 @@ def seed_supplier(supplier_id: str = "SUP001") -> dict:
     supplier.pop("compliance_access_status", None)
 
     return supplier
-
-
-
 
 def set_compliance_status(
     supplier_id: str,
