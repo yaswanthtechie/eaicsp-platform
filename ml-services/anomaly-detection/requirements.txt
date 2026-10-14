@@ -11,3 +11,6 @@ pytest
 httpx
 requests
 mlflow
+confluent-kafka==2.15.1
+influxdb-client
+# eval-framework: pip install ..\eval-framework
