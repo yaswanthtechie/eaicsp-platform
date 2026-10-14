@@ -1,0 +1,33 @@
+name: Task
+description: A piece of work that takes 1-2 days
+title: "[R15-] "
+labels: ["round-15"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What this achieves and why, in 1-3 sentences.
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      description: Checklist a reviewer can verify. Include tests.
+      value: |
+        - [ ]
+        - [ ] Tests pass; PR says `Closes #<this issue>`
+    validations:
+      required: true
+  - type: textarea
+    id: deps
+    attributes:
+      label: Depends on
+      description: Issue titles or numbers. Write "None" if independent.
+      value: None
+  - type: input
+    id: blueprint
+    attributes:
+      label: Blueprint section
+      description: Which section of docs/architecture/integration-blueprint.md this implements
