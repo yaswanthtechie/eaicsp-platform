@@ -1087,4 +1087,40 @@ The test suite covers:
 * SVG
 * YAML
 
-````
+# Round 12–13 Enhancements: Production Platform Integration
+
+## 1. SQL Pushdown Profiling (Milestone 1)
+
+The profiling architecture now supports a dual-engine design, introducing a PostgreSQL pushdown engine to complement the in-memory Pandas profiler.
+
+Instead of loading entire datasets into Python memory, the `PostgresPushdownProfiler` generates optimized SQLAlchemy Core queries to perform computations directly inside the database. 
+
+The SQL pushdown engine computes:
+* Total row counts and null rates
+* Unique value counts (`COUNT DISTINCT`)
+* Descriptive statistics (`MIN`, `MAX`, `AVG`, `STDDEV_SAMP`)
+* Exact quantiles (using PostgreSQL's `percentile_cont`)
+* Outlier counts using filtered IQR boundaries
+
+This drastically reduces the Python memory footprint when profiling large tables (1,000,000+ rows) while returning the exact same `ProfileReport` JSON structure for downstream compatibility.
+
+## 2. Airflow Scheduled Profiling (Milestone 2)
+
+Profiling is now fully automated via an Apache Airflow DAG (`scheduled_data_profiling`). 
+
+Using the Airflow TaskFlow API, the DAG dynamically maps over a configurable list of target tables. For each table, it:
+* Connects to the target database.
+* Executes the SQL pushdown profiler to analyze the table in place.
+* Appends the generated report directly into the persistent `AuditArchive` (`reports/audit_archive.jsonl`).
+
+This transitions the profiler from a manual CLI/API tool into a scheduled observability pipeline capable of running unattended on a daily cadence.
+
+## 3. Evidently Drift Detection Integration (Milestone 3)
+
+The custom data drift detection logic was cross-checked and integrated alongside **Evidently** (`DataDriftPreset`), introducing rigorous statistical distance metrics to the platform.
+
+While the custom drift detector uses heuristic thresholds (e.g., 10 percentage-point absolute differences or standard deviation boundaries), Evidently applies advanced statistical tests (like the Wasserstein distance) to evaluate dataset drift.
+
+The cross-check capability highlights the strengths of both approaches:
+* **Statistical Shape Changes:** Evidently successfully detects changes in distribution variance even when the mean remains identical, catching drift that simple boundary heuristics miss.
+* **Proportion & Null Shifts:** The custom tool allows for strict, hardcoded business-logic thresholds (e.g., explicit null-injection alerts) that standard statistical presets might overlook if the underlying distribution shape of the remaining data stays intact.

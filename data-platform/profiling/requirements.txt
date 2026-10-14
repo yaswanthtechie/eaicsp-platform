@@ -6,3 +6,10 @@ pyyaml
 fastapi
 uvicorn
 python-multipart
+pydantic
+apache-airflow>=2.7.3
+evidently>=0.4.0
+
+# Database Pushdown Support
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0

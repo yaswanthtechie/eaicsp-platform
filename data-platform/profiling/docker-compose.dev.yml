@@ -1,0 +1,33 @@
+version: "3.8"
+
+services:
+  postgres-profiler:
+    image: postgres:16-alpine
+    container_name: profiling-postgres-local
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: profiling_db
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d profiling_db" ]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+    tmpfs:
+      - /var/lib/postgresql/data
+
+  airflow-tester:
+    image: apache/airflow:2.7.3-python3.10
+    container_name: airflow-tester
+    depends_on:
+      postgres-profiler:
+        condition: service_healthy
+    volumes:
+      - .:/opt/airflow
+    environment:
+      - PYTHONPATH=/opt/airflow
+    # Install required DB drivers on startup, then keep the container alive
+    command: bash -c "pip install sqlalchemy psycopg2-binary pandas numpy matplotlib && sleep infinity"
