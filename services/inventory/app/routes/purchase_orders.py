@@ -203,7 +203,7 @@ def get_purchase_order_endpoint(
         ) from exc
 
 
-@router.api_route("/{rest_of_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+@router.api_route("/{rest_of_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"], include_in_schema=False)
 def purchase_orders_catch_all(rest_of_path: str):
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 

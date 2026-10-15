@@ -23,6 +23,8 @@ python-multipart==0.0.20
 pytest==8.3.4
 pytest-cov==6.0.0
 httpx==0.28.1
+jsonschema>=4.20.0
+
 
 # Redis Cache
 redis==8.1.0
