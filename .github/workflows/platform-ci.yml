@@ -1,0 +1,315 @@
+name: Platform Service CI
+
+on:
+  pull_request:
+    paths:
+      - "services/platform/**"
+      - ".github/workflows/platform-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  quality-security-unit:
+    name: Lint, type check, security and unit tests
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: services/platform
+
+    env:
+      SECRET_KEY: ci-only-test-secret-key-not-for-production-123456
+      DATABASE_URL: sqlite:////tmp/platform-unit-ci.db
+      MFA_ENABLED: "false"
+      MOCK_SSO_ENABLED: "false"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            services/platform/requirements.txt
+            services/platform/requirements-dev.txt
+
+      - name: Install dependencies and CI tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Ruff
+        run: python -m ruff check app/core app/services
+
+      - name: Mypy
+        run: python -m mypy --config-file pyproject.toml app/core app/services
+
+      - name: Bandit
+        run: python -m bandit -r app -ll
+
+      - name: pip-audit
+        run: python -m pip_audit -r requirements.txt
+
+      - name: Unit tests with coverage
+        run: |
+          python -m pytest \
+            -o addopts= \
+            -m "not integration" \
+            --cov=app \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-coverage
+          path: services/platform/coverage.xml
+          if-no-files-found: ignore
+
+  integration:
+    name: Redis and Kafka integration tests
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: services/platform
+
+    env:
+      SECRET_KEY: ci-only-test-secret-key-not-for-production-123456
+      DATABASE_URL: sqlite:////tmp/platform-integration-ci.db
+      REDIS_URL: redis://localhost:6379/0
+      MFA_ENABLED: "false"
+      MOCK_SSO_ENABLED: "false"
+      KAFKA_BOOTSTRAP_SERVERS: localhost:9092
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+      kafka:
+        image: apache/kafka:4.0.0
+        ports:
+          - 9092:9092
+        env:
+          CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+          KAFKA_NODE_ID: 1
+          KAFKA_PROCESS_ROLES: broker,controller
+          KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+          KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+          KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+          KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+          KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+          KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+          KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+          KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+          KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+        options: >-
+          --health-cmd "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1 || exit 1"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-start-period 30s
+          --health-retries 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            services/platform/requirements.txt
+            services/platform/requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Wait for Redis
+        run: |
+          python - <<'PY'
+          import os
+          import redis
+
+          client = redis.Redis.from_url(os.environ["REDIS_URL"])
+          client.ping()
+          print("Redis is ready")
+          PY
+
+      - name: Wait for Kafka
+        run: |
+          python - <<'PY'
+          import time
+          from kafka import KafkaAdminClient
+
+          for attempt in range(30):
+              client = None
+              try:
+                  client = KafkaAdminClient(
+                      bootstrap_servers="localhost:9092",
+                      request_timeout_ms=3000,
+                  )
+                  client.list_topics()
+                  print("Kafka is ready")
+                  break
+              except Exception:
+                  if attempt == 29:
+                      raise
+                  time.sleep(2)
+              finally:
+                  if client is not None:
+                      client.close()
+          PY
+
+      - name: Redis cross-instance revocation test
+        run: |
+          python -m pytest -o addopts= -m integration -v \
+            tests/test_two_instance_revocation.py
+
+      - name: Kafka integration tests
+        run: |
+          python -m pytest -o addopts= -m integration -v \
+            tests/test_event_publisher_integration.py \
+            tests/test_account_lock_event_integration.py
+
+  http-integration:
+    name: Platform HTTP integration tests
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: services/platform
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      SECRET_KEY: ci-only-test-secret-key-not-for-production-123456
+      DATABASE_URL: sqlite:////tmp/platform-http-ci.db
+      REDIS_URL: redis://localhost:6379/0
+      MFA_ENABLED: "false"
+      MOCK_SSO_ENABLED: "false"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            services/platform/requirements.txt
+            services/platform/requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Seed integration test database
+        env:
+          CEO_PASSWORD: "CI-ceo-password-123!"
+          WAREHOUSE_MANAGER_PASSWORD: "CI-warehouse-123!"
+          VP_OPERATIONS_PASSWORD: "CI-vpoperations-123!"
+          PROCUREMENT_MANAGER_PASSWORD: "CI-procurement-123!"
+          LOGISTICS_MANAGER_PASSWORD: "CI-logistics-123!"
+          COMPLIANCE_OFFICER_PASSWORD: "CI-compliance-123!"
+          SUPPLIER_PASSWORD: "CI-supplier-123!"
+          ANALYST_PASSWORD: "CI-analyst-123!"
+        run: python -m app.seed
+
+      - name: Start Platform API
+        run: |
+          nohup python -m uvicorn app.main:app \
+            --host 127.0.0.1 --port 8005 \
+            > /tmp/platform-api.log 2>&1 &
+          echo $! > /tmp/platform-api.pid
+
+      - name: Wait for Platform API
+        run: |
+          python - <<'PY'
+          import time
+          import urllib.request
+
+          for attempt in range(30):
+              try:
+                  with urllib.request.urlopen(
+                      "http://127.0.0.1:8005/docs", timeout=2
+                  ) as response:
+                      if response.status == 200:
+                          print("Platform API is ready")
+                          break
+              except Exception:
+                  if attempt == 29:
+                      with open("/tmp/platform-api.log", encoding="utf-8") as log:
+                          print(log.read())
+                      raise
+                  time.sleep(2)
+          else:
+              raise RuntimeError("Platform API did not become ready")
+
+          PY
+
+      - name: HTTP integration tests
+        run: |
+          python -m pytest -o addopts= -m integration -v \
+            tests/test_integration.py
+
+      - name: Show API logs on failure
+        if: failure()
+        run: cat /tmp/platform-api.log
+
+  docker-trivy:
+    name: Build Docker image and scan vulnerabilities
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Platform Service image
+        run: |
+          docker build \
+            -f services/platform/Dockerfile \
+            -t platform-service:${{ github.sha }} \
+            services/platform
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: platform-service:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL

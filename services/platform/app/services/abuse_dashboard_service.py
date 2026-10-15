@@ -122,7 +122,7 @@ def get_abuse_dashboard(
     # 4. Combined events per IP
     # --------------------------------------------------------
 
-    ip_counts = {}
+    ip_counts: dict[str, int] = {}
 
     for event in rate_limit_events:
         if event.ip_address:
@@ -140,7 +140,7 @@ def get_abuse_dashboard(
     # 5. Endpoint counts
     # --------------------------------------------------------
 
-    endpoint_counts = {}
+    endpoint_counts: dict[str, int] = {}
 
     for event in rate_limit_events:
         if event.endpoint:

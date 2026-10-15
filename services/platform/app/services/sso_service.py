@@ -1,7 +1,8 @@
 from datetime import UTC, datetime, timedelta
+from typing import NoReturn
 
+import jwt
 from fastapi import HTTPException, status
-from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
 from app.core import config as app_config
@@ -14,11 +15,6 @@ MOCK_SSO_PROVIDER = "mock-enterprise-sso"
 ASSERTION_AUDIENCE = "eaicsp-platform"
 ASSERTION_TTL_SECONDS = 120
 
-# ------------------------------------------------------------
-# Mock enterprise directory: this is the IDENTITY PROVIDER's data,
-# used only to ISSUE assertions (tests/demo). The login endpoint
-# never trusts these values from a client.
-# ------------------------------------------------------------
 MOCK_SSO_USERS = {
     "enterprise-001": {"email": "ceo@company.com", "full_name": "CEO User"},
     "enterprise-002": {
@@ -31,9 +27,9 @@ MOCK_SSO_USERS = {
 def _require_enabled() -> str:
     if not app_config.MOCK_SSO_ENABLED:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
     secret = app_config.MOCK_SSO_SECRET or ""
     if len(secret) < 32:
-        # Never verify with an empty or guessable key.
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="SSO is not configured",
@@ -41,13 +37,11 @@ def _require_enabled() -> str:
     return secret
 
 
-# ------------------------------------------------------------
-# Mock IdP side: issue a signed, short-lived assertion.
-# ------------------------------------------------------------
 def create_mock_sso_assertion(external_id: str) -> str:
     secret = _require_enabled()
     user = MOCK_SSO_USERS[external_id]
     now = datetime.now(UTC)
+
     claims = {
         "iss": MOCK_SSO_PROVIDER,
         "aud": ASSERTION_AUDIENCE,
@@ -60,13 +54,15 @@ def create_mock_sso_assertion(external_id: str) -> str:
     return jwt.encode(claims, secret, algorithm="HS256")
 
 
-# ------------------------------------------------------------
-# Platform side: verify the assertion, then issue our tokens.
-# ------------------------------------------------------------
-def mock_sso_login(db: Session, provider: str, assertion: str, client_ip: str):
+def mock_sso_login(
+    db: Session,
+    provider: str,
+    assertion: str,
+    client_ip: str,
+) -> dict[str, str]:
     secret = _require_enabled()
 
-    def reject(reason: str):
+    def reject(reason: str) -> NoReturn:
         create_audit_log(
             db=db,
             event_type=SSO_REJECTED,
@@ -90,7 +86,7 @@ def mock_sso_login(db: Session, provider: str, assertion: str, client_ip: str):
             audience=ASSERTION_AUDIENCE,
             issuer=MOCK_SSO_PROVIDER,
         )
-    except JWTError:
+    except jwt.InvalidTokenError:
         reject("invalid, expired or tampered assertion")
 
     email = str(claims.get("email", "")).lower()
@@ -98,11 +94,14 @@ def mock_sso_login(db: Session, provider: str, assertion: str, client_ip: str):
 
     if user is None:
         reject("identity not registered in EAICSP")
-    if not user.is_active or user.role is None:
-        reject("inactive account or no role")
 
-    # Same lockout the password login enforces. SQLite returns naive
-    # datetimes, so treat a naive locked_until as UTC.
+    if not user.is_active:
+        reject("inactive account")
+
+    role = user.role
+    if role is None:
+        reject("account has no role")
+
     locked_until = user.locked_until
     if locked_until is not None:
         if locked_until.tzinfo is None:
@@ -111,7 +110,7 @@ def mock_sso_login(db: Session, provider: str, assertion: str, client_ip: str):
             reject("account is locked")
 
     access_token = create_access_token(
-        {"sub": user.email, "user_id": user.id, "role": user.role.name}
+        {"sub": user.email, "user_id": user.id, "role": role.name}
     )
     refresh_token = create_refresh_token({"sub": user.email, "user_id": user.id})
 
@@ -128,7 +127,10 @@ def mock_sso_login(db: Session, provider: str, assertion: str, client_ip: str):
         user_id=user.id,
         email=user.email,
         ip_address=client_ip,
-        details=f"Federated SSO login via {MOCK_SSO_PROVIDER} (external_id={claims.get('sub')})",
+        details=(
+            f"Federated SSO login via {MOCK_SSO_PROVIDER} "
+            f"(external_id={claims.get('sub')})"
+        ),
     )
     db.commit()
 

@@ -1,5 +1,6 @@
 import uuid
 from datetime import UTC, datetime
+from typing import Any, cast
 
 import redis
 from fastapi import HTTPException, status
@@ -51,9 +52,8 @@ RATE_LIMIT_PREFIX = "platform:rate_limit:"
 # Redis is the shared source of truth.
 # ============================================================
 
-_request_buckets = {}
-_last_abuse_event_at = {}
-
+_request_buckets: dict[str, Any] = {}
+_last_abuse_event_at: dict[str, Any] = {}
 
 # ============================================================
 # Atomic Redis Sliding-Window Script
@@ -198,16 +198,22 @@ def check_rate_limit(
         # Atomic rate-limit operation
         # ----------------------------------------------------
 
-        result = redis_client.eval(
-            RATE_LIMIT_SCRIPT,
-            1,
-            key,
-            now_timestamp,
-            cutoff,
-            max_requests,
-            window_seconds + 5,
-            member,
+        result = cast(
+            int | str | None,
+            redis_client.eval(
+                RATE_LIMIT_SCRIPT,
+                1,
+                key,
+                now_timestamp,
+                cutoff,
+                max_requests,
+                window_seconds + 5,
+                member,
+            ),
         )
+
+        if result is None:
+            raise redis.RedisError("Rate-limit script returned no result")
 
         allowed = int(result) == 1
 

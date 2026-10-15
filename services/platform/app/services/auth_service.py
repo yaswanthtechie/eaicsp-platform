@@ -366,12 +366,7 @@ def login_user(
         # 4. Validate username/password
         # ----------------------------------------------------
 
-        password_valid = user is not None and verify_password(
-            password,
-            user.password,
-        )
-
-        if not password_valid:
+        if user is None or not verify_password(password, user.password):
             # Record failed attempt
             log_failed_login(
                 db=db,

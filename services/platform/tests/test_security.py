@@ -197,7 +197,7 @@ def test_sso_disabled_by_default():
 def test_sso_refuses_blank_secret(monkeypatch):
     monkeypatch.setattr(app_config, "MOCK_SSO_ENABLED", True)
     monkeypatch.setattr(app_config, "MOCK_SSO_SECRET", "")
-    from jose import jwt
+    import jwt
 
     forged = jwt.encode(
         {
@@ -207,7 +207,7 @@ def test_sso_refuses_blank_secret(monkeypatch):
             "email": "ceo@company.com",
             "exp": 9999999999,
         },
-        "",
+        "attacker-test-key",
         algorithm="HS256",
     )
     r = client.post(
