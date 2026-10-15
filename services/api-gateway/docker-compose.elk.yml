@@ -10,7 +10,7 @@ services:
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
       - cluster.name=eaicsp-gateway-elk
     ports:
-      - "127.0.0.1:9200:9200"
+      - "127.0.0.1:19200:9200"
     volumes:
       - es_data:/usr/share/elasticsearch/data
     healthcheck:
@@ -31,7 +31,7 @@ services:
       - XPACK_SECURITY_ENABLED=false
       - "NODE_OPTIONS=--max-old-space-size=450"
     ports:
-      - "127.0.0.1:5601:5601"
+      - "127.0.0.1:15601:5601"
     depends_on:
       elasticsearch:
         condition: service_healthy

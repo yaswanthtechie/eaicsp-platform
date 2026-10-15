@@ -722,7 +722,7 @@ slows the dashboard by up to 3s. Caching health results is a planned improvement
 |---|---|---|
 | **M1 Structured JSON Logging** | **Complete** | Every gateway access log is emitted as a single valid JSON line via `app/middleware/logging.py`, containing `@timestamp`, `level`, `service.name`, `http.method`, `route`, `http.status_code`, `latency_ms`, `request_id`, and `trace_id`. |
 | **M2 Security & Redaction Tests** | **Complete** | Automated suite (`tests/test_structured_logging.py`, 14/14 passed) validates JSON validity, required field typing, token/header redaction, cookie protection, error responses, and W3C trace correlation. |
-| **M3 Local ELK Stack** | **Configured — runtime verification pending** | Dedicated `docker-compose.elk.yml` and `filebeat.yml` with pinned images (`8.15.1`), persistent volumes, localhost-only bindings, zero-secret dev profile, and health checks. |
+| **M3 Local ELK Stack** | **Verified** | Dedicated `docker-compose.elk.yml` and `filebeat.yml` with pinned images (`8.15.1`), persistent volumes, localhost-only bindings, zero-secret dev profile, and health checks. |
 | **M4 Kibana Saved Objects** | **Export prepared — import verification pending** | Prepared export at `kibana/exports/saved_objects.ndjson` including Data View (`gateway-logs-*`), Saved Search by `request_id`, error rate visualizations, and slow routes ranking. |
 | **M5 Observability Correlation** | **Pending verification** | Correlation flow across Grafana metrics, Jaeger traces, and Kibana logs using `request_id` and OpenTelemetry `trace_id` is pending runtime verification. |
 
@@ -812,8 +812,8 @@ docker compose -f docker-compose.elk.yml up -d
 ```
 
 Services exposed on localhost:
-- **Elasticsearch**: [http://127.0.0.1:9200](http://127.0.0.1:9200)
-- **Kibana**: [http://127.0.0.1:5601](http://127.0.0.1:5601)
+- **Elasticsearch**: [http://127.0.0.1:19200](http://127.0.0.1:19200)
+- **Kibana**: [http://127.0.0.1:15601](http://127.0.0.1:15601)
 - **Filebeat**: Harvests `logs/access.log` and ships directly to Elasticsearch.
 
 #### Stop the ELK Stack
@@ -836,7 +836,7 @@ In accordance with local development requirements:
 Kibana saved objects are committed under `kibana/exports/saved_objects.ndjson`.
 
 #### Option A: Web UI Import
-1. Navigate to Kibana: [http://127.0.0.1:5601](http://127.0.0.1:5601)
+1. Navigate to Kibana: [http://127.0.0.1:15601](http://127.0.0.1:15601)
 2. Go to **Management** -> **Stack Management** -> **Saved Objects** (or `/app/management/kibana/objects`).
 3. Click **Import** in the top right.
 4. Select `services/api-gateway/kibana/exports/saved_objects.ndjson`.
@@ -844,7 +844,7 @@ Kibana saved objects are committed under `kibana/exports/saved_objects.ndjson`.
 
 #### Option B: Automated CLI / API Import
 ```powershell
-curl -X POST "http://localhost:5601/api/saved_objects/_import?overwrite=true" `
+curl -X POST "http://localhost:15601/api/saved_objects/_import?overwrite=true" `
   -H "kbn-xsrf: true" `
   --form file=@kibana/exports/saved_objects.ndjson
 ```
@@ -901,7 +901,7 @@ To reproduce an end-to-end investigation linking Metrics -> Trace -> Logs:
    - Inspect the gateway span (`gateway GET /api/v1/inventory`) showing `StatusCode.ERROR` and `gateway.request_id = $REQ_ID`.
 
 4. **Step 3: Pinpoint in Kibana (Structured Logs)**:
-   - Open Kibana at [http://127.0.0.1:5601](http://127.0.0.1:5601).
+   - Open Kibana at [http://127.0.0.1:15601](http://127.0.0.1:15601).
    - Navigate to Discover, select **API Gateway Logs**, and enter query `request_id : "$REQ_ID"`.
    - The JSON record appears with exact status 500, error level, latency, and matching `trace_id`.
 
