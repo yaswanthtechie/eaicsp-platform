@@ -1,0 +1,143 @@
+
+openapi: 3.1.0
+
+info:
+  title: Demand Forecast Serving API
+  version: 1.0.0
+  description: >
+    Contract for serving monthly SKU demand forecasts to Inventory.
+    Monthly forecast points include prediction bounds and model metadata.
+
+paths:
+  /api/v1/demand/forecast/{sku_id}:
+    get:
+      operationId: getDemandForecast
+      summary: Get a monthly demand forecast for a SKU
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          description: SKU identifier
+          schema:
+            type: string
+            minLength: 1
+
+        - name: warehouse_id
+          in: query
+          required: true
+          description: Warehouse identifier
+          schema:
+            type: string
+            minLength: 1
+
+        - name: horizon
+          in: query
+          required: true
+          description: Forecast horizon in months
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 36
+            default: 30
+
+      responses:
+        "200":
+          description: Monthly forecast generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForecastResponse"
+              example:
+                contract_version: v1
+                sku_id: SKU001
+                warehouse_id: WH001
+                granularity: monthly
+                interval_level: 0.8
+                model_version: prophet-xgb-r5
+                generated_at: "2026-10-15T06:00:00Z"
+                forecast:
+                  - date: "2026-10-01"
+                    predicted: 310.0
+                    lower: 250.0
+                    upper: 370.0
+                  - date: "2026-11-01"
+                    predicted: 300.0
+                    lower: 240.0
+                    upper: 360.0
+
+        "400":
+          description: Invalid request parameters
+
+        "404":
+          description: SKU or forecast not found
+
+        "500":
+          description: Forecast generation failed
+
+components:
+  schemas:
+    ForecastResponse:
+      type: object
+      required:
+        - contract_version
+        - sku_id
+        - warehouse_id
+        - granularity
+        - interval_level
+        - model_version
+        - generated_at
+        - forecast
+      properties:
+        contract_version:
+          type: string
+          const: v1
+        sku_id:
+          type: string
+          minLength: 1
+        warehouse_id:
+          type: string
+          minLength: 1
+        granularity:
+          type: string
+          const: monthly
+        interval_level:
+          type: number
+          exclusiveMinimum: 0
+          exclusiveMaximum: 1
+          description: Prediction interval coverage, for example 0.8 for 80 percent
+        model_version:
+          type: string
+          minLength: 1
+        generated_at:
+          type: string
+          format: date-time
+        forecast:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/ForecastPoint"
+
+    ForecastPoint:
+      type: object
+      required:
+        - date
+        - predicted
+        - lower
+        - upper
+      properties:
+        date:
+          type: string
+          format: date
+          description: First day of the forecast month
+        predicted:
+          type: number
+          minimum: 0
+        lower:
+          type: number
+          minimum: 0
+        upper:
+          type: number
+          minimum: 0
+      description: >
+        Each point must satisfy lower <= predicted <= upper.
+        Dates must be unique, ascending, and on the first day of a month.
