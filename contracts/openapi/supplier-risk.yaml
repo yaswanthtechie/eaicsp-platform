@@ -1,0 +1,190 @@
+﻿openapi: 3.1.0
+info:
+  title: Supplier Risk Score API
+  version: 1.0.0
+  description: Contract for retrieving a supplier risk score and its supporting evidence.
+
+paths:
+  /api/v1/suppliers/{supplier_id}/risk-score:
+    get:
+      operationId: getSupplierRiskScore
+      summary: Get supplier risk score
+      description: >-
+        Returns the latest computed risk score, risk tier, top contributing
+        factors, supporting evidence articles, and computation timestamp.
+        When no recent evidence is available, score and tier may be null.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: supplier_id
+          in: path
+          required: true
+          description: Canonical supplier identifier.
+          schema:
+            type: string
+            pattern: '^SUP-[0-9]{5}$'
+            example: SUP-00045
+      responses:
+        '200':
+          description: Supplier risk score retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupplierRiskScoreResponse'
+              example:
+                score: 78.5
+                tier: High
+                top_factors:
+                  - factor: insolvency
+                    category: Financial
+                    weight: 45
+                    description: Insolvency-related adverse media.
+                  - factor: investigation
+                    category: Reputational
+                    weight: 25
+                    description: Investigation-related adverse media.
+                top_evidence_articles:
+                  - headline: >-
+                      Regulators launch an investigation into supplier
+                      accounting practices.
+                    date: '2026-10-14'
+                    sentiment: negative
+                    score: 78.5
+                    signals:
+                      - keyword: investigation
+                        weight: 25
+                computed_at: '2026-10-15T10:30:00Z'
+        '401':
+          description: Missing or invalid authentication credentials.
+        '404':
+          description: Supplier was not found.
+        '422':
+          description: Invalid supplier identifier.
+        '503':
+          description: Supplier risk score is temporarily unavailable.
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    SupplierRiskScoreResponse:
+      type: object
+      required:
+        - score
+        - tier
+        - top_factors
+        - top_evidence_articles
+        - computed_at
+      properties:
+        score:
+          type:
+            - number
+            - 'null'
+          minimum: 0
+          maximum: 100
+          description: Aggregate supplier risk score from 0 to 100.
+          example: 78.5
+        tier:
+          type:
+            - string
+            - 'null'
+          enum:
+            - Low
+            - Medium
+            - High
+            - Critical
+            - null
+          description: Four-tier risk classification; null when no applicable evidence exists.
+          example: High
+        top_factors:
+          type: array
+          description: Highest-contributing risk factors.
+          items:
+            $ref: '#/components/schemas/RiskFactor'
+        top_evidence_articles:
+          type: array
+          description: News articles supporting the computed risk score.
+          items:
+            $ref: '#/components/schemas/EvidenceArticle'
+        computed_at:
+          type: string
+          format: date-time
+          description: UTC timestamp when the returned score was computed.
+          example: '2026-10-15T10:30:00Z'
+
+    RiskFactor:
+      type: object
+      required:
+        - factor
+        - category
+        - weight
+        - description
+      properties:
+        factor:
+          type: string
+          description: Risk signal or factor name.
+          example: insolvency
+        category:
+          type: string
+          enum:
+            - Financial
+            - Operational
+            - Reputational
+            - Security
+            - Legal
+          description: Risk category.
+        weight:
+          type: number
+          description: Configured signal weight.
+          example: 45
+        description:
+          type: string
+          description: Human-readable explanation of the factor.
+
+    EvidenceArticle:
+      type: object
+      required:
+        - headline
+        - date
+        - sentiment
+        - score
+        - signals
+      properties:
+        headline:
+          type: string
+          description: Supporting news headline.
+        date:
+          type: string
+          format: date
+          description: Article publication date.
+        sentiment:
+          type: string
+          enum:
+            - positive
+            - neutral
+            - negative
+          description: Article sentiment classification.
+        score:
+          type: number
+          description: Risk score associated with this evidence article.
+        signals:
+          type: array
+          items:
+            $ref: '#/components/schemas/EvidenceSignal'
+
+    EvidenceSignal:
+      type: object
+      required:
+        - keyword
+        - weight
+      properties:
+        keyword:
+          type: string
+          description: Detected risk keyword.
+        weight:
+          type: number
+          description: Configured weight of the detected keyword.
