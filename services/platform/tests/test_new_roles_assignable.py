@@ -1,7 +1,9 @@
 import os
 import uuid
+
 import pytest
 from fastapi.testclient import TestClient
+
 from app.core.permissions import ROLE_PERMISSIONS
 from app.main import app
 from app.schemas.user import Role
@@ -26,11 +28,7 @@ V1_ROLES = {
     "supplier",
 }
 
-NEW_ROLES = sorted(
-    role.value
-    for role in Role
-    if role.value not in V1_ROLES
-)
+NEW_ROLES = sorted(role.value for role in Role if role.value not in V1_ROLES)
 
 # =============================================================
 # TEST DATA
@@ -55,6 +53,7 @@ VERIFY_KEYS = {
 # HELPERS
 # =============================================================
 
+
 def _login(email: str, password: str) -> str:
     response = client.post(
         "/api/v1/auth/login",
@@ -70,9 +69,7 @@ def _login(email: str, password: str) -> str:
 
 
 def _auth(token: str) -> dict:
-    return {
-        "Authorization": f"Bearer {token}"
-    }
+    return {"Authorization": f"Bearer {token}"}
 
 
 def _create_user(admin_token: str, role: str) -> tuple[str, dict]:
@@ -93,9 +90,11 @@ def _create_user(admin_token: str, role: str) -> tuple[str, dict]:
 
     return email, response.json()
 
+
 # =============================================================
 # Every Role enum value must be present in ROLES
 # =============================================================
+
 
 def test_every_enum_role_is_seeded():
     """
@@ -103,20 +102,22 @@ def test_every_enum_role_is_seeded():
     seed role catalogue.
     """
 
-    assert {name for name, _ in ROLES} == {
-        role.value for role in Role
-    }
+    assert {name for name, _ in ROLES} == {role.value for role in Role}
+
 
 # =============================================================
 # At least 15 roles must exist
 # =============================================================
 
+
 def test_there_are_at_least_15_roles():
     assert len(ROLES) >= 15
+
 
 # =============================================================
 # Every new role can be assigned and verified
 # =============================================================
+
 
 @pytest.mark.parametrize("role", NEW_ROLES)
 def test_new_role_can_be_assigned_and_verified(role):
@@ -163,14 +164,13 @@ def test_new_role_can_be_assigned_and_verified(role):
 
     assert body["role"] == role
 
-    assert body["permissions"] == sorted(
-        ROLE_PERMISSIONS[role]
-    )
+    assert body["permissions"] == sorted(ROLE_PERMISSIONS[role])
 
 
 # =============================================================
 # Existing V1 /verify contract must remain unchanged
 # =============================================================
+
 
 @pytest.mark.parametrize(
     "email, password_env, role",
@@ -250,13 +250,13 @@ def test_verify_response_contract_is_unchanged(
 
     assert body["is_active"] is True
 
-    assert body["permissions"] == sorted(
-        ROLE_PERMISSIONS[role]
-    )
+    assert body["permissions"] == sorted(ROLE_PERMISSIONS[role])
+
 
 # =============================================================
 # Existing user can be moved to a new role
 # =============================================================
+
 
 def test_existing_user_can_be_moved_to_a_new_role():
     """
@@ -284,9 +284,11 @@ def test_existing_user_can_be_moved_to_a_new_role():
 
     assert response.status_code == 200, response.text
 
+
 # =============================================================
 # platform_admin can create users, analyst cannot
 # =============================================================
+
 
 def test_platform_admin_can_create_user_but_analyst_cannot():
     """
@@ -324,10 +326,7 @@ def test_platform_admin_can_create_user_but_analyst_cannot():
         TEST_PASSWORD,
     )
 
-    created_email = (
-        f"platform-admin-created-"
-        f"{uuid.uuid4().hex[:8]}@company.com"
-    )
+    created_email = f"platform-admin-created-{uuid.uuid4().hex[:8]}@company.com"
 
     response = client.post(
         "/api/v1/admin/users",
@@ -355,10 +354,7 @@ def test_platform_admin_can_create_user_but_analyst_cannot():
         "/api/v1/admin/users",
         headers=_auth(analyst_token),
         json={
-            "email": (
-                f"analyst-attempt-"
-                f"{uuid.uuid4().hex[:8]}@company.com"
-            ),
+            "email": (f"analyst-attempt-{uuid.uuid4().hex[:8]}@company.com"),
             "full_name": "Should Not Be Created",
             "password": TEST_PASSWORD,
             "role": "analyst",
@@ -367,10 +363,12 @@ def test_platform_admin_can_create_user_but_analyst_cannot():
 
     assert response.status_code == 403, response.text
 
+
 def _platform_admin_token():
     ceo_token = _login("ceo@company.com", os.environ["CEO_PASSWORD"])
     email, created = _create_user(ceo_token, "platform_admin")
     return _login(email, TEST_PASSWORD), created
+
 
 def _new_user_payload(role):
     return {
@@ -380,43 +378,71 @@ def _new_user_payload(role):
         "role": role,
     }
 
+
 @pytest.mark.parametrize("role", ["ceo", "vp_operations", "platform_admin"])
 def test_platform_admin_cannot_create_a_privileged_user(role):
     token, _ = _platform_admin_token()
-    response = client.post("/api/v1/admin/users", headers=_auth(token), json=_new_user_payload(role))
+    response = client.post(
+        "/api/v1/admin/users", headers=_auth(token), json=_new_user_payload(role)
+    )
     assert response.status_code == 403, response.text
+
 
 def test_platform_admin_can_still_create_a_normal_user():
     token, _ = _platform_admin_token()
-    response = client.post("/api/v1/admin/users", headers=_auth(token), json=_new_user_payload("analyst"))
+    response = client.post(
+        "/api/v1/admin/users", headers=_auth(token), json=_new_user_payload("analyst")
+    )
     assert response.status_code == 201, response.text
+
 
 def test_platform_admin_cannot_promote_themselves_or_others_to_ceo():
     ceo_token = _login("ceo@company.com", os.environ["CEO_PASSWORD"])
     token, admin = _platform_admin_token()
     _, victim = _create_user(ceo_token, "analyst")
 
-    own = client.patch(f"/api/v1/admin/users/{admin['user_id']}/role", headers=_auth(token), json={"role": "ceo"})
-    other = client.patch(f"/api/v1/admin/users/{victim['user_id']}/role", headers=_auth(token), json={"role": "ceo"})
+    own = client.patch(
+        f"/api/v1/admin/users/{admin['user_id']}/role",
+        headers=_auth(token),
+        json={"role": "ceo"},
+    )
+    other = client.patch(
+        f"/api/v1/admin/users/{victim['user_id']}/role",
+        headers=_auth(token),
+        json={"role": "ceo"},
+    )
 
     assert own.status_code == 403
     assert other.status_code == 403
 
+
 def test_platform_admin_cannot_change_their_own_role_at_all():
     token, admin = _platform_admin_token()
-    response = client.patch(f"/api/v1/admin/users/{admin['user_id']}/role", headers=_auth(token), json={"role": "analyst"})
+    response = client.patch(
+        f"/api/v1/admin/users/{admin['user_id']}/role",
+        headers=_auth(token),
+        json={"role": "analyst"},
+    )
     assert response.status_code == 403
+
 
 def test_ceo_can_still_assign_any_role():
     ceo_token = _login("ceo@company.com", os.environ["CEO_PASSWORD"])
     _, created = _create_user(ceo_token, "analyst")
-    response = client.patch(f"/api/v1/admin/users/{created['user_id']}/role", headers=_auth(ceo_token), json={"role": "vp_operations"})
+    response = client.patch(
+        f"/api/v1/admin/users/{created['user_id']}/role",
+        headers=_auth(ceo_token),
+        json={"role": "vp_operations"},
+    )
     assert response.status_code == 200, response.text
+
 
 def test_platform_admin_can_read_role_history_and_list_users():
     token, admin = _platform_admin_token()
 
-    history = client.get(f"/api/v1/admin/users/{admin['user_id']}/role-history", headers=_auth(token))
+    history = client.get(
+        f"/api/v1/admin/users/{admin['user_id']}/role-history", headers=_auth(token)
+    )
     users = client.get("/api/v1/admin/users", headers=_auth(token))
 
     assert history.status_code == 200, history.text
@@ -424,6 +450,7 @@ def test_platform_admin_can_read_role_history_and_list_users():
 
 
 PRIVILEGED_TARGETS = ["ceo", "vp_operations", "platform_admin"]
+
 
 @pytest.mark.parametrize("target_role", PRIVILEGED_TARGETS)
 def test_platform_admin_cannot_force_reset_privileged_password(target_role):
@@ -495,6 +522,7 @@ def test_platform_admin_cannot_revoke_ceo_session():
 
 
 # --- the guard must not block legitimate use ---
+
 
 def test_platform_admin_can_still_manage_a_normal_user():
     ceo_token = _login("ceo@company.com", os.environ["CEO_PASSWORD"])

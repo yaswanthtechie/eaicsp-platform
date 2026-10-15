@@ -1,10 +1,10 @@
-
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String,Column
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
 
 from app.database import Base
+
 
 class PasswordResetToken(Base):
     __tablename__ = "password_reset_tokens"

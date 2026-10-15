@@ -1,8 +1,10 @@
 import json
 from pathlib import Path
 from types import SimpleNamespace
+
 import pytest
 from fastapi import HTTPException
+
 from app.core.dependencies import ROLE_HIERARCHY, require_permission
 from app.core.permissions import ROLE_PERMISSIONS
 
@@ -10,26 +12,18 @@ from app.core.permissions import ROLE_PERMISSIONS
 # Test Helpers
 # =========================================================
 
+
 def fake_user(role: str):
-    return SimpleNamespace(
-        role=SimpleNamespace(name=role)
-    )
+    return SimpleNamespace(role=SimpleNamespace(name=role))
+
 
 # =========================================================
 # Fixtures
 # =========================================================
 
-PERMISSIONS_V1_PATH = (
-    Path(__file__).parent
-    / "fixtures"
-    / "permissions_v1.json"
-)
+PERMISSIONS_V1_PATH = Path(__file__).parent / "fixtures" / "permissions_v1.json"
 
-ROLE_HIERARCHY_V1_PATH = (
-    Path(__file__).parent
-    / "fixtures"
-    / "role_hierarchy_v1.json"
-)
+ROLE_HIERARCHY_V1_PATH = Path(__file__).parent / "fixtures" / "role_hierarchy_v1.json"
 
 
 V1_ROLES = {
@@ -62,6 +56,7 @@ NEW_ROLES = {
 # Fixture Loaders
 # =========================================================
 
+
 def load_v1_permissions():
     with open(
         PERMISSIONS_V1_PATH,
@@ -83,6 +78,7 @@ def load_v1_hierarchy():
 # =========================================================
 # Permission Snapshot Tests
 # =========================================================
+
 
 def test_v1_roles_unchanged():
     expected = load_v1_permissions()
@@ -107,6 +103,7 @@ def test_v1_permissions_contain_exactly_the_original_roles():
 # Auditor Separation-of-Duties Tests
 # =========================================================
 
+
 def test_auditor_denied_on_every_write_permission():
     from app.core.permissions import PERMISSIONS
 
@@ -126,9 +123,7 @@ def test_auditor_denied_on_every_write_permission():
     }
 
     # Auditor must not have any write-like permission.
-    assert not (
-        ROLE_PERMISSIONS["auditor"] & write_permissions
-    )
+    assert not (ROLE_PERMISSIONS["auditor"] & write_permissions)
 
     # Auditor must also be rejected by the actual
     # require_permission dependency.
@@ -147,23 +142,16 @@ def test_auditor_denied_on_every_write_permission():
 # Role Hierarchy Snapshot Tests
 # =========================================================
 
+
 def test_v1_role_hierarchy_unchanged():
     expected = load_v1_hierarchy()
 
-    actual = {
-        role: sorted(ROLE_HIERARCHY[role])
-        for role in expected
-    }
+    actual = {role: sorted(ROLE_HIERARCHY[role]) for role in expected}
 
-    expected = {
-        role: sorted(roles)
-        for role, roles in expected.items()
-    }
+    expected = {role: sorted(roles) for role, roles in expected.items()}
 
     assert actual == expected, (
-        "V1 role hierarchy changed.\n"
-        f"Expected: {expected}\n"
-        f"Actual:   {actual}"
+        f"V1 role hierarchy changed.\nExpected: {expected}\nActual:   {actual}"
     )
 
 
@@ -192,6 +180,7 @@ def test_new_roles_are_not_added_to_v1_hierarchy_permissions():
 # =========================================================
 # External / New Role Hierarchy Safety
 # =========================================================
+
 
 def test_supplier_cannot_pass_old_admin_hierarchy():
     assert "ceo" not in ROLE_HIERARCHY["supplier"]

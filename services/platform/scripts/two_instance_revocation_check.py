@@ -25,8 +25,14 @@ SERVICE_DIR = Path(__file__).resolve().parent.parent
 PORTS = (8105, 8106)
 PASSWORD = "TwoInstance!Check2026"
 SEED_ROLES = (
-    "CEO", "VP_OPERATIONS", "PROCUREMENT_MANAGER", "LOGISTICS_MANAGER",
-    "COMPLIANCE_OFFICER", "WAREHOUSE_MANAGER", "ANALYST", "SUPPLIER",
+    "CEO",
+    "VP_OPERATIONS",
+    "PROCUREMENT_MANAGER",
+    "LOGISTICS_MANAGER",
+    "COMPLIANCE_OFFICER",
+    "WAREHOUSE_MANAGER",
+    "ANALYST",
+    "SUPPLIER",
 )
 
 
@@ -57,7 +63,9 @@ def main() -> int:
 
     subprocess.run(
         [sys.executable, "-m", "app.seed"],
-        cwd=SERVICE_DIR, env=env, check=True,
+        cwd=SERVICE_DIR,
+        env=env,
+        check=True,
     )
 
     instances = []
@@ -66,12 +74,24 @@ def main() -> int:
         # Start one at a time: both run create_all() at startup and would
         # race on the same SQLite file if started together.
         for port in PORTS:
-            instances.append(subprocess.Popen(
-                [sys.executable, "-m", "uvicorn", "app.main:app",
-                 "--port", str(port), "--log-level", "warning"],
-                cwd=SERVICE_DIR, env=env,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            ))
+            instances.append(
+                subprocess.Popen(
+                    [
+                        sys.executable,
+                        "-m",
+                        "uvicorn",
+                        "app.main:app",
+                        "--port",
+                        str(port),
+                        "--log-level",
+                        "warning",
+                    ],
+                    cwd=SERVICE_DIR,
+                    env=env,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            )
             _wait_until_up(port)
 
         a = f"http://127.0.0.1:{PORTS[0]}/api/v1/auth"
@@ -84,15 +104,20 @@ def main() -> int:
         headers = {"Authorization": f"Bearer {tokens['access_token']}"}
 
         results = {
-            "B /verify before logout (expect 200)":
-                httpx.post(f"{b}/verify", headers=headers).status_code,
-            "A /logout (expect 200)":
-                httpx.post(f"{a}/logout", headers=headers,
-                           json={"refresh_token": tokens["refresh_token"]}).status_code,
-            "B /verify after logout on A (expect 401)":
-                httpx.post(f"{b}/verify", headers=headers).status_code,
-            "B /me/permissions after logout on A (expect 401)":
-                httpx.get(f"{b}/me/permissions", headers=headers).status_code,
+            "B /verify before logout (expect 200)": httpx.post(
+                f"{b}/verify", headers=headers
+            ).status_code,
+            "A /logout (expect 200)": httpx.post(
+                f"{a}/logout",
+                headers=headers,
+                json={"refresh_token": tokens["refresh_token"]},
+            ).status_code,
+            "B /verify after logout on A (expect 401)": httpx.post(
+                f"{b}/verify", headers=headers
+            ).status_code,
+            "B /me/permissions after logout on A (expect 401)": httpx.get(
+                f"{b}/me/permissions", headers=headers
+            ).status_code,
         }
 
     finally:

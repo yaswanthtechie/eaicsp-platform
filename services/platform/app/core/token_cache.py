@@ -103,9 +103,7 @@ class TokenCache:
         if not token:
             raise ValueError("Token cannot be None or empty")
 
-        token_hash = hashlib.sha256(
-            token.encode("utf-8")
-        ).hexdigest()
+        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
 
         return f"{self.KEY_PREFIX}{token_hash}"
 
@@ -202,11 +200,7 @@ class TokenCache:
         if not token:
             return
 
-        ttl = (
-            self.ttl_seconds
-            if ttl_seconds is None
-            else ttl_seconds
-        )
+        ttl = self.ttl_seconds if ttl_seconds is None else ttl_seconds
 
         if ttl <= 0:
             return
@@ -391,9 +385,7 @@ class TokenCache:
         try:
             count = 0
 
-            for key in client.scan_iter(
-                match=f"{self.KEY_PREFIX}*"
-            ):
+            for key in client.scan_iter(match=f"{self.KEY_PREFIX}*"):
                 # Exclude user-index keys.
                 if isinstance(key, bytes):
                     key = key.decode("utf-8")
@@ -424,11 +416,7 @@ class TokenCache:
         client = get_redis()
 
         try:
-            keys = list(
-                client.scan_iter(
-                    match=f"{self.KEY_PREFIX}*"
-                )
-            )
+            keys = list(client.scan_iter(match=f"{self.KEY_PREFIX}*"))
 
             if keys:
                 client.delete(*keys)

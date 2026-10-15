@@ -1,18 +1,20 @@
 import json
 import time
 import uuid
+
 import pytest
 from fastapi import HTTPException
 from kafka import KafkaAdminClient, KafkaConsumer
 from kafka.admin import NewTopic
 from sqlalchemy.orm import Session
-from app.database import SessionLocal
-from app.models.users import User
-from app.models.roles import Role
-from app.models.failed_login_attempts import FailedLoginAttempt
-from app.services.auth_service import login_user
+
 from app.core.security import hash_password
+from app.database import SessionLocal
+from app.models.failed_login_attempts import FailedLoginAttempt
+from app.models.roles import Role
+from app.models.users import User
 from app.services.audit_service import ACCOUNT_LOCKED
+from app.services.auth_service import login_user
 
 KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
 TOPIC = "platform.user.locked"
@@ -43,13 +45,13 @@ def ensure_kafka_topic():
                 validate_only=False,
             )
         except Exception as exc:
-            # Kafka raises an exception when the topic already exists.
-            # That is acceptable for this test.
-            if "TopicAlreadyExists" not in str(exc):
-                # Do not fail unnecessarily for a topic that was already
-                # created between metadata checks.
-                if "already exists" not in str(exc).lower():
-                    raise
+            error_message = str(exc)
+            if (
+                "TopicAlreadyExists" not in error_message
+                and "already exists" not in error_message.lower()
+            ):
+                raise
+
     finally:
         admin.close()
 
@@ -93,10 +95,7 @@ def test_real_account_lock_publishes_platform_user_locked_event():
 
     db: Session = SessionLocal()
 
-    test_email = (
-        f"lock-event-test-{uuid.uuid4().hex[:12]}"
-        "@example.com"
-    )
+    test_email = f"lock-event-test-{uuid.uuid4().hex[:12]}@example.com"
     test_password = "ValidTestPassword@123"
 
     consumer_group = f"platform-lock-test-{uuid.uuid4()}"
@@ -106,9 +105,7 @@ def test_real_account_lock_publishes_platform_user_locked_event():
         group_id=consumer_group,
         auto_offset_reset="latest",
         enable_auto_commit=True,
-        value_deserializer=lambda value: json.loads(
-            value.decode("utf-8")
-        ),
+        value_deserializer=lambda value: json.loads(value.decode("utf-8")),
     )
 
     user = None
@@ -118,15 +115,9 @@ def test_real_account_lock_publishes_platform_user_locked_event():
         # Create a dedicated test user
         # ---------------------------------------------------------
 
-        ceo_role = (
-            db.query(Role)
-            .filter(Role.name == "ceo")
-            .first()
-        )
+        ceo_role = db.query(Role).filter(Role.name == "ceo").first()
 
-        assert ceo_role is not None, (
-            "Required seeded role 'ceo' was not found"
-        )
+        assert ceo_role is not None, "Required seeded role 'ceo' was not found"
 
         user = User(
             email=test_email,
@@ -190,17 +181,11 @@ def test_real_account_lock_publishes_platform_user_locked_event():
 
         db.expire_all()
 
-        locked_user = (
-            db.query(User)
-            .filter(User.id == user_id)
-            .first()
-        )
+        locked_user = db.query(User).filter(User.id == user_id).first()
 
         assert locked_user is not None
 
-        assert locked_user.locked_until is not None, (
-            "User was not marked as locked"
-        )
+        assert locked_user.locked_until is not None, "User was not marked as locked"
 
         # ---------------------------------------------------------
         # Verify ACCOUNT_LOCKED audit event
@@ -217,18 +202,18 @@ def test_real_account_lock_publishes_platform_user_locked_event():
                 __import__(
                     "app.models.auth_audit_logs",
                     fromlist=["AuthAuditLog"],
-                ).AuthAuditLog.user_id == user_id,
+                ).AuthAuditLog.user_id
+                == user_id,
                 __import__(
                     "app.models.auth_audit_logs",
                     fromlist=["AuthAuditLog"],
-                ).AuthAuditLog.event_type == ACCOUNT_LOCKED,
+                ).AuthAuditLog.event_type
+                == ACCOUNT_LOCKED,
             )
             .all()
         )
 
-        assert audit_events, (
-            "ACCOUNT_LOCKED audit event was not created"
-        )
+        assert audit_events, "ACCOUNT_LOCKED audit event was not created"
 
         # ---------------------------------------------------------
         # Read the Kafka event
@@ -247,8 +232,7 @@ def test_real_account_lock_publishes_platform_user_locked_event():
 
                     if (
                         event.get("event_type") == TOPIC
-                        and event.get("payload", {}).get("user_id")
-                        == user_id
+                        and event.get("payload", {}).get("user_id") == user_id
                     ):
                         received_event = event
                         break
@@ -299,12 +283,12 @@ def test_real_account_lock_publishes_platform_user_locked_event():
                     FailedLoginAttempt.email == test_email
                 ).delete(synchronize_session=False)
 
-                db.query(User).filter(
-                    User.id == user.id
-                ).delete(synchronize_session=False)
+                db.query(User).filter(User.id == user.id).delete(
+                    synchronize_session=False
+                )
 
                 db.commit()
-            except Exception:
+            except Exception:  # noqa: BLE001 - Verify integration behavior for unexpected failures.
                 db.rollback()
 
         consumer.close()

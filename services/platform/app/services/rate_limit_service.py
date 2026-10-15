@@ -1,12 +1,14 @@
-from datetime import datetime, timezone
 import uuid
+from datetime import UTC, datetime
+
 import redis
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
-from app.models.abuse_event import AbuseEvent
-from app.services.audit_service import create_audit_log
+
 from app.core.config import KNOWN_CALLER_SERVICES
 from app.core.redis_client import get_redis
+from app.models.abuse_event import AbuseEvent
+from app.services.audit_service import create_audit_log
 
 # ============================================================
 # Abuse Event Types
@@ -91,6 +93,7 @@ return 1
 # Build Redis Rate-Limit Key
 # ============================================================
 
+
 def _make_key(
     caller_service: str,
     ip_address: str,
@@ -104,17 +107,13 @@ def _make_key(
         caller_service + IP address + endpoint
     """
 
-    return (
-        f"{RATE_LIMIT_PREFIX}"
-        f"{caller_service}:"
-        f"{ip_address}:"
-        f"{endpoint}"
-    )
+    return f"{RATE_LIMIT_PREFIX}{caller_service}:{ip_address}:{endpoint}"
 
 
 # ============================================================
 # Rate-Limit Checker
 # ============================================================
+
 
 def check_rate_limit(
     db: Session,
@@ -185,7 +184,7 @@ def check_rate_limit(
     # Current time
     # --------------------------------------------------------
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     now_timestamp = now.timestamp()
     cutoff = now_timestamp - window_seconds
 
@@ -309,4 +308,4 @@ def check_rate_limit(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Rate limiting service unavailable",
-        )
+        ) from None

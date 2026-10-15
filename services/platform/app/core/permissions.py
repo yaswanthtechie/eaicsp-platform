@@ -7,7 +7,6 @@ PERMISSIONS = {
     "supplier:write",
     "logistics:read",
     "logistics:write",
-
     # -------------------------
     # Milestone 2 permissions
     # -------------------------
@@ -46,7 +45,6 @@ ROLE_PERMISSIONS = {
         "logistics:read",
         "logistics:write",
     },
-
     "vp_operations": {
         "inventory:read",
         "inventory:write",
@@ -57,39 +55,32 @@ ROLE_PERMISSIONS = {
         "logistics:read",
         "logistics:write",
     },
-
     "procurement_manager": {
         "supplier:read",
         "supplier:write",
     },
-
     "logistics_manager": {
         "logistics:read",
         "logistics:write",
     },
-
     "compliance_officer": {
         "compliance:read",
         "compliance:write",
     },
-
     "warehouse_manager": {
         "inventory:read",
         "inventory:write",
     },
-
     "analyst": {
         "inventory:read",
         "compliance:read",
         "supplier:read",
         "logistics:read",
     },
-
     "supplier": {
         "supplier:read",
         "supplier:write",
     },
-
     # ========================================================
     # V2 ROLES
     # ========================================================
@@ -102,7 +93,6 @@ ROLE_PERMISSIONS = {
         "user:manage",
         "role:assign",
     },
-
     # Day-to-day procurement work.
     # Can create/read POs but cannot approve them.
     "procurement_officer": {
@@ -110,33 +100,28 @@ ROLE_PERMISSIONS = {
         "purchase_order:read",
         "supplier:read",
     },
-
     # Inventory planning and reorder planning.
     "inventory_planner": {
         "inventory:read",
         "inventory:plan",
     },
-
     # Demand/forecast planning.
     "demand_planner": {
         "demand:read",
         "demand:write",
         "inventory:read",
     },
-
     # Finance operations.
     "finance_manager": {
         "invoice:read",
         "invoice:approve",
         "payment:approve",
     },
-
     # Supplier risk analysis.
     "risk_analyst": {
         "supplier:read",
         "risk:read",
     },
-
     # ML/data science activities.
     # Promotion is restricted to staging.
     "data_scientist": {
@@ -144,7 +129,6 @@ ROLE_PERMISSIONS = {
         "model:retrain",
         "model:promote_staging",
     },
-
     # Read-only audit access.
     "auditor": {
         "audit:read",
@@ -158,14 +142,12 @@ ROLE_PERMISSIONS = {
         "model:read",
         "demand:read",
     },
-
     # Warehouse floor operations.
     # Only stock movement capability is added here.
     "warehouse_operator": {
         "inventory:read",
         "inventory:move",
     },
-
     # External carrier.
     # Shipment visibility only.
     "carrier": {

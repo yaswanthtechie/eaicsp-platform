@@ -1,4 +1,5 @@
 import os
+
 # These must be set BEFORE any `app.*` import, because
 # app/core/config.py reads os.environ at import time.
 
@@ -26,24 +27,27 @@ for _key, _value in TEST_SEED_PASSWORDS.items():
 # ============================================================
 # PYTEST / APPLICATION IMPORTS
 # ============================================================
-import pytest
-from app.database import Base, engine
-from app.seed import seed_database
+import pytest  # noqa: E402 - Test environment setup runs before imports.
+
+from app.database import Base, engine  # noqa: E402 - Test environment setup runs before imports.
+from app.seed import seed_database  # noqa: E402 - Test environment setup runs before imports.
+
 
 # ============================================================
 # DATABASE SETUP
-# ============================================================ 
+# ============================================================
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_database():
- 
+
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
- 
+
     seed_database()
- 
+
     yield
- 
+
     Base.metadata.drop_all(bind=engine)
+
 
 # ============================================================
 # SECURITY STATE RESET
@@ -55,26 +59,24 @@ def setup_test_database():
 # ============================================================
 @pytest.fixture(autouse=True)
 def reset_security_state(monkeypatch):
-        
+
     import fakeredis
+
     import app.core.redis_client
     import app.core.revocation_store
     import app.core.token_cache
     import app.services.rate_limit_service
+    from app.services.mfa_service import _mfa_challenges
     from app.services.rate_limit_service import (
         _last_abuse_event_at,
         _request_buckets,
     )
-    from app.services.mfa_service import _mfa_challenges
 
-    
     # --------------------------------------------------------
     # Create isolated fake Redis for this test
     # --------------------------------------------------------
 
-    fake_client = fakeredis.FakeRedis(
-        decode_responses=True
-    )
+    fake_client = fakeredis.FakeRedis(decode_responses=True)
 
     # --------------------------------------------------------
     # Patch the central Redis client
@@ -120,10 +122,11 @@ def reset_security_state(monkeypatch):
     # Cleanup
     # --------------------------------------------------------
     fake_client.flushall()
-    
+
     _request_buckets.clear()
     _last_abuse_event_at.clear()
     _mfa_challenges.clear()
+
 
 # ============================================================
 # KAFKA: unit tests never contact a real broker
@@ -141,7 +144,6 @@ def published_events(request, monkeypatch):
 
         def record(event_type, payload):
             events.append({"event_type": event_type, "payload": payload})
-            return None
 
         monkeypatch.setattr(
             app.services.auth_service,

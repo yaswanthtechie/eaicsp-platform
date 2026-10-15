@@ -2,7 +2,7 @@ import json
 import logging
 import sys
 from contextvars import ContextVar
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 SERVICE_NAME = "platform-service"
@@ -11,6 +11,7 @@ request_id_context: ContextVar[str] = ContextVar(
     "request_id",
     default="no-request-id",
 )
+
 
 def set_request_id(request_id: str) -> None:
     """
@@ -47,9 +48,7 @@ class JSONFormatter(logging.Formatter):
     ) -> str:
 
         log_entry: dict[str, Any] = {
-            "timestamp": datetime.now(
-                timezone.utc
-            ).isoformat().replace("+00:00", "Z"),
+            "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             "level": record.levelname,
             "service": SERVICE_NAME,
             "request_id": get_request_id(),
@@ -73,9 +72,7 @@ class JSONFormatter(logging.Formatter):
                 log_entry[field] = value
 
         if record.exc_info:
-            log_entry["exception"] = self.formatException(
-                record.exc_info
-            )
+            log_entry["exception"] = self.formatException(record.exc_info)
 
         return json.dumps(
             log_entry,
@@ -104,9 +101,7 @@ def configure_logging() -> logging.Logger:
         encoding="utf-8",
     )
 
-    console_handler = logging.StreamHandler(
-        sys.stdout
-    )
+    console_handler = logging.StreamHandler(sys.stdout)
 
     formatter = JSONFormatter()
 

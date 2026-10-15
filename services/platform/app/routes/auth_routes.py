@@ -1,71 +1,64 @@
-from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter , HTTPException,Depends, Request,status,Header
+import logging
+from datetime import UTC, datetime, timedelta
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError
-from app.core.config import TRUST_PROXY
 from sqlalchemy.orm import Session
-from app.database import get_db
-from app.models.users import User
-from app.services.auth_service import (
-    register_user,
-    login_user,
-    get_refresh_token,
-    save_refresh_token,
-    request_password_reset,
-    reset_password,
-)
-from app.services.audit_service import (
-    TOKEN_REVOKED ,
-    create_audit_log,
-)
-from app.services.rate_limit_service import ( 
-    MFA_ABUSE,
-    LOGIN_BRUTE_FORCE,
-    SSO_ABUSE,
-    RATE_LIMIT_EXCEEDED,
-)
 
-from app.models.refresh_token import RefreshToken
-from app.core.token_cache import token_cache
-from app.core.revocation_store import revoke_token, is_token_revoked
+from app.core.config import TRUST_PROXY
+from app.core.dependencies import get_current_user, oauth2_scheme
 from app.core.permissions import ROLE_PERMISSIONS
+from app.core.revocation_store import is_token_revoked, revoke_token
+from app.core.security import create_access_token, create_refresh_token, decode_token
 from app.core.service_auth import verify_service_api_key
+from app.core.token_cache import token_cache
+from app.database import get_db
+from app.models.refresh_token import RefreshToken
+from app.models.users import User
 from app.schemas.auth import (
-    TokenResponse,
-    VerifyResponse,
-    RefreshRequest,
     AccessTokenResponse,
     LogoutRequest,
-    RegisterRequest,
-    PasswordResetRequest,
-    PasswordResetConfirm,
     MFAChallengeResponse,
-    MFAVerifyRequest,
     MFATokenResponse,
+    MFAVerifyRequest,
+    PasswordResetConfirm,
+    PasswordResetRequest,
+    RefreshRequest,
+    RegisterRequest,
     SSOLoginRequest,
-    SSOTokenResponse
+    SSOTokenResponse,
+    TokenResponse,
+    VerifyResponse,
+)
+from app.services.audit_service import (
+    TOKEN_REVOKED,
+    create_audit_log,
+)
+from app.services.auth_service import (
+    complete_mfa_login,
+    get_refresh_token,
+    login_user,
+    register_user,
+    request_password_reset,
+    reset_password,
+    save_refresh_token,
+)
+from app.services.rate_limit_service import (
+    LOGIN_BRUTE_FORCE,
+    MFA_ABUSE,
+    RATE_LIMIT_EXCEEDED,
+    SSO_ABUSE,
+    check_rate_limit,
 )
 from app.services.sso_service import mock_sso_login
-from app.services.rate_limit_service import check_rate_limit
-from app.core.security import (
-    create_access_token,
-    create_refresh_token,
-    decode_token
-)
-from app.core.dependencies import(
-    get_current_user,
-    oauth2_scheme
-)
-from app.services.auth_service import complete_mfa_login
-import logging
-router = APIRouter(
-    prefix="/api/v1/auth",
-    tags=["Authentication"]
-)
+
+router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
+
 
 def get_client_ip(request: Request) -> str:
-# Only trust X-Forwarded-For when we are actually behind a proxy we control.
-# Otherwise any caller can forge it and reset their own rate-limit bucket.
+    # Only trust X-Forwarded-For when we are actually behind a proxy we control.
+    # Otherwise any caller can forge it and reset their own rate-limit bucket.
     if TRUST_PROXY:
         forwarded = request.headers.get("X-Forwarded-For")
         if forwarded:
@@ -77,31 +70,24 @@ def get_client_ip(request: Request) -> str:
 # REGISTER
 # ============================================================
 
+
 @router.post("/register")
-def register(
-    request: RegisterRequest,
-    db: Session = Depends(get_db)
-):
-    return register_user(
-        db=db,
-        request=request
-    )
+def register(request: RegisterRequest, db: Session = Depends(get_db)):
+    return register_user(db=db, request=request)
+
 
 # ============================================================
 # LOGIN
 # ============================================================
 
-@router.post(
-"/login",
-response_model=TokenResponse | MFAChallengeResponse
-)
 
+@router.post("/login", response_model=TokenResponse | MFAChallengeResponse)
 def login(
     request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    
+
     client_ip = get_client_ip(request)
 
     check_rate_limit(
@@ -115,116 +101,94 @@ def login(
         db=db,
         username=form_data.username,
         password=form_data.password,
-        client_ip=client_ip
+        client_ip=client_ip,
     )
+
+
 # ============================================================
 # REFRESH TOKEN
 # ============================================================
 
-@router.post(
-    "/refresh",
-    response_model=AccessTokenResponse
-)
-def refresh_token(
-    body: RefreshRequest,
-    db: Session = Depends(get_db)
-):
+
+@router.post("/refresh", response_model=AccessTokenResponse)
+def refresh_token(body: RefreshRequest, db: Session = Depends(get_db)):
     try:
         payload = decode_token(body.refresh_token)
 
     except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired refresh token"
-        )
+            detail="Invalid or expired refresh token",
+        ) from None
 
     if payload.get("type") != "refresh":
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid refresh token"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
         )
 
-    refresh = get_refresh_token(
-        db=db,
-        token=body.refresh_token
-    )
+    refresh = get_refresh_token(db=db, token=body.refresh_token)
 
     if refresh is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or revoked refresh token"
+            detail="Invalid or revoked refresh token",
         )
 
-    user = (
-        db.query(User)
-        .filter(
-            User.id == refresh.user_id
-        )
-        .first()
-    )
+    user = db.query(User).filter(User.id == refresh.user_id).first()
 
     if user is None or not user.is_active:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid user"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user"
         )
 
     if user.role is None:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid user"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user"
         )
     new_access_token = create_access_token(
-    {
-        "sub": user.email,
-        "user_id": user.id,
-        "role": user.role.name
-    }
+        {"sub": user.email, "user_id": user.id, "role": user.role.name}
     )
 
     new_refresh_token = create_refresh_token(
-    {
-        "sub": user.email,
-        "user_id": user.id,
-    }
-)
+        {
+            "sub": user.email,
+            "user_id": user.id,
+        }
+    )
 
-    new_refresh_expires_at = (
-    datetime.now(timezone.utc)
-    + timedelta(days=7)
-)
+    new_refresh_expires_at = datetime.now(UTC) + timedelta(days=7)
 
-# Revoke the old refresh token.
+    # Revoke the old refresh token.
     refresh.is_revoked = True
 
-# Save the new refresh token.
+    # Save the new refresh token.
     save_refresh_token(
-    db=db,
-    user_id=user.id,
-    token=new_refresh_token,
-    expires_at=new_refresh_expires_at,
-)
+        db=db,
+        user_id=user.id,
+        token=new_refresh_token,
+        expires_at=new_refresh_expires_at,
+    )
 
     db.commit()
 
     return {
-    "access_token": new_access_token,
-    "refresh_token": new_refresh_token,
-    "token_type": "bearer",
-}   
+        "access_token": new_access_token,
+        "refresh_token": new_refresh_token,
+        "token_type": "bearer",
+    }
+
 
 # ============================================================
 # PERMISSIONS
 # ============================================================
 
+
 @router.get("/me/permissions")
-def my_permissions(
-    user=Depends(get_current_user)
-):
+def my_permissions(user=Depends(get_current_user)):
     if user.role is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="User role has not been assigned"
+            detail="User role has not been assigned",
         )
 
     role = user.role.name
@@ -233,11 +197,12 @@ def my_permissions(
 
     return {
         "role": role,
-        "permissions": sorted(list(permissions)),
+        "permissions": sorted(permissions),
     }
 
+
 # ============================================================
-# LOGOUT 
+# LOGOUT
 # ============================================================
 @router.post("/logout")
 def logout(
@@ -248,9 +213,7 @@ def logout(
 ):
 
     refresh = (
-        db.query(RefreshToken)
-        .filter(RefreshToken.token == body.refresh_token)
-        .first()
+        db.query(RefreshToken).filter(RefreshToken.token == body.refresh_token).first()
     )
 
     if refresh is None:
@@ -260,9 +223,9 @@ def logout(
         )
     if refresh.user_id != current_user.id:
         raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Cannot revoke another user's session",
-    )
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot revoke another user's session",
+        )
 
     if refresh.is_revoked:
         raise HTTPException(
@@ -279,9 +242,7 @@ def logout(
     # can simply retry.
     # --------------------------------------------------------
     payload = decode_token(access_token)
-    remaining_ttl = int(
-        payload.get("exp", 0) - datetime.now(timezone.utc).timestamp()
-    )
+    remaining_ttl = int(payload.get("exp", 0) - datetime.now(UTC).timestamp())
 
     if remaining_ttl > 0 and not revoke_token(access_token, remaining_ttl):
         raise HTTPException(
@@ -302,9 +263,9 @@ def logout(
 
     db.commit()
 
-    return {
-        "message": "Logged out successfully"
-    }
+    return {"message": "Logged out successfully"}
+
+
 # ============================================================
 # PASSWORD REQUEST
 # ============================================================
@@ -318,9 +279,8 @@ def password_reset_request(
         email=payload.email,
     )
 
-    return {
-        "message": "If the account exists, a password reset token has been sent."
-    }
+    return {"message": "If the account exists, a password reset token has been sent."}
+
 
 # ============================================================
 # PASSWORD CONFIRM
@@ -336,14 +296,15 @@ def password_reset_confirm(
         new_password=payload.new_password,
     )
 
-    return {
-        "message": "Password has been reset successfully."
-    }
+    return {"message": "Password has been reset successfully."}
+
+
 # ============================================================
 # SERVICE-VERIFY
 # ============================================================
 
 logger = logging.getLogger("platform.request")
+
 
 @router.post("/service-verify")
 def service_verify(
@@ -354,6 +315,7 @@ def service_verify(
         "service": service["service"],
         "auth_type": service["auth_type"],
     }
+
 
 # ============================================================
 # VERIFY
@@ -371,9 +333,9 @@ def verify_access_token(
         alias="X-Caller-Service",
     ),
 ):
-    
+
     client_ip = get_client_ip(request)
-    
+
     # The header identifies the calling service for per-service rate
     # limiting. It is optional: callers that omit it share an "unknown"
     # bucket rather than being rejected, so /verify keeps its Round 5
@@ -406,9 +368,7 @@ def verify_access_token(
     # Check shared Redis revocation BEFORE cache
     # -------------------------------------------------
     if is_token_revoked(token):
-        logger.info(
-            "Token verification rejected: token revoked"
-        )
+        logger.info("Token verification rejected: token revoked")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token revoked",
@@ -420,15 +380,10 @@ def verify_access_token(
     cached_response = token_cache.get(token)
 
     if cached_response is not None:
-        logger.info(
-            "Token verification cache HIT"
-        )
+        logger.info("Token verification cache HIT")
         return cached_response
 
-    logger.info(
-        "Token verification cache MISS"
-    )
-
+    logger.info("Token verification cache MISS")
 
     # -------------------------------------------------
     # Cache miss -> decode JWT
@@ -459,21 +414,17 @@ def verify_access_token(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
-        )
+        ) from None
 
-    except Exception:
+    except Exception:  # noqa: BLE001 - Convert unexpected token errors to 401.
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
-        )
+        ) from None
     # -------------------------------------------------
     # DB lookup only on cache MISS
     # -------------------------------------------------
-    user = (
-        db.query(User)
-        .filter(User.email == email)
-        .first()
-    )
+    user = db.query(User).filter(User.email == email).first()
 
     if user is None:
         raise HTTPException(
@@ -499,11 +450,9 @@ def verify_access_token(
         locked_until = user.locked_until
 
         if locked_until.tzinfo is None:
-            locked_until = locked_until.replace(
-                tzinfo=timezone.utc
-            )
+            locked_until = locked_until.replace(tzinfo=UTC)
 
-        if locked_until > datetime.now(timezone.utc):
+        if locked_until > datetime.now(UTC):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired token",
@@ -512,14 +461,8 @@ def verify_access_token(
     # -------------------------------------------------
     # include fine-grained permissions
     # -------------------------------------------------
-    role = (
-        user.role.name
-        if user.role
-        else None
-    )
-    permissions = sorted(
-        ROLE_PERMISSIONS.get(role, set())
-    )
+    role = user.role.name if user.role else None
+    permissions = sorted(ROLE_PERMISSIONS.get(role, set()))
 
     response_data = {
         "valid": True,
@@ -540,9 +483,7 @@ def verify_access_token(
     exp = payload.get("exp")
 
     if exp is not None:
-        remaining_seconds = int(
-            exp - datetime.now(timezone.utc).timestamp()
-        )
+        remaining_seconds = int(exp - datetime.now(UTC).timestamp())
 
         if remaining_seconds <= 0:
             raise HTTPException(
@@ -560,8 +501,9 @@ def verify_access_token(
     )
     return response_data
 
-# ============================================================ 
-# MFA-VERIFY 
+
+# ============================================================
+# MFA-VERIFY
 # ============================================================
 @router.post("/mfa/verify", response_model=MFATokenResponse)
 def verify_mfa(
@@ -584,28 +526,29 @@ def verify_mfa(
         otp=body.otp,
         client_ip=client_ip,
     )
- 
-# ============================================================ 
-# SSO-LOGIN 
-# ============================================================ 
-@router.post( 
-    "/sso/login", 
-    response_model=SSOTokenResponse, 
-) 
-def sso_login( 
-    request: Request, 
-    body: SSOLoginRequest, 
-    db: Session = Depends(get_db), 
-): 
-    client_ip = get_client_ip(request) 
- 
-    check_rate_limit( 
-        db=db, 
-        ip_address=client_ip, 
-        endpoint="/api/v1/auth/sso/login", 
-        abuse_event_type=SSO_ABUSE, 
-    ) 
-    
+
+
+# ============================================================
+# SSO-LOGIN
+# ============================================================
+@router.post(
+    "/sso/login",
+    response_model=SSOTokenResponse,
+)
+def sso_login(
+    request: Request,
+    body: SSOLoginRequest,
+    db: Session = Depends(get_db),
+):
+    client_ip = get_client_ip(request)
+
+    check_rate_limit(
+        db=db,
+        ip_address=client_ip,
+        endpoint="/api/v1/auth/sso/login",
+        abuse_event_type=SSO_ABUSE,
+    )
+
     return mock_sso_login(
         db=db,
         provider=body.provider,
