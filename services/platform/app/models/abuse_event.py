@@ -1,6 +1,9 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 from sqlalchemy import Column, DateTime, Integer, String, Text
+
 from app.database import Base
+
 
 class AbuseEvent(Base):
     __tablename__ = "abuse_events"
@@ -13,7 +16,7 @@ class AbuseEvent(Base):
     detected_at = Column(
         DateTime,
         nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         index=True,
     )
     details = Column(Text, nullable=True)

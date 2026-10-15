@@ -4,6 +4,7 @@ Round 12+13 Milestone 1/3 unit tests.
 Run without Docker: conftest.py swaps Redis for fakeredis and records
 Kafka events instead of sending them.
 """
+
 import os
 import uuid
 
@@ -11,7 +12,7 @@ import pytest
 import redis
 from fastapi.testclient import TestClient
 
-import app.core.revocation_store as revocation_store
+from app.core import revocation_store
 from app.database import SessionLocal
 from app.main import app
 from app.models.failed_login_attempts import FailedLoginAttempt
@@ -28,6 +29,7 @@ def clear_failed_logins():
     the whole test session. Clear them before and after each test so the
     lockout tests here never push later tests over the IP login limit.
     """
+
     def clear():
         db = SessionLocal()
         try:
@@ -73,6 +75,7 @@ def _new_analyst():
 
 # ---- test setup --------------------------------------------------------
 
+
 def test_fakeredis_can_run_the_rate_limiter_lua_script():
     """
     The rate limiter uses Redis EVAL (Lua). fakeredis only supports EVAL
@@ -97,6 +100,7 @@ def test_login_is_not_blocked_by_the_rate_limiter_in_tests():
 
 
 # ---- revocation --------------------------------------------------------
+
 
 def test_logged_out_token_is_rejected_everywhere():
     tokens = _login(_new_analyst(), TEST_PASSWORD)
@@ -152,6 +156,7 @@ def test_logout_does_not_report_success_when_redis_cannot_store_revocation(monke
 
 
 # ---- platform.user.locked ----------------------------------------------
+
 
 def test_account_lock_publishes_one_user_locked_event(published_events):
     email = _new_analyst()

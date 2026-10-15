@@ -1,16 +1,17 @@
 import re
 from pathlib import Path
+
 from app.core.permissions import PERMISSIONS, ROLE_PERMISSIONS
+
 # =============================================================
 # README PATH
 # =============================================================
-
 README_PATH = Path(__file__).resolve().parents[1] / "README.md"
-
 
 # =============================================================
 # README PERMISSION MATRIX PARSER
 # =============================================================
+
 
 def _parse_readme_permission_matrix():
     """
@@ -25,9 +26,7 @@ def _parse_readme_permission_matrix():
     The parser does not depend on a specific README heading.
     """
 
-    assert README_PATH.exists(), (
-        f"README.md was not found at: {README_PATH}"
-    )
+    assert README_PATH.exists(), f"README.md was not found at: {README_PATH}"
 
     readme = README_PATH.read_text(encoding="utf-8")
     lines = readme.splitlines()
@@ -44,15 +43,11 @@ def _parse_readme_permission_matrix():
         if not stripped.startswith("|"):
             continue
 
-        cells = [
-            cell.strip().lower()
-            for cell in stripped.strip("|").split("|")
-        ]
+        cells = [cell.strip().lower() for cell in stripped.strip("|").split("|")]
 
-        if len(cells) >= 2:
-            if cells[0] == "role" and cells[1] == "permissions":
-                header_index = index
-                break
+        if len(cells) >= 2 and cells[0] == "role" and cells[1] == "permissions":
+            header_index = index
+            break
 
     assert header_index is not None, (
         "Could not find the Role-Permissions Markdown table in "
@@ -67,7 +62,7 @@ def _parse_readme_permission_matrix():
 
     rows = []
 
-    for line in lines[header_index + 1:]:
+    for line in lines[header_index + 1 :]:
         stripped = line.strip()
 
         # The table has ended.
@@ -76,10 +71,7 @@ def _parse_readme_permission_matrix():
                 break
             continue
 
-        cells = [
-            cell.strip()
-            for cell in stripped.strip("|").split("|")
-        ]
+        cells = [cell.strip() for cell in stripped.strip("|").split("|")]
 
         # We only support a two-column Role / Permissions table.
         if len(cells) != 2:
@@ -138,10 +130,7 @@ def _parse_readme_permission_matrix():
 
         rows.append((role, permissions))
 
-    assert rows, (
-        "The Role-Permissions table was found, "
-        "but no role rows were found."
-    )
+    assert rows, "The Role-Permissions table was found, but no role rows were found."
 
     # ---------------------------------------------------------
     # Detect duplicate roles
@@ -149,15 +138,10 @@ def _parse_readme_permission_matrix():
 
     roles = [role for role, _ in rows]
 
-    duplicate_roles = {
-        role
-        for role in roles
-        if roles.count(role) > 1
-    }
+    duplicate_roles = {role for role in roles if roles.count(role) > 1}
 
     assert not duplicate_roles, (
-        "README permission matrix contains duplicate roles: "
-        f"{sorted(duplicate_roles)}"
+        f"README permission matrix contains duplicate roles: {sorted(duplicate_roles)}"
     )
 
     return dict(rows)
@@ -166,6 +150,7 @@ def _parse_readme_permission_matrix():
 # =============================================================
 # README PERMISSION MATRIX == ROLE_PERMISSIONS
 # =============================================================
+
 
 def test_readme_permission_matrix_matches_code():
     """
@@ -176,8 +161,7 @@ def test_readme_permission_matrix_matches_code():
     readme_matrix = _parse_readme_permission_matrix()
 
     code_matrix = {
-        role: set(permissions)
-        for role, permissions in ROLE_PERMISSIONS.items()
+        role: set(permissions) for role, permissions in ROLE_PERMISSIONS.items()
     }
 
     readme_roles = set(readme_matrix.keys())
@@ -212,9 +196,7 @@ def test_readme_permission_matrix_matches_code():
                     "missing_from_readme": sorted(
                         code_permissions - readme_permissions
                     ),
-                    "extra_in_readme": sorted(
-                        readme_permissions - code_permissions
-                    ),
+                    "extra_in_readme": sorted(readme_permissions - code_permissions),
                 }
             )
 
@@ -228,6 +210,7 @@ def test_readme_permission_matrix_matches_code():
 # =============================================================
 # README CONTAINS EXACTLY ALL ROLES FROM CODE
 # =============================================================
+
 
 def test_readme_has_all_roles_from_code():
     """
@@ -244,9 +227,7 @@ def test_readme_has_all_roles_from_code():
     extra_roles = readme_roles - expected_roles
 
     assert not missing_roles, (
-        "README is missing roles from "
-        "app/core/permissions.py: "
-        f"{sorted(missing_roles)}"
+        f"README is missing roles from app/core/permissions.py: {sorted(missing_roles)}"
     )
 
     assert not extra_roles, (
@@ -259,6 +240,7 @@ def test_readme_has_all_roles_from_code():
 # =============================================================
 # README CONTAINS ONLY VALID PERMISSIONS
 # =============================================================
+
 
 def test_readme_permission_matrix_has_no_unknown_permissions():
     """
@@ -286,6 +268,7 @@ def test_readme_permission_matrix_has_no_unknown_permissions():
 # README ROLE COUNT == CODE ROLE COUNT
 # =============================================================
 
+
 def test_readme_role_count_matches_code():
     """
     Prevents the README from accidentally documenting an older
@@ -305,6 +288,7 @@ def test_readme_role_count_matches_code():
 # README CURRENTLY DOCUMENTS 18 ROLES
 # =============================================================
 
+
 def test_readme_documents_18_roles():
     """
     Round 12+13 Milestone 2 requires the expanded 18-role model:
@@ -323,6 +307,7 @@ def test_readme_documents_18_roles():
 # =============================================================
 # README PERMISSIONS ARE SET-EQUIVALENT TO CODE
 # =============================================================
+
 
 def test_readme_permissions_are_exact_per_role():
     """

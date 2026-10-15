@@ -1,20 +1,21 @@
-
-from fastapi import Depends,HTTPException, Header,status
-from datetime import datetime, timezone
-from sqlalchemy.orm import Session
-from app.models.service_api_keys import ServiceAPIKey
-from app.database import get_db
-
 import hashlib
 import secrets
+from datetime import UTC, datetime
+
+from fastapi import Depends, Header, HTTPException, status
+from sqlalchemy.orm import Session
+
+from app.database import get_db
+from app.models.service_api_keys import ServiceAPIKey
+
 
 def generate_service_api_key() -> str:
     return "sk_" + secrets.token_urlsafe(32)
 
+
 def hash_service_api_key(api_key: str) -> str:
-    return hashlib.sha256(
-        api_key.encode("utf-8")
-    ).hexdigest()
+    return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+
 
 def verify_service_api_key(
     x_api_key: str | None = Header(default=None),
@@ -43,13 +44,13 @@ def verify_service_api_key(
             detail="Invalid service API key",
         )
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     if service_key.expires_at is not None:
         expires_at = service_key.expires_at
 
         if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
+            expires_at = expires_at.replace(tzinfo=UTC)
 
         if expires_at <= now:
             raise HTTPException(

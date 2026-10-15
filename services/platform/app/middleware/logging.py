@@ -3,7 +3,9 @@ import os
 import re
 import time
 import uuid
+
 from fastapi import Request
+
 from app.core.logging_config import set_request_id
 
 # ----------------------------------------
@@ -27,6 +29,7 @@ JWT_PATTERN = re.compile(
     r"[A-Za-z0-9_-]+\."
     r"[A-Za-z0-9_-]+$"
 )
+
 
 def sanitize_log_value(
     value: str | None,
@@ -54,9 +57,11 @@ def sanitize_log_value(
 
     return value
 
+
 # ----------------------------------------
 # Request logging middleware
 # ----------------------------------------
+
 
 async def log_requests(
     request: Request,
@@ -68,9 +73,7 @@ async def log_requests(
     # Request ID
     # ------------------------------------
 
-    request_id = request.headers.get(
-        "X-Request-ID"
-    )
+    request_id = request.headers.get("X-Request-ID")
 
     if not request_id:
         request_id = str(uuid.uuid4())
@@ -119,9 +122,7 @@ async def log_requests(
         response = await call_next(request)
 
     except Exception:
-        duration_ms = (
-            time.time() - start
-        ) * 1000
+        duration_ms = (time.time() - start) * 1000
 
         logger.exception(
             "HTTP request failed",
@@ -144,9 +145,7 @@ async def log_requests(
     # Calculate response time
     # ------------------------------------
 
-    duration_ms = (
-        time.time() - start
-    ) * 1000
+    duration_ms = (time.time() - start) * 1000
 
     # ------------------------------------
     # Structured JSON log

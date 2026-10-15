@@ -1,22 +1,28 @@
-from datetime import timedelta,timezone, datetime
-from concurrent.futures import ThreadPoolExecutor
+import os
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
+
 import pytest
+from fastapi import HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.testclient import TestClient
-from app.main import app
-from app.database import SessionLocal
+
+from app.core import dependencies
 from app.core.security import create_access_token
-from app.models.users import User
+from app.database import SessionLocal
+from app.main import app
 from app.models.failed_login_attempts import FailedLoginAttempt
 from app.models.password_reset_tokens import PasswordResetToken
-import os
+from app.models.users import User
 
 client = TestClient(app)
 
 # ============================================================
 # TEST HELPERS
 # ============================================================
+
 
 def reset_test_security_state():
     """
@@ -111,20 +117,21 @@ def login_as(email: str, password: str):
     assert response.status_code == 200
     return response.json()
 
+
 def login_as_ceo():
     return login_as("ceo@company.com", os.environ["CEO_PASSWORD"])
 
+
 def login_as_vp():
     return login_as("vpoperations@company.com", os.environ["VP_OPERATIONS_PASSWORD"])
+
 
 def login_as_supplier():
     return login_as("supplier@company.com", os.environ["SUPPLIER_PASSWORD"])
 
 
 def auth_header(token: str):
-    return {
-        "Authorization": f"Bearer {token}"
-    }
+    return {"Authorization": f"Bearer {token}"}
 
 
 def get_user_id_by_email(token: str, email: str):
@@ -137,11 +144,7 @@ def get_user_id_by_email(token: str, email: str):
 
     users = response.json()
 
-    user = next(
-        user
-        for user in users
-        if user["email"] == email
-    )
+    user = next(user for user in users if user["email"] == email)
 
     return user["user_id"]
 
@@ -173,11 +176,7 @@ def get_password_reset_token(email: str):
     db = SessionLocal()
 
     try:
-        user = (
-            db.query(User)
-            .filter(User.email == email)
-            .first()
-        )
+        user = db.query(User).filter(User.email == email).first()
 
         assert user is not None
 
@@ -187,9 +186,7 @@ def get_password_reset_token(email: str):
                 PasswordResetToken.user_id == user.id,
                 PasswordResetToken.used.is_(False),
             )
-            .order_by(
-                PasswordResetToken.id.desc()
-            )
+            .order_by(PasswordResetToken.id.desc())
             .first()
         )
 
@@ -205,19 +202,19 @@ def get_password_reset_token(email: str):
 # ROOT
 # ============================================================
 
+
 def test_root():
     response = client.get("/")
 
     assert response.status_code == 200
 
-    assert response.json() == {
-        "message": "Platform Service is running"
-    }
+    assert response.json() == {"message": "Platform Service is running"}
 
 
 # ============================================================
 # LOGIN
 # ============================================================
+
 
 def test_login_success():
     response = client.post(
@@ -267,6 +264,7 @@ def test_invalid_user():
 # CURRENT USER
 # ============================================================
 
+
 def test_current_user():
     login = login_as_ceo()
 
@@ -282,9 +280,7 @@ def test_current_user():
 
 
 def test_current_user_without_token():
-    response = client.get(
-        "/api/v1/users/me"
-    )
+    response = client.get("/api/v1/users/me")
 
     assert response.status_code == 401
 
@@ -292,6 +288,7 @@ def test_current_user_without_token():
 # ============================================================
 # RBAC
 # ============================================================
+
 
 def test_admin_access_allowed():
     login = login_as_ceo()
@@ -303,9 +300,7 @@ def test_admin_access_allowed():
 
     assert response.status_code == 200
 
-    assert response.json()["message"] == (
-        "Admin access granted"
-    )
+    assert response.json()["message"] == ("Admin access granted")
 
 
 def test_admin_access_forbidden():
@@ -318,9 +313,7 @@ def test_admin_access_forbidden():
 
     assert response.status_code == 403
 
-    assert response.json()["detail"] == (
-        "Forbidden: insufficient permissions"
-    )
+    assert response.json()["detail"] == ("Forbidden: insufficient permissions")
 
 
 def test_vp_operations_admin_access():
@@ -337,6 +330,7 @@ def test_vp_operations_admin_access():
 # ============================================================
 # RATE LIMITING
 # ============================================================
+
 
 def test_login_rate_limit_per_email():
     """
@@ -375,8 +369,7 @@ def test_login_rate_limit_per_email():
 
     if response.status_code == 429:
         assert response.json()["detail"] == (
-            "Too many login attempts. "
-            "Try again after 15 minutes."
+            "Too many login attempts. Try again after 15 minutes."
         )
 
 
@@ -389,9 +382,7 @@ def test_login_rate_limit_per_ip():
         response = client.post(
             "/api/v1/auth/login",
             data={
-                "username": unique_email(
-                    f"ip_unknown_{index}"
-                ),
+                "username": unique_email(f"ip_unknown_{index}"),
                 "password": "wrongpassword",
             },
         )
@@ -409,14 +400,14 @@ def test_login_rate_limit_per_ip():
     assert response.status_code == 429
 
     assert response.json()["detail"] == (
-        "Too many login attempts. "
-        "Try again after 15 minutes."
+        "Too many login attempts. Try again after 15 minutes."
     )
 
 
 # ============================================================
 # REGISTRATION / PASSWORD POLICY
 # ============================================================
+
 
 def test_register_success():
     email = unique_email("newregisteruser")
@@ -432,9 +423,7 @@ def test_register_success():
 
     assert response.status_code == 200
 
-    assert response.json()["message"] == (
-        "User registered successfully"
-    )
+    assert response.json()["message"] == ("User registered successfully")
 
 
 def test_register_weak_password():
@@ -455,6 +444,7 @@ def test_register_weak_password():
 # ============================================================
 # JWT
 # ============================================================
+
 
 def test_expired_token():
     expired_token = create_access_token(
@@ -479,10 +469,7 @@ def test_tampered_token():
 
     token = login["access_token"]
 
-    tampered = (
-        token[:-1]
-        + ("A" if token[-1] != "A" else "B")
-    )
+    tampered = token[:-1] + ("A" if token[-1] != "A" else "B")
 
     response = client.get(
         "/api/v1/users/me",
@@ -495,6 +482,7 @@ def test_tampered_token():
 # ============================================================
 # REFRESH TOKEN
 # ============================================================
+
 
 def test_refresh_success():
     login = login_as_ceo()
@@ -529,9 +517,7 @@ def test_refresh_with_access_token_rejected():
 
     assert response.status_code == 401
 
-    assert response.json()["detail"] == (
-        "Invalid refresh token"
-    )
+    assert response.json()["detail"] == ("Invalid refresh token")
 
 
 def test_refresh_with_garbage_token_returns_401():
@@ -548,6 +534,7 @@ def test_refresh_with_garbage_token_returns_401():
 # ============================================================
 # REFRESH TOKEN REPLAY
 # ============================================================
+
 
 def test_refresh_token_replay_attack():
     login = login_as_ceo()
@@ -576,14 +563,13 @@ def test_refresh_token_replay_attack():
 
     assert replay.status_code == 401
 
-    assert replay.json()["detail"] == (
-        "Invalid or revoked refresh token"
-    )
+    assert replay.json()["detail"] == ("Invalid or revoked refresh token")
 
 
 # ============================================================
 # LOGOUT
 # ============================================================
+
 
 def test_logout_revokes_refresh_token():
     login = login_as_ceo()
@@ -618,9 +604,7 @@ def test_logout_cannot_revoke_another_users_refresh_token():
 
     response = client.post(
         "/api/v1/auth/logout",
-        headers=auth_header(
-            ceo_login["access_token"]
-        ),
+        headers=auth_header(ceo_login["access_token"]),
         json={
             "refresh_token": supplier_login["refresh_token"],
         },
@@ -642,14 +626,13 @@ def test_logout_cannot_revoke_another_users_refresh_token():
 # ROLE / FINE-GRAINED PERMISSIONS
 # ============================================================
 
+
 def test_r4_ceo_has_fine_grained_permissions():
     login = login_as_ceo()
 
     response = client.get(
         "/api/v1/auth/me/permissions",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
     )
 
     assert response.status_code == 200
@@ -673,9 +656,7 @@ def test_r4_vp_operations_does_not_have_ceo_permission():
 
     response = client.get(
         "/api/v1/auth/me/permissions",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
     )
 
     assert response.status_code == 200
@@ -692,9 +673,7 @@ def test_r4_supplier_does_not_have_higher_permissions():
 
     response = client.get(
         "/api/v1/auth/me/permissions",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
     )
 
     assert response.status_code == 200
@@ -711,9 +690,7 @@ def test_r4_role_hierarchy_ceo_can_access_admin():
 
     response = client.get(
         "/api/v1/admin/test",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
     )
 
     assert response.status_code == 200
@@ -724,9 +701,7 @@ def test_r4_role_hierarchy_vp_can_access_admin():
 
     response = client.get(
         "/api/v1/admin/test",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
     )
 
     assert response.status_code == 200
@@ -737,9 +712,7 @@ def test_r4_role_hierarchy_supplier_cannot_access_admin():
 
     response = client.get(
         "/api/v1/admin/test",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
     )
 
     assert response.status_code == 403
@@ -749,14 +722,13 @@ def test_r4_role_hierarchy_supplier_cannot_access_admin():
 # ADMIN USER MANAGEMENT
 # ============================================================
 
+
 def test_r4_ceo_can_list_users():
     login = login_as_ceo()
 
     response = client.get(
         "/api/v1/admin/users",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
     )
 
     assert response.status_code == 200
@@ -768,9 +740,7 @@ def test_r4_vp_operations_can_list_users():
 
     response = client.get(
         "/api/v1/admin/users",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
     )
 
     assert response.status_code == 200
@@ -782,9 +752,7 @@ def test_r4_supplier_cannot_access_admin_users():
 
     response = client.get(
         "/api/v1/admin/users",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
     )
 
     assert response.status_code == 403
@@ -825,9 +793,7 @@ def test_r4_deactivate_user_by_ceo():
 
     response = client.patch(
         f"/api/v1/admin/users/{user_id}/deactivate",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
     )
 
     assert response.status_code == 200
@@ -839,9 +805,7 @@ def test_r4_non_admin_cannot_deactivate_user():
 
     response = client.patch(
         "/api/v1/admin/users/1/deactivate",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
     )
 
     assert response.status_code == 403
@@ -850,6 +814,7 @@ def test_r4_non_admin_cannot_deactivate_user():
 # ============================================================
 # FORCE PASSWORD RESET
 # ============================================================
+
 
 def test_r4_admin_can_force_reset_password():
     login = login_as_ceo()
@@ -868,9 +833,7 @@ def test_r4_admin_can_force_reset_password():
 
     response = client.post(
         f"/api/v1/admin/users/{user_id}/force-reset-password",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
         json={
             "new_password": "NewPassword@12345",
         },
@@ -878,9 +841,7 @@ def test_r4_admin_can_force_reset_password():
 
     assert response.status_code == 200
 
-    assert response.json()["message"] == (
-        "Password reset successfully"
-    )
+    assert response.json()["message"] == ("Password reset successfully")
 
 
 def test_r4_non_admin_cannot_force_reset_password():
@@ -888,9 +849,7 @@ def test_r4_non_admin_cannot_force_reset_password():
 
     response = client.post(
         "/api/v1/admin/users/1/force-reset-password",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
         json={
             "new_password": "NewPassword@12345",
         },
@@ -902,6 +861,7 @@ def test_r4_non_admin_cannot_force_reset_password():
 # ============================================================
 # ROLE CHANGE
 # ============================================================
+
 
 def test_r4_admin_can_change_user_role():
     login = login_as_ceo()
@@ -920,9 +880,7 @@ def test_r4_admin_can_change_user_role():
 
     response = client.patch(
         f"/api/v1/admin/users/{user_id}/role",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
         json={
             "role": "warehouse_manager",
         },
@@ -953,9 +911,7 @@ def test_r4_role_change_creates_history():
 
     response = client.patch(
         f"/api/v1/admin/users/{user_id}/role",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
         json={
             "role": "warehouse_manager",
         },
@@ -965,9 +921,7 @@ def test_r4_role_change_creates_history():
 
     history_response = client.get(
         f"/api/v1/admin/users/{user_id}/role-history",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
     )
 
     assert history_response.status_code == 200
@@ -1001,9 +955,7 @@ def test_r4_role_change_creates_audit_log():
 
     response = client.patch(
         f"/api/v1/admin/users/{user_id}/role",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
         json={
             "role": "warehouse_manager",
         },
@@ -1013,9 +965,7 @@ def test_r4_role_change_creates_audit_log():
 
     audit_response = client.get(
         "/api/v1/admin/audit-logs",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
         params={
             "user_id": user_id,
             "event_type": "ROLE_CHANGED",
@@ -1038,6 +988,7 @@ def test_r4_role_change_creates_audit_log():
 # ROLE HISTORY / AUDIT ACCESS
 # ============================================================
 
+
 def test_r4_admin_can_view_role_change_history():
     login = login_as_ceo()
 
@@ -1048,9 +999,7 @@ def test_r4_admin_can_view_role_change_history():
 
     response = client.get(
         f"/api/v1/admin/users/{ceo_id}/role-history",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
     )
 
     assert response.status_code == 200
@@ -1062,9 +1011,7 @@ def test_r4_non_admin_cannot_view_role_change_history():
 
     response = client.get(
         "/api/v1/admin/users/1/role-history",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
     )
 
     assert response.status_code == 403
@@ -1075,9 +1022,7 @@ def test_r4_admin_can_view_audit_logs():
 
     response = client.get(
         "/api/v1/admin/audit-logs",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
     )
 
     assert response.status_code == 200
@@ -1089,9 +1034,7 @@ def test_r4_non_admin_cannot_view_audit_logs():
 
     response = client.get(
         "/api/v1/admin/audit-logs",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
     )
 
     assert response.status_code == 403
@@ -1100,6 +1043,7 @@ def test_r4_non_admin_cannot_view_audit_logs():
 # ============================================================
 # PER-SESSION MANAGEMENT
 # ============================================================
+
 
 def test_r4_admin_can_list_user_sessions():
     login = login_as_ceo()
@@ -1111,9 +1055,7 @@ def test_r4_admin_can_list_user_sessions():
 
     response = client.get(
         f"/api/v1/admin/users/{user_id}/sessions",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
     )
 
     assert response.status_code == 200
@@ -1136,10 +1078,7 @@ def test_r4_multiple_logins_create_multiple_sessions():
     login1 = login_as_ceo()
     login2 = login_as_ceo()
 
-    assert (
-        login1["refresh_token"]
-        != login2["refresh_token"]
-    )
+    assert login1["refresh_token"] != login2["refresh_token"]
 
     user_id = get_user_id_by_email(
         login1["access_token"],
@@ -1148,9 +1087,7 @@ def test_r4_multiple_logins_create_multiple_sessions():
 
     response = client.get(
         f"/api/v1/admin/users/{user_id}/sessions",
-        headers=auth_header(
-            login1["access_token"]
-        ),
+        headers=auth_header(login1["access_token"]),
     )
 
     assert response.status_code == 200
@@ -1159,7 +1096,7 @@ def test_r4_multiple_logins_create_multiple_sessions():
 
 def test_r4_admin_can_revoke_user_session():
     login1 = login_as_ceo()
-    login2 = login_as_ceo()
+    login_as_ceo()
 
     user_id = get_user_id_by_email(
         login1["access_token"],
@@ -1168,9 +1105,7 @@ def test_r4_admin_can_revoke_user_session():
 
     response = client.get(
         f"/api/v1/admin/users/{user_id}/sessions",
-        headers=auth_header(
-            login1["access_token"]
-        ),
+        headers=auth_header(login1["access_token"]),
     )
 
     assert response.status_code == 200
@@ -1183,16 +1118,12 @@ def test_r4_admin_can_revoke_user_session():
 
     revoke_response = client.delete(
         f"/api/v1/admin/users/{user_id}/sessions/{session_id}",
-        headers=auth_header(
-            login1["access_token"]
-        ),
+        headers=auth_header(login1["access_token"]),
     )
 
     assert revoke_response.status_code == 200
 
-    assert revoke_response.json()["message"] == (
-        "Session revoked successfully"
-    )
+    assert revoke_response.json()["message"] == ("Session revoked successfully")
 
 
 def test_r4_revoked_session_cannot_be_refreshed():
@@ -1244,9 +1175,7 @@ def test_r4_non_admin_cannot_list_user_sessions():
 
     response = client.get(
         "/api/v1/admin/users/1/sessions",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
     )
 
     assert response.status_code == 403
@@ -1255,6 +1184,7 @@ def test_r4_non_admin_cannot_list_user_sessions():
 # ============================================================
 # PASSWORD RESET
 # ============================================================
+
 
 def test_r4_password_reset_flow():
     email = unique_email("r4_password_reset")
@@ -1352,6 +1282,7 @@ def test_r4_invalid_password_reset_token():
 # PASSWORD RESET - NEW TOKEN INVALIDATES OLD TOKEN
 # ============================================================
 
+
 def test_r4_new_password_reset_token_invalidates_previous_token():
     email = unique_email("r4_reset_rotation")
 
@@ -1414,6 +1345,7 @@ def test_r4_new_password_reset_token_invalidates_previous_token():
 # FORCE RESET - REVOKE SESSIONS
 # ============================================================
 
+
 def test_r4_force_reset_revokes_existing_sessions():
     admin_login = login_as_ceo()
 
@@ -1438,9 +1370,7 @@ def test_r4_force_reset_revokes_existing_sessions():
 
     reset_response = client.post(
         f"/api/v1/admin/users/{user_id}/force-reset-password",
-        headers=auth_header(
-            admin_login["access_token"]
-        ),
+        headers=auth_header(admin_login["access_token"]),
         json={
             "new_password": "NewPassword@12345",
         },
@@ -1462,6 +1392,7 @@ def test_r4_force_reset_revokes_existing_sessions():
 # CONCURRENT LOGIN ATTEMPTS
 # ============================================================
 
+
 def make_concurrent_failed_login():
     return client.post(
         "/api/v1/auth/login",
@@ -1475,66 +1406,39 @@ def make_concurrent_failed_login():
 def test_r4_concurrent_login_attempts():
     number_of_requests = 10
 
-    with ThreadPoolExecutor(
-        max_workers=number_of_requests
-    ) as executor:
-
+    with ThreadPoolExecutor(max_workers=number_of_requests) as executor:
         futures = [
-            executor.submit(
-                make_concurrent_failed_login
-            )
+            executor.submit(make_concurrent_failed_login)
             for _ in range(number_of_requests)
         ]
 
-        responses = [
-            future.result()
-            for future in futures
-        ]
+        [future.result() for future in futures]
 
-    status_codes = [
-        response.status_code
-        for response in responses
-    ]
+    status_codes = [future.result().status_code for future in futures]
 
-    assert all(
-        status in (401, 423, 429)
-        for status in status_codes
-    )
+    assert all(status in (401, 423, 429) for status in status_codes)
 
-    assert (
-        429 in status_codes
-        or 423 in status_codes
-    )
+    assert 429 in status_codes or 423 in status_codes
 
 
 def test_r4_concurrent_login_attempts_recorded():
     number_of_requests = 10
 
-    with ThreadPoolExecutor(
-        max_workers=number_of_requests
-    ) as executor:
-
+    with ThreadPoolExecutor(max_workers=number_of_requests) as executor:
         futures = [
-            executor.submit(
-                make_concurrent_failed_login
-            )
+            executor.submit(make_concurrent_failed_login)
             for _ in range(number_of_requests)
         ]
 
-        responses = [
+        for future in futures:
             future.result()
-            for future in futures
-        ]
 
     db = SessionLocal()
 
     try:
         attempts = (
             db.query(FailedLoginAttempt)
-            .filter(
-                FailedLoginAttempt.email
-                == "concurrent@company.com"
-            )
+            .filter(FailedLoginAttempt.email == "concurrent@company.com")
             .count()
         )
     finally:
@@ -1546,6 +1450,7 @@ def test_r4_concurrent_login_attempts_recorded():
 # ============================================================
 # SUCCESSFUL LOGIN AFTER FAILED ATTEMPTS
 # ============================================================
+
 
 def test_login_success_clears_failed_attempt_counter():
     for _ in range(4):
@@ -1583,6 +1488,7 @@ def test_login_success_clears_failed_attempt_counter():
 # ============================================================
 # TOKEN INTROSPECTION
 # ============================================================
+
 
 def test_r6_verify_endpoint_success():
     login = login_as_ceo()
@@ -1633,9 +1539,7 @@ def test_r6_verify_invalid_token():
 
 
 def test_r6_verify_without_token():
-    response = client.post(
-        "/api/v1/auth/verify"
-    )
+    response = client.post("/api/v1/auth/verify")
 
     assert response.status_code == 401
 
@@ -1679,10 +1583,7 @@ def test_r6_verify_cache_latency_measurement():
 
         cache_hit_latencies.append(latency)
 
-    average_cache_latency = (
-        sum(cache_hit_latencies)
-        / len(cache_hit_latencies)
-    )
+    average_cache_latency = sum(cache_hit_latencies) / len(cache_hit_latencies)
 
     print(
         "\nR6 /verify latency:"
@@ -1693,20 +1594,12 @@ def test_r6_verify_cache_latency_measurement():
     )
 
     if first_latency > 0:
-        improvement = (
-            (first_latency - average_cache_latency)
-            / first_latency
-        ) * 100
+        improvement = ((first_latency - average_cache_latency) / first_latency) * 100
 
-        print(
-            f"\n  Measured improvement: "
-            f"{improvement:.2f}%"
-        )
+        print(f"\n  Measured improvement: {improvement:.2f}%")
 
-    assert all(
-        latency >= 0
-        for latency in cache_hit_latencies
-    )
+    assert all(latency >= 0 for latency in cache_hit_latencies)
+
 
 def test_verify_cache_hit_skips_decode_and_db(monkeypatch):
     """
@@ -1715,7 +1608,7 @@ def test_verify_cache_hit_skips_decode_and_db(monkeypatch):
     expensive work is genuinely skipped.
     """
     from app.core import token_cache
-    import app.routes.auth_routes as auth_routes
+    from app.routes import auth_routes
 
     token_cache.token_cache.clear()
     token = login_as_ceo()["access_token"]
@@ -1737,6 +1630,7 @@ def test_verify_cache_hit_skips_decode_and_db(monkeypatch):
         assert client.post("/api/v1/auth/verify", headers=headers).status_code == 200
 
     assert calls["decode"] == 0, "cache hits must not re-decode the JWT"
+
 
 def test_r6_expired_token_not_accepted_by_verify():
     expired_token = create_access_token(
@@ -1760,14 +1654,13 @@ def test_r6_expired_token_not_accepted_by_verify():
 # FINE-GRAINED PERMISSIONS
 # ============================================================
 
+
 def test_r6_permissions_endpoint_returns_permissions():
     login = login_as_ceo()
 
     response = client.get(
         "/api/v1/auth/me/permissions",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
     )
 
     assert response.status_code == 200
@@ -1783,9 +1676,7 @@ def test_r6_ceo_has_expected_fine_grained_permissions():
 
     response = client.get(
         "/api/v1/auth/me/permissions",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
     )
 
     assert response.status_code == 200
@@ -1799,9 +1690,7 @@ def test_r6_ceo_has_expected_fine_grained_permissions():
         "compliance:write",
     }
 
-    assert expected_permissions.issubset(
-        set(permissions)
-    )
+    assert expected_permissions.issubset(set(permissions))
 
 
 def test_r6_supplier_does_not_have_admin_permissions():
@@ -1809,9 +1698,7 @@ def test_r6_supplier_does_not_have_admin_permissions():
 
     response = client.get(
         "/api/v1/auth/me/permissions",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
     )
 
     assert response.status_code == 200
@@ -1822,9 +1709,7 @@ def test_r6_supplier_does_not_have_admin_permissions():
 
 
 def test_r6_permissions_endpoint_requires_authentication():
-    response = client.get(
-        "/api/v1/auth/me/permissions"
-    )
+    response = client.get("/api/v1/auth/me/permissions")
 
     assert response.status_code == 401
 
@@ -1832,6 +1717,7 @@ def test_r6_permissions_endpoint_requires_authentication():
 # ============================================================
 # ACCOUNT LOCKOUT
 # ============================================================
+
 
 def test_r6_account_lockout_after_failed_logins():
     """
@@ -1913,9 +1799,7 @@ def test_r6_lockout_event_recorded_in_audit_logs():
 
     response = client.get(
         "/api/v1/admin/audit-logs",
-        headers=auth_header(
-            admin_login["access_token"]
-        ),
+        headers=auth_header(admin_login["access_token"]),
         params={
             "event_type": "ACCOUNT_LOCKED",
         },
@@ -1933,10 +1817,7 @@ def test_r6_lockout_event_recorded_in_audit_logs():
         log
         for log in logs
         if log.get("event_type") == "ACCOUNT_LOCKED"
-        and (
-            log.get("email") == email
-            or log.get("user_email") == email
-        )
+        and (log.get("email") == email or log.get("user_email") == email)
     ]
 
     # The security requirement expects an audit record.
@@ -1946,6 +1827,7 @@ def test_r6_lockout_event_recorded_in_audit_logs():
 # ============================================================
 # ACCOUNT DEACTIVATION CASCADE
 # ============================================================
+
 
 def test_r6_deactivation_revokes_active_sessions():
     admin_login = login_as_ceo()
@@ -1971,17 +1853,12 @@ def test_r6_deactivation_revokes_active_sessions():
 
     deactivate_response = client.patch(
         f"/api/v1/admin/users/{user_id}/deactivate",
-        headers=auth_header(
-            admin_login["access_token"]
-        ),
+        headers=auth_header(admin_login["access_token"]),
     )
 
     assert deactivate_response.status_code == 200
 
-    assert (
-        deactivate_response.json()["is_active"]
-        is False
-    )
+    assert deactivate_response.json()["is_active"] is False
 
     refresh_response = client.post(
         "/api/v1/auth/refresh",
@@ -2010,9 +1887,7 @@ def test_r6_deactivated_user_cannot_login():
 
     deactivate_response = client.patch(
         f"/api/v1/admin/users/{user_id}/deactivate",
-        headers=auth_header(
-            admin_login["access_token"]
-        ),
+        headers=auth_header(admin_login["access_token"]),
     )
 
     assert deactivate_response.status_code == 200
@@ -2032,14 +1907,13 @@ def test_r6_deactivated_user_cannot_login():
 # SECURITY DASHBOARD
 # ============================================================
 
+
 def test_r7_security_dashboard_admin_access():
     login = login_as_ceo()
 
     response = client.get(
         "/api/v1/admin/security-dashboard",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
     )
 
     assert response.status_code == 200
@@ -2054,18 +1928,14 @@ def test_r7_supplier_cannot_access_security_dashboard():
 
     response = client.get(
         "/api/v1/admin/security-dashboard",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
     )
 
     assert response.status_code == 403
 
 
 def test_r7_security_dashboard_requires_authentication():
-    response = client.get(
-        "/api/v1/admin/security-dashboard"
-    )
+    response = client.get("/api/v1/admin/security-dashboard")
 
     assert response.status_code == 401
 
@@ -2075,9 +1945,7 @@ def test_r7_security_dashboard_contains_security_sections():
 
     response = client.get(
         "/api/v1/admin/security-dashboard",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
     )
 
     assert response.status_code == 200
@@ -2099,6 +1967,7 @@ def test_r7_security_dashboard_contains_security_sections():
 # PASSWORD ROTATION
 # ============================================================
 
+
 def test_r7_expired_password_cannot_login():
     admin_login = login_as_ceo()
 
@@ -2115,23 +1984,15 @@ def test_r7_expired_password_cannot_login():
     db = SessionLocal()
 
     try:
-        user = (
-            db.query(User)
-            .filter(User.email == email)
-            .first()
-        )
+        user = db.query(User).filter(User.email == email).first()
 
         assert user is not None
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
-        user.password_changed_at = (
-            now - timedelta(days=91)
-        )
+        user.password_changed_at = now - timedelta(days=91)
 
-        user.password_expires_at = (
-            now - timedelta(days=1)
-        )
+        user.password_expires_at = now - timedelta(days=1)
 
         db.commit()
 
@@ -2152,6 +2013,7 @@ def test_r7_expired_password_cannot_login():
         "Password has expired. Please reset your password."
     )
 
+
 def test_r7_password_not_expired_can_login():
     admin_login = login_as_ceo()
 
@@ -2168,23 +2030,15 @@ def test_r7_password_not_expired_can_login():
     db = SessionLocal()
 
     try:
-        user = (
-            db.query(User)
-            .filter(User.email == email)
-            .first()
-        )
+        user = db.query(User).filter(User.email == email).first()
 
         assert user is not None
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
-        user.password_changed_at = (
-            now - timedelta(days=10)
-        )
+        user.password_changed_at = now - timedelta(days=10)
 
-        user.password_expires_at = (
-            now + timedelta(days=80)
-        )
+        user.password_expires_at = now + timedelta(days=80)
 
         db.commit()
 
@@ -2206,18 +2060,18 @@ def test_r7_password_not_expired_can_login():
     assert "access_token" in body
     assert "refresh_token" in body
 
+
 # ============================================================
 # SERVICE API KEYS
 # ============================================================
+
 
 def test_r8_admin_can_create_service_api_key():
     login = login_as_ceo()
 
     response = client.post(
         "/api/v1/admin/service-keys",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
         json={
             "service_name": "inventory-service",
         },
@@ -2228,9 +2082,7 @@ def test_r8_admin_can_create_service_api_key():
     body = response.json()
 
     assert "id" in body
-    assert body["service_name"] == (
-        "inventory-service"
-    )
+    assert body["service_name"] == ("inventory-service")
     assert "api_key" in body
     assert body["api_key"].startswith("sk_")
     assert body["is_active"] is True
@@ -2241,9 +2093,7 @@ def test_r8_non_admin_cannot_create_service_api_key():
 
     response = client.post(
         "/api/v1/admin/service-keys",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
         json={
             "service_name": "inventory-service",
         },
@@ -2257,9 +2107,7 @@ def test_r8_service_api_key_verify():
 
     create_response = client.post(
         "/api/v1/admin/service-keys",
-        headers=auth_header(
-            admin_login["access_token"]
-        ),
+        headers=auth_header(admin_login["access_token"]),
         json={
             "service_name": "inventory-service",
         },
@@ -2297,9 +2145,7 @@ def test_r8_invalid_service_api_key_rejected():
 
 
 def test_r8_missing_service_api_key_rejected():
-    response = client.post(
-        "/api/v1/auth/service-verify"
-    )
+    response = client.post("/api/v1/auth/service-verify")
 
     assert response.status_code == 401
 
@@ -2309,9 +2155,7 @@ def test_r8_admin_can_list_service_api_keys():
 
     response = client.get(
         "/api/v1/admin/service-keys",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
     )
 
     assert response.status_code == 200
@@ -2338,9 +2182,7 @@ def test_r8_api_key_revoke():
 
     create_response = client.post(
         "/api/v1/admin/service-keys",
-        headers=auth_header(
-            admin_login["access_token"]
-        ),
+        headers=auth_header(admin_login["access_token"]),
         json={
             "service_name": "compliance-service",
         },
@@ -2364,9 +2206,7 @@ def test_r8_api_key_revoke():
 
     revoke_response = client.delete(
         f"/api/v1/admin/service-keys/{key_id}",
-        headers=auth_header(
-            admin_login["access_token"]
-        ),
+        headers=auth_header(admin_login["access_token"]),
     )
 
     assert revoke_response.status_code == 200
@@ -2386,9 +2226,7 @@ def test_r8_non_admin_cannot_revoke_service_api_key():
 
     create_response = client.post(
         "/api/v1/admin/service-keys",
-        headers=auth_header(
-            admin_login["access_token"]
-        ),
+        headers=auth_header(admin_login["access_token"]),
         json={
             "service_name": "test-service",
         },
@@ -2402,9 +2240,7 @@ def test_r8_non_admin_cannot_revoke_service_api_key():
 
     response = client.delete(
         f"/api/v1/admin/service-keys/{key_id}",
-        headers=auth_header(
-            supplier_login["access_token"]
-        ),
+        headers=auth_header(supplier_login["access_token"]),
     )
 
     assert response.status_code == 403
@@ -2414,14 +2250,13 @@ def test_r8_non_admin_cannot_revoke_service_api_key():
 # SEPARATE SERVICE IDENTITIES
 # ============================================================
 
+
 def test_r8_inventory_and_compliance_use_separate_api_keys():
     admin_login = login_as_ceo()
 
     inventory_response = client.post(
         "/api/v1/admin/service-keys",
-        headers=auth_header(
-            admin_login["access_token"]
-        ),
+        headers=auth_header(admin_login["access_token"]),
         json={
             "service_name": "inventory-service",
         },
@@ -2429,9 +2264,7 @@ def test_r8_inventory_and_compliance_use_separate_api_keys():
 
     compliance_response = client.post(
         "/api/v1/admin/service-keys",
-        headers=auth_header(
-            admin_login["access_token"]
-        ),
+        headers=auth_header(admin_login["access_token"]),
         json={
             "service_name": "compliance-service",
         },
@@ -2440,13 +2273,9 @@ def test_r8_inventory_and_compliance_use_separate_api_keys():
     assert inventory_response.status_code == 201
     assert compliance_response.status_code == 201
 
-    inventory_key = inventory_response.json()[
-        "api_key"
-    ]
+    inventory_key = inventory_response.json()["api_key"]
 
-    compliance_key = compliance_response.json()[
-        "api_key"
-    ]
+    compliance_key = compliance_response.json()["api_key"]
 
     assert inventory_key != compliance_key
 
@@ -2456,9 +2285,7 @@ def test_r8_revoking_inventory_key_does_not_revoke_compliance_key():
 
     inventory_response = client.post(
         "/api/v1/admin/service-keys",
-        headers=auth_header(
-            admin_login["access_token"]
-        ),
+        headers=auth_header(admin_login["access_token"]),
         json={
             "service_name": "inventory-isolation-test",
         },
@@ -2466,9 +2293,7 @@ def test_r8_revoking_inventory_key_does_not_revoke_compliance_key():
 
     compliance_response = client.post(
         "/api/v1/admin/service-keys",
-        headers=auth_header(
-            admin_login["access_token"]
-        ),
+        headers=auth_header(admin_login["access_token"]),
         json={
             "service_name": "compliance-isolation-test",
         },
@@ -2484,9 +2309,7 @@ def test_r8_revoking_inventory_key_does_not_revoke_compliance_key():
 
     revoke_response = client.delete(
         f"/api/v1/admin/service-keys/{inventory_id}",
-        headers=auth_header(
-            admin_login["access_token"]
-        ),
+        headers=auth_header(admin_login["access_token"]),
     )
 
     assert revoke_response.status_code == 200
@@ -2507,7 +2330,9 @@ def test_r8_revoking_inventory_key_does_not_revoke_compliance_key():
 
     assert inventory_verify.status_code == 401
     assert compliance_verify.status_code == 200
-#============================================================
+
+
+# ============================================================
 # API KEY EXPIRATION
 # ===========================================================
 def test_r8_expired_api_key_rejected():
@@ -2515,9 +2340,7 @@ def test_r8_expired_api_key_rejected():
 
     response = client.post(
         "/api/v1/admin/service-keys",
-        headers=auth_header(
-            admin_login["access_token"]
-        ),
+        headers=auth_header(admin_login["access_token"]),
         json={
             "service_name": "expired-test-service",
             "expires_at": "2020-01-01T00:00:00Z",
@@ -2528,21 +2351,20 @@ def test_r8_expired_api_key_rejected():
     # the service API key.
     assert response.status_code == 400
 
-    assert response.json()["detail"] == (
-        "expires_at must be in the future"
-    )
+    assert response.json()["detail"] == ("expires_at must be in the future")
+
+
 # ============================================================
 # API KEY TRACKING
 # ============================================================
+
 
 def test_r8_api_key_last_used_is_tracked():
     admin_login = login_as_ceo()
 
     create_response = client.post(
         "/api/v1/admin/service-keys",
-        headers=auth_header(
-            admin_login["access_token"]
-        ),
+        headers=auth_header(admin_login["access_token"]),
         json={
             "service_name": "tracking-test-service",
         },
@@ -2564,20 +2386,14 @@ def test_r8_api_key_last_used_is_tracked():
 
     list_response = client.get(
         "/api/v1/admin/service-keys",
-        headers=auth_header(
-            admin_login["access_token"]
-        ),
+        headers=auth_header(admin_login["access_token"]),
     )
 
     assert list_response.status_code == 200
 
     keys = list_response.json()
 
-    matching_key = next(
-        key
-        for key in keys
-        if key["id"] == key_id
-    )
+    matching_key = next(key for key in keys if key["id"] == key_id)
 
     assert matching_key["last_used_at"] is not None
 
@@ -2585,6 +2401,7 @@ def test_r8_api_key_last_used_is_tracked():
 # ============================================================
 # CALLER SERVICE HEADER
 # ============================================================
+
 
 def test_r8_verify_requires_valid_user_token():
     response = client.post(
@@ -2603,9 +2420,7 @@ def test_r8_verify_accepts_caller_service_header():
     response = client.post(
         "/api/v1/auth/verify",
         headers={
-            "Authorization": (
-                f"Bearer {login['access_token']}"
-            ),
+            "Authorization": (f"Bearer {login['access_token']}"),
             "X-Caller-Service": "inventory-service",
         },
     )
@@ -2620,6 +2435,7 @@ def test_r8_verify_accepts_caller_service_header():
 # ============================================================
 # DEFINITION OF DONE - M1
 # ============================================================
+
 
 def test_definition_of_done_verify_caching():
     login = login_as_ceo()
@@ -2636,24 +2452,20 @@ def test_definition_of_done_verify_caching():
 
         responses.append(response)
 
-    assert all(
-        response.status_code == 200
-        for response in responses
-    )
+    assert all(response.status_code == 200 for response in responses)
 
 
 # ============================================================
 # DEFINITION OF DONE - M2
 # ============================================================
 
+
 def test_definition_of_done_permission_checks():
     login = login_as_ceo()
 
     response = client.get(
         "/api/v1/auth/me/permissions",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
     )
 
     assert response.status_code == 200
@@ -2667,6 +2479,7 @@ def test_definition_of_done_permission_checks():
 # ============================================================
 # DEFINITION OF DONE - M3
 # ============================================================
+
 
 def test_definition_of_done_account_lockout():
     admin_login = login_as_ceo()
@@ -2718,30 +2531,29 @@ def test_definition_of_done_account_lockout():
 # DEFINITION OF DONE -M4
 # ============================================================
 
+
 def test_definition_of_done_security_dashboard():
     login = login_as_ceo()
 
     response = client.get(
         "/api/v1/admin/security-dashboard",
-        headers=auth_header(
-            login["access_token"]
-        ),
+        headers=auth_header(login["access_token"]),
     )
 
     assert response.status_code == 200
 
+
 # ============================================================
 # DEFINITION OF DONE -M5
 # ============================================================
+
 
 def test_definition_of_done_api_key_issuable_and_revocable():
     admin_login = login_as_ceo()
 
     create_response = client.post(
         "/api/v1/admin/service-keys",
-        headers=auth_header(
-            admin_login["access_token"]
-        ),
+        headers=auth_header(admin_login["access_token"]),
         json={
             "service_name": "definition-of-done-service",
         },
@@ -2763,9 +2575,7 @@ def test_definition_of_done_api_key_issuable_and_revocable():
 
     revoke_response = client.delete(
         f"/api/v1/admin/service-keys/{key_id}",
-        headers=auth_header(
-            admin_login["access_token"]
-        ),
+        headers=auth_header(admin_login["access_token"]),
     )
 
     assert revoke_response.status_code == 200
@@ -2779,3 +2589,33 @@ def test_definition_of_done_api_key_issuable_and_revocable():
 
     assert verify_after_revoke.status_code == 401
 
+
+def test_unexpected_decode_error_returns_standard_401(monkeypatch):
+    def raise_unexpected_error(*args, **kwargs):
+        raise RuntimeError("Unexpected token decoding failure")
+
+    monkeypatch.setattr(
+        dependencies,
+        "decode_token",
+        raise_unexpected_error,
+    )
+
+    credentials = HTTPAuthorizationCredentials(
+        scheme="Bearer",
+        credentials="test-token",
+    )
+
+    db = SessionLocal()
+
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            dependencies.get_current_user(
+                credentials=credentials,
+                db=db,
+            )
+
+        assert exc_info.value.status_code == 401
+        assert exc_info.value.detail == "Invalid or expired token"
+        assert exc_info.value.headers == {"WWW-Authenticate": "Bearer"}
+    finally:
+        db.close()

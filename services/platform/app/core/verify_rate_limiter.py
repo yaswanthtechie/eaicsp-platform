@@ -1,13 +1,13 @@
+import logging
 from collections import defaultdict
 from threading import Lock
 from time import monotonic
 
-import logging
-
 logger = logging.getLogger(__name__)
 
-VERIFY_MAX_REQUESTS =100
-VERIFY_WINDOW_SECONDS =60
+VERIFY_MAX_REQUESTS = 100
+VERIFY_WINDOW_SECONDS = 60
+
 
 class VerifyRateLimiter:
     def __init__(

@@ -1,8 +1,11 @@
 import hashlib
+
 import redis
+
 from app.core.redis_client import get_redis
 
 REVOCATION_PREFIX = "platform:revoked:"
+
 
 class RevocationStoreUnavailable(RuntimeError):
     """Raised when Redis cannot be checked for token revocation."""
@@ -17,9 +20,7 @@ def _token_key(token: str) -> str:
     if not token:
         raise ValueError("Token is required")
 
-    token_hash = hashlib.sha256(
-        token.encode("utf-8")
-    ).hexdigest()
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
 
     return f"{REVOCATION_PREFIX}{token_hash}"
 
@@ -63,9 +64,7 @@ def is_token_revoked(token: str) -> bool:
         return bool(client.exists(_token_key(token)))
 
     except (redis.RedisError, ValueError, TypeError) as exc:
-        raise RevocationStoreUnavailable(
-            "Failed to check token revocation"
-        ) from exc
+        raise RevocationStoreUnavailable("Failed to check token revocation") from exc
 
 
 def clear_revocation(token: str) -> None:

@@ -42,12 +42,10 @@ import os
 import statistics
 import sys
 import time
-
 from collections import Counter
 from dataclasses import dataclass
 
 import httpx
-
 
 # ============================================================
 # Configuration
@@ -63,26 +61,16 @@ VERIFY_URL = f"{BASE_URL}/api/v1/auth/verify"
 ACCESS_TOKENS_RAW = os.getenv("ACCESS_TOKENS", "")
 
 ACCESS_TOKENS = [
-    token.strip()
-    for token in ACCESS_TOKENS_RAW.split(",")
-    if token.strip()
+    token.strip() for token in ACCESS_TOKENS_RAW.split(",") if token.strip()
 ]
 
-DURATION_SECONDS = int(
-    os.getenv("DURATION_SECONDS", "120")
-)
+DURATION_SECONDS = int(os.getenv("DURATION_SECONDS", "120"))
 
-CONCURRENCY = int(
-    os.getenv("CONCURRENCY", "20")
-)
+CONCURRENCY = int(os.getenv("CONCURRENCY", "20"))
 
-REQUESTS_PER_SECOND = float(
-    os.getenv("REQUESTS_PER_SECOND", "5")
-)
+REQUESTS_PER_SECOND = float(os.getenv("REQUESTS_PER_SECOND", "5"))
 
-TIMEOUT_SECONDS = float(
-    os.getenv("TIMEOUT_SECONDS", "10")
-)
+TIMEOUT_SECONDS = float(os.getenv("TIMEOUT_SECONDS", "10"))
 
 
 # ============================================================
@@ -100,6 +88,7 @@ CALLER_SERVICES = (
 # Result model
 # ============================================================
 
+
 @dataclass
 class RequestResult:
     request_number: int
@@ -116,65 +105,46 @@ class RequestResult:
 # Validation
 # ============================================================
 
+
 def validate_configuration() -> None:
     """Validate load-test configuration before starting."""
 
     if not ACCESS_TOKENS:
-        print(
-            "\nERROR: ACCESS_TOKENS environment variable is missing.\n"
-        )
-        print(
-            "Provide 5-10 valid access tokens separated by commas."
-        )
+        print("\nERROR: ACCESS_TOKENS environment variable is missing.\n")
+        print("Provide 5-10 valid access tokens separated by commas.")
         print("\nPowerShell example:")
-        print(
-            '$env:ACCESS_TOKENS="token1,token2,token3,token4,token5"'
-        )
+        print('$env:ACCESS_TOKENS="token1,token2,token3,token4,token5"')
         print()
         sys.exit(1)
 
     if len(ACCESS_TOKENS) < 5:
-        print(
-            f"WARNING: Only {len(ACCESS_TOKENS)} token(s) supplied."
-        )
-        print(
-            "For the M5 realistic-load test, use 5-10 different user tokens."
-        )
+        print(f"WARNING: Only {len(ACCESS_TOKENS)} token(s) supplied.")
+        print("For the M5 realistic-load test, use 5-10 different user tokens.")
 
     if len(ACCESS_TOKENS) > 10:
-        print(
-            "WARNING: More than 10 tokens supplied. "
-            "Only the first 10 will be used."
-        )
+        print("WARNING: More than 10 tokens supplied. Only the first 10 will be used.")
 
     if DURATION_SECONDS < 120:
-        print(
-            "WARNING: DURATION_SECONDS is less than 120 seconds."
-        )
-        print(
-            "The M5 test should normally run for at least 2 minutes."
-        )
+        print("WARNING: DURATION_SECONDS is less than 120 seconds.")
+        print("The M5 test should normally run for at least 2 minutes.")
 
     if CONCURRENCY <= 0:
         print("ERROR: CONCURRENCY must be greater than 0.")
         sys.exit(1)
 
     if REQUESTS_PER_SECOND <= 0:
-        print(
-            "ERROR: REQUESTS_PER_SECOND must be greater than 0."
-        )
+        print("ERROR: REQUESTS_PER_SECOND must be greater than 0.")
         sys.exit(1)
 
     if TIMEOUT_SECONDS <= 0:
-        print(
-            "ERROR: TIMEOUT_SECONDS must be greater than 0."
-        )
+        print("ERROR: TIMEOUT_SECONDS must be greater than 0.")
         sys.exit(1)
 
 
 # ============================================================
 # Single request
 # ============================================================
+
 
 async def send_verify_request(
     client: httpx.AsyncClient,
@@ -187,7 +157,6 @@ async def send_verify_request(
 ) -> RequestResult:
 
     async with semaphore:
-
         start = time.perf_counter()
 
         try:
@@ -199,13 +168,9 @@ async def send_verify_request(
                 },
             )
 
-            elapsed_ms = (
-                time.perf_counter() - start
-            ) * 1000
+            elapsed_ms = (time.perf_counter() - start) * 1000
 
-            elapsed_seconds = (
-                time.perf_counter() - test_start
-            )
+            elapsed_seconds = time.perf_counter() - test_start
 
             success = response.status_code == 200
 
@@ -214,7 +179,7 @@ async def send_verify_request(
             if not success:
                 try:
                     error = response.text[:300]
-                except Exception:
+                except Exception:  # noqa: BLE001 - Fall back if the response body cannot be read.
                     error = "Unable to read response body"
 
             return RequestResult(
@@ -228,15 +193,10 @@ async def send_verify_request(
                 error=error,
             )
 
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - Record request failures in load-test results.
+            elapsed_ms = (time.perf_counter() - start) * 1000
 
-            elapsed_ms = (
-                time.perf_counter() - start
-            ) * 1000
-
-            elapsed_seconds = (
-                time.perf_counter() - test_start
-            )
+            elapsed_seconds = time.perf_counter() - test_start
 
             return RequestResult(
                 request_number=request_number,
@@ -254,6 +214,7 @@ async def send_verify_request(
 # Sustained load test
 # ============================================================
 
+
 async def run_load_test() -> list[RequestResult]:
 
     tokens = ACCESS_TOKENS[:10]
@@ -265,9 +226,7 @@ async def run_load_test() -> list[RequestResult]:
         max_keepalive_connections=CONCURRENCY,
     )
 
-    timeout = httpx.Timeout(
-        TIMEOUT_SECONDS
-    )
+    timeout = httpx.Timeout(TIMEOUT_SECONDS)
 
     print("\nStarting sustained /verify load test...")
     print("----------------------------------------")
@@ -277,10 +236,7 @@ async def run_load_test() -> list[RequestResult]:
     print(f"Concurrency         : {CONCURRENCY}")
     print(f"Target rate         : {REQUESTS_PER_SECOND:.2f} requests/sec")
     print(f"User tokens         : {len(tokens)}")
-    print(
-        "Caller services     : "
-        + ", ".join(CALLER_SERVICES)
-    )
+    print("Caller services     : " + ", ".join(CALLER_SERVICES))
     print("----------------------------------------\n")
 
     results: list[RequestResult] = []
@@ -295,39 +251,26 @@ async def run_load_test() -> list[RequestResult]:
         limits=limits,
         timeout=timeout,
     ) as client:
-
         pending_tasks = set()
 
-        while (
-            time.perf_counter() - test_start
-            < DURATION_SECONDS
-        ):
-
+        while time.perf_counter() - test_start < DURATION_SECONDS:
             now = time.perf_counter()
 
             # Keep approximately the requested target rate.
             if now < next_request_time:
-                await asyncio.sleep(
-                    next_request_time - now
-                )
+                await asyncio.sleep(next_request_time - now)
 
-            elapsed = (
-                time.perf_counter() - test_start
-            )
+            elapsed = time.perf_counter() - test_start
 
             if elapsed >= DURATION_SECONDS:
                 break
 
             request_number += 1
 
-            token_index = (
-                (request_number - 1)
-                % len(tokens)
-            )
+            token_index = (request_number - 1) % len(tokens)
 
             caller_service = CALLER_SERVICES[
-                (request_number - 1)
-                % len(CALLER_SERVICES)
+                (request_number - 1) % len(CALLER_SERVICES)
             ]
 
             task = asyncio.create_task(
@@ -345,36 +288,22 @@ async def run_load_test() -> list[RequestResult]:
             pending_tasks.add(task)
 
             # Collect completed tasks.
-            completed = {
-                task
-                for task in pending_tasks
-                if task.done()
-            }
+            completed = {task for task in pending_tasks if task.done()}
 
             for completed_task in completed:
-                results.append(
-                    await completed_task
-                )
+                results.append(await completed_task)
 
             pending_tasks -= completed
 
-            next_request_time += (
-                1.0 / REQUESTS_PER_SECOND
-            )
+            next_request_time += 1.0 / REQUESTS_PER_SECOND
 
         # Finish outstanding requests.
         if pending_tasks:
-            completed_results = await asyncio.gather(
-                *pending_tasks
-            )
+            completed_results = await asyncio.gather(*pending_tasks)
 
-            results.extend(
-                completed_results
-            )
+            results.extend(completed_results)
 
-    total_elapsed = (
-        time.perf_counter() - test_start
-    )
+    total_elapsed = time.perf_counter() - test_start
 
     print_report(
         results,
@@ -388,6 +317,7 @@ async def run_load_test() -> list[RequestResult]:
 # Percentile calculation
 # ============================================================
 
+
 def percentile(
     values: list[float],
     percent: float,
@@ -398,11 +328,7 @@ def percentile(
 
     sorted_values = sorted(values)
 
-    index = (
-        (len(sorted_values) - 1)
-        * percent
-        / 100
-    )
+    index = (len(sorted_values) - 1) * percent / 100
 
     lower = int(index)
 
@@ -414,18 +340,14 @@ def percentile(
     fraction = index - lower
 
     return (
-        sorted_values[lower]
-        + (
-            sorted_values[upper]
-            - sorted_values[lower]
-        )
-        * fraction
+        sorted_values[lower] + (sorted_values[upper] - sorted_values[lower]) * fraction
     )
 
 
 # ============================================================
 # Report
 # ============================================================
+
 
 def print_report(
     results: list[RequestResult],
@@ -434,71 +356,29 @@ def print_report(
 
     total = len(results)
 
-    successful = [
-        result
-        for result in results
-        if result.success
-    ]
+    successful = [result for result in results if result.success]
 
-    failed = [
-        result
-        for result in results
-        if not result.success
-    ]
+    failed = [result for result in results if not result.success]
 
-    latencies = [
-        result.latency_ms
-        for result in results
-    ]
+    latencies = [result.latency_ms for result in results]
 
-    status_counts = Counter(
-        result.status_code
-        for result in results
-    )
+    status_counts = Counter(result.status_code for result in results)
 
-    caller_counts = Counter(
-        result.caller_service
-        for result in results
-    )
+    caller_counts = Counter(result.caller_service for result in results)
 
-    caller_success_counts = Counter(
-        result.caller_service
-        for result in successful
-    )
+    caller_success_counts = Counter(result.caller_service for result in successful)
 
-    caller_failure_counts = Counter(
-        result.caller_service
-        for result in failed
-    )
+    caller_failure_counts = Counter(result.caller_service for result in failed)
 
-    token_counts = Counter(
-        result.token_index
-        for result in results
-    )
+    token_counts = Counter(result.token_index for result in results)
 
-    rate_limit_results = [
-        result
-        for result in results
-        if result.status_code == 429
-    ]
+    rate_limit_results = [result for result in results if result.status_code == 429]
 
-    throughput = (
-        total / total_elapsed
-        if total_elapsed > 0
-        else 0
-    )
+    throughput = total / total_elapsed if total_elapsed > 0 else 0
 
-    success_rate = (
-        len(successful) / total * 100
-        if total
-        else 0
-    )
+    success_rate = len(successful) / total * 100 if total else 0
 
-    failure_rate = (
-        len(failed) / total * 100
-        if total
-        else 0
-    )
+    failure_rate = len(failed) / total * 100 if total else 0
 
     print("\n")
     print("=" * 70)
@@ -511,15 +391,9 @@ def print_report(
     print(f"Duration              : {total_elapsed:.2f} seconds")
     print(f"Configured duration   : {DURATION_SECONDS} seconds")
     print(f"Concurrency           : {CONCURRENCY}")
-    print(
-        f"Target request rate   : "
-        f"{REQUESTS_PER_SECOND:.2f} requests/sec"
-    )
+    print(f"Target request rate   : {REQUESTS_PER_SECOND:.2f} requests/sec")
     print(f"Different tokens      : {len(ACCESS_TOKENS[:10])}")
-    print(
-        "Caller services       : "
-        + ", ".join(CALLER_SERVICES)
-    )
+    print("Caller services       : " + ", ".join(CALLER_SERVICES))
 
     print("\nOVERALL RESULTS")
     print("-" * 70)
@@ -541,77 +415,46 @@ def print_report(
             item[0] or 0,
         ),
     ):
-        print(
-            f"{str(status_code):<10} : {count}"
-        )
+        print(f"{status_code!s:<10} : {count}")
 
     print("\n429 RATE-LIMIT ANALYSIS")
     print("-" * 70)
 
-    print(
-        f"Total 429 responses   : "
-        f"{len(rate_limit_results)}"
-    )
+    print(f"Total 429 responses   : {len(rate_limit_results)}")
 
     if rate_limit_results:
-
         first_429 = min(
             rate_limit_results,
             key=lambda result: result.elapsed_seconds,
         )
 
-        print(
-            f"First 429 after       : "
-            f"{first_429.elapsed_seconds:.2f} seconds"
-        )
+        print(f"First 429 after       : {first_429.elapsed_seconds:.2f} seconds")
 
-        print(
-            f"First 429 request     : "
-            f"#{first_429.request_number}"
-        )
+        print(f"First 429 request     : #{first_429.request_number}")
 
-        print(
-            f"First 429 caller      : "
-            f"{first_429.caller_service}"
-        )
+        print(f"First 429 caller      : {first_429.caller_service}")
 
-        print(
-            f"First 429 token       : "
-            f"token-{first_429.token_index}"
-        )
+        print(f"First 429 token       : token-{first_429.token_index}")
 
     else:
-        print(
-            "No 429 responses were observed."
-        )
+        print("No 429 responses were observed.")
 
     print("\nCALLER SERVICE DISTRIBUTION")
     print("-" * 70)
 
     for service in CALLER_SERVICES:
-
         total_service = caller_counts[service]
 
-        success_service = (
-            caller_success_counts[service]
-        )
+        success_service = caller_success_counts[service]
 
-        failure_service = (
-            caller_failure_counts[service]
-        )
+        failure_service = caller_failure_counts[service]
 
         service_success_rate = (
-            success_service
-            / total_service
-            * 100
-            if total_service
-            else 0
+            success_service / total_service * 100 if total_service else 0
         )
 
         service_429 = sum(
-            1
-            for result in rate_limit_results
-            if result.caller_service == service
+            1 for result in rate_limit_results if result.caller_service == service
         )
 
         print(
@@ -627,53 +470,29 @@ def print_report(
     print("-" * 70)
 
     for token_index in sorted(token_counts):
-        print(
-            f"token-{token_index:<3} : "
-            f"{token_counts[token_index]} requests"
-        )
+        print(f"token-{token_index:<3} : {token_counts[token_index]} requests")
 
     print("\nLATENCY")
     print("-" * 70)
 
     if latencies:
+        print(f"Min latency           : {min(latencies):.2f} ms")
 
-        print(
-            f"Min latency           : "
-            f"{min(latencies):.2f} ms"
-        )
+        print(f"Average latency       : {statistics.mean(latencies):.2f} ms")
 
-        print(
-            f"Average latency       : "
-            f"{statistics.mean(latencies):.2f} ms"
-        )
+        print(f"Median latency        : {statistics.median(latencies):.2f} ms")
 
-        print(
-            f"Median latency        : "
-            f"{statistics.median(latencies):.2f} ms"
-        )
+        print(f"P95 latency           : {percentile(latencies, 95):.2f} ms")
 
-        print(
-            f"P95 latency           : "
-            f"{percentile(latencies, 95):.2f} ms"
-        )
+        print(f"P99 latency           : {percentile(latencies, 99):.2f} ms")
 
-        print(
-            f"P99 latency           : "
-            f"{percentile(latencies, 99):.2f} ms"
-        )
-
-        print(
-            f"Max latency           : "
-            f"{max(latencies):.2f} ms"
-        )
+        print(f"Max latency           : {max(latencies):.2f} ms")
 
     if failed:
-
         print("\nFAILURE DETAILS")
         print("-" * 70)
 
         for result in failed[:10]:
-
             print(
                 f"Request #{result.request_number} | "
                 f"caller={result.caller_service} | "
@@ -684,18 +503,13 @@ def print_report(
             )
 
         if len(failed) > 10:
-            print(
-                f"... and {len(failed) - 10} more failures"
-            )
+            print(f"... and {len(failed) - 10} more failures")
 
     print("\nFINAL RESULT")
     print("-" * 70)
 
     if rate_limit_results:
-
-        print(
-            "ATTENTION: Rate limiting was triggered."
-        )
+        print("ATTENTION: Rate limiting was triggered.")
 
         print(
             "Use the first-429 timing and per-caller "
@@ -703,16 +517,10 @@ def print_report(
         )
 
     elif len(successful) == total:
-
-        print(
-            "PASS: All /verify requests completed successfully."
-        )
+        print("PASS: All /verify requests completed successfully.")
 
     else:
-
-        print(
-            "ATTENTION: Some /verify requests failed."
-        )
+        print("ATTENTION: Some /verify requests failed.")
 
     print("=" * 70)
     print()
@@ -722,29 +530,21 @@ def print_report(
 # Entry point
 # ============================================================
 
+
 def main() -> None:
 
     validate_configuration()
 
     try:
-
-        asyncio.run(
-            run_load_test()
-        )
+        asyncio.run(run_load_test())
 
     except KeyboardInterrupt:
-
-        print(
-            "\nLoad test interrupted by user."
-        )
+        print("\nLoad test interrupted by user.")
 
         sys.exit(130)
 
-    except Exception as exc:
-
-        print(
-            f"\nLoad test failed to execute: {exc}"
-        )
+    except Exception as exc:  # noqa: BLE001 - Report unexpected load-test execution failures.
+        print(f"\nLoad test failed to execute: {exc}")
 
         sys.exit(1)
 

@@ -1,6 +1,9 @@
 import uuid
+
 import pytest
+
 from app.core import event_publisher
+
 
 def test_build_event_contains_standard_envelope():
     event = event_publisher.build_event(
@@ -17,19 +20,13 @@ def test_build_event_contains_standard_envelope():
         "payload",
     }
 
-    assert event["event_type"] == (
-        "platform.user.locked"
-    )
+    assert event["event_type"] == ("platform.user.locked")
 
     assert event["event_version"] == 1
 
-    assert event["producer"] == (
-        "platform-service"
-    )
+    assert event["producer"] == ("platform-service")
 
-    assert event["payload"] == {
-        "user_id": 123
-    }
+    assert event["payload"] == {"user_id": 123}
 
 
 def test_event_id_is_valid_uuid():
@@ -38,9 +35,7 @@ def test_event_id_is_valid_uuid():
         {"user_id": 123},
     )
 
-    parsed_uuid = uuid.UUID(
-        event["event_id"]
-    )
+    parsed_uuid = uuid.UUID(event["event_id"])
 
     assert str(parsed_uuid) == event["event_id"]
 
@@ -80,6 +75,7 @@ def test_event_payload_is_preserved():
     )
 
     assert event["payload"] == payload
+
 
 def test_publish_event_uses_event_type_as_topic(
     monkeypatch,
@@ -130,6 +126,7 @@ def test_publish_event_never_raises_when_kafka_is_down(monkeypatch):
     )
 
     assert result is None
+
 
 def test_empty_event_type_is_rejected():
     with pytest.raises(ValueError):

@@ -1,9 +1,12 @@
 import json
 import time
 import uuid
+
 import pytest
 from kafka import KafkaConsumer
+
 from app.core.event_publisher import publish_event
+
 
 @pytest.mark.integration
 def test_publish_platform_user_locked_event_to_kafka():
@@ -36,9 +39,7 @@ def test_publish_platform_user_locked_event_to_kafka():
         group_id=consumer_group,
         auto_offset_reset="latest",
         enable_auto_commit=True,
-        value_deserializer=lambda value: json.loads(
-            value.decode("utf-8")
-        ),
+        value_deserializer=lambda value: json.loads(value.decode("utf-8")),
     )
 
     try:
@@ -82,22 +83,15 @@ def test_publish_platform_user_locked_event_to_kafka():
         deadline = time.time() + 10
 
         while time.time() < deadline:
-
-            records = consumer.poll(
-                timeout_ms=1000
-            )
+            records = consumer.poll(timeout_ms=1000)
 
             for messages in records.values():
-
                 for message in messages:
-
                     event = message.value
 
                     if (
-                        event.get("event_type")
-                        == "platform.user.locked"
-                        and event.get("payload", {}).get("user_id")
-                        == test_user_id
+                        event.get("event_type") == "platform.user.locked"
+                        and event.get("payload", {}).get("user_id") == test_user_id
                     ):
                         received_event = event
                         break
@@ -129,9 +123,7 @@ def test_publish_platform_user_locked_event_to_kafka():
         # 5. Verify event ID
         # ----------------------------------------------------
 
-        parsed_uuid = uuid.UUID(
-            received_event["event_id"]
-        )
+        parsed_uuid = uuid.UUID(received_event["event_id"])
 
         assert str(parsed_uuid) == received_event["event_id"]
 
@@ -139,15 +131,11 @@ def test_publish_platform_user_locked_event_to_kafka():
         # 6. Verify event metadata
         # ----------------------------------------------------
 
-        assert received_event["event_type"] == (
-            "platform.user.locked"
-        )
+        assert received_event["event_type"] == ("platform.user.locked")
 
         assert received_event["event_version"] == 1
 
-        assert received_event["producer"] == (
-            "platform-service"
-        )
+        assert received_event["producer"] == ("platform-service")
 
         assert received_event["occurred_at"].endswith("Z")
 
@@ -163,9 +151,7 @@ def test_publish_platform_user_locked_event_to_kafka():
         # 8. Verify publisher returned the same event
         # ----------------------------------------------------
 
-        assert received_event["event_id"] == (
-            published_event["event_id"]
-        )
+        assert received_event["event_id"] == (published_event["event_id"])
 
     finally:
         consumer.close()

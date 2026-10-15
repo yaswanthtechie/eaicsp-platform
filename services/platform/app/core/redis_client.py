@@ -1,4 +1,5 @@
 import os
+
 import redis
 from redis import Redis
 
@@ -11,6 +12,7 @@ redis_client: Redis = redis.Redis.from_url(
     REDIS_URL,
     decode_responses=True,
 )
+
 
 def get_redis() -> Redis:
     """

@@ -1,21 +1,12 @@
 from fastapi import FastAPI
 
-from app.middleware.logging import log_requests
+import app.models
 from app.core.logging_config import configure_logging
+from app.database import Base, engine
+from app.middleware.logging import log_requests
+from app.routes.admin_routes import router as admin_router
 from app.routes.auth_routes import router as auth_router
 from app.routes.user_routes import router as user_router
-from app.routes.admin_routes import router as admin_router
-
-
-from app.database import Base, engine
-
-from app.models.users import User
-from app.models.roles import Role
-from app.models.refresh_token import RefreshToken
-from app.models.failed_login_attempts import FailedLoginAttempt
-from app.models.role_change_history import RoleChangeHistory
-from app.models.auth_audit_logs import AuthAuditLog
-from app.models.password_reset_tokens import PasswordResetToken
 
 configure_logging()
 
@@ -30,9 +21,7 @@ app.include_router(user_router)
 # Create tables
 Base.metadata.create_all(bind=engine)
 
+
 @app.get("/")
 def root():
-    return {
-        "message": "Platform Service is running"
-    }
-
+    return {"message": "Platform Service is running"}

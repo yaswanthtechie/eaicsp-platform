@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -22,6 +22,7 @@ RATE_LIMIT_EVENT_TYPES = (
 MFA_FAILED = "MFA_FAILED"
 SSO_REJECTED = "SSO_REJECTED"
 
+
 def get_abuse_dashboard(
     db: Session,
 ) -> dict:
@@ -36,7 +37,7 @@ def get_abuse_dashboard(
     LOGIN_FAILED is retained as a separate security metric.
     """
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     last_24_hours = now - timedelta(hours=24)
 
     # --------------------------------------------------------
@@ -44,11 +45,7 @@ def get_abuse_dashboard(
     # --------------------------------------------------------
 
     abuse_events = (
-        db.query(AbuseEvent)
-        .filter(
-            AbuseEvent.detected_at >= last_24_hours
-        )
-        .all()
+        db.query(AbuseEvent).filter(AbuseEvent.detected_at >= last_24_hours).all()
     )
 
     # Every AbuseEvent is a rate-limit hit. check_rate_limit() stores it
@@ -56,17 +53,14 @@ def get_abuse_dashboard(
     # LOGIN_BRUTE_FORCE (/login), MFA_ABUSE (/mfa/verify) or
     # SSO_ABUSE (/sso/login). Count all of them.
     rate_limit_events = [
-        event
-        for event in abuse_events
-        if event.event_type in RATE_LIMIT_EVENT_TYPES
+        event for event in abuse_events if event.event_type in RATE_LIMIT_EVENT_TYPES
     ]
 
     rate_limit_violations = len(rate_limit_events)
 
     rate_limit_violations_by_type = {
         event_type: sum(
-            1 for event in rate_limit_events
-            if event.event_type == event_type
+            1 for event in rate_limit_events if event.event_type == event_type
         )
         for event_type in RATE_LIMIT_EVENT_TYPES
     }
@@ -91,21 +85,15 @@ def get_abuse_dashboard(
     )
 
     mfa_failed_events = [
-        event
-        for event in auth_events
-        if event.event_type == MFA_FAILED
+        event for event in auth_events if event.event_type == MFA_FAILED
     ]
 
     sso_rejected_events = [
-        event
-        for event in auth_events
-        if event.event_type == SSO_REJECTED
+        event for event in auth_events if event.event_type == SSO_REJECTED
     ]
 
     login_failed_events = [
-        event
-        for event in auth_events
-        if event.event_type == LOGIN_FAILED
+        event for event in auth_events if event.event_type == LOGIN_FAILED
     ]
 
     mfa_abuse_events = len(mfa_failed_events)
@@ -138,21 +126,15 @@ def get_abuse_dashboard(
 
     for event in rate_limit_events:
         if event.ip_address:
-            ip_counts[event.ip_address] = (
-                ip_counts.get(event.ip_address, 0) + 1
-            )
+            ip_counts[event.ip_address] = ip_counts.get(event.ip_address, 0) + 1
 
     for event in mfa_failed_events:
         if event.ip_address:
-            ip_counts[event.ip_address] = (
-                ip_counts.get(event.ip_address, 0) + 1
-            )
+            ip_counts[event.ip_address] = ip_counts.get(event.ip_address, 0) + 1
 
     for event in sso_rejected_events:
         if event.ip_address:
-            ip_counts[event.ip_address] = (
-                ip_counts.get(event.ip_address, 0) + 1
-            )
+            ip_counts[event.ip_address] = ip_counts.get(event.ip_address, 0) + 1
 
     # --------------------------------------------------------
     # 5. Endpoint counts
@@ -162,23 +144,17 @@ def get_abuse_dashboard(
 
     for event in rate_limit_events:
         if event.endpoint:
-            endpoint_counts[event.endpoint] = (
-                endpoint_counts.get(event.endpoint, 0) + 1
-            )
+            endpoint_counts[event.endpoint] = endpoint_counts.get(event.endpoint, 0) + 1
 
-    for event in mfa_failed_events:
+    for _event in mfa_failed_events:
         endpoint = "/api/v1/auth/mfa/verify"
 
-        endpoint_counts[endpoint] = (
-            endpoint_counts.get(endpoint, 0) + 1
-        )
+        endpoint_counts[endpoint] = endpoint_counts.get(endpoint, 0) + 1
 
-    for event in sso_rejected_events:
+    for _event in sso_rejected_events:
         endpoint = "/api/v1/auth/sso/login"
 
-        endpoint_counts[endpoint] = (
-            endpoint_counts.get(endpoint, 0) + 1
-        )
+        endpoint_counts[endpoint] = endpoint_counts.get(endpoint, 0) + 1
 
     # --------------------------------------------------------
     # 6. Top IPs
@@ -216,11 +192,7 @@ def get_abuse_dashboard(
     # 8. Total abuse events
     # --------------------------------------------------------
 
-    total_events = (
-        rate_limit_violations
-        + mfa_abuse_events
-        + sso_abuse_events
-    )
+    total_events = rate_limit_violations + mfa_abuse_events + sso_abuse_events
 
     return {
         "period": "last_24_hours",

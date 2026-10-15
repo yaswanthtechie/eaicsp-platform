@@ -1,52 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from fastapi.responses import StreamingResponse, JSONResponse
-from sqlalchemy.orm import Session
-from pydantic import BaseModel
-from datetime import datetime, timezone,timedelta
-from app.database import get_db
-from app.models.users import User
-from app.models.roles import Role as RoleModel
-from app.models.role_change_history import RoleChangeHistory
-from app.core.token_cache import token_cache
-from app.schemas.user import (
-    AdminCreateUserRequest,
-    RoleChangeRequest,
-    RoleChangeHistoryResponse,
-    ForceResetPasswordRequest,
-    UserResponse,
-
-)
-from app.schemas.admin import(
-    AuditLogResponse, 
-    SecurityDashboardResponse,
-    ServiceAPIKeyResponse,
-    ServiceAPIKeyCreateRequest,
-    ServiceAPIKeyCreateResponse
-)
-from app.models.service_api_keys import ServiceAPIKey
-from app.models.auth_audit_logs import AuthAuditLog
-from app.services.audit_service import (
-    create_audit_log,
-    TOKEN_REVOKED,
-    ROLE_CHANGED,
-    LOGIN_FAILED,
-    ACCOUNT_LOCKED,
-    SERVICE_KEY_CREATED,
-    SERVICE_KEY_REVOKED,
-)
 import json
-from app.services.abuse_dashboard_service import get_abuse_dashboard
-from app.services.audit_export_service import export_audit_logs
-from app.models.refresh_token import RefreshToken
-from app.models.abuse_event import AbuseEvent
-from app.schemas.auth import SessionResponse
+from datetime import UTC, datetime, timedelta
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
 from app.core.dependencies import (
-    require_role,
-    get_current_user,
-    require_any_role,
-    require_permission_or_role,
     ensure_can_grant_role,
     ensure_can_manage_user,
+    require_any_role,
+    require_permission_or_role,
+    require_role,
 )
 from app.core.password_validator import validate_password
 from app.core.security import hash_password
@@ -54,21 +19,51 @@ from app.core.service_auth import (
     generate_service_api_key,
     hash_service_api_key,
 )
-router = APIRouter(
-    prefix="/api/v1/admin",
-    tags=["Admin"]
+from app.core.token_cache import token_cache
+from app.database import get_db
+from app.models.auth_audit_logs import AuthAuditLog
+from app.models.refresh_token import RefreshToken
+from app.models.role_change_history import RoleChangeHistory
+from app.models.roles import Role as RoleModel
+from app.models.service_api_keys import ServiceAPIKey
+from app.models.users import User
+from app.schemas.admin import (
+    AuditLogResponse,
+    SecurityDashboardResponse,
+    ServiceAPIKeyCreateRequest,
+    ServiceAPIKeyCreateResponse,
+    ServiceAPIKeyResponse,
 )
+from app.schemas.auth import SessionResponse
+from app.schemas.user import (
+    AdminCreateUserRequest,
+    ForceResetPasswordRequest,
+    RoleChangeHistoryResponse,
+    RoleChangeRequest,
+    UserResponse,
+)
+from app.services.abuse_dashboard_service import get_abuse_dashboard
+from app.services.audit_export_service import export_audit_logs
+from app.services.audit_service import (
+    ACCOUNT_LOCKED,
+    LOGIN_FAILED,
+    ROLE_CHANGED,
+    SERVICE_KEY_CREATED,
+    SERVICE_KEY_REVOKED,
+    TOKEN_REVOKED,
+    create_audit_log,
+)
+
+router = APIRouter(prefix="/api/v1/admin", tags=["Admin"])
+
 
 class AdminTestResponse(BaseModel):
-    message:str
-    user:UserResponse
+    message: str
+    user: UserResponse
 
-@router.get(
-    "/test",
-    response_model=AdminTestResponse
-)
 
-def admin_test(user=Depends(require_role("ceo","vp_operations","platform_admin"))):
+@router.get("/test", response_model=AdminTestResponse)
+def admin_test(user=Depends(require_role("ceo", "vp_operations", "platform_admin"))):
     return {
         "message": "Admin access granted",
         "user": {
@@ -77,27 +72,21 @@ def admin_test(user=Depends(require_role("ceo","vp_operations","platform_admin")
             "full_name": user.full_name,
             "role": user.role.name if user.role else None,
             "is_active": user.is_active,
-        }
+        },
     }
+
 
 # ============================================================
 # LIST USERS
 # ============================================================
-@router.get(
-    "/users",
-    response_model=list[UserResponse]
-)
+@router.get("/users", response_model=list[UserResponse])
 def list_users(
     db: Session = Depends(get_db),
     current_user=Depends(
-        require_permission_or_role("user:read","ceo", "vp_operations")
-    )
+        require_permission_or_role("user:read", "ceo", "vp_operations")
+    ),
 ):
-    users = (
-        db.query(User)
-        .order_by(User.id)
-        .all()
-    )
+    users = db.query(User).order_by(User.id).all()
 
     return [
         {
@@ -110,59 +99,44 @@ def list_users(
         for user in users
     ]
 
+
 # ============================================================
 # CREATE USER
 # ============================================================
 
-@router.post(
-    "/users",
-    response_model=UserResponse,
-    status_code=status.HTTP_201_CREATED
-)
+
+@router.post("/users", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def create_user(
     request: AdminCreateUserRequest,
     db: Session = Depends(get_db),
     current_user=Depends(
-        require_permission_or_role("user:manage","ceo", "vp_operations")
-    )
+        require_permission_or_role("user:manage", "ceo", "vp_operations")
+    ),
 ):
     email = request.email.lower()
-    
-    existing = (
-        db.query(User)
-        .filter(User.email == email)
-        .first()
-    )
+
+    existing = db.query(User).filter(User.email == email).first()
 
     if existing:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User already exists"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="User already exists"
         )
 
     validate_password(request.password)
     role_id = None
     role_name = None
     if request.role is not None:
-
-        role = (
-            db.query(RoleModel)
-            .filter(
-                RoleModel.name == request.role.value
-            )
-            .first()
-        )
+        role = db.query(RoleModel).filter(RoleModel.name == request.role.value).first()
 
         if role is None:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid role"
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role"
             )
         ensure_can_grant_role(current_user, role.name)
 
         role_id = role.id
         role_name = role.name
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     user = User(
         email=email,
@@ -173,13 +147,12 @@ def create_user(
         password_changed_at=now,
         password_expires_at=now + timedelta(days=90),
     )
-    
+
     db.add(user)
     db.commit()
     db.refresh(user)
 
     if role_name is not None:
-
         history = RoleChangeHistory(
             user_id=user.id,
             old_role=None,
@@ -198,53 +171,44 @@ def create_user(
         "is_active": user.is_active,
     }
 
+
 # ============================================================
 # DEACTIVATE USER
 # ============================================================
-@router.patch(
-    "/users/{user_id}/deactivate",
-    response_model=UserResponse
-)
+@router.patch("/users/{user_id}/deactivate", response_model=UserResponse)
 def deactivate_user(
     user_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(
-        require_permission_or_role("user:manage","ceo", "vp_operations")
-    )
+        require_permission_or_role("user:manage", "ceo", "vp_operations")
+    ),
 ):
-    user = (
-        db.query(User)
-        .filter(User.id == user_id)
-        .first()
-    )
+    user = db.query(User).filter(User.id == user_id).first()
 
     if user is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
 
     if user.id == current_user.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="You cannot deactivate your own account"
+            detail="You cannot deactivate your own account",
         )
-    
+
     ensure_can_manage_user(current_user, user)
 
     # Deactivate account
     user.is_active = False
-     # Revoke all active refresh tokens/sessions
+    # Revoke all active refresh tokens/sessions
     db.query(RefreshToken).filter(
-            RefreshToken.user_id == user.id,
-            RefreshToken.is_revoked.is_(False),
-        ).update(
-            {
-                RefreshToken.is_revoked: True
-            },
-            synchronize_session=False,
-        )
-    
+        RefreshToken.user_id == user.id,
+        RefreshToken.is_revoked.is_(False),
+    ).update(
+        {RefreshToken.is_revoked: True},
+        synchronize_session=False,
+    )
+
     # Remove all cached access-token responses
     token_cache.invalidate_user(user.id)
     db.commit()
@@ -258,61 +222,43 @@ def deactivate_user(
         "is_active": user.is_active,
     }
 
+
 # ============================================================
 # ASSIGN ROLE
 # ============================================================
 
-@router.patch(
-    "/users/{user_id}/role",
-    response_model=UserResponse
-)
+
+@router.patch("/users/{user_id}/role", response_model=UserResponse)
 def change_user_role(
     user_id: int,
     request: RoleChangeRequest,
     db: Session = Depends(get_db),
     current_user=Depends(
-        require_permission_or_role("role:assign","ceo","vp_operations")
-    )
+        require_permission_or_role("role:assign", "ceo", "vp_operations")
+    ),
 ):
 
-    user = (
-        db.query(User)
-        .filter(User.id == user_id)
-        .first()
-    )
+    user = db.query(User).filter(User.id == user_id).first()
 
     if user is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
 
-    new_role = (
-        db.query(RoleModel)
-        .filter(
-            RoleModel.name == request.role.value
-        )
-        .first()
-    )
+    new_role = db.query(RoleModel).filter(RoleModel.name == request.role.value).first()
 
     if new_role is None:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid role"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role"
         )
     ensure_can_manage_user(current_user, user)
     ensure_can_grant_role(current_user, new_role.name, target_user_id=user.id)
 
-    old_role = (
-        user.role.name
-        if user.role
-        else None
-    )
+    old_role = user.role.name if user.role else None
 
     if old_role == new_role.name:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User already has this role"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="User already has this role"
         )
 
     user.role_id = new_role.id
@@ -333,9 +279,7 @@ def change_user_role(
         user_id=user.id,
         email=user.email,
         details=(
-            f"Role changed from {old_role} "
-            f"to {new_role.name} "
-            f"by user {current_user.id}"
+            f"Role changed from {old_role} to {new_role.name} by user {current_user.id}"
         ),
     )
     db.commit()
@@ -349,31 +293,27 @@ def change_user_role(
         "is_active": user.is_active,
     }
 
+
 # ============================================================
 # ROLE CHANGE HISTORY
 # ============================================================
 
+
 @router.get(
-    "/users/{user_id}/role-history",
-    response_model=list[RoleChangeHistoryResponse]
+    "/users/{user_id}/role-history", response_model=list[RoleChangeHistoryResponse]
 )
 def role_change_history(
     user_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(
         require_permission_or_role("role:assign", "ceo", "vp_operations")
-    )
+    ),
 ):
-    user = (
-        db.query(User)
-        .filter(User.id == user_id)
-        .first()
-    )
+    user = db.query(User).filter(User.id == user_id).first()
 
     if user is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
 
     history = (
@@ -382,9 +322,9 @@ def role_change_history(
         .order_by(
             RoleChangeHistory.changed_at.desc(),
             RoleChangeHistory.id.desc(),
+        )
+        .all()
     )
-    .all()
-)
 
     return [
         {
@@ -399,103 +339,80 @@ def role_change_history(
     ]
 
 
-
 # ============================================================
 # FORCE RESET PASSWORD
 # ============================================================
 
-@router.post(
-    "/users/{user_id}/force-reset-password"
-)
+
+@router.post("/users/{user_id}/force-reset-password")
 def force_reset_password(
     user_id: int,
     request: ForceResetPasswordRequest,
     db: Session = Depends(get_db),
     current_user=Depends(
         require_permission_or_role("user:manage", "ceo", "vp_operations")
-    )
+    ),
 ):
-    user = (
-        db.query(User)
-        .filter(User.id == user_id)
-        .first()
-    )
+    user = db.query(User).filter(User.id == user_id).first()
 
     if user is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
     ensure_can_manage_user(current_user, user)
 
     validate_password(request.new_password)
 
-    user.password = hash_password(
-        request.new_password
-    )
+    user.password = hash_password(request.new_password)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     user.password_changed_at = now
-    user.password_expires_at = (
-        now + timedelta(days=90)
-    )
+    user.password_expires_at = now + timedelta(days=90)
 
-# Revoke all active sessions after force password reset
+    # Revoke all active sessions after force password reset
     db.query(RefreshToken).filter(
         RefreshToken.user_id == user.id,
         RefreshToken.is_revoked.is_(False),
     ).update(
-    {
-            RefreshToken.is_revoked: True
-    },
-    synchronize_session=False,
-)
+        {RefreshToken.is_revoked: True},
+        synchronize_session=False,
+    )
     # Remove cached authentication responses
     token_cache.invalidate_user(user.id)
     db.commit()
 
-    return {
-        "message": "Password reset successfully"
-}
+    return {"message": "Password reset successfully"}
+
+
 # ============================================================
 # ACTIVE SESSIONS
 # ============================================================
-@router.get(
-    "/users/{user_id}/sessions",
-    response_model=list[SessionResponse]
-)
+@router.get("/users/{user_id}/sessions", response_model=list[SessionResponse])
 def list_user_sessions(
     user_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(
         require_permission_or_role("user:read", "ceo", "vp_operations")
-    )
+    ),
 ):
-    user = (
-        db.query(User)
-        .filter(User.id == user_id)
-        .first()
-    )
+    user = db.query(User).filter(User.id == user_id).first()
 
     if user is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     sessions = (
         db.query(RefreshToken)
         .filter(
             RefreshToken.user_id == user_id,
-            RefreshToken.is_revoked == False,
-            RefreshToken.expires_at > now
+            RefreshToken.is_revoked.is_(False),
+            RefreshToken.expires_at > now,
         )
-        .order_by(
-            RefreshToken.created_at.desc()
-        )
+        .order_by(RefreshToken.created_at.desc())
         .all()
     )
 
@@ -510,46 +427,36 @@ def list_user_sessions(
         for session in sessions
     ]
 
+
 # ============================================================
 # REVOKE SESSION
 # ============================================================
-@router.delete(
-    "/users/{user_id}/sessions/{session_id}"
-)
+@router.delete("/users/{user_id}/sessions/{session_id}")
 def revoke_user_session(
     user_id: int,
     session_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(
         require_permission_or_role("user:manage", "ceo", "vp_operations")
-    )
+    ),
 ):
     session = (
         db.query(RefreshToken)
-        .filter(
-            RefreshToken.id == session_id,
-            RefreshToken.user_id == user_id
-        )
+        .filter(RefreshToken.id == session_id, RefreshToken.user_id == user_id)
         .first()
     )
 
     if session is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Session not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
         )
 
-    target = (
-        db.query(User)
-        .filter(User.id == user_id)
-        .first()
-    )
+    target = db.query(User).filter(User.id == user_id).first()
     ensure_can_manage_user(current_user, target)
 
     if session.is_revoked:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Session already revoked"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Session already revoked"
         )
 
     session.is_revoked = True
@@ -557,17 +464,12 @@ def revoke_user_session(
         db=db,
         event_type=TOKEN_REVOKED,
         user_id=user_id,
-        details=(
-            f"Session {session_id} revoked "
-            f"by user {current_user.id}"
-        ),
+        details=(f"Session {session_id} revoked by user {current_user.id}"),
     )
 
     db.commit()
 
-    return {
-        "message": "Session revoked successfully"
-    }
+    return {"message": "Session revoked successfully"}
 
 
 # ============================================================
@@ -588,25 +490,18 @@ def get_audit_logs(
     query = db.query(AuthAuditLog)
 
     if user_id is not None:
-        query = query.filter(
-            AuthAuditLog.user_id == user_id
-        )
+        query = query.filter(AuthAuditLog.user_id == user_id)
 
     if event_type is not None:
-        query = query.filter(
-            AuthAuditLog.event_type == event_type
-        )
+        query = query.filter(AuthAuditLog.event_type == event_type)
 
-    return (
-        query
-        .order_by(AuthAuditLog.created_at.desc())
-        .limit(500)
-        .all()
-    )
+    return query.order_by(AuthAuditLog.created_at.desc()).limit(500).all()
+
 
 # ============================================================
 # SECURITY DASHBOARD
 # ============================================================
+
 
 @router.get(
     "/security-dashboard",
@@ -614,12 +509,10 @@ def get_audit_logs(
 )
 def security_dashboard(
     db: Session = Depends(get_db),
-    current_user: User = Depends( 
-        require_any_role("ceo", "vp_operations")
-    ),
+    current_user: User = Depends(require_any_role("ceo", "vp_operations")),
 ):
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     last_24_hours = now - timedelta(hours=24)
     last_7_days = now - timedelta(days=7)
 
@@ -666,9 +559,7 @@ def security_dashboard(
             RefreshToken.expires_at > now,
             User.is_active.is_(True),
         )
-        .order_by(
-            RefreshToken.created_at.desc()
-        )
+        .order_by(RefreshToken.created_at.desc())
         .all()
     )
 
@@ -713,12 +604,8 @@ def security_dashboard(
     # --------------------------------------------------------
     lockout_events = (
         db.query(AuthAuditLog)
-        .filter(
-            AuthAuditLog.event_type == ACCOUNT_LOCKED
-        )
-        .order_by(
-            AuthAuditLog.created_at.desc()
-        )
+        .filter(AuthAuditLog.event_type == ACCOUNT_LOCKED)
+        .order_by(AuthAuditLog.created_at.desc())
         .limit(20)
         .all()
     )
@@ -728,21 +615,17 @@ def security_dashboard(
     # --------------------------------------------------------
     return {
         "failed_login_trends": failed_login_trends,
-
-        "currently_active_sessions": len(
-            active_session_data
-        ),
-
+        "currently_active_sessions": len(active_session_data),
         "active_sessions": active_session_data,
-
         "recent_role_changes": role_change_data,
-
         "lockout_events": lockout_events,
     }
+
 
 # ============================================================
 # ISSUE SERVICE API KEY
 # ============================================================
+
 
 @router.post(
     "/service-keys",
@@ -752,45 +635,40 @@ def security_dashboard(
 def create_service_api_key(
     request: ServiceAPIKeyCreateRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(
-        require_any_role("ceo", "vp_operations")
-    ),
+    current_user: User = Depends(require_any_role("ceo", "vp_operations")),
 ):
     # Generate raw API key
     api_key = generate_service_api_key()
 
-    if (
-    request.expires_at is not None
-    and request.expires_at <= datetime.now(timezone.utc)
-    ):
+    if request.expires_at is not None and request.expires_at <= datetime.now(UTC):
         raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail="expires_at must be in the future",
-    )
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="expires_at must be in the future",
+        )
 
     # Hash before storing
     key_hash = hash_service_api_key(api_key)
 
     service_key = ServiceAPIKey(
-    service_name=request.service_name,
-    key_hash=key_hash,
-    is_active=True,
-    expires_at=request.expires_at,
-    created_by=current_user.id,
-   )
+        service_name=request.service_name,
+        key_hash=key_hash,
+        is_active=True,
+        expires_at=request.expires_at,
+        created_by=current_user.id,
+    )
     db.add(service_key)
     db.commit()
     db.refresh(service_key)
 
     create_audit_log(
-    db=db,
-    event_type=SERVICE_KEY_CREATED,
-    user_id=current_user.id,
-    details=(
-        f"Service API key created for "
-        f"{service_key.service_name} "
-        f"by admin {current_user.id}"
-    ),
+        db=db,
+        event_type=SERVICE_KEY_CREATED,
+        user_id=current_user.id,
+        details=(
+            f"Service API key created for "
+            f"{service_key.service_name} "
+            f"by admin {current_user.id}"
+        ),
     )
 
     db.commit()
@@ -803,9 +681,11 @@ def create_service_api_key(
         "is_active": service_key.is_active,
     }
 
+
 # ============================================================
 # LIST SERVICE API KEYS
 # ============================================================
+
 
 @router.get(
     "/service-keys",
@@ -813,14 +693,10 @@ def create_service_api_key(
 )
 def list_service_api_keys(
     db: Session = Depends(get_db),
-    current_user: User = Depends(
-        require_any_role("ceo", "vp_operations")
-    ),
+    current_user: User = Depends(require_any_role("ceo", "vp_operations")),
 ):
     service_keys = (
-        db.query(ServiceAPIKey)
-        .order_by(ServiceAPIKey.created_at.desc())
-        .all()
+        db.query(ServiceAPIKey).order_by(ServiceAPIKey.created_at.desc()).all()
     )
 
     return [
@@ -835,25 +711,19 @@ def list_service_api_keys(
         for key in service_keys
     ]
 
+
 # ============================================================
 # REVOKE SERVICE API KEY
 # ============================================================
 
-@router.delete(
-    "/service-keys/{key_id}"
-)
+
+@router.delete("/service-keys/{key_id}")
 def revoke_service_api_key(
     key_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(
-        require_any_role("ceo", "vp_operations")
-    ),
+    current_user: User = Depends(require_any_role("ceo", "vp_operations")),
 ):
-    service_key = (
-        db.query(ServiceAPIKey)
-        .filter(ServiceAPIKey.id == key_id)
-        .first()
-    )
+    service_key = db.query(ServiceAPIKey).filter(ServiceAPIKey.id == key_id).first()
 
     if service_key is None:
         raise HTTPException(
@@ -887,8 +757,9 @@ def revoke_service_api_key(
         "key_id": key_id,
     }
 
+
 # ============================================================
-# AUDIT EXPORT 
+# AUDIT EXPORT
 # ============================================================
 @router.get("/audit/export")
 def audit_export(
@@ -940,29 +811,23 @@ def audit_export(
     )
 
     if output_format.lower() == "json":
-        return JSONResponse(
-            content=json.loads(result)
-        )
+        return JSONResponse(content=json.loads(result))
 
     return StreamingResponse(
         iter([result]),
         media_type="text/csv",
-        headers={
-            "Content-Disposition": (
-                "attachment; "
-                "filename=auth_audit_export.csv"
-            )
-        },
+        headers={"Content-Disposition": ("attachment; filename=auth_audit_export.csv")},
     )
+
+
 # ============================================================
 # RATELIMITING / ABUSE DETECTION DASHBOARD
 # ============================================================
 
+
 @router.get("/abuse/dashboard")
 def abuse_dashboard(
     db: Session = Depends(get_db),
-    current_user: User = Depends(
-        require_any_role("ceo", "vp_operations")
-    ),
+    current_user: User = Depends(require_any_role("ceo", "vp_operations")),
 ):
     return get_abuse_dashboard(db)

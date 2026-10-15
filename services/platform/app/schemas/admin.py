@@ -1,7 +1,10 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict,Field
+from pydantic import BaseModel, ConfigDict, Field
+
 from app.schemas.user import RoleChangeHistoryResponse
+
+
 class AuditLogResponse(BaseModel):
     id: int
     user_id: int | None
@@ -13,12 +16,14 @@ class AuditLogResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 # ============================================================
 # SECURITY DASHBOARD RESPONSE SCHEMAS
 # ============================================================
 class FailedLoginTrendResponse(BaseModel):
     last_24_hours: int
     last_7_days: int
+
 
 class ActiveSessionResponse(BaseModel):
     session_id: int
@@ -27,6 +32,7 @@ class ActiveSessionResponse(BaseModel):
     created_at: str
     expires_at: str
 
+
 class SecurityDashboardResponse(BaseModel):
     failed_login_trends: FailedLoginTrendResponse
     currently_active_sessions: int
@@ -34,9 +40,11 @@ class SecurityDashboardResponse(BaseModel):
     recent_role_changes: list[RoleChangeHistoryResponse]
     lockout_events: list[AuditLogResponse]
 
+
 class ServiceAPIKeyCreateRequest(BaseModel):
     service_name: str = Field(..., min_length=1)
     expires_at: datetime | None = None
+
 
 class ServiceAPIKeyCreateResponse(BaseModel):
     id: int
@@ -45,6 +53,7 @@ class ServiceAPIKeyCreateResponse(BaseModel):
     expires_at: datetime | None = None
     is_active: bool
 
+
 class ServiceAPIKeyResponse(BaseModel):
     id: int
     service_name: str
@@ -52,4 +61,3 @@ class ServiceAPIKeyResponse(BaseModel):
     is_active: bool
     created_at: datetime
     last_used_at: datetime | None = None
-

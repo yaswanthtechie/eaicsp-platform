@@ -1,7 +1,7 @@
-from datetime import datetime, timedelta, timezone
 import secrets
 import threading
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from app.core import config as app_config
 
@@ -29,7 +29,7 @@ def create_mfa_challenge(user_id: int) -> tuple[str, str]:
         _mfa_challenges[challenge_id] = {
             "user_id": user_id,
             "otp": otp,
-            "expires_at": datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRE_MINUTES),
+            "expires_at": datetime.now(UTC) + timedelta(minutes=OTP_EXPIRE_MINUTES),
             "attempts": 0,
         }
 
@@ -49,7 +49,7 @@ def verify_mfa_challenge(challenge_id: str, otp: str) -> int | None:
         if challenge is None:
             return None
 
-        if datetime.now(timezone.utc) > challenge["expires_at"]:
+        if datetime.now(UTC) > challenge["expires_at"]:
             _mfa_challenges.pop(challenge_id, None)
             return None
 
