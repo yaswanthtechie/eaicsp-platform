@@ -42,10 +42,10 @@ def seed_suppliers():
 
         # ====================================================
         # Generate 2 suppliers for every SKU
-        # SKU001 -> 2 suppliers
-        # SKU002 -> 2 suppliers
+        # SKU-000001 -> 2 suppliers
+        # SKU-000002 -> 2 suppliers
         # ...
-        # SKU050 -> 2 suppliers
+        # SKU-000050 -> 2 suppliers
         # ====================================================
 
         supplier_number = 1
@@ -55,14 +55,15 @@ def seed_suppliers():
             TOTAL_ITEMS + 1
         ):
 
-            sku_id = f"SKU{item_number:03d}"
+            # Canonical SKU ID format: SKU-000001 .. SKU-000050
+            sku_id = f"SKU-{item_number:06d}"
 
             # --------------------------------------------
             # Supplier 1
             # --------------------------------------------
 
             supplier1 = Supplier(
-                supplier_id=f"SUP{supplier_number:03d}",
+                supplier_id=f"SUP-{supplier_number:05d}",
                 supplier_name=SUPPLIER_NAMES[
                     (supplier_number - 1)
                     % len(SUPPLIER_NAMES)
@@ -87,7 +88,7 @@ def seed_suppliers():
             # --------------------------------------------
 
             supplier2 = Supplier(
-                supplier_id=f"SUP{supplier_number:03d}",
+                supplier_id=f"SUP-{supplier_number:05d}",
                 supplier_name=SUPPLIER_NAMES[
                     (supplier_number - 1)
                     % len(SUPPLIER_NAMES)
@@ -106,6 +107,7 @@ def seed_suppliers():
             suppliers.append(supplier2)
 
             supplier_number += 1
+
 
         # ====================================================
         # Insert only suppliers that do not already exist
