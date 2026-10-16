@@ -4,9 +4,12 @@
   "unit_margin_lost_per_unit": 3.0,
   "lead_time_days": 7,
   "headline_service_quantile": 0.95,
-  "ensemble_weights": {
-    "prophet": 0.7,
-    "xgb": 0.3
+  "ensemble_weighting": "walk-forward: Prophet weight re-chosen at every refit from realised errors only, grid 0.0-1.0, lookback 365 origins; ensemble_50_50 = fixed 0.5/0.5",
+  "ensemble_mean_prophet_weight": {
+    "aggregate (~34,000/day)": 0.209,
+    "fast movers (~200/day)": 0.406,
+    "medium movers (~30/day)": 0.698,
+    "slow movers (~5/day)": 0.678
   },
   "refit_every_days": 7,
   "first_origin_day_index": 729,
@@ -16,5 +19,14 @@
     "service_quantile": 0.95,
     "error_window": 365,
     "min_error_samples": 60
+  },
+  "volume_tiers": "binomial thinning of ONE aggregate series (not real SKUs)",
+  "library_versions": {
+    "mlflow": "3.15.1",
+    "numpy": "2.5.2",
+    "pandas": "2.3.3",
+    "holidays": "0.101",
+    "prophet": "1.4.0",
+    "xgboost": "3.4.1"
   }
 }

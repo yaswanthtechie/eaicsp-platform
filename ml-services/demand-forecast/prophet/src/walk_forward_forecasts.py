@@ -18,9 +18,12 @@ from xgboost import XGBRegressor
 
 from src.business_value_config import (
     APPROACHES,
-    FALLBACK_ENSEMBLE_WEIGHTS,
+    DEFAULT_PROPHET_WEIGHT,
     MAX_HORIZON,
+    MIN_WEIGHT_ORIGINS,
     REFIT_EVERY_DAYS,
+    WEIGHT_GRID,
+    WEIGHT_LOOKBACK_ORIGINS,
     XGB_HISTORY_DAYS,
 )
 from src.ensemble import weighted_ensemble
@@ -31,19 +34,6 @@ logging.getLogger("cmdstanpy").setLevel(logging.ERROR)
 logging.getLogger("prophet").setLevel(logging.ERROR)
 
 _US_HOLIDAYS = holidays.US()
-
-
-def load_ensemble_weights(path=None) -> dict[str, float]:
-    """Promoted ensemble weights if the file exists, else 50/50."""
-    from src.multi_horizon import load_ensemble_weights as _load
-    from src.multi_horizon_config import WEIGHTS_PATH
-
-    try:
-        if (path or WEIGHTS_PATH).exists():
-            return _load()
-    except Exception:
-        pass
-    return dict(FALLBACK_ENSEMBLE_WEIGHTS)
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +142,48 @@ def _calendar(dates: pd.DatetimeIndex, horizon: int) -> pd.DataFrame:
         }
     )
 
+# ---------------------------------------------------------------------------
+# Ensemble weights, chosen walk-forward (never from the evaluation period)
+# ---------------------------------------------------------------------------
 
+def walk_forward_prophet_weights(
+    y: np.ndarray,
+    prophet_f: np.ndarray,
+    xgb_f: np.ndarray,
+    first_origin: int,
+    refit_every: int = REFIT_EVERY_DAYS,
+    *,
+    grid: tuple[float, ...] = WEIGHT_GRID,
+    lookback: int = WEIGHT_LOOKBACK_ORIGINS,
+    min_origins: int = MIN_WEIGHT_ORIGINS,
+    default: float = DEFAULT_PROPHET_WEIGHT,
+) -> np.ndarray:
+    """Prophet weight per origin (XGBoost gets 1 - w), re-chosen at every refit date.
+
+    At refit date `start` the weight is the grid value with the lowest MAE over
+    past origins whose whole forecast window is already observed
+    (o + horizon <= start), so only demand from days 0..start is ever used.
+    Until `min_origins` such origins exist, the `default` weight is used.
+    """
+    y = np.asarray(y, dtype=float)
+    n, horizon = prophet_f.shape
+    weights = np.full(n, np.nan)
+    steps = np.arange(1, horizon + 1)
+    for start in range(first_origin, n - 1, refit_every):
+        block = np.arange(start, min(start + refit_every, n - 1))
+        newest = start - horizon
+        lo = max(first_origin, newest - lookback + 1)
+        best = default
+        if newest - lo + 1 >= min_origins:
+            o = np.arange(lo, newest + 1)
+            actual = y[o[:, None] + steps]
+            errors = [
+                np.abs(w * prophet_f[o] + (1 - w) * xgb_f[o] - actual).mean()
+                for w in grid
+            ]
+            best = float(grid[int(np.argmin(errors))])
+        weights[block] = best
+    return weights
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -164,14 +195,12 @@ def build_walk_forward_forecasts(
     *,
     horizon: int = MAX_HORIZON,
     refit_every: int = REFIT_EVERY_DAYS,
-    weights: dict[str, float] | None = None,
     approaches: Iterable[str] = APPROACHES,
 ) -> dict[str, np.ndarray]:
     """Return {approach: F}, F shape (len(y), horizon); NaN before first_origin."""
     approaches = tuple(approaches)
     y = np.asarray(y, dtype=float)
     n = len(y)
-    weights = weights or load_ensemble_weights()
     origins_all = np.arange(first_origin, n - 1)
     result: dict[str, np.ndarray] = {}
 
@@ -180,8 +209,12 @@ def build_walk_forward_forecasts(
     if "naive_ma28" in approaches:
         result["naive_ma28"] = naive_ma_forecasts(y, origins_all, horizon)
 
-    need_prophet = any(a in approaches for a in ("prophet", "ensemble"))
-    need_xgb = any(a in approaches for a in ("xgboost", "ensemble"))
+    need_prophet = any(
+        a in approaches for a in ("prophet", "ensemble", "ensemble_50_50")
+    )
+    need_xgb = any(
+        a in approaches for a in ("xgboost", "ensemble", "ensemble_50_50")
+    )
     prophet_f = np.full((n, horizon), np.nan)
     xgb_f = np.full((n, horizon), np.nan)
     calendar = _calendar(dates, horizon) if need_xgb else None
@@ -208,8 +241,21 @@ def build_walk_forward_forecasts(
     if "xgboost" in approaches:
         result["xgboost"] = xgb_f
     if "ensemble" in approaches:
+        w = walk_forward_prophet_weights(
+            y, prophet_f, xgb_f, first_origin, refit_every
+        )
         result["ensemble"] = np.maximum(
             0.0,
-            weighted_ensemble(prophet_f, xgb_f, weights["prophet"], weights["xgb"]),
+            w[:, None] * prophet_f
+            + (1 - w[:, None]) * xgb_f,
         )
+        result["_prophet_weight"] = w
+
+    # Keys starting with "_" are metadata, not forecasts.
+    if "ensemble_50_50" in approaches:
+        result["ensemble_50_50"] = np.maximum(
+            0.0,
+            weighted_ensemble(prophet_f, xgb_f, 0.5, 0.5),
+        )
+
     return result

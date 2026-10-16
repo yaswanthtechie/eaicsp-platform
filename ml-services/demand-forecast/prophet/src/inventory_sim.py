@@ -122,6 +122,11 @@ def simulate(
 
         # 2b. order-up-to level and order
         forecast_cum = fcum_all[t - 1]            # forecast made at end of day t-1
+        forecast_cum = fcum_all[t - 1]
+        if not np.isfinite(forecast_cum):
+            raise ValueError(
+                f"no forecast available for day {t} (origin {t - 1})"
+            )
         target = max(0.0, forecast_cum * ratio_q)
         position = on_hand + arrivals[t + 1 : t + L + 1].sum()   # on hand + on order
         order = float(np.ceil(target - position)) if target > position else 0.0

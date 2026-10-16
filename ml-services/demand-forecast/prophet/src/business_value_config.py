@@ -37,5 +37,25 @@ VOLUME_TIERS = {
 }
 THINNING_SEED = 20260
 
-APPROACHES = ("ensemble", "prophet", "xgboost", "naive_weekly", "naive_ma28")
-FALLBACK_ENSEMBLE_WEIGHTS = {"prophet": 0.5, "xgb": 0.5}
+
+APPROACHES = (
+    "ensemble",
+    "ensemble_50_50",
+    "prophet",
+    "xgboost",
+    "naive_weekly",
+    "naive_ma28",
+)
+
+# Ensemble weights: chosen walk-forward, never from the evaluation period.
+WEIGHT_GRID = (
+    0.0, 0.1, 0.2, 0.3, 0.4, 0.5,
+    0.6, 0.7, 0.8, 0.9, 1.0,
+)  # Prophet weight; XGBoost weight = 1 - w
+
+WEIGHT_LOOKBACK_ORIGINS = 365
+MIN_WEIGHT_ORIGINS = 28
+DEFAULT_PROPHET_WEIGHT = 0.5
+
+MIN_REPLAY_DAYS = 365
+MLFLOW_EXPERIMENT = "EAICSP-Business-Value-Backtest"
