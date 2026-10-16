@@ -30,7 +30,7 @@ def event(sensor, ws, we):
         threshold=0.5,
         n_flagged=2,
         closed_by="quiet",
-        top_features=[{"feature": "power", "contribution": 1.0, "direction": "high"}],
+        top_features=[{"feature": "power", "contribution": 1.0, "shap_value": 0.1, "direction": "high"}],
         model_version="test",
     )
 

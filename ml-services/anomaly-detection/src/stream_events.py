@@ -66,6 +66,7 @@ def _validate_top_features(top_features):
         feature = item.get("feature")
         contribution = item.get("contribution")
         direction = item.get("direction")
+        shap_value = item.get("shap_value")
 
         if not feature:
             raise ValueError("Each top feature needs a name.")
@@ -84,17 +85,24 @@ def _validate_top_features(top_features):
                 f"direction must be one of {DIRECTION_VALUES}."
             )
 
+        if (
+            isinstance(shap_value, bool)
+            or not isinstance(shap_value, (int, float))
+            or not math.isfinite(shap_value)
+        ):
+            raise ValueError("shap_value must be a finite number.")
+
         cleaned.append(
             {
                 "feature": str(feature),
                 "contribution": float(contribution),
+                "shap_value": float(shap_value),
                 "direction": direction,
             }
         )
 
     return cleaned
-
-
+    
 def build_anomaly_event(
     *,
     sensor_id,

@@ -262,7 +262,7 @@ def test_episode_output_fits_the_event_builder():
     event = build_anomaly_event(
         **ep,
         top_features=[
-            {"feature": "temperature", "contribution": 1.0, "direction": "high"}
+            {"feature": "temperature", "contribution": 1.0, "shap_value": 0.1, "direction": "high"}
         ],
         model_version="test",
     )

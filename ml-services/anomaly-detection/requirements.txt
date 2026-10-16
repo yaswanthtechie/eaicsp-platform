@@ -1,4 +1,4 @@
-﻿numpy
+numpy
 pandas
 scipy
 scikit-learn
@@ -12,5 +12,6 @@ httpx
 requests
 mlflow
 confluent-kafka==2.15.1
-influxdb-client
-# eval-framework: pip install ..\eval-framework
+influxdb-client==1.50.0
+python-dotenv==1.2.3
+../eval-framework

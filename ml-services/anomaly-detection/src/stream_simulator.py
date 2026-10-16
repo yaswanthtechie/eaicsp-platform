@@ -62,6 +62,20 @@ KIND_ORDER = [
     "single_severe",
     "combined",
 ]
+# Held-out patterns: used ONLY for reporting, never to choose a setting.
+HELDOUT_KINDS = {
+    "gradual_drift": {"length": (24, 36), "ramp": {"temperature": 8.0}},
+    "flatline": {"length": (12, 18), "flat": True},
+}
+
+HELDOUT_ORDER = [
+    "gradual_drift",
+    "flatline",
+    "gradual_drift",
+    "flatline",
+    "gradual_drift",
+    "flatline",
+]
 
 
 def _normal_arrays(n, rng):
@@ -82,19 +96,19 @@ def generate_normal_frame(n, seed):
     return pd.DataFrame(_normal_arrays(n, rng))[FEATURES]
 
 
-def _plan_episodes(sensor_index, n, warmup, rng):
+def _plan_episodes(sensor_index, n, warmup, rng, kinds, kind_order):
 
-    slots = len(KIND_ORDER)
+    slots = len(kind_order)
     slot_len = (n - warmup) // slots
 
     shift = sensor_index % slots
-    kinds = KIND_ORDER[shift:] + KIND_ORDER[:shift]
+    ordered = kind_order[shift:] + kind_order[:shift]
 
     plan = []
 
-    for slot, kind in enumerate(kinds):
+    for slot, kind in enumerate(ordered):
 
-        low, high = EPISODE_KINDS[kind]["length"]
+        low, high = kinds[kind]["length"]
 
         if slot_len < high + 60:
             raise ValueError("Stream too short for the episode plan.")
@@ -115,6 +129,8 @@ def build_stream(
     warmup=WARMUP,
     start=START_TIME,
     step=STEP,
+    kinds=None,
+    kind_order=None,
 ):
     """
     Return (readings, episodes).
@@ -123,6 +139,9 @@ def build_stream(
               NO label information.
     episodes: ground truth with start/end index and time (inclusive).
     """
+
+    kinds = EPISODE_KINDS if kinds is None else kinds
+    kind_order = KIND_ORDER if kind_order is None else kind_order
 
     readings = []
     episodes = []
@@ -134,17 +153,27 @@ def build_stream(
         data = _normal_arrays(n_per_sensor, rng)
 
         for kind, start_idx, end_idx in _plan_episodes(
-            s_idx, n_per_sensor, warmup, rng
+            s_idx, n_per_sensor, warmup, rng, kinds, kind_order
         ):
 
             window = slice(start_idx, end_idx + 1)
-            spec = EPISODE_KINDS[kind]
+            spec = kinds[kind]
+            length = end_idx - start_idx + 1
 
             for feature, delta in spec.get("add", {}).items():
                 data[feature][window] = data[feature][window] + delta
 
+            for feature, delta in spec.get("ramp", {}).items():
+                data[feature][window] = data[feature][window] + np.linspace(
+                    0.0, delta, length
+                )
+
             for feature, value in spec.get("set", {}).items():
                 data[feature][window] = value
+
+            if spec.get("flat"):
+                for feature in FEATURES:
+                    data[feature][window] = data[feature][start_idx]
 
             episodes.append(
                 {

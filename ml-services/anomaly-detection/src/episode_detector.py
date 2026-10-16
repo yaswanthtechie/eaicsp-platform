@@ -67,6 +67,18 @@ class EpisodeDetector:
 
         return sensor_id in self._state
 
+    def accepts(self, sensor_id, timestamp):
+        """False for a duplicate or late reading (same or earlier timestamp)."""
+
+        last = self._last_seen.get(sensor_id)
+
+        return last is None or timestamp > last
+
+    def has_open_state(self):
+        """True while any sensor has a candidate or open episode."""
+
+        return bool(self._state)
+
     def _is_severe(self, score, threshold):
         return score >= threshold + self.severe_margin * self.scale
 
@@ -121,10 +133,10 @@ class EpisodeDetector:
 
         last = self._last_seen.get(sensor_id)
 
-        if last is not None and timestamp < last:
+        if last is not None and timestamp <= last:
             raise ValueError(
-                f"Out-of-order reading for {sensor_id}: "
-                f"{timestamp} is before {last}."
+                f"Duplicate or out-of-order reading for {sensor_id}: "
+                f"{timestamp} is not after {last}."
             )
 
         self._last_seen[sensor_id] = timestamp

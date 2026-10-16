@@ -6,8 +6,10 @@ IsolationForestModel wrapper (train/score only).
 
 Score convention: anomaly_score = -model.score(X), higher = more anomalous.
 SHAP explains the NEGATED score, so a positive SHAP value pushes toward
-"anomaly". Contributions are abs-normalized (same format as predict.py);
-direction says whether the feature is above or below its training mean.
+"anomaly". Only features that push toward anomaly are listed.
+
+Production loads a saved model and never trains. Train with:
+    python -m src.train_stream_model
 """
 
 from pathlib import Path
@@ -70,32 +72,51 @@ class StreamModel:
         if self._explainer is None:
             self._explainer = shap.Explainer(
                 self.score_batch,
-                shap.maskers.Independent(self.background, max_samples=len(self.background)),
+                shap.maskers.Independent(
+                    self.background, max_samples=len(self.background)
+                ),
                 feature_names=FEATURES,
             )
 
         return self._explainer
 
     def explain(self, reading, top_k=3):
+        """
+        Top features pushing this reading toward "anomaly".
+
+        shap_value > 0 means the feature raises the anomaly score.
+        contribution = that feature's share of all positive pushes (0..1).
+        Features that push toward "normal" are never listed.
+        """
 
         X = reading_to_array(reading)
+        values = np.asarray(
+            self._get_explainer()(X, silent=True).values[0], dtype=float
+        )
 
-        values = self._get_explainer()(X, silent=True)
+        positive = np.clip(values, 0.0, None)
+        total = positive.sum()
 
-        contributions = np.abs(np.asarray(values.values[0], dtype=float))
-        total = contributions.sum()
-
-        if total > 0:
-            contributions = contributions / total
-
-        order = np.argsort(-contributions, kind="stable")[:top_k]
+        if total <= 0:
+            # Nothing pushes toward anomaly. Report the least-normal
+            # feature with a 0 share.
+            i = int(np.argmax(values))
+            order, shares = [i], np.zeros_like(values)
+        else:
+            shares = positive / total
+            order = [
+                int(i)
+                for i in np.argsort(-positive, kind="stable")
+                if positive[i] > 0
+            ][:top_k]
 
         return [
             {
                 "feature": FEATURES[i],
-                "contribution": round(float(contributions[i]), 4),
+                "contribution": round(float(shares[i]), 4),
+                "shap_value": round(float(values[i]), 6),
                 "direction": (
-                    "high" if X[0, i] >= self.feature_means[i] else "low"
+                    "high" if X[0, i] > self.feature_means[i] else "low"
                 ),
             }
             for i in order
@@ -124,22 +145,41 @@ def save_stream_model(stream_model, path=MODEL_PATH):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    joblib.dump(stream_model, path)
+    joblib.dump(
+        {
+            "model": stream_model,
+            "version": stream_model.version,
+            "features": list(FEATURES),
+        },
+        path,
+    )
 
     return path
 
 
-def load_stream_model(path=MODEL_PATH):
+def load_stream_model(path=MODEL_PATH, expected_version=MODEL_VERSION):
 
-    return joblib.load(Path(path))
+    path = Path(path)
 
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"{path} not found. Train it first: python -m src.train_stream_model"
+        )
 
-def load_or_train(path=MODEL_PATH):
+    bundle = joblib.load(path)
 
-    if Path(path).is_file():
-        return load_stream_model(path)
+    if not isinstance(bundle, dict) or "model" not in bundle:
+        raise ValueError(f"{path} is an old-format model file. Retrain it.")
 
-    stream_model = train_stream_model()
-    save_stream_model(stream_model, path)
+    if bundle.get("features") != list(FEATURES):
+        raise ValueError(
+            f"Model features {bundle.get('features')} != {FEATURES}. Retrain it."
+        )
 
-    return stream_model
+    if bundle.get("version") != expected_version:
+        raise ValueError(
+            f"Model version {bundle.get('version')} != "
+            f"{expected_version}. Retrain it."
+        )
+
+    return bundle["model"]

@@ -31,8 +31,8 @@ def _kwargs(**overrides):
         n_flagged=5,
         closed_by="quiet",
         top_features=[
-            {"feature": "temperature", "contribution": 0.8, "direction": "high"},
-            {"feature": "power", "contribution": 0.2, "direction": "high"},
+            {"feature": "temperature", "contribution": 0.8, "shap_value": 0.1, "direction": "high"},
+            {"feature": "power", "contribution": 0.2, "shap_value": 0.1, "direction": "high"},
         ],
         model_version="stream-1.0",
     )
@@ -150,9 +150,9 @@ def test_shutdown_flush_is_allowed():
         {"threshold": float("inf")},
         {"n_flagged": 0},
         {"top_features": []},
-        {"top_features": [{"feature": "power", "contribution": 1.5, "direction": "high"}]},
+        {"top_features": [{"feature": "power", "contribution": 1.5, "shap_value": 0.1, "direction": "high"}]},
         {"top_features": [{"feature": "power", "contribution": 0.5, "direction": "up"}]},
-        {"top_features": [{"feature": "", "contribution": 0.5, "direction": "high"}]},
+        {"top_features": [{"feature": "", "contribution": 0.5, "shap_value": 0.1, "direction": "high"}]},
     ],
 )
 def test_invalid_input_is_rejected(overrides):

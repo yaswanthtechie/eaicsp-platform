@@ -8,6 +8,9 @@ Kafka and InfluxDB are behind two tiny interfaces:
 
 so the same code runs against real systems or in-memory fakes.
 
+Duplicate or late readings (same or earlier timestamp for a sensor) are
+skipped before scoring or writing.
+
 Tuner feed: score goes to tuner.observe() only when the reading is not
 flagged and the sensor has no candidate/open episode.
 """
@@ -59,6 +62,7 @@ class StreamProcessor:
 
         self.readings_seen = 0
         self.flagged_count = 0
+        self.skipped_stale = 0
         self.tuner_log = []
 
     def _publish(self, episode):
@@ -79,14 +83,18 @@ class StreamProcessor:
     def handle(self, reading, score=None):
         """Process one reading. Return the list of events published."""
 
+        sensor_id = reading["sensor_id"]
+
+        if not self.detector.accepts(sensor_id, reading["timestamp"]):
+            self.skipped_stale += 1
+            return []
+
         if score is None:
             score = self.model.score_one(reading)
 
         score = float(score)
         threshold = float(self.tuner.threshold)
         flagged = score >= threshold
-
-        sensor_id = reading["sensor_id"]
 
         self.writer.write(reading, score, flagged)
 

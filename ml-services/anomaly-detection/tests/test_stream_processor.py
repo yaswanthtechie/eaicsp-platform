@@ -26,7 +26,7 @@ class FakeModel:
         return reading["score"]
 
     def explain(self, reading, top_k=3):
-        return [{"feature": "temperature", "contribution": 1.0, "direction": "high"}]
+        return [{"feature": "temperature", "contribution": 1.0, "shap_value": 0.1, "direction": "high"}]
 
 
 class StubTuner:

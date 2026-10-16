@@ -2,7 +2,10 @@
 
 import os
 
+from dotenv import load_dotenv
 from influxdb_client import InfluxDBClient
+
+load_dotenv()
 
 org = os.environ.get("INFLUXDB_ORG", "eaicsp")
 bucket = os.environ.get("INFLUXDB_BUCKET", "iot_sensors")
@@ -13,8 +16,8 @@ client = InfluxDBClient(
     org=org,
 )
 
-flux = f'''
-from(bucket: "{bucket}")
+flux = '''
+from(bucket: p_bucket)
   |> range(start: 2026-01-01T00:00:00Z, stop: 2027-01-01T00:00:00Z)
   |> filter(fn: (r) => r._measurement == "warehouse_sensor" and r._field == "is_flagged")
   |> group(columns: ["sensor_id"])
@@ -23,7 +26,7 @@ from(bucket: "{bucket}")
 
 total = 0
 
-for table in client.query_api().query(flux):
+for table in client.query_api().query(flux, params={"p_bucket": bucket}):
     for record in table.records:
         print(record.values.get("sensor_id"), record.get_value())
         total += record.get_value()
