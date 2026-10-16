@@ -66,28 +66,33 @@ def build_frames(seed: int = DEFAULT_SEED, days: int = DEFAULT_DAYS,
     return frames
 
 
+def _check(ok, msg: str) -> None:
+    if not bool(ok):
+        raise ValueError(f"seed validation failed: {msg}")
+
+
 def validate(f: dict[str, pd.DataFrame]) -> None:
-    """Cheap invariants; raises AssertionError so a bad dataset never gets written."""
-    assert len(f["skus"]) == catalog.N_SKUS
-    assert len(f["warehouses"]) == 6
-    assert len(f["suppliers"]) == catalog.N_SUPPLIERS
-    assert int(f["suppliers"]["sanctions_flag"].sum()) == 3
-    assert f["skus"]["sku_id"].str.match(ids.SKU_RE).all()
-    assert f["warehouses"]["warehouse_id"].str.match(ids.WH_RE).all()
-    assert f["suppliers"]["supplier_id"].str.match(ids.SUP_RE).all()
+    """Validate dataset invariants; raise ValueError if any check fails."""
+    _check(len(f["skus"]) == catalog.N_SKUS, "SKU count")
+    _check(len(f["warehouses"]) == 6, "warehouse count")
+    _check(len(f["suppliers"]) == catalog.N_SUPPLIERS, "supplier count")
+    _check(int(f["suppliers"]["sanctions_flag"].sum()) == 3, "sanctioned supplier count")
+    _check(f["skus"]["sku_id"].str.match(ids.SKU_RE).all(), "SKU ID format")
+    _check(f["warehouses"]["warehouse_id"].str.match(ids.WH_RE).all(), "warehouse ID format")
+    _check(f["suppliers"]["supplier_id"].str.match(ids.SUP_RE).all(), "supplier ID format")
     for name in ("warehouses", "suppliers"):
         loc = f[name]
-        assert loc[["city", "state", "lat", "lng"]].notna().all().all()
-        assert loc["lat"].between(6.0, 37.5).all()
-        assert loc["lng"].between(68.0, 98.0).all()
-    assert f["suppliers"]["city"].nunique() >= 10
+        _check(loc[["city", "state", "lat", "lng"]].notna().all().all(), f"{name} location missing")
+        _check(loc["lat"].between(6.0, 37.5).all(), f"{name} lat out of India")
+        _check(loc["lng"].between(68.0, 98.0).all(), f"{name} lng out of India")
+    _check(f["suppliers"]["city"].nunique() >= 10, "supplier city spread")
     for name in ("skus", "sales_daily", "opening_stock"):
-        assert f[name]["sku_id"].isin(f["skus"]["sku_id"]).all(), name
+        _check(f[name]["sku_id"].isin(f["skus"]["sku_id"]).all(), f"{name} unknown sku_id")
     for name in ("sales_daily", "opening_stock"):
-        assert f[name]["warehouse_id"].isin(f["warehouses"]["warehouse_id"]).all(), name
-    assert f["skus"]["supplier_id"].isin(f["suppliers"]["supplier_id"]).all()
-    assert (f["sales_daily"]["quantity_sold"] >= 0).all()
-    assert (f["opening_stock"]["quantity_on_hand"] >= 0).all()
+        _check(f[name]["warehouse_id"].isin(f["warehouses"]["warehouse_id"]).all(), f"{name} unknown warehouse_id")
+    _check(f["skus"]["supplier_id"].isin(f["suppliers"]["supplier_id"]).all(), "skus unknown supplier_id")
+    _check((f["sales_daily"]["quantity_sold"] >= 0).all(), "negative quantity_sold")
+    _check((f["opening_stock"]["quantity_on_hand"] >= 0).all(), "negative quantity_on_hand")
 
 
 def make_samples(frames: dict[str, pd.DataFrame], seed: int = DEFAULT_SEED) -> dict[str, pd.DataFrame]:
@@ -96,18 +101,17 @@ def make_samples(frames: dict[str, pd.DataFrame], seed: int = DEFAULT_SEED) -> d
     out = {}
     for name in FILES:
         df = frames[name]
-        n = SAMPLE_ROWS
+        n = min(SAMPLE_ROWS, len(df))
         pinned = np.flatnonzero(df["sanctions_flag"].to_numpy()) if name == "suppliers" else np.array([], dtype=int)
         rest = np.setdiff1d(np.arange(len(df)), pinned)  # sanctioned suppliers always appear in the sample
-        # If a source has fewer than 10 rows (currently warehouses), sample with replacement.
-        picked = rng.choice(rest, size=n - len(pinned), replace=len(rest) < n - len(pinned))
+        picked = rng.choice(rest, size=n - len(pinned), replace=False)
         out[name] = df.iloc[np.sort(np.concatenate([pinned, picked]))]
     return out
 
 
 def write_csv(df: pd.DataFrame, path: Path) -> None:
     with open(path, "w", encoding="utf-8", newline="") as fh:
-        df.to_csv(fh, index=False, lineterminator="\n", float_format="%.2f")
+        df.to_csv(fh, index=False, lineterminator="\n")
 
 
 def write_parquet(name: str, df: pd.DataFrame, path: Path) -> None:
@@ -161,6 +165,13 @@ def main(argv: list[str] | None = None) -> int:
     bad = set(formats) - {"csv", "parquet"}
     if bad:
         ap.error(f"unknown format(s): {sorted(bad)}")
+
+    if args.days < 1:
+        ap.error("--days must be at least 1")
+    if args.write_samples and (
+        args.seed, args.days, args.end_date
+    ) != (DEFAULT_SEED, DEFAULT_DAYS, DEFAULT_END_DATE):
+        ap.error("--write-samples only works with the default --seed, --days and --end-date")
 
     frames = build_frames(args.seed, args.days, args.end_date)
     params = {"seed": args.seed, "days": args.days, "end_date": args.end_date}

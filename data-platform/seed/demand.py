@@ -6,7 +6,7 @@ Demand model (all vectorised, shape = days x SKUs x warehouses):
     quantity_sold ~ Poisson(lambda)
 
 Class A/B/C set the base rate, so slow C-class items produce zero-sales days
-(about 14% of rows overall). October and November carry a festive uplift.
+(about 10% of rows overall). October and November carry a festive uplift.
 Rows are emitted in (date, sku_id, warehouse_id) order.
 """
 

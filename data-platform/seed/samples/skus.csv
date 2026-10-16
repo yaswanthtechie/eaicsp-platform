@@ -1,11 +1,11 @@
 sku_id,name,category,pack_size,unit_price,unit_cost,abc_class,supplier_id
-SKU-000021,Kestrel Footrest - Set of 2,Office Furniture,Set of 2,984.00,653.52,A,SUP-00022
-SKU-000037,Lumina Hand Wash - 5 L,Cleaning,5 L,372.00,209.56,C,SUP-00027
-SKU-000119,Ardent Power Adapter - 1 pc,Electronics Accessories,1 pc,665.00,414.77,C,SUP-00019
-SKU-000213,Northwind Marker Set - Pack of 10,Stationery,Pack of 10,450.00,276.13,A,SUP-00059
-SKU-000248,Brightline Disinfectant Spray - 5 L,Cleaning,5 L,137.00,109.32,C,SUP-00017
-SKU-000327,Ardent Dish Liquid - 5 L,Cleaning,5 L,667.00,479.73,B,SUP-00010
-SKU-000334,Kestrel USB-C Cable - Pack of 5,Electronics Accessories,Pack of 5,308.00,213.53,C,SUP-00035
-SKU-000368,Brightline Desk Organizer - Set of 2,Office Furniture,Set of 2,945.00,565.51,C,SUP-00027
-SKU-000392,Solis A4 Notebook - Pack of 5,Stationery,Pack of 5,153.00,116.01,C,SUP-00040
-SKU-000402,Northwind Glass Cleaner - 500 ml,Cleaning,500 ml,690.00,480.60,C,SUP-00014
+SKU-000021,Kestrel Footrest - Set of 2,Office Furniture,Set of 2,984.0,653.52,A,SUP-00022
+SKU-000037,Lumina Hand Wash - 5 L,Cleaning,5 L,372.0,209.56,C,SUP-00027
+SKU-000119,Ardent Power Adapter - 1 pc,Electronics Accessories,1 pc,665.0,414.77,C,SUP-00019
+SKU-000213,Northwind Marker Set - Pack of 10,Stationery,Pack of 10,450.0,276.13,A,SUP-00059
+SKU-000248,Brightline Disinfectant Spray - 5 L,Cleaning,5 L,137.0,109.32,C,SUP-00017
+SKU-000327,Ardent Dish Liquid - 5 L,Cleaning,5 L,667.0,479.73,B,SUP-00010
+SKU-000334,Kestrel USB-C Cable - Pack of 5,Electronics Accessories,Pack of 5,308.0,213.53,C,SUP-00035
+SKU-000368,Brightline Desk Organizer - Set of 2,Office Furniture,Set of 2,945.0,565.51,C,SUP-00027
+SKU-000392,Solis A4 Notebook - Pack of 5,Stationery,Pack of 5,153.0,116.01,C,SUP-00040
+SKU-000402,Northwind Glass Cleaner - 500 ml,Cleaning,500 ml,690.0,480.6,C,SUP-00014

@@ -12,7 +12,7 @@ from . import ids
 N_SKUS = 500
 N_SUPPLIERS = 60
 
-# (city_code, name, city, state, capacity_units, demand_weight)
+# (city_code, name, city, state, lat, lng, capacity_units, demand_weight)
 _WAREHOUSES = [
     ("BLR", "Bengaluru DC", "Bengaluru", "Karnataka", 12.9716, 77.5946, 120_000, 1.25),
     ("CCU", "Kolkata DC", "Kolkata", "West Bengal", 22.5726, 88.3639, 80_000, 0.80),
@@ -44,12 +44,12 @@ _SUPPLIER_CITIES = [
 
 # Fixed on purpose: downstream compliance tests can hard-code these three IDs.
 SANCTIONED = {
-    ids.supplier_id(7): ("Kronos Meridian Trading LLC", "Russia", "OFAC-SDN"),
-    ids.supplier_id(23): ("Astra Caspian Logistics FZE", "Iran", "EU-CONSOLIDATED"),
-    ids.supplier_id(45): ("Northgate Ferrous Holdings", "Belarus", "UN-SC"),
+    ids.supplier_id(7): ("ALPHA SANCTIONS CORP", "Russia", "OFAC-SDN"),
+    ids.supplier_id(23): ("TEST EU ENTITY 01", "Iran", "EU-CONSOLIDATED"),
+    ids.supplier_id(45): ("TEST UN ENTITY 01", "Belarus", "UN-SC"),
 }
 
-_NAME_A = ["Apex", "Bluepeak", "Cedar", "Delta", "Evergreen", "Falcon", "Granite", "Harbor",
+_NAME_A = ["Apex", "Bluepeak", "Cedar", "Driftwood", "Evergreen", "Falcon", "Granite", "Harbor",
            "Ironwood", "Juniper", "Keystone", "Lotus", "Meridian", "Nimbus", "Orion", "Pioneer",
            "Quartz", "Redwood", "Summit", "Tidal", "Unity", "Vertex", "Willow", "Zenith"]
 _NAME_B = ["Supplies", "Traders", "Industries", "Distribution", "Wholesale", "Sourcing",

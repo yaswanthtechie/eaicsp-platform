@@ -1,13 +1,19 @@
-﻿# Seed Dataset
+# Seed Dataset
 
 This module generates a deterministic shared dataset for the EAICSP integration pipeline.
 
 ## Requirements
 
 - Python 3.11+
-- NumPy
-- Pandas
-- PyArrow (required for Parquet output)
+- Dependencies pinned in seed/requirements.txt
+
+Install from the data-platform directory:
+
+```powershell
+pip install -r seed/requirements.txt
+```
+
+PyArrow is required for Parquet output.
 
 ## Generate the dataset
 
@@ -47,6 +53,8 @@ Refresh the ten-row sample CSV files using the default seed:
 python -m seed.generate --out out/ --write-samples
 ```
 
+Supplier `city`, `state`, `lat`, and `lng` describe the supplier's Indian dispatch point; they do not necessarily represent the supplier's registered country.
+
 ## Canonical IDs
 
 - SKU: `SKU-000123`
@@ -57,7 +65,7 @@ The same seed and library versions are intended to produce byte-identical output
 
 ## Tests
 
-Run the seed generator tests from this directory:
+Run from the `data-platform` directory (not `seed/`):
 
 ```powershell
 python -m pytest tests/test_seed_generator.py -q
@@ -65,6 +73,5 @@ python -m pytest tests/test_seed_generator.py -q
 
 ## Sample files
 
-The committed CSV samples contain exactly 10 data rows per file. Because the
-complete warehouse dataset contains only six distinct warehouses, the warehouse
-sample repeats records to reach 10 rows. This does not change the full dataset.
+The committed CSV samples contain 10 data rows per file, except
+`warehouses.csv`, which contains all 6 warehouses (the full dataset only has six).

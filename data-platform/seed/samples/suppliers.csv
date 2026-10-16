@@ -1,11 +1,11 @@
 supplier_id,name,country,city,state,lat,lng,sanctions_flag,sanctions_list,lead_time_days,payment_terms_days,reliability_score
-SUP-00007,Kronos Meridian Trading LLC,Russia,New Delhi,Delhi,28.61,77.21,True,OFAC-SDN,32,60,0.76
-SUP-00019,Unity Manufacturing GmbH,India,Lucknow,Uttar Pradesh,26.85,80.95,False,,33,15,0.98
-SUP-00021,Evergreen Supplies GmbH,Thailand,Mumbai,Maharashtra,19.08,72.88,False,,25,30,0.82
-SUP-00022,Bluepeak Enterprises Inc,Taiwan,Ahmedabad,Gujarat,23.02,72.57,False,,44,30,0.77
-SUP-00023,Astra Caspian Logistics FZE,Iran,Hyderabad,Telangana,17.39,78.49,True,EU-CONSOLIDATED,27,30,0.76
-SUP-00031,Apex Industries Pvt Ltd,India,Jaipur,Rajasthan,26.91,75.79,False,,6,30,0.76
-SUP-00045,Northgate Ferrous Holdings,Belarus,Kolkata,West Bengal,22.57,88.36,True,UN-SC,45,60,0.80
-SUP-00051,Keystone Manufacturing Pvt Ltd,India,New Delhi,Delhi,28.61,77.21,False,,9,15,0.75
-SUP-00056,Tidal Industries LLP,UAE,Pune,Maharashtra,18.52,73.86,False,,31,30,0.78
-SUP-00059,Nimbus Sourcing Co,India,Kochi,Kerala,9.93,76.27,False,,20,30,0.89
+SUP-00007,ALPHA SANCTIONS CORP,Russia,New Delhi,Delhi,28.6139,77.209,True,OFAC-SDN,32,60,0.76
+SUP-00019,Unity Manufacturing GmbH,India,Lucknow,Uttar Pradesh,26.8467,80.9462,False,,33,15,0.98
+SUP-00021,Evergreen Supplies GmbH,Thailand,Mumbai,Maharashtra,19.076,72.8777,False,,25,30,0.82
+SUP-00022,Bluepeak Enterprises Inc,Taiwan,Ahmedabad,Gujarat,23.0225,72.5714,False,,44,30,0.77
+SUP-00023,TEST EU ENTITY 01,Iran,Hyderabad,Telangana,17.385,78.4867,True,EU-CONSOLIDATED,27,30,0.76
+SUP-00031,Apex Industries Pvt Ltd,India,Jaipur,Rajasthan,26.9124,75.7873,False,,6,30,0.76
+SUP-00045,TEST UN ENTITY 01,Belarus,Kolkata,West Bengal,22.5726,88.3639,True,UN-SC,45,60,0.8
+SUP-00051,Keystone Manufacturing Pvt Ltd,India,New Delhi,Delhi,28.6139,77.209,False,,9,15,0.75
+SUP-00056,Tidal Industries LLP,UAE,Pune,Maharashtra,18.5204,73.8567,False,,31,30,0.78
+SUP-00059,Nimbus Sourcing Co,India,Kochi,Kerala,9.9312,76.2673,False,,20,30,0.89
