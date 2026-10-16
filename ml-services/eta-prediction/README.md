@@ -10,16 +10,70 @@ empirical prediction-interval calibration, saved-model loading, the
 logistics-service prediction contract, MLflow experiment and model
 tracking, and automated pytest coverage.
 
-## Current status
+# Current Status
 
-  | Milestone | Status | Notes |
-  |---|---|---|
-  | Production-harden ETA | Complete | `/predict` and `/health`, 80% prediction intervals, unseen routes handled via geographic features. |
-  | Route-level insights | Partial | Route rankings and plain-English findings done. Carrier rankings not possible: the Olist dataset has no carrier field. |    
-  | ETA re-prediction on status change | Contract only | Design in `docs/ETA_REPREDICTION_CONTRACT.md`. No endpoint or code yet; status values must be agreed    
-  with Logistics first. |
-  | Unified ML dashboard | Partial | Streamlit dashboard for ETA + anomaly detection (see "Running the dashboard"). ETA predictions don't include a "why" yet. | 
-  | (remaining milestones) | Not started | |
+The ETA prediction service has completed the Round 14 implementation and
+validation.
+
+## Round 14 Completed
+
+- Rebuilt the ETA training feature set using the shared `eaicsp-feature-lib`
+  package.
+- Added historical carrier, route, carrier-route, and departure-season
+  features using strict as-of historical joins.
+- Ensured historical ETA features only use information available before the
+  shipment departure time.
+- Added Round 14 leakage-protection tests.
+- Rebuilt and evaluated the Round 14 model using a chronological train/test
+  split.
+- Compared the inherited model and Round 14 model on the same chronological
+  test period.
+- Investigated the inherited model after it achieved lower MAE.
+- Found no evidence of direct future-information leakage in the inspected
+  inherited feature-generation path.
+- Logged both inherited and Round 14 model runs to MLflow.
+- Added SHAP explanations for Round 14 predictions.
+- Preserved the existing public prediction output contract:
+  `{"eta_days", "confidence_low", "confidence_high"}`.
+- Added tests covering Round 14 feature usage, as-of leakage protection,
+  same-test-period evaluation, and SHAP explanations.
+- Full test suite passes with `122 passed`.
+
+## Round 14 Evaluation
+
+Both models were evaluated on the same chronological test period:
+
+- Test rows: `19,199`
+- Test period start: `2018-05-26 20:54:38`
+- Test period end: `2018-08-29 15:00:37`
+
+Results:
+
+| Model | MAE | Interval Coverage |
+|---|---:|---:|
+| Inherited model | `4.3012` days | `94.46%` |
+| Round 14 rebuilt model | `4.6000` days | `95.83%` |
+
+The inherited model achieved lower MAE, while the Round 14 model achieved higher
+prediction-interval coverage.
+
+The Round 14 result is therefore retained as an honest comparison rather than
+claiming that the rebuilt model improved every metric.
+
+## Production Serving Status
+
+The Round 14 training and evaluation workflow is complete.
+
+However, the current external inference contract does not provide a safe
+historical source for the Round 14 carrier, route, and seasonal historical
+features.
+
+Therefore, the Round 14 offline evaluation should not be interpreted as a
+guarantee of the accuracy of the current live external serving path.
+
+Production use of these historical features requires an appropriate historical
+feature source or feature-store integration that is available at prediction
+time.
 
   ## Running the service
 
@@ -136,101 +190,91 @@ tracking, and automated pytest coverage.
 
   ---
 
-  ---
-## Project Structure
+# Project Structure
 
-```text
-ml-services/eta-prediction/
-  │-- main.py
-  │-- requirements.txt
-  │-- README.md
-  │
-  ├── data/
+The ETA prediction service is organized as follows:
 
-│
-├── data/
-│   ├── raw/
-│   │   ├── olist_orders_dataset.csv
-│   │   ├── olist_order_items_dataset.csv
-│   │   ├── olist_customers_dataset.csv
-│   │   ├── olist_sellers_dataset.csv
-│   │   ├── olist_products_dataset.csv
-│   │   ├── olist_geolocation_dataset.csv
-│   │   └── product_category_name_translation.csv
-│   │
-│   └── processed/
-│       └── eta_features.csv
-│
-├── models/
-│   ├── eta_pipeline.joblib
-│   └── eta_prediction_interval.joblib
-│
-├── src/
-│   ├── __init__.py
-│   ├── config.py
-│   ├── data.py
-│   ├── features.py
-│   ├── preprocess.py
-│   ├── split.py
-│   ├── pipeline.py
-│   ├── train.py
-│   ├── evaluate.py
-│   ├── predict.py
-│   ├── model_loader.py
-│   ├── xg_boost_model.py
-│   ├── mlflow_tracking.py
-│   └── paths.py
-│
-├── dashboard/
-│   ├── __init__.py
-│   ├── app.py
-│   ├── config.py
-│   └── services/
-│       ├── __init__.py
-│       ├── eta_service.py
-│       └── anomaly_service.py
-│
-├── docs/
-│   └── ETA_REPREDICTION_CONTRACT.md
-│
-└── tests/
-    │-- conftest.py
-    │-- test_features.py
-    │-- test_preprocess.py
-    │-- test_split.py
-    │-- test_train.py
-    │-- test_evaluate.py
-    │-- test_predict.py
-    │-- test_mlflow_tracking.py
-      └── test_dashboard_services.py
-  ```
-    
+    eaicsp-platfrom/
+    ├── main.py
+    ├── requirements.txt
+    ├── README.md
+    ├── src/
+    │   ├── config.py
+    │   ├── data.py
+    │   ├── features.py
+    │   ├── preprocess.py
+    │   ├── split.py
+    │   ├── pipeline.py
+    │   ├── xg_boost_model.py
+    │   ├── train.py
+    │   ├── evaluate.py
+    │   ├── model_loader.py
+    │   ├── predict.py
+    │   ├── shap_explainer.py
+    │   ├── mlflow_tracking.py
+    │   └── paths.py
+    ├── tests/
+    │   ├── conftest.py
+    │   ├── test_api.py
+    │   ├── test_dashboard_services.py
+    │   ├── test_evaluate.py
+    │   ├── test_features.py
+    │   ├── test_mlflow_tracking.py
+    │   ├── test_predict.py
+    │   ├── test_preprocess.py
+    │   ├── test_route_insights.py
+    │   ├── test_shap_explainer.py
+    │   ├── test_split.py
+    │   └── test_train.py
+    ├── artifacts/
+    │   ├── eta_model.joblib
+    │   └── calibration_model.joblib
+    └── data/
+        └── olist/
 
-The following directories/files are generated by the training pipeline and should normally be excluded from version control:
+## Shared Feature Engineering Library
 
-```text
-data/processed/
-models/
-mlruns/
-```
+Round 14 uses the shared `eaicsp-feature-lib` package for ETA historical
+feature generation.
 
----
+The shared library is maintained separately under:
 
-## Requirements
+    ml-services/feature-lib/
 
-The project requires Python and the packages listed in:
+The ETA service consumes the installed package rather than copying the shared
+feature-engineering implementation into this repository.
 
-```text
-requirements.txt
-```
+The Round 14 workflow uses the package for historical carrier, route, and
+departure-season features with strict as-of historical joins.
 
-Install dependencies:
+The current live inference path does not yet have a safe historical feature
+source for these Round 14 features. This is documented as a train/serving
+limitation and does not change the public prediction contract.
 
-```bash
-python -m pip install -r requirements.txt
-```
+# Requirements
 
-The current implementation uses:
+Install the project dependencies with:
+
+    pip install -r requirements.txt
+
+The ETA service requires Python 3.10 or later.
+
+The Round 14 implementation uses the shared feature engineering library as an
+installed Python package:
+
+    eaicsp-feature-lib
+
+The shared package is used by the ETA service through:
+
+    from feature_lib import add_eta_features
+
+Round 14 also adds SHAP-based model explanations.
+
+The required SHAP version is:
+
+    shap==0.53.0
+
+The main ML and evaluation dependencies include:
 
 - pandas
 - numpy
@@ -238,14 +282,56 @@ The current implementation uses:
 - xgboost
 - joblib
 - mlflow
+- shap
+- holidays
 - pytest
-- fastapi, uvicorn, httpx (HTTP service and its tests)
-- streamlit, requests (dashboard)
 
-Dependencies are pinned in requirements.txt for reproducibility.
+The complete dependency versions are maintained in `requirements.txt`.
 
-The current implementation was tested with Python 3.14.4.
----
+## Installation
+
+Create and activate a virtual environment:
+
+    python -m venv .venv
+
+On Windows:
+
+    .venv\Scripts\activate
+
+Install the ETA service dependencies:
+
+    pip install -r requirements.txt
+
+Install the shared feature engineering library in editable mode from the
+EAICSP repository:
+
+    cd ml-services/feature-lib
+    pip install -e .
+
+Return to the ETA service:
+
+    cd ../../eaicsp-eta
+
+Verify that the shared package can be imported:
+
+    python -c "from feature_lib import add_eta_features; print('feature-lib import successful')"
+
+Verify the SHAP installation:
+
+    python -c "import shap; print(shap.__version__)"
+
+The expected SHAP version is:
+
+    0.53.0
+
+## Testing Without Docker
+
+The test suite can be executed without Docker:
+
+    python -m pytest -v
+
+All tests should pass before the Round 14 implementation is considered
+complete.
 
 # First-Time Setup
 
@@ -330,44 +416,72 @@ order_delivered_carrier_date
 
 # Features
 
-The final model uses these features:
+The Round 14 rebuilt training and evaluation model uses the following feature groups:
 
-```text
-purchase_year
-purchase_month
-purchase_day_of_week
-purchase_hour
-origin_lat
-origin_lng
-destination_lat
-destination_lng
-distance_km
-item_count
-total_weight_kg
-total_volume_cm3
-total_freight_value
-product_category_name
-```
+## Shipment and time features
+
+- `purchase_year`
+- `purchase_month`
+- `purchase_day_of_week`
+- `purchase_hour`
+
+## Geographic features
+
+- `origin_lat`
+- `origin_lng`
+- `destination_lat`
+- `destination_lng`
+- `distance_km`
+
+## Shipment attributes
+
+- `item_count`
+- `total_weight_kg`
+- `total_volume_cm3`
+- `total_freight_value`
+- `product_category_name`
+
+## Historical ETA features
+
+The Round 14 model also uses historical ETA features generated by the shared
+`eaicsp-feature-lib` package:
+
+- `historical_on_time_rate_carrier`
+- `historical_avg_transit_days_carrier`
+- `historical_on_time_rate_route`
+- `historical_avg_transit_days_route`
+- `historical_avg_transit_days_carrier_route`
+- `historical_on_time_rate_departure_season`
+
+These historical features are calculated using information available strictly
+before the shipment departure time. Future shipment outcomes are not used to
+construct the historical features.
 
 The model therefore uses:
 
-- purchase time
-- origin coordinates
-- destination coordinates
+- purchase-time features
+- origin/destination coordinates
 - geographic distance
 - item count
 - shipment weight
 - shipment volume
 - freight value
 - product category
+- historical carrier performance
+- historical route performance
+- historical seasonal performance
 
-The raw purchase timestamp is used for time-derived features and chronological splitting, but is not itself a model feature.
-
----
+The raw purchase timestamp is used for time-derived features and chronological
+splitting, but is not itself a model feature.
 
 # Feature Engineering
 
-`src/features.py` creates the final ETA dataset.
+The ETA pipeline generates features from shipment, geographic, and historical
+information while ensuring that future information is not used during training.
+
+The main feature-engineering implementation is in `src/features.py`.
+
+## Base Feature Engineering
 
 The pipeline performs:
 
@@ -382,9 +496,70 @@ The pipeline performs:
 9. Purchase year/month/day-of-week/hour extraction
 10. Explicit final feature selection
 
-Geolocation data is aggregated before joining to orders so that repeated ZIP-code-prefix observations do not multiply order rows.
+The pipeline generates:
 
----
+- Purchase date/time features
+- Origin and destination coordinates
+- Haversine distance
+- Item count
+- Total shipment weight
+- Total shipment volume
+- Total freight value
+- Product category
+
+The raw purchase timestamp is used to derive time-based features and to perform
+the chronological train/test split. It is not directly used as a model feature.
+
+Geolocation data is aggregated before joining to orders so that repeated
+ZIP-code-prefix observations do not multiply order rows.
+
+## Round 14 Shared Feature Engineering
+
+Round 14 integrates the shared `eaicsp-feature-lib` package to generate
+historical ETA features.
+
+The shared feature library generates:
+
+- `historical_on_time_rate_carrier`
+- `historical_avg_transit_days_carrier`
+- `historical_on_time_rate_route`
+- `historical_avg_transit_days_route`
+- `historical_avg_transit_days_carrier_route`
+- `historical_on_time_rate_departure_season`
+
+These historical features are generated using strict as-of historical joins.
+
+Only shipment outcomes that occurred before the current shipment's departure
+time are eligible for the historical calculations.
+
+This prevents future shipment outcomes from influencing the features used for
+the current prediction.
+
+For the Olist dataset, which does not provide a dedicated carrier field,
+`seller_id` is used as the carrier proxy and the seller-state to customer-state
+combination is used as the route identifier.
+
+The shared feature library is installed and consumed as a Python package rather
+than by duplicating its implementation inside the ETA service.
+
+## Feature Categories
+
+The model uses:
+
+- Purchase-time features
+- Origin/destination coordinates
+- Geographic distance
+- Item count
+- Shipment weight
+- Shipment volume
+- Freight value
+- Product category
+- Historical carrier performance
+- Historical route performance
+- Historical seasonal performance
+
+The raw purchase timestamp is used for time-derived features and chronological
+splitting, but is not itself a model feature.
 
 # City-Based Geolocation
 
@@ -418,49 +593,95 @@ NaN and infinite coordinates are also rejected.
 
 # Leakage Prevention
 
-Leakage is treated as a primary correctness requirement.
+Preventing target leakage is a core requirement of the ETA pipeline. Features
+must only use information that would have been available at the time the
+shipment was being predicted.
 
-The following are explicitly excluded from the model:
+## Explicitly Excluded Outcome Fields
 
-```text
-order_status
-order_delivered_customer_date
-order_delivered_carrier_date
-```
+The following fields are excluded from the model feature set:
 
-The target:
+- `order_status`
+- `order_delivered_customer_date`
+- `order_delivered_carrier_date`
 
-```text
-delivery_days
-```
+The actual delivery timestamp is used only to construct the supervised
+`delivery_days` target. It is not included as a model feature.
 
-is never included in `MODEL_FEATURES`.
+The target is calculated as the difference between the purchase timestamp and
+the actual customer delivery timestamp.
 
-The raw:
+The raw purchase timestamp is used only for:
 
-```text
-order_purchase_timestamp
-```
+- Deriving time-based features
+- Chronological train/test splitting
 
-is retained only where required for:
+It is not directly passed to the model.
 
-- deriving purchase-time features
-- chronological train/test splitting
+The estimated delivery date is not used as a model feature. It is retained only
+for baseline comparison and validation purposes.
 
-It is not passed to the model.
+## Round 14 Historical Feature Leakage Prevention
 
-The Olist:
+Round 14 introduces historical carrier, route, and seasonal ETA features
+through the shared `eaicsp-feature-lib` package.
 
-```text
-order_estimated_delivery_date
-```
-is also not a model feature.
+Historical features are generated using strict as-of historical joins. For each
+shipment, only outcomes that occurred strictly before that shipment's departure
+time are eligible for the historical calculations.
 
-It is used only for a separate evaluation baseline because it represents information that was available at purchase time.
+This applies to:
 
-The test suite also includes explicit leakage checks and a single-feature removal sanity check.
+- `historical_on_time_rate_carrier`
+- `historical_avg_transit_days_carrier`
+- `historical_on_time_rate_route`
+- `historical_avg_transit_days_route`
+- `historical_avg_transit_days_carrier_route`
+- `historical_on_time_rate_departure_season`
 
----
+Therefore, the delivery outcome of the current shipment, or outcomes from
+shipments that had not yet completed before its departure, cannot contribute to
+its historical features.
+
+A dedicated test verifies that Round 14 historical ETA features exclude future
+shipment outcomes.
+
+## Round 14 Leakage Investigation
+
+The inherited model achieved a lower MAE than the rebuilt Round 14 model:
+
+- Inherited model MAE: `4.3012` days
+- Round 14 model MAE: `4.6000` days
+
+Because the inherited model performed better, its feature-generation path was
+reviewed for possible future-information leakage.
+
+The inspection found no direct use of the actual delivery outcome as a model
+feature. Actual delivery timestamps are used to construct the supervised
+`delivery_days` target and are excluded from the saved feature dataset.
+
+The Round 14 historical carrier and route features additionally use strict
+as-of historical joins, excluding outcomes at or after the shipment departure
+time.
+
+Therefore, the inherited model's better MAE is not supported as evidence of
+future-information leakage based on the inspected feature-generation path.
+
+The performance difference is treated as a model and feature-set difference,
+with Round 14 providing higher prediction-interval coverage:
+
+- Inherited model coverage: `94.46%`
+- Round 14 model coverage: `95.83%`
+
+## Leakage Validation
+
+Leakage prevention is validated through automated tests covering:
+
+- Explicit exclusion of target and delivery outcome fields
+- Historical feature as-of boundaries
+- Prevention of future shipment outcomes in historical features
+- Feature-generation and preprocessing behavior
+- Chronological train/test splitting
 
 # Preprocessing
 
@@ -644,122 +865,138 @@ This makes it a leakage-safe comparison against the delivery estimate that was a
 
 # Model Evaluation
 
-Latest chronological test-set evaluation:
+The ETA pipeline evaluates models using a chronological holdout period so that
+future shipments are never used to evaluate predictions for earlier shipments.
 
-| Model | MAE | RMSE |
-|-------|----:|-----:|
-| XGBoost | 4.3012 days | 5.8346 days |
-| Naive median baseline | 4.9522 days | 6.3640 days |
-| Olist estimated-delivery baseline | 13.1327 days | 15.9160 days |
+## Evaluation Period
 
-This MAE is measured with all 14 training features. predict() only receives 6; the rest use fixed inference defaults, so served accuracy is lower , see
+Both the inherited model and the rebuilt Round 14 model are evaluated on the
+same test period:
 
-**Important Train/Serving Limitation** below.
+- Test rows: `19,199`
+- Test period start: `2018-05-26 20:54:38`
+- Test period end: `2018-08-29 15:00:37`
 
-Improvement over Naive Median Baseline:
+Using the same test period makes the comparison between the inherited and
+Round 14 models directly comparable.
 
-```text
-MAE improvement  : 13.15%
-RMSE improvement : 8.32%
-```
+## Inherited Model
 
-XGBoost therefore provides a measurable improvement over the simple naive median baseline.
+The inherited model achieved:
 
-Improvement over Olist Estimated-Delivery Baseline:
+| Metric | Result |
+|---|---:|
+| MAE | `4.3012` days |
+| Interval coverage | `94.46%` |
 
-```text
-MAE improvement  : 67.25%
-RMSE improvement : 63.34%
-```
+## Round 14 Rebuilt Model
 
-XGBoost has substantially lower error than the Olist estimated-delivery-date baseline on this chronological test period.
+The Round 14 model was rebuilt using the shared
+`eaicsp-feature-lib` historical ETA features and evaluated on the same test
+period.
 
-## Important Interpretation Caveat:
+Results:
 
-The large improvement over the Olist baseline should be interpreted carefully.
+| Metric | Result |
+|---|---:|
+| MAE | `4.6000` days |
+| Interval coverage | `95.83%` |
 
-Inspection of the 19,199 chronological test orders showed:
+## Inherited vs Round 14 Comparison
 
-```text
-Mean actual delivery duration  : 8.74 days
-Mean Olist estimate duration   : 21.35 days
+| Model | MAE (days) | Interval Coverage |
+|---|---:|---:|
+| Inherited model | `4.3012` | `94.46%` |
+| Round 14 rebuilt model | `4.6000` | `95.83%` |
 
-Median actual delivery duration: 7.43 days
-Median Olist estimate duration : 20.34 days
-```
+The inherited model has the lower MAE by `0.2988` days, while the Round 14
+model provides higher prediction-interval coverage by `1.37` percentage
+points.
 
-The Olist estimate was:
+Because the inherited model performed better on MAE, its feature-generation
+path was reviewed for possible future-information leakage. The investigation
+found no evidence of direct future-information leakage in the inspected
+feature-generation path. The difference is therefore treated as a
+model/feature-set performance difference rather than evidence that the
+inherited model is using future delivery outcomes.
 
-```text
-Later than actual  : 94.72%
-Earlier than actual: 5.28%
-Missing estimates  : 0
-```
+## Baseline Comparison
 
-The mean signed error was:
+The Round 14 model is also compared against simple baselines to verify that
+the rebuilt model provides useful predictive performance.
 
-```text
-+12.60 days
-```
+The Round 14 model achieved:
 
-This indicates that the original Olist estimated-delivery-date duration is substantially conservative for this particular chronological test period.
+- MAE improvement over the median baseline: approximately `7.11%`
+- RMSE improvement over the median baseline: approximately `4.45%`
+- MAE improvement over the Olist estimated-delivery baseline: approximately
+  `64.97%`
+- RMSE improvement over the Olist estimated-delivery baseline: approximately
+  `61.80%`
 
-Therefore:
+The Olist estimated-delivery baseline is treated as a reference comparison,
+not as an equivalent machine-learning model.
 
-**The 67.25% MAE improvement and 63.34% RMSE improvement should not be interpreted as evidence that the XGBoost model is universally 67% more accurate than an operational logistics ETA system.**
+## Important Interpretation Caveat
 
-Instead, the result demonstrates that the trained model predicts actual delivery duration substantially better than the original Olist estimated-delivery-date duration on this specific historical test period.
+The Olist estimated-delivery baseline is a real pre-delivery benchmark because
+the estimated delivery date was available at purchase time.
 
-The Olist baseline is included because it is a real, pre-delivery-available benchmark rather than a synthetic benchmark.
+For the chronological test period:
 
-Its behavior and the unusually large difference should be considered when interpreting the result.
+- Test orders: `19,199`
+- Mean actual delivery duration: `8.74` days
+- Mean Olist estimated delivery duration: `21.35` days
+- Median actual delivery duration: `7.43` days
+- Median Olist estimated delivery duration: `20.34` days
+- Olist estimate later than actual: `94.72%`
+- Olist estimate earlier than actual: `5.28%`
+- Missing Olist estimates: `0`
+- Mean signed error of the Olist estimate: `+12.60` days
 
----
+The Olist estimate is therefore substantially more conservative than the actual
+delivery duration in this dataset.
+
+The large improvement against this baseline should not be interpreted as proof
+that the ETA model provides the same level of improvement in a real operational
+logistics environment. The Olist estimated-delivery field is a dataset-specific
+baseline and its relationship with actual delivery times affects the size of the
+measured improvement.
+
+The previously observed Olist-baseline improvements for the inherited model
+should also be interpreted in this dataset-specific context rather than
+generalized as operational logistics superiority.
 
 # Important Train/Serving Limitation
 
-The reported XGBoost test MAE of:
+The offline Round 14 training and evaluation use the rebuilt historical ETA
+feature set, including carrier, route, and seasonal historical features.
 
-```text
-4.3012 days
-```
+However, the current external prediction contract provides only:
 
-is measured using the full historical model feature set available during offline evaluation.
+- `origin`
+- `destination`
+- `carrier`
+- `weight_kg`
 
-The current external prediction contract does not provide all of those historical features.
+The inference service derives geographic coordinates and distance from the
+provided origin and destination cities.
 
-The current production prediction request provides:
+The current live inference path does not have a safe historical data source from
+which to calculate the Round 14 carrier/route/season historical features at
+prediction time.
 
-```text
-origin
-destination
-carrier
-weight_kg
-```
+Therefore, the Round 14 offline evaluation results should not be interpreted as
+a direct guarantee of the accuracy of the current external serving path.
 
-City names are resolved through the Olist geolocation dataset and are used to derive:
+The Round 14 training and evaluation demonstrate the leak-free feature-engineering
+and model-comparison workflow required by the assignment. Production serving of
+the historical ETA features requires an appropriate historical feature source
+or feature-store integration that is available at prediction time.
 
-```text
-origin_lat
-origin_lng
-destination_lat
-destination_lng
-distance_km
-```
-
-Several other model features therefore use documented inference defaults when calling predict().
-
-Consequently, the:
-
-```text
-4.3012-day
-```
-
-offline test MAE should not be interpreted as the expected real-world accuracy of the current production prediction contract.
-
-This train/serving feature gap is one of the main current limitations and should be addressed before treating the offline metric as a production accuracy guarantee.
-
----
+This distinction is important: training-time availability of a feature does not
+automatically mean that the same feature is available safely during live
+inference.
 
 # Prediction Interval
 
@@ -770,7 +1007,7 @@ confidence_low
 confidence_high
 ```
 
-These are empirical prediction bounds are not classical confidence intervals.
+These are empirical prediction bounds, not classical confidence intervals.
 
 During training:
 
@@ -799,22 +1036,29 @@ The lower bound is clipped at zero because delivery time cannot be negative.
 
 ## Current Calibration
 
-The current calibration uses:
+The current Round 14 calibration artifact was generated from the chronological
+training data.
+
+Calibration details:
+
+| Parameter | Value |
+|---|---:|
+| Nominal coverage | `80%` |
+| Calibration rows | `15,358` |
+| Residual lower bound | `-11.4550 days` |
+| Residual upper bound | `+11.4550 days` |
+
+The calibrated interval width is applied symmetrically around the predicted ETA
+and the lower bound is clipped at zero.
+
+On the chronological test period, the Round 14 prediction interval achieved:
 
 ```text
-Coverage target: 80%
+Interval coverage: 95.83%
 ```
 
-and the current calibration artifact records:
-
-```text
-Method: absolute_residual_quantile
-Calibration rows: 15,358
-Residual lower bound: -10.27 days
-Residual upper bound: +10.27 days
-```
-
-The current residual bounds are symmetric, but the implementation does not assume that future calibrations must remain symmetric.
+The achieved coverage is higher than the nominal 80% calibration target because
+the calibration interval is evaluated on a separate chronological test period.
 
 ## Asymmetric Calibration
 
@@ -957,55 +1201,127 @@ This train/serving information gap is one of the main current limitations of the
 
 ---
 
-# MLflow
+# MLflow Tracking
 
-The project logs experiments to:
+MLflow is used to track ETA model training, evaluation, calibration, and
+model artifacts.
 
-```text
-ETA Prediction
-```
+The ETA pipeline uses the following MLflow configuration:
 
-The tracked model name is:
+- Experiment name: `ETA Prediction`
+- Model name: `eta_pipeline`
 
-```text
-eta_pipeline
-```
+Round 14 records both the inherited model and the rebuilt Round 14 model in
+separate MLflow runs so their results can be compared on the same chronological
+test period.
 
-MLflow records:
+## Tracked Models
 
-- model parameters
-- test size
-- model configuration
-- training/test row counts
-- training period
-- test period
-- split timestamp
-- XGBoost MAE
-- XGBoost RMSE
-- Naive baseline MAE
-- Naive baseline RMSE
-- Olist baseline MAE
-- Olist baseline RMSE
-- improvement percentages
-- prediction interval method
+Two separate model runs are recorded.
+
+### Inherited Model
+
+The inherited model is trained using the existing feature set and evaluated on
+the chronological test period.
+
+The inherited model is logged to its own MLflow run:
+
+    ETA - Inherited Model
+
+The run records:
+
+- model configuration and XGBoost parameters
+- dataset and chronological split metadata
+- MAE
+- RMSE
+- training-median baseline MAE/RMSE
+- improvement over the training-median baseline
+- Olist estimated-delivery baseline MAE/RMSE
+- improvement over the Olist baseline
 - prediction interval coverage
-- calibration fraction
-- calibration rows
-- calibration quantiles
-- residual bounds
+- prediction interval calibration metadata
+- residual lower and upper bounds
 - trained model artifact
 
-The production `joblib` model remains available independently of the MLflow artifact.
+### Round 14 Rebuilt Model
 
----
+The Round 14 model is rebuilt using the shared `eaicsp-feature-lib` package
+and the historical ETA feature set.
+
+The Round 14 model is logged to its own MLflow run:
+
+    ETA - Round 14 Feature-lib Model
+
+The run records:
+
+- model configuration and XGBoost parameters
+- dataset and chronological split metadata
+- MAE
+- RMSE
+- training-median baseline MAE/RMSE
+- improvement over the training-median baseline
+- Olist estimated-delivery baseline MAE/RMSE
+- improvement over the Olist baseline
+- prediction interval coverage
+- prediction interval calibration metadata
+- residual lower and upper bounds
+- trained model artifact
+- SHAP explanations for Round 14 predictions
+
+The SHAP explanations are stored in the Round 14 MLflow run as:
+
+    r14_shap_explanations.json
+
+## Same-Test-Period Comparison
+
+Both the inherited and Round 14 models are evaluated on the same chronological
+test period.
+
+This ensures that the reported performance difference is attributable to the
+models and feature sets rather than to different evaluation periods.
+
+## SHAP Explanations
+
+Round 14 generates SHAP explanations for the rebuilt model's predictions.
+
+The explanations are generated for the Round 14 test predictions and identify
+the features contributing to each prediction.
+
+The generated explanations are also stored in the Round 14 MLflow run as
+`r14_shap_explanations.json`.
+
+## Prediction Interval Tracking
+
+MLflow records the prediction interval calibration information for both model
+runs, including:
+
+- prediction interval method
+- nominal prediction interval coverage
+- calibration fraction
+- calibration row count
+- residual lower bound
+- residual upper bound
+
+The production calibration artifact also contains the lower and upper
+quantile metadata when available.
+
+## MLflow Model Artifacts
+
+The trained ETA models are logged to MLflow using the model name:
+
+    eta_pipeline
+
+The production joblib artifacts remain unchanged. MLflow stores its own tracked
+copy of the trained model.
+
+MLflow logging is performed for both the inherited and Round 14 models rather
+than logging only the final selected model.
 
 # Testing
 
 Run the complete test suite:
 
-```bash
-python -m pytest -v
-```
+    python -m pytest -v
 
 The test suite covers:
 
@@ -1026,6 +1342,7 @@ The test suite covers:
 - feature contract
 - feature-ablation leakage sanity check
 - evaluation
+- same-test-period model comparison
 - training-median baseline
 - Olist baseline
 - prediction contract
@@ -1036,67 +1353,99 @@ The test suite covers:
 - MLflow tracking
 - MLflow model loading
 - MLflow prediction
+- SHAP explanation generation
+- Round 14 feature-lib integration
+- Round 14 ETA history feature usage
+- Round 14 training component validation
+- Round 14 as-of leakage protection
 
-Run individual test modules:
+## Round 14 Leakage Test
 
-```bash
-python -m pytest tests/test_features.py -v
-```
+The test suite verifies that historical ETA features do not use shipment
+outcomes from the future.
 
-```bash
-python -m pytest tests/test_preprocess.py -v
-```
+Historical carrier, route, and seasonal features must only use outcomes that
+occurred before the current shipment's departure time.
 
-```bash
-python -m pytest tests/test_split.py -v
-```
+## Round 14 Same-Test-Period Test
 
-```bash
-python -m pytest tests/test_train.py -v
-```
+The inherited model and the rebuilt Round 14 model are explicitly evaluated
+using the same chronological test rows.
 
-```bash
-python -m pytest tests/test_evaluate.py -v
-```
+This prevents the model comparison from being affected by evaluating the two
+models on different test periods.
 
-```bash
-python -m pytest tests/test_predict.py -v
-```
+## SHAP Tests
 
-```bash
-python -m pytest tests/test_mlflow_tracking.py -v
-```
+The SHAP explanation module has dedicated tests covering explanation
+generation and the expected feature/prediction behavior.
 
----
+## Individual Test Modules
+
+Run individual test modules when debugging a specific area:
+
+    python -m pytest tests/test_features.py -v
+
+    python -m pytest tests/test_preprocess.py -v
+
+    python -m pytest tests/test_split.py -v
+
+    python -m pytest tests/test_train.py -v
+
+    python -m pytest tests/test_evaluate.py -v
+
+    python -m pytest tests/test_predict.py -v
+
+    python -m pytest tests/test_mlflow_tracking.py -v
+
+    python -m pytest tests/test_shap_explainer.py -v
 
 # Module Guide
 
 | Module | Responsibility |
 |--------|----------------|
-| `main.py` | End-to-end feature, training, evaluation, calibration, and MLflow workflow |
+| `main.py` | End-to-end feature engineering, inherited-vs-Round-14 training, evaluation, calibration, SHAP generation, and MLflow workflow |
 | `src/config.py` | Single source of truth for model hyperparameters and configuration |
 | `src/data.py` | Loads the Olist raw datasets |
-| `src/features.py` | Builds one ETA feature row per order and creates the target |
-| `src/preprocess.py` | Validates and cleans the feature dataset |
+| `src/features.py` | Builds one ETA feature row per order, creates the target, and integrates shared `eaicsp-feature-lib` ETA history features |
+| `src/preprocess.py` | Validates and cleans the feature dataset and defines the model feature sets |
 | `src/split.py` | Performs the chronological train/test split and preserves evaluation-only Olist estimate metadata |
-| `src/pipeline.py` | Builds the preprocessing + XGBoost pipeline |
+| `src/pipeline.py` | Builds the standard preprocessing + XGBoost pipeline and the Round 14 ETA-history pipeline |
 | `src/xg_boost_model.py` | Creates the XGBoost estimator using centralized configuration |
-| `src/train.py` | Trains the production model and calibrates prediction bounds |
-| `src/evaluate.py` | Calculates model and baseline MAE/RMSE |
+| `src/train.py` | Trains the inherited and Round 14 models, performs chronological calibration, and saves model/calibration artifacts |
+| `src/evaluate.py` | Calculates model and baseline MAE/RMSE and supports inherited-vs-Round-14 evaluation on the same test period |
 | `src/model_loader.py` | Loads the model/calibration artifacts and prepares inference inputs |
 | `src/predict.py` | Implements the public ETA prediction contract |
-| `src/mlflow_tracking.py` | Logs actual model parameters, metrics, metadata, calibration, and model |
+| `src/mlflow_tracking.py` | Logs model parameters, metrics, metadata, calibration, and model artifacts for both inherited and Round 14 runs |
+| `src/shap_explainer.py` | Generates SHAP explanations for Round 14 model predictions |
 | `src/paths.py` | Centralizes project and artifact paths |
 | `tests/conftest.py` | Provides reusable synthetic test fixtures and temporary model artifacts |
-| `tests/test_features.py` | Tests feature engineering and leakage behavior |
+| `tests/test_features.py` | Tests feature engineering, leakage protection, and Round 14 as-of historical feature behavior |
 | `tests/test_preprocess.py` | Tests preprocessing validation and cleaning |
 | `tests/test_split.py` | Tests chronological split behavior |
-| `tests/test_train.py` | Tests model training and feature-ablation leakage sanity |
-| `tests/test_evaluate.py` | Tests model evaluation and both baselines |
+| `tests/test_train.py` | Tests model training, feature-ablation leakage sanity, and Round 14 feature usage |
+| `tests/test_evaluate.py` | Tests model evaluation, both baselines, and same-test-period model comparison |
 | `tests/test_predict.py` | Tests model loading, city lookup, prediction contract, calibration bounds, and payload validation |
-| `tests/test_mlflow_tracking.py` | Tests MLflow parameters, metrics, metadata, calibration, model logging, loading, and prediction |
+| `tests/test_mlflow_tracking.py` | Tests MLflow tracking, model loading, and prediction logging behavior |
+| `tests/test_shap_explainer.py` | Tests SHAP explanation generation and expected explanation behavior |
 
----
+## Round 14 Feature-Library Integration
+
+The Round 14 training workflow uses the shared `eaicsp-feature-lib` package
+instead of maintaining separate ETA-history feature logic inside the ETA
+service.
+
+The shared library provides historical carrier, route, and departure-season
+features using strict as-of historical joins so that shipment outcomes from
+the future are not used for the current shipment.
+
+The Round 14 training and evaluation workflow uses these features to rebuild
+the training set and compare the rebuilt model against the inherited model.
+
+The current external inference path does not yet have a safe historical source
+for these features. Therefore, the Round 14 feature-library integration should
+be understood as part of the rebuilt training/evaluation workflow until
+historical feature serving is available for live prediction.
 
 # Challenges Faced
 
@@ -1204,18 +1553,20 @@ This prevents experiment tracking from becoming stale when model configuration c
 
 ## 1. Current ETA accuracy
 
-The current chronological test result is:
+The current chronological test results are:
 
-```text
-MAE  : 4.3012 days
-RMSE : 5.8346 days
-```
+| Model | MAE | Interval Coverage |
+|---|---:|---:|
+| Inherited model | `4.3012` days | `94.46%` |
+| Round 14 rebuilt model | `4.6000` days | `95.83%` |
 
-This is better than both the training-median baseline and the Olist estimated-delivery-date baseline on this historical test period.
+The inherited model achieves lower MAE on the same chronological test period,
+while the Round 14 model provides higher prediction-interval coverage.
 
-However, an MAE of approximately 4.3 days still represents several days of average prediction error.
+An MAE of several days still represents meaningful prediction error.
 
-The model should therefore be described as a working ETA prediction system and baseline, **not as a highly precise production ETA system.**
+The model should therefore be described as a working ETA prediction system and
+baseline, not as a highly precise production ETA system.
 
 ---
 
@@ -1223,59 +1574,71 @@ The model should therefore be described as a working ETA prediction system and b
 
 The prediction contract currently exposes only:
 
-```text
-origin
-destination
-carrier
-weight_kg
-```
+    origin
+    destination
+    carrier
+    weight_kg
 
-while the model was historically trained with additional information.
+while the training dataset contains additional information.
 
 Several features therefore use defaults during inference.
 
-This can reduce real-world prediction quality.
+The current live inference path also does not have a safe historical source for
+the Round 14 carrier, route, and departure-season historical features.
+
+This train/serving gap can reduce real-world prediction quality.
 
 ---
 
 ## 3. Large Olist Baseline Improvement Requires Careful Interpretation
 
-The Olist baseline has:
+The Olist estimated-delivery baseline achieved:
 
-```text
-MAE  : 13.1327 days
-RMSE : 15.9160 days
-```
+    MAE  : 13.1327 days
+    RMSE : 15.9160 days
 
-compared with:
+The inherited XGBoost model achieved:
 
-```text
-XGBoost MAE  : 4.3012 days
-XGBoost RMSE : 5.8346 days
-```
+    MAE  : 4.3012 days
+    RMSE : 5.8346 days
 
-The resulting:
+This corresponds to:
 
-```text
-67.25% MAE improvement
-63.34% RMSE improvement
-```
+    67.25% MAE improvement
+    63.34% RMSE improvement
 
-is large partly because the Olist estimated-delivery duration is conservative on this particular test period.
+The large improvement is partly explained by the conservative nature of the
+Olist estimated-delivery duration on this particular test period.
 
-The Olist estimate was later than actual delivery for 94.72% of the test orders.
+The Olist estimate was later than actual delivery for `94.72%` of the test
+orders.
 
-Therefore this result should not be generalized into a claim that the model will always outperform a modern production logistics ETA system by 67%.
+Therefore, this result should not be generalized into a claim that the model
+will always outperform a modern production logistics ETA system by the same
+percentage.
 
-The result is best understood as:
+The result is best understood as an improvement in predicting actual
+historical delivery duration compared with the original Olist
+estimated-delivery-duration baseline on this chronological test period.
 
-**XGBoost substantially improves prediction of actual historical delivery duration compared with the original Olist estimated-delivery-date duration on this chronological test period.**
+The Round 14 model should be interpreted separately because its measured
+improvement against the same baselines is different from the inherited model.
 
 ---
 
-## 4. Carrier is not modeled
+## 4. Carrier is not reliably modeled
 
-Although `carrier` exists in the service contract, it is currently ignored by the trained model because a reliable historical carrier feature is unavailable.
+Although `carrier` exists in the service contract, the Olist dataset does not
+provide a reliable real carrier feature that can be mapped directly to this
+contract.
+
+The field is therefore accepted and validated at the service boundary but is
+not used as a direct model feature.
+
+Round 14 uses `seller_id` as a carrier proxy for historical feature engineering
+because the dataset does not contain a reliable carrier field.
+
+This proxy should not be interpreted as a real-world carrier identity.
 
 ---
 
@@ -1283,7 +1646,7 @@ Although `carrier` exists in the service contract, it is currently ignored by th
 
 The model uses straight-line geographic distance.
 
-It does not know:
+It does not directly know:
 
 - road networks
 - actual route distance
@@ -1291,7 +1654,8 @@ It does not know:
 - road closures
 - travel time
 
-A road-distance/travel-time feature would likely be more useful.
+A road-distance or travel-time feature would likely provide more operationally
+relevant information.
 
 ---
 
@@ -1308,9 +1672,36 @@ It does not automatically adapt to current:
 - warehouse capacity
 - logistics disruptions
 
+Continuous retraining and current operational data would be required for the
+model to adapt to changing logistics conditions.
+
 ---
 
-## 7. Global prediction interval
+## 7. Round 14 historical features require a serving source
+
+Round 14 adds historical ETA features including:
+
+- `historical_on_time_rate_carrier`
+- `historical_avg_transit_days_carrier`
+- `historical_on_time_rate_route`
+- `historical_avg_transit_days_route`
+- `historical_avg_transit_days_carrier_route`
+- `historical_on_time_rate_departure_season`
+
+These features are generated using strict as-of historical joins during
+training and evaluation.
+
+Only historical outcomes available before the shipment departure time are used.
+
+The current external inference path does not have a safe historical data source
+from which to calculate these features at prediction time.
+
+A production feature-store or historical lookup mechanism is therefore required
+before these features can be reliably used by the live serving path.
+
+---
+
+## 8. Global prediction interval
 
 The current prediction interval uses a global residual calibration.
 
@@ -1324,27 +1715,34 @@ The uncertainty is not yet conditioned on:
 - carrier
 - season
 
-Therefore the interval may be too narrow for some shipments and too wide for others.
+Therefore, the interval may be too narrow for some shipments and too wide for
+others.
+
+The Round 14 test coverage of `95.83%` should be interpreted as observed
+coverage on the chronological test period, not as a universal guarantee for
+future shipments.
 
 ---
 
-## 8. Multi-seller orders
+## 9. Multi-seller orders
 
-Orders containing products from multiple sellers are simplified to a deterministic seller/origin representation.
+Orders containing products from multiple sellers are simplified to a
+deterministic seller/origin representation.
 
 This does not fully represent real multi-origin fulfillment.
 
 ---
 
-## 9. Missing numeric data is removed
+## 10. Missing numeric data is removed
 
-The current preprocessing removes rows with missing numeric model features instead of applying sophisticated imputation.
+The current preprocessing removes rows with missing numeric model features
+instead of applying sophisticated imputation.
 
 This reduces the amount of training data available.
 
 ---
 
-## 10. No continuous retraining
+## 11. No continuous retraining or automated model promotion
 
 The current pipeline is batch-oriented.
 
@@ -1356,15 +1754,37 @@ There is no automated process for:
 - validating a new model
 - promoting a new model
 
----
-
-## 11. Prediction bounds are not formally guaranteed
-
-The `confidence_low` and `confidence_high` fields should not be interpreted as a guaranteed statistical coverage interval.
-
-They are empirical bounds calibrated from historical out-of-sample residuals.
+The current prediction bounds are also empirical bounds calibrated from
+historical out-of-sample residuals and should not be interpreted as formally
+guaranteed statistical coverage intervals.
 
 ---
+
+## Round 14 Leakage Investigation
+
+The inherited model achieved lower MAE than the rebuilt Round 14 model:
+
+- Inherited model: `4.3012` days
+- Round 14 model: `4.6000` days
+
+Because the inherited model performed better, its feature-generation path was
+reviewed for possible future-information leakage.
+
+The inspection found no evidence of direct future-information leakage in the
+inspected feature-generation path. Actual delivery information is used to
+construct the supervised target and is not included as a direct model feature.
+
+The Round 14 historical carrier and route features additionally use strict
+as-of historical joins so that outcomes at or after the shipment departure
+time are excluded.
+
+The performance difference is therefore treated as a model/feature-set
+difference rather than evidence that the inherited model uses future delivery
+outcomes.
+
+This finding is based on inspection of the implemented feature-generation path
+and should not be interpreted as a mathematical guarantee about every possible
+upstream data source.
 
 # Future Enhancements
 

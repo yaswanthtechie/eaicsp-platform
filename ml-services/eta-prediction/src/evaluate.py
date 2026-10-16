@@ -5,7 +5,10 @@ from sklearn.metrics import (
     mean_squared_error,
 )
 
-from .preprocess import MODEL_FEATURES
+from .preprocess import (
+    MODEL_FEATURES,
+    TRAINING_MODEL_FEATURES,
+)
 
 
 TARGET_COLUMN = "delivery_days"
@@ -110,6 +113,7 @@ def evaluate_model(
     model,
     train,
     test,
+    use_eta_history_features: bool = False,
 ):
     """
     Evaluate XGBoost against two baselines.
@@ -132,8 +136,14 @@ def evaluate_model(
     # ---------------------------------------------------------
     # 1. Prepare test features
     # ---------------------------------------------------------
+    feature_columns = (
+        TRAINING_MODEL_FEATURES
+        if use_eta_history_features
+        else MODEL_FEATURES
+    )
+
     X_test = test[
-        MODEL_FEATURES
+        feature_columns
     ].copy()
 
     y_test = test[
