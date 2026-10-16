@@ -433,6 +433,7 @@ class SupplierHysteresisTracker:
         self,
         *,
         supplier: str,
+        supplier_id: Optional[str] = None,
         risk_score: float,
         supporting_articles: Optional[List[Dict[str, Any]]] = None,
         occurred_at: Optional[str | datetime] = None,
@@ -576,6 +577,7 @@ class SupplierHysteresisTracker:
 
         event = build_score_changed_event(
             supplier=clean_supplier,
+            supplier_id=supplier_id,
             previous_tier=current_accepted,
             new_tier=candidate_tier,
             risk_score=display_score,
@@ -587,7 +589,8 @@ class SupplierHysteresisTracker:
         )
 
         # If publishing fails, keep the old tier so the next run retries the transition.
-        if self.publisher is not None and not self.publisher.publish(event):
+        routing_key = supplier_id or event.get("payload", {}).get("supplier_id") or clean_supplier
+        if self.publisher is not None and not self.publisher.publish(event, key=routing_key):
             logger.error(
                 "Publish failed for '%s' %s -> %s; transition not committed, will retry next run.",
                 clean_supplier,
