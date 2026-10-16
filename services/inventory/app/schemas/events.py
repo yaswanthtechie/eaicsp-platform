@@ -73,3 +73,82 @@ class DeadLetterEnvelope(BaseModel):
     topic: str
     partition: Optional[int] = None
     offset: Optional[int] = None
+
+
+# ============================================================================
+# Round 15: Contract-First Integration Event Schemas
+# ============================================================================
+
+class POApprovedLineItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    line_number: int = Field(ge=1)
+    sku_id: str = Field(pattern=r"^SKU-\d{6}$")
+    quantity: int = Field(ge=1)
+    unit_cost: float = Field(ge=0)
+    expected_cost: float = Field(ge=0)
+
+
+class POApprovedPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    po_id: str = Field(pattern=r"^PO-\d{4}-\d{6}$")
+    po_number: Optional[str] = None
+    supplier_id: str = Field(pattern=r"^SUP-\d{5}$")
+    warehouse_id: str = Field(pattern=r"^WH-[A-Z]{3}-\d{2}$")
+    status: str = Field(pattern=r"^approved$")
+    approval_status: str = Field(pattern=r"^approved$")
+    approved_by: str
+    approved_at: str
+    total_amount: float = Field(ge=0)
+    currency: str = "INR"
+    expected_delivery_date: Optional[str] = None
+    lines: list[POApprovedLineItem] = Field(min_length=1)
+
+
+class InventoryPOApprovedEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: str
+    event_type: str = "inventory.po.approved"
+    event_version: int = 1
+    occurred_at: str
+    producer: str = "inventory-service"
+    trace_id: Optional[str] = None
+    payload: POApprovedPayload
+
+
+class GoodsReceivedLineItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sku_id: str = Field(pattern=r"^SKU-\d{6}$")
+    quantity_received: int = Field(ge=1)
+    unit_cost: Optional[float] = Field(default=None, ge=0)
+
+
+class GoodsReceivedPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    receipt_id: str = Field(pattern=r"^GR-\d{4}-\d{6}$")
+    po_id: str = Field(pattern=r"^PO-\d{4}-\d{6}$")
+    po_number: Optional[str] = None
+    supplier_id: str = Field(pattern=r"^SUP-\d{5}$")
+    warehouse_id: str = Field(pattern=r"^WH-[A-Z]{3}-\d{2}$")
+    received_by: str
+    received_at: str
+    status: str = "received"
+    notes: Optional[str] = None
+    items: list[GoodsReceivedLineItem] = Field(min_length=1)
+
+
+class InventoryGoodsReceivedEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: str
+    event_type: str = "inventory.goods.received"
+    event_version: int = 1
+    occurred_at: str
+    producer: str = "inventory-service"
+    trace_id: Optional[str] = None
+    payload: GoodsReceivedPayload
+
