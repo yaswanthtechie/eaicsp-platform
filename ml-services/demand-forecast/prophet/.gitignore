@@ -34,3 +34,4 @@ Thumbs.db
 
 # Raw M5 data - downloaded locally, never committed
 data/raw/
+reports/business_value/cache/

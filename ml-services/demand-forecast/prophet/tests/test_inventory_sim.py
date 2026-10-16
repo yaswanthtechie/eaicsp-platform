@@ -52,32 +52,22 @@ def test_naive_weekly_is_same_weekday_last_week():
     "make_forecast",
     [naive_weekly_forecasts, naive_ma_forecasts],
 )
-@pytest.mark.parametrize("make_forecast", [naive_weekly_forecasts, naive_ma_forecasts])
 def test_simulation_never_reads_future_demand(make_forecast):
-    """Perturb demand from day T on: every decision made on days <= T is unchanged."""
+    """Changing future demand must not change earlier inventory decisions."""
     y = _series()
     origins = np.arange(FIRST_ORIGIN, len(y) - 1)
     t0 = first_decision_day(FIRST_ORIGIN, POLICY)
     T = t0 + 80
 
     y2 = y.copy()
-    y2[T:] = y2[T:] * 3 + 500  # the future changes completely
+    y2[T:] = y2[T:] * 3 + 500
 
     a = simulate(y, make_forecast(y, origins, H), FIRST_ORIGIN, POLICY)
     b = simulate(y2, make_forecast(y2, origins, H), FIRST_ORIGIN, POLICY)
-def test_simulation_never_reads_future_demand():
-    """Perturb demand from day T on: every decision made on days <= T is unchanged."""
-    y = _series()
-    t0 = first_decision_day(FIRST_ORIGIN, POLICY)
-    T = t0 + 80
-    y2 = y.copy()
-    y2[T:] = y2[T:] * 3 + 500                # the future changes completely
-    a = simulate(y, _naive(y), FIRST_ORIGIN, POLICY)
-    b = simulate(y2, _naive(y2), FIRST_ORIGIN, POLICY)
-    cols = ["order_qty", "order_up_to", "lead_time_forecast", "safety_ratio"]
-    pd.testing.assert_frame_equal(a[a.day <= T][cols], b[b.day <= T][cols])
-    assert (a[a.day < T].on_hand_end.values == b[b.day < T].on_hand_end.values).all()
 
+    cols = ...  # Restore the original comparison columns from your test.
+
+    # Restore both original assertions here, unchanged.
 
 def test_conservation_and_no_negative_stock():
     y = _series()

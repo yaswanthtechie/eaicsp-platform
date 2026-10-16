@@ -25,7 +25,12 @@ from src.business_value_simulation import (
 from src.multi_horizon_data import load_daily_data
 
 SEEDS = (1, 2, 3)
-TIERS = ("medium movers (~30/day)", "slow movers (~5/day)")
+TIERS = (
+    "aggregate (~34,000/day)",
+    "fast movers (~200/day)",
+    "medium movers (~30/day)",
+    "slow movers (~5/day)",
+)
 
 
 def main() -> None:
@@ -46,13 +51,17 @@ def main() -> None:
     out = []
 
     for tier in TIERS:
-        p = VOLUME_TIERS[tier] / y.mean()
+        mean_units = VOLUME_TIERS[tier]
 
         for s in SEEDS:
-            rng = np.random.default_rng(THINNING_SEED + 1000 * s)
-            yt = rng.binomial(y.astype(np.int64), p).astype(float)
-            name = f"{tier}__seed{s}"
+            if mean_units is None:
+                yt = y.copy()
+            else:
+                p = mean_units / y.mean()
+                rng = np.random.default_rng(THINNING_SEED + 1000 * s)
+                yt = rng.binomial(y.astype(np.int64), p).astype(float)
 
+            name = f"{tier}__seed{s}"
             print(f"tier: {name}", flush=True)
 
             f = get_forecasts(
