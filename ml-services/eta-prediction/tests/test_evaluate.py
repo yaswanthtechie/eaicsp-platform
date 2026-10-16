@@ -393,3 +393,68 @@ def test_evaluation_does_not_pass_baseline_columns_to_model(
         "order_estimated_delivery_date"
         not in model.received_columns
     )
+def test_inherited_and_r14_use_same_test_period(sample_model_data):
+    """
+    Round 14 requirement:
+    inherited and R14 models must be evaluated on the same test period.
+
+    Both evaluations must receive the same test rows. The R14 copy is
+    augmented with the six history features required by the R14 model.
+    """
+
+    train = sample_model_data["train"].copy()
+    test = sample_model_data["test"].copy()
+
+    eta_history_features = [
+        "historical_on_time_rate_carrier",
+        "historical_avg_transit_days_carrier",
+        "historical_on_time_rate_route",
+        "historical_avg_transit_days_route",
+        "historical_avg_transit_days_carrier_route",
+        "historical_on_time_rate_departure_season",
+    ]
+
+    for column in eta_history_features:
+        train[column] = 0.5
+        test[column] = 0.5
+
+    class InspectingModel:
+        def __init__(self):
+            self.received_test = None
+
+        def predict(self, X):
+            self.received_test = X.copy()
+
+            return np.array(
+                [
+                    5.0,
+                    10.0,
+                    15.0,
+                    20.0,
+                ]
+            )
+
+    inherited_model = InspectingModel()
+    r14_model = InspectingModel()
+
+    evaluate_model(
+        inherited_model,
+        train,
+        test,
+        use_eta_history_features=False,
+    )
+
+    evaluate_model(
+        r14_model,
+        train,
+        test,
+        use_eta_history_features=True,
+    )
+
+    # Both models must receive the same number of test rows.
+    assert len(inherited_model.received_test) == len(r14_model.received_test)
+
+    # The test rows must represent the same observations.
+    assert list(inherited_model.received_test.index) == list(
+        r14_model.received_test.index
+    )

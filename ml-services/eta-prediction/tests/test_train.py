@@ -614,4 +614,131 @@ def test_main_enables_production_gate():
         )
         assert isinstance(gate, ast.Constant) and gate.value is True, (
             "main.py must call train_model(..., enforce_production_gate=True)"
-        )          
+        )
+def test_r14_training_uses_eta_history_features():
+    """R14 training must use the feature-lib ETA history feature set."""
+
+    import numpy as np
+    import pandas as pd
+
+    from src.pipeline import create_eta_history_pipeline
+
+    features = pd.DataFrame(
+        {
+            "origin_lat": np.linspace(10.0, 20.0, 20),
+            "origin_lng": np.linspace(30.0, 40.0, 20),
+            "destination_lat": np.linspace(11.0, 21.0, 20),
+            "destination_lng": np.linspace(31.0, 41.0, 20),
+            "distance_km": np.linspace(5.0, 25.0, 20),
+            "item_count": np.ones(20),
+            "total_weight_kg": np.ones(20),
+            "total_volume_cm3": np.ones(20),
+            "total_freight_value": np.ones(20),
+            "purchase_year": [2018] * 20,
+            "purchase_month": list(range(1, 21)),
+            "purchase_day_of_week": [0] * 20,
+            "purchase_hour": [10] * 20,
+            "historical_on_time_rate_carrier": np.linspace(0.5, 0.9, 20),
+            "historical_avg_transit_days_carrier": np.linspace(3.0, 7.0, 20),
+            "historical_on_time_rate_route": np.linspace(0.4, 0.8, 20),
+            "historical_avg_transit_days_route": np.linspace(4.0, 8.0, 20),
+            "historical_avg_transit_days_carrier_route": np.linspace(
+                3.5, 7.5, 20
+            ),
+            "historical_on_time_rate_departure_season": np.linspace(
+                0.45, 0.85, 20
+            ),
+            "product_category_name": ["electronics"] * 20,
+        }
+    )
+
+    target = np.linspace(2.0, 10.0, 20)
+
+    model = create_eta_history_pipeline()
+
+    model.fit(features, target)
+
+    preprocessor = model.named_steps["preprocessor"]
+
+    feature_names = preprocessor.get_feature_names_out()
+
+    for column in [
+        "historical_on_time_rate_carrier",
+        "historical_avg_transit_days_carrier",
+        "historical_on_time_rate_route",
+        "historical_avg_transit_days_route",
+        "historical_avg_transit_days_carrier_route",
+        "historical_on_time_rate_departure_season",
+    ]:
+        assert any(column in name for name in feature_names)
+
+    assert hasattr(model.named_steps["model"], "predict")
+
+def test_train_eta_history_model_returns_fitted_r14_components():
+    """R14 training must return fitted preprocessing and model components."""
+    import numpy as np
+    import pandas as pd
+    from unittest.mock import patch
+
+    from src.train import train_eta_history_model
+
+    X_train = pd.DataFrame(
+        {
+            "origin_lat": np.linspace(10.0, 20.0, 30),
+            "origin_lng": np.linspace(30.0, 40.0, 30),
+            "destination_lat": np.linspace(11.0, 21.0, 30),
+            "destination_lng": np.linspace(31.0, 41.0, 30),
+            "distance_km": np.linspace(5.0, 25.0, 30),
+            "item_count": np.ones(30),
+            "total_weight_kg": np.ones(30),
+            "total_volume_cm3": np.ones(30),
+            "total_freight_value": np.ones(30),
+            "purchase_year": [2018] * 30,
+            "purchase_month": [(i % 12) + 1 for i in range(30)],
+            "purchase_day_of_week": [i % 7 for i in range(30)],
+            "purchase_hour": [10] * 30,
+            "historical_on_time_rate_carrier": np.linspace(0.5, 0.9, 30),
+            "historical_avg_transit_days_carrier": np.linspace(3.0, 7.0, 30),
+            "historical_on_time_rate_route": np.linspace(0.4, 0.8, 30),
+            "historical_avg_transit_days_route": np.linspace(4.0, 8.0, 30),
+            "historical_avg_transit_days_carrier_route": np.linspace(
+                3.5, 7.5, 30
+            ),
+            "historical_on_time_rate_departure_season": np.linspace(
+                0.45, 0.85, 30
+            ),
+            "product_category_name": ["electronics"] * 30,
+        }
+    )
+
+    y_train = pd.Series(np.linspace(2.0, 10.0, 30))
+
+    # The unit test uses a small synthetic dataset. Prevent the training
+    # function from overwriting the real production model artifacts.
+    with patch("src.train.joblib.dump"):
+        preprocessor, model = train_eta_history_model(
+            X_train,
+            y_train,
+            enforce_production_gate=False,
+        )
+
+    assert preprocessor is not None
+    assert hasattr(preprocessor, "transform")
+    assert hasattr(preprocessor, "get_feature_names_out")
+
+    assert model is not None
+    assert hasattr(model, "predict")
+
+    feature_names = preprocessor.get_feature_names_out()
+
+    expected_history_features = [
+        "historical_on_time_rate_carrier",
+        "historical_avg_transit_days_carrier",
+        "historical_on_time_rate_route",
+        "historical_avg_transit_days_route",
+        "historical_avg_transit_days_carrier_route",
+        "historical_on_time_rate_departure_season",
+    ]
+
+    for column in expected_history_features:
+        assert any(column in name for name in feature_names)
