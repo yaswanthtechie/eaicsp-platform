@@ -21,3 +21,10 @@ select = [
 "app/routes/*.py" = ["B008"]
 "app/core/dependencies.py" = ["B008"]
 "app/core/service_auth.py" = ["B008"]
+
+[tool.mypy]
+python_version = "3.11"
+
+[[tool.mypy.overrides]]
+module = ["kafka.*"]
+ignore_missing_imports = true

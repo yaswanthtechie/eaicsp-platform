@@ -19,7 +19,7 @@ class VerifyRateLimiter:
         self.window_seconds = window_seconds
 
         # Stores request timestamps for each caller service
-        self._requests = defaultdict(list)
+        self._requests: defaultdict[str, list[float]] = defaultdict(list)
 
         # Protects the rate-limit data when multiple requests
         # are processed at the same time

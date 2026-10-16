@@ -60,79 +60,98 @@ http://127.0.0.1:8005
 # Project Structure
 
 ```text
-app/
-├── main.py
-├── database.py
-├── seed.py
+eaicsp-platform/
+├── .github/
+│   └── workflows/
+│       └── platform-ci.yml          # Round 14: CI pipeline
 │
-├── routes/
-│   ├── auth_routes.py
-│   ├── user_routes.py
-│   └── admin_routes.py
+├── docs/
+│   ├── architecture/
+│   │   └── integration-blueprint.md
+│   └── ci-template.md               # Reusable CI documentation
 │
-├── schemas/
-│   ├── auth.py
-│   ├── user.py
-│   └── admin.py
 ├── services/
-│   ├── auth_service.py
-│   ├── audit_service.py
-│   ├── email_service.py
-│   ├── audit_export_service.py
-│   ├── mfa_service.py
-│   ├── rate_limit_service.py
-│   ├── sso_service.py
-│   ├── abuse_dashboard_service.py
+│   └── platform/
+│       ├── app/
+│       │   ├── main.py
+│       │   ├── database.py
+│       │   ├── seed.py
+│       │   │
+│       │   ├── routes/
+│       │   │   ├── auth_routes.py
+│       │   │   ├── user_routes.py
+│       │   │   └── admin_routes.py
+│       │   │
+│       │   ├── schemas/
+│       │   │   ├── auth.py
+│       │   │   ├── user.py
+│       │   │   └── admin.py
+│       │   │
+│       │   ├── services/
+│       │   │   ├── auth_service.py
+│       │   │   ├── audit_service.py
+│       │   │   ├── email_service.py
+│       │   │   ├── audit_export_service.py
+│       │   │   ├── mfa_service.py
+│       │   │   ├── rate_limit_service.py
+│       │   │   ├── sso_service.py
+│       │   │   └── abuse_dashboard_service.py
+│       │   │
+│       │   ├── core/
+│       │   │   ├── config.py
+│       │   │   ├── security.py
+│       │   │   ├── dependencies.py
+│       │   │   ├── password_validator.py
+│       │   │   ├── service_auth.py
+│       │   │   ├── token_cache.py
+│       │   │   ├── permissions.py
+│       │   │   └── verify_rate_limiter.py
+│       │   │
+│       │   ├── models/
+│       │   │   ├── auth_audit_logs.py
+│       │   │   ├── abuse_event.py
+│       │   │   ├── password_reset_tokens.py
+│       │   │   ├── failed_login_attempts.py
+│       │   │   ├── refresh_token.py
+│       │   │   ├── roles.py
+│       │   │   ├── users.py
+│       │   │   ├── role_change_history.py
+│       │   │   └── service_api_keys.py
+│       │   │
+│       │   └── middleware/
+│       │       └── logging.py
+│       │
+│       ├── tests/
+│       │   ├── fixtures/
+│       │   │   ├── role_hierarchy_v1.json
+│       │   │   └── permissions_v1.json
+│       │   ├── conftest.py
+│       │   ├── test_auth.py
+│       │   ├── test_integration.py
+│       │   ├── test_security.py
+│       │   ├── test_rbac_snapshot.py
+│       │   ├── test_roles_and_permissions.py
+│       │   ├── test_new_roles_assignable.py
+│       │   ├── test_readme_permission_matrix.py
+│       │   ├── test_event_publisher_integration.py
+│       │   ├── test_event_publisher.py
+│       │   ├── test_logging_config.py
+│       │   ├── test_redis_auth_state.py
+│       │   ├── test_verify_load.py
+│       │   └── test_two_instance_revocation.py
+│       │
+│       ├── scripts/
+│       │   ├── load_test_verify.py
+│       │   ├── dump_permissions.py
+│       │   └── two_instance_revocation_check.py
+│       │
+│       ├── requirements.txt
+│       ├── pyproject.toml            # Ruff, Mypy and pytest config
+│       ├── Dockerfile
+│       ├── .env.example
+│       └── README.md
 │
-├── core/
-│   ├── config.py
-│   ├── security.py
-│   ├── dependencies.py
-│   ├── password_validator.py
-│   ├── service_auth.py
-│   ├── token_cache.py
-│   ├── permissions.py
-│   ├── verify_rate_limiter.py
-│
-├── models/
-│   ├── auth_audit_logs.py
-│   ├── abuse_event.py
-│   ├── password_reset_tokens.py
-│   ├── failed_login_attempts.py
-│   ├── refresh_token.py
-│   ├── roles.py
-│   ├── users.py
-│   ├── role_change_history.py
-│   └── service_api_keys.py
-│
-└── middleware/
-    └── logging.py
-
-tests/
-├── fixtures/
-│   ├──role_hierarchy_v1.json
-│   ├──permissions_v1.json
-├── test_auth.py
-├── conftest.py
-├── test_integration.py
-├── test_security.py
-├── test_rbac_snapshot.py
-├── test_roles_and_permissions.py
-├── test_new_roles_assignable.py
-├── test_readme_permission_matrix.py
-├── test_event_publisher_integration.py
-├── test_event_publisher.py
-├── test_logging_config.py
-├── test_redis_auth_state.py
-├── test_verify_load.py
-├── test_two_instance_revocation.py
-
-
-scripts/
-├── load_test_verify.py
-├── dump_permissions.py
-├── two_instance_revocation_check.py
-
+└── docker-compose.dev.yml
 ```
 ---
 
@@ -1740,7 +1759,6 @@ The default configuration excludes integration tests:
 addopts = "-m 'not integration'"
 ```
 
-
 ## Running the Dev Stack
 
 Run these commands from the `services/platform/` directory.
@@ -1770,83 +1788,6 @@ python scripts/two_instance_revocation_check.py
 ```
 
 **M1 completion evidence:** Save the successful proof-script output and include it in the README and pull request. Mark M1 complete only after the script passes.
-
-### Pending: First CI Pipeline for the Platform Service
-
-The GitHub Actions CI pipeline has not yet been implemented. It is planned as a reusable template for future services, initially scoped to the Platform Service.
-
-The planned workflow will:
-
-- Run only for pull requests that modify files under `services/platform/**`.
-- Run Ruff linting and mypy type checking on at least `app/core` and `app/services`.
-- Scan source code with Bandit and dependencies with pip-audit.
-- Run unit tests using `pytest -m "not integration"` and report coverage.
-- Run integration tests against a Redis service container.
-- Build the Docker image and scan it with Trivy, failing on critical vulnerabilities.
-
-These CI pipeline tasks remain pending and should be marked complete only after implementation and successful validation.
-
-## Code Quality and Validation
-
-The Platform Service uses Ruff for Python linting and code formatting, and pytest for automated testing.
-
-Run the following commands from the `services/platform/` directory.
-
-### Ruff Linting
-
-Check for lint issues:
-
-```powershell
-python -m ruff check .
-```
-
-Automatically fix supported lint issues:
-
-```powershell
-python -m ruff check . --fix
-```
-
-**Validation result:** All checks passed.
-
-### Ruff Formatting
-
-Check whether Python files are formatted correctly:
-
-```powershell
-python -m ruff format --check .
-```
-
-Format Python files:
-
-```powershell
-python -m ruff format .
-```
-
-### Automated Tests
-
-Run the default test suite:
-
-```powershell
-python -m pytest -q
-```
-
-Run integration tests separately when Redis, Kafka, and the required service environment are available:
-
-```powershell
-python -m pytest -m integration -rs
-```
-
-### Git Diff Validation
-
-Check for whitespace errors:
-
-```powershell
-git diff --check
-```
-Confirm that linting and formatting checks pass and that the test results are successful before committing changes. Review the Git diff to ensure formatting changes have not introduced unintended application behavior changes.
-
-These checks document the R14 linting and formatting cleanup. No application behavior changes are intended.
----
 
 ## End-to-End Service Flow
 
@@ -3704,5 +3645,189 @@ publish_event(event_type, payload)
 for cross-service events and the same structured logging conventions for
 consistent request tracing and operational monitoring.
 
-Other services are not required to migrate their existing logging or event
-publishing during Round 12+13.
+
+# Platform Service CI Pipeline:Round-14
+### Round 14 CI checks
+
+The `platform-ci.yml` workflow validates the Platform Service using:
+
+- Ruff linting and formatting
+- Mypy type checking
+- Bandit security scanning
+- pip-audit dependency vulnerability scanning
+- Unit tests and coverage reporting
+- Redis integration tests
+- Docker image build and Trivy vulnerability scanning
+
+
+**Workflow file:** `.github/workflows/platform-ci.yml`
+
+**Scope:** `services/platform/`
+
+The workflow is triggered by pull requests that modify files under `services/platform/**`. Changes to unrelated services should not trigger this service-specific workflow.
+
+## CI Pipeline Checks
+
+The workflow must run the following checks:
+
+| Check | Tool | Purpose |
+|---|---|---|
+| Python linting | Ruff | Detect code-quality issues |
+| Formatting | Ruff | Verify consistent Python formatting |
+| Static type checking | Mypy | Detect type-related errors |
+| Source security | Bandit | Identify potentially insecure Python patterns |
+| Dependency security | pip-audit | Identify known vulnerabilities in dependencies |
+| Unit tests | Pytest | Run tests excluding integration tests |
+| Coverage | pytest-cov | Report covered and uncovered lines |
+| Integration tests | Pytest + Redis | Validate integration behavior using Redis |
+| Container build | Docker | Verify the service image builds successfully |
+| Image security | Trivy | Scan the image and fail on critical vulnerabilities |
+
+## 1. Ruff Linting and Formatting
+
+Run linting:
+
+```bash
+python -m ruff check .
+```
+
+Check formatting:
+
+```bash
+python -m ruff format --check .
+```
+
+CI must fail if either check fails. The workflow should report the failing step clearly.
+
+## 2. Mypy Type Checking
+
+Mypy performs static type checking without running the application.
+
+The minimum required scope is:
+
+```text
+app/core/
+app/services/
+```
+
+Run:
+
+```bash
+python -m mypy app/core app/services
+```
+
+Configure Mypy and resolve genuine type errors. Any intentional exceptions must be narrowly scoped and documented.
+
+A type-checking failure must fail the CI job.
+
+## 3. Bandit Source-Code Security Scan
+
+Bandit scans Python source code for common security issues.
+
+Run:
+
+```bash
+python -m bandit -r app
+```
+
+The workflow must display the findings and fail when the configured security check fails. Do not suppress findings globally merely to make CI pass.
+
+## 4. pip-audit Dependency Security Scan
+
+pip-audit checks installed or declared Python dependencies against known vulnerability information.
+
+Run:
+
+```bash
+python -m pip_audit -r requirements.txt
+```
+
+Update the command if the project uses a different authoritative dependency file.
+
+The workflow must make dependency vulnerabilities visible and fail according to the configured audit policy.
+
+## 5. Unit Tests and Coverage
+
+Run the unit test suite without integration tests:
+
+```bash
+python -m pytest -m "not integration" \
+  --cov=app \
+  --cov-report=term-missing
+```
+
+Install `pytest-cov` if it is not already included in the project dependencies.
+
+Coverage output must identify missing lines. Do not claim that a minimum coverage percentage is enforced unless an explicit threshold is configured.
+
+## 6. Redis Integration Tests
+
+The integration-test job must start a Redis service container and wait until Redis is healthy.
+
+Use the application's existing `REDIS_URL` configuration.
+
+Example test command:
+
+```bash
+python -m pytest -m integration -rs
+```
+
+The job must:
+
+1. Start Redis and verify its health.
+2. Configure the application to connect to Redis.
+3. Install project dependencies.
+4. Run the integration tests.
+5. Report failures clearly.
+
+Tests requiring Kafka or another external service must have that dependency configured or be separated from the Redis-only job.
+
+## 7. Docker Build and Trivy Scan
+
+Build the Platform Service image using the repository's Dockerfile and the correct build context.
+
+The workflow must:
+
+- Build the image successfully.
+- Scan the built image using Trivy.
+- Fail when critical (`CRITICAL`) vulnerabilities are found.
+- Display vulnerability scan results in the CI logs.
+- Avoid exposing secrets through build arguments or logs.
+
+The image scan is a required pull-request validation step.
+
+## 8. Workflow Performance and Readable Failures
+
+The workflow must use pip caching to reduce dependency installation time.
+
+Use descriptive steps or jobs:
+
+```text
+Ruff lint
+Ruff format
+Mypy type check
+Bandit security scan
+Dependency vulnerability scan
+Unit tests and coverage
+Redis integration tests
+Docker build
+Trivy vulnerability scan
+```
+
+Each failed check must provide enough output to identify and fix the problem.
+
+## 9. Reusable CI Template
+
+Create:
+
+```text
+docs/ci-template.md
+```
+
+The document must explain how another EAICSP service can adopt this workflow by changing three service-specific settings:
+
+1. **Path filter:** Replace `services/platform/**` with the target service's path.
+2. **Working directory and build context:** Update the service directory, Dockerfile location, and image build context.
+3. **Service-specific test and dependency configuration:** Update test commands, environment variables, dependency files, and required integration services.
+
+The template must also explain the shared quality checks, security scans, caching, coverage reporting, Docker scanning, and failure interpretation.
