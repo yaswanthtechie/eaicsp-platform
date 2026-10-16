@@ -178,6 +178,32 @@ jobs:
                       client.close()
           PY
 
+      - name: Ensure event topic exists
+        run: |
+          python - <<'PY'
+          from kafka.admin import KafkaAdminClient, NewTopic
+
+          admin = KafkaAdminClient(
+              bootstrap_servers="localhost:9092",
+              request_timeout_ms=10000,
+          )
+          try:
+              topics = admin.list_topics()
+              if "platform.user.locked" not in topics:
+                  admin.create_topics([
+                      NewTopic(
+                          name="platform.user.locked",
+                          num_partitions=1,
+                          replication_factor=1,
+                      )
+                  ])
+                  print("Created platform.user.locked")
+              else:
+                  print("platform.user.locked already exists")
+          finally:
+              admin.close()
+          PY
+
       - name: Redis cross-instance revocation test
         run: |
           python -m pytest -o addopts= -m integration -v \
@@ -236,12 +262,12 @@ jobs:
       - name: Seed integration test database
         env:
           CEO_PASSWORD: "CI-ceo-password-123!"
-          WAREHOUSE_MANAGER_PASSWORD: "CI-warehouse-123!"
-          VP_OPERATIONS_PASSWORD: "CI-vpoperations-123!"
+          WAREHOUSE_MANAGER_PASSWORD: "warehouse@123"
+          VP_OPERATIONS_PASSWORD: "vpoperations@123"
           PROCUREMENT_MANAGER_PASSWORD: "CI-procurement-123!"
           LOGISTICS_MANAGER_PASSWORD: "CI-logistics-123!"
           COMPLIANCE_OFFICER_PASSWORD: "CI-compliance-123!"
-          SUPPLIER_PASSWORD: "CI-supplier-123!"
+          SUPPLIER_PASSWORD: "supplier@123"
           ANALYST_PASSWORD: "CI-analyst-123!"
         run: python -m app.seed
 
@@ -305,7 +331,7 @@ jobs:
             services/platform
 
       - name: Scan image with Trivy
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: platform-service:${{ github.sha }}
           format: table

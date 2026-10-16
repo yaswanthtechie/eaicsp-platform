@@ -6,6 +6,7 @@ ruff==0.17.0
 mypy==2.4.0
 bandit==1.9.4
 pip-audit==2.10.1
+types-passlib==1.7.7.20260211
 
 # Testing and coverage
 pytest==9.0.3
