@@ -1,8 +1,9 @@
 import pytest
 import pandas as pd
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, types
 from src.postgres_profiler import PostgresPushdownProfiler
 from src.profile import profile
+from src.parity import compare_reports
 
 DB_URL = "postgresql+psycopg2://postgres:password@localhost:5433/profiling_db"
 
@@ -22,7 +23,14 @@ def test_postgres_pushdown_vs_pandas_parity():
 
     table_name = "test_sales_parity"
     with engine.begin() as connection:
-        df_sample.to_sql(table_name, connection, if_exists="replace", index=False)
+        # Enforce strict NUMERIC types so the unmodified _is_numeric_type check passes
+        df_sample.to_sql(
+            table_name,
+            connection,
+            if_exists="replace",
+            index=False,
+            dtype=dict(quantity_sold=types.Numeric(), unit_price=types.Numeric())
+        )
 
     # 2. Run Pushdown Profiler
     pushdown = PostgresPushdownProfiler(engine)
@@ -32,20 +40,4 @@ def test_postgres_pushdown_vs_pandas_parity():
     report_pandas = profile(df_sample)
 
     # 4. Verify Parity
-    assert report_sql["shape"] == report_pandas["shape"]
-
-    # Null counts
-    sql_nulls = {c["column"]: c["null_count"] for c in report_sql["column_summary"]}
-    pandas_nulls = {c["column"]: c["null_count"] for c in report_pandas["column_summary"]}
-    assert sql_nulls == pandas_nulls
-
-    # Means within floating point tolerance
-    sql_mean = report_sql["statistics"]["unit_price"]["mean"]
-    pandas_mean = report_pandas["statistics"]["unit_price"]["mean"]
-    assert pytest.approx(sql_mean, rel=1e-2) == pandas_mean
-
-    # Outliers
-    assert (
-        report_sql["outliers"]["quantity_sold"]["outlier_count"]
-        == report_pandas["outliers"]["quantity_sold"]["outlier_count"]
-    )
+    assert compare_reports(report_pandas, report_sql) == []

@@ -5,8 +5,6 @@
 **Current owner:** Tharun (from 08/10/2026)
 **Last updated:** 14/10/2026
 
-> How to use this template: replace every `<...>` and every `TODO` with what you actually found. Write facts you checked yourself. If you're not sure, say so in "Things I don't understand yet". "Mostly works" is not useful; "works on Postgres, fails on empty tables" is.
-
 ---
 
 ## 1. What this library does
@@ -25,7 +23,7 @@ python -m venv .venv
 pip install -r requirements.txt
 pytest -m "not integration" -q
 ```
-Result on 14/102026: `<179 passed, 0 failed, 3 skipped>`
+Result on 14/102026: `<185 passed, 1 failed, 1 skipped>`
 
 ### Database (Docker)
 ```powershell

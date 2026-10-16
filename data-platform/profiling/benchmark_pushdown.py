@@ -1,11 +1,22 @@
+import json
+import platform
+import sys
 import time
 import tracemalloc
 from pathlib import Path
 import numpy as np
 import pandas as pd
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from src.postgres_profiler import PostgresPushdownProfiler
 from src.profile import profile
+from src.db_config import get_db_url
+from src.parity import compare_reports
+
+RESULTS_DIR = Path(__file__).resolve().parent / "results"
+
+def pandas_mode(engine, table_name):
+    df = pd.read_sql_table(table_name, engine)     # the load is part of pandas mode
+    return profile(df)
 
 DB_URL = "postgresql+psycopg2://postgres:password@localhost:5433/profiling_db"
 ROW_COUNT = 1_000_000
@@ -51,48 +62,33 @@ def measure_execution(func, *args, **kwargs):
 
 
 def main():
-    engine = create_engine(DB_URL)
-    df = seed_database(engine)
+    engine = create_engine(get_db_url())
+    seed_database(engine)                          # don't keep the returned df around
 
-    print("\n--- Running In-Memory Pandas Profiler ---")
-    pandas_report, pandas_time, pandas_mem = measure_execution(profile, df)
-    print(f"Pandas Profile Time : {pandas_time:.2f}s")
-    print(f"Pandas Peak Memory  : {pandas_mem:.2f} MB")
+    pandas_report, pandas_time, pandas_mem = measure_execution(pandas_mode, engine, TABLE_NAME)
+    sql_report, sql_time, sql_mem = measure_execution(
+        PostgresPushdownProfiler(engine).profile_table, TABLE_NAME)
 
-    print("\n--- Running SQL Pushdown Profiler ---")
-    pushdown = PostgresPushdownProfiler(engine)
-    sql_report, sql_time, sql_mem = measure_execution(pushdown.profile_table, TABLE_NAME)
-    print(f"SQL Pushdown Time   : {sql_time:.2f}s")
-    print(f"SQL Peak Memory     : {sql_mem:.2f} MB")
+    mismatches = compare_reports(pandas_report, sql_report)
 
-    print("\n========== METRIC PARITY CHECK ==========")
-    p_stat = pandas_report["statistics"]["quantity_sold"]
-    s_stat = sql_report["statistics"]["quantity_sold"]
+    with engine.connect() as conn:
+        pg_version = conn.execute(text("SELECT version()")).scalar()
 
-    print(f"Count  -> Pandas: {p_stat['count']} | SQL: {s_stat['count']}")
-    print(f"Mean   -> Pandas: {p_stat['mean']:.4f} | SQL: {s_stat['mean']:.4f}")
-    print(f"Median -> Pandas: {p_stat['50%']:.4f} | SQL: {s_stat['50%']:.4f}")
-    print(f"Max    -> Pandas: {p_stat['max']} | SQL: {s_stat['max']}")
+    result = {
+        "rows": ROW_COUNT,
+        "pandas_in_memory": {"time_seconds": round(pandas_time, 2), "peak_python_mb": round(pandas_mem, 1)},
+        "sql_pushdown": {"time_seconds": round(sql_time, 2), "peak_python_mb": round(sql_mem, 1)},
+        "parity_mismatches": mismatches,
+        "environment": {"python": sys.version.split()[0], "pandas": pd.__version__,
+                        "postgres": pg_version, "machine": platform.processor()},
+        "memory_note": "tracemalloc measures Python-heap allocations only.",
+    }
+    RESULTS_DIR.mkdir(exist_ok=True)
+    (RESULTS_DIR / "pushdown_benchmark.json").write_text(json.dumps(result, indent=2))
+    print(json.dumps(result, indent=2))
 
-    # Save benchmark results
-    out_dir = Path("reports")
-    out_dir.mkdir(exist_ok=True)
-    summary_df = pd.DataFrame([
-        {
-            "mode": "pandas_in_memory",
-            "rows": ROW_COUNT,
-            "time_seconds": round(pandas_time, 2),
-            "peak_memory_mb": round(pandas_mem, 2),
-        },
-        {
-            "mode": "sql_pushdown",
-            "rows": ROW_COUNT,
-            "time_seconds": round(sql_time, 2),
-            "peak_memory_mb": round(sql_mem, 2),
-        },
-    ])
-    summary_df.to_csv(out_dir / "pushdown_benchmark_results.csv", index=False)
-    print(f"\nBenchmark summary written to reports/pushdown_benchmark_results.csv")
+    if mismatches:
+        raise SystemExit(f"Parity FAILED: {len(mismatches)} mismatches")
 
 
 if __name__ == "__main__":

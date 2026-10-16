@@ -5,9 +5,9 @@ services:
     image: postgres:16-alpine
     container_name: profiling-postgres-local
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: profiling_db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "5433:5432"
@@ -25,9 +25,14 @@ services:
     depends_on:
       postgres-profiler:
         condition: service_healthy
+    working_dir: /opt/profiling
     volumes:
-      - .:/opt/airflow
+      - .:/opt/profiling
     environment:
-      - PYTHONPATH=/opt/airflow
+      - PYTHONPATH=/opt/profiling
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+    # Inside Docker the DB is postgres-profiler:5432, not localhost:5433
+      - PROFILING_DB_URL=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres-profiler:5432/${POSTGRES_DB}
     # Install required DB drivers on startup, then keep the container alive
-    command: bash -c "pip install sqlalchemy psycopg2-binary pandas numpy matplotlib && sleep infinity"
+    entrypoint: ["/bin/bash", "-c", "pip install --no-cache-dir -r /opt/profiling/requirements-airflow.txt --constraint https://raw.githubusercontent.com/apache/airflow/constraints-2.7.3/constraints-3.10.txt && sleep infinity"]
+#    command: bash -c "pip install --no-cache-dir -r /opt/airflow/requirements-airflow.txt --constraint https://raw.githubusercontent.com/apache/airflow/constraints-2.7.3/constraints-3.10.txt && sleep infinity"

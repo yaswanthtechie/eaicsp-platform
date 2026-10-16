@@ -1,5 +1,5 @@
 from unittest.mock import MagicMock, patch
-
+from sqlalchemy import Integer, String, Interval
 from src.postgres_profiler import PostgresPushdownProfiler
 
 
@@ -7,15 +7,17 @@ def test_pushdown_profiler_empty_table():
     mock_engine = MagicMock()
     mock_conn = MagicMock()
     mock_engine.connect.return_value.__enter__.return_value = mock_conn
+    mock_engine.dialect.identifier_preparer.quote_identifier.side_effect = lambda x: f'"{x}"'
 
     # Mock count query returning 0 rows
     mock_conn.execute.return_value.scalar.return_value = 0
 
     with patch("src.postgres_profiler.inspect") as mock_inspect:
         mock_inspector = MagicMock()
+        mock_inspector.get_table_names.return_value = ["empty_table"]
         mock_inspector.get_columns.return_value = [
-            {"name": "id", "type": "INTEGER"},
-            {"name": "name", "type": "VARCHAR"},
+            {"name": "id", "type": Integer()},
+            {"name": "name", "type": String()},
         ]
         mock_inspect.return_value = mock_inspector
 
@@ -31,6 +33,7 @@ def test_pushdown_profiler_aggregates_mocked():
     mock_engine = MagicMock()
     mock_conn = MagicMock()
     mock_engine.connect.return_value.__enter__.return_value = mock_conn
+    mock_engine.dialect.identifier_preparer.quote_identifier.side_effect = lambda x: f'"{x}"'
 
     # 1. Total rows (scalar)
     res_count = MagicMock()
@@ -71,8 +74,9 @@ def test_pushdown_profiler_aggregates_mocked():
 
     with patch("src.postgres_profiler.inspect") as mock_inspect:
         mock_inspector = MagicMock()
+        mock_inspector.get_table_names.return_value = ["sales"]
         mock_inspector.get_columns.return_value = [
-            {"name": "quantity_sold", "type": "INTEGER"}
+            {"name": "quantity_sold", "type": Integer()}
         ]
         mock_inspect.return_value = mock_inspector
 
@@ -83,3 +87,50 @@ def test_pushdown_profiler_aggregates_mocked():
         assert report["statistics"]["quantity_sold"]["mean"] == 150.0
         assert report["statistics"]["quantity_sold"]["25%"] == 50.0
         assert report["column_summary"][0]["null_count"] == 5
+
+
+def test_pushdown_profiler_interval_type_ignored():
+    mock_engine = MagicMock()
+    mock_conn = MagicMock()
+    mock_engine.connect.return_value.__enter__.return_value = mock_conn
+    mock_engine.dialect.identifier_preparer.quote_identifier.side_effect = lambda x: f'"{x}"'
+
+    # 1. Total rows (scalar)
+    res_count = MagicMock()
+    res_count.scalar.return_value = 50
+
+    # 2. Aggregates (mappings)
+    res_agg = MagicMock()
+    res_agg.mappings().one.return_value = {
+        "null_count": 0, "unique_count": 50
+    }
+
+    # 3. PII Sample (iterable)
+    res_sample = MagicMock()
+    res_sample.__iter__.return_value = iter([["1 day"]])
+
+    # 4. Duplicates (scalar)
+    res_dup = MagicMock()
+    res_dup.scalar.return_value = 0
+
+    # Execute returns these objects sequentially
+    mock_conn.execute.side_effect = [
+        res_count,
+        res_agg,
+        res_sample,
+        res_dup
+    ]
+
+    with patch("src.postgres_profiler.inspect") as mock_inspect:
+        mock_inspector = MagicMock()
+        mock_inspector.get_table_names.return_value = ["events"]
+        mock_inspector.get_columns.return_value = [
+            {"name": "duration", "type": Interval()}
+        ]
+        mock_inspect.return_value = mock_inspector
+
+        profiler = PostgresPushdownProfiler(mock_engine)
+        report = profiler.profile_table("events")
+
+        # Interval columns should not be treated as numeric, thus not present in statistics
+        assert "duration" not in report["statistics"]

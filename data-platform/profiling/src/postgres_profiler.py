@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Union
 import numpy as np
 import pandas as pd
 from sqlalchemy.engine import Engine
+from sqlalchemy import types as sqltypes
 from sqlalchemy import (
     create_engine,
     inspect,
@@ -17,17 +18,16 @@ from sqlalchemy import (
 from src.profile import ProfileReport
 
 
-def _is_numeric_type(col_type: Any) -> bool:
-    type_str = str(col_type).lower()
-    return any(
-        t in type_str
-        for t in ["int", "serial", "numeric", "decimal", "float", "double", "real"]
-    )
+def _is_numeric_type(col_type) -> bool:
+    return isinstance(col_type, (sqltypes.Integer, sqltypes.Numeric))
 
 
-def _is_date_type(col_type: Any) -> bool:
-    type_str = str(col_type).lower()
-    return any(t in type_str for t in ["date", "time", "timestamp"])
+def _is_date_type(col_type) -> bool:
+    return isinstance(col_type, (sqltypes.Date, sqltypes.DateTime, sqltypes.Time))
+
+
+def _needs_text_cast(col_type) -> bool:
+    return isinstance(col_type, (sqltypes.JSON, sqltypes.ARRAY))
 
 
 class PostgresPushdownProfiler:
@@ -46,14 +46,20 @@ class PostgresPushdownProfiler:
         sample_rows_for_pii: int = 20,
     ) -> ProfileReport:
         inspector = inspect(self.engine)
+
+        if table_name not in inspector.get_table_names(schema=schema):
+            raise ValueError(f"Table '{schema}.{table_name}' not found.")
+
         columns_meta = inspector.get_columns(table_name, schema=schema)
 
         if not columns_meta:
-            raise ValueError(f"Table '{schema}.{table_name}' not found or has no columns.")
+            raise ValueError(f"Table '{schema}.{table_name}' has no columns.")
+
+        prep = self.engine.dialect.identifier_preparer
+        tbl = f"{prep.quote_identifier(schema)}.{prep.quote_identifier(table_name)}"
 
         with self.engine.connect() as conn:
-            # 1. Total row count
-            count_query = text(f'SELECT COUNT(*) FROM "{schema}"."{table_name}"')
+            count_query = text(f'SELECT COUNT(*) FROM {tbl}')
             total_rows = conn.execute(count_query).scalar() or 0
 
             if total_rows == 0:
@@ -94,18 +100,20 @@ class PostgresPushdownProfiler:
             # 2. Per-column aggregated metrics
             for col in columns_meta:
                 c_name = col["name"]
+                qc = prep.quote_identifier(c_name)
                 c_type = col["type"]
                 is_num = _is_numeric_type(c_type)
                 is_dt = _is_date_type(c_type)
 
-                # Null count and distinct count
+                qc_distinct = f"{qc}::text" if _needs_text_cast(c_type) else qc
+
                 agg_sql = text(f"""
                     SELECT 
-                        COUNT(*) - COUNT("{c_name}") AS null_count,
-                        COUNT(DISTINCT "{c_name}") AS unique_count
-                        {f', MIN("{c_name}") AS min_val, MAX("{c_name}") AS max_val' if is_num or is_dt else ''}
-                        {f', AVG("{c_name}")::float AS mean_val, STDDEV_SAMP("{c_name}")::float AS std_val' if is_num else ''}
-                    FROM "{schema}"."{table_name}"
+                        COUNT(*) - COUNT({qc}) AS null_count,
+                        COUNT(DISTINCT {qc_distinct}) AS unique_count
+                        {f', MIN({qc}) AS min_val, MAX({qc}) AS max_val' if is_num or is_dt else ''}
+                        {f', AVG({qc})::float AS mean_val, STDDEV_SAMP({qc})::float AS std_val' if is_num else ''}
+                    FROM {tbl}
                 """)
                 res = conn.execute(agg_sql).mappings().one()
 
@@ -157,7 +165,7 @@ class PostgresPushdownProfiler:
                             percentile_cont(0.25) WITHIN GROUP (ORDER BY "{c_name}") AS q25,
                             percentile_cont(0.50) WITHIN GROUP (ORDER BY "{c_name}") AS q50,
                             percentile_cont(0.75) WITHIN GROUP (ORDER BY "{c_name}") AS q75
-                        FROM "{schema}"."{table_name}"
+                        FROM {tbl}
                         WHERE "{c_name}" IS NOT NULL
                     """)
                     q_res = conn.execute(quantile_sql).mappings().one()
@@ -184,7 +192,7 @@ class PostgresPushdownProfiler:
 
                     outlier_sql = text(f"""
                         SELECT COUNT(*) AS out_count
-                        FROM "{schema}"."{table_name}"
+                        FROM {tbl}
                         WHERE "{c_name}" < :lower_limit OR "{c_name}" > :upper_limit
                     """)
                     out_count = conn.execute(
@@ -209,7 +217,7 @@ class PostgresPushdownProfiler:
                 else:
                     sample_sql = text(f"""
                         SELECT "{c_name}"::text AS val
-                        FROM "{schema}"."{table_name}"
+                        FROM {tbl}
                         WHERE "{c_name}" IS NOT NULL
                         LIMIT :limit
                     """)
@@ -228,15 +236,21 @@ class PostgresPushdownProfiler:
 
                 pii_report.append({"column": c_name, "severity": severity, "reason": reason})
 
-            # 4. Duplicate rows query
-            pk_cols = [f'"{col["name"]}"' for col in columns_meta]
-            pk_list = ", ".join(pk_cols)
+            group_cols_list = []
+            for c in columns_meta:
+                quoted_c = prep.quote_identifier(c["name"])
+                if _needs_text_cast(c["type"]):
+                    group_cols_list.append(f"{quoted_c}::text")
+                else:
+                    group_cols_list.append(quoted_c)
+            group_cols = ", ".join(group_cols_list)
+
             dup_sql = text(f"""
                 SELECT COALESCE(SUM(c - 1), 0)
                 FROM (
                     SELECT COUNT(*) as c
-                    FROM "{schema}"."{table_name}"
-                    GROUP BY {pk_list}
+                    FROM {tbl}
+                    GROUP BY {group_cols}
                     HAVING COUNT(*) > 1
                 ) sub
             """)

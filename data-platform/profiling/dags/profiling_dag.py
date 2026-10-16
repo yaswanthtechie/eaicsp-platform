@@ -4,22 +4,16 @@ import sys
 from datetime import datetime, timedelta
 
 from airflow.decorators import dag, task
-from airflow.exceptions import AirflowFailException
+from airflow.exceptions import AirflowFailException, AirflowNotFoundException
 from airflow.hooks.base import BaseHook
 from sqlalchemy import create_engine, inspect, text
 
 from src.audit_archive import AuditArchive
 from src.postgres_profiler import PostgresPushdownProfiler
 
+CONN_ID = "postgres_profiler_db"
+
 log = logging.getLogger(__name__)
-
-# Local docker-compose database, used only when no Airflow connection exists.
-# Override with the PROFILING_DB_URL environment variable.
-LOCAL_FALLBACK_DB_URL = os.environ.get(
-    "PROFILING_DB_URL",
-    "postgresql://postgres:password@postgres-profiler:5432/profiling_db",
-)
-
 
 def setup_logging(log_level: str = "INFO") -> None:
     """Configures structured logging to stdout."""
@@ -30,6 +24,26 @@ def setup_logging(log_level: str = "INFO") -> None:
         handlers=[logging.StreamHandler(sys.stdout)],
         force=True,
     )
+
+def resolve_db_url() -> str:
+    """Airflow connection first; otherwise PROFILING_DB_URL. Never a hardcoded default."""
+    try:
+        conn = BaseHook.get_connection(CONN_ID)
+    except AirflowNotFoundException:
+        url = os.environ.get("PROFILING_DB_URL")
+        if not url:
+            raise AirflowFailException(
+                f"No Airflow connection '{CONN_ID}' and PROFILING_DB_URL is not set."
+            )
+        log.info("Airflow connection '%s' not found; using PROFILING_DB_URL.", CONN_ID)
+        return url
+
+    uri = conn.get_uri()
+    # Airflow emits 'postgres://', which SQLAlchemy 1.4+ rejects.
+    if uri.startswith("postgres://"):
+        uri = "postgresql+psycopg2://" + uri[len("postgres://"):]
+    log.info("Using Airflow connection: %s", CONN_ID)
+    return uri
 
 
 # Tables profiled on every run. Each one must exist in schema 'public'.
@@ -85,13 +99,7 @@ def profiling_dag():
         # 1. Resolve connection.
         # Tries Airflow's connection store first, falls back to the local Docker Compose
         # database for seamless dag.test() execution.
-        try:
-            conn = BaseHook.get_connection("postgres_profiler_db")
-            db_url = conn.get_uri()
-            log.info("Using Airflow connection: postgres_profiler_db")
-        except Exception:
-            db_url = LOCAL_FALLBACK_DB_URL
-            log.info("Airflow connection not found. Using local docker-compose fallback.")
+        db_url = resolve_db_url()
 
         # 2. Fail fast with a clear message if the table does not exist
         _check_table_exists(db_url, table_name)
