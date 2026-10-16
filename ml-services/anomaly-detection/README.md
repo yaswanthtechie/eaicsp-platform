@@ -2173,7 +2173,7 @@ Simulator -> Kafka `iot.sensor.reading` -> consumer -> InfluxDB (every reading)
 
 ## Operational behaviour
 
-- Invalid messages (bad JSON, missing fields, non-finite values, bad `door_open`) are logged and skipped; the consumer does not crash.
+- Invalid messages are logged and skipped; the consumer does not crash. This covers bad JSON, missing fields, non-finite values, a `sensor_id` that is not a string matching `[A-Za-z0-9._-]{1,64}` (so no newlines, commas or spaces can reach the InfluxDB line protocol), and a `door_open` that is not the integer 0 or 1 (0.9, `true` and `"1"` are rejected, not truncated).
 - Duplicate or late readings (same or earlier timestamp for a sensor) are skipped before scoring or writing.
 - Offsets are committed only when no sensor has an open or candidate episode. After a crash, replay from the last commit rebuilds the same episodes with the same `episode_id`. A unit test replays from several crash points and also shows that a naive commit inside an open episode gives different ids.
 - The threshold tuner restarts from its calibration state (not persisted).
@@ -2278,7 +2278,8 @@ Use local dev values for the token and password; never commit `.env`. Run `down 
 - The stream has no regime change, so the tuner's behaviour on shifting data is not evaluated here (see the M2 simulation results).
 - Not tested: multi-partition topics, per-sensor models.
 - The consumer writes to InfluxDB one reading at a time (several minutes for 9,000 readings); batching is a possible improvement.
-- Full test suite: 639 passed (1 integration test deselected by default; run with `pytest -m integration`).
+- Known follow-ups (next round): an episode on a sensor that goes silent stays open and blocks offset commits; InfluxDB writes have no retry; `PERCENTILE`, `GAP` and `SEVERE_MARGIN` are duplicated in `stream_consumer.py` and `stream_eval.py` and should move to one config module.
+- Full test suite: 651 passed (1 integration test deselected by default; run with `pytest -m integration`).
 
 # Future Improvements
 
@@ -2402,7 +2403,7 @@ The validated continuous-lifecycle results are:
 ## Test suite
 
 ```text
-639 passed
+651 passed
 3 warnings
 0 failures
 ```

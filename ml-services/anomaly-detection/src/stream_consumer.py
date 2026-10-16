@@ -22,6 +22,7 @@ import json
 import logging
 import math
 import os
+import re
 import time
 from datetime import UTC
 from pathlib import Path
@@ -49,6 +50,10 @@ REQUIRED_FIELDS = (
     "door_open",
     "power",
 )
+
+# Safe for an InfluxDB tag and a Kafka key: letters, digits, dot, underscore,
+# hyphen, 1-64 chars. No spaces, commas, newlines or other control characters.
+SENSOR_ID_PATTERN = re.compile(r"[A-Za-z0-9._-]{1,64}")
 
 
 class InvalidReading(ValueError):
@@ -96,20 +101,26 @@ def parse_message(value):
     if missing:
         raise InvalidReading(f"missing fields: {missing}")
 
+    sensor_id = message["sensor_id"]
+
+    if not isinstance(sensor_id, str) or not SENSOR_ID_PATTERN.fullmatch(sensor_id):
+        raise InvalidReading(f"bad sensor_id: {sensor_id!r:.80}")
+
+    door_open = message["door_open"]
+
+    if type(door_open) is not int or door_open not in (0, 1):
+        raise InvalidReading(
+            f"door_open must be the integer 0 or 1, got {door_open!r:.80}"
+        )
+
     try:
         reading = reading_from_json(message)
     except (TypeError, ValueError) as exc:
         raise InvalidReading(f"bad field value: {exc}") from exc
 
-    if not str(reading["sensor_id"]).strip():
-        raise InvalidReading("empty sensor_id")
-
     for feature in ("temperature", "humidity", "power"):
         if not math.isfinite(reading[feature]):
             raise InvalidReading(f"{feature} is not a finite number")
-
-    if reading["door_open"] not in (0, 1):
-        raise InvalidReading("door_open must be 0 or 1")
 
     return reading
 

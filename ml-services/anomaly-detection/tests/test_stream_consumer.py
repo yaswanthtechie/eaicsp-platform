@@ -72,12 +72,32 @@ def test_parse_message():
         json.dumps({**GOOD, "door_open": 3}).encode(),
         json.dumps({**GOOD, "timestamp": "yesterday"}).encode(),
         json.dumps({**GOOD, "sensor_id": "  "}).encode(),
+        json.dumps({**GOOD, "sensor_id": ""}).encode(),
+        json.dumps({**GOOD, "sensor_id": "wh1-s1\nfake,sensor_id=x temp=1"}).encode(),
+        json.dumps({**GOOD, "sensor_id": "wh1-s1\n"}).encode(),
+        json.dumps({**GOOD, "sensor_id": "wh1 s1"}).encode(),
+        json.dumps({**GOOD, "sensor_id": "wh1,s1"}).encode(),
+        json.dumps({**GOOD, "sensor_id": "x" * 65}).encode(),
+        json.dumps({**GOOD, "sensor_id": 123}).encode(),
+        json.dumps({**GOOD, "sensor_id": None}).encode(),
+        json.dumps({**GOOD, "door_open": 0.9}).encode(),
+        json.dumps({**GOOD, "door_open": True}).encode(),
+        json.dumps({**GOOD, "door_open": "1"}).encode(),
     ],
 )
 def test_invalid_messages_raise_invalid_reading(raw):
 
     with pytest.raises(InvalidReading):
         parse_message(raw)
+
+
+def test_valid_sensor_id_round_trips_to_one_line():
+
+    reading = parse_message(json.dumps({**GOOD, "sensor_id": "wh2.zone_A-07"}))
+    line = to_line_protocol(reading, -0.1, False)
+
+    assert "\n" not in line
+    assert line.startswith("warehouse_sensor,sensor_id=wh2.zone_A-07 ")
 
 
 def test_line_protocol():
