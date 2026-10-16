@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Supplier Portal PO Acknowledged Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "event_version",
+    "occurred_at",
+    "producer",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "event_type": {
+      "const": "supplierportal.po.acknowledged"
+    },
+    "event_version": {
+      "const": 1
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "producer": {
+      "const": "supplier-portal"
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "po_number",
+        "supplier_id",
+        "acknowledged_at"
+      ],
+      "properties": {
+        "po_number": {
+          "type": "string",
+          "pattern": "^PO-[0-9]{4}-[0-9]{6}$"
+        },
+        "supplier_id": {
+          "type": "string",
+          "pattern": "^SUP-[0-9]{5}$"
+        },
+        "acknowledged_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}
