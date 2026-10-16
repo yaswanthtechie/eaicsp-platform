@@ -1,0 +1,79 @@
+{
+  "device": "CPUExecutionProvider",
+  "test_windows": 144,
+  "benchmark_runs_per_batch": 200,
+  "warmup_runs": 20,
+  "model_size_bytes": {
+    "fp32": 56829,
+    "int8": 22231
+  },
+  "benchmark": {
+    "1": {
+      "fp32": {
+        "batch_size": 1,
+        "p50_batch_latency_ms": 0.20089999998162966,
+        "p95_batch_latency_ms": 0.3943349997825857,
+        "throughput_samples_per_sec": 3757.6397512047756,
+        "speedup_vs_fp32": 1.0
+      },
+      "int8": {
+        "batch_size": 1,
+        "p50_batch_latency_ms": 0.24494999979651766,
+        "p95_batch_latency_ms": 0.4851899998811858,
+        "throughput_samples_per_sec": 3134.6537537519257,
+        "speedup_vs_fp32": 0.8342081629158016
+      }
+    },
+    "32": {
+      "fp32": {
+        "batch_size": 32,
+        "p50_batch_latency_ms": 2.0240999997440667,
+        "p95_batch_latency_ms": 6.439614999771939,
+        "throughput_samples_per_sec": 11715.27774725394,
+        "speedup_vs_fp32": 1.0
+      },
+      "int8": {
+        "batch_size": 32,
+        "p50_batch_latency_ms": 2.2587999997085717,
+        "p95_batch_latency_ms": 4.456034999611801,
+        "throughput_samples_per_sec": 12620.4687833664,
+        "speedup_vs_fp32": 1.0772658622049858
+      }
+    },
+    "256": {
+      "fp32": {
+        "batch_size": 256,
+        "p50_batch_latency_ms": 15.379550000034214,
+        "p95_batch_latency_ms": 26.943950000168115,
+        "throughput_samples_per_sec": 14872.688335430606,
+        "speedup_vs_fp32": 1.0
+      },
+      "int8": {
+        "batch_size": 256,
+        "p50_batch_latency_ms": 15.81389999955718,
+        "p95_batch_latency_ms": 27.334619999646726,
+        "throughput_samples_per_sec": 14692.541494871035,
+        "speedup_vs_fp32": 0.9878874056595125
+      }
+    }
+  },
+  "accuracy": {
+    "fp32": {
+      "MAE": 2.7382450103759766,
+      "RMSE": 3.4275929927825928,
+      "MAPE_percent": 2.002639055252075
+    },
+    "int8": {
+      "MAE": 2.7357192039489746,
+      "RMSE": 3.420647144317627,
+      "MAPE_percent": 2.0010123252868652
+    },
+    "quantization_prediction_difference": {
+      "MAE": 0.07901395112276077,
+      "RMSE": 0.09834953397512436,
+      "MAPE_percent": 0.059330616146326065
+    },
+    "MAE_change_percent_vs_fp32": -0.09224179784610091
+  },
+  "size_reduction_percent": 60.8808882788717
+}
