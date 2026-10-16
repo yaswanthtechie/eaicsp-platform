@@ -31,7 +31,11 @@ class Settings(BaseSettings):
     SHIPMENTS_SERVICE_URL: str = "http://localhost:8002"
     COMPLIANCE_SERVICE_URL: str = "http://localhost:8003"
     PURCHASE_ORDERS_SERVICE_URL: str = "http://localhost:8004"
+    GOODS_RECEIPTS_SERVICE_URL: str | None = None
     SUPPLIER_RISK_SERVICE_URL: str = "http://localhost:8006"
+    DEMAND_FORECAST_SERVICE_URL: str = "http://localhost:8007"
+    FORECAST_SERVICE_URL: str | None = None
+    ANALYTICS_SERVICE_URL: str = "http://localhost:8008"
 
     # Service-to-service authentication
     API_GATEWAY_SERVICE_API_KEY: str | None = None
@@ -41,22 +45,37 @@ class Settings(BaseSettings):
     # --------------------------------------------------
 
     SERVICE_ROUTES: dict[str, str] = {
+        "/api/v1/inventory/goods-receipts": "http://localhost:8004",
         "/api/v1/inventory": "http://localhost:8001",
         "/api/v1/shipments": "http://localhost:8002",
         "/api/v1/compliance": "http://localhost:8003",
         "/api/v1/purchase-orders": "http://localhost:8004",
         "/api/v1/auth": "http://localhost:8005",
         "/api/v1/supplier-risk": "http://localhost:8006",
+        "/api/v1/suppliers": "http://localhost:8006",
+        "/api/v1/demand": "http://localhost:8007",
+        "/api/v1/analytics": "http://localhost:8008",
+    }
+
+    # Rewrite public gateway paths to downstream service paths.
+    # Keys must match configured SERVICE_ROUTES prefixes.
+    # By default, only goods receipts is rewritten to the supplier portal service.
+    SERVICE_ROUTE_REWRITES: dict[str, str] = {
+        "/api/v1/inventory/goods-receipts": "/api/v1/goods-receipts",
     }
 
     # Explicit human-readable service name overrides (optional)
     SERVICE_NAMES: dict[str, str] = {
+        "/api/v1/inventory/goods-receipts": "Supplier Portal Service",
         "/api/v1/inventory": "Inventory Service",
         "/api/v1/shipments": "Shipments Service",
         "/api/v1/compliance": "Compliance Service",
         "/api/v1/purchase-orders": "Purchase Order Service",
         "/api/v1/auth": "Auth Service",
         "/api/v1/supplier-risk": "Supplier Risk Service",
+        "/api/v1/suppliers": "Supplier Risk Service",
+        "/api/v1/demand": "Demand Forecast Service",
+        "/api/v1/analytics": "Analytics Service",
     }
 
     # --------------------------------------------------
@@ -191,13 +210,23 @@ class Settings(BaseSettings):
         routes_explicitly_set = "SERVICE_ROUTES" in self.model_fields_set
         self.SERVICE_ROUTES = dict(self.SERVICE_ROUTES)
 
+        if self.FORECAST_SERVICE_URL:
+            self.DEMAND_FORECAST_SERVICE_URL = self.FORECAST_SERVICE_URL
+
+        if not self.GOODS_RECEIPTS_SERVICE_URL:
+            self.GOODS_RECEIPTS_SERVICE_URL = self.PURCHASE_ORDERS_SERVICE_URL
+
         route_url_mappings = {
+            "/api/v1/inventory/goods-receipts": "GOODS_RECEIPTS_SERVICE_URL",
             "/api/v1/inventory": "INVENTORY_SERVICE_URL",
             "/api/v1/auth": "PLATFORM_SERVICE_URL",
             "/api/v1/shipments": "SHIPMENTS_SERVICE_URL",
             "/api/v1/compliance": "COMPLIANCE_SERVICE_URL",
             "/api/v1/purchase-orders": "PURCHASE_ORDERS_SERVICE_URL",
             "/api/v1/supplier-risk": "SUPPLIER_RISK_SERVICE_URL",
+            "/api/v1/suppliers": "SUPPLIER_RISK_SERVICE_URL",
+            "/api/v1/demand": "DEMAND_FORECAST_SERVICE_URL",
+            "/api/v1/analytics": "ANALYTICS_SERVICE_URL",
         }
 
         for prefix, url_attr in route_url_mappings.items():
